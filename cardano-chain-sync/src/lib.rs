@@ -1,9 +1,3 @@
-pub mod block;
+pub mod model;
+pub mod client;
 
-use cardano_model::Block;
-
-#[derive(Debug, Clone)]
-pub enum ChainUpgrade {
-    RollForward(Block),
-    RollBackward(Block),
-}
