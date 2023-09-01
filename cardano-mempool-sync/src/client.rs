@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use pallas_network::miniprotocols::{handshake, PROTOCOL_N2C_HANDSHAKE, txmonitor};
+use pallas_network::miniprotocols::{handshake, txmonitor, PROTOCOL_N2C_HANDSHAKE};
 use pallas_network::multiplexer;
 use pallas_network::multiplexer::Bearer;
 use pallas_primitives::babbage;
@@ -16,9 +16,7 @@ pub struct LocalTxMonitorClient {
 impl LocalTxMonitorClient {
     #[cfg(not(target_os = "windows"))]
     pub async fn connect(path: impl AsRef<Path>, magic: u64) -> Result<Self, Error> {
-        let bearer = Bearer::connect_unix(path)
-            .await
-            .map_err(Error::ConnectFailure)?;
+        let bearer = Bearer::connect_unix(path).await.map_err(Error::ConnectFailure)?;
 
         let mut mplex = multiplexer::Plexer::new(bearer);
 

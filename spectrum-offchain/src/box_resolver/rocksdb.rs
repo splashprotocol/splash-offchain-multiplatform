@@ -7,7 +7,6 @@ use log::warn;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-
 use crate::binary::prefixed_key;
 use crate::box_resolver::persistence::EntityRepo;
 use crate::box_resolver::{Predicted, Traced};

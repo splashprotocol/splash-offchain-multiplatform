@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use log::trace;
 
 use crate::box_resolver::{Predicted, Traced};
-use crate::data::OnChainEntity;
 use crate::data::unique_entity::{Confirmed, Unconfirmed};
+use crate::data::OnChainEntity;
 
 /// Stores on-chain entities.
 /// Operations are atomic.
@@ -13,48 +13,48 @@ use crate::data::unique_entity::{Confirmed, Unconfirmed};
 pub trait EntityRepo<TEntity: OnChainEntity> {
     /// Get state id preceding given predicted state.
     async fn get_prediction_predecessor<'a>(&self, id: TEntity::TStateId) -> Option<TEntity::TStateId>
-        where
-            <TEntity as OnChainEntity>::TStateId: 'a;
+    where
+        <TEntity as OnChainEntity>::TStateId: 'a;
     /// Get last predicted state of the given entity.
     async fn get_last_predicted<'a>(&self, id: TEntity::TEntityId) -> Option<Predicted<TEntity>>
-        where
-            <TEntity as OnChainEntity>::TEntityId: 'a;
+    where
+        <TEntity as OnChainEntity>::TEntityId: 'a;
     /// Get last confirmed state of the given entity.
     async fn get_last_confirmed<'a>(&self, id: TEntity::TEntityId) -> Option<Confirmed<TEntity>>
-        where
-            <TEntity as OnChainEntity>::TEntityId: 'a;
+    where
+        <TEntity as OnChainEntity>::TEntityId: 'a;
     /// Get last unconfirmed state of the given entity.
     async fn get_last_unconfirmed<'a>(&self, id: TEntity::TEntityId) -> Option<Unconfirmed<TEntity>>
-        where
-            <TEntity as OnChainEntity>::TEntityId: 'a;
+    where
+        <TEntity as OnChainEntity>::TEntityId: 'a;
     /// Persist predicted state of the entity.
     async fn put_predicted<'a>(&mut self, entity: Traced<Predicted<TEntity>>)
-        where
-            Traced<Predicted<TEntity>>: 'a;
+    where
+        Traced<Predicted<TEntity>>: 'a;
     /// Persist confirmed state of the entity.
     async fn put_confirmed<'a>(&mut self, entity: Confirmed<TEntity>)
-        where
-            Traced<Predicted<TEntity>>: 'a;
+    where
+        Traced<Predicted<TEntity>>: 'a;
     /// Persist unconfirmed state of the entity.
     async fn put_unconfirmed<'a>(&mut self, entity: Unconfirmed<TEntity>)
-        where
-            Traced<Predicted<TEntity>>: 'a;
+    where
+        Traced<Predicted<TEntity>>: 'a;
     /// Invalidate particular state of the entity.
     async fn invalidate<'a>(&mut self, sid: TEntity::TStateId, eid: TEntity::TEntityId)
-        where
-            <TEntity as OnChainEntity>::TStateId: 'a,
-            <TEntity as OnChainEntity>::TEntityId: 'a;
+    where
+        <TEntity as OnChainEntity>::TStateId: 'a,
+        <TEntity as OnChainEntity>::TEntityId: 'a;
     /// Invalidate particular state of the entity.
     async fn eliminate<'a>(&mut self, entity: TEntity)
-        where
-            TEntity: 'a;
+    where
+        TEntity: 'a;
     /// False-positive analog of `exists()`.
     async fn may_exist<'a>(&self, sid: TEntity::TStateId) -> bool
-        where
-            <TEntity as OnChainEntity>::TStateId: 'a;
+    where
+        <TEntity as OnChainEntity>::TStateId: 'a;
     async fn get_state<'a>(&self, sid: TEntity::TStateId) -> Option<TEntity>
-        where
-            <TEntity as OnChainEntity>::TStateId: 'a;
+    where
+        <TEntity as OnChainEntity>::TStateId: 'a;
 }
 
 pub struct EntityRepoTracing<R> {
@@ -69,15 +69,15 @@ impl<R> EntityRepoTracing<R> {
 
 #[async_trait(? Send)]
 impl<TEntity, R> EntityRepo<TEntity> for EntityRepoTracing<R>
-    where
-        TEntity: OnChainEntity,
-        TEntity::TEntityId: Debug + Copy,
-        TEntity::TStateId: Debug + Copy,
-        R: EntityRepo<TEntity>,
+where
+    TEntity: OnChainEntity,
+    TEntity::TEntityId: Debug + Copy,
+    TEntity::TStateId: Debug + Copy,
+    R: EntityRepo<TEntity>,
 {
     async fn get_prediction_predecessor<'a>(&self, id: TEntity::TStateId) -> Option<TEntity::TStateId>
-        where
-            <TEntity as OnChainEntity>::TStateId: 'a,
+    where
+        <TEntity as OnChainEntity>::TStateId: 'a,
     {
         trace!(target: "box_resolver", "get_prediction_predecessor({:?})", id);
         let res = self.inner.get_prediction_predecessor(id).await;
@@ -86,8 +86,8 @@ impl<TEntity, R> EntityRepo<TEntity> for EntityRepoTracing<R>
     }
 
     async fn get_last_predicted<'a>(&self, id: TEntity::TEntityId) -> Option<Predicted<TEntity>>
-        where
-            <TEntity as OnChainEntity>::TEntityId: 'a,
+    where
+        <TEntity as OnChainEntity>::TEntityId: 'a,
     {
         trace!(target: "box_resolver", "get_last_predicted({:?})", id);
         let res = self.inner.get_last_predicted(id).await;
@@ -96,8 +96,8 @@ impl<TEntity, R> EntityRepo<TEntity> for EntityRepoTracing<R>
     }
 
     async fn get_last_confirmed<'a>(&self, id: TEntity::TEntityId) -> Option<Confirmed<TEntity>>
-        where
-            <TEntity as OnChainEntity>::TEntityId: 'a,
+    where
+        <TEntity as OnChainEntity>::TEntityId: 'a,
     {
         trace!(target: "box_resolver", "get_last_confirmed({:?})", id);
         let res = self.inner.get_last_confirmed(id).await;
@@ -106,8 +106,8 @@ impl<TEntity, R> EntityRepo<TEntity> for EntityRepoTracing<R>
     }
 
     async fn get_last_unconfirmed<'a>(&self, id: TEntity::TEntityId) -> Option<Unconfirmed<TEntity>>
-        where
-            <TEntity as OnChainEntity>::TEntityId: 'a,
+    where
+        <TEntity as OnChainEntity>::TEntityId: 'a,
     {
         trace!(target: "box_resolver", "get_last_unconfirmed({:?})", id);
         let res = self.inner.get_last_unconfirmed(id).await;
@@ -116,8 +116,8 @@ impl<TEntity, R> EntityRepo<TEntity> for EntityRepoTracing<R>
     }
 
     async fn put_predicted<'a>(&mut self, entity: Traced<Predicted<TEntity>>)
-        where
-            Traced<Predicted<TEntity>>: 'a,
+    where
+        Traced<Predicted<TEntity>>: 'a,
     {
         let show_entity = format!(
             "<Entity({:?}, {:?})>",
@@ -130,8 +130,8 @@ impl<TEntity, R> EntityRepo<TEntity> for EntityRepoTracing<R>
     }
 
     async fn put_confirmed<'a>(&mut self, entity: Confirmed<TEntity>)
-        where
-            Traced<Predicted<TEntity>>: 'a,
+    where
+        Traced<Predicted<TEntity>>: 'a,
     {
         let show_entity = format!(
             "<Entity({:?}, {:?})>",
@@ -144,8 +144,8 @@ impl<TEntity, R> EntityRepo<TEntity> for EntityRepoTracing<R>
     }
 
     async fn put_unconfirmed<'a>(&mut self, entity: Unconfirmed<TEntity>)
-        where
-            Traced<Predicted<TEntity>>: 'a,
+    where
+        Traced<Predicted<TEntity>>: 'a,
     {
         let show_entity = format!(
             "<Entity({:?}, {:?})>",
@@ -158,9 +158,9 @@ impl<TEntity, R> EntityRepo<TEntity> for EntityRepoTracing<R>
     }
 
     async fn invalidate<'a>(&mut self, sid: TEntity::TStateId, eid: TEntity::TEntityId)
-        where
-            <TEntity as OnChainEntity>::TStateId: 'a,
-            <TEntity as OnChainEntity>::TEntityId: 'a,
+    where
+        <TEntity as OnChainEntity>::TStateId: 'a,
+        <TEntity as OnChainEntity>::TEntityId: 'a,
     {
         trace!(target: "box_resolver", "invalidate({:?})", sid);
         self.inner.invalidate(sid, eid).await;
@@ -168,8 +168,8 @@ impl<TEntity, R> EntityRepo<TEntity> for EntityRepoTracing<R>
     }
 
     async fn eliminate<'a>(&mut self, entity: TEntity)
-        where
-            TEntity: 'a,
+    where
+        TEntity: 'a,
     {
         let show_entity = format!(
             "<Entity({:?}, {:?})>",
@@ -182,15 +182,15 @@ impl<TEntity, R> EntityRepo<TEntity> for EntityRepoTracing<R>
     }
 
     async fn may_exist<'a>(&self, sid: TEntity::TStateId) -> bool
-        where
-            <TEntity as OnChainEntity>::TStateId: 'a,
+    where
+        <TEntity as OnChainEntity>::TStateId: 'a,
     {
         self.inner.may_exist(sid).await
     }
 
     async fn get_state<'a>(&self, sid: TEntity::TStateId) -> Option<TEntity>
-        where
-            <TEntity as OnChainEntity>::TStateId: 'a,
+    where
+        <TEntity as OnChainEntity>::TStateId: 'a,
     {
         trace!(target: "box_resolver", "get_state({:?})", sid);
         let res = self.inner.get_state(sid).await;
@@ -206,17 +206,17 @@ impl<TEntity, R> EntityRepo<TEntity> for EntityRepoTracing<R>
 pub(crate) mod tests {
     use std::sync::Arc;
 
-    use rand::{RngCore, thread_rng};
+    use rand::{thread_rng, RngCore};
     use serde::{Deserialize, Serialize};
 
+    use crate::box_resolver::rocksdb::EntityRepoRocksDB;
     use crate::{
         box_resolver::persistence::EntityRepo,
         data::{
-            OnChainEntity,
             unique_entity::{Confirmed, Predicted, Traced, Unconfirmed},
+            OnChainEntity,
         },
     };
-    use crate::box_resolver::rocksdb::EntityRepoRocksDB;
 
     #[repr(transparent)]
     #[derive(Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Hash, Debug)]
@@ -430,14 +430,8 @@ pub(crate) mod tests {
     }
 
     fn gen_box_and_token_ids() -> (Vec<BoxId>, Vec<TokenId>, usize) {
-        let box_ids: Vec<_> = (0..30)
-            .into_iter()
-            .map(|_| BoxId::random())
-            .collect();
-        let token_ids: Vec<_> = (0..30)
-            .into_iter()
-            .map(|_| TokenId::random())
-            .collect();
+        let box_ids: Vec<_> = (0..30).into_iter().map(|_| BoxId::random()).collect();
+        let token_ids: Vec<_> = (0..30).into_iter().map(|_| TokenId::random()).collect();
         (box_ids, token_ids, 30)
     }
 }

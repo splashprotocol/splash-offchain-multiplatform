@@ -1,8 +1,9 @@
 use std::path::Path;
 
-use cardano_multiplatform_lib::Block;
+use cml_core::serialization::Deserialize;
+use cml_multi_era::MultiEraBlock;
 use pallas_network::miniprotocols::{chainsync, handshake, Point, PROTOCOL_N2C_CHAIN_SYNC, PROTOCOL_N2C_HANDSHAKE};
-use pallas_network::miniprotocols::chainsync::NextResponse;
+use pallas_network::miniprotocols::chainsync::{BlockContent, NextResponse};
 use pallas_network::miniprotocols::handshake::RefuseReason;
 use pallas_network::multiplexer;
 use pallas_network::multiplexer::Bearer;
@@ -62,8 +63,8 @@ impl ChainSyncClient {
 
     pub async fn try_pull_next(&mut self) -> Option<ChainUpgrade> {
         match self.chain_sync.request_next().await {
-            Ok(NextResponse::RollForward(raw_blk, _)) => {
-                let blk = Block::from_bytes(raw_blk.0).expect("Deserialization failed");
+            Ok(NextResponse::RollForward(BlockContent(raw), _)) => {
+                let blk = MultiEraBlock::from_cbor_bytes(&*raw).expect("Block deserialization failed");
                 Some(ChainUpgrade::RollForward(blk))
             }
             Ok(NextResponse::RollBackward(pt, _)) => Some(ChainUpgrade::RollBackward(pt)),

@@ -5,6 +5,6 @@ pub mod combinators;
 pub mod data;
 pub mod event_sink;
 pub mod executor;
-pub mod streaming;
 pub mod network;
 pub(crate) mod rocks;
+pub mod streaming;

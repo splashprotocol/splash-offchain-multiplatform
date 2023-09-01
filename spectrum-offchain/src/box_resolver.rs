@@ -6,10 +6,10 @@ use crate::box_resolver::persistence::EntityRepo;
 use crate::data::unique_entity::{Confirmed, Predicted, Traced, Unconfirmed};
 use crate::data::OnChainEntity;
 
+pub mod blacklist;
 pub mod persistence;
 pub mod process;
 pub mod rocksdb;
-pub mod blacklist;
 
 /// Get latest state of an on-chain entity `TEntity`.
 pub async fn resolve_entity_state<TEntity, TRepo>(

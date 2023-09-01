@@ -1,8 +1,8 @@
-use cardano_multiplatform_lib::Block;
+use cml_multi_era::MultiEraBlock;
 use pallas_network::miniprotocols::Point;
 
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone)]
 pub enum ChainUpgrade {
-    RollForward(Block),
+    RollForward(MultiEraBlock),
     RollBackward(Point),
 }

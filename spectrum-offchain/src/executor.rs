@@ -8,13 +8,13 @@ use futures::{stream, Stream};
 use futures_timer::Delay;
 use log::{trace, warn};
 use tokio::sync::Mutex;
-use type_equalities::{IsEqual, trivial_eq};
+use type_equalities::{trivial_eq, IsEqual};
 
 use crate::backlog::Backlog;
 use crate::box_resolver::persistence::EntityRepo;
 use crate::box_resolver::resolve_entity_state;
-use crate::data::{OnChainEntity, OnChainOrder};
 use crate::data::unique_entity::{Predicted, Traced};
+use crate::data::{OnChainEntity, OnChainOrder};
 use crate::network::Network;
 
 /// Indicated the kind of failure on at attempt to execute an order offline.
@@ -28,8 +28,8 @@ pub enum RunOrderError<TOrd> {
 
 impl<O> RunOrderError<O> {
     pub fn map<F, O2>(self, f: F) -> RunOrderError<O2>
-        where
-            F: FnOnce(O) -> O2,
+    where
+        F: FnOnce(O) -> O2,
     {
         match self {
             RunOrderError::Fatal(rn, o) => RunOrderError::Fatal(rn, f(o)),
@@ -69,17 +69,17 @@ pub struct OrderExecutor<TNetwork, TBacklog, TEntities, TCtx, TOrd, TEntity, Tx>
 
 #[async_trait(? Send)]
 impl<TNetwork, TBacklog, TEntities, TCtx, TOrd, TEntity, Tx> Executor
-for OrderExecutor<TNetwork, TBacklog, TEntities, TCtx, TOrd, TEntity, Tx>
-    where
-        TOrd: OnChainOrder + RunOrder<TEntity, TCtx, Tx> + Clone + Display,
-        <TOrd as OnChainOrder>::TOrderId: Clone,
-        TEntity: OnChainEntity + Clone,
-        TEntity::TEntityId: Copy,
-        TOrd::TEntityId: IsEqual<TEntity::TEntityId>,
-        TNetwork: Network<Tx>,
-        TBacklog: Backlog<TOrd>,
-        TEntities: EntityRepo<TEntity>,
-        TCtx: Clone,
+    for OrderExecutor<TNetwork, TBacklog, TEntities, TCtx, TOrd, TEntity, Tx>
+where
+    TOrd: OnChainOrder + RunOrder<TEntity, TCtx, Tx> + Clone + Display,
+    <TOrd as OnChainOrder>::TOrderId: Clone,
+    TEntity: OnChainEntity + Clone,
+    TEntity::TEntityId: Copy,
+    TOrd::TEntityId: IsEqual<TEntity::TEntityId>,
+    TNetwork: Network<Tx>,
+    TBacklog: Backlog<TOrd>,
+    TEntities: EntityRepo<TEntity>,
+    TCtx: Clone,
 {
     async fn try_execute_next(&mut self) -> Result<(), ()> {
         if let Some(ord) = self.backlog.try_pop().await {
@@ -127,7 +127,7 @@ const THROTTLE_SECS: u64 = 1;
 pub fn executor_stream<'a, TExecutor: Executor + 'a>(
     executor: TExecutor,
     tip_reached_signal: &'a Once,
-) -> impl Stream<Item=()> + 'a {
+) -> impl Stream<Item = ()> + 'a {
     let executor = Arc::new(Mutex::new(executor));
     stream::unfold((), move |_| {
         let executor = executor.clone();

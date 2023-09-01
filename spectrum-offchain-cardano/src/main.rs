@@ -11,8 +11,10 @@ async fn main() {
         magic: 1,
         starting_point: Point::Origin,
     };
-    let mut chain_sync = ChainSyncClient::init(chain_sync_conf).await.expect("ChainSync initialization wasn't successful");
-    while let Some(x) = chain_sync.try_pull_next().await {
-        serde_json::to_string_pretty(&x)
+    let mut chain_sync = ChainSyncClient::init(chain_sync_conf)
+        .await
+        .expect("ChainSync initialization wasn't successful");
+    while let Some(_) = chain_sync.try_pull_next().await {
+        println!("Upgrade")
     }
 }
