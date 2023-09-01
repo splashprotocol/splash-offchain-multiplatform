@@ -14,7 +14,7 @@ pallas-primitives = "0.19.0-alpha.2"
 pallas-codec = "0.19.0-alpha.2"
 pallas-crypto = "0.19.0-alpha.2"
 pallas-traverse = "0.19.0-alpha.2"
-cml-multi-era = { git = "https://github.com/dcSpark/cardano-multiplatform-lib.git", branch = "develop" }
+cml-chain = { git = "https://github.com/dcSpark/cardano-multiplatform-lib.git", branch = "develop" }
 cml-core = { git = "https://github.com/dcSpark/cardano-multiplatform-lib.git", branch = "develop" }
 futures = "0.3.28"
 rocksdb = "0.21.*"

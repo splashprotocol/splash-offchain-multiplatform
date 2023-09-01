@@ -1,8 +1,8 @@
-use cml_multi_era::MultiEraBlock;
+use cml_chain::block::Block;
 use pallas_network::miniprotocols::Point;
 
 #[derive(Clone)]
 pub enum ChainUpgrade {
-    RollForward(MultiEraBlock),
+    RollForward(Block),
     RollBackward(Point),
 }
