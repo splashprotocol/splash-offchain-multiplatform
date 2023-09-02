@@ -23,7 +23,7 @@ pub mod process;
 
 /// Backlog manages orders on all stages of their life.
 /// Usually in the order defined by some weighting function (e.g. orders with higher fee are preferred).
-#[async_trait(?Send)]
+#[async_trait(? Send)]
 pub trait Backlog<TOrd>
 where
     TOrd: OnChainOrder,
@@ -37,7 +37,7 @@ where
     async fn suspend<'a>(&mut self, ord: TOrd) -> bool
     where
         TOrd: 'a;
-    /// Register successfull order to check if it settled later.
+    /// Register successful order to check if it settled later.
     async fn check_later<'a>(&mut self, ord: ProgressingOrder<TOrd>) -> bool
     where
         TOrd: 'a;
@@ -71,7 +71,7 @@ impl<B> BacklogTracing<B> {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait(? Send)]
 impl<TOrd, B> Backlog<TOrd> for BacklogTracing<B>
 where
     TOrd: OnChainOrder + Debug + Clone,
@@ -225,8 +225,8 @@ where
     /// Failed orders waiting for retry (retries are performed with some constant probability, e.g. 5%).
     /// Again, ordered by weight.
     suspended_pq: PriorityQueue<WeightedOrder<TOrd::TOrderId>, OrderWeight>,
-    /// Successully submitted orders. Left orders should be re-executed in some time.
-    /// Normally successfull orders are eliminated from this queue before new execution attempt.
+    /// Successfully submitted orders. Left orders should be re-executed in some time.
+    /// Normally successful orders are eliminated from this queue before new execution attempt.
     revisit_queue: VecDeque<WeightedOrder<TOrd::TOrderId>>,
 }
 
@@ -303,7 +303,7 @@ where
     None
 }
 
-#[async_trait(?Send)]
+#[async_trait(? Send)]
 impl<TOrd, TStore> Backlog<TOrd> for BacklogService<TOrd, TStore>
 where
     TStore: BacklogStore<TOrd>,
@@ -518,7 +518,7 @@ mod tests {
         fn get_entity_ref(&self) -> Self::TEntityId {}
     }
 
-    #[async_trait(?Send)]
+    #[async_trait(? Send)]
     impl BacklogStore<MockOrder> for MockBacklogStore {
         async fn put(&mut self, ord: BacklogOrder<MockOrder>) {
             self.inner.insert(ord.order.order_id, ord);

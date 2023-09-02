@@ -1,8 +1,12 @@
 use std::path::Path;
 
+use futures::StreamExt;
 use pallas_network::miniprotocols::Point;
 
+use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::{ChainSyncClient, ChainSyncConf};
+use cardano_chain_sync::event_source::event_source_ledger;
+use cardano_chain_sync::model::LedgerTxEvent;
 
 #[tokio::main]
 async fn main() {
@@ -14,16 +18,15 @@ async fn main() {
             hex::decode("516771c5f7bdb225a704afb67b0a31d86af8ae7cf747b65f7f5930dcd7381f48").unwrap(),
         ),
     };
-    let mut chain_sync = ChainSyncClient::init(chain_sync_conf)
+    let chain_sync = ChainSyncClient::init(chain_sync_conf)
         .await
         .expect("ChainSync initialization wasn't successful");
-    while let Some(blk) = chain_sync.try_pull_next().await {
-        match blk {
-            cardano_chain_sync::model::ChainUpgrade::RollBackward(_) => {
-                println!("Rollback")
-            }
-            cardano_chain_sync::model::ChainUpgrade::RollForward(blk) => {
-                println!("Upgrade")
+    let mut ledger_stream = Box::pin(event_source_ledger(chain_sync_stream(chain_sync)));
+    loop {
+        if let Some(next) = ledger_stream.next().await {
+            match next {
+                LedgerTxEvent::TxApplied(tx) => println!("Apply()"),
+                LedgerTxEvent::TxUnapplied(tx) => println!("UnApply()"),
             }
         }
     }

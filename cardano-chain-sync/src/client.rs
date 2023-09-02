@@ -2,11 +2,13 @@ use std::path::Path;
 
 use cml_chain::block::Block;
 use cml_core::serialization::Deserialize;
+use futures::lock::Mutex;
+use futures_timer::Delay;
+use pallas_network::miniprotocols::chainsync::{BlockContent, NextResponse};
+use pallas_network::miniprotocols::handshake::RefuseReason;
 use pallas_network::miniprotocols::{
     chainsync, handshake, Point, PROTOCOL_N2C_CHAIN_SYNC, PROTOCOL_N2C_HANDSHAKE,
 };
-use pallas_network::miniprotocols::chainsync::{BlockContent, NextResponse};
-use pallas_network::miniprotocols::handshake::RefuseReason;
 use pallas_network::multiplexer;
 use pallas_network::multiplexer::Bearer;
 use tokio::task::JoinHandle;
@@ -66,8 +68,7 @@ impl ChainSyncClient {
     pub async fn try_pull_next(&mut self) -> Option<ChainUpgrade> {
         match self.chain_sync.request_next().await {
             Ok(NextResponse::RollForward(BlockContent(raw), _)) => {
-                let blk =
-                    Block::from_cbor_bytes(&raw[BLK_START..]).expect("Block deserialization failed");
+                let blk = Block::from_cbor_bytes(&raw[BLK_START..]).expect("Block deserialization failed");
                 Some(ChainUpgrade::RollForward(blk))
             }
             Ok(NextResponse::RollBackward(pt, _)) => Some(ChainUpgrade::RollBackward(pt)),
