@@ -1,12 +1,11 @@
 use std::path::Path;
 
-use pallas_network::miniprotocols::{handshake, txmonitor, PROTOCOL_N2C_HANDSHAKE};
+use cml_chain::transaction::Transaction;
+use cml_core::serialization::Deserialize;
+use pallas_network::miniprotocols::{handshake, PROTOCOL_N2C_HANDSHAKE, txmonitor};
 use pallas_network::multiplexer;
 use pallas_network::multiplexer::Bearer;
-use pallas_primitives::babbage;
 use tokio::task::JoinHandle;
-
-const PROTOCOL_N2C_TX_MONITOR: u16 = 9;
 
 pub struct LocalTxMonitorClient {
     mplex_handle: JoinHandle<Result<(), multiplexer::Error>>,
@@ -43,9 +42,9 @@ impl LocalTxMonitorClient {
         })
     }
 
-    pub async fn try_pull_next(&mut self) -> Option<babbage::Tx> {
+    pub async fn try_pull_next(&mut self) -> Option<Transaction> {
         if let Ok(maybe_tx) = self.tx_monitor.query_next_tx().await {
-            maybe_tx.and_then(|raw_tx| minicbor::decode(&*raw_tx).ok())
+            maybe_tx.and_then(|raw_tx| Transaction::from_cbor_bytes(&*raw_tx).ok())
         } else {
             None
         }
@@ -55,6 +54,8 @@ impl LocalTxMonitorClient {
         self.mplex_handle.abort()
     }
 }
+
+const PROTOCOL_N2C_TX_MONITOR: u16 = 9;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
