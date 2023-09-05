@@ -6,7 +6,7 @@ use tokio::sync::Mutex;
 
 use crate::backlog::Backlog;
 use crate::data::order::OrderUpdate;
-use crate::data::OnChainOrder;
+use crate::data::UniqueOrder;
 
 /// Create backlog stream that drives processing of order events.
 pub fn backlog_stream<'a, S, TOrd, TBacklog>(
@@ -15,11 +15,11 @@ pub fn backlog_stream<'a, S, TOrd, TBacklog>(
 ) -> impl Stream<Item = ()> + 'a
 where
     S: Stream<Item = OrderUpdate<TOrd, TOrd::TOrderId>> + 'a,
-    TOrd: OnChainOrder + 'a,
+    TOrd: UniqueOrder + 'a,
     TOrd::TOrderId: Clone,
     TBacklog: Backlog<TOrd> + 'a,
 {
-    trace!(target: "offchain_lm", "Watching for Backlog events..");
+    trace!(target: "offchain", "Watching for Backlog events..");
     upstream.then(move |upd| {
         let backlog = Arc::clone(&backlog);
         async move {

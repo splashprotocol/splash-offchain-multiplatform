@@ -231,7 +231,7 @@ where
         spawn_blocking(move || {
             let tx = db.transaction();
             if let Some(predecessor) = predecessor {
-                warn!(target: "offchain_lm", "invalidate box: rollback to {:?}", predecessor);
+                warn!(target: "offchain", "invalidate box: rollback to {:?}", predecessor);
                 warn!("invalidate box: rollback to {:?}", predecessor);
                 let predecessor_bytes = bincode::serialize(&predecessor).unwrap();
                 tx.put(last_confirmed_index_key, predecessor_bytes).unwrap();

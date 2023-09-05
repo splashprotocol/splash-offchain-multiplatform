@@ -1,3 +1,5 @@
+mod data;
+
 use std::path::Path;
 
 use futures::StreamExt;

@@ -133,10 +133,10 @@ pub fn executor_stream<'a, TExecutor: Executor + 'a>(
         let executor = executor.clone();
         async move {
             if tip_reached_signal.is_completed() {
-                trace!(target: "offchain_lm", "Trying to execute next order ..");
+                trace!(target: "offchain", "Trying to execute next order ..");
                 let mut executor_guard = executor.lock().await;
                 if (executor_guard.try_execute_next().await).is_err() {
-                    trace!(target: "offchain_lm", "Execution attempt failed, throttling ..");
+                    trace!(target: "offchain", "Execution attempt failed, throttling ..");
                     Delay::new(Duration::from_secs(THROTTLE_SECS)).await;
                 }
             } else {

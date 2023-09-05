@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
 
@@ -15,7 +15,7 @@ use type_equalities::IsEqual;
 use crate::backlog::data::{BacklogOrder, OrderWeight, Weighted};
 use crate::backlog::persistence::BacklogStore;
 use crate::data::order::{PendingOrder, ProgressingOrder, SuspendedOrder};
-use crate::data::OnChainOrder;
+use crate::data::UniqueOrder;
 
 pub mod data;
 pub mod persistence;
@@ -26,7 +26,7 @@ pub mod process;
 #[async_trait(? Send)]
 pub trait Backlog<TOrd>
 where
-    TOrd: OnChainOrder,
+    TOrd: UniqueOrder,
 {
     /// Add new pending order to backlog.
     async fn put<'a>(&mut self, ord: PendingOrder<TOrd>)
@@ -74,7 +74,7 @@ impl<B> BacklogTracing<B> {
 #[async_trait(? Send)]
 impl<TOrd, B> Backlog<TOrd> for BacklogTracing<B>
 where
-    TOrd: OnChainOrder + Debug + Clone,
+    TOrd: UniqueOrder + Debug + Clone,
     TOrd::TOrderId: Debug + Clone,
     B: Backlog<TOrd>,
 {
@@ -161,30 +161,30 @@ pub struct BacklogConfig {
 }
 
 #[derive(Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
-struct WeightedOrder<TOrderId> {
-    order_id: TOrderId,
+struct WeightedOrder<TOrder> {
+    order: TOrder,
     timestamp: i64,
 }
 
-impl<TOrd> From<BacklogOrder<TOrd>> for WeightedOrder<TOrd::TOrderId>
+impl<TOrd> From<&BacklogOrder<TOrd>> for WeightedOrder<TOrd::TOrderId>
 where
-    TOrd: OnChainOrder,
+    TOrd: UniqueOrder,
 {
-    fn from(bo: BacklogOrder<TOrd>) -> Self {
+    fn from(bo: &BacklogOrder<TOrd>) -> Self {
         Self {
-            order_id: bo.order.get_self_ref(),
+            order: bo.order.get_self_ref(),
             timestamp: bo.timestamp,
         }
     }
 }
 
-impl<TOrd> From<PendingOrder<TOrd>> for WeightedOrder<TOrd::TOrderId>
+impl<TOrd> From<&PendingOrder<TOrd>> for WeightedOrder<TOrd::TOrderId>
 where
-    TOrd: OnChainOrder,
+    TOrd: UniqueOrder,
 {
-    fn from(po: PendingOrder<TOrd>) -> Self {
+    fn from(po: &PendingOrder<TOrd>) -> Self {
         Self {
-            order_id: po.order.get_self_ref(),
+            order: po.order.get_self_ref(),
             timestamp: po.timestamp,
         }
     }
@@ -192,11 +192,11 @@ where
 
 impl<TOrd> From<ProgressingOrder<TOrd>> for WeightedOrder<TOrd::TOrderId>
 where
-    TOrd: OnChainOrder,
+    TOrd: UniqueOrder,
 {
     fn from(po: ProgressingOrder<TOrd>) -> Self {
         Self {
-            order_id: po.order.get_self_ref(),
+            order: po.order.get_self_ref(),
             timestamp: po.timestamp,
         }
     }
@@ -204,19 +204,97 @@ where
 
 impl<TOrd> From<SuspendedOrder<TOrd>> for WeightedOrder<TOrd::TOrderId>
 where
-    TOrd: OnChainOrder,
+    TOrd: UniqueOrder,
 {
     fn from(so: SuspendedOrder<TOrd>) -> Self {
         Self {
-            order_id: so.order.get_self_ref(),
+            order: so.order.get_self_ref(),
             timestamp: so.timestamp,
         }
     }
 }
 
-pub struct BacklogService<TOrd, TStore>
+pub struct HotBacklog<TOrd: UniqueOrder> {
+    queue: PriorityQueue<TOrd::TOrderId, OrderWeight>,
+    store: HashMap<TOrd::TOrderId, TOrd>,
+}
+
+#[async_trait(? Send)]
+impl<TOrd> Backlog<TOrd> for HotBacklog<TOrd>
 where
-    TOrd: OnChainOrder + Hash + Eq,
+    TOrd: UniqueOrder + Weighted + Hash + Eq + Clone,
+    TOrd::TOrderId: Copy,
+{
+    async fn put<'a>(&mut self, ord: PendingOrder<TOrd>)
+    where
+        TOrd: 'a,
+    {
+        let key = ord.order.get_self_ref();
+        if !self.store.contains_key(&key) {
+            let wt = ord.order.weight();
+            self.queue.push(key, wt);
+            self.store.insert(key, ord.order);
+        }
+    }
+
+    async fn suspend<'a>(&mut self, ord: TOrd) -> bool
+    where
+        TOrd: 'a,
+    {
+        false
+    }
+
+    async fn check_later<'a>(&mut self, ord: ProgressingOrder<TOrd>) -> bool
+    where
+        TOrd: 'a,
+    {
+        false
+    }
+
+    async fn try_pop(&mut self) -> Option<TOrd> {
+        while let Some((oid, _)) = self.queue.pop() {
+            if let Some(ord) = self.store.remove(&oid) {
+                return Some(ord);
+            }
+        }
+        None
+    }
+
+    async fn exists<'a>(&self, ord_id: TOrd::TOrderId) -> bool
+    where
+        TOrd::TOrderId: 'a,
+    {
+        self.store.contains_key(&ord_id)
+    }
+
+    async fn remove<'a>(&mut self, ord_id: TOrd::TOrderId)
+    where
+        TOrd::TOrderId: 'a + Clone,
+    {
+        self.store.remove(&ord_id);
+    }
+
+    async fn recharge<'a>(&mut self, ord: TOrd)
+    where
+        TOrd: 'a,
+    {
+        let key = ord.get_self_ref();
+        let wt = ord.weight();
+        self.queue.push(key, wt);
+        self.store.insert(key, ord);
+    }
+
+    async fn find_orders<F: Fn(&TOrd) -> bool + Send + 'static>(&self, f: F) -> Vec<TOrd>
+    where
+        F: Fn(&TOrd) -> bool + Send + 'static,
+    {
+        self.store.values().filter(|o| f(o)).cloned().collect()
+    }
+}
+
+pub struct PersistentBacklog<TOrd, TStore>
+where
+    TOrd: UniqueOrder + Hash + Eq,
 {
     store: TStore,
     conf: BacklogConfig,
@@ -230,9 +308,9 @@ where
     revisit_queue: VecDeque<WeightedOrder<TOrd::TOrderId>>,
 }
 
-impl<TOrd, TStore> BacklogService<TOrd, TStore>
+impl<TOrd, TStore> PersistentBacklog<TOrd, TStore>
 where
-    TOrd: OnChainOrder + Weighted + Hash + Eq,
+    TOrd: UniqueOrder + Weighted + Hash + Eq,
     TOrd::TOrderId: Debug,
     TStore: BacklogStore<TOrd>,
 {
@@ -241,7 +319,7 @@ where
         for ord in store.find_orders(|_| true).await {
             let wt = ord.order.weight();
             trace!(target: "backlog", "Restored order: {:?}", ord.order.get_self_ref());
-            pending_pq.push(ord.into(), wt);
+            pending_pq.push((&ord).into(), wt);
         }
         Self {
             store,
@@ -259,12 +337,12 @@ where
             let elapsed_secs = ts_now - ord.timestamp;
             if elapsed_secs > self.conf.order_exec_time.num_seconds() {
                 if elapsed_secs <= self.conf.order_lifespan.num_seconds() {
-                    if let Some(ord) = self.store.get(ord.order_id).await {
+                    if let Some(ord) = self.store.get(ord.order).await {
                         let wt = ord.order.weight();
-                        self.pending_pq.push(ord.into(), wt);
+                        self.pending_pq.push((&ord).into(), wt);
                     }
                 } else {
-                    self.store.remove(ord.order_id).await;
+                    self.store.remove(ord.order).await;
                 }
             } else {
                 // Too soon to consider `ord`, return it to queue.
@@ -279,36 +357,12 @@ where
     }
 }
 
-async fn try_pop_max_order<TOrd, TStore>(
-    conf: &BacklogConfig,
-    store: &mut TStore,
-    pq: &mut PriorityQueue<WeightedOrder<TOrd::TOrderId>, OrderWeight>,
-) -> Option<TOrd>
-where
-    TOrd: OnChainOrder + Weighted + Hash + Eq,
-    TStore: BacklogStore<TOrd>,
-{
-    while let Some((ord, _)) = pq.pop() {
-        let ts_now = Utc::now().timestamp();
-        let elapsed_secs = ts_now - ord.timestamp;
-        if elapsed_secs > conf.order_lifespan.num_seconds() {
-            store.remove(ord.order_id).await;
-        } else {
-            let res = store.get(ord.order_id).await.map(|bo| bo.order);
-            if res.is_some() {
-                return res;
-            }
-        }
-    }
-    None
-}
-
 #[async_trait(? Send)]
-impl<TOrd, TStore> Backlog<TOrd> for BacklogService<TOrd, TStore>
+impl<TOrd, TStore> Backlog<TOrd> for PersistentBacklog<TOrd, TStore>
 where
     TStore: BacklogStore<TOrd>,
     TOrd::TOrderId: Debug + Clone,
-    TOrd: OnChainOrder + Weighted + Hash + Eq + Clone,
+    TOrd: UniqueOrder + Weighted + Hash + Eq + Clone,
 {
     async fn put<'a>(&mut self, ord: PendingOrder<TOrd>)
     where
@@ -326,7 +380,7 @@ where
         if let Some(index) = self
             .revisit_queue
             .iter()
-            .position(|wo| wo.order_id == ord.order.get_self_ref())
+            .position(|wo| wo.order == ord.order.get_self_ref())
         {
             self.revisit_queue.remove(index);
         }
@@ -334,7 +388,7 @@ where
         if let Some(element) = self
             .suspended_pq
             .iter()
-            .find(|wo| wo.0.order_id == ord.order.get_self_ref())
+            .find(|wo| wo.0.order == ord.order.get_self_ref())
             .map(|(e, _)| e)
             .cloned()
         {
@@ -344,10 +398,10 @@ where
         if !self
             .pending_pq
             .iter()
-            .any(|wo| wo.0.order_id == ord.order.get_self_ref())
+            .any(|wo| wo.0.order == ord.order.get_self_ref())
         {
             let wt = ord.order.weight();
-            self.pending_pq.push(ord.into(), wt);
+            self.pending_pq.push((&ord).into(), wt);
         }
     }
 
@@ -360,7 +414,7 @@ where
             if let Some(backlog_ord) = self.store.get(ord.get_self_ref()).await {
                 self.suspended_pq.push(
                     WeightedOrder {
-                        order_id: ord.get_self_ref(),
+                        order: ord.get_self_ref(),
                         timestamp: backlog_ord.timestamp,
                     },
                     wt,
@@ -414,7 +468,7 @@ where
         if let Some(backlog_ord) = self.store.get(ord.get_self_ref()).await {
             self.pending_pq.push(
                 WeightedOrder {
-                    order_id: ord.get_self_ref(),
+                    order: ord.get_self_ref(),
                     timestamp: backlog_ord.timestamp,
                 },
                 wt,
@@ -435,6 +489,30 @@ where
     }
 }
 
+async fn try_pop_max_order<TOrd, TStore>(
+    conf: &BacklogConfig,
+    store: &mut TStore,
+    pq: &mut PriorityQueue<WeightedOrder<TOrd::TOrderId>, OrderWeight>,
+) -> Option<TOrd>
+where
+    TOrd: UniqueOrder + Weighted + Hash + Eq,
+    TStore: BacklogStore<TOrd>,
+{
+    while let Some((ord, _)) = pq.pop() {
+        let ts_now = Utc::now().timestamp();
+        let elapsed_secs = ts_now - ord.timestamp;
+        if elapsed_secs > conf.order_lifespan.num_seconds() {
+            store.remove(ord.order).await;
+        } else {
+            let res = store.get(ord.order).await.map(|bo| bo.order);
+            if res.is_some() {
+                return res;
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -446,11 +524,11 @@ mod tests {
     use rand::RngCore;
     use serde::{Deserialize, Serialize};
 
+    use crate::backlog::{Backlog, BacklogConfig, PersistentBacklog};
     use crate::backlog::data::{BacklogOrder, OrderWeight, Weighted};
     use crate::backlog::persistence::{BacklogStore, BacklogStoreRocksDB};
-    use crate::backlog::{Backlog, BacklogConfig, BacklogService};
+    use crate::data::{OnChainOrder, UniqueOrder};
     use crate::data::order::{PendingOrder, ProgressingOrder, SuspendedOrder};
-    use crate::data::OnChainOrder;
 
     #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Clone, Copy, Serialize, Deserialize)]
     struct MockOrderId(i64);
@@ -506,16 +584,12 @@ mod tests {
         }
     }
 
-    impl OnChainOrder for MockOrder {
+    impl UniqueOrder for MockOrder {
         type TOrderId = MockOrderId;
-
-        type TEntityId = ();
 
         fn get_self_ref(&self) -> Self::TOrderId {
             self.order_id
         }
-
-        fn get_entity_ref(&self) -> Self::TEntityId {}
     }
 
     #[async_trait(? Send)]
@@ -548,14 +622,14 @@ mod tests {
         order_lifespan_secs: i64,
         order_exec_time_secs: i64,
         retry_suspended_prob: u8,
-    ) -> BacklogService<MockOrder, MockBacklogStore> {
+    ) -> PersistentBacklog<MockOrder, MockBacklogStore> {
         let store = MockBacklogStore::new();
         let conf = BacklogConfig {
             order_lifespan: Duration::seconds(order_lifespan_secs),
             order_exec_time: Duration::seconds(order_exec_time_secs),
             retry_suspended_prob: <BoundedU8<0, 100>>::new(retry_suspended_prob).unwrap(),
         };
-        BacklogService::new::<MockOrder>(store, conf).await
+        PersistentBacklog::new::<MockOrder>(store, conf).await
     }
 
     fn make_order(id: i64, weight: u64) -> BacklogOrder<MockOrder> {

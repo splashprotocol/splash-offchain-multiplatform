@@ -4,6 +4,7 @@ members = [
     "cardano-mempool-sync",
     "spectrum-offchain",
     "spectrum-offchain-cardano",
+    "spectrum-cardano-lib",
     #"spectrum-offchain-amm",
 ]
 
