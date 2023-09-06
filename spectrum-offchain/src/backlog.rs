@@ -21,10 +21,109 @@ pub mod data;
 pub mod persistence;
 pub mod process;
 
+/// A buffer for "hot" orders. Doesn't care about resiliency.
+pub trait HotBacklog<TOrd>
+where
+    TOrd: UniqueOrder,
+{
+    /// Add new pending order to backlog.
+    fn put<'a>(&mut self, ord: TOrd)
+    where
+        TOrd: 'a;
+    /// Pop best order.
+    fn try_pop(&mut self) -> Option<TOrd>;
+    /// Check if order with the given id exists already in backlog.
+    fn exists<'a>(&self, ord_id: TOrd::TOrderId) -> bool
+    where
+        TOrd::TOrderId: 'a;
+    /// Remove order from backlog.
+    fn remove<'a>(&mut self, ord_id: TOrd::TOrderId)
+    where
+        TOrd::TOrderId: 'a + Clone;
+    /// Return order back to backlog.
+    fn recharge<'a>(&mut self, ord: TOrd)
+    where
+        TOrd: 'a;
+}
+
+pub struct HotPriorityBacklog<TOrd: UniqueOrder> {
+    queue: PriorityQueue<TOrd::TOrderId, OrderWeight>,
+    store: HashMap<TOrd::TOrderId, TOrd>,
+    capacity: u32,
+}
+
+impl<TOrd: UniqueOrder> HotPriorityBacklog<TOrd> {
+    pub fn new(capacity: u32) -> Self {
+        Self {
+            queue: PriorityQueue::new(),
+            store: HashMap::new(),
+            capacity,
+        }
+    }
+}
+
+impl<TOrd> HotBacklog<TOrd> for HotPriorityBacklog<TOrd>
+where
+    TOrd: UniqueOrder + Weighted + Hash + Eq + Clone,
+    TOrd::TOrderId: Copy,
+{
+    fn put<'a>(&mut self, ord: TOrd)
+    where
+        TOrd: 'a,
+    {
+        let key = ord.get_self_ref();
+        if self.capacity > 0 && !self.store.contains_key(&key) {
+            let wt = ord.weight();
+            self.queue.push(key, wt);
+            self.store.insert(key, ord);
+            self.capacity -= 1;
+        }
+    }
+
+    fn try_pop(&mut self) -> Option<TOrd> {
+        while let Some((oid, _)) = self.queue.pop() {
+            if let Some(ord) = self.store.remove(&oid) {
+                self.capacity += 1;
+                return Some(ord);
+            }
+        }
+        None
+    }
+
+    fn exists<'a>(&self, ord_id: TOrd::TOrderId) -> bool
+    where
+        TOrd::TOrderId: 'a,
+    {
+        self.store.contains_key(&ord_id)
+    }
+
+    fn remove<'a>(&mut self, ord_id: TOrd::TOrderId)
+    where
+        TOrd::TOrderId: 'a + Clone,
+    {
+        if self.store.remove(&ord_id).is_some() {
+            self.capacity += 1;
+        }
+    }
+
+    fn recharge<'a>(&mut self, ord: TOrd)
+    where
+        TOrd: 'a,
+    {
+        if self.capacity > 0 {
+            let key = ord.get_self_ref();
+            let wt = ord.weight();
+            self.queue.push(key, wt);
+            self.store.insert(key, ord);
+            self.capacity -= 1;
+        }
+    }
+}
+
 /// Backlog manages orders on all stages of their life.
 /// Usually in the order defined by some weighting function (e.g. orders with higher fee are preferred).
 #[async_trait(? Send)]
-pub trait Backlog<TOrd>
+pub trait ResilientBacklog<TOrd>
 where
     TOrd: UniqueOrder,
 {
@@ -72,11 +171,11 @@ impl<B> BacklogTracing<B> {
 }
 
 #[async_trait(? Send)]
-impl<TOrd, B> Backlog<TOrd> for BacklogTracing<B>
+impl<TOrd, B> ResilientBacklog<TOrd> for BacklogTracing<B>
 where
     TOrd: UniqueOrder + Debug + Clone,
     TOrd::TOrderId: Debug + Clone,
-    B: Backlog<TOrd>,
+    B: ResilientBacklog<TOrd>,
 {
     async fn put<'a>(&mut self, ord: PendingOrder<TOrd>)
     where
@@ -214,85 +313,7 @@ where
     }
 }
 
-pub struct HotBacklog<TOrd: UniqueOrder> {
-    queue: PriorityQueue<TOrd::TOrderId, OrderWeight>,
-    store: HashMap<TOrd::TOrderId, TOrd>,
-}
-
-#[async_trait(? Send)]
-impl<TOrd> Backlog<TOrd> for HotBacklog<TOrd>
-where
-    TOrd: UniqueOrder + Weighted + Hash + Eq + Clone,
-    TOrd::TOrderId: Copy,
-{
-    async fn put<'a>(&mut self, ord: PendingOrder<TOrd>)
-    where
-        TOrd: 'a,
-    {
-        let key = ord.order.get_self_ref();
-        if !self.store.contains_key(&key) {
-            let wt = ord.order.weight();
-            self.queue.push(key, wt);
-            self.store.insert(key, ord.order);
-        }
-    }
-
-    async fn suspend<'a>(&mut self, ord: TOrd) -> bool
-    where
-        TOrd: 'a,
-    {
-        false
-    }
-
-    async fn check_later<'a>(&mut self, ord: ProgressingOrder<TOrd>) -> bool
-    where
-        TOrd: 'a,
-    {
-        false
-    }
-
-    async fn try_pop(&mut self) -> Option<TOrd> {
-        while let Some((oid, _)) = self.queue.pop() {
-            if let Some(ord) = self.store.remove(&oid) {
-                return Some(ord);
-            }
-        }
-        None
-    }
-
-    async fn exists<'a>(&self, ord_id: TOrd::TOrderId) -> bool
-    where
-        TOrd::TOrderId: 'a,
-    {
-        self.store.contains_key(&ord_id)
-    }
-
-    async fn remove<'a>(&mut self, ord_id: TOrd::TOrderId)
-    where
-        TOrd::TOrderId: 'a + Clone,
-    {
-        self.store.remove(&ord_id);
-    }
-
-    async fn recharge<'a>(&mut self, ord: TOrd)
-    where
-        TOrd: 'a,
-    {
-        let key = ord.get_self_ref();
-        let wt = ord.weight();
-        self.queue.push(key, wt);
-        self.store.insert(key, ord);
-    }
-
-    async fn find_orders<F: Fn(&TOrd) -> bool + Send + 'static>(&self, f: F) -> Vec<TOrd>
-    where
-        F: Fn(&TOrd) -> bool + Send + 'static,
-    {
-        self.store.values().filter(|o| f(o)).cloned().collect()
-    }
-}
-
-pub struct PersistentBacklog<TOrd, TStore>
+pub struct PersistentPriorityBacklog<TOrd, TStore>
 where
     TOrd: UniqueOrder + Hash + Eq,
 {
@@ -308,7 +329,7 @@ where
     revisit_queue: VecDeque<WeightedOrder<TOrd::TOrderId>>,
 }
 
-impl<TOrd, TStore> PersistentBacklog<TOrd, TStore>
+impl<TOrd, TStore> PersistentPriorityBacklog<TOrd, TStore>
 where
     TOrd: UniqueOrder + Weighted + Hash + Eq,
     TOrd::TOrderId: Debug,
@@ -358,7 +379,7 @@ where
 }
 
 #[async_trait(? Send)]
-impl<TOrd, TStore> Backlog<TOrd> for PersistentBacklog<TOrd, TStore>
+impl<TOrd, TStore> ResilientBacklog<TOrd> for PersistentPriorityBacklog<TOrd, TStore>
 where
     TStore: BacklogStore<TOrd>,
     TOrd::TOrderId: Debug + Clone,
@@ -524,11 +545,11 @@ mod tests {
     use rand::RngCore;
     use serde::{Deserialize, Serialize};
 
-    use crate::backlog::{Backlog, BacklogConfig, PersistentBacklog};
     use crate::backlog::data::{BacklogOrder, OrderWeight, Weighted};
     use crate::backlog::persistence::{BacklogStore, BacklogStoreRocksDB};
-    use crate::data::{OnChainOrder, UniqueOrder};
+    use crate::backlog::{BacklogConfig, PersistentPriorityBacklog, ResilientBacklog};
     use crate::data::order::{PendingOrder, ProgressingOrder, SuspendedOrder};
+    use crate::data::{SpecializedOrder, UniqueOrder};
 
     #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Clone, Copy, Serialize, Deserialize)]
     struct MockOrderId(i64);
@@ -622,14 +643,14 @@ mod tests {
         order_lifespan_secs: i64,
         order_exec_time_secs: i64,
         retry_suspended_prob: u8,
-    ) -> PersistentBacklog<MockOrder, MockBacklogStore> {
+    ) -> PersistentPriorityBacklog<MockOrder, MockBacklogStore> {
         let store = MockBacklogStore::new();
         let conf = BacklogConfig {
             order_lifespan: Duration::seconds(order_lifespan_secs),
             order_exec_time: Duration::seconds(order_exec_time_secs),
             retry_suspended_prob: <BoundedU8<0, 100>>::new(retry_suspended_prob).unwrap(),
         };
-        PersistentBacklog::new::<MockOrder>(store, conf).await
+        PersistentPriorityBacklog::new::<MockOrder>(store, conf).await
     }
 
     fn make_order(id: i64, weight: u64) -> BacklogOrder<MockOrder> {

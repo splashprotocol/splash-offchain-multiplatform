@@ -16,9 +16,9 @@ pub trait UniqueOrder {
 
 impl<T> UniqueOrder for T
 where
-    T: OnChainOrder,
+    T: SpecializedOrder,
 {
-    type TOrderId = <T as OnChainOrder>::TOrderId;
+    type TOrderId = <T as SpecializedOrder>::TOrderId;
     fn get_self_ref(&self) -> Self::TOrderId {
         self.get_self_ref()
     }
@@ -33,12 +33,13 @@ where
     }
 }
 
-pub trait OnChainOrder {
+/// An order specialized for a concrete pool.
+pub trait SpecializedOrder {
     type TOrderId: Eq + Hash;
-    type TEntityId: Eq + Hash;
+    type TPoolId: Eq + Hash;
 
     fn get_self_ref(&self) -> Self::TOrderId;
-    fn get_entity_ref(&self) -> Self::TEntityId;
+    fn get_pool_ref(&self) -> Self::TPoolId;
 }
 
 pub trait OnChainEntity {

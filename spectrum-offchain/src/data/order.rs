@@ -1,9 +1,15 @@
-use super::Has;
+use crate::data::SpecializedOrder;
 
 #[derive(Debug, Hash, Clone, Eq, PartialEq)]
-pub enum OrderUpdate<TOrd: Has<TOrderId>, TOrderId> {
-    NewOrder(PendingOrder<TOrd>),
-    OrderEliminated(TOrderId),
+pub enum OrderUpdate<TNewOrd, TElimOrd> {
+    NewOrder(TNewOrd),
+    OrderEliminated(TElimOrd),
+}
+
+#[derive(Debug, Clone)]
+pub struct OrderLink<TOrd: SpecializedOrder> {
+    pub order_id: TOrd::TOrderId,
+    pub pool_id: TOrd::TPoolId,
 }
 
 #[derive(Debug, Hash, Clone, Eq, PartialEq)]

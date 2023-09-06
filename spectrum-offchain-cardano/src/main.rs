@@ -1,5 +1,3 @@
-mod data;
-
 use std::path::Path;
 
 use futures::StreamExt;
@@ -9,6 +7,8 @@ use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::{ChainSyncClient, ChainSyncConf};
 use cardano_chain_sync::event_source::event_source_ledger;
 use cardano_chain_sync::model::LedgerTxEvent;
+
+mod data;
 
 #[tokio::main]
 async fn main() {
