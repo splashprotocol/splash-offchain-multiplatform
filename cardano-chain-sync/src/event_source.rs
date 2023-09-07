@@ -5,7 +5,7 @@ use cml_chain::transaction::Transaction;
 use futures::stream::StreamExt;
 use futures::{stream, Stream};
 
-use crate::model::{ChainUpgrade, LedgerTxEvent};
+use crate::data::{ChainUpgrade, LedgerTxEvent};
 
 pub fn event_source_ledger<S>(upstream: S) -> impl Stream<Item = LedgerTxEvent>
 where

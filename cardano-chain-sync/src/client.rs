@@ -13,7 +13,7 @@ use pallas_network::multiplexer;
 use pallas_network::multiplexer::Bearer;
 use tokio::task::JoinHandle;
 
-use crate::model::ChainUpgrade;
+use crate::data::ChainUpgrade;
 
 pub struct ChainSyncConf<'a> {
     pub path: &'a Path,

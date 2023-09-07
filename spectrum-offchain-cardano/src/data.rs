@@ -1,3 +1,5 @@
+use cml_chain::transaction::TransactionInput;
+use cml_chain::TransactionIndex;
 use cml_crypto::TransactionHash;
 use num_rational::Ratio;
 
@@ -11,6 +13,12 @@ pub mod order;
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, derive_more::From, derive_more::Into)]
 pub struct OnChainOrderId(OutputRef);
 
+impl From<TransactionInput> for OnChainOrderId {
+    fn from(value: TransactionInput) -> Self {
+        Self((value.transaction_id, value.index))
+    }
+}
+
 impl OnChainOrderId {
     pub fn new(tx: TransactionHash, index: u64) -> Self {
         Self((tx, index))
@@ -23,7 +31,7 @@ pub struct PoolId(Token);
 impl TryFrom<TaggedAssetClass<PoolNft>> for PoolId {
     type Error = ();
     fn try_from(value: TaggedAssetClass<PoolNft>) -> Result<Self, Self::Error> {
-        Ok(PoolId(value.into().into_token().ok_or(())?))
+        Ok(PoolId(AssetClass::from(value).into_token().ok_or(())?))
     }
 }
 

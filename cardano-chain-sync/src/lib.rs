@@ -6,11 +6,11 @@ use futures::Stream;
 use futures_timer::Delay;
 
 use crate::client::ChainSyncClient;
-use crate::model::ChainUpgrade;
+use crate::data::ChainUpgrade;
 
 pub mod client;
+pub mod data;
 pub mod event_source;
-pub mod model;
 
 pub fn chain_sync_stream(mut chain_sync: ChainSyncClient) -> impl Stream<Item = ChainUpgrade> {
     let delay_mux: Mutex<Option<Delay>> = Mutex::new(None);

@@ -5,10 +5,11 @@ use pallas_network::miniprotocols::Point;
 
 use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::{ChainSyncClient, ChainSyncConf};
+use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_chain_sync::event_source::event_source_ledger;
-use cardano_chain_sync::model::LedgerTxEvent;
 
 mod data;
+mod event_sink;
 
 #[tokio::main]
 async fn main() {

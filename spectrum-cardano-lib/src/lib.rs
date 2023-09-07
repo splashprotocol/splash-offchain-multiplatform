@@ -32,6 +32,12 @@ impl AssetClass {
     }
 }
 
+impl<T> From<TaggedAssetClass<T>> for AssetClass {
+    fn from(value: TaggedAssetClass<T>) -> Self {
+        value.0
+    }
+}
+
 impl TryFromPData for AssetClass {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
@@ -57,12 +63,6 @@ impl TryFromPData for AssetClass {
     Hash(bound = "")
 )]
 pub struct TaggedAssetClass<T>(AssetClass, PhantomData<T>);
-
-impl<T> Into<AssetClass> for TaggedAssetClass<T> {
-    fn into(self) -> AssetClass {
-        self.0
-    }
-}
 
 impl<T> TryFromPData for TaggedAssetClass<T> {
     fn try_from_pd(data: PlutusData) -> Option<Self> {

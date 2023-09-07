@@ -12,6 +12,15 @@ pub struct OrderLink<TOrd: SpecializedOrder> {
     pub pool_id: TOrd::TPoolId,
 }
 
+impl<TOrd: SpecializedOrder> From<TOrd> for OrderLink<TOrd> {
+    fn from(o: TOrd) -> Self {
+        Self {
+            order_id: o.get_self_ref(),
+            pool_id: o.get_pool_ref(),
+        }
+    }
+}
+
 #[derive(Debug, Hash, Clone, Eq, PartialEq)]
 pub struct PendingOrder<TOrd> {
     pub order: TOrd,
