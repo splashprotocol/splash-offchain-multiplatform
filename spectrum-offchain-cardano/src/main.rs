@@ -8,6 +8,7 @@ use cardano_chain_sync::client::{ChainSyncClient, ChainSyncConf};
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_chain_sync::event_source::event_source_ledger;
 
+mod constants;
 mod data;
 mod event_sink;
 

@@ -4,9 +4,11 @@ use cml_crypto::Ed25519KeyHash;
 use num_rational::Ratio;
 
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension};
+use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::UniqueOrder;
+use spectrum_offchain::executor::RunOrder;
 use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
@@ -32,7 +34,7 @@ impl UniqueOrder for ClassicalOnChainLimitSwap {
 
 impl TryFromLedger<TransactionOutput, OutputRef> for ClassicalOnChainLimitSwap {
     fn try_from_ledger(repr: TransactionOutput, ctx: OutputRef) -> Option<Self> {
-        let conf = OnChainLimitSwapConfig::try_from_pd(repr.datum()?.into_pd()?)?;
+        let conf = OnChainLimitSwapConfig::try_from_pd(repr.into_datum()?.into_pd()?)?;
         let swap = LimitSwap {
             base_asset: conf.base,
             base_amount: conf.base_amount,
