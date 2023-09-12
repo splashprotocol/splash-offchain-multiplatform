@@ -1,8 +1,12 @@
 use std::array::TryFromSliceError;
+use std::cmp::Ordering;
 use std::marker::PhantomData;
+use std::ops::{Add, Sub};
 
 use cml_chain::plutus::PlutusData;
+use cml_chain::transaction::TransactionInput;
 use cml_chain::PolicyId;
+use cml_core::TransactionIndex;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
 
@@ -17,7 +21,7 @@ pub mod types;
 pub mod value;
 
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, derive_more::From)]
 pub struct AssetName([u8; 32]);
 
 impl From<AssetName> for cml_chain::AssetName {
@@ -42,7 +46,26 @@ impl TryFrom<Vec<u8>> for AssetName {
     }
 }
 
-pub type OutputRef = (TransactionHash, u64);
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct OutputRef(TransactionHash, u64);
+
+impl From<TransactionInput> for OutputRef {
+    fn from(value: TransactionInput) -> Self {
+        Self(value.transaction_id, value.index)
+    }
+}
+
+impl From<(TransactionHash, u64)> for OutputRef {
+    fn from((h, i): (TransactionHash, u64)) -> Self {
+        Self(h, i)
+    }
+}
+
+impl From<OutputRef> for TransactionInput {
+    fn from(OutputRef(hash, ix): OutputRef) -> Self {
+        TransactionInput::new(hash, ix)
+    }
+}
 
 pub type Token = (PolicyId, AssetName);
 
@@ -94,6 +117,15 @@ impl TryFromPData for AssetClass {
 )]
 pub struct TaggedAssetClass<T>(AssetClass, PhantomData<T>);
 
+impl<T> TaggedAssetClass<T> {
+    pub fn is_native(&self) -> bool {
+        matches!(self.0, AssetClass::Native)
+    }
+    pub fn untag(self) -> AssetClass {
+        self.0
+    }
+}
+
 impl<T> TryFromPData for TaggedAssetClass<T> {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         Some(Self(AssetClass::try_from_pd(data)?, PhantomData::default()))
@@ -105,9 +137,43 @@ impl<T> TryFromPData for TaggedAssetClass<T> {
 #[derivative(Debug(bound = ""), Copy(bound = ""), Clone(bound = ""))]
 pub struct TaggedAmount<T>(u64, PhantomData<T>);
 
+impl<T> PartialEq for TaggedAmount<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.eq(&other.0)
+    }
+}
+
+impl<T> PartialOrd for TaggedAmount<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.0.partial_cmp(&other.0)
+    }
+}
+
 impl<T> TaggedAmount<T> {
-    pub fn unsafe_tag(value: u64) -> Self {
+    pub fn tag(value: u64) -> Self {
         Self(value, PhantomData::default())
+    }
+
+    pub fn untag(self) -> u64 {
+        self.0
+    }
+
+    pub fn retag<T1>(self) -> TaggedAmount<T1> {
+        TaggedAmount(self.0, PhantomData::default())
+    }
+}
+
+impl<T> Add for TaggedAmount<T> {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        Self(self.0 + rhs.0, PhantomData::default())
+    }
+}
+
+impl<T> Sub for TaggedAmount<T> {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self(self.0 - rhs.0, PhantomData::default())
     }
 }
 

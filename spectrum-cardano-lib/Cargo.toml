@@ -14,5 +14,7 @@ cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", 
 serde = { version = "1.0", features = ["derive"] }
 hex = "0.4.3"
 thiserror = "1.0.47"
+derive_more = "0.99.17"
 derivative = "2.2.0"
 lazy_static = "1.4.0"
+linked-hash-map = "0.5.6"

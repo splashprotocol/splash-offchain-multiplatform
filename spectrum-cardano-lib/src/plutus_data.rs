@@ -4,6 +4,11 @@ use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::DatumOption;
 use cml_core::serialization::LenEncoding;
 
+/// Some on-chain entities may require a redeemer for a specific action.
+pub trait RequiresRedeemer<Action> {
+    fn redeemer(action: Action) -> PlutusData;
+}
+
 pub trait PlutusDataExtension {
     fn into_constr_pd(self) -> Option<ConstrPlutusData>;
     fn into_bytes(self) -> Option<Vec<u8>>;

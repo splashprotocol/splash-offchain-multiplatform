@@ -11,3 +11,8 @@ pub struct ClassicalOrder<Id, Ord> {
     pub pool_id: PoolId,
     pub order: Ord,
 }
+
+pub enum ClassicalOrderAction {
+    Apply,
+    Refund,
+}

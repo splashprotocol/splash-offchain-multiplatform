@@ -55,7 +55,7 @@ where
 {
     let mut consumed_entities = HashMap::<TEntity::TEntityId, TEntity>::new();
     for i in &tx.body.inputs {
-        let state_id = TEntity::TStateId::from((i.transaction_id, i.index));
+        let state_id = TEntity::TStateId::from(OutputRef::from((i.transaction_id, i.index)));
         let entities = entities.lock().await;
         if entities.may_exist(state_id).await {
             if let Some(entity) = entities.get_state(state_id).await {
@@ -67,7 +67,7 @@ where
     let mut created_entities = HashMap::<TEntity::TEntityId, TEntity>::new();
     let tx_hash = hash_transaction(&tx.body);
     for (i, o) in tx.body.outputs.iter().enumerate() {
-        let o_ref = (tx_hash, i as u64);
+        let o_ref = OutputRef::from((tx_hash, i as u64));
         if let Some(entity) = TEntity::try_from_ledger(o.clone(), o_ref) {
             let entity_id = entity.get_self_ref();
             created_entities.insert(entity_id.clone(), entity);

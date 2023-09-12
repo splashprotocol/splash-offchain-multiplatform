@@ -18,6 +18,7 @@ use crate::box_resolver::resolve_entity_state;
 use crate::data::unique_entity::{Predicted, Traced};
 use crate::data::{OnChainEntity, SpecializedOrder};
 use crate::network::Network;
+use crate::tx_prover::TxProver;
 
 /// Indicated the kind of failure on at attempt to execute an order offline.
 #[derive(Debug, PartialEq, Eq)]
@@ -40,15 +41,15 @@ impl<O> RunOrderError<O> {
     }
 }
 
-pub trait RunOrder<TEntity, TCtx, Tx>: Sized {
+pub trait RunOrder<Order, Ctx, Tx>: Sized {
     /// Try to run `Self` against the given `TEntity`.
     /// Returns transaction and the next state of the persistent entity in the case of success.
     /// Returns `RunOrderError<TOrd>` otherwise.
     fn try_run(
         self,
-        entity: TEntity,
-        ctx: TCtx, // can be used to pass extra deps
-    ) -> Result<(Tx, Predicted<TEntity>), RunOrderError<Self>>;
+        order: Order,
+        ctx: Ctx, // can be used to pass extra deps
+    ) -> Result<(Tx, Predicted<Self>), RunOrderError<Order>>;
 }
 
 #[async_trait(? Send)]
@@ -59,28 +60,31 @@ pub trait Executor {
 }
 
 /// A generic executor suitable for cases when single order is applied to a single entity (pool).
-pub struct HotOrderExecutor<TNetwork, TBacklog, TEntities, TCtx, TOrd, TEntity, Tx> {
+pub struct HotOrderExecutor<TNetwork, TBacklog, TEntities, TProver, TCtx, TOrd, TEntity, TxCandidate, Tx> {
     network: TNetwork,
     backlog: Arc<Mutex<TBacklog>>,
     entity_repo: Arc<Mutex<TEntities>>,
+    prover: TProver,
     ctx: TCtx,
     pd1: PhantomData<TOrd>,
     pd2: PhantomData<TEntity>,
-    pd3: PhantomData<Tx>,
+    pd3: PhantomData<TxCandidate>,
+    pd4: PhantomData<Tx>,
 }
 
 #[async_trait(? Send)]
-impl<TNetwork, TBacklog, TEntities, TCtx, TOrd, TEntity, Tx> Executor
-    for HotOrderExecutor<TNetwork, TBacklog, TEntities, TCtx, TOrd, TEntity, Tx>
+impl<TNetwork, TBacklog, TEntities, TProver, TCtx, TOrd, TEntity, TxCandidate, Tx> Executor
+    for HotOrderExecutor<TNetwork, TBacklog, TEntities, TProver, TCtx, TOrd, TEntity, TxCandidate, Tx>
 where
-    TOrd: SpecializedOrder + RunOrder<TEntity, TCtx, Tx> + Clone + Display,
+    TOrd: SpecializedOrder + Clone + Display,
     <TOrd as SpecializedOrder>::TOrderId: Clone,
-    TEntity: OnChainEntity + Clone,
+    TEntity: OnChainEntity + RunOrder<TOrd, TCtx, TxCandidate> + Clone,
     TEntity::TEntityId: Copy,
     TOrd::TPoolId: IsEqual<TEntity::TEntityId>,
     TNetwork: Network<Tx>,
     TBacklog: HotBacklog<TOrd>,
     TEntities: EntityRepo<TEntity>,
+    TProver: TxProver<TxCandidate, Tx>,
     TCtx: Clone,
 {
     async fn try_execute_next(&mut self) -> bool {
@@ -93,20 +97,21 @@ where
             if let Some(entity) =
                 resolve_entity_state(trivial_eq().coerce(entity_id), Arc::clone(&self.entity_repo)).await
             {
-                match ord.clone().try_run(entity.clone(), self.ctx.clone()) {
-                    Ok((tx, next_entity_state)) => {
+                let pool_id = entity.get_self_ref();
+                let pool_state_id = entity.get_self_state_ref();
+                match entity.try_run(ord.clone(), self.ctx.clone()) {
+                    Ok((tx_candidate, next_entity_state)) => {
                         let mut entity_repo = self.entity_repo.lock().await;
+                        let tx = self.prover.prove(tx_candidate);
                         if let Err(err) = self.network.submit_tx(tx).await {
                             warn!("Execution failed while submitting tx due to {}", err);
-                            entity_repo
-                                .invalidate(entity.get_self_state_ref(), entity.get_self_ref())
-                                .await;
+                            entity_repo.invalidate(pool_state_id, pool_id).await;
                             self.backlog.lock().await.recharge(ord); // Return order to backlog
                         } else {
                             entity_repo
                                 .put_predicted(Traced {
                                     state: next_entity_state,
-                                    prev_state_id: Some(entity.get_self_state_ref()),
+                                    prev_state_id: Some(pool_state_id),
                                 })
                                 .await;
                         }
