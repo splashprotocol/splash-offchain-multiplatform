@@ -9,11 +9,7 @@ rust-version = "1.71.0"
 [dependencies]
 async-trait = "0.1.72"
 base16 = "0.2"
-pallas-network = "0.19.0-alpha.2"
-pallas-primitives = "0.19.0-alpha.2"
-pallas-codec = "0.19.0-alpha.2"
-pallas-crypto = "0.19.0-alpha.2"
-pallas-traverse = "0.19.0-alpha.2"
+pallas-network = { git = "https://github.com/oskin1/pallas.git", branch = "oskin1/local-tx-submission-client" }
 cml-chain = { git = "https://github.com/dcSpark/cardano-multiplatform-lib.git", branch = "develop" }
 cml-core = { git = "https://github.com/dcSpark/cardano-multiplatform-lib.git", branch = "develop" }
 futures = "0.3.28"

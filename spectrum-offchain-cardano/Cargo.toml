@@ -10,11 +10,12 @@ rust-version = "1.71.0"
 spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain" }
 cardano-chain-sync = { version = "0.1.0", path = "../cardano-chain-sync" }
 cardano-mempool-sync = { version = "0.1.0", path = "../cardano-mempool-sync" }
+cardano-submit-api = { version = "0.1.0", path = "../cardano-submit-api" }
 spectrum-cardano-lib = { version = "0.1.0", path = "../spectrum-cardano-lib" }
 cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/copy-fixed-len-array" }
 cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/copy-fixed-len-array" }
-pallas-network = "0.19.0-alpha.2"
-pallas-primitives = "0.19.0-alpha.2"
+pallas-network = { git = "https://github.com/oskin1/pallas.git", branch = "oskin1/local-tx-submission-client" }
+pallas-primitives = { git = "https://github.com/oskin1/pallas.git", branch = "oskin1/local-tx-submission-client" }
 isahc = { version = "1.7.2", features = ["json"] }
 futures = "0.3.25"
 tokio = { version = "1.22.0", features = ["full"] }

@@ -7,6 +7,7 @@ use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::{ChainSyncClient, ChainSyncConf};
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_chain_sync::event_source::event_source_ledger;
+use cardano_submit_api::client::{LocalTxSubmissionClient, LocalTxSubmissionClientConf};
 
 mod constants;
 mod data;
@@ -25,11 +26,21 @@ async fn main() {
     let chain_sync = ChainSyncClient::init(chain_sync_conf)
         .await
         .expect("ChainSync initialization wasn't successful");
+    let tx_submit_conf = LocalTxSubmissionClientConf {
+        path: Path::new("/var/lib/docker/volumes/cardano_node-ipc/_data/node.socket"),
+        magic: 1,
+    };
+    let mut tx_submit = LocalTxSubmissionClient::init(tx_submit_conf)
+        .await
+        .expect("ChainSync initialization wasn't successful");
     let mut ledger_stream = Box::pin(event_source_ledger(chain_sync_stream(chain_sync)));
     loop {
         if let Some(next) = ledger_stream.next().await {
             match next {
-                LedgerTxEvent::TxApplied(tx) => println!("Apply()"),
+                LedgerTxEvent::TxApplied(tx) => {
+                    println!("Apply()");
+                    tx_submit.submit_tx(tx).await.expect("Not ok");
+                },
                 LedgerTxEvent::TxUnapplied(tx) => println!("UnApply()"),
             }
         }

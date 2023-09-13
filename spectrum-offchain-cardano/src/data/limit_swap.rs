@@ -4,27 +4,27 @@ use cml_chain::builders::tx_builder::{
     ChangeSelectionAlgo, SignedTxBuilder, TransactionBuilder, TransactionBuilderConfig,
 };
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
-use cml_chain::Coin;
 use cml_chain::plutus::PlutusData;
 use cml_chain::transaction::TransactionOutput;
+use cml_chain::Coin;
 use cml_crypto::Ed25519KeyHash;
 use num_rational::Ratio;
 
-use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
 };
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_offchain::data::{Has, UniqueOrder};
+use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::unique_entity::Predicted;
+use spectrum_offchain::data::{Has, UniqueOrder};
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
-use crate::data::{ExecutorFeePerToken, OnChain, OnChainOrderId, PoolId};
 use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
 use crate::data::pool::{ApplySwap, CFMMPoolAction};
+use crate::data::{ExecutorFeePerToken, OnChain, OnChainOrderId, PoolId};
 
 #[derive(Debug, Clone)]
 pub struct LimitSwap {
@@ -163,22 +163,28 @@ where
             .plutus_script(order_script, Vec::new(), order_datum)
             .unwrap();
         let pool_out = next_pool.clone().into_ledger();
-        let predicted_pool = OnChain {
+        let predicted_pool = Predicted(OnChain {
             value: next_pool,
             source: pool_out.clone(),
-        };
+        });
         let user_out = swap_out.into_ledger();
         let batcher_out = batcher_profit.into_ledger();
         let batcher_addr = batcher_out.address().clone();
         let mut tx_builder = TransactionBuilder::new(ctx);
-        tx_builder.add_input(pool_in);
-        tx_builder.add_input(order_in);
-        tx_builder.add_output(SingleOutputBuilderResult::new(pool_out));
-        tx_builder.add_output(SingleOutputBuilderResult::new(user_out));
-        tx_builder.add_output(SingleOutputBuilderResult::new(batcher_out));
+        tx_builder.add_input(pool_in).unwrap();
+        tx_builder.add_input(order_in).unwrap();
+        tx_builder
+            .add_output(SingleOutputBuilderResult::new(pool_out))
+            .unwrap();
+        tx_builder
+            .add_output(SingleOutputBuilderResult::new(user_out))
+            .unwrap();
+        tx_builder
+            .add_output(SingleOutputBuilderResult::new(batcher_out))
+            .unwrap();
         let tx = tx_builder
             .build(ChangeSelectionAlgo::Default, &batcher_addr)
             .unwrap();
-        Ok((tx, Predicted(predicted_pool)))
+        Ok((tx, predicted_pool))
     }
 }

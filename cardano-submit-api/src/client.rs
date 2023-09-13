@@ -1,32 +1,29 @@
 use std::path::Path;
 
-use cml_chain::block::Block;
-use cml_core::serialization::Deserialize;
-use pallas_network::miniprotocols::chainsync::{BlockContent, NextResponse};
+use cml_chain::transaction::Transaction;
+use cml_core::serialization::Serialize;
 use pallas_network::miniprotocols::handshake::RefuseReason;
+use pallas_network::miniprotocols::localtxsubmission::{EraTx, RejectReason};
 use pallas_network::miniprotocols::{
-    chainsync, handshake, Point, PROTOCOL_N2C_CHAIN_SYNC, PROTOCOL_N2C_HANDSHAKE,
+    handshake, localtxsubmission, PROTOCOL_N2C_HANDSHAKE, PROTOCOL_N2C_TX_SUBMISSION,
 };
 use pallas_network::multiplexer;
 use pallas_network::multiplexer::Bearer;
 use tokio::task::JoinHandle;
 
-use crate::data::ChainUpgrade;
-
-pub struct ChainSyncConf<'a> {
+pub struct LocalTxSubmissionClientConf<'a> {
     pub path: &'a Path,
     pub magic: u64,
-    pub starting_point: Point,
 }
 
-pub struct ChainSyncClient {
+pub struct LocalTxSubmissionClient {
     mplex_handle: JoinHandle<Result<(), multiplexer::Error>>,
-    chain_sync: chainsync::N2CClient,
+    tx_submission: localtxsubmission::Client,
 }
 
-impl ChainSyncClient {
+impl LocalTxSubmissionClient {
     #[cfg(not(target_os = "windows"))]
-    pub async fn init<'a>(conf: ChainSyncConf<'a>) -> Result<Self, Error> {
+    pub async fn init<'a>(conf: LocalTxSubmissionClientConf<'a>) -> Result<Self, Error> {
         let bearer = Bearer::connect_unix(conf.path)
             .await
             .map_err(Error::ConnectFailure)?;
@@ -34,7 +31,7 @@ impl ChainSyncClient {
         let mut mplex = multiplexer::Plexer::new(bearer);
 
         let hs_channel = mplex.subscribe_client(PROTOCOL_N2C_HANDSHAKE);
-        let cs_channel = mplex.subscribe_client(PROTOCOL_N2C_CHAIN_SYNC);
+        let ts_channel = mplex.subscribe_client(PROTOCOL_N2C_TX_SUBMISSION);
 
         let mplex_handle = tokio::spawn(async move { mplex.run().await });
 
@@ -50,36 +47,27 @@ impl ChainSyncClient {
             return Err(Error::HandshakeRefused(reason));
         }
 
-        let mut cs_client = chainsync::Client::new(cs_channel);
-
-        cs_client
-            .find_intersect(vec![conf.starting_point])
-            .await
-            .map_err(Error::ChainSyncProtocol)?;
+        let ts_client = localtxsubmission::Client::new(ts_channel);
 
         Ok(Self {
             mplex_handle,
-            chain_sync: cs_client,
+            tx_submission: ts_client,
         })
     }
 
-    pub async fn try_pull_next(&mut self) -> Option<ChainUpgrade> {
-        match self.chain_sync.request_next().await {
-            Ok(NextResponse::RollForward(BlockContent(raw), _)) => {
-                let blk = Block::from_cbor_bytes(&raw[BLK_START..]).expect("Block deserialization failed");
-                Some(ChainUpgrade::RollForward(blk))
-            }
-            Ok(NextResponse::RollBackward(pt, _)) => Some(ChainUpgrade::RollBackward(pt)),
-            _ => None,
-        }
+    pub async fn submit_tx(&mut self, tx: Transaction) -> Result<(), Error> {
+        let tx_bytes = tx.to_cbor_bytes();
+        self.tx_submission
+            .submit_tx(EraTx(6, tx_bytes))
+            .await
+            .map_err(Error::TxSubmissionProtocol)?;
+        Ok(())
     }
 
     pub fn close(self) {
         self.mplex_handle.abort()
     }
 }
-
-const BLK_START: usize = 2;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -90,7 +78,7 @@ pub enum Error {
     HandshakeProtocol(handshake::Error),
 
     #[error("chain-sync protocol error")]
-    ChainSyncProtocol(chainsync::Error),
+    TxSubmissionProtocol(#[source] localtxsubmission::Error<RejectReason>),
 
     #[error("handshake version not accepted")]
     HandshakeRefused(RefuseReason),

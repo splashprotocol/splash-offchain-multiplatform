@@ -2,6 +2,7 @@
 members = [
     "cardano-chain-sync",
     "cardano-mempool-sync",
+    "cardano-submit-api",
     "spectrum-offchain",
     "spectrum-offchain-cardano",
     "spectrum-cardano-lib",
