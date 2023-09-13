@@ -90,7 +90,7 @@ pub enum Error {
     HandshakeProtocol(handshake::Error),
 
     #[error("chain-sync protocol error")]
-    ChainSyncProtocol(chainsync::Error),
+    ChainSyncProtocol(chainsync::ClientError),
 
     #[error("handshake version not accepted")]
     HandshakeRefused(RefuseReason),

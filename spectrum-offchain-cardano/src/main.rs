@@ -40,6 +40,7 @@ async fn main() {
                 LedgerTxEvent::TxApplied(tx) => {
                     println!("Apply()");
                     tx_submit.submit_tx(tx).await.expect("Not ok");
+                    println!("Submitted()");
                 },
                 LedgerTxEvent::TxUnapplied(tx) => println!("UnApply()"),
             }
