@@ -2,6 +2,7 @@ use std::path::Path;
 
 use futures::StreamExt;
 use pallas_network::miniprotocols::Point;
+use tracing_subscriber::fmt::Subscriber;
 
 use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::{ChainSyncClient, ChainSyncConf};
@@ -9,12 +10,17 @@ use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_chain_sync::event_source::event_source_ledger;
 use cardano_submit_api::client::{LocalTxSubmissionClient, LocalTxSubmissionClientConf};
 
+extern crate tracing;
+
 mod constants;
 mod data;
 mod event_sink;
 
 #[tokio::main]
 async fn main() {
+    let subscriber = Subscriber::new();
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("setting tracing default failed");
     let chain_sync_conf = ChainSyncConf {
         path: Path::new("/var/lib/docker/volumes/cardano_node-ipc/_data/node.socket"),
         magic: 1,
