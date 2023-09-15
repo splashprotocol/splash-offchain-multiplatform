@@ -3,7 +3,7 @@ use std::path::Path;
 use cml_chain::transaction::Transaction;
 use cml_core::serialization::Serialize;
 use pallas_network::miniprotocols::handshake::RefuseReason;
-use pallas_network::miniprotocols::localtxsubmission::{EraTx, RejectReason};
+use pallas_network::miniprotocols::localtxsubmission::RejectReason;
 use pallas_network::miniprotocols::{
     handshake, localtxsubmission, PROTOCOL_N2C_HANDSHAKE, PROTOCOL_N2C_TX_SUBMISSION,
 };
@@ -58,7 +58,7 @@ impl LocalTxSubmissionClient {
     pub async fn submit_tx(&mut self, tx: Transaction) -> Result<(), Error> {
         let tx_bytes = tx.to_cbor_bytes();
         self.tx_submission
-            .submit_tx(EraTx(0, tx_bytes))
+            .submit_tx(tx_bytes)
             .await
             .map_err(Error::TxSubmissionProtocol)?;
         Ok(())
