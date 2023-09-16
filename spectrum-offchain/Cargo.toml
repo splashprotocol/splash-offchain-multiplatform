@@ -13,6 +13,7 @@ tokio = { version = "1.22.0", features = ["full"] }
 log = "0.4.17"
 log4rs = "1.2.0"
 async-trait = "0.1.58"
+async-channel = "1.9.0"
 type-equalities = "0.3.1"
 tailcall = "0.1.6"
 parallel-stream = "2.1.3"

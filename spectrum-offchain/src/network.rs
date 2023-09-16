@@ -1,7 +1,4 @@
-#[derive(Debug, derive_more::Display)]
-pub struct ClientError(pub String);
-
 #[async_trait::async_trait]
-pub trait Network<Tx> {
-    async fn submit_tx(&mut self, tx: Tx) -> Result<(), ClientError>;
+pub trait Network<Tx, Err> {
+    async fn submit_tx(&mut self, tx: Tx) -> Result<(), Err>;
 }

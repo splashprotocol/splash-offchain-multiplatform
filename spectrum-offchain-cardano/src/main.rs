@@ -15,12 +15,12 @@ extern crate tracing;
 mod constants;
 mod data;
 mod event_sink;
+mod tx_submit;
 
 #[tokio::main]
 async fn main() {
     let subscriber = Subscriber::new();
-    tracing::subscriber::set_global_default(subscriber)
-        .expect("setting tracing default failed");
+    tracing::subscriber::set_global_default(subscriber).expect("setting tracing default failed");
     let chain_sync_conf = ChainSyncConf {
         path: Path::new("/var/lib/docker/volumes/cardano_node-ipc/_data/node.socket"),
         magic: 1,
@@ -47,7 +47,7 @@ async fn main() {
                     println!("Apply()");
                     tx_submit.submit_tx(tx).await.expect("Not ok");
                     println!("Submitted()");
-                },
+                }
                 LedgerTxEvent::TxUnapplied(tx) => println!("UnApply()"),
             }
         }

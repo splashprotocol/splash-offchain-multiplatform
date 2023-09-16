@@ -2,11 +2,11 @@ use std::path::Path;
 
 use cml_chain::transaction::Transaction;
 use cml_core::serialization::Serialize;
-use pallas_network::miniprotocols::handshake::RefuseReason;
-use pallas_network::miniprotocols::localtxsubmission::RejectReason;
 use pallas_network::miniprotocols::{
     handshake, localtxsubmission, PROTOCOL_N2C_HANDSHAKE, PROTOCOL_N2C_TX_SUBMISSION,
 };
+use pallas_network::miniprotocols::handshake::RefuseReason;
+use pallas_network::miniprotocols::localtxsubmission::{EraTx, RejectReason};
 use pallas_network::multiplexer;
 use pallas_network::multiplexer::Bearer;
 use tokio::task::JoinHandle;
@@ -16,12 +16,12 @@ pub struct LocalTxSubmissionClientConf<'a> {
     pub magic: u64,
 }
 
-pub struct LocalTxSubmissionClient {
+pub struct LocalTxSubmissionClient<const EraId: u16> {
     mplex_handle: JoinHandle<Result<(), multiplexer::Error>>,
     tx_submission: localtxsubmission::Client,
 }
 
-impl LocalTxSubmissionClient {
+impl<const EraId: u16> LocalTxSubmissionClient<EraId> {
     #[cfg(not(target_os = "windows"))]
     pub async fn init<'a>(conf: LocalTxSubmissionClientConf<'a>) -> Result<Self, Error> {
         let bearer = Bearer::connect_unix(conf.path)
@@ -58,7 +58,7 @@ impl LocalTxSubmissionClient {
     pub async fn submit_tx(&mut self, tx: Transaction) -> Result<(), Error> {
         let tx_bytes = tx.to_cbor_bytes();
         self.tx_submission
-            .submit_tx(tx_bytes)
+            .submit_tx(EraTx(EraId, tx_bytes))
             .await
             .map_err(Error::TxSubmissionProtocol)?;
         Ok(())

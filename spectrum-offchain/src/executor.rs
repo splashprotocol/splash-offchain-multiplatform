@@ -60,32 +60,34 @@ pub trait Executor {
 }
 
 /// A generic executor suitable for cases when single order is applied to a single entity (pool).
-pub struct HotOrderExecutor<TNetwork, TBacklog, TEntities, TProver, TCtx, TOrd, TEntity, TxCandidate, Tx> {
-    network: TNetwork,
-    backlog: Arc<Mutex<TBacklog>>,
-    entity_repo: Arc<Mutex<TEntities>>,
-    prover: TProver,
-    ctx: TCtx,
-    pd1: PhantomData<TOrd>,
-    pd2: PhantomData<TEntity>,
+pub struct HotOrderExecutor<Net, Backlog, Pools, Prover, Ctx, Ord, Pool, TxCandidate, Tx, Err> {
+    network: Net,
+    backlog: Arc<Mutex<Backlog>>,
+    entity_repo: Arc<Mutex<Pools>>,
+    prover: Prover,
+    ctx: Ctx,
+    pd1: PhantomData<Ord>,
+    pd2: PhantomData<Pool>,
     pd3: PhantomData<TxCandidate>,
     pd4: PhantomData<Tx>,
+    pd5: PhantomData<Err>,
 }
 
 #[async_trait(? Send)]
-impl<TNetwork, TBacklog, TEntities, TProver, TCtx, TOrd, TEntity, TxCandidate, Tx> Executor
-    for HotOrderExecutor<TNetwork, TBacklog, TEntities, TProver, TCtx, TOrd, TEntity, TxCandidate, Tx>
+impl<Net, Backlog, Pools, Prover, Ctx, Ord, Pool, TxCandidate, Tx, Err> Executor
+    for HotOrderExecutor<Net, Backlog, Pools, Prover, Ctx, Ord, Pool, TxCandidate, Tx, Err>
 where
-    TOrd: SpecializedOrder + Clone + Display,
-    <TOrd as SpecializedOrder>::TOrderId: Clone,
-    TEntity: OnChainEntity + RunOrder<TOrd, TCtx, TxCandidate> + Clone,
-    TEntity::TEntityId: Copy,
-    TOrd::TPoolId: IsEqual<TEntity::TEntityId>,
-    TNetwork: Network<Tx>,
-    TBacklog: HotBacklog<TOrd>,
-    TEntities: EntityRepo<TEntity>,
-    TProver: TxProver<TxCandidate, Tx>,
-    TCtx: Clone,
+    Ord: SpecializedOrder + Clone + Display,
+    <Ord as SpecializedOrder>::TOrderId: Clone,
+    Pool: OnChainEntity + RunOrder<Ord, Ctx, TxCandidate> + Clone,
+    Pool::TEntityId: Copy,
+    Ord::TPoolId: IsEqual<Pool::TEntityId>,
+    Net: Network<Tx, Err>,
+    Backlog: HotBacklog<Ord>,
+    Pools: EntityRepo<Pool>,
+    Prover: TxProver<TxCandidate, Tx>,
+    Ctx: Clone,
+    Err: Display,
 {
     async fn try_execute_next(&mut self) -> bool {
         let next_ord = {

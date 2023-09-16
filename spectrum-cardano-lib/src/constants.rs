@@ -8,3 +8,5 @@ lazy_static! {
 pub const ZERO: Coin = 0;
 
 pub const MIN_SAFE_ADA_VALUE: Coin = 3000000;
+
+pub const BABBAGE_ERA_ID: u16 = 5;
