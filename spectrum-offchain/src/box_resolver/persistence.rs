@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt::Debug;
 
 use async_trait::async_trait;
@@ -202,7 +203,19 @@ where
     }
 }
 
-pub struct EphemeralEntityRepo {}
+type InMemoryKey = [u8; 33];
+
+pub struct EphemeralEntityRepo {
+    store: HashMap<InMemoryKey, Vec<u8>>,
+}
+
+impl EphemeralEntityRepo {
+    pub fn new() -> Self {
+        Self {
+            store: HashMap::new(),
+        }
+    }
+}
 
 #[async_trait(?Send)]
 impl<TEntity> EntityRepo<TEntity> for EphemeralEntityRepo

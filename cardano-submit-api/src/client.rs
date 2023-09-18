@@ -1,29 +1,22 @@
-use std::path::Path;
-
 use cml_chain::transaction::Transaction;
 use cml_core::serialization::Serialize;
+use pallas_network::miniprotocols::handshake::RefuseReason;
+use pallas_network::miniprotocols::localtxsubmission::{EraTx, RejectReason};
 use pallas_network::miniprotocols::{
     handshake, localtxsubmission, PROTOCOL_N2C_HANDSHAKE, PROTOCOL_N2C_TX_SUBMISSION,
 };
-use pallas_network::miniprotocols::handshake::RefuseReason;
-use pallas_network::miniprotocols::localtxsubmission::{EraTx, RejectReason};
 use pallas_network::multiplexer;
 use pallas_network::multiplexer::Bearer;
 use tokio::task::JoinHandle;
 
-pub struct LocalTxSubmissionClientConf<'a> {
-    pub path: &'a Path,
-    pub magic: u64,
-}
-
-pub struct LocalTxSubmissionClient<const EraId: u16> {
+pub struct LocalTxSubmissionClient<const ERA: u16> {
     mplex_handle: JoinHandle<Result<(), multiplexer::Error>>,
     tx_submission: localtxsubmission::Client,
 }
 
 impl<const EraId: u16> LocalTxSubmissionClient<EraId> {
     #[cfg(not(target_os = "windows"))]
-    pub async fn init<'a>(conf: LocalTxSubmissionClientConf<'a>) -> Result<Self, Error> {
+    pub async fn init<'a>(conf: LocalTxSubmissionConf<'a>) -> Result<Self, Error> {
         let bearer = Bearer::connect_unix(conf.path)
             .await
             .map_err(Error::ConnectFailure)?;
@@ -82,4 +75,10 @@ pub enum Error {
 
     #[error("handshake version not accepted")]
     HandshakeRefused(RefuseReason),
+}
+
+#[derive(serde::Deserialize)]
+pub struct LocalTxSubmissionConf<'a> {
+    pub path: &'a str,
+    pub magic: u64,
 }

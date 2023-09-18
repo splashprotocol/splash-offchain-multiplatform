@@ -1,55 +1,68 @@
-use std::path::Path;
-
+use clap::Parser;
 use futures::StreamExt;
-use pallas_network::miniprotocols::Point;
+use serde::Deserialize;
 use tracing_subscriber::fmt::Subscriber;
 
 use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::{ChainSyncClient, ChainSyncConf};
-use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_chain_sync::event_source::event_source_ledger;
-use cardano_submit_api::client::{LocalTxSubmissionClient, LocalTxSubmissionClientConf};
+use cardano_submit_api::client::{LocalTxSubmissionClient, LocalTxSubmissionConf};
+use spectrum_cardano_lib::constants::BABBAGE_ERA_ID;
+use spectrum_offchain::backlog::HotPriorityBacklog;
+use spectrum_offchain::box_resolver::persistence::EphemeralEntityRepo;
 
-extern crate tracing;
+use crate::data::order::ClassicalOnChainOrder;
+use crate::prover::noop::NoopProver;
+use crate::tx_submission::TxSubmissionAgent;
 
 mod constants;
 mod data;
 mod event_sink;
-mod tx_submit;
+mod prover;
+mod tx_submission;
 
 #[tokio::main]
 async fn main() {
     let subscriber = Subscriber::new();
     tracing::subscriber::set_global_default(subscriber).expect("setting tracing default failed");
-    let chain_sync_conf = ChainSyncConf {
-        path: Path::new("/var/lib/docker/volumes/cardano_node-ipc/_data/node.socket"),
-        magic: 1,
-        starting_point: Point::Specific(
-            37792291,
-            hex::decode("516771c5f7bdb225a704afb67b0a31d86af8ae7cf747b65f7f5930dcd7381f48").unwrap(),
-        ),
-    };
-    let chain_sync = ChainSyncClient::init(chain_sync_conf)
+
+    let args = AppArgs::parse();
+    let raw_config = std::fs::read_to_string(args.config_path).expect("Cannot load configuration file");
+    let config: AppConfig = serde_yaml::from_str(&raw_config).expect("Invalid configuration file");
+
+    log4rs::init_file(args.log4rs_path, Default::default()).unwrap();
+
+    let chain_sync = ChainSyncClient::init(config.chain_sync)
         .await
-        .expect("ChainSync initialization wasn't successful");
-    let tx_submit_conf = LocalTxSubmissionClientConf {
-        path: Path::new("/var/lib/docker/volumes/cardano_node-ipc/_data/node.socket"),
-        magic: 1,
-    };
-    let mut tx_submit = LocalTxSubmissionClient::init(tx_submit_conf)
+        .expect("ChainSync initialization failed");
+    let tx_submission_client = LocalTxSubmissionClient::<BABBAGE_ERA_ID>::init(config.local_tx_submission)
         .await
-        .expect("ChainSync initialization wasn't successful");
+        .expect("LocalTxSubmission initialization failed");
+    let (tx_submission_agent, tx_submission_channel) = TxSubmissionAgent::new(tx_submission_client, config.tx_submission_buffer_size);
     let mut ledger_stream = Box::pin(event_source_ledger(chain_sync_stream(chain_sync)));
-    loop {
-        if let Some(next) = ledger_stream.next().await {
-            match next {
-                LedgerTxEvent::TxApplied(tx) => {
-                    println!("Apply()");
-                    tx_submit.submit_tx(tx).await.expect("Not ok");
-                    println!("Submitted()");
-                }
-                LedgerTxEvent::TxUnapplied(tx) => println!("UnApply()"),
-            }
-        }
-    }
+    let backlog = HotPriorityBacklog::<ClassicalOnChainOrder>::new(43);
+    let pool_repo = EphemeralEntityRepo::new();
+    let prover = NoopProver {};
+}
+
+#[derive(Deserialize)]
+#[serde(bound = "'de: 'a")]
+struct AppConfig<'a> {
+    chain_sync: ChainSyncConf<'a>,
+    local_tx_submission: LocalTxSubmissionConf<'a>,
+    tx_submission_buffer_size: usize,
+}
+
+#[derive(Parser)]
+#[command(name = "spectrum-offchain-cardano")]
+#[command(author = "Spectrum Finance")]
+#[command(version = "1.0.0")]
+#[command(about = "Spectrum DEX Offchain Bot", long_about = None)]
+struct AppArgs {
+    /// Path to the YAML configuration file.
+    #[arg(long, short)]
+    config_path: String,
+    /// Path to the log4rs YAML configuration file.
+    #[arg(long, short)]
+    log4rs_path: String,
 }

@@ -73,6 +73,31 @@ pub struct HotOrderExecutor<Net, Backlog, Pools, Prover, Ctx, Ord, Pool, TxCandi
     pd5: PhantomData<Err>,
 }
 
+impl<Net, Backlog, Pools, Prover, Ctx, Ord, Pool, TxCandidate, Tx, Err>
+    HotOrderExecutor<Net, Backlog, Pools, Prover, Ctx, Ord, Pool, TxCandidate, Tx, Err>
+{
+    pub fn new(
+        network: Net,
+        backlog: Arc<Mutex<Backlog>>,
+        entity_repo: Arc<Mutex<Pools>>,
+        prover: Prover,
+        ctx: Ctx,
+    ) -> Self {
+        Self {
+            network,
+            backlog,
+            entity_repo,
+            prover,
+            ctx,
+            pd1: Default::default(),
+            pd2: Default::default(),
+            pd3: Default::default(),
+            pd4: Default::default(),
+            pd5: Default::default(),
+        }
+    }
+}
+
 #[async_trait(? Send)]
 impl<Net, Backlog, Pools, Prover, Ctx, Ord, Pool, TxCandidate, Tx, Err> Executor
     for HotOrderExecutor<Net, Backlog, Pools, Prover, Ctx, Ord, Pool, TxCandidate, Tx, Err>

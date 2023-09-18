@@ -1,23 +1,13 @@
-use std::path::Path;
-
 use cml_chain::block::Block;
 use cml_core::serialization::Deserialize;
 use pallas_network::miniprotocols::chainsync::{BlockContent, NextResponse};
 use pallas_network::miniprotocols::handshake::RefuseReason;
-use pallas_network::miniprotocols::{
-    chainsync, handshake, Point, PROTOCOL_N2C_CHAIN_SYNC, PROTOCOL_N2C_HANDSHAKE,
-};
+use pallas_network::miniprotocols::{chainsync, handshake, PROTOCOL_N2C_CHAIN_SYNC, PROTOCOL_N2C_HANDSHAKE};
 use pallas_network::multiplexer;
 use pallas_network::multiplexer::Bearer;
 use tokio::task::JoinHandle;
 
 use crate::data::ChainUpgrade;
-
-pub struct ChainSyncConf<'a> {
-    pub path: &'a Path,
-    pub magic: u64,
-    pub starting_point: Point,
-}
 
 pub struct ChainSyncClient {
     mplex_handle: JoinHandle<Result<(), multiplexer::Error>>,
@@ -52,10 +42,13 @@ impl ChainSyncClient {
 
         let mut cs_client = chainsync::Client::new(cs_channel);
 
-        cs_client
-            .find_intersect(vec![conf.starting_point])
+        if let (None, _) = cs_client
+            .find_intersect(vec![conf.starting_point.into()])
             .await
-            .map_err(Error::ChainSyncProtocol)?;
+            .map_err(Error::ChainSyncProtocol)?
+        {
+            return Err(Error::IntersectionNotFound);
+        }
 
         Ok(Self {
             mplex_handle,
@@ -94,4 +87,36 @@ pub enum Error {
 
     #[error("handshake version not accepted")]
     HandshakeRefused(RefuseReason),
+
+    #[error("intersection not found")]
+    IntersectionNotFound,
+}
+
+#[derive(serde::Deserialize)]
+pub enum RawPoint {
+    Origin,
+    Specific(u64, String),
+}
+
+#[derive(serde::Deserialize, derive_more::Into, derive_more::From)]
+#[serde(try_from = "RawPoint")]
+pub struct Point(pallas_network::miniprotocols::Point);
+
+impl TryFrom<RawPoint> for Point {
+    type Error = String;
+    fn try_from(value: RawPoint) -> Result<Self, Self::Error> {
+        match value {
+            RawPoint::Origin => Ok(Point::from(pallas_network::miniprotocols::Point::Origin)),
+            RawPoint::Specific(tip, raw) => hex::decode(raw)
+                .map_err(|_| "Invalid HEX point".to_string())
+                .map(|pt| Point::from(pallas_network::miniprotocols::Point::Specific(tip, pt))),
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+pub struct ChainSyncConf<'a> {
+    pub path: &'a str,
+    pub magic: u64,
+    pub starting_point: Point,
 }
