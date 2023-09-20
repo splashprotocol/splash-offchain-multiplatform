@@ -1,14 +1,15 @@
-pub mod inmemory;
-pub mod noop;
-
 use std::fmt::Debug;
 
 use async_trait::async_trait;
 use log::trace;
 
 use crate::box_resolver::{Predicted, Traced};
-use crate::data::unique_entity::{Confirmed, Unconfirmed};
 use crate::data::OnChainEntity;
+use crate::data::unique_entity::{Confirmed, Unconfirmed};
+
+pub mod inmemory;
+pub mod noop;
+pub mod rocksdb;
 
 /// Stores on-chain entities.
 /// Operations are atomic.
@@ -209,21 +210,33 @@ where
 pub(crate) mod tests {
     use std::sync::Arc;
 
-    use rand::{thread_rng, RngCore};
+    use rand::{RngCore, thread_rng};
     use serde::{Deserialize, Serialize};
 
-    use crate::box_resolver::rocksdb::EntityRepoRocksDB;
     use crate::{
         box_resolver::persistence::EntityRepo,
         data::{
-            unique_entity::{Confirmed, Predicted, Traced, Unconfirmed},
             OnChainEntity,
+            unique_entity::{Confirmed, Predicted, Traced, Unconfirmed},
         },
     };
+    use crate::box_resolver::persistence::inmemory::InMemoryEntityRepo;
+    use crate::box_resolver::persistence::rocksdb::EntityRepoRocksDB;
 
     #[repr(transparent)]
     #[derive(Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Hash, Debug)]
     pub struct TokenId(u64);
+
+    impl Into<[u8;60]> for TokenId {
+        fn into(self) -> [u8; 60] {
+            let mut arr = [0u8; 60];
+            let raw: [u8;8] = self.0.to_be_bytes();
+            for (ix, byte) in raw.into_iter().enumerate() {
+                arr[ix + 1] = byte;
+            }
+            arr
+        }
+    }
 
     impl TokenId {
         pub fn random() -> Self {
@@ -259,6 +272,42 @@ pub(crate) mod tests {
         fn get_self_state_ref(&self) -> Self::TStateId {
             self.box_id
         }
+    }
+
+    #[tokio::test]
+    async fn test_inmem_may_exist() {
+        let client = InMemoryEntityRepo::new();
+        test_entity_repo_may_exist(client).await;
+    }
+
+    #[tokio::test]
+    async fn test_inmem_predicted() {
+        let client = InMemoryEntityRepo::new();
+        test_entity_repo_predicted(client).await;
+    }
+
+    #[tokio::test]
+    async fn test_inmem_confirmed() {
+        let client = InMemoryEntityRepo::new();
+        test_entity_repo_confirmed(client).await;
+    }
+
+    #[tokio::test]
+    async fn test_inmem_unconfirmed() {
+        let client = InMemoryEntityRepo::new();
+        test_entity_repo_unconfirmed(client).await;
+    }
+
+    #[tokio::test]
+    async fn test_inmem_invalidate() {
+        let client = InMemoryEntityRepo::new();
+        test_entity_repo_invalidate(client).await;
+    }
+
+    #[tokio::test]
+    async fn test_inmem_eliminate() {
+        let client = InMemoryEntityRepo::new();
+        test_entity_repo_eliminate(client).await;
     }
 
     #[tokio::test]

@@ -8,10 +8,10 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::binary::prefixed_key;
-use crate::box_resolver::persistence::EntityRepo;
 use crate::box_resolver::{Predicted, Traced};
-use crate::data::unique_entity::{Confirmed, Unconfirmed};
+use crate::box_resolver::persistence::EntityRepo;
 use crate::data::OnChainEntity;
+use crate::data::unique_entity::{Confirmed, Unconfirmed};
 use crate::rocks::RocksConfig;
 
 pub struct EntityRepoRocksDB {
@@ -99,17 +99,7 @@ where
             db.get(index_key)
                 .unwrap()
                 .and_then(|bytes| bincode::deserialize::<'_, TEntity::TStateId>(&bytes).ok())
-                .and_then(|sid| {
-                    if db
-                        .get(prefixed_key(LAST_CONFIRMED_PREFIX, &id))
-                        .unwrap()
-                        .is_some()
-                    {
-                        db.get(prefixed_key(STATE_PREFIX, &sid)).unwrap()
-                    } else {
-                        None
-                    }
-                })
+                .and_then(|sid| db.get(prefixed_key(STATE_PREFIX, &sid)).unwrap())
                 .and_then(|bytes| bincode::deserialize(&bytes).ok())
                 .map(Confirmed)
         })
@@ -129,17 +119,7 @@ where
             db.get(index_key)
                 .unwrap()
                 .and_then(|bytes| bincode::deserialize::<'_, TEntity::TStateId>(&bytes).ok())
-                .and_then(|sid| {
-                    if db
-                        .get(prefixed_key(LAST_UNCONFIRMED_PREFIX, &id))
-                        .unwrap()
-                        .is_some()
-                    {
-                        db.get(prefixed_key(STATE_PREFIX, &sid)).unwrap()
-                    } else {
-                        None
-                    }
-                })
+                .and_then(|sid| db.get(prefixed_key(STATE_PREFIX, &sid)).unwrap())
                 .and_then(|bytes| bincode::deserialize(&bytes).ok())
                 .map(Unconfirmed)
         })

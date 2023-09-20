@@ -9,7 +9,6 @@ use crate::data::OnChainEntity;
 pub mod blacklist;
 pub mod persistence;
 pub mod process;
-pub mod rocksdb;
 
 /// Get latest state of an on-chain entity `TEntity`.
 pub async fn resolve_entity_state<TEntity, TRepo>(
