@@ -12,6 +12,14 @@ pub struct EphemeralHotOrderRegistry<TOrd: SpecializedOrder> {
     store: HashMap<TOrd::TOrderId, TOrd::TPoolId>,
 }
 
+impl<TOrd: SpecializedOrder> EphemeralHotOrderRegistry<TOrd> {
+    pub fn new() -> Self {
+        Self {
+            store: HashMap::new(),
+        }
+    }
+}
+
 impl<TOrd> HotOrderRegistry<TOrd> for EphemeralHotOrderRegistry<TOrd>
 where
     TOrd: SpecializedOrder,

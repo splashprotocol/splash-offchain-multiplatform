@@ -1,7 +1,8 @@
 use async_stream::stream;
 use cml_chain::transaction::Transaction;
-use futures::{SinkExt, Stream, StreamExt};
+use derive_more::Display;
 use futures::channel::{mpsc, oneshot};
+use futures::{SinkExt, Stream, StreamExt};
 
 use cardano_submit_api::client::{Error, LocalTxSubmissionClient};
 use spectrum_offchain::network::Network;
@@ -59,6 +60,7 @@ pub fn tx_submission_agent_stream<const EraId: u16>(
     }
 }
 
+#[derive(Debug, Display)]
 pub struct TxRejected;
 
 #[async_trait::async_trait]

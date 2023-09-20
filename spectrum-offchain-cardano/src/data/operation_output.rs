@@ -15,8 +15,8 @@ pub struct SwapOutput {
     pub redeemer_pkh: Ed25519KeyHash,
 }
 
-impl IntoLedger<TransactionOutput> for SwapOutput {
-    fn into_ledger(self) -> TransactionOutput {
+impl IntoLedger<TransactionOutput, ()> for SwapOutput {
+    fn into_ledger(self, _ctx: ()) -> TransactionOutput {
         todo!()
     }
 }

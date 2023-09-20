@@ -1,4 +1,5 @@
 use std::collections::hash_map::DefaultHasher;
+use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 
@@ -17,6 +18,16 @@ where
     pub fn new(partitions: [R; N]) -> Self {
         Self {
             inner: partitions,
+            pd: PhantomData::default(),
+        }
+    }
+
+    pub fn new_unsafe(partitions: Vec<R>) -> Self
+    where
+        R: Debug,
+    {
+        Self {
+            inner: <[R; N]>::try_from(partitions).unwrap(),
             pd: PhantomData::default(),
         }
     }

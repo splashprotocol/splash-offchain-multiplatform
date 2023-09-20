@@ -14,8 +14,8 @@ impl BatcherProfit {
     }
 }
 
-impl IntoLedger<TransactionOutput> for BatcherProfit {
-    fn into_ledger(self) -> TransactionOutput {
+impl IntoLedger<TransactionOutput, ()> for BatcherProfit {
+    fn into_ledger(self, _ctx: ()) -> TransactionOutput {
         todo!()
     }
 }

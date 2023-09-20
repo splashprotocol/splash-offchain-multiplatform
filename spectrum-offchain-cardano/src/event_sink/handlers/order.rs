@@ -18,7 +18,7 @@ use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::event_sink::handlers::order::registry::HotOrderRegistry;
 
-mod registry;
+pub mod registry;
 
 pub struct ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry> {
     pub topic: TSink,

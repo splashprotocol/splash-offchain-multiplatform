@@ -63,7 +63,7 @@ pub trait Executor {
 pub struct HotOrderExecutor<Net, Backlog, Pools, Prover, Ctx, Ord, Pool, TxCandidate, Tx, Err> {
     network: Net,
     backlog: Arc<Mutex<Backlog>>,
-    entity_repo: Arc<Mutex<Pools>>,
+    pool_repo: Arc<Mutex<Pools>>,
     prover: Prover,
     ctx: Ctx,
     pd1: PhantomData<Ord>,
@@ -79,14 +79,14 @@ impl<Net, Backlog, Pools, Prover, Ctx, Ord, Pool, TxCandidate, Tx, Err>
     pub fn new(
         network: Net,
         backlog: Arc<Mutex<Backlog>>,
-        entity_repo: Arc<Mutex<Pools>>,
+        pool_repo: Arc<Mutex<Pools>>,
         prover: Prover,
         ctx: Ctx,
     ) -> Self {
         Self {
             network,
             backlog,
-            entity_repo,
+            pool_repo,
             prover,
             ctx,
             pd1: Default::default(),
@@ -122,13 +122,13 @@ where
         if let Some(ord) = next_ord {
             let entity_id = ord.get_pool_ref();
             if let Some(entity) =
-                resolve_entity_state(trivial_eq().coerce(entity_id), Arc::clone(&self.entity_repo)).await
+                resolve_entity_state(trivial_eq().coerce(entity_id), Arc::clone(&self.pool_repo)).await
             {
                 let pool_id = entity.get_self_ref();
                 let pool_state_id = entity.get_self_state_ref();
                 match entity.try_run(ord.clone(), self.ctx.clone()) {
                     Ok((tx_candidate, next_entity_state)) => {
-                        let mut entity_repo = self.entity_repo.lock().await;
+                        let mut entity_repo = self.pool_repo.lock().await;
                         let tx = self.prover.prove(tx_candidate);
                         if let Err(err) = self.network.submit_tx(tx).await {
                             warn!("Execution failed while submitting tx due to {}", err);
@@ -159,13 +159,13 @@ const THROTTLE_MILLIS: u64 = 100;
 /// Construct Executor stream that drives sequential order execution.
 pub fn executor_stream<'a, TExecutor: Executor + 'a>(
     executor: TExecutor,
-    tip_reached_signal: &'a Once,
+    tip_reached_signal: Option<&'a Once>,
 ) -> impl Stream<Item = ()> + 'a {
     let executor = Arc::new(Mutex::new(executor));
     stream::unfold((), move |_| {
         let executor = executor.clone();
         async move {
-            if tip_reached_signal.is_completed() {
+            if tip_reached_signal.map(|sig| sig.is_completed()).unwrap_or(true) {
                 trace!(target: "offchain", "Trying to execute next order ..");
                 let mut executor_guard = executor.lock().await;
                 if executor_guard.try_execute_next().await {

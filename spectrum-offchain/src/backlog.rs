@@ -46,6 +46,7 @@ where
         TOrd: 'a;
 }
 
+#[derive(Debug)]
 pub struct HotPriorityBacklog<TOrd: UniqueOrder> {
     queue: PriorityQueue<TOrd::TOrderId, OrderWeight>,
     store: HashMap<TOrd::TOrderId, TOrd>,

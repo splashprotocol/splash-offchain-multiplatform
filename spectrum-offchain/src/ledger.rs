@@ -4,6 +4,6 @@ pub trait TryFromLedger<Repr, Ctx>: Sized {
 }
 
 /// Encodes domain entity as on-chain representation.
-pub trait IntoLedger<Repr> {
-    fn into_ledger(self) -> Repr;
+pub trait IntoLedger<Repr, Ctx> {
+    fn into_ledger(self, ctx: Ctx) -> Repr;
 }

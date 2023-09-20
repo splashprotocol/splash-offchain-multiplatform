@@ -1,8 +1,11 @@
+use std::fmt::{Display, Formatter};
+
 use cml_chain::transaction::{TransactionInput, TransactionOutput};
 use cml_crypto::TransactionHash;
 use num_rational::Ratio;
 
 use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAssetClass, Token};
+use spectrum_offchain::data::{OnChainEntity, SpecializedOrder};
 
 use crate::data::order::PoolNft;
 
@@ -17,6 +20,58 @@ pub mod pool;
 pub struct OnChain<T> {
     pub value: T,
     pub source: TransactionOutput,
+}
+
+impl<T> OnChain<T> {
+    pub fn map<F, A>(self, f: F) -> OnChain<A>
+    where
+        F: FnOnce(T) -> A,
+    {
+        let OnChain { value, source } = self;
+        OnChain {
+            value: f(value),
+            source,
+        }
+    }
+}
+
+impl<T> Display for OnChain<T>
+where
+    T: Display,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(format!("OnChain({})", self.value).as_str())
+    }
+}
+
+impl<T> OnChainEntity for OnChain<T>
+where
+    T: OnChainEntity,
+{
+    type TEntityId = T::TEntityId;
+    type TStateId = T::TStateId;
+
+    fn get_self_ref(&self) -> Self::TEntityId {
+        self.value.get_self_ref()
+    }
+    fn get_self_state_ref(&self) -> Self::TStateId {
+        self.value.get_self_state_ref()
+    }
+}
+
+impl<T> SpecializedOrder for OnChain<T>
+where
+    T: SpecializedOrder,
+{
+    type TOrderId = T::TOrderId;
+    type TPoolId = T::TPoolId;
+
+    fn get_self_ref(&self) -> Self::TOrderId {
+        self.value.get_self_ref()
+    }
+    fn get_pool_ref(&self) -> Self::TPoolId {
+        self.value.get_pool_ref()
+    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, derive_more::From, derive_more::Into)]

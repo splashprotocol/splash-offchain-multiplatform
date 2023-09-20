@@ -1,4 +1,6 @@
-use std::collections::HashMap;
+pub mod inmemory;
+pub mod noop;
+
 use std::fmt::Debug;
 
 use async_trait::async_trait;
@@ -200,106 +202,6 @@ where
             .map(|e| format!("<Entity({:?}, {:?})>", e.get_self_ref(), e.get_self_state_ref()));
         trace!(target: "box_resolver", "get_state({:?}) -> {:?}", sid, show_entity);
         res
-    }
-}
-
-type InMemoryKey = [u8; 33];
-
-pub struct EphemeralEntityRepo {
-    store: HashMap<InMemoryKey, Vec<u8>>,
-}
-
-impl EphemeralEntityRepo {
-    pub fn new() -> Self {
-        Self {
-            store: HashMap::new(),
-        }
-    }
-}
-
-#[async_trait(?Send)]
-impl<TEntity> EntityRepo<TEntity> for EphemeralEntityRepo
-where
-    TEntity: OnChainEntity + Clone + Send + 'static,
-    <TEntity as OnChainEntity>::TStateId: Clone + Send + 'static,
-    <TEntity as OnChainEntity>::TEntityId: Clone + Send + 'static,
-{
-    async fn get_prediction_predecessor<'a>(&self, id: TEntity::TStateId) -> Option<TEntity::TStateId>
-    where
-        <TEntity as OnChainEntity>::TStateId: 'a,
-    {
-        todo!()
-    }
-
-    async fn get_last_predicted<'a>(&self, id: TEntity::TEntityId) -> Option<Predicted<TEntity>>
-    where
-        <TEntity as OnChainEntity>::TEntityId: 'a,
-    {
-        todo!()
-    }
-
-    async fn get_last_confirmed<'a>(&self, id: TEntity::TEntityId) -> Option<Confirmed<TEntity>>
-    where
-        <TEntity as OnChainEntity>::TEntityId: 'a,
-    {
-        todo!()
-    }
-
-    async fn get_last_unconfirmed<'a>(&self, id: TEntity::TEntityId) -> Option<Unconfirmed<TEntity>>
-    where
-        <TEntity as OnChainEntity>::TEntityId: 'a,
-    {
-        todo!()
-    }
-
-    async fn put_predicted<'a>(&mut self, entity: Traced<Predicted<TEntity>>)
-    where
-        Traced<Predicted<TEntity>>: 'a,
-    {
-        todo!()
-    }
-
-    async fn put_confirmed<'a>(&mut self, entity: Confirmed<TEntity>)
-    where
-        Traced<Predicted<TEntity>>: 'a,
-    {
-        todo!()
-    }
-
-    async fn put_unconfirmed<'a>(&mut self, entity: Unconfirmed<TEntity>)
-    where
-        Traced<Predicted<TEntity>>: 'a,
-    {
-        todo!()
-    }
-
-    async fn invalidate<'a>(&mut self, sid: TEntity::TStateId, eid: TEntity::TEntityId)
-    where
-        <TEntity as OnChainEntity>::TStateId: 'a,
-        <TEntity as OnChainEntity>::TEntityId: 'a,
-    {
-        todo!()
-    }
-
-    async fn eliminate<'a>(&mut self, entity: TEntity)
-    where
-        TEntity: 'a,
-    {
-        todo!()
-    }
-
-    async fn may_exist<'a>(&self, sid: TEntity::TStateId) -> bool
-    where
-        <TEntity as OnChainEntity>::TStateId: 'a,
-    {
-        todo!()
-    }
-
-    async fn get_state<'a>(&self, sid: TEntity::TStateId) -> Option<TEntity>
-    where
-        <TEntity as OnChainEntity>::TStateId: 'a,
-    {
-        todo!()
     }
 }
 

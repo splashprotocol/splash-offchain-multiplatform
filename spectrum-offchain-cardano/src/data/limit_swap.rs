@@ -23,8 +23,8 @@ use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
-use crate::data::pool::{ApplySwap, CFMMPoolAction};
-use crate::data::{ExecutorFeePerToken, OnChain, OnChainOrderId, PoolId};
+use crate::data::pool::{ApplySwap, CFMMPoolAction, ImmutablePoolUtxo};
+use crate::data::{ExecutorFeePerToken, OnChain, OnChainOrderId, PoolId, PoolStateVer};
 
 #[derive(Debug, Clone)]
 pub struct LimitSwap {
@@ -38,6 +38,12 @@ pub struct LimitSwap {
 }
 
 pub type ClassicalOnChainLimitSwap = ClassicalOrder<OnChainOrderId, LimitSwap>;
+
+impl RequiresRedeemer<ClassicalOrderAction> for ClassicalOnChainLimitSwap {
+    fn redeemer(action: ClassicalOrderAction) -> PlutusData {
+        todo!()
+    }
+}
 
 impl UniqueOrder for ClassicalOnChainLimitSwap {
     type TOrderId = OnChainOrderId;
@@ -113,11 +119,11 @@ impl TryFromPData for OnChainLimitSwapConfig {
 impl<Swap, Pool> RunOrder<OnChain<Swap>, TransactionBuilderConfig, SignedTxBuilder> for OnChain<Pool>
 where
     Pool: ApplySwap<Swap>
-        + Has<OutputRef>
+        + Has<PoolStateVer>
         + RequiresRedeemer<CFMMPoolAction>
-        + IntoLedger<TransactionOutput>
+        + IntoLedger<TransactionOutput, ImmutablePoolUtxo>
         + Clone,
-    Swap: Has<OutputRef> + RequiresRedeemer<ClassicalOrderAction>,
+    Swap: Has<OnChainOrderId> + RequiresRedeemer<ClassicalOrderAction>,
 {
     fn try_run(
         self,
@@ -131,8 +137,8 @@ where
             value: pool,
             source: pool_out_in,
         } = self;
-        let pool_ref = pool.get::<OutputRef>();
-        let order_ref = order.get::<OutputRef>();
+        let pool_ref = OutputRef::from(pool.get::<PoolStateVer>());
+        let order_ref = OutputRef::from(order.get::<OnChainOrderId>());
         let (next_pool, swap_out, batcher_profit) = match pool.apply_swap(order) {
             Ok(res) => res,
             Err(slippage) => {
@@ -150,6 +156,7 @@ where
             pool_redeemer,
         );
         let pool_datum = pool_out_in.datum().unwrap().into_pd().unwrap();
+        let immut_pool = ImmutablePoolUtxo::from(&pool_out_in);
         let pool_in = SingleInputBuilder::new(pool_ref.into(), pool_out_in)
             .plutus_script(pool_script, Vec::new(), pool_datum)
             .unwrap();
@@ -162,13 +169,13 @@ where
         let order_in = SingleInputBuilder::new(order_ref.into(), order_out_in)
             .plutus_script(order_script, Vec::new(), order_datum)
             .unwrap();
-        let pool_out = next_pool.clone().into_ledger();
+        let pool_out = next_pool.clone().into_ledger(immut_pool);
         let predicted_pool = Predicted(OnChain {
             value: next_pool,
             source: pool_out.clone(),
         });
-        let user_out = swap_out.into_ledger();
-        let batcher_out = batcher_profit.into_ledger();
+        let user_out = swap_out.into_ledger(());
+        let batcher_out = batcher_profit.into_ledger(());
         let batcher_addr = batcher_out.address().clone();
         let mut tx_builder = TransactionBuilder::new(ctx);
         tx_builder.add_input(pool_in).unwrap();

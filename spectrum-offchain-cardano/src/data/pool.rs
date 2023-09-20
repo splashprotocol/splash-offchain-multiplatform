@@ -1,23 +1,29 @@
+use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
+use cml_chain::builders::tx_builder::{SignedTxBuilder, TransactionBuilderConfig};
 use cml_chain::plutus::PlutusData;
-use cml_chain::transaction::TransactionOutput;
-use cml_chain::Value;
+use cml_chain::transaction::{BabbageTxOut, DatumOption, ScriptRef, TransactionOutput};
+use cml_chain::{Coin, Value};
 use num_rational::Ratio;
+use type_equalities::IsEqual;
 
-use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension};
+use spectrum_cardano_lib::plutus_data::{
+    ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
+};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
-use spectrum_offchain::data::OnChainEntity;
-use spectrum_offchain::executor::RunOrderError;
+use spectrum_offchain::data::unique_entity::Predicted;
+use spectrum_offchain::data::{Has, OnChainEntity};
+use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 use crate::constants::{CFMM_LP_FEE_DEN, MAX_LQ_CAP};
 use crate::data::batcher_output::BatcherProfit;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::operation_output::SwapOutput;
-use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
+use crate::data::order::{Base, ClassicalOnChainOrder, ClassicalOrder, PoolNft, Quote};
 use crate::data::{OnChain, PoolId, PoolStateVer};
 
 pub struct Rx;
@@ -49,6 +55,7 @@ pub enum CFMMPoolAction {
     Destroy,
 }
 
+#[derive(Debug, Clone)]
 pub struct CFMMPool {
     pub id: PoolId,
     pub state_ver: PoolStateVer,
@@ -78,6 +85,18 @@ impl CFMMPool {
                     + (base_amount.untag() as u128) * (*self.lp_fee.numer() as u128))
         };
         TaggedAmount::tag(quote_amount as u64)
+    }
+}
+
+impl Has<PoolStateVer> for CFMMPool {
+    fn get<U: IsEqual<PoolStateVer>>(&self) -> PoolStateVer {
+        self.state_ver
+    }
+}
+
+impl RequiresRedeemer<CFMMPoolAction> for CFMMPool {
+    fn redeemer(action: CFMMPoolAction) -> PlutusData {
+        todo!()
     }
 }
 
@@ -120,31 +139,51 @@ impl TryFromLedger<TransactionOutput, OutputRef> for OnChain<CFMMPool> {
     }
 }
 
-impl IntoLedger<TransactionOutput> for OnChain<CFMMPool> {
-    fn into_ledger(self) -> TransactionOutput {
-        let OnChain {
-            value: pool,
-            source: mut pool_out,
-        } = self;
+pub struct ImmutablePoolUtxo {
+    pub address: Address,
+    pub value: Coin,
+    pub datum_option: Option<DatumOption>,
+    pub script_reference: Option<ScriptRef>,
+}
+
+impl From<&TransactionOutput> for ImmutablePoolUtxo {
+    fn from(out: &TransactionOutput) -> Self {
+        Self {
+            address: out.address().clone(),
+            value: out.amount().coin,
+            datum_option: out.datum(),
+            script_reference: out.script_ref().cloned(),
+        }
+    }
+}
+
+impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for CFMMPool {
+    fn into_ledger(self, immut_pool: ImmutablePoolUtxo) -> TransactionOutput {
         let mut ma = MultiAsset::new();
-        let coins = if pool.asset_x.is_native() {
-            let (policy, name) = pool.asset_y.untag().into_token().unwrap();
-            ma.set(policy, name.into(), pool.reserves_y.untag());
-            pool.reserves_x.untag()
-        } else if pool.asset_y.is_native() {
-            let (policy, name) = pool.asset_x.untag().into_token().unwrap();
-            ma.set(policy, name.into(), pool.reserves_x.untag());
-            pool.reserves_y.untag()
+        let coins = if self.asset_x.is_native() {
+            let (policy, name) = self.asset_y.untag().into_token().unwrap();
+            ma.set(policy, name.into(), self.reserves_y.untag());
+            self.reserves_x.untag()
+        } else if self.asset_y.is_native() {
+            let (policy, name) = self.asset_x.untag().into_token().unwrap();
+            ma.set(policy, name.into(), self.reserves_x.untag());
+            self.reserves_y.untag()
         } else {
-            let (policy_x, name_x) = pool.asset_y.untag().into_token().unwrap();
-            ma.set(policy_x, name_x.into(), pool.reserves_y.untag());
-            let (policy_y, name_y) = pool.asset_y.untag().into_token().unwrap();
-            ma.set(policy_y, name_y.into(), pool.reserves_y.untag());
-            pool_out.amount().coin
+            let (policy_x, name_x) = self.asset_y.untag().into_token().unwrap();
+            ma.set(policy_x, name_x.into(), self.reserves_y.untag());
+            let (policy_y, name_y) = self.asset_y.untag().into_token().unwrap();
+            ma.set(policy_y, name_y.into(), self.reserves_y.untag());
+            immut_pool.value
         };
-        let pool_value = Value::new(coins, ma);
-        pool_out.update_value(pool_value);
-        pool_out
+        let (policy_lq, name_lq) = self.asset_lq.untag().into_token().unwrap();
+        ma.set(policy_lq, name_lq.into(), self.liquidity.untag());
+        TransactionOutput::new_babbage_tx_out(BabbageTxOut {
+            address: immut_pool.address,
+            amount: Value::new(coins, ma),
+            datum_option: immut_pool.datum_option,
+            script_reference: immut_pool.script_reference,
+            encodings: None,
+        })
     }
 }
 

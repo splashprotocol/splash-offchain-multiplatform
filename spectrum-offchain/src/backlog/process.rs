@@ -11,7 +11,7 @@ use crate::partitioning::Partitioned;
 
 /// Create backlog stream that drives processing of order events.
 pub fn hot_backlog_stream<'a, const N: usize, S, TOrd, TBacklog>(
-    backlog: Arc<Partitioned<N, TOrd::TPoolId, Mutex<TBacklog>>>,
+    backlog: Partitioned<N, TOrd::TPoolId, Arc<Mutex<TBacklog>>>,
     upstream: S,
 ) -> impl Stream<Item = ()> + 'a
 where
@@ -21,6 +21,7 @@ where
     TBacklog: HotBacklog<TOrd> + 'a,
 {
     trace!(target: "offchain", "Watching for Backlog events..");
+    let backlog = Arc::new(backlog);
     upstream.then(move |upd| {
         let backlog = Arc::clone(&backlog);
         async move {
