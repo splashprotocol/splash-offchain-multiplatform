@@ -92,7 +92,7 @@ pub enum Error {
     IntersectionNotFound,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub enum RawPoint {
     Origin,
     Specific(u64, String),

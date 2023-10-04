@@ -1,3 +1,4 @@
+use std::hash::Hash;
 use std::sync::{Arc, Once};
 
 use clap::Parser;
@@ -5,18 +6,23 @@ use cml_chain::builders::tx_builder::{
     SignedTxBuilder, TransactionBuilderConfig, TransactionBuilderConfigBuilder,
 };
 use cml_chain::transaction::Transaction;
+use cml_crypto::chain_crypto::{Ed25519, KeyPair};
+use cml_crypto::Ed25519KeyHash;
 use futures::channel::mpsc;
 use futures::stream::select_all;
 use futures::{Stream, StreamExt};
+use rand::prelude::StdRng;
 use serde::Deserialize;
 use tokio::sync::Mutex;
 use tracing_subscriber::fmt::Subscriber;
+use cml_crypto::Bip32PrivateKey;
 
 use cardano_chain_sync::chain_sync_stream;
-use cardano_chain_sync::client::{ChainSyncClient, ChainSyncConf};
+use cardano_chain_sync::client::{ChainSyncClient, ChainSyncConf, RawPoint};
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_chain_sync::event_source::event_source_ledger;
 use cardano_submit_api::client::{LocalTxSubmissionClient, LocalTxSubmissionConf};
+use RawPoint::Specific;
 use spectrum_cardano_lib::constants::BABBAGE_ERA_ID;
 use spectrum_offchain::backlog::process::hot_backlog_stream;
 use spectrum_offchain::backlog::HotPriorityBacklog;
@@ -31,10 +37,13 @@ use spectrum_offchain::executor::{executor_stream, HotOrderExecutor};
 use spectrum_offchain::network::Network;
 use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::streaming::boxed;
+use rand::SeedableRng;
+use rand_chacha::ChaCha20Rng;
 
 use crate::data::order::ClassicalOnChainOrder;
 use crate::data::pool::CFMMPool;
 use crate::data::{OnChain, PoolId};
+use crate::data::order_execution_context::OrderExecutionContext;
 use crate::event_sink::handlers::order::registry::EphemeralHotOrderRegistry;
 use crate::event_sink::handlers::order::ClassicalOrderUpdatesHandler;
 use crate::event_sink::handlers::pool::ConfirmedUpdateHandler;
@@ -46,15 +55,15 @@ mod data;
 mod event_sink;
 mod prover;
 mod tx_submission;
+mod cardano;
 
 #[tokio::main]
 async fn main() {
     let subscriber = Subscriber::new();
     tracing::subscriber::set_global_default(subscriber).expect("setting tracing default failed");
-
     let args = AppArgs::parse();
     let raw_config = std::fs::read_to_string(args.config_path).expect("Cannot load configuration file");
-    let config: AppConfig = serde_yaml::from_str(&raw_config).expect("Invalid configuration file");
+    let config: AppConfig = serde_json::from_str(&raw_config).expect("Invalid configuration file"); //use crate for config files
 
     log4rs::init_file(args.log4rs_path, Default::default()).unwrap();
 
@@ -73,12 +82,19 @@ async fn main() {
         Some(&signal_tip_reached),
     )));
 
-    let tx_builder_conf = TransactionBuilderConfigBuilder::new().build().unwrap();
+    let seed = [1,0,0,0, 23,0,0,0, 200,1,0,0, 210,30,0,0,
+        0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0];
 
-    let p1 = new_partition(tx_submission_channel.clone(), None, tx_builder_conf.clone());
-    let p2 = new_partition(tx_submission_channel.clone(), None, tx_builder_conf.clone());
-    let p3 = new_partition(tx_submission_channel.clone(), None, tx_builder_conf.clone());
-    let p4 = new_partition(tx_submission_channel, None, tx_builder_conf);
+    // let rng = ChaCha20Rng::from_entropy();
+    let private_key = Bip32PrivateKey::generate_ed25519_bip32();
+    let public_key = private_key.to_public().to_raw_key().hash();
+
+    let ctx = OrderExecutionContext::new(public_key); //todo: add verification for correct pkh
+
+    let p1 = new_partition(tx_submission_channel.clone(), None, ctx.clone());
+    let p2 = new_partition(tx_submission_channel.clone(), None, ctx.clone());
+    let p3 = new_partition(tx_submission_channel.clone(), None, ctx.clone());
+    let p4 = new_partition(tx_submission_channel, None, ctx.clone());
 
     let partitioned_backlog = Partitioned::<NUM_PARTITIONS, PoolId, _>::new([
         Arc::clone(&p1.backlog),
@@ -140,10 +156,10 @@ struct ExecPartition<S, Backlog, Pools> {
 fn new_partition<'a, Net>(
     network: Net,
     signal_tip_reached: Option<&'a Once>,
-    tx_builder_conf: TransactionBuilderConfig,
-) -> ExecPartition<impl Stream<Item = ()> + 'a, HotPriorityBacklog<ClassicalOnChainOrder>, InMemoryEntityRepo<OnChain<CFMMPool>>>
-where
-    Net: Network<Transaction, TxRejected> + 'a,
+    ctx: OrderExecutionContext,
+) -> ExecPartition<impl Stream<Item=()> + 'a, HotPriorityBacklog<ClassicalOnChainOrder>, InMemoryEntityRepo<OnChain<CFMMPool>>>
+    where
+        Net: Network<Transaction, TxRejected> + 'a,
 {
     let backlog = Arc::new(Mutex::new(HotPriorityBacklog::new(43)));
     let pool_repo = Arc::new(Mutex::new(InMemoryEntityRepo::new()));
@@ -164,7 +180,7 @@ where
         Arc::clone(&backlog),
         Arc::clone(&pool_repo),
         prover,
-        tx_builder_conf,
+        ctx,
     );
     let executor_stream = executor_stream(executor, signal_tip_reached);
     ExecPartition {
@@ -180,6 +196,7 @@ struct AppConfig<'a> {
     chain_sync: ChainSyncConf<'a>,
     local_tx_submission: LocalTxSubmissionConf<'a>,
     tx_submission_buffer_size: usize,
+    batcher_pkh: String, //todo: to cypher container
 }
 
 #[derive(Parser)]
@@ -188,7 +205,7 @@ struct AppConfig<'a> {
 #[command(version = "1.0.0")]
 #[command(about = "Spectrum DEX Offchain Bot", long_about = None)]
 struct AppArgs {
-    /// Path to the YAML configuration file.
+    /// Path to the JSON configuration file.
     #[arg(long, short)]
     config_path: String,
     /// Path to the log4rs YAML configuration file.

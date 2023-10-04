@@ -13,6 +13,7 @@ base16 = "0.2"
 pallas-network = { git = "https://github.com/oskin1/pallas.git", branch = "oskin1/local-tx-submission-client" }
 cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "copy-fix-len-array-2" }
 cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "copy-fix-len-array-2" }
+cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/copy-fixed-len-array" }
 futures = "0.3.28"
 futures-timer = "3.0.2"
 rocksdb = "0.21.*"

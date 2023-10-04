@@ -1,0 +1,18 @@
+{
+  "chain_sync": {
+    "path": "/Users/aleksandr/node-external/node.socket",
+    "magic": 764824073,
+    "starting_point": {
+      "Specific": [
+        105626488,
+        "ef0df7fc0054c7593fd3a7f43a7c5c5547a2cd4ce437c50f57542f14c8a3971c"
+      ]
+    }
+  },
+  "local_tx_submission": {
+    "path": "/Users/aleksandr/node-external/node.socket",
+    "magic": 764824073
+  },
+  "tx_submission_buffer_size": 1000000,
+  "batcher_pkh": "8bfbd1c114bfd67f6c2f127ebe05846ae862e0c24c18d0a0b55c5485a088a09d"
+}

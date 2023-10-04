@@ -1,5 +1,6 @@
 use cml_chain::block::Block;
 use cml_chain::transaction::Transaction;
+use derive_more::Display;
 use pallas_network::miniprotocols::Point;
 
 #[derive(Clone)]

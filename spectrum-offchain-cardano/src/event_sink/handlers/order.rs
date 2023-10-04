@@ -2,6 +2,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use cml_chain::address::Address;
 use cml_chain::crypto::hash::hash_transaction;
 use cml_chain::transaction::{Transaction, TransactionOutput};
 use futures::{Sink, SinkExt};
@@ -15,6 +16,7 @@ use spectrum_offchain::data::order::{OrderLink, OrderUpdate};
 use spectrum_offchain::data::SpecializedOrder;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
+use crate::cardano::hash::hash_transaction_correct;
 
 use crate::event_sink::handlers::order::registry::HotOrderRegistry;
 
@@ -36,13 +38,17 @@ impl<TSink, TOrd, TRegistry> ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry
     }
 
     async fn handle_applied_tx<F, R>(&mut self, tx: Transaction, on_failure: F) -> Option<R>
-    where
-        TSink: Sink<OrderUpdate<TOrd, OrderLink<TOrd>>> + Unpin,
-        TOrd: SpecializedOrder + TryFromLedger<TransactionOutput, OutputRef>,
-        TOrd::TOrderId: From<OutputRef> + Copy,
-        TRegistry: HotOrderRegistry<TOrd>,
-        F: FnOnce(Transaction) -> R,
+        where
+            TSink: Sink<OrderUpdate<TOrd, OrderLink<TOrd>>> + Unpin,
+            TOrd: SpecializedOrder + TryFromLedger<TransactionOutput, OutputRef>,
+            TOrd::TOrderId: From<OutputRef> + Copy,
+            TRegistry: HotOrderRegistry<TOrd>,
+            F: FnOnce(Transaction) -> R,
     {
+        // let mut first_input = tx.body.inputs.first().map(|input| input.transaction_id.to_hex());
+        // let tx_id= first_input.unwrap_or(String::from("none"));
+        let tx_hash_new = hash_transaction_correct(&tx.body);
+        println!("Going to handle_applied_tx {}", tx_hash_new);
         let mut is_success = false;
         for i in &tx.body.inputs {
             let maybe_order_link = {
@@ -57,13 +63,15 @@ impl<TSink, TOrd, TRegistry> ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry
             }
         }
         if !is_success {
-            let tx_hash = hash_transaction(&tx.body);
+            let tx_hash = hash_transaction_correct(&tx.body);
             // no point in searching for new orders in execution tx
             for (i, o) in tx.body.outputs.iter().enumerate() {
                 let o_ref = OutputRef::from((tx_hash, i as u64));
+                let addr = o.address();
                 if let Some(order) = TOrd::try_from_ledger(o.clone(), o_ref) {
                     is_success = true;
                     {
+                        println!("New order!");
                         let mut registry = self.registry.lock().await;
                         registry.register(OrderLink {
                             order_id: order.get_self_ref(),
@@ -82,11 +90,11 @@ impl<TSink, TOrd, TRegistry> ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry
     }
 
     async fn handle_unapplied_tx(&mut self, tx: Transaction) -> Option<LedgerTxEvent>
-    where
-        TSink: Sink<OrderUpdate<TOrd, OrderLink<TOrd>>> + Unpin,
-        TOrd: SpecializedOrder + TryFromLedger<TransactionOutput, OutputRef>,
-        TOrd::TOrderId: From<OutputRef> + Copy,
-        TRegistry: HotOrderRegistry<TOrd>,
+        where
+            TSink: Sink<OrderUpdate<TOrd, OrderLink<TOrd>>> + Unpin,
+            TOrd: SpecializedOrder + TryFromLedger<TransactionOutput, OutputRef>,
+            TOrd::TOrderId: From<OutputRef> + Copy,
+            TRegistry: HotOrderRegistry<TOrd>,
     {
         let mut is_success = false;
         let tx_hash = hash_transaction(&tx.body);
@@ -110,14 +118,14 @@ impl<TSink, TOrd, TRegistry> ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait(? Send)]
 impl<TSink, TOrd, TRegistry> EventHandler<LedgerTxEvent>
-    for ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry>
-where
-    TSink: Sink<OrderUpdate<TOrd, OrderLink<TOrd>>> + Unpin,
-    TOrd: SpecializedOrder + TryFromLedger<TransactionOutput, OutputRef>,
-    TOrd::TOrderId: From<OutputRef> + Copy,
-    TRegistry: HotOrderRegistry<TOrd>,
+for ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry>
+    where
+        TSink: Sink<OrderUpdate<TOrd, OrderLink<TOrd>>> + Unpin,
+        TOrd: SpecializedOrder + TryFromLedger<TransactionOutput, OutputRef>,
+        TOrd::TOrderId: From<OutputRef> + Copy,
+        TRegistry: HotOrderRegistry<TOrd>,
 {
     async fn try_handle(&mut self, ev: LedgerTxEvent) -> Option<LedgerTxEvent> {
         let res = match ev {
@@ -129,18 +137,18 @@ where
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait(? Send)]
 impl<TSink, TOrd, TRegistry> EventHandler<MempoolUpdate<Transaction>>
-    for ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry>
-where
-    TSink: Sink<OrderUpdate<TOrd, OrderLink<TOrd>>> + Unpin,
-    TOrd: SpecializedOrder + TryFromLedger<TransactionOutput, OutputRef>,
-    TOrd::TOrderId: From<OutputRef> + Copy,
-    TRegistry: HotOrderRegistry<TOrd>,
+for ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry>
+    where
+        TSink: Sink<OrderUpdate<TOrd, OrderLink<TOrd>>> + Unpin,
+        TOrd: SpecializedOrder + TryFromLedger<TransactionOutput, OutputRef>,
+        TOrd::TOrderId: From<OutputRef> + Copy,
+        TRegistry: HotOrderRegistry<TOrd>,
 {
     async fn try_handle(&mut self, ev: MempoolUpdate<Transaction>) -> Option<MempoolUpdate<Transaction>> {
         let res = match ev {
-            MempoolUpdate::TxAccepted(tx) => self.handle_applied_tx(tx, MempoolUpdate::TxAccepted).await,
+            MempoolUpdate::TxAccepted(tx) => None //self.handle_applied_tx(tx, MempoolUpdate::TxAccepted).await,
         };
         let _ = self.topic.flush().await;
         res
