@@ -63,19 +63,19 @@ impl ValueExtension for Value {
 
 #[cfg(test)]
 mod tests {
-    use cml_chain::assets::MultiAsset;
     use cml_chain::{PolicyId, Value};
+    use cml_chain::assets::MultiAsset;
 
-    use crate::value::ValueExtension;
     use crate::{AssetClass, AssetName};
+    use crate::value::ValueExtension;
 
     #[test]
     fn add_subtract_token() {
-        let ac1 = AssetClass::Token((PolicyId::from([1u8; 28]), AssetName::from([1u8; 32])));
+        let ac1 = AssetClass::Token((PolicyId::from([1u8; 28]), AssetName::from((32, [1u8; 32]))));
         let ac1_amt = 100;
-        let ac2 = AssetClass::Token((PolicyId::from([2u8; 28]), AssetName::from([2u8; 32])));
+        let ac2 = AssetClass::Token((PolicyId::from([2u8; 28]), AssetName::from((32, [2u8; 32]))));
         let ac2_amt = 200;
-        let ac3 = AssetClass::Token((PolicyId::from([2u8; 28]), AssetName::from([3u8; 32])));
+        let ac3 = AssetClass::Token((PolicyId::from([2u8; 28]), AssetName::from((32, [3u8; 32]))));
         let ac3_amt = 300;
         let mut value = Value::new(1, MultiAsset::new());
         value.add_unsafe(ac1, ac1_amt);

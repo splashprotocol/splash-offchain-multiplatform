@@ -1,12 +1,10 @@
-use std::array::TryFromSliceError;
 use std::cmp::Ordering;
 use std::marker::PhantomData;
 use std::ops::{Add, Sub};
 
 use cml_chain::plutus::PlutusData;
-use cml_chain::transaction::TransactionInput;
 use cml_chain::PolicyId;
-use cml_core::TransactionIndex;
+use cml_chain::transaction::TransactionInput;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
 
@@ -20,14 +18,13 @@ pub mod transaction;
 pub mod types;
 pub mod value;
 
-#[repr(transparent)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, derive_more::From)]
-pub struct AssetName([u8; 32]);
+pub struct AssetName(u8, [u8; 32]);
 
 impl From<AssetName> for cml_chain::AssetName {
-    fn from(value: AssetName) -> Self {
+    fn from(AssetName(orig_len, raw_name): AssetName) -> Self {
         cml_chain::AssetName {
-            inner: value.0.to_vec(),
+            inner: raw_name[0..orig_len as usize].to_vec(),
             encodings: None,
         }
     }
@@ -35,14 +32,30 @@ impl From<AssetName> for cml_chain::AssetName {
 
 impl From<cml_chain::AssetName> for AssetName {
     fn from(value: cml_chain::AssetName) -> Self {
-        Self(<[u8; 32]>::try_from(value.inner).unwrap())
+        let orig_len = <u8>::try_from(value.inner.len()).unwrap();
+        let mut bf = [0u8; 32];
+        value.inner.into_iter().enumerate().for_each(|(ix, i)| {
+            bf[ix] = i;
+        });
+        Self(orig_len, bf)
     }
 }
 
+pub struct InvalidAssetNameError;
+
 impl TryFrom<Vec<u8>> for AssetName {
-    type Error = TryFromSliceError;
+    type Error = InvalidAssetNameError;
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
-        Ok(Self(<[u8; 32]>::try_from(&*value)?))
+        let orig_len = value.len();
+        if orig_len > 32 {
+            return Err(InvalidAssetNameError);
+        };
+        let orig_len = <u8>::try_from(orig_len).unwrap();
+        let mut bf = [0u8; 32];
+        value.into_iter().enumerate().for_each(|(ix, i)| {
+            bf[ix] = i;
+        });
+        Ok(Self(orig_len, bf))
     }
 }
 
@@ -180,5 +193,19 @@ impl<T> Sub for TaggedAmount<T> {
 impl<T> TryFromPData for TaggedAmount<T> {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         Some(Self(data.into_u64()?, PhantomData::default()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::AssetName;
+
+    #[test]
+    fn asset_name_is_isomorphic_to_cml() {
+        let len = 14;
+        let cml_an = cml_chain::AssetName::new(vec![0u8;len]).unwrap();
+        let spectrum_an = AssetName::from(cml_an.clone());
+        let cml_an_reconstructed = cml_chain::AssetName::from(spectrum_an);
+        assert_eq!(cml_an, cml_an_reconstructed);
     }
 }
