@@ -18,20 +18,27 @@ pub mod transaction;
 pub mod types;
 pub mod value;
 
+/// Asset name bytes padded to 32-byte fixed array and tupled with the len of the original asset name.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, derive_more::From)]
 pub struct AssetName(u8, [u8; 32]);
 
-impl From<AssetName> for cml_chain::AssetName {
+impl AssetName {
+    pub fn padded_bytes(&self) -> [u8; 32] {
+        self.1
+    }
+}
+
+impl From<AssetName> for cml_chain::assets::AssetName {
     fn from(AssetName(orig_len, raw_name): AssetName) -> Self {
-        cml_chain::AssetName {
+        cml_chain::assets::AssetName {
             inner: raw_name[0..orig_len as usize].to_vec(),
             encodings: None,
         }
     }
 }
 
-impl From<cml_chain::AssetName> for AssetName {
-    fn from(value: cml_chain::AssetName) -> Self {
+impl From<cml_chain::assets::AssetName> for AssetName {
+    fn from(value: cml_chain::assets::AssetName) -> Self {
         let orig_len = <u8>::try_from(value.inner.len()).unwrap();
         let mut bf = [0u8; 32];
         value.inner.into_iter().enumerate().for_each(|(ix, i)| {
@@ -203,9 +210,9 @@ mod tests {
     #[test]
     fn asset_name_is_isomorphic_to_cml() {
         let len = 14;
-        let cml_an = cml_chain::AssetName::new(vec![0u8;len]).unwrap();
+        let cml_an = cml_chain::assets::AssetName::new(vec![0u8;len]).unwrap();
         let spectrum_an = AssetName::from(cml_an.clone());
-        let cml_an_reconstructed = cml_chain::AssetName::from(spectrum_an);
+        let cml_an_reconstructed = cml_chain::assets::AssetName::from(spectrum_an);
         assert_eq!(cml_an, cml_an_reconstructed);
     }
 }

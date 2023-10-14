@@ -12,9 +12,8 @@ pub trait TransactionOutputExtension {
 impl TransactionOutputExtension for TransactionOutput {
     fn into_datum(self) -> Option<DatumOption> {
         match self {
-            Self::ShelleyTxOut(_) => None,
-            Self::AlonzoTxOut(tx_out) => Some(DatumOption::new_hash(tx_out.datum_hash)),
-            Self::BabbageTxOut(tx_out) => tx_out.datum_option,
+            Self::AlonzoFormatTxOut(tx_out) => tx_out.datum_hash.map(DatumOption::new_hash),
+            Self::ConwayFormatTxOut(tx_out) => tx_out.datum_option,
         }
     }
     fn script_hash(&self) -> Option<ScriptHash> {
@@ -25,13 +24,10 @@ impl TransactionOutputExtension for TransactionOutput {
     }
     fn update_value(&mut self, value: Value) {
         match self {
-            TransactionOutput::ShelleyTxOut(ref mut out) => {
+            TransactionOutput::AlonzoFormatTxOut(ref mut out) => {
                 out.amount = value;
             }
-            TransactionOutput::AlonzoTxOut(ref mut out) => {
-                out.amount = value;
-            }
-            TransactionOutput::BabbageTxOut(ref mut out) => {
+            TransactionOutput::ConwayFormatTxOut(ref mut out) => {
                 out.amount = value;
             }
         }

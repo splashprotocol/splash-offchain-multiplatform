@@ -141,7 +141,7 @@ fn new_partition<'a, Net>(
     network: Net,
     signal_tip_reached: Option<&'a Once>,
     tx_builder_conf: TransactionBuilderConfig,
-) -> ExecPartition<impl Stream<Item = ()> + 'a, HotPriorityBacklog<ClassicalOnChainOrder>, InMemoryEntityRepo>
+) -> ExecPartition<impl Stream<Item = ()> + 'a, HotPriorityBacklog<ClassicalOnChainOrder>, InMemoryEntityRepo<OnChain<CFMMPool>>>
 where
     Net: Network<Transaction, TxRejected> + 'a,
 {

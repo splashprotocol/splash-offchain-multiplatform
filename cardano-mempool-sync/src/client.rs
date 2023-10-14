@@ -32,7 +32,7 @@ impl LocalTxMonitorClient {
             .await
             .map_err(Error::HandshakeProtocol)?;
 
-        if let handshake::Confirmation::Rejected(reason) = handshake {
+        if let handshake::Confirmation::Rejected(_reason) = handshake {
             return Err(Error::IncompatibleVersion);
         }
 
