@@ -4,27 +4,27 @@ use cml_chain::builders::tx_builder::{
     ChangeSelectionAlgo, SignedTxBuilder, TransactionBuilder, TransactionBuilderConfig,
 };
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
+use cml_chain::Coin;
 use cml_chain::plutus::PlutusData;
 use cml_chain::transaction::TransactionOutput;
-use cml_chain::Coin;
 use cml_crypto::Ed25519KeyHash;
 use num_rational::Ratio;
 
+use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
 };
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
-use spectrum_offchain::data::unique_entity::Predicted;
 use spectrum_offchain::data::{Has, UniqueOrder};
+use spectrum_offchain::data::unique_entity::Predicted;
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
+use crate::data::{ExecutorFeePerToken, OnChain, OnChainOrderId, PoolId, PoolStateVer};
 use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
 use crate::data::pool::{ApplySwap, CFMMPoolAction, ImmutablePoolUtxo};
-use crate::data::{ExecutorFeePerToken, OnChain, OnChainOrderId, PoolId, PoolStateVer};
 
 #[derive(Debug, Clone)]
 pub struct LimitSwap {
@@ -194,4 +194,28 @@ where
             .unwrap();
         Ok((tx, predicted_pool))
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use cml_chain::Deserialize;
+    use cml_chain::plutus::PlutusData;
+
+    use spectrum_cardano_lib::types::TryFromPData;
+
+    use crate::data::limit_swap::OnChainLimitSwapConfig;
+
+    #[test]
+    fn parse_swap_datum_mainnet() {
+        let pd = PlutusData::from_cbor_bytes(&*hex::decode(DATUM).unwrap()).unwrap();
+        let maybe_conf = OnChainLimitSwapConfig::try_from_pd(pd);
+        assert!(maybe_conf.is_some())
+    }
+
+    const DATUM: &str =
+        "d8799fd8799f581c95a427e384527065f2f8946f5e86320d0117839a5e98ea2c0b55fb004448554e54ffd8799f\
+        4040ffd8799f581ce08fbaa73db55294b3b31f2a365be5c4b38211a47880f0ef6b17a1604c48554e545f4144415\
+        f4e4654ff1903e51b00148f1c351223aa1b8ac7230489e80000581c022835b77a25d6bf00f8cbf7e4744e0065ec\
+        77383500221ed4f32514d8799f581c3cc6ea3784eecc03bc736d90e368abb40f873c48d1fc74133afae5a5ff1b0\
+        0000003882d614c1a9a800dc5ff";
 }

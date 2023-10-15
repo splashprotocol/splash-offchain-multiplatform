@@ -8,7 +8,6 @@ use cml_chain::transaction::TransactionInput;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
 
-use crate::constants::NATIVE_POLICY_ID;
 use crate::plutus_data::{ConstrPlutusDataExtension, PlutusDataExtension};
 use crate::types::TryFromPData;
 
@@ -113,11 +112,12 @@ impl<T> From<TaggedAssetClass<T>> for AssetClass {
 impl TryFromPData for AssetClass {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
-        let policy_id = PolicyId::from_raw_bytes(&*cpd.take_field(0)?.into_bytes()?).ok()?;
-        let asset_name = AssetName::try_from(cpd.take_field(0)?.into_bytes()?).ok()?;
-        if policy_id == *NATIVE_POLICY_ID {
+        let policy_bytes = cpd.take_field(0)?.into_bytes()?;
+        if policy_bytes.is_empty() {
             Some(AssetClass::Native)
         } else {
+            let policy_id = PolicyId::from_raw_bytes(&*policy_bytes).ok()?;
+            let asset_name = AssetName::try_from(cpd.take_field(1)?.into_bytes()?).ok()?;
             Some(AssetClass::Token((policy_id, asset_name)))
         }
     }
