@@ -4,10 +4,10 @@ appenders:
     kind: console
   requests:
     kind: file
-    path: "log/requests.log"
+    path: "log/main.log"
     encoder:
       pattern: "{d} - {m}{n}"
 root:
-  level: warn
+  level: trace
   appenders:
     - stdout

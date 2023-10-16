@@ -6,6 +6,7 @@ members = [
     "spectrum-offchain",
     "spectrum-offchain-cardano",
     "spectrum-cardano-lib",
+    "cardano-explorer"
     #"spectrum-offchain-amm",
 ]
 

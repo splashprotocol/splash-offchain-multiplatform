@@ -1,7 +1,7 @@
 use cml_chain::address::BaseAddress;
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
-use cml_chain::transaction::{BabbageTxOut, TransactionOutput};
+use cml_chain::transaction::{ConwayFormatTxOut, TransactionOutput};
 use cml_chain::{Coin, Value};
 use cml_chain::genesis::network_info::NetworkInfo;
 use cml_crypto::Ed25519KeyHash;
@@ -40,7 +40,7 @@ impl IntoLedger<TransactionOutput, ()> for SwapOutput {
 
         let ada = self.ada_residue + ada_from_quote;
 
-        TransactionOutput::new_babbage_tx_out(BabbageTxOut {
+        TransactionOutput::new_conway_format_tx_out(ConwayFormatTxOut {
             address: addr,
             amount: Value::new(ada, ma),
             datum_option: None,

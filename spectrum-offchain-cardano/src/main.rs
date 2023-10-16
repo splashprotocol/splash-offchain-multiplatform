@@ -39,11 +39,14 @@ use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::streaming::boxed;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
+use cardano_explorer::client::Explorer;
+use cardano_explorer::data::ExplorerConfig;
 
 use crate::data::order::ClassicalOnChainOrder;
 use crate::data::pool::CFMMPool;
 use crate::data::{OnChain, PoolId};
 use crate::data::order_execution_context::OrderExecutionContext;
+use crate::data::ref_scripts::RefScriptsOutputs;
 use crate::event_sink::handlers::order::registry::EphemeralHotOrderRegistry;
 use crate::event_sink::handlers::order::ClassicalOrderUpdatesHandler;
 use crate::event_sink::handlers::pool::ConfirmedUpdateHandler;
@@ -67,6 +70,12 @@ async fn main() {
 
     log4rs::init_file(args.log4rs_path, Default::default()).unwrap();
 
+    let explorer = Explorer::new(config.explorer_config);
+
+    let ref_scripts = RefScriptsOutputs::new(config.ref_scripts, explorer)
+        .await
+        .expect("Ref scripts initialization failed");
+
     let chain_sync = ChainSyncClient::init(config.chain_sync)
         .await
         .expect("ChainSync initialization failed");
@@ -89,7 +98,7 @@ async fn main() {
     let private_key = Bip32PrivateKey::generate_ed25519_bip32();
     let public_key = private_key.to_public().to_raw_key().hash();
 
-    let ctx = OrderExecutionContext::new(public_key); //todo: add verification for correct pkh
+    let ctx = OrderExecutionContext::new(public_key, ref_scripts); //todo: add verification for correct pkh
 
     let p1 = new_partition(tx_submission_channel.clone(), None, ctx.clone());
     let p2 = new_partition(tx_submission_channel.clone(), None, ctx.clone());
@@ -191,12 +200,23 @@ fn new_partition<'a, Net>(
 }
 
 #[derive(Deserialize)]
+pub struct RefScriptsConfig {
+    pool_v1_ref: String,
+    pool_v2_ref: String,
+    swap_ref: String,
+    deposit_ref: String,
+    redeem_ref: String
+}
+
+#[derive(Deserialize)]
 #[serde(bound = "'de: 'a")]
 struct AppConfig<'a> {
     chain_sync: ChainSyncConf<'a>,
     local_tx_submission: LocalTxSubmissionConf<'a>,
     tx_submission_buffer_size: usize,
     batcher_pkh: String, //todo: to cypher container
+    ref_scripts: RefScriptsConfig,
+    explorer_config: ExplorerConfig<'a>
 }
 
 #[derive(Parser)]

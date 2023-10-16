@@ -30,7 +30,6 @@ use crate::cardano::protocol_params::constant_tx_builder;
 use crate::data::{ExecutorFeePerToken, OnChain, OnChainOrderId, PoolId, PoolStateVer};
 use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
 use crate::data::pool::{ApplySwap, CFMMPoolAction, ImmutablePoolUtxo};
-use crate::data::{ExecutorFeePerToken, OnChain, OnChainOrderId, PoolId, PoolStateVer};
 use crate::data::order_execution_context::OrderExecutionContext;
 
 #[derive(Debug, Clone)]
@@ -42,7 +41,7 @@ pub struct LimitSwap {
     pub min_expected_quote_amount: TaggedAmount<Quote>,
     pub fee: ExecutorFeePerToken,
     pub redeemer_pkh: Ed25519KeyHash,
-    pub redeemer_stake_pkh: Option<Ed25519KeyHash>
+    pub redeemer_stake_pkh: Option<Ed25519KeyHash>,
 }
 
 pub type ClassicalOnChainLimitSwap = ClassicalOrder<OnChainOrderId, LimitSwap>;
@@ -70,13 +69,14 @@ impl TryFromLedger<TransactionOutput, OutputRef> for ClassicalOnChainLimitSwap {
         println!("Going to test out with address: {}", Address::to_bech32(repr.address(), None).ok().unwrap_or(String::from("none")));
         let value = repr.amount().clone();
         println!("Value ada: {}", value.coin.to_string());//serde_json::to_string(&value).ok().unwrap_or(String::from("none")));
-        let conf = OnChainLimitSwapConfig::try_from_pd(repr.into_datum()?.into_pd()?)?;
-        println!("Conf: {}", conf.ex_fee_per_token_num);
+        let conf1 = OnChainLimitSwapConfig::try_from_pd(repr.clone().into_datum()?.into_pd()?);
+        println!("Conf1: {}", conf1.is_some());
+        let conf = OnChainLimitSwapConfig::try_from_pd(repr.clone().into_datum()?.into_pd()?)?;
         let real_base_input = value.amount_of(conf.base.untag()).unwrap_or(0);
         let (min_base, ada_deposit) = if conf.base.is_native() {
             let min = conf.base_amount.untag()
                 + ((conf.min_quote_amount.untag() as u128) * (conf.ex_fee_per_token_num as u128)
-                    / (conf.ex_fee_per_token_denom as u128)) as u64;
+                / (conf.ex_fee_per_token_denom as u128)) as u64;
             let ada = real_base_input - conf.base_amount.untag();
             (min, ada)
         } else {
@@ -96,7 +96,7 @@ impl TryFromLedger<TransactionOutput, OutputRef> for ClassicalOnChainLimitSwap {
                 AssetClass::Native,
             ),
             redeemer_pkh: conf.redeemer_pkh,
-            redeemer_stake_pkh: conf.redeemer_stake_pkh
+            redeemer_stake_pkh: conf.redeemer_stake_pkh,
         };
         Some(ClassicalOrder {
             id: OnChainOrderId::from(ctx),
@@ -115,7 +115,7 @@ pub struct OnChainLimitSwapConfig {
     pub ex_fee_per_token_num: u64,
     pub ex_fee_per_token_denom: u64,
     pub redeemer_pkh: Ed25519KeyHash,
-    pub redeemer_stake_pkh: Option<Ed25519KeyHash>
+    pub redeemer_stake_pkh: Option<Ed25519KeyHash>,
 }
 
 impl TryFromPData for OnChainLimitSwapConfig {
@@ -126,28 +126,6 @@ impl TryFromPData for OnChainLimitSwapConfig {
             .and_then(|bytes| <[u8; 28]>::try_from(bytes).ok())
             .map(|bytes| Ed25519KeyHash::from(bytes));
 
-        let rawData = stake_pkh.map(|stake_hash| Ed25519KeyHash::to_hex(&stake_hash)).unwrap_or(String::from("none"));
-
-        let base: Option<TaggedAssetClass<Base>> = cpd.take_field(0).and_then(TaggedAssetClass::try_from_pd);
-        let base_amount: Option<TaggedAmount<Base>> = cpd.take_field(8).and_then(TaggedAmount::try_from_pd);
-        let quote: Option<TaggedAssetClass<Quote>> = cpd.take_field(1).and_then(TaggedAssetClass::try_from_pd);
-        let min_quote_amount: Option<TaggedAmount<Quote>> = cpd.take_field(9).and_then(TaggedAmount::try_from_pd);
-        let pool_nft: Option<TaggedAssetClass<PoolNft>> = cpd.take_field(2).and_then(TaggedAssetClass::try_from_pd);
-        let ex_fee_per_token_num = cpd.take_field(4).and_then(|data| data.into_u64());
-        let ex_fee_per_token_denom = cpd.take_field(5).and_then(|data| data.into_u64());
-        let redeemer_pkh = cpd.take_field(6).and_then(|data| data.into_bytes()).and_then(|bytes| <[u8; 28]>::try_from(bytes).ok()).map(|array| Ed25519KeyHash::from(array)); //Ed25519KeyHash::from(<[u8; 28]>::try_from(cpd.take_field(6)?.into_bytes()?).ok()?);
-        let redeemer_stake_pkh = stake_pkh;
-
-        println!("stake_pkh {}",  rawData);
-        println!("base {}", base.is_some());
-        println!("base_amount {}",  base_amount.is_some());
-        println!("quote {}",  quote.is_some());
-        println!("min_quote_amount {}",  min_quote_amount.is_some());
-        println!("pool_nft {}",  pool_nft.is_some());
-        println!("ex_fee_per_token_num {}",  ex_fee_per_token_num.is_some());
-        println!("ex_fee_per_token_denom {}",  ex_fee_per_token_denom.is_some());
-        println!("redeemer_pkh {}", redeemer_pkh.is_some());
-
         Some(OnChainLimitSwapConfig {
             base: TaggedAssetClass::try_from_pd(cpd.take_field(0)?)?,
             base_amount: TaggedAmount::try_from_pd(cpd.take_field(8)?)?,
@@ -157,19 +135,19 @@ impl TryFromPData for OnChainLimitSwapConfig {
             ex_fee_per_token_num: cpd.take_field(4)?.into_u64()?,
             ex_fee_per_token_denom: cpd.take_field(5)?.into_u64()?,
             redeemer_pkh: Ed25519KeyHash::from(<[u8; 28]>::try_from(cpd.take_field(6)?.into_bytes()?).ok()?),
-            redeemer_stake_pkh: stake_pkh
+            redeemer_stake_pkh: stake_pkh,
         })
     }
 }
 
 impl<Swap, Pool> RunOrder<OnChain<Swap>, OrderExecutionContext, SignedTxBuilder> for OnChain<Pool>
-where
-    Pool: ApplySwap<Swap>
+    where
+        Pool: ApplySwap<Swap>
         + Has<PoolStateVer>
         + RequiresRedeemer<CFMMPoolAction>
         + IntoLedger<TransactionOutput, ImmutablePoolUtxo>
         + Clone,
-    Swap: Has<OnChainOrderId> + RequiresRedeemer<ClassicalOrderAction>,
+        Swap: Has<OnChainOrderId> + RequiresRedeemer<ClassicalOrderAction>,
 {
     fn try_run(
         self,
@@ -193,7 +171,7 @@ where
                         value,
                         source: order_out_in,
                     })
-                    .into())
+                    .into());
             }
         };
         let pool_redeemer = Pool::redeemer(CFMMPoolAction::Swap);
@@ -224,6 +202,15 @@ where
         let batcher_out = batcher_profit.into_ledger(());
         let batcher_addr = batcher_out.address().clone();
         let mut tx_builder = constant_tx_builder(); //TransactionBuilder::new(ctx.builder_cfg);
+        let scriptHash = ctx.ref_scripts.pool_v1.output.script_ref().map(|scr| scr.hash().to_hex());
+
+        tx_builder
+            .add_reference_input(ctx.ref_scripts.pool_v1);
+        tx_builder
+            .add_reference_input(ctx.ref_scripts.pool_v2);
+        tx_builder
+            .add_reference_input(ctx.ref_scripts.swap);
+
         tx_builder.add_input(pool_in).unwrap();
         tx_builder.add_input(order_in).unwrap();
         tx_builder
@@ -235,6 +222,7 @@ where
         tx_builder
             .add_output(SingleOutputBuilderResult::new(batcher_out))
             .unwrap();
+
         let tx = tx_builder
             .build(ChangeSelectionAlgo::Default, &batcher_addr)
             .unwrap();

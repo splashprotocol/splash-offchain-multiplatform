@@ -2,7 +2,7 @@ use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::builders::tx_builder::{SignedTxBuilder, TransactionBuilderConfig};
 use cml_chain::plutus::PlutusData;
-use cml_chain::transaction::{BabbageTxOut, DatumOption, ScriptRef, TransactionOutput};
+use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, TransactionOutput};
 use cml_chain::{Coin, Value};
 use cml_crypto::Ed25519KeyHash;
 use num_rational::Ratio;
@@ -193,7 +193,8 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for CFMMPool {
         };
         let (policy_lq, name_lq) = self.asset_lq.untag().into_token().unwrap();
         ma.set(policy_lq, name_lq.into(), self.liquidity.untag());
-        TransactionOutput::new_babbage_tx_out(BabbageTxOut {
+
+        TransactionOutput::new_conway_format_tx_out(ConwayFormatTxOut {
             address: immut_pool.address,
             amount: Value::new(coins, ma),
             datum_option: immut_pool.datum_option,
