@@ -1,12 +1,13 @@
 use cml_chain::address::Address;
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
+use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
 use cml_chain::builders::tx_builder::{
     ChangeSelectionAlgo, SignedTxBuilder, TransactionBuilder, TransactionBuilderConfig,
 };
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
 use cml_chain::Coin;
-use cml_chain::plutus::PlutusData;
+use cml_chain::plutus::{ExUnits, PlutusData, RedeemerTag};
 use cml_chain::transaction::TransactionOutput;
 use cml_crypto::Ed25519KeyHash;
 
@@ -213,6 +214,17 @@ impl<Swap, Pool> RunOrder<OnChain<Swap>, OrderExecutionContext, SignedTxBuilder>
 
         tx_builder.add_input(pool_in).unwrap();
         tx_builder.add_input(order_in).unwrap();
+
+        tx_builder.set_exunits(
+            RedeemerWitnessKey::new(RedeemerTag::Spend, 0),
+            ExUnits::new(5000000, 2000000000),
+        );
+
+        tx_builder.set_exunits(
+            RedeemerWitnessKey::new(RedeemerTag::Spend, 1),
+            ExUnits::new(5000000, 2000000000),
+        );
+
         tx_builder
             .add_output(SingleOutputBuilderResult::new(pool_out))
             .unwrap();
@@ -222,6 +234,9 @@ impl<Swap, Pool> RunOrder<OnChain<Swap>, OrderExecutionContext, SignedTxBuilder>
         tx_builder
             .add_output(SingleOutputBuilderResult::new(batcher_out))
             .unwrap();
+
+        let test = tx_builder
+            .build(ChangeSelectionAlgo::Default, &batcher_addr);
 
         let tx = tx_builder
             .build(ChangeSelectionAlgo::Default, &batcher_addr)
