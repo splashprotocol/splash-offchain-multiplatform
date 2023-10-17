@@ -41,7 +41,7 @@ impl TryInto<CMLValue> for Value {
             if entity.name.is_empty() {
                 value.add_unsafe(Native, entity.quantity);
             } else {
-                let policy_id = PolicyId::from_hex(entity.clone().policy_id.as_str()).unwrap();
+                let policy_id = PolicyId::from_hex(entity.policy_id.as_str()).unwrap();
                 let token_name = AssetName::try_from(entity.name.clone()).unwrap();
                 value.add_unsafe(Token((policy_id, token_name)), entity.quantity);
             }

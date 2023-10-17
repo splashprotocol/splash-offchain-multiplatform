@@ -204,19 +204,19 @@ where
         let batcher_addr = batcher_out.address().clone();
         let mut tx_builder = constant_tx_builder();
 
-        //todo: add pools version and remove if-else. PoolStateVer?
+        //todo: Use pools version and remove if-else. PoolStateVer?
         let pool_parsed_address =
             Address::to_bech32(pool_in.utxo_info.address(), None).unwrap_or(String::from("unknown"));
 
-        if (pool_parsed_address == "addr1x94ec3t25egvhqy2n265xfhq882jxhkknurfe9ny4rl9k6dj764lvrxdayh2ux30fl0ktuh27csgmpevdu89jlxppvrst84slu") {
+        if pool_parsed_address == "addr1x94ec3t25egvhqy2n265xfhq882jxhkknurfe9ny4rl9k6dj764lvrxdayh2ux30fl0ktuh27csgmpevdu89jlxppvrst84slu" {
             tx_builder
                 .add_reference_input(ctx.ref_scripts.pool_v2)
-        } else if (pool_parsed_address == "addr1x8nz307k3sr60gu0e47cmajssy4fmld7u493a4xztjrll0aj764lvrxdayh2ux30fl0ktuh27csgmpevdu89jlxppvrswgxsta") {
+        } else if pool_parsed_address == "addr1x8nz307k3sr60gu0e47cmajssy4fmld7u493a4xztjrll0aj764lvrxdayh2ux30fl0ktuh27csgmpevdu89jlxppvrswgxsta" {
             tx_builder
                 .add_reference_input(ctx.ref_scripts.pool_v1);
         }
 
-        tx_builder.add_collateral(ctx.collateral);
+        tx_builder.add_collateral(ctx.collateral).unwrap();
 
         tx_builder.add_reference_input(ctx.ref_scripts.swap);
 
