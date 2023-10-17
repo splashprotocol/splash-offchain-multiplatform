@@ -71,16 +71,8 @@ impl UniqueOrder for ClassicalOnChainLimitSwap {
 
 impl TryFromLedger<TransactionOutput, OutputRef> for ClassicalOnChainLimitSwap {
     fn try_from_ledger(repr: TransactionOutput, ctx: OutputRef) -> Option<Self> {
-        println!(
-            "Going to test out with address: {}",
-            Address::to_bech32(repr.address(), None)
-                .ok()
-                .unwrap_or(String::from("none"))
-        );
         let value = repr.amount().clone();
-        println!("Value ada: {}", value.coin.to_string()); //serde_json::to_string(&value).ok().unwrap_or(String::from("none")));
         let conf1 = OnChainLimitSwapConfig::try_from_pd(repr.clone().into_datum()?.into_pd()?);
-        println!("Conf1: {}", conf1.is_some());
         let conf = OnChainLimitSwapConfig::try_from_pd(repr.clone().into_datum()?.into_pd()?)?;
         let real_base_input = value.amount_of(conf.base.untag()).unwrap_or(0);
         let (min_base, ada_deposit) = if conf.base.is_native() {

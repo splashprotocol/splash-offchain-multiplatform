@@ -1,15 +1,20 @@
 use std::hash::Hash;
+use std::ops::Deref;
 use std::sync::{Arc, Once};
 
 use clap::Parser;
+use cml_chain::address::{Address, BaseAddress, EnterpriseAddress};
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::tx_builder::{
     SignedTxBuilder, TransactionBuilderConfig, TransactionBuilderConfigBuilder,
 };
+use cml_chain::certs::StakeCredential;
+use cml_chain::genesis::network_info::NetworkInfo;
 use cml_chain::transaction::Transaction;
 use cml_crypto::chain_crypto::{Ed25519, KeyPair};
-use cml_crypto::Bip32PrivateKey;
 use cml_crypto::Ed25519KeyHash;
+use cml_crypto::RawBytesEncoding;
+use cml_crypto::{Bip32PrivateKey, PrivateKey};
 use futures::channel::mpsc;
 use futures::stream::select_all;
 use futures::{Stream, StreamExt};
@@ -98,11 +103,9 @@ async fn main() {
         1, 0, 0, 0, 23, 0, 0, 0, 200, 1, 0, 0, 210, 30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ];
 
-    // let rng = ChaCha20Rng::from_entropy();
-    let private_key =
-        Bip32PrivateKey::from_bech32(config.batcher_private_key).expect("Couldn't parse private key");
+    let private_key = Bip32PrivateKey::from_bech32(config.batcher_private_key).expect("wallet error");
     let pk = private_key.to_raw_key();
-    let public_key = private_key.to_public().to_raw_key().hash();
+    let public_key = pk.to_public().hash();
 
     let collateral_storage = CollateralStorage::new(public_key.to_hex());
 
@@ -211,6 +214,7 @@ where
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RefScriptsConfig {
     pool_v1_ref: String,
     pool_v2_ref: String,
@@ -221,6 +225,7 @@ pub struct RefScriptsConfig {
 
 #[derive(Deserialize)]
 #[serde(bound = "'de: 'a")]
+#[serde(rename_all = "camelCase")]
 struct AppConfig<'a> {
     chain_sync: ChainSyncConf<'a>,
     local_tx_submission: LocalTxSubmissionConf<'a>,

@@ -115,6 +115,7 @@ impl TryFrom<RawPoint> for Point {
 }
 
 #[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChainSyncConf<'a> {
     pub path: &'a str,
     pub magic: u64,
