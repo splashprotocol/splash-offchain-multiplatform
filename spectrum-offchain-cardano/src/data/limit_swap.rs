@@ -205,24 +205,31 @@ impl<Swap, Pool> RunOrder<OnChain<Swap>, OrderExecutionContext, SignedTxBuilder>
         let mut tx_builder = constant_tx_builder(); //TransactionBuilder::new(ctx.builder_cfg);
         let scriptHash = ctx.ref_scripts.pool_v1.output.script_ref().map(|scr| scr.hash().to_hex());
 
-        tx_builder
-            .add_reference_input(ctx.ref_scripts.pool_v1);
-        tx_builder
-            .add_reference_input(ctx.ref_scripts.pool_v2);
+        //todo: remove after tests
+        let pool_parsed_address = Address::to_bech32(pool_in.utxo_info.address(), None).unwrap_or(String::from("unknown"));
+
+        if (pool_parsed_address == "addr1x94ec3t25egvhqy2n265xfhq882jxhkknurfe9ny4rl9k6dj764lvrxdayh2ux30fl0ktuh27csgmpevdu89jlxppvrst84slu") {
+            tx_builder
+                .add_reference_input(ctx.ref_scripts.pool_v2)
+        } else if (pool_parsed_address == "addr1x8nz307k3sr60gu0e47cmajssy4fmld7u493a4xztjrll0aj764lvrxdayh2ux30fl0ktuh27csgmpevdu89jlxppvrswgxsta") {
+            tx_builder
+                .add_reference_input(ctx.ref_scripts.pool_v1);
+        }
+
         tx_builder
             .add_reference_input(ctx.ref_scripts.swap);
 
-        tx_builder.add_input(pool_in).unwrap();
+        tx_builder.add_input(pool_in.clone()).unwrap();
         tx_builder.add_input(order_in).unwrap();
 
         tx_builder.set_exunits(
             RedeemerWitnessKey::new(RedeemerTag::Spend, 0),
-            ExUnits::new(5000000, 2000000000),
+            ExUnits::new(530000, 165000000),
         );
 
         tx_builder.set_exunits(
             RedeemerWitnessKey::new(RedeemerTag::Spend, 1),
-            ExUnits::new(5000000, 2000000000),
+            ExUnits::new(270000, 140000000),
         );
 
         tx_builder
@@ -231,12 +238,6 @@ impl<Swap, Pool> RunOrder<OnChain<Swap>, OrderExecutionContext, SignedTxBuilder>
         tx_builder
             .add_output(SingleOutputBuilderResult::new(user_out))
             .unwrap();
-        tx_builder
-            .add_output(SingleOutputBuilderResult::new(batcher_out))
-            .unwrap();
-
-        let test = tx_builder
-            .build(ChangeSelectionAlgo::Default, &batcher_addr);
 
         let tx = tx_builder
             .build(ChangeSelectionAlgo::Default, &batcher_addr)
