@@ -110,7 +110,7 @@ impl TryFromLedger<TransactionOutput, OutputRef> for ClassicalOnChainOrder {
     }
 }
 
-impl RunOrder<ClassicalOnChainOrder, OrderExecutionContext, SignedTxBuilder> for OnChain<CFMMPool> {
+impl<'a> RunOrder<ClassicalOnChainOrder, OrderExecutionContext<'a>, SignedTxBuilder> for OnChain<CFMMPool> {
     fn try_run(
         self,
         order: ClassicalOnChainOrder,

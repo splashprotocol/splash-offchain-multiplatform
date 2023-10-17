@@ -65,6 +65,7 @@ pub struct TxRejected;
 
 #[async_trait::async_trait]
 impl<const ERA: u16> Network<Transaction, TxRejected> for TxSubmissionChannel<ERA> {
+    //todo: improve errors ADT
     async fn submit_tx(&mut self, tx: Transaction) -> Result<(), TxRejected> {
         let (snd, recv) = oneshot::channel();
         self.0.send(SubmitTx(tx, snd)).await.unwrap();

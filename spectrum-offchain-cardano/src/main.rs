@@ -2,11 +2,13 @@ use std::hash::Hash;
 use std::sync::{Arc, Once};
 
 use clap::Parser;
+use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::tx_builder::{
     SignedTxBuilder, TransactionBuilderConfig, TransactionBuilderConfigBuilder,
 };
 use cml_chain::transaction::Transaction;
 use cml_crypto::chain_crypto::{Ed25519, KeyPair};
+use cml_crypto::Bip32PrivateKey;
 use cml_crypto::Ed25519KeyHash;
 use futures::channel::mpsc;
 use futures::stream::select_all;
@@ -15,14 +17,17 @@ use rand::prelude::StdRng;
 use serde::Deserialize;
 use tokio::sync::Mutex;
 use tracing_subscriber::fmt::Subscriber;
-use cml_crypto::Bip32PrivateKey;
 
+use crate::collateral_storage::CollateralStorage;
 use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::{ChainSyncClient, ChainSyncConf, RawPoint};
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_chain_sync::event_source::event_source_ledger;
+use cardano_explorer::client::Explorer;
+use cardano_explorer::data::ExplorerConfig;
 use cardano_submit_api::client::{LocalTxSubmissionClient, LocalTxSubmissionConf};
-use RawPoint::Specific;
+use rand::SeedableRng;
+use rand_chacha::ChaCha20Rng;
 use spectrum_cardano_lib::constants::BABBAGE_ERA_ID;
 use spectrum_offchain::backlog::process::hot_backlog_stream;
 use spectrum_offchain::backlog::HotPriorityBacklog;
@@ -37,28 +42,26 @@ use spectrum_offchain::executor::{executor_stream, HotOrderExecutor};
 use spectrum_offchain::network::Network;
 use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::streaming::boxed;
-use rand::SeedableRng;
-use rand_chacha::ChaCha20Rng;
-use cardano_explorer::client::Explorer;
-use cardano_explorer::data::ExplorerConfig;
+use RawPoint::Specific;
 
 use crate::data::order::ClassicalOnChainOrder;
-use crate::data::pool::CFMMPool;
-use crate::data::{OnChain, PoolId};
 use crate::data::order_execution_context::OrderExecutionContext;
+use crate::data::pool::CFMMPool;
 use crate::data::ref_scripts::RefScriptsOutputs;
+use crate::data::{OnChain, PoolId};
 use crate::event_sink::handlers::order::registry::EphemeralHotOrderRegistry;
 use crate::event_sink::handlers::order::ClassicalOrderUpdatesHandler;
 use crate::event_sink::handlers::pool::ConfirmedUpdateHandler;
 use crate::prover::noop::NoopProver;
 use crate::tx_submission::{tx_submission_agent_stream, TxRejected, TxSubmissionAgent};
 
+mod cardano;
+mod collateral_storage;
 mod constants;
 mod data;
 mod event_sink;
 mod prover;
 mod tx_submission;
-mod cardano;
 
 #[tokio::main]
 async fn main() {
@@ -91,14 +94,24 @@ async fn main() {
         Some(&signal_tip_reached),
     )));
 
-    let seed = [1,0,0,0, 23,0,0,0, 200,1,0,0, 210,30,0,0,
-        0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0];
+    let seed = [
+        1, 0, 0, 0, 23, 0, 0, 0, 200, 1, 0, 0, 210, 30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ];
 
     // let rng = ChaCha20Rng::from_entropy();
-    let private_key = Bip32PrivateKey::generate_ed25519_bip32();
+    let private_key =
+        Bip32PrivateKey::from_bech32(config.batcher_private_key).expect("Couldn't parse private key");
+    let pk = private_key.to_raw_key();
     let public_key = private_key.to_public().to_raw_key().hash();
 
-    let ctx = OrderExecutionContext::new(public_key, ref_scripts); //todo: add verification for correct pkh
+    let collateral_storage = CollateralStorage::new(public_key.to_hex());
+
+    let collateral = collateral_storage
+        .get_collateral(explorer)
+        .await
+        .expect("Couldn't retrieve collateral");
+
+    let ctx = OrderExecutionContext::new(public_key, &pk, ref_scripts, collateral);
 
     let p1 = new_partition(tx_submission_channel.clone(), None, ctx.clone());
     let p2 = new_partition(tx_submission_channel.clone(), None, ctx.clone());
@@ -165,10 +178,14 @@ struct ExecPartition<S, Backlog, Pools> {
 fn new_partition<'a, Net>(
     network: Net,
     signal_tip_reached: Option<&'a Once>,
-    ctx: OrderExecutionContext,
-) -> ExecPartition<impl Stream<Item=()> + 'a, HotPriorityBacklog<ClassicalOnChainOrder>, InMemoryEntityRepo<OnChain<CFMMPool>>>
-    where
-        Net: Network<Transaction, TxRejected> + 'a,
+    ctx: OrderExecutionContext<'a>,
+) -> ExecPartition<
+    impl Stream<Item = ()> + 'a,
+    HotPriorityBacklog<ClassicalOnChainOrder>,
+    InMemoryEntityRepo<OnChain<CFMMPool>>,
+>
+where
+    Net: Network<Transaction, TxRejected> + 'a,
 {
     let backlog = Arc::new(Mutex::new(HotPriorityBacklog::new(43)));
     let pool_repo = Arc::new(Mutex::new(InMemoryEntityRepo::new()));
@@ -184,13 +201,7 @@ fn new_partition<'a, Net>(
         SignedTxBuilder,
         Transaction,
         TxRejected,
-    > = HotOrderExecutor::new(
-        network,
-        Arc::clone(&backlog),
-        Arc::clone(&pool_repo),
-        prover,
-        ctx,
-    );
+    > = HotOrderExecutor::new(network, Arc::clone(&backlog), Arc::clone(&pool_repo), prover, ctx);
     let executor_stream = executor_stream(executor, signal_tip_reached);
     ExecPartition {
         executor_stream,
@@ -205,7 +216,7 @@ pub struct RefScriptsConfig {
     pool_v2_ref: String,
     swap_ref: String,
     deposit_ref: String,
-    redeem_ref: String
+    redeem_ref: String,
 }
 
 #[derive(Deserialize)]
@@ -214,9 +225,9 @@ struct AppConfig<'a> {
     chain_sync: ChainSyncConf<'a>,
     local_tx_submission: LocalTxSubmissionConf<'a>,
     tx_submission_buffer_size: usize,
-    batcher_pkh: String, //todo: to cypher container
+    batcher_private_key: &'a str, //todo: to cypher container
     ref_scripts: RefScriptsConfig,
-    explorer_config: ExplorerConfig<'a>
+    explorer_config: ExplorerConfig<'a>,
 }
 
 #[derive(Parser)]
