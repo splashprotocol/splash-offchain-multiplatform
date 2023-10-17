@@ -2,22 +2,21 @@ use cml_chain::address::Address;
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
-use cml_chain::builders::tx_builder::{
-    ChangeSelectionAlgo, SignedTxBuilder, TransactionBuilder, TransactionBuilderConfig,
-};
+use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder};
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
 use cml_chain::crypto::hash::hash_transaction;
 use cml_chain::crypto::utils::make_vkey_witness;
 use cml_chain::plutus::{ExUnits, PlutusData, RedeemerTag};
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::Coin;
-use cml_crypto::{Ed25519KeyHash, PrivateKey};
+use cml_crypto::Ed25519KeyHash;
 
 use cml_core::serialization::FromBytes;
 
 use num_rational::Ratio;
 
 use crate::cardano::protocol_params::constant_tx_builder;
+use crate::constants::{ORDER_APPLY_RAW_REDEEMER, ORDER_REFUND_RAW_REDEEMER};
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
 };
@@ -53,10 +52,10 @@ impl RequiresRedeemer<ClassicalOrderAction> for ClassicalOnChainLimitSwap {
     fn redeemer(action: ClassicalOrderAction) -> PlutusData {
         match action {
             ClassicalOrderAction::Apply => {
-                PlutusData::from_bytes(hex::decode("d8799f00010100ff").unwrap()).unwrap()
+                PlutusData::from_bytes(hex::decode(ORDER_APPLY_RAW_REDEEMER).unwrap()).unwrap()
             }
             ClassicalOrderAction::Refund => {
-                PlutusData::from_bytes(hex::decode("d8799f01000001ff").unwrap()).unwrap()
+                PlutusData::from_bytes(hex::decode(ORDER_REFUND_RAW_REDEEMER).unwrap()).unwrap()
             }
         }
     }
@@ -72,7 +71,6 @@ impl UniqueOrder for ClassicalOnChainLimitSwap {
 impl TryFromLedger<TransactionOutput, OutputRef> for ClassicalOnChainLimitSwap {
     fn try_from_ledger(repr: TransactionOutput, ctx: OutputRef) -> Option<Self> {
         let value = repr.amount().clone();
-        let conf1 = OnChainLimitSwapConfig::try_from_pd(repr.clone().into_datum()?.into_pd()?);
         let conf = OnChainLimitSwapConfig::try_from_pd(repr.clone().into_datum()?.into_pd()?)?;
         let real_base_input = value.amount_of(conf.base.untag()).unwrap_or(0);
         let (min_base, ada_deposit) = if conf.base.is_native() {
@@ -204,15 +202,9 @@ where
         let user_out = swap_out.into_ledger(());
         let batcher_out = batcher_profit.into_ledger(());
         let batcher_addr = batcher_out.address().clone();
-        let mut tx_builder = constant_tx_builder(); //TransactionBuilder::new(ctx.builder_cfg);
-        let scriptHash = ctx
-            .ref_scripts
-            .pool_v1
-            .output
-            .script_ref()
-            .map(|scr| scr.hash().to_hex());
+        let mut tx_builder = constant_tx_builder();
 
-        //todo: remove after tests
+        //todo: add pools version and remove if-else. PoolStateVer?
         let pool_parsed_address =
             Address::to_bech32(pool_in.utxo_info.address(), None).unwrap_or(String::from("unknown"));
 

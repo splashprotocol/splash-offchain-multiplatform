@@ -1,6 +1,5 @@
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
-use cml_chain::builders::tx_builder::{SignedTxBuilder, TransactionBuilderConfig};
 use cml_chain::plutus::PlutusData;
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, TransactionOutput};
 use cml_chain::{Coin, Value};
@@ -17,16 +16,18 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
-use spectrum_offchain::data::unique_entity::Predicted;
 use spectrum_offchain::data::{Has, OnChainEntity};
-use spectrum_offchain::executor::{RunOrder, RunOrderError};
+use spectrum_offchain::executor::RunOrderError;
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
-use crate::constants::{CFMM_LP_FEE_DEN, MAX_LQ_CAP};
+use crate::constants::{
+    CFMM_LP_FEE_DEN, MAX_LQ_CAP, POOL_DEPOSIT_REDEEMER, POOL_DESTROY_REDEEMER, POOL_REDEEM_REDEEMER,
+    POOL_SWAP_REDEEMER,
+};
 use crate::data::batcher_output::BatcherProfit;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::operation_output::SwapOutput;
-use crate::data::order::{Base, ClassicalOnChainOrder, ClassicalOrder, PoolNft, Quote};
+use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
 use crate::data::{OnChain, PoolId, PoolStateVer};
 
 pub struct Rx;
@@ -40,8 +41,8 @@ pub struct Slippage<Order>(Order);
 
 impl<T> Slippage<T> {
     pub fn map<F, T1>(self, f: F) -> Slippage<T1>
-        where
-            F: FnOnce(T) -> T1,
+    where
+        F: FnOnce(T) -> T1,
     {
         Slippage(f(self.0))
     }
@@ -83,11 +84,11 @@ impl CFMMPool {
         let quote_amount = if base_asset.untag() == self.asset_x.untag() {
             (self.reserves_y.untag() as u128) * (base_amount.untag() as u128) * (*self.lp_fee.numer() as u128)
                 / ((self.reserves_x.untag() as u128) * (*self.lp_fee.denom() as u128)
-                + (base_amount.untag() as u128) * (*self.lp_fee.numer() as u128))
+                    + (base_amount.untag() as u128) * (*self.lp_fee.numer() as u128))
         } else {
             (self.reserves_x.untag() as u128) * (base_amount.untag() as u128) * (*self.lp_fee.numer() as u128)
                 / ((self.reserves_y.untag() as u128) * (*self.lp_fee.denom() as u128)
-                + (base_amount.untag() as u128) * (*self.lp_fee.numer() as u128))
+                    + (base_amount.untag() as u128) * (*self.lp_fee.numer() as u128))
         };
         TaggedAmount::tag(quote_amount as u64)
     }
@@ -102,16 +103,16 @@ impl Has<PoolStateVer> for CFMMPool {
 impl RequiresRedeemer<CFMMPoolAction> for CFMMPool {
     fn redeemer(action: CFMMPoolAction) -> PlutusData {
         match action {
-            CFMMPoolAction::Swap =>
-                PlutusData::from_bytes(hex::decode("d8799f0200ff").unwrap()).unwrap(),
-            CFMMPoolAction::Deposit =>
-                PlutusData::from_bytes(hex::decode("d8799f0000ff").unwrap()).unwrap(),
-            CFMMPoolAction::Redeem =>
-                PlutusData::from_bytes(hex::decode("d8799f0100ff").unwrap()).unwrap(),
-            // PlutusData::from_bytes(hex::decode("d8799f00010100ff").unwrap()).unwrap(),
-            CFMMPoolAction::Destroy =>
-                PlutusData::from_bytes(hex::decode("d8799f0300ff").unwrap()).unwrap(),
-            //PlutusData::from_bytes(hex::decode("d8799f01000001ff").unwrap()).unwrap()
+            CFMMPoolAction::Swap => PlutusData::from_bytes(hex::decode(POOL_SWAP_REDEEMER).unwrap()).unwrap(),
+            CFMMPoolAction::Deposit => {
+                PlutusData::from_bytes(hex::decode(POOL_DEPOSIT_REDEEMER).unwrap()).unwrap()
+            }
+            CFMMPoolAction::Redeem => {
+                PlutusData::from_bytes(hex::decode(POOL_REDEEM_REDEEMER).unwrap()).unwrap()
+            }
+            CFMMPoolAction::Destroy => {
+                PlutusData::from_bytes(hex::decode(POOL_DESTROY_REDEEMER).unwrap()).unwrap()
+            }
         }
     }
 }
@@ -229,7 +230,11 @@ impl TryFromPData for CFMMPoolConfig {
 
 /// Defines how a particular type of swap order can be applied to the pool.
 pub trait ApplySwap<Swap>: Sized {
-    fn apply_swap(self, order: Swap, batcher_pkh: Ed25519KeyHash) -> Result<(Self, SwapOutput, BatcherProfit), Slippage<Swap>>;
+    fn apply_swap(
+        self,
+        order: Swap,
+        batcher_pkh: Ed25519KeyHash,
+    ) -> Result<(Self, SwapOutput, BatcherProfit), Slippage<Swap>>;
 }
 
 impl ApplySwap<ClassicalOnChainLimitSwap> for CFMMPool {
@@ -258,7 +263,7 @@ impl ApplySwap<ClassicalOnChainLimitSwap> for CFMMPool {
             quote_amount,
             ada_residue,
             redeemer_pkh: order.redeemer_pkh,
-            redeemer_stake_pkh: order.redeemer_stake_pkh
+            redeemer_stake_pkh: order.redeemer_stake_pkh,
         };
         // Prepare batcher fee.
         let batcher_profit = BatcherProfit::of(batcher_fee, batcher_pkh);

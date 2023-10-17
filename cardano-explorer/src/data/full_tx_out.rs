@@ -4,7 +4,6 @@ use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::plutus::PlutusData;
 use cml_chain::transaction::{DatumOption, TransactionInput, TransactionOutput};
 use cml_core::serialization::FromBytes;
-use cml_crypto::CryptoError::Hex;
 use cml_crypto::{DatumHash, TransactionHash};
 use serde::Deserialize;
 

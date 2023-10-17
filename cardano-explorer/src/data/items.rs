@@ -1,6 +1,4 @@
-use crate::data;
 use serde::{Deserialize, Deserializer};
-use std::marker::PhantomData;
 
 #[derive(Deserialize)]
 pub struct Items<T> {

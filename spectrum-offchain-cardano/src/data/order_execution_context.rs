@@ -1,12 +1,9 @@
 use crate::data::ref_scripts::RefScriptsOutputs;
 use cml_chain::builders::input_builder::InputBuilderResult;
-use cml_chain::builders::tx_builder::{TransactionBuilderConfig, TransactionBuilderConfigBuilder};
-use cml_chain::fees::LinearFee;
 use cml_crypto::{Ed25519KeyHash, PrivateKey};
 
 #[derive(Clone)]
 pub struct OrderExecutionContext<'a> {
-    //pub builder_cfg: TransactionBuilderConfig,
     pub batcher_pkh: Ed25519KeyHash,
     pub batcher_private: &'a PrivateKey,
     pub ref_scripts: RefScriptsOutputs,

@@ -1,7 +1,7 @@
 use crate::data::ExplorerConfig;
 use cml_chain::transaction::TransactionInput;
+use serde::de::DeserializeOwned;
 use spectrum_cardano_lib::OutputRef;
-use tracing_subscriber::fmt::format::Full;
 
 use crate::data::full_tx_out::FullTxOut;
 use crate::data::items::Items;
@@ -19,38 +19,32 @@ impl<'a> Explorer<'a> {
     }
 
     pub async fn get_utxo(self, output_ref: OutputRef) -> Option<FullTxOut> {
-        let tx_id = TransactionInput::from(output_ref).transaction_id.to_hex();
+        let request_url = format!(
+            "{}/cardano/mainnet/v1/outputs/{}:{}",
+            self.explorer_config.url.to_owned(),
+            TransactionInput::from(output_ref).transaction_id.to_hex(),
+            TransactionInput::from(output_ref).index
+        );
 
-        let out_id = TransactionInput::from(output_ref).index;
-
-        let request_url = self.explorer_config.url.to_owned()
-            + "/cardano/mainnet/v1/outputs/"
-            + tx_id.as_str()
-            + ":"
-            + out_id.to_string().as_str();
-
-        let raw_response = reqwest::get(request_url).await.ok()?;
-
-        raw_response.json::<FullTxOut>().await.ok()
+        Self::get_request::<FullTxOut>(request_url).await
     }
 
-    // explorer don't support extracting unspent utxos by address, only address payment cred
+    // explorer doesn't support extracting unspent utxos by address, only address payment cred
     pub async fn get_unspent_utxos(self, payment_cred: String, min_index: u32, limit: u32) -> Vec<FullTxOut> {
-        let request_url = self.explorer_config.url.to_owned()
-            + "/cardano/mainnet/v1/outputs/unspent/byPaymentCred/"
-            + payment_cred.as_str()
-            + "/?offset="
-            + min_index.to_string().as_str()
-            + "&limit="
-            + limit.to_string().as_str();
+        let request_url = format!(
+            "{}/cardano/mainnet/v1/outputs/unspent/byPaymentCred/{}/?offset={}&limit={}",
+            self.explorer_config.url.to_owned(),
+            payment_cred.as_str(),
+            min_index.to_string().as_str(),
+            limit.to_string().as_str()
+        );
 
-        reqwest::get(request_url)
+        Self::get_request::<Items<FullTxOut>>(request_url)
             .await
-            .ok()
-            .unwrap()
-            .json::<Items<FullTxOut>>()
-            .await
-            .ok()
             .map_or(Vec::new(), |items| items.get_items())
+    }
+
+    async fn get_request<T: DeserializeOwned>(url: String) -> Option<T> {
+        reqwest::get(url).await.ok().unwrap().json::<T>().await.ok()
     }
 }

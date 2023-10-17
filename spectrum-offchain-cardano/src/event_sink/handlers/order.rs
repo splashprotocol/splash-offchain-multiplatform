@@ -2,7 +2,6 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use cml_chain::address::Address;
 use cml_chain::crypto::hash::hash_transaction;
 use cml_chain::transaction::{Transaction, TransactionOutput};
 use futures::{Sink, SinkExt};
@@ -142,7 +141,7 @@ where
 {
     async fn try_handle(&mut self, ev: MempoolUpdate<Transaction>) -> Option<MempoolUpdate<Transaction>> {
         let res = match ev {
-            MempoolUpdate::TxAccepted(tx) => None, //self.handle_applied_tx(tx, MempoolUpdate::TxAccepted).await,
+            MempoolUpdate::TxAccepted(tx) => self.handle_applied_tx(tx, MempoolUpdate::TxAccepted).await,
         };
         let _ = self.topic.flush().await;
         res

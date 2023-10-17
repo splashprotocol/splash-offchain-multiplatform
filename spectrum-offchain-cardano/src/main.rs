@@ -3,36 +3,26 @@ use std::ops::Deref;
 use std::sync::{Arc, Once};
 
 use clap::Parser;
-use cml_chain::address::{Address, BaseAddress, EnterpriseAddress};
-use cml_chain::builders::input_builder::SingleInputBuilder;
-use cml_chain::builders::tx_builder::{
-    SignedTxBuilder, TransactionBuilderConfig, TransactionBuilderConfigBuilder,
-};
-use cml_chain::certs::StakeCredential;
-use cml_chain::genesis::network_info::NetworkInfo;
+use cml_chain::builders::tx_builder::SignedTxBuilder;
 use cml_chain::transaction::Transaction;
-use cml_crypto::chain_crypto::{Ed25519, KeyPair};
-use cml_crypto::Ed25519KeyHash;
+use cml_crypto::Bip32PrivateKey;
 use cml_crypto::RawBytesEncoding;
-use cml_crypto::{Bip32PrivateKey, PrivateKey};
 use futures::channel::mpsc;
 use futures::stream::select_all;
 use futures::{Stream, StreamExt};
-use rand::prelude::StdRng;
 use serde::Deserialize;
 use tokio::sync::Mutex;
 use tracing_subscriber::fmt::Subscriber;
 
 use crate::collateral_storage::CollateralStorage;
 use cardano_chain_sync::chain_sync_stream;
-use cardano_chain_sync::client::{ChainSyncClient, ChainSyncConf, RawPoint};
+use cardano_chain_sync::client::{ChainSyncClient, ChainSyncConf};
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_chain_sync::event_source::event_source_ledger;
 use cardano_explorer::client::Explorer;
 use cardano_explorer::data::ExplorerConfig;
 use cardano_submit_api::client::{LocalTxSubmissionClient, LocalTxSubmissionConf};
 use rand::SeedableRng;
-use rand_chacha::ChaCha20Rng;
 use spectrum_cardano_lib::constants::BABBAGE_ERA_ID;
 use spectrum_offchain::backlog::process::hot_backlog_stream;
 use spectrum_offchain::backlog::HotPriorityBacklog;
@@ -47,7 +37,6 @@ use spectrum_offchain::executor::{executor_stream, HotOrderExecutor};
 use spectrum_offchain::network::Network;
 use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::streaming::boxed;
-use RawPoint::Specific;
 
 use crate::data::order::ClassicalOnChainOrder;
 use crate::data::order_execution_context::OrderExecutionContext;
@@ -98,10 +87,6 @@ async fn main() {
         chain_sync,
         Some(&signal_tip_reached),
     )));
-
-    let seed = [
-        1, 0, 0, 0, 23, 0, 0, 0, 200, 1, 0, 0, 210, 30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ];
 
     let private_key = Bip32PrivateKey::from_bech32(config.batcher_private_key).expect("wallet error");
     let pk = private_key.to_raw_key();

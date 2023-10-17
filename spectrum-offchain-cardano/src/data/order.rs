@@ -1,8 +1,7 @@
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
-use std::ops::MulAssign;
 
-use cml_chain::builders::tx_builder::{SignedTxBuilder, TransactionBuilderConfig};
+use cml_chain::builders::tx_builder::SignedTxBuilder;
 use cml_chain::plutus::PlutusData;
 use cml_chain::transaction::TransactionOutput;
 
@@ -17,9 +16,9 @@ use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
+use crate::data::order_execution_context::OrderExecutionContext;
 use crate::data::pool::CFMMPool;
 use crate::data::{OnChain, OnChainOrderId, PoolId};
-use crate::data::order_execution_context::OrderExecutionContext;
 
 pub struct Base;
 
@@ -67,8 +66,10 @@ impl Display for ClassicalOnChainOrder {
 impl Weighted for ClassicalOnChainOrder {
     fn weight(&self) -> OrderWeight {
         match self {
-            ClassicalOnChainOrder::Swap(limit_swap) =>
-                OrderWeight::from(limit_swap.value.order.min_expected_quote_amount.untag() * limit_swap.value.order.fee.0.to_integer()) // todo: check
+            ClassicalOnChainOrder::Swap(limit_swap) => OrderWeight::from(
+                limit_swap.value.order.min_expected_quote_amount.untag()
+                    * limit_swap.value.order.fee.0.to_integer(),
+            ),
         }
     }
 }
@@ -91,10 +92,12 @@ impl SpecializedOrder for ClassicalOnChainOrder {
 impl RequiresRedeemer<ClassicalOrderAction> for ClassicalOnChainOrder {
     fn redeemer(action: ClassicalOrderAction) -> PlutusData {
         match action {
-            ClassicalOrderAction::Apply =>
-                PlutusData::from_bytes(hex::decode("d8799f00010100ff").unwrap()).unwrap(),
-            ClassicalOrderAction::Refund =>
+            ClassicalOrderAction::Apply => {
+                PlutusData::from_bytes(hex::decode("d8799f00010100ff").unwrap()).unwrap()
+            }
+            ClassicalOrderAction::Refund => {
                 PlutusData::from_bytes(hex::decode("d8799f01000001ff").unwrap()).unwrap()
+            }
         }
     }
 }
@@ -122,7 +125,7 @@ impl<'a> RunOrder<ClassicalOnChainOrder, OrderExecutionContext<'a>, SignedTxBuil
                 OrderExecutionContext,
                 SignedTxBuilder,
             >>::try_run(self, limit_swap, ctx)
-                .map_err(|err| err.map(|inner| ClassicalOnChainOrder::Swap(inner))),
+            .map_err(|err| err.map(|inner| ClassicalOnChainOrder::Swap(inner))),
         }
     }
 }
