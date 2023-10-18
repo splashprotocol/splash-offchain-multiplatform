@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter};
 
-use cml_chain::PolicyId;
 use cml_chain::transaction::{TransactionInput, TransactionOutput};
+use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use num_rational::Ratio;
 
@@ -98,12 +98,16 @@ impl OnChainOrderId {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, derive_more::From, derive_more::Into)]
 pub struct PoolId(Token);
 
-impl Into<[u8;60]> for PoolId {
+impl Into<[u8; 60]> for PoolId {
     fn into(self) -> [u8; 60] {
-        let mut bf = [0u8;60];
+        let mut bf = [0u8; 60];
         let (policy, an) = self.0;
-        policy.to_raw_bytes().into_iter().enumerate().for_each(|(ix, i)| { bf[ix] = *i; });
-        an.padded_bytes().into_iter().enumerate().for_each(|(ix, i)| { bf[ix+PolicyId::BYTE_COUNT] = i; });
+        policy.to_raw_bytes().into_iter().enumerate().for_each(|(ix, i)| {
+            bf[ix] = *i;
+        });
+        an.padded_bytes().into_iter().enumerate().for_each(|(ix, i)| {
+            bf[ix + PolicyId::BYTE_COUNT] = i;
+        });
         bf
     }
 }
