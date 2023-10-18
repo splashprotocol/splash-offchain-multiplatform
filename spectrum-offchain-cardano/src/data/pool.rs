@@ -257,7 +257,7 @@ impl ApplySwap<ClassicalOnChainLimitSwap> for CFMMPool {
         }
         // Prepare user output.
         let batcher_fee = order.fee.get_fee(quote_amount.untag());
-        let ada_residue = order.ada_deposit - batcher_fee - 300000;
+        let ada_residue = order.ada_deposit - batcher_fee;
         let swap_output = SwapOutput {
             quote_asset: order.quote_asset,
             quote_amount,

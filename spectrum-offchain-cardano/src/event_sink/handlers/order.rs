@@ -8,7 +8,7 @@ use futures::{Sink, SinkExt};
 use log::info;
 use tokio::sync::Mutex;
 
-use crate::cardano::hash::hash_transaction_correct;
+use crate::cardano::hash::hash_transaction;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_mempool_sync::data::MempoolUpdate;
 use spectrum_cardano_lib::OutputRef;
@@ -58,7 +58,7 @@ impl<TSink, TOrd, TRegistry> ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry
             }
         }
         if !is_success {
-            let tx_hash = hash_transaction_correct(&tx.body);
+            let tx_hash = hash_transaction(&tx.body);
             // no point in searching for new orders in execution tx
             for (i, o) in tx.body.outputs.iter().enumerate() {
                 let o_ref = OutputRef::from((tx_hash, i as u64));

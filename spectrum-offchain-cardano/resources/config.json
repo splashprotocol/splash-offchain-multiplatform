@@ -1,6 +1,6 @@
 {
   "chainSync": {
-    "path": "/Users/aleksandr/node-external/node.socket",
+    "path": "/ipc/node.socket",
     "magic": 764824073,
     "startingPoint": {
       "Specific": [
@@ -10,7 +10,7 @@
     }
   },
   "localTxSubmission": {
-    "path": "/Users/aleksandr/node-external/node.socket",
+    "path": "/ipc/node.socket",
     "magic": 764824073
   },
   "txSubmissionBufferSize": 1000000,
