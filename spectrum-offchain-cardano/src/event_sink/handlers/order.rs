@@ -14,8 +14,8 @@ use spectrum_offchain::data::order::{OrderLink, OrderUpdate};
 use spectrum_offchain::data::SpecializedOrder;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
-use crate::cardano::hash::hash_transaction;
 
+use crate::cardano::hash::hash_transaction;
 use crate::event_sink::handlers::order::registry::HotOrderRegistry;
 
 pub mod registry;

@@ -1,21 +1,21 @@
+use cml_chain::{Coin, Value};
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::plutus::PlutusData;
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, TransactionOutput};
-use cml_chain::{Coin, Value};
+use cml_core::serialization::FromBytes;
 use cml_crypto::Ed25519KeyHash;
 use num_rational::Ratio;
 use type_equalities::IsEqual;
 
-use cml_core::serialization::FromBytes;
-
+use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
+use spectrum_cardano_lib::constants::MIN_TX_FEE;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
 };
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, OnChainEntity};
 use spectrum_offchain::executor::RunOrderError;
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
@@ -24,11 +24,11 @@ use crate::constants::{
     CFMM_LP_FEE_DEN, MAX_LQ_CAP, POOL_DEPOSIT_REDEEMER, POOL_DESTROY_REDEEMER, POOL_REDEEM_REDEEMER,
     POOL_SWAP_REDEEMER,
 };
+use crate::data::{OnChain, PoolId, PoolStateVer};
 use crate::data::batcher_output::BatcherProfit;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::operation_output::SwapOutput;
 use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
-use crate::data::{OnChain, PoolId, PoolStateVer};
 
 pub struct Rx;
 
@@ -266,7 +266,7 @@ impl ApplySwap<ClassicalOnChainLimitSwap> for CFMMPool {
             redeemer_stake_pkh: order.redeemer_stake_pkh,
         };
         // Prepare batcher fee.
-        let batcher_profit = BatcherProfit::of(batcher_fee, batcher_pkh);
+        let batcher_profit = BatcherProfit::of(batcher_fee - MIN_TX_FEE, batcher_pkh);
         Ok((self, swap_output, batcher_profit))
     }
 }
