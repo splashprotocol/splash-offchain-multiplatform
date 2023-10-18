@@ -1,13 +1,7 @@
 use std::collections::HashSet;
 
 use cml_chain::block::Block;
-use cml_chain::crypto::hash::hash_transaction;
 use cml_chain::transaction::Transaction;
-use cml_crypto::{
-    blake2b224, blake2b256, AuxiliaryDataHash, DatumHash, ScriptDataHash, ScriptHash,
-    TransactionHash,
-};
-use cml_chain::Serialize;
 use futures::stream::StreamExt;
 use futures::{stream, Stream};
 
@@ -31,7 +25,7 @@ fn process_upgrade(upgr: ChainUpgrade) -> Vec<LedgerTxEvent> {
             ..
         }) => {
             let invalid_indices: HashSet<u16> = HashSet::from_iter(invalid_transactions);
-            let test: Vec<LedgerTxEvent> = transaction_bodies
+            transaction_bodies
                 .into_iter()
                 .zip(transaction_witness_sets)
                 .enumerate()
@@ -45,8 +39,7 @@ fn process_upgrade(upgr: ChainUpgrade) -> Vec<LedgerTxEvent> {
                         encodings: None,
                     })
                 })
-                .collect();
-            test
+                .collect()
         }
         ChainUpgrade::RollBackward(_) => Vec::new(),
     }
