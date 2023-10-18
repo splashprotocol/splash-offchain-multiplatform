@@ -1,14 +1,15 @@
-use cml_chain::{PolicyId, Value as CMLValue};
+use cml_chain::{PolicyId, Value};
 use serde::Deserialize;
+
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::AssetClass::{Native, Token};
 use spectrum_cardano_lib::AssetName;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Value(Vec<ValueEntity>);
+pub struct ExplorerValue(Vec<ExplorerAsset>);
 
-impl Value {
+impl ExplorerValue {
     pub fn contains_only_ada(&self) -> bool {
         self.0.len() == 1
             && self
@@ -17,9 +18,6 @@ impl Value {
                 .map_or(false, |entity_info| entity_info.policy_id.is_empty())
     }
 
-    // There is impossible to create output without ada, but we are not
-    // parsing this Value directly from blockchain and couldn't guarantee that
-    // parsed value will contain ada. Option?
     pub fn get_ada_qty(&self) -> u64 {
         self.0
             .iter()
@@ -32,11 +30,11 @@ impl Value {
 #[derive(Debug)]
 pub struct ValueConvertingError;
 
-impl TryInto<CMLValue> for Value {
+impl TryInto<Value> for ExplorerValue {
     type Error = ValueConvertingError;
 
-    fn try_into(self) -> Result<CMLValue, Self::Error> {
-        let mut value = CMLValue::zero();
+    fn try_into(self) -> Result<Value, Self::Error> {
+        let mut value = Value::zero();
         self.0.iter().for_each(|entity| {
             if entity.name.is_empty() {
                 value.add_unsafe(Native, entity.quantity);
@@ -52,7 +50,7 @@ impl TryInto<CMLValue> for Value {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ValueEntity {
+pub struct ExplorerAsset {
     policy_id: String,
     name: String,
     quantity: u64,

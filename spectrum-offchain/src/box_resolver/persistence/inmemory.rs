@@ -5,8 +5,8 @@ use async_trait::async_trait;
 use log::warn;
 
 use crate::box_resolver::persistence::EntityRepo;
-use crate::data::OnChainEntity;
 use crate::data::unique_entity::{Confirmed, Predicted, Traced, Unconfirmed};
+use crate::data::OnChainEntity;
 
 #[derive(Debug)]
 pub struct InMemoryEntityRepo<T: OnChainEntity> {

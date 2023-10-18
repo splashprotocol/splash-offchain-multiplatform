@@ -1,4 +1,3 @@
-use crate::data::value::Value;
 use cml_chain::address::Address;
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::plutus::PlutusData;
@@ -7,26 +6,28 @@ use cml_core::serialization::FromBytes;
 use cml_crypto::{DatumHash, TransactionHash};
 use serde::Deserialize;
 
+use crate::data::value::ExplorerValue;
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct FullTxOut {
+pub struct ExplorerTxOut {
     tx_hash: String,
     index: u64,
     addr: String,
-    value: Value,
+    value: ExplorerValue,
     data: Option<String>,
     data_hash: Option<String>,
 }
 
-impl FullTxOut {
-    pub fn get_value(&self) -> &Value {
+impl ExplorerTxOut {
+    pub fn get_value(&self) -> &ExplorerValue {
         &self.value
     }
 }
 
 pub struct ParsingError;
 
-impl TryInto<TransactionUnspentOutput> for FullTxOut {
+impl TryInto<TransactionUnspentOutput> for ExplorerTxOut {
     type Error = ParsingError;
     fn try_into(self) -> Result<TransactionUnspentOutput, Self::Error> {
         let datum = if let Some(hash) = self.data_hash {
@@ -44,7 +45,7 @@ impl TryInto<TransactionUnspentOutput> for FullTxOut {
         );
         let output: TransactionOutput = TransactionOutput::new(
             Address::from_bech32(self.addr.as_str()).unwrap(),
-            Value::try_into(self.value).unwrap(),
+            ExplorerValue::try_into(self.value).unwrap(),
             datum,
             None, // todo: explorer doesn't support script ref. Change to correct after explorer update
         );

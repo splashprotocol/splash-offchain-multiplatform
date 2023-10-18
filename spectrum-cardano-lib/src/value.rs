@@ -63,11 +63,11 @@ impl ValueExtension for Value {
 
 #[cfg(test)]
 mod tests {
-    use cml_chain::{PolicyId, Value};
     use cml_chain::assets::MultiAsset;
+    use cml_chain::{PolicyId, Value};
 
-    use crate::{AssetClass, AssetName};
     use crate::value::ValueExtension;
+    use crate::{AssetClass, AssetName};
 
     #[test]
     fn add_subtract_token() {

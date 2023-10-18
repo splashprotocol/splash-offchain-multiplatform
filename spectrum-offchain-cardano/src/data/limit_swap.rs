@@ -4,35 +4,33 @@ use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
 use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder};
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
+use cml_chain::Coin;
 use cml_chain::crypto::hash::hash_transaction;
 use cml_chain::crypto::utils::make_vkey_witness;
 use cml_chain::plutus::{ExUnits, PlutusData, RedeemerTag};
 use cml_chain::transaction::TransactionOutput;
-use cml_chain::Coin;
-use cml_crypto::Ed25519KeyHash;
-
 use cml_core::serialization::FromBytes;
-
+use cml_crypto::Ed25519KeyHash;
 use num_rational::Ratio;
 
-use crate::cardano::protocol_params::constant_tx_builder;
-use crate::constants::{ORDER_APPLY_RAW_REDEEMER, ORDER_REFUND_RAW_REDEEMER};
+use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
 };
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
-use spectrum_offchain::data::unique_entity::Predicted;
 use spectrum_offchain::data::{Has, UniqueOrder};
+use spectrum_offchain::data::unique_entity::Predicted;
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
+use crate::cardano::protocol_params::constant_tx_builder;
+use crate::constants::{ORDER_APPLY_RAW_REDEEMER, ORDER_REFUND_RAW_REDEEMER};
+use crate::data::{ExecutorFeePerToken, OnChain, OnChainOrderId, PoolId, PoolStateVer};
 use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
 use crate::data::order_execution_context::OrderExecutionContext;
 use crate::data::pool::{ApplySwap, CFMMPoolAction, ImmutablePoolUtxo};
-use crate::data::{ExecutorFeePerToken, OnChain, OnChainOrderId, PoolId, PoolStateVer};
 
 #[derive(Debug, Clone)]
 pub struct LimitSwap {
@@ -71,7 +69,7 @@ impl UniqueOrder for ClassicalOnChainLimitSwap {
 impl TryFromLedger<TransactionOutput, OutputRef> for ClassicalOnChainLimitSwap {
     fn try_from_ledger(repr: TransactionOutput, ctx: OutputRef) -> Option<Self> {
         let value = repr.amount().clone();
-        let conf = OnChainLimitSwapConfig::try_from_pd(repr.clone().into_datum()?.into_pd()?)?;
+        let conf = OnChainLimitSwapConfig::try_from_pd(repr.into_datum()?.into_pd()?)?;
         let real_base_input = value.amount_of(conf.base.untag()).unwrap_or(0);
         let (min_base, ada_deposit) = if conf.base.is_native() {
             let min = conf.base_amount.untag()
@@ -256,8 +254,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use cml_chain::plutus::PlutusData;
     use cml_chain::Deserialize;
+    use cml_chain::plutus::PlutusData;
 
     use spectrum_cardano_lib::types::TryFromPData;
 
