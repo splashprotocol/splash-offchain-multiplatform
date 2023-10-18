@@ -1,12 +1,9 @@
 use std::sync::{Arc, Once};
 
 use clap::Parser;
-use cml_chain::address::{Address, EnterpriseAddress};
 use cml_chain::builders::tx_builder::SignedTxBuilder;
-use cml_chain::certs::StakeCredential;
 use cml_chain::genesis::network_info::NetworkInfo;
 use cml_chain::transaction::Transaction;
-use cml_crypto::{Bip32PrivateKey, Ed25519KeyHash, PrivateKey};
 use futures::channel::mpsc;
 use futures::stream::select_all;
 use futures::{Stream, StreamExt};
@@ -37,6 +34,7 @@ use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::streaming::boxed;
 
 use crate::collateral_storage::CollateralStorage;
+use crate::creds::operator_creds;
 use crate::data::execution_context::ExecutionContext;
 use crate::data::order::ClassicalOnChainOrder;
 use crate::data::pool::CFMMPool;
@@ -51,6 +49,7 @@ use crate::tx_submission::{tx_submission_agent_stream, TxRejected, TxSubmissionA
 mod cardano;
 mod collateral_storage;
 mod constants;
+mod creds;
 mod data;
 mod event_sink;
 mod prover;
@@ -194,18 +193,6 @@ where
         backlog,
         pool_repo,
     }
-}
-
-fn operator_creds(operator_sk_raw: &str, network_info: NetworkInfo) -> (PrivateKey, Ed25519KeyHash, Address) {
-    let operator_prv_bip32 = Bip32PrivateKey::from_bech32(operator_sk_raw).expect("wallet error");
-    let operator_prv = operator_prv_bip32.to_raw_key();
-    let operator_pkh = operator_prv.to_public().hash();
-    let addr = EnterpriseAddress::new(
-        network_info.network_id(),
-        StakeCredential::new_pub_key(operator_pkh),
-    )
-    .to_address();
-    (operator_prv, operator_pkh, addr)
 }
 
 #[derive(Deserialize)]

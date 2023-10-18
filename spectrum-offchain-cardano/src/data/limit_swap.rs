@@ -249,24 +249,81 @@ where
 
 #[cfg(test)]
 mod tests {
+    use cml_chain::genesis::network_info::NetworkInfo;
     use cml_chain::plutus::PlutusData;
+    use cml_chain::transaction::TransactionOutput;
     use cml_chain::Deserialize;
+    use cml_crypto::TransactionHash;
 
+    use cardano_explorer::client::Explorer;
+    use cardano_explorer::data::ExplorerConfig;
     use spectrum_cardano_lib::types::TryFromPData;
+    use spectrum_cardano_lib::OutputRef;
+    use spectrum_offchain::executor::RunOrder;
+    use spectrum_offchain::ledger::TryFromLedger;
 
+    use crate::collateral_storage::CollateralStorage;
+    use crate::creds::operator_creds;
+    use crate::data::execution_context::ExecutionContext;
     use crate::data::limit_swap::OnChainLimitSwapConfig;
+    use crate::data::order::ClassicalOnChainOrder;
+    use crate::data::pool::CFMMPool;
+    use crate::data::ref_scripts::RefScriptsOutputs;
+    use crate::data::OnChain;
+    use crate::RefScriptsConfig;
 
     #[test]
     fn parse_swap_datum_mainnet() {
-        let pd = PlutusData::from_cbor_bytes(&*hex::decode(DATUM).unwrap()).unwrap();
+        let pd = PlutusData::from_cbor_bytes(&*hex::decode(DATUM_SAMPLE).unwrap()).unwrap();
         let maybe_conf = OnChainLimitSwapConfig::try_from_pd(pd);
         assert!(maybe_conf.is_some())
     }
 
-    const DATUM: &str =
+    const DATUM_SAMPLE: &str =
         "d8799fd8799f581c95a427e384527065f2f8946f5e86320d0117839a5e98ea2c0b55fb004448554e54ffd8799f\
         4040ffd8799f581ce08fbaa73db55294b3b31f2a365be5c4b38211a47880f0ef6b17a1604c48554e545f4144415\
         f4e4654ff1903e51b00148f1c351223aa1b8ac7230489e80000581c022835b77a25d6bf00f8cbf7e4744e0065ec\
         77383500221ed4f32514d8799f581c3cc6ea3784eecc03bc736d90e368abb40f873c48d1fc74133afae5a5ff1b0\
         0000003882d614c1a9a800dc5ff";
+
+    #[tokio::test]
+    async fn run_valid_swap_against_pool() {
+        let swap_ref = OutputRef::from((TransactionHash::from([0u8; 32]), 0));
+        let pool_ref = OutputRef::from((TransactionHash::from([1u8; 32]), 0));
+        let swap_box = TransactionOutput::from_cbor_bytes(&*hex::decode(SWAP_SAMPLE).unwrap()).unwrap();
+        let pool_box = TransactionOutput::from_cbor_bytes(&*hex::decode(POOL_SAMPLE).unwrap()).unwrap();
+        let swap = ClassicalOnChainOrder::try_from_ledger(swap_box, swap_ref).unwrap();
+        let pool = <OnChain<CFMMPool>>::try_from_ledger(pool_box, pool_ref).unwrap();
+
+        let (operator_sk, operator_pkh, operator_addr) = operator_creds("", NetworkInfo::mainnet());
+
+        let collateral_storage = CollateralStorage::new(operator_pkh.to_hex());
+
+        let explorer = Explorer::new(ExplorerConfig {
+            url: "https://explorer.spectrum.fi",
+        });
+        let ref_scripts_conf = RefScriptsConfig {
+            pool_v1_ref: "31a497ef6b0033e66862546aa2928a1987f8db3b8f93c59febbe0f47b14a83c6#0".to_string(),
+            pool_v2_ref: "c8c93656e8bce07fabe2f42d703060b7c71bfa2e48a2956820d1bd81cc936faa#0".to_string(),
+            swap_ref: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#2".to_string(),
+            deposit_ref: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#0".to_string(),
+            redeem_ref: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#1".to_string(),
+        };
+        let ref_scripts = RefScriptsOutputs::new(ref_scripts_conf, explorer)
+            .await
+            .expect("Ref scripts initialization failed");
+        let collateral = collateral_storage
+            .get_collateral(explorer)
+            .await
+            .expect("Couldn't retrieve collateral");
+
+        let ctx = ExecutionContext::new(operator_addr, &operator_sk, ref_scripts, collateral);
+
+        let result = pool.try_run(swap, ctx);
+
+        assert!(result.is_ok())
+    }
+
+    const SWAP_SAMPLE: &str = "a300581d712618e94cdb06792f05ae9b1ec78b0231f4b7f4215b1b4cf52e6342de01821a003d0900a1581c279c909f348e533da5808898f87f9a14bb2c3dfbbacccd631d927a3fa144534e454b1a0008785c028201d81858bfd8799fd8799f581c279c909f348e533da5808898f87f9a14bb2c3dfbbacccd631d927a3f44534e454bffd8799f4040ffd8799f581c4a27465112a39464e6dd5ee470c552ebb3cb42925d5ec040149679084c534e454b5f4144415f4e4654ff1903e51b000e8572e9e6ad3b1b0de0b6b3a7640000581cf80732ec4932b37d388b4234f20435ab4b6c5975456537722c84c036d8799f581c927fc9f34299075355c9c309dfafefb5c00f20f4651a5780e241322bff1a0008785c1a15dfb8e4ff";
+    const POOL_SAMPLE: &str = "a300583931e628bfd68c07a7a38fcd7d8df650812a9dfdbee54b1ed4c25c87ffbfb2f6abf60ccde92eae1a2f4fdf65f2eaf6208d872c6f0e597cc10b0701821b0000000b07810d11a3581c279c909f348e533da5808898f87f9a14bb2c3dfbbacccd631d927a3fa144534e454b1a043526c2581c4a27465112a39464e6dd5ee470c552ebb3cb42925d5ec04014967908a14c534e454b5f4144415f4e465401581c7bddf2c27f257eeeef3e892758b479e09c89a73642499797f2a97f3ca14b534e454b5f4144415f4c511b7fffffff939f34ff028201d81858bad8799fd8799f581c4a27465112a39464e6dd5ee470c552ebb3cb42925d5ec040149679084c534e454b5f4144415f4e4654ffd8799f4040ffd8799f581c279c909f348e533da5808898f87f9a14bb2c3dfbbacccd631d927a3f44534e454bffd8799f581c7bddf2c27f257eeeef3e892758b479e09c89a73642499797f2a97f3c4b534e454b5f4144415f4c51ff1903e59f581c856e34eac199979f7c04d4b500c6e91748dec14d92a28b3c1bf75882ff1b00000004a817c800ff";
 }
