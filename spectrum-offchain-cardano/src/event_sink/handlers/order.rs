@@ -2,13 +2,11 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use cml_chain::crypto::hash::hash_transaction;
 use cml_chain::transaction::{Transaction, TransactionOutput};
 use futures::{Sink, SinkExt};
 use log::info;
 use tokio::sync::Mutex;
 
-use crate::cardano::hash::hash_transaction;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_mempool_sync::data::MempoolUpdate;
 use spectrum_cardano_lib::OutputRef;
@@ -16,6 +14,7 @@ use spectrum_offchain::data::order::{OrderLink, OrderUpdate};
 use spectrum_offchain::data::SpecializedOrder;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
+use crate::cardano::hash::hash_transaction;
 
 use crate::event_sink::handlers::order::registry::HotOrderRegistry;
 
