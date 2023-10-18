@@ -4,8 +4,8 @@ use cml_chain::plutus::{CostModels, ExUnitPrices};
 use cml_chain::SubCoin;
 use cml_core::Int;
 
-const MAX_TX_SIZE: u32 = 8000;
-const MAX_VALUE_SIZE: u32 = 4000;
+const MAX_TX_SIZE: u32 = 16384;
+const MAX_VALUE_SIZE: u32 = 5000;
 
 const COINS_PER_UTXO_BYTE: u64 = 4310;
 
