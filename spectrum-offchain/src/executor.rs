@@ -168,7 +168,7 @@ pub fn executor_stream<'a, TExecutor: Executor + 'a>(
             if tip_reached_signal.map(|sig| sig.is_completed()).unwrap_or(true) {
                 trace!(target: "offchain", "Trying to execute next order ..");
                 let mut executor_guard = executor.lock().await;
-                if executor_guard.try_execute_next().await {
+                if !executor_guard.try_execute_next().await {
                     trace!(target: "offchain", "Execution attempt failed, throttling ..");
                     Delay::new(Duration::from_millis(THROTTLE_MILLIS)).await;
                 }

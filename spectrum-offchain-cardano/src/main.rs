@@ -98,10 +98,10 @@ async fn main() {
 
     let ctx = ExecutionContext::new(operator_addr, &operator_sk, ref_scripts, collateral);
 
-    let p1 = new_partition(tx_submission_channel.clone(), None, ctx.clone());
-    let p2 = new_partition(tx_submission_channel.clone(), None, ctx.clone());
-    let p3 = new_partition(tx_submission_channel.clone(), None, ctx.clone());
-    let p4 = new_partition(tx_submission_channel, None, ctx);
+    let p1 = new_partition(tx_submission_channel.clone(), Some(&signal_tip_reached), ctx.clone());
+    let p2 = new_partition(tx_submission_channel.clone(), Some(&signal_tip_reached), ctx.clone());
+    let p3 = new_partition(tx_submission_channel.clone(), Some(&signal_tip_reached), ctx.clone());
+    let p4 = new_partition(tx_submission_channel, Some(&signal_tip_reached), ctx);
 
     let partitioned_backlog = Partitioned::<NUM_PARTITIONS, PoolId, _>::new([
         Arc::clone(&p1.backlog),
@@ -110,7 +110,7 @@ async fn main() {
         Arc::clone(&p4.backlog),
     ]);
     let (orders_snd, orders_recv) =
-        mpsc::channel::<OrderUpdate<ClassicalOnChainOrder, OrderLink<ClassicalOnChainOrder>>>(100);
+        mpsc::channel::<OrderUpdate<ClassicalOnChainOrder, OrderLink<ClassicalOnChainOrder>>>(128);
     let orders_registry = Arc::new(Mutex::new(
         EphemeralHotOrderRegistry::<ClassicalOnChainOrder>::new(),
     ));
@@ -118,7 +118,7 @@ async fn main() {
         ClassicalOrderUpdatesHandler::<_, ClassicalOnChainOrder, _>::new(orders_snd, orders_registry);
     let backlog_stream = hot_backlog_stream(partitioned_backlog, orders_recv);
 
-    let (pools_snd, pools_recv) = mpsc::channel::<Confirmed<StateUpdate<OnChain<CFMMPool>>>>(100);
+    let (pools_snd, pools_recv) = mpsc::channel::<Confirmed<StateUpdate<OnChain<CFMMPool>>>>(128);
     // This technically disables pool lookups in TX.inputs.
     let noop_pool_repo = Arc::new(Mutex::new(NoopEntityRepo));
     let pools_handler = ConfirmedUpdateHandler::<_, OnChain<CFMMPool>, _>::new(pools_snd, noop_pool_repo);
