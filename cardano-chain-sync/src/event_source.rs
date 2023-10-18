@@ -17,7 +17,6 @@ where
 fn process_upgrade(upgr: ChainUpgrade) -> Vec<LedgerTxEvent> {
     match upgr {
         ChainUpgrade::RollForward(Block {
-            header,
             transaction_bodies,
             transaction_witness_sets,
             mut auxiliary_data_set,

@@ -1,4 +1,4 @@
-use serde::{Deserialize, Deserializer};
+use serde::Deserialize;
 
 #[derive(Deserialize)]
 pub struct Items<T> {

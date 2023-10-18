@@ -1,12 +1,9 @@
-use std::hash::Hash;
-use std::ops::Deref;
 use std::sync::{Arc, Once};
 
 use clap::Parser;
 use cml_chain::builders::tx_builder::SignedTxBuilder;
 use cml_chain::transaction::Transaction;
 use cml_crypto::Bip32PrivateKey;
-use cml_crypto::RawBytesEncoding;
 use futures::channel::mpsc;
 use futures::stream::select_all;
 use futures::{Stream, StreamExt};
@@ -22,7 +19,6 @@ use cardano_chain_sync::event_source::event_source_ledger;
 use cardano_explorer::client::Explorer;
 use cardano_explorer::data::ExplorerConfig;
 use cardano_submit_api::client::{LocalTxSubmissionClient, LocalTxSubmissionConf};
-use rand::SeedableRng;
 use spectrum_cardano_lib::constants::BABBAGE_ERA_ID;
 use spectrum_offchain::backlog::process::hot_backlog_stream;
 use spectrum_offchain::backlog::HotPriorityBacklog;

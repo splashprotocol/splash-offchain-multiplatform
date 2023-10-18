@@ -4,8 +4,8 @@ use std::ops::{Add, Sub};
 use std::str::FromStr;
 
 use cml_chain::plutus::PlutusData;
-use cml_chain::PolicyId;
 use cml_chain::transaction::TransactionInput;
+use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
 
@@ -44,7 +44,7 @@ impl TryFrom<String> for AssetName {
     type Error = AssetNameParsingError;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        let bytes = hex::decode(value).map_err(|err| AssetNameParsingError)?;
+        let bytes = hex::decode(value).map_err(|_| AssetNameParsingError)?;
         AssetName::try_from(bytes).map_err(|_| AssetNameParsingError)
     }
 }
@@ -98,7 +98,10 @@ impl From<OutputRef> for TransactionInput {
 impl From<String> for OutputRef {
     fn from(value: String) -> Self {
         let (raw_tx_id, str_idx) = value.split_once("#").unwrap();
-        OutputRef(TransactionHash::from_hex(raw_tx_id).unwrap(), u64::from_str(str_idx).unwrap())
+        OutputRef(
+            TransactionHash::from_hex(raw_tx_id).unwrap(),
+            u64::from_str(str_idx).unwrap(),
+        )
     }
 }
 
@@ -142,14 +145,14 @@ impl TryFromPData for AssetClass {
 #[repr(transparent)]
 #[derive(Derivative)]
 #[derivative(
-Debug(bound = ""),
-Copy(bound = ""),
-Clone(bound = ""),
-Eq(bound = ""),
-PartialEq(bound = ""),
-Ord(bound = ""),
-PartialOrd(bound = ""),
-Hash(bound = "")
+    Debug(bound = ""),
+    Copy(bound = ""),
+    Clone(bound = ""),
+    Eq(bound = ""),
+    PartialEq(bound = ""),
+    Ord(bound = ""),
+    PartialOrd(bound = ""),
+    Hash(bound = "")
 )]
 pub struct TaggedAssetClass<T>(AssetClass, PhantomData<T>);
 

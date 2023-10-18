@@ -36,6 +36,7 @@ impl IntoLedger<TransactionOutput, ()> for SwapOutput {
                 NetworkInfo::mainnet().network_id(),
                 StakeCredential::new_pub_key(self.redeemer_pkh),
             )
+            .to_address()
         };
 
         let mut ma = MultiAsset::new();
