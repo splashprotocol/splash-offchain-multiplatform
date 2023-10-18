@@ -4,33 +4,33 @@ use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
 use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder};
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
-use cml_chain::Coin;
 use cml_chain::crypto::hash::hash_transaction;
 use cml_chain::crypto::utils::make_vkey_witness;
 use cml_chain::plutus::{ExUnits, PlutusData, RedeemerTag};
 use cml_chain::transaction::TransactionOutput;
+use cml_chain::Coin;
 use cml_core::serialization::FromBytes;
 use cml_crypto::Ed25519KeyHash;
 use num_rational::Ratio;
 
-use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
 };
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_offchain::data::{Has, UniqueOrder};
+use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::unique_entity::Predicted;
+use spectrum_offchain::data::{Has, UniqueOrder};
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 use crate::cardano::protocol_params::constant_tx_builder;
-use crate::constants::{ORDER_APPLY_RAW_REDEEMER, ORDER_REFUND_RAW_REDEEMER};
-use crate::data::{ExecutorFeePerToken, OnChain, OnChainOrderId, PoolId, PoolStateVer};
+use crate::constants::{MIN_SAFE_ADA_DEPOSIT, ORDER_APPLY_RAW_REDEEMER, ORDER_REFUND_RAW_REDEEMER};
+use crate::data::execution_context::ExecutionContext;
 use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
-use crate::data::order_execution_context::OrderExecutionContext;
 use crate::data::pool::{ApplySwap, CFMMPoolAction, ImmutablePoolUtxo};
+use crate::data::{ExecutorFeePerToken, OnChain, OnChainOrderId, PoolId, PoolStateVer};
 
 #[derive(Debug, Clone)]
 pub struct LimitSwap {
@@ -80,7 +80,7 @@ impl TryFromLedger<TransactionOutput, OutputRef> for ClassicalOnChainLimitSwap {
         } else {
             (conf.base_amount.untag(), value.coin)
         };
-        if real_base_input < min_base {
+        if real_base_input < min_base || ada_deposit < MIN_SAFE_ADA_DEPOSIT {
             return None;
         }
         let swap = LimitSwap {
@@ -139,7 +139,7 @@ impl TryFromPData for OnChainLimitSwapConfig {
     }
 }
 
-impl<'a, Swap, Pool> RunOrder<OnChain<Swap>, OrderExecutionContext<'a>, SignedTxBuilder> for OnChain<Pool>
+impl<'a, Swap, Pool> RunOrder<OnChain<Swap>, ExecutionContext<'a>, SignedTxBuilder> for OnChain<Pool>
 where
     Pool: ApplySwap<Swap>
         + Has<PoolStateVer>
@@ -154,7 +154,7 @@ where
             value: order,
             source: order_out_in,
         }: OnChain<Swap>,
-        ctx: OrderExecutionContext,
+        ctx: ExecutionContext,
     ) -> Result<(SignedTxBuilder, Predicted<Self>), RunOrderError<OnChain<Swap>>> {
         let OnChain {
             value: pool,
@@ -162,7 +162,7 @@ where
         } = self;
         let pool_ref = OutputRef::from(pool.get::<PoolStateVer>());
         let order_ref = OutputRef::from(order.get::<OnChainOrderId>());
-        let (next_pool, swap_out, batcher_profit) = match pool.apply_swap(order, ctx.batcher_pkh) {
+        let (next_pool, swap_out) = match pool.apply_swap(order) {
             Ok(res) => res,
             Err(slippage) => {
                 return Err(slippage
@@ -198,8 +198,6 @@ where
             source: pool_out.clone(),
         });
         let user_out = swap_out.into_ledger(());
-        let batcher_out = batcher_profit.into_ledger(());
-        let batcher_addr = batcher_out.address().clone();
         let mut tx_builder = constant_tx_builder();
 
         //todo: Use pools version and remove if-else. PoolStateVer?
@@ -239,12 +237,12 @@ where
             .unwrap();
 
         let mut tx = tx_builder
-            .build(ChangeSelectionAlgo::Default, &batcher_addr)
+            .build(ChangeSelectionAlgo::Default, &ctx.operator_addr)
             .unwrap();
 
         let body = tx.body();
 
-        let batcher_signature = make_vkey_witness(&hash_transaction(&body), ctx.batcher_private);
+        let batcher_signature = make_vkey_witness(&hash_transaction(&body), &ctx.operator_prv);
 
         tx.add_vkey(batcher_signature);
 
@@ -254,8 +252,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use cml_chain::Deserialize;
     use cml_chain::plutus::PlutusData;
+    use cml_chain::Deserialize;
 
     use spectrum_cardano_lib::types::TryFromPData;
 

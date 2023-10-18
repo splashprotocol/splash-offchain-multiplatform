@@ -1,9 +1,12 @@
 use std::sync::{Arc, Once};
 
 use clap::Parser;
+use cml_chain::address::{Address, EnterpriseAddress};
 use cml_chain::builders::tx_builder::SignedTxBuilder;
+use cml_chain::certs::StakeCredential;
+use cml_chain::genesis::network_info::NetworkInfo;
 use cml_chain::transaction::Transaction;
-use cml_crypto::Bip32PrivateKey;
+use cml_crypto::{Bip32PrivateKey, Ed25519KeyHash, PrivateKey};
 use futures::channel::mpsc;
 use futures::stream::select_all;
 use futures::{Stream, StreamExt};
@@ -11,7 +14,6 @@ use serde::Deserialize;
 use tokio::sync::Mutex;
 use tracing_subscriber::fmt::Subscriber;
 
-use crate::collateral_storage::CollateralStorage;
 use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::{ChainSyncClient, ChainSyncConf};
 use cardano_chain_sync::data::LedgerTxEvent;
@@ -34,8 +36,9 @@ use spectrum_offchain::network::Network;
 use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::streaming::boxed;
 
+use crate::collateral_storage::CollateralStorage;
+use crate::data::execution_context::ExecutionContext;
 use crate::data::order::ClassicalOnChainOrder;
-use crate::data::order_execution_context::OrderExecutionContext;
 use crate::data::pool::CFMMPool;
 use crate::data::ref_scripts::RefScriptsOutputs;
 use crate::data::{OnChain, PoolId};
@@ -84,23 +87,22 @@ async fn main() {
         Some(&signal_tip_reached),
     )));
 
-    let private_key = Bip32PrivateKey::from_bech32(config.batcher_private_key).expect("wallet error");
-    let pk = private_key.to_raw_key();
-    let public_key = pk.to_public().hash();
+    let (operator_sk, operator_pkh, operator_addr) =
+        operator_creds(config.batcher_private_key, NetworkInfo::mainnet());
 
-    let collateral_storage = CollateralStorage::new(public_key.to_hex());
+    let collateral_storage = CollateralStorage::new(operator_pkh.to_hex());
 
     let collateral = collateral_storage
         .get_collateral(explorer)
         .await
         .expect("Couldn't retrieve collateral");
 
-    let ctx = OrderExecutionContext::new(public_key, &pk, ref_scripts, collateral);
+    let ctx = ExecutionContext::new(operator_addr, &operator_sk, ref_scripts, collateral);
 
     let p1 = new_partition(tx_submission_channel.clone(), None, ctx.clone());
     let p2 = new_partition(tx_submission_channel.clone(), None, ctx.clone());
     let p3 = new_partition(tx_submission_channel.clone(), None, ctx.clone());
-    let p4 = new_partition(tx_submission_channel, None, ctx.clone());
+    let p4 = new_partition(tx_submission_channel, None, ctx);
 
     let partitioned_backlog = Partitioned::<NUM_PARTITIONS, PoolId, _>::new([
         Arc::clone(&p1.backlog),
@@ -162,7 +164,7 @@ struct ExecPartition<S, Backlog, Pools> {
 fn new_partition<'a, Net>(
     network: Net,
     signal_tip_reached: Option<&'a Once>,
-    ctx: OrderExecutionContext<'a>,
+    ctx: ExecutionContext<'a>,
 ) -> ExecPartition<
     impl Stream<Item = ()> + 'a,
     HotPriorityBacklog<ClassicalOnChainOrder>,
@@ -192,6 +194,18 @@ where
         backlog,
         pool_repo,
     }
+}
+
+fn operator_creds(operator_sk_raw: &str, network_info: NetworkInfo) -> (PrivateKey, Ed25519KeyHash, Address) {
+    let operator_prv_bip32 = Bip32PrivateKey::from_bech32(operator_sk_raw).expect("wallet error");
+    let operator_prv = operator_prv_bip32.to_raw_key();
+    let operator_pkh = operator_prv.to_public().hash();
+    let addr = EnterpriseAddress::new(
+        network_info.network_id(),
+        StakeCredential::new_pub_key(operator_pkh),
+    )
+    .to_address();
+    (operator_prv, operator_pkh, addr)
 }
 
 #[derive(Deserialize)]

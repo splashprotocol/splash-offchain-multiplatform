@@ -30,7 +30,12 @@ impl<'a> Explorer<'a> {
     }
 
     // explorer doesn't support extracting unspent utxos by address, only address payment cred
-    pub async fn get_unspent_utxos(self, payment_cred: String, min_index: u32, limit: u32) -> Vec<ExplorerTxOut> {
+    pub async fn get_unspent_utxos(
+        self,
+        payment_cred: String,
+        min_index: u32,
+        limit: u32,
+    ) -> Vec<ExplorerTxOut> {
         let request_url = format!(
             "{}/cardano/mainnet/v1/outputs/unspent/byPaymentCred/{}/?offset={}&limit={}",
             self.explorer_config.url.to_owned(),

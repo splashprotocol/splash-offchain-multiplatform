@@ -10,7 +10,6 @@ use spectrum_offchain::data::{OnChainEntity, SpecializedOrder};
 
 use crate::data::order::PoolNft;
 
-pub mod batcher_output;
 pub mod limit_swap;
 pub mod operation_output;
 pub mod order;
@@ -18,7 +17,7 @@ pub mod pool;
 
 pub mod ref_scripts;
 
-pub mod order_execution_context;
+pub mod execution_context;
 
 /// For persistent on-chain entities (e.g. pools) we want to carry initial utxo.
 #[derive(Debug, Clone)]

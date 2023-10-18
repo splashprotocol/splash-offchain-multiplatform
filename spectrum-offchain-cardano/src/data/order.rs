@@ -15,8 +15,8 @@ use spectrum_offchain::data::{SpecializedOrder, UniqueOrder};
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::TryFromLedger;
 
+use crate::data::execution_context::ExecutionContext;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
-use crate::data::order_execution_context::OrderExecutionContext;
 use crate::data::pool::CFMMPool;
 use crate::data::{OnChain, OnChainOrderId, PoolId};
 
@@ -113,16 +113,16 @@ impl TryFromLedger<TransactionOutput, OutputRef> for ClassicalOnChainOrder {
     }
 }
 
-impl<'a> RunOrder<ClassicalOnChainOrder, OrderExecutionContext<'a>, SignedTxBuilder> for OnChain<CFMMPool> {
+impl<'a> RunOrder<ClassicalOnChainOrder, ExecutionContext<'a>, SignedTxBuilder> for OnChain<CFMMPool> {
     fn try_run(
         self,
         order: ClassicalOnChainOrder,
-        ctx: OrderExecutionContext,
+        ctx: ExecutionContext,
     ) -> Result<(SignedTxBuilder, Predicted<Self>), RunOrderError<ClassicalOnChainOrder>> {
         match order {
             ClassicalOnChainOrder::Swap(limit_swap) => <Self as RunOrder<
                 OnChain<ClassicalOnChainLimitSwap>,
-                OrderExecutionContext,
+                ExecutionContext,
                 SignedTxBuilder,
             >>::try_run(self, limit_swap, ctx)
             .map_err(|err| err.map(|inner| ClassicalOnChainOrder::Swap(inner))),
