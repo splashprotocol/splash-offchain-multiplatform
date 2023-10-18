@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use log::trace;
 
 use crate::box_resolver::{Predicted, Traced};
-use crate::data::OnChainEntity;
 use crate::data::unique_entity::{Confirmed, Unconfirmed};
+use crate::data::OnChainEntity;
 
 pub mod inmemory;
 pub mod noop;
@@ -210,27 +210,27 @@ where
 pub(crate) mod tests {
     use std::sync::Arc;
 
-    use rand::{RngCore, thread_rng};
+    use rand::{thread_rng, RngCore};
     use serde::{Deserialize, Serialize};
 
+    use crate::box_resolver::persistence::inmemory::InMemoryEntityRepo;
+    use crate::box_resolver::persistence::rocksdb::EntityRepoRocksDB;
     use crate::{
         box_resolver::persistence::EntityRepo,
         data::{
-            OnChainEntity,
             unique_entity::{Confirmed, Predicted, Traced, Unconfirmed},
+            OnChainEntity,
         },
     };
-    use crate::box_resolver::persistence::inmemory::InMemoryEntityRepo;
-    use crate::box_resolver::persistence::rocksdb::EntityRepoRocksDB;
 
     #[repr(transparent)]
     #[derive(Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Hash, Debug)]
     pub struct TokenId(u64);
 
-    impl Into<[u8;60]> for TokenId {
+    impl Into<[u8; 60]> for TokenId {
         fn into(self) -> [u8; 60] {
             let mut arr = [0u8; 60];
-            let raw: [u8;8] = self.0.to_be_bytes();
+            let raw: [u8; 8] = self.0.to_be_bytes();
             for (ix, byte) in raw.into_iter().enumerate() {
                 arr[ix + 1] = byte;
             }

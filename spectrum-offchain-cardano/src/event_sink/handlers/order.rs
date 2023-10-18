@@ -8,6 +8,7 @@ use futures::{Sink, SinkExt};
 use log::info;
 use tokio::sync::Mutex;
 
+use crate::cardano::hash::hash_transaction_correct;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_mempool_sync::data::MempoolUpdate;
 use spectrum_cardano_lib::OutputRef;
@@ -57,7 +58,7 @@ impl<TSink, TOrd, TRegistry> ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry
             }
         }
         if !is_success {
-            let tx_hash = hash_transaction(&tx.body);
+            let tx_hash = hash_transaction_correct(&tx.body);
             // no point in searching for new orders in execution tx
             for (i, o) in tx.body.outputs.iter().enumerate() {
                 let o_ref = OutputRef::from((tx_hash, i as u64));
@@ -110,7 +111,7 @@ impl<TSink, TOrd, TRegistry> ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait(? Send)]
 impl<TSink, TOrd, TRegistry> EventHandler<LedgerTxEvent>
     for ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry>
 where
@@ -129,7 +130,7 @@ where
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait(? Send)]
 impl<TSink, TOrd, TRegistry> EventHandler<MempoolUpdate<Transaction>>
     for ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry>
 where

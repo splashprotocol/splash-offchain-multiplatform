@@ -92,7 +92,7 @@ pub enum Error {
     IntersectionNotFound,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub enum RawPoint {
     Origin,
     Specific(u64, String),
@@ -115,6 +115,7 @@ impl TryFrom<RawPoint> for Point {
 }
 
 #[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChainSyncConf<'a> {
     pub path: &'a str,
     pub magic: u64,

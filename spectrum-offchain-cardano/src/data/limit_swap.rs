@@ -1,12 +1,15 @@
+use cml_chain::address::Address;
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
-use cml_chain::builders::tx_builder::{
-    ChangeSelectionAlgo, SignedTxBuilder, TransactionBuilder, TransactionBuilderConfig,
-};
+use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
+use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder};
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
 use cml_chain::Coin;
-use cml_chain::plutus::PlutusData;
+use cml_chain::crypto::hash::hash_transaction;
+use cml_chain::crypto::utils::make_vkey_witness;
+use cml_chain::plutus::{ExUnits, PlutusData, RedeemerTag};
 use cml_chain::transaction::TransactionOutput;
+use cml_core::serialization::FromBytes;
 use cml_crypto::Ed25519KeyHash;
 use num_rational::Ratio;
 
@@ -22,8 +25,11 @@ use spectrum_offchain::data::unique_entity::Predicted;
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
+use crate::cardano::protocol_params::constant_tx_builder;
+use crate::constants::{ORDER_APPLY_RAW_REDEEMER, ORDER_REFUND_RAW_REDEEMER};
 use crate::data::{ExecutorFeePerToken, OnChain, OnChainOrderId, PoolId, PoolStateVer};
 use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
+use crate::data::order_execution_context::OrderExecutionContext;
 use crate::data::pool::{ApplySwap, CFMMPoolAction, ImmutablePoolUtxo};
 
 #[derive(Debug, Clone)]
@@ -35,13 +41,21 @@ pub struct LimitSwap {
     pub min_expected_quote_amount: TaggedAmount<Quote>,
     pub fee: ExecutorFeePerToken,
     pub redeemer_pkh: Ed25519KeyHash,
+    pub redeemer_stake_pkh: Option<Ed25519KeyHash>,
 }
 
 pub type ClassicalOnChainLimitSwap = ClassicalOrder<OnChainOrderId, LimitSwap>;
 
 impl RequiresRedeemer<ClassicalOrderAction> for ClassicalOnChainLimitSwap {
     fn redeemer(action: ClassicalOrderAction) -> PlutusData {
-        todo!()
+        match action {
+            ClassicalOrderAction::Apply => {
+                PlutusData::from_bytes(hex::decode(ORDER_APPLY_RAW_REDEEMER).unwrap()).unwrap()
+            }
+            ClassicalOrderAction::Refund => {
+                PlutusData::from_bytes(hex::decode(ORDER_REFUND_RAW_REDEEMER).unwrap()).unwrap()
+            }
+        }
     }
 }
 
@@ -80,6 +94,7 @@ impl TryFromLedger<TransactionOutput, OutputRef> for ClassicalOnChainLimitSwap {
                 AssetClass::Native,
             ),
             redeemer_pkh: conf.redeemer_pkh,
+            redeemer_stake_pkh: conf.redeemer_stake_pkh,
         };
         Some(ClassicalOrder {
             id: OnChainOrderId::from(ctx),
@@ -98,11 +113,18 @@ pub struct OnChainLimitSwapConfig {
     pub ex_fee_per_token_num: u64,
     pub ex_fee_per_token_denom: u64,
     pub redeemer_pkh: Ed25519KeyHash,
+    pub redeemer_stake_pkh: Option<Ed25519KeyHash>,
 }
 
 impl TryFromPData for OnChainLimitSwapConfig {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
+        let stake_pkh: Option<Ed25519KeyHash> = cpd
+            .take_field(7)
+            .and_then(|pd| pd.into_bytes())
+            .and_then(|bytes| <[u8; 28]>::try_from(bytes).ok())
+            .map(|bytes| Ed25519KeyHash::from(bytes));
+
         Some(OnChainLimitSwapConfig {
             base: TaggedAssetClass::try_from_pd(cpd.take_field(0)?)?,
             base_amount: TaggedAmount::try_from_pd(cpd.take_field(8)?)?,
@@ -112,11 +134,12 @@ impl TryFromPData for OnChainLimitSwapConfig {
             ex_fee_per_token_num: cpd.take_field(4)?.into_u64()?,
             ex_fee_per_token_denom: cpd.take_field(5)?.into_u64()?,
             redeemer_pkh: Ed25519KeyHash::from(<[u8; 28]>::try_from(cpd.take_field(6)?.into_bytes()?).ok()?),
+            redeemer_stake_pkh: stake_pkh,
         })
     }
 }
 
-impl<Swap, Pool> RunOrder<OnChain<Swap>, TransactionBuilderConfig, SignedTxBuilder> for OnChain<Pool>
+impl<'a, Swap, Pool> RunOrder<OnChain<Swap>, OrderExecutionContext<'a>, SignedTxBuilder> for OnChain<Pool>
 where
     Pool: ApplySwap<Swap>
         + Has<PoolStateVer>
@@ -131,7 +154,7 @@ where
             value: order,
             source: order_out_in,
         }: OnChain<Swap>,
-        ctx: TransactionBuilderConfig,
+        ctx: OrderExecutionContext,
     ) -> Result<(SignedTxBuilder, Predicted<Self>), RunOrderError<OnChain<Swap>>> {
         let OnChain {
             value: pool,
@@ -139,7 +162,7 @@ where
         } = self;
         let pool_ref = OutputRef::from(pool.get::<PoolStateVer>());
         let order_ref = OutputRef::from(order.get::<OnChainOrderId>());
-        let (next_pool, swap_out, batcher_profit) = match pool.apply_swap(order) {
+        let (next_pool, swap_out, batcher_profit) = match pool.apply_swap(order, ctx.batcher_pkh) {
             Ok(res) => res,
             Err(slippage) => {
                 return Err(slippage
@@ -147,7 +170,7 @@ where
                         value,
                         source: order_out_in,
                     })
-                    .into())
+                    .into());
             }
         };
         let pool_redeemer = Pool::redeemer(CFMMPoolAction::Swap);
@@ -177,21 +200,54 @@ where
         let user_out = swap_out.into_ledger(());
         let batcher_out = batcher_profit.into_ledger(());
         let batcher_addr = batcher_out.address().clone();
-        let mut tx_builder = TransactionBuilder::new(ctx);
-        tx_builder.add_input(pool_in).unwrap();
+        let mut tx_builder = constant_tx_builder();
+
+        //todo: Use pools version and remove if-else. PoolStateVer?
+        let pool_parsed_address =
+            Address::to_bech32(pool_in.utxo_info.address(), None).unwrap_or(String::from("unknown"));
+
+        if pool_parsed_address == "addr1x94ec3t25egvhqy2n265xfhq882jxhkknurfe9ny4rl9k6dj764lvrxdayh2ux30fl0ktuh27csgmpevdu89jlxppvrst84slu" {
+            tx_builder
+                .add_reference_input(ctx.ref_scripts.pool_v2)
+        } else if pool_parsed_address == "addr1x8nz307k3sr60gu0e47cmajssy4fmld7u493a4xztjrll0aj764lvrxdayh2ux30fl0ktuh27csgmpevdu89jlxppvrswgxsta" {
+            tx_builder
+                .add_reference_input(ctx.ref_scripts.pool_v1);
+        }
+
+        tx_builder.add_collateral(ctx.collateral).unwrap();
+
+        tx_builder.add_reference_input(ctx.ref_scripts.swap);
+
+        tx_builder.add_input(pool_in.clone()).unwrap();
         tx_builder.add_input(order_in).unwrap();
+
+        tx_builder.set_exunits(
+            RedeemerWitnessKey::new(RedeemerTag::Spend, 0),
+            ExUnits::new(530000, 165000000),
+        );
+
+        tx_builder.set_exunits(
+            RedeemerWitnessKey::new(RedeemerTag::Spend, 1),
+            ExUnits::new(270000, 140000000),
+        );
+
         tx_builder
             .add_output(SingleOutputBuilderResult::new(pool_out))
             .unwrap();
         tx_builder
             .add_output(SingleOutputBuilderResult::new(user_out))
             .unwrap();
-        tx_builder
-            .add_output(SingleOutputBuilderResult::new(batcher_out))
-            .unwrap();
-        let tx = tx_builder
+
+        let mut tx = tx_builder
             .build(ChangeSelectionAlgo::Default, &batcher_addr)
             .unwrap();
+
+        let body = tx.body();
+
+        let batcher_signature = make_vkey_witness(&hash_transaction(&body), ctx.batcher_private);
+
+        tx.add_vkey(batcher_signature);
+
         Ok((tx, predicted_pool))
     }
 }

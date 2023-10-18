@@ -1,10 +1,11 @@
 use std::cmp::Ordering;
 use std::marker::PhantomData;
 use std::ops::{Add, Sub};
+use std::str::FromStr;
 
 use cml_chain::plutus::PlutusData;
-use cml_chain::PolicyId;
 use cml_chain::transaction::TransactionInput;
+use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
 
@@ -36,17 +37,25 @@ impl From<AssetName> for cml_chain::assets::AssetName {
     }
 }
 
-impl From<cml_chain::assets::AssetName> for AssetName {
-    fn from(value: cml_chain::assets::AssetName) -> Self {
-        let orig_len = <u8>::try_from(value.inner.len()).unwrap();
-        let mut bf = [0u8; 32];
-        value.inner.into_iter().enumerate().for_each(|(ix, i)| {
-            bf[ix] = i;
-        });
-        Self(orig_len, bf)
+#[derive(Debug)]
+pub struct AssetNameParsingError;
+
+impl TryFrom<String> for AssetName {
+    type Error = AssetNameParsingError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        let bytes = hex::decode(value).map_err(|_| AssetNameParsingError)?;
+        AssetName::try_from(bytes).map_err(|_| AssetNameParsingError)
     }
 }
 
+impl From<cml_chain::assets::AssetName> for AssetName {
+    fn from(value: cml_chain::assets::AssetName) -> Self {
+        AssetName::try_from(value.inner).unwrap()
+    }
+}
+
+#[derive(Debug)]
 pub struct InvalidAssetNameError;
 
 impl TryFrom<Vec<u8>> for AssetName {
@@ -83,6 +92,16 @@ impl From<(TransactionHash, u64)> for OutputRef {
 impl From<OutputRef> for TransactionInput {
     fn from(OutputRef(hash, ix): OutputRef) -> Self {
         TransactionInput::new(hash, ix)
+    }
+}
+
+impl From<String> for OutputRef {
+    fn from(value: String) -> Self {
+        let (raw_tx_id, str_idx) = value.split_once("#").unwrap();
+        OutputRef(
+            TransactionHash::from_hex(raw_tx_id).unwrap(),
+            u64::from_str(str_idx).unwrap(),
+        )
     }
 }
 
@@ -210,7 +229,7 @@ mod tests {
     #[test]
     fn asset_name_is_isomorphic_to_cml() {
         let len = 14;
-        let cml_an = cml_chain::assets::AssetName::new(vec![0u8;len]).unwrap();
+        let cml_an = cml_chain::assets::AssetName::new(vec![0u8; len]).unwrap();
         let spectrum_an = AssetName::from(cml_an.clone());
         let cml_an_reconstructed = cml_chain::assets::AssetName::from(spectrum_an);
         assert_eq!(cml_an, cml_an_reconstructed);

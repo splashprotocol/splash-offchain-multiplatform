@@ -1,15 +1,13 @@
 [package]
-name = "spectrum-offchain-cardano"
-version = "1.0.0"
+name = "cardano-explorer"
+version = "0.1.0"
 edition = "2021"
 rust-version = "1.71.0"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
+reqwest = { version = "0.11.22", features = ["blocking", "json"] }
 spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain" }
 cardano-chain-sync = { version = "0.1.0", path = "../cardano-chain-sync" }
-cardano-explorer = { version = "0.1.0", path = "../cardano-explorer" }
 cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "copy-fix-len-array-2" }
 cardano-mempool-sync = { version = "0.1.0", path = "../cardano-mempool-sync" }
 cardano-submit-api = { version = "0.1.0", path = "../cardano-submit-api" }
@@ -49,6 +47,3 @@ tracing = "0.1.31"
 tracing-subscriber = "0.3.17"
 clap = { version = "4.0", features = ["derive"] }
 serde_yaml = "0.9.25"
-
-[dev-dependencies]
-rocksdb = "0.21.*"

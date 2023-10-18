@@ -1,10 +1,9 @@
 use std::sync::{Arc, Once};
 
 use clap::Parser;
-use cml_chain::builders::tx_builder::{
-    SignedTxBuilder, TransactionBuilderConfig, TransactionBuilderConfigBuilder,
-};
+use cml_chain::builders::tx_builder::SignedTxBuilder;
 use cml_chain::transaction::Transaction;
+use cml_crypto::Bip32PrivateKey;
 use futures::channel::mpsc;
 use futures::stream::select_all;
 use futures::{Stream, StreamExt};
@@ -12,10 +11,13 @@ use serde::Deserialize;
 use tokio::sync::Mutex;
 use tracing_subscriber::fmt::Subscriber;
 
+use crate::collateral_storage::CollateralStorage;
 use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::{ChainSyncClient, ChainSyncConf};
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_chain_sync::event_source::event_source_ledger;
+use cardano_explorer::client::Explorer;
+use cardano_explorer::data::ExplorerConfig;
 use cardano_submit_api::client::{LocalTxSubmissionClient, LocalTxSubmissionConf};
 use spectrum_cardano_lib::constants::BABBAGE_ERA_ID;
 use spectrum_offchain::backlog::process::hot_backlog_stream;
@@ -33,7 +35,9 @@ use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::streaming::boxed;
 
 use crate::data::order::ClassicalOnChainOrder;
+use crate::data::order_execution_context::OrderExecutionContext;
 use crate::data::pool::CFMMPool;
+use crate::data::ref_scripts::RefScriptsOutputs;
 use crate::data::{OnChain, PoolId};
 use crate::event_sink::handlers::order::registry::EphemeralHotOrderRegistry;
 use crate::event_sink::handlers::order::ClassicalOrderUpdatesHandler;
@@ -41,6 +45,8 @@ use crate::event_sink::handlers::pool::ConfirmedUpdateHandler;
 use crate::prover::noop::NoopProver;
 use crate::tx_submission::{tx_submission_agent_stream, TxRejected, TxSubmissionAgent};
 
+mod cardano;
+mod collateral_storage;
 mod constants;
 mod data;
 mod event_sink;
@@ -51,12 +57,17 @@ mod tx_submission;
 async fn main() {
     let subscriber = Subscriber::new();
     tracing::subscriber::set_global_default(subscriber).expect("setting tracing default failed");
-
     let args = AppArgs::parse();
     let raw_config = std::fs::read_to_string(args.config_path).expect("Cannot load configuration file");
-    let config: AppConfig = serde_yaml::from_str(&raw_config).expect("Invalid configuration file");
+    let config: AppConfig = serde_json::from_str(&raw_config).expect("Invalid configuration file"); //use crate for config files
 
     log4rs::init_file(args.log4rs_path, Default::default()).unwrap();
+
+    let explorer = Explorer::new(config.explorer_config);
+
+    let ref_scripts = RefScriptsOutputs::new(config.ref_scripts, explorer)
+        .await
+        .expect("Ref scripts initialization failed");
 
     let chain_sync = ChainSyncClient::init(config.chain_sync)
         .await
@@ -73,12 +84,23 @@ async fn main() {
         Some(&signal_tip_reached),
     )));
 
-    let tx_builder_conf = TransactionBuilderConfigBuilder::new().build().unwrap();
+    let private_key = Bip32PrivateKey::from_bech32(config.batcher_private_key).expect("wallet error");
+    let pk = private_key.to_raw_key();
+    let public_key = pk.to_public().hash();
 
-    let p1 = new_partition(tx_submission_channel.clone(), None, tx_builder_conf.clone());
-    let p2 = new_partition(tx_submission_channel.clone(), None, tx_builder_conf.clone());
-    let p3 = new_partition(tx_submission_channel.clone(), None, tx_builder_conf.clone());
-    let p4 = new_partition(tx_submission_channel, None, tx_builder_conf);
+    let collateral_storage = CollateralStorage::new(public_key.to_hex());
+
+    let collateral = collateral_storage
+        .get_collateral(explorer)
+        .await
+        .expect("Couldn't retrieve collateral");
+
+    let ctx = OrderExecutionContext::new(public_key, &pk, ref_scripts, collateral);
+
+    let p1 = new_partition(tx_submission_channel.clone(), None, ctx.clone());
+    let p2 = new_partition(tx_submission_channel.clone(), None, ctx.clone());
+    let p3 = new_partition(tx_submission_channel.clone(), None, ctx.clone());
+    let p4 = new_partition(tx_submission_channel, None, ctx.clone());
 
     let partitioned_backlog = Partitioned::<NUM_PARTITIONS, PoolId, _>::new([
         Arc::clone(&p1.backlog),
@@ -140,8 +162,12 @@ struct ExecPartition<S, Backlog, Pools> {
 fn new_partition<'a, Net>(
     network: Net,
     signal_tip_reached: Option<&'a Once>,
-    tx_builder_conf: TransactionBuilderConfig,
-) -> ExecPartition<impl Stream<Item = ()> + 'a, HotPriorityBacklog<ClassicalOnChainOrder>, InMemoryEntityRepo<OnChain<CFMMPool>>>
+    ctx: OrderExecutionContext<'a>,
+) -> ExecPartition<
+    impl Stream<Item = ()> + 'a,
+    HotPriorityBacklog<ClassicalOnChainOrder>,
+    InMemoryEntityRepo<OnChain<CFMMPool>>,
+>
 where
     Net: Network<Transaction, TxRejected> + 'a,
 {
@@ -159,13 +185,7 @@ where
         SignedTxBuilder,
         Transaction,
         TxRejected,
-    > = HotOrderExecutor::new(
-        network,
-        Arc::clone(&backlog),
-        Arc::clone(&pool_repo),
-        prover,
-        tx_builder_conf,
-    );
+    > = HotOrderExecutor::new(network, Arc::clone(&backlog), Arc::clone(&pool_repo), prover, ctx);
     let executor_stream = executor_stream(executor, signal_tip_reached);
     ExecPartition {
         executor_stream,
@@ -175,11 +195,25 @@ where
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RefScriptsConfig {
+    pool_v1_ref: String,
+    pool_v2_ref: String,
+    swap_ref: String,
+    deposit_ref: String,
+    redeem_ref: String,
+}
+
+#[derive(Deserialize)]
 #[serde(bound = "'de: 'a")]
+#[serde(rename_all = "camelCase")]
 struct AppConfig<'a> {
     chain_sync: ChainSyncConf<'a>,
     local_tx_submission: LocalTxSubmissionConf<'a>,
     tx_submission_buffer_size: usize,
+    batcher_private_key: &'a str, //todo: to cypher container
+    ref_scripts: RefScriptsConfig,
+    explorer_config: ExplorerConfig<'a>,
 }
 
 #[derive(Parser)]
@@ -188,7 +222,7 @@ struct AppConfig<'a> {
 #[command(version = "1.0.0")]
 #[command(about = "Spectrum DEX Offchain Bot", long_about = None)]
 struct AppArgs {
-    /// Path to the YAML configuration file.
+    /// Path to the JSON configuration file.
     #[arg(long, short)]
     config_path: String,
     /// Path to the log4rs YAML configuration file.
