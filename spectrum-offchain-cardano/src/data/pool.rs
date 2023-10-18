@@ -25,7 +25,7 @@ use crate::constants::{
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::operation_output::SwapOutput;
 use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
-use crate::data::{OnChain, PoolId, PoolStateVer};
+use crate::data::{OnChain, PoolId, PoolStateVer, PoolVer};
 
 pub struct Rx;
 
@@ -70,6 +70,7 @@ pub struct CFMMPool {
     pub asset_lq: TaggedAssetClass<Lq>,
     pub lp_fee: Ratio<u64>,
     pub lq_lower_bound: TaggedAmount<Lq>,
+    pub ver: PoolVer,
 }
 
 impl CFMMPool {
@@ -94,6 +95,12 @@ impl CFMMPool {
 impl Has<PoolStateVer> for CFMMPool {
     fn get<U: IsEqual<PoolStateVer>>(&self) -> PoolStateVer {
         self.state_ver
+    }
+}
+
+impl Has<PoolVer> for CFMMPool {
+    fn get<U: IsEqual<PoolVer>>(&self) -> PoolVer {
+        self.ver
     }
 }
 
@@ -127,29 +134,33 @@ impl OnChainEntity for CFMMPool {
 
 impl TryFromLedger<TransactionOutput, OutputRef> for OnChain<CFMMPool> {
     fn try_from_ledger(repr: TransactionOutput, ctx: OutputRef) -> Option<Self> {
-        let value = repr.amount();
-        let pd = repr.clone().into_datum()?.into_pd()?;
-        let conf = CFMMPoolConfig::try_from_pd(pd.clone())?;
-        let reserves_x = TaggedAmount::tag(value.amount_of(conf.asset_x.into())?);
-        let reserves_y = TaggedAmount::tag(value.amount_of(conf.asset_y.into())?);
-        let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
-        let liquidity = TaggedAmount::tag(MAX_LQ_CAP - liquidity_neg);
-        let pool = CFMMPool {
-            id: PoolId::try_from(conf.pool_nft).ok()?,
-            state_ver: PoolStateVer::from(ctx),
-            reserves_x,
-            reserves_y,
-            liquidity,
-            asset_x: conf.asset_x,
-            asset_y: conf.asset_y,
-            asset_lq: conf.asset_lq,
-            lp_fee: Ratio::new(conf.lp_fee_num, CFMM_LP_FEE_DEN),
-            lq_lower_bound: conf.lq_lower_bound,
-        };
-        Some(OnChain {
-            value: pool,
-            source: repr,
-        })
+        if let Some(pool_ver) = PoolVer::try_from_pool_address(repr.address()) {
+            let value = repr.amount();
+            let pd = repr.clone().into_datum()?.into_pd()?;
+            let conf = CFMMPoolConfig::try_from_pd(pd.clone())?;
+            let reserves_x = TaggedAmount::tag(value.amount_of(conf.asset_x.into())?);
+            let reserves_y = TaggedAmount::tag(value.amount_of(conf.asset_y.into())?);
+            let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
+            let liquidity = TaggedAmount::tag(MAX_LQ_CAP - liquidity_neg);
+            let pool = CFMMPool {
+                id: PoolId::try_from(conf.pool_nft).ok()?,
+                state_ver: PoolStateVer::from(ctx),
+                reserves_x,
+                reserves_y,
+                liquidity,
+                asset_x: conf.asset_x,
+                asset_y: conf.asset_y,
+                asset_lq: conf.asset_lq,
+                lp_fee: Ratio::new(conf.lp_fee_num, CFMM_LP_FEE_DEN),
+                lq_lower_bound: conf.lq_lower_bound,
+                ver: pool_ver,
+            };
+            return Some(OnChain {
+                value: pool,
+                source: repr,
+            });
+        }
+        None
     }
 }
 

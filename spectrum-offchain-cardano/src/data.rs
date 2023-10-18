@@ -1,5 +1,6 @@
 use std::fmt::{Display, Formatter};
 
+use cml_chain::address::Address;
 use cml_chain::transaction::{TransactionInput, TransactionOutput};
 use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
@@ -8,6 +9,7 @@ use num_rational::Ratio;
 use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAssetClass, Token};
 use spectrum_offchain::data::{OnChainEntity, SpecializedOrder};
 
+use crate::constants::POOL_VERSIONS;
 use crate::data::order::PoolNft;
 
 pub mod limit_swap;
@@ -131,5 +133,30 @@ impl ExecutorFeePerToken {
     }
     pub fn get_fee(&self, quote_amount: u64) -> u64 {
         ((*self.0.numer() as u128) * (quote_amount as u128) / (*self.0.denom() as u128)) as u64
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, derive_more::From, derive_more::Into)]
+pub struct PoolVer(u8);
+
+impl PoolVer {
+    pub const fn v1() -> Self {
+        PoolVer(1)
+    }
+
+    pub const fn v2() -> Self {
+        PoolVer(2)
+    }
+
+    pub fn try_from_pool_address(pool_addr: &Address) -> Option<PoolVer> {
+        let this_addr = pool_addr.to_bech32(None).unwrap();
+        POOL_VERSIONS.iter().find_map(|(addr, v)| {
+            if this_addr == *addr {
+                Some(PoolVer(*v))
+            } else {
+                None
+            }
+        })
     }
 }

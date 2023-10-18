@@ -1,4 +1,3 @@
-use cml_chain::address::Address;
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
@@ -11,6 +10,7 @@ use cml_chain::transaction::TransactionOutput;
 use cml_chain::Coin;
 use cml_core::serialization::FromBytes;
 use cml_crypto::Ed25519KeyHash;
+use log::info;
 use num_rational::Ratio;
 
 use spectrum_cardano_lib::plutus_data::{
@@ -30,7 +30,7 @@ use crate::constants::{MIN_SAFE_ADA_DEPOSIT, ORDER_APPLY_RAW_REDEEMER, ORDER_REF
 use crate::data::execution_context::ExecutionContext;
 use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
 use crate::data::pool::{ApplySwap, CFMMPoolAction, ImmutablePoolUtxo};
-use crate::data::{ExecutorFeePerToken, OnChain, OnChainOrderId, PoolId, PoolStateVer};
+use crate::data::{ExecutorFeePerToken, OnChain, OnChainOrderId, PoolId, PoolStateVer, PoolVer};
 
 #[derive(Debug, Clone)]
 pub struct LimitSwap {
@@ -143,6 +143,7 @@ impl<'a, Swap, Pool> RunOrder<OnChain<Swap>, ExecutionContext<'a>, SignedTxBuild
 where
     Pool: ApplySwap<Swap>
         + Has<PoolStateVer>
+        + Has<PoolVer>
         + RequiresRedeemer<CFMMPoolAction>
         + IntoLedger<TransactionOutput, ImmutablePoolUtxo>
         + Clone,
@@ -160,8 +161,10 @@ where
             value: pool,
             source: pool_out_in,
         } = self;
+        let pool_ver = pool.get::<PoolVer>();
         let pool_ref = OutputRef::from(pool.get::<PoolStateVer>());
         let order_ref = OutputRef::from(order.get::<OnChainOrderId>());
+        info!(target: "offchain", "Running order {} against pool {}", order_ref, pool_ref);
         let (next_pool, swap_out) = match pool.apply_swap(order) {
             Ok(res) => res,
             Err(slippage) => {
@@ -200,16 +203,10 @@ where
         let user_out = swap_out.into_ledger(());
         let mut tx_builder = constant_tx_builder();
 
-        //todo: Use pools version and remove if-else. PoolStateVer?
-        let pool_parsed_address =
-            Address::to_bech32(pool_in.utxo_info.address(), None).unwrap_or(String::from("unknown"));
-
-        if pool_parsed_address == "addr1x94ec3t25egvhqy2n265xfhq882jxhkknurfe9ny4rl9k6dj764lvrxdayh2ux30fl0ktuh27csgmpevdu89jlxppvrst84slu" {
-            tx_builder
-                .add_reference_input(ctx.ref_scripts.pool_v2)
-        } else if pool_parsed_address == "addr1x8nz307k3sr60gu0e47cmajssy4fmld7u493a4xztjrll0aj764lvrxdayh2ux30fl0ktuh27csgmpevdu89jlxppvrswgxsta" {
-            tx_builder
-                .add_reference_input(ctx.ref_scripts.pool_v1);
+        if pool_ver == PoolVer::v2() {
+            tx_builder.add_reference_input(ctx.ref_scripts.pool_v2)
+        } else {
+            tx_builder.add_reference_input(ctx.ref_scripts.pool_v1);
         }
 
         tx_builder.add_collateral(ctx.collateral).unwrap();

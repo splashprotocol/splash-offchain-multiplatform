@@ -15,7 +15,7 @@ use spectrum_offchain::data::SpecializedOrder;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 
-use crate::cardano::hash::hash_transaction;
+use crate::cardano::hash::hash_transaction_canonical;
 use crate::event_sink::handlers::order::registry::HotOrderRegistry;
 
 pub mod registry;
@@ -57,7 +57,7 @@ impl<TSink, TOrd, TRegistry> ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry
             }
         }
         if !is_success {
-            let tx_hash = hash_transaction(&tx.body);
+            let tx_hash = hash_transaction_canonical(&tx.body);
             // no point in searching for new orders in execution tx
             for (i, o) in tx.body.outputs.iter().enumerate() {
                 let o_ref = OutputRef::from((tx_hash, i as u64));
@@ -89,7 +89,7 @@ impl<TSink, TOrd, TRegistry> ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry
         TRegistry: HotOrderRegistry<TOrd>,
     {
         let mut is_success = false;
-        let tx_hash = hash_transaction(&tx.body);
+        let tx_hash = hash_transaction_canonical(&tx.body);
         for (i, _) in tx.body.outputs.iter().enumerate() {
             let maybe_order_link = {
                 let o_ref = OutputRef::from((tx_hash, i as u64));

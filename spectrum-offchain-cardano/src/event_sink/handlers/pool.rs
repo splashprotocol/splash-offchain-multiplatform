@@ -4,7 +4,6 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use cml_chain::crypto::hash::hash_transaction;
 use cml_chain::transaction::{Transaction, TransactionOutput};
 use futures::{Sink, SinkExt};
 use log::trace;
@@ -19,6 +18,8 @@ use spectrum_offchain::data::unique_entity::{Confirmed, StateUpdate, Unconfirmed
 use spectrum_offchain::data::OnChainEntity;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
+
+use crate::cardano::hash::hash_transaction_canonical;
 
 pub struct ConfirmedUpdateHandler<TSink, TEntity, TRepo>
 where
@@ -65,7 +66,7 @@ where
         }
     }
     let mut created_entities = HashMap::<TEntity::TEntityId, TEntity>::new();
-    let tx_hash = hash_transaction(&tx.body);
+    let tx_hash = hash_transaction_canonical(&tx.body);
     for (i, o) in tx.body.outputs.iter().enumerate() {
         let o_ref = OutputRef::from((tx_hash, i as u64));
         if let Some(entity) = TEntity::try_from_ledger(o.clone(), o_ref) {

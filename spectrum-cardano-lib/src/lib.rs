@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::ops::{Add, Sub};
 use std::str::FromStr;
@@ -76,6 +77,12 @@ impl TryFrom<Vec<u8>> for AssetName {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct OutputRef(TransactionHash, u64);
+
+impl Display for OutputRef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(format!("{}#{}", self.0.to_hex(), self.1).as_str())
+    }
+}
 
 impl From<TransactionInput> for OutputRef {
     fn from(value: TransactionInput) -> Self {
