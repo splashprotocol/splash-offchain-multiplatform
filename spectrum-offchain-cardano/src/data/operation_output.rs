@@ -1,9 +1,9 @@
-use cml_chain::address::BaseAddress;
+use cml_chain::address::{BaseAddress, EnterpriseAddress};
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
+use cml_chain::genesis::network_info::NetworkInfo;
 use cml_chain::transaction::{ConwayFormatTxOut, TransactionOutput};
 use cml_chain::{Coin, Value};
-use cml_chain::genesis::network_info::NetworkInfo;
 use cml_crypto::Ed25519KeyHash;
 
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
@@ -22,11 +22,21 @@ pub struct SwapOutput {
 
 impl IntoLedger<TransactionOutput, ()> for SwapOutput {
     fn into_ledger(self, _ctx: ()) -> TransactionOutput {
-        let addr = BaseAddress::new(
-            NetworkInfo::mainnet().network_id(),
-            StakeCredential::new_pub_key(self.redeemer_pkh),
-            StakeCredential::new_pub_key(self.redeemer_pkh),
-        ).to_address();
+        let addr = if let Some(stake_pkh) = self.redeemer_stake_pkh {
+            BaseAddress::new(
+                //todo: network id from config
+                NetworkInfo::mainnet().network_id(),
+                StakeCredential::new_pub_key(self.redeemer_pkh),
+                StakeCredential::new_pub_key(stake_pkh),
+            )
+            .to_address()
+        } else {
+            EnterpriseAddress::new(
+                //todo: network id from config
+                NetworkInfo::mainnet().network_id(),
+                StakeCredential::new_pub_key(self.redeemer_pkh),
+            )
+        };
 
         let mut ma = MultiAsset::new();
 

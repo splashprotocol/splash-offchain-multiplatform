@@ -2,6 +2,8 @@ pub const CFMM_LP_FEE_DEN: u64 = 1000;
 
 pub const MAX_LQ_CAP: u64 = 0x7fffffffffffffff;
 
+pub const MINIMAL_COLLATERAL_LOVELACE: u64 = 5000000;
+
 pub const POOL_SWAP_REDEEMER: &str = "d8799f0200ff";
 pub const POOL_DEPOSIT_REDEEMER: &str = "d8799f0000ff";
 pub const POOL_REDEEM_REDEEMER: &str = "d8799f0100ff";
