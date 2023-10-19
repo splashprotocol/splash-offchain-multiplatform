@@ -1,23 +1,23 @@
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::marker::PhantomData;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Once};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::{stream, Stream};
 use futures_timer::Delay;
-use log::trace;
 use log::{info, warn};
+use log::trace;
 use tokio::sync::Mutex;
-use type_equalities::{trivial_eq, IsEqual};
+use type_equalities::{IsEqual, trivial_eq};
 
 use crate::backlog::HotBacklog;
 use crate::box_resolver::persistence::EntityRepo;
 use crate::box_resolver::resolve_entity_state;
-use crate::data::unique_entity::{Predicted, Traced};
 use crate::data::{OnChainEntity, SpecializedOrder};
+use crate::data::unique_entity::{Predicted, Traced};
 use crate::network::Network;
 use crate::tx_prover::TxProver;
 
@@ -170,7 +170,9 @@ pub fn executor_stream<'a, TExecutor: Executor + 'a>(
         let is_idle = is_idle.clone();
         async move {
             if tip_reached_signal.map(|sig| sig.is_completed()).unwrap_or(true) {
-                trace!(target: "offchain", "Trying to execute next order ..");
+                if !is_idle.load(Ordering::Relaxed) {
+                    trace!(target: "offchain", "Trying to execute next order ..");
+                }
                 let mut executor_guard = executor.lock().await;
                 if !executor_guard.try_execute_next().await {
                     if let Ok(false) =
