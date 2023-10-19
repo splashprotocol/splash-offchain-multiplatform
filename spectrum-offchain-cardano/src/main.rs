@@ -4,9 +4,10 @@ use clap::Parser;
 use cml_chain::builders::tx_builder::SignedTxBuilder;
 use cml_chain::genesis::network_info::NetworkInfo;
 use cml_chain::transaction::Transaction;
+use futures::{Stream, StreamExt};
 use futures::channel::mpsc;
 use futures::stream::select_all;
-use futures::{Stream, StreamExt};
+use log::info;
 use serde::Deserialize;
 use tokio::sync::Mutex;
 use tracing_subscriber::fmt::Subscriber;
@@ -19,8 +20,8 @@ use cardano_explorer::client::Explorer;
 use cardano_explorer::data::ExplorerConfig;
 use cardano_submit_api::client::{LocalTxSubmissionClient, LocalTxSubmissionConf};
 use spectrum_cardano_lib::constants::BABBAGE_ERA_ID;
-use spectrum_offchain::backlog::process::hot_backlog_stream;
 use spectrum_offchain::backlog::HotPriorityBacklog;
+use spectrum_offchain::backlog::process::hot_backlog_stream;
 use spectrum_offchain::box_resolver::persistence::inmemory::InMemoryEntityRepo;
 use spectrum_offchain::box_resolver::persistence::noop::NoopEntityRepo;
 use spectrum_offchain::box_resolver::process::pool_tracking_stream;
@@ -35,13 +36,13 @@ use spectrum_offchain::streaming::boxed;
 
 use crate::collateral_storage::CollateralStorage;
 use crate::creds::operator_creds;
+use crate::data::{OnChain, PoolId};
 use crate::data::execution_context::ExecutionContext;
 use crate::data::order::ClassicalOnChainOrder;
 use crate::data::pool::CFMMPool;
 use crate::data::ref_scripts::RefScriptsOutputs;
-use crate::data::{OnChain, PoolId};
-use crate::event_sink::handlers::order::registry::EphemeralHotOrderRegistry;
 use crate::event_sink::handlers::order::ClassicalOrderUpdatesHandler;
+use crate::event_sink::handlers::order::registry::EphemeralHotOrderRegistry;
 use crate::event_sink::handlers::pool::ConfirmedUpdateHandler;
 use crate::prover::noop::NoopProver;
 use crate::tx_submission::{tx_submission_agent_stream, TxRejected, TxSubmissionAgent};
@@ -61,9 +62,11 @@ async fn main() {
     tracing::subscriber::set_global_default(subscriber).expect("setting tracing default failed");
     let args = AppArgs::parse();
     let raw_config = std::fs::read_to_string(args.config_path).expect("Cannot load configuration file");
-    let config: AppConfig = serde_json::from_str(&raw_config).expect("Invalid configuration file"); //use crate for config files
+    let config: AppConfig = serde_json::from_str(&raw_config).expect("Invalid configuration file");
 
     log4rs::init_file(args.log4rs_path, Default::default()).unwrap();
+
+    info!(target: "offchain", "Starting offchain service ..");
 
     let explorer = Explorer::new(config.explorer_config);
 
@@ -98,9 +101,21 @@ async fn main() {
 
     let ctx = ExecutionContext::new(operator_addr, &operator_sk, ref_scripts, collateral);
 
-    let p1 = new_partition(tx_submission_channel.clone(), Some(&signal_tip_reached), ctx.clone());
-    let p2 = new_partition(tx_submission_channel.clone(), Some(&signal_tip_reached), ctx.clone());
-    let p3 = new_partition(tx_submission_channel.clone(), Some(&signal_tip_reached), ctx.clone());
+    let p1 = new_partition(
+        tx_submission_channel.clone(),
+        Some(&signal_tip_reached),
+        ctx.clone(),
+    );
+    let p2 = new_partition(
+        tx_submission_channel.clone(),
+        Some(&signal_tip_reached),
+        ctx.clone(),
+    );
+    let p3 = new_partition(
+        tx_submission_channel.clone(),
+        Some(&signal_tip_reached),
+        ctx.clone(),
+    );
     let p4 = new_partition(tx_submission_channel, Some(&signal_tip_reached), ctx);
 
     let partitioned_backlog = Partitioned::<NUM_PARTITIONS, PoolId, _>::new([
