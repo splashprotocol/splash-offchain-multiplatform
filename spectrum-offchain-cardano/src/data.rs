@@ -1,8 +1,8 @@
 use std::fmt::{Display, Formatter, Write};
 
 use cml_chain::address::Address;
-use cml_chain::PolicyId;
 use cml_chain::transaction::{TransactionInput, TransactionOutput};
+use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use num_rational::Ratio;
 
@@ -101,7 +101,7 @@ pub struct PoolId(Token);
 
 impl Display for PoolId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(format!("{}", self.0.0.to_hex()).as_str())
+        f.write_str(format!("{}", self.0 .0.to_hex()).as_str())
     }
 }
 

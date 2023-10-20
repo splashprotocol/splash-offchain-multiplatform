@@ -7,8 +7,8 @@ use tokio::sync::Mutex;
 
 use crate::box_resolver::persistence::EntityRepo;
 use crate::combinators::EitherOrBoth;
-use crate::data::OnChainEntity;
 use crate::data::unique_entity::{Confirmed, StateUpdate};
+use crate::data::OnChainEntity;
 use crate::partitioning::Partitioned;
 
 pub fn pool_tracking_stream<'a, const N: usize, S, Repo, Pool>(
@@ -31,7 +31,7 @@ where
                 | StateUpdate::TransitionRollback(EitherOrBoth::Right(new_state))
                 | StateUpdate::TransitionRollback(EitherOrBoth::Both(_, new_state)) => {
                     let pool_ref = new_state.get_self_ref();
-                    trace!(target: "offchain", "Observing new pool state {}", pool_ref);
+                    trace!(target: "offchain", "Observing new state of pool {}", pool_ref);
                     let pools_mux = pools.get(pool_ref);
                     let mut repo = pools_mux.lock().await;
                     repo.put_confirmed(Confirmed(new_state)).await
@@ -42,7 +42,9 @@ where
                     repo.eliminate(st).await
                 }
                 StateUpdate::TransitionRollback(EitherOrBoth::Left(st)) => {
-                    let pools_mux = pools.get(st.get_self_ref());
+                    let pool_ref = st.get_self_ref();
+                    trace!(target: "offchain", "Rolling back state of pool {}", pool_ref);
+                    let pools_mux = pools.get(pool_ref);
                     let mut repo = pools_mux.lock().await;
                     repo.invalidate(st.get_self_state_ref(), st.get_self_ref()).await
                 }

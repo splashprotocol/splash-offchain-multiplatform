@@ -1,23 +1,23 @@
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::marker::PhantomData;
-use std::sync::{Arc, Once};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Once};
 use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::{stream, Stream};
 use futures_timer::Delay;
-use log::{info, warn};
 use log::trace;
+use log::{info, warn};
 use tokio::sync::Mutex;
-use type_equalities::{IsEqual, trivial_eq};
+use type_equalities::{trivial_eq, IsEqual};
 
 use crate::backlog::HotBacklog;
 use crate::box_resolver::persistence::EntityRepo;
 use crate::box_resolver::resolve_entity_state;
-use crate::data::{OnChainEntity, SpecializedOrder};
 use crate::data::unique_entity::{Predicted, Traced};
+use crate::data::{OnChainEntity, SpecializedOrder};
 use crate::network::Network;
 use crate::tx_prover::TxProver;
 
