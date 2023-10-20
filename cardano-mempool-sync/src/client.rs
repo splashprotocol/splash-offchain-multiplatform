@@ -2,7 +2,7 @@ use std::path::Path;
 
 use cml_chain::transaction::Transaction;
 use cml_core::serialization::Deserialize;
-use pallas_network::miniprotocols::{handshake, txmonitor, PROTOCOL_N2C_HANDSHAKE};
+use pallas_network::miniprotocols::{handshake, PROTOCOL_N2C_HANDSHAKE, txmonitor};
 use pallas_network::multiplexer;
 use pallas_network::multiplexer::Bearer;
 use tokio::task::JoinHandle;
@@ -44,7 +44,7 @@ impl LocalTxMonitorClient {
 
     pub async fn try_pull_next(&mut self) -> Option<Transaction> {
         if let Ok(maybe_tx) = self.tx_monitor.query_next_tx().await {
-            maybe_tx.and_then(|raw_tx| Transaction::from_cbor_bytes(&*raw_tx).ok())
+            maybe_tx.and_then(|raw_tx| Transaction::from_cbor_bytes(&*raw_tx.1).ok())
         } else {
             None
         }
