@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::hash::Hash;
 
 use type_equalities::IsEqual;

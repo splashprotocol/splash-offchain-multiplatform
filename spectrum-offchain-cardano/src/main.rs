@@ -37,7 +37,7 @@ use spectrum_offchain::network::Network;
 use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::streaming::boxed;
 
-use crate::collateral_storage::CollateralStorage;
+use crate::collaterals::{Collaterals, ExplorerBasedRequestor};
 use crate::config::AppConfig;
 use crate::creds::operator_creds;
 use crate::data::execution_context::ExecutionContext;
@@ -52,7 +52,7 @@ use crate::prover::operator::OperatorProver;
 use crate::tx_submission::{tx_submission_agent_stream, TxRejected, TxSubmissionAgent};
 
 mod cardano;
-mod collateral_storage;
+mod collaterals;
 mod config;
 mod constants;
 mod creds;
@@ -110,10 +110,10 @@ async fn main() {
     let (operator_sk, operator_pkh, operator_addr) =
         operator_creds(config.batcher_private_key, NetworkInfo::mainnet());
 
-    let collateral_storage = CollateralStorage::new(operator_pkh.to_hex());
+    let explorer_based_requestor = ExplorerBasedRequestor::new(operator_pkh.to_hex(), explorer);
 
-    let collateral = collateral_storage
-        .get_collateral(explorer)
+    let collateral = explorer_based_requestor
+        .get_collateral()
         .await
         .expect("Couldn't retrieve collateral");
 

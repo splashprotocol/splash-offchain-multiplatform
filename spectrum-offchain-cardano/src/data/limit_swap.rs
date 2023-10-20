@@ -1,10 +1,4 @@
-use cml_chain::builders::input_builder::SingleInputBuilder;
-use cml_chain::builders::output_builder::SingleOutputBuilderResult;
-use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
-use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder};
-use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
-use cml_chain::plutus::{ExUnits, PlutusData, RedeemerTag};
-use cml_chain::transaction::TransactionOutput;
+use cml_chain::plutus::PlutusData;
 use cml_chain::Coin;
 use cml_core::serialization::FromBytes;
 use cml_crypto::Ed25519KeyHash;
@@ -18,17 +12,14 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
-use spectrum_cardano_lib::protocol_params::constant_tx_builder;
-use spectrum_offchain::data::unique_entity::Predicted;
 use spectrum_offchain::data::{Has, UniqueOrder};
-use spectrum_offchain::executor::{RunOrder, RunOrderError};
+use spectrum_offchain::executor::RunOrder;
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 use crate::constants::{MIN_SAFE_ADA_DEPOSIT, ORDER_APPLY_RAW_REDEEMER, ORDER_REFUND_RAW_REDEEMER};
-use crate::data::execution_context::ExecutionContext;
 use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
-use crate::data::pool::{ApplySwap, CFMMPoolAction, ImmutablePoolUtxo};
-use crate::data::{ExecutorFeePerToken, OnChain, OnChainOrderId, PoolId, PoolStateVer, PoolVer};
+use crate::data::pool::ApplySwap;
+use crate::data::{ExecutorFeePerToken, OnChainOrderId, PoolId};
 
 #[derive(Debug, Clone)]
 pub struct LimitSwap {
@@ -137,115 +128,15 @@ impl TryFromPData for OnChainLimitSwapConfig {
     }
 }
 
-impl<Swap, Pool> RunOrder<OnChain<Swap>, ExecutionContext, SignedTxBuilder> for OnChain<Pool>
-where
-    Pool: ApplySwap<Swap>
-        + Has<PoolStateVer>
-        + Has<PoolVer>
-        + RequiresRedeemer<CFMMPoolAction>
-        + IntoLedger<TransactionOutput, ImmutablePoolUtxo>
-        + Clone,
-    Swap: Has<OnChainOrderId> + RequiresRedeemer<ClassicalOrderAction>,
-{
-    fn try_run(
-        self,
-        OnChain {
-            value: order,
-            source: order_out_in,
-        }: OnChain<Swap>,
-        ctx: ExecutionContext,
-    ) -> Result<(SignedTxBuilder, Predicted<Self>), RunOrderError<OnChain<Swap>>> {
-        let OnChain {
-            value: pool,
-            source: pool_out_in,
-        } = self;
-        let pool_ver = pool.get::<PoolVer>();
-        let pool_ref = OutputRef::from(pool.get::<PoolStateVer>());
-        let order_ref = OutputRef::from(order.get::<OnChainOrderId>());
-        let (next_pool, swap_out) = match pool.apply_swap(order) {
-            Ok(res) => res,
-            Err(slippage) => {
-                return Err(slippage
-                    .map(|value| OnChain {
-                        value,
-                        source: order_out_in,
-                    })
-                    .into());
-            }
-        };
-        let pool_redeemer = Pool::redeemer(CFMMPoolAction::Swap);
-        let pool_script = PartialPlutusWitness::new(
-            PlutusScriptWitness::Ref(pool_out_in.script_hash().unwrap()),
-            pool_redeemer,
-        );
-        let pool_datum = pool_out_in.datum().unwrap().into_pd().unwrap();
-        let immut_pool = ImmutablePoolUtxo::from(&pool_out_in);
-        let pool_in = SingleInputBuilder::new(pool_ref.into(), pool_out_in)
-            .plutus_script(pool_script, Vec::new(), pool_datum)
-            .unwrap();
-        let order_redeemer = Swap::redeemer(ClassicalOrderAction::Apply);
-        let order_script = PartialPlutusWitness::new(
-            PlutusScriptWitness::Ref(order_out_in.script_hash().unwrap()),
-            order_redeemer,
-        );
-        let order_datum = order_out_in.datum().unwrap().into_pd().unwrap();
-        let order_in = SingleInputBuilder::new(order_ref.into(), order_out_in)
-            .plutus_script(order_script, Vec::new(), order_datum)
-            .unwrap();
-        let pool_out = next_pool.clone().into_ledger(immut_pool);
-        let predicted_pool = Predicted(OnChain {
-            value: next_pool,
-            source: pool_out.clone(),
-        });
-        let user_out = swap_out.into_ledger(());
-        let mut tx_builder = constant_tx_builder();
-
-        if pool_ver == PoolVer::v2() {
-            tx_builder.add_reference_input(ctx.ref_scripts.pool_v2)
-        } else {
-            tx_builder.add_reference_input(ctx.ref_scripts.pool_v1);
-        }
-
-        tx_builder.add_collateral(ctx.collateral).unwrap();
-
-        tx_builder.add_reference_input(ctx.ref_scripts.swap);
-
-        tx_builder.add_input(pool_in.clone()).unwrap();
-        tx_builder.add_input(order_in).unwrap();
-
-        tx_builder.set_exunits(
-            RedeemerWitnessKey::new(RedeemerTag::Spend, 0),
-            ExUnits::new(530000, 165000000),
-        );
-
-        tx_builder.set_exunits(
-            RedeemerWitnessKey::new(RedeemerTag::Spend, 1),
-            ExUnits::new(270000, 140000000),
-        );
-
-        tx_builder
-            .add_output(SingleOutputBuilderResult::new(pool_out))
-            .unwrap();
-        tx_builder
-            .add_output(SingleOutputBuilderResult::new(user_out))
-            .unwrap();
-
-        let tx = tx_builder
-            .build(ChangeSelectionAlgo::Default, &ctx.operator_addr)
-            .unwrap();
-
-        Ok((tx, predicted_pool))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use cml_chain::address::EnterpriseAddress;
     use cml_chain::certs::StakeCredential;
     use cml_chain::genesis::network_info::NetworkInfo;
     use cml_chain::plutus::PlutusData;
-    use cml_chain::Deserialize;
-    use cml_crypto::{Ed25519KeyHash, TransactionHash};
+    use cml_chain::transaction::TransactionOutput;
+    use cml_chain::{Deserialize, Value};
+    use cml_crypto::{Bip32PrivateKey, TransactionHash};
     use cml_multi_era::babbage::BabbageTransactionOutput;
 
     use cardano_explorer::client::Explorer;
@@ -255,8 +146,10 @@ mod tests {
     use spectrum_offchain::executor::RunOrder;
     use spectrum_offchain::ledger::TryFromLedger;
 
-    use crate::collateral_storage::CollateralStorage;
+    use crate::collaterals::tests::MockBasedRequestor;
+    use crate::collaterals::Collaterals;
     use crate::config::RefScriptsConfig;
+    use crate::creds::operator_creds;
     use crate::data::execution_context::ExecutionContext;
     use crate::data::limit_swap::OnChainLimitSwapConfig;
     use crate::data::order::ClassicalOnChainOrder;
@@ -289,14 +182,25 @@ mod tests {
         let swap = ClassicalOnChainOrder::try_from_ledger(swap_box, swap_ref).unwrap();
         let pool = <OnChain<CFMMPool>>::try_from_ledger(pool_box, pool_ref).unwrap();
 
-        let operator_pkh =
-            Ed25519KeyHash::from_hex("fbbbd406cb78494b84fb7497e9abe0f942fee10b85b8c01c5b1bb500").unwrap();
-        let operator_addr = EnterpriseAddress::new(
+        let private_key_bech32 = Bip32PrivateKey::generate_ed25519_bip32().to_bech32();
+
+        let (operator_sk, operator_pkh, operator_addr) =
+            operator_creds(private_key_bech32.as_str(), NetworkInfo::mainnet());
+
+        let test_address = EnterpriseAddress::new(
             NetworkInfo::mainnet().network_id(),
             StakeCredential::new_pub_key(operator_pkh),
         )
         .to_address();
-        let collateral_storage = CollateralStorage::new(operator_pkh.to_hex());
+
+        let collateral_output: TransactionOutput = TransactionOutput::new(
+            test_address,
+            Value::from(10000000),
+            None,
+            None, // todo: explorer doesn't support script ref. Change to correct after explorer update
+        );
+
+        let mock_requestor = MockBasedRequestor::new(collateral_output);
 
         let explorer = Explorer::new(ExplorerConfig {
             url: "https://explorer.spectrum.fi",
@@ -311,8 +215,8 @@ mod tests {
         let ref_scripts = RefScriptsOutputs::new(ref_scripts_conf, explorer)
             .await
             .expect("Ref scripts initialization failed");
-        let collateral = collateral_storage
-            .get_collateral(explorer)
+        let collateral = mock_requestor
+            .get_collateral()
             .await
             .expect("Couldn't retrieve collateral");
 

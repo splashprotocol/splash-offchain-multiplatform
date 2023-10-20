@@ -6,7 +6,7 @@ appenders:
     kind: file
     path: "log/main.log"
     encoder:
-      pattern: "{d} - {m}{n}"
+      pattern: "{d} - {l} - {m}{n} "
 root:
   level: trace
   appenders:
