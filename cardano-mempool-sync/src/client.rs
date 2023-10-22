@@ -2,7 +2,7 @@ use std::path::Path;
 
 use cml_chain::transaction::Transaction;
 use cml_core::serialization::Deserialize;
-use pallas_network::miniprotocols::{handshake, PROTOCOL_N2C_HANDSHAKE, txmonitor};
+use pallas_network::miniprotocols::{handshake, txmonitor, PROTOCOL_N2C_HANDSHAKE};
 use pallas_network::multiplexer;
 use pallas_network::multiplexer::Bearer;
 use tokio::task::JoinHandle;

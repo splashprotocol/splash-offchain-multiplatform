@@ -4,6 +4,7 @@ use clap::Parser;
 use cml_chain::builders::tx_builder::SignedTxBuilder;
 use cml_chain::genesis::network_info::NetworkInfo;
 use cml_chain::transaction::Transaction;
+use cml_crypto::PrivateKey;
 use futures::channel::mpsc;
 use futures::stream::select_all;
 use futures::{Stream, StreamExt};
@@ -44,7 +45,7 @@ use crate::data::{OnChain, PoolId};
 use crate::event_sink::handlers::order::registry::EphemeralHotOrderRegistry;
 use crate::event_sink::handlers::order::ClassicalOrderUpdatesHandler;
 use crate::event_sink::handlers::pool::ConfirmedUpdateHandler;
-use crate::prover::noop::NoopProver;
+use crate::prover::operator::OperatorProver;
 use crate::tx_submission::{tx_submission_agent_stream, TxRejected, TxSubmissionAgent};
 
 mod cardano;
@@ -99,24 +100,32 @@ async fn main() {
         .await
         .expect("Couldn't retrieve collateral");
 
-    let ctx = ExecutionContext::new(operator_addr, &operator_sk, ref_scripts, collateral);
+    let ctx = ExecutionContext::new(operator_addr, ref_scripts, collateral);
 
     let p1 = new_partition(
         tx_submission_channel.clone(),
+        &operator_sk,
         Some(&signal_tip_reached),
         ctx.clone(),
     );
     let p2 = new_partition(
         tx_submission_channel.clone(),
+        &operator_sk,
         Some(&signal_tip_reached),
         ctx.clone(),
     );
     let p3 = new_partition(
         tx_submission_channel.clone(),
+        &operator_sk,
         Some(&signal_tip_reached),
         ctx.clone(),
     );
-    let p4 = new_partition(tx_submission_channel, Some(&signal_tip_reached), ctx);
+    let p4 = new_partition(
+        tx_submission_channel,
+        &operator_sk,
+        Some(&signal_tip_reached),
+        ctx,
+    );
 
     let partitioned_backlog = Partitioned::<NUM_PARTITIONS, PoolId, _>::new([
         Arc::clone(&p1.backlog),
@@ -177,8 +186,9 @@ struct ExecPartition<S, Backlog, Pools> {
 
 fn new_partition<'a, Net>(
     network: Net,
+    operator_sk: &'a PrivateKey,
     signal_tip_reached: Option<&'a Once>,
-    ctx: ExecutionContext<'a>,
+    ctx: ExecutionContext,
 ) -> ExecPartition<
     impl Stream<Item = ()> + 'a,
     HotPriorityBacklog<ClassicalOnChainOrder>,
@@ -189,7 +199,7 @@ where
 {
     let backlog = Arc::new(Mutex::new(HotPriorityBacklog::new(43)));
     let pool_repo = Arc::new(Mutex::new(InMemoryEntityRepo::new()));
-    let prover = NoopProver {};
+    let prover = OperatorProver::new(operator_sk);
     let executor: HotOrderExecutor<
         _,
         _,
@@ -227,7 +237,7 @@ struct AppConfig<'a> {
     chain_sync: ChainSyncConf<'a>,
     local_tx_submission: LocalTxSubmissionConf<'a>,
     tx_submission_buffer_size: usize,
-    batcher_private_key: &'a str, //todo: to cypher container
+    batcher_private_key: &'a str, //todo: store encrypted
     ref_scripts: RefScriptsConfig,
     explorer_config: ExplorerConfig<'a>,
 }

@@ -7,6 +7,6 @@ pub struct NoopProver {}
 
 impl TxProver<SignedTxBuilder, Transaction> for NoopProver {
     fn prove(&self, candidate: SignedTxBuilder) -> Transaction {
-        candidate.build_unchecked() // todo: check correctness
+        candidate.build_unchecked()
     }
 }

@@ -1,7 +1,6 @@
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::marker::PhantomData;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Once};
 use std::time::Duration;
 
@@ -164,25 +163,15 @@ pub fn executor_stream<'a, TExecutor: Executor + 'a>(
     tip_reached_signal: Option<&'a Once>,
 ) -> impl Stream<Item = ()> + 'a {
     let executor = Arc::new(Mutex::new(executor));
-    let is_idle = Arc::new(AtomicBool::new(false));
     stream::unfold((), move |_| {
         let executor = executor.clone();
-        let is_idle = is_idle.clone();
         async move {
             if tip_reached_signal.map(|sig| sig.is_completed()).unwrap_or(true) {
-                if !is_idle.load(Ordering::Relaxed) {
-                    trace!(target: "offchain", "Trying to execute next order ..");
-                }
+                trace!(target: "offchain", "Trying to execute next order ..");
                 let mut executor_guard = executor.lock().await;
                 if !executor_guard.try_execute_next().await {
-                    if let Ok(false) =
-                        is_idle.compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
-                    {
-                        trace!(target: "offchain", "No orders available, throttling ..");
-                    }
+                    trace!(target: "offchain", "No orders available ..");
                     Delay::new(Duration::from_millis(THROTTLE_IDLE_MILLIS)).await;
-                } else {
-                    let _ = is_idle.compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed);
                 }
             } else {
                 Delay::new(Duration::from_millis(THROTTLE_PREM_MILLIS)).await;
