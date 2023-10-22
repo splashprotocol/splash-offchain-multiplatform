@@ -35,16 +35,16 @@ where
 
 /// An order specialized for a concrete pool.
 pub trait SpecializedOrder {
-    type TOrderId: Eq + Hash;
-    type TPoolId: Eq + Hash;
+    type TOrderId: Copy + Eq + Hash;
+    type TPoolId: Copy + Eq + Hash;
 
     fn get_self_ref(&self) -> Self::TOrderId;
     fn get_pool_ref(&self) -> Self::TPoolId;
 }
 
 pub trait OnChainEntity {
-    type TEntityId: Eq + Hash;
-    type TStateId: Eq + Hash;
+    type TEntityId: Copy + Eq + Hash;
+    type TStateId: Copy + Eq + Hash;
 
     fn get_self_ref(&self) -> Self::TEntityId;
 

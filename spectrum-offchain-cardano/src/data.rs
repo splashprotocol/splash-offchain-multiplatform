@@ -80,7 +80,20 @@ where
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, derive_more::From, derive_more::Into)]
+#[repr(transparent)]
+#[derive(
+    Debug,
+    Copy,
+    Clone,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Hash,
+    derive_more::From,
+    derive_more::Into,
+    derive_more::Display,
+)]
 pub struct OnChainOrderId(OutputRef);
 
 impl From<TransactionInput> for OnChainOrderId {

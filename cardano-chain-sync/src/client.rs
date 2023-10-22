@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use cml_chain::block::Block;
 use cml_core::serialization::Deserialize;
 use pallas_network::miniprotocols::chainsync::{BlockContent, NextResponse};
@@ -16,10 +18,8 @@ pub struct ChainSyncClient {
 
 impl ChainSyncClient {
     #[cfg(not(target_os = "windows"))]
-    pub async fn init<'a>(conf: ChainSyncConf<'a>) -> Result<Self, Error> {
-        let bearer = Bearer::connect_unix(conf.path)
-            .await
-            .map_err(Error::ConnectFailure)?;
+    pub async fn init<'a>(path: impl AsRef<Path>, magic: u64, starting_point: Point) -> Result<Self, Error> {
+        let bearer = Bearer::connect_unix(path).await.map_err(Error::ConnectFailure)?;
 
         let mut mplex = multiplexer::Plexer::new(bearer);
 
@@ -28,7 +28,7 @@ impl ChainSyncClient {
 
         let mplex_handle = tokio::spawn(async move { mplex.run().await });
 
-        let versions = handshake::n2c::VersionTable::v10_and_above(conf.magic);
+        let versions = handshake::n2c::VersionTable::v10_and_above(magic);
         let mut client = handshake::Client::new(hs_channel);
 
         let handshake = client
@@ -43,7 +43,7 @@ impl ChainSyncClient {
         let mut cs_client = chainsync::Client::new(cs_channel);
 
         if let (None, _) = cs_client
-            .find_intersect(vec![conf.starting_point.into()])
+            .find_intersect(vec![starting_point.into()])
             .await
             .map_err(Error::ChainSyncProtocol)?
         {
@@ -112,12 +112,4 @@ impl TryFrom<RawPoint> for Point {
                 .map(|pt| Point::from(pallas_network::miniprotocols::Point::Specific(tip, pt))),
         }
     }
-}
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChainSyncConf<'a> {
-    pub path: &'a str,
-    pub magic: u64,
-    pub starting_point: Point,
 }

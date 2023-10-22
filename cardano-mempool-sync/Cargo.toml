@@ -8,11 +8,13 @@ rust-version = "1.71.0"
 
 [dependencies]
 async-trait = "0.1.72"
+async-stream = "0.3.3"
 base16 = "0.2"
 pallas-network = { git = "https://github.com/oskin1/pallas.git", branch = "fix-localtxsubmit-decoder" }
-cml-chain = { git = "https://github.com/dcSpark/cardano-multiplatform-lib.git", branch = "develop" }
-cml-core = { git = "https://github.com/dcSpark/cardano-multiplatform-lib.git", branch = "develop" }
+cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/adjust-fee-estimator" }
+cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/adjust-fee-estimator" }
 futures = "0.3.28"
+futures-timer = "3.0.2"
 tokio = { version = "1", features = ["full"] }
 async-std = "1.12.0"
 serde = { version = "1.0", features = ["derive"] }

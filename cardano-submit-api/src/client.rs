@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use cml_chain::transaction::Transaction;
 use cml_core::serialization::Serialize;
 use pallas_network::miniprotocols::handshake::RefuseReason;
@@ -16,10 +18,8 @@ pub struct LocalTxSubmissionClient<const ERA: u16> {
 
 impl<const EraId: u16> LocalTxSubmissionClient<EraId> {
     #[cfg(not(target_os = "windows"))]
-    pub async fn init<'a>(conf: LocalTxSubmissionConf<'a>) -> Result<Self, Error> {
-        let bearer = Bearer::connect_unix(conf.path)
-            .await
-            .map_err(Error::ConnectFailure)?;
+    pub async fn init<'a>(path: impl AsRef<Path>, magic: u64) -> Result<Self, Error> {
+        let bearer = Bearer::connect_unix(path).await.map_err(Error::ConnectFailure)?;
 
         let mut mplex = multiplexer::Plexer::new(bearer);
 
@@ -28,7 +28,7 @@ impl<const EraId: u16> LocalTxSubmissionClient<EraId> {
 
         let mplex_handle = tokio::spawn(async move { mplex.run().await });
 
-        let versions = handshake::n2c::VersionTable::v10_and_above(conf.magic);
+        let versions = handshake::n2c::VersionTable::v10_and_above(magic);
         let mut client = handshake::Client::new(hs_channel);
 
         let handshake = client
@@ -75,10 +75,4 @@ pub enum Error {
 
     #[error("handshake version not accepted")]
     HandshakeRefused(RefuseReason),
-}
-
-#[derive(serde::Deserialize)]
-pub struct LocalTxSubmissionConf<'a> {
-    pub path: &'a str,
-    pub magic: u64,
 }

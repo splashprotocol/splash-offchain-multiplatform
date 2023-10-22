@@ -7,6 +7,8 @@ use pallas_network::multiplexer;
 use pallas_network::multiplexer::Bearer;
 use tokio::task::JoinHandle;
 
+use crate::data::MempoolUpdate;
+
 pub struct LocalTxMonitorClient {
     mplex_handle: JoinHandle<Result<(), multiplexer::Error>>,
     tx_monitor: txmonitor::Client,
@@ -42,9 +44,11 @@ impl LocalTxMonitorClient {
         })
     }
 
-    pub async fn try_pull_next(&mut self) -> Option<Transaction> {
+    pub async fn try_pull_next(&mut self) -> Option<MempoolUpdate<Transaction>> {
         if let Ok(maybe_tx) = self.tx_monitor.query_next_tx().await {
-            maybe_tx.and_then(|raw_tx| Transaction::from_cbor_bytes(&*raw_tx.1).ok())
+            maybe_tx
+                .and_then(|raw_tx| Transaction::from_cbor_bytes(&*raw_tx.1).ok())
+                .map(MempoolUpdate::TxAccepted)
         } else {
             None
         }

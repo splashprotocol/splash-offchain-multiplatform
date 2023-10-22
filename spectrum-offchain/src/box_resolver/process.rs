@@ -7,7 +7,7 @@ use tokio::sync::Mutex;
 
 use crate::box_resolver::persistence::EntityRepo;
 use crate::combinators::EitherOrBoth;
-use crate::data::unique_entity::{Confirmed, StateUpdate};
+use crate::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
 use crate::data::OnChainEntity;
 use crate::partitioning::Partitioned;
 
@@ -16,25 +16,33 @@ pub fn pool_tracking_stream<'a, const N: usize, S, Repo, Pool>(
     pools: Partitioned<N, Pool::TEntityId, Arc<Mutex<Repo>>>,
 ) -> impl Stream<Item = ()> + 'a
 where
-    S: Stream<Item = Confirmed<StateUpdate<Pool>>> + 'a,
+    S: Stream<Item = EitherMod<StateUpdate<Pool>>> + 'a,
     Pool: OnChainEntity + 'a,
     Pool::TEntityId: Display,
     Repo: EntityRepo<Pool> + 'a,
 {
     let pools = Arc::new(pools);
-    upstream.then(move |Confirmed(upd)| {
+    upstream.then(move |upd_in_mode| {
         let pools = Arc::clone(&pools);
         async move {
+            let is_confirmed = matches!(upd_in_mode, EitherMod::Confirmed(_));
+            let (EitherMod::Confirmed(Confirmed(upd)) | EitherMod::Unconfirmed(Unconfirmed(upd))) =
+                upd_in_mode;
             match upd {
                 StateUpdate::Transition(EitherOrBoth::Right(new_state))
                 | StateUpdate::Transition(EitherOrBoth::Both(_, new_state))
                 | StateUpdate::TransitionRollback(EitherOrBoth::Right(new_state))
                 | StateUpdate::TransitionRollback(EitherOrBoth::Both(_, new_state)) => {
                     let pool_ref = new_state.get_self_ref();
-                    trace!(target: "offchain", "Observing new state of pool {}", pool_ref);
                     let pools_mux = pools.get(pool_ref);
                     let mut repo = pools_mux.lock().await;
-                    repo.put_confirmed(Confirmed(new_state)).await
+                    if is_confirmed {
+                        trace!("Observing new confirmed state of pool {}", pool_ref);
+                        repo.put_confirmed(Confirmed(new_state)).await
+                    } else {
+                        trace!("Observing new unconfirmed state of pool {}", pool_ref);
+                        repo.put_unconfirmed(Unconfirmed(new_state)).await
+                    }
                 }
                 StateUpdate::Transition(EitherOrBoth::Left(st)) => {
                     let pools_mux = pools.get(st.get_self_ref());

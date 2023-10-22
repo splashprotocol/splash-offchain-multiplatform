@@ -8,6 +8,7 @@ pub trait HotOrderRegistry<TOrd: SpecializedOrder> {
     fn deregister(&mut self, order_id: TOrd::TOrderId) -> Option<OrderLink<TOrd>>;
 }
 
+#[derive(Clone)]
 pub struct EphemeralHotOrderRegistry<TOrd: SpecializedOrder> {
     store: HashMap<TOrd::TOrderId, TOrd::TPoolId>,
 }

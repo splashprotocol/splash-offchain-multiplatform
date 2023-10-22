@@ -14,7 +14,7 @@ use cardano_mempool_sync::data::MempoolUpdate;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::box_resolver::persistence::EntityRepo;
 use spectrum_offchain::combinators::EitherOrBoth;
-use spectrum_offchain::data::unique_entity::{Confirmed, StateUpdate, Unconfirmed};
+use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
 use spectrum_offchain::data::OnChainEntity;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
@@ -90,7 +90,7 @@ where
 #[async_trait(?Send)]
 impl<TSink, TEntity, TRepo> EventHandler<LedgerTxEvent> for ConfirmedUpdateHandler<TSink, TEntity, TRepo>
 where
-    TSink: Sink<Confirmed<StateUpdate<TEntity>>> + Unpin,
+    TSink: Sink<EitherMod<StateUpdate<TEntity>>> + Unpin,
     TEntity: OnChainEntity + TryFromLedger<TransactionOutput, OutputRef> + Clone + Debug,
     TEntity::TEntityId: Clone,
     TEntity::TStateId: From<OutputRef> + Copy,
@@ -103,7 +103,10 @@ where
                 let num_transitions = transitions.len();
                 let is_success = num_transitions > 0;
                 for tr in transitions {
-                    let _ = self.topic.feed(Confirmed(StateUpdate::Transition(tr))).await;
+                    let _ = self
+                        .topic
+                        .feed(EitherMod::Confirmed(Confirmed(StateUpdate::Transition(tr))))
+                        .await;
                 }
                 if is_success {
                     trace!(target: "offchain_lm", "[{}] entities parsed from applied tx", num_transitions);
@@ -119,7 +122,9 @@ where
                 for tr in transitions {
                     let _ = self
                         .topic
-                        .feed(Confirmed(StateUpdate::TransitionRollback(tr.swap())))
+                        .feed(EitherMod::Confirmed(Confirmed(StateUpdate::TransitionRollback(
+                            tr.swap(),
+                        ))))
                         .await;
                 }
                 if is_success {
@@ -135,21 +140,34 @@ where
     }
 }
 
-pub struct UnconfirmedUpgradeHandler<TSink, TEntity, TRepo>
+pub struct UnconfirmedUpdateHandler<TSink, TEntity, TRepo>
 where
     TEntity: OnChainEntity,
 {
     pub topic: TSink,
     pub entities: Arc<Mutex<TRepo>>,
-    pub blacklisted_entities: HashSet<TEntity::TEntityId>,
     pub pd: PhantomData<TEntity>,
+}
+
+impl<TSink, TEntity, TRepo> UnconfirmedUpdateHandler<TSink, TEntity, TRepo>
+where
+    TEntity: OnChainEntity + TryFromLedger<TransactionOutput, OutputRef> + Clone,
+    TEntity::TEntityId: Clone,
+{
+    pub fn new(topic: TSink, entities: Arc<Mutex<TRepo>>) -> Self {
+        Self {
+            topic,
+            entities,
+            pd: Default::default(),
+        }
+    }
 }
 
 #[async_trait(?Send)]
 impl<TSink, TEntity, TRepo> EventHandler<MempoolUpdate<Transaction>>
-    for UnconfirmedUpgradeHandler<TSink, TEntity, TRepo>
+    for UnconfirmedUpdateHandler<TSink, TEntity, TRepo>
 where
-    TSink: Sink<Unconfirmed<StateUpdate<TEntity>>> + Unpin,
+    TSink: Sink<EitherMod<StateUpdate<TEntity>>> + Unpin,
     TEntity: OnChainEntity + TryFromLedger<TransactionOutput, OutputRef> + Clone + Debug,
     TEntity::TEntityId: Clone,
     TEntity::TStateId: From<OutputRef> + Copy,
@@ -161,7 +179,10 @@ where
                 let transitions = extract_transitions(Arc::clone(&self.entities), tx.clone()).await;
                 let is_success = !transitions.is_empty();
                 for tr in transitions {
-                    let _ = self.topic.feed(Unconfirmed(StateUpdate::Transition(tr))).await;
+                    let _ = self
+                        .topic
+                        .feed(EitherMod::Unconfirmed(Unconfirmed(StateUpdate::Transition(tr))))
+                        .await;
                 }
                 if is_success {
                     Some(MempoolUpdate::TxAccepted(tx))
