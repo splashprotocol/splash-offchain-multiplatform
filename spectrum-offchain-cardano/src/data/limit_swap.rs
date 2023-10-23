@@ -3,8 +3,6 @@ use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
 use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder};
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
-use cml_chain::crypto::hash::hash_transaction;
-use cml_chain::crypto::utils::make_vkey_witness;
 use cml_chain::plutus::{ExUnits, PlutusData, RedeemerTag};
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::Coin;
@@ -139,7 +137,7 @@ impl TryFromPData for OnChainLimitSwapConfig {
     }
 }
 
-impl<'a, Swap, Pool> RunOrder<OnChain<Swap>, ExecutionContext<'a>, SignedTxBuilder> for OnChain<Pool>
+impl<Swap, Pool> RunOrder<OnChain<Swap>, ExecutionContext, SignedTxBuilder> for OnChain<Pool>
 where
     Pool: ApplySwap<Swap>
         + Has<PoolStateVer>
@@ -233,15 +231,9 @@ where
             .add_output(SingleOutputBuilderResult::new(user_out))
             .unwrap();
 
-        let mut tx = tx_builder
+        let tx = tx_builder
             .build(ChangeSelectionAlgo::Default, &ctx.operator_addr)
             .unwrap();
-
-        let body = tx.body();
-
-        let batcher_signature = make_vkey_witness(&hash_transaction(&body), &ctx.operator_prv);
-
-        tx.add_vkey(batcher_signature);
 
         Ok((tx, predicted_pool))
     }
@@ -249,11 +241,13 @@ where
 
 #[cfg(test)]
 mod tests {
+    use cml_chain::address::EnterpriseAddress;
+    use cml_chain::certs::StakeCredential;
     use cml_chain::genesis::network_info::NetworkInfo;
     use cml_chain::plutus::PlutusData;
     use cml_chain::transaction::TransactionOutput;
     use cml_chain::Deserialize;
-    use cml_crypto::TransactionHash;
+    use cml_crypto::{Ed25519KeyHash, TransactionHash};
 
     use cardano_explorer::client::Explorer;
     use cardano_explorer::data::ExplorerConfig;
@@ -263,7 +257,6 @@ mod tests {
     use spectrum_offchain::ledger::TryFromLedger;
 
     use crate::collateral_storage::CollateralStorage;
-    use crate::creds::operator_creds;
     use crate::data::execution_context::ExecutionContext;
     use crate::data::limit_swap::OnChainLimitSwapConfig;
     use crate::data::order::ClassicalOnChainOrder;
@@ -295,8 +288,13 @@ mod tests {
         let swap = ClassicalOnChainOrder::try_from_ledger(swap_box, swap_ref).unwrap();
         let pool = <OnChain<CFMMPool>>::try_from_ledger(pool_box, pool_ref).unwrap();
 
-        let (operator_sk, operator_pkh, operator_addr) = operator_creds("", NetworkInfo::mainnet());
-
+        let operator_pkh =
+            Ed25519KeyHash::from_hex("fbbbd406cb78494b84fb7497e9abe0f942fee10b85b8c01c5b1bb500").unwrap();
+        let operator_addr = EnterpriseAddress::new(
+            NetworkInfo::mainnet().network_id(),
+            StakeCredential::new_pub_key(operator_pkh),
+        )
+        .to_address();
         let collateral_storage = CollateralStorage::new(operator_pkh.to_hex());
 
         let explorer = Explorer::new(ExplorerConfig {
@@ -317,7 +315,7 @@ mod tests {
             .await
             .expect("Couldn't retrieve collateral");
 
-        let ctx = ExecutionContext::new(operator_addr, &operator_sk, ref_scripts, collateral);
+        let ctx = ExecutionContext::new(operator_addr, ref_scripts, collateral);
 
         let result = pool.try_run(swap, ctx);
 
