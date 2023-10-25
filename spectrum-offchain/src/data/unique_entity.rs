@@ -2,11 +2,11 @@ use std::fmt;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
 
-use crate::combinators::EitherOrBoth;
 use serde::__private::de::missing_field;
 use serde::ser::SerializeStruct;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::combinators::EitherOrBoth;
 use crate::data::OnChainEntity;
 
 /// A unique, persistent, self-reproducible, on-chiain entity.
@@ -272,6 +272,13 @@ impl<T: OnChainEntity> OnChainEntity for Predicted<T> {
     fn get_self_state_ref(&self) -> Self::TStateId {
         self.0.get_self_state_ref()
     }
+}
+
+/// State `T` in either confirmed or unconfirmed modality.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum EitherMod<T> {
+    Confirmed(Confirmed<T>),
+    Unconfirmed(Unconfirmed<T>),
 }
 
 /// State `T` is confirmed to be included into blockchain.

@@ -8,7 +8,6 @@ use cml_chain::transaction::TransactionOutput;
 use cml_chain::Coin;
 use cml_core::serialization::FromBytes;
 use cml_crypto::Ed25519KeyHash;
-use log::info;
 use num_rational::Ratio;
 
 use spectrum_cardano_lib::plutus_data::{
@@ -162,7 +161,6 @@ where
         let pool_ver = pool.get::<PoolVer>();
         let pool_ref = OutputRef::from(pool.get::<PoolStateVer>());
         let order_ref = OutputRef::from(order.get::<OnChainOrderId>());
-        info!(target: "offchain", "Running order {} against pool {}", order_ref, pool_ref);
         let (next_pool, swap_out) = match pool.apply_swap(order) {
             Ok(res) => res,
             Err(slippage) => {
@@ -257,13 +255,13 @@ mod tests {
     use spectrum_offchain::ledger::TryFromLedger;
 
     use crate::collateral_storage::CollateralStorage;
+    use crate::config::RefScriptsConfig;
     use crate::data::execution_context::ExecutionContext;
     use crate::data::limit_swap::OnChainLimitSwapConfig;
     use crate::data::order::ClassicalOnChainOrder;
     use crate::data::pool::CFMMPool;
     use crate::data::ref_scripts::RefScriptsOutputs;
     use crate::data::OnChain;
-    use crate::RefScriptsConfig;
 
     #[test]
     fn parse_swap_datum_mainnet() {

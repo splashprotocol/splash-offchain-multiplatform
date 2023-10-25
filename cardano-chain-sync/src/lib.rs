@@ -2,6 +2,7 @@ use std::sync::Once;
 use std::time::Duration;
 
 use async_stream::stream;
+use cml_core::serialization::Deserialize;
 use futures::lock::Mutex;
 use futures::Stream;
 use futures_timer::Delay;
@@ -14,10 +15,13 @@ pub mod client;
 pub mod data;
 pub mod event_source;
 
-pub fn chain_sync_stream<'a>(
-    mut chain_sync: ChainSyncClient,
+pub fn chain_sync_stream<'a, Block>(
+    mut chain_sync: ChainSyncClient<Block>,
     tip_reached_signal: Option<&'a Once>,
-) -> impl Stream<Item = ChainUpgrade> + 'a {
+) -> impl Stream<Item = ChainUpgrade<Block>> + 'a
+where
+    Block: Deserialize + 'a,
+{
     let delay_mux: Mutex<Option<Delay>> = Mutex::new(None);
     stream! {
         loop {

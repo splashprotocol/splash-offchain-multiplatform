@@ -1,4 +1,6 @@
-use cml_chain::transaction::Transaction;
+use std::marker::PhantomData;
+use std::path::Path;
+
 use cml_core::serialization::Serialize;
 use pallas_network::miniprotocols::handshake::RefuseReason;
 use pallas_network::miniprotocols::localtxsubmission::{EraTx, RejectReason};
@@ -9,17 +11,16 @@ use pallas_network::multiplexer;
 use pallas_network::multiplexer::Bearer;
 use tokio::task::JoinHandle;
 
-pub struct LocalTxSubmissionClient<const ERA: u16> {
+pub struct LocalTxSubmissionClient<const ERA: u16, Tx> {
     mplex_handle: JoinHandle<Result<(), multiplexer::Error>>,
     tx_submission: localtxsubmission::Client,
+    tx: PhantomData<Tx>,
 }
 
-impl<const EraId: u16> LocalTxSubmissionClient<EraId> {
+impl<const EraId: u16, Tx> LocalTxSubmissionClient<EraId, Tx> {
     #[cfg(not(target_os = "windows"))]
-    pub async fn init<'a>(conf: LocalTxSubmissionConf<'a>) -> Result<Self, Error> {
-        let bearer = Bearer::connect_unix(conf.path)
-            .await
-            .map_err(Error::ConnectFailure)?;
+    pub async fn init<'a>(path: impl AsRef<Path>, magic: u64) -> Result<Self, Error> {
+        let bearer = Bearer::connect_unix(path).await.map_err(Error::ConnectFailure)?;
 
         let mut mplex = multiplexer::Plexer::new(bearer);
 
@@ -28,7 +29,7 @@ impl<const EraId: u16> LocalTxSubmissionClient<EraId> {
 
         let mplex_handle = tokio::spawn(async move { mplex.run().await });
 
-        let versions = handshake::n2c::VersionTable::v10_and_above(conf.magic);
+        let versions = handshake::n2c::VersionTable::v10_and_above(magic);
         let mut client = handshake::Client::new(hs_channel);
 
         let handshake = client
@@ -45,10 +46,14 @@ impl<const EraId: u16> LocalTxSubmissionClient<EraId> {
         Ok(Self {
             mplex_handle,
             tx_submission: ts_client,
+            tx: PhantomData::default(),
         })
     }
 
-    pub async fn submit_tx(&mut self, tx: Transaction) -> Result<(), Error> {
+    pub async fn submit_tx(&mut self, tx: Tx) -> Result<(), Error>
+    where
+        Tx: Serialize,
+    {
         let tx_bytes = tx.to_cbor_bytes();
         self.tx_submission
             .submit_tx(EraTx(EraId, tx_bytes))
@@ -75,10 +80,4 @@ pub enum Error {
 
     #[error("handshake version not accepted")]
     HandshakeRefused(RefuseReason),
-}
-
-#[derive(serde::Deserialize)]
-pub struct LocalTxSubmissionConf<'a> {
-    pub path: &'a str,
-    pub magic: u64,
 }

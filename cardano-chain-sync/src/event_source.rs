@@ -2,19 +2,19 @@ use std::collections::HashSet;
 
 use cml_chain::block::Block;
 use cml_chain::transaction::Transaction;
-use futures::stream::StreamExt;
 use futures::{stream, Stream};
+use futures::stream::StreamExt;
 
 use crate::data::{ChainUpgrade, LedgerTxEvent};
 
-pub fn event_source_ledger<S>(upstream: S) -> impl Stream<Item = LedgerTxEvent>
+pub fn event_source_ledger<S>(upstream: S) -> impl Stream<Item = LedgerTxEvent<Transaction>>
 where
-    S: Stream<Item = ChainUpgrade>,
+    S: Stream<Item = ChainUpgrade<Block>>,
 {
     upstream.flat_map(|u| stream::iter(process_upgrade(u)))
 }
 
-fn process_upgrade(upgr: ChainUpgrade) -> Vec<LedgerTxEvent> {
+fn process_upgrade(upgr: ChainUpgrade<Block>) -> Vec<LedgerTxEvent<Transaction>> {
     match upgr {
         ChainUpgrade::RollForward(Block {
             transaction_bodies,

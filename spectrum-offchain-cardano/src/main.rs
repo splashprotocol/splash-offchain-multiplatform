@@ -5,21 +5,23 @@ use cml_chain::builders::tx_builder::SignedTxBuilder;
 use cml_chain::genesis::network_info::NetworkInfo;
 use cml_chain::transaction::Transaction;
 use cml_crypto::PrivateKey;
+use cml_multi_era::babbage::BabbageTransaction;
 use futures::channel::mpsc;
 use futures::stream::select_all;
 use futures::{Stream, StreamExt};
 use log::info;
-use serde::Deserialize;
 use tokio::sync::Mutex;
 use tracing_subscriber::fmt::Subscriber;
 
 use cardano_chain_sync::chain_sync_stream;
-use cardano_chain_sync::client::{ChainSyncClient, ChainSyncConf};
+use cardano_chain_sync::client::ChainSyncClient;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_chain_sync::event_source::event_source_ledger;
 use cardano_explorer::client::Explorer;
-use cardano_explorer::data::ExplorerConfig;
-use cardano_submit_api::client::{LocalTxSubmissionClient, LocalTxSubmissionConf};
+use cardano_mempool_sync::client::LocalTxMonitorClient;
+use cardano_mempool_sync::data::MempoolUpdate;
+use cardano_mempool_sync::mempool_stream;
+use cardano_submit_api::client::LocalTxSubmissionClient;
 use spectrum_cardano_lib::constants::BABBAGE_ERA_ID;
 use spectrum_offchain::backlog::process::hot_backlog_stream;
 use spectrum_offchain::backlog::HotPriorityBacklog;
@@ -27,7 +29,7 @@ use spectrum_offchain::box_resolver::persistence::inmemory::InMemoryEntityRepo;
 use spectrum_offchain::box_resolver::persistence::noop::NoopEntityRepo;
 use spectrum_offchain::box_resolver::process::pool_tracking_stream;
 use spectrum_offchain::data::order::{OrderLink, OrderUpdate};
-use spectrum_offchain::data::unique_entity::{Confirmed, StateUpdate};
+use spectrum_offchain::data::unique_entity::{EitherMod, StateUpdate};
 use spectrum_offchain::event_sink::event_handler::{EventHandler, NoopDefaultHandler};
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::executor::{executor_stream, HotOrderExecutor};
@@ -36,6 +38,7 @@ use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::streaming::boxed;
 
 use crate::collateral_storage::CollateralStorage;
+use crate::config::AppConfig;
 use crate::creds::operator_creds;
 use crate::data::execution_context::ExecutionContext;
 use crate::data::order::ClassicalOnChainOrder;
@@ -44,12 +47,13 @@ use crate::data::ref_scripts::RefScriptsOutputs;
 use crate::data::{OnChain, PoolId};
 use crate::event_sink::handlers::order::registry::EphemeralHotOrderRegistry;
 use crate::event_sink::handlers::order::ClassicalOrderUpdatesHandler;
-use crate::event_sink::handlers::pool::ConfirmedUpdateHandler;
+use crate::event_sink::handlers::pool::{ConfirmedUpdateHandler, UnconfirmedUpdateHandler};
 use crate::prover::operator::OperatorProver;
 use crate::tx_submission::{tx_submission_agent_stream, TxRejected, TxSubmissionAgent};
 
 mod cardano;
 mod collateral_storage;
+mod config;
 mod constants;
 mod creds;
 mod data;
@@ -67,28 +71,43 @@ async fn main() {
 
     log4rs::init_file(args.log4rs_path, Default::default()).unwrap();
 
-    info!(target: "offchain", "Starting offchain service ..");
+    info!("Starting offchain service ..");
 
-    let explorer = Explorer::new(config.explorer_config);
+    let explorer = Explorer::new(config.explorer);
 
     let ref_scripts = RefScriptsOutputs::new(config.ref_scripts, explorer)
         .await
         .expect("Ref scripts initialization failed");
 
-    let chain_sync = ChainSyncClient::init(config.chain_sync)
+    let chain_sync = ChainSyncClient::init(
+        config.node.path,
+        config.node.magic,
+        config.chain_sync.starting_point,
+    )
+    .await
+    .expect("ChainSync initialization failed");
+
+    // n2c clients:
+    let mempool_sync = LocalTxMonitorClient::connect(config.node.path, config.node.magic)
         .await
-        .expect("ChainSync initialization failed");
-    let tx_submission_client = LocalTxSubmissionClient::<BABBAGE_ERA_ID>::init(config.local_tx_submission)
-        .await
-        .expect("LocalTxSubmission initialization failed");
+        .expect("MempoolSync initialization failed");
+    let tx_submission_client = LocalTxSubmissionClient::<BABBAGE_ERA_ID, Transaction>::init(
+        config.node.path,
+        config.node.magic,
+    )
+    .await
+    .expect("LocalTxSubmission initialization failed");
     let (tx_submission_agent, tx_submission_channel) =
         TxSubmissionAgent::new(tx_submission_client, config.tx_submission_buffer_size);
+
+    // prepare upstreams
     let tx_submission_stream = tx_submission_agent_stream(tx_submission_agent);
     let signal_tip_reached: Once = Once::new();
     let ledger_stream = Box::pin(event_source_ledger(chain_sync_stream(
         chain_sync,
         Some(&signal_tip_reached),
     )));
+    let mempool_stream = mempool_stream(mempool_sync, Some(&signal_tip_reached));
 
     let (operator_sk, operator_pkh, operator_addr) =
         operator_creds(config.batcher_private_key, NetworkInfo::mainnet());
@@ -138,14 +157,23 @@ async fn main() {
     let orders_registry = Arc::new(Mutex::new(
         EphemeralHotOrderRegistry::<ClassicalOnChainOrder>::new(),
     ));
-    let orders_handler =
+    let orders_handler_ledger = ClassicalOrderUpdatesHandler::<_, ClassicalOnChainOrder, _>::new(
+        orders_snd.clone(),
+        orders_registry.clone(),
+    );
+    let orders_handler_mempool =
         ClassicalOrderUpdatesHandler::<_, ClassicalOnChainOrder, _>::new(orders_snd, orders_registry);
     let backlog_stream = hot_backlog_stream(partitioned_backlog, orders_recv);
 
-    let (pools_snd, pools_recv) = mpsc::channel::<Confirmed<StateUpdate<OnChain<CFMMPool>>>>(128);
+    let (pools_snd, pools_recv) = mpsc::channel::<EitherMod<StateUpdate<OnChain<CFMMPool>>>>(128);
     // This technically disables pool lookups in TX.inputs.
     let noop_pool_repo = Arc::new(Mutex::new(NoopEntityRepo));
-    let pools_handler = ConfirmedUpdateHandler::<_, OnChain<CFMMPool>, _>::new(pools_snd, noop_pool_repo);
+    let pools_handler_ledger = ConfirmedUpdateHandler::<_, OnChain<CFMMPool>, _>::new(
+        pools_snd.clone(),
+        Arc::clone(&noop_pool_repo),
+    );
+    let pools_handler_mempool =
+        UnconfirmedUpdateHandler::<_, OnChain<CFMMPool>, _>::new(pools_snd, noop_pool_repo);
     let partitioned_pool_repo = Partitioned::<NUM_PARTITIONS, PoolId, _>::new([
         Arc::clone(&p1.pool_repo),
         Arc::clone(&p2.pool_repo),
@@ -154,14 +182,20 @@ async fn main() {
     ]);
     let pool_tracking_stream = pool_tracking_stream(pools_recv, partitioned_pool_repo);
 
-    let handlers: Vec<Box<dyn EventHandler<LedgerTxEvent>>> =
-        vec![Box::new(pools_handler), Box::new(orders_handler)];
+    let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<Transaction>>>> =
+        vec![Box::new(pools_handler_ledger), Box::new(orders_handler_ledger)];
+
+    let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<Transaction>>>> =
+        vec![Box::new(pools_handler_mempool), Box::new(orders_handler_mempool)];
 
     let default_handler = NoopDefaultHandler;
-    let process_events_stream = process_events(ledger_stream, handlers, default_handler);
+
+    let process_ledger_events_stream = process_events(ledger_stream, handlers_ledger, default_handler);
+    let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool, default_handler);
 
     let mut app = select_all(vec![
-        boxed(process_events_stream),
+        boxed(process_ledger_events_stream),
+        boxed(process_mempool_events_stream),
         boxed(backlog_stream),
         boxed(pool_tracking_stream),
         boxed(tx_submission_stream),
@@ -218,28 +252,6 @@ where
         backlog,
         pool_repo,
     }
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RefScriptsConfig {
-    pool_v1_ref: String,
-    pool_v2_ref: String,
-    swap_ref: String,
-    deposit_ref: String,
-    redeem_ref: String,
-}
-
-#[derive(Deserialize)]
-#[serde(bound = "'de: 'a")]
-#[serde(rename_all = "camelCase")]
-struct AppConfig<'a> {
-    chain_sync: ChainSyncConf<'a>,
-    local_tx_submission: LocalTxSubmissionConf<'a>,
-    tx_submission_buffer_size: usize,
-    batcher_private_key: &'a str, //todo: store encrypted
-    ref_scripts: RefScriptsConfig,
-    explorer_config: ExplorerConfig<'a>,
 }
 
 #[derive(Parser)]

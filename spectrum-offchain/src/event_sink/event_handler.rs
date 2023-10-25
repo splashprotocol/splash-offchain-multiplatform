@@ -14,6 +14,7 @@ pub trait DefaultEventHandler<TEvent> {
         TEvent: 'a;
 }
 
+#[derive(Copy, Clone)]
 pub struct NoopDefaultHandler;
 
 #[async_trait(?Send)]

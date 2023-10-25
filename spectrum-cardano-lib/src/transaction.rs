@@ -1,15 +1,91 @@
+use std::ops::Add;
+use cml_chain::address::Address;
 use cml_chain::certs::StakeCredential;
-use cml_chain::transaction::{DatumOption, TransactionOutput};
+use cml_chain::transaction::{DatumOption, ScriptRef, TransactionOutput};
 use cml_chain::Value;
 use cml_crypto::ScriptHash;
+use cml_multi_era::babbage::{BabbageScriptRef, BabbageTransactionOutput};
+
+use crate::address::AddressExtension;
 
 pub trait TransactionOutputExtension {
+    fn address(&self) -> &Address;
+    fn value(&self) -> &Value;
+    fn datum(&self) -> Option<DatumOption>;
     fn into_datum(self) -> Option<DatumOption>;
     fn script_hash(&self) -> Option<ScriptHash>;
     fn update_value(&mut self, value: Value);
+    fn script_ref(&self) -> Option<&BabbageScriptRef>;
+}
+
+impl TransactionOutputExtension for BabbageTransactionOutput {
+    fn address(&self) -> &Address {
+        match self {
+            Self::AlonzoFormatTxOut(tx_out) => &tx_out.address,
+            Self::BabbageFormatTxOut(tx_out) => &tx_out.address,
+        }
+    }
+    fn value(&self) -> &Value {
+        match self {
+            Self::AlonzoFormatTxOut(tx_out) => &tx_out.amount,
+            Self::BabbageFormatTxOut(tx_out) => &tx_out.amount,
+        }
+    }
+    fn datum(&self) -> Option<DatumOption> {
+        match self {
+            Self::AlonzoFormatTxOut(tx_out) => tx_out.datum_hash.map(DatumOption::new_hash).clone(),
+            Self::BabbageFormatTxOut(tx_out) => tx_out.datum_option.clone(),
+        }
+    }
+    fn into_datum(self) -> Option<DatumOption> {
+        match self {
+            Self::AlonzoFormatTxOut(tx_out) => tx_out.datum_hash.map(DatumOption::new_hash),
+            Self::BabbageFormatTxOut(tx_out) => tx_out.datum_option,
+        }
+    }
+    fn script_hash(&self) -> Option<ScriptHash> {
+        match self {
+            Self::AlonzoFormatTxOut(tx_out) => tx_out.address.script_hash(),
+            Self::BabbageFormatTxOut(tx_out) => tx_out.address.script_hash(),
+        }
+    }
+    fn update_value(&mut self, value: Value) {
+        match self {
+            Self::AlonzoFormatTxOut(ref mut out) => {
+                out.amount = value;
+            }
+            Self::BabbageFormatTxOut(ref mut out) => {
+                out.amount = value;
+            }
+        }
+    }
+    fn script_ref(&self) -> Option<&BabbageScriptRef> {
+        match self {
+            Self::AlonzoFormatTxOut(_) => None,
+            Self::BabbageFormatTxOut(tx_out) => tx_out.script_reference.as_ref(),
+        }
+    }
 }
 
 impl TransactionOutputExtension for TransactionOutput {
+    fn address(&self) -> &Address {
+        match self {
+            Self::AlonzoFormatTxOut(tx_out) => &tx_out.address,
+            Self::ConwayFormatTxOut(tx_out) => &tx_out.address,
+        }
+    }
+    fn value(&self) -> &Value {
+        match self {
+            Self::AlonzoFormatTxOut(tx_out) => &tx_out.amount,
+            Self::ConwayFormatTxOut(tx_out) => &tx_out.amount,
+        }
+    }
+    fn datum(&self) -> Option<DatumOption> {
+        match self {
+            Self::AlonzoFormatTxOut(tx_out) => tx_out.datum_hash.map(DatumOption::new_hash).clone(),
+            Self::ConwayFormatTxOut(tx_out) => tx_out.datum_option.clone(),
+        }
+    }
     fn into_datum(self) -> Option<DatumOption> {
         match self {
             Self::AlonzoFormatTxOut(tx_out) => tx_out.datum_hash.map(DatumOption::new_hash),
@@ -31,5 +107,8 @@ impl TransactionOutputExtension for TransactionOutput {
                 out.amount = value;
             }
         }
+    }
+    fn script_ref(&self) -> Option<&BabbageScriptRef> {
+        None
     }
 }

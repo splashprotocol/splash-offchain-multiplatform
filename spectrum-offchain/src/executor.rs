@@ -103,10 +103,10 @@ impl<Net, Backlog, Pools, Prover, Ctx, Ord, Pool, TxCandidate, Tx, Err> Executor
     for HotOrderExecutor<Net, Backlog, Pools, Prover, Ctx, Ord, Pool, TxCandidate, Tx, Err>
 where
     Ord: SpecializedOrder + Clone + Display,
-    <Ord as SpecializedOrder>::TOrderId: Clone,
+    <Ord as SpecializedOrder>::TOrderId: Clone + Display,
     Pool: OnChainEntity + RunOrder<Ord, Ctx, TxCandidate> + Clone,
     Pool::TEntityId: Copy,
-    Ord::TPoolId: IsEqual<Pool::TEntityId>,
+    Ord::TPoolId: IsEqual<Pool::TEntityId> + Display,
     Net: Network<Tx, Err>,
     Backlog: HotBacklog<Ord>,
     Pools: EntityRepo<Pool>,
@@ -121,6 +121,7 @@ where
         };
         if let Some(ord) = next_ord {
             let entity_id = ord.get_pool_ref();
+            info!("Running order {} against pool {}", ord.get_self_ref(), entity_id);
             if let Some(entity) =
                 resolve_entity_state(trivial_eq().coerce(entity_id), Arc::clone(&self.pool_repo)).await
             {
@@ -167,10 +168,10 @@ pub fn executor_stream<'a, TExecutor: Executor + 'a>(
         let executor = executor.clone();
         async move {
             if tip_reached_signal.map(|sig| sig.is_completed()).unwrap_or(true) {
-                trace!(target: "offchain", "Trying to execute next order ..");
+                trace!("Trying to execute next order ..");
                 let mut executor_guard = executor.lock().await;
                 if !executor_guard.try_execute_next().await {
-                    trace!(target: "offchain", "No orders available ..");
+                    trace!("No orders available ..");
                     Delay::new(Duration::from_millis(THROTTLE_IDLE_MILLIS)).await;
                 }
             } else {

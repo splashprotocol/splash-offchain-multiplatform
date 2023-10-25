@@ -1,17 +1,15 @@
 {
+  "node": {
+    "path": "/cardano-node-ipc/node.socket",
+    "magic": 764824073
+  },
   "chainSync": {
-    "path": "/ipc/node.socket",
-    "magic": 764824073,
     "startingPoint": {
       "Specific": [
         105626488,
         "ef0df7fc0054c7593fd3a7f43a7c5c5547a2cd4ce437c50f57542f14c8a3971c"
       ]
     }
-  },
-  "localTxSubmission": {
-    "path": "/ipc/node.socket",
-    "magic": 764824073
   },
   "txSubmissionBufferSize": 1000000,
   "batcherPrivateKey": "",
@@ -22,7 +20,7 @@
     "depositRef": "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#0",
     "redeemRef": "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#1"
   },
-  "explorerConfig": {
+  "explorer": {
     "url": "https://explorer.spectrum.fi"
   }
 }

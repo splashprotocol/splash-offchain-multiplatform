@@ -1,18 +1,21 @@
+use std::marker::PhantomData;
 use std::path::Path;
 
-use cml_chain::transaction::Transaction;
 use cml_core::serialization::Deserialize;
 use pallas_network::miniprotocols::{handshake, txmonitor, PROTOCOL_N2C_HANDSHAKE};
 use pallas_network::multiplexer;
 use pallas_network::multiplexer::Bearer;
 use tokio::task::JoinHandle;
 
-pub struct LocalTxMonitorClient {
+use crate::data::MempoolUpdate;
+
+pub struct LocalTxMonitorClient<Tx> {
     mplex_handle: JoinHandle<Result<(), multiplexer::Error>>,
     tx_monitor: txmonitor::Client,
+    tx: PhantomData<Tx>,
 }
 
-impl LocalTxMonitorClient {
+impl<Tx> LocalTxMonitorClient<Tx> {
     #[cfg(not(target_os = "windows"))]
     pub async fn connect(path: impl AsRef<Path>, magic: u64) -> Result<Self, Error> {
         let bearer = Bearer::connect_unix(path).await.map_err(Error::ConnectFailure)?;
@@ -39,12 +42,18 @@ impl LocalTxMonitorClient {
         Ok(Self {
             mplex_handle,
             tx_monitor: txmonitor::Client::new(tm_channel),
+            tx: PhantomData::default(),
         })
     }
 
-    pub async fn try_pull_next(&mut self) -> Option<Transaction> {
+    pub async fn try_pull_next(&mut self) -> Option<MempoolUpdate<Tx>>
+    where
+        Tx: Deserialize,
+    {
         if let Ok(maybe_tx) = self.tx_monitor.query_next_tx().await {
-            maybe_tx.and_then(|raw_tx| Transaction::from_cbor_bytes(&*raw_tx.1).ok())
+            maybe_tx
+                .and_then(|raw_tx| Tx::from_cbor_bytes(&*raw_tx.1).ok())
+                .map(MempoolUpdate::TxAccepted)
         } else {
             None
         }
