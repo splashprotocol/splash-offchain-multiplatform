@@ -8,6 +8,7 @@ use cml_chain::transaction::TransactionOutput;
 use cml_chain::Coin;
 use cml_core::serialization::FromBytes;
 use cml_crypto::Ed25519KeyHash;
+use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
 
 use spectrum_cardano_lib::plutus_data::{
@@ -63,9 +64,9 @@ impl UniqueOrder for ClassicalOnChainLimitSwap {
     }
 }
 
-impl TryFromLedger<TransactionOutput, OutputRef> for ClassicalOnChainLimitSwap {
-    fn try_from_ledger(repr: TransactionOutput, ctx: OutputRef) -> Option<Self> {
-        let value = repr.amount().clone();
+impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainLimitSwap {
+    fn try_from_ledger(repr: BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
+        let value = repr.value().clone();
         let conf = OnChainLimitSwapConfig::try_from_pd(repr.into_datum()?.into_pd()?)?;
         let real_base_input = value.amount_of(conf.base.untag()).unwrap_or(0);
         let (min_base, ada_deposit) = if conf.base.is_native() {
@@ -246,6 +247,7 @@ mod tests {
     use cml_chain::transaction::TransactionOutput;
     use cml_chain::Deserialize;
     use cml_crypto::{Ed25519KeyHash, TransactionHash};
+    use cml_multi_era::babbage::BabbageTransactionOutput;
 
     use cardano_explorer::client::Explorer;
     use cardano_explorer::data::ExplorerConfig;
@@ -281,8 +283,8 @@ mod tests {
     async fn run_valid_swap_against_pool() {
         let swap_ref = OutputRef::from((TransactionHash::from([0u8; 32]), 0));
         let pool_ref = OutputRef::from((TransactionHash::from([1u8; 32]), 0));
-        let swap_box = TransactionOutput::from_cbor_bytes(&*hex::decode(SWAP_SAMPLE).unwrap()).unwrap();
-        let pool_box = TransactionOutput::from_cbor_bytes(&*hex::decode(POOL_SAMPLE).unwrap()).unwrap();
+        let swap_box = BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(SWAP_SAMPLE).unwrap()).unwrap();
+        let pool_box = BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(POOL_SAMPLE).unwrap()).unwrap();
         let swap = ClassicalOnChainOrder::try_from_ledger(swap_box, swap_ref).unwrap();
         let pool = <OnChain<CFMMPool>>::try_from_ledger(pool_box, pool_ref).unwrap();
 

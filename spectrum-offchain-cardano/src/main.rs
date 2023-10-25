@@ -182,10 +182,10 @@ async fn main() {
     ]);
     let pool_tracking_stream = pool_tracking_stream(pools_recv, partitioned_pool_repo);
 
-    let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<Transaction>>>> =
+    let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<BabbageTransaction>>>> =
         vec![Box::new(pools_handler_ledger), Box::new(orders_handler_ledger)];
 
-    let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<Transaction>>>> =
+    let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<BabbageTransaction>>>> =
         vec![Box::new(pools_handler_mempool), Box::new(orders_handler_mempool)];
 
     let default_handler = NoopDefaultHandler;

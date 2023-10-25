@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use cml_chain::transaction::{Transaction, TransactionOutput};
+use cml_multi_era::babbage::{BabbageTransaction, BabbageTransactionOutput};
 use futures::{Sink, SinkExt};
 use log::trace;
 use tokio::sync::Mutex;
@@ -32,7 +32,7 @@ where
 
 impl<TSink, TEntity, TRepo> ConfirmedUpdateHandler<TSink, TEntity, TRepo>
 where
-    TEntity: OnChainEntity + TryFromLedger<TransactionOutput, OutputRef> + Clone,
+    TEntity: OnChainEntity + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone,
     TEntity::TEntityId: Clone,
 {
     pub fn new(topic: TSink, entities: Arc<Mutex<TRepo>>) -> Self {
@@ -46,10 +46,10 @@ where
 
 async fn extract_transitions<TEntity, TRepo>(
     entities: Arc<Mutex<TRepo>>,
-    tx: Transaction,
+    tx: BabbageTransaction,
 ) -> Vec<EitherOrBoth<TEntity, TEntity>>
 where
-    TEntity: OnChainEntity + TryFromLedger<TransactionOutput, OutputRef> + Clone,
+    TEntity: OnChainEntity + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone,
     TEntity::TEntityId: Clone,
     TEntity::TStateId: From<OutputRef> + Copy,
     TRepo: EntityRepo<TEntity>,
@@ -88,16 +88,16 @@ where
 }
 
 #[async_trait(?Send)]
-impl<TSink, TEntity, TRepo> EventHandler<LedgerTxEvent<Transaction>>
+impl<TSink, TEntity, TRepo> EventHandler<LedgerTxEvent<BabbageTransaction>>
     for ConfirmedUpdateHandler<TSink, TEntity, TRepo>
 where
     TSink: Sink<EitherMod<StateUpdate<TEntity>>> + Unpin,
-    TEntity: OnChainEntity + TryFromLedger<TransactionOutput, OutputRef> + Clone + Debug,
+    TEntity: OnChainEntity + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone + Debug,
     TEntity::TEntityId: Clone,
     TEntity::TStateId: From<OutputRef> + Copy,
     TRepo: EntityRepo<TEntity>,
 {
-    async fn try_handle(&mut self, ev: LedgerTxEvent<Transaction>) -> Option<LedgerTxEvent<Transaction>> {
+    async fn try_handle(&mut self, ev: LedgerTxEvent<BabbageTransaction>) -> Option<LedgerTxEvent<BabbageTransaction>> {
         let res = match ev {
             LedgerTxEvent::TxApplied(tx) => {
                 let transitions = extract_transitions(Arc::clone(&self.entities), tx.clone()).await;
@@ -152,7 +152,7 @@ where
 
 impl<TSink, TEntity, TRepo> UnconfirmedUpdateHandler<TSink, TEntity, TRepo>
 where
-    TEntity: OnChainEntity + TryFromLedger<TransactionOutput, OutputRef> + Clone,
+    TEntity: OnChainEntity + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone,
     TEntity::TEntityId: Clone,
 {
     pub fn new(topic: TSink, entities: Arc<Mutex<TRepo>>) -> Self {
@@ -165,16 +165,16 @@ where
 }
 
 #[async_trait(?Send)]
-impl<TSink, TEntity, TRepo> EventHandler<MempoolUpdate<Transaction>>
+impl<TSink, TEntity, TRepo> EventHandler<MempoolUpdate<BabbageTransaction>>
     for UnconfirmedUpdateHandler<TSink, TEntity, TRepo>
 where
     TSink: Sink<EitherMod<StateUpdate<TEntity>>> + Unpin,
-    TEntity: OnChainEntity + TryFromLedger<TransactionOutput, OutputRef> + Clone + Debug,
+    TEntity: OnChainEntity + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone + Debug,
     TEntity::TEntityId: Clone,
     TEntity::TStateId: From<OutputRef> + Copy,
     TRepo: EntityRepo<TEntity>,
 {
-    async fn try_handle(&mut self, ev: MempoolUpdate<Transaction>) -> Option<MempoolUpdate<Transaction>> {
+    async fn try_handle(&mut self, ev: MempoolUpdate<BabbageTransaction>) -> Option<MempoolUpdate<BabbageTransaction>> {
         let res = match ev {
             MempoolUpdate::TxAccepted(tx) => {
                 let transitions = extract_transitions(Arc::clone(&self.entities), tx.clone()).await;
