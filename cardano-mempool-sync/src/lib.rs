@@ -2,7 +2,7 @@ use std::sync::Once;
 use std::time::Duration;
 
 use async_stream::stream;
-use cml_chain::transaction::Transaction;
+use cml_core::serialization::Deserialize;
 use futures::lock::Mutex;
 use futures::Stream;
 use futures_timer::Delay;
@@ -13,10 +13,13 @@ use crate::data::MempoolUpdate;
 pub mod client;
 pub mod data;
 
-pub fn mempool_stream<'a>(
-    mut client: LocalTxMonitorClient,
+pub fn mempool_stream<'a, Tx>(
+    mut client: LocalTxMonitorClient<Tx>,
     tip_reached_signal: Option<&'a Once>,
-) -> impl Stream<Item = MempoolUpdate<Transaction>> + 'a {
+) -> impl Stream<Item = MempoolUpdate<Tx>> + 'a
+where
+    Tx: Deserialize + 'a,
+{
     let delay_mux: Mutex<Option<Delay>> = Mutex::new(None);
     stream! {
         loop {

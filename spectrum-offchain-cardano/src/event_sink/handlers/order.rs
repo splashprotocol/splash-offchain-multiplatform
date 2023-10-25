@@ -81,7 +81,10 @@ impl<TSink, TOrd, TRegistry> ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry
         Some(on_failure(tx))
     }
 
-    async fn handle_unapplied_tx(&mut self, tx: Transaction) -> Option<LedgerTxEvent>
+    async fn handle_unapplied_tx(
+        &mut self,
+        tx: Transaction,
+    ) -> Option<LedgerTxEvent<Transaction>>
     where
         TSink: Sink<OrderUpdate<TOrd, OrderLink<TOrd>>> + Unpin,
         TOrd: SpecializedOrder + TryFromLedger<TransactionOutput, OutputRef>,
@@ -111,7 +114,7 @@ impl<TSink, TOrd, TRegistry> ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry
 }
 
 #[async_trait(? Send)]
-impl<TSink, TOrd, TRegistry> EventHandler<LedgerTxEvent>
+impl<TSink, TOrd, TRegistry> EventHandler<LedgerTxEvent<Transaction>>
     for ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry>
 where
     TSink: Sink<OrderUpdate<TOrd, OrderLink<TOrd>>> + Unpin,
@@ -119,7 +122,10 @@ where
     TOrd::TOrderId: From<OutputRef> + Copy,
     TRegistry: HotOrderRegistry<TOrd>,
 {
-    async fn try_handle(&mut self, ev: LedgerTxEvent) -> Option<LedgerTxEvent> {
+    async fn try_handle(
+        &mut self,
+        ev: LedgerTxEvent<Transaction>,
+    ) -> Option<LedgerTxEvent<Transaction>> {
         let res = match ev {
             LedgerTxEvent::TxApplied(tx) => self.handle_applied_tx(tx, LedgerTxEvent::TxApplied).await,
             LedgerTxEvent::TxUnapplied(tx) => self.handle_unapplied_tx(tx).await,
@@ -138,7 +144,10 @@ where
     TOrd::TOrderId: From<OutputRef> + Copy,
     TRegistry: HotOrderRegistry<TOrd>,
 {
-    async fn try_handle(&mut self, ev: MempoolUpdate<Transaction>) -> Option<MempoolUpdate<Transaction>> {
+    async fn try_handle(
+        &mut self,
+        ev: MempoolUpdate<Transaction>,
+    ) -> Option<MempoolUpdate<Transaction>> {
         let res = match ev {
             MempoolUpdate::TxAccepted(tx) => self.handle_applied_tx(tx, MempoolUpdate::TxAccepted).await,
         };

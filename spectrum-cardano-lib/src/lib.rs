@@ -13,6 +13,7 @@ use derivative::Derivative;
 use crate::plutus_data::{ConstrPlutusDataExtension, PlutusDataExtension};
 use crate::types::TryFromPData;
 
+pub mod address;
 pub mod constants;
 pub mod plutus_data;
 pub mod transaction;

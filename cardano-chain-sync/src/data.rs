@@ -1,15 +1,13 @@
-use cml_chain::block::Block;
-use cml_chain::transaction::Transaction;
 use pallas_network::miniprotocols::Point;
 
 #[derive(Clone)]
-pub enum ChainUpgrade {
+pub enum ChainUpgrade<Block> {
     RollForward(Block),
     RollBackward(Point),
 }
 
 #[derive(Clone, Debug)]
-pub enum LedgerTxEvent {
-    TxApplied(Transaction),
-    TxUnapplied(Transaction),
+pub enum LedgerTxEvent<Tx> {
+    TxApplied(Tx),
+    TxUnapplied(Tx),
 }

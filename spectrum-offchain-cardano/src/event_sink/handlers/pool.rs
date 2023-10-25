@@ -14,8 +14,8 @@ use cardano_mempool_sync::data::MempoolUpdate;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::box_resolver::persistence::EntityRepo;
 use spectrum_offchain::combinators::EitherOrBoth;
-use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
 use spectrum_offchain::data::OnChainEntity;
+use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 
@@ -88,7 +88,8 @@ where
 }
 
 #[async_trait(?Send)]
-impl<TSink, TEntity, TRepo> EventHandler<LedgerTxEvent> for ConfirmedUpdateHandler<TSink, TEntity, TRepo>
+impl<TSink, TEntity, TRepo> EventHandler<LedgerTxEvent<Transaction>>
+    for ConfirmedUpdateHandler<TSink, TEntity, TRepo>
 where
     TSink: Sink<EitherMod<StateUpdate<TEntity>>> + Unpin,
     TEntity: OnChainEntity + TryFromLedger<TransactionOutput, OutputRef> + Clone + Debug,
@@ -96,7 +97,7 @@ where
     TEntity::TStateId: From<OutputRef> + Copy,
     TRepo: EntityRepo<TEntity>,
 {
-    async fn try_handle(&mut self, ev: LedgerTxEvent) -> Option<LedgerTxEvent> {
+    async fn try_handle(&mut self, ev: LedgerTxEvent<Transaction>) -> Option<LedgerTxEvent<Transaction>> {
         let res = match ev {
             LedgerTxEvent::TxApplied(tx) => {
                 let transitions = extract_transitions(Arc::clone(&self.entities), tx.clone()).await;

@@ -1,5 +1,5 @@
 use async_stream::stream;
-use cml_chain::transaction::Transaction;
+use cml_core::serialization::Serialize;
 use derive_more::Display;
 use futures::channel::{mpsc, oneshot};
 use futures::{SinkExt, Stream, StreamExt};
@@ -7,13 +7,16 @@ use futures::{SinkExt, Stream, StreamExt};
 use cardano_submit_api::client::{Error, LocalTxSubmissionClient};
 use spectrum_offchain::network::Network;
 
-pub struct TxSubmissionAgent<const ERA: u16> {
-    client: LocalTxSubmissionClient<ERA>,
-    mailbox: mpsc::Receiver<SubmitTx>,
+pub struct TxSubmissionAgent<const ERA: u16, Tx> {
+    client: LocalTxSubmissionClient<ERA, Tx>,
+    mailbox: mpsc::Receiver<SubmitTx<Tx>>,
 }
 
-impl<const ERA: u16> TxSubmissionAgent<ERA> {
-    pub fn new(client: LocalTxSubmissionClient<ERA>, buffer_size: usize) -> (Self, TxSubmissionChannel<ERA>) {
+impl<const ERA: u16, Tx> TxSubmissionAgent<ERA, Tx> {
+    pub fn new(
+        client: LocalTxSubmissionClient<ERA, Tx>,
+        buffer_size: usize,
+    ) -> (Self, TxSubmissionChannel<ERA, Tx>) {
         let (snd, recv) = mpsc::channel(buffer_size);
         (
             Self {
@@ -26,9 +29,9 @@ impl<const ERA: u16> TxSubmissionAgent<ERA> {
 }
 
 #[derive(Clone)]
-pub struct TxSubmissionChannel<const ERA: u16>(mpsc::Sender<SubmitTx>);
+pub struct TxSubmissionChannel<const ERA: u16, Tx>(mpsc::Sender<SubmitTx<Tx>>);
 
-pub struct SubmitTx(Transaction, oneshot::Sender<SubmissionResult>);
+pub struct SubmitTx<Tx>(Tx, oneshot::Sender<SubmissionResult>);
 
 #[derive(Debug, Copy, Clone)]
 pub enum SubmissionResult {
@@ -45,9 +48,12 @@ impl From<SubmissionResult> for Result<(), TxRejected> {
     }
 }
 
-pub fn tx_submission_agent_stream<const EraId: u16>(
-    mut agent: TxSubmissionAgent<EraId>,
-) -> impl Stream<Item = ()> {
+pub fn tx_submission_agent_stream<const EraId: u16, Tx>(
+    mut agent: TxSubmissionAgent<EraId, Tx>,
+) -> impl Stream<Item = ()>
+where
+    Tx: Serialize,
+{
     stream! {
         loop {
             let SubmitTx(tx, on_resp) = agent.mailbox.select_next_some().await;
@@ -64,9 +70,11 @@ pub fn tx_submission_agent_stream<const EraId: u16>(
 pub struct TxRejected;
 
 #[async_trait::async_trait]
-impl<const ERA: u16> Network<Transaction, TxRejected> for TxSubmissionChannel<ERA> {
-    //todo: improve errors ADT
-    async fn submit_tx(&mut self, tx: Transaction) -> Result<(), TxRejected> {
+impl<const ERA: u16, Tx> Network<Tx, TxRejected> for TxSubmissionChannel<ERA, Tx>
+where
+    Tx: Send,
+{
+    async fn submit_tx(&mut self, tx: Tx) -> Result<(), TxRejected> {
         let (snd, recv) = oneshot::channel();
         self.0.send(SubmitTx(tx, snd)).await.unwrap();
         recv.await.expect("Channel closed").into()

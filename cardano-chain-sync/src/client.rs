@@ -1,6 +1,6 @@
+use std::marker::PhantomData;
 use std::path::Path;
 
-use cml_chain::block::Block;
 use cml_core::serialization::Deserialize;
 use pallas_network::miniprotocols::chainsync::{BlockContent, NextResponse};
 use pallas_network::miniprotocols::handshake::RefuseReason;
@@ -11,12 +11,13 @@ use tokio::task::JoinHandle;
 
 use crate::data::ChainUpgrade;
 
-pub struct ChainSyncClient {
+pub struct ChainSyncClient<Block> {
     mplex_handle: JoinHandle<Result<(), multiplexer::Error>>,
     chain_sync: chainsync::N2CClient,
+    block: PhantomData<Block>,
 }
 
-impl ChainSyncClient {
+impl<Block> ChainSyncClient<Block> {
     #[cfg(not(target_os = "windows"))]
     pub async fn init<'a>(path: impl AsRef<Path>, magic: u64, starting_point: Point) -> Result<Self, Error> {
         let bearer = Bearer::connect_unix(path).await.map_err(Error::ConnectFailure)?;
@@ -53,10 +54,14 @@ impl ChainSyncClient {
         Ok(Self {
             mplex_handle,
             chain_sync: cs_client,
+            block: PhantomData::default(),
         })
     }
 
-    pub async fn try_pull_next(&mut self) -> Option<ChainUpgrade> {
+    pub async fn try_pull_next(&mut self) -> Option<ChainUpgrade<Block>>
+    where
+        Block: Deserialize,
+    {
         match self.chain_sync.request_next().await {
             Ok(NextResponse::RollForward(BlockContent(raw), _)) => {
                 let blk = Block::from_cbor_bytes(&raw[BLK_START..]).expect("Block deserialization failed");

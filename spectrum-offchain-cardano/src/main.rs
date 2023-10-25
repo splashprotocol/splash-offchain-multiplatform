@@ -5,6 +5,7 @@ use cml_chain::builders::tx_builder::SignedTxBuilder;
 use cml_chain::genesis::network_info::NetworkInfo;
 use cml_chain::transaction::Transaction;
 use cml_crypto::PrivateKey;
+use cml_multi_era::babbage::BabbageTransaction;
 use futures::channel::mpsc;
 use futures::stream::select_all;
 use futures::{Stream, StreamExt};
@@ -70,7 +71,7 @@ async fn main() {
 
     log4rs::init_file(args.log4rs_path, Default::default()).unwrap();
 
-    info!(target: "offchain", "Starting offchain service ..");
+    info!("Starting offchain service ..");
 
     let explorer = Explorer::new(config.explorer);
 
@@ -90,10 +91,12 @@ async fn main() {
     let mempool_sync = LocalTxMonitorClient::connect(config.node.path, config.node.magic)
         .await
         .expect("MempoolSync initialization failed");
-    let tx_submission_client =
-        LocalTxSubmissionClient::<BABBAGE_ERA_ID>::init(config.node.path, config.node.magic)
-            .await
-            .expect("LocalTxSubmission initialization failed");
+    let tx_submission_client = LocalTxSubmissionClient::<BABBAGE_ERA_ID, Transaction>::init(
+        config.node.path,
+        config.node.magic,
+    )
+    .await
+    .expect("LocalTxSubmission initialization failed");
     let (tx_submission_agent, tx_submission_channel) =
         TxSubmissionAgent::new(tx_submission_client, config.tx_submission_buffer_size);
 
@@ -179,7 +182,7 @@ async fn main() {
     ]);
     let pool_tracking_stream = pool_tracking_stream(pools_recv, partitioned_pool_repo);
 
-    let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent>>> =
+    let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<Transaction>>>> =
         vec![Box::new(pools_handler_ledger), Box::new(orders_handler_ledger)];
 
     let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<Transaction>>>> =

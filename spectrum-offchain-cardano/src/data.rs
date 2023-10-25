@@ -4,6 +4,7 @@ use cml_chain::address::Address;
 use cml_chain::transaction::{TransactionInput, TransactionOutput};
 use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
+use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
 
 use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAssetClass, Token};
