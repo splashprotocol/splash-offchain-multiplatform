@@ -19,6 +19,7 @@ use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::execution_context::ExecutionContext;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::pool::CFMMPool;
+use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::{OnChain, OnChainOrderId, PoolId};
 
 pub struct Base;
@@ -43,6 +44,7 @@ pub enum ClassicalOrderAction {
 pub enum ClassicalOnChainOrder {
     Swap(OnChain<ClassicalOnChainLimitSwap>),
     Deposit(OnChain<ClassicalOnChainDeposit>),
+    Redeem(OnChain<ClassicalOnChainRedeem>),
 }
 
 impl PartialEq for ClassicalOnChainOrder {
@@ -73,6 +75,7 @@ impl Weighted for ClassicalOnChainOrder {
                     * limit_swap.value.order.fee.0.to_integer(),
             ),
             ClassicalOnChainOrder::Deposit(deposit) => OrderWeight::from(deposit.value.order.ex_fee),
+            ClassicalOnChainOrder::Redeem(redeem) => OrderWeight::from(redeem.value.order.ex_fee),
         }
     }
 }
@@ -84,12 +87,14 @@ impl SpecializedOrder for ClassicalOnChainOrder {
         match self {
             ClassicalOnChainOrder::Swap(limit_swap) => limit_swap.value.id,
             ClassicalOnChainOrder::Deposit(deposit) => deposit.value.id,
+            ClassicalOnChainOrder::Redeem(redeem) => redeem.value.id,
         }
     }
     fn get_pool_ref(&self) -> Self::TPoolId {
         match self {
             ClassicalOnChainOrder::Swap(limit_swap) => limit_swap.value.pool_id,
             ClassicalOnChainOrder::Deposit(deposit) => deposit.value.pool_id,
+            ClassicalOnChainOrder::Redeem(redeem) => redeem.value.pool_id,
         }
     }
 }
@@ -119,6 +124,11 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainOrde
                 value: deposit,
                 source: repr.upcast(),
             }))
+        } else if let Some(redeem) = ClassicalOnChainRedeem::try_from_ledger(repr.clone(), ctx) {
+            Some(ClassicalOnChainOrder::Redeem(OnChain {
+                value: redeem,
+                source: repr.upcast(),
+            }))
         } else {
             None
         }
@@ -144,6 +154,12 @@ impl RunOrder<ClassicalOnChainOrder, ExecutionContext, SignedTxBuilder> for OnCh
                 SignedTxBuilder,
             >>::try_run(self, deposit, ctx)
             .map_err(|err| err.map(|inner| ClassicalOnChainOrder::Deposit(inner))),
+            ClassicalOnChainOrder::Redeem(redeem) => <Self as RunOrder<
+                OnChain<ClassicalOnChainRedeem>,
+                ExecutionContext,
+                SignedTxBuilder,
+            >>::try_run(self, redeem, ctx)
+            .map_err(|err| err.map(|inner| ClassicalOnChainOrder::Redeem(inner))),
         }
     }
 }

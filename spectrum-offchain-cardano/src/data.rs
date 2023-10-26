@@ -17,6 +17,7 @@ pub mod limit_swap;
 pub mod operation_output;
 pub mod order;
 pub mod pool;
+pub mod redeem;
 
 pub mod ref_scripts;
 

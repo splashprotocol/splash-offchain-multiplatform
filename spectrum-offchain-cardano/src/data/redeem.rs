@@ -1,5 +1,5 @@
 use cml_chain::plutus::PlutusData;
-use cml_core::serialization::FromBytes;
+use cml_core::serialization::{FromBytes, Serialize};
 use cml_crypto::Ed25519KeyHash;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
@@ -9,33 +9,31 @@ use spectrum_cardano_lib::plutus_data::{
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
+use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::UniqueOrder;
 use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::constants::{ORDER_APPLY_RAW_REDEEMER, ORDER_REFUND_RAW_REDEEMER};
 use crate::data::order::{ClassicalOrder, ClassicalOrderAction, PoolNft};
-use crate::data::pool::CFMMPoolAction::Deposit as DepositAction;
-use crate::data::pool::{CFMMPoolAction, Lq, Rx, Ry};
+use crate::data::pool::{Lq, Rx, Ry};
 use crate::data::{OnChainOrderId, PoolId};
 
 #[derive(Debug, Clone)]
-pub struct Deposit {
+pub struct Redeem {
     pub pool_nft: PoolId,
     pub token_x: TaggedAssetClass<Rx>,
-    pub token_x_amount: TaggedAmount<Rx>,
     pub token_y: TaggedAssetClass<Ry>,
-    pub token_y_amount: TaggedAmount<Ry>,
     pub token_lq: TaggedAssetClass<Lq>,
+    pub token_lq_amount: TaggedAmount<Lq>,
     pub ex_fee: u64,
     pub reward_pkh: Ed25519KeyHash,
     pub reward_stake_pkh: Option<Ed25519KeyHash>,
     pub collateral_ada: u64,
 }
 
-pub type ClassicalOnChainDeposit = ClassicalOrder<OnChainOrderId, Deposit>;
+pub type ClassicalOnChainRedeem = ClassicalOrder<OnChainOrderId, Redeem>;
 
-impl RequiresRedeemer<ClassicalOrderAction> for ClassicalOnChainDeposit {
+impl RequiresRedeemer<ClassicalOrderAction> for ClassicalOnChainRedeem {
     fn redeemer(action: ClassicalOrderAction) -> PlutusData {
         match action {
             ClassicalOrderAction::Apply => {
@@ -48,20 +46,14 @@ impl RequiresRedeemer<ClassicalOrderAction> for ClassicalOnChainDeposit {
     }
 }
 
-impl Into<CFMMPoolAction> for ClassicalOnChainDeposit {
-    fn into(self) -> CFMMPoolAction {
-        DepositAction
-    }
-}
-
-impl UniqueOrder for ClassicalOnChainDeposit {
+impl UniqueOrder for ClassicalOnChainRedeem {
     type TOrderId = OnChainOrderId;
     fn get_self_ref(&self) -> Self::TOrderId {
         self.id
     }
 }
 
-struct OnChainDepositConfig {
+struct OnChainRedeemConfig {
     pool_nft: TaggedAssetClass<PoolNft>,
     token_x: TaggedAssetClass<Rx>,
     token_y: TaggedAssetClass<Ry>,
@@ -69,37 +61,35 @@ struct OnChainDepositConfig {
     ex_fee: u64,
     reward_pkh: Ed25519KeyHash,
     reward_stake_pkh: Option<Ed25519KeyHash>,
-    collateral_ada: u64,
 }
 
-impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainDeposit {
+impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainRedeem {
     fn try_from_ledger(repr: BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
         let value = repr.value().clone();
-        let conf = OnChainDepositConfig::try_from_pd(repr.clone().into_datum()?.into_pd()?)?;
-        let token_x_amount = TaggedAmount::tag(value.amount_of(conf.token_x.untag()).unwrap_or(0));
-        let token_y_amount = TaggedAmount::tag(value.amount_of(conf.token_y.untag()).unwrap_or(0));
-        let deposit = Deposit {
+        let conf = OnChainRedeemConfig::try_from_pd(repr.clone().into_datum()?.into_pd()?)?;
+        let token_lq_amount = TaggedAmount::tag(value.amount_of(conf.token_lq.untag()).unwrap_or(0));
+        let collateral_ada = value.amount_of(AssetClass::Native).unwrap_or(0) - conf.ex_fee;
+        let redeem = Redeem {
             pool_nft: PoolId::try_from(conf.pool_nft).ok()?,
             token_x: conf.token_x,
-            token_x_amount: token_x_amount,
             token_y: conf.token_y,
-            token_y_amount: token_y_amount,
             token_lq: conf.token_lq,
+            token_lq_amount,
             ex_fee: conf.ex_fee,
             reward_pkh: conf.reward_pkh,
             reward_stake_pkh: conf.reward_stake_pkh,
-            collateral_ada: conf.collateral_ada,
+            collateral_ada,
         };
 
         Some(ClassicalOrder {
             id: OnChainOrderId::from(ctx),
             pool_id: PoolId::try_from(conf.pool_nft).ok()?,
-            order: deposit,
+            order: redeem,
         })
     }
 }
 
-impl TryFromPData for OnChainDepositConfig {
+impl TryFromPData for OnChainRedeemConfig {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
         let stake_pkh: Option<Ed25519KeyHash> = cpd
@@ -108,7 +98,7 @@ impl TryFromPData for OnChainDepositConfig {
             .and_then(|bytes| <[u8; 28]>::try_from(bytes).ok())
             .map(|bytes| Ed25519KeyHash::from(bytes));
 
-        Some(OnChainDepositConfig {
+        Some(OnChainRedeemConfig {
             pool_nft: TaggedAssetClass::try_from_pd(cpd.take_field(0)?)?,
             token_x: TaggedAssetClass::try_from_pd(cpd.take_field(1)?)?,
             token_y: TaggedAssetClass::try_from_pd(cpd.take_field(2)?)?,
@@ -116,7 +106,6 @@ impl TryFromPData for OnChainDepositConfig {
             ex_fee: cpd.take_field(4)?.into_u64()?,
             reward_pkh: Ed25519KeyHash::from(<[u8; 28]>::try_from(cpd.take_field(5)?.into_bytes()?).ok()?),
             reward_stake_pkh: stake_pkh,
-            collateral_ada: cpd.take_field(7)?.into_u64()?,
         })
     }
 }
@@ -144,32 +133,32 @@ mod tests {
     use crate::collaterals::Collaterals;
     use crate::config::RefScriptsConfig;
     use crate::creds::operator_creds;
-    use crate::data::deposit::OnChainDepositConfig;
     use crate::data::execution_context::ExecutionContext;
     use crate::data::order::ClassicalOnChainOrder;
     use crate::data::pool::CFMMPool;
+    use crate::data::redeem::OnChainRedeemConfig;
     use crate::data::ref_scripts::RefScriptsOutputs;
     use crate::data::OnChain;
 
     #[test]
     fn parse_deposit_datum_mainnet() {
         let pd = PlutusData::from_cbor_bytes(&*hex::decode(DATUM_SAMPLE).unwrap()).unwrap();
-        let maybe_conf = OnChainDepositConfig::try_from_pd(pd);
+        let maybe_conf = OnChainRedeemConfig::try_from_pd(pd);
         assert!(maybe_conf.is_some())
     }
 
     const DATUM_SAMPLE: &str =
-        "d8799fd8799f581ca80022230c821a52e426d2fdb096e7d967b5ab25d350d469a7603dbf4b5350465f4144415f4e4654ffd8799f4040ffd8799f581c09f2d4e4a5c3662f4c1e6a7d9600e9605279dbdcedb22d4507cb6e7543535046ffd8799f581c74f47c99ac793c29280575b08fe20c7fb75543bff5b1581f7c162e7c4a5350465f4144415f4c51ff1a0016e360581ca104c691610dccf8e15f156bb96923cce7d61cc74370ed8e9111ef05d8799f581c874ea2c1b94eed88c1d09f057e96ffe0fa6311527e2003432a968794ff1a0014c828ff";
+        "d8799fd8799f581cbb461a9afa6e60962c72d520b476f60f5b24554614531ef1fe34236853436f726e75636f706961735f4144415f4e4654ffd8799f4040ffd8799f581cb6a7467ea1deb012808ef4e87b5ff371e85f7142d7b356a40d9b42a0581e436f726e75636f70696173205b76696120436861696e506f72742e696f5dffd8799f581ce6cdb6e0e98a136df23bbea57ab39417c82302947779be2d9acedf0a52436f726e75636f706961735f4144415f4c51ff1a0016e360581cf197ea0891ce786a9a41b59255bf0efa6c2fb47d0d0babdfed7a294cd8799f581c0a391e83011b5bcfdc7435e9b50fbff6a8bdeb9e7ad8706f7b2673dbffff";
 
     #[tokio::test]
     async fn run_valid_deposit_against_pool() {
-        let deposit_ref = OutputRef::from((TransactionHash::from([0u8; 32]), 0));
+        let redeem_ref = OutputRef::from((TransactionHash::from([0u8; 32]), 0));
         let pool_ref = OutputRef::from((TransactionHash::from([1u8; 32]), 0));
-        let deposit_box =
-            BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(DEPOSIT_SAMPLE).unwrap()).unwrap();
+        let redeem_box =
+            BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(REDEEM_SAMPLE).unwrap()).unwrap();
         let pool_box =
             BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(POOL_SAMPLE).unwrap()).unwrap();
-        let deposit = ClassicalOnChainOrder::try_from_ledger(deposit_box, deposit_ref).unwrap();
+        let redeem = ClassicalOnChainOrder::try_from_ledger(redeem_box, redeem_ref).unwrap();
         let pool = <OnChain<CFMMPool>>::try_from_ledger(pool_box, pool_ref).unwrap();
 
         let private_key_bech32 = Bip32PrivateKey::generate_ed25519_bip32().to_bech32();
@@ -215,11 +204,11 @@ mod tests {
 
         let ctx = ExecutionContext::new(operator_addr, ref_scripts, collateral);
 
-        let result = pool.try_run(deposit, ctx);
+        let result = pool.try_run(redeem, ctx);
 
         assert!(result.is_ok())
     }
 
-    const DEPOSIT_SAMPLE: &str = "a300581d71075e09eb0fa89e1dc34691b3c56a7f437e60ac5ea67b338f2e176e2001821a57f316c6a1581c25c5de5f5b286073c593edfd77b48abc7a48e5a4f3d4cd9d428ff935a1434254431a00129beb028201d81858d5d8799fd8799f581cff63b385a615b3dce991f4dcf1ff7bd0082927e01e4e699c88ff7d994b4254435f4144415f4e4654ffd8799f4040ffd8799f581c25c5de5f5b286073c593edfd77b48abc7a48e5a4f3d4cd9d428ff93543425443ffd8799f581c4cf6a914372155ec78f6643141e280d38e3bae4ffbf623765efce3de4a4254435f4144415f4c51ff1a0016e360581c0f1b623e1d789ffea12b31d93418fa09b7ff2340805eb01cfe212491d8799f581c73fe9b3f0e63a8f460dba6af8b8daa5532491f1410cca937cc39960bff1a0014c828ff";
-    const POOL_SAMPLE: &str = "a3005839316b9c456aa650cb808a9ab54326e039d5235ed69f069c9664a8fe5b69b2f6abf60ccde92eae1a2f4fdf65f2eaf6208d872c6f0e597cc10b0701821b000000ef71292ccea3581c25c5de5f5b286073c593edfd77b48abc7a48e5a4f3d4cd9d428ff935a1434254431a32c2ef90581c4cf6a914372155ec78f6643141e280d38e3bae4ffbf623765efce3dea14a4254435f4144415f4c511b7ffffff91d173162581cff63b385a615b3dce991f4dcf1ff7bd0082927e01e4e699c88ff7d99a14b4254435f4144415f4e465401028201d81858afd8799fd8799f581cff63b385a615b3dce991f4dcf1ff7bd0082927e01e4e699c88ff7d994b4254435f4144415f4e4654ffd8799f4040ffd8799f581c25c5de5f5b286073c593edfd77b48abc7a48e5a4f3d4cd9d428ff93543425443ffd8799f581c4cf6a914372155ec78f6643141e280d38e3bae4ffbf623765efce3de4a4254435f4144415f4c51ff1903e59f581c7b6e01b4ef327b039e11178f08369f1ce1861eb978880dcc0d9d6e74ff00ff";
+    const REDEEM_SAMPLE: &str = "a300581d7183da79f531c19f9ce4d85359f56968a742cf05cc25ed3ca48c302dee01821a0022002ea1581ce6cdb6e0e98a136df23bbea57ab39417c82302947779be2d9acedf0aa152436f726e75636f706961735f4144415f4c511a2202f3e1028201d81858fcd8799fd8799f581cbb461a9afa6e60962c72d520b476f60f5b24554614531ef1fe34236853436f726e75636f706961735f4144415f4e4654ffd8799f4040ffd8799f581cb6a7467ea1deb012808ef4e87b5ff371e85f7142d7b356a40d9b42a0581e436f726e75636f70696173205b76696120436861696e506f72742e696f5dffd8799f581ce6cdb6e0e98a136df23bbea57ab39417c82302947779be2d9acedf0a52436f726e75636f706961735f4144415f4c51ff1a0016e360581cf197ea0891ce786a9a41b59255bf0efa6c2fb47d0d0babdfed7a294cd8799f581c0a391e83011b5bcfdc7435e9b50fbff6a8bdeb9e7ad8706f7b2673dbffff";
+    const POOL_SAMPLE: &str = "a3005839316b9c456aa650cb808a9ab54326e039d5235ed69f069c9664a8fe5b69b2f6abf60ccde92eae1a2f4fdf65f2eaf6208d872c6f0e597cc10b0701821b00000001ce4529f0a3581cb6a7467ea1deb012808ef4e87b5ff371e85f7142d7b356a40d9b42a0a1581e436f726e75636f70696173205b76696120436861696e506f72742e696f5d1b000000133b761eea581cbb461a9afa6e60962c72d520b476f60f5b24554614531ef1fe342368a153436f726e75636f706961735f4144415f4e465401581ce6cdb6e0e98a136df23bbea57ab39417c82302947779be2d9acedf0aa152436f726e75636f706961735f4144415f4c511b7ffffffa1d4dcb53028201d81858dbd8799fd8799f581cbb461a9afa6e60962c72d520b476f60f5b24554614531ef1fe34236853436f726e75636f706961735f4144415f4e4654ffd8799f4040ffd8799f581cb6a7467ea1deb012808ef4e87b5ff371e85f7142d7b356a40d9b42a0581e436f726e75636f70696173205b76696120436861696e506f72742e696f5dffd8799f581ce6cdb6e0e98a136df23bbea57ab39417c82302947779be2d9acedf0a52436f726e75636f706961735f4144415f4c51ff1903e59f581ce02b856d135aa3d92ce87c1b8128ecc1c773966995430f0698b09badff00ff";
 }

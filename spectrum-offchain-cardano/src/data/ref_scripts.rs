@@ -12,6 +12,7 @@ use crate::constants::{DEPOSIT_SCRIPT, POOL_V1_SCRIPT, POOL_V2_SCRIPT, REDEEM_SC
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::pool::CFMMPool;
+use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolVer;
 
 #[derive(Clone)]
@@ -86,6 +87,12 @@ impl RequiresRefScript for ClassicalOnChainDeposit {
 impl RequiresRefScript for ClassicalOnChainLimitSwap {
     fn get_ref_script(self, ref_scripts: RefScriptsOutputs) -> TransactionUnspentOutput {
         ref_scripts.swap
+    }
+}
+
+impl RequiresRefScript for ClassicalOnChainRedeem {
+    fn get_ref_script(self, ref_scripts: RefScriptsOutputs) -> TransactionUnspentOutput {
+        ref_scripts.redeem
     }
 }
 
