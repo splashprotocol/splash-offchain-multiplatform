@@ -244,7 +244,6 @@ mod tests {
     use cml_chain::certs::StakeCredential;
     use cml_chain::genesis::network_info::NetworkInfo;
     use cml_chain::plutus::PlutusData;
-    use cml_chain::transaction::TransactionOutput;
     use cml_chain::Deserialize;
     use cml_crypto::{Ed25519KeyHash, TransactionHash};
     use cml_multi_era::babbage::BabbageTransactionOutput;
@@ -283,8 +282,10 @@ mod tests {
     async fn run_valid_swap_against_pool() {
         let swap_ref = OutputRef::from((TransactionHash::from([0u8; 32]), 0));
         let pool_ref = OutputRef::from((TransactionHash::from([1u8; 32]), 0));
-        let swap_box = BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(SWAP_SAMPLE).unwrap()).unwrap();
-        let pool_box = BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(POOL_SAMPLE).unwrap()).unwrap();
+        let swap_box =
+            BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(SWAP_SAMPLE).unwrap()).unwrap();
+        let pool_box =
+            BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(POOL_SAMPLE).unwrap()).unwrap();
         let swap = ClassicalOnChainOrder::try_from_ledger(swap_box, swap_ref).unwrap();
         let pool = <OnChain<CFMMPool>>::try_from_ledger(pool_box, pool_ref).unwrap();
 

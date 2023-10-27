@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
 use cml_multi_era::babbage::{BabbageBlock, BabbageTransaction};
-use futures::{stream, Stream};
 use futures::stream::StreamExt;
+use futures::{stream, Stream};
 
 use crate::data::{ChainUpgrade, LedgerTxEvent};
 

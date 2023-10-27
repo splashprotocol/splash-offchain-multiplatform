@@ -119,9 +119,33 @@ pub trait BabbageScriptRefExtension {
 impl BabbageScriptRefExtension for BabbageScriptRef {
     fn upcast(self) -> ScriptRef {
         match self {
-            BabbageScriptRef::Native { script, len_encoding, tag_encoding } => ScriptRef::Native { script, len_encoding, tag_encoding },
-            BabbageScriptRef::PlutusV1 { script, len_encoding, tag_encoding } => ScriptRef::PlutusV1 { script, len_encoding, tag_encoding },
-            BabbageScriptRef::PlutusV2 { script, len_encoding, tag_encoding } => ScriptRef::PlutusV2 { script, len_encoding, tag_encoding },
+            BabbageScriptRef::Native {
+                script,
+                len_encoding,
+                tag_encoding,
+            } => ScriptRef::Native {
+                script,
+                len_encoding,
+                tag_encoding,
+            },
+            BabbageScriptRef::PlutusV1 {
+                script,
+                len_encoding,
+                tag_encoding,
+            } => ScriptRef::PlutusV1 {
+                script,
+                len_encoding,
+                tag_encoding,
+            },
+            BabbageScriptRef::PlutusV2 {
+                script,
+                len_encoding,
+                tag_encoding,
+            } => ScriptRef::PlutusV2 {
+                script,
+                len_encoding,
+                tag_encoding,
+            },
         }
     }
 }

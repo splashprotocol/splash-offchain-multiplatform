@@ -91,12 +91,10 @@ async fn main() {
     let mempool_sync = LocalTxMonitorClient::connect(config.node.path, config.node.magic)
         .await
         .expect("MempoolSync initialization failed");
-    let tx_submission_client = LocalTxSubmissionClient::<BABBAGE_ERA_ID, Transaction>::init(
-        config.node.path,
-        config.node.magic,
-    )
-    .await
-    .expect("LocalTxSubmission initialization failed");
+    let tx_submission_client =
+        LocalTxSubmissionClient::<BABBAGE_ERA_ID, Transaction>::init(config.node.path, config.node.magic)
+            .await
+            .expect("LocalTxSubmission initialization failed");
     let (tx_submission_agent, tx_submission_channel) =
         TxSubmissionAgent::new(tx_submission_client, config.tx_submission_buffer_size);
 
