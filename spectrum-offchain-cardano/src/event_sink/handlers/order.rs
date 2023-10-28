@@ -15,7 +15,7 @@ use spectrum_offchain::data::SpecializedOrder;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 
-use crate::cardano::hash::hash_transaction_canonical;
+use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use crate::event_sink::handlers::order::registry::HotOrderRegistry;
 
 pub mod registry;

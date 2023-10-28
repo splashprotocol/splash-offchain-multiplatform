@@ -19,7 +19,7 @@ use spectrum_offchain::data::OnChainEntity;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 
-use crate::cardano::hash::hash_transaction_canonical;
+use spectrum_cardano_lib::hash::hash_transaction_canonical;
 
 pub struct ConfirmedUpdateHandler<TSink, TEntity, TRepo>
 where
