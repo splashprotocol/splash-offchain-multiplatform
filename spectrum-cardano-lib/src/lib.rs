@@ -19,6 +19,8 @@ pub mod plutus_data;
 pub mod transaction;
 pub mod types;
 pub mod value;
+pub mod hash;
+pub mod protocol_params;
 
 /// Asset name bytes padded to 32-byte fixed array and tupled with the len of the original asset name.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, derive_more::From)]

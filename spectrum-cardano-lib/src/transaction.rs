@@ -1,7 +1,6 @@
-use std::ops::Add;
 use cml_chain::address::Address;
 use cml_chain::certs::StakeCredential;
-use cml_chain::transaction::{DatumOption, ScriptRef, TransactionOutput};
+use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, TransactionOutput};
 use cml_chain::Value;
 use cml_crypto::ScriptHash;
 use cml_multi_era::babbage::{BabbageScriptRef, BabbageTransactionOutput};
@@ -110,5 +109,66 @@ impl TransactionOutputExtension for TransactionOutput {
     }
     fn script_ref(&self) -> Option<&BabbageScriptRef> {
         None
+    }
+}
+
+pub trait BabbageScriptRefExtension {
+    fn upcast(self) -> ScriptRef;
+}
+
+impl BabbageScriptRefExtension for BabbageScriptRef {
+    fn upcast(self) -> ScriptRef {
+        match self {
+            BabbageScriptRef::Native {
+                script,
+                len_encoding,
+                tag_encoding,
+            } => ScriptRef::Native {
+                script,
+                len_encoding,
+                tag_encoding,
+            },
+            BabbageScriptRef::PlutusV1 {
+                script,
+                len_encoding,
+                tag_encoding,
+            } => ScriptRef::PlutusV1 {
+                script,
+                len_encoding,
+                tag_encoding,
+            },
+            BabbageScriptRef::PlutusV2 {
+                script,
+                len_encoding,
+                tag_encoding,
+            } => ScriptRef::PlutusV2 {
+                script,
+                len_encoding,
+                tag_encoding,
+            },
+        }
+    }
+}
+
+pub trait BabbageTransactionOutputExtension {
+    fn upcast(self) -> TransactionOutput;
+}
+
+impl BabbageTransactionOutputExtension for BabbageTransactionOutput {
+    fn upcast(self) -> TransactionOutput {
+        match self {
+            BabbageTransactionOutput::AlonzoFormatTxOut(alonzo_out) => {
+                TransactionOutput::AlonzoFormatTxOut(alonzo_out)
+            }
+            BabbageTransactionOutput::BabbageFormatTxOut(babbage_out) => {
+                TransactionOutput::ConwayFormatTxOut(ConwayFormatTxOut {
+                    address: babbage_out.address,
+                    amount: babbage_out.amount,
+                    datum_option: babbage_out.datum_option,
+                    script_reference: babbage_out.script_reference.map(|script_ref| script_ref.upcast()),
+                    encodings: None,
+                })
+            }
+        }
     }
 }

@@ -91,12 +91,10 @@ async fn main() {
     let mempool_sync = LocalTxMonitorClient::connect(config.node.path, config.node.magic)
         .await
         .expect("MempoolSync initialization failed");
-    let tx_submission_client = LocalTxSubmissionClient::<BABBAGE_ERA_ID, Transaction>::init(
-        config.node.path,
-        config.node.magic,
-    )
-    .await
-    .expect("LocalTxSubmission initialization failed");
+    let tx_submission_client =
+        LocalTxSubmissionClient::<BABBAGE_ERA_ID, Transaction>::init(config.node.path, config.node.magic)
+            .await
+            .expect("LocalTxSubmission initialization failed");
     let (tx_submission_agent, tx_submission_channel) =
         TxSubmissionAgent::new(tx_submission_client, config.tx_submission_buffer_size);
 
@@ -182,10 +180,10 @@ async fn main() {
     ]);
     let pool_tracking_stream = pool_tracking_stream(pools_recv, partitioned_pool_repo);
 
-    let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<Transaction>>>> =
+    let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<BabbageTransaction>>>> =
         vec![Box::new(pools_handler_ledger), Box::new(orders_handler_ledger)];
 
-    let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<Transaction>>>> =
+    let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<BabbageTransaction>>>> =
         vec![Box::new(pools_handler_mempool), Box::new(orders_handler_mempool)];
 
     let default_handler = NoopDefaultHandler;

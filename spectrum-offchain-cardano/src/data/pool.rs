@@ -4,13 +4,14 @@ use cml_chain::plutus::PlutusData;
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, TransactionOutput};
 use cml_chain::{Coin, Value};
 use cml_core::serialization::FromBytes;
+use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
 use type_equalities::IsEqual;
 
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
 };
-use spectrum_cardano_lib::transaction::TransactionOutputExtension;
+use spectrum_cardano_lib::transaction::{BabbageTransactionOutputExtension, TransactionOutputExtension};
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
@@ -132,10 +133,10 @@ impl OnChainEntity for CFMMPool {
     }
 }
 
-impl TryFromLedger<TransactionOutput, OutputRef> for OnChain<CFMMPool> {
-    fn try_from_ledger(repr: TransactionOutput, ctx: OutputRef) -> Option<Self> {
+impl TryFromLedger<BabbageTransactionOutput, OutputRef> for OnChain<CFMMPool> {
+    fn try_from_ledger(repr: BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
         if let Some(pool_ver) = PoolVer::try_from_pool_address(repr.address()) {
-            let value = repr.amount();
+            let value = repr.value();
             let pd = repr.clone().into_datum()?.into_pd()?;
             let conf = CFMMPoolConfig::try_from_pd(pd.clone())?;
             let reserves_x = TaggedAmount::tag(value.amount_of(conf.asset_x.into())?);
@@ -157,7 +158,7 @@ impl TryFromLedger<TransactionOutput, OutputRef> for OnChain<CFMMPool> {
             };
             return Some(OnChain {
                 value: pool,
-                source: repr,
+                source: repr.upcast(),
             });
         }
         None

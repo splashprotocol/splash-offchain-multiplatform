@@ -3,11 +3,11 @@ use std::hash::{Hash, Hasher};
 
 use cml_chain::builders::tx_builder::SignedTxBuilder;
 use cml_chain::plutus::PlutusData;
-use cml_chain::transaction::TransactionOutput;
-
 use cml_core::serialization::FromBytes;
+use cml_multi_era::babbage::BabbageTransactionOutput;
 
 use spectrum_cardano_lib::plutus_data::RequiresRedeemer;
+use spectrum_cardano_lib::transaction::BabbageTransactionOutputExtension;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::backlog::data::{OrderWeight, Weighted};
 use spectrum_offchain::data::unique_entity::Predicted;
@@ -102,12 +102,12 @@ impl RequiresRedeemer<ClassicalOrderAction> for ClassicalOnChainOrder {
     }
 }
 
-impl TryFromLedger<TransactionOutput, OutputRef> for ClassicalOnChainOrder {
-    fn try_from_ledger(repr: TransactionOutput, ctx: OutputRef) -> Option<Self> {
+impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainOrder {
+    fn try_from_ledger(repr: BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
         ClassicalOnChainLimitSwap::try_from_ledger(repr.clone(), ctx).map(|r| {
             ClassicalOnChainOrder::Swap(OnChain {
                 value: r,
-                source: repr,
+                source: repr.upcast(),
             })
         })
     }

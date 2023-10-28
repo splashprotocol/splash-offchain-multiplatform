@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use cml_chain::transaction::{Transaction, TransactionOutput};
+use cml_multi_era::babbage::{BabbageTransaction, BabbageTransactionOutput};
 use futures::{Sink, SinkExt};
 use log::info;
 use tokio::sync::Mutex;
@@ -15,7 +15,7 @@ use spectrum_offchain::data::SpecializedOrder;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 
-use crate::cardano::hash::hash_transaction_canonical;
+use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use crate::event_sink::handlers::order::registry::HotOrderRegistry;
 
 pub mod registry;
@@ -35,13 +35,13 @@ impl<TSink, TOrd, TRegistry> ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry
         }
     }
 
-    async fn handle_applied_tx<F, R>(&mut self, tx: Transaction, on_failure: F) -> Option<R>
+    async fn handle_applied_tx<F, R>(&mut self, tx: BabbageTransaction, on_failure: F) -> Option<R>
     where
         TSink: Sink<OrderUpdate<TOrd, OrderLink<TOrd>>> + Unpin,
-        TOrd: SpecializedOrder + TryFromLedger<TransactionOutput, OutputRef>,
+        TOrd: SpecializedOrder + TryFromLedger<BabbageTransactionOutput, OutputRef>,
         TOrd::TOrderId: From<OutputRef> + Copy,
         TRegistry: HotOrderRegistry<TOrd>,
-        F: FnOnce(Transaction) -> R,
+        F: FnOnce(BabbageTransaction) -> R,
     {
         let mut is_success = false;
         for i in &tx.body.inputs {
@@ -83,11 +83,11 @@ impl<TSink, TOrd, TRegistry> ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry
 
     async fn handle_unapplied_tx(
         &mut self,
-        tx: Transaction,
-    ) -> Option<LedgerTxEvent<Transaction>>
+        tx: BabbageTransaction,
+    ) -> Option<LedgerTxEvent<BabbageTransaction>>
     where
         TSink: Sink<OrderUpdate<TOrd, OrderLink<TOrd>>> + Unpin,
-        TOrd: SpecializedOrder + TryFromLedger<TransactionOutput, OutputRef>,
+        TOrd: SpecializedOrder + TryFromLedger<BabbageTransactionOutput, OutputRef>,
         TOrd::TOrderId: From<OutputRef> + Copy,
         TRegistry: HotOrderRegistry<TOrd>,
     {
@@ -114,18 +114,18 @@ impl<TSink, TOrd, TRegistry> ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry
 }
 
 #[async_trait(? Send)]
-impl<TSink, TOrd, TRegistry> EventHandler<LedgerTxEvent<Transaction>>
+impl<TSink, TOrd, TRegistry> EventHandler<LedgerTxEvent<BabbageTransaction>>
     for ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry>
 where
     TSink: Sink<OrderUpdate<TOrd, OrderLink<TOrd>>> + Unpin,
-    TOrd: SpecializedOrder + TryFromLedger<TransactionOutput, OutputRef>,
+    TOrd: SpecializedOrder + TryFromLedger<BabbageTransactionOutput, OutputRef>,
     TOrd::TOrderId: From<OutputRef> + Copy,
     TRegistry: HotOrderRegistry<TOrd>,
 {
     async fn try_handle(
         &mut self,
-        ev: LedgerTxEvent<Transaction>,
-    ) -> Option<LedgerTxEvent<Transaction>> {
+        ev: LedgerTxEvent<BabbageTransaction>,
+    ) -> Option<LedgerTxEvent<BabbageTransaction>> {
         let res = match ev {
             LedgerTxEvent::TxApplied(tx) => self.handle_applied_tx(tx, LedgerTxEvent::TxApplied).await,
             LedgerTxEvent::TxUnapplied(tx) => self.handle_unapplied_tx(tx).await,
@@ -136,18 +136,18 @@ where
 }
 
 #[async_trait(? Send)]
-impl<TSink, TOrd, TRegistry> EventHandler<MempoolUpdate<Transaction>>
+impl<TSink, TOrd, TRegistry> EventHandler<MempoolUpdate<BabbageTransaction>>
     for ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry>
 where
     TSink: Sink<OrderUpdate<TOrd, OrderLink<TOrd>>> + Unpin,
-    TOrd: SpecializedOrder + TryFromLedger<TransactionOutput, OutputRef>,
+    TOrd: SpecializedOrder + TryFromLedger<BabbageTransactionOutput, OutputRef>,
     TOrd::TOrderId: From<OutputRef> + Copy,
     TRegistry: HotOrderRegistry<TOrd>,
 {
     async fn try_handle(
         &mut self,
-        ev: MempoolUpdate<Transaction>,
-    ) -> Option<MempoolUpdate<Transaction>> {
+        ev: MempoolUpdate<BabbageTransaction>,
+    ) -> Option<MempoolUpdate<BabbageTransaction>> {
         let res = match ev {
             MempoolUpdate::TxAccepted(tx) => self.handle_applied_tx(tx, MempoolUpdate::TxAccepted).await,
         };

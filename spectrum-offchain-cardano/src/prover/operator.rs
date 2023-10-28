@@ -5,7 +5,7 @@ use cml_crypto::PrivateKey;
 
 use spectrum_offchain::tx_prover::TxProver;
 
-use crate::cardano::hash::hash_transaction_canonical;
+use spectrum_cardano_lib::hash::hash_transaction_canonical;
 
 /// Signs transactions on behalf of operator.
 pub struct OperatorProver<'a>(&'a PrivateKey);
