@@ -1,9 +1,9 @@
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
 
-use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_cardano_lib::address::AddressExtension;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
+use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::OnChainEntity;
 use spectrum_offchain::ledger::TryFromLedger;
 
@@ -45,8 +45,9 @@ impl OnChainEntity for CFMMPool {
 
 impl TryFromLedger<BabbageTransactionOutput, OutputRef> for CFMMPool {
     fn try_from_ledger(repr: BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
-        if repr.address().script_hash().is_none() || repr.datum().is_none() { None }
-        else {
+        if repr.address().script_hash().is_none() || repr.datum().is_none() {
+            None
+        } else {
             minswap::parsers::pool_from_utxo(repr, ctx)
         }
     }

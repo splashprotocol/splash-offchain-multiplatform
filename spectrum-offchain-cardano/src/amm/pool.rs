@@ -19,14 +19,14 @@ use spectrum_offchain::data::{Has, OnChainEntity};
 use spectrum_offchain::executor::RunOrderError;
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
-use crate::constants::{
-    CFMM_LP_FEE_DEN, MAX_LQ_CAP, POOL_DEPOSIT_REDEEMER, POOL_DESTROY_REDEEMER, POOL_REDEEM_REDEEMER,
-    POOL_SWAP_REDEEMER,
-};
 use crate::amm::limit_swap::ClassicalOnChainLimitSwap;
 use crate::amm::operation_output::SwapOutput;
 use crate::amm::order::{Base, ClassicalOrder, PoolNft, Quote};
 use crate::amm::{OnChain, PoolId, PoolStateVer, PoolVer};
+use crate::constants::{
+    CFMM_LP_FEE_DEN, MAX_LQ_CAP, POOL_DEPOSIT_REDEEMER, POOL_DESTROY_REDEEMER, POOL_REDEEM_REDEEMER,
+    POOL_SWAP_REDEEMER,
+};
 
 pub struct Rx;
 

@@ -11,10 +11,7 @@ pub mod persistence;
 pub mod process;
 
 /// Get latest state of an on-chain entity `TEntity`.
-pub async fn resolve_entity_state<TEntity, TRepo>(
-    id: TEntity::Id,
-    repo: Arc<Mutex<TRepo>>,
-) -> Option<TEntity>
+pub async fn resolve_entity_state<TEntity, TRepo>(id: TEntity::Id, repo: Arc<Mutex<TRepo>>) -> Option<TEntity>
 where
     TRepo: EntityRepo<TEntity>,
     TEntity: OnChainEntity,

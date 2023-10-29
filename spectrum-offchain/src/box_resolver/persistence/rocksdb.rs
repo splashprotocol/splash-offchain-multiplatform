@@ -56,10 +56,7 @@ where
         .await
     }
 
-    async fn get_last_predicted<'a>(
-        &self,
-        id: <TEntity as OnChainEntity>::Id,
-    ) -> Option<Predicted<TEntity>>
+    async fn get_last_predicted<'a>(&self, id: <TEntity as OnChainEntity>::Id) -> Option<Predicted<TEntity>>
     where
         <TEntity as OnChainEntity>::Id: 'a,
     {
@@ -86,10 +83,7 @@ where
         .await
     }
 
-    async fn get_last_confirmed<'a>(
-        &self,
-        id: <TEntity as OnChainEntity>::Id,
-    ) -> Option<Confirmed<TEntity>>
+    async fn get_last_confirmed<'a>(&self, id: <TEntity as OnChainEntity>::Id) -> Option<Confirmed<TEntity>>
     where
         <TEntity as OnChainEntity>::Id: 'a,
     {
@@ -198,12 +192,12 @@ where
         <TEntity as OnChainEntity>::Id: 'a,
         <TEntity as OnChainEntity>::Version: 'a,
     {
-        let predecessor: Option<<TEntity as OnChainEntity>::Version> =
-            <EntityRepoRocksDB as EntityRepo<TEntity>>::get_prediction_predecessor::<'_, '_, '_>(
-                self,
-                sid.clone(),
-            )
-            .await;
+        let predecessor: Option<<TEntity as OnChainEntity>::Version> = <EntityRepoRocksDB as EntityRepo<
+            TEntity,
+        >>::get_prediction_predecessor::<'_, '_, '_>(
+            self, sid.clone()
+        )
+        .await;
         let db = self.db.clone();
         let link_key = prefixed_key(PREDICTION_LINK_PREFIX, &sid);
         let last_confirmed_index_key = prefixed_key(LAST_CONFIRMED_PREFIX, &eid);

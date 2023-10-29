@@ -10,8 +10,8 @@ use num_rational::Ratio;
 use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAssetClass, Token};
 use spectrum_offchain::data::{OnChainEntity, SpecializedOrder};
 
-use crate::constants::POOL_VERSIONS;
 use crate::amm::order::PoolNft;
+use crate::constants::POOL_VERSIONS;
 
 pub mod limit_swap;
 pub mod operation_output;

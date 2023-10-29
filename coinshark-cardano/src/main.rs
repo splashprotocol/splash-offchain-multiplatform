@@ -1,10 +1,12 @@
 use std::sync::{Arc, Once};
 
+use amm::event_handlers::ConfirmedUpdateHandler;
 use clap::Parser;
 use cml_multi_era::babbage::{BabbageBlock, BabbageTransaction};
 use futures::channel::mpsc;
 use futures::stream::select_all;
 use futures::StreamExt;
+use spectrum_offchain::box_resolver::process::pool_tracking_stream_simple;
 use tokio::sync::Mutex;
 use tracing_subscriber::fmt::Subscriber;
 
@@ -14,18 +16,16 @@ use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_chain_sync::event_source::event_source_ledger;
 use spectrum_offchain::box_resolver::persistence::inmemory::InMemoryEntityRepo;
 use spectrum_offchain::box_resolver::persistence::noop::NoopEntityRepo;
-use spectrum_offchain::box_resolver::process::pool_tracking_stream_simple;
 use spectrum_offchain::data::unique_entity::{EitherMod, StateUpdate};
 use spectrum_offchain::event_sink::event_handler::{EventHandler, NoopDefaultHandler};
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::streaming::boxed;
 
-use crate::amm::minswap::event_handlers::ConfirmedUpdateHandler;
 use crate::amm::pool::CFMMPool;
 use crate::config::AppConfig;
 
-mod config;
 mod amm;
+mod config;
 
 #[tokio::main]
 async fn main() {
@@ -54,10 +54,8 @@ async fn main() {
     let (pools_snd, pools_recv) = mpsc::channel::<EitherMod<StateUpdate<CFMMPool>>>(128);
     // This technically disables pool lookups in TX.inputs.
     let noop_pool_repo = Arc::new(Mutex::new(NoopEntityRepo));
-    let pools_handler_ledger = ConfirmedUpdateHandler::<_, CFMMPool, _>::new(
-        pools_snd.clone(),
-        Arc::clone(&noop_pool_repo),
-    );
+    let pools_handler_ledger =
+        ConfirmedUpdateHandler::<_, CFMMPool, _>::new(pools_snd.clone(), Arc::clone(&noop_pool_repo));
     let pool_repo = Arc::new(Mutex::new(InMemoryEntityRepo::new()));
     let pool_tracking_stream = pool_tracking_stream_simple(pools_recv, pool_repo);
 

@@ -1,4 +1,4 @@
-use std::fmt::{Display, Formatter};
+use std::{fmt::{Display, Formatter}, str::from_utf8};
 
 use cml_chain::PolicyId;
 use cml_crypto::RawBytesEncoding;
@@ -6,9 +6,9 @@ use derive_more::Display;
 
 use spectrum_cardano_lib::{OutputRef, Token};
 
-pub mod pool;
-pub mod minswap;
 pub mod event_handlers;
+pub mod minswap;
+pub mod pool;
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, derive_more::From, derive_more::Into)]
@@ -16,7 +16,13 @@ pub struct PoolId(Token);
 
 impl Display for PoolId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(format!("{}", self.0 .0.to_hex()).as_str())
+        let cml_an = cml_chain::assets::AssetName::from(self.0.1);
+        let an = if let Ok(an) = from_utf8(cml_an.get()) {
+            String::from(an)
+        } else {
+            hex::encode(cml_an.inner)
+        };
+        f.write_str(format!("{}.{}", self.0 .0.to_hex(), an).as_str())
     }
 }
 

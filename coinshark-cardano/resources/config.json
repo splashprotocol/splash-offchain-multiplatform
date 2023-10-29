@@ -1,6 +1,6 @@
 {
   "node": {
-    "path": "/cardano-node-ipc/node.socket",
+    "path": "/root/cardano-node-ipc/node.socket",
     "magic": 764824073
   },
   "chainSync": {

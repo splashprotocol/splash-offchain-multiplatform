@@ -22,8 +22,8 @@ use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 
 pub struct ConfirmedUpdateHandler<Sink, Entity, Repo>
-    where
-        Entity: OnChainEntity,
+where
+    Entity: OnChainEntity,
 {
     pub topic: Sink,
     pub entities: Arc<Mutex<Repo>>,
@@ -31,9 +31,9 @@ pub struct ConfirmedUpdateHandler<Sink, Entity, Repo>
 }
 
 impl<Sink, Entity, Repo> ConfirmedUpdateHandler<Sink, Entity, Repo>
-    where
-        Entity: OnChainEntity + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone,
-        Entity::Id: Clone,
+where
+    Entity: OnChainEntity + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone,
+    Entity::Id: Clone,
 {
     pub fn new(topic: Sink, entities: Arc<Mutex<Repo>>) -> Self {
         Self {
@@ -48,11 +48,11 @@ async fn extract_transitions<Pool, Repo>(
     entities: Arc<Mutex<Repo>>,
     tx: BabbageTransaction,
 ) -> Vec<EitherOrBoth<Pool, Pool>>
-    where
-        Pool: OnChainEntity + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone,
-        Pool::Id: Clone,
-        Pool::Version: From<OutputRef> + Copy,
-        Repo: EntityRepo<Pool>,
+where
+    Pool: OnChainEntity + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone,
+    Pool::Id: Clone,
+    Pool::Version: From<OutputRef> + Copy,
+    Repo: EntityRepo<Pool>,
 {
     let mut consumed_entities = HashMap::<Pool::Id, Pool>::new();
     for i in &tx.body.inputs {
@@ -89,13 +89,13 @@ async fn extract_transitions<Pool, Repo>(
 
 #[async_trait(?Send)]
 impl<TSink, TEntity, TRepo> EventHandler<LedgerTxEvent<BabbageTransaction>>
-for ConfirmedUpdateHandler<TSink, TEntity, TRepo>
-    where
-        TSink: Sink<EitherMod<StateUpdate<TEntity>>> + Unpin,
-        TEntity: OnChainEntity + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone + Debug,
-        TEntity::Id: Clone,
-        TEntity::Version: From<OutputRef> + Copy,
-        TRepo: EntityRepo<TEntity>,
+    for ConfirmedUpdateHandler<TSink, TEntity, TRepo>
+where
+    TSink: Sink<EitherMod<StateUpdate<TEntity>>> + Unpin,
+    TEntity: OnChainEntity + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone + Debug,
+    TEntity::Id: Clone,
+    TEntity::Version: From<OutputRef> + Copy,
+    TRepo: EntityRepo<TEntity>,
 {
     async fn try_handle(
         &mut self,
@@ -113,7 +113,7 @@ for ConfirmedUpdateHandler<TSink, TEntity, TRepo>
                         .await;
                 }
                 if is_success {
-                    trace!(target: "offchain_lm", "[{}] entities parsed from applied tx", num_transitions);
+                    trace!("[{}] entities parsed from applied tx", num_transitions);
                     None
                 } else {
                     Some(LedgerTxEvent::TxApplied(tx))
@@ -132,7 +132,7 @@ for ConfirmedUpdateHandler<TSink, TEntity, TRepo>
                         .await;
                 }
                 if is_success {
-                    trace!(target: "offchain_lm", "[{}] entities parsed from unapplied tx", num_transitions);
+                    trace!("[{}] entities parsed from unapplied tx", num_transitions);
                     None
                 } else {
                     Some(LedgerTxEvent::TxUnapplied(tx))
@@ -145,8 +145,8 @@ for ConfirmedUpdateHandler<TSink, TEntity, TRepo>
 }
 
 pub struct UnconfirmedUpdateHandler<TSink, TEntity, TRepo>
-    where
-        TEntity: OnChainEntity,
+where
+    TEntity: OnChainEntity,
 {
     pub topic: TSink,
     pub entities: Arc<Mutex<TRepo>>,
@@ -154,9 +154,9 @@ pub struct UnconfirmedUpdateHandler<TSink, TEntity, TRepo>
 }
 
 impl<TSink, TEntity, TRepo> UnconfirmedUpdateHandler<TSink, TEntity, TRepo>
-    where
-        TEntity: OnChainEntity + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone,
-        TEntity::Id: Clone,
+where
+    TEntity: OnChainEntity + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone,
+    TEntity::Id: Clone,
 {
     pub fn new(topic: TSink, entities: Arc<Mutex<TRepo>>) -> Self {
         Self {
@@ -169,13 +169,13 @@ impl<TSink, TEntity, TRepo> UnconfirmedUpdateHandler<TSink, TEntity, TRepo>
 
 #[async_trait(?Send)]
 impl<TSink, TEntity, TRepo> EventHandler<MempoolUpdate<BabbageTransaction>>
-for UnconfirmedUpdateHandler<TSink, TEntity, TRepo>
-    where
-        TSink: Sink<EitherMod<StateUpdate<TEntity>>> + Unpin,
-        TEntity: OnChainEntity + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone + Debug,
-        TEntity::Id: Clone,
-        TEntity::Version: From<OutputRef> + Copy,
-        TRepo: EntityRepo<TEntity>,
+    for UnconfirmedUpdateHandler<TSink, TEntity, TRepo>
+where
+    TSink: Sink<EitherMod<StateUpdate<TEntity>>> + Unpin,
+    TEntity: OnChainEntity + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone + Debug,
+    TEntity::Id: Clone,
+    TEntity::Version: From<OutputRef> + Copy,
+    TRepo: EntityRepo<TEntity>,
 {
     async fn try_handle(
         &mut self,
