@@ -11,7 +11,7 @@ use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAssetClass, Token};
 use spectrum_offchain::data::{OnChainEntity, SpecializedOrder};
 
 use crate::constants::POOL_VERSIONS;
-use crate::data::order::PoolNft;
+use crate::amm::order::PoolNft;
 
 pub mod limit_swap;
 pub mod operation_output;
@@ -55,14 +55,14 @@ impl<T> OnChainEntity for OnChain<T>
 where
     T: OnChainEntity,
 {
-    type TEntityId = T::TEntityId;
-    type TStateId = T::TStateId;
+    type Id = T::Id;
+    type Version = T::Version;
 
-    fn get_self_ref(&self) -> Self::TEntityId {
-        self.value.get_self_ref()
+    fn get_id(&self) -> Self::Id {
+        self.value.get_id()
     }
-    fn get_self_state_ref(&self) -> Self::TStateId {
-        self.value.get_self_state_ref()
+    fn get_version(&self) -> Self::Version {
+        self.value.get_version()
     }
 }
 

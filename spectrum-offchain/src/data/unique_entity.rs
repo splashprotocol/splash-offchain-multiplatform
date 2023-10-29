@@ -13,13 +13,13 @@ use crate::data::OnChainEntity;
 #[derive(Debug, Clone)]
 pub struct Traced<TEntity: OnChainEntity> {
     pub state: TEntity,
-    pub prev_state_id: Option<TEntity::TStateId>,
+    pub prev_state_id: Option<TEntity::Version>,
 }
 
 impl<TEntity: OnChainEntity> Serialize for Traced<TEntity>
 where
     TEntity: Serialize,
-    <TEntity as OnChainEntity>::TStateId: Serialize,
+    <TEntity as OnChainEntity>::Version: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -50,7 +50,7 @@ where
 impl<'de, TEntity: OnChainEntity> Deserialize<'de> for Traced<TEntity>
 where
     TEntity: Deserialize<'de>,
-    <TEntity as OnChainEntity>::TStateId: Deserialize<'de>,
+    <TEntity as OnChainEntity>::Version: Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -117,7 +117,7 @@ where
         impl<'de, TEntity: OnChainEntity> de::Visitor<'de> for Visitor<'de, TEntity>
         where
             TEntity: Deserialize<'de>,
-            <TEntity as OnChainEntity>::TStateId: Deserialize<'de>,
+            <TEntity as OnChainEntity>::Version: Deserialize<'de>,
         {
             type Value = Traced<TEntity>;
             fn expecting(&self, formatter: &mut Formatter) -> fmt::Result {
@@ -142,7 +142,7 @@ where
                         ));
                     }
                 };
-                let field1 = match match de::SeqAccess::next_element::<Option<TEntity::TStateId>>(&mut seq) {
+                let field1 = match match de::SeqAccess::next_element::<Option<TEntity::Version>>(&mut seq) {
                     Ok(val) => val,
                     Err(err) => {
                         return Err(err);
@@ -167,7 +167,7 @@ where
                 A: de::MapAccess<'de>,
             {
                 let mut field0: Option<TEntity> = None;
-                let mut field1: Option<Option<TEntity::TStateId>> = None;
+                let mut field1: Option<Option<TEntity::Version>> = None;
                 while let Some(key) = match de::MapAccess::next_key::<Field>(&mut map) {
                     Ok(val) => val,
                     Err(err) => {
@@ -191,7 +191,7 @@ where
                                 return Err(<A::Error as de::Error>::duplicate_field("prev_state_id"));
                             }
                             field1 = Some(
-                                match de::MapAccess::next_value::<Option<TEntity::TStateId>>(&mut map) {
+                                match de::MapAccess::next_value::<Option<TEntity::Version>>(&mut map) {
                                     Ok(val) => val,
                                     Err(err) => {
                                         return Err(err);
@@ -262,15 +262,15 @@ impl<T> Predicted<T> {
 }
 
 impl<T: OnChainEntity> OnChainEntity for Predicted<T> {
-    type TEntityId = T::TEntityId;
-    type TStateId = T::TStateId;
+    type Id = T::Id;
+    type Version = T::Version;
 
-    fn get_self_ref(&self) -> Self::TEntityId {
-        self.0.get_self_ref()
+    fn get_id(&self) -> Self::Id {
+        self.0.get_id()
     }
 
-    fn get_self_state_ref(&self) -> Self::TStateId {
-        self.0.get_self_state_ref()
+    fn get_version(&self) -> Self::Version {
+        self.0.get_version()
     }
 }
 

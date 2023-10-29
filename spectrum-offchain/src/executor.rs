@@ -105,8 +105,8 @@ where
     Ord: SpecializedOrder + Clone + Display,
     <Ord as SpecializedOrder>::TOrderId: Clone + Display,
     Pool: OnChainEntity + RunOrder<Ord, Ctx, TxCandidate> + Clone,
-    Pool::TEntityId: Copy,
-    Ord::TPoolId: IsEqual<Pool::TEntityId> + Display,
+    Pool::Id: Copy,
+    Ord::TPoolId: IsEqual<Pool::Id> + Display,
     Net: Network<Tx, Err>,
     Backlog: HotBacklog<Ord>,
     Pools: EntityRepo<Pool>,
@@ -125,8 +125,8 @@ where
             if let Some(entity) =
                 resolve_entity_state(trivial_eq().coerce(entity_id), Arc::clone(&self.pool_repo)).await
             {
-                let pool_id = entity.get_self_ref();
-                let pool_state_id = entity.get_self_state_ref();
+                let pool_id = entity.get_id();
+                let pool_state_id = entity.get_version();
                 match entity.try_run(ord.clone(), self.ctx.clone()) {
                     Ok((tx_candidate, next_entity_state)) => {
                         let mut entity_repo = self.pool_repo.lock().await;

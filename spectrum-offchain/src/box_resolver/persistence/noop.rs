@@ -11,33 +11,33 @@ pub struct NoopEntityRepo;
 impl<T> EntityRepo<T> for NoopEntityRepo
 where
     T: OnChainEntity + Clone + Send + 'static,
-    <T as OnChainEntity>::TStateId: Clone + Send + 'static,
-    <T as OnChainEntity>::TEntityId: Clone + Send + 'static,
+    <T as OnChainEntity>::Version: Clone + Send + 'static,
+    <T as OnChainEntity>::Id: Clone + Send + 'static,
 {
-    async fn get_prediction_predecessor<'a>(&self, id: T::TStateId) -> Option<T::TStateId>
+    async fn get_prediction_predecessor<'a>(&self, id: T::Version) -> Option<T::Version>
     where
-        <T as OnChainEntity>::TStateId: 'a,
+        <T as OnChainEntity>::Version: 'a,
     {
         None
     }
 
-    async fn get_last_predicted<'a>(&self, id: T::TEntityId) -> Option<Predicted<T>>
+    async fn get_last_predicted<'a>(&self, id: T::Id) -> Option<Predicted<T>>
     where
-        <T as OnChainEntity>::TEntityId: 'a,
+        <T as OnChainEntity>::Id: 'a,
     {
         None
     }
 
-    async fn get_last_confirmed<'a>(&self, id: T::TEntityId) -> Option<Confirmed<T>>
+    async fn get_last_confirmed<'a>(&self, id: T::Id) -> Option<Confirmed<T>>
     where
-        <T as OnChainEntity>::TEntityId: 'a,
+        <T as OnChainEntity>::Id: 'a,
     {
         None
     }
 
-    async fn get_last_unconfirmed<'a>(&self, id: T::TEntityId) -> Option<Unconfirmed<T>>
+    async fn get_last_unconfirmed<'a>(&self, id: T::Id) -> Option<Unconfirmed<T>>
     where
-        <T as OnChainEntity>::TEntityId: 'a,
+        <T as OnChainEntity>::Id: 'a,
     {
         None
     }
@@ -60,10 +60,10 @@ where
     {
     }
 
-    async fn invalidate<'a>(&mut self, sid: T::TStateId, eid: T::TEntityId)
+    async fn invalidate<'a>(&mut self, sid: T::Version, eid: T::Id)
     where
-        <T as OnChainEntity>::TStateId: 'a,
-        <T as OnChainEntity>::TEntityId: 'a,
+        <T as OnChainEntity>::Version: 'a,
+        <T as OnChainEntity>::Id: 'a,
     {
     }
 
@@ -73,16 +73,16 @@ where
     {
     }
 
-    async fn may_exist<'a>(&self, sid: T::TStateId) -> bool
+    async fn may_exist<'a>(&self, sid: T::Version) -> bool
     where
-        <T as OnChainEntity>::TStateId: 'a,
+        <T as OnChainEntity>::Version: 'a,
     {
         false
     }
 
-    async fn get_state<'a>(&self, sid: T::TStateId) -> Option<T>
+    async fn get_state<'a>(&self, sid: T::Version) -> Option<T>
     where
-        <T as OnChainEntity>::TStateId: 'a,
+        <T as OnChainEntity>::Version: 'a,
     {
         None
     }

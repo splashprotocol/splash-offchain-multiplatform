@@ -16,21 +16,21 @@ pub mod rocksdb;
 #[async_trait(? Send)]
 pub trait EntityRepo<TEntity: OnChainEntity> {
     /// Get state id preceding given predicted state.
-    async fn get_prediction_predecessor<'a>(&self, id: TEntity::TStateId) -> Option<TEntity::TStateId>
+    async fn get_prediction_predecessor<'a>(&self, id: TEntity::Version) -> Option<TEntity::Version>
     where
-        <TEntity as OnChainEntity>::TStateId: 'a;
+        <TEntity as OnChainEntity>::Version: 'a;
     /// Get last predicted state of the given entity.
-    async fn get_last_predicted<'a>(&self, id: TEntity::TEntityId) -> Option<Predicted<TEntity>>
+    async fn get_last_predicted<'a>(&self, id: TEntity::Id) -> Option<Predicted<TEntity>>
     where
-        <TEntity as OnChainEntity>::TEntityId: 'a;
+        <TEntity as OnChainEntity>::Id: 'a;
     /// Get last confirmed state of the given entity.
-    async fn get_last_confirmed<'a>(&self, id: TEntity::TEntityId) -> Option<Confirmed<TEntity>>
+    async fn get_last_confirmed<'a>(&self, id: TEntity::Id) -> Option<Confirmed<TEntity>>
     where
-        <TEntity as OnChainEntity>::TEntityId: 'a;
+        <TEntity as OnChainEntity>::Id: 'a;
     /// Get last unconfirmed state of the given entity.
-    async fn get_last_unconfirmed<'a>(&self, id: TEntity::TEntityId) -> Option<Unconfirmed<TEntity>>
+    async fn get_last_unconfirmed<'a>(&self, id: TEntity::Id) -> Option<Unconfirmed<TEntity>>
     where
-        <TEntity as OnChainEntity>::TEntityId: 'a;
+        <TEntity as OnChainEntity>::Id: 'a;
     /// Persist predicted state of the entity.
     async fn put_predicted<'a>(&mut self, entity: Traced<Predicted<TEntity>>)
     where
@@ -44,21 +44,21 @@ pub trait EntityRepo<TEntity: OnChainEntity> {
     where
         Traced<Predicted<TEntity>>: 'a;
     /// Invalidate particular state of the entity.
-    async fn invalidate<'a>(&mut self, sid: TEntity::TStateId, eid: TEntity::TEntityId)
+    async fn invalidate<'a>(&mut self, sid: TEntity::Version, eid: TEntity::Id)
     where
-        <TEntity as OnChainEntity>::TStateId: 'a,
-        <TEntity as OnChainEntity>::TEntityId: 'a;
+        <TEntity as OnChainEntity>::Version: 'a,
+        <TEntity as OnChainEntity>::Id: 'a;
     /// Invalidate particular state of the entity.
     async fn eliminate<'a>(&mut self, entity: TEntity)
     where
         TEntity: 'a;
     /// False-positive analog of `exists()`.
-    async fn may_exist<'a>(&self, sid: TEntity::TStateId) -> bool
+    async fn may_exist<'a>(&self, sid: TEntity::Version) -> bool
     where
-        <TEntity as OnChainEntity>::TStateId: 'a;
-    async fn get_state<'a>(&self, sid: TEntity::TStateId) -> Option<TEntity>
+        <TEntity as OnChainEntity>::Version: 'a;
+    async fn get_state<'a>(&self, sid: TEntity::Version) -> Option<TEntity>
     where
-        <TEntity as OnChainEntity>::TStateId: 'a;
+        <TEntity as OnChainEntity>::Version: 'a;
 }
 
 pub struct EntityRepoTracing<R> {
@@ -75,13 +75,13 @@ impl<R> EntityRepoTracing<R> {
 impl<TEntity, R> EntityRepo<TEntity> for EntityRepoTracing<R>
 where
     TEntity: OnChainEntity,
-    TEntity::TEntityId: Debug + Copy,
-    TEntity::TStateId: Debug + Copy,
+    TEntity::Id: Debug + Copy,
+    TEntity::Version: Debug + Copy,
     R: EntityRepo<TEntity>,
 {
-    async fn get_prediction_predecessor<'a>(&self, id: TEntity::TStateId) -> Option<TEntity::TStateId>
+    async fn get_prediction_predecessor<'a>(&self, id: TEntity::Version) -> Option<TEntity::Version>
     where
-        <TEntity as OnChainEntity>::TStateId: 'a,
+        <TEntity as OnChainEntity>::Version: 'a,
     {
         trace!(target: "box_resolver", "get_prediction_predecessor({:?})", id);
         let res = self.inner.get_prediction_predecessor(id).await;
@@ -89,9 +89,9 @@ where
         res
     }
 
-    async fn get_last_predicted<'a>(&self, id: TEntity::TEntityId) -> Option<Predicted<TEntity>>
+    async fn get_last_predicted<'a>(&self, id: TEntity::Id) -> Option<Predicted<TEntity>>
     where
-        <TEntity as OnChainEntity>::TEntityId: 'a,
+        <TEntity as OnChainEntity>::Id: 'a,
     {
         trace!(target: "box_resolver", "get_last_predicted({:?})", id);
         let res = self.inner.get_last_predicted(id).await;
@@ -99,9 +99,9 @@ where
         res
     }
 
-    async fn get_last_confirmed<'a>(&self, id: TEntity::TEntityId) -> Option<Confirmed<TEntity>>
+    async fn get_last_confirmed<'a>(&self, id: TEntity::Id) -> Option<Confirmed<TEntity>>
     where
-        <TEntity as OnChainEntity>::TEntityId: 'a,
+        <TEntity as OnChainEntity>::Id: 'a,
     {
         trace!(target: "box_resolver", "get_last_confirmed({:?})", id);
         let res = self.inner.get_last_confirmed(id).await;
@@ -109,9 +109,9 @@ where
         res
     }
 
-    async fn get_last_unconfirmed<'a>(&self, id: TEntity::TEntityId) -> Option<Unconfirmed<TEntity>>
+    async fn get_last_unconfirmed<'a>(&self, id: TEntity::Id) -> Option<Unconfirmed<TEntity>>
     where
-        <TEntity as OnChainEntity>::TEntityId: 'a,
+        <TEntity as OnChainEntity>::Id: 'a,
     {
         trace!(target: "box_resolver", "get_last_unconfirmed({:?})", id);
         let res = self.inner.get_last_unconfirmed(id).await;
@@ -125,8 +125,8 @@ where
     {
         let show_entity = format!(
             "<Entity({:?}, {:?})>",
-            entity.state.get_self_ref(),
-            entity.state.get_self_state_ref()
+            entity.state.get_id(),
+            entity.state.get_version()
         );
         trace!(target: "box_resolver", "put_predicted({})", show_entity);
         self.inner.put_predicted(entity).await;
@@ -139,8 +139,8 @@ where
     {
         let show_entity = format!(
             "<Entity({:?}, {:?})>",
-            entity.0.get_self_ref(),
-            entity.0.get_self_state_ref()
+            entity.0.get_id(),
+            entity.0.get_version()
         );
         trace!(target: "box_resolver", "put_confirmed({})", show_entity);
         self.inner.put_confirmed(entity).await;
@@ -153,18 +153,18 @@ where
     {
         let show_entity = format!(
             "<Entity({:?}, {:?})>",
-            entity.0.get_self_ref(),
-            entity.0.get_self_state_ref()
+            entity.0.get_id(),
+            entity.0.get_version()
         );
         trace!(target: "box_resolver", "put_unconfirmed({})", show_entity);
         self.inner.put_unconfirmed(entity).await;
         trace!(target: "box_resolver", "put_unconfirmed({}) -> ()", show_entity);
     }
 
-    async fn invalidate<'a>(&mut self, sid: TEntity::TStateId, eid: TEntity::TEntityId)
+    async fn invalidate<'a>(&mut self, sid: TEntity::Version, eid: TEntity::Id)
     where
-        <TEntity as OnChainEntity>::TStateId: 'a,
-        <TEntity as OnChainEntity>::TEntityId: 'a,
+        <TEntity as OnChainEntity>::Version: 'a,
+        <TEntity as OnChainEntity>::Id: 'a,
     {
         trace!(target: "box_resolver", "invalidate({:?})", sid);
         self.inner.invalidate(sid, eid).await;
@@ -177,30 +177,30 @@ where
     {
         let show_entity = format!(
             "<Entity({:?}, {:?})>",
-            entity.get_self_ref(),
-            entity.get_self_state_ref()
+            entity.get_id(),
+            entity.get_version()
         );
         trace!(target: "box_resolver", "eliminate({})", show_entity);
         self.inner.eliminate(entity).await;
         trace!(target: "box_resolver", "eliminate({}) -> ()", show_entity);
     }
 
-    async fn may_exist<'a>(&self, sid: TEntity::TStateId) -> bool
+    async fn may_exist<'a>(&self, sid: TEntity::Version) -> bool
     where
-        <TEntity as OnChainEntity>::TStateId: 'a,
+        <TEntity as OnChainEntity>::Version: 'a,
     {
         self.inner.may_exist(sid).await
     }
 
-    async fn get_state<'a>(&self, sid: TEntity::TStateId) -> Option<TEntity>
+    async fn get_state<'a>(&self, sid: TEntity::Version) -> Option<TEntity>
     where
-        <TEntity as OnChainEntity>::TStateId: 'a,
+        <TEntity as OnChainEntity>::Version: 'a,
     {
         trace!(target: "box_resolver", "get_state({:?})", sid);
         let res = self.inner.get_state(sid).await;
         let show_entity = res
             .as_ref()
-            .map(|e| format!("<Entity({:?}, {:?})>", e.get_self_ref(), e.get_self_state_ref()));
+            .map(|e| format!("<Entity({:?}, {:?})>", e.get_id(), e.get_version()));
         trace!(target: "box_resolver", "get_state({:?}) -> {:?}", sid, show_entity);
         res
     }
@@ -261,15 +261,15 @@ pub(crate) mod tests {
     }
 
     impl OnChainEntity for TestEntity {
-        type TEntityId = TokenId;
+        type Id = TokenId;
 
-        type TStateId = BoxId;
+        type Version = BoxId;
 
-        fn get_self_ref(&self) -> Self::TEntityId {
+        fn get_id(&self) -> Self::Id {
             self.token_id
         }
 
-        fn get_self_state_ref(&self) -> Self::TStateId {
+        fn get_version(&self) -> Self::Version {
             self.box_id
         }
     }

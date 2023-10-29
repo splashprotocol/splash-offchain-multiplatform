@@ -43,10 +43,10 @@ pub trait SpecializedOrder {
 }
 
 pub trait OnChainEntity {
-    type TEntityId: Copy + Eq + Hash;
-    type TStateId: Copy + Eq + Hash;
+    type Id: Copy + Eq + Hash;
+    type Version: Copy + Eq + Hash;
 
-    fn get_self_ref(&self) -> Self::TEntityId;
+    fn get_id(&self) -> Self::Id;
 
-    fn get_self_state_ref(&self) -> Self::TStateId;
+    fn get_version(&self) -> Self::Version;
 }

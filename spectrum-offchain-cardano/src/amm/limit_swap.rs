@@ -25,10 +25,10 @@ use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 use crate::constants::{MIN_SAFE_ADA_DEPOSIT, ORDER_APPLY_RAW_REDEEMER, ORDER_REFUND_RAW_REDEEMER};
-use crate::data::execution_context::ExecutionContext;
-use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
-use crate::data::pool::{ApplySwap, CFMMPoolAction, ImmutablePoolUtxo};
-use crate::data::{ExecutorFeePerToken, OnChain, OnChainOrderId, PoolId, PoolStateVer, PoolVer};
+use crate::amm::execution_context::ExecutionContext;
+use crate::amm::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
+use crate::amm::pool::{ApplySwap, CFMMPoolAction, ImmutablePoolUtxo};
+use crate::amm::{ExecutorFeePerToken, OnChain, OnChainOrderId, PoolId, PoolStateVer, PoolVer};
 
 #[derive(Debug, Clone)]
 pub struct LimitSwap {
@@ -257,12 +257,12 @@ mod tests {
 
     use crate::collateral_storage::CollateralStorage;
     use crate::config::RefScriptsConfig;
-    use crate::data::execution_context::ExecutionContext;
-    use crate::data::limit_swap::OnChainLimitSwapConfig;
-    use crate::data::order::ClassicalOnChainOrder;
-    use crate::data::pool::CFMMPool;
-    use crate::data::ref_scripts::RefScriptsOutputs;
-    use crate::data::OnChain;
+    use crate::amm::execution_context::ExecutionContext;
+    use crate::amm::limit_swap::OnChainLimitSwapConfig;
+    use crate::amm::order::ClassicalOnChainOrder;
+    use crate::amm::pool::CFMMPool;
+    use crate::amm::ref_scripts::RefScriptsOutputs;
+    use crate::amm::OnChain;
 
     #[test]
     fn parse_swap_datum_mainnet() {

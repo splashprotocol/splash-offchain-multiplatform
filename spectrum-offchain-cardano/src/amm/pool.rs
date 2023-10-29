@@ -23,10 +23,10 @@ use crate::constants::{
     CFMM_LP_FEE_DEN, MAX_LQ_CAP, POOL_DEPOSIT_REDEEMER, POOL_DESTROY_REDEEMER, POOL_REDEEM_REDEEMER,
     POOL_SWAP_REDEEMER,
 };
-use crate::data::limit_swap::ClassicalOnChainLimitSwap;
-use crate::data::operation_output::SwapOutput;
-use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
-use crate::data::{OnChain, PoolId, PoolStateVer, PoolVer};
+use crate::amm::limit_swap::ClassicalOnChainLimitSwap;
+use crate::amm::operation_output::SwapOutput;
+use crate::amm::order::{Base, ClassicalOrder, PoolNft, Quote};
+use crate::amm::{OnChain, PoolId, PoolStateVer, PoolVer};
 
 pub struct Rx;
 
@@ -123,12 +123,12 @@ impl RequiresRedeemer<CFMMPoolAction> for CFMMPool {
 }
 
 impl OnChainEntity for CFMMPool {
-    type TEntityId = PoolId;
-    type TStateId = PoolStateVer;
-    fn get_self_ref(&self) -> Self::TEntityId {
+    type Id = PoolId;
+    type Version = PoolStateVer;
+    fn get_id(&self) -> Self::Id {
         self.id
     }
-    fn get_self_state_ref(&self) -> Self::TStateId {
+    fn get_version(&self) -> Self::Version {
         self.state_ver
     }
 }

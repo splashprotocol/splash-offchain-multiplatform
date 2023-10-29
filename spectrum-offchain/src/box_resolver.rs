@@ -12,13 +12,13 @@ pub mod process;
 
 /// Get latest state of an on-chain entity `TEntity`.
 pub async fn resolve_entity_state<TEntity, TRepo>(
-    id: TEntity::TEntityId,
+    id: TEntity::Id,
     repo: Arc<Mutex<TRepo>>,
 ) -> Option<TEntity>
 where
     TRepo: EntityRepo<TEntity>,
     TEntity: OnChainEntity,
-    TEntity::TEntityId: Copy,
+    TEntity::Id: Copy,
 {
     let states = {
         let repo_guard = repo.lock().await;
@@ -30,8 +30,8 @@ where
     match states {
         (Some(Confirmed(conf)), unconf, Some(Predicted(pred))) => {
             let anchoring_point = unconf.map(|Unconfirmed(e)| e).unwrap_or(conf);
-            let anchoring_sid = anchoring_point.get_self_state_ref();
-            let predicted_sid = pred.get_self_state_ref();
+            let anchoring_sid = anchoring_point.get_version();
+            let predicted_sid = pred.get_version();
             let prediction_is_anchoring_point = predicted_sid == anchoring_sid;
             let prediction_is_valid = prediction_is_anchoring_point
                 || is_linking(predicted_sid, anchoring_sid, Arc::clone(&repo)).await;
@@ -49,8 +49,8 @@ where
 }
 
 async fn is_linking<TEntity, TRepo>(
-    sid: TEntity::TStateId,
-    anchoring_sid: TEntity::TStateId,
+    sid: TEntity::Version,
+    anchoring_sid: TEntity::Version,
     repo: Arc<Mutex<TRepo>>,
 ) -> bool
 where
@@ -90,7 +90,7 @@ mod tests {
         client.put_confirmed(entity.clone()).await;
 
         let client = Arc::new(Mutex::new(client));
-        let resolved = resolve_entity_state::<TestEntity, _>(entity.0.get_self_ref(), client).await;
+        let resolved = resolve_entity_state::<TestEntity, _>(entity.0.get_id(), client).await;
         assert_eq!(resolved, Some(entity.0));
     }
 }

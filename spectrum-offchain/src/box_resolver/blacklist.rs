@@ -6,15 +6,15 @@ use crate::data::OnChainEntity;
 
 #[async_trait(?Send)]
 pub trait EntityBlacklist<T: OnChainEntity> {
-    async fn is_blacklisted(&self, id: &T::TEntityId) -> bool;
+    async fn is_blacklisted(&self, id: &T::Id) -> bool;
 }
 
 pub struct StaticBlacklist<T: OnChainEntity> {
-    entries: HashSet<T::TEntityId>,
+    entries: HashSet<T::Id>,
 }
 
 impl<T: OnChainEntity> StaticBlacklist<T> {
-    pub fn new(entries: HashSet<T::TEntityId>) -> Self {
+    pub fn new(entries: HashSet<T::Id>) -> Self {
         Self { entries }
     }
 }
@@ -24,7 +24,7 @@ impl<T> EntityBlacklist<T> for StaticBlacklist<T>
 where
     T: OnChainEntity,
 {
-    async fn is_blacklisted(&self, id: &T::TEntityId) -> bool {
+    async fn is_blacklisted(&self, id: &T::Id) -> bool {
         self.entries.contains(id)
     }
 }

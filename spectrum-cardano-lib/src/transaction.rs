@@ -10,6 +10,7 @@ use crate::address::AddressExtension;
 pub trait TransactionOutputExtension {
     fn address(&self) -> &Address;
     fn value(&self) -> &Value;
+    fn value_mut(&mut self) -> &mut Value;
     fn datum(&self) -> Option<DatumOption>;
     fn into_datum(self) -> Option<DatumOption>;
     fn script_hash(&self) -> Option<ScriptHash>;
@@ -28,6 +29,12 @@ impl TransactionOutputExtension for BabbageTransactionOutput {
         match self {
             Self::AlonzoFormatTxOut(tx_out) => &tx_out.amount,
             Self::BabbageFormatTxOut(tx_out) => &tx_out.amount,
+        }
+    }
+    fn value_mut(&mut self) -> &mut Value {
+        match self {
+            Self::AlonzoFormatTxOut(tx_out) => &mut tx_out.amount,
+            Self::BabbageFormatTxOut(tx_out) => &mut tx_out.amount,
         }
     }
     fn datum(&self) -> Option<DatumOption> {
@@ -77,6 +84,12 @@ impl TransactionOutputExtension for TransactionOutput {
         match self {
             Self::AlonzoFormatTxOut(tx_out) => &tx_out.amount,
             Self::ConwayFormatTxOut(tx_out) => &tx_out.amount,
+        }
+    }
+    fn value_mut(&mut self) -> &mut Value {
+        match self {
+            Self::AlonzoFormatTxOut(tx_out) => &mut tx_out.amount,
+            Self::ConwayFormatTxOut(tx_out) => &mut tx_out.amount,
         }
     }
     fn datum(&self) -> Option<DatumOption> {

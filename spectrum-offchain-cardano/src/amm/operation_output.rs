@@ -9,7 +9,7 @@ use cml_crypto::Ed25519KeyHash;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::ledger::IntoLedger;
 
-use crate::data::order::Quote;
+use crate::amm::order::Quote;
 
 #[derive(Debug, Clone)]
 pub struct SwapOutput {

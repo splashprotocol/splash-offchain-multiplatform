@@ -10,9 +10,9 @@ use crate::data::OnChainEntity;
 
 #[derive(Debug)]
 pub struct InMemoryEntityRepo<T: OnChainEntity> {
-    store: HashMap<T::TStateId, T>,
-    index: HashMap<InMemoryIndexKey, T::TStateId>,
-    links: HashMap<T::TStateId, T::TStateId>,
+    store: HashMap<T::Version, T>,
+    index: HashMap<InMemoryIndexKey, T::Version>,
+    links: HashMap<T::Version, T::Version>,
 }
 
 impl<T: OnChainEntity> InMemoryEntityRepo<T> {
@@ -37,19 +37,19 @@ const LAST_UNCONFIRMED_PREFIX: u8 = 4u8;
 impl<T> EntityRepo<T> for InMemoryEntityRepo<T>
 where
     T: OnChainEntity + Clone + Send + 'static,
-    <T as OnChainEntity>::TStateId: Copy + Send + Debug + 'static,
-    <T as OnChainEntity>::TEntityId: Copy + Send + Into<[u8; 60]> + 'static,
+    <T as OnChainEntity>::Version: Copy + Send + Debug + 'static,
+    <T as OnChainEntity>::Id: Copy + Send + Into<[u8; 60]> + 'static,
 {
-    async fn get_prediction_predecessor<'a>(&self, id: T::TStateId) -> Option<T::TStateId>
+    async fn get_prediction_predecessor<'a>(&self, id: T::Version) -> Option<T::Version>
     where
-        <T as OnChainEntity>::TStateId: 'a,
+        <T as OnChainEntity>::Version: 'a,
     {
         self.links.get(&id).map(|id| *id)
     }
 
-    async fn get_last_predicted<'a>(&self, id: T::TEntityId) -> Option<Predicted<T>>
+    async fn get_last_predicted<'a>(&self, id: T::Id) -> Option<Predicted<T>>
     where
-        <T as OnChainEntity>::TEntityId: 'a,
+        <T as OnChainEntity>::Id: 'a,
     {
         let index_key = index_key(LAST_PREDICTED_PREFIX, id);
         self.index
@@ -58,9 +58,9 @@ where
             .map(|e| Predicted(e.clone()))
     }
 
-    async fn get_last_confirmed<'a>(&self, id: T::TEntityId) -> Option<Confirmed<T>>
+    async fn get_last_confirmed<'a>(&self, id: T::Id) -> Option<Confirmed<T>>
     where
-        <T as OnChainEntity>::TEntityId: 'a,
+        <T as OnChainEntity>::Id: 'a,
     {
         let index_key = index_key(LAST_CONFIRMED_PREFIX, id);
         self.index
@@ -69,9 +69,9 @@ where
             .map(|e| Confirmed(e.clone()))
     }
 
-    async fn get_last_unconfirmed<'a>(&self, id: T::TEntityId) -> Option<Unconfirmed<T>>
+    async fn get_last_unconfirmed<'a>(&self, id: T::Id) -> Option<Unconfirmed<T>>
     where
-        <T as OnChainEntity>::TEntityId: 'a,
+        <T as OnChainEntity>::Id: 'a,
     {
         let index_key = index_key(LAST_UNCONFIRMED_PREFIX, id);
         self.index
@@ -89,36 +89,36 @@ where
     ) where
         Traced<Predicted<T>>: 'a,
     {
-        let index_key = index_key(LAST_PREDICTED_PREFIX, entity.get_self_ref());
-        self.index.insert(index_key, entity.get_self_state_ref());
+        let index_key = index_key(LAST_PREDICTED_PREFIX, entity.get_id());
+        self.index.insert(index_key, entity.get_version());
         if let Some(prev_sid) = prev_state_id {
-            self.links.insert(entity.get_self_state_ref(), prev_sid);
+            self.links.insert(entity.get_version(), prev_sid);
         }
-        self.store.insert(entity.get_self_state_ref(), entity);
+        self.store.insert(entity.get_version(), entity);
     }
 
     async fn put_confirmed<'a>(&mut self, Confirmed(entity): Confirmed<T>)
     where
         Traced<Predicted<T>>: 'a,
     {
-        let index_key = index_key(LAST_CONFIRMED_PREFIX, entity.get_self_ref());
-        self.index.insert(index_key, entity.get_self_state_ref());
-        self.store.insert(entity.get_self_state_ref(), entity);
+        let index_key = index_key(LAST_CONFIRMED_PREFIX, entity.get_id());
+        self.index.insert(index_key, entity.get_version());
+        self.store.insert(entity.get_version(), entity);
     }
 
     async fn put_unconfirmed<'a>(&mut self, Unconfirmed(entity): Unconfirmed<T>)
     where
         Traced<Predicted<T>>: 'a,
     {
-        let index_key = index_key(LAST_UNCONFIRMED_PREFIX, entity.get_self_ref());
-        self.index.insert(index_key, entity.get_self_state_ref());
-        self.store.insert(entity.get_self_state_ref(), entity);
+        let index_key = index_key(LAST_UNCONFIRMED_PREFIX, entity.get_id());
+        self.index.insert(index_key, entity.get_version());
+        self.store.insert(entity.get_version(), entity);
     }
 
-    async fn invalidate<'a>(&mut self, sid: T::TStateId, eid: T::TEntityId)
+    async fn invalidate<'a>(&mut self, sid: T::Version, eid: T::Id)
     where
-        <T as OnChainEntity>::TStateId: 'a,
-        <T as OnChainEntity>::TEntityId: 'a,
+        <T as OnChainEntity>::Version: 'a,
+        <T as OnChainEntity>::Id: 'a,
     {
         let predecessor = self.get_prediction_predecessor(sid).await;
         let last_predicted_index_key = index_key(LAST_PREDICTED_PREFIX, eid);
@@ -141,8 +141,8 @@ where
     where
         T: 'a,
     {
-        let eid = entity.get_self_ref();
-        let sid = entity.get_self_state_ref();
+        let eid = entity.get_id();
+        let sid = entity.get_version();
         let last_predicted_index_key = index_key(LAST_PREDICTED_PREFIX, eid);
         let last_confirmed_index_key = index_key(LAST_CONFIRMED_PREFIX, eid);
         let last_unconfirmed_index_key = index_key(LAST_UNCONFIRMED_PREFIX, eid);
@@ -153,16 +153,16 @@ where
         self.store.remove(&sid);
     }
 
-    async fn may_exist<'a>(&self, sid: T::TStateId) -> bool
+    async fn may_exist<'a>(&self, sid: T::Version) -> bool
     where
-        <T as OnChainEntity>::TStateId: 'a,
+        <T as OnChainEntity>::Version: 'a,
     {
         self.store.contains_key(&sid)
     }
 
-    async fn get_state<'a>(&self, sid: T::TStateId) -> Option<T>
+    async fn get_state<'a>(&self, sid: T::Version) -> Option<T>
     where
-        <T as OnChainEntity>::TStateId: 'a,
+        <T as OnChainEntity>::Version: 'a,
     {
         self.store.get(&sid).map(|e| e.clone())
     }

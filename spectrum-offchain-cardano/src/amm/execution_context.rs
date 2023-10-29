@@ -1,7 +1,7 @@
 use cml_chain::address::Address;
 use cml_chain::builders::input_builder::InputBuilderResult;
 
-use crate::data::ref_scripts::RefScriptsOutputs;
+use crate::amm::ref_scripts::RefScriptsOutputs;
 
 #[derive(Clone)]
 pub struct ExecutionContext {

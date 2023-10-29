@@ -5,8 +5,8 @@ use std::ops::{Add, Sub};
 use std::str::FromStr;
 
 use cml_chain::plutus::PlutusData;
-use cml_chain::transaction::TransactionInput;
 use cml_chain::PolicyId;
+use cml_chain::transaction::TransactionInput;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
 
@@ -167,6 +167,9 @@ impl TryFromPData for AssetClass {
 pub struct TaggedAssetClass<T>(AssetClass, PhantomData<T>);
 
 impl<T> TaggedAssetClass<T> {
+    pub fn tag(ac: AssetClass) -> Self {
+        Self(ac, PhantomData::default())
+    }
     pub fn is_native(&self) -> bool {
         matches!(self.0, AssetClass::Native)
     }
