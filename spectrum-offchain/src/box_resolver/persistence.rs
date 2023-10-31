@@ -437,7 +437,7 @@ pub(crate) mod tests {
             };
             client.put_predicted(entity.clone()).await;
             client.put_unconfirmed(Unconfirmed(ee.clone())).await;
-            client.put_confirmed(Confirmed(ee)).await;
+            client.put_confirmed(Confirmed(ee.clone())).await;
 
             // Invalidate
             <C as EntityRepo<TestEntity>>::invalidate(&mut client, box_ids[i], token_ids[i]).await;
@@ -454,6 +454,9 @@ pub(crate) mod tests {
                 // Here we rollback to confirmed entity.
                 assert!(confirmed.is_some());
             }
+
+            // for next iteration we should put "invalidated" entity as confirmed
+            client.put_confirmed(Confirmed(ee.clone())).await;
         }
     }
 

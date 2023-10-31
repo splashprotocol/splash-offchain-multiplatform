@@ -1,11 +1,19 @@
-use crate::config::RefScriptsConfig;
-use crate::constants::{DEPOSIT_SCRIPT, POOL_V1_SCRIPT, POOL_V2_SCRIPT, REDEEM_SCRIPT, SWAP_SCRIPT};
-use cardano_explorer::client::Explorer;
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::plutus::PlutusV2Script;
 use cml_chain::transaction::{ScriptRef, TransactionOutput};
 use cml_chain::Script;
+
+use cardano_explorer::client::Explorer;
 use spectrum_cardano_lib::OutputRef;
+use spectrum_offchain::data::Has;
+
+use crate::config::RefScriptsConfig;
+use crate::constants::{DEPOSIT_SCRIPT, POOL_V1_SCRIPT, POOL_V2_SCRIPT, REDEEM_SCRIPT, SWAP_SCRIPT};
+use crate::data::deposit::ClassicalOnChainDeposit;
+use crate::data::limit_swap::ClassicalOnChainLimitSwap;
+use crate::data::pool::CFMMPool;
+use crate::data::redeem::ClassicalOnChainRedeem;
+use crate::data::PoolVer;
 
 #[derive(Clone)]
 pub struct RefScriptsOutputs {
@@ -63,5 +71,37 @@ impl RefScriptsOutputs {
             deposit,
             redeem,
         })
+    }
+}
+
+pub trait RequiresRefScript {
+    fn get_ref_script(self, ref_scripts: RefScriptsOutputs) -> TransactionUnspentOutput;
+}
+
+impl RequiresRefScript for ClassicalOnChainDeposit {
+    fn get_ref_script(self, ref_scripts: RefScriptsOutputs) -> TransactionUnspentOutput {
+        ref_scripts.deposit
+    }
+}
+
+impl RequiresRefScript for ClassicalOnChainLimitSwap {
+    fn get_ref_script(self, ref_scripts: RefScriptsOutputs) -> TransactionUnspentOutput {
+        ref_scripts.swap
+    }
+}
+
+impl RequiresRefScript for ClassicalOnChainRedeem {
+    fn get_ref_script(self, ref_scripts: RefScriptsOutputs) -> TransactionUnspentOutput {
+        ref_scripts.redeem
+    }
+}
+
+impl RequiresRefScript for CFMMPool {
+    fn get_ref_script(self, ref_scripts: RefScriptsOutputs) -> TransactionUnspentOutput {
+        match self.get::<PoolVer>() {
+            PoolVer(1) => ref_scripts.pool_v1,
+            PoolVer(2) => ref_scripts.pool_v2,
+            _ => ref_scripts.pool_v1, // todo: impossible branch - throw error?
+        }
     }
 }

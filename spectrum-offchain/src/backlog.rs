@@ -15,7 +15,7 @@ use type_equalities::IsEqual;
 use crate::backlog::data::{BacklogOrder, OrderWeight, Weighted};
 use crate::backlog::persistence::BacklogStore;
 use crate::data::order::{PendingOrder, ProgressingOrder, SuspendedOrder};
-use crate::data::UniqueOrder;
+use crate::data::{Has, UniqueOrder};
 
 pub mod data;
 pub mod persistence;
@@ -538,6 +538,7 @@ where
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::fmt::{Display, Formatter};
     use std::sync::Arc;
 
     use async_trait::async_trait;
@@ -550,10 +551,16 @@ mod tests {
     use crate::backlog::persistence::{BacklogStore, BacklogStoreRocksDB};
     use crate::backlog::{BacklogConfig, PersistentPriorityBacklog, ResilientBacklog};
     use crate::data::order::{PendingOrder, ProgressingOrder, SuspendedOrder};
-    use crate::data::{SpecializedOrder, UniqueOrder};
+    use crate::data::UniqueOrder;
 
     #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Clone, Copy, Serialize, Deserialize)]
     struct MockOrderId(i64);
+
+    impl Display for MockOrderId {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            f.write_str(format!("{}", self.0.to_string()).as_str())
+        }
+    }
 
     #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Clone, Serialize, Deserialize)]
     struct MockOrder {

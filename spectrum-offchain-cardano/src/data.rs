@@ -1,10 +1,9 @@
-use std::fmt::{Display, Formatter, Write};
+use std::fmt::{Display, Formatter};
 
 use cml_chain::address::Address;
 use cml_chain::transaction::{TransactionInput, TransactionOutput};
 use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
-use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
 
 use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAssetClass, Token};
@@ -13,10 +12,12 @@ use spectrum_offchain::data::{OnChainEntity, SpecializedOrder};
 use crate::constants::POOL_VERSIONS;
 use crate::data::order::PoolNft;
 
+pub mod deposit;
 pub mod limit_swap;
 pub mod operation_output;
 pub mod order;
 pub mod pool;
+pub mod redeem;
 
 pub mod ref_scripts;
 
@@ -115,7 +116,7 @@ pub struct PoolId(Token);
 
 impl Display for PoolId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(format!("{}", self.0 .0.to_hex()).as_str())
+        f.write_str(format!("{}.{}", self.0 .0, self.0 .1).as_str())
     }
 }
 

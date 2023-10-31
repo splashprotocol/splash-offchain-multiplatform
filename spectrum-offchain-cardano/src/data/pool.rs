@@ -1,32 +1,46 @@
+use std::cmp::min;
+
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
-use cml_chain::plutus::PlutusData;
+use cml_chain::builders::input_builder::SingleInputBuilder;
+use cml_chain::builders::output_builder::SingleOutputBuilderResult;
+use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
+use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder};
+use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
+use cml_chain::plutus::{ExUnits, PlutusData, RedeemerTag};
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, TransactionOutput};
 use cml_chain::{Coin, Value};
 use cml_core::serialization::FromBytes;
 use cml_multi_era::babbage::BabbageTransactionOutput;
+use log::info;
 use num_rational::Ratio;
 use type_equalities::IsEqual;
 
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
 };
+use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_cardano_lib::transaction::{BabbageTransactionOutputExtension, TransactionOutputExtension};
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
+use spectrum_offchain::data::unique_entity::Predicted;
 use spectrum_offchain::data::{Has, OnChainEntity};
-use spectrum_offchain::executor::RunOrderError;
+use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 use crate::constants::{
-    CFMM_LP_FEE_DEN, MAX_LQ_CAP, POOL_DEPOSIT_REDEEMER, POOL_DESTROY_REDEEMER, POOL_REDEEM_REDEEMER,
-    POOL_SWAP_REDEEMER,
+    CFMM_LP_FEE_DEN, MAX_LQ_CAP, ORDER_EXECUTION_UNITS, POOL_DEPOSIT_REDEEMER, POOL_DESTROY_REDEEMER,
+    POOL_EXECUTION_UNITS, POOL_REDEEM_REDEEMER, POOL_SWAP_REDEEMER,
 };
+use crate::data::deposit::ClassicalOnChainDeposit;
+use crate::data::execution_context::ExecutionContext;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
-use crate::data::operation_output::SwapOutput;
-use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
-use crate::data::{OnChain, PoolId, PoolStateVer, PoolVer};
+use crate::data::operation_output::{DepositOutput, RedeemOutput, SwapOutput};
+use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
+use crate::data::redeem::ClassicalOnChainRedeem;
+use crate::data::ref_scripts::RequiresRefScript;
+use crate::data::{OnChain, OnChainOrderId, PoolId, PoolStateVer, PoolVer};
 
 pub struct Rx;
 
@@ -90,6 +104,52 @@ impl CFMMPool {
                     + (base_amount.untag() as u128) * (*self.lp_fee.numer() as u128))
         };
         TaggedAmount::tag(quote_amount as u64)
+    }
+
+    pub fn reward_lp(
+        &self,
+        in_x_amount: u64,
+        in_y_amount: u64,
+    ) -> (TaggedAmount<Lq>, TaggedAmount<Rx>, TaggedAmount<Ry>) {
+        let min_by_x =
+            (in_x_amount as u128) * (self.liquidity.untag() as u128) / (self.reserves_x.untag() as u128);
+        let min_by_y =
+            (in_y_amount as u128) * (self.liquidity.untag() as u128) / (self.reserves_y.untag() as u128);
+        let (change_by_x, change_by_y): (u64, u64) = if min_by_x == min_by_y {
+            (0, 0)
+        } else {
+            if min_by_x < min_by_y {
+                (
+                    0,
+                    ((min_by_y - min_by_x) * (self.reserves_y.untag() as u128)
+                        / (self.liquidity.untag() as u128)) as u64,
+                )
+            } else {
+                (
+                    ((min_by_x - min_by_y) * (self.reserves_x.untag() as u128)
+                        / (self.liquidity.untag() as u128)) as u64,
+                    0,
+                )
+            }
+        };
+        let unlocked_lq = min(min_by_x, min_by_y) as u64;
+        (
+            TaggedAmount::tag(unlocked_lq),
+            TaggedAmount::tag(change_by_x),
+            TaggedAmount::tag(change_by_y),
+        )
+    }
+
+    pub fn shares_amount(self, burned_lq: TaggedAmount<Lq>) -> (TaggedAmount<Rx>, TaggedAmount<Ry>) {
+        let x_amount = (burned_lq.untag() as u128) * (self.reserves_x.untag() as u128)
+            / (self.liquidity.untag() as u128);
+        let y_amount = (burned_lq.untag() as u128) * (self.reserves_y.untag() as u128)
+            / (self.liquidity.untag() as u128);
+
+        (
+            TaggedAmount::tag(x_amount as u64),
+            TaggedAmount::tag(y_amount as u64),
+        )
     }
 }
 
@@ -156,6 +216,7 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for OnChain<CFMMPool> {
                 lq_lower_bound: conf.lq_lower_bound,
                 ver: pool_ver,
             };
+
             return Some(OnChain {
                 value: pool,
                 source: repr.upcast(),
@@ -242,8 +303,10 @@ pub trait ApplySwap<Swap>: Sized {
     fn apply_swap(self, order: Swap) -> Result<(Self, SwapOutput), Slippage<Swap>>;
 }
 
-impl ApplySwap<ClassicalOnChainLimitSwap> for CFMMPool {
-    fn apply_swap(
+impl ApplyOrder<ClassicalOnChainLimitSwap> for CFMMPool {
+    type OrderApplicationResult = SwapOutput;
+
+    fn apply_order(
         mut self,
         ClassicalOrder { id, pool_id, order }: ClassicalOnChainLimitSwap,
     ) -> Result<(Self, SwapOutput), Slippage<ClassicalOnChainLimitSwap>> {
@@ -271,5 +334,182 @@ impl ApplySwap<ClassicalOnChainLimitSwap> for CFMMPool {
         };
         // Prepare batcher fee.
         Ok((self, swap_output))
+    }
+}
+
+pub trait ApplyOrder<Order>: Sized {
+    type OrderApplicationResult;
+
+    // return: new pool, order output
+    fn apply_order(self, order: Order) -> Result<(Self, Self::OrderApplicationResult), Slippage<Order>>;
+}
+
+impl ApplyOrder<ClassicalOnChainDeposit> for CFMMPool {
+    type OrderApplicationResult = DepositOutput;
+
+    fn apply_order(
+        mut self,
+        ClassicalOrder { order, .. }: ClassicalOnChainDeposit,
+    ) -> Result<(Self, DepositOutput), Slippage<ClassicalOnChainDeposit>> {
+        let net_x = if order.token_x.is_native() {
+            order.token_x_amount.untag() - order.ex_fee - order.collateral_ada
+        } else {
+            order.token_x_amount.untag()
+        };
+
+        let net_y = if order.token_y.is_native() {
+            order.token_y_amount.untag() - order.ex_fee - order.collateral_ada
+        } else {
+            order.token_y_amount.untag()
+        };
+
+        let (unlocked_lq, change_x, change_y) = self.reward_lp(net_x, net_y);
+
+        self.reserves_x = self.reserves_x + TaggedAmount::tag(net_x) - change_x;
+        self.reserves_y = self.reserves_y + TaggedAmount::tag(net_y) - change_y;
+        self.liquidity = self.liquidity + unlocked_lq;
+
+        let deposit_output = DepositOutput {
+            token_x_asset: order.token_x,
+            token_x_charge_amount: change_x,
+            token_y_asset: order.token_y,
+            token_y_charge_amount: change_y,
+            token_lq_asset: order.token_lq,
+            token_lq_amount: unlocked_lq,
+            ada_residue: order.collateral_ada,
+            redeemer_pkh: order.reward_pkh,
+            redeemer_stake_pkh: order.reward_stake_pkh,
+        };
+
+        Ok((self, deposit_output))
+    }
+}
+
+impl ApplyOrder<ClassicalOnChainRedeem> for CFMMPool {
+    type OrderApplicationResult = RedeemOutput;
+
+    fn apply_order(
+        mut self,
+        ClassicalOrder { order, .. }: ClassicalOnChainRedeem,
+    ) -> Result<(Self, RedeemOutput), Slippage<ClassicalOnChainRedeem>> {
+        let (x_amount, y_amount) = self.clone().shares_amount(order.token_lq_amount);
+
+        self.reserves_x = self.reserves_x - x_amount;
+        self.reserves_y = self.reserves_y - y_amount;
+        self.liquidity = self.liquidity + order.token_lq_amount;
+
+        let redeem_output = RedeemOutput {
+            token_x_asset: order.token_x,
+            token_x_amount: x_amount,
+            token_y_asset: order.token_y,
+            token_y_amount: y_amount,
+            ada_residue: order.collateral_ada,
+            redeemer_pkh: order.reward_pkh,
+            redeemer_stake_pkh: order.reward_stake_pkh,
+        };
+
+        Ok((self, redeem_output))
+    }
+}
+
+impl<'a, Order, Pool> RunOrder<OnChain<Order>, ExecutionContext, SignedTxBuilder> for OnChain<Pool>
+where
+    Pool: ApplyOrder<Order>
+        + Has<PoolStateVer>
+        + Has<PoolVer>
+        + RequiresRedeemer<CFMMPoolAction>
+        + IntoLedger<TransactionOutput, ImmutablePoolUtxo>
+        + Clone
+        + RequiresRefScript,
+    <Pool as ApplyOrder<Order>>::OrderApplicationResult: IntoLedger<TransactionOutput, ()>,
+    Order: Has<OnChainOrderId>
+        + RequiresRedeemer<ClassicalOrderAction>
+        + RequiresRefScript
+        + Clone
+        + Into<CFMMPoolAction>,
+{
+    fn try_run(
+        self,
+        OnChain {
+            value: order,
+            source: order_out_in,
+        }: OnChain<Order>,
+        ctx: ExecutionContext,
+    ) -> Result<(SignedTxBuilder, Predicted<Self>), RunOrderError<OnChain<Order>>> {
+        let OnChain {
+            value: pool,
+            source: pool_out_in,
+        } = self;
+        let pool_ref = OutputRef::from(pool.get::<PoolStateVer>());
+        let order_ref = OutputRef::from(order.get::<OnChainOrderId>());
+        info!(target: "offchain", "Running order {} against pool {}", order_ref, pool_ref);
+        let (next_pool, user_out) = match pool.clone().apply_order(order.clone()) {
+            Ok(res) => res,
+            Err(slippage) => {
+                return Err(slippage
+                    .map(|value: Order| OnChain {
+                        value,
+                        source: order_out_in,
+                    })
+                    .into());
+            }
+        };
+        let pool_redeemer = Pool::redeemer(order.clone().into());
+        let pool_script = PartialPlutusWitness::new(
+            PlutusScriptWitness::Ref(pool_out_in.script_hash().unwrap()),
+            pool_redeemer,
+        );
+        let pool_datum = pool_out_in.datum().unwrap().into_pd().unwrap();
+        let immut_pool = ImmutablePoolUtxo::from(&pool_out_in);
+        let pool_in = SingleInputBuilder::new(pool_ref.into(), pool_out_in)
+            .plutus_script(pool_script, Vec::new(), pool_datum)
+            .unwrap();
+        let order_redeemer = Order::redeemer(ClassicalOrderAction::Apply);
+        let order_script = PartialPlutusWitness::new(
+            PlutusScriptWitness::Ref(order_out_in.script_hash().unwrap()),
+            order_redeemer,
+        );
+        let order_datum = order_out_in.datum().unwrap().into_pd().unwrap();
+        let order_in = SingleInputBuilder::new(order_ref.into(), order_out_in)
+            .plutus_script(order_script, Vec::new(), order_datum)
+            .unwrap();
+        let pool_out = next_pool.clone().into_ledger(immut_pool);
+        let predicted_pool = Predicted(OnChain {
+            value: next_pool,
+            source: pool_out.clone(),
+        });
+
+        let mut tx_builder = constant_tx_builder();
+
+        tx_builder.add_collateral(ctx.collateral).unwrap();
+
+        tx_builder.add_reference_input(order.clone().get_ref_script(ctx.ref_scripts.clone()));
+        tx_builder.add_reference_input(pool.get_ref_script(ctx.ref_scripts.clone()));
+
+        tx_builder.add_input(pool_in.clone()).unwrap();
+        tx_builder.add_input(order_in).unwrap();
+
+        tx_builder.set_exunits(
+            RedeemerWitnessKey::new(RedeemerTag::Spend, 0),
+            POOL_EXECUTION_UNITS,
+        );
+
+        tx_builder.set_exunits(
+            RedeemerWitnessKey::new(RedeemerTag::Spend, 1),
+            ORDER_EXECUTION_UNITS,
+        );
+
+        tx_builder
+            .add_output(SingleOutputBuilderResult::new(pool_out))
+            .unwrap();
+        tx_builder
+            .add_output(SingleOutputBuilderResult::new(user_out.into_ledger(())))
+            .unwrap();
+
+        let tx = tx_builder
+            .build(ChangeSelectionAlgo::Default, &ctx.operator_addr)
+            .unwrap();
+
+        Ok((tx, predicted_pool))
     }
 }

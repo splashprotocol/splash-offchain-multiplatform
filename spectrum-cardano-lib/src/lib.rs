@@ -32,6 +32,12 @@ impl AssetName {
     }
 }
 
+impl Display for AssetName {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(format!("{}", std::str::from_utf8(&self.1).unwrap()).as_str())
+    }
+}
+
 impl From<AssetName> for cml_chain::assets::AssetName {
     fn from(AssetName(orig_len, raw_name): AssetName) -> Self {
         cml_chain::assets::AssetName {
