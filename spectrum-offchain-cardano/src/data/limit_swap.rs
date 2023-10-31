@@ -17,6 +17,8 @@ use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::constants::{MIN_SAFE_ADA_DEPOSIT, ORDER_APPLY_RAW_REDEEMER, ORDER_REFUND_RAW_REDEEMER};
 use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
+use crate::data::pool::CFMMPoolAction;
+use crate::data::pool::CFMMPoolAction::Swap;
 use crate::data::{ExecutorFeePerToken, OnChainOrderId, PoolId};
 
 #[derive(Debug, Clone)]
@@ -43,6 +45,12 @@ impl RequiresRedeemer<ClassicalOrderAction> for ClassicalOnChainLimitSwap {
                 PlutusData::from_bytes(hex::decode(ORDER_REFUND_RAW_REDEEMER).unwrap()).unwrap()
             }
         }
+    }
+}
+
+impl Into<CFMMPoolAction> for ClassicalOnChainLimitSwap {
+    fn into(self) -> CFMMPoolAction {
+        Swap
     }
 }
 

@@ -382,7 +382,11 @@ where
         + Clone
         + RequiresRefScript,
     <Pool as ApplyOrder<Order>>::OrderApplicationResult: IntoLedger<TransactionOutput, ()>,
-    Order: Has<OnChainOrderId> + RequiresRedeemer<ClassicalOrderAction> + RequiresRefScript + Clone,
+    Order: Has<OnChainOrderId>
+        + RequiresRedeemer<ClassicalOrderAction>
+        + RequiresRefScript
+        + Clone
+        + Into<CFMMPoolAction>,
 {
     fn try_run(
         self,
@@ -410,7 +414,7 @@ where
                     .into());
             }
         };
-        let pool_redeemer = Pool::redeemer(CFMMPoolAction::Deposit);
+        let pool_redeemer = Pool::redeemer(order.clone().into());
         let pool_script = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(pool_out_in.script_hash().unwrap()),
             pool_redeemer,
@@ -420,7 +424,7 @@ where
         let pool_in = SingleInputBuilder::new(pool_ref.into(), pool_out_in)
             .plutus_script(pool_script, Vec::new(), pool_datum)
             .unwrap();
-        let order_redeemer = ClassicalOnChainDeposit::redeemer(ClassicalOrderAction::Apply);
+        let order_redeemer = Order::redeemer(ClassicalOrderAction::Apply);
         let order_script = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(order_out_in.script_hash().unwrap()),
             order_redeemer,
