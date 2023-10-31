@@ -1,0 +1,39 @@
+[package]
+name = "ergo-chain-sync"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.67.1"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+futures = "0.3.25"
+isahc = { version = "1.7.2", features = ["json"] }
+serde = { version = "1.0.147", features = ["derive"] }
+serde_json = "1.0.88"
+#ergo-lib = { version = "0.23", features = ["json"] }
+ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust", rev = "799107269fa43549b08f6ddb04ed412daec1c5d7" }
+async-trait = "0.1.58"
+base16 = "0.2.1"
+pin-project = "1.0.12"
+log = "0.4.17"
+deadpool-redis = { version = "0.11.0", features = [ "rt_async-std_1" ] }
+redis = { version = "0.22", default-features = false }
+# Fast string concatenation (benchmarks: https://github.com/hoodie/concatenation_benchmarks-rs)
+concat-string = "1.0.1"
+chrono = "0.4.23"
+rocksdb = "0.21.*"
+tokio = { version = "1.22.0", features = ["full"] }
+bincode = "1.3"
+futures-timer = "3.0.2"
+derive_more = "0.99.17"
+async-std = {version = "1.12.0", features = ["attributes"] }
+async-stream = "0.3.3"
+thiserror = "1"
+
+[dev-dependencies]
+async-std = {version = "1.12.0", features = ["attributes"] }
+#ergo-lib = { version = "0.23", features = ["json", "arbitrary"] }
+ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust", rev = "799107269fa43549b08f6ddb04ed412daec1c5d7", features = ["json", "arbitrary"] }
+sigma-test-util = { git = "https://github.com/ergoplatform/sigma-rust", rev = "799107269fa43549b08f6ddb04ed412daec1c5d7" }
+rand = "0.8.5"

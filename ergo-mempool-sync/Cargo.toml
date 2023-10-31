@@ -1,0 +1,25 @@
+[package]
+name = "ergo-mempool-sync"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.67.1"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+futures = "0.3.25"
+tokio = { version = "1.22.0", features = ["full"] }
+isahc = { version = "1.7.2", features = ["json"] }
+serde = { version = "1.0.147", features = ["derive"] }
+serde_json = "1.0.88"
+#ergo-lib = { version = "0.23", features = ["json"] }
+ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust", rev = "799107269fa43549b08f6ddb04ed412daec1c5d7", features = ["json"] }
+ergo-chain-sync = {  version = "1.0", path = "../ergo-chain-sync" }
+async-trait = "0.1.58"
+async-stream = "0.3.3"
+base16 = "0.2.1"
+pin-project = "1.0.12"
+log = "0.4.17"
+wasm-timer = "0.2.5"
+thiserror = "1"
+derive_more = "0.99.17"

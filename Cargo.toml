@@ -7,7 +7,9 @@ members = [
     "spectrum-offchain-cardano",
     "spectrum-cardano-lib",
     "cardano-explorer",
-    "coinshark-cardano"
+    "coinshark-cardano",
+    "ergo-chain-sync",
+    "ergo-mempool-sync"
     #"spectrum-offchain-amm",
 ]
 
