@@ -158,7 +158,7 @@ mod tests {
         "d8799fd8799f581cbb461a9afa6e60962c72d520b476f60f5b24554614531ef1fe34236853436f726e75636f706961735f4144415f4e4654ffd8799f4040ffd8799f581cb6a7467ea1deb012808ef4e87b5ff371e85f7142d7b356a40d9b42a0581e436f726e75636f70696173205b76696120436861696e506f72742e696f5dffd8799f581ce6cdb6e0e98a136df23bbea57ab39417c82302947779be2d9acedf0a52436f726e75636f706961735f4144415f4c51ff1a0016e360581cf197ea0891ce786a9a41b59255bf0efa6c2fb47d0d0babdfed7a294cd8799f581c0a391e83011b5bcfdc7435e9b50fbff6a8bdeb9e7ad8706f7b2673dbffff";
 
     #[tokio::test]
-    async fn run_valid_deposit_against_pool() {
+    async fn run_valid_redeem_against_pool() {
         let redeem_ref = OutputRef::from((TransactionHash::from([0u8; 32]), 0));
         let pool_ref = OutputRef::from((TransactionHash::from([1u8; 32]), 0));
         let redeem_box =

@@ -70,9 +70,9 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainDepo
         let deposit = Deposit {
             pool_nft: PoolId::try_from(conf.pool_nft).ok()?,
             token_x: conf.token_x,
-            token_x_amount: token_x_amount,
+            token_x_amount,
             token_y: conf.token_y,
-            token_y_amount: token_y_amount,
+            token_y_amount,
             token_lq: conf.token_lq,
             ex_fee: conf.ex_fee,
             reward_pkh: conf.reward_pkh,

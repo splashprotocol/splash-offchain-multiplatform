@@ -30,8 +30,8 @@ use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 use crate::constants::{
-    CFMM_LP_FEE_DEN, MAX_LQ_CAP, POOL_DEPOSIT_REDEEMER, POOL_DESTROY_REDEEMER, POOL_REDEEM_REDEEMER,
-    POOL_SWAP_REDEEMER,
+    CFMM_LP_FEE_DEN, MAX_LQ_CAP, ORDER_EXECUTION_UNITS, POOL_DEPOSIT_REDEEMER, POOL_DESTROY_REDEEMER,
+    POOL_EXECUTION_UNITS, POOL_REDEEM_REDEEMER, POOL_SWAP_REDEEMER,
 };
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::execution_context::ExecutionContext;
@@ -491,12 +491,12 @@ where
 
         tx_builder.set_exunits(
             RedeemerWitnessKey::new(RedeemerTag::Spend, 0),
-            ExUnits::new(530000, 165000000),
+            POOL_EXECUTION_UNITS,
         );
 
         tx_builder.set_exunits(
             RedeemerWitnessKey::new(RedeemerTag::Spend, 1),
-            ExUnits::new(270000, 140000000),
+            ORDER_EXECUTION_UNITS,
         );
 
         tx_builder
