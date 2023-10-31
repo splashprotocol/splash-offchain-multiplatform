@@ -51,7 +51,6 @@ use crate::event_sink::handlers::pool::{ConfirmedUpdateHandler, UnconfirmedUpdat
 use crate::prover::operator::OperatorProver;
 use crate::tx_submission::{tx_submission_agent_stream, TxRejected, TxSubmissionAgent};
 
-mod cardano;
 mod collaterals;
 mod config;
 mod constants;

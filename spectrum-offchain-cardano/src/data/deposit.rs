@@ -1,5 +1,5 @@
 use cml_chain::plutus::PlutusData;
-use cml_core::serialization::{FromBytes, Serialize};
+use cml_core::serialization::FromBytes;
 use cml_crypto::Ed25519KeyHash;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
@@ -167,7 +167,7 @@ mod tests {
 
         let private_key_bech32 = Bip32PrivateKey::generate_ed25519_bip32().to_bech32();
 
-        let (operator_sk, operator_pkh, operator_addr) =
+        let (_, operator_pkh, operator_addr) =
             operator_creds(private_key_bech32.as_str(), NetworkInfo::mainnet());
 
         let test_address = EnterpriseAddress::new(

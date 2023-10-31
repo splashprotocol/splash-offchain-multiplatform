@@ -12,13 +12,11 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
-use spectrum_offchain::data::{Has, UniqueOrder};
-use spectrum_offchain::executor::RunOrder;
-use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
+use spectrum_offchain::data::UniqueOrder;
+use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::constants::{MIN_SAFE_ADA_DEPOSIT, ORDER_APPLY_RAW_REDEEMER, ORDER_REFUND_RAW_REDEEMER};
 use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
-use crate::data::pool::ApplySwap;
 use crate::data::{ExecutorFeePerToken, OnChainOrderId, PoolId};
 
 #[derive(Debug, Clone)]
@@ -184,7 +182,7 @@ mod tests {
 
         let private_key_bech32 = Bip32PrivateKey::generate_ed25519_bip32().to_bech32();
 
-        let (operator_sk, operator_pkh, operator_addr) =
+        let (_, operator_pkh, operator_addr) =
             operator_creds(private_key_bech32.as_str(), NetworkInfo::mainnet());
 
         let test_address = EnterpriseAddress::new(
