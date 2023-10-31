@@ -30,14 +30,15 @@ use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 use crate::constants::{
-    CFMM_LP_FEE_DEN, MAX_LQ_CAP, POOL_DEPOSIT_REDEEMER, POOL_DESTROY_REDEEMER, POOL_REDEEM_REDEEMER,
-    POOL_SWAP_REDEEMER,
+    CFMM_LP_FEE_DEN, MAX_LQ_CAP, ORDER_EXECUTION_UNITS, POOL_DEPOSIT_REDEEMER, POOL_DESTROY_REDEEMER,
+    POOL_EXECUTION_UNITS, POOL_REDEEM_REDEEMER, POOL_SWAP_REDEEMER,
 };
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::execution_context::ExecutionContext;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
-use crate::data::operation_output::{DepositOutput, SwapOutput};
+use crate::data::operation_output::{DepositOutput, RedeemOutput, SwapOutput};
 use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
+use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::ref_scripts::RequiresRefScript;
 use crate::data::{OnChain, OnChainOrderId, PoolId, PoolStateVer, PoolVer};
 
@@ -136,6 +137,18 @@ impl CFMMPool {
             TaggedAmount::tag(unlocked_lq),
             TaggedAmount::tag(change_by_x),
             TaggedAmount::tag(change_by_y),
+        )
+    }
+
+    pub fn shares_amount(self, burned_lq: TaggedAmount<Lq>) -> (TaggedAmount<Rx>, TaggedAmount<Ry>) {
+        let x_amount = (burned_lq.untag() as u128) * (self.reserves_x.untag() as u128)
+            / (self.liquidity.untag() as u128);
+        let y_amount = (burned_lq.untag() as u128) * (self.reserves_y.untag() as u128)
+            / (self.liquidity.untag() as u128);
+
+        (
+            TaggedAmount::tag(x_amount as u64),
+            TaggedAmount::tag(y_amount as u64),
         )
     }
 }
@@ -372,6 +385,33 @@ impl ApplyOrder<ClassicalOnChainDeposit> for CFMMPool {
     }
 }
 
+impl ApplyOrder<ClassicalOnChainRedeem> for CFMMPool {
+    type OrderApplicationResult = RedeemOutput;
+
+    fn apply_order(
+        mut self,
+        ClassicalOrder { order, .. }: ClassicalOnChainRedeem,
+    ) -> Result<(Self, RedeemOutput), Slippage<ClassicalOnChainRedeem>> {
+        let (x_amount, y_amount) = self.clone().shares_amount(order.token_lq_amount);
+
+        self.reserves_x = self.reserves_x - x_amount;
+        self.reserves_y = self.reserves_y - y_amount;
+        self.liquidity = self.liquidity + order.token_lq_amount;
+
+        let redeem_output = RedeemOutput {
+            token_x_asset: order.token_x,
+            token_x_amount: x_amount,
+            token_y_asset: order.token_y,
+            token_y_amount: y_amount,
+            ada_residue: order.collateral_ada,
+            redeemer_pkh: order.reward_pkh,
+            redeemer_stake_pkh: order.reward_stake_pkh,
+        };
+
+        Ok((self, redeem_output))
+    }
+}
+
 impl<'a, Order, Pool> RunOrder<OnChain<Order>, ExecutionContext, SignedTxBuilder> for OnChain<Pool>
 where
     Pool: ApplyOrder<Order>
@@ -451,12 +491,12 @@ where
 
         tx_builder.set_exunits(
             RedeemerWitnessKey::new(RedeemerTag::Spend, 0),
-            ExUnits::new(530000, 165000000),
+            POOL_EXECUTION_UNITS,
         );
 
         tx_builder.set_exunits(
             RedeemerWitnessKey::new(RedeemerTag::Spend, 1),
-            ExUnits::new(270000, 140000000),
+            ORDER_EXECUTION_UNITS,
         );
 
         tx_builder
