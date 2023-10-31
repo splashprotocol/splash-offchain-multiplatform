@@ -61,17 +61,6 @@ impl UniqueOrder for ClassicalOnChainDeposit {
     }
 }
 
-struct OnChainDepositConfig {
-    pool_nft: TaggedAssetClass<PoolNft>,
-    token_x: TaggedAssetClass<Rx>,
-    token_y: TaggedAssetClass<Ry>,
-    token_lq: TaggedAssetClass<Lq>,
-    ex_fee: u64,
-    reward_pkh: Ed25519KeyHash,
-    reward_stake_pkh: Option<Ed25519KeyHash>,
-    collateral_ada: u64,
-}
-
 impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainDeposit {
     fn try_from_ledger(repr: BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
         let value = repr.value().clone();
@@ -97,6 +86,17 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainDepo
             order: deposit,
         })
     }
+}
+
+struct OnChainDepositConfig {
+    pool_nft: TaggedAssetClass<PoolNft>,
+    token_x: TaggedAssetClass<Rx>,
+    token_y: TaggedAssetClass<Ry>,
+    token_lq: TaggedAssetClass<Lq>,
+    ex_fee: u64,
+    reward_pkh: Ed25519KeyHash,
+    reward_stake_pkh: Option<Ed25519KeyHash>,
+    collateral_ada: u64,
 }
 
 impl TryFromPData for OnChainDepositConfig {

@@ -304,6 +304,8 @@ pub trait ApplySwap<Swap>: Sized {
 }
 
 impl ApplyOrder<ClassicalOnChainLimitSwap> for CFMMPool {
+    type OrderApplicationResult = SwapOutput;
+
     fn apply_order(
         mut self,
         ClassicalOrder { id, pool_id, order }: ClassicalOnChainLimitSwap,
@@ -384,17 +386,19 @@ impl ApplyOrder<ClassicalOnChainDeposit> for CFMMPool {
 }
 
 impl ApplyOrder<ClassicalOnChainRedeem> for CFMMPool {
+    type OrderApplicationResult = RedeemOutput;
+
     fn apply_order(
         mut self,
-        ClassicalOrder { id, pool_id, order }: ClassicalOnChainRedeem,
-    ) -> Result<(Self, TransactionOutput), Slippage<ClassicalOnChainRedeem>> {
+        ClassicalOrder { order, .. }: ClassicalOnChainRedeem,
+    ) -> Result<(Self, RedeemOutput), Slippage<ClassicalOnChainRedeem>> {
         let (x_amount, y_amount) = self.clone().shares_amount(order.token_lq_amount);
 
         self.reserves_x = self.reserves_x - x_amount;
         self.reserves_y = self.reserves_y - y_amount;
         self.liquidity = self.liquidity + order.token_lq_amount;
 
-        let redeem_output: TransactionOutput = RedeemOutput {
+        let redeem_output = RedeemOutput {
             token_x_asset: order.token_x,
             token_x_amount: x_amount,
             token_y_asset: order.token_y,
@@ -402,8 +406,7 @@ impl ApplyOrder<ClassicalOnChainRedeem> for CFMMPool {
             ada_residue: order.collateral_ada,
             redeemer_pkh: order.reward_pkh,
             redeemer_stake_pkh: order.reward_stake_pkh,
-        }
-        .into_ledger(());
+        };
 
         Ok((self, redeem_output))
     }

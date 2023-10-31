@@ -1,5 +1,5 @@
 use cml_chain::plutus::PlutusData;
-use cml_core::serialization::{FromBytes, Serialize};
+use cml_core::serialization::FromBytes;
 use cml_crypto::Ed25519KeyHash;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
@@ -15,7 +15,8 @@ use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::constants::{ORDER_APPLY_RAW_REDEEMER, ORDER_REFUND_RAW_REDEEMER};
 use crate::data::order::{ClassicalOrder, ClassicalOrderAction, PoolNft};
-use crate::data::pool::{Lq, Rx, Ry};
+use crate::data::pool::CFMMPoolAction::Redeem as RedeemAction;
+use crate::data::pool::{CFMMPoolAction, Lq, Rx, Ry};
 use crate::data::{OnChainOrderId, PoolId};
 
 #[derive(Debug, Clone)]
@@ -43,6 +44,12 @@ impl RequiresRedeemer<ClassicalOrderAction> for ClassicalOnChainRedeem {
                 PlutusData::from_bytes(hex::decode(ORDER_REFUND_RAW_REDEEMER).unwrap()).unwrap()
             }
         }
+    }
+}
+
+impl Into<CFMMPoolAction> for ClassicalOnChainRedeem {
+    fn into(self) -> CFMMPoolAction {
+        RedeemAction
     }
 }
 
