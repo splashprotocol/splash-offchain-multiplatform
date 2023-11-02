@@ -33,13 +33,15 @@ where
                 true
             };
             if is_active {
-                if let Some(upgr) = client.try_pull_next().await {
-                    yield upgr;
+                if let Some(upgrs) = client.try_pull_next_txs().await {
+                    for upgr in upgrs {
+                        yield upgr;
+                    }
                 } else {
-                    *delay_mux.lock().await = Some(Delay::new(Duration::from_secs(THROTTLE_AWAIT_MILLIS)));
+                    *delay_mux.lock().await = Some(Delay::new(Duration::from_millis(THROTTLE_AWAIT_MILLIS)));
                 }
             } else {
-                *delay_mux.lock().await = Some(Delay::new(Duration::from_secs(THROTTLE_IDLE_MILLIS)));
+                *delay_mux.lock().await = Some(Delay::new(Duration::from_millis(THROTTLE_IDLE_MILLIS)));
             }
         }
     }

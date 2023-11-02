@@ -46,6 +46,30 @@ impl<Tx> LocalTxMonitorClient<Tx> {
         })
     }
 
+    // will return all txs in current mempool snapshot
+    pub async fn try_pull_next_txs(&mut self) -> Option<Vec<MempoolUpdate<Tx>>>
+    where
+        Tx: Deserialize,
+    {
+        if let Ok(_) = self.tx_monitor.acquire().await {
+            let mut tx_buffer = Vec::new();
+            if let Ok(mempool_capacity) = self.tx_monitor.query_size_and_capacity().await {
+                for i in 1..mempool_capacity.number_of_txs {
+                    if let Ok(Some(raw_tx)) = self.tx_monitor.query_next_tx().await {
+                        Tx::from_cbor_bytes(&*raw_tx.1)
+                            .ok()
+                            .map(MempoolUpdate::TxAccepted)
+                            .map(|tx| tx_buffer.push(tx));
+                        ()
+                    }
+                }
+            }
+            Some(tx_buffer)
+        } else {
+            None
+        }
+    }
+
     pub async fn try_pull_next(&mut self) -> Option<MempoolUpdate<Tx>>
     where
         Tx: Deserialize,
