@@ -102,7 +102,7 @@ where
         ev: LedgerTxEvent<BabbageTransaction>,
     ) -> Option<LedgerTxEvent<BabbageTransaction>> {
         let res = match ev {
-            LedgerTxEvent::TxApplied(tx) => {
+            LedgerTxEvent::TxApplied {tx, slot} => {
                 let transitions = extract_transitions(Arc::clone(&self.entities), tx.clone()).await;
                 let num_transitions = transitions.len();
                 let is_success = num_transitions > 0;
@@ -116,7 +116,7 @@ where
                     trace!(target: "offchain_lm", "[{}] entities parsed from applied tx", num_transitions);
                     None
                 } else {
-                    Some(LedgerTxEvent::TxApplied(tx))
+                    Some(LedgerTxEvent::TxApplied {tx, slot})
                 }
             }
             LedgerTxEvent::TxUnapplied(tx) => {

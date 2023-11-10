@@ -127,8 +127,18 @@ where
         ev: LedgerTxEvent<BabbageTransaction>,
     ) -> Option<LedgerTxEvent<BabbageTransaction>> {
         let res = match ev {
-            LedgerTxEvent::TxApplied(tx) => self.handle_applied_tx(tx, LedgerTxEvent::TxApplied).await,
-            LedgerTxEvent::TxUnapplied(tx) => self.handle_unapplied_tx(tx).await,
+            LedgerTxEvent::TxApplied {tx, slot} => {
+                let on_failure =
+                    | slot: u64 | move |tx: BabbageTransaction | {
+                        return LedgerTxEvent::TxApplied {
+                            tx,
+                            slot
+                        }
+                };
+                self.handle_applied_tx(tx.clone(), on_failure(slot)).await
+            },
+            LedgerTxEvent::TxUnapplied(tx) =>
+                self.handle_unapplied_tx(tx).await,
         };
         let _ = self.topic.flush().await;
         res
