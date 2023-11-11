@@ -1,13 +1,14 @@
 use std::marker::PhantomData;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use async_stream::stream;
 use cml_core::serialization::Deserialize;
 use futures::Stream;
-use pallas_network::miniprotocols::{handshake, PROTOCOL_N2C_HANDSHAKE, txmonitor};
+use pallas_network::miniprotocols::{handshake, txmonitor, PROTOCOL_N2C_HANDSHAKE};
 use pallas_network::multiplexer;
 use pallas_network::multiplexer::Bearer;
+use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
 use crate::data::MempoolUpdate;
@@ -55,12 +56,12 @@ impl<Tx> LocalTxMonitorClient<Tx> {
     {
         stream! {
             loop {
-                if let Ok(_) = { self.tx_monitor.lock().unwrap() }.acquire().await {
+                let mut tx_monitor = self.tx_monitor.lock().await;
+                if let Ok(_) = tx_monitor.acquire().await {
                     loop {
-                        if let Ok(Some(raw_tx)) = { self.tx_monitor.lock().unwrap() }.query_next_tx().await {
-                            if let Ok(tx) = Tx::from_cbor_bytes(&*raw_tx.1)
-                                .map(MempoolUpdate::TxAccepted) {
-                                yield tx;
+                        if let Ok(Some(raw_tx)) = tx_monitor.query_next_tx().await {
+                            if let Ok(tx) = Tx::from_cbor_bytes(&*raw_tx.1) {
+                                yield MempoolUpdate::TxAccepted(tx);
                             }
                         } else {
                             break;
