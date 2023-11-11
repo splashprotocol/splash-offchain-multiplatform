@@ -1,10 +1,9 @@
 use std::sync::Once;
 use std::time::Duration;
 
-use async_stream::stream;
+use async_std::stream;
 use cml_core::serialization::Deserialize;
-use futures::lock::Mutex;
-use futures::Stream;
+use futures::{Stream, StreamExt};
 use futures_timer::Delay;
 
 use crate::client::LocalTxMonitorClient;
@@ -14,36 +13,31 @@ pub mod client;
 pub mod data;
 
 pub fn mempool_stream<'a, Tx>(
-    mut client: LocalTxMonitorClient<Tx>,
+    client: &'a LocalTxMonitorClient<Tx>,
     tip_reached_signal: Option<&'a Once>,
 ) -> impl Stream<Item = MempoolUpdate<Tx>> + 'a
 where
     Tx: Deserialize + 'a,
 {
-    let delay_mux: Mutex<Option<Delay>> = Mutex::new(None);
-    stream! {
+    let wait_chain_sync = async move {
+        let mut delay_mux: Option<Delay> = None;
         loop {
-            let delay = {delay_mux.lock().await.take()};
-            if let Some(delay) = delay {
+            if let Some(delay) = delay_mux.take() {
                 delay.await;
             }
-            let is_active = if let Some(sig) = tip_reached_signal {
+            let done = if let Some(sig) = tip_reached_signal {
                 sig.is_completed()
             } else {
                 true
             };
-            if is_active {
-                if let Some(upgr) = client.try_pull_next().await {
-                    yield upgr;
-                } else {
-                    *delay_mux.lock().await = Some(Delay::new(Duration::from_secs(THROTTLE_AWAIT_MILLIS)));
-                }
+            if done {
+                break;
             } else {
-                *delay_mux.lock().await = Some(Delay::new(Duration::from_secs(THROTTLE_IDLE_MILLIS)));
+                delay_mux = Some(Delay::new(Duration::from_secs(THROTTLE_IDLE_MILLIS)));
             }
         }
-    }
+    };
+    stream::once(wait_chain_sync).flat_map(move |_| client.stream_updates())
 }
 
-const THROTTLE_AWAIT_MILLIS: u64 = 100;
 const THROTTLE_IDLE_MILLIS: u64 = 1000;

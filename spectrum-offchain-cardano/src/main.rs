@@ -99,12 +99,12 @@ async fn main() {
 
     // prepare upstreams
     let tx_submission_stream = tx_submission_agent_stream(tx_submission_agent);
-    let signal_tip_reached: Once = Once::new();
+    let signal_tip_reached = Once::new();
     let ledger_stream = Box::pin(event_source_ledger(chain_sync_stream(
         chain_sync,
         Some(&signal_tip_reached),
     )));
-    let mempool_stream = mempool_stream(mempool_sync, Some(&signal_tip_reached));
+    let mempool_stream = mempool_stream(&mempool_sync, Some(&signal_tip_reached));
 
     let (operator_sk, operator_pkh, operator_addr) =
         operator_creds(config.batcher_private_key, NetworkInfo::mainnet());
