@@ -1,17 +1,21 @@
 use std::marker::PhantomData;
 use std::path::Path;
+use std::sync::Arc;
 
+use async_stream::stream;
 use cml_core::serialization::Deserialize;
+use futures::Stream;
 use pallas_network::miniprotocols::{handshake, txmonitor, PROTOCOL_N2C_HANDSHAKE};
 use pallas_network::multiplexer;
 use pallas_network::multiplexer::Bearer;
+use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
 use crate::data::MempoolUpdate;
 
 pub struct LocalTxMonitorClient<Tx> {
     mplex_handle: JoinHandle<Result<(), multiplexer::Error>>,
-    tx_monitor: txmonitor::Client,
+    tx_monitor: Arc<Mutex<txmonitor::Client>>,
     tx: PhantomData<Tx>,
 }
 
@@ -41,21 +45,30 @@ impl<Tx> LocalTxMonitorClient<Tx> {
 
         Ok(Self {
             mplex_handle,
-            tx_monitor: txmonitor::Client::new(tm_channel),
+            tx_monitor: Arc::new(Mutex::new(txmonitor::Client::new(tm_channel))),
             tx: PhantomData::default(),
         })
     }
 
-    pub async fn try_pull_next(&mut self) -> Option<MempoolUpdate<Tx>>
+    pub fn stream_updates<'a>(&'a self) -> impl Stream<Item = MempoolUpdate<Tx>> + 'a
     where
         Tx: Deserialize,
     {
-        if let Ok(maybe_tx) = self.tx_monitor.query_next_tx().await {
-            maybe_tx
-                .and_then(|raw_tx| Tx::from_cbor_bytes(&*raw_tx.1).ok())
-                .map(MempoolUpdate::TxAccepted)
-        } else {
-            None
+        stream! {
+            loop {
+                let mut tx_monitor = self.tx_monitor.lock().await;
+                if let Ok(_) = tx_monitor.acquire().await {
+                    loop {
+                        if let Ok(Some(raw_tx)) = tx_monitor.query_next_tx().await {
+                            if let Ok(tx) = Tx::from_cbor_bytes(&*raw_tx.1) {
+                                yield MempoolUpdate::TxAccepted(tx);
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
         }
     }
 
