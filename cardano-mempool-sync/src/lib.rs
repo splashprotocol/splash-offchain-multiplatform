@@ -33,7 +33,7 @@ where
             if done {
                 break;
             } else {
-                delay_mux = Some(Delay::new(Duration::from_secs(THROTTLE_IDLE_MILLIS)));
+                delay_mux = Some(Delay::new(Duration::from_millis(THROTTLE_IDLE_MILLIS)));
             }
         }
     };
