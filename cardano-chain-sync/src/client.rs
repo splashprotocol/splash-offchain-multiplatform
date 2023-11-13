@@ -2,9 +2,9 @@ use std::marker::PhantomData;
 use std::path::Path;
 
 use cml_core::serialization::Deserialize;
-use pallas_network::miniprotocols::chainsync::{BlockContent, NextResponse};
-use pallas_network::miniprotocols::handshake::RefuseReason;
 use pallas_network::miniprotocols::{chainsync, handshake, PROTOCOL_N2C_CHAIN_SYNC, PROTOCOL_N2C_HANDSHAKE};
+use pallas_network::miniprotocols::chainsync::{BlockContent, NextResponse, State};
+use pallas_network::miniprotocols::handshake::RefuseReason;
 use pallas_network::multiplexer;
 use pallas_network::multiplexer::Bearer;
 use tokio::task::JoinHandle;
@@ -62,7 +62,11 @@ impl<Block> ChainSyncClient<Block> {
     where
         Block: Deserialize,
     {
-        match self.chain_sync.request_next().await {
+        let response = match self.chain_sync.state() {
+            State::MustReply => self.chain_sync.recv_while_can_await().await,
+            _ => self.chain_sync.request_next().await,
+        };
+        match response {
             Ok(NextResponse::RollForward(BlockContent(raw), _)) => {
                 let blk = Block::from_cbor_bytes(&raw[BLK_START..]).expect("Block deserialization failed");
                 Some(ChainUpgrade::RollForward(blk))
