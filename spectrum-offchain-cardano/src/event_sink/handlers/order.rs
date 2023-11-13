@@ -9,13 +9,13 @@ use tokio::sync::Mutex;
 
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_mempool_sync::data::MempoolUpdate;
+use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::order::{OrderLink, OrderUpdate};
 use spectrum_offchain::data::SpecializedOrder;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 
-use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use crate::event_sink::handlers::order::registry::HotOrderRegistry;
 
 pub mod registry;
@@ -128,14 +128,10 @@ where
     ) -> Option<LedgerTxEvent<BabbageTransaction>> {
         let res = match ev {
             LedgerTxEvent::TxApplied {tx, slot} => {
-                let on_failure =
-                    | slot: u64 | move |tx: BabbageTransaction | {
-                        return LedgerTxEvent::TxApplied {
-                            tx,
-                            slot
-                        }
-                };
-                self.handle_applied_tx(tx.clone(), on_failure(slot)).await
+                self.handle_applied_tx(tx.clone(), |tx| LedgerTxEvent::TxApplied {
+                    tx,
+                    slot
+                }).await
             },
             LedgerTxEvent::TxUnapplied(tx) =>
                 self.handle_unapplied_tx(tx).await,
