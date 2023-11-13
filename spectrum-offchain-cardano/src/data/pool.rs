@@ -459,19 +459,17 @@ where
             PlutusScriptWitness::Ref(pool_out_in.script_hash().unwrap()),
             pool_redeemer,
         );
-        let pool_datum = pool_out_in.datum().unwrap().into_pd().unwrap();
         let immut_pool = ImmutablePoolUtxo::from(&pool_out_in);
         let pool_in = SingleInputBuilder::new(pool_ref.into(), pool_out_in)
-            .plutus_script(pool_script, Vec::new(), pool_datum)
+            .plutus_script_inline_datum(pool_script, Vec::new())
             .unwrap();
         let order_redeemer = Order::redeemer(ClassicalOrderAction::Apply);
         let order_script = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(order_out_in.script_hash().unwrap()),
             order_redeemer,
         );
-        let order_datum = order_out_in.datum().unwrap().into_pd().unwrap();
         let order_in = SingleInputBuilder::new(order_ref.into(), order_out_in)
-            .plutus_script(order_script, Vec::new(), order_datum)
+            .plutus_script_inline_datum(order_script, Vec::new())
             .unwrap();
         let pool_out = next_pool.clone().into_ledger(immut_pool);
         let predicted_pool = Predicted(OnChain {
