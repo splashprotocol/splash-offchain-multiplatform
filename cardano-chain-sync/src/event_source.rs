@@ -16,6 +16,7 @@ where
 fn process_upgrade(upgr: ChainUpgrade<BabbageBlock>) -> Vec<LedgerTxEvent<BabbageTransaction>> {
     match upgr {
         ChainUpgrade::RollForward(BabbageBlock {
+            header,
             transaction_bodies,
             transaction_witness_sets,
             mut auxiliary_data_set,
@@ -29,13 +30,16 @@ fn process_upgrade(upgr: ChainUpgrade<BabbageBlock>) -> Vec<LedgerTxEvent<Babbag
                 .enumerate()
                 .map(|(ix, (tb, tw))| {
                     let tx_ix = &(ix as u16);
-                    LedgerTxEvent::TxApplied(BabbageTransaction {
-                        body: tb,
-                        witness_set: tw,
-                        is_valid: invalid_indices.contains(tx_ix),
-                        auxiliary_data: auxiliary_data_set.remove(tx_ix),
-                        encodings: None,
-                    })
+                    LedgerTxEvent::TxApplied {
+                        tx: BabbageTransaction {
+                            body: tb,
+                            witness_set: tw,
+                            is_valid: invalid_indices.contains(tx_ix),
+                            auxiliary_data: auxiliary_data_set.remove(tx_ix),
+                            encodings: None,
+                        },
+                        slot: header.header_body.slot
+                    }
                 })
                 .collect()
         }

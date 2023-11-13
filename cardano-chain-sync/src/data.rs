@@ -8,6 +8,9 @@ pub enum ChainUpgrade<Block> {
 
 #[derive(Clone, Debug)]
 pub enum LedgerTxEvent<Tx> {
-    TxApplied(Tx),
+    TxApplied {
+        tx: Tx,
+        slot: u64
+    },
     TxUnapplied(Tx),
 }
