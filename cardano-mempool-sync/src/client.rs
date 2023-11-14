@@ -7,7 +7,7 @@ use async_stream::stream;
 use cml_core::serialization::Deserialize;
 use cml_crypto::blake2b224;
 use futures::Stream;
-use pallas_network::miniprotocols::{handshake, PROTOCOL_N2C_HANDSHAKE, txmonitor};
+use pallas_network::miniprotocols::{handshake, txmonitor, PROTOCOL_N2C_HANDSHAKE};
 use pallas_network::multiplexer;
 use pallas_network::multiplexer::Bearer;
 use tokio::sync::Mutex;

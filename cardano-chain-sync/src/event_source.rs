@@ -38,7 +38,7 @@ fn process_upgrade(upgr: ChainUpgrade<BabbageBlock>) -> Vec<LedgerTxEvent<Babbag
                             auxiliary_data: auxiliary_data_set.remove(tx_ix),
                             encodings: None,
                         },
-                        slot: header.header_body.slot
+                        slot: header.header_body.slot,
                     }
                 })
                 .collect()
