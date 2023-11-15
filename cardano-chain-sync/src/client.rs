@@ -2,9 +2,9 @@ use std::marker::PhantomData;
 use std::path::Path;
 
 use cml_core::serialization::Deserialize;
-use pallas_network::miniprotocols::{chainsync, handshake, PROTOCOL_N2C_CHAIN_SYNC, PROTOCOL_N2C_HANDSHAKE};
 use pallas_network::miniprotocols::chainsync::{BlockContent, NextResponse, State};
 use pallas_network::miniprotocols::handshake::RefuseReason;
+use pallas_network::miniprotocols::{chainsync, handshake, PROTOCOL_N2C_CHAIN_SYNC, PROTOCOL_N2C_HANDSHAKE};
 use pallas_network::multiplexer;
 use pallas_network::multiplexer::Bearer;
 use tokio::task::JoinHandle;
