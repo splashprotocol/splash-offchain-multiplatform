@@ -36,29 +36,21 @@ use spectrum_offchain::executor::{executor_stream, HotOrderExecutor};
 use spectrum_offchain::network::Network;
 use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::streaming::boxed;
-
-use crate::collaterals::{Collaterals, ExplorerBasedRequestor};
-use crate::config::AppConfig;
-use crate::creds::operator_creds;
-use crate::data::execution_context::ExecutionContext;
-use crate::data::order::ClassicalOnChainOrder;
-use crate::data::pool::CFMMPool;
-use crate::data::ref_scripts::RefScriptsOutputs;
-use crate::data::{OnChain, PoolId};
-use crate::event_sink::handlers::order::registry::EphemeralHotOrderRegistry;
-use crate::event_sink::handlers::order::ClassicalOrderUpdatesHandler;
-use crate::event_sink::handlers::pool::{ConfirmedUpdateHandler, UnconfirmedUpdateHandler};
-use crate::prover::operator::OperatorProver;
-use crate::tx_submission::{tx_submission_agent_stream, TxRejected, TxSubmissionAgent};
-
-mod collaterals;
-mod config;
-mod constants;
-mod creds;
-mod data;
-mod event_sink;
-mod prover;
-mod tx_submission;
+use spectrum_offchain_cardano::collaterals::{Collaterals, ExplorerBasedRequestor};
+use spectrum_offchain_cardano::config::AppConfig;
+use spectrum_offchain_cardano::creds::operator_creds;
+use spectrum_offchain_cardano::data::execution_context::ExecutionContext;
+use spectrum_offchain_cardano::data::order::ClassicalOnChainOrder;
+use spectrum_offchain_cardano::data::pool::CFMMPool;
+use spectrum_offchain_cardano::data::ref_scripts::RefScriptsOutputs;
+use spectrum_offchain_cardano::data::{OnChain, PoolId};
+use spectrum_offchain_cardano::event_sink::handlers::order::registry::EphemeralHotOrderRegistry;
+use spectrum_offchain_cardano::event_sink::handlers::order::ClassicalOrderUpdatesHandler;
+use spectrum_offchain_cardano::event_sink::handlers::pool::{
+    ConfirmedUpdateHandler, UnconfirmedUpdateHandler,
+};
+use spectrum_offchain_cardano::prover::operator::OperatorProver;
+use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxRejected, TxSubmissionAgent};
 
 #[tokio::main]
 async fn main() {

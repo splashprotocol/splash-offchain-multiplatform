@@ -189,7 +189,7 @@ impl<T> TryFromPData for TaggedAssetClass<T> {
 
 #[repr(transparent)]
 #[derive(Derivative)]
-#[derivative(Debug(bound = ""), Copy(bound = ""), Clone(bound = ""))]
+#[derivative(Debug(bound = ""), Copy(bound = ""), Clone(bound = ""), Eq(bound = ""))]
 pub struct TaggedAmount<T>(u64, PhantomData<T>);
 
 impl<T> PartialEq for TaggedAmount<T> {
