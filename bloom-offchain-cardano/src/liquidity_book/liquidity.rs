@@ -1,40 +1,95 @@
-use std::cmp::Ordering;
-
 use spectrum_cardano_lib::TaggedAmount;
+use spectrum_offchain_cardano::data::pool::CFMMPool;
+use spectrum_offchain_cardano::data::OnChain;
 
-use crate::liquidity_book::types::{Base, BatcherFeePerQuote, CFMMPrice, ConstantPrice, InclusionCost, LPFee, Quote, SourceId};
+use crate::liquidity_book::types::{Base, BatcherFeePerQuote, InclusionCost, LPFee, Price, Quote, SourceId};
+use crate::time::TimeBounds;
 
-#[derive(Debug, Copy, Clone)]
-pub enum PoolPrice {
-    /// Price is constant.
-    Const(ConstantPrice),
-    /// Price is a constant function.
-    CFMM(CFMMPrice),
+pub trait LiquidityFragment<T> {
+    fn id(&self) -> SourceId;
+    fn amount(&self) -> TaggedAmount<Base>;
+    fn price(&self) -> Price;
+    fn batcher_fee(&self) -> BatcherFeePerQuote;
+    fn cost_hint(&self) -> InclusionCost;
+    fn time_bounds(&self) -> TimeBounds<T>;
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum TimeBounds<T> {
-    Until(T),
-    After(T),
-    Within(T, T),
-    None,
+pub trait LiquidityPool {
+    fn id(&self) -> SourceId;
+    fn amount_base(&self) -> TaggedAmount<Base>;
+    fn amount_quote(&self) -> TaggedAmount<Quote>;
+    fn price_hint(&self) -> Price;
+    fn cost_hint(&self) -> InclusionCost;
+    fn lp_fee(&self) -> LPFee;
+    fn real_ask_price(&self, amount: TaggedAmount<Base>) -> Price;
+    fn real_bid_price(&self, amount: TaggedAmount<Base>) -> Price;
 }
 
-impl<T> TimeBounds<T> where T: Ord + Copy {
-    pub fn contains(&self, time_slot: &T) -> bool {
-        match self {
-            TimeBounds::Until(t) => time_slot < t,
-            TimeBounds::After(t) => t >= time_slot,
-            TimeBounds::Within(t0, t1) => t0 >= time_slot && time_slot < t1,
-            TimeBounds::None => true,
-        }
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
+pub enum AnyFragment {}
+
+impl<T> LiquidityFragment<T> for AnyFragment {
+    fn id(&self) -> SourceId {
+        todo!()
     }
-    pub fn lower_bound(&self) -> Option<T> {
-        match self {
-            TimeBounds::After(t) => Some(*t),
-            TimeBounds::Within(t0, _) => Some(*t0),
-            TimeBounds::Until(_) | TimeBounds::None => None,
-        }
+
+    fn amount(&self) -> TaggedAmount<Base> {
+        todo!()
+    }
+
+    fn price(&self) -> Price {
+        todo!()
+    }
+
+    fn batcher_fee(&self) -> BatcherFeePerQuote {
+        todo!()
+    }
+
+    fn cost_hint(&self) -> InclusionCost {
+        todo!()
+    }
+
+    fn time_bounds(&self) -> TimeBounds<T> {
+        todo!()
+    }
+}
+
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+pub enum AnyPool {
+    CFMM(OnChain<CFMMPool>),
+}
+
+impl LiquidityPool for AnyPool {
+    fn id(&self) -> SourceId {
+        todo!()
+    }
+
+    fn amount_base(&self) -> TaggedAmount<Base> {
+        todo!()
+    }
+
+    fn amount_quote(&self) -> TaggedAmount<Quote> {
+        todo!()
+    }
+
+    fn price_hint(&self) -> Price {
+        todo!()
+    }
+
+    fn cost_hint(&self) -> InclusionCost {
+        todo!()
+    }
+
+    fn lp_fee(&self) -> LPFee {
+        todo!()
+    }
+
+    fn real_ask_price(&self, amount: TaggedAmount<Base>) -> Price {
+        todo!()
+    }
+
+    fn real_bid_price(&self, amount: TaggedAmount<Base>) -> Price {
+        todo!()
     }
 }
 
@@ -51,41 +106,4 @@ impl<T> OneSideLiquidity<T> {
             OneSideLiquidity::Ask(t) => t,
         }
     }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct LiquidityFragment<T> {
-    pub id: SourceId,
-    pub amount: TaggedAmount<Base>,
-    pub price: ConstantPrice,
-    pub fee: BatcherFeePerQuote,
-    pub cost: InclusionCost,
-    pub bounds: TimeBounds<T>,
-}
-
-impl<T: Eq> PartialOrd for LiquidityFragment<T> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        todo!()
-    }
-}
-
-impl<T: Eq> Ord for LiquidityFragment<T> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        todo!()
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum PooledLiquidity {
-    CFMMPool(CFMMPool)
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct CFMMPool {
-    id: SourceId,
-    reserves_base: TaggedAmount<Base>,
-    reserves_quote: TaggedAmount<Quote>,
-    price: CFMMPrice,
-    lp_fee: LPFee,
-    cost_hint: InclusionCost,
 }

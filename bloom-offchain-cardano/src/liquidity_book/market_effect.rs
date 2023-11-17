@@ -1,10 +1,10 @@
-use crate::liquidity_book::liquidity::{LiquidityFragment, PooledLiquidity};
+use crate::liquidity_book::liquidity::{AnyFragment, AnyPool, OneSideLiquidity};
 use crate::liquidity_book::types::SourceId;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub enum MarketEffect<T> {
     ClocksAdvanced(T),
-    FragmentAdded(LiquidityFragment<T>),
-    PoolUpdated(PooledLiquidity),
-    SourceRemoved(SourceId),
+    FragmentAdded(OneSideLiquidity<AnyFragment<T>>),
+    FragmentRemoved(SourceId),
+    PoolUpdated(AnyPool),
 }

@@ -9,6 +9,6 @@ mod types;
 
 /// Aggregates composable liquidity.
 pub trait LiquidityBook<Eff> {
-    fn apply_effect(&mut self, effects: Vec<Eff>);
+    fn apply_effect(&mut self, eff: Eff);
     fn pull_candidates(&self) -> Option<MatchCandidates>;
 }
