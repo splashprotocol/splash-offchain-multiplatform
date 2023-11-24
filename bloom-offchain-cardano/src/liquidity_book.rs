@@ -1,14 +1,17 @@
-use crate::liquidity_book::match_candidates::MatchCandidates;
+use crate::liquidity_book::fragment::Fragment;
+use crate::liquidity_book::pool::Pool;
+use crate::liquidity_book::recipe::ExecutionRecipe;
 
-mod execution_recipe;
-mod liquidity;
-mod market_effect;
-mod match_candidates;
-mod temporal_liquidity_book;
+mod effect;
+mod fragment;
+mod pool;
+mod recipe;
+mod side;
+mod temporal;
 mod types;
 
 /// Aggregates composable liquidity.
-pub trait LiquidityBook<Eff> {
-    fn apply_effect(&mut self, eff: Eff);
-    fn pull_candidates(&self) -> Option<MatchCandidates>;
+pub trait LiquidityBook<T, Eff> {
+    fn apply(&mut self, effect: Eff);
+    fn attempt(&mut self) -> Option<ExecutionRecipe<Fragment<T>, Pool>>;
 }

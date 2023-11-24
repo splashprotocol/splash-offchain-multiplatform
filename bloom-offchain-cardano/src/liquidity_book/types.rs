@@ -1,31 +1,23 @@
 use num_rational::Ratio;
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct Base;
-
-#[derive(Debug, Copy, Clone)]
-pub struct Quote;
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct InclusionCost(u32);
-
-pub type Price = Ratio<u64>;
-
-pub type BatcherFeePerQuote = Ratio<u64>;
-
-pub type LPFee = Ratio<u64>;
+use crate::liquidity_book::side::Side;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct SourceId([u8; 32]);
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum Side {
-    Bid,
-    Ask
-}
+pub type ExecutionCost = u32;
 
-impl Side {
-    pub fn overlaps(&self, this: Price, that: Price) -> bool {
-        if matches!(self, Side::Ask) { this <= that } else { this >= that }
+pub type Price = Ratio<u64>;
+
+impl Side<Price> {
+    pub fn overlaps(self, that: Price) -> bool {
+        match self {
+            Side::Bid(this) => this >= that,
+            Side::Ask(this) => this <= that,
+        }
     }
 }
+
+pub type BatcherFeePerQuote = Ratio<u64>;
+
+pub type LPFee = Ratio<u64>;
