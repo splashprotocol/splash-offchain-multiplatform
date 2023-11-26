@@ -1,5 +1,5 @@
-use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::collections::btree_map::Entry;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::mem;
 
 use crate::liquidity_book::fragment::Fragment;
@@ -66,22 +66,10 @@ where
     }
 }
 
-impl<T> InMemoryFragmentedLiquidity<T, Fragment<T>>
+impl<T> FragmentStore<T, Fragment<T>> for InMemoryFragmentedLiquidity<T, Fragment<T>>
 where
     T: Ord + Copy,
 {
-    fn try_pop_best<F>(&mut self, side: SideMarker, test: F) -> Option<Fragment<T>>
-    where
-        F: FnOnce(&Fragment<T>) -> bool,
-    {
-        let side = match side {
-            SideMarker::Bid => &mut self.chronology.0.bids,
-            SideMarker::Ask => &mut self.chronology.0.asks,
-        };
-        side.pop_first()
-            .and_then(|best_bid| if test(&best_bid) { Some(best_bid) } else { None })
-    }
-
     fn advance_clocks(&mut self, new_time: T) {
         let new_slot = self
             .chronology

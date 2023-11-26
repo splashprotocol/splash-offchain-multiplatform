@@ -5,7 +5,7 @@ use crate::liquidity_book::types::{LPFee, Price};
 
 #[derive(Debug, Copy, Clone)]
 pub enum Pool {
-    CFMM(CFMMPool)
+    CFMM(CFMMPool),
 }
 
 impl Pool {

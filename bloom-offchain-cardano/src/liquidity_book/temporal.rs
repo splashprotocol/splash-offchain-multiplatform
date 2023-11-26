@@ -5,13 +5,13 @@ use futures::future::Either;
 
 use crate::liquidity_book::effect::Effect;
 use crate::liquidity_book::fragment::Fragment;
-use crate::liquidity_book::liquidity::fragmented::{FragmentedLiquidity, FragmentStore};
-use crate::liquidity_book::liquidity::pooled::{PooledLiquidity, PoolStore};
-use crate::liquidity_book::LiquidityBook;
+use crate::liquidity_book::liquidity::fragmented::{FragmentStore, FragmentedLiquidity};
+use crate::liquidity_book::liquidity::pooled::{PoolStore, PooledLiquidity};
 use crate::liquidity_book::pool::Pool;
 use crate::liquidity_book::recipe::{ExecutionRecipe, Fill, PartialFill, Swap, TerminalInstruction};
 use crate::liquidity_book::side::{Side, SideMarker};
 use crate::liquidity_book::types::ExecutionCost;
+use crate::liquidity_book::LiquidityBook;
 
 pub struct ExecutionCap {
     pub soft: ExecutionCost,
@@ -53,7 +53,9 @@ where
                 if let Some(rem) = &acc.remainder {
                     let price_fragments = self.fragmented_liquidity.best_price(!best_fr.marker());
                     let price_in_pools = self.pooled_liquidity.best_price();
-                    if price_fragments.iter().any(|price_in_fragments| price_in_fragments.better_than(price_in_pools))
+                    if price_fragments
+                        .iter()
+                        .any(|price_in_fragments| price_in_fragments.better_than(price_in_pools))
                         && execution_units_left > self.execution_cap.safe_threshold()
                     {
                         if let Some(opposite_fr) = self.fragmented_liquidity.try_pick(!rem.marker(), |fr| {
