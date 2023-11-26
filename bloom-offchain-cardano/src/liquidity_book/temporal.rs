@@ -1,21 +1,21 @@
-use std::collections::btree_map::Entry;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::mem;
+use std::cmp::{max, min};
 
 use cml_core::Slot;
 use futures::future::Either;
 
 use crate::liquidity_book::effect::Effect;
 use crate::liquidity_book::fragment::Fragment;
+use crate::liquidity_book::liquidity::fragmented::{FragmentedLiquidity, FragmentStore};
+use crate::liquidity_book::liquidity::pooled::{PooledLiquidity, PoolStore};
+use crate::liquidity_book::LiquidityBook;
 use crate::liquidity_book::pool::Pool;
 use crate::liquidity_book::recipe::{ExecutionRecipe, Fill, PartialFill, Swap, TerminalInstruction};
 use crate::liquidity_book::side::{Side, SideMarker};
-use crate::liquidity_book::types::{ExecutionCost, Price, SourceId};
-use crate::liquidity_book::LiquidityBook;
+use crate::liquidity_book::types::ExecutionCost;
 
 pub struct ExecutionCap {
-    soft: ExecutionCost,
-    hard: ExecutionCost,
+    pub soft: ExecutionCost,
+    pub hard: ExecutionCost,
 }
 
 impl ExecutionCap {
@@ -32,19 +32,18 @@ pub struct TemporalLiquidityBook<FL, PL> {
 
 type Recipe = ExecutionRecipe<Fragment<Slot>, Pool>;
 
-impl<FL, PL> TemporalLiquidityBook<FL, PL> {
-    fn fill_once(&mut self, acc: Recipe, limit: ExecutionCost) -> Result<(Recipe, ExecutionCost), Recipe> {
-        Err(acc)
-    }
-}
-
 impl<FL, PL> LiquidityBook<Slot, Effect<Slot>> for TemporalLiquidityBook<FL, PL>
 where
-    FL: FragmentedLiquidity<Slot, Fragment<Slot>>,
-    PL: PooledLiquidity<Pool>,
+    FL: FragmentedLiquidity<Slot, Fragment<Slot>> + FragmentStore<Slot, Fragment<Slot>>,
+    PL: PooledLiquidity<Pool> + PoolStore<Pool>,
 {
     fn apply(&mut self, effect: Effect<Slot>) {
-        todo!()
+        match effect {
+            Effect::ClocksAdvanced(new_time) => self.fragmented_liquidity.advance_clocks(new_time),
+            Effect::FragmentAdded(fr) => self.fragmented_liquidity.add_fragment(fr),
+            Effect::FragmentRemoved(id) => self.fragmented_liquidity.remove_fragment(id),
+            Effect::PoolUpdated(new_pool) => self.pooled_liquidity.update_pool(new_pool),
+        }
     }
     fn attempt(&mut self) -> Option<ExecutionRecipe<Fragment<Slot>, Pool>> {
         if let Some(best_fr) = self.fragmented_liquidity.pick_either() {
@@ -52,9 +51,9 @@ where
             let mut execution_units_left = self.execution_cap.hard;
             loop {
                 if let Some(rem) = &acc.remainder {
-                    let price_fragments = self.fragmented_liquidity.best_price();
-                    let price_pools = self.pooled_liquidity.best_price();
-                    if price_fragments > price_pools
+                    let price_fragments = self.fragmented_liquidity.best_price(!best_fr.marker());
+                    let price_in_pools = self.pooled_liquidity.best_price();
+                    if price_fragments.iter().any(|price_in_fragments| price_in_fragments.better_than(price_in_pools))
                         && execution_units_left > self.execution_cap.safe_threshold()
                     {
                         if let Some(opposite_fr) = self.fragmented_liquidity.try_pick(!rem.marker(), |fr| {
@@ -77,7 +76,7 @@ where
                     } else {
                         if let Some(pool) = self.pooled_liquidity.try_pick(|pl| {
                             rem.map(|fr| fr.target.price)
-                                .overlaps(pl.real_price(rem.marker(), rem.any().remainder))
+                                .overlaps(pl.real_price(rem.marker(), rem.any().remaining_input))
                         }) {
                             let (term_fill, swap) = fill_from_pool(*rem, pool);
                             acc.push(TerminalInstruction::Swap(swap));
@@ -101,123 +100,102 @@ fn fill_from_fragment<T>(
     Fill<Fragment<T>>,
     Either<Fill<Fragment<T>>, Side<PartialFill<Fragment<T>>>>,
 ) {
-    todo!()
+    match target {
+        Side::Bid(mut bid) => {
+            let ask = source;
+            let price_selector = if bid.target.fee >= ask.fee { min } else { max };
+            let price = price_selector(ask.price, bid.target.price);
+            let demand_base = ((bid.remaining_input as u128) * price.numer() / price.denom()) as u64;
+            let supply_base = ask.input;
+            if supply_base > demand_base {
+                let quote_input = bid.remaining_input;
+                bid.accumulated_output += demand_base;
+                (
+                    bid.into(),
+                    Either::Right(Side::Ask(PartialFill {
+                        target: ask,
+                        remaining_input: supply_base - demand_base,
+                        accumulated_output: quote_input,
+                    })),
+                )
+            } else if supply_base < demand_base {
+                let quote_executed = ((supply_base as u128) * price.denom() / price.numer()) as u64;
+                bid.remaining_input -= quote_executed;
+                bid.accumulated_output += supply_base;
+                (Fill::new(ask, quote_executed), Either::Right(Side::Bid(bid)))
+            } else {
+                let quote_executed = ((supply_base as u128) * price.denom() / price.numer()) as u64;
+                bid.accumulated_output += demand_base;
+                (bid.into(), Either::Left(Fill::new(ask, quote_executed)))
+            }
+        }
+        Side::Ask(mut ask) => {
+            let bid = source;
+            let price_selector = if ask.target.fee >= bid.fee { max } else { min };
+            let price = price_selector(bid.price, ask.target.price);
+            let demand_base = ((bid.input as u128) * price.numer() / price.denom()) as u64;
+            let supply_base = ask.remaining_input;
+            if supply_base > demand_base {
+                ask.remaining_input -= demand_base;
+                ask.accumulated_output += bid.input;
+                (Fill::new(bid, supply_base), Either::Right(Side::Ask(ask)))
+            } else if supply_base < demand_base {
+                let quote_executed = ((supply_base as u128) * price.denom() / price.numer()) as u64;
+                ask.accumulated_output += quote_executed;
+                (
+                    ask.into(),
+                    Either::Right(Side::Bid(PartialFill {
+                        remaining_input: bid.input - quote_executed,
+                        target: bid,
+                        accumulated_output: supply_base,
+                    })),
+                )
+            } else {
+                ask.accumulated_output += bid.input;
+                (ask.into(), Either::Left(Fill::new(bid, demand_base)))
+            }
+        }
+    }
 }
 
 fn fill_from_pool<T>(
     target: Side<PartialFill<Fragment<T>>>,
     source: Pool,
 ) -> (Fill<Fragment<T>>, Swap<Pool>) {
-    todo!()
-}
-
-trait FragmentedLiquidity<T, Fr> {
-    fn best_price(&self) -> Price;
-    fn pick_either(&mut self) -> Option<Side<Fr>>;
-    fn try_pick<F>(&mut self, side: SideMarker, test: F) -> Option<Fr>
-    where
-        F: FnOnce(&Fr) -> bool;
-}
-
-trait PooledLiquidity<Pl> {
-    fn best_price(&self) -> Price;
-    fn try_pick<F>(&mut self, test: F) -> Option<Pl>
-    where
-        F: FnOnce(&Pl) -> bool;
-}
-
-#[derive(Debug, Clone)]
-pub struct PooledLiquidityMem<Pl> {
-    pools: HashMap<SourceId, Pl>,
-}
-
-#[derive(Debug, Clone)]
-pub struct FragmentedLiquidityMem<T, Fr> {
-    /// Liquidity fragments spread across time axis.
-    /// First element in the tuple encodes the time point which is now.
-    chronology: (Fragments<Fr>, BTreeMap<T, Fragments<Fr>>),
-    known_fragments: HashSet<SourceId>,
-    removed_fragments: HashSet<SourceId>,
-}
-
-impl<T> FragmentedLiquidityMem<T, Fragment<T>>
-where
-    T: Ord + Copy,
-{
-    fn try_pop_best<F>(&mut self, side: SideMarker, test: F) -> Option<Fragment<T>>
-    where
-        F: FnOnce(&Fragment<T>) -> bool,
-    {
-        let side = match side {
-            SideMarker::Bid => &mut self.chronology.0.bids,
-            SideMarker::Ask => &mut self.chronology.0.asks,
-        };
-        side.pop_first()
-            .and_then(|best_bid| if test(&best_bid) { Some(best_bid) } else { None })
-    }
-
-    fn advance_clocks(&mut self, new_time: T) {
-        let new_slot = self
-            .chronology
-            .1
-            .remove(&new_time)
-            .unwrap_or_else(|| Fragments::new());
-        let Fragments { asks, bids } = mem::replace(&mut self.chronology.0, new_slot);
-        for fr in asks {
-            if fr.bounds.contain(&new_time) {
-                self.chronology.0.asks.insert(fr);
-            }
+    match target {
+        Side::Bid(mut bid) => {
+            let quote_input = bid.remaining_input;
+            let execution_amount = source.output(SideMarker::Bid, quote_input);
+            bid.accumulated_output += execution_amount;
+            (
+                bid.into(),
+                Swap {
+                    target: source,
+                    side: SideMarker::Bid,
+                    input: quote_input,
+                    output: execution_amount,
+                },
+            )
         }
-        for fr in bids {
-            if fr.bounds.contain(&new_time) {
-                self.chronology.0.bids.insert(fr);
-            }
-        }
-    }
-
-    fn remove_fragment(&mut self, source: SourceId) {
-        if self.known_fragments.remove(&source) {
-            self.removed_fragments.insert(source);
-        }
-    }
-
-    fn add_fragment(&mut self, fr: Side<Fragment<T>>) {
-        let any_side_fr = fr.any();
-        // Clear removal filter just in case the fragment was re-added.
-        self.removed_fragments.remove(&any_side_fr.source);
-        self.known_fragments.insert(any_side_fr.source);
-        if let Some(initial_timeslot) = any_side_fr.bounds.lower_bound() {
-            match self.chronology.1.entry(initial_timeslot) {
-                Entry::Vacant(e) => {
-                    let mut fresh_fragments = Fragments::new();
-                    match fr {
-                        Side::Bid(fr) => fresh_fragments.bids.insert(fr),
-                        Side::Ask(fr) => fresh_fragments.asks.insert(fr),
-                    };
-                    e.insert(fresh_fragments);
-                }
-                Entry::Occupied(e) => {
-                    match fr {
-                        Side::Bid(fr) => e.into_mut().bids.insert(fr),
-                        Side::Ask(fr) => e.into_mut().asks.insert(fr),
-                    };
-                }
-            }
+        Side::Ask(mut ask) => {
+            let base_input = ask.remaining_input;
+            let execution_amount = source.output(SideMarker::Ask, base_input);
+            ask.accumulated_output += execution_amount;
+            (
+                ask.into(),
+                Swap {
+                    target: source,
+                    side: SideMarker::Ask,
+                    input: base_input,
+                    output: execution_amount,
+                },
+            )
         }
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Fragments<Fr> {
-    asks: BTreeSet<Fr>,
-    bids: BTreeSet<Fr>,
-}
-
-impl<Fr> Fragments<Fr> {
-    fn new() -> Self {
-        Self {
-            asks: BTreeSet::new(),
-            bids: BTreeSet::new(),
-        }
-    }
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn foo() {}
 }

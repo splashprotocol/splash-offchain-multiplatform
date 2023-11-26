@@ -4,6 +4,7 @@ use crate::liquidity_book::recipe::ExecutionRecipe;
 
 mod effect;
 mod fragment;
+mod liquidity;
 mod pool;
 mod recipe;
 mod side;

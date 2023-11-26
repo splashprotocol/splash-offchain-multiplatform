@@ -6,6 +6,15 @@ pub enum SideMarker {
     Ask,
 }
 
+impl SideMarker {
+    pub fn wrap<T>(self, value: T) -> Side<T> {
+        match self {
+            SideMarker::Bid => Side::Bid(value),
+            SideMarker::Ask => Side::Ask(value),
+        }
+    }
+}
+
 impl Not for SideMarker {
     type Output = SideMarker;
     fn not(self) -> Self::Output {

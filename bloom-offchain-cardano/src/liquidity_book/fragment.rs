@@ -8,7 +8,7 @@ use crate::time::TimeBounds;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Fragment<T> {
     pub source: SourceId,
-    pub min_output: u64,
+    pub input: u64,
     pub price: Price,
     pub fee: BatcherFeePerQuote,
     pub cost_hint: ExecutionCost,

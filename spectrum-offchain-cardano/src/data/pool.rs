@@ -73,7 +73,7 @@ pub enum CFMMPoolAction {
     Destroy,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct CFMMPool {
     pub id: PoolId,
     pub state_ver: PoolStateVer,

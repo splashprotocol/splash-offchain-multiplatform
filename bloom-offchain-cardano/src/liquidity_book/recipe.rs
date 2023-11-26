@@ -35,25 +35,37 @@ pub enum TerminalInstruction<Fr, Pl> {
 #[derive(Debug, Copy, Clone)]
 pub struct Fill<Fr> {
     pub target: Fr,
-    pub input: u64,
     pub output: u64,
+}
+
+impl<Fr> Fill<Fr> {
+    pub fn new(target: Fr, output: u64) -> Self {
+        Self { target, output }
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
 pub struct PartialFill<Fr> {
     pub target: Fr,
-    pub input: u64,
-    pub output: u64,
-    pub remainder: u64,
+    pub remaining_input: u64,
+    pub accumulated_output: u64,
+}
+
+impl<Fr> From<PartialFill<Fr>> for Fill<Fr> {
+    fn from(value: PartialFill<Fr>) -> Self {
+        Self {
+            target: value.target,
+            output: value.accumulated_output,
+        }
+    }
 }
 
 impl<T> PartialFill<Fragment<T>> {
     pub fn new(fr: Fragment<T>) -> Self {
         Self {
-            remainder: fr.min_output,
+            remaining_input: fr.input,
             target: fr,
-            input: 0,
-            output: 0,
+            accumulated_output: 0,
         }
     }
 }
