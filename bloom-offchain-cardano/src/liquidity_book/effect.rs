@@ -6,7 +6,7 @@ use crate::liquidity_book::types::SourceId;
 #[derive(Debug, Clone)]
 pub enum Effect<T> {
     ClocksAdvanced(T),
-    FragmentAdded(Side<Fragment<T>>),
-    FragmentRemoved(SourceId),
-    PoolUpdated(Pool),
+    BatchAddFragments(SourceId, Vec<Side<Fragment<T>>>),
+    BatchRemoveFragments(SourceId),
+    PoolUpdated(SourceId, Pool),
 }

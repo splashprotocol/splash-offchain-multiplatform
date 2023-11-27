@@ -5,13 +5,13 @@ use futures::future::Either;
 
 use crate::liquidity_book::effect::Effect;
 use crate::liquidity_book::fragment::Fragment;
-use crate::liquidity_book::liquidity::fragmented::{FragmentStore, FragmentedLiquidity};
-use crate::liquidity_book::liquidity::pooled::{PoolStore, PooledLiquidity};
+use crate::liquidity_book::liquidity::fragmented::{FragmentedLiquidity, FragmentStore};
+use crate::liquidity_book::liquidity::pooled::{PooledLiquidity, PoolStore};
+use crate::liquidity_book::LiquidityBook;
 use crate::liquidity_book::pool::Pool;
 use crate::liquidity_book::recipe::{ExecutionRecipe, Fill, PartialFill, Swap, TerminalInstruction};
 use crate::liquidity_book::side::{Side, SideMarker};
 use crate::liquidity_book::types::ExecutionCost;
-use crate::liquidity_book::LiquidityBook;
 
 pub struct ExecutionCap {
     pub soft: ExecutionCost,
@@ -40,11 +40,12 @@ where
     fn apply(&mut self, effect: Effect<Slot>) {
         match effect {
             Effect::ClocksAdvanced(new_time) => self.fragmented_liquidity.advance_clocks(new_time),
-            Effect::FragmentAdded(fr) => self.fragmented_liquidity.add_fragment(fr),
-            Effect::FragmentRemoved(id) => self.fragmented_liquidity.remove_fragment(id),
-            Effect::PoolUpdated(new_pool) => self.pooled_liquidity.update_pool(new_pool),
+            Effect::BatchAddFragments(source, frs) => self.fragmented_liquidity.add_fragments(source, frs),
+            Effect::BatchRemoveFragments(id) => self.fragmented_liquidity.remove_fragments(id),
+            Effect::PoolUpdated(source, new_pool) => self.pooled_liquidity.update_pool(source, new_pool),
         }
     }
+
     fn attempt(&mut self) -> Option<ExecutionRecipe<Fragment<Slot>, Pool>> {
         if let Some(best_fr) = self.fragmented_liquidity.pick_either() {
             let mut acc = Recipe::new(best_fr);
@@ -53,38 +54,44 @@ where
                 if let Some(rem) = &acc.remainder {
                     let price_fragments = self.fragmented_liquidity.best_price(!best_fr.marker());
                     let price_in_pools = self.pooled_liquidity.best_price();
-                    if price_fragments
-                        .iter()
-                        .any(|price_in_fragments| price_in_fragments.better_than(price_in_pools))
-                        && execution_units_left > self.execution_cap.safe_threshold()
-                    {
-                        if let Some(opposite_fr) = self.fragmented_liquidity.try_pick(!rem.marker(), |fr| {
-                            rem.map(|fr| fr.target.price).overlaps(fr.price)
-                                && fr.cost_hint <= execution_units_left
-                        }) {
-                            execution_units_left -= opposite_fr.cost_hint;
-                            match fill_from_fragment(*rem, opposite_fr) {
-                                (term_fill_lt, Either::Left(term_fill_rt)) => {
-                                    acc.push(TerminalInstruction::Fill(term_fill_lt));
-                                    acc.terminate(TerminalInstruction::Fill(term_fill_rt));
-                                    break;
-                                }
-                                (term_fill_lt, Either::Right(partial)) => {
-                                    acc.push(TerminalInstruction::Fill(term_fill_lt));
-                                    acc.set_remainder(partial);
+                    match (price_in_pools, price_fragments) {
+                        (price_in_pools, Some(price_in_fragments))
+                            if price_in_pools
+                                .map(|p| price_in_fragments.better_than(p))
+                                .unwrap_or(true)
+                                && execution_units_left > self.execution_cap.safe_threshold() =>
+                        {
+                            if let Some(opposite_fr) =
+                                self.fragmented_liquidity.try_pick(!rem.marker(), |fr| {
+                                    rem.map(|fr| fr.target.price).overlaps(fr.price)
+                                        && fr.cost_hint <= execution_units_left
+                                })
+                            {
+                                execution_units_left -= opposite_fr.cost_hint;
+                                match fill_from_fragment(*rem, opposite_fr) {
+                                    (term_fill_lt, Either::Left(term_fill_rt)) => {
+                                        acc.push(TerminalInstruction::Fill(term_fill_lt));
+                                        acc.terminate(TerminalInstruction::Fill(term_fill_rt));
+                                    }
+                                    (term_fill_lt, Either::Right(partial)) => {
+                                        acc.push(TerminalInstruction::Fill(term_fill_lt));
+                                        acc.set_remainder(partial);
+                                        continue;
+                                    }
                                 }
                             }
                         }
-                    } else {
-                        if let Some(pool) = self.pooled_liquidity.try_pick(|pl| {
-                            rem.map(|fr| fr.target.price)
-                                .overlaps(pl.real_price(rem.marker(), rem.any().remaining_input))
-                        }) {
-                            let (term_fill, swap) = fill_from_pool(*rem, pool);
-                            acc.push(TerminalInstruction::Swap(swap));
-                            acc.terminate(TerminalInstruction::Fill(term_fill));
-                            break;
+                        (Some(_), _) if execution_units_left > 0 => {
+                            if let Some(pool) = self.pooled_liquidity.try_pick(|pl| {
+                                rem.map(|fr| fr.target.price)
+                                    .overlaps(pl.real_price(rem.marker(), rem.any().remaining_input))
+                            }) {
+                                let (term_fill, swap) = fill_from_pool(*rem, pool);
+                                acc.push(TerminalInstruction::Swap(swap));
+                                acc.terminate(TerminalInstruction::Fill(term_fill));
+                            }
                         }
+                        _ => {}
                     }
                 }
                 break;

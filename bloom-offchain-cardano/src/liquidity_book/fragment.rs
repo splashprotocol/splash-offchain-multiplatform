@@ -5,7 +5,7 @@ use crate::time::TimeBounds;
 
 /// Fragment is a part or whole liquidity of an order.
 /// Fragments correspond many-to-one to orders.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Fragment<T> {
     pub source: SourceId,
     pub input: u64,

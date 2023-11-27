@@ -25,7 +25,7 @@ impl Not for SideMarker {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum Side<T> {
     Bid(T),
     Ask(T),

@@ -7,7 +7,7 @@ pub trait PooledLiquidity<Pl> {
     fn best_price(&self) -> Option<Price>;
     fn try_pick<F>(&mut self, test: F) -> Option<Pl>
     where
-        F: FnOnce(&Pl) -> bool;
+        F: Fn(&Pl) -> bool;
 }
 
 pub trait PoolStore<Pl> {
@@ -29,7 +29,7 @@ impl<Pl> PooledLiquidity<Pl> for InMemoryPooledLiquidity<Pl> {
 
     fn try_pick<F>(&mut self, test: F) -> Option<Pl>
     where
-        F: FnOnce(&Pl) -> bool,
+        F: Fn(&Pl) -> bool,
     {
         for id in self.quality_index.values() {
             match self.pools.entry(*id) {
@@ -41,7 +41,7 @@ impl<Pl> PooledLiquidity<Pl> for InMemoryPooledLiquidity<Pl> {
     }
 }
 
-impl<Pl: QualityMetric> PoolStore<Pl> for InMemoryPooledLiquidity<Pl> {
+impl<Pl: QualityMetric + Copy> PoolStore<Pl> for InMemoryPooledLiquidity<Pl> {
     fn update_pool(&mut self, source: SourceId, pool: Pl) {
         if let Some(old_pool) = self.pools.insert(source, pool) {
             self.quality_index.remove(&old_pool.quality());
