@@ -1,5 +1,5 @@
-use std::collections::{BTreeMap, BTreeSet, hash_map, HashMap};
 use std::collections::btree_map::Entry;
+use std::collections::{hash_map, BTreeMap, BTreeSet, HashMap};
 use std::hash::Hash;
 use std::mem;
 
@@ -13,6 +13,7 @@ pub trait FragmentedLiquidity<T, Fr> {
     fn try_pick<F>(&mut self, side: SideMarker, test: F) -> Option<Fr>
     where
         F: FnOnce(&Fr) -> bool;
+    fn return_fr(&mut self, fr: Side<Fr>);
 }
 
 pub trait FragmentStore<T, Fr> {
@@ -21,6 +22,7 @@ pub trait FragmentStore<T, Fr> {
     fn add_fragments(&mut self, source_id: SourceId, fr: Vec<Side<Fragment<T>>>);
 }
 
+/// Liquidity fragments spread across time axis.
 #[derive(Debug, Clone)]
 struct Chronology<T, Fr> {
     time_now: T,
@@ -30,8 +32,6 @@ struct Chronology<T, Fr> {
 
 #[derive(Debug, Clone)]
 pub struct InMemoryFragmentedLiquidity<T, Fr> {
-    /// Liquidity fragments spread across time axis.
-    /// First element in the tuple encodes the time point which is now.
     chronology: Chronology<T, Fr>,
     sources: HashMap<SourceId, Vec<Side<Fr>>>,
 }
@@ -70,6 +70,13 @@ where
         };
         side.pop_first()
             .and_then(|best_bid| if test(&best_bid) { Some(best_bid) } else { None })
+    }
+
+    fn return_fr(&mut self, fr: Side<Fragment<T>>) {
+        match fr {
+            Side::Bid(bid) => self.chronology.now.bids.insert(bid),
+            Side::Ask(ask) => self.chronology.now.bids.insert(ask),
+        };
     }
 }
 

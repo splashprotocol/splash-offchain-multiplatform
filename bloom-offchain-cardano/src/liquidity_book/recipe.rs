@@ -1,3 +1,5 @@
+use futures::future::Either;
+
 use crate::liquidity_book::fragment::Fragment;
 use crate::liquidity_book::side::{Side, SideMarker};
 
@@ -24,11 +26,28 @@ impl<T, Pl> ExecutionRecipe<Fragment<T>, Pl> {
     pub fn set_remainder(&mut self, remainder: Side<PartialFill<Fragment<T>>>) {
         self.remainder = Some(remainder);
     }
+    pub fn is_complete(&self) -> bool {
+        let terminal_fragments = self.terminal.len();
+        terminal_fragments % 2 == 0 || (terminal_fragments > 0 && self.remainder.is_some())
+    }
+    pub fn disassemble(self) -> Vec<Either<Side<Fragment<T>>, Pl>> {
+        let mut acc = Vec::new();
+        for i in self.terminal {
+            match i {
+                TerminalInstruction::Fill(fill) => acc.push(Either::Left(fill.map(|f| f.target))),
+                TerminalInstruction::Swap(swap) => acc.push(Either::Right(swap.target)),
+            }
+        }
+        if let Some(partial) = self.remainder {
+            acc.push(Either::Left(partial.map(|f| f.target)));
+        }
+        acc
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
 pub enum TerminalInstruction<Fr, Pl> {
-    Fill(Fill<Fr>),
+    Fill(Side<Fill<Fr>>),
     Swap(Swap<Pl>),
 }
 

@@ -38,6 +38,12 @@ impl<T> Side<T> {
             Side::Ask(t) => t,
         }
     }
+    pub fn unwrap(self) -> T {
+        match self {
+            Side::Bid(t) => t,
+            Side::Ask(t) => t,
+        }
+    }
     pub fn marker(&self) -> SideMarker {
         match self {
             Side::Bid(_) => SideMarker::Bid,

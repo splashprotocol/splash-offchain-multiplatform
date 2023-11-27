@@ -1,5 +1,7 @@
-use std::collections::{BTreeMap, HashMap};
 use std::collections::hash_map::Entry;
+use std::collections::{BTreeMap, HashMap};
+
+use spectrum_offchain::data::Has;
 
 use crate::liquidity_book::types::{Price, SourceId};
 
@@ -8,10 +10,11 @@ pub trait PooledLiquidity<Pl> {
     fn try_pick<F>(&mut self, test: F) -> Option<Pl>
     where
         F: Fn(&Pl) -> bool;
+    fn return_pool(&mut self, pool: Pl);
 }
 
 pub trait PoolStore<Pl> {
-    fn update_pool(&mut self, source: SourceId, pool: Pl);
+    fn update_pool(&mut self, pool: Pl);
 }
 
 #[derive(Debug, Clone)]
@@ -20,7 +23,7 @@ pub struct InMemoryPooledLiquidity<Pl> {
     quality_index: BTreeMap<PoolQuality, SourceId>,
 }
 
-impl<Pl> PooledLiquidity<Pl> for InMemoryPooledLiquidity<Pl> {
+impl<Pl: Has<SourceId>> PooledLiquidity<Pl> for InMemoryPooledLiquidity<Pl> {
     fn best_price(&self) -> Option<Price> {
         self.quality_index
             .first_key_value()
@@ -39,10 +42,14 @@ impl<Pl> PooledLiquidity<Pl> for InMemoryPooledLiquidity<Pl> {
         }
         None
     }
+    fn return_pool(&mut self, pool: Pl) {
+        self.pools.insert(pool.get::<SourceId>(), pool);
+    }
 }
 
-impl<Pl: QualityMetric + Copy> PoolStore<Pl> for InMemoryPooledLiquidity<Pl> {
-    fn update_pool(&mut self, source: SourceId, pool: Pl) {
+impl<Pl: Has<SourceId> + QualityMetric + Copy> PoolStore<Pl> for InMemoryPooledLiquidity<Pl> {
+    fn update_pool(&mut self, pool: Pl) {
+        let source = pool.get::<SourceId>();
         if let Some(old_pool) = self.pools.insert(source, pool) {
             self.quality_index.remove(&old_pool.quality());
             self.quality_index.insert(pool.quality(), source);

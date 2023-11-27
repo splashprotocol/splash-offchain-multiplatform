@@ -8,5 +8,5 @@ pub enum Effect<T> {
     ClocksAdvanced(T),
     BatchAddFragments(SourceId, Vec<Side<Fragment<T>>>),
     BatchRemoveFragments(SourceId),
-    PoolUpdated(SourceId, Pool),
+    PoolUpdated(Pool),
 }

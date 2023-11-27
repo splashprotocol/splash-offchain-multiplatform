@@ -42,7 +42,7 @@ where
             Effect::ClocksAdvanced(new_time) => self.fragmented_liquidity.advance_clocks(new_time),
             Effect::BatchAddFragments(source, frs) => self.fragmented_liquidity.add_fragments(source, frs),
             Effect::BatchRemoveFragments(id) => self.fragmented_liquidity.remove_fragments(id),
-            Effect::PoolUpdated(source, new_pool) => self.pooled_liquidity.update_pool(source, new_pool),
+            Effect::PoolUpdated(new_pool) => self.pooled_liquidity.update_pool(new_pool),
         }
     }
 
@@ -96,7 +96,16 @@ where
                 }
                 break;
             }
-            return Some(acc);
+            if acc.is_complete() {
+                return Some(acc);
+            } else { // return liquidity if recipe failed.
+                for fr in acc.disassemble() {
+                    match fr {
+                        Either::Left(fr) => self.fragmented_liquidity.return_fr(fr),
+                        Either::Right(pl) => self.pooled_liquidity.update_pool(pl),
+                    }
+                }
+            }
         }
         None
     }
@@ -106,8 +115,8 @@ fn fill_from_fragment<T>(
     target: Side<PartialFill<Fragment<T>>>,
     source: Fragment<T>,
 ) -> (
-    Fill<Fragment<T>>,
-    Either<Fill<Fragment<T>>, Side<PartialFill<Fragment<T>>>>,
+    Side<Fill<Fragment<T>>>,
+    Either<Side<Fill<Fragment<T>>>, Side<PartialFill<Fragment<T>>>>,
 ) {
     match target {
         Side::Bid(mut bid) => {
@@ -120,7 +129,7 @@ fn fill_from_fragment<T>(
                 let quote_input = bid.remaining_input;
                 bid.accumulated_output += demand_base;
                 (
-                    bid.into(),
+                    Side::Bid(bid.into()),
                     Either::Right(Side::Ask(PartialFill {
                         target: ask,
                         remaining_input: supply_base - demand_base,
@@ -131,11 +140,17 @@ fn fill_from_fragment<T>(
                 let quote_executed = ((supply_base as u128) * price.denom() / price.numer()) as u64;
                 bid.remaining_input -= quote_executed;
                 bid.accumulated_output += supply_base;
-                (Fill::new(ask, quote_executed), Either::Right(Side::Bid(bid)))
+                (
+                    Side::Ask(Fill::new(ask, quote_executed)),
+                    Either::Right(Side::Bid(bid)),
+                )
             } else {
                 let quote_executed = ((supply_base as u128) * price.denom() / price.numer()) as u64;
                 bid.accumulated_output += demand_base;
-                (bid.into(), Either::Left(Fill::new(ask, quote_executed)))
+                (
+                    Side::Bid(bid.into()),
+                    Either::Left(Side::Ask(Fill::new(ask, quote_executed))),
+                )
             }
         }
         Side::Ask(mut ask) => {
@@ -147,12 +162,15 @@ fn fill_from_fragment<T>(
             if supply_base > demand_base {
                 ask.remaining_input -= demand_base;
                 ask.accumulated_output += bid.input;
-                (Fill::new(bid, supply_base), Either::Right(Side::Ask(ask)))
+                (
+                    Side::Bid(Fill::new(bid, supply_base)),
+                    Either::Right(Side::Ask(ask)),
+                )
             } else if supply_base < demand_base {
                 let quote_executed = ((supply_base as u128) * price.denom() / price.numer()) as u64;
                 ask.accumulated_output += quote_executed;
                 (
-                    ask.into(),
+                    Side::Ask(ask.into()),
                     Either::Right(Side::Bid(PartialFill {
                         remaining_input: bid.input - quote_executed,
                         target: bid,
@@ -161,7 +179,10 @@ fn fill_from_fragment<T>(
                 )
             } else {
                 ask.accumulated_output += bid.input;
-                (ask.into(), Either::Left(Fill::new(bid, demand_base)))
+                (
+                    Side::Ask(ask.into()),
+                    Either::Left(Side::Bid(Fill::new(bid, demand_base))),
+                )
             }
         }
     }
@@ -170,14 +191,14 @@ fn fill_from_fragment<T>(
 fn fill_from_pool<T>(
     target: Side<PartialFill<Fragment<T>>>,
     source: Pool,
-) -> (Fill<Fragment<T>>, Swap<Pool>) {
+) -> (Side<Fill<Fragment<T>>>, Swap<Pool>) {
     match target {
         Side::Bid(mut bid) => {
             let quote_input = bid.remaining_input;
             let execution_amount = source.output(SideMarker::Bid, quote_input);
             bid.accumulated_output += execution_amount;
             (
-                bid.into(),
+                Side::Bid(bid.into()),
                 Swap {
                     target: source,
                     side: SideMarker::Bid,
@@ -191,7 +212,7 @@ fn fill_from_pool<T>(
             let execution_amount = source.output(SideMarker::Ask, base_input);
             ask.accumulated_output += execution_amount;
             (
-                ask.into(),
+                Side::Ask(ask.into()),
                 Swap {
                     target: source,
                     side: SideMarker::Ask,
