@@ -163,7 +163,7 @@ fn fill_from_fragment<T>(
                 ask.remaining_input -= demand_base;
                 ask.accumulated_output += bid.input;
                 (
-                    Side::Bid(Fill::new(bid, supply_base)),
+                    Side::Bid(Fill::new(bid, demand_base)),
                     Either::Right(Side::Ask(ask)),
                 )
             } else if supply_base < demand_base {
@@ -253,6 +253,60 @@ mod tests {
             input: 370,
             price: Ratio::new(37, 100),
             fee: Ratio::new(1, 1000),
+            cost_hint: 100,
+            bounds: TimeBounds::None,
+        };
+        let (fill_lt, fill_rt) = fill_from_fragment::<Slot>(Side::Ask(PartialFill::new(fr1)), fr2);
+        assert_eq!(fill_lt.any().output, fr2.input);
+        match fill_rt {
+            Either::Left(fill_rt) => assert_eq!(fill_rt.any().output, fr1.input),
+            Either::Right(_) => panic!()
+        }
+    }
+
+    #[test]
+    fn fill_fragment_from_fragment_partial() {
+        // Assuming pair ADA/USDT @ 0.37
+        let fr1 = Fragment {
+            source: SourceId::random(),
+            input: 1000,
+            price: Ratio::new(37, 100),
+            fee: Ratio::new(1, 1000),
+            cost_hint: 100,
+            bounds: TimeBounds::None,
+        };
+        let fr2 = Fragment {
+            source: SourceId::random(),
+            input: 210,
+            price: Ratio::new(37, 100),
+            fee: Ratio::new(1, 1000),
+            cost_hint: 100,
+            bounds: TimeBounds::None,
+        };
+        let (fill_lt, fill_rt) = fill_from_fragment::<Slot>(Side::Ask(PartialFill::new(fr1)), fr2);
+        assert_eq!(fill_lt.any().output, ((fr2.input as u128) * fr1.price.denom() / fr1.price.numer()) as u64);
+        match fill_rt {
+            Either::Right(fill_rt) => assert_eq!(fill_rt.any().accumulated_output, fr2.input),
+            Either::Left(_) => panic!()
+        }
+    }
+
+    #[test]
+    fn prefer_fragment_with_better_fee() {
+        // Assuming pair ADA/USDT @ 0.37
+        let fr1 = Fragment {
+            source: SourceId::random(),
+            input: 1000,
+            price: Ratio::new(36, 100),
+            fee: Ratio::new(1, 1000),
+            cost_hint: 100,
+            bounds: TimeBounds::None,
+        };
+        let fr2 = Fragment {
+            source: SourceId::random(),
+            input: 360,
+            price: Ratio::new(37, 100),
+            fee: Ratio::new(2, 1000),
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
