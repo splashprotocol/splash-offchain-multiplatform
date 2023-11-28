@@ -123,7 +123,7 @@ fn fill_from_fragment<T>(
             let ask = source;
             let price_selector = if bid.target.fee >= ask.fee { min } else { max };
             let price = price_selector(ask.price, bid.target.price);
-            let demand_base = ((bid.remaining_input as u128) * price.numer() / price.denom()) as u64;
+            let demand_base = ((bid.remaining_input as u128) * price.denom() / price.numer()) as u64;
             let supply_base = ask.input;
             if supply_base > demand_base {
                 let quote_input = bid.remaining_input;
@@ -157,7 +157,7 @@ fn fill_from_fragment<T>(
             let bid = source;
             let price_selector = if ask.target.fee >= bid.fee { max } else { min };
             let price = price_selector(bid.price, ask.target.price);
-            let demand_base = ((bid.input as u128) * price.numer() / price.denom()) as u64;
+            let demand_base = ((bid.input as u128) * price.denom() / price.numer()) as u64;
             let supply_base = ask.remaining_input;
             if supply_base > demand_base {
                 ask.remaining_input -= demand_base;
@@ -226,6 +226,41 @@ fn fill_from_pool<T>(
 
 #[cfg(test)]
 mod tests {
+    use cml_core::Slot;
+    use futures::future::Either;
+    use num_rational::Ratio;
+
+    use crate::liquidity_book::fragment::Fragment;
+    use crate::liquidity_book::recipe::PartialFill;
+    use crate::liquidity_book::side::Side;
+    use crate::liquidity_book::temporal::fill_from_fragment;
+    use crate::liquidity_book::types::SourceId;
+    use crate::time::TimeBounds;
+
     #[test]
-    fn foo() {}
+    fn fill_fragment_from_fragment() {
+        // Assuming pair ADA/USDT @ 0.37
+        let fr1 = Fragment {
+            source: SourceId::random(),
+            input: 1000,
+            price: Ratio::new(37, 100),
+            fee: Ratio::new(1, 1000),
+            cost_hint: 100,
+            bounds: TimeBounds::None,
+        };
+        let fr2 = Fragment {
+            source: SourceId::random(),
+            input: 370,
+            price: Ratio::new(37, 100),
+            fee: Ratio::new(1, 1000),
+            cost_hint: 100,
+            bounds: TimeBounds::None,
+        };
+        let (fill_lt, fill_rt) = fill_from_fragment::<Slot>(Side::Ask(PartialFill::new(fr1)), fr2);
+        assert_eq!(fill_lt.any().output, fr2.input);
+        match fill_rt {
+            Either::Left(fill_rt) => assert_eq!(fill_rt.any().output, fr1.input),
+            Either::Right(_) => panic!()
+        }
+    }
 }
