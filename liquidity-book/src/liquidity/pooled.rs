@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use spectrum_offchain::data::Has;
 
-use crate::liquidity_book::types::{Price, SourceId};
+use crate::types::{Price, SourceId};
 
 pub trait PooledLiquidity<Pl> {
     fn best_price(&self) -> Option<Price>;

@@ -1,9 +1,9 @@
 use std::fmt::{Debug, Formatter};
 
 use num_rational::Ratio;
-use rand::{RngCore, thread_rng};
+use rand::{thread_rng, RngCore};
 
-use crate::liquidity_book::side::Side;
+use crate::side::Side;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub struct SourceId([u8; 32]);
@@ -11,7 +11,7 @@ pub struct SourceId([u8; 32]);
 impl SourceId {
     #[cfg(test)]
     pub fn random() -> SourceId {
-        let mut bf = [0u8;32];
+        let mut bf = [0u8; 32];
         thread_rng().fill_bytes(&mut bf);
         SourceId(bf)
     }

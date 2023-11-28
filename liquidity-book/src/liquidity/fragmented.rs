@@ -1,13 +1,12 @@
 use std::collections::btree_map::Entry;
 use std::collections::{hash_map, BTreeMap, BTreeSet, HashMap};
-use std::hash::Hash;
 use std::mem;
 
-use crate::liquidity_book::fragment::Fragment;
-use crate::liquidity_book::side::{Side, SideMarker};
-use crate::liquidity_book::types::{Price, SourceId};
+use crate::fragment::Fragment;
+use crate::side::{Side, SideMarker};
+use crate::types::{Price, SourceId};
 
-pub trait FragmentedLiquidity<T, Fr> {
+pub trait FragmentedLiquidity<Fr> {
     fn best_price(&self, side: SideMarker) -> Option<Side<Price>>;
     fn pick_either(&mut self) -> Option<Side<Fr>>;
     fn try_pick<F>(&mut self, side: SideMarker, test: F) -> Option<Fr>
@@ -16,43 +15,43 @@ pub trait FragmentedLiquidity<T, Fr> {
     fn return_fr(&mut self, fr: Side<Fr>);
 }
 
-pub trait FragmentStore<T, Fr> {
-    fn advance_clocks(&mut self, new_time: T);
+pub trait FragmentStore<Fr> {
+    fn advance_clocks(&mut self, new_time: u64);
     fn remove_fragments(&mut self, source: SourceId);
-    fn add_fragments(&mut self, source_id: SourceId, fr: Vec<Side<Fragment<T>>>);
+    fn add_fragments(&mut self, source_id: SourceId, fr: Vec<Side<Fr>>);
 }
 
 /// Liquidity fragments spread across time axis.
 #[derive(Debug, Clone)]
-struct Chronology<T, Fr> {
-    time_now: T,
+struct Chronology<Fr> {
+    time_now: u64,
     now: Fragments<Fr>,
-    later: BTreeMap<T, Fragments<Fr>>,
+    later: BTreeMap<u64, Fragments<Fr>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct InMemoryFragmentedLiquidity<T, Fr> {
-    chronology: Chronology<T, Fr>,
+pub struct InMemoryFragmentedLiquidity<Fr> {
+    chronology: Chronology<Fr>,
     sources: HashMap<SourceId, Vec<Side<Fr>>>,
 }
 
-impl<T> FragmentedLiquidity<T, Fragment<T>> for InMemoryFragmentedLiquidity<T, Fragment<T>>
+impl<Fr> FragmentedLiquidity<Fr> for InMemoryFragmentedLiquidity<Fr>
 where
-    T: Ord,
+    Fr: Fragment + Ord,
 {
     fn best_price(&self, side: SideMarker) -> Option<Side<Price>> {
         let side_store = match side {
             SideMarker::Bid => &self.chronology.now.bids,
             SideMarker::Ask => &self.chronology.now.asks,
         };
-        side_store.first().map(|fr| side.wrap(fr.price))
+        side_store.first().map(|fr| side.wrap(fr.price()))
     }
 
-    fn pick_either(&mut self) -> Option<Side<Fragment<T>>> {
+    fn pick_either(&mut self) -> Option<Side<Fr>> {
         let best_bid = self.chronology.now.bids.pop_first();
         let best_ask = self.chronology.now.asks.pop_first();
         match (best_bid, best_ask) {
-            (Some(bid), Some(ask)) if bid.fee >= ask.fee => Some(Side::Bid(bid)),
+            (Some(bid), Some(ask)) if bid.weight() >= ask.weight() => Some(Side::Bid(bid)),
             (Some(_), Some(ask)) => Some(Side::Ask(ask)),
             (Some(bid), None) => Some(Side::Bid(bid)),
             (None, Some(ask)) => Some(Side::Ask(ask)),
@@ -60,9 +59,9 @@ where
         }
     }
 
-    fn try_pick<F>(&mut self, side: SideMarker, test: F) -> Option<Fragment<T>>
+    fn try_pick<F>(&mut self, side: SideMarker, test: F) -> Option<Fr>
     where
-        F: FnOnce(&Fragment<T>) -> bool,
+        F: FnOnce(&Fr) -> bool,
     {
         let side = match side {
             SideMarker::Bid => &mut self.chronology.now.bids,
@@ -72,7 +71,7 @@ where
             .and_then(|best_bid| if test(&best_bid) { Some(best_bid) } else { None })
     }
 
-    fn return_fr(&mut self, fr: Side<Fragment<T>>) {
+    fn return_fr(&mut self, fr: Side<Fr>) {
         match fr {
             Side::Bid(bid) => self.chronology.now.bids.insert(bid),
             Side::Ask(ask) => self.chronology.now.bids.insert(ask),
@@ -80,11 +79,11 @@ where
     }
 }
 
-impl<T> FragmentStore<T, Fragment<T>> for InMemoryFragmentedLiquidity<T, Fragment<T>>
+impl<Fr> FragmentStore<Fr> for InMemoryFragmentedLiquidity<Fr>
 where
-    T: Ord + Copy + Eq + Hash,
+    Fr: Fragment + Copy + Ord,
 {
-    fn advance_clocks(&mut self, new_time: T) {
+    fn advance_clocks(&mut self, new_time: u64) {
         let new_slot = self
             .chronology
             .later
@@ -92,12 +91,12 @@ where
             .unwrap_or_else(|| Fragments::new());
         let Fragments { asks, bids } = mem::replace(&mut self.chronology.now, new_slot);
         for fr in asks {
-            if fr.bounds.contain(&new_time) {
+            if fr.time_bounds().contain(&new_time) {
                 self.chronology.now.asks.insert(fr);
             }
         }
         for fr in bids {
-            if fr.bounds.contain(&new_time) {
+            if fr.time_bounds().contain(&new_time) {
                 self.chronology.now.bids.insert(fr);
             }
         }
@@ -111,7 +110,7 @@ where
                 for fr in frs {
                     match fr {
                         Side::Bid(fr) => {
-                            if let Some(lb) = fr.bounds.lower_bound() {
+                            if let Some(lb) = fr.time_bounds().lower_bound() {
                                 if lb > self.chronology.time_now {
                                     if let Some(slot) = self.chronology.later.get_mut(&lb) {
                                         slot.bids.remove(&fr);
@@ -122,7 +121,7 @@ where
                             }
                         }
                         Side::Ask(fr) => {
-                            if let Some(lb) = fr.bounds.lower_bound() {
+                            if let Some(lb) = fr.time_bounds().lower_bound() {
                                 if lb > self.chronology.time_now {
                                     if let Some(slot) = self.chronology.later.get_mut(&lb) {
                                         slot.asks.remove(&fr);
@@ -139,10 +138,10 @@ where
         }
     }
 
-    fn add_fragments(&mut self, source: SourceId, frs: Vec<Side<Fragment<T>>>) {
+    fn add_fragments(&mut self, source: SourceId, frs: Vec<Side<Fr>>) {
         for fr in &frs {
             let any_side_fr = fr.any();
-            if let Some(initial_timeslot) = any_side_fr.bounds.lower_bound() {
+            if let Some(initial_timeslot) = any_side_fr.time_bounds().lower_bound() {
                 match self.chronology.later.entry(initial_timeslot) {
                     Entry::Vacant(e) => {
                         let mut fresh_fragments = Fragments::new();

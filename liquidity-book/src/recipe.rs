@@ -1,7 +1,7 @@
 use futures::future::Either;
 
-use crate::liquidity_book::fragment::Fragment;
-use crate::liquidity_book::side::{Side, SideMarker};
+use crate::fragment::Fragment;
+use crate::side::{Side, SideMarker};
 
 #[derive(Debug, Clone)]
 pub struct ExecutionRecipe<Fr, Pl> {
@@ -9,28 +9,31 @@ pub struct ExecutionRecipe<Fr, Pl> {
     pub remainder: Option<Side<PartialFill<Fr>>>,
 }
 
-impl<T, Pl> ExecutionRecipe<Fragment<T>, Pl> {
-    pub fn new(fr: Side<Fragment<T>>) -> Self {
+impl<Fr, Pl> ExecutionRecipe<Fr, Pl>
+where
+    Fr: Fragment,
+{
+    pub fn new(fr: Side<Fr>) -> Self {
         Self {
             terminal: Vec::new(),
             remainder: Some(fr.map(PartialFill::new)),
         }
     }
-    pub fn push(&mut self, instruction: TerminalInstruction<Fragment<T>, Pl>) {
+    pub fn push(&mut self, instruction: TerminalInstruction<Fr, Pl>) {
         self.terminal.push(instruction)
     }
-    pub fn terminate(&mut self, instruction: TerminalInstruction<Fragment<T>, Pl>) {
+    pub fn terminate(&mut self, instruction: TerminalInstruction<Fr, Pl>) {
         self.push(instruction);
         self.remainder = None;
     }
-    pub fn set_remainder(&mut self, remainder: Side<PartialFill<Fragment<T>>>) {
+    pub fn set_remainder(&mut self, remainder: Side<PartialFill<Fr>>) {
         self.remainder = Some(remainder);
     }
     pub fn is_complete(&self) -> bool {
         let terminal_fragments = self.terminal.len();
         terminal_fragments % 2 == 0 || (terminal_fragments > 0 && self.remainder.is_some())
     }
-    pub fn disassemble(self) -> Vec<Either<Side<Fragment<T>>, Pl>> {
+    pub fn disassemble(self) -> Vec<Either<Side<Fr>, Pl>> {
         let mut acc = Vec::new();
         for i in self.terminal {
             match i {
@@ -79,10 +82,13 @@ impl<Fr> From<PartialFill<Fr>> for Fill<Fr> {
     }
 }
 
-impl<T> PartialFill<Fragment<T>> {
-    pub fn new(fr: Fragment<T>) -> Self {
+impl<Fr> PartialFill<Fr>
+where
+    Fr: Fragment,
+{
+    pub fn new(fr: Fr) -> Self {
         Self {
-            remaining_input: fr.input,
+            remaining_input: fr.input(),
             target: fr,
             accumulated_output: 0,
         }
