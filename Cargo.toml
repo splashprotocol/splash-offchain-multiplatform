@@ -5,9 +5,11 @@ members = [
     "cardano-submit-api",
     "spectrum-offchain",
     "spectrum-offchain-cardano",
+    "spectrum-cardano-agent",
     "spectrum-cardano-lib",
-    "cardano-explorer"
-    #"spectrum-offchain-amm",
+    "cardano-explorer",
+    "bloom-offchain-cardano",
+    "liquidity-book",
 ]
 
 [profile.release]
