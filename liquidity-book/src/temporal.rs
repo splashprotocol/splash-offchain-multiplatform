@@ -83,7 +83,7 @@ where
                         (Some(_), _) if execution_units_left > 0 => {
                             if let Some(pool) = self.pooled_liquidity.try_pick(|pl| {
                                 rem.map(|fr| fr.target.price())
-                                    .overlaps(pl.real_price(rem.any().remaining_input))
+                                    .overlaps(pl.real_price(rem.map(|fr| fr.remaining_input)))
                             }) {
                                 let (term_fill, swap) = fill_from_pool(*rem, pool);
                                 acc.push(TerminalInstruction::Swap(swap));
@@ -203,7 +203,7 @@ where
     match target {
         Side::Bid(mut bid) => {
             let quote_input = bid.remaining_input;
-            let execution_amount = source.output(SideMarker::Bid, quote_input);
+            let execution_amount = source.output(Side::Bid(quote_input));
             bid.accumulated_output += execution_amount;
             (
                 Side::Bid(bid.into()),
@@ -217,7 +217,7 @@ where
         }
         Side::Ask(mut ask) => {
             let base_input = ask.remaining_input;
-            let execution_amount = source.output(SideMarker::Ask, base_input);
+            let execution_amount = source.output(Side::Ask(base_input));
             ask.accumulated_output += execution_amount;
             (
                 Side::Ask(ask.into()),
@@ -239,9 +239,10 @@ mod tests {
     use num_rational::Ratio;
 
     use crate::fragment::Fragment;
+    use crate::pool::Pool;
     use crate::recipe::PartialFill;
     use crate::side::Side;
-    use crate::temporal::fill_from_fragment;
+    use crate::temporal::{fill_from_fragment, fill_from_pool};
     use crate::time::TimeBounds;
     use crate::types::{ExecutionCost, Price, SourceId};
 
@@ -305,7 +306,7 @@ mod tests {
     #[test]
     fn prefer_fragment_with_better_fee() {
         // Assuming pair ADA/USDT @ ask price 0.37, bid price 0.36
-        let fr1 = SimpleFragment {
+        let ask_fr = SimpleFragment {
             source: SourceId::random(),
             input: 1000,
             price: Ratio::new(36, 100),
@@ -313,7 +314,7 @@ mod tests {
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
-        let fr2 = SimpleFragment {
+        let bid_fr = SimpleFragment {
             source: SourceId::random(),
             input: 360,
             price: Ratio::new(37, 100),
@@ -321,12 +322,44 @@ mod tests {
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
-        let (fill_lt, fill_rt) = fill_from_fragment(Side::Ask(PartialFill::new(fr1)), fr2);
-        assert_eq!(fill_lt.any().output, fr2.input);
+        let (fill_lt, fill_rt) = fill_from_fragment(Side::Ask(PartialFill::new(ask_fr)), bid_fr);
+        assert_eq!(fill_lt.any().output, bid_fr.input);
         match fill_rt {
-            Either::Left(fill_rt) => assert_eq!(fill_rt.any().output, fr1.input),
+            Either::Left(fill_rt) => assert_eq!(fill_rt.any().output, ask_fr.input),
             Either::Right(_) => panic!(),
         }
+    }
+
+    #[test]
+    fn fill_reminder_from_pool() {
+        // Assuming pair ADA/USDT @ ask price 0.360, real price in pool 0.364.
+        let ask_fr = SimpleFragment {
+            source: SourceId::random(),
+            input: 1000,
+            price: Ratio::new(36, 100),
+            fee: 1000,
+            cost_hint: 100,
+            bounds: TimeBounds::None,
+        };
+        let pf = PartialFill {
+            target: ask_fr,
+            remaining_input: 500,
+            accumulated_output: 180,
+        };
+        let pool = SimpleCFMMPool {
+            reserves_base: 100000000000000,
+            reserves_quote: 36600000000000,
+            fee_num: 997,
+        };
+        println!("Static price in pool: {}", pool.static_price());
+        let real_price_in_pool = pool.real_price(Side::Ask(pf.remaining_input));
+        println!("Real price in pool: {}", real_price_in_pool);
+        let (fill_lt, swap) = fill_from_pool(Side::Ask(pf), pool);
+        assert_eq!(swap.input, pf.remaining_input);
+        assert_eq!(
+            (fill_lt.any().output - pf.accumulated_output) as u128,
+            pf.remaining_input as u128 * real_price_in_pool.numer() / real_price_in_pool.denom()
+        );
     }
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -362,6 +395,47 @@ mod tests {
 
         fn time_bounds(&self) -> TimeBounds<Slot> {
             self.bounds
+        }
+    }
+
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+    pub struct SimpleCFMMPool {
+        reserves_base: u64,
+        reserves_quote: u64,
+        fee_num: u64,
+    }
+
+    impl Pool for SimpleCFMMPool {
+        fn static_price(&self) -> Price {
+            Ratio::new(self.reserves_quote as u128, self.reserves_base as u128)
+        }
+
+        fn real_price(&self, input: Side<u64>) -> Price {
+            match input {
+                Side::Bid(quote_input) => {
+                    let base_output = self.output(Side::Bid(quote_input));
+                    Ratio::new(quote_input as u128, base_output as u128)
+                }
+                Side::Ask(base_input) => {
+                    let quote_output = self.output(Side::Ask(base_input));
+                    Ratio::new(quote_output as u128, base_input as u128)
+                }
+            }
+        }
+
+        fn output(&self, input: Side<u64>) -> u64 {
+            match input {
+                Side::Bid(quote_input) => {
+                    ((self.reserves_base as u128) * (quote_input as u128) * (self.fee_num as u128)
+                        / ((self.reserves_quote as u128) * 1000u128
+                            + (quote_input as u128) * (self.fee_num as u128))) as u64
+                }
+                Side::Ask(base_input) => {
+                    ((self.reserves_quote as u128) * (base_input as u128) * (self.fee_num as u128)
+                        / ((self.reserves_base as u128) * 1000u128
+                            + (base_input as u128) * (self.fee_num as u128))) as u64
+                }
+            }
         }
     }
 }
