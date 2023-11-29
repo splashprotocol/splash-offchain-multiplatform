@@ -2,15 +2,17 @@ use std::cmp::{max, min};
 
 use futures::future::Either;
 
-use crate::effect::Effect;
-use crate::fragment::Fragment;
-use crate::liquidity::fragmented::{FragmentStore, FragmentedLiquidity};
-use crate::liquidity::pooled::{PoolStore, PooledLiquidity};
-use crate::pool::Pool;
-use crate::recipe::{ExecutionRecipe, Fill, PartialFill, Swap, TerminalInstruction};
-use crate::side::{Side, SideMarker};
-use crate::types::ExecutionCost;
-use crate::LiquidityBook;
+use crate::execution_engine::liquidity_book::effect::Effect;
+use crate::execution_engine::liquidity_book::fragment::Fragment;
+use crate::execution_engine::liquidity_book::liquidity::fragmented::{FragmentStore, FragmentedLiquidity};
+use crate::execution_engine::liquidity_book::liquidity::pooled::{PoolStore, PooledLiquidity};
+use crate::execution_engine::liquidity_book::pool::Pool;
+use crate::execution_engine::liquidity_book::recipe::{
+    ExecutionRecipe, Fill, PartialFill, Swap, TerminalInstruction,
+};
+use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
+use crate::execution_engine::liquidity_book::types::ExecutionCost;
+use crate::execution_engine::liquidity_book::LiquidityBook;
 
 pub struct ExecutionCap {
     pub soft: ExecutionCost,
@@ -238,13 +240,14 @@ mod tests {
     use futures::future::Either;
     use num_rational::Ratio;
 
-    use crate::fragment::Fragment;
-    use crate::pool::Pool;
-    use crate::recipe::PartialFill;
-    use crate::side::Side;
-    use crate::temporal::{fill_from_fragment, fill_from_pool};
-    use crate::time::TimeBounds;
-    use crate::types::{ExecutionCost, Price, SourceId};
+    use crate::execution_engine::liquidity_book::fragment::Fragment;
+    use crate::execution_engine::liquidity_book::pool::Pool;
+    use crate::execution_engine::liquidity_book::recipe::PartialFill;
+    use crate::execution_engine::liquidity_book::side::Side;
+    use crate::execution_engine::liquidity_book::temporal::{fill_from_fragment, fill_from_pool};
+    use crate::execution_engine::liquidity_book::time::TimeBounds;
+    use crate::execution_engine::liquidity_book::types::{ExecutionCost, Price};
+    use crate::execution_engine::SourceId;
 
     #[test]
     fn fill_fragment_from_fragment() {

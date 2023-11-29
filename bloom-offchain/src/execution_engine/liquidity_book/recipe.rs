@@ -1,7 +1,7 @@
 use futures::future::Either;
 
-use crate::fragment::Fragment;
-use crate::side::{Side, SideMarker};
+use crate::execution_engine::liquidity_book::fragment::Fragment;
+use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
 
 #[derive(Debug, Clone)]
 pub struct ExecutionRecipe<Fr, Pl> {

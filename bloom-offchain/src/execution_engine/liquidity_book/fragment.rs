@@ -1,5 +1,6 @@
-use crate::time::TimeBounds;
-use crate::types::{ExecutionCost, Price, SourceId};
+use crate::execution_engine::liquidity_book::time::TimeBounds;
+use crate::execution_engine::liquidity_book::types::{ExecutionCost, Price};
+use crate::execution_engine::SourceId;
 
 /// Discrete fragment of liquidity available at a specified timeframe at a specified price.
 pub trait Fragment {

@@ -8,8 +8,7 @@ members = [
     "spectrum-cardano-agent",
     "spectrum-cardano-lib",
     "cardano-explorer",
-    "bloom-offchain-cardano",
-    "liquidity-book",
+    "bloom-offchain",
 ]
 
 [profile.release]

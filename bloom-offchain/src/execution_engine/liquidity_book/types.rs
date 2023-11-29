@@ -1,27 +1,6 @@
-use std::fmt::{Debug, Formatter};
-
 use num_rational::Ratio;
-use rand::{thread_rng, RngCore};
 
-use crate::side::Side;
-
-#[derive(Copy, Clone, Eq, PartialEq, Hash)]
-pub struct SourceId([u8; 32]);
-
-impl SourceId {
-    #[cfg(test)]
-    pub fn random() -> SourceId {
-        let mut bf = [0u8; 32];
-        thread_rng().fill_bytes(&mut bf);
-        SourceId(bf)
-    }
-}
-
-impl Debug for SourceId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&*hex::encode(&self.0))
-    }
-}
+use crate::execution_engine::liquidity_book::side::Side;
 
 pub type ExecutionCost = u32;
 
