@@ -1,5 +1,5 @@
-use crate::side::Side;
-use crate::types::Price;
+use crate::execution_engine::liquidity_book::side::Side;
+use crate::execution_engine::liquidity_book::types::Price;
 
 /// Pooled liquidity.
 pub trait Pool {

@@ -2,9 +2,10 @@ use std::collections::btree_map::Entry;
 use std::collections::{hash_map, BTreeMap, BTreeSet, HashMap};
 use std::mem;
 
-use crate::fragment::Fragment;
-use crate::side::{Side, SideMarker};
-use crate::types::{Price, SourceId};
+use crate::execution_engine::liquidity_book::fragment::Fragment;
+use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
+use crate::execution_engine::liquidity_book::types::Price;
+use crate::execution_engine::SourceId;
 
 pub trait FragmentedLiquidity<Fr> {
     fn best_price(&self, side: SideMarker) -> Option<Side<Price>>;
