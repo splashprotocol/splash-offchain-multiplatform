@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::execution_engine::SourceId;
 
 pub trait SourceDB<Src> {
-    /// Query resolved source by [SourceId].
+    /// Take resolved source by [SourceId].
     /// Source is always available.
     fn take_unsafe(&mut self, source_id: SourceId) -> Src;
     fn put(&mut self, source_id: SourceId, source: Src);

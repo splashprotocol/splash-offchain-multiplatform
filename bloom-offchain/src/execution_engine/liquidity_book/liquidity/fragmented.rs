@@ -1,5 +1,5 @@
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::collections::btree_map::Entry;
-use std::collections::{hash_map, BTreeMap, BTreeSet, HashMap};
 use std::mem;
 
 use crate::execution_engine::liquidity_book::fragment::Fragment;
@@ -19,7 +19,7 @@ pub trait FragmentedLiquidity<Fr> {
 pub trait FragmentStore<Fr> {
     fn advance_clocks(&mut self, new_time: u64);
     fn remove_fragments(&mut self, source: SourceId);
-    fn add_fragments(&mut self, source_id: SourceId, fr: Vec<Side<Fr>>);
+    fn add_fragment(&mut self, fr: Side<Fr>);
 }
 
 /// Liquidity fragments spread across time axis.
@@ -33,7 +33,7 @@ struct Chronology<Fr> {
 #[derive(Debug, Clone)]
 pub struct InMemoryFragmentedLiquidity<Fr> {
     chronology: Chronology<Fr>,
-    sources: HashMap<SourceId, Vec<Side<Fr>>>,
+    index: HashMap<SourceId, Side<Fr>>,
 }
 
 impl<Fr> FragmentedLiquidity<Fr> for InMemoryFragmentedLiquidity<Fr>
@@ -92,76 +92,68 @@ where
             .unwrap_or_else(|| Fragments::new());
         let Fragments { asks, bids } = mem::replace(&mut self.chronology.now, new_slot);
         for fr in asks {
-            if fr.time_bounds().contain(&new_time) {
-                self.chronology.now.asks.insert(fr);
+            if let Some(next_fr) = fr.advance_time(new_time) {
+                self.chronology.now.asks.insert(next_fr);
             }
         }
         for fr in bids {
-            if fr.time_bounds().contain(&new_time) {
-                self.chronology.now.bids.insert(fr);
+            if let Some(next_fr) = fr.advance_time(new_time) {
+                self.chronology.now.bids.insert(next_fr);
             }
         }
         self.chronology.time_now = new_time;
     }
 
     fn remove_fragments(&mut self, source: SourceId) {
-        match self.sources.entry(source) {
-            hash_map::Entry::Occupied(occupied) => {
-                let frs = occupied.remove();
-                for fr in frs {
+        if let Some(fr) = self.index.remove(&source) {
+            if let Some(initial_timeslot) = fr.any().time_bounds().lower_bound() {
+                if initial_timeslot <= self.chronology.time_now {
                     match fr {
-                        Side::Bid(fr) => {
-                            if let Some(lb) = fr.time_bounds().lower_bound() {
-                                if lb > self.chronology.time_now {
-                                    if let Some(slot) = self.chronology.later.get_mut(&lb) {
-                                        slot.bids.remove(&fr);
-                                    }
-                                } else {
-                                    self.chronology.now.bids.remove(&fr);
-                                }
-                            }
+                        Side::Bid(fr) => self.chronology.now.bids.remove(&fr),
+                        Side::Ask(fr) => self.chronology.now.asks.remove(&fr),
+                    };
+                } else {
+                    match self.chronology.later.entry(initial_timeslot) {
+                        Entry::Occupied(e) => {
+                            match fr {
+                                Side::Bid(fr) => e.into_mut().bids.remove(&fr),
+                                Side::Ask(fr) => e.into_mut().asks.remove(&fr),
+                            };
                         }
-                        Side::Ask(fr) => {
-                            if let Some(lb) = fr.time_bounds().lower_bound() {
-                                if lb > self.chronology.time_now {
-                                    if let Some(slot) = self.chronology.later.get_mut(&lb) {
-                                        slot.asks.remove(&fr);
-                                    }
-                                } else {
-                                    self.chronology.now.asks.remove(&fr);
-                                }
-                            }
-                        }
+                        Entry::Vacant(_) => {}
                     }
                 }
             }
-            _ => {}
         }
     }
 
-    fn add_fragments(&mut self, source: SourceId, frs: Vec<Side<Fr>>) {
-        for fr in &frs {
-            let any_side_fr = fr.any();
-            if let Some(initial_timeslot) = any_side_fr.time_bounds().lower_bound() {
+    fn add_fragment(&mut self, fr: Side<Fr>) {
+        self.index.insert(fr.any().source(), fr);
+        if let Some(initial_timeslot) = fr.any().time_bounds().lower_bound() {
+            if initial_timeslot <= self.chronology.time_now {
+                match fr {
+                    Side::Bid(fr) => self.chronology.now.bids.insert(fr),
+                    Side::Ask(fr) => self.chronology.now.asks.insert(fr),
+                };
+            } else {
                 match self.chronology.later.entry(initial_timeslot) {
                     Entry::Vacant(e) => {
                         let mut fresh_fragments = Fragments::new();
                         match fr {
-                            Side::Bid(fr) => fresh_fragments.bids.insert(*fr),
-                            Side::Ask(fr) => fresh_fragments.asks.insert(*fr),
+                            Side::Bid(fr) => fresh_fragments.bids.insert(fr),
+                            Side::Ask(fr) => fresh_fragments.asks.insert(fr),
                         };
                         e.insert(fresh_fragments);
                     }
                     Entry::Occupied(e) => {
                         match fr {
-                            Side::Bid(fr) => e.into_mut().bids.insert(*fr),
-                            Side::Ask(fr) => e.into_mut().asks.insert(*fr),
+                            Side::Bid(fr) => e.into_mut().bids.insert(fr),
+                            Side::Ask(fr) => e.into_mut().asks.insert(fr),
                         };
                     }
                 }
             }
         }
-        self.sources.insert(source, frs);
     }
 }
 

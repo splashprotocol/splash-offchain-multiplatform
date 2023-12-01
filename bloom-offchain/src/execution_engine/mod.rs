@@ -1,11 +1,11 @@
 use std::fmt::{Debug, Formatter};
 
-use rand::{thread_rng, RngCore};
+use rand::{RngCore, thread_rng};
 
-mod effect;
-mod interpreter;
+pub mod effect;
+pub mod interpreter;
 pub mod liquidity_book;
-mod source_db;
+pub mod source_db;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub struct SourceId([u8; 32]);

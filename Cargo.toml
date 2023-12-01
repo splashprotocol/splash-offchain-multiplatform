@@ -9,6 +9,7 @@ members = [
     "spectrum-cardano-lib",
     "cardano-explorer",
     "bloom-offchain",
+    "bloom-offchain-cardano",
 ]
 
 [profile.release]

@@ -4,15 +4,15 @@ use futures::future::Either;
 
 use crate::execution_engine::liquidity_book::effect::Effect;
 use crate::execution_engine::liquidity_book::fragment::Fragment;
-use crate::execution_engine::liquidity_book::liquidity::fragmented::{FragmentStore, FragmentedLiquidity};
-use crate::execution_engine::liquidity_book::liquidity::pooled::{PoolStore, PooledLiquidity};
+use crate::execution_engine::liquidity_book::liquidity::fragmented::{FragmentedLiquidity, FragmentStore};
+use crate::execution_engine::liquidity_book::liquidity::pooled::{PooledLiquidity, PoolStore};
+use crate::execution_engine::liquidity_book::LiquidityBook;
 use crate::execution_engine::liquidity_book::pool::Pool;
 use crate::execution_engine::liquidity_book::recipe::{
     ExecutionRecipe, Fill, PartialFill, Swap, TerminalInstruction,
 };
 use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
 use crate::execution_engine::liquidity_book::types::ExecutionCost;
-use crate::execution_engine::liquidity_book::LiquidityBook;
 
 pub struct ExecutionCap {
     pub soft: ExecutionCost,
@@ -39,12 +39,6 @@ where
     PL: PooledLiquidity<Pl> + PoolStore<Pl>,
 {
     fn apply(&mut self, effect: Effect<Fr, Pl>) {
-        match effect {
-            Effect::ClocksAdvanced(new_time) => self.fragmented_liquidity.advance_clocks(new_time),
-            Effect::BatchAddFragments(source, frs) => self.fragmented_liquidity.add_fragments(source, frs),
-            Effect::BatchRemoveFragments(id) => self.fragmented_liquidity.remove_fragments(id),
-            Effect::PoolUpdated(new_pool) => self.pooled_liquidity.update_pool(new_pool),
-        }
     }
 
     fn attempt(&mut self) -> Option<ExecutionRecipe<Fr, Pl>> {
@@ -70,11 +64,11 @@ where
                             {
                                 execution_units_left -= opposite_fr.cost_hint();
                                 match fill_from_fragment(*rem, opposite_fr) {
-                                    (term_fill_lt, Either::Left(term_fill_rt)) => {
+                                    FillFromFragment { term_fill_lt: (term_fill_lt, succ_lt), term_fill_rt: Either::Left((term_fill_rt, succ_rt)) } => {
                                         acc.push(TerminalInstruction::Fill(term_fill_lt));
                                         acc.terminate(TerminalInstruction::Fill(term_fill_rt));
                                     }
-                                    (term_fill_lt, Either::Right(partial)) => {
+                                    FillFromFragment { term_fill_lt: (term_fill_lt, succ_lt), term_fill_rt: Either::Right(partial) } => {
                                         acc.push(TerminalInstruction::Fill(term_fill_lt));
                                         acc.set_remainder(partial);
                                         continue;
@@ -113,12 +107,17 @@ where
     }
 }
 
+struct FillFromFragment<Fr> {
+    term_fill_lt: (Side<Fill<Fr>>, Option<Side<Fr>>),
+    term_fill_rt: Either<(Side<Fill<Fr>>, Option<Side<Fr>>), Side<PartialFill<Fr>>>,
+}
+
 fn fill_from_fragment<Fr>(
     target: Side<PartialFill<Fr>>,
     source: Fr,
-) -> (Side<Fill<Fr>>, Either<Side<Fill<Fr>>, Side<PartialFill<Fr>>>)
+) -> FillFromFragment<Fr>
 where
-    Fr: Fragment,
+    Fr: Fragment + Copy,
 {
     match target {
         Side::Bid(mut bid) => {
@@ -134,29 +133,29 @@ where
             if supply_base > demand_base {
                 let quote_input = bid.remaining_input;
                 bid.accumulated_output += demand_base;
-                (
-                    Side::Bid(bid.into()),
-                    Either::Right(Side::Ask(PartialFill {
+                FillFromFragment {
+                    term_fill_lt: Side::Bid(bid).terminate_unsafe(),
+                    term_fill_rt: Either::Right(Side::Ask(PartialFill {
                         target: ask,
                         remaining_input: supply_base - demand_base,
                         accumulated_output: quote_input,
                     })),
-                )
+                }
             } else if supply_base < demand_base {
                 let quote_executed = ((supply_base as u128) * price.denom() / price.numer()) as u64;
                 bid.remaining_input -= quote_executed;
                 bid.accumulated_output += supply_base;
-                (
-                    Side::Ask(Fill::new(ask, quote_executed)),
-                    Either::Right(Side::Bid(bid)),
-                )
+                FillFromFragment {
+                    term_fill_lt: (Side::Ask(Fill::new(ask, quote_executed)), ask.satisfy(quote_executed)),
+                    term_fill_rt: Either::Right(Side::Bid(bid)),
+                }
             } else {
                 let quote_executed = ((supply_base as u128) * price.denom() / price.numer()) as u64;
                 bid.accumulated_output += demand_base;
-                (
-                    Side::Bid(bid.into()),
-                    Either::Left(Side::Ask(Fill::new(ask, quote_executed))),
-                )
+                FillFromFragment {
+                    term_fill_lt: Side::Bid(bid).terminate_unsafe(),
+                    term_fill_rt: Either::Left((Side::Ask(Fill::new(ask, quote_executed)), ask.satisfy(quote_executed))),
+                }
             }
         }
         Side::Ask(mut ask) => {
@@ -172,27 +171,27 @@ where
             if supply_base > demand_base {
                 ask.remaining_input -= demand_base;
                 ask.accumulated_output += bid.input();
-                (
-                    Side::Bid(Fill::new(bid, demand_base)),
-                    Either::Right(Side::Ask(ask)),
-                )
+                FillFromFragment {
+                    term_fill_lt: (Side::Bid(Fill::new(bid, demand_base)), bid.satisfy(demand_base)),
+                    term_fill_rt:  Either::Right(Side::Ask(ask)),
+                }
             } else if supply_base < demand_base {
                 let quote_executed = ((supply_base as u128) * price.denom() / price.numer()) as u64;
                 ask.accumulated_output += quote_executed;
-                (
-                    Side::Ask(ask.into()),
-                    Either::Right(Side::Bid(PartialFill {
+                FillFromFragment {
+                    term_fill_lt: Side::Ask(ask).terminate_unsafe(),
+                    term_fill_rt: Either::Right(Side::Bid(PartialFill {
                         remaining_input: bid.input() - quote_executed,
                         target: bid,
                         accumulated_output: supply_base,
                     })),
-                )
+                }
             } else {
                 ask.accumulated_output += bid.input();
-                (
-                    Side::Ask(ask.into()),
-                    Either::Left(Side::Bid(Fill::new(bid, demand_base))),
-                )
+                FillFromFragment {
+                    term_fill_lt: Side::Ask(ask).terminate_unsafe(),
+                    term_fill_rt: Either::Left((Side::Bid(Fill::new(bid, demand_base)), bid.satisfy(demand_base))),
+                }
             }
         }
     }
@@ -244,7 +243,7 @@ mod tests {
     use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::recipe::PartialFill;
     use crate::execution_engine::liquidity_book::side::Side;
-    use crate::execution_engine::liquidity_book::temporal::{fill_from_fragment, fill_from_pool};
+    use crate::execution_engine::liquidity_book::temporal::{fill_from_fragment, fill_from_pool, FillFromFragment};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::{ExecutionCost, Price};
     use crate::execution_engine::SourceId;
@@ -268,10 +267,10 @@ mod tests {
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
-        let (fill_lt, fill_rt) = fill_from_fragment(Side::Ask(PartialFill::new(fr1)), fr2);
-        assert_eq!(fill_lt.any().output, fr2.input);
-        match fill_rt {
-            Either::Left(fill_rt) => assert_eq!(fill_rt.any().output, fr1.input),
+        let FillFromFragment { term_fill_lt, term_fill_rt } = fill_from_fragment(Side::Ask(PartialFill::new(fr1)), fr2);
+        assert_eq!(term_fill_lt.0.any().output, fr2.input);
+        match term_fill_rt {
+            Either::Left(fill_rt) => assert_eq!(fill_rt.0.any().output, fr1.input),
             Either::Right(_) => panic!(),
         }
     }
@@ -295,12 +294,12 @@ mod tests {
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
-        let (fill_lt, fill_rt) = fill_from_fragment(Side::Ask(PartialFill::new(fr1)), fr2);
+        let FillFromFragment { term_fill_lt, term_fill_rt } = fill_from_fragment(Side::Ask(PartialFill::new(fr1)), fr2);
         assert_eq!(
-            fill_lt.any().output,
+            term_fill_lt.0.any().output,
             ((fr2.input as u128) * fr1.price.denom() / fr1.price.numer()) as u64
         );
-        match fill_rt {
+        match term_fill_rt {
             Either::Right(fill_rt) => assert_eq!(fill_rt.any().accumulated_output, fr2.input),
             Either::Left(_) => panic!(),
         }
@@ -325,10 +324,10 @@ mod tests {
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
-        let (fill_lt, fill_rt) = fill_from_fragment(Side::Ask(PartialFill::new(ask_fr)), bid_fr);
-        assert_eq!(fill_lt.any().output, bid_fr.input);
-        match fill_rt {
-            Either::Left(fill_rt) => assert_eq!(fill_rt.any().output, ask_fr.input),
+        let FillFromFragment { term_fill_lt, term_fill_rt } = fill_from_fragment(Side::Ask(PartialFill::new(ask_fr)), bid_fr);
+        assert_eq!(term_fill_lt.0.any().output, bid_fr.input);
+        match term_fill_rt {
+            Either::Left(fill_rt) => assert_eq!(fill_rt.0.any().output, ask_fr.input),
             Either::Right(_) => panic!(),
         }
     }
@@ -398,6 +397,14 @@ mod tests {
 
         fn time_bounds(&self) -> TimeBounds<Slot> {
             self.bounds
+        }
+
+        fn advance_time(self, time: u64) -> Option<Self> {
+            Some(self)
+        }
+
+        fn satisfy(mut self, output: u64) -> Option<Side<Self>> {
+            None
         }
     }
 

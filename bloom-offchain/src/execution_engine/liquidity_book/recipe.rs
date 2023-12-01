@@ -31,7 +31,7 @@ where
     }
     pub fn is_complete(&self) -> bool {
         let terminal_fragments = self.terminal.len();
-        terminal_fragments % 2 == 0 || (terminal_fragments > 0 && self.remainder.is_some())
+        terminal_fragments >= 2 || (terminal_fragments > 0 && self.remainder.is_some())
     }
     pub fn disassemble(self) -> Vec<Either<Side<Fr>, Pl>> {
         let mut acc = Vec::new();
@@ -71,6 +71,24 @@ pub struct PartialFill<Fr> {
     pub target: Fr,
     pub remaining_input: u64,
     pub accumulated_output: u64,
+}
+
+impl<Fr> Side<PartialFill<Fr>>
+where
+    Fr: Fragment + Copy,
+{
+    /// Force fill target fragment.
+    /// Does not guarantee that the fragment is actually fully satisfied.
+    pub fn terminate_unsafe(self) -> (Side<Fill<Fr>>, Option<Side<Fr>>) {
+        let this = self.any();
+        (
+            self.map(move |_| Fill {
+                target: this.target,
+                output: this.accumulated_output,
+            }),
+            this.target.satisfy(this.accumulated_output),
+        )
+    }
 }
 
 impl<Fr> From<PartialFill<Fr>> for Fill<Fr> {
