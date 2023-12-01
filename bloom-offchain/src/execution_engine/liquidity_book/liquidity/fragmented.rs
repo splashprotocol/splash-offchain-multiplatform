@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::collections::btree_map::Entry;
 use std::mem;
 
-use crate::execution_engine::liquidity_book::fragment::Fragment;
+use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
 use crate::execution_engine::liquidity_book::types::Price;
 use crate::execution_engine::SourceId;
@@ -82,7 +82,7 @@ where
 
 impl<Fr> FragmentStore<Fr> for InMemoryFragmentedLiquidity<Fr>
 where
-    Fr: Fragment + Copy + Ord,
+    Fr: Fragment + OrderState + Copy + Ord,
 {
     fn advance_clocks(&mut self, new_time: u64) {
         let new_slot = self
@@ -92,12 +92,12 @@ where
             .unwrap_or_else(|| Fragments::new());
         let Fragments { asks, bids } = mem::replace(&mut self.chronology.now, new_slot);
         for fr in asks {
-            if let Some(next_fr) = fr.advance_time(new_time) {
+            if let StateTrans::Active(next_fr) = fr.with_updated_time(new_time) {
                 self.chronology.now.asks.insert(next_fr);
             }
         }
         for fr in bids {
-            if let Some(next_fr) = fr.advance_time(new_time) {
+            if let StateTrans::Active(next_fr) = fr.with_updated_time(new_time) {
                 self.chronology.now.bids.insert(next_fr);
             }
         }

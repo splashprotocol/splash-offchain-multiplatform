@@ -1,6 +1,6 @@
 use futures::future::Either;
 
-use crate::execution_engine::liquidity_book::fragment::Fragment;
+use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
 
 #[derive(Debug, Clone)]
@@ -73,20 +73,19 @@ pub struct PartialFill<Fr> {
     pub accumulated_output: u64,
 }
 
-impl<Fr> Side<PartialFill<Fr>>
+impl<Fr> PartialFill<Fr>
 where
-    Fr: Fragment + Copy,
+    Fr: Fragment + OrderState + Copy,
 {
     /// Force fill target fragment.
     /// Does not guarantee that the fragment is actually fully satisfied.
-    pub fn terminate_unsafe(self) -> (Side<Fill<Fr>>, Option<Side<Fr>>) {
-        let this = self.any();
+    pub fn into_filled(self) -> (Fill<Fr>, StateTrans<Fr>) {
         (
-            self.map(move |_| Fill {
-                target: this.target,
-                output: this.accumulated_output,
-            }),
-            this.target.satisfy(this.accumulated_output),
+            Fill {
+                target: self.target,
+                output: self.accumulated_output,
+            },
+            self.target.with_updated_liquidity(self.target.input(), self.accumulated_output),
         )
     }
 }
