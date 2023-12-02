@@ -6,11 +6,14 @@ use bloom_offchain::execution_engine::liquidity_book::recipe::{ExecutionRecipe, 
 use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 
 pub struct CardanoRecipeInterpreter<Ctx> {
-    ctx: Ctx
+    ctx: Ctx,
 }
 
 impl<Fr, Pl, Src, Ctx> RecipeInterpreter<Fr, Pl, Src, SignedTxBuilder> for CardanoRecipeInterpreter<Ctx> {
-    fn run(&self, ExecutionRecipe{terminal, remainder}: ExecutionRecipe<Fr, Pl>) -> (SignedTxBuilder, Vec<InternalEffect<Fr, Pl, Src>>) {
+    fn run(
+        &self,
+        ExecutionRecipe { terminal, remainder }: ExecutionRecipe<Fr, Pl>,
+    ) -> (SignedTxBuilder, Vec<InternalEffect<Fr, Pl, Src>>) {
         let mut tx_builder = constant_tx_builder();
         for instruction in terminal {
             match instruction {

@@ -11,12 +11,13 @@ pub trait SourceDB<Src> {
 }
 
 pub struct InMemorySourceDB<Src> {
-    store: HashMap<SourceId, Src>
+    store: HashMap<SourceId, Src>,
 }
 
 impl<Src> SourceDB<Src> for InMemorySourceDB<Src> {
     fn take_unsafe(&mut self, source_id: SourceId) -> Src {
-        self.store.remove(&source_id)
+        self.store
+            .remove(&source_id)
             .expect("Source is supposed to always be available")
     }
 

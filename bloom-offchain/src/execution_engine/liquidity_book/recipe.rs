@@ -1,22 +1,22 @@
 use futures::future::Either;
 
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
+use crate::execution_engine::liquidity_book::side::SideMarker;
 
 #[derive(Debug, Clone)]
 pub struct ExecutionRecipe<Fr, Pl> {
     pub terminal: Vec<TerminalInstruction<Fr, Pl>>,
-    pub remainder: Option<Side<PartialFill<Fr>>>,
+    pub remainder: Option<PartialFill<Fr>>,
 }
 
 impl<Fr, Pl> ExecutionRecipe<Fr, Pl>
 where
     Fr: Fragment,
 {
-    pub fn new(fr: Side<Fr>) -> Self {
+    pub fn new(fr: Fr) -> Self {
         Self {
             terminal: Vec::new(),
-            remainder: Some(fr.map(PartialFill::new)),
+            remainder: Some(PartialFill::new(fr)),
         }
     }
     pub fn push(&mut self, instruction: TerminalInstruction<Fr, Pl>) {
@@ -26,23 +26,23 @@ where
         self.push(instruction);
         self.remainder = None;
     }
-    pub fn set_remainder(&mut self, remainder: Side<PartialFill<Fr>>) {
+    pub fn set_remainder(&mut self, remainder: PartialFill<Fr>) {
         self.remainder = Some(remainder);
     }
     pub fn is_complete(&self) -> bool {
         let terminal_fragments = self.terminal.len();
         terminal_fragments >= 2 || (terminal_fragments > 0 && self.remainder.is_some())
     }
-    pub fn disassemble(self) -> Vec<Either<Side<Fr>, Pl>> {
+    pub fn disassemble(self) -> Vec<Either<Fr, Pl>> {
         let mut acc = Vec::new();
         for i in self.terminal {
             match i {
-                TerminalInstruction::Fill(fill) => acc.push(Either::Left(fill.map(|f| f.target))),
+                TerminalInstruction::Fill(fill) => acc.push(Either::Left(fill.target)),
                 TerminalInstruction::Swap(swap) => acc.push(Either::Right(swap.target)),
             }
         }
         if let Some(partial) = self.remainder {
-            acc.push(Either::Left(partial.map(|f| f.target)));
+            acc.push(Either::Left(partial.target));
         }
         acc
     }
@@ -50,7 +50,7 @@ where
 
 #[derive(Debug, Copy, Clone)]
 pub enum TerminalInstruction<Fr, Pl> {
-    Fill(Side<Fill<Fr>>),
+    Fill(Fill<Fr>),
     Swap(Swap<Pl>),
 }
 
@@ -85,7 +85,8 @@ where
                 target: self.target,
                 output: self.accumulated_output,
             },
-            self.target.with_updated_liquidity(self.target.input(), self.accumulated_output),
+            self.target
+                .with_updated_liquidity(self.target.input(), self.accumulated_output),
         )
     }
 }

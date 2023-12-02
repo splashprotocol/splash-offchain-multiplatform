@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Formatter};
 
-use rand::{RngCore, thread_rng};
+use rand::{thread_rng, RngCore};
 
 pub mod effect;
 pub mod interpreter;

@@ -8,5 +8,5 @@ pub trait Pool {
     /// Real price of swap.
     fn real_price(&self, input: Side<u64>) -> Price;
     /// Output of a swap.
-    fn output(&self, input: Side<u64>) -> u64;
+    fn swap(self, input: Side<u64>) -> (u64, Self);
 }
