@@ -2,14 +2,13 @@ use crate::execution_engine::liquidity_book::recipe::ExecutionRecipe;
 
 pub mod effect;
 pub mod fragment;
-pub mod liquidity;
 pub mod pool;
 pub mod recipe;
 pub mod side;
+mod state;
 pub mod temporal;
 pub mod time;
 pub mod types;
-mod state;
 
 /// Universal liquidity aggregator (ULA) - aggregates any piece of composable liquidity available in the market.
 /// Composable liquidity falls into two essential categories:

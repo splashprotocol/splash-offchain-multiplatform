@@ -6,15 +6,13 @@ use spectrum_offchain::data::Has;
 
 use crate::execution_engine::liquidity_book::effect::Effect;
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-use crate::execution_engine::liquidity_book::liquidity::fragmented::{FragmentedLiquidity, FragmentStore};
-use crate::execution_engine::liquidity_book::liquidity::pooled::{PooledLiquidity, PoolStore};
 use crate::execution_engine::liquidity_book::LiquidityBook;
 use crate::execution_engine::liquidity_book::pool::Pool;
 use crate::execution_engine::liquidity_book::recipe::{
     ExecutionRecipe, Fill, PartialFill, Swap, TerminalInstruction,
 };
 use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
-use crate::execution_engine::liquidity_book::state::TLBState;
+use crate::execution_engine::liquidity_book::state::{QualityMetric, TLBState};
 use crate::execution_engine::liquidity_book::types::ExecutionCost;
 use crate::execution_engine::SourceId;
 
@@ -37,7 +35,7 @@ pub struct TemporalLiquidityBook<Fr, Pl> {
 impl<Fr, Pl> LiquidityBook<Fr, Pl, Effect<Fr, Pl>> for TemporalLiquidityBook<Fr, Pl>
 where
     Fr: Fragment + OrderState + Copy + Ord,
-    Pl: Pool + Has<SourceId> + Copy,
+    Pl: Pool + QualityMetric + Has<SourceId> + Copy,
 {
     fn apply(&mut self, effect: Effect<Fr, Pl>) {}
 
@@ -108,7 +106,7 @@ where
                 for fr in acc.disassemble() {
                     match fr {
                         Either::Left(fr) => self.state.fragments_mut().return_fr(fr),
-                        Either::Right(pl) => {},
+                        Either::Right(pl) => {}
                     }
                 }
             }
