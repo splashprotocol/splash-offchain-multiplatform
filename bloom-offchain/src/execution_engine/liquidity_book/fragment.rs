@@ -12,7 +12,7 @@ pub trait OrderState: Sized {
 #[derive(Debug, Copy, Clone)]
 pub enum StateTrans<T> {
     Active(T),
-    EOL(T),
+    EOL,
 }
 
 /// Immutable discrete fragment of liquidity available at a specified timeframe at a specified price.

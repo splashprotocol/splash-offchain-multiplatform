@@ -67,6 +67,12 @@ where
                                     } => {
                                         acc.push(TerminalInstruction::Fill(term_fill_lt));
                                         acc.terminate(TerminalInstruction::Fill(term_fill_rt));
+                                        if let StateTrans::Active(succ_lt) = succ_lt {
+                                            self.state.pre_add_fragment(succ_lt);
+                                        }
+                                        if let StateTrans::Active(succ_rt) = succ_rt {
+                                            self.state.pre_add_fragment(succ_rt);
+                                        }
                                     }
                                     FillFromFragment {
                                         term_fill_lt: (term_fill_lt, succ_lt),
@@ -74,6 +80,9 @@ where
                                     } => {
                                         acc.push(TerminalInstruction::Fill(term_fill_lt));
                                         acc.set_remainder(partial);
+                                        if let StateTrans::Active(succ_lt) = succ_lt {
+                                            self.state.pre_add_fragment(succ_lt);
+                                        }
                                         continue;
                                     }
                                 }
@@ -92,6 +101,10 @@ where
                                 } = fill_from_pool(*rem, pool);
                                 acc.push(TerminalInstruction::Swap(swap));
                                 acc.terminate(TerminalInstruction::Fill(fill));
+                                if let StateTrans::Active(succ) = succ {
+                                    self.state.pre_add_fragment(succ);
+                                }
+                                self.state.pre_add_pool(next_pool);
                             }
                         }
                         _ => {}
@@ -105,7 +118,7 @@ where
                 // return liquidity if recipe failed.
                 for fr in acc.disassemble() {
                     match fr {
-                        Either::Left(fr) => self.state.fragments_mut().return_fr(fr),
+                        Either::Left(fr) => self.state.fragments_mut().insert(fr),
                         Either::Right(pl) => {}
                     }
                 }
@@ -473,7 +486,7 @@ mod tests {
             if self.input > 0 {
                 StateTrans::Active(self)
             } else {
-                StateTrans::EOL(self)
+                StateTrans::EOL
             }
         }
     }

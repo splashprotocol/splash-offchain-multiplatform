@@ -15,48 +15,160 @@ pub struct SettledState<Fr, Pl> {
     pools: Pools<Pl>,
 }
 
+impl<Fr, Pl> SettledState<Fr, Pl> {
+    fn new(time_now: u64) -> Self {
+        Self {
+            fragments: Chronology::new(time_now),
+            pools: Pools::new(),
+        }
+    }
+}
+
+impl<Fr, Pl> SettledState<Fr, Pl> where Fr: Clone, Pl: Clone {
+    fn into_preview(self) -> PreviewState<Fr, Pl> {
+        PreviewState {
+            active_fragments_preview: None,
+            fragments_intact: self.fragments,
+            inactive_fragments_changeset: vec![],
+            pools_preview: self.pools.clone(),
+            pools_intact: self.pools,
+        }
+    }
+}
+
 /// State with areas of uncommitted changes.
-pub struct UnsettledState<Fr, Pl> {
+pub struct PreviewState<Fr, Pl> {
     /// Fragments before changes.
-    prev_fragments: Chronology<Fr>,
-    /// Active fragments with changes applied.
-    active_fragments_applied: Fragments<Fr>,
+    fragments_intact: Chronology<Fr>,
+    /// Active fragments with changes pre-applied.
+    active_fragments_preview: Option<Fragments<Fr>>,
     /// Set of new inactive fragments.
     inactive_fragments_changeset: Vec<(u64, Fr)>,
     /// Pools before changes.
-    prev_pools: Pools<Pl>,
-    /// Active pools with changes applied.
-    active_pools: Pools<Pl>,
+    pools_intact: Pools<Pl>,
+    /// Active pools with changes pre-applied.
+    pools_preview: Pools<Pl>,
+}
+
+impl<Fr, Pl> PreviewState<Fr, Pl> {
+    pub fn new(time_now: u64) -> Self {
+        Self {
+            fragments_intact: Chronology::new(time_now),
+            active_fragments_preview: None,
+            inactive_fragments_changeset: vec![],
+            pools_intact: Pools::new(),
+            pools_preview: Pools::new(),
+        }
+    }
 }
 
 pub enum TLBState<Fr, Pl> {
     Settled(SettledState<Fr, Pl>),
-    Unsettled(UnsettledState<Fr, Pl>),
+    Preview(PreviewState<Fr, Pl>),
 }
 
-impl<Fr, Pl> TLBState<Fr, Pl> {
+impl<Fr, Pl> TLBState<Fr, Pl> where Fr: Fragment + Ord + Copy, Pl: QualityMetric + Has<SourceId> + Copy {
     pub fn fragments(&self) -> &Fragments<Fr> {
         match self {
             TLBState::Settled(st) => &st.fragments.active,
-            TLBState::Unsettled(st) => &st.active_fragments_applied,
+            TLBState::Preview(st) => match &st.active_fragments_preview {
+                None => &st.fragments_intact.active,
+                Some(active) => active,
+            },
         }
     }
+
     pub fn fragments_mut(&mut self) -> &mut Fragments<Fr> {
         match self {
             TLBState::Settled(st) => &mut st.fragments.active,
-            TLBState::Unsettled(st) => &mut st.active_fragments_applied,
+            TLBState::Preview(st) => match &mut st.active_fragments_preview {
+                None => &mut st.fragments_intact.active,
+                Some(active) => active,
+            },
         }
     }
+
     pub fn pools(&self) -> &Pools<Pl> {
         match self {
             TLBState::Settled(st) => &st.pools,
-            TLBState::Unsettled(st) => &st.active_pools,
+            TLBState::Preview(st) => &st.pools_preview,
         }
     }
+
     pub fn pools_mut(&mut self) -> &mut Pools<Pl> {
         match self {
             TLBState::Settled(st) => &mut st.pools,
-            TLBState::Unsettled(st) => &mut st.active_pools,
+            TLBState::Preview(st) => &mut st.pools_preview,
+        }
+    }
+
+    pub fn pre_add_fragment(&mut self, fr: Fr) {
+        let time = self.current_time();
+        match (self, fr.time_bounds().lower_bound()) {
+            // We have to transit to preview state.
+            (this@TLBState::Settled(_), lower_bound) => {
+                let mut preview_st = PreviewState::new(time);
+                match this {
+                    TLBState::Settled(st) => {
+                        mem::swap(&mut preview_st.fragments_intact, &mut st.fragments);
+                        mem::swap(&mut preview_st.pools_intact, &mut st.pools);
+                        match lower_bound {
+                            // If `fr` is inactive we avoid cloning active frontier.
+                            Some(lower_bound) if lower_bound > time => {
+                                preview_st.inactive_fragments_changeset.push((lower_bound, fr));
+                            },
+                            // Otherwise we have to create a copy of active frontier and add new `fr` to it.
+                            _ => {
+                                let mut active_fragments = mem::replace(&mut st.fragments.active, Fragments::new());
+                                active_fragments.insert(fr);
+                                preview_st.active_fragments_preview.replace(active_fragments);
+                            },
+                        }
+                    },
+                    TLBState::Preview(_) => unreachable!(),
+                }
+                mem::swap(this, &mut TLBState::Preview(preview_st));
+            }
+            (TLBState::Preview(ref mut preview_st), lower_bound) => {
+                match lower_bound {
+                    Some(lb) if lb > time => preview_st.inactive_fragments_changeset.push((lb, fr)),
+                    _ => {
+                        match &mut preview_st.active_fragments_preview {
+                            Some(active_preview) => active_preview.insert(fr),
+                            this_active_preview => {
+                                let mut active_preview = preview_st.fragments_intact.active.clone();
+                                active_preview.insert(fr);
+                                this_active_preview.replace(active_preview);
+                            }
+                        }
+                    },
+                }
+            }
+        }
+    }
+
+    pub fn pre_add_pool(&mut self, pool: Pl) {
+        match self {
+            this@TLBState::Settled(_) => {
+                let empty_state = SettledState::new(0);
+                let settled_st = mem::replace(this, TLBState::Settled(empty_state));
+                let mut preview_st = match settled_st {
+                    TLBState::Settled(settled_st) => settled_st.into_preview(),
+                    TLBState::Preview(_) => unreachable!()
+                };
+                preview_st.pools_preview.update_pool(pool);
+                mem::swap(this, &mut TLBState::Preview(preview_st));
+            }
+            TLBState::Preview(ref mut state) => {
+                state.pools_preview.update_pool(pool);
+            }
+        }
+    }
+
+    pub fn current_time(&self) -> u64 {
+        match self {
+            TLBState::Settled(st) => st.fragments.time_now,
+            TLBState::Preview(st) => st.fragments_intact.time_now,
         }
     }
 }
@@ -68,6 +180,17 @@ struct Chronology<Fr> {
     active: Fragments<Fr>,
     inactive: BTreeMap<u64, Fragments<Fr>>,
     index: HashMap<SourceId, Fr>,
+}
+
+impl<Fr> Chronology<Fr> {
+    pub fn new(time_now: u64) -> Self {
+        Self {
+            time_now,
+            active: Fragments::new(),
+            inactive: BTreeMap::new(),
+            index: HashMap::new(),
+        }
+    }
 }
 
 impl<Fr> Chronology<Fr>
@@ -120,25 +243,16 @@ where
         self.index.insert(fr.source(), fr);
         if let Some(initial_timeslot) = fr.time_bounds().lower_bound() {
             if initial_timeslot <= self.time_now {
-                match fr.side() {
-                    SideMarker::Bid => self.active.bids.insert(fr),
-                    SideMarker::Ask => self.active.asks.insert(fr),
-                };
+                self.active.insert(fr);
             } else {
                 match self.inactive.entry(initial_timeslot) {
                     btree_map::Entry::Vacant(e) => {
                         let mut fresh_fragments = Fragments::new();
-                        match fr.side() {
-                            SideMarker::Bid => fresh_fragments.bids.insert(fr),
-                            SideMarker::Ask => fresh_fragments.asks.insert(fr),
-                        };
+                        fresh_fragments.insert(fr);
                         e.insert(fresh_fragments);
                     }
                     btree_map::Entry::Occupied(e) => {
-                        match fr.side() {
-                            SideMarker::Bid => e.into_mut().bids.insert(fr),
-                            SideMarker::Ask => e.into_mut().asks.insert(fr),
-                        };
+                        e.into_mut().insert(fr);
                     }
                 }
             }
@@ -196,7 +310,7 @@ where
             .and_then(|best_bid| if test(&best_bid) { Some(best_bid) } else { None })
     }
 
-    pub fn return_fr(&mut self, fr: Fr) {
+    pub fn insert(&mut self, fr: Fr) {
         match fr.side() {
             SideMarker::Bid => self.bids.insert(fr),
             SideMarker::Ask => self.bids.insert(fr),
@@ -208,6 +322,15 @@ where
 pub struct Pools<Pl> {
     pools: HashMap<SourceId, Pl>,
     quality_index: BTreeMap<PoolQuality, SourceId>,
+}
+
+impl<Pl> Pools<Pl> {
+    pub fn new() -> Self {
+        Self {
+            pools: HashMap::new(),
+            quality_index: BTreeMap::new(),
+        }
+    }
 }
 
 impl<Pl> Pools<Pl> where Pl: QualityMetric + Has<SourceId> + Copy {
