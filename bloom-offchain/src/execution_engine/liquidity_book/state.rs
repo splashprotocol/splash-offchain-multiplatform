@@ -24,18 +24,6 @@ impl<Fr, Pl> SettledState<Fr, Pl> {
     }
 }
 
-impl<Fr, Pl> SettledState<Fr, Pl> where Fr: Clone, Pl: Clone {
-    fn into_preview(self) -> PreviewState<Fr, Pl> {
-        PreviewState {
-            active_fragments_preview: None,
-            fragments_intact: self.fragments,
-            inactive_fragments_changeset: vec![],
-            pools_preview: self.pools.clone(),
-            pools_intact: self.pools,
-        }
-    }
-}
-
 /// State with areas of uncommitted changes.
 pub struct PreviewState<Fr, Pl> {
     /// Fragments before changes.
@@ -47,7 +35,7 @@ pub struct PreviewState<Fr, Pl> {
     /// Pools before changes.
     pools_intact: Pools<Pl>,
     /// Active pools with changes pre-applied.
-    pools_preview: Pools<Pl>,
+    pools_preview: Option<Pools<Pl>>,
 }
 
 impl<Fr, Pl> PreviewState<Fr, Pl> {
@@ -57,7 +45,7 @@ impl<Fr, Pl> PreviewState<Fr, Pl> {
             active_fragments_preview: None,
             inactive_fragments_changeset: vec![],
             pools_intact: Pools::new(),
-            pools_preview: Pools::new(),
+            pools_preview: None,
         }
     }
 }
@@ -67,7 +55,11 @@ pub enum TLBState<Fr, Pl> {
     Preview(PreviewState<Fr, Pl>),
 }
 
-impl<Fr, Pl> TLBState<Fr, Pl> where Fr: Fragment + Ord + Copy, Pl: QualityMetric + Has<SourceId> + Copy {
+impl<Fr, Pl> TLBState<Fr, Pl>
+where
+    Fr: Fragment + Ord + Copy,
+    Pl: QualityMetric + Has<SourceId> + Copy,
+{
     pub fn fragments(&self) -> &Fragments<Fr> {
         match self {
             TLBState::Settled(st) => &st.fragments.active,
@@ -91,14 +83,20 @@ impl<Fr, Pl> TLBState<Fr, Pl> where Fr: Fragment + Ord + Copy, Pl: QualityMetric
     pub fn pools(&self) -> &Pools<Pl> {
         match self {
             TLBState::Settled(st) => &st.pools,
-            TLBState::Preview(st) => &st.pools_preview,
+            TLBState::Preview(st) => match &st.pools_preview {
+                None => &st.pools_intact,
+                Some(pools) => pools,
+            },
         }
     }
 
     pub fn pools_mut(&mut self) -> &mut Pools<Pl> {
         match self {
             TLBState::Settled(st) => &mut st.pools,
-            TLBState::Preview(st) => &mut st.pools_preview,
+            TLBState::Preview(st) => match &mut st.pools_preview {
+                None => &mut st.pools_intact,
+                Some(pools) => pools,
+            },
         }
     }
 
@@ -106,7 +104,7 @@ impl<Fr, Pl> TLBState<Fr, Pl> where Fr: Fragment + Ord + Copy, Pl: QualityMetric
         let time = self.current_time();
         match (self, fr.time_bounds().lower_bound()) {
             // We have to transit to preview state.
-            (this@TLBState::Settled(_), lower_bound) => {
+            (this @ TLBState::Settled(_), lower_bound) => {
                 let mut preview_st = PreviewState::new(time);
                 match this {
                     TLBState::Settled(st) => {
@@ -116,56 +114,64 @@ impl<Fr, Pl> TLBState<Fr, Pl> where Fr: Fragment + Ord + Copy, Pl: QualityMetric
                             // If `fr` is inactive we avoid cloning active frontier.
                             Some(lower_bound) if lower_bound > time => {
                                 preview_st.inactive_fragments_changeset.push((lower_bound, fr));
-                            },
+                            }
                             // Otherwise we have to create a copy of active frontier and add new `fr` to it.
                             _ => {
-                                let mut active_fragments = mem::replace(&mut st.fragments.active, Fragments::new());
+                                let mut active_fragments = preview_st.fragments_intact.active.clone();
                                 active_fragments.insert(fr);
                                 preview_st.active_fragments_preview.replace(active_fragments);
-                            },
+                            }
                         }
-                    },
+                    }
                     TLBState::Preview(_) => unreachable!(),
                 }
                 mem::swap(this, &mut TLBState::Preview(preview_st));
             }
-            (TLBState::Preview(ref mut preview_st), lower_bound) => {
-                match lower_bound {
-                    Some(lb) if lb > time => preview_st.inactive_fragments_changeset.push((lb, fr)),
-                    _ => {
-                        match &mut preview_st.active_fragments_preview {
-                            Some(active_preview) => active_preview.insert(fr),
-                            this_active_preview => {
-                                let mut active_preview = preview_st.fragments_intact.active.clone();
-                                active_preview.insert(fr);
-                                this_active_preview.replace(active_preview);
-                            }
-                        }
-                    },
-                }
-            }
+            (TLBState::Preview(ref mut preview_st), lower_bound) => match lower_bound {
+                Some(lb) if lb > time => preview_st.inactive_fragments_changeset.push((lb, fr)),
+                _ => match &mut preview_st.active_fragments_preview {
+                    Some(active_preview) => active_preview.insert(fr),
+                    this_active_preview => {
+                        let mut active_preview = preview_st.fragments_intact.active.clone();
+                        active_preview.insert(fr);
+                        this_active_preview.replace(active_preview);
+                    }
+                },
+            },
         }
     }
 
     pub fn pre_add_pool(&mut self, pool: Pl) {
         match self {
-            this@TLBState::Settled(_) => {
-                let empty_state = SettledState::new(0);
-                let settled_st = mem::replace(this, TLBState::Settled(empty_state));
-                let mut preview_st = match settled_st {
-                    TLBState::Settled(settled_st) => settled_st.into_preview(),
+            this @ TLBState::Settled(_) => {
+                let mut preview_st = PreviewState::new(0);
+                match this {
+                    TLBState::Settled(st) => {
+                        // Move initial views into fresh preview state.
+                        mem::swap(&mut preview_st.fragments_intact, &mut st.fragments);
+                        mem::swap(&mut preview_st.pools_intact, &mut st.pools);
+                        // Copy initial pools view ..
+                        let mut pools_preview = preview_st.pools_intact.clone();
+                        // .. and update it with new pool state.
+                        pools_preview.update_pool(pool);
+                        mem::swap(&mut preview_st.pools_preview, &mut Some(pools_preview));
+                    }
                     TLBState::Preview(_) => unreachable!()
-                };
-                preview_st.pools_preview.update_pool(pool);
+                }
                 mem::swap(this, &mut TLBState::Preview(preview_st));
             }
-            TLBState::Preview(ref mut state) => {
-                state.pools_preview.update_pool(pool);
-            }
+            TLBState::Preview(ref mut state) => match &mut state.pools_preview {
+                Some(pools_preview) => pools_preview.update_pool(pool),
+                this_pools_preview => {
+                    let mut pools_preview = state.pools_intact.clone();
+                    pools_preview.update_pool(pool);
+                    mem::swap(this_pools_preview, &mut Some(pools_preview));
+                }
+            },
         }
     }
 
-    pub fn current_time(&self) -> u64 {
+    fn current_time(&self) -> u64 {
         match self {
             TLBState::Settled(st) => st.fragments.time_now,
             TLBState::Preview(st) => st.fragments_intact.time_now,
@@ -333,7 +339,10 @@ impl<Pl> Pools<Pl> {
     }
 }
 
-impl<Pl> Pools<Pl> where Pl: QualityMetric + Has<SourceId> + Copy {
+impl<Pl> Pools<Pl>
+where
+    Pl: QualityMetric + Has<SourceId> + Copy,
+{
     pub fn best_price(&self) -> Option<Price> {
         self.quality_index
             .first_key_value()

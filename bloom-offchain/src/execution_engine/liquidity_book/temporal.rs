@@ -6,7 +6,6 @@ use spectrum_offchain::data::Has;
 
 use crate::execution_engine::liquidity_book::effect::Effect;
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-use crate::execution_engine::liquidity_book::LiquidityBook;
 use crate::execution_engine::liquidity_book::pool::Pool;
 use crate::execution_engine::liquidity_book::recipe::{
     ExecutionRecipe, Fill, PartialFill, Swap, TerminalInstruction,
@@ -14,6 +13,7 @@ use crate::execution_engine::liquidity_book::recipe::{
 use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
 use crate::execution_engine::liquidity_book::state::{QualityMetric, TLBState};
 use crate::execution_engine::liquidity_book::types::ExecutionCost;
+use crate::execution_engine::liquidity_book::LiquidityBook;
 use crate::execution_engine::SourceId;
 
 pub struct ExecutionCap {
@@ -30,6 +30,18 @@ impl ExecutionCap {
 pub struct TemporalLiquidityBook<Fr, Pl> {
     state: TLBState<Fr, Pl>,
     execution_cap: ExecutionCap,
+}
+
+impl<Fr, Pl> TemporalLiquidityBook<Fr, Pl>
+where
+    Fr: Fragment + Ord + Copy,
+    Pl: QualityMetric + Has<SourceId> + Copy,
+{
+    fn on_transition(&mut self, tx: StateTrans<Fr>) {
+        if let StateTrans::Active(fr) = tx {
+            self.state.pre_add_fragment(fr);
+        }
+    }
 }
 
 impl<Fr, Pl> LiquidityBook<Fr, Pl, Effect<Fr, Pl>> for TemporalLiquidityBook<Fr, Pl>
@@ -67,12 +79,8 @@ where
                                     } => {
                                         acc.push(TerminalInstruction::Fill(term_fill_lt));
                                         acc.terminate(TerminalInstruction::Fill(term_fill_rt));
-                                        if let StateTrans::Active(succ_lt) = succ_lt {
-                                            self.state.pre_add_fragment(succ_lt);
-                                        }
-                                        if let StateTrans::Active(succ_rt) = succ_rt {
-                                            self.state.pre_add_fragment(succ_rt);
-                                        }
+                                        self.on_transition(succ_lt);
+                                        self.on_transition(succ_rt);
                                     }
                                     FillFromFragment {
                                         term_fill_lt: (term_fill_lt, succ_lt),
@@ -80,9 +88,7 @@ where
                                     } => {
                                         acc.push(TerminalInstruction::Fill(term_fill_lt));
                                         acc.set_remainder(partial);
-                                        if let StateTrans::Active(succ_lt) = succ_lt {
-                                            self.state.pre_add_fragment(succ_lt);
-                                        }
+                                        self.on_transition(succ_lt);
                                         continue;
                                     }
                                 }
@@ -101,9 +107,7 @@ where
                                 } = fill_from_pool(*rem, pool);
                                 acc.push(TerminalInstruction::Swap(swap));
                                 acc.terminate(TerminalInstruction::Fill(fill));
-                                if let StateTrans::Active(succ) = succ {
-                                    self.state.pre_add_fragment(succ);
-                                }
+                                self.on_transition(succ);
                                 self.state.pre_add_pool(next_pool);
                             }
                         }
@@ -119,7 +123,7 @@ where
                 for fr in acc.disassemble() {
                     match fr {
                         Either::Left(fr) => self.state.fragments_mut().insert(fr),
-                        Either::Right(pl) => {}
+                        Either::Right(pl) => self.state.pools_mut().update_pool(pl),
                     }
                 }
             }
