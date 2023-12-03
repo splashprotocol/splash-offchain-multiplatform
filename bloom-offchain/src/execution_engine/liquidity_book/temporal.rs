@@ -2,17 +2,21 @@ use std::cmp::{max, min};
 
 use futures::future::Either;
 
+use spectrum_offchain::data::Has;
+
 use crate::execution_engine::liquidity_book::effect::Effect;
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-use crate::execution_engine::liquidity_book::liquidity::fragmented::{FragmentStore, FragmentedLiquidity};
-use crate::execution_engine::liquidity_book::liquidity::pooled::{PoolStore, PooledLiquidity};
+use crate::execution_engine::liquidity_book::liquidity::fragmented::{FragmentedLiquidity, FragmentStore};
+use crate::execution_engine::liquidity_book::liquidity::pooled::{PooledLiquidity, PoolStore};
+use crate::execution_engine::liquidity_book::LiquidityBook;
 use crate::execution_engine::liquidity_book::pool::Pool;
 use crate::execution_engine::liquidity_book::recipe::{
     ExecutionRecipe, Fill, PartialFill, Swap, TerminalInstruction,
 };
 use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
+use crate::execution_engine::liquidity_book::state::TLBState;
 use crate::execution_engine::liquidity_book::types::ExecutionCost;
-use crate::execution_engine::liquidity_book::LiquidityBook;
+use crate::execution_engine::SourceId;
 
 pub struct ExecutionCap {
     pub soft: ExecutionCost,
@@ -25,35 +29,26 @@ impl ExecutionCap {
     }
 }
 
-#[derive(Clone)]
-struct State<FL, PL> {
-    fragmented_liquidity: FL,
-    pooled_liquidity: PL,
-}
-
-pub struct TemporalLiquidityBook<FL, PL> {
-    fragmented_liquidity: FL,
-    pooled_liquidity: PL,
+pub struct TemporalLiquidityBook<Fr, Pl> {
+    state: TLBState<Fr, Pl>,
     execution_cap: ExecutionCap,
 }
 
-impl<Fr, Pl, FL, PL> LiquidityBook<Fr, Pl, Effect<Fr, Pl>> for TemporalLiquidityBook<FL, PL>
+impl<Fr, Pl> LiquidityBook<Fr, Pl, Effect<Fr, Pl>> for TemporalLiquidityBook<Fr, Pl>
 where
-    Fr: Fragment + OrderState + Copy,
-    Pl: Pool + Copy,
-    FL: FragmentedLiquidity<Fr> + FragmentStore<Fr>,
-    PL: PooledLiquidity<Pl> + PoolStore<Pl>,
+    Fr: Fragment + OrderState + Copy + Ord,
+    Pl: Pool + Has<SourceId> + Copy,
 {
     fn apply(&mut self, effect: Effect<Fr, Pl>) {}
 
     fn attempt(&mut self) -> Option<ExecutionRecipe<Fr, Pl>> {
-        if let Some(best_fr) = self.fragmented_liquidity.pick_either() {
+        if let Some(best_fr) = self.state.fragments_mut().pick_either() {
             let mut acc = ExecutionRecipe::new(best_fr);
             let mut execution_units_left = self.execution_cap.hard;
             loop {
                 if let Some(rem) = &acc.remainder {
-                    let price_fragments = self.fragmented_liquidity.best_price(!best_fr.side());
-                    let price_in_pools = self.pooled_liquidity.best_price();
+                    let price_fragments = self.state.fragments().best_price(!best_fr.side());
+                    let price_in_pools = self.state.pools().best_price();
                     match (price_in_pools, price_fragments) {
                         (price_in_pools, Some(price_in_fragments))
                             if price_in_pools
@@ -62,7 +57,7 @@ where
                                 && execution_units_left > self.execution_cap.safe_threshold() =>
                         {
                             let rem_side = rem.target.side();
-                            if let Some(opposite_fr) = self.fragmented_liquidity.try_pick(!rem_side, |fr| {
+                            if let Some(opposite_fr) = self.state.fragments_mut().try_pick(!rem_side, |fr| {
                                 rem_side.wrap(rem.target.price()).overlaps(fr.price())
                                     && fr.cost_hint() <= execution_units_left
                             }) {
@@ -88,7 +83,7 @@ where
                         }
                         (Some(_), _) if execution_units_left > 0 => {
                             let rem_side = rem.target.side();
-                            if let Some(pool) = self.pooled_liquidity.try_pick(|pl| {
+                            if let Some(pool) = self.state.pools_mut().try_pick(|pl| {
                                 rem_side
                                     .wrap(rem.target.price())
                                     .overlaps(pl.real_price(rem_side.wrap(rem.remaining_input)))
@@ -112,8 +107,8 @@ where
                 // return liquidity if recipe failed.
                 for fr in acc.disassemble() {
                     match fr {
-                        Either::Left(fr) => self.fragmented_liquidity.return_fr(fr),
-                        Either::Right(pl) => self.pooled_liquidity.update_pool(pl),
+                        Either::Left(fr) => self.state.fragments_mut().return_fr(fr),
+                        Either::Right(pl) => {},
                     }
                 }
             }
