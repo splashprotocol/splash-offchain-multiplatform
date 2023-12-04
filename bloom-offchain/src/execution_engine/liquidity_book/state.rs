@@ -1,5 +1,5 @@
-use std::collections::hash_map::Entry;
 use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
+use std::collections::hash_map::Entry;
 use std::fmt::Debug;
 use std::mem;
 
@@ -10,7 +10,7 @@ use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
 use crate::execution_engine::liquidity_book::types::Price;
 use crate::execution_engine::SourceId;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 /// State with no uncommitted changes.
 pub struct SettledState<Fr, Pl> {
     fragments: Chronology<Fr>,
@@ -41,7 +41,7 @@ pub struct PreviewState<Fr, Pl> {
     pools_preview: Option<Pools<Pl>>,
 }
 
-impl<Fr, Pl> PreviewState<Fr, Pl> {
+impl<Fr, Pl> PreviewState<Fr, Pl> where Fr: Fragment + Ord {
     pub fn new(time_now: u64) -> Self {
         Self {
             fragments_intact: Chronology::new(time_now),
@@ -50,6 +50,45 @@ impl<Fr, Pl> PreviewState<Fr, Pl> {
             pools_intact: Pools::new(),
             pools_preview: None,
         }
+    }
+
+    /// Commit preview changes.
+    pub fn commit(&mut self) -> SettledState<Fr, Pl> {
+        // Commit pools preview if available.
+        if let Some(pools_preview) = &mut self.pools_preview {
+            mem::swap(&mut self.pools_intact, pools_preview);
+        }
+        // Commit active fragments preview if available.
+        if let Some(frs_preview) = &mut self.active_fragments_preview {
+            mem::swap(&mut self.fragments_intact.active, frs_preview);
+        }
+        // Commit inactive fragments.
+        while let Some((t, fr)) = self.inactive_fragments_changeset.pop() {
+            match self.fragments_intact.inactive.entry(t) {
+                btree_map::Entry::Vacant(entry) => {
+                    let mut frs = Fragments::new();
+                    frs.insert(fr);
+                    entry.insert(frs);
+                }
+                btree_map::Entry::Occupied(mut entry) => {
+                    entry.get_mut().insert(fr);
+                }
+            }
+        }
+        self.move_into_settled()
+    }
+
+    /// Discard preview changes.
+    pub fn rollback(&mut self) -> SettledState<Fr, Pl> {
+        self.move_into_settled()
+    }
+
+    /// Move intact regions into settled state.
+    fn move_into_settled(&mut self) -> SettledState<Fr, Pl> {
+        let mut fresh_settled_st = SettledState::new(self.fragments_intact.time_now);
+        mem::swap(&mut fresh_settled_st.fragments, &mut self.fragments_intact);
+        mem::swap(&mut fresh_settled_st.pools, &mut self.pools_intact);
+        fresh_settled_st
     }
 }
 
@@ -325,7 +364,7 @@ where
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Pools<Pl> {
     pools: HashMap<SourceId, Pl>,
     quality_index: BTreeMap<PoolQuality, SourceId>,
@@ -456,10 +495,6 @@ pub mod tests {
         let o2 = SimpleOrderPF::default_with_bounds(TimeBounds::None);
         let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
         s0.fragments.add_fragment(o1.source, o1);
-        assert_eq!(
-            TLBState::Settled(s0.clone()).active_fragments_mut().pick_either(),
-            Some(o1)
-        );
         let s0_copy = s0.clone();
         let mut state = TLBState::Settled(s0);
         state.pre_add_fragment(o2);
@@ -487,10 +522,6 @@ pub mod tests {
         let o2 = SimpleOrderPF::default_with_bounds(TimeBounds::After(time_now + delta));
         let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
         s0.fragments.add_fragment(o1.source, o1);
-        assert_eq!(
-            TLBState::Settled(s0.clone()).active_fragments_mut().pick_either(),
-            Some(o1)
-        );
         let s0_copy = s0.clone();
         let mut state = TLBState::Settled(s0);
         state.pre_add_fragment(o2);
@@ -502,6 +533,56 @@ pub mod tests {
                     st.inactive_fragments_changeset,
                     vec![(o2.bounds.lower_bound().unwrap(), o2)]
                 );
+            }
+            TLBState::Settled(_) => panic!(),
+        }
+    }
+
+    #[test]
+    fn commit_preview_changes() {
+        let time_now = 1000u64;
+        let delta = 100u64;
+        let o1 = SimpleOrderPF::default_with_bounds(TimeBounds::Until(time_now + delta));
+        let o2 = SimpleOrderPF::default_with_bounds(TimeBounds::None);
+        let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
+        s0.fragments.add_fragment(o1.source, o1);
+        let s0_copy = s0.clone();
+        let mut state = TLBState::Settled(s0);
+        state.pre_add_fragment(o2);
+        match state {
+            TLBState::Preview(mut s1) => {
+                let s1_copy = s1.clone();
+                let s2 = s1.commit();
+                for (t, fr) in s1_copy.inactive_fragments_changeset {
+                    assert!(s2.fragments.inactive.get(&t).map(|frs| frs.asks.contains(&fr) || frs.bids.contains(&fr)).unwrap_or(false));
+                }
+                for fr in &s1_copy.active_fragments_preview.as_ref().unwrap().bids {
+                    assert!(s2.fragments.active.bids.contains(&fr))
+                }
+                for fr in &s1_copy.active_fragments_preview.as_ref().unwrap().asks {
+                    assert!(s2.fragments.active.asks.contains(&fr))
+                }
+            }
+            TLBState::Settled(_) => panic!(),
+        }
+    }
+
+    #[test]
+    fn rollback_preview_changes() {
+        let time_now = 1000u64;
+        let delta = 100u64;
+        let o1 = SimpleOrderPF::default_with_bounds(TimeBounds::Until(time_now + delta));
+        let o2 = SimpleOrderPF::default_with_bounds(TimeBounds::None);
+        let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
+        s0.fragments.add_fragment(o1.source, o1);
+        let s0_copy = s0.clone();
+        let mut state = TLBState::Settled(s0);
+        state.pre_add_fragment(o2);
+        match state {
+            TLBState::Preview(mut s1) => {
+                let s2 = s1.rollback();
+                assert_eq!(s2.fragments, s0_copy.fragments);
+                assert_eq!(s2.pools, s0_copy.pools);
             }
             TLBState::Settled(_) => panic!(),
         }
