@@ -5,6 +5,7 @@ use crate::execution_engine::SourceId;
 
 /// Order as a state machine.
 pub trait OrderState: Sized {
+    fn source(&self) -> SourceId;
     fn with_updated_time(self, time: u64) -> StateTrans<Self>;
     fn with_updated_liquidity(self, removed_input: u64, added_output: u64) -> StateTrans<Self>;
 }

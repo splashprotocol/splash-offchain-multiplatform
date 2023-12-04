@@ -1,5 +1,5 @@
-use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
 use std::collections::hash_map::Entry;
+use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
 use std::fmt::Debug;
 use std::mem;
 
@@ -26,6 +26,28 @@ impl<Fr, Pl> SettledState<Fr, Pl> {
     }
 }
 
+impl<Fr, Pl> SettledState<Fr, Pl>
+where
+    Fr: Fragment + OrderState + Ord + Copy,
+    Pl: QualityMetric + Has<SourceId> + Copy,
+{
+    pub fn advance_clocks(&mut self, new_time: u64) {
+        self.fragments.advance_clocks(new_time)
+    }
+
+    pub fn add_fragment(&mut self, fr: Fr) {
+        self.fragments.add_fragment(fr);
+    }
+
+    pub fn remove_fragment(&mut self, source: SourceId) {
+        self.fragments.remove_fragment(source);
+    }
+
+    pub fn update_pool(&mut self, pool: Pl) {
+        self.pools.update_pool(pool);
+    }
+}
+
 #[derive(Debug, Clone)]
 /// State with areas of uncommitted changes.
 pub struct PreviewState<Fr, Pl> {
@@ -41,7 +63,10 @@ pub struct PreviewState<Fr, Pl> {
     pools_preview: Option<Pools<Pl>>,
 }
 
-impl<Fr, Pl> PreviewState<Fr, Pl> where Fr: Fragment + Ord {
+impl<Fr, Pl> PreviewState<Fr, Pl>
+where
+    Fr: Fragment + Ord,
+{
     pub fn new(time_now: u64) -> Self {
         Self {
             fragments_intact: Chronology::new(time_now),
@@ -265,7 +290,7 @@ where
         self.time_now = new_time;
     }
 
-    fn remove_fragments(&mut self, source: SourceId) {
+    fn remove_fragment(&mut self, source: SourceId) {
         if let Some(fr) = self.index.remove(&source) {
             if let Some(initial_timeslot) = fr.time_bounds().lower_bound() {
                 if initial_timeslot <= self.time_now {
@@ -288,8 +313,8 @@ where
         }
     }
 
-    fn add_fragment(&mut self, source: SourceId, fr: Fr) {
-        self.index.insert(source, fr);
+    fn add_fragment(&mut self, fr: Fr) {
+        self.index.insert(fr.source(), fr);
         match fr.time_bounds().lower_bound() {
             Some(lower_bound) if lower_bound > self.time_now => match self.inactive.entry(lower_bound) {
                 btree_map::Entry::Vacant(e) => {
@@ -445,10 +470,9 @@ pub mod tests {
     #[test]
     fn add_inactive_fragment() {
         let time_now = 1000u64;
-        let source = SourceId::random();
         let ord = SimpleOrderPF::default_with_bounds(TimeBounds::After(time_now + 100));
         let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(source, ord);
+        s0.fragments.add_fragment(ord);
         assert_eq!(TLBState::Settled(s0).active_fragments_mut().pick_either(), None);
     }
 
@@ -456,10 +480,9 @@ pub mod tests {
     fn fragment_activation() {
         let time_now = 1000u64;
         let delta = 100u64;
-        let source = SourceId::random();
         let ord = SimpleOrderPF::default_with_bounds(TimeBounds::After(time_now + delta));
         let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(source, ord);
+        s0.fragments.add_fragment(ord);
         assert_eq!(
             TLBState::Settled(s0.clone()).active_fragments_mut().pick_either(),
             None
@@ -475,10 +498,9 @@ pub mod tests {
     fn fragment_deactivation() {
         let time_now = 1000u64;
         let delta = 100u64;
-        let source = SourceId::random();
         let ord = SimpleOrderPF::default_with_bounds(TimeBounds::Until(time_now + delta));
         let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(source, ord);
+        s0.fragments.add_fragment(ord);
         assert_eq!(
             TLBState::Settled(s0.clone()).active_fragments_mut().pick_either(),
             Some(ord)
@@ -494,7 +516,7 @@ pub mod tests {
         let o1 = SimpleOrderPF::default_with_bounds(TimeBounds::Until(time_now + delta));
         let o2 = SimpleOrderPF::default_with_bounds(TimeBounds::None);
         let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(o1.source, o1);
+        s0.fragments.add_fragment(o1);
         let s0_copy = s0.clone();
         let mut state = TLBState::Settled(s0);
         state.pre_add_fragment(o2);
@@ -521,7 +543,7 @@ pub mod tests {
         let o1 = SimpleOrderPF::default_with_bounds(TimeBounds::Until(time_now + delta));
         let o2 = SimpleOrderPF::default_with_bounds(TimeBounds::After(time_now + delta));
         let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(o1.source, o1);
+        s0.fragments.add_fragment(o1);
         let s0_copy = s0.clone();
         let mut state = TLBState::Settled(s0);
         state.pre_add_fragment(o2);
@@ -545,7 +567,7 @@ pub mod tests {
         let o1 = SimpleOrderPF::default_with_bounds(TimeBounds::Until(time_now + delta));
         let o2 = SimpleOrderPF::default_with_bounds(TimeBounds::None);
         let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(o1.source, o1);
+        s0.fragments.add_fragment(o1);
         let s0_copy = s0.clone();
         let mut state = TLBState::Settled(s0);
         state.pre_add_fragment(o2);
@@ -554,7 +576,12 @@ pub mod tests {
                 let s1_copy = s1.clone();
                 let s2 = s1.commit();
                 for (t, fr) in s1_copy.inactive_fragments_changeset {
-                    assert!(s2.fragments.inactive.get(&t).map(|frs| frs.asks.contains(&fr) || frs.bids.contains(&fr)).unwrap_or(false));
+                    assert!(s2
+                        .fragments
+                        .inactive
+                        .get(&t)
+                        .map(|frs| frs.asks.contains(&fr) || frs.bids.contains(&fr))
+                        .unwrap_or(false));
                 }
                 for fr in &s1_copy.active_fragments_preview.as_ref().unwrap().bids {
                     assert!(s2.fragments.active.bids.contains(&fr))
@@ -574,7 +601,7 @@ pub mod tests {
         let o1 = SimpleOrderPF::default_with_bounds(TimeBounds::Until(time_now + delta));
         let o2 = SimpleOrderPF::default_with_bounds(TimeBounds::None);
         let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(o1.source, o1);
+        s0.fragments.add_fragment(o1);
         let s0_copy = s0.clone();
         let mut state = TLBState::Settled(s0);
         state.pre_add_fragment(o2);
@@ -655,6 +682,10 @@ pub mod tests {
     }
 
     impl OrderState for SimpleOrderPF {
+        fn source(&self) -> SourceId {
+            self.source
+        }
+
         fn with_updated_time(self, time: u64) -> StateTrans<Self> {
             if self.bounds.contain(&time) {
                 StateTrans::Active(self)
