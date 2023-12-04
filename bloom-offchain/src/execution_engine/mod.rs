@@ -7,7 +7,7 @@ pub mod interpreter;
 pub mod liquidity_book;
 pub mod source_db;
 
-#[derive(Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct SourceId([u8; 32]);
 
 impl SourceId {

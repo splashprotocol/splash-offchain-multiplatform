@@ -52,12 +52,12 @@ where
     fn apply(&mut self, effect: Effect<Fr, Pl>) {}
 
     fn attempt(&mut self) -> Option<ExecutionRecipe<Fr, Pl>> {
-        if let Some(best_fr) = self.state.fragments_mut().pick_either() {
+        if let Some(best_fr) = self.state.active_fragments_mut().pick_either() {
             let mut acc = ExecutionRecipe::new(best_fr);
             let mut execution_units_left = self.execution_cap.hard;
             loop {
                 if let Some(rem) = &acc.remainder {
-                    let price_fragments = self.state.fragments().best_price(!best_fr.side());
+                    let price_fragments = self.state.active_fragments().best_price(!best_fr.side());
                     let price_in_pools = self.state.pools().best_price();
                     match (price_in_pools, price_fragments) {
                         (price_in_pools, Some(price_in_fragments))
@@ -67,10 +67,12 @@ where
                                 && execution_units_left > self.execution_cap.safe_threshold() =>
                         {
                             let rem_side = rem.target.side();
-                            if let Some(opposite_fr) = self.state.fragments_mut().try_pick(!rem_side, |fr| {
-                                rem_side.wrap(rem.target.price()).overlaps(fr.price())
-                                    && fr.cost_hint() <= execution_units_left
-                            }) {
+                            if let Some(opposite_fr) =
+                                self.state.active_fragments_mut().try_pick(!rem_side, |fr| {
+                                    rem_side.wrap(rem.target.price()).overlaps(fr.price())
+                                        && fr.cost_hint() <= execution_units_left
+                                })
+                            {
                                 execution_units_left -= opposite_fr.cost_hint();
                                 match fill_from_fragment(*rem, opposite_fr) {
                                     FillFromFragment {
@@ -122,7 +124,7 @@ where
                 // return liquidity if recipe failed.
                 for fr in acc.disassemble() {
                     match fr {
-                        Either::Left(fr) => self.state.fragments_mut().insert(fr),
+                        Either::Left(fr) => self.state.active_fragments_mut().insert(fr),
                         Either::Right(pl) => self.state.pools_mut().update_pool(pl),
                     }
                 }
@@ -283,25 +285,23 @@ where
 
 #[cfg(test)]
 mod tests {
-    use cml_core::Slot;
     use futures::future::Either;
     use num_rational::Ratio;
 
-    use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
     use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::recipe::PartialFill;
     use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
+    use crate::execution_engine::liquidity_book::state::tests::{SimpleCFMMPool, SimpleOrderPF};
     use crate::execution_engine::liquidity_book::temporal::{
         fill_from_fragment, fill_from_pool, FillFromFragment, FillFromPool,
     };
     use crate::execution_engine::liquidity_book::time::TimeBounds;
-    use crate::execution_engine::liquidity_book::types::{ExecutionCost, Price};
     use crate::execution_engine::SourceId;
 
     #[test]
     fn fill_fragment_from_fragment() {
         // Assuming pair ADA/USDT @ 0.37
-        let fr1 = SimpleOrder {
+        let fr1 = SimpleOrderPF {
             source: SourceId::random(),
             side: SideMarker::Ask,
             input: 1000,
@@ -311,7 +311,7 @@ mod tests {
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
-        let fr2 = SimpleOrder {
+        let fr2 = SimpleOrderPF {
             source: SourceId::random(),
             side: SideMarker::Bid,
             input: 370,
@@ -335,7 +335,7 @@ mod tests {
     #[test]
     fn fill_fragment_from_fragment_partial() {
         // Assuming pair ADA/USDT @ 0.37
-        let fr1 = SimpleOrder {
+        let fr1 = SimpleOrderPF {
             source: SourceId::random(),
             side: SideMarker::Ask,
             input: 1000,
@@ -345,7 +345,7 @@ mod tests {
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
-        let fr2 = SimpleOrder {
+        let fr2 = SimpleOrderPF {
             source: SourceId::random(),
             side: SideMarker::Bid,
             input: 210,
@@ -372,7 +372,7 @@ mod tests {
     #[test]
     fn prefer_fragment_with_better_fee() {
         // Assuming pair ADA/USDT @ ask price 0.37, bid price 0.36
-        let ask_fr = SimpleOrder {
+        let ask_fr = SimpleOrderPF {
             source: SourceId::random(),
             side: SideMarker::Ask,
             input: 1000,
@@ -382,7 +382,7 @@ mod tests {
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
-        let bid_fr = SimpleOrder {
+        let bid_fr = SimpleOrderPF {
             source: SourceId::random(),
             side: SideMarker::Bid,
             input: 360,
@@ -406,7 +406,7 @@ mod tests {
     #[test]
     fn fill_reminder_from_pool() {
         // Assuming pair ADA/USDT @ ask price 0.360, real price in pool 0.364.
-        let ask_fr = SimpleOrder {
+        let ask_fr = SimpleOrderPF {
             source: SourceId::random(),
             side: SideMarker::Ask,
             input: 1000,
@@ -422,6 +422,7 @@ mod tests {
             accumulated_output: 180,
         };
         let pool = SimpleCFMMPool {
+            state_ver: [0u8; 32],
             reserves_base: 100000000000000,
             reserves_quote: 36600000000000,
             fee_num: 997,
@@ -435,114 +436,5 @@ mod tests {
             (term_fill.0.output - pf.accumulated_output) as u128,
             pf.remaining_input as u128 * real_price_in_pool.numer() / real_price_in_pool.denom()
         );
-    }
-
-    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-    pub struct SimpleOrder {
-        pub source: SourceId,
-        pub side: SideMarker,
-        pub input: u64,
-        pub accumulated_output: u64,
-        pub price: Price,
-        pub fee: u64,
-        pub cost_hint: ExecutionCost,
-        pub bounds: TimeBounds<Slot>,
-    }
-
-    impl Fragment for SimpleOrder {
-        fn source(&self) -> SourceId {
-            self.source
-        }
-
-        fn side(&self) -> SideMarker {
-            self.side
-        }
-
-        fn input(&self) -> u64 {
-            self.input
-        }
-
-        fn price(&self) -> Price {
-            self.price
-        }
-
-        fn weight(&self) -> u64 {
-            self.fee
-        }
-
-        fn cost_hint(&self) -> ExecutionCost {
-            self.cost_hint
-        }
-
-        fn time_bounds(&self) -> TimeBounds<Slot> {
-            self.bounds
-        }
-    }
-
-    impl OrderState for SimpleOrder {
-        fn with_updated_time(self, time: u64) -> StateTrans<Self> {
-            StateTrans::Active(self)
-        }
-
-        fn with_updated_liquidity(mut self, removed_input: u64, added_output: u64) -> StateTrans<Self> {
-            self.input -= removed_input;
-            self.accumulated_output += added_output;
-            if self.input > 0 {
-                StateTrans::Active(self)
-            } else {
-                StateTrans::EOL
-            }
-        }
-    }
-
-    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-    pub struct SimpleCFMMPool {
-        reserves_base: u64,
-        reserves_quote: u64,
-        fee_num: u64,
-    }
-
-    impl Pool for SimpleCFMMPool {
-        fn static_price(&self) -> Price {
-            Ratio::new(self.reserves_quote as u128, self.reserves_base as u128)
-        }
-
-        fn real_price(&self, input: Side<u64>) -> Price {
-            match input {
-                Side::Bid(quote_input) => {
-                    let (base_output, _) = self.swap(Side::Bid(quote_input));
-                    Ratio::new(quote_input as u128, base_output as u128)
-                }
-                Side::Ask(base_input) => {
-                    let (quote_output, _) = self.swap(Side::Ask(base_input));
-                    Ratio::new(quote_output as u128, base_input as u128)
-                }
-            }
-        }
-
-        fn swap(mut self, input: Side<u64>) -> (u64, Self) {
-            match input {
-                Side::Bid(quote_input) => {
-                    let base_output =
-                        ((self.reserves_base as u128) * (quote_input as u128) * (self.fee_num as u128)
-                            / ((self.reserves_quote as u128) * 1000u128
-                                + (quote_input as u128) * (self.fee_num as u128)))
-                            as u64;
-                    self.reserves_quote += quote_input;
-                    self.reserves_base -= base_output;
-                    (base_output, self)
-                }
-                Side::Ask(base_input) => {
-                    let quote_output =
-                        ((self.reserves_quote as u128) * (base_input as u128) * (self.fee_num as u128)
-                            / ((self.reserves_base as u128) * 1000u128
-                                + (base_input as u128) * (self.fee_num as u128)))
-                            as u64;
-                    self.reserves_base += base_input;
-                    self.reserves_quote -= quote_output;
-                    (quote_output, self)
-                }
-            }
-        }
     }
 }
