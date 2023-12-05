@@ -1,16 +1,14 @@
-use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
 use std::collections::hash_map::Entry;
+use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
 use std::fmt::Debug;
 use std::mem;
 
-use spectrum_offchain::data::Has;
 use spectrum_offchain_cardano::data::PoolId;
 
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use crate::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
 use crate::execution_engine::liquidity_book::types::Price;
-use crate::execution_engine::SourceId;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 /// State with no uncommitted changes.
@@ -37,12 +35,12 @@ where
         self.fragments.advance_clocks(new_time)
     }
 
-    pub fn add_fragment(&mut self, source: SourceId, fr: Fr) {
-        self.fragments.add_fragment(source, fr);
+    pub fn add_fragment(&mut self, fr: Fr) {
+        self.fragments.add_fragment(fr);
     }
 
-    pub fn remove_fragment(&mut self, source: SourceId) {
-        self.fragments.remove_fragment(source);
+    pub fn remove_fragment(&mut self, fr: Fr) {
+        self.fragments.remove_fragment(fr);
     }
 
     pub fn update_pool(&mut self, pool: Pl) {
@@ -126,11 +124,11 @@ pub enum TLBState<Fr, Pl> {
     Preview(PreviewState<Fr, Pl>),
 }
 
-impl<Fr, Pl> ActiveFrontier<Fr> for TLBState<Fr, Pl>
+impl<Fr, Pl> TLBState<Fr, Pl>
 where
     Fr: Fragment + Ord + Copy,
 {
-    fn best_price(&self, side: SideMarker) -> Option<Side<Price>> {
+    pub fn best_price(&self, side: SideMarker) -> Option<Side<Price>> {
         let active_fragments = self.active_fragments();
         let side_store = match side {
             SideMarker::Bid => &active_fragments.bids,
@@ -139,7 +137,8 @@ where
         side_store.first().map(|fr| side.wrap(fr.price()))
     }
 
-    fn pick_best_either(&mut self) -> Option<Fr> {
+    /// Pick best fragment from either side
+    pub fn pick_best_either(&mut self) -> Option<Fr> {
         let active_fragments = self.active_fragments_mut();
         let best_bid = active_fragments.bids.pop_first();
         let best_ask = active_fragments.asks.pop_first();
@@ -150,7 +149,8 @@ where
         }
     }
 
-    fn try_pick<F>(&mut self, side: SideMarker, test: F) -> Option<Fr>
+    /// Pick best fragment from the specified side if it matches the specified condition.
+    pub fn try_pick<F>(&mut self, side: SideMarker, test: F) -> Option<Fr>
     where
         F: FnOnce(&Fr) -> bool,
     {
@@ -163,7 +163,8 @@ where
             .and_then(|best_bid| if test(&best_bid) { Some(best_bid) } else { None })
     }
 
-    fn return_fr(&mut self, fr: Fr) {
+    /// Return fragment into the book.
+    pub fn return_fr(&mut self, fr: Fr) {
         let active_fragments = self.active_fragments_mut();
         active_fragments.insert(fr);
     }
@@ -173,7 +174,7 @@ impl<Fr, Pl> TLBState<Fr, Pl>
 where
     Fr: Fragment + Ord + Copy,
 {
-    pub fn active_fragments(&self) -> &Fragments<Fr> {
+    fn active_fragments(&self) -> &Fragments<Fr> {
         match self {
             TLBState::Settled(st) => &st.fragments.active,
             TLBState::Preview(st) => &st.active_fragments_preview,
@@ -225,7 +226,9 @@ where
     }
 }
 
-impl<Fr, Pl> TLBState<Fr, Pl> where Pl: Pool + Copy,
+impl<Fr, Pl> TLBState<Fr, Pl>
+where
+    Pl: Pool + Copy,
 {
     pub fn pools(&self) -> &Pools<Pl> {
         match self {
@@ -271,7 +274,6 @@ struct Chronology<Fr> {
     time_now: u64,
     active: Fragments<Fr>,
     inactive: BTreeMap<u64, Fragments<Fr>>,
-    index: HashMap<SourceId, Fr>,
 }
 
 impl<Fr> Chronology<Fr> {
@@ -280,7 +282,6 @@ impl<Fr> Chronology<Fr> {
             time_now,
             active: Fragments::new(),
             inactive: BTreeMap::new(),
-            index: HashMap::new(),
         }
     }
 }
@@ -308,31 +309,28 @@ where
         self.time_now = new_time;
     }
 
-    fn remove_fragment(&mut self, source: SourceId) {
-        if let Some(fr) = self.index.remove(&source) {
-            if let Some(lower_bound) = fr.time_bounds().lower_bound() {
-                if lower_bound <= self.time_now {
-                    match fr.side() {
-                        SideMarker::Bid => self.active.bids.remove(&fr),
-                        SideMarker::Ask => self.active.asks.remove(&fr),
-                    };
-                } else {
-                    match self.inactive.entry(lower_bound) {
-                        btree_map::Entry::Occupied(e) => {
-                            match fr.side() {
-                                SideMarker::Bid => e.into_mut().bids.remove(&fr),
-                                SideMarker::Ask => e.into_mut().asks.remove(&fr),
-                            };
-                        }
-                        btree_map::Entry::Vacant(_) => {}
+    fn remove_fragment(&mut self, fr: Fr) {
+        if let Some(lower_bound) = fr.time_bounds().lower_bound() {
+            if lower_bound <= self.time_now {
+                match fr.side() {
+                    SideMarker::Bid => self.active.bids.remove(&fr),
+                    SideMarker::Ask => self.active.asks.remove(&fr),
+                };
+            } else {
+                match self.inactive.entry(lower_bound) {
+                    btree_map::Entry::Occupied(e) => {
+                        match fr.side() {
+                            SideMarker::Bid => e.into_mut().bids.remove(&fr),
+                            SideMarker::Ask => e.into_mut().asks.remove(&fr),
+                        };
                     }
+                    btree_map::Entry::Vacant(_) => {}
                 }
             }
         }
     }
 
-    fn add_fragment(&mut self, source: SourceId, fr: Fr) {
-        self.index.insert(source, fr);
+    fn add_fragment(&mut self, fr: Fr) {
         match fr.time_bounds().lower_bound() {
             Some(lower_bound) if lower_bound > self.time_now => match self.inactive.entry(lower_bound) {
                 btree_map::Entry::Vacant(e) => {
@@ -362,21 +360,6 @@ impl<Fr> Fragments<Fr> {
             bids: BTreeSet::new(),
         }
     }
-}
-
-pub trait ActiveFrontier<Fr> {
-    fn best_price(&self, side: SideMarker) -> Option<Side<Price>>;
-
-    /// Pick best fragment from either side.
-    fn pick_best_either(&mut self) -> Option<Fr>;
-
-    /// Pick best fragment from the specified side if it matches the specified condition.
-    fn try_pick<F>(&mut self, side: SideMarker, test: F) -> Option<Fr>
-    where
-        F: FnOnce(&Fr) -> bool;
-
-    /// Return fragment into the book.
-    fn return_fr(&mut self, fr: Fr);
 }
 
 impl<Fr> Fragments<Fr>
@@ -444,13 +427,12 @@ pub mod tests {
     use cml_core::Slot;
     use num_rational::Ratio;
 
-    use spectrum_offchain::data::Has;
     use spectrum_offchain_cardano::data::PoolId;
 
     use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
     use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
-    use crate::execution_engine::liquidity_book::state::{ActiveFrontier, PoolQuality, SettledState, TLBState};
+    use crate::execution_engine::liquidity_book::state::{PoolQuality, SettledState, TLBState};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::{ExecutionCost, Price};
     use crate::execution_engine::SourceId;
@@ -460,11 +442,8 @@ pub mod tests {
         let time_now = 1000u64;
         let ord = SimpleOrderPF::default_with_bounds(TimeBounds::After(time_now + 100));
         let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(ord.source, ord);
-        assert_eq!(
-            TLBState::Settled(s0).pick_best_either(),
-            None
-        );
+        s0.fragments.add_fragment(ord);
+        assert_eq!(TLBState::Settled(s0).pick_best_either(), None);
     }
 
     #[test]
@@ -472,16 +451,10 @@ pub mod tests {
         let time_now = 1000u64;
         let ord = SimpleOrderPF::default_with_bounds(TimeBounds::None);
         let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(ord.source, ord);
+        s0.fragments.add_fragment(ord);
         let mut s0_wrapped = TLBState::Settled(s0);
         assert_eq!(s0_wrapped.pick_best_either(), Some(ord));
-        match s0_wrapped {
-            TLBState::Settled(s0) => {
-                // Clean index.
-                assert!(!s0.fragments.index.contains_key(&ord.source));
-            }
-            TLBState::Preview(_) => {}
-        }
+        assert_eq!(s0_wrapped.pick_best_either(), None);
     }
 
     #[test]
@@ -490,17 +463,10 @@ pub mod tests {
         let delta = 100u64;
         let ord = SimpleOrderPF::default_with_bounds(TimeBounds::After(time_now + delta));
         let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(ord.source, ord);
-        assert_eq!(
-            TLBState::Settled(s0.clone())
-                .pick_best_either(),
-            None
-        );
+        s0.fragments.add_fragment(ord);
+        assert_eq!(TLBState::Settled(s0.clone()).pick_best_either(), None);
         s0.fragments.advance_clocks(time_now + delta);
-        assert_eq!(
-            TLBState::Settled(s0).pick_best_either(),
-            Some(ord)
-        );
+        assert_eq!(TLBState::Settled(s0).pick_best_either(), Some(ord));
     }
 
     #[test]
@@ -509,17 +475,10 @@ pub mod tests {
         let delta = 100u64;
         let ord = SimpleOrderPF::default_with_bounds(TimeBounds::Until(time_now + delta));
         let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(ord.source, ord);
-        assert_eq!(
-            TLBState::Settled(s0.clone())
-                .pick_best_either(),
-            Some(ord)
-        );
+        s0.fragments.add_fragment(ord);
+        assert_eq!(TLBState::Settled(s0.clone()).pick_best_either(), Some(ord));
         s0.fragments.advance_clocks(time_now + delta);
-        assert_eq!(
-            TLBState::Settled(s0).pick_best_either(),
-            None
-        );
+        assert_eq!(TLBState::Settled(s0).pick_best_either(), None);
     }
 
     #[test]
@@ -529,7 +488,7 @@ pub mod tests {
         let o1 = SimpleOrderPF::default_with_bounds(TimeBounds::Until(time_now + delta));
         let o2 = SimpleOrderPF::default_with_bounds(TimeBounds::None);
         let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(o1.source, o1);
+        s0.fragments.add_fragment(o1);
         let s0_copy = s0.clone();
         let mut state = TLBState::Settled(s0);
         state.pre_add_fragment(o2);
@@ -552,7 +511,7 @@ pub mod tests {
         let o1 = SimpleOrderPF::default_with_bounds(TimeBounds::Until(time_now + delta));
         let o2 = SimpleOrderPF::default_with_bounds(TimeBounds::After(time_now + delta));
         let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(o1.source, o1);
+        s0.fragments.add_fragment(o1);
         let s0_copy = s0.clone();
         let mut state = TLBState::Settled(s0);
         state.pre_add_fragment(o2);
@@ -575,7 +534,7 @@ pub mod tests {
         let o1 = SimpleOrderPF::default_with_bounds(TimeBounds::Until(time_now + delta));
         let o2 = SimpleOrderPF::default_with_bounds(TimeBounds::None);
         let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(o1.source, o1);
+        s0.fragments.add_fragment(o1);
         let s0_copy = s0.clone();
         let mut state = TLBState::Settled(s0);
         state.pre_add_fragment(o2);
@@ -610,8 +569,8 @@ pub mod tests {
         let o2 = SimpleOrderPF::default_with_bounds(TimeBounds::None);
         let o3 = SimpleOrderPF::default_with_bounds(TimeBounds::None);
         let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(o1.source, o1);
-        s0.fragments.add_fragment(o2.source, o2);
+        s0.fragments.add_fragment(o1);
+        s0.fragments.add_fragment(o2);
         let s0_copy = s0.clone();
         let mut state = TLBState::Settled(s0);
         // One new fragment added into the preview.
@@ -695,7 +654,6 @@ pub mod tests {
     }
 
     impl OrderState for SimpleOrderPF {
-
         fn with_updated_time(self, time: u64) -> StateTrans<Self> {
             if self.bounds.contain(&time) {
                 StateTrans::Active(self)

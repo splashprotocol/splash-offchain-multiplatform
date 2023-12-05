@@ -2,17 +2,14 @@ use std::cmp::{max, min};
 
 use futures::future::Either;
 
-use spectrum_offchain::data::Has;
-
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use crate::execution_engine::liquidity_book::pool::Pool;
 use crate::execution_engine::liquidity_book::recipe::{
     ExecutionRecipe, Fill, PartialFill, Swap, TerminalInstruction,
 };
 use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
-use crate::execution_engine::liquidity_book::state::{ActiveFrontier, SettledState, TLBState};
+use crate::execution_engine::liquidity_book::state::{SettledState, TLBState};
 use crate::execution_engine::liquidity_book::types::ExecutionCost;
-use crate::execution_engine::SourceId;
 
 pub mod fragment;
 pub mod pool;
@@ -35,8 +32,8 @@ pub trait TemporalLiquidityBook<Fr, Pl> {
 /// Defines TLB's API for external events affecting its state.
 pub trait ExternalTLBEvents<Fr, Pl> {
     fn advance_clocks(&mut self, new_time: u64);
-    fn add_fragment(&mut self, source: SourceId, fr: Fr);
-    fn remove_fragment(&mut self, source: SourceId);
+    fn add_fragment(&mut self, fr: Fr);
+    fn remove_fragment(&mut self, fr: Fr);
     fn update_pool(&mut self, pool: Pl);
 }
 
@@ -88,12 +85,10 @@ where
                                 && execution_units_left > self.execution_cap.safe_threshold() =>
                         {
                             let rem_side = rem.target.side();
-                            if let Some(opposite_fr) =
-                                self.state.try_pick(!rem_side, |fr| {
-                                    rem_side.wrap(rem.target.price()).overlaps(fr.price())
-                                        && fr.cost_hint() <= execution_units_left
-                                })
-                            {
+                            if let Some(opposite_fr) = self.state.try_pick(!rem_side, |fr| {
+                                rem_side.wrap(rem.target.price()).overlaps(fr.price())
+                                    && fr.cost_hint() <= execution_units_left
+                            }) {
                                 execution_units_left -= opposite_fr.cost_hint();
                                 match fill_from_fragment(*rem, opposite_fr) {
                                     FillFromFragment {
@@ -176,12 +171,12 @@ where
         requiring_settled_state(self, |st| st.advance_clocks(new_time))
     }
 
-    fn add_fragment(&mut self, source: SourceId, fr: Fr) {
-        requiring_settled_state(self, |st| st.add_fragment(source, fr))
+    fn add_fragment(&mut self, fr: Fr) {
+        requiring_settled_state(self, |st| st.add_fragment(fr))
     }
 
-    fn remove_fragment(&mut self, source: SourceId) {
-        requiring_settled_state(self, |st| st.remove_fragment(source))
+    fn remove_fragment(&mut self, fr: Fr) {
+        requiring_settled_state(self, |st| st.remove_fragment(fr))
     }
 
     fn update_pool(&mut self, pool: Pl) {
@@ -344,14 +339,14 @@ mod tests {
     use num_rational::Ratio;
     use spectrum_offchain_cardano::data::PoolId;
 
-    use crate::execution_engine::liquidity_book::{
-        fill_from_fragment, fill_from_pool, FillFromFragment, FillFromPool,
-    };
     use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::recipe::PartialFill;
     use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
     use crate::execution_engine::liquidity_book::state::tests::{SimpleCFMMPool, SimpleOrderPF};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
+    use crate::execution_engine::liquidity_book::{
+        fill_from_fragment, fill_from_pool, FillFromFragment, FillFromPool,
+    };
     use crate::execution_engine::SourceId;
 
     #[test]
