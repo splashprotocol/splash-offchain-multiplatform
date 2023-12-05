@@ -8,7 +8,7 @@ use crate::execution_engine::liquidity_book::recipe::{
     ExecutionRecipe, Fill, PartialFill, Swap, TerminalInstruction,
 };
 use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
-use crate::execution_engine::liquidity_book::state::{SettledState, TLBState};
+use crate::execution_engine::liquidity_book::state::{IdleState, TLBState};
 use crate::execution_engine::liquidity_book::types::ExecutionCost;
 
 pub mod fragment;
@@ -56,6 +56,7 @@ pub struct TLB<Fr, Pl> {
 impl<Fr, Pl> TLB<Fr, Pl>
 where
     Fr: Fragment + OrderState + Ord + Copy,
+    Pl: Pool + Copy,
 {
     fn on_transition(&mut self, tx: StateTrans<Fr>) {
         if let StateTrans::Active(fr) = tx {
@@ -152,13 +153,13 @@ where
 
 fn requiring_settled_state<Fr, Pl, F>(book: &mut TLB<Fr, Pl>, f: F)
 where
-    F: Fn(&mut SettledState<Fr, Pl>),
+    F: Fn(&mut IdleState<Fr, Pl>),
 {
     match book.state {
-        TLBState::Settled(ref mut st) => f(st),
+        TLBState::Idle(ref mut st) => f(st),
         // If there is an attempt to apply external mutations to TLB in a Preview state
         // this is a developer's error so we fail explicitly.
-        TLBState::Preview(_) => panic!("Preview state cannot be externally mutated"),
+        TLBState::Busy(_) | TLBState::Preview(_) => panic!("Busy|Preview state cannot be externally mutated"),
     }
 }
 
@@ -337,16 +338,17 @@ where
 mod tests {
     use futures::future::Either;
     use num_rational::Ratio;
+
     use spectrum_offchain_cardano::data::PoolId;
 
+    use crate::execution_engine::liquidity_book::{
+        fill_from_fragment, fill_from_pool, FillFromFragment, FillFromPool,
+    };
     use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::recipe::PartialFill;
     use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
     use crate::execution_engine::liquidity_book::state::tests::{SimpleCFMMPool, SimpleOrderPF};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
-    use crate::execution_engine::liquidity_book::{
-        fill_from_fragment, fill_from_pool, FillFromFragment, FillFromPool,
-    };
     use crate::execution_engine::SourceId;
 
     #[test]

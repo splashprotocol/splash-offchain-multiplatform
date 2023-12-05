@@ -1,5 +1,5 @@
-use std::collections::hash_map::Entry;
 use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
+use std::collections::hash_map::Entry;
 use std::fmt::Debug;
 use std::mem;
 
@@ -12,12 +12,12 @@ use crate::execution_engine::liquidity_book::types::Price;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 /// State with no uncommitted changes.
-pub struct SettledState<Fr, Pl> {
+pub struct IdleState<Fr, Pl> {
     fragments: Chronology<Fr>,
     pools: Pools<Pl>,
 }
 
-impl<Fr, Pl> SettledState<Fr, Pl> {
+impl<Fr, Pl> IdleState<Fr, Pl> {
     fn new(time_now: u64) -> Self {
         Self {
             fragments: Chronology::new(time_now),
@@ -26,7 +26,7 @@ impl<Fr, Pl> SettledState<Fr, Pl> {
     }
 }
 
-impl<Fr, Pl> SettledState<Fr, Pl>
+impl<Fr, Pl> IdleState<Fr, Pl>
 where
     Fr: Fragment + OrderState + Ord + Copy,
     Pl: Pool + Copy,
@@ -46,10 +46,41 @@ where
     pub fn update_pool(&mut self, pool: Pl) {
         self.pools.update_pool(pool);
     }
+
+    fn move_into_preview(&mut self, target: &mut PreviewState<Fr, Pl>) {
+        // Copy untouched state into preview.
+        mem::swap(&mut target.fragments_intact, &mut self.fragments);
+        mem::swap(&mut target.pools_intact, &mut self.pools);
+        // Copy active fragments/pools to use as a preview.
+        let mut active_fragments = target.fragments_intact.active.clone();
+        mem::swap(&mut target.active_fragments_preview, &mut active_fragments);
+        let mut pools = target.pools_intact.clone();
+        mem::swap(&mut target.pools_preview, &mut pools);
+    }
 }
 
-#[derive(Debug, Clone)]
+/// State with no uncommitted changes.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct BusyState<Fr, Pl> {
+    fragments: Chronology<Fr>,
+    consumed_active_fragments: Vec<Fr>,
+    pools: Pools<Pl>,
+    consumed_pools: Vec<Pl>,
+}
+
+impl<Fr, Pl> BusyState<Fr, Pl> {
+    pub fn new(time_now: u64) -> Self {
+        Self {
+            fragments: Chronology::new(time_now),
+            consumed_active_fragments: vec![],
+            pools: Pools::new(),
+            consumed_pools: vec![],
+        }
+    }
+}
+
 /// State with areas of uncommitted changes.
+#[derive(Debug, Clone)]
 pub struct PreviewState<Fr, Pl> {
     /// Fragments before changes.
     fragments_intact: Chronology<Fr>,
@@ -80,7 +111,7 @@ where
     Fr: Fragment + Ord,
 {
     /// Commit preview changes.
-    pub fn commit(&mut self) -> SettledState<Fr, Pl> {
+    pub fn commit(&mut self) -> IdleState<Fr, Pl> {
         // Commit pools preview if available.
         mem::swap(&mut self.pools_intact, &mut self.pools_preview);
         // Commit active fragments preview if available.
@@ -105,13 +136,13 @@ where
     }
 
     /// Discard preview changes.
-    pub fn rollback(&mut self) -> SettledState<Fr, Pl> {
+    pub fn rollback(&mut self) -> IdleState<Fr, Pl> {
         self.move_into_settled()
     }
 
     /// Move intact regions into settled state.
-    fn move_into_settled(&mut self) -> SettledState<Fr, Pl> {
-        let mut fresh_settled_st = SettledState::new(self.fragments_intact.time_now);
+    fn move_into_settled(&mut self) -> IdleState<Fr, Pl> {
+        let mut fresh_settled_st = IdleState::new(self.fragments_intact.time_now);
         mem::swap(&mut fresh_settled_st.fragments, &mut self.fragments_intact);
         mem::swap(&mut fresh_settled_st.pools, &mut self.pools_intact);
         fresh_settled_st
@@ -120,7 +151,8 @@ where
 
 #[derive(Debug, Clone)]
 pub enum TLBState<Fr, Pl> {
-    Settled(SettledState<Fr, Pl>),
+    Idle(IdleState<Fr, Pl>),
+    Busy(BusyState<Fr, Pl>),
     Preview(PreviewState<Fr, Pl>),
 }
 
@@ -168,46 +200,42 @@ where
         let active_fragments = self.active_fragments_mut();
         active_fragments.insert(fr);
     }
-}
 
-impl<Fr, Pl> TLBState<Fr, Pl>
-where
-    Fr: Fragment + Ord + Copy,
-{
     fn active_fragments(&self) -> &Fragments<Fr> {
         match self {
-            TLBState::Settled(st) => &st.fragments.active,
+            TLBState::Idle(st) => &st.fragments.active,
+            TLBState::Busy(st) => &st.fragments.active,
             TLBState::Preview(st) => &st.active_fragments_preview,
         }
     }
 
     fn active_fragments_mut(&mut self) -> &mut Fragments<Fr> {
         match self {
-            TLBState::Settled(st) => &mut st.fragments.active,
+            TLBState::Idle(st) => &mut st.fragments.active,
+            TLBState::Busy(st) => &mut st.fragments.active,
             TLBState::Preview(st) => &mut st.active_fragments_preview,
         }
     }
+}
 
+impl<Fr, Pl> TLBState<Fr, Pl>
+where
+    Fr: Fragment + Ord + Copy,
+    Pl: Pool + Copy,
+{
     pub fn pre_add_fragment(&mut self, fr: Fr) {
         let time = self.current_time();
         match (self, fr.time_bounds().lower_bound()) {
             // We have to transit to preview state.
-            (this @ TLBState::Settled(_), lower_bound) => {
+            (this @ TLBState::Idle(_) | this @ TLBState::Busy(_), lower_bound) => {
                 let mut preview_st = PreviewState::new(time);
-                match this {
-                    TLBState::Settled(st) => {
-                        mem::swap(&mut preview_st.fragments_intact, &mut st.fragments);
-                        mem::swap(&mut preview_st.pools_intact, &mut st.pools);
-                        let mut active_fragments = preview_st.fragments_intact.active.clone();
-                        mem::swap(&mut preview_st.active_fragments_preview, &mut active_fragments);
-                        match lower_bound {
-                            Some(lower_bound) if lower_bound > time => {
-                                preview_st.inactive_fragments_changeset.push((lower_bound, fr));
-                            }
-                            _ => preview_st.active_fragments_preview.insert(fr),
-                        }
+                this.move_into_preview(&mut preview_st);
+                // Add fr into preview.
+                match lower_bound {
+                    Some(lower_bound) if lower_bound > time => {
+                        preview_st.inactive_fragments_changeset.push((lower_bound, fr));
                     }
-                    TLBState::Preview(_) => unreachable!(),
+                    _ => preview_st.active_fragments_preview.insert(fr),
                 }
                 mem::swap(this, &mut TLBState::Preview(preview_st));
             }
@@ -218,10 +246,57 @@ where
         }
     }
 
+    pub fn pre_add_pool(&mut self, pool: Pl) {
+        match self {
+            this @ TLBState::Idle(_) | this @ TLBState::Busy(_) => {
+                let mut preview_st = PreviewState::new(0);
+                this.move_into_preview(&mut preview_st);
+                // Add pool into preview.
+                preview_st.pools_preview.update_pool(pool);
+                mem::swap(this, &mut TLBState::Preview(preview_st));
+            }
+            TLBState::Preview(ref mut state) => state.pools_preview.update_pool(pool),
+        }
+    }
+
     fn current_time(&self) -> u64 {
         match self {
-            TLBState::Settled(st) => st.fragments.time_now,
+            TLBState::Idle(st) => st.fragments.time_now,
+            TLBState::Busy(st) => st.fragments.time_now,
             TLBState::Preview(st) => st.fragments_intact.time_now,
+        }
+    }
+
+    fn move_into_preview(&mut self, target: &mut PreviewState<Fr, Pl>) {
+        match self {
+            TLBState::Idle(st) => {
+                // Copy untouched state into preview.
+                mem::swap(&mut target.fragments_intact, &mut st.fragments);
+                mem::swap(&mut target.pools_intact, &mut st.pools);
+                // Copy active fragments/pools to use as a preview.
+                let mut active_fragments = target.fragments_intact.active.clone();
+                mem::swap(&mut target.active_fragments_preview, &mut active_fragments);
+                let mut pools = target.pools_intact.clone();
+                mem::swap(&mut target.pools_preview, &mut pools);
+            }
+            TLBState::Busy(st) => {
+                // Copy active fragments/pools to use as a preview.
+                let mut active_fragments = st.fragments.active.clone();
+                mem::swap(&mut target.active_fragments_preview, &mut active_fragments);
+                let mut pools = st.pools.clone();
+                mem::swap(&mut target.pools_preview, &mut pools);
+                // Return consumed fragments/pools to reconstruct untouched state.
+                while let Some(fr) = st.consumed_active_fragments.pop() {
+                    st.fragments.active.insert(fr);
+                }
+                while let Some(pl) = st.consumed_pools.pop() {
+                    st.pools.pools.insert(pl.id(), pl);
+                }
+                // Copy untouched state into preview.
+                mem::swap(&mut target.fragments_intact, &mut st.fragments);
+                mem::swap(&mut target.pools_intact, &mut st.pools);
+            }
+            TLBState::Preview(_) => {}
         }
     }
 }
@@ -232,38 +307,17 @@ where
 {
     pub fn pools(&self) -> &Pools<Pl> {
         match self {
-            TLBState::Settled(st) => &st.pools,
+            TLBState::Idle(st) => &st.pools,
+            TLBState::Busy(st) => &st.pools,
             TLBState::Preview(st) => &st.pools_preview,
         }
     }
 
     pub fn pools_mut(&mut self) -> &mut Pools<Pl> {
         match self {
-            TLBState::Settled(st) => &mut st.pools,
+            TLBState::Idle(st) => &mut st.pools,
+            TLBState::Busy(st) => &mut st.pools,
             TLBState::Preview(st) => &mut st.pools_preview,
-        }
-    }
-
-    pub fn pre_add_pool(&mut self, pool: Pl) {
-        match self {
-            this @ TLBState::Settled(_) => {
-                let mut preview_st = PreviewState::new(0);
-                match this {
-                    TLBState::Settled(st) => {
-                        // Move initial views into fresh preview state.
-                        mem::swap(&mut preview_st.fragments_intact, &mut st.fragments);
-                        mem::swap(&mut preview_st.pools_intact, &mut st.pools);
-                        // Copy initial pools view ..
-                        let mut pools_preview = preview_st.pools_intact.clone();
-                        // .. and update it with new pool state.
-                        pools_preview.update_pool(pool);
-                        mem::swap(&mut preview_st.pools_preview, &mut pools_preview);
-                    }
-                    TLBState::Preview(_) => unreachable!(),
-                }
-                mem::swap(this, &mut TLBState::Preview(preview_st));
-            }
-            TLBState::Preview(ref mut state) => state.pools_preview.update_pool(pool),
         }
     }
 }
@@ -432,7 +486,7 @@ pub mod tests {
     use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
     use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
-    use crate::execution_engine::liquidity_book::state::{PoolQuality, SettledState, TLBState};
+    use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, TLBState};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::{ExecutionCost, Price};
     use crate::execution_engine::SourceId;
@@ -441,18 +495,18 @@ pub mod tests {
     fn add_inactive_fragment() {
         let time_now = 1000u64;
         let ord = SimpleOrderPF::default_with_bounds(TimeBounds::After(time_now + 100));
-        let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
+        let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.fragments.add_fragment(ord);
-        assert_eq!(TLBState::Settled(s0).pick_best_either(), None);
+        assert_eq!(TLBState::Idle(s0).pick_best_either(), None);
     }
 
     #[test]
     fn pop_active_fragment() {
         let time_now = 1000u64;
         let ord = SimpleOrderPF::default_with_bounds(TimeBounds::None);
-        let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
+        let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.fragments.add_fragment(ord);
-        let mut s0_wrapped = TLBState::Settled(s0);
+        let mut s0_wrapped = TLBState::Idle(s0);
         assert_eq!(s0_wrapped.pick_best_either(), Some(ord));
         assert_eq!(s0_wrapped.pick_best_either(), None);
     }
@@ -462,11 +516,11 @@ pub mod tests {
         let time_now = 1000u64;
         let delta = 100u64;
         let ord = SimpleOrderPF::default_with_bounds(TimeBounds::After(time_now + delta));
-        let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
+        let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.fragments.add_fragment(ord);
-        assert_eq!(TLBState::Settled(s0.clone()).pick_best_either(), None);
+        assert_eq!(TLBState::Idle(s0.clone()).pick_best_either(), None);
         s0.fragments.advance_clocks(time_now + delta);
-        assert_eq!(TLBState::Settled(s0).pick_best_either(), Some(ord));
+        assert_eq!(TLBState::Idle(s0).pick_best_either(), Some(ord));
     }
 
     #[test]
@@ -474,11 +528,11 @@ pub mod tests {
         let time_now = 1000u64;
         let delta = 100u64;
         let ord = SimpleOrderPF::default_with_bounds(TimeBounds::Until(time_now + delta));
-        let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
+        let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.fragments.add_fragment(ord);
-        assert_eq!(TLBState::Settled(s0.clone()).pick_best_either(), Some(ord));
+        assert_eq!(TLBState::Idle(s0.clone()).pick_best_either(), Some(ord));
         s0.fragments.advance_clocks(time_now + delta);
-        assert_eq!(TLBState::Settled(s0).pick_best_either(), None);
+        assert_eq!(TLBState::Idle(s0).pick_best_either(), None);
     }
 
     #[test]
@@ -487,10 +541,10 @@ pub mod tests {
         let delta = 100u64;
         let o1 = SimpleOrderPF::default_with_bounds(TimeBounds::Until(time_now + delta));
         let o2 = SimpleOrderPF::default_with_bounds(TimeBounds::None);
-        let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
+        let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.fragments.add_fragment(o1);
         let s0_copy = s0.clone();
-        let mut state = TLBState::Settled(s0);
+        let mut state = TLBState::Idle(s0);
         state.pre_add_fragment(o2);
         match state {
             TLBState::Preview(st) => {
@@ -500,7 +554,7 @@ pub mod tests {
                 assert!(preview.bids.contains(&o2) || preview.asks.contains(&o2));
                 dbg!(preview);
             }
-            TLBState::Settled(_) => panic!(),
+            _ => panic!(),
         }
     }
 
@@ -510,10 +564,10 @@ pub mod tests {
         let delta = 100u64;
         let o1 = SimpleOrderPF::default_with_bounds(TimeBounds::Until(time_now + delta));
         let o2 = SimpleOrderPF::default_with_bounds(TimeBounds::After(time_now + delta));
-        let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
+        let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.fragments.add_fragment(o1);
         let s0_copy = s0.clone();
-        let mut state = TLBState::Settled(s0);
+        let mut state = TLBState::Idle(s0);
         state.pre_add_fragment(o2);
         match state {
             TLBState::Preview(st) => {
@@ -523,7 +577,7 @@ pub mod tests {
                     vec![(o2.bounds.lower_bound().unwrap(), o2)]
                 );
             }
-            TLBState::Settled(_) => panic!(),
+            _ => panic!(),
         }
     }
 
@@ -533,10 +587,10 @@ pub mod tests {
         let delta = 100u64;
         let o1 = SimpleOrderPF::default_with_bounds(TimeBounds::Until(time_now + delta));
         let o2 = SimpleOrderPF::default_with_bounds(TimeBounds::None);
-        let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
+        let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.fragments.add_fragment(o1);
         let s0_copy = s0.clone();
-        let mut state = TLBState::Settled(s0);
+        let mut state = TLBState::Idle(s0);
         state.pre_add_fragment(o2);
         match state {
             TLBState::Preview(mut s1) => {
@@ -557,7 +611,7 @@ pub mod tests {
                     assert!(s2.fragments.active.asks.contains(&fr))
                 }
             }
-            TLBState::Settled(_) => panic!(),
+            _ => panic!(),
         }
     }
 
@@ -568,11 +622,11 @@ pub mod tests {
         let o1 = SimpleOrderPF::default_with_bounds(TimeBounds::Until(time_now + delta));
         let o2 = SimpleOrderPF::default_with_bounds(TimeBounds::None);
         let o3 = SimpleOrderPF::default_with_bounds(TimeBounds::None);
-        let mut s0 = SettledState::<_, SimpleCFMMPool>::new(time_now);
+        let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.fragments.add_fragment(o1);
         s0.fragments.add_fragment(o2);
         let s0_copy = s0.clone();
-        let mut state = TLBState::Settled(s0);
+        let mut state = TLBState::Idle(s0);
         // One new fragment added into the preview.
         state.pre_add_fragment(o3);
         // One old fragment removed from the preview.
@@ -583,7 +637,7 @@ pub mod tests {
                 assert_eq!(s2.fragments, s0_copy.fragments);
                 assert_eq!(s2.pools, s0_copy.pools);
             }
-            TLBState::Settled(_) => panic!(),
+            _ => panic!(),
         }
     }
 
