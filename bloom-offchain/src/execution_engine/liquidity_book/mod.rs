@@ -10,7 +10,7 @@ use crate::execution_engine::liquidity_book::recipe::{
     ExecutionRecipe, Fill, PartialFill, Swap, TerminalInstruction,
 };
 use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
-use crate::execution_engine::liquidity_book::state::{QualityMetric, SettledState, TLBState};
+use crate::execution_engine::liquidity_book::state::{ActiveFrontier, SettledState, TLBState};
 use crate::execution_engine::liquidity_book::types::ExecutionCost;
 use crate::execution_engine::SourceId;
 
@@ -35,7 +35,7 @@ pub trait TemporalLiquidityBook<Fr, Pl> {
 /// Defines TLB's API for external events affecting its state.
 pub trait ExternalTLBEvents<Fr, Pl> {
     fn advance_clocks(&mut self, new_time: u64);
-    fn add_fragment(&mut self, fr: Fr);
+    fn add_fragment(&mut self, source: SourceId, fr: Fr);
     fn remove_fragment(&mut self, source: SourceId);
     fn update_pool(&mut self, pool: Pl);
 }
@@ -59,7 +59,6 @@ pub struct TLB<Fr, Pl> {
 impl<Fr, Pl> TLB<Fr, Pl>
 where
     Fr: Fragment + OrderState + Ord + Copy,
-    Pl: QualityMetric + Has<SourceId> + Copy,
 {
     fn on_transition(&mut self, tx: StateTrans<Fr>) {
         if let StateTrans::Active(fr) = tx {
@@ -71,15 +70,15 @@ where
 impl<Fr, Pl> TemporalLiquidityBook<Fr, Pl> for TLB<Fr, Pl>
 where
     Fr: Fragment + OrderState + Copy + Ord,
-    Pl: Pool + QualityMetric + Has<SourceId> + Copy,
+    Pl: Pool + Copy,
 {
     fn attempt(&mut self) -> Option<ExecutionRecipe<Fr, Pl>> {
-        if let Some(best_fr) = self.state.active_fragments_mut().pick_either() {
+        if let Some(best_fr) = self.state.pick_best_either() {
             let mut recipe = ExecutionRecipe::new(best_fr);
             let mut execution_units_left = self.execution_cap.hard;
             loop {
                 if let Some(rem) = &recipe.remainder {
-                    let price_fragments = self.state.active_fragments().best_price(!best_fr.side());
+                    let price_fragments = self.state.best_price(!best_fr.side());
                     let price_in_pools = self.state.pools().best_price();
                     match (price_in_pools, price_fragments) {
                         (price_in_pools, Some(price_in_fragments))
@@ -90,7 +89,7 @@ where
                         {
                             let rem_side = rem.target.side();
                             if let Some(opposite_fr) =
-                                self.state.active_fragments_mut().try_pick(!rem_side, |fr| {
+                                self.state.try_pick(!rem_side, |fr| {
                                     rem_side.wrap(rem.target.price()).overlaps(fr.price())
                                         && fr.cost_hint() <= execution_units_left
                                 })
@@ -146,7 +145,7 @@ where
                 // return liquidity if recipe failed.
                 for fr in recipe.disassemble() {
                     match fr {
-                        Either::Left(fr) => self.state.active_fragments_mut().insert(fr),
+                        Either::Left(fr) => self.state.return_fr(fr),
                         Either::Right(pl) => self.state.pools_mut().update_pool(pl),
                     }
                 }
@@ -158,8 +157,6 @@ where
 
 fn requiring_settled_state<Fr, Pl, F>(book: &mut TLB<Fr, Pl>, f: F)
 where
-    Fr: Fragment + OrderState + Ord + Copy,
-    Pl: QualityMetric + Has<SourceId> + Copy,
     F: Fn(&mut SettledState<Fr, Pl>),
 {
     match book.state {
@@ -173,14 +170,14 @@ where
 impl<Fr, Pl> ExternalTLBEvents<Fr, Pl> for TLB<Fr, Pl>
 where
     Fr: Fragment + OrderState + Ord + Copy,
-    Pl: QualityMetric + Has<SourceId> + Copy,
+    Pl: Pool + Copy,
 {
     fn advance_clocks(&mut self, new_time: u64) {
         requiring_settled_state(self, |st| st.advance_clocks(new_time))
     }
 
-    fn add_fragment(&mut self, fr: Fr) {
-        requiring_settled_state(self, |st| st.add_fragment(fr))
+    fn add_fragment(&mut self, source: SourceId, fr: Fr) {
+        requiring_settled_state(self, |st| st.add_fragment(source, fr))
     }
 
     fn remove_fragment(&mut self, source: SourceId) {
@@ -345,15 +342,16 @@ where
 mod tests {
     use futures::future::Either;
     use num_rational::Ratio;
+    use spectrum_offchain_cardano::data::PoolId;
 
+    use crate::execution_engine::liquidity_book::{
+        fill_from_fragment, fill_from_pool, FillFromFragment, FillFromPool,
+    };
     use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::recipe::PartialFill;
     use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
     use crate::execution_engine::liquidity_book::state::tests::{SimpleCFMMPool, SimpleOrderPF};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
-    use crate::execution_engine::liquidity_book::{
-        fill_from_fragment, fill_from_pool, FillFromFragment, FillFromPool,
-    };
     use crate::execution_engine::SourceId;
 
     #[test]
@@ -480,7 +478,7 @@ mod tests {
             accumulated_output: 180,
         };
         let pool = SimpleCFMMPool {
-            state_ver: [0u8; 32],
+            pool_id: PoolId::random(),
             reserves_base: 100000000000000,
             reserves_quote: 36600000000000,
             fee_num: 997,

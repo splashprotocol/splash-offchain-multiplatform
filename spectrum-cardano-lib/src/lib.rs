@@ -5,8 +5,8 @@ use std::ops::{Add, Sub};
 use std::str::FromStr;
 
 use cml_chain::plutus::PlutusData;
-use cml_chain::transaction::TransactionInput;
 use cml_chain::PolicyId;
+use cml_chain::transaction::TransactionInput;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
 
@@ -29,6 +29,16 @@ pub struct AssetName(u8, [u8; 32]);
 impl AssetName {
     pub fn padded_bytes(&self) -> [u8; 32] {
         self.1
+    }
+    
+    pub fn utf8_unsafe(tn: String) -> Self {
+        let orig_len = tn.len();
+        let tn = if orig_len > 32 { &tn[0..32] } else { &*tn };
+        let mut bf = [0u8; 32];
+        tn.as_bytes().into_iter().enumerate().for_each(|(ix, i)| {
+            bf[ix] = *i;
+        });
+        Self(orig_len as u8, bf)
     }
 }
 
