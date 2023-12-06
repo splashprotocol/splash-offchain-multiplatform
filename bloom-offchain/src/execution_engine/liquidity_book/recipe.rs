@@ -19,32 +19,23 @@ where
             remainder: Some(PartialFill::new(fr)),
         }
     }
+
     pub fn push(&mut self, instruction: TerminalInstruction<Fr, Pl>) {
         self.terminal.push(instruction)
     }
+
     pub fn terminate(&mut self, instruction: TerminalInstruction<Fr, Pl>) {
         self.push(instruction);
         self.remainder = None;
     }
+
     pub fn set_remainder(&mut self, remainder: PartialFill<Fr>) {
         self.remainder = Some(remainder);
     }
+
     pub fn is_complete(&self) -> bool {
         let terminal_fragments = self.terminal.len();
         terminal_fragments >= 2 || (terminal_fragments > 0 && self.remainder.is_some())
-    }
-    pub fn disassemble(self) -> Vec<Either<Fr, Pl>> {
-        let mut acc = Vec::new();
-        for i in self.terminal {
-            match i {
-                TerminalInstruction::Fill(fill) => acc.push(Either::Left(fill.target)),
-                TerminalInstruction::Swap(swap) => acc.push(Either::Right(swap.target)),
-            }
-        }
-        if let Some(partial) = self.remainder {
-            acc.push(Either::Left(partial.target));
-        }
-        acc
     }
 }
 

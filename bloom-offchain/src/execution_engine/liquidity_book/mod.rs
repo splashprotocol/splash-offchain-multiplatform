@@ -1,4 +1,5 @@
 use std::cmp::{max, min};
+use std::mem;
 
 use futures::future::Either;
 
@@ -71,13 +72,13 @@ where
     Pl: Pool + Copy,
 {
     fn attempt(&mut self) -> Option<ExecutionRecipe<Fr, Pl>> {
-        if let Some(best_fr) = self.state.pick_best_either() {
+        if let Some(best_fr) = self.state.pick_best_fr_either() {
             let mut recipe = ExecutionRecipe::new(best_fr);
             let mut execution_units_left = self.execution_cap.hard;
             loop {
                 if let Some(rem) = &recipe.remainder {
-                    let price_fragments = self.state.best_price(!best_fr.side());
-                    let price_in_pools = self.state.pools().best_price();
+                    let price_fragments = self.state.best_fr_price(!best_fr.side());
+                    let price_in_pools = self.state.best_pool_price();
                     match (price_in_pools, price_fragments) {
                         (price_in_pools, Some(price_in_fragments))
                             if price_in_pools
@@ -86,7 +87,7 @@ where
                                 && execution_units_left > self.execution_cap.safe_threshold() =>
                         {
                             let rem_side = rem.target.side();
-                            if let Some(opposite_fr) = self.state.try_pick(!rem_side, |fr| {
+                            if let Some(opposite_fr) = self.state.try_pick_fr(!rem_side, |fr| {
                                 rem_side.wrap(rem.target.price()).overlaps(fr.price())
                                     && fr.cost_hint() <= execution_units_left
                             }) {
@@ -115,7 +116,7 @@ where
                         }
                         (Some(_), _) if execution_units_left > 0 => {
                             let rem_side = rem.target.side();
-                            if let Some(pool) = self.state.pools_mut().try_pick(|pl| {
+                            if let Some(pool) = self.state.try_pick_pool(|pl| {
                                 rem_side
                                     .wrap(rem.target.price())
                                     .overlaps(pl.real_price(rem_side.wrap(rem.remaining_input)))
@@ -138,11 +139,15 @@ where
             if recipe.is_complete() {
                 return Some(recipe);
             } else {
-                // return liquidity if recipe failed.
-                for fr in recipe.disassemble() {
-                    match fr {
-                        Either::Left(fr) => self.state.return_fr(fr),
-                        Either::Right(pl) => self.state.pools_mut().update_pool(pl),
+                match &mut self.state {
+                    TLBState::Idle(_) => {}
+                    TLBState::PartialPreview(st) => {
+                        let idle = st.rollback();
+                        mem::swap(&mut self.state, &mut TLBState::Idle(idle));
+                    }
+                    TLBState::Preview(st) => {
+                        let idle = st.rollback();
+                        mem::swap(&mut self.state, &mut TLBState::Idle(idle));
                     }
                 }
             }
@@ -159,7 +164,9 @@ where
         TLBState::Idle(ref mut st) => f(st),
         // If there is an attempt to apply external mutations to TLB in a Preview state
         // this is a developer's error so we fail explicitly.
-        TLBState::Busy(_) | TLBState::Preview(_) => panic!("Busy|Preview state cannot be externally mutated"),
+        TLBState::PartialPreview(_) | TLBState::Preview(_) => {
+            panic!("Busy|Preview state cannot be externally mutated")
+        }
     }
 }
 
@@ -341,14 +348,14 @@ mod tests {
 
     use spectrum_offchain_cardano::data::PoolId;
 
-    use crate::execution_engine::liquidity_book::{
-        fill_from_fragment, fill_from_pool, FillFromFragment, FillFromPool,
-    };
     use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::recipe::PartialFill;
     use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
     use crate::execution_engine::liquidity_book::state::tests::{SimpleCFMMPool, SimpleOrderPF};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
+    use crate::execution_engine::liquidity_book::{
+        fill_from_fragment, fill_from_pool, FillFromFragment, FillFromPool,
+    };
     use crate::execution_engine::SourceId;
 
     #[test]
