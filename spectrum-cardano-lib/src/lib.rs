@@ -30,6 +30,16 @@ impl AssetName {
     pub fn padded_bytes(&self) -> [u8; 32] {
         self.1
     }
+
+    pub fn utf8_unsafe(tn: String) -> Self {
+        let orig_len = tn.len();
+        let tn = if orig_len > 32 { &tn[0..32] } else { &*tn };
+        let mut bf = [0u8; 32];
+        tn.as_bytes().into_iter().enumerate().for_each(|(ix, i)| {
+            bf[ix] = *i;
+        });
+        Self(orig_len as u8, bf)
+    }
 }
 
 impl Display for AssetName {

@@ -1,26 +1,29 @@
 use std::ops::Not;
 
-#[derive(Debug, Copy, Clone)]
-pub enum SideMarker {
+use derive_more::Display;
+
+/// Side marker.
+#[derive(Debug, Display, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum SideM {
     Bid,
     Ask,
 }
 
-impl SideMarker {
+impl SideM {
     pub fn wrap<T>(self, value: T) -> Side<T> {
         match self {
-            SideMarker::Bid => Side::Bid(value),
-            SideMarker::Ask => Side::Ask(value),
+            SideM::Bid => Side::Bid(value),
+            SideM::Ask => Side::Ask(value),
         }
     }
 }
 
-impl Not for SideMarker {
-    type Output = SideMarker;
+impl Not for SideM {
+    type Output = SideM;
     fn not(self) -> Self::Output {
         match self {
-            SideMarker::Bid => SideMarker::Ask,
-            SideMarker::Ask => SideMarker::Bid,
+            SideM::Bid => SideM::Ask,
+            SideM::Ask => SideM::Bid,
         }
     }
 }
@@ -44,10 +47,10 @@ impl<T> Side<T> {
             Side::Ask(t) => t,
         }
     }
-    pub fn marker(&self) -> SideMarker {
+    pub fn marker(&self) -> SideM {
         match self {
-            Side::Bid(_) => SideMarker::Bid,
-            Side::Ask(_) => SideMarker::Ask,
+            Side::Bid(_) => SideM::Bid,
+            Side::Ask(_) => SideM::Ask,
         }
     }
     pub fn map<R, F>(self, f: F) -> Side<R>

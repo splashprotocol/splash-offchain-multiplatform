@@ -5,8 +5,9 @@ use cml_chain::transaction::{TransactionInput, TransactionOutput};
 use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use num_rational::Ratio;
+use rand::{thread_rng, RngCore};
 
-use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAssetClass, Token};
+use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAssetClass, Token};
 use spectrum_offchain::data::{OnChainEntity, SpecializedOrder};
 
 use crate::constants::POOL_VERSIONS;
@@ -113,6 +114,16 @@ impl OnChainOrderId {
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, derive_more::From, derive_more::Into)]
 pub struct PoolId(Token);
+
+impl PoolId {
+    pub fn random() -> PoolId {
+        let mut bf = [0u8; 28];
+        thread_rng().fill_bytes(&mut bf);
+        let mp = PolicyId::from(bf);
+        let tn = AssetName::utf8_unsafe(String::from("nft"));
+        PoolId((mp, tn))
+    }
+}
 
 impl Display for PoolId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

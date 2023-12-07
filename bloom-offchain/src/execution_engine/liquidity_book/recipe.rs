@@ -1,60 +1,51 @@
 use futures::future::Either;
 
-use crate::execution_engine::liquidity_book::fragment::Fragment;
-use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
+use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
+use crate::execution_engine::liquidity_book::side::SideM;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ExecutionRecipe<Fr, Pl> {
     pub terminal: Vec<TerminalInstruction<Fr, Pl>>,
-    pub remainder: Option<Side<PartialFill<Fr>>>,
+    pub remainder: Option<PartialFill<Fr>>,
 }
 
 impl<Fr, Pl> ExecutionRecipe<Fr, Pl>
 where
     Fr: Fragment,
 {
-    pub fn new(fr: Side<Fr>) -> Self {
+    pub fn new(fr: Fr) -> Self {
         Self {
             terminal: Vec::new(),
-            remainder: Some(fr.map(PartialFill::new)),
+            remainder: Some(PartialFill::new(fr)),
         }
     }
+
     pub fn push(&mut self, instruction: TerminalInstruction<Fr, Pl>) {
         self.terminal.push(instruction)
     }
+
     pub fn terminate(&mut self, instruction: TerminalInstruction<Fr, Pl>) {
         self.push(instruction);
         self.remainder = None;
     }
-    pub fn set_remainder(&mut self, remainder: Side<PartialFill<Fr>>) {
+
+    pub fn set_remainder(&mut self, remainder: PartialFill<Fr>) {
         self.remainder = Some(remainder);
     }
+
     pub fn is_complete(&self) -> bool {
         let terminal_fragments = self.terminal.len();
-        terminal_fragments % 2 == 0 || (terminal_fragments > 0 && self.remainder.is_some())
-    }
-    pub fn disassemble(self) -> Vec<Either<Side<Fr>, Pl>> {
-        let mut acc = Vec::new();
-        for i in self.terminal {
-            match i {
-                TerminalInstruction::Fill(fill) => acc.push(Either::Left(fill.map(|f| f.target))),
-                TerminalInstruction::Swap(swap) => acc.push(Either::Right(swap.target)),
-            }
-        }
-        if let Some(partial) = self.remainder {
-            acc.push(Either::Left(partial.map(|f| f.target)));
-        }
-        acc
+        terminal_fragments >= 2 || (terminal_fragments > 0 && self.remainder.is_some())
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum TerminalInstruction<Fr, Pl> {
-    Fill(Side<Fill<Fr>>),
+    Fill(Fill<Fr>),
     Swap(Swap<Pl>),
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Fill<Fr> {
     pub target: Fr,
     pub output: u64,
@@ -66,11 +57,29 @@ impl<Fr> Fill<Fr> {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct PartialFill<Fr> {
     pub target: Fr,
     pub remaining_input: u64,
     pub accumulated_output: u64,
+}
+
+impl<Fr> PartialFill<Fr>
+where
+    Fr: Fragment + OrderState + Copy,
+{
+    /// Force fill target fragment.
+    /// Does not guarantee that the fragment is actually fully satisfied.
+    pub fn into_filled(self) -> (Fill<Fr>, StateTrans<Fr>) {
+        (
+            Fill {
+                target: self.target,
+                output: self.accumulated_output,
+            },
+            self.target
+                .with_updated_liquidity(self.target.input(), self.accumulated_output),
+        )
+    }
 }
 
 impl<Fr> From<PartialFill<Fr>> for Fill<Fr> {
@@ -95,10 +104,10 @@ where
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Swap<Pl> {
     pub target: Pl,
-    pub side: SideMarker,
+    pub side: SideM,
     pub input: u64,
     pub output: u64,
 }

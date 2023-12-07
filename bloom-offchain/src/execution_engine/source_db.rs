@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::execution_engine::SourceId;
 
 pub trait SourceDB<Src> {
-    /// Query resolved source by [SourceId].
+    /// Take resolved source by [SourceId].
     /// Source is always available.
     fn take_unsafe(&mut self, source_id: SourceId) -> Src;
     fn put(&mut self, source_id: SourceId, source: Src);
@@ -11,12 +11,13 @@ pub trait SourceDB<Src> {
 }
 
 pub struct InMemorySourceDB<Src> {
-    store: HashMap<SourceId, Src>
+    store: HashMap<SourceId, Src>,
 }
 
 impl<Src> SourceDB<Src> for InMemorySourceDB<Src> {
     fn take_unsafe(&mut self, source_id: SourceId) -> Src {
-        self.store.remove(&source_id)
+        self.store
+            .remove(&source_id)
             .expect("Source is supposed to always be available")
     }
 
