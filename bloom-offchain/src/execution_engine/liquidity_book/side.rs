@@ -1,6 +1,7 @@
 use std::ops::Not;
+use derive_more::Display;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Display, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum SideMarker {
     Bid,
     Ask,

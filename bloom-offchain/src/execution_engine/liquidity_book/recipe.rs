@@ -3,7 +3,7 @@ use futures::future::Either;
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use crate::execution_engine::liquidity_book::side::SideMarker;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ExecutionRecipe<Fr, Pl> {
     pub terminal: Vec<TerminalInstruction<Fr, Pl>>,
     pub remainder: Option<PartialFill<Fr>>,
@@ -39,13 +39,13 @@ where
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum TerminalInstruction<Fr, Pl> {
     Fill(Fill<Fr>),
     Swap(Swap<Pl>),
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Fill<Fr> {
     pub target: Fr,
     pub output: u64,
@@ -57,7 +57,7 @@ impl<Fr> Fill<Fr> {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct PartialFill<Fr> {
     pub target: Fr,
     pub remaining_input: u64,
@@ -104,7 +104,7 @@ where
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Swap<Pl> {
     pub target: Pl,
     pub side: SideMarker,

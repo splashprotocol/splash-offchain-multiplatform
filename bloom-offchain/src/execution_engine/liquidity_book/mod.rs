@@ -1,4 +1,5 @@
 use std::cmp::{max, min};
+use std::fmt::Debug;
 use std::mem;
 
 use futures::future::Either;
@@ -54,6 +55,15 @@ pub struct TLB<Fr, Pl> {
     execution_cap: ExecutionCap,
 }
 
+impl<Fr, Pl> TLB<Fr, Pl> {
+    pub fn new(time: u64, conf: ExecutionCap) -> Self {
+        Self {
+            state: TLBState::new(time),
+            execution_cap: conf,
+        }
+    }
+}
+
 impl<Fr, Pl> TLB<Fr, Pl>
 where
     Fr: Fragment + OrderState + Ord + Copy,
@@ -77,7 +87,7 @@ where
             let mut execution_units_left = self.execution_cap.hard;
             loop {
                 if let Some(rem) = &recipe.remainder {
-                    let price_fragments = self.state.best_fr_price(!best_fr.side());
+                    let price_fragments = self.state.best_fr_price(!rem.target.side());
                     let price_in_pools = self.state.best_pool_price();
                     match (price_in_pools, price_fragments) {
                         (price_in_pools, Some(price_in_fragments))
@@ -348,15 +358,66 @@ mod tests {
 
     use spectrum_offchain_cardano::data::PoolId;
 
+    use crate::execution_engine::liquidity_book::{
+        ExecutionCap, ExternalTLBEvents, fill_from_fragment, fill_from_pool, FillFromFragment, FillFromPool,
+        TemporalLiquidityBook, TLB,
+    };
     use crate::execution_engine::liquidity_book::pool::Pool;
-    use crate::execution_engine::liquidity_book::recipe::PartialFill;
+    use crate::execution_engine::liquidity_book::recipe::{ExecutionRecipe, Fill, PartialFill, Swap, TerminalInstruction};
     use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
     use crate::execution_engine::liquidity_book::state::tests::{SimpleCFMMPool, SimpleOrderPF};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
-    use crate::execution_engine::liquidity_book::{
-        fill_from_fragment, fill_from_pool, FillFromFragment, FillFromPool,
-    };
     use crate::execution_engine::SourceId;
+
+    #[test]
+    fn recipe_fill_fragment_from_fragment() {
+        // Assuming pair ADA/USDT @ 0.37
+        let o1 = SimpleOrderPF::new(SideMarker::Ask, 2000, Ratio::new(36, 100), 1000);
+        let o2 = SimpleOrderPF::new(SideMarker::Bid, 370, Ratio::new(37, 100), 990);
+        let p1 = SimpleCFMMPool {
+            pool_id: PoolId::random(),
+            reserves_base: 1000000000000000,
+            reserves_quote: 370000000000000,
+            fee_num: 997,
+        };
+        let mut book = TLB::new(
+            0,
+            ExecutionCap {
+                soft: 10000,
+                hard: 16000,
+            },
+        );
+        book.add_fragment(o1);
+        book.add_fragment(o2);
+        book.update_pool(p1);
+        let recipe = book.attempt();
+        let expected_recipe = ExecutionRecipe {
+            terminal: vec![
+                TerminalInstruction::Fill(
+                    Fill {
+                        target: o2,
+                        output: 1000,
+                    },
+                ),
+                TerminalInstruction::Swap(
+                    Swap {
+                        target: p1,
+                        side: SideMarker::Ask,
+                        input: 1000,
+                        output: 368,
+                    },
+                ),
+                TerminalInstruction::Fill(
+                    Fill {
+                        target: o1,
+                        output: 738,
+                    },
+                ),
+            ],
+            remainder: None,
+        };
+        assert_eq!(recipe, Some(expected_recipe));
+    }
 
     #[test]
     fn fill_fragment_from_fragment() {

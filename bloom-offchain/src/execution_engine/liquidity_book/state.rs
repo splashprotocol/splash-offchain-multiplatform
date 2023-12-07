@@ -190,6 +190,12 @@ pub enum TLBState<Fr, Pl> {
     Preview(PreviewState<Fr, Pl>),
 }
 
+impl<Fr, Pl> TLBState<Fr, Pl> {
+    pub fn new(time: u64) -> Self {
+        Self::Idle(IdleState::new(time))
+    }
+}
+
 impl<Fr, Pl> TLBState<Fr, Pl>
 where
     Fr: Fragment + Ord + Copy,
@@ -436,7 +442,11 @@ where
             active_frontier.asks.insert(ask);
             Some(bid)
         }
-        (Some(_), Some(any)) | (Some(any), None) | (None, Some(any)) => Some(any),
+        (Some(bid), Some(ask)) => {
+            active_frontier.bids.insert(bid);
+            Some(ask)
+        }
+        (Some(any), None) | (None, Some(any)) => Some(any),
         _ => None,
     }
 }
@@ -590,6 +600,7 @@ where
 #[cfg(test)]
 pub mod tests {
     use std::cmp::Ordering;
+    use std::fmt::{Debug, Formatter};
 
     use cml_core::Slot;
     use num_rational::Ratio;
@@ -754,8 +765,31 @@ pub mod tests {
         }
     }
 
+    #[test]
+    fn rollback_part_preview_changes_deletion() {
+        let time_now = 1000u64;
+        let delta = 100u64;
+        let o1 = SimpleOrderPF::default_with_bounds(TimeBounds::Until(time_now + delta));
+        let o2 = SimpleOrderPF::default_with_bounds(TimeBounds::None);
+        let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
+        s0.fragments.add_fragment(o1);
+        s0.fragments.add_fragment(o2);
+        let s0_copy = s0.clone();
+        let mut state = TLBState::Idle(s0);
+        // One old fragment removed from the preview.
+        assert!(matches!(state.pick_best_fr_either(), Some(_)));
+        match state {
+            TLBState::PartialPreview(mut s1) => {
+                let s2 = s1.rollback();
+                assert_eq!(s2.fragments, s0_copy.fragments);
+                assert_eq!(s2.pools, s0_copy.pools);
+            }
+            _ => panic!(),
+        }
+    }
+
     /// Order that supports partial filling.
-    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+    #[derive(Copy, Clone, PartialEq, Eq, Hash)]
     pub struct SimpleOrderPF {
         pub source: SourceId,
         pub side: SideMarker,
@@ -765,6 +799,12 @@ pub mod tests {
         pub fee: u64,
         pub cost_hint: ExecutionCost,
         pub bounds: TimeBounds<Slot>,
+    }
+
+    impl Debug for SimpleOrderPF {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            f.write_str(&*format!("Ord(input={}, price={}, side={}, fee={})", self.input, self.price, self.side, self.fee))
+        }
     }
 
     impl PartialOrd for SimpleOrderPF {
@@ -780,6 +820,18 @@ pub mod tests {
     }
 
     impl SimpleOrderPF {
+        pub fn new(side: SideMarker, input: u64, price: Price, fee: u64) -> Self {
+            Self {
+                source: SourceId::random(),
+                side,
+                input,
+                accumulated_output: 0,
+                price,
+                fee,
+                cost_hint: 10,
+                bounds: TimeBounds::None,
+            }
+        }
         pub fn default_with_bounds(bounds: TimeBounds<u64>) -> Self {
             Self {
                 source: SourceId::random(),
@@ -840,12 +892,18 @@ pub mod tests {
         }
     }
 
-    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+    #[derive(Copy, Clone, PartialEq, Eq, Hash)]
     pub struct SimpleCFMMPool {
         pub pool_id: PoolId,
         pub reserves_base: u64,
         pub reserves_quote: u64,
         pub fee_num: u64,
+    }
+
+    impl Debug for SimpleCFMMPool {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            f.write_str(&*format!("Pool(price={})", self.static_price()))
+        }
     }
 
     impl Pool for SimpleCFMMPool {
