@@ -1,5 +1,4 @@
 use std::cmp::{max, min};
-use std::fmt::Debug;
 use std::mem;
 
 use futures::future::Either;
@@ -9,8 +8,8 @@ use crate::execution_engine::liquidity_book::pool::Pool;
 use crate::execution_engine::liquidity_book::recipe::{
     ExecutionRecipe, Fill, PartialFill, Swap, TerminalInstruction,
 };
-use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
-use crate::execution_engine::liquidity_book::state::{IdleState, TLBState};
+use crate::execution_engine::liquidity_book::side::{Side, SideM};
+use crate::execution_engine::liquidity_book::state::{IdleState, TLBState, VersionedState};
 use crate::execution_engine::liquidity_book::types::ExecutionCost;
 
 pub mod fragment;
@@ -31,12 +30,18 @@ pub trait TemporalLiquidityBook<Fr, Pl> {
     fn attempt(&mut self) -> Option<ExecutionRecipe<Fr, Pl>>;
 }
 
-/// Defines TLB's API for external events affecting its state.
+/// TLB API for external events affecting its state.
 pub trait ExternalTLBEvents<Fr, Pl> {
     fn advance_clocks(&mut self, new_time: u64);
     fn add_fragment(&mut self, fr: Fr);
     fn remove_fragment(&mut self, fr: Fr);
     fn update_pool(&mut self, pool: Pl);
+}
+
+/// TLB API for feedback events affecting its state.
+pub trait TLBFeedback<Fr, Pl> {
+    fn on_recipe_succeeded(&mut self);
+    fn on_recipe_failed(&mut self);
 }
 
 pub struct ExecutionCap {
@@ -149,17 +154,7 @@ where
             if recipe.is_complete() {
                 return Some(recipe);
             } else {
-                match &mut self.state {
-                    TLBState::Idle(_) => {}
-                    TLBState::PartialPreview(st) => {
-                        let idle = st.rollback();
-                        mem::swap(&mut self.state, &mut TLBState::Idle(idle));
-                    }
-                    TLBState::Preview(st) => {
-                        let idle = st.rollback();
-                        mem::swap(&mut self.state, &mut TLBState::Idle(idle));
-                    }
-                }
+                self.on_recipe_failed()
             }
         }
         None
@@ -202,6 +197,40 @@ where
     }
 }
 
+impl<Fr, Pl> TLBFeedback<Fr, Pl> for TLB<Fr, Pl>
+where
+    Fr: Fragment + OrderState + Ord + Copy,
+    Pl: Pool + Copy,
+{
+    fn on_recipe_succeeded(&mut self) {
+        match &mut self.state {
+            TLBState::Idle(_) => {}
+            TLBState::PartialPreview(st) => {
+                let new_st = st.commit();
+                mem::swap(&mut self.state, &mut TLBState::Idle(new_st));
+            }
+            TLBState::Preview(st) => {
+                let new_st = st.commit();
+                mem::swap(&mut self.state, &mut TLBState::Idle(new_st));
+            }
+        }
+    }
+
+    fn on_recipe_failed(&mut self) {
+        match &mut self.state {
+            TLBState::Idle(_) => {}
+            TLBState::PartialPreview(st) => {
+                let new_st = st.rollback();
+                mem::swap(&mut self.state, &mut TLBState::Idle(new_st));
+            }
+            TLBState::Preview(st) => {
+                let new_st = st.rollback();
+                mem::swap(&mut self.state, &mut TLBState::Idle(new_st));
+            }
+        }
+    }
+}
+
 struct FillFromFragment<Fr> {
     /// [Fill] is always paired with the next state of the underlying order.
     term_fill_lt: (Fill<Fr>, StateTrans<Fr>),
@@ -214,7 +243,7 @@ where
     Fr: Fragment + OrderState + Copy,
 {
     match lhs.target.side() {
-        SideMarker::Bid => {
+        SideM::Bid => {
             let mut bid = lhs;
             let ask = rhs;
             let price_selector = if bid.target.weight() >= ask.weight() {
@@ -259,7 +288,7 @@ where
                 }
             }
         }
-        SideMarker::Ask => {
+        SideM::Ask => {
             let mut ask = lhs;
             let bid = rhs;
             let price_selector = if ask.target.weight() >= bid.weight() {
@@ -316,14 +345,14 @@ where
     Pl: Pool + Copy,
 {
     match lhs.target.side() {
-        SideMarker::Bid => {
+        SideM::Bid => {
             let mut bid = lhs;
             let quote_input = bid.remaining_input;
             let (execution_amount, next_pool) = pool.swap(Side::Bid(quote_input));
             bid.accumulated_output += execution_amount;
             let swap = Swap {
                 target: pool,
-                side: SideMarker::Bid,
+                side: SideM::Bid,
                 input: quote_input,
                 output: execution_amount,
             };
@@ -332,14 +361,14 @@ where
                 swap: (swap, next_pool),
             }
         }
-        SideMarker::Ask => {
+        SideM::Ask => {
             let mut ask = lhs;
             let base_input = ask.remaining_input;
             let (execution_amount, next_pool) = pool.swap(Side::Ask(base_input));
             ask.accumulated_output += execution_amount;
             let swap = Swap {
                 target: pool,
-                side: SideMarker::Ask,
+                side: SideM::Ask,
                 input: base_input,
                 output: execution_amount,
             };
@@ -358,22 +387,24 @@ mod tests {
 
     use spectrum_offchain_cardano::data::PoolId;
 
-    use crate::execution_engine::liquidity_book::{
-        ExecutionCap, ExternalTLBEvents, fill_from_fragment, fill_from_pool, FillFromFragment, FillFromPool,
-        TemporalLiquidityBook, TLB,
-    };
     use crate::execution_engine::liquidity_book::pool::Pool;
-    use crate::execution_engine::liquidity_book::recipe::{ExecutionRecipe, Fill, PartialFill, Swap, TerminalInstruction};
-    use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
+    use crate::execution_engine::liquidity_book::recipe::{
+        ExecutionRecipe, Fill, PartialFill, Swap, TerminalInstruction,
+    };
+    use crate::execution_engine::liquidity_book::side::{Side, SideM};
     use crate::execution_engine::liquidity_book::state::tests::{SimpleCFMMPool, SimpleOrderPF};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
+    use crate::execution_engine::liquidity_book::{
+        fill_from_fragment, fill_from_pool, ExecutionCap, ExternalTLBEvents, FillFromFragment, FillFromPool,
+        TemporalLiquidityBook, TLB,
+    };
     use crate::execution_engine::SourceId;
 
     #[test]
     fn recipe_fill_fragment_from_fragment() {
         // Assuming pair ADA/USDT @ 0.37
-        let o1 = SimpleOrderPF::new(SideMarker::Ask, 2000, Ratio::new(36, 100), 1000);
-        let o2 = SimpleOrderPF::new(SideMarker::Bid, 370, Ratio::new(37, 100), 990);
+        let o1 = SimpleOrderPF::new(SideM::Ask, 2000, Ratio::new(36, 100), 1000);
+        let o2 = SimpleOrderPF::new(SideM::Bid, 370, Ratio::new(37, 100), 990);
         let p1 = SimpleCFMMPool {
             pool_id: PoolId::random(),
             reserves_base: 1000000000000000,
@@ -393,26 +424,20 @@ mod tests {
         let recipe = book.attempt();
         let expected_recipe = ExecutionRecipe {
             terminal: vec![
-                TerminalInstruction::Fill(
-                    Fill {
-                        target: o2,
-                        output: 1000,
-                    },
-                ),
-                TerminalInstruction::Swap(
-                    Swap {
-                        target: p1,
-                        side: SideMarker::Ask,
-                        input: 1000,
-                        output: 368,
-                    },
-                ),
-                TerminalInstruction::Fill(
-                    Fill {
-                        target: o1,
-                        output: 738,
-                    },
-                ),
+                TerminalInstruction::Fill(Fill {
+                    target: o2,
+                    output: 1000,
+                }),
+                TerminalInstruction::Swap(Swap {
+                    target: p1,
+                    side: SideM::Ask,
+                    input: 1000,
+                    output: 368,
+                }),
+                TerminalInstruction::Fill(Fill {
+                    target: o1,
+                    output: 738,
+                }),
             ],
             remainder: None,
         };
@@ -424,7 +449,7 @@ mod tests {
         // Assuming pair ADA/USDT @ 0.37
         let fr1 = SimpleOrderPF {
             source: SourceId::random(),
-            side: SideMarker::Ask,
+            side: SideM::Ask,
             input: 1000,
             accumulated_output: 0,
             price: Ratio::new(37, 100),
@@ -434,7 +459,7 @@ mod tests {
         };
         let fr2 = SimpleOrderPF {
             source: SourceId::random(),
-            side: SideMarker::Bid,
+            side: SideM::Bid,
             input: 370,
             accumulated_output: 0,
             price: Ratio::new(37, 100),
@@ -458,7 +483,7 @@ mod tests {
         // Assuming pair ADA/USDT @ 0.37
         let fr1 = SimpleOrderPF {
             source: SourceId::random(),
-            side: SideMarker::Ask,
+            side: SideM::Ask,
             input: 1000,
             accumulated_output: 0,
             price: Ratio::new(37, 100),
@@ -468,7 +493,7 @@ mod tests {
         };
         let fr2 = SimpleOrderPF {
             source: SourceId::random(),
-            side: SideMarker::Bid,
+            side: SideM::Bid,
             input: 210,
             accumulated_output: 0,
             price: Ratio::new(37, 100),
@@ -495,7 +520,7 @@ mod tests {
         // Assuming pair ADA/USDT @ ask price 0.37, bid price 0.36
         let ask_fr = SimpleOrderPF {
             source: SourceId::random(),
-            side: SideMarker::Ask,
+            side: SideM::Ask,
             input: 1000,
             accumulated_output: 0,
             price: Ratio::new(36, 100),
@@ -505,7 +530,7 @@ mod tests {
         };
         let bid_fr = SimpleOrderPF {
             source: SourceId::random(),
-            side: SideMarker::Bid,
+            side: SideM::Bid,
             input: 360,
             accumulated_output: 0,
             price: Ratio::new(37, 100),
@@ -529,7 +554,7 @@ mod tests {
         // Assuming pair ADA/USDT @ ask price 0.360, real price in pool 0.364.
         let ask_fr = SimpleOrderPF {
             source: SourceId::random(),
-            side: SideMarker::Ask,
+            side: SideM::Ask,
             input: 1000,
             accumulated_output: 0,
             price: Ratio::new(36, 100),
@@ -548,9 +573,7 @@ mod tests {
             reserves_quote: 36600000000000,
             fee_num: 997,
         };
-        println!("Static price in pool: {}", pool.static_price());
         let real_price_in_pool = pool.real_price(Side::Ask(pf.remaining_input));
-        println!("Real price in pool: {}", real_price_in_pool);
         let FillFromPool { term_fill, swap } = fill_from_pool(pf, pool);
         assert_eq!(swap.0.input, pf.remaining_input);
         assert_eq!(

@@ -1,7 +1,7 @@
 use futures::future::Either;
 
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-use crate::execution_engine::liquidity_book::side::SideMarker;
+use crate::execution_engine::liquidity_book::side::SideM;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ExecutionRecipe<Fr, Pl> {
@@ -107,7 +107,7 @@ where
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Swap<Pl> {
     pub target: Pl,
-    pub side: SideMarker,
+    pub side: SideM,
     pub input: u64,
     pub output: u64,
 }

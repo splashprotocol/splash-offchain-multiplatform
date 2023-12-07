@@ -1,5 +1,5 @@
-use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
 use std::collections::hash_map::Entry;
+use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
 use std::fmt::Debug;
 use std::mem;
 
@@ -7,8 +7,15 @@ use spectrum_offchain_cardano::data::PoolId;
 
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use crate::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
-use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
+use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::types::Price;
+
+pub trait VersionedState<Fr, Pl> {
+    /// Commit preview changes.
+    fn commit(&mut self) -> IdleState<Fr, Pl>;
+    /// Discard preview changes.
+    fn rollback(&mut self) -> IdleState<Fr, Pl>;
+}
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 /// State with no uncommitted changes.
@@ -70,20 +77,18 @@ impl<Fr, Pl> PartialPreviewState<Fr, Pl> {
     }
 }
 
-impl<Fr, Pl> PartialPreviewState<Fr, Pl>
+impl<Fr, Pl> VersionedState<Fr, Pl> for PartialPreviewState<Fr, Pl>
 where
     Fr: Fragment + Ord,
 {
-    /// Commit preview changes.
-    pub fn commit(&mut self) -> IdleState<Fr, Pl> {
+    fn commit(&mut self) -> IdleState<Fr, Pl> {
         let mut fresh_settled_st = IdleState::new(0);
         mem::swap(&mut fresh_settled_st.fragments, &mut self.fragments_preview);
         mem::swap(&mut fresh_settled_st.pools, &mut self.pools_preview);
         fresh_settled_st
     }
 
-    /// Discard preview changes.
-    pub fn rollback(&mut self) -> IdleState<Fr, Pl> {
+    fn rollback(&mut self) -> IdleState<Fr, Pl> {
         // Return consumed fragments to reconstruct initial state.
         while let Some(fr) = self.consumed_active_fragments.pop() {
             self.fragments_preview.active.insert(fr);
@@ -126,12 +131,11 @@ impl<Fr, Pl> PreviewState<Fr, Pl> {
     }
 }
 
-impl<Fr, Pl> PreviewState<Fr, Pl>
+impl<Fr, Pl> VersionedState<Fr, Pl> for PreviewState<Fr, Pl>
 where
     Fr: Fragment + Ord,
 {
-    /// Commit preview changes.
-    pub fn commit(&mut self) -> IdleState<Fr, Pl> {
+    fn commit(&mut self) -> IdleState<Fr, Pl> {
         // Commit pools preview if available.
         mem::swap(&mut self.pools_intact, &mut self.pools_preview);
         // Commit active fragments preview if available.
@@ -158,8 +162,7 @@ where
         fresh_settled_st
     }
 
-    /// Discard preview changes.
-    pub fn rollback(&mut self) -> IdleState<Fr, Pl> {
+    fn rollback(&mut self) -> IdleState<Fr, Pl> {
         let mut fresh_settled_st = IdleState::new(self.fragments_intact.time_now);
         mem::swap(&mut fresh_settled_st.fragments, &mut self.fragments_intact);
         mem::swap(&mut fresh_settled_st.pools, &mut self.pools_intact);
@@ -263,11 +266,11 @@ where
     Fr: Fragment + Ord + Copy,
     Pl: Pool + Copy,
 {
-    pub fn best_fr_price(&self, side: SideMarker) -> Option<Side<Price>> {
+    pub fn best_fr_price(&self, side: SideM) -> Option<Side<Price>> {
         let active_fragments = self.active_fragments();
         let side_store = match side {
-            SideMarker::Bid => &active_fragments.bids,
-            SideMarker::Ask => &active_fragments.asks,
+            SideM::Bid => &active_fragments.bids,
+            SideM::Ask => &active_fragments.asks,
         };
         side_store.first().map(|fr| side.wrap(fr.price()))
     }
@@ -278,7 +281,7 @@ where
     }
 
     /// Pick best fragment from the specified side if it matches the specified condition.
-    pub fn try_pick_fr<F>(&mut self, side: SideMarker, test: F) -> Option<Fr>
+    pub fn try_pick_fr<F>(&mut self, side: SideM, test: F) -> Option<Fr>
     where
         F: FnOnce(&Fr) -> bool,
     {
@@ -451,14 +454,14 @@ where
     }
 }
 
-fn try_pick_fr<Fr, F>(active_frontier: &mut Fragments<Fr>, side: SideMarker, test: F) -> Option<Fr>
+fn try_pick_fr<Fr, F>(active_frontier: &mut Fragments<Fr>, side: SideM, test: F) -> Option<Fr>
 where
     Fr: Fragment + Copy + Ord,
     F: FnOnce(&Fr) -> bool,
 {
     let side = match side {
-        SideMarker::Bid => &mut active_frontier.bids,
-        SideMarker::Ask => &mut active_frontier.asks,
+        SideM::Bid => &mut active_frontier.bids,
+        SideM::Ask => &mut active_frontier.asks,
     };
     side.pop_first()
         .and_then(|best_bid| if test(&best_bid) { Some(best_bid) } else { None })
@@ -509,15 +512,15 @@ where
         if let Some(lower_bound) = fr.time_bounds().lower_bound() {
             if lower_bound <= self.time_now {
                 match fr.side() {
-                    SideMarker::Bid => self.active.bids.remove(&fr),
-                    SideMarker::Ask => self.active.asks.remove(&fr),
+                    SideM::Bid => self.active.bids.remove(&fr),
+                    SideM::Ask => self.active.asks.remove(&fr),
                 };
             } else {
                 match self.inactive.entry(lower_bound) {
                     btree_map::Entry::Occupied(e) => {
                         match fr.side() {
-                            SideMarker::Bid => e.into_mut().bids.remove(&fr),
-                            SideMarker::Ask => e.into_mut().asks.remove(&fr),
+                            SideM::Bid => e.into_mut().bids.remove(&fr),
+                            SideM::Ask => e.into_mut().asks.remove(&fr),
                         };
                     }
                     btree_map::Entry::Vacant(_) => {}
@@ -564,8 +567,8 @@ where
 {
     pub fn insert(&mut self, fr: Fr) {
         match fr.side() {
-            SideMarker::Bid => self.bids.insert(fr),
-            SideMarker::Ask => self.asks.insert(fr),
+            SideM::Bid => self.bids.insert(fr),
+            SideM::Ask => self.asks.insert(fr),
         };
     }
 }
@@ -609,7 +612,7 @@ pub mod tests {
 
     use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
     use crate::execution_engine::liquidity_book::pool::Pool;
-    use crate::execution_engine::liquidity_book::side::{Side, SideMarker};
+    use crate::execution_engine::liquidity_book::side::{Side, SideM};
     use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, TLBState};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::{ExecutionCost, Price};
@@ -792,7 +795,7 @@ pub mod tests {
     #[derive(Copy, Clone, PartialEq, Eq, Hash)]
     pub struct SimpleOrderPF {
         pub source: SourceId,
-        pub side: SideMarker,
+        pub side: SideM,
         pub input: u64,
         pub accumulated_output: u64,
         pub price: Price,
@@ -803,7 +806,10 @@ pub mod tests {
 
     impl Debug for SimpleOrderPF {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            f.write_str(&*format!("Ord(input={}, price={}, side={}, fee={})", self.input, self.price, self.side, self.fee))
+            f.write_str(&*format!(
+                "Ord(input={}, price={}, side={}, fee={})",
+                self.input, self.price, self.side, self.fee
+            ))
         }
     }
 
@@ -820,7 +826,7 @@ pub mod tests {
     }
 
     impl SimpleOrderPF {
-        pub fn new(side: SideMarker, input: u64, price: Price, fee: u64) -> Self {
+        pub fn new(side: SideM, input: u64, price: Price, fee: u64) -> Self {
             Self {
                 source: SourceId::random(),
                 side,
@@ -835,7 +841,7 @@ pub mod tests {
         pub fn default_with_bounds(bounds: TimeBounds<u64>) -> Self {
             Self {
                 source: SourceId::random(),
-                side: SideMarker::Ask,
+                side: SideM::Ask,
                 input: 1000_000_000,
                 accumulated_output: 0,
                 price: Ratio::new(1, 100),
@@ -847,7 +853,7 @@ pub mod tests {
     }
 
     impl Fragment for SimpleOrderPF {
-        fn side(&self) -> SideMarker {
+        fn side(&self) -> SideM {
             self.side
         }
 
