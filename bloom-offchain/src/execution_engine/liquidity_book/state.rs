@@ -8,7 +8,7 @@ use spectrum_offchain_cardano::data::PoolId;
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use crate::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
-use crate::execution_engine::liquidity_book::types::Price;
+use crate::execution_engine::liquidity_book::types::{BasePrice, Price};
 
 pub trait VersionedState<Fr, Pl> {
     /// Commit preview changes.
@@ -266,7 +266,7 @@ where
     Fr: Fragment + Ord + Copy,
     Pl: Pool + Copy,
 {
-    pub fn best_fr_price(&self, side: SideM) -> Option<Side<Price>> {
+    pub fn best_fr_price(&self, side: SideM) -> Option<Side<BasePrice>> {
         let active_fragments = self.active_fragments();
         let side_store = match side {
             SideM::Bid => &active_fragments.bids,
@@ -376,7 +376,7 @@ where
     Fr: Fragment + Ord + Copy,
     Pl: Pool + Copy,
 {
-    pub fn best_pool_price(&self) -> Option<Price> {
+    pub fn best_pool_price(&self) -> Option<BasePrice> {
         let pools = self.pools();
         pools
             .quality_index
@@ -602,6 +602,7 @@ where
 
 #[cfg(test)]
 pub mod tests {
+    use cml_chain::address::AddressKind::Base;
     use std::cmp::Ordering;
     use std::fmt::{Debug, Formatter};
 
@@ -613,9 +614,9 @@ pub mod tests {
     use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
     use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
-    use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, TLBState};
+    use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, TLBState, VersionedState};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
-    use crate::execution_engine::liquidity_book::types::{ExecutionCost, Price};
+    use crate::execution_engine::liquidity_book::types::{BasePrice, ExecutionCost, Price};
     use crate::execution_engine::SourceId;
 
     #[test]
@@ -798,7 +799,7 @@ pub mod tests {
         pub side: SideM,
         pub input: u64,
         pub accumulated_output: u64,
-        pub price: Price,
+        pub price: BasePrice,
         pub fee: u64,
         pub cost_hint: ExecutionCost,
         pub bounds: TimeBounds<Slot>,
@@ -826,7 +827,7 @@ pub mod tests {
     }
 
     impl SimpleOrderPF {
-        pub fn new(side: SideM, input: u64, price: Price, fee: u64) -> Self {
+        pub fn new(side: SideM, input: u64, price: BasePrice, fee: u64) -> Self {
             Self {
                 source: SourceId::random(),
                 side,
@@ -844,7 +845,7 @@ pub mod tests {
                 side: SideM::Ask,
                 input: 1000_000_000,
                 accumulated_output: 0,
-                price: Ratio::new(1, 100),
+                price: BasePrice::new(1, 100),
                 fee: 100,
                 cost_hint: 0,
                 bounds,
@@ -861,7 +862,7 @@ pub mod tests {
             self.input
         }
 
-        fn price(&self) -> Price {
+        fn price(&self) -> BasePrice {
             self.price
         }
 
@@ -917,19 +918,19 @@ pub mod tests {
             self.pool_id
         }
 
-        fn static_price(&self) -> Price {
-            Ratio::new(self.reserves_quote as u128, self.reserves_base as u128)
+        fn static_price(&self) -> BasePrice {
+            BasePrice::new(self.reserves_quote as u128, self.reserves_base as u128)
         }
 
-        fn real_price(&self, input: Side<u64>) -> Price {
+        fn real_price(&self, input: Side<u64>) -> BasePrice {
             match input {
                 Side::Bid(quote_input) => {
                     let (base_output, _) = self.swap(Side::Bid(quote_input));
-                    Ratio::new(quote_input as u128, base_output as u128)
+                    BasePrice::new(quote_input as u128, base_output as u128)
                 }
                 Side::Ask(base_input) => {
                     let (quote_output, _) = self.swap(Side::Ask(base_input));
-                    Ratio::new(quote_output as u128, base_input as u128)
+                    BasePrice::new(quote_output as u128, base_input as u128)
                 }
             }
         }
@@ -961,7 +962,7 @@ pub mod tests {
 
         fn quality(&self) -> PoolQuality {
             PoolQuality(
-                Ratio::new(self.reserves_quote as u128, self.reserves_base as u128),
+                BasePrice::new(self.reserves_quote as u128, self.reserves_base as u128),
                 self.reserves_quote + self.reserves_base,
             )
         }
