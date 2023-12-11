@@ -3,8 +3,10 @@ use std::fmt::{Debug, Formatter};
 use rand::{thread_rng, RngCore};
 
 pub mod effect;
+pub mod exec;
 pub mod interpreter;
 pub mod liquidity_book;
+pub mod partial_fill;
 pub mod source_db;
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]

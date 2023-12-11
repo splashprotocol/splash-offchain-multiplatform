@@ -52,6 +52,7 @@ tracing = "0.1.31"
 tracing-subscriber = "0.3.17"
 clap = { version = "4.0", features = ["derive"] }
 serde_yaml = "0.9.25"
+void = "1.0.2"
 
 [dev-dependencies]
 rocksdb = "0.21.*"

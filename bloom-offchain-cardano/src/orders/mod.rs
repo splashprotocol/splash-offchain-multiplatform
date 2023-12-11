@@ -1,6 +1,5 @@
-use cml_core::Slot;
-
 use bloom_offchain::execution_engine::liquidity_book::side::SideM;
+use spectrum_cardano_lib::NetworkTime;
 
 mod auction;
 
@@ -21,5 +20,5 @@ impl<O, S> Stateful<O, S> {
 pub struct TLBCompatibleState {
     /// Side of the order relative to pair it maps to.
     pub side: SideM,
-    pub time_now: Slot,
+    pub time_now: NetworkTime,
 }

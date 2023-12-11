@@ -1,20 +1,38 @@
 use std::cmp::Ordering;
-use std::ops::Mul;
+use std::ops::{AddAssign, Mul, SubAssign};
 
-use cml_core::Slot;
+use cml_chain::builders::input_builder::SingleInputBuilder;
+use cml_chain::builders::output_builder::SingleOutputBuilderResult;
+use cml_chain::builders::tx_builder::TransactionBuilder;
+use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
+use cml_chain::certs::Credential;
+use cml_chain::plutus::{ConstrPlutusData, PlutusData};
+use cml_chain::utils::BigInt;
+use cml_core::serialization::{LenEncoding, StringEncoding};
 use cml_crypto::Ed25519KeyHash;
 use num_rational::Ratio;
+use void::Void;
 
+use bloom_offchain::execution_engine::exec::BatchExec;
 use bloom_offchain::execution_engine::liquidity_book::fragment::Fragment;
 use bloom_offchain::execution_engine::liquidity_book::side::SideM;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
 use bloom_offchain::execution_engine::liquidity_book::types::{BasePrice, ExecutionCost, Price};
-use spectrum_cardano_lib::AssetClass;
+use bloom_offchain::execution_engine::partial_fill::PartiallyFilled;
+use spectrum_cardano_lib::{AssetClass, NetworkTime};
+use spectrum_cardano_lib::output::FinalizedTxOut;
+use spectrum_cardano_lib::plutus_data::RequiresRedeemer;
+use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 
 use crate::orders::{Stateful, TLBCompatibleState};
 
 const APPROX_AUCTION_COST: ExecutionCost = 1000;
 const PRICE_DECAY_DEN: u64 = 10000;
+
+pub enum AuctionOrderAction {
+    Exec { span_ix: u16, successor_ix: u16 },
+    Cancel,
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct AuctionOrder {
@@ -24,12 +42,39 @@ pub struct AuctionOrder {
     pub output_amount: u64,
     /// Price of input asset in output asset.
     pub start_price: Price,
-    pub start_time: Slot,
+    pub start_time: NetworkTime,
     pub step_len: u32,
     pub steps: u32,
     pub price_decay: u64,
     pub fee_per_quote: Ratio<u128>,
     pub redeemer: Ed25519KeyHash,
+}
+
+impl AuctionOrder {
+    pub fn redeemer_cred(&self) -> Credential {
+        Credential::PubKey {
+            hash: self.redeemer,
+            len_encoding: LenEncoding::Canonical,
+            tag_encoding: None,
+            hash_encoding: StringEncoding::Canonical,
+        }
+    }
+    pub fn current_span_ix(&self, time: NetworkTime) -> Span {
+        let step = self.step_len as u64;
+        let span_ix = (time - self.start_time) / step;
+        let low = self.start_time + step * span_ix;
+        Span {
+            index: span_ix as u16,
+            lower_bound: low,
+            upper_bound: low + step,
+        }
+    }
+}
+
+pub struct Span {
+    index: u16,
+    lower_bound: NetworkTime,
+    upper_bound: NetworkTime,
 }
 
 impl PartialOrd for Stateful<AuctionOrder, TLBCompatibleState> {
@@ -86,6 +131,55 @@ impl Fragment for Stateful<AuctionOrder, TLBCompatibleState> {
     }
 }
 
+// A newtype is needed to define instances in a proper place.
+pub struct FullAuctionOrder<FilledOrd, Source>(pub FilledOrd, pub Source);
+
+/// Execution logic for on-chain AO.
+impl<FO> BatchExec<TransactionBuilder, NetworkTime, Void> for FullAuctionOrder<FO, FinalizedTxOut>
+where
+    FO: PartiallyFilled<AuctionOrder>,
+{
+    fn try_exec(
+        self,
+        mut tx_builder: TransactionBuilder,
+        context: NetworkTime,
+    ) -> Result<TransactionBuilder, Void> {
+        let FullAuctionOrder(filled_ord, FinalizedTxOut(consumed_out, in_ref)) = self;
+        let mut candidate = consumed_out.clone();
+        candidate.sub_asset(filled_ord.order().input_asset, filled_ord.removed_input());
+        candidate.add_asset(filled_ord.order().output_asset, filled_ord.added_output());
+        if filled_ord.has_terminated() {
+            candidate.null_datum();
+            let cred = filled_ord.order().redeemer_cred();
+            candidate.update_payment_cred(cred)
+        }
+        let successor_ix = tx_builder.output_sizes().len();
+        let span = filled_ord.order().current_span_ix(context);
+        let order_script = PartialPlutusWitness::new(
+            PlutusScriptWitness::Ref(candidate.script_hash().unwrap()),
+            auction_redeemer(span.index, successor_ix as u16),
+        );
+        let order_in = SingleInputBuilder::new(in_ref.into(), consumed_out)
+            .plutus_script_inline_datum(order_script, Vec::new())
+            .unwrap();
+        tx_builder
+            .add_output(SingleOutputBuilderResult::new(candidate))
+            .unwrap();
+        tx_builder.add_input(order_in).unwrap();
+        // todo: make sure new bounds don't conflict with previous ones (if present).
+        tx_builder.set_validity_start_interval(span.lower_bound);
+        tx_builder.set_validity_start_interval(span.upper_bound);
+        Ok(tx_builder)
+    }
+}
+
+fn auction_redeemer(span_ix: u16, successor_ix: u16) -> PlutusData {
+    PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![
+        PlutusData::BigInt(BigInt::from(span_ix)),
+        PlutusData::BigInt(BigInt::from(successor_ix)),
+    ]))
+}
+
 #[cfg(test)]
 mod tests {
     use cml_crypto::Ed25519KeyHash;
@@ -96,8 +190,8 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::types::BasePrice;
     use spectrum_cardano_lib::AssetClass;
 
-    use crate::orders::auction::{AuctionOrder, PRICE_DECAY_DEN};
     use crate::orders::{Stateful, TLBCompatibleState};
+    use crate::orders::auction::{AuctionOrder, PRICE_DECAY_DEN};
 
     #[test]
     fn correct_price_decay_as_time_advances_ask() {

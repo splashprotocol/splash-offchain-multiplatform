@@ -1,5 +1,3 @@
-use futures::future::Either;
-
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use crate::execution_engine::liquidity_book::side::SideM;
 

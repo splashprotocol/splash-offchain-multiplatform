@@ -9,6 +9,7 @@ use cml_chain::transaction::TransactionInput;
 use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
+use derive_more::{Add, Div, From, Into, Mul, Sub};
 
 use crate::plutus_data::{ConstrPlutusDataExtension, PlutusDataExtension};
 use crate::types::TryFromPData;
@@ -16,6 +17,7 @@ use crate::types::TryFromPData;
 pub mod address;
 pub mod constants;
 pub mod hash;
+pub mod output;
 pub mod plutus_data;
 pub mod protocol_params;
 pub mod transaction;
@@ -247,6 +249,8 @@ impl<T> TryFromPData for TaggedAmount<T> {
         Some(Self(data.into_u64()?, PhantomData::default()))
     }
 }
+
+pub type NetworkTime = u64;
 
 #[cfg(test)]
 mod tests {
