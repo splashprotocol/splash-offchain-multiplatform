@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::ops::{AddAssign, Mul, SubAssign};
+use std::ops::Mul;
 
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
@@ -21,18 +21,12 @@ use bloom_offchain::execution_engine::liquidity_book::types::{BasePrice, Executi
 use bloom_offchain::execution_engine::partial_fill::PartiallyFilled;
 use spectrum_cardano_lib::{AssetClass, NetworkTime};
 use spectrum_cardano_lib::output::FinalizedTxOut;
-use spectrum_cardano_lib::plutus_data::RequiresRedeemer;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 
 use crate::orders::{Stateful, TLBCompatibleState};
 
 const APPROX_AUCTION_COST: ExecutionCost = 1000;
 const PRICE_DECAY_DEN: u64 = 10000;
-
-pub enum AuctionOrderAction {
-    Exec { span_ix: u16, successor_ix: u16 },
-    Cancel,
-}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct AuctionOrder {
@@ -51,7 +45,7 @@ pub struct AuctionOrder {
 }
 
 impl AuctionOrder {
-    pub fn redeemer_cred(&self) -> Credential {
+    fn redeemer_cred(&self) -> Credential {
         Credential::PubKey {
             hash: self.redeemer,
             len_encoding: LenEncoding::Canonical,
@@ -59,7 +53,7 @@ impl AuctionOrder {
             hash_encoding: StringEncoding::Canonical,
         }
     }
-    pub fn current_span_ix(&self, time: NetworkTime) -> Span {
+    fn current_span_ix(&self, time: NetworkTime) -> Span {
         let step = self.step_len as u64;
         let span_ix = (time - self.start_time) / step;
         let low = self.start_time + step * span_ix;
@@ -71,7 +65,7 @@ impl AuctionOrder {
     }
 }
 
-pub struct Span {
+struct Span {
     index: u16,
     lower_bound: NetworkTime,
     upper_bound: NetworkTime,
@@ -174,10 +168,13 @@ where
 }
 
 fn auction_redeemer(span_ix: u16, successor_ix: u16) -> PlutusData {
-    PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![
-        PlutusData::BigInt(BigInt::from(span_ix)),
-        PlutusData::BigInt(BigInt::from(successor_ix)),
-    ]))
+    PlutusData::ConstrPlutusData(ConstrPlutusData::new(
+        0,
+        vec![
+            PlutusData::BigInt(BigInt::from(span_ix)),
+            PlutusData::BigInt(BigInt::from(successor_ix)),
+        ],
+    ))
 }
 
 #[cfg(test)]
