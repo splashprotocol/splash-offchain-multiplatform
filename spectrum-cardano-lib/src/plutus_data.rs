@@ -32,7 +32,7 @@ impl PlutusDataExtension for PlutusData {
 
     fn into_u64(self) -> Option<u64> {
         match self {
-            PlutusData::BigInt(big_int) => Some(big_int.as_u64()?),
+            PlutusData::Integer(big_int) => Some(big_int.as_u64()?),
             _ => None,
         }
     }

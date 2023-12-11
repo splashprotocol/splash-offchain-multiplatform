@@ -147,6 +147,7 @@ where
             let cred = filled_ord.order().redeemer_cred();
             candidate.update_payment_cred(cred)
         }
+        // todo: replace `tx_builder.output_sizes()`
         let successor_ix = tx_builder.output_sizes().len();
         let span = filled_ord.order().current_span_ix(context);
         let order_script = PartialPlutusWitness::new(
@@ -171,8 +172,8 @@ fn auction_redeemer(span_ix: u16, successor_ix: u16) -> PlutusData {
     PlutusData::ConstrPlutusData(ConstrPlutusData::new(
         0,
         vec![
-            PlutusData::BigInt(BigInt::from(span_ix)),
-            PlutusData::BigInt(BigInt::from(successor_ix)),
+            PlutusData::Integer(BigInt::from(span_ix)),
+            PlutusData::Integer(BigInt::from(successor_ix)),
         ],
     ))
 }
