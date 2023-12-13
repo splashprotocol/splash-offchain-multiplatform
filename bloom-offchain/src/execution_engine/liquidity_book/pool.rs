@@ -1,7 +1,19 @@
-use spectrum_offchain_cardano::data::PoolId;
+use derive_more::{From, Into};
+use rand::{thread_rng, RngCore};
 
 use crate::execution_engine::liquidity_book::side::Side;
 use crate::execution_engine::liquidity_book::types::BasePrice;
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Into, From)]
+pub struct PoolId([u8; 32]);
+impl PoolId {
+    #[cfg(test)]
+    pub fn random() -> PoolId {
+        let mut bf = [0u8; 32];
+        thread_rng().fill_bytes(&mut bf);
+        Self(bf)
+    }
+}
 
 /// Pooled liquidity.
 pub trait Pool {

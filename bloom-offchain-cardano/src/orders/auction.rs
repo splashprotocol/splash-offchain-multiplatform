@@ -3,10 +3,12 @@ use std::ops::Mul;
 
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
+use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
 use cml_chain::builders::tx_builder::TransactionBuilder;
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
 use cml_chain::certs::Credential;
-use cml_chain::plutus::{ConstrPlutusData, PlutusData};
+use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData, RedeemerTag};
+use cml_chain::transaction::TransactionOutput;
 use cml_chain::utils::BigInt;
 use cml_core::serialization::{LenEncoding, StringEncoding};
 use cml_crypto::Ed25519KeyHash;
@@ -19,14 +21,20 @@ use bloom_offchain::execution_engine::liquidity_book::side::SideM;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
 use bloom_offchain::execution_engine::liquidity_book::types::{BasePrice, ExecutionCost, Price};
 use bloom_offchain::execution_engine::partial_fill::PartiallyFilled;
-use spectrum_cardano_lib::{AssetClass, NetworkTime};
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
+use spectrum_cardano_lib::{AssetClass, NetworkTime};
 
 use crate::orders::{Stateful, TLBCompatibleState};
 
 const APPROX_AUCTION_COST: ExecutionCost = 1000;
 const PRICE_DECAY_DEN: u64 = 10000;
+
+pub const AUCTION_EXECUTION_UNITS: ExUnits = ExUnits {
+    mem: 270000,
+    steps: 140000000,
+    encodings: None,
+};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct AuctionOrder {
@@ -129,7 +137,8 @@ impl Fragment for Stateful<AuctionOrder, TLBCompatibleState> {
 pub struct FullAuctionOrder<FilledOrd, Source>(pub FilledOrd, pub Source);
 
 /// Execution logic for on-chain AO.
-impl<FO> BatchExec<TransactionBuilder, NetworkTime, Void> for FullAuctionOrder<FO, FinalizedTxOut>
+impl<FO> BatchExec<TransactionBuilder, Option<TransactionOutput>, NetworkTime, Void>
+    for FullAuctionOrder<FO, FinalizedTxOut>
 where
     FO: PartiallyFilled<AuctionOrder>,
 {
@@ -137,16 +146,19 @@ where
         self,
         mut tx_builder: TransactionBuilder,
         context: NetworkTime,
-    ) -> Result<TransactionBuilder, Void> {
+    ) -> Result<(TransactionBuilder, Option<TransactionOutput>), Void> {
         let FullAuctionOrder(filled_ord, FinalizedTxOut(consumed_out, in_ref)) = self;
         let mut candidate = consumed_out.clone();
         candidate.sub_asset(filled_ord.order().input_asset, filled_ord.removed_input());
         candidate.add_asset(filled_ord.order().output_asset, filled_ord.added_output());
-        if filled_ord.has_terminated() {
+        let residual_order = if filled_ord.has_terminated() {
             candidate.null_datum();
             let cred = filled_ord.order().redeemer_cred();
-            candidate.update_payment_cred(cred)
-        }
+            candidate.update_payment_cred(cred);
+            None
+        } else {
+            Some(candidate.clone())
+        };
         // todo: replace `tx_builder.output_sizes()`
         let successor_ix = tx_builder.output_sizes().len();
         let span = filled_ord.order().current_span_ix(context);
@@ -164,7 +176,12 @@ where
         // todo: make sure new bounds don't conflict with previous ones (if present).
         tx_builder.set_validity_start_interval(span.lower_bound);
         tx_builder.set_validity_start_interval(span.upper_bound);
-        Ok(tx_builder)
+        tx_builder.set_exunits(
+            // todo: check for possible collisions bc of fixed 0-index.
+            RedeemerWitnessKey::new(RedeemerTag::Spend, 0),
+            AUCTION_EXECUTION_UNITS,
+        );
+        Ok((tx_builder, residual_order))
     }
 }
 
@@ -188,8 +205,8 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::types::BasePrice;
     use spectrum_cardano_lib::AssetClass;
 
-    use crate::orders::{Stateful, TLBCompatibleState};
     use crate::orders::auction::{AuctionOrder, PRICE_DECAY_DEN};
+    use crate::orders::{Stateful, TLBCompatibleState};
 
     #[test]
     fn correct_price_decay_as_time_advances_ask() {

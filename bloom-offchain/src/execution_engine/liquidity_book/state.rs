@@ -3,12 +3,10 @@ use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
 use std::fmt::Debug;
 use std::mem;
 
-use spectrum_offchain_cardano::data::PoolId;
-
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-use crate::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
+use crate::execution_engine::liquidity_book::pool::{Pool, PoolId, PoolQuality};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
-use crate::execution_engine::liquidity_book::types::{BasePrice, Price};
+use crate::execution_engine::liquidity_book::types::BasePrice;
 
 pub trait VersionedState<Fr, Pl> {
     /// Commit preview changes.
@@ -602,21 +600,15 @@ where
 
 #[cfg(test)]
 pub mod tests {
-    use cml_chain::address::AddressKind::Base;
     use std::cmp::Ordering;
     use std::fmt::{Debug, Formatter};
 
-    use cml_core::Slot;
-    use num_rational::Ratio;
-
-    use spectrum_offchain_cardano::data::PoolId;
-
     use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-    use crate::execution_engine::liquidity_book::pool::Pool;
+    use crate::execution_engine::liquidity_book::pool::{Pool, PoolId};
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
     use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, TLBState, VersionedState};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
-    use crate::execution_engine::liquidity_book::types::{BasePrice, ExecutionCost, Price};
+    use crate::execution_engine::liquidity_book::types::{BasePrice, ExecutionCost};
     use crate::execution_engine::SourceId;
 
     #[test]
@@ -802,7 +794,7 @@ pub mod tests {
         pub price: BasePrice,
         pub fee: u64,
         pub cost_hint: ExecutionCost,
-        pub bounds: TimeBounds<Slot>,
+        pub bounds: TimeBounds<u64>,
     }
 
     impl Debug for SimpleOrderPF {
@@ -874,7 +866,7 @@ pub mod tests {
             self.cost_hint
         }
 
-        fn time_bounds(&self) -> TimeBounds<Slot> {
+        fn time_bounds(&self) -> TimeBounds<u64> {
             self.bounds
         }
     }

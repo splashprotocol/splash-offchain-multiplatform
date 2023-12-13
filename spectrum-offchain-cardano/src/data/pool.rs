@@ -5,9 +5,9 @@ use cml_chain::assets::MultiAsset;
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
-use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder};
+use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionBuilder};
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
-use cml_chain::plutus::{ExUnits, PlutusData, RedeemerTag};
+use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, TransactionOutput};
 use cml_chain::{Coin, Value};
 use cml_core::serialization::FromBytes;
@@ -15,7 +15,12 @@ use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
 use num_rational::Ratio;
 use type_equalities::IsEqual;
+use void::Void;
 
+use bloom_offchain::execution_engine::exec::BatchExec;
+use bloom_offchain::execution_engine::liquidity_book::recipe::Swap;
+use bloom_offchain::execution_engine::liquidity_book::side::SideM;
+use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
 };
@@ -509,5 +514,42 @@ where
             .unwrap();
 
         Ok((tx, predicted_pool))
+    }
+}
+
+// A newtype is needed to define instances in a proper place.
+pub struct FullCFMMPool(pub Swap<CFMMPool>, pub FinalizedTxOut);
+
+impl BatchExec<TransactionBuilder, TransactionOutput, (), Void> for FullCFMMPool {
+    fn try_exec(
+        self,
+        mut tx_builder: TransactionBuilder,
+        _context: (),
+    ) -> Result<(TransactionBuilder, TransactionOutput), Void> {
+        let FullCFMMPool(swap, FinalizedTxOut(consumed_out, in_ref)) = self;
+        let mut produced_out = consumed_out.clone();
+        let (removed_asset, added_asset) = match swap.side {
+            SideM::Bid => (swap.target.asset_x.untag(), swap.target.asset_y.untag()),
+            SideM::Ask => (swap.target.asset_y.untag(), swap.target.asset_x.untag()),
+        };
+        produced_out.sub_asset(removed_asset, swap.output);
+        produced_out.add_asset(added_asset, swap.input);
+        let successor = produced_out.clone();
+        let pool_script = PartialPlutusWitness::new(
+            PlutusScriptWitness::Ref(produced_out.script_hash().unwrap()),
+            CFMMPool::redeemer(CFMMPoolAction::Swap),
+        );
+        let pool_in = SingleInputBuilder::new(in_ref.into(), consumed_out)
+            .plutus_script_inline_datum(pool_script, Vec::new())
+            .unwrap();
+        tx_builder
+            .add_output(SingleOutputBuilderResult::new(produced_out))
+            .unwrap();
+        tx_builder.add_input(pool_in).unwrap();
+        tx_builder.set_exunits(
+            RedeemerWitnessKey::new(RedeemerTag::Spend, 0),
+            POOL_EXECUTION_UNITS,
+        );
+        Ok((tx_builder, successor))
     }
 }
