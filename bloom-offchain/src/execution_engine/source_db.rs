@@ -1,31 +1,33 @@
 use std::collections::HashMap;
+use std::hash::Hash;
 
-use crate::execution_engine::SourceId;
-
-pub trait SourceDB<Src> {
-    /// Take resolved source by [SourceId].
+pub trait SourceDB<Key, Src> {
+    /// Take resolved source by [Key].
     /// Source is always available.
-    fn take_unsafe(&mut self, source_id: SourceId) -> Src;
-    fn put(&mut self, source_id: SourceId, source: Src);
-    fn remove(&mut self, source_id: SourceId);
+    fn take_unsafe(&mut self, key: Key) -> Src;
+    fn put(&mut self, key: Key, source: Src);
+    fn remove(&mut self, key: Key);
 }
 
-pub struct InMemorySourceDB<Src> {
-    store: HashMap<SourceId, Src>,
+pub struct InMemorySourceDB<Key, Src> {
+    store: HashMap<Key, Src>,
 }
 
-impl<Src> SourceDB<Src> for InMemorySourceDB<Src> {
-    fn take_unsafe(&mut self, source_id: SourceId) -> Src {
+impl<Key, Src> SourceDB<Key, Src> for InMemorySourceDB<Key, Src>
+where
+    Key: Eq + Copy + Hash,
+{
+    fn take_unsafe(&mut self, key: Key) -> Src {
         self.store
-            .remove(&source_id)
+            .remove(&key)
             .expect("Source is supposed to always be available")
     }
 
-    fn put(&mut self, source_id: SourceId, source: Src) {
-        self.store.insert(source_id, source);
+    fn put(&mut self, key: Key, source: Src) {
+        self.store.insert(key, source);
     }
 
-    fn remove(&mut self, source_id: SourceId) {
-        self.store.remove(&source_id);
+    fn remove(&mut self, key: Key) {
+        self.store.remove(&key);
     }
 }

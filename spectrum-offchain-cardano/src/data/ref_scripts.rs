@@ -100,8 +100,7 @@ impl RequiresRefScript for CFMMPool {
     fn get_ref_script(self, ref_scripts: RefScriptsOutputs) -> TransactionUnspentOutput {
         match self.get::<PoolVer>() {
             PoolVer(1) => ref_scripts.pool_v1,
-            PoolVer(2) => ref_scripts.pool_v2,
-            _ => ref_scripts.pool_v1, // todo: impossible branch - throw error?
+            PoolVer(_) => ref_scripts.pool_v2,
         }
     }
 }

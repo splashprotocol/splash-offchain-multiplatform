@@ -9,12 +9,12 @@ use cml_chain::transaction::TransactionInput;
 use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
-use derive_more::{Add, Div, From, Into, Mul, Sub};
 
 use crate::plutus_data::{ConstrPlutusDataExtension, PlutusDataExtension};
 use crate::types::TryFromPData;
 
 pub mod address;
+pub mod collateral;
 pub mod constants;
 pub mod hash;
 pub mod output;
@@ -98,6 +98,11 @@ impl TryFrom<Vec<u8>> for AssetName {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct OutputRef(TransactionHash, u64);
+impl OutputRef {
+    pub fn new(hash: TransactionHash, index: u64) -> Self {
+        Self(hash, index)
+    }
+}
 
 impl Display for OutputRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

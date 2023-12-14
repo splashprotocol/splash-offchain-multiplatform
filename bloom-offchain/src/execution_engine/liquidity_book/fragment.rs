@@ -1,6 +1,6 @@
 use crate::execution_engine::liquidity_book::side::SideM;
 use crate::execution_engine::liquidity_book::time::TimeBounds;
-use crate::execution_engine::liquidity_book::types::{BasePrice, ExecutionCost, Price};
+use crate::execution_engine::liquidity_book::types::{BasePrice, ExecutionCost};
 
 /// Order as a state machine.
 pub trait OrderState: Sized {

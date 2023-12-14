@@ -5,7 +5,9 @@ use cml_chain::assets::MultiAsset;
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
-use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionBuilder};
+use cml_chain::builders::tx_builder::{
+    ChangeSelectionAlgo, SignedTxBuilder, TransactionBuilder, TransactionUnspentOutput,
+};
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
 use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, TransactionOutput};
@@ -517,15 +519,22 @@ where
     }
 }
 
+/// Reference Script Output for [CFMMPool] tagged with pool version [Ver].
+#[derive(Debug, Clone)]
+pub struct CFMMPoolRefScriptOutput<const Ver: u8>(pub TransactionUnspentOutput);
+
 // A newtype is needed to define instances in a proper place.
 pub struct FullCFMMPool(pub Swap<CFMMPool>, pub FinalizedTxOut);
 
-impl BatchExec<TransactionBuilder, TransactionOutput, (), Void> for FullCFMMPool {
+impl<Ctx> BatchExec<TransactionBuilder, TransactionOutput, Ctx, Void> for FullCFMMPool
+where
+    Ctx: Has<CFMMPoolRefScriptOutput<1>> + Has<CFMMPoolRefScriptOutput<2>>,
+{
     fn try_exec(
         self,
         mut tx_builder: TransactionBuilder,
-        _context: (),
-    ) -> Result<(TransactionBuilder, TransactionOutput), Void> {
+        context: Ctx,
+    ) -> Result<(TransactionBuilder, TransactionOutput, Ctx), Void> {
         let FullCFMMPool(swap, FinalizedTxOut(consumed_out, in_ref)) = self;
         let mut produced_out = consumed_out.clone();
         let (removed_asset, added_asset) = match swap.side {
@@ -545,11 +554,16 @@ impl BatchExec<TransactionBuilder, TransactionOutput, (), Void> for FullCFMMPool
         tx_builder
             .add_output(SingleOutputBuilderResult::new(produced_out))
             .unwrap();
+        let pool_ref_script = match swap.target.ver {
+            PoolVer(1) => context.get::<CFMMPoolRefScriptOutput<1>>().0,
+            PoolVer(_) => context.get::<CFMMPoolRefScriptOutput<2>>().0,
+        };
+        tx_builder.add_reference_input(pool_ref_script);
         tx_builder.add_input(pool_in).unwrap();
         tx_builder.set_exunits(
             RedeemerWitnessKey::new(RedeemerTag::Spend, 0),
             POOL_EXECUTION_UNITS,
         );
-        Ok((tx_builder, successor))
+        Ok((tx_builder, successor, context))
     }
 }

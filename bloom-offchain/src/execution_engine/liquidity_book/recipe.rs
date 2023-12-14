@@ -2,12 +2,32 @@ use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, St
 use crate::execution_engine::liquidity_book::side::SideM;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct ExecutionRecipe<Fr, Pl> {
+pub struct ExecutionRecipe<Fr, Pl>(pub Vec<TerminalInstruction<Fr, Pl>>);
+
+impl<Fr, Pl> From<IntermediateRecipe<Fr, Pl>> for ExecutionRecipe<Fr, Pl>
+where
+    Fr: Fragment,
+{
+    fn from(
+        IntermediateRecipe {
+            mut terminal,
+            remainder,
+        }: IntermediateRecipe<Fr, Pl>,
+    ) -> Self {
+        if let Some(rem) = remainder {
+            terminal.push(TerminalInstruction::Fill(rem.into()));
+        }
+        Self(terminal)
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct IntermediateRecipe<Fr, Pl> {
     pub terminal: Vec<TerminalInstruction<Fr, Pl>>,
     pub remainder: Option<PartialFill<Fr>>,
 }
 
-impl<Fr, Pl> ExecutionRecipe<Fr, Pl>
+impl<Fr, Pl> IntermediateRecipe<Fr, Pl>
 where
     Fr: Fragment,
 {
@@ -46,12 +66,17 @@ pub enum TerminalInstruction<Fr, Pl> {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Fill<Fr> {
     pub target: Fr,
-    pub output: u64,
+    pub removed_input: u64,
+    pub added_output: u64,
 }
 
-impl<Fr> Fill<Fr> {
-    pub fn new(target: Fr, output: u64) -> Self {
-        Self { target, output }
+impl<Fr: Fragment> Fill<Fr> {
+    pub fn new(target: Fr, added_output: u64) -> Self {
+        Self {
+            removed_input: target.input(),
+            target,
+            added_output,
+        }
     }
 }
 
@@ -68,11 +93,12 @@ where
 {
     /// Force fill target fragment.
     /// Does not guarantee that the fragment is actually fully satisfied.
-    pub fn into_filled(self) -> (Fill<Fr>, StateTrans<Fr>) {
+    pub fn filled(self) -> (Fill<Fr>, StateTrans<Fr>) {
         (
             Fill {
                 target: self.target,
-                output: self.accumulated_output,
+                removed_input: self.target.input(),
+                added_output: self.accumulated_output,
             },
             self.target
                 .with_updated_liquidity(self.target.input(), self.accumulated_output),
@@ -80,11 +106,12 @@ where
     }
 }
 
-impl<Fr> From<PartialFill<Fr>> for Fill<Fr> {
+impl<Fr: Fragment> From<PartialFill<Fr>> for Fill<Fr> {
     fn from(value: PartialFill<Fr>) -> Self {
         Self {
+            removed_input: value.target.input() - value.remaining_input,
+            added_output: value.accumulated_output,
             target: value.target,
-            output: value.accumulated_output,
         }
     }
 }

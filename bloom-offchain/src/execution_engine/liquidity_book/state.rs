@@ -4,9 +4,10 @@ use std::fmt::Debug;
 use std::mem;
 
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-use crate::execution_engine::liquidity_book::pool::{Pool, PoolId, PoolQuality};
+use crate::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::types::BasePrice;
+use crate::execution_engine::StableId;
 
 pub trait VersionedState<Fr, Pl> {
     /// Commit preview changes.
@@ -573,8 +574,8 @@ where
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Pools<Pl> {
-    pools: HashMap<PoolId, Pl>,
-    quality_index: BTreeMap<PoolQuality, PoolId>,
+    pools: HashMap<StableId, Pl>,
+    quality_index: BTreeMap<PoolQuality, StableId>,
 }
 
 impl<Pl> Pools<Pl> {
@@ -604,12 +605,12 @@ pub mod tests {
     use std::fmt::{Debug, Formatter};
 
     use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-    use crate::execution_engine::liquidity_book::pool::{Pool, PoolId};
+    use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
     use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, TLBState, VersionedState};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::{BasePrice, ExecutionCost};
-    use crate::execution_engine::SourceId;
+    use crate::execution_engine::StableId;
 
     #[test]
     fn add_inactive_fragment() {
@@ -787,7 +788,7 @@ pub mod tests {
     /// Order that supports partial filling.
     #[derive(Copy, Clone, PartialEq, Eq, Hash)]
     pub struct SimpleOrderPF {
-        pub source: SourceId,
+        pub source: StableId,
         pub side: SideM,
         pub input: u64,
         pub accumulated_output: u64,
@@ -821,7 +822,7 @@ pub mod tests {
     impl SimpleOrderPF {
         pub fn new(side: SideM, input: u64, price: BasePrice, fee: u64) -> Self {
             Self {
-                source: SourceId::random(),
+                source: StableId::random(),
                 side,
                 input,
                 accumulated_output: 0,
@@ -833,7 +834,7 @@ pub mod tests {
         }
         pub fn default_with_bounds(bounds: TimeBounds<u64>) -> Self {
             Self {
-                source: SourceId::random(),
+                source: StableId::random(),
                 side: SideM::Ask,
                 input: 1000_000_000,
                 accumulated_output: 0,
@@ -893,7 +894,7 @@ pub mod tests {
 
     #[derive(Copy, Clone, PartialEq, Eq, Hash)]
     pub struct SimpleCFMMPool {
-        pub pool_id: PoolId,
+        pub pool_id: StableId,
         pub reserves_base: u64,
         pub reserves_quote: u64,
         pub fee_num: u64,
@@ -906,7 +907,7 @@ pub mod tests {
     }
 
     impl Pool for SimpleCFMMPool {
-        fn id(&self) -> PoolId {
+        fn id(&self) -> StableId {
             self.pool_id
         }
 

@@ -24,6 +24,7 @@ use bloom_offchain::execution_engine::partial_fill::PartiallyFilled;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::{AssetClass, NetworkTime};
+use spectrum_offchain::data::Has;
 
 use crate::orders::{Stateful, TLBCompatibleState};
 
@@ -137,16 +138,17 @@ impl Fragment for Stateful<AuctionOrder, TLBCompatibleState> {
 pub struct FullAuctionOrder<FilledOrd, Source>(pub FilledOrd, pub Source);
 
 /// Execution logic for on-chain AO.
-impl<FO> BatchExec<TransactionBuilder, Option<TransactionOutput>, NetworkTime, Void>
+impl<Ctx, FO> BatchExec<TransactionBuilder, Option<TransactionOutput>, Ctx, Void>
     for FullAuctionOrder<FO, FinalizedTxOut>
 where
+    Ctx: Has<NetworkTime>,
     FO: PartiallyFilled<AuctionOrder>,
 {
     fn try_exec(
         self,
         mut tx_builder: TransactionBuilder,
-        context: NetworkTime,
-    ) -> Result<(TransactionBuilder, Option<TransactionOutput>), Void> {
+        context: Ctx,
+    ) -> Result<(TransactionBuilder, Option<TransactionOutput>, Ctx), Void> {
         let FullAuctionOrder(filled_ord, FinalizedTxOut(consumed_out, in_ref)) = self;
         let mut candidate = consumed_out.clone();
         candidate.sub_asset(filled_ord.order().input_asset, filled_ord.removed_input());
@@ -161,7 +163,7 @@ where
         };
         // todo: replace `tx_builder.output_sizes()`
         let successor_ix = tx_builder.output_sizes().len();
-        let span = filled_ord.order().current_span_ix(context);
+        let span = filled_ord.order().current_span_ix(context.get::<NetworkTime>());
         let order_script = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(candidate.script_hash().unwrap()),
             auction_redeemer(span.index, successor_ix as u16),
@@ -181,7 +183,7 @@ where
             RedeemerWitnessKey::new(RedeemerTag::Spend, 0),
             AUCTION_EXECUTION_UNITS,
         );
-        Ok((tx_builder, residual_order))
+        Ok((tx_builder, residual_order, context))
     }
 }
 
