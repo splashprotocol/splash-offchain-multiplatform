@@ -3,12 +3,11 @@ use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
 use std::fmt::Debug;
 use std::mem;
 
-use spectrum_offchain_cardano::data::PoolId;
-
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use crate::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
-use crate::execution_engine::liquidity_book::types::Price;
+use crate::execution_engine::liquidity_book::types::BasePrice;
+use crate::execution_engine::StableId;
 
 pub trait VersionedState<Fr, Pl> {
     /// Commit preview changes.
@@ -266,7 +265,7 @@ where
     Fr: Fragment + Ord + Copy,
     Pl: Pool + Copy,
 {
-    pub fn best_fr_price(&self, side: SideM) -> Option<Side<Price>> {
+    pub fn best_fr_price(&self, side: SideM) -> Option<Side<BasePrice>> {
         let active_fragments = self.active_fragments();
         let side_store = match side {
             SideM::Bid => &active_fragments.bids,
@@ -376,7 +375,7 @@ where
     Fr: Fragment + Ord + Copy,
     Pl: Pool + Copy,
 {
-    pub fn best_pool_price(&self) -> Option<Price> {
+    pub fn best_pool_price(&self) -> Option<BasePrice> {
         let pools = self.pools();
         pools
             .quality_index
@@ -575,8 +574,8 @@ where
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Pools<Pl> {
-    pools: HashMap<PoolId, Pl>,
-    quality_index: BTreeMap<PoolQuality, PoolId>,
+    pools: HashMap<StableId, Pl>,
+    quality_index: BTreeMap<PoolQuality, StableId>,
 }
 
 impl<Pl> Pools<Pl> {
@@ -605,18 +604,13 @@ pub mod tests {
     use std::cmp::Ordering;
     use std::fmt::{Debug, Formatter};
 
-    use cml_core::Slot;
-    use num_rational::Ratio;
-
-    use spectrum_offchain_cardano::data::PoolId;
-
     use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
     use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
-    use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, TLBState};
+    use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, TLBState, VersionedState};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
-    use crate::execution_engine::liquidity_book::types::{ExecutionCost, Price};
-    use crate::execution_engine::SourceId;
+    use crate::execution_engine::liquidity_book::types::{BasePrice, ExecutionCost};
+    use crate::execution_engine::StableId;
 
     #[test]
     fn add_inactive_fragment() {
@@ -794,14 +788,14 @@ pub mod tests {
     /// Order that supports partial filling.
     #[derive(Copy, Clone, PartialEq, Eq, Hash)]
     pub struct SimpleOrderPF {
-        pub source: SourceId,
+        pub source: StableId,
         pub side: SideM,
         pub input: u64,
         pub accumulated_output: u64,
-        pub price: Price,
+        pub price: BasePrice,
         pub fee: u64,
         pub cost_hint: ExecutionCost,
-        pub bounds: TimeBounds<Slot>,
+        pub bounds: TimeBounds<u64>,
     }
 
     impl Debug for SimpleOrderPF {
@@ -826,9 +820,9 @@ pub mod tests {
     }
 
     impl SimpleOrderPF {
-        pub fn new(side: SideM, input: u64, price: Price, fee: u64) -> Self {
+        pub fn new(side: SideM, input: u64, price: BasePrice, fee: u64) -> Self {
             Self {
-                source: SourceId::random(),
+                source: StableId::random(),
                 side,
                 input,
                 accumulated_output: 0,
@@ -840,11 +834,11 @@ pub mod tests {
         }
         pub fn default_with_bounds(bounds: TimeBounds<u64>) -> Self {
             Self {
-                source: SourceId::random(),
+                source: StableId::random(),
                 side: SideM::Ask,
                 input: 1000_000_000,
                 accumulated_output: 0,
-                price: Ratio::new(1, 100),
+                price: BasePrice::new(1, 100),
                 fee: 100,
                 cost_hint: 0,
                 bounds,
@@ -861,7 +855,7 @@ pub mod tests {
             self.input
         }
 
-        fn price(&self) -> Price {
+        fn price(&self) -> BasePrice {
             self.price
         }
 
@@ -873,7 +867,7 @@ pub mod tests {
             self.cost_hint
         }
 
-        fn time_bounds(&self) -> TimeBounds<Slot> {
+        fn time_bounds(&self) -> TimeBounds<u64> {
             self.bounds
         }
     }
@@ -900,7 +894,7 @@ pub mod tests {
 
     #[derive(Copy, Clone, PartialEq, Eq, Hash)]
     pub struct SimpleCFMMPool {
-        pub pool_id: PoolId,
+        pub pool_id: StableId,
         pub reserves_base: u64,
         pub reserves_quote: u64,
         pub fee_num: u64,
@@ -913,23 +907,23 @@ pub mod tests {
     }
 
     impl Pool for SimpleCFMMPool {
-        fn id(&self) -> PoolId {
+        fn id(&self) -> StableId {
             self.pool_id
         }
 
-        fn static_price(&self) -> Price {
-            Ratio::new(self.reserves_quote as u128, self.reserves_base as u128)
+        fn static_price(&self) -> BasePrice {
+            BasePrice::new(self.reserves_quote as u128, self.reserves_base as u128)
         }
 
-        fn real_price(&self, input: Side<u64>) -> Price {
+        fn real_price(&self, input: Side<u64>) -> BasePrice {
             match input {
                 Side::Bid(quote_input) => {
                     let (base_output, _) = self.swap(Side::Bid(quote_input));
-                    Ratio::new(quote_input as u128, base_output as u128)
+                    BasePrice::new(quote_input as u128, base_output as u128)
                 }
                 Side::Ask(base_input) => {
                     let (quote_output, _) = self.swap(Side::Ask(base_input));
-                    Ratio::new(quote_output as u128, base_input as u128)
+                    BasePrice::new(quote_output as u128, base_input as u128)
                 }
             }
         }
@@ -961,7 +955,7 @@ pub mod tests {
 
         fn quality(&self) -> PoolQuality {
             PoolQuality(
-                Ratio::new(self.reserves_quote as u128, self.reserves_base as u128),
+                BasePrice::new(self.reserves_quote as u128, self.reserves_base as u128),
                 self.reserves_quote + self.reserves_base,
             )
         }

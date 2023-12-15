@@ -2,24 +2,25 @@ use std::fmt::{Debug, Formatter};
 
 use rand::{thread_rng, RngCore};
 
-pub mod effect;
+pub mod exec;
 pub mod interpreter;
 pub mod liquidity_book;
+pub mod partial_fill;
 pub mod source_db;
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct SourceId([u8; 32]);
+pub struct StableId([u8; 32]);
 
-impl SourceId {
+impl StableId {
     #[cfg(test)]
-    pub fn random() -> SourceId {
+    pub fn random() -> StableId {
         let mut bf = [0u8; 32];
         thread_rng().fill_bytes(&mut bf);
-        SourceId(bf)
+        StableId(bf)
     }
 }
 
-impl Debug for SourceId {
+impl Debug for StableId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(&*hex::encode(&self.0))
     }

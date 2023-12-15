@@ -6,7 +6,7 @@ use futures::future::Either;
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use crate::execution_engine::liquidity_book::pool::Pool;
 use crate::execution_engine::liquidity_book::recipe::{
-    ExecutionRecipe, Fill, PartialFill, Swap, TerminalInstruction,
+    Fill, IntermediateRecipe, PartialFill, Swap, TerminalInstruction,
 };
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::state::{IdleState, TLBState, VersionedState};
@@ -27,7 +27,7 @@ pub mod types;
 /// (1.) Discrete Fragments of liquidity;
 /// (2.) Pooled (according to some AMM formula) liquidity;
 pub trait TemporalLiquidityBook<Fr, Pl> {
-    fn attempt(&mut self) -> Option<ExecutionRecipe<Fr, Pl>>;
+    fn attempt(&mut self) -> Option<IntermediateRecipe<Fr, Pl>>;
 }
 
 /// TLB API for external events affecting its state.
@@ -86,9 +86,9 @@ where
     Fr: Fragment + OrderState + Copy + Ord,
     Pl: Pool + Copy,
 {
-    fn attempt(&mut self) -> Option<ExecutionRecipe<Fr, Pl>> {
+    fn attempt(&mut self) -> Option<IntermediateRecipe<Fr, Pl>> {
         if let Some(best_fr) = self.state.pick_best_fr_either() {
-            let mut recipe = ExecutionRecipe::new(best_fr);
+            let mut recipe = IntermediateRecipe::new(best_fr);
             let mut execution_units_left = self.execution_cap.hard;
             loop {
                 if let Some(rem) = &recipe.remainder {
@@ -170,7 +170,7 @@ where
         // If there is an attempt to apply external mutations to TLB in a Preview state
         // this is a developer's error so we fail explicitly.
         TLBState::PartialPreview(_) | TLBState::Preview(_) => {
-            panic!("Busy|Preview state cannot be externally mutated")
+            panic!("PartialPreview|Preview state cannot be externally mutated")
         }
     }
 }
@@ -258,7 +258,7 @@ where
                 let quote_input = bid.remaining_input;
                 bid.accumulated_output += demand_base;
                 FillFromFragment {
-                    term_fill_lt: bid.into_filled(),
+                    term_fill_lt: bid.filled(),
                     fill_rt: Either::Right(PartialFill {
                         target: ask,
                         remaining_input: supply_base - demand_base,
@@ -280,7 +280,7 @@ where
                 let quote_executed = ((supply_base as u128) * price.denom() / price.numer()) as u64;
                 bid.accumulated_output += demand_base;
                 FillFromFragment {
-                    term_fill_lt: bid.into_filled(),
+                    term_fill_lt: bid.filled(),
                     fill_rt: Either::Left((
                         Fill::new(ask, quote_executed),
                         ask.with_updated_liquidity(ask.input(), quote_executed),
@@ -313,7 +313,7 @@ where
                 let quote_executed = ((supply_base as u128) * price.denom() / price.numer()) as u64;
                 ask.accumulated_output += quote_executed;
                 FillFromFragment {
-                    term_fill_lt: ask.into_filled(),
+                    term_fill_lt: ask.filled(),
                     fill_rt: Either::Right(PartialFill {
                         remaining_input: bid.input() - quote_executed,
                         target: bid,
@@ -323,7 +323,7 @@ where
             } else {
                 ask.accumulated_output += bid.input();
                 FillFromFragment {
-                    term_fill_lt: ask.into_filled(),
+                    term_fill_lt: ask.filled(),
                     fill_rt: Either::Left((
                         Fill::new(bid, demand_base),
                         bid.with_updated_liquidity(bid.input(), demand_base),
@@ -357,7 +357,7 @@ where
                 output: execution_amount,
             };
             FillFromPool {
-                term_fill: bid.into_filled(),
+                term_fill: bid.filled(),
                 swap: (swap, next_pool),
             }
         }
@@ -373,7 +373,7 @@ where
                 output: execution_amount,
             };
             FillFromPool {
-                term_fill: ask.into_filled(),
+                term_fill: ask.filled(),
                 swap: (swap, next_pool),
             }
         }
@@ -383,28 +383,26 @@ where
 #[cfg(test)]
 mod tests {
     use futures::future::Either;
-    use num_rational::Ratio;
 
-    use spectrum_offchain_cardano::data::PoolId;
-
-    use crate::execution_engine::liquidity_book::pool::Pool;
+    use crate::execution_engine::liquidity_book::pool::{Pool, PoolId};
     use crate::execution_engine::liquidity_book::recipe::{
-        ExecutionRecipe, Fill, PartialFill, Swap, TerminalInstruction,
+        Fill, IntermediateRecipe, PartialFill, Swap, TerminalInstruction,
     };
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
     use crate::execution_engine::liquidity_book::state::tests::{SimpleCFMMPool, SimpleOrderPF};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
+    use crate::execution_engine::liquidity_book::types::BasePrice;
     use crate::execution_engine::liquidity_book::{
         fill_from_fragment, fill_from_pool, ExecutionCap, ExternalTLBEvents, FillFromFragment, FillFromPool,
         TemporalLiquidityBook, TLB,
     };
-    use crate::execution_engine::SourceId;
+    use crate::execution_engine::StableId;
 
     #[test]
     fn recipe_fill_fragment_from_fragment() {
         // Assuming pair ADA/USDT @ 0.37
-        let o1 = SimpleOrderPF::new(SideM::Ask, 2000, Ratio::new(36, 100), 1000);
-        let o2 = SimpleOrderPF::new(SideM::Bid, 370, Ratio::new(37, 100), 990);
+        let o1 = SimpleOrderPF::new(SideM::Ask, 2000, BasePrice::new(36, 100), 1000);
+        let o2 = SimpleOrderPF::new(SideM::Bid, 370, BasePrice::new(37, 100), 990);
         let p1 = SimpleCFMMPool {
             pool_id: PoolId::random(),
             reserves_base: 1000000000000000,
@@ -422,11 +420,11 @@ mod tests {
         book.add_fragment(o2);
         book.update_pool(p1);
         let recipe = book.attempt();
-        let expected_recipe = ExecutionRecipe {
+        let expected_recipe = IntermediateRecipe {
             terminal: vec![
                 TerminalInstruction::Fill(Fill {
                     target: o2,
-                    output: 1000,
+                    added_output: 1000,
                 }),
                 TerminalInstruction::Swap(Swap {
                     target: p1,
@@ -436,7 +434,7 @@ mod tests {
                 }),
                 TerminalInstruction::Fill(Fill {
                     target: o1,
-                    output: 738,
+                    added_output: 738,
                 }),
             ],
             remainder: None,
@@ -448,21 +446,21 @@ mod tests {
     fn fill_fragment_from_fragment() {
         // Assuming pair ADA/USDT @ 0.37
         let fr1 = SimpleOrderPF {
-            source: SourceId::random(),
+            source: StableId::random(),
             side: SideM::Ask,
             input: 1000,
             accumulated_output: 0,
-            price: Ratio::new(37, 100),
+            price: BasePrice::new(37, 100),
             fee: 1000,
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
         let fr2 = SimpleOrderPF {
-            source: SourceId::random(),
+            source: StableId::random(),
             side: SideM::Bid,
             input: 370,
             accumulated_output: 0,
-            price: Ratio::new(37, 100),
+            price: BasePrice::new(37, 100),
             fee: 1000,
             cost_hint: 100,
             bounds: TimeBounds::None,
@@ -471,9 +469,9 @@ mod tests {
             term_fill_lt,
             fill_rt: term_fill_rt,
         } = fill_from_fragment(PartialFill::new(fr1), fr2);
-        assert_eq!(term_fill_lt.0.output, fr2.input);
+        assert_eq!(term_fill_lt.0.added_output, fr2.input);
         match term_fill_rt {
-            Either::Left(fill_rt) => assert_eq!(fill_rt.0.output, fr1.input),
+            Either::Left(fill_rt) => assert_eq!(fill_rt.0.added_output, fr1.input),
             Either::Right(_) => panic!(),
         }
     }
@@ -482,21 +480,21 @@ mod tests {
     fn fill_fragment_from_fragment_partial() {
         // Assuming pair ADA/USDT @ 0.37
         let fr1 = SimpleOrderPF {
-            source: SourceId::random(),
+            source: StableId::random(),
             side: SideM::Ask,
             input: 1000,
             accumulated_output: 0,
-            price: Ratio::new(37, 100),
+            price: BasePrice::new(37, 100),
             fee: 2000,
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
         let fr2 = SimpleOrderPF {
-            source: SourceId::random(),
+            source: StableId::random(),
             side: SideM::Bid,
             input: 210,
             accumulated_output: 0,
-            price: Ratio::new(37, 100),
+            price: BasePrice::new(37, 100),
             fee: 2000,
             cost_hint: 100,
             bounds: TimeBounds::None,
@@ -506,7 +504,7 @@ mod tests {
             fill_rt: term_fill_rt,
         } = fill_from_fragment(PartialFill::new(fr1), fr2);
         assert_eq!(
-            term_fill_lt.0.output,
+            term_fill_lt.0.added_output,
             ((fr2.input as u128) * fr1.price.denom() / fr1.price.numer()) as u64
         );
         match term_fill_rt {
@@ -519,21 +517,21 @@ mod tests {
     fn prefer_fragment_with_better_fee() {
         // Assuming pair ADA/USDT @ ask price 0.37, bid price 0.36
         let ask_fr = SimpleOrderPF {
-            source: SourceId::random(),
+            source: StableId::random(),
             side: SideM::Ask,
             input: 1000,
             accumulated_output: 0,
-            price: Ratio::new(36, 100),
+            price: BasePrice::new(36, 100),
             fee: 1000,
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
         let bid_fr = SimpleOrderPF {
-            source: SourceId::random(),
+            source: StableId::random(),
             side: SideM::Bid,
             input: 360,
             accumulated_output: 0,
-            price: Ratio::new(37, 100),
+            price: BasePrice::new(37, 100),
             fee: 2000,
             cost_hint: 100,
             bounds: TimeBounds::None,
@@ -542,9 +540,9 @@ mod tests {
             term_fill_lt,
             fill_rt: term_fill_rt,
         } = fill_from_fragment(PartialFill::new(ask_fr), bid_fr);
-        assert_eq!(term_fill_lt.0.output, bid_fr.input);
+        assert_eq!(term_fill_lt.0.added_output, bid_fr.input);
         match term_fill_rt {
-            Either::Left(fill_rt) => assert_eq!(fill_rt.0.output, ask_fr.input),
+            Either::Left(fill_rt) => assert_eq!(fill_rt.0.added_output, ask_fr.input),
             Either::Right(_) => panic!(),
         }
     }
@@ -553,11 +551,11 @@ mod tests {
     fn fill_reminder_from_pool() {
         // Assuming pair ADA/USDT @ ask price 0.360, real price in pool 0.364.
         let ask_fr = SimpleOrderPF {
-            source: SourceId::random(),
+            source: StableId::random(),
             side: SideM::Ask,
             input: 1000,
             accumulated_output: 0,
-            price: Ratio::new(36, 100),
+            price: BasePrice::new(36, 100),
             fee: 1000,
             cost_hint: 100,
             bounds: TimeBounds::None,
@@ -577,7 +575,7 @@ mod tests {
         let FillFromPool { term_fill, swap } = fill_from_pool(pf, pool);
         assert_eq!(swap.0.input, pf.remaining_input);
         assert_eq!(
-            (term_fill.0.output - pf.accumulated_output) as u128,
+            (term_fill.0.added_output - pf.accumulated_output) as u128,
             pf.remaining_input as u128 * real_price_in_pool.numer() / real_price_in_pool.denom()
         );
     }
