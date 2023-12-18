@@ -43,11 +43,13 @@ pub trait SpecializedOrder {
     fn get_pool_ref(&self) -> Self::TPoolId;
 }
 
-pub trait OnChainEntity {
-    type TEntityId: Copy + Eq + Hash;
-    type TStateId: Copy + Eq + Hash;
+pub trait LiquiditySource {
+    /// Unique identifier of the [LiquiditySource] which persists among different versions.
+    type StableId: Copy + Eq + Hash + Display;
+    /// Unique version of the [LiquiditySource].
+    type Version: Copy + Eq + Hash + Display;
 
-    fn get_self_ref(&self) -> Self::TEntityId;
+    fn stable_id(&self) -> Self::StableId;
 
-    fn get_self_state_ref(&self) -> Self::TStateId;
+    fn version(&self) -> Self::Version;
 }

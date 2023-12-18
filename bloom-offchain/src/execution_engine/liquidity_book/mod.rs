@@ -36,6 +36,7 @@ pub trait ExternalTLBEvents<Fr, Pl> {
     fn add_fragment(&mut self, fr: Fr);
     fn remove_fragment(&mut self, fr: Fr);
     fn update_pool(&mut self, pool: Pl);
+    fn remove_pool(&mut self, pool: Pl);
 }
 
 /// TLB API for feedback events affecting its state.
@@ -194,6 +195,10 @@ where
 
     fn update_pool(&mut self, pool: Pl) {
         requiring_settled_state(self, |st| st.update_pool(pool))
+    }
+
+    fn remove_pool(&mut self, pool: Pl) {
+        requiring_settled_state(self, |st| st.remove_pool(pool))
     }
 }
 
@@ -384,7 +389,7 @@ where
 mod tests {
     use futures::future::Either;
 
-    use crate::execution_engine::liquidity_book::pool::{Pool, PoolId};
+    use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::recipe::{
         Fill, IntermediateRecipe, PartialFill, Swap, TerminalInstruction,
     };
@@ -404,7 +409,7 @@ mod tests {
         let o1 = SimpleOrderPF::new(SideM::Ask, 2000, BasePrice::new(36, 100), 1000);
         let o2 = SimpleOrderPF::new(SideM::Bid, 370, BasePrice::new(37, 100), 990);
         let p1 = SimpleCFMMPool {
-            pool_id: PoolId::random(),
+            pool_id: StableId::random(),
             reserves_base: 1000000000000000,
             reserves_quote: 370000000000000,
             fee_num: 997,
@@ -424,6 +429,7 @@ mod tests {
             terminal: vec![
                 TerminalInstruction::Fill(Fill {
                     target: o2,
+                    removed_input: o2.input,
                     added_output: 1000,
                 }),
                 TerminalInstruction::Swap(Swap {
@@ -434,6 +440,7 @@ mod tests {
                 }),
                 TerminalInstruction::Fill(Fill {
                     target: o1,
+                    removed_input: o1.input,
                     added_output: 738,
                 }),
             ],
@@ -566,7 +573,7 @@ mod tests {
             accumulated_output: 180,
         };
         let pool = SimpleCFMMPool {
-            pool_id: PoolId::random(),
+            pool_id: StableId::random(),
             reserves_base: 100000000000000,
             reserves_quote: 36600000000000,
             fee_num: 997,

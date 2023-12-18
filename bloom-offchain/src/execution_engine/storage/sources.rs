@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
-pub trait SourceDB<Key, Src> {
+pub trait Sources<Key, Src> {
     /// Take resolved source by [Key].
     /// Source is always available.
     fn take_unsafe(&mut self, key: Key) -> Src;
@@ -13,7 +13,7 @@ pub struct InMemorySourceDB<Key, Src> {
     store: HashMap<Key, Src>,
 }
 
-impl<Key, Src> SourceDB<Key, Src> for InMemorySourceDB<Key, Src>
+impl<Key, Src> Sources<Key, Src> for InMemorySourceDB<Key, Src>
 where
     Key: Eq + Copy + Hash,
 {

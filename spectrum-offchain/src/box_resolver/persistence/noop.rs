@@ -2,7 +2,7 @@ use async_trait::async_trait;
 
 use crate::box_resolver::persistence::EntityRepo;
 use crate::data::unique_entity::{Confirmed, Predicted, Traced, Unconfirmed};
-use crate::data::OnChainEntity;
+use crate::data::LiquiditySource;
 
 #[derive(Debug)]
 pub struct NoopEntityRepo;
@@ -10,34 +10,34 @@ pub struct NoopEntityRepo;
 #[async_trait(?Send)]
 impl<T> EntityRepo<T> for NoopEntityRepo
 where
-    T: OnChainEntity + Clone + Send + 'static,
-    <T as OnChainEntity>::TStateId: Clone + Send + 'static,
-    <T as OnChainEntity>::TEntityId: Clone + Send + 'static,
+    T: LiquiditySource + Clone + Send + 'static,
+    <T as LiquiditySource>::Version: Clone + Send + 'static,
+    <T as LiquiditySource>::StableId: Clone + Send + 'static,
 {
-    async fn get_prediction_predecessor<'a>(&self, id: T::TStateId) -> Option<T::TStateId>
+    async fn get_prediction_predecessor<'a>(&self, id: T::Version) -> Option<T::Version>
     where
-        <T as OnChainEntity>::TStateId: 'a,
+        <T as LiquiditySource>::Version: 'a,
     {
         None
     }
 
-    async fn get_last_predicted<'a>(&self, id: T::TEntityId) -> Option<Predicted<T>>
+    async fn get_last_predicted<'a>(&self, id: T::StableId) -> Option<Predicted<T>>
     where
-        <T as OnChainEntity>::TEntityId: 'a,
+        <T as LiquiditySource>::StableId: 'a,
     {
         None
     }
 
-    async fn get_last_confirmed<'a>(&self, id: T::TEntityId) -> Option<Confirmed<T>>
+    async fn get_last_confirmed<'a>(&self, id: T::StableId) -> Option<Confirmed<T>>
     where
-        <T as OnChainEntity>::TEntityId: 'a,
+        <T as LiquiditySource>::StableId: 'a,
     {
         None
     }
 
-    async fn get_last_unconfirmed<'a>(&self, id: T::TEntityId) -> Option<Unconfirmed<T>>
+    async fn get_last_unconfirmed<'a>(&self, id: T::StableId) -> Option<Unconfirmed<T>>
     where
-        <T as OnChainEntity>::TEntityId: 'a,
+        <T as LiquiditySource>::StableId: 'a,
     {
         None
     }
@@ -60,10 +60,10 @@ where
     {
     }
 
-    async fn invalidate<'a>(&mut self, sid: T::TStateId, eid: T::TEntityId)
+    async fn invalidate<'a>(&mut self, sid: T::Version, eid: T::StableId)
     where
-        <T as OnChainEntity>::TStateId: 'a,
-        <T as OnChainEntity>::TEntityId: 'a,
+        <T as LiquiditySource>::Version: 'a,
+        <T as LiquiditySource>::StableId: 'a,
     {
     }
 
@@ -73,16 +73,16 @@ where
     {
     }
 
-    async fn may_exist<'a>(&self, sid: T::TStateId) -> bool
+    async fn may_exist<'a>(&self, sid: T::Version) -> bool
     where
-        <T as OnChainEntity>::TStateId: 'a,
+        <T as LiquiditySource>::Version: 'a,
     {
         false
     }
 
-    async fn get_state<'a>(&self, sid: T::TStateId) -> Option<T>
+    async fn get_state<'a>(&self, sid: T::Version) -> Option<T>
     where
-        <T as OnChainEntity>::TStateId: 'a,
+        <T as LiquiditySource>::Version: 'a,
     {
         None
     }

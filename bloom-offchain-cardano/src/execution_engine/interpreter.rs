@@ -2,21 +2,21 @@ use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, Tran
 use tailcall::tailcall;
 use void::Void;
 
+use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::exec::BatchExec;
 use bloom_offchain::execution_engine::interpreter::RecipeInterpreter;
 use bloom_offchain::execution_engine::liquidity_book::recipe::{
     ExecutionRecipe, Fill, PartialFill, Swap, TerminalInstruction,
 };
-use bloom_offchain::execution_engine::source_db::SourceDB;
 use bloom_offchain::execution_engine::StableId;
+use bloom_offchain::execution_engine::storage::sources::Sources;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::{FinalizedTxOut, IndexedTxOut};
-use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_cardano_lib::OutputRef;
+use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_offchain::data::Has;
 
-use crate::execution_engine::bundled::Bundled;
 use crate::operator_address::OperatorAddress;
 
 /// A short-living interpreter.
@@ -32,7 +32,7 @@ where
     Bundled<Fill<Fr>, FinalizedTxOut>: BatchExec<TransactionBuilder, Option<IndexedTxOut>, Ctx, Void>,
     Bundled<PartialFill<Fr>, FinalizedTxOut>: BatchExec<TransactionBuilder, Option<IndexedTxOut>, Ctx, Void>,
     Bundled<Swap<Pl>, FinalizedTxOut>: BatchExec<TransactionBuilder, IndexedTxOut, Ctx, Void>,
-    SrcDB: SourceDB<StableId, FinalizedTxOut>,
+    SrcDB: Sources<StableId, FinalizedTxOut>,
     Ctx: Clone + Has<Collateral> + Has<OperatorAddress>,
 {
     fn run(
@@ -72,7 +72,7 @@ where
     Bundled<Fill<Fr>, FinalizedTxOut>: BatchExec<TransactionBuilder, Option<IndexedTxOut>, Ctx, Void>,
     Bundled<PartialFill<Fr>, FinalizedTxOut>: BatchExec<TransactionBuilder, Option<IndexedTxOut>, Ctx, Void>,
     Bundled<Swap<Pl>, FinalizedTxOut>: BatchExec<TransactionBuilder, IndexedTxOut, Ctx, Void>,
-    SrcDB: SourceDB<StableId, FinalizedTxOut>,
+    SrcDB: Sources<StableId, FinalizedTxOut>,
     Ctx: Clone,
 {
     if let Some(instruction) = rem.pop() {

@@ -4,7 +4,7 @@ use tokio::sync::Mutex;
 
 use crate::box_resolver::persistence::EntityRepo;
 use crate::data::unique_entity::{Confirmed, Predicted, Traced, Unconfirmed};
-use crate::data::OnChainEntity;
+use crate::data::LiquiditySource;
 
 pub mod blacklist;
 pub mod persistence;
@@ -12,13 +12,13 @@ pub mod process;
 
 /// Get latest state of an on-chain entity `TEntity`.
 pub async fn resolve_entity_state<TEntity, TRepo>(
-    id: TEntity::TEntityId,
+    id: TEntity::StableId,
     repo: Arc<Mutex<TRepo>>,
 ) -> Option<TEntity>
 where
     TRepo: EntityRepo<TEntity>,
-    TEntity: OnChainEntity,
-    TEntity::TEntityId: Copy,
+    TEntity: LiquiditySource,
+    TEntity::StableId: Copy,
 {
     let states = {
         let repo_guard = repo.lock().await;
@@ -30,8 +30,8 @@ where
     match states {
         (Some(Confirmed(conf)), unconf, Some(Predicted(pred))) => {
             let anchoring_point = unconf.map(|Unconfirmed(e)| e).unwrap_or(conf);
-            let anchoring_sid = anchoring_point.get_self_state_ref();
-            let predicted_sid = pred.get_self_state_ref();
+            let anchoring_sid = anchoring_point.version();
+            let predicted_sid = pred.version();
             let prediction_is_anchoring_point = predicted_sid == anchoring_sid;
             let prediction_is_valid = prediction_is_anchoring_point
                 || is_linking(predicted_sid, anchoring_sid, Arc::clone(&repo)).await;
@@ -49,12 +49,12 @@ where
 }
 
 async fn is_linking<TEntity, TRepo>(
-    sid: TEntity::TStateId,
-    anchoring_sid: TEntity::TStateId,
+    sid: TEntity::Version,
+    anchoring_sid: TEntity::Version,
     repo: Arc<Mutex<TRepo>>,
 ) -> bool
 where
-    TEntity: OnChainEntity,
+    TEntity: LiquiditySource,
     TRepo: EntityRepo<TEntity>,
 {
     let mut head_sid = sid;
@@ -78,7 +78,7 @@ mod tests {
     use crate::box_resolver::persistence::EntityRepo;
     use crate::box_resolver::resolve_entity_state;
     use crate::data::unique_entity::Confirmed;
-    use crate::data::OnChainEntity;
+    use crate::data::LiquiditySource;
 
     #[tokio::test]
     async fn test_resolve_state_trivial() {
@@ -90,7 +90,7 @@ mod tests {
         client.put_confirmed(entity.clone()).await;
 
         let client = Arc::new(Mutex::new(client));
-        let resolved = resolve_entity_state::<TestEntity, _>(entity.0.get_self_ref(), client).await;
+        let resolved = resolve_entity_state::<TestEntity, _>(entity.0.stable_id(), client).await;
         assert_eq!(resolved, Some(entity.0));
     }
 }

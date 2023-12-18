@@ -11,7 +11,7 @@ use crate::binary::prefixed_key;
 use crate::box_resolver::persistence::EntityRepo;
 use crate::box_resolver::{Predicted, Traced};
 use crate::data::unique_entity::{Confirmed, Unconfirmed};
-use crate::data::OnChainEntity;
+use crate::data::LiquiditySource;
 use crate::rocks::RocksConfig;
 
 pub struct EntityRepoRocksDB {
@@ -35,16 +35,16 @@ const LAST_UNCONFIRMED_PREFIX: &str = "unconfirmed:last";
 #[async_trait(?Send)]
 impl<TEntity> EntityRepo<TEntity> for EntityRepoRocksDB
 where
-    TEntity: OnChainEntity + Clone + Serialize + DeserializeOwned + Send + 'static,
-    <TEntity as OnChainEntity>::TStateId: Clone + Serialize + DeserializeOwned + Send + Debug + 'static,
-    <TEntity as OnChainEntity>::TEntityId: Clone + Serialize + DeserializeOwned + Send + 'static,
+    TEntity: LiquiditySource + Clone + Serialize + DeserializeOwned + Send + 'static,
+    <TEntity as LiquiditySource>::Version: Clone + Serialize + DeserializeOwned + Send + Debug + 'static,
+    <TEntity as LiquiditySource>::StableId: Clone + Serialize + DeserializeOwned + Send + 'static,
 {
     async fn get_prediction_predecessor<'a>(
         &self,
-        sid: <TEntity as OnChainEntity>::TStateId,
-    ) -> Option<TEntity::TStateId>
+        sid: <TEntity as LiquiditySource>::Version,
+    ) -> Option<TEntity::Version>
     where
-        <TEntity as OnChainEntity>::TStateId: 'a,
+        <TEntity as LiquiditySource>::Version: 'a,
     {
         let db = self.db.clone();
         let link_key = prefixed_key(PREDICTION_LINK_PREFIX, &sid);
@@ -58,17 +58,17 @@ where
 
     async fn get_last_predicted<'a>(
         &self,
-        id: <TEntity as OnChainEntity>::TEntityId,
+        id: <TEntity as LiquiditySource>::StableId,
     ) -> Option<Predicted<TEntity>>
     where
-        <TEntity as OnChainEntity>::TEntityId: 'a,
+        <TEntity as LiquiditySource>::StableId: 'a,
     {
         let db = self.db.clone();
         let index_key = prefixed_key(LAST_PREDICTED_PREFIX, &id);
         spawn_blocking(move || {
             db.get(index_key)
                 .unwrap()
-                .and_then(|bytes| bincode::deserialize::<'_, TEntity::TStateId>(&bytes).ok())
+                .and_then(|bytes| bincode::deserialize::<'_, TEntity::Version>(&bytes).ok())
                 .and_then(|sid| {
                     if db
                         .get(prefixed_key(PREDICTION_LINK_PREFIX, &sid))
@@ -88,17 +88,17 @@ where
 
     async fn get_last_confirmed<'a>(
         &self,
-        id: <TEntity as OnChainEntity>::TEntityId,
+        id: <TEntity as LiquiditySource>::StableId,
     ) -> Option<Confirmed<TEntity>>
     where
-        <TEntity as OnChainEntity>::TEntityId: 'a,
+        <TEntity as LiquiditySource>::StableId: 'a,
     {
         let db = self.db.clone();
         let index_key = prefixed_key(LAST_CONFIRMED_PREFIX, &id);
         spawn_blocking(move || {
             db.get(index_key)
                 .unwrap()
-                .and_then(|bytes| bincode::deserialize::<'_, TEntity::TStateId>(&bytes).ok())
+                .and_then(|bytes| bincode::deserialize::<'_, TEntity::Version>(&bytes).ok())
                 .and_then(|sid| db.get(prefixed_key(STATE_PREFIX, &sid)).unwrap())
                 .and_then(|bytes| bincode::deserialize(&bytes).ok())
                 .map(Confirmed)
@@ -108,17 +108,17 @@ where
 
     async fn get_last_unconfirmed<'a>(
         &self,
-        id: <TEntity as OnChainEntity>::TEntityId,
+        id: <TEntity as LiquiditySource>::StableId,
     ) -> Option<Unconfirmed<TEntity>>
     where
-        <TEntity as OnChainEntity>::TEntityId: 'a,
+        <TEntity as LiquiditySource>::StableId: 'a,
     {
         let db = self.db.clone();
         let index_key = prefixed_key(LAST_UNCONFIRMED_PREFIX, &id);
         spawn_blocking(move || {
             db.get(index_key)
                 .unwrap()
-                .and_then(|bytes| bincode::deserialize::<'_, TEntity::TStateId>(&bytes).ok())
+                .and_then(|bytes| bincode::deserialize::<'_, TEntity::Version>(&bytes).ok())
                 .and_then(|sid| db.get(prefixed_key(STATE_PREFIX, &sid)).unwrap())
                 .and_then(|bytes| bincode::deserialize(&bytes).ok())
                 .map(Unconfirmed)
@@ -136,11 +136,11 @@ where
         Traced<Predicted<TEntity>>: 'a,
     {
         let db = self.db.clone();
-        let state_id_bytes = bincode::serialize(&entity.get_self_state_ref()).unwrap();
-        let state_key = prefixed_key(STATE_PREFIX, &entity.get_self_state_ref());
+        let state_id_bytes = bincode::serialize(&entity.version()).unwrap();
+        let state_key = prefixed_key(STATE_PREFIX, &entity.version());
         let state_bytes = bincode::serialize(&entity).unwrap();
-        let index_key = prefixed_key(LAST_PREDICTED_PREFIX, &entity.get_self_ref());
-        let link_key = prefixed_key(PREDICTION_LINK_PREFIX, &entity.get_self_state_ref());
+        let index_key = prefixed_key(LAST_PREDICTED_PREFIX, &entity.stable_id());
+        let link_key = prefixed_key(PREDICTION_LINK_PREFIX, &entity.version());
         spawn_blocking(move || {
             let tx = db.transaction();
             tx.put(state_key, state_bytes).unwrap();
@@ -159,10 +159,10 @@ where
         Traced<Predicted<TEntity>>: 'a,
     {
         let db = self.db.clone();
-        let state_id_bytes = bincode::serialize(&entity.get_self_state_ref()).unwrap();
-        let state_key = prefixed_key(STATE_PREFIX, &entity.get_self_state_ref());
+        let state_id_bytes = bincode::serialize(&entity.version()).unwrap();
+        let state_key = prefixed_key(STATE_PREFIX, &entity.version());
         let state_bytes = bincode::serialize(&entity).unwrap();
-        let index_key = prefixed_key(LAST_CONFIRMED_PREFIX, &entity.get_self_ref());
+        let index_key = prefixed_key(LAST_CONFIRMED_PREFIX, &entity.stable_id());
         spawn_blocking(move || {
             let tx = db.transaction();
             tx.put(state_key, state_bytes).unwrap();
@@ -177,10 +177,10 @@ where
         Traced<Predicted<TEntity>>: 'a,
     {
         let db = self.db.clone();
-        let state_id_bytes = bincode::serialize(&entity.get_self_state_ref()).unwrap();
-        let state_key = prefixed_key(STATE_PREFIX, &entity.get_self_state_ref());
+        let state_id_bytes = bincode::serialize(&entity.version()).unwrap();
+        let state_key = prefixed_key(STATE_PREFIX, &entity.version());
         let state_bytes = bincode::serialize(&entity).unwrap();
-        let index_key = prefixed_key(LAST_UNCONFIRMED_PREFIX, &entity.get_self_ref());
+        let index_key = prefixed_key(LAST_UNCONFIRMED_PREFIX, &entity.stable_id());
         spawn_blocking(move || {
             let tx = db.transaction();
             tx.put(state_key, state_bytes).unwrap();
@@ -192,13 +192,13 @@ where
 
     async fn invalidate<'a>(
         &mut self,
-        sid: <TEntity as OnChainEntity>::TStateId,
-        eid: <TEntity as OnChainEntity>::TEntityId,
+        sid: <TEntity as LiquiditySource>::Version,
+        eid: <TEntity as LiquiditySource>::StableId,
     ) where
-        <TEntity as OnChainEntity>::TEntityId: 'a,
-        <TEntity as OnChainEntity>::TStateId: 'a,
+        <TEntity as LiquiditySource>::StableId: 'a,
+        <TEntity as LiquiditySource>::Version: 'a,
     {
-        let predecessor: Option<<TEntity as OnChainEntity>::TStateId> =
+        let predecessor: Option<<TEntity as LiquiditySource>::Version> =
             <EntityRepoRocksDB as EntityRepo<TEntity>>::get_prediction_predecessor::<'_, '_, '_>(
                 self,
                 sid.clone(),
@@ -229,11 +229,11 @@ where
     where
         TEntity: 'a,
     {
-        let last_predicted_index_key = prefixed_key(LAST_PREDICTED_PREFIX, &entity.get_self_ref());
-        let link_key = prefixed_key(PREDICTION_LINK_PREFIX, &entity.get_self_state_ref());
+        let last_predicted_index_key = prefixed_key(LAST_PREDICTED_PREFIX, &entity.stable_id());
+        let link_key = prefixed_key(PREDICTION_LINK_PREFIX, &entity.version());
 
-        let last_confirmed_index_key = prefixed_key(LAST_CONFIRMED_PREFIX, &entity.get_self_ref());
-        let last_unconfirmed_index_key = prefixed_key(LAST_UNCONFIRMED_PREFIX, &entity.get_self_ref());
+        let last_confirmed_index_key = prefixed_key(LAST_CONFIRMED_PREFIX, &entity.stable_id());
+        let last_unconfirmed_index_key = prefixed_key(LAST_UNCONFIRMED_PREFIX, &entity.stable_id());
 
         let db = self.db.clone();
         spawn_blocking(move || {
@@ -247,18 +247,18 @@ where
         .await
     }
 
-    async fn may_exist<'a>(&self, sid: <TEntity as OnChainEntity>::TStateId) -> bool
+    async fn may_exist<'a>(&self, sid: <TEntity as LiquiditySource>::Version) -> bool
     where
-        <TEntity as OnChainEntity>::TStateId: 'a,
+        <TEntity as LiquiditySource>::Version: 'a,
     {
         let db = self.db.clone();
         let state_key = prefixed_key(STATE_PREFIX, &sid);
         spawn_blocking(move || db.key_may_exist(state_key)).await
     }
 
-    async fn get_state<'a>(&self, sid: <TEntity as OnChainEntity>::TStateId) -> Option<TEntity>
+    async fn get_state<'a>(&self, sid: <TEntity as LiquiditySource>::Version) -> Option<TEntity>
     where
-        <TEntity as OnChainEntity>::TStateId: 'a,
+        <TEntity as LiquiditySource>::Version: 'a,
     {
         let db = self.db.clone();
         let state_key = prefixed_key(STATE_PREFIX, &sid);
