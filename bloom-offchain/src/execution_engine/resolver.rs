@@ -1,17 +1,14 @@
-use spectrum_offchain::data::LiquiditySource;
 use spectrum_offchain::data::unique_entity::{Confirmed, Predicted, Unconfirmed};
+use spectrum_offchain::data::LiquiditySource;
 
 use crate::execution_engine::storage::StateIndex;
 
 /// Get latest state of an on-chain entity `TEntity`.
-pub fn resolve_source_state<Src, Index>(
-    id: Src::StableId,
-    index: &Index,
-) -> Option<Src>
-    where
-        Index: StateIndex<Src>,
-        Src: LiquiditySource,
-        Src::StableId: Copy,
+pub fn resolve_source_state<Src, Index>(id: Src::StableId, index: &Index) -> Option<Src>
+where
+    Index: StateIndex<Src>,
+    Src: LiquiditySource,
+    Src::StableId: Copy,
 {
     let states = {
         let confirmed = index.get_last_confirmed(id);
@@ -22,11 +19,11 @@ pub fn resolve_source_state<Src, Index>(
     match states {
         (Some(Confirmed(conf)), unconf, Some(Predicted(pred))) => {
             let anchoring_point = unconf.map(|Unconfirmed(e)| e).unwrap_or(conf);
-            let anchoring_sid = anchoring_point.version();
-            let predicted_sid = pred.version();
-            let prediction_is_anchoring_point = predicted_sid == anchoring_sid;
-            let prediction_is_valid = prediction_is_anchoring_point
-                || is_linking(predicted_sid, anchoring_sid, index);
+            let anchoring_ver = anchoring_point.version();
+            let predicted_ver = pred.version();
+            let prediction_is_anchoring_point = predicted_ver == anchoring_ver;
+            let prediction_is_valid =
+                prediction_is_anchoring_point || is_linking(predicted_ver, anchoring_ver, index);
             let safe_point = if prediction_is_valid {
                 pred
             } else {
@@ -40,14 +37,10 @@ pub fn resolve_source_state<Src, Index>(
     }
 }
 
-fn is_linking<Src, Index>(
-    ver: Src::Version,
-    anchoring_ver: Src::Version,
-    index: &Index,
-) -> bool
-    where
-        Src: LiquiditySource,
-        Index: StateIndex<Src>,
+fn is_linking<Src, Index>(ver: Src::Version, anchoring_ver: Src::Version, index: &Index) -> bool
+where
+    Src: LiquiditySource,
+    Index: StateIndex<Src>,
 {
     let mut head_sid = ver;
     loop {

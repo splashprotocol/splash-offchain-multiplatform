@@ -1,8 +1,12 @@
+use crate::execution_engine::bundled::Bundled;
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use crate::execution_engine::liquidity_book::side::SideM;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ExecutionRecipe<Fr, Pl>(pub Vec<TerminalInstruction<Fr, Pl>>);
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct LinkedExecutionRecipe<Fr, Pl, Src>(pub Vec<Bundled<TerminalInstruction<Fr, Pl>, Src>>);
 
 impl<Fr, Pl> From<IntermediateRecipe<Fr, Pl>> for ExecutionRecipe<Fr, Pl>
 where

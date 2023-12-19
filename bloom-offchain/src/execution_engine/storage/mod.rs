@@ -1,8 +1,8 @@
-use spectrum_offchain::data::LiquiditySource;
 use spectrum_offchain::data::unique_entity::{Confirmed, Predicted, Traced, Unconfirmed};
+use spectrum_offchain::data::LiquiditySource;
 
-pub mod sources;
 pub mod cache;
+pub mod sources;
 
 pub trait StateIndex<Src: LiquiditySource> {
     /// Get state id preceding given predicted state.

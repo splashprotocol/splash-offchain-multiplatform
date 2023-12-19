@@ -1,6 +1,7 @@
 use std::fmt::Display;
 use std::hash::Hash;
 
+use futures::future::Either;
 use type_equalities::IsEqual;
 
 pub mod order;
@@ -52,4 +53,27 @@ pub trait LiquiditySource {
     fn stable_id(&self) -> Self::StableId;
 
     fn version(&self) -> Self::Version;
+}
+
+impl<StableId, Version, A, B> LiquiditySource for Either<A, B>
+where
+    A: LiquiditySource<StableId = StableId, Version = Version>,
+    B: LiquiditySource<StableId = StableId, Version = Version>,
+    StableId: Copy + Eq + Hash + Display,
+    Version: Copy + Eq + Hash + Display,
+{
+    type StableId = StableId;
+    type Version = Version;
+    fn stable_id(&self) -> Self::StableId {
+        match self {
+            Either::Left(a) => a.stable_id(),
+            Either::Right(b) => b.stable_id(),
+        }
+    }
+    fn version(&self) -> Self::Version {
+        match self {
+            Either::Left(a) => a.version(),
+            Either::Right(b) => b.version(),
+        }
+    }
 }

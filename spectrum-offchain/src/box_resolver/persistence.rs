@@ -137,11 +137,7 @@ where
     where
         Traced<Predicted<TEntity>>: 'a,
     {
-        let show_entity = format!(
-            "<Entity({:?}, {:?})>",
-            entity.0.stable_id(),
-            entity.0.version()
-        );
+        let show_entity = format!("<Entity({:?}, {:?})>", entity.0.stable_id(), entity.0.version());
         trace!(target: "box_resolver", "put_confirmed({})", show_entity);
         self.inner.put_confirmed(entity).await;
         trace!(target: "box_resolver", "put_confirmed({}) -> ()", show_entity);
@@ -151,11 +147,7 @@ where
     where
         Traced<Predicted<TEntity>>: 'a,
     {
-        let show_entity = format!(
-            "<Entity({:?}, {:?})>",
-            entity.0.stable_id(),
-            entity.0.version()
-        );
+        let show_entity = format!("<Entity({:?}, {:?})>", entity.0.stable_id(), entity.0.version());
         trace!(target: "box_resolver", "put_unconfirmed({})", show_entity);
         self.inner.put_unconfirmed(entity).await;
         trace!(target: "box_resolver", "put_unconfirmed({}) -> ()", show_entity);
@@ -175,11 +167,7 @@ where
     where
         TEntity: 'a,
     {
-        let show_entity = format!(
-            "<Entity({:?}, {:?})>",
-            entity.stable_id(),
-            entity.version()
-        );
+        let show_entity = format!("<Entity({:?}, {:?})>", entity.stable_id(), entity.version());
         trace!(target: "box_resolver", "eliminate({})", show_entity);
         self.inner.eliminate(entity).await;
         trace!(target: "box_resolver", "eliminate({}) -> ()", show_entity);
