@@ -8,7 +8,7 @@ pub trait OrderState: Sized {
     fn with_updated_liquidity(self, removed_input: u64, added_output: u64) -> StateTrans<Self>;
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum StateTrans<T> {
     /// Next state is available.
     Active(T),

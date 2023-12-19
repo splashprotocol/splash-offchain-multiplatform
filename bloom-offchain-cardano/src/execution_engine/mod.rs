@@ -12,7 +12,8 @@ use log::trace;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::interpreter::RecipeInterpreter;
 use bloom_offchain::execution_engine::liquidity_book::{ExternalTLBEvents, TemporalLiquidityBook};
-use bloom_offchain::execution_engine::liquidity_book::recipe::{ExecutionRecipe, LinkedExecutionRecipe, TerminalInstruction};
+use bloom_offchain::execution_engine::liquidity_book::fragment::{Fragment, OrderState};
+use bloom_offchain::execution_engine::liquidity_book::recipe::{ExecutionRecipe, LinkedExecutionRecipe, LinkedFill, LinkedSwap, LinkedTerminalInstruction, TerminalInstruction};
 use bloom_offchain::execution_engine::resolver::resolve_source_state;
 use bloom_offchain::execution_engine::storage::cache::StateIndexCache;
 use bloom_offchain::execution_engine::storage::StateIndex;
@@ -73,7 +74,9 @@ impl<StableId, Version, O, P, Bearer, Tx, Ctx, Index, Cache, Book, Interpreter>
 
     fn update_state<T>(&mut self, update: EitherMod<StateUpdate<Bundled<T, Bearer>>>) -> Option<Ior<T, T>>
     where
-        T: LiquiditySource + Clone,
+        StableId: Copy + Eq + Hash + Display,
+        Version: Copy + Eq + Hash + Display,
+        T: LiquiditySource<StableId = StableId> + Clone,
         Bearer: Clone,
         Index: StateIndex<Bundled<T, Bearer>>,
         Cache: StateIndexCache<StableId, Bundled<T, Bearer>>,
@@ -117,20 +120,29 @@ impl<StableId, Version, O, P, Bearer, Tx, Ctx, Index, Cache, Book, Interpreter>
         }
     }
 
-    fn link_recipe(&self, ExecutionRecipe(mut xs): ExecutionRecipe<O, P>) -> LinkedExecutionRecipe<O, P, Bearer>
-        where O: Has<StableId>, P: Has<StableId>, Cache: StateIndexCache<StableId, Bundled<Either<O, P>, Bearer>>, {
+    fn link_recipe(
+        &self,
+        ExecutionRecipe(mut xs): ExecutionRecipe<O, P>,
+    ) -> LinkedExecutionRecipe<O, P, Bearer>
+    where
+        StableId: Copy + Eq + Hash + Display,
+        Version: Copy + Eq + Hash + Display,
+        O: LiquiditySource<StableId = StableId, Version = Version>,
+        P: LiquiditySource<StableId = StableId, Version = Version>,
+        Cache: StateIndexCache<StableId, Bundled<Either<O, P>, Bearer>>,
+    {
         let mut linked = vec![];
         while let Some(i) = xs.pop() {
             match i {
-                i_fill@TerminalInstruction::Fill(ref fill) => {
-                    let id = fill.target.get();
-                    let bearer = self.cache.get(id).expect("State is inconsistent");
-                    linked.push(Bundled(i_fill, bearer));
+                TerminalInstruction::Fill(fill) => {
+                    let id = fill.target.stable_id();
+                    let Bundled(_, bearer) = self.cache.get(id).expect("State is inconsistent");
+                    linked.push(LinkedTerminalInstruction::Fill(LinkedFill::from_fill(fill, bearer)));
                 }
-                i_swap@TerminalInstruction::Swap(ref swap) => {
-                    let id = swap.target.get();
-                    let bearer = self.cache.get(id).expect("State is inconsistent");
-                    linked.push(Bundled(i_swap, bearer));
+                TerminalInstruction::Swap(swap) => {
+                    let id = swap.target.stable_id();
+                    let Bundled(_, bearer) = self.cache.get(id).expect("State is inconsistent");
+                    linked.push(LinkedTerminalInstruction::Swap(LinkedSwap::from_swap(swap, bearer)));
                 }
             }
         }
@@ -144,13 +156,13 @@ where
     StableId: Copy + Eq + Hash + Display + Unpin,
     Version: Copy + Eq + Hash + Display + Unpin,
     Bearer: Clone + Unpin,
-    Ctx: Copy,
-    O: LiquiditySource<StableId = StableId, Version = Version> + Clone + Unpin,
-    P: LiquiditySource<StableId = StableId, Version = Version> + Clone + Unpin,
+    Ctx: Copy + Unpin,
+    O: LiquiditySource<StableId = StableId, Version = Version> + Fragment + OrderState + Copy + Unpin,
+    P: LiquiditySource<StableId = StableId, Version = Version> + Copy + Unpin,
     Index: StateIndex<Bundled<Either<O, P>, Bearer>> + Unpin,
     Cache: StateIndexCache<StableId, Bundled<Either<O, P>, Bearer>> + Unpin,
     Book: TemporalLiquidityBook<O, P> + ExternalTLBEvents<O, P> + Unpin,
-    Interpreter: RecipeInterpreter<O, P, Ctx, Bearer, Tx>
+    Interpreter: RecipeInterpreter<O, P, Ctx, Bearer, Tx> + Unpin,
 {
     type Item = ();
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<()>> {

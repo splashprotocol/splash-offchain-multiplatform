@@ -3,14 +3,14 @@ use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, St
 use crate::execution_engine::liquidity_book::side::SideM;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct ExecutionRecipe<Fr, Pl>(pub Vec<TerminalInstruction<Fr, Pl>>);
+pub struct LinkedExecutionRecipe<Fr, Pl, Src>(pub Vec<LinkedTerminalInstruction<Fr, Pl, Src>>);
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct LinkedExecutionRecipe<Fr, Pl, Src>(pub Vec<Bundled<TerminalInstruction<Fr, Pl>, Src>>);
+pub struct ExecutionRecipe<Fr, Pl>(pub Vec<TerminalInstruction<Fr, Pl>>);
 
 impl<Fr, Pl> From<IntermediateRecipe<Fr, Pl>> for ExecutionRecipe<Fr, Pl>
 where
-    Fr: Fragment,
+    Fr: Fragment + OrderState + Copy,
 {
     fn from(
         IntermediateRecipe {
@@ -61,23 +61,50 @@ where
     }
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum LinkedTerminalInstruction<Fr, Pl, Src> {
+    Fill(LinkedFill<Fr, Src>),
+    Swap(LinkedSwap<Pl, Src>),
+}
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum TerminalInstruction<Fr, Pl> {
     Fill(Fill<Fr>),
     Swap(Swap<Pl>),
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct LinkedFill<Fr, Src> {
+    pub target: Bundled<Fr, Src>,
+    pub transition: StateTrans<Fr>,
+    pub removed_input: u64,
+    pub added_output: u64,
+}
+
+impl<Fr, Src> LinkedFill<Fr, Src> {
+    pub fn from_fill(fill: Fill<Fr>, target_src: Src) -> Self {
+        Self {
+            target: Bundled(fill.target, target_src),
+            transition: fill.transition,
+            removed_input: fill.removed_input,
+            added_output: fill.added_output,
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Fill<Fr> {
     pub target: Fr,
+    pub transition: StateTrans<Fr>,
     pub removed_input: u64,
     pub added_output: u64,
 }
 
 impl<Fr: Fragment> Fill<Fr> {
-    pub fn new(target: Fr, added_output: u64) -> Self {
+    pub fn new(target: Fr, transition: StateTrans<Fr>, added_output: u64) -> Self {
         Self {
             removed_input: target.input(),
+            transition,
             target,
             added_output,
         }
@@ -97,24 +124,29 @@ where
 {
     /// Force fill target fragment.
     /// Does not guarantee that the fragment is actually fully satisfied.
-    pub fn filled(self) -> (Fill<Fr>, StateTrans<Fr>) {
-        (
-            Fill {
-                target: self.target,
-                removed_input: self.target.input(),
-                added_output: self.accumulated_output,
-            },
-            self.target
+    pub fn filled_unsafe(self) -> Fill<Fr> {
+        Fill {
+            target: self.target,
+            transition: self
+                .target
                 .with_updated_liquidity(self.target.input(), self.accumulated_output),
-        )
+            removed_input: self.target.input(),
+            added_output: self.accumulated_output,
+        }
     }
 }
 
-impl<Fr: Fragment> From<PartialFill<Fr>> for Fill<Fr> {
+impl<Fr: Fragment> From<PartialFill<Fr>> for Fill<Fr>
+where
+    Fr: OrderState + Copy,
+{
     fn from(value: PartialFill<Fr>) -> Self {
+        let removed = value.target.input() - value.remaining_input;
+        let added = value.accumulated_output;
         Self {
-            removed_input: value.target.input() - value.remaining_input,
-            added_output: value.accumulated_output,
+            removed_input: removed,
+            transition: value.target.with_updated_liquidity(removed, added),
+            added_output: added,
             target: value.target,
         }
     }
@@ -133,9 +165,31 @@ where
     }
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct LinkedSwap<Pl, Src> {
+    pub target: Bundled<Pl, Src>,
+    pub transition: Pl,
+    pub side: SideM,
+    pub input: u64,
+    pub output: u64,
+}
+
+impl<Pl, Src> LinkedSwap<Pl, Src> {
+    pub fn from_swap(swap: Swap<Pl>, target_src: Src) -> Self {
+        Self {
+            target: Bundled(swap.target, target_src),
+            transition: swap.transition,
+            side: swap.side,
+            input: swap.input,
+            output: swap.output,
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Swap<Pl> {
     pub target: Pl,
+    pub transition: Pl,
     pub side: SideM,
     pub input: u64,
     pub output: u64,
