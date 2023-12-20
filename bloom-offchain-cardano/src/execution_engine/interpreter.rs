@@ -3,7 +3,7 @@ use futures::future::Either;
 use tailcall::tailcall;
 use void::Void;
 
-use bloom_offchain::execution_engine::exec::BatchExec;
+use bloom_offchain::execution_engine::batch_exec::BatchExec;
 use bloom_offchain::execution_engine::interpreter::RecipeInterpreter;
 use bloom_offchain::execution_engine::liquidity_book::fragment::StateTrans;
 use bloom_offchain::execution_engine::liquidity_book::recipe::{
