@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use std::future::Future;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::pin::Pin;
@@ -11,32 +12,40 @@ use log::trace;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::interpreter::RecipeInterpreter;
-use bloom_offchain::execution_engine::liquidity_book::{ExternalTLBEvents, TemporalLiquidityBook};
 use bloom_offchain::execution_engine::liquidity_book::fragment::{Fragment, OrderState};
-use bloom_offchain::execution_engine::liquidity_book::recipe::{ExecutionRecipe, LinkedExecutionRecipe, LinkedFill, LinkedSwap, LinkedTerminalInstruction, TerminalInstruction};
+use bloom_offchain::execution_engine::liquidity_book::recipe::{
+    ExecutionRecipe, LinkedExecutionRecipe, LinkedFill, LinkedSwap, LinkedTerminalInstruction,
+    TerminalInstruction,
+};
+use bloom_offchain::execution_engine::liquidity_book::{
+    ExternalTLBEvents, TLBFeedback, TemporalLiquidityBook,
+};
 use bloom_offchain::execution_engine::resolver::resolve_source_state;
 use bloom_offchain::execution_engine::storage::cache::StateIndexCache;
 use bloom_offchain::execution_engine::storage::StateIndex;
 use spectrum_offchain::combinators::Ior;
-use spectrum_offchain::data::{Has, LiquiditySource};
 use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
+use spectrum_offchain::data::{Has, LiquiditySource};
 
 mod interpreter;
 
-pub struct Executor<StableId, Version, O, P, Bearer, Tx, Ctx, Index, Cache, Book, Interpreter> {
+pub struct Executor<StableId, Version, O, P, Bearer, Tx, Ctx, Index, Cache, Book, Interpreter, Err> {
     index: Index,
     cache: Cache,
     book: Book,
     context: Ctx,
     interpreter: Interpreter,
     upstream: mpsc::Receiver<EitherMod<StateUpdate<Bundled<Either<O, P>, Bearer>>>>,
+    feedback: mpsc::Receiver<Result<(), Err>>,
+    pending_effects: Option<Vec<(Either<O, P>, Bearer)>>,
     pd1: PhantomData<StableId>,
     pd2: PhantomData<Version>,
     pd3: PhantomData<Tx>,
+    pd4: PhantomData<Err>,
 }
 
-impl<StableId, Version, O, P, Bearer, Tx, Ctx, Index, Cache, Book, Interpreter>
-    Executor<StableId, Version, O, P, Bearer, Tx, Ctx, Index, Cache, Book, Interpreter>
+impl<StableId, Version, O, P, Bearer, Tx, Ctx, Index, Cache, Book, Interpreter, Err>
+    Executor<StableId, Version, O, P, Bearer, Tx, Ctx, Index, Cache, Book, Interpreter, Err>
 {
     fn sync_book(&mut self, update: EitherMod<StateUpdate<Bundled<Either<O, P>, Bearer>>>)
     where
@@ -137,12 +146,16 @@ impl<StableId, Version, O, P, Bearer, Tx, Ctx, Index, Cache, Book, Interpreter>
                 TerminalInstruction::Fill(fill) => {
                     let id = fill.target.stable_id();
                     let Bundled(_, bearer) = self.cache.get(id).expect("State is inconsistent");
-                    linked.push(LinkedTerminalInstruction::Fill(LinkedFill::from_fill(fill, bearer)));
+                    linked.push(LinkedTerminalInstruction::Fill(LinkedFill::from_fill(
+                        fill, bearer,
+                    )));
                 }
                 TerminalInstruction::Swap(swap) => {
                     let id = swap.target.stable_id();
                     let Bundled(_, bearer) = self.cache.get(id).expect("State is inconsistent");
-                    linked.push(LinkedTerminalInstruction::Swap(LinkedSwap::from_swap(swap, bearer)));
+                    linked.push(LinkedTerminalInstruction::Swap(LinkedSwap::from_swap(
+                        swap, bearer,
+                    )));
                 }
             }
         }
@@ -150,32 +163,58 @@ impl<StableId, Version, O, P, Bearer, Tx, Ctx, Index, Cache, Book, Interpreter>
     }
 }
 
-impl<StableId, Version, O, P, Bearer, Tx, Ctx, Index, Cache, Book, Interpreter> Stream
-    for Executor<StableId, Version, O, P, Bearer, Tx, Ctx, Index, Cache, Book, Interpreter>
+impl<StableId, Version, O, P, Bearer, Tx, Ctx, Index, Cache, Book, Interpreter, Err> Stream
+    for Executor<StableId, Version, O, P, Bearer, Tx, Ctx, Index, Cache, Book, Interpreter, Err>
 where
     StableId: Copy + Eq + Hash + Display + Unpin,
     Version: Copy + Eq + Hash + Display + Unpin,
-    Bearer: Clone + Unpin,
-    Ctx: Copy + Unpin,
-    O: LiquiditySource<StableId = StableId, Version = Version> + Fragment + OrderState + Copy + Unpin,
     P: LiquiditySource<StableId = StableId, Version = Version> + Copy + Unpin,
+    O: LiquiditySource<StableId = StableId, Version = Version> + Fragment + OrderState + Copy + Unpin,
+    Bearer: Clone + Unpin,
+    Tx: Unpin,
+    Ctx: Copy + Unpin,
     Index: StateIndex<Bundled<Either<O, P>, Bearer>> + Unpin,
     Cache: StateIndexCache<StableId, Bundled<Either<O, P>, Bearer>> + Unpin,
-    Book: TemporalLiquidityBook<O, P> + ExternalTLBEvents<O, P> + Unpin,
+    Book: TemporalLiquidityBook<O, P> + ExternalTLBEvents<O, P> + TLBFeedback<O, P> + Unpin,
     Interpreter: RecipeInterpreter<O, P, Ctx, Bearer, Tx> + Unpin,
+    Err: Unpin,
 {
-    type Item = ();
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<()>> {
+    type Item = Tx;
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         loop {
+            // Wait for the feedback from the last pending job.
+            if let Some(mut pending_effects) = self.pending_effects.take() {
+                if let Poll::Ready(Some(result)) = Stream::poll_next(Pin::new(&mut self.feedback), cx) {
+                    match result {
+                        Ok(_) => {
+                            while let Some((e, bearer)) = pending_effects.pop() {
+                                self.update_state(EitherMod::Unconfirmed(Unconfirmed(
+                                    StateUpdate::Transition(Ior::Right(Bundled(e, bearer))),
+                                )));
+                            }
+                            self.book.on_recipe_succeeded();
+                        }
+                        Err(_err) => {
+                            // todo: invalidate missing bearers.
+                            self.book.on_recipe_failed();
+                        }
+                    }
+                    continue;
+                }
+                let _ = self.pending_effects.insert(pending_effects);
+            }
+            // Prioritize external updates over local work.
             if let Poll::Ready(Some(update)) = Stream::poll_next(Pin::new(&mut self.upstream), cx) {
                 self.sync_book(update);
+                continue;
             }
-            match self.book.attempt() {
-                Some(recipe) => {
-                    let linked_recipe = self.link_recipe(recipe.into());
-                    let (tx, effects) = self.interpreter.run(linked_recipe, self.context);
-                }
-                None => {}
+            // Finally attempt to execute something.
+            if let Some(recipe) = self.book.attempt() {
+                let linked_recipe = self.link_recipe(recipe.into());
+                let ctx = self.context.clone();
+                let (tx, effects) = self.interpreter.run(linked_recipe, ctx);
+                let _ = self.pending_effects.insert(effects);
+                return Poll::Ready(Some(tx));
             }
             return Poll::Pending;
         }

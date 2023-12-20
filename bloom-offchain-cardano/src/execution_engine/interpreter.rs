@@ -12,8 +12,8 @@ use bloom_offchain::execution_engine::liquidity_book::recipe::{
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::{FinalizedTxOut, IndexedTxOut};
-use spectrum_cardano_lib::OutputRef;
 use spectrum_cardano_lib::protocol_params::constant_tx_builder;
+use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::Has;
 
 use crate::operator_address::OperatorAddress;
