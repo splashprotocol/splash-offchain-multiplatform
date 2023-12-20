@@ -15,7 +15,7 @@ use cml_crypto::Ed25519KeyHash;
 use num_rational::Ratio;
 use void::Void;
 
-use bloom_offchain::execution_engine::exec::BatchExec;
+use bloom_offchain::execution_engine::batch_exec::BatchExec;
 use bloom_offchain::execution_engine::liquidity_book::fragment::Fragment;
 use bloom_offchain::execution_engine::liquidity_book::side::SideM;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;

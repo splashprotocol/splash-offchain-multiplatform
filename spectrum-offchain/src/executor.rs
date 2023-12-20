@@ -16,7 +16,7 @@ use crate::backlog::HotBacklog;
 use crate::box_resolver::persistence::EntityRepo;
 use crate::box_resolver::resolve_entity_state;
 use crate::data::unique_entity::{Predicted, Traced};
-use crate::data::{OnChainEntity, SpecializedOrder};
+use crate::data::{LiquiditySource, SpecializedOrder};
 use crate::network::Network;
 use crate::tx_prover::TxProver;
 
@@ -104,9 +104,9 @@ impl<Net, Backlog, Pools, Prover, Ctx, Ord, Pool, TxCandidate, Tx, Err> Executor
 where
     Ord: SpecializedOrder + Clone + Display,
     <Ord as SpecializedOrder>::TOrderId: Clone + Display,
-    Pool: OnChainEntity + RunOrder<Ord, Ctx, TxCandidate> + Clone,
-    Pool::TEntityId: Copy,
-    Ord::TPoolId: IsEqual<Pool::TEntityId> + Display,
+    Pool: LiquiditySource + RunOrder<Ord, Ctx, TxCandidate> + Clone,
+    Pool::StableId: Copy,
+    Ord::TPoolId: IsEqual<Pool::StableId> + Display,
     Net: Network<Tx, Err>,
     Backlog: HotBacklog<Ord>,
     Pools: EntityRepo<Pool>,
@@ -125,8 +125,8 @@ where
             if let Some(entity) =
                 resolve_entity_state(trivial_eq().coerce(entity_id), Arc::clone(&self.pool_repo)).await
             {
-                let pool_id = entity.get_self_ref();
-                let pool_state_id = entity.get_self_state_ref();
+                let pool_id = entity.stable_id();
+                let pool_state_id = entity.version();
                 match entity.try_run(ord.clone(), self.ctx.clone()) {
                     Ok((tx_candidate, next_entity_state)) => {
                         let mut entity_repo = self.pool_repo.lock().await;

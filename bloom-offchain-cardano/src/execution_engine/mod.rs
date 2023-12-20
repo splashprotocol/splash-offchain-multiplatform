@@ -1,2 +1,1 @@
-mod bundled;
 mod interpreter;

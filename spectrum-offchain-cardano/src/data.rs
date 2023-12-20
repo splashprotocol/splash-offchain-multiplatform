@@ -8,7 +8,7 @@ use num_rational::Ratio;
 use rand::{thread_rng, RngCore};
 
 use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAssetClass, Token};
-use spectrum_offchain::data::{OnChainEntity, SpecializedOrder};
+use spectrum_offchain::data::{LiquiditySource, SpecializedOrder};
 
 use crate::constants::POOL_VERSIONS;
 use crate::data::order::PoolNft;
@@ -53,18 +53,18 @@ where
     }
 }
 
-impl<T> OnChainEntity for OnChain<T>
+impl<T> LiquiditySource for OnChain<T>
 where
-    T: OnChainEntity,
+    T: LiquiditySource,
 {
-    type TEntityId = T::TEntityId;
-    type TStateId = T::TStateId;
+    type StableId = T::StableId;
+    type Version = T::Version;
 
-    fn get_self_ref(&self) -> Self::TEntityId {
-        self.value.get_self_ref()
+    fn stable_id(&self) -> Self::StableId {
+        self.value.stable_id()
     }
-    fn get_self_state_ref(&self) -> Self::TStateId {
-        self.value.get_self_state_ref()
+    fn version(&self) -> Self::Version {
+        self.value.version()
     }
 }
 
@@ -155,6 +155,12 @@ impl TryFrom<TaggedAssetClass<PoolNft>> for PoolId {
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, derive_more::From, derive_more::Into)]
 pub struct PoolStateVer(OutputRef);
+
+impl Display for PoolStateVer {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ExecutorFeePerToken(Ratio<u64>, AssetClass);

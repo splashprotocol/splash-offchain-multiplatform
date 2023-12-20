@@ -6,20 +6,20 @@ use serde::__private::de::missing_field;
 use serde::ser::SerializeStruct;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::combinators::EitherOrBoth;
-use crate::data::OnChainEntity;
+use crate::combinators::Ior;
+use crate::data::LiquiditySource;
 
 /// A unique, persistent, self-reproducible, on-chiain entity.
 #[derive(Debug, Clone)]
-pub struct Traced<TEntity: OnChainEntity> {
+pub struct Traced<TEntity: LiquiditySource> {
     pub state: TEntity,
-    pub prev_state_id: Option<TEntity::TStateId>,
+    pub prev_state_id: Option<TEntity::Version>,
 }
 
-impl<TEntity: OnChainEntity> Serialize for Traced<TEntity>
+impl<TEntity: LiquiditySource> Serialize for Traced<TEntity>
 where
     TEntity: Serialize,
-    <TEntity as OnChainEntity>::TStateId: Serialize,
+    <TEntity as LiquiditySource>::Version: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -47,10 +47,10 @@ where
     }
 }
 
-impl<'de, TEntity: OnChainEntity> Deserialize<'de> for Traced<TEntity>
+impl<'de, TEntity: LiquiditySource> Deserialize<'de> for Traced<TEntity>
 where
     TEntity: Deserialize<'de>,
-    <TEntity as OnChainEntity>::TStateId: Deserialize<'de>,
+    <TEntity as LiquiditySource>::Version: Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -107,17 +107,17 @@ where
                 Deserializer::deserialize_identifier(deserializer, FieldVisitor)
             }
         }
-        struct Visitor<'de, TEntity: OnChainEntity>
+        struct Visitor<'de, TEntity: LiquiditySource>
         where
             TEntity: Deserialize<'de>,
         {
             marker: PhantomData<Traced<TEntity>>,
             lifetime: PhantomData<&'de ()>,
         }
-        impl<'de, TEntity: OnChainEntity> de::Visitor<'de> for Visitor<'de, TEntity>
+        impl<'de, TEntity: LiquiditySource> de::Visitor<'de> for Visitor<'de, TEntity>
         where
             TEntity: Deserialize<'de>,
-            <TEntity as OnChainEntity>::TStateId: Deserialize<'de>,
+            <TEntity as LiquiditySource>::Version: Deserialize<'de>,
         {
             type Value = Traced<TEntity>;
             fn expecting(&self, formatter: &mut Formatter) -> fmt::Result {
@@ -142,7 +142,7 @@ where
                         ));
                     }
                 };
-                let field1 = match match de::SeqAccess::next_element::<Option<TEntity::TStateId>>(&mut seq) {
+                let field1 = match match de::SeqAccess::next_element::<Option<TEntity::Version>>(&mut seq) {
                     Ok(val) => val,
                     Err(err) => {
                         return Err(err);
@@ -167,7 +167,7 @@ where
                 A: de::MapAccess<'de>,
             {
                 let mut field0: Option<TEntity> = None;
-                let mut field1: Option<Option<TEntity::TStateId>> = None;
+                let mut field1: Option<Option<TEntity::Version>> = None;
                 while let Some(key) = match de::MapAccess::next_key::<Field>(&mut map) {
                     Ok(val) => val,
                     Err(err) => {
@@ -191,7 +191,7 @@ where
                                 return Err(<A::Error as de::Error>::duplicate_field("prev_state_id"));
                             }
                             field1 = Some(
-                                match de::MapAccess::next_value::<Option<TEntity::TStateId>>(&mut map) {
+                                match de::MapAccess::next_value::<Option<TEntity::Version>>(&mut map) {
                                     Ok(val) => val,
                                     Err(err) => {
                                         return Err(err);
@@ -261,16 +261,16 @@ impl<T> Predicted<T> {
     }
 }
 
-impl<T: OnChainEntity> OnChainEntity for Predicted<T> {
-    type TEntityId = T::TEntityId;
-    type TStateId = T::TStateId;
+impl<T: LiquiditySource> LiquiditySource for Predicted<T> {
+    type StableId = T::StableId;
+    type Version = T::Version;
 
-    fn get_self_ref(&self) -> Self::TEntityId {
-        self.0.get_self_ref()
+    fn stable_id(&self) -> Self::StableId {
+        self.0.stable_id()
     }
 
-    fn get_self_state_ref(&self) -> Self::TStateId {
-        self.0.get_self_state_ref()
+    fn version(&self) -> Self::Version {
+        self.0.version()
     }
 }
 
@@ -302,7 +302,7 @@ pub struct UpgradeRollback<T>(pub T);
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StateUpdate<T> {
     /// State transition (left: old state, right: new state).
-    Transition(EitherOrBoth<T, T>),
+    Transition(Ior<T, T>),
     /// State transition rollback (left: rolled back state, right: revived state).
-    TransitionRollback(EitherOrBoth<T, T>),
+    TransitionRollback(Ior<T, T>),
 }

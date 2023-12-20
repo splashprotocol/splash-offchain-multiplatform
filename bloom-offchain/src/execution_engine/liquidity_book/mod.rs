@@ -36,6 +36,7 @@ pub trait ExternalTLBEvents<Fr, Pl> {
     fn add_fragment(&mut self, fr: Fr);
     fn remove_fragment(&mut self, fr: Fr);
     fn update_pool(&mut self, pool: Pl);
+    fn remove_pool(&mut self, pool: Pl);
 }
 
 /// TLB API for feedback events affecting its state.
@@ -109,21 +110,21 @@ where
                                 execution_units_left -= opposite_fr.cost_hint();
                                 match fill_from_fragment(*rem, opposite_fr) {
                                     FillFromFragment {
-                                        term_fill_lt: (term_fill_lt, succ_lt),
-                                        fill_rt: Either::Left((term_fill_rt, succ_rt)),
+                                        term_fill_lt,
+                                        fill_rt: Either::Left(term_fill_rt),
                                     } => {
                                         recipe.push(TerminalInstruction::Fill(term_fill_lt));
                                         recipe.terminate(TerminalInstruction::Fill(term_fill_rt));
-                                        self.on_transition(succ_lt);
-                                        self.on_transition(succ_rt);
+                                        self.on_transition(term_fill_lt.transition);
+                                        self.on_transition(term_fill_rt.transition);
                                     }
                                     FillFromFragment {
-                                        term_fill_lt: (term_fill_lt, succ_lt),
+                                        term_fill_lt,
                                         fill_rt: Either::Right(partial),
                                     } => {
                                         recipe.push(TerminalInstruction::Fill(term_fill_lt));
                                         recipe.set_remainder(partial);
-                                        self.on_transition(succ_lt);
+                                        self.on_transition(term_fill_lt.transition);
                                         continue;
                                     }
                                 }
@@ -137,13 +138,13 @@ where
                                     .overlaps(pl.real_price(rem_side.wrap(rem.remaining_input)))
                             }) {
                                 let FillFromPool {
-                                    term_fill: (fill, succ),
-                                    swap: (swap, next_pool),
+                                    term_fill,
+                                    swap: swap,
                                 } = fill_from_pool(*rem, pool);
                                 recipe.push(TerminalInstruction::Swap(swap));
-                                recipe.terminate(TerminalInstruction::Fill(fill));
-                                self.on_transition(succ);
-                                self.state.pre_add_pool(next_pool);
+                                recipe.terminate(TerminalInstruction::Fill(term_fill));
+                                self.on_transition(term_fill.transition);
+                                self.state.pre_add_pool(swap.transition);
                             }
                         }
                         _ => {}
@@ -195,6 +196,10 @@ where
     fn update_pool(&mut self, pool: Pl) {
         requiring_settled_state(self, |st| st.update_pool(pool))
     }
+
+    fn remove_pool(&mut self, pool: Pl) {
+        requiring_settled_state(self, |st| st.remove_pool(pool))
+    }
 }
 
 impl<Fr, Pl> TLBFeedback<Fr, Pl> for TLB<Fr, Pl>
@@ -233,9 +238,9 @@ where
 
 struct FillFromFragment<Fr> {
     /// [Fill] is always paired with the next state of the underlying order.
-    term_fill_lt: (Fill<Fr>, StateTrans<Fr>),
+    term_fill_lt: Fill<Fr>,
     /// In the case of [PartialFill] calculation of the next state is delayed until matching halts.
-    fill_rt: Either<(Fill<Fr>, StateTrans<Fr>), PartialFill<Fr>>,
+    fill_rt: Either<Fill<Fr>, PartialFill<Fr>>,
 }
 
 fn fill_from_fragment<Fr>(lhs: PartialFill<Fr>, rhs: Fr) -> FillFromFragment<Fr>
@@ -258,7 +263,7 @@ where
                 let quote_input = bid.remaining_input;
                 bid.accumulated_output += demand_base;
                 FillFromFragment {
-                    term_fill_lt: bid.filled(),
+                    term_fill_lt: bid.filled_unsafe(),
                     fill_rt: Either::Right(PartialFill {
                         target: ask,
                         remaining_input: supply_base - demand_base,
@@ -270,9 +275,10 @@ where
                 bid.remaining_input -= quote_executed;
                 bid.accumulated_output += supply_base;
                 FillFromFragment {
-                    term_fill_lt: (
-                        Fill::new(ask, quote_executed),
+                    term_fill_lt: Fill::new(
+                        ask,
                         ask.with_updated_liquidity(ask.input(), quote_executed),
+                        quote_executed,
                     ),
                     fill_rt: Either::Right(bid),
                 }
@@ -280,10 +286,11 @@ where
                 let quote_executed = ((supply_base as u128) * price.denom() / price.numer()) as u64;
                 bid.accumulated_output += demand_base;
                 FillFromFragment {
-                    term_fill_lt: bid.filled(),
-                    fill_rt: Either::Left((
-                        Fill::new(ask, quote_executed),
+                    term_fill_lt: bid.filled_unsafe(),
+                    fill_rt: Either::Left(Fill::new(
+                        ask,
                         ask.with_updated_liquidity(ask.input(), quote_executed),
+                        quote_executed,
                     )),
                 }
             }
@@ -303,9 +310,10 @@ where
                 ask.remaining_input -= demand_base;
                 ask.accumulated_output += bid.input();
                 FillFromFragment {
-                    term_fill_lt: (
-                        Fill::new(bid, demand_base),
+                    term_fill_lt: Fill::new(
+                        bid,
                         bid.with_updated_liquidity(bid.input(), demand_base),
+                        demand_base,
                     ),
                     fill_rt: Either::Right(ask),
                 }
@@ -313,7 +321,7 @@ where
                 let quote_executed = ((supply_base as u128) * price.denom() / price.numer()) as u64;
                 ask.accumulated_output += quote_executed;
                 FillFromFragment {
-                    term_fill_lt: ask.filled(),
+                    term_fill_lt: ask.filled_unsafe(),
                     fill_rt: Either::Right(PartialFill {
                         remaining_input: bid.input() - quote_executed,
                         target: bid,
@@ -323,10 +331,11 @@ where
             } else {
                 ask.accumulated_output += bid.input();
                 FillFromFragment {
-                    term_fill_lt: ask.filled(),
-                    fill_rt: Either::Left((
-                        Fill::new(bid, demand_base),
+                    term_fill_lt: ask.filled_unsafe(),
+                    fill_rt: Either::Left(Fill::new(
+                        bid,
                         bid.with_updated_liquidity(bid.input(), demand_base),
+                        demand_base,
                     )),
                 }
             }
@@ -335,8 +344,8 @@ where
 }
 
 struct FillFromPool<Fr, Pl> {
-    term_fill: (Fill<Fr>, StateTrans<Fr>),
-    swap: (Swap<Pl>, Pl),
+    term_fill: Fill<Fr>,
+    swap: Swap<Pl>,
 }
 
 fn fill_from_pool<Fr, Pl>(lhs: PartialFill<Fr>, pool: Pl) -> FillFromPool<Fr, Pl>
@@ -352,13 +361,14 @@ where
             bid.accumulated_output += execution_amount;
             let swap = Swap {
                 target: pool,
+                transition: next_pool,
                 side: SideM::Bid,
                 input: quote_input,
                 output: execution_amount,
             };
             FillFromPool {
-                term_fill: bid.filled(),
-                swap: (swap, next_pool),
+                term_fill: bid.filled_unsafe(),
+                swap,
             }
         }
         SideM::Ask => {
@@ -368,13 +378,14 @@ where
             ask.accumulated_output += execution_amount;
             let swap = Swap {
                 target: pool,
+                transition: next_pool,
                 side: SideM::Ask,
                 input: base_input,
                 output: execution_amount,
             };
             FillFromPool {
-                term_fill: ask.filled(),
-                swap: (swap, next_pool),
+                term_fill: ask.filled_unsafe(),
+                swap,
             }
         }
     }
@@ -384,7 +395,8 @@ where
 mod tests {
     use futures::future::Either;
 
-    use crate::execution_engine::liquidity_book::pool::{Pool, PoolId};
+    use crate::execution_engine::liquidity_book::fragment::StateTrans;
+    use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::recipe::{
         Fill, IntermediateRecipe, PartialFill, Swap, TerminalInstruction,
     };
@@ -404,7 +416,7 @@ mod tests {
         let o1 = SimpleOrderPF::new(SideM::Ask, 2000, BasePrice::new(36, 100), 1000);
         let o2 = SimpleOrderPF::new(SideM::Bid, 370, BasePrice::new(37, 100), 990);
         let p1 = SimpleCFMMPool {
-            pool_id: PoolId::random(),
+            pool_id: StableId::random(),
             reserves_base: 1000000000000000,
             reserves_quote: 370000000000000,
             fee_num: 997,
@@ -420,20 +432,35 @@ mod tests {
         book.add_fragment(o2);
         book.update_pool(p1);
         let recipe = book.attempt();
+        let p2 = recipe
+            .clone()
+            .unwrap()
+            .terminal
+            .iter()
+            .find_map(|i| match i {
+                TerminalInstruction::Fill(_) => None,
+                TerminalInstruction::Swap(swap) => Some(swap.transition),
+            })
+            .unwrap();
         let expected_recipe = IntermediateRecipe {
             terminal: vec![
                 TerminalInstruction::Fill(Fill {
                     target: o2,
+                    transition: StateTrans::EOL,
+                    removed_input: o2.input,
                     added_output: 1000,
                 }),
                 TerminalInstruction::Swap(Swap {
                     target: p1,
+                    transition: p2,
                     side: SideM::Ask,
                     input: 1000,
                     output: 368,
                 }),
                 TerminalInstruction::Fill(Fill {
                     target: o1,
+                    transition: StateTrans::EOL,
+                    removed_input: o1.input,
                     added_output: 738,
                 }),
             ],
@@ -469,9 +496,9 @@ mod tests {
             term_fill_lt,
             fill_rt: term_fill_rt,
         } = fill_from_fragment(PartialFill::new(fr1), fr2);
-        assert_eq!(term_fill_lt.0.added_output, fr2.input);
+        assert_eq!(term_fill_lt.added_output, fr2.input);
         match term_fill_rt {
-            Either::Left(fill_rt) => assert_eq!(fill_rt.0.added_output, fr1.input),
+            Either::Left(fill_rt) => assert_eq!(fill_rt.added_output, fr1.input),
             Either::Right(_) => panic!(),
         }
     }
@@ -504,7 +531,7 @@ mod tests {
             fill_rt: term_fill_rt,
         } = fill_from_fragment(PartialFill::new(fr1), fr2);
         assert_eq!(
-            term_fill_lt.0.added_output,
+            term_fill_lt.added_output,
             ((fr2.input as u128) * fr1.price.denom() / fr1.price.numer()) as u64
         );
         match term_fill_rt {
@@ -540,9 +567,9 @@ mod tests {
             term_fill_lt,
             fill_rt: term_fill_rt,
         } = fill_from_fragment(PartialFill::new(ask_fr), bid_fr);
-        assert_eq!(term_fill_lt.0.added_output, bid_fr.input);
+        assert_eq!(term_fill_lt.added_output, bid_fr.input);
         match term_fill_rt {
-            Either::Left(fill_rt) => assert_eq!(fill_rt.0.added_output, ask_fr.input),
+            Either::Left(fill_rt) => assert_eq!(fill_rt.added_output, ask_fr.input),
             Either::Right(_) => panic!(),
         }
     }
@@ -566,16 +593,16 @@ mod tests {
             accumulated_output: 180,
         };
         let pool = SimpleCFMMPool {
-            pool_id: PoolId::random(),
+            pool_id: StableId::random(),
             reserves_base: 100000000000000,
             reserves_quote: 36600000000000,
             fee_num: 997,
         };
         let real_price_in_pool = pool.real_price(Side::Ask(pf.remaining_input));
         let FillFromPool { term_fill, swap } = fill_from_pool(pf, pool);
-        assert_eq!(swap.0.input, pf.remaining_input);
+        assert_eq!(swap.input, pf.remaining_input);
         assert_eq!(
-            (term_fill.0.added_output - pf.accumulated_output) as u128,
+            (term_fill.added_output - pf.accumulated_output) as u128,
             pf.remaining_input as u128 * real_price_in_pool.numer() / real_price_in_pool.denom()
         );
     }

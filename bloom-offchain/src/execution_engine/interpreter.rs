@@ -1,8 +1,13 @@
-use crate::execution_engine::liquidity_book::recipe::ExecutionRecipe;
-use crate::execution_engine::StableId;
+use futures::future::Either;
 
-pub trait RecipeInterpreter<Fr, Pl, Ctx, Src, Tx> {
-    /// Interpret recipe [ExecutionRecipe] into a transaction [Tx] and
+use crate::execution_engine::liquidity_book::recipe::LinkedExecutionRecipe;
+
+pub trait RecipeInterpreter<Fr, Pl, Ctx, Bearer, Tx> {
+    /// Interpret recipe [LinkedExecutionRecipe] into a transaction [Tx] and
     /// a set of new sources resulted from execution.
-    fn run(&mut self, recipe: ExecutionRecipe<Fr, Pl>, ctx: Ctx) -> (Tx, Vec<(StableId, Src)>);
+    fn run(
+        &mut self,
+        recipe: LinkedExecutionRecipe<Fr, Pl, Bearer>,
+        ctx: Ctx,
+    ) -> (Tx, Vec<(Either<Fr, Pl>, Bearer)>);
 }

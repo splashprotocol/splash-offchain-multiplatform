@@ -19,7 +19,7 @@ use num_rational::Ratio;
 use type_equalities::IsEqual;
 use void::Void;
 
-use bloom_offchain::execution_engine::exec::BatchExec;
+use bloom_offchain::execution_engine::batch_exec::BatchExec;
 use bloom_offchain::execution_engine::liquidity_book::recipe::Swap;
 use bloom_offchain::execution_engine::liquidity_book::side::SideM;
 use spectrum_cardano_lib::output::FinalizedTxOut;
@@ -32,7 +32,7 @@ use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::unique_entity::Predicted;
-use spectrum_offchain::data::{Has, OnChainEntity};
+use spectrum_offchain::data::{Has, LiquiditySource};
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
@@ -189,13 +189,13 @@ impl RequiresRedeemer<CFMMPoolAction> for CFMMPool {
     }
 }
 
-impl OnChainEntity for CFMMPool {
-    type TEntityId = PoolId;
-    type TStateId = PoolStateVer;
-    fn get_self_ref(&self) -> Self::TEntityId {
+impl LiquiditySource for CFMMPool {
+    type StableId = PoolId;
+    type Version = PoolStateVer;
+    fn stable_id(&self) -> Self::StableId {
         self.id
     }
-    fn get_self_state_ref(&self) -> Self::TStateId {
+    fn version(&self) -> Self::Version {
         self.state_ver
     }
 }

@@ -6,19 +6,19 @@ use log::trace;
 use tokio::sync::Mutex;
 
 use crate::box_resolver::persistence::EntityRepo;
-use crate::combinators::EitherOrBoth;
+use crate::combinators::Ior;
 use crate::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
-use crate::data::OnChainEntity;
+use crate::data::LiquiditySource;
 use crate::partitioning::Partitioned;
 
 pub fn pool_tracking_stream<'a, const N: usize, S, Repo, Pool>(
     upstream: S,
-    pools: Partitioned<N, Pool::TEntityId, Arc<Mutex<Repo>>>,
+    pools: Partitioned<N, Pool::StableId, Arc<Mutex<Repo>>>,
 ) -> impl Stream<Item = ()> + 'a
 where
     S: Stream<Item = EitherMod<StateUpdate<Pool>>> + 'a,
-    Pool: OnChainEntity + 'a,
-    Pool::TEntityId: Display,
+    Pool: LiquiditySource + 'a,
+    Pool::StableId: Display,
     Repo: EntityRepo<Pool> + 'a,
 {
     let pools = Arc::new(pools);
@@ -29,11 +29,11 @@ where
             let (EitherMod::Confirmed(Confirmed(upd)) | EitherMod::Unconfirmed(Unconfirmed(upd))) =
                 upd_in_mode;
             match upd {
-                StateUpdate::Transition(EitherOrBoth::Right(new_state))
-                | StateUpdate::Transition(EitherOrBoth::Both(_, new_state))
-                | StateUpdate::TransitionRollback(EitherOrBoth::Right(new_state))
-                | StateUpdate::TransitionRollback(EitherOrBoth::Both(_, new_state)) => {
-                    let pool_ref = new_state.get_self_ref();
+                StateUpdate::Transition(Ior::Right(new_state))
+                | StateUpdate::Transition(Ior::Both(_, new_state))
+                | StateUpdate::TransitionRollback(Ior::Right(new_state))
+                | StateUpdate::TransitionRollback(Ior::Both(_, new_state)) => {
+                    let pool_ref = new_state.stable_id();
                     let pools_mux = pools.get(pool_ref);
                     let mut repo = pools_mux.lock().await;
                     if is_confirmed {
@@ -44,17 +44,17 @@ where
                         repo.put_unconfirmed(Unconfirmed(new_state)).await
                     }
                 }
-                StateUpdate::Transition(EitherOrBoth::Left(st)) => {
-                    let pools_mux = pools.get(st.get_self_ref());
+                StateUpdate::Transition(Ior::Left(st)) => {
+                    let pools_mux = pools.get(st.stable_id());
                     let mut repo = pools_mux.lock().await;
                     repo.eliminate(st).await
                 }
-                StateUpdate::TransitionRollback(EitherOrBoth::Left(st)) => {
-                    let pool_ref = st.get_self_ref();
+                StateUpdate::TransitionRollback(Ior::Left(st)) => {
+                    let pool_ref = st.stable_id();
                     trace!(target: "offchain", "Rolling back state of pool {}", pool_ref);
                     let pools_mux = pools.get(pool_ref);
                     let mut repo = pools_mux.lock().await;
-                    repo.invalidate(st.get_self_state_ref(), st.get_self_ref()).await
+                    repo.invalidate(st.version(), st.stable_id()).await
                 }
             }
         }

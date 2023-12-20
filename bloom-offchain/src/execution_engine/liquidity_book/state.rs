@@ -52,6 +52,10 @@ where
     pub fn update_pool(&mut self, pool: Pl) {
         self.pools.update_pool(pool);
     }
+
+    pub fn remove_pool(&mut self, pool: Pl) {
+        self.pools.remove_pool(pool);
+    }
 }
 
 /// Changed state that reflects only consumption of fragments and full preview of pools.
@@ -596,6 +600,10 @@ where
             self.quality_index.remove(&old_pool.quality());
         }
         self.quality_index.insert(pool.quality(), pool.id());
+    }
+    pub fn remove_pool(&mut self, pool: Pl) {
+        self.pools.remove(&pool.id());
+        self.quality_index.remove(&pool.quality());
     }
 }
 
