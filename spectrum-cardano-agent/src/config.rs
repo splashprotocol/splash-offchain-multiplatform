@@ -2,6 +2,7 @@ use serde::Deserialize;
 
 use cardano_chain_sync::client::Point;
 use cardano_explorer::data::ExplorerConfig;
+use spectrum_offchain_cardano::ref_scripts::ReferenceSources;
 
 #[derive(Deserialize)]
 #[serde(bound = "'de: 'a")]
@@ -11,7 +12,7 @@ pub struct AppConfig<'a> {
     pub node: NodeConfig<'a>,
     pub tx_submission_buffer_size: usize,
     pub batcher_private_key: &'a str, //todo: store encrypted
-    pub ref_scripts: RefScriptsConfig,
+    pub ref_scripts: ReferenceSources,
     pub explorer: ExplorerConfig<'a>,
 }
 
@@ -26,14 +27,4 @@ pub struct NodeConfig<'a> {
 #[serde(rename_all = "camelCase")]
 pub struct ChainSyncConfig {
     pub starting_point: Point,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RefScriptsConfig {
-    pub pool_v1_ref: String,
-    pub pool_v2_ref: String,
-    pub swap_ref: String,
-    pub deposit_ref: String,
-    pub redeem_ref: String,
 }

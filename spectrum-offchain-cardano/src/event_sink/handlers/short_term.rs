@@ -16,7 +16,7 @@ use spectrum_offchain::data::SpecializedOrder;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 
-use crate::event_sink::handlers::order::registry::HotOrderRegistry;
+use crate::event_sink::handlers::short_term::registry::HotOrderRegistry;
 
 pub mod registry;
 

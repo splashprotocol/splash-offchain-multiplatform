@@ -7,14 +7,14 @@ use cardano_explorer::data::full_tx_out::ExplorerTxOut;
 
 use crate::constants::MIN_SAFE_COLLATERAL;
 
-pub struct ExplorerBasedRequestor<'a> {
+pub struct CollateralsViaExplorer<'a> {
     batcher_payment_cred: String,
     explorer: Explorer<'a>,
 }
 
-impl<'a> ExplorerBasedRequestor<'a> {
-    pub fn new(batcher_payment_cred: String, explorer: Explorer<'a>) -> ExplorerBasedRequestor<'a> {
-        ExplorerBasedRequestor {
+impl<'a> CollateralsViaExplorer<'a> {
+    pub fn new(batcher_payment_cred: String, explorer: Explorer<'a>) -> CollateralsViaExplorer<'a> {
+        CollateralsViaExplorer {
             batcher_payment_cred,
             explorer,
         }
@@ -27,7 +27,7 @@ pub trait Collaterals {
 }
 
 #[async_trait]
-impl<'a> Collaterals for ExplorerBasedRequestor<'a> {
+impl<'a> Collaterals for CollateralsViaExplorer<'a> {
     async fn get_collateral(self) -> Option<InputBuilderResult> {
         let utxos = self
             .explorer

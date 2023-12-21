@@ -37,9 +37,14 @@ pub mod resolver;
 pub mod storage;
 pub mod types;
 
+/// Instantiate execution stream for a single pair.
 pub fn execution_stream<'a, Id, V, O, P, B, Tx, Ctx, Index, Cache, Book, Interpreter, Net, Err>(
-    executor: Executor<Id, V, O, P, B, Tx, Ctx, Index, Cache, Book, Interpreter, Err>,
-    feedback: mpsc::Sender<Result<(), Err>>,
+    index: Index,
+    cache: Cache,
+    book: Book,
+    context: Ctx,
+    interpreter: Interpreter,
+    upstream: mpsc::Receiver<EitherMod<StateUpdate<Bundled<Either<O, P>, B>>>>,
     network: Net,
 ) -> impl Stream<Item = ()> + 'a
 where
@@ -57,9 +62,11 @@ where
     Net: Network<Tx, Err> + Clone + 'a,
     Err: Unpin + 'a,
 {
+    let (feedback_out, feedback_in) = mpsc::channel(100);
+    let executor = Executor::new(index, cache, book, context, interpreter, upstream, feedback_in);
     executor.then(move |tx| {
         let mut network = network.clone();
-        let mut feedback = feedback.clone();
+        let mut feedback = feedback_out.clone();
         async move {
             let result = network.submit_tx(tx).await;
             feedback.send(result).await.expect("Filed to propagate feedback.");
@@ -85,6 +92,31 @@ pub struct Executor<StableId, Version, O, P, Bearer, Tx, Ctx, Index, Cache, Book
 impl<StableId, Version, O, P, Bearer, Tx, Ctx, Index, Cache, Book, Interpreter, Err>
     Executor<StableId, Version, O, P, Bearer, Tx, Ctx, Index, Cache, Book, Interpreter, Err>
 {
+    fn new(
+        index: Index,
+        cache: Cache,
+        book: Book,
+        context: Ctx,
+        interpreter: Interpreter,
+        upstream: mpsc::Receiver<EitherMod<StateUpdate<Bundled<Either<O, P>, Bearer>>>>,
+        feedback: mpsc::Receiver<Result<(), Err>>,
+    ) -> Self {
+        Self {
+            index,
+            cache,
+            book,
+            context,
+            interpreter,
+            upstream,
+            feedback,
+            pending_effects: None,
+            pd1: Default::default(),
+            pd2: Default::default(),
+            pd3: Default::default(),
+            pd4: Default::default(),
+        }
+    }
+
     fn sync_book(&mut self, update: EitherMod<StateUpdate<Bundled<Either<O, P>, Bearer>>>)
     where
         StableId: Copy + Eq + Hash + Display,

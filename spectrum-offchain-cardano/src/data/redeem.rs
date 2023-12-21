@@ -138,14 +138,14 @@ mod tests {
 
     use crate::collaterals::tests::MockBasedRequestor;
     use crate::collaterals::Collaterals;
-    use crate::config::RefScriptsConfig;
     use crate::creds::operator_creds;
     use crate::data::execution_context::ExecutionContext;
     use crate::data::order::ClassicalOnChainOrder;
     use crate::data::pool::CFMMPool;
     use crate::data::redeem::OnChainRedeemConfig;
-    use crate::data::ref_scripts::RefScriptsOutputs;
+    use crate::data::ref_scripts::ReferenceOutputs;
     use crate::data::OnChain;
+    use crate::ref_scripts::ReferenceSources;
 
     #[test]
     fn parse_deposit_datum_mainnet() {
@@ -192,15 +192,15 @@ mod tests {
             url: "https://explorer.spectrum.fi",
         });
 
-        let ref_scripts_conf = RefScriptsConfig {
-            pool_v1_ref: "31a497ef6b0033e66862546aa2928a1987f8db3b8f93c59febbe0f47b14a83c6#0".to_string(),
-            pool_v2_ref: "c8c93656e8bce07fabe2f42d703060b7c71bfa2e48a2956820d1bd81cc936faa#0".to_string(),
-            swap_ref: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#2".to_string(),
-            deposit_ref: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#0".to_string(),
-            redeem_ref: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#1".to_string(),
+        let ref_scripts_conf = ReferenceSources {
+            pool_v1_script: "31a497ef6b0033e66862546aa2928a1987f8db3b8f93c59febbe0f47b14a83c6#0".to_string(),
+            pool_v2_script: "c8c93656e8bce07fabe2f42d703060b7c71bfa2e48a2956820d1bd81cc936faa#0".to_string(),
+            swap_script: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#2".to_string(),
+            deposit_script: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#0".to_string(),
+            redeem_script: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#1".to_string(),
         };
 
-        let ref_scripts = RefScriptsOutputs::new(ref_scripts_conf, explorer)
+        let ref_scripts = ReferenceOutputs::pull(ref_scripts_conf, explorer)
             .await
             .expect("Ref scripts initialization failed");
 

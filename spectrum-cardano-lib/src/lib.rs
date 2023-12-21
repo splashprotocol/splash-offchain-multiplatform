@@ -9,6 +9,7 @@ use cml_chain::transaction::TransactionInput;
 use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
+use serde::Deserialize;
 
 use crate::plutus_data::{ConstrPlutusDataExtension, PlutusDataExtension};
 use crate::types::TryFromPData;
@@ -96,7 +97,8 @@ impl TryFrom<Vec<u8>> for AssetName {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Deserialize)]
+#[serde(try_from = "String")]
 pub struct OutputRef(TransactionHash, u64);
 impl OutputRef {
     pub fn new(hash: TransactionHash, index: u64) -> Self {
@@ -128,13 +130,16 @@ impl From<OutputRef> for TransactionInput {
     }
 }
 
-impl From<String> for OutputRef {
-    fn from(value: String) -> Self {
-        let (raw_tx_id, str_idx) = value.split_once("#").unwrap();
-        OutputRef(
-            TransactionHash::from_hex(raw_tx_id).unwrap(),
-            u64::from_str(str_idx).unwrap(),
-        )
+impl TryFrom<String> for OutputRef {
+    type Error = &'static str;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        if let Some((raw_tx_id, str_idx)) = value.split_once("#") {
+            return Ok(OutputRef(
+                TransactionHash::from_hex(raw_tx_id).unwrap(),
+                u64::from_str(str_idx).unwrap(),
+            ));
+        }
+        Err("Invalid OutputRef")
     }
 }
 

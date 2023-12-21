@@ -408,7 +408,7 @@ mod tests {
         fill_from_fragment, fill_from_pool, ExecutionCap, ExternalTLBEvents, FillFromFragment, FillFromPool,
         TemporalLiquidityBook, TLB,
     };
-    use crate::execution_engine::StableId;
+    use crate::execution_engine::types::StableId;
 
     #[test]
     fn recipe_fill_fragment_from_fragment() {
