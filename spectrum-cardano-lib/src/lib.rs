@@ -5,8 +5,8 @@ use std::ops::{Add, Sub};
 use std::str::FromStr;
 
 use cml_chain::plutus::PlutusData;
-use cml_chain::transaction::TransactionInput;
 use cml_chain::PolicyId;
+use cml_chain::transaction::TransactionInput;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
 use serde::Deserialize;
@@ -133,6 +133,13 @@ impl From<OutputRef> for TransactionInput {
 impl TryFrom<String> for OutputRef {
     type Error = &'static str;
     fn try_from(value: String) -> Result<Self, Self::Error> {
+        OutputRef::try_from(&*value)
+    }
+}
+
+impl TryFrom<&str> for OutputRef {
+    type Error = &'static str;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
         if let Some((raw_tx_id, str_idx)) = value.split_once("#") {
             return Ok(OutputRef(
                 TransactionHash::from_hex(raw_tx_id).unwrap(),

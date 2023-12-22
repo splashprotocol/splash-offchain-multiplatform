@@ -3,6 +3,7 @@ use std::sync::Once;
 use clap::Parser;
 use cml_chain::genesis::network_info::NetworkInfo;
 use cml_chain::transaction::Transaction;
+use cml_multi_era::babbage::BabbageTransaction;
 use log::info;
 use tracing_subscriber::fmt::Subscriber;
 
@@ -50,7 +51,7 @@ async fn main() {
     .expect("ChainSync initialization failed");
 
     // n2c clients:
-    let mempool_sync = LocalTxMonitorClient::connect(config.node.path, config.node.magic)
+    let mempool_sync = LocalTxMonitorClient::<BabbageTransaction>::connect(config.node.path, config.node.magic)
         .await
         .expect("MempoolSync initialization failed");
     let tx_submission_client =

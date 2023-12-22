@@ -3,21 +3,21 @@ use cml_core::serialization::FromBytes;
 use cml_crypto::Ed25519KeyHash;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
+use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
 };
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::UniqueOrder;
-use spectrum_offchain::ledger::TryFromLedger;
+use spectrum_offchain::ledger::{try_parse, TryFromLedger};
 
 use crate::constants::{ORDER_APPLY_RAW_REDEEMER, ORDER_REFUND_RAW_REDEEMER};
-use crate::data::order::{ClassicalOrder, ClassicalOrderAction, PoolNft};
-use crate::data::pool::CFMMPoolAction::Redeem as RedeemAction;
-use crate::data::pool::{CFMMPoolAction, Lq, Rx, Ry};
 use crate::data::{OnChainOrderId, PoolId};
+use crate::data::order::{ClassicalOrder, ClassicalOrderAction, PoolNft};
+use crate::data::pool::{CFMMPoolAction, Lq, Rx, Ry};
+use crate::data::pool::CFMMPoolAction::Redeem as RedeemAction;
 
 #[derive(Debug, Clone)]
 pub struct Redeem {
@@ -71,27 +71,29 @@ struct OnChainRedeemConfig {
 }
 
 impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainRedeem {
-    fn try_from_ledger(repr: BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
-        let value = repr.value().clone();
-        let conf = OnChainRedeemConfig::try_from_pd(repr.clone().into_datum()?.into_pd()?)?;
-        let token_lq_amount = TaggedAmount::tag(value.amount_of(conf.token_lq.untag()).unwrap_or(0));
-        let collateral_ada = value.amount_of(AssetClass::Native).unwrap_or(0) - conf.ex_fee;
-        let redeem = Redeem {
-            pool_nft: PoolId::try_from(conf.pool_nft).ok()?,
-            token_x: conf.token_x,
-            token_y: conf.token_y,
-            token_lq: conf.token_lq,
-            token_lq_amount,
-            ex_fee: conf.ex_fee,
-            reward_pkh: conf.reward_pkh,
-            reward_stake_pkh: conf.reward_stake_pkh,
-            collateral_ada,
-        };
+    fn try_from_ledger(repr: BabbageTransactionOutput, ctx: OutputRef) -> Result<Self, BabbageTransactionOutput> {
+        try_parse(repr, ctx, |repr, ctx| {
+            let value = repr.value().clone();
+            let conf = OnChainRedeemConfig::try_from_pd(repr.clone().into_datum()?.into_pd()?)?;
+            let token_lq_amount = TaggedAmount::tag(value.amount_of(conf.token_lq.untag()).unwrap_or(0));
+            let collateral_ada = value.amount_of(AssetClass::Native).unwrap_or(0) - conf.ex_fee;
+            let redeem = Redeem {
+                pool_nft: PoolId::try_from(conf.pool_nft).ok()?,
+                token_x: conf.token_x,
+                token_y: conf.token_y,
+                token_lq: conf.token_lq,
+                token_lq_amount,
+                ex_fee: conf.ex_fee,
+                reward_pkh: conf.reward_pkh,
+                reward_stake_pkh: conf.reward_stake_pkh,
+                collateral_ada,
+            };
 
-        Some(ClassicalOrder {
-            id: OnChainOrderId::from(ctx),
-            pool_id: PoolId::try_from(conf.pool_nft).ok()?,
-            order: redeem,
+            Some(ClassicalOrder {
+                id: OnChainOrderId::from(ctx),
+                pool_id: PoolId::try_from(conf.pool_nft).ok()?,
+                order: redeem,
+            })
         })
     }
 }
@@ -131,20 +133,20 @@ mod tests {
 
     use cardano_explorer::client::Explorer;
     use cardano_explorer::data::ExplorerConfig;
-    use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_cardano_lib::OutputRef;
+    use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_offchain::executor::RunOrder;
     use spectrum_offchain::ledger::TryFromLedger;
 
-    use crate::collaterals::tests::MockBasedRequestor;
     use crate::collaterals::Collaterals;
+    use crate::collaterals::tests::MockBasedRequestor;
     use crate::creds::operator_creds;
     use crate::data::execution_context::ExecutionContext;
+    use crate::data::OnChain;
     use crate::data::order::ClassicalOnChainOrder;
     use crate::data::pool::CFMMPool;
     use crate::data::redeem::OnChainRedeemConfig;
     use crate::data::ref_scripts::ReferenceOutputs;
-    use crate::data::OnChain;
     use crate::ref_scripts::ReferenceSources;
 
     #[test]

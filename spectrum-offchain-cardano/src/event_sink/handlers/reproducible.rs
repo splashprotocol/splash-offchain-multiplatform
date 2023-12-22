@@ -11,16 +11,16 @@ use tokio::sync::Mutex;
 
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_mempool_sync::data::MempoolUpdate;
+use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::box_resolver::persistence::EntityRepo;
 use spectrum_offchain::combinators::Ior;
-use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
 use spectrum_offchain::data::LiquiditySource;
+use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 
-use spectrum_cardano_lib::hash::hash_transaction_canonical;
-
+/// Trivial handler for confirmed updates.
 pub struct ConfirmedUpdateHandler<TSink, TEntity, TRepo>
 where
     TEntity: LiquiditySource,
@@ -69,7 +69,7 @@ where
     let tx_hash = hash_transaction_canonical(&tx.body);
     for (i, o) in tx.body.outputs.iter().enumerate() {
         let o_ref = OutputRef::from((tx_hash, i as u64));
-        if let Some(entity) = TEntity::try_from_ledger(o.clone(), o_ref) {
+        if let Ok(entity) = TEntity::try_from_ledger(o.clone(), o_ref) {
             let entity_id = entity.stable_id();
             created_entities.insert(entity_id.clone(), entity);
         }
