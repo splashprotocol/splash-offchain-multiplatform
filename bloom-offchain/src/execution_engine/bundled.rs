@@ -1,12 +1,12 @@
-use spectrum_offchain::data::LiquiditySource;
+use spectrum_offchain::data::EntitySnapshot;
 
 /// Entity bundled with its source.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Bundled<T, Source>(pub T, pub Source);
 
-impl<T, Source> LiquiditySource for Bundled<T, Source>
+impl<T, Source> EntitySnapshot for Bundled<T, Source>
 where
-    T: LiquiditySource,
+    T: EntitySnapshot,
 {
     type StableId = T::StableId;
     type Version = T::Version;

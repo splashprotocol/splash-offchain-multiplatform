@@ -33,9 +33,16 @@ where
     }
 
     pub fn get(&self, key: K) -> &R {
-        let mut hasher = DefaultHasher::new();
-        key.hash(&mut hasher);
-        let hash = hasher.finish();
-        &self.inner[(hash % N as u64) as usize]
+        &self.inner[(hash_key(key) % N as u64) as usize]
     }
+
+    pub fn get_mut(&mut self, key: K) -> &mut R {
+        &mut self.inner[(hash_key(key) % N as u64) as usize]
+    }
+}
+
+fn hash_key<K: Hash>(key: K) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    key.hash(&mut hasher);
+    hasher.finish()
 }

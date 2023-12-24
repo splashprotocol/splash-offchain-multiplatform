@@ -7,19 +7,19 @@ use serde::ser::SerializeStruct;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::combinators::Ior;
-use crate::data::LiquiditySource;
+use crate::data::EntitySnapshot;
 
 /// A unique, persistent, self-reproducible, on-chiain entity.
 #[derive(Debug, Clone)]
-pub struct Traced<TEntity: LiquiditySource> {
+pub struct Traced<TEntity: EntitySnapshot> {
     pub state: TEntity,
     pub prev_state_id: Option<TEntity::Version>,
 }
 
-impl<TEntity: LiquiditySource> Serialize for Traced<TEntity>
+impl<TEntity: EntitySnapshot> Serialize for Traced<TEntity>
 where
     TEntity: Serialize,
-    <TEntity as LiquiditySource>::Version: Serialize,
+    <TEntity as EntitySnapshot>::Version: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -47,10 +47,10 @@ where
     }
 }
 
-impl<'de, TEntity: LiquiditySource> Deserialize<'de> for Traced<TEntity>
+impl<'de, TEntity: EntitySnapshot> Deserialize<'de> for Traced<TEntity>
 where
     TEntity: Deserialize<'de>,
-    <TEntity as LiquiditySource>::Version: Deserialize<'de>,
+    <TEntity as EntitySnapshot>::Version: Deserialize<'de>,
 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -107,17 +107,17 @@ where
                 Deserializer::deserialize_identifier(deserializer, FieldVisitor)
             }
         }
-        struct Visitor<'de, TEntity: LiquiditySource>
+        struct Visitor<'de, TEntity: EntitySnapshot>
         where
             TEntity: Deserialize<'de>,
         {
             marker: PhantomData<Traced<TEntity>>,
             lifetime: PhantomData<&'de ()>,
         }
-        impl<'de, TEntity: LiquiditySource> de::Visitor<'de> for Visitor<'de, TEntity>
+        impl<'de, TEntity: EntitySnapshot> de::Visitor<'de> for Visitor<'de, TEntity>
         where
             TEntity: Deserialize<'de>,
-            <TEntity as LiquiditySource>::Version: Deserialize<'de>,
+            <TEntity as EntitySnapshot>::Version: Deserialize<'de>,
         {
             type Value = Traced<TEntity>;
             fn expecting(&self, formatter: &mut Formatter) -> fmt::Result {
@@ -261,7 +261,7 @@ impl<T> Predicted<T> {
     }
 }
 
-impl<T: LiquiditySource> LiquiditySource for Predicted<T> {
+impl<T: EntitySnapshot> EntitySnapshot for Predicted<T> {
     type StableId = T::StableId;
     type Version = T::Version;
 

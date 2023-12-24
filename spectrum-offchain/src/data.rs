@@ -44,10 +44,10 @@ pub trait SpecializedOrder {
     fn get_pool_ref(&self) -> Self::TPoolId;
 }
 
-pub trait LiquiditySource {
-    /// Unique identifier of the [LiquiditySource] which persists among different versions.
+pub trait EntitySnapshot {
+    /// Unique identifier of the underlying entity which persists among different versions.
     type StableId: Copy + Eq + Hash + Display;
-    /// Unique version of the [LiquiditySource].
+    /// Unique version of the [EntitySnapshot].
     type Version: Copy + Eq + Hash + Display;
 
     fn stable_id(&self) -> Self::StableId;
@@ -55,10 +55,16 @@ pub trait LiquiditySource {
     fn version(&self) -> Self::Version;
 }
 
-impl<StableId, Version, A, B> LiquiditySource for Either<A, B>
+/// A tradable entity.
+pub trait Tradable {
+    type PairId: Copy + Eq + Hash + Display;
+    fn pair_id(&self) -> Self::PairId;
+}
+
+impl<StableId, Version, A, B> EntitySnapshot for Either<A, B>
 where
-    A: LiquiditySource<StableId = StableId, Version = Version>,
-    B: LiquiditySource<StableId = StableId, Version = Version>,
+    A: EntitySnapshot<StableId = StableId, Version = Version>,
+    B: EntitySnapshot<StableId = StableId, Version = Version>,
     StableId: Copy + Eq + Hash + Display,
     Version: Copy + Eq + Hash + Display,
 {

@@ -31,7 +31,7 @@ use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_cardano_lib::transaction::{BabbageTransactionOutputExtension, TransactionOutputExtension};
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_offchain::data::{Has, LiquiditySource};
+use spectrum_offchain::data::{Has, EntitySnapshot};
 use spectrum_offchain::data::unique_entity::Predicted;
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::{IntoLedger, try_parse, TryFromLedger};
@@ -189,7 +189,7 @@ impl RequiresRedeemer<CFMMPoolAction> for CFMMPool {
     }
 }
 
-impl LiquiditySource for CFMMPool {
+impl EntitySnapshot for CFMMPool {
     type StableId = PoolId;
     type Version = PoolStateVer;
     fn stable_id(&self) -> Self::StableId {

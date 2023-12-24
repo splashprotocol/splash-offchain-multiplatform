@@ -1,11 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use cml_multi_era::babbage::{BabbageTransaction, BabbageTransactionOutput};
-use futures::Sink;
+use futures::{Sink, SinkExt};
 use log::trace;
 use tokio::sync::Mutex;
 
@@ -14,8 +15,8 @@ use cardano_mempool_sync::data::MempoolUpdate;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::combinators::Ior;
-use spectrum_offchain::data::LiquiditySource;
-use spectrum_offchain::data::unique_entity::{EitherMod, StateUpdate};
+use spectrum_offchain::data::{EntitySnapshot, Tradable};
+use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain::partitioning::Partitioned;
@@ -26,7 +27,7 @@ use crate::event_sink::entity_index::EntityIndex;
 /// into different topics [Topic] according to partitioning key [PairId].
 pub struct PairUpdateHandler<const N: usize, PairId, Topic, Entity, Index, Pairs>
 where
-    Entity: LiquiditySource,
+    Entity: EntitySnapshot,
 {
     pub topic: Partitioned<N, PairId, Topic>,
     /// Index of all non-consumed states of [Entity].
@@ -39,7 +40,7 @@ where
 impl<const N: usize, PairId, Topic, Entity, Index, Pairs>
     PairUpdateHandler<N, PairId, Topic, Entity, Index, Pairs>
 where
-    Entity: LiquiditySource + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone,
+    Entity: EntitySnapshot + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone,
 {
     pub fn new(topic: Partitioned<N, PairId, Topic>, index: Arc<Mutex<Index>>, pairs: Arc<Mutex<Pairs>>) -> Self {
         Self {
@@ -56,7 +57,7 @@ async fn extract_transitions<Entity, Index>(
     mut tx: BabbageTransaction,
 ) -> Result<Vec<Ior<Entity, Entity>>, BabbageTransaction>
 where
-    Entity: LiquiditySource + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone,
+    Entity: EntitySnapshot + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone,
     Entity::Version: From<OutputRef>,
     Index: EntityIndex<Entity>,
 {
@@ -110,12 +111,22 @@ where
     Ok(transitions)
 }
 
+fn pair_id_of<T: EntitySnapshot + Tradable>(xa: &Ior<T, T>) -> T::PairId {
+    match xa {
+        Ior::Left(o) => o.pair_id(),
+        Ior::Right(o) => o.pair_id(),
+        Ior::Both(o, _) => o.pair_id(),
+    }
+}
+
 #[async_trait(?Send)]
 impl<const N: usize, PairId, Topic, Entity, Index, Pairs> EventHandler<LedgerTxEvent<BabbageTransaction>>
     for PairUpdateHandler<N, PairId, Topic, Entity, Index, Pairs>
 where
+    PairId: Hash,
     Topic: Sink<EitherMod<StateUpdate<Entity>>> + Unpin,
-    Entity: LiquiditySource + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone + Debug,
+    Topic::Error: Debug,
+    Entity: EntitySnapshot + Tradable<PairId = PairId> + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone + Debug,
     Entity::Version: From<OutputRef>,
     Index: EntityIndex<Entity>,
 {
@@ -123,16 +134,17 @@ where
         &mut self,
         ev: LedgerTxEvent<BabbageTransaction>,
     ) -> Option<LedgerTxEvent<BabbageTransaction>> {
-        let res = match ev {
+        match ev {
             LedgerTxEvent::TxApplied { tx, slot } => {
                 match extract_transitions(Arc::clone(&self.index), tx).await {
                     Ok(transitions) => {
                         trace!("[{}] entities parsed from applied tx", transitions.len());
                         for tr in transitions {
-                            // let _ = self
-                            //     .topic
-                            //     .feed(EitherMod::Confirmed(Confirmed(StateUpdate::Transition(tr))))
-                            //     .await;
+                            let pair = pair_id_of(&tr);
+                            let topic = self.topic.get_mut(pair);
+                            topic.feed(EitherMod::Confirmed(Confirmed(StateUpdate::Transition(tr))))
+                                .await.expect("Channel is closed");
+                            topic.flush().await.expect("Failed to commit message");
                         }
                         None
                     }
@@ -143,22 +155,19 @@ where
                 match extract_transitions(Arc::clone(&self.index), tx).await {
                     Ok(transitions) => {
                         trace!(target: "offchain_lm", "[{}] entities parsed from unapplied tx", transitions.len());
-                        // for tr in transitions {
-                        //     let _ = self
-                        //         .topic
-                        //         .feed(EitherMod::Confirmed(Confirmed(StateUpdate::TransitionRollback(
-                        //             tr.swap(),
-                        //         ))))
-                        //         .await;
-                        // }
+                        for tr in transitions {
+                            let pair = pair_id_of(&tr);
+                            let topic = self.topic.get_mut(pair);
+                            topic.feed(EitherMod::Confirmed(Confirmed(StateUpdate::TransitionRollback(tr))))
+                                .await.expect("Channel is closed");
+                            topic.flush().await.expect("Failed to commit message");
+                        }
                         None
                     }
                     Err(tx) => Some(LedgerTxEvent::TxUnapplied(tx)),
                 }
             }
-        };
-        //let _ = self.topic.flush().await;
-        res
+        }
     }
 }
 
@@ -166,8 +175,10 @@ where
 impl<const N: usize, PairId, Topic, Entity, Index, Pairs> EventHandler<MempoolUpdate<BabbageTransaction>>
     for PairUpdateHandler<N, PairId, Topic, Entity, Index, Pairs>
 where
+    PairId: Hash,
     Topic: Sink<EitherMod<StateUpdate<Entity>>> + Unpin,
-    Entity: LiquiditySource + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone + Debug,
+    Topic::Error: Debug,
+    Entity: EntitySnapshot + Tradable<PairId = PairId> + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone + Debug,
     Entity::Version: From<OutputRef>,
     Index: EntityIndex<Entity>,
 {
@@ -175,23 +186,22 @@ where
         &mut self,
         ev: MempoolUpdate<BabbageTransaction>,
     ) -> Option<MempoolUpdate<BabbageTransaction>> {
-        let res = match ev {
+        match ev {
             MempoolUpdate::TxAccepted(tx) => {
                 match extract_transitions(Arc::clone(&self.index), tx).await {
                     Ok(transitions) => {
-                        // for tr in transitions {
-                        //     let _ = self
-                        //         .topic
-                        //         .feed(EitherMod::Unconfirmed(Unconfirmed(StateUpdate::Transition(tr))))
-                        //         .await;
-                        // }
+                        for tr in transitions {
+                            let pair = pair_id_of(&tr);
+                            let topic = self.topic.get_mut(pair);
+                            topic.feed(EitherMod::Unconfirmed(Unconfirmed(StateUpdate::Transition(tr))))
+                                .await.expect("Channel is closed");
+                            topic.flush().await.expect("Failed to commit message");
+                        }
                         None
                     }
                     Err(tx) => Some(MempoolUpdate::TxAccepted(tx)),
                 }
             }
-        };
-        //let _ = self.topic.flush().await;
-        res
+        }
     }
 }

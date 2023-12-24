@@ -4,7 +4,7 @@ use tokio::sync::Mutex;
 
 use crate::box_resolver::persistence::EntityRepo;
 use crate::data::unique_entity::{Confirmed, Predicted, Traced, Unconfirmed};
-use crate::data::LiquiditySource;
+use crate::data::EntitySnapshot;
 
 pub mod blacklist;
 pub mod persistence;
@@ -17,7 +17,7 @@ pub async fn resolve_entity_state<TEntity, TRepo>(
 ) -> Option<TEntity>
 where
     TRepo: EntityRepo<TEntity>,
-    TEntity: LiquiditySource,
+    TEntity: EntitySnapshot,
     TEntity::StableId: Copy,
 {
     let states = {
@@ -54,7 +54,7 @@ async fn is_linking<TEntity, TRepo>(
     repo: Arc<Mutex<TRepo>>,
 ) -> bool
 where
-    TEntity: LiquiditySource,
+    TEntity: EntitySnapshot,
     TRepo: EntityRepo<TEntity>,
 {
     let mut head_sid = sid;
@@ -78,7 +78,7 @@ mod tests {
     use crate::box_resolver::persistence::EntityRepo;
     use crate::box_resolver::resolve_entity_state;
     use crate::data::unique_entity::Confirmed;
-    use crate::data::LiquiditySource;
+    use crate::data::EntitySnapshot;
 
     #[tokio::test]
     async fn test_resolve_state_trivial() {

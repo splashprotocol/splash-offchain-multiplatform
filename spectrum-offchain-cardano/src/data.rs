@@ -8,7 +8,7 @@ use num_rational::Ratio;
 use rand::{thread_rng, RngCore};
 
 use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAssetClass, Token};
-use spectrum_offchain::data::{LiquiditySource, SpecializedOrder};
+use spectrum_offchain::data::{EntitySnapshot, SpecializedOrder};
 
 use crate::constants::POOL_VERSIONS;
 use crate::data::order::PoolNft;
@@ -53,9 +53,9 @@ where
     }
 }
 
-impl<T> LiquiditySource for OnChain<T>
+impl<T> EntitySnapshot for OnChain<T>
 where
-    T: LiquiditySource,
+    T: EntitySnapshot,
 {
     type StableId = T::StableId;
     type Version = T::Version;

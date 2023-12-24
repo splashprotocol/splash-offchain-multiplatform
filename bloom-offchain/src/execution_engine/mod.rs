@@ -13,7 +13,7 @@ use log::trace;
 
 use spectrum_offchain::combinators::Ior;
 use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
-use spectrum_offchain::data::{Has, LiquiditySource};
+use spectrum_offchain::data::{Has, EntitySnapshot};
 use spectrum_offchain::network::Network;
 
 use crate::execution_engine::bundled::Bundled;
@@ -50,8 +50,8 @@ pub fn execution_stream<'a, Id, V, O, P, B, Tx, Ctx, Index, Cache, Book, Interpr
 where
     Id: Copy + Eq + Hash + Display + Unpin + 'a,
     V: Copy + Eq + Hash + Display + Unpin + 'a,
-    P: LiquiditySource<StableId = Id, Version = V> + Copy + Unpin + 'a,
-    O: LiquiditySource<StableId = Id, Version = V> + Fragment + OrderState + Copy + Unpin + 'a,
+    P: EntitySnapshot<StableId = Id, Version = V> + Copy + Unpin + 'a,
+    O: EntitySnapshot<StableId = Id, Version = V> + Fragment + OrderState + Copy + Unpin + 'a,
     B: Clone + Unpin + 'a,
     Tx: Unpin + 'a,
     Ctx: Copy + Unpin + 'a,
@@ -122,8 +122,8 @@ impl<StableId, Version, O, P, Bearer, Tx, Ctx, Index, Cache, Book, Interpreter, 
         StableId: Copy + Eq + Hash + Display,
         Version: Copy + Eq + Hash + Display,
         Bearer: Clone,
-        O: LiquiditySource<StableId = StableId, Version = Version> + Clone,
-        P: LiquiditySource<StableId = StableId, Version = Version> + Clone,
+        O: EntitySnapshot<StableId = StableId, Version = Version> + Clone,
+        P: EntitySnapshot<StableId = StableId, Version = Version> + Clone,
         Index: StateIndex<Bundled<Either<O, P>, Bearer>>,
         Cache: StateIndexCache<StableId, Bundled<Either<O, P>, Bearer>>,
         Book: ExternalTLBEvents<O, P>,
@@ -155,7 +155,7 @@ impl<StableId, Version, O, P, Bearer, Tx, Ctx, Index, Cache, Book, Interpreter, 
     where
         StableId: Copy + Eq + Hash + Display,
         Version: Copy + Eq + Hash + Display,
-        T: LiquiditySource<StableId = StableId> + Clone,
+        T: EntitySnapshot<StableId = StableId> + Clone,
         Bearer: Clone,
         Index: StateIndex<Bundled<T, Bearer>>,
         Cache: StateIndexCache<StableId, Bundled<T, Bearer>>,
@@ -206,8 +206,8 @@ impl<StableId, Version, O, P, Bearer, Tx, Ctx, Index, Cache, Book, Interpreter, 
     where
         StableId: Copy + Eq + Hash + Display,
         Version: Copy + Eq + Hash + Display,
-        O: LiquiditySource<StableId = StableId, Version = Version>,
-        P: LiquiditySource<StableId = StableId, Version = Version>,
+        O: EntitySnapshot<StableId = StableId, Version = Version>,
+        P: EntitySnapshot<StableId = StableId, Version = Version>,
         Cache: StateIndexCache<StableId, Bundled<Either<O, P>, Bearer>>,
     {
         let mut linked = vec![];
@@ -238,8 +238,8 @@ impl<StableId, Version, O, P, Bearer, Tx, Ctx, Index, Cache, Book, Interpreter, 
 where
     StableId: Copy + Eq + Hash + Display + Unpin,
     Version: Copy + Eq + Hash + Display + Unpin,
-    P: LiquiditySource<StableId = StableId, Version = Version> + Copy + Unpin,
-    O: LiquiditySource<StableId = StableId, Version = Version> + Fragment + OrderState + Copy + Unpin,
+    P: EntitySnapshot<StableId = StableId, Version = Version> + Copy + Unpin,
+    O: EntitySnapshot<StableId = StableId, Version = Version> + Fragment + OrderState + Copy + Unpin,
     Bearer: Clone + Unpin,
     Tx: Unpin,
     Ctx: Copy + Unpin,
@@ -297,8 +297,8 @@ impl<StableId, Version, O, P, Bearer, Tx, Ctx, Index, Cache, Book, Interpreter, 
 where
     StableId: Copy + Eq + Hash + Display + Unpin,
     Version: Copy + Eq + Hash + Display + Unpin,
-    P: LiquiditySource<StableId = StableId, Version = Version> + Copy + Unpin,
-    O: LiquiditySource<StableId = StableId, Version = Version> + Fragment + OrderState + Copy + Unpin,
+    P: EntitySnapshot<StableId = StableId, Version = Version> + Copy + Unpin,
+    O: EntitySnapshot<StableId = StableId, Version = Version> + Fragment + OrderState + Copy + Unpin,
     Bearer: Clone + Unpin,
     Tx: Unpin,
     Ctx: Copy + Unpin,

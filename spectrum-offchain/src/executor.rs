@@ -16,7 +16,7 @@ use crate::backlog::HotBacklog;
 use crate::box_resolver::persistence::EntityRepo;
 use crate::box_resolver::resolve_entity_state;
 use crate::data::unique_entity::{Predicted, Traced};
-use crate::data::{LiquiditySource, SpecializedOrder};
+use crate::data::{EntitySnapshot, SpecializedOrder};
 use crate::network::Network;
 use crate::tx_prover::TxProver;
 
@@ -104,7 +104,7 @@ impl<Net, Backlog, Pools, Prover, Ctx, Ord, Pool, TxCandidate, Tx, Err> Executor
 where
     Ord: SpecializedOrder + Clone + Display,
     <Ord as SpecializedOrder>::TOrderId: Clone + Display,
-    Pool: LiquiditySource + RunOrder<Ord, Ctx, TxCandidate> + Clone,
+    Pool: EntitySnapshot + RunOrder<Ord, Ctx, TxCandidate> + Clone,
     Pool::StableId: Copy,
     Ord::TPoolId: IsEqual<Pool::StableId> + Display,
     Net: Network<Tx, Err>,

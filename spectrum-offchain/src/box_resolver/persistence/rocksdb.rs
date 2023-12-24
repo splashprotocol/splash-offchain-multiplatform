@@ -11,7 +11,7 @@ use crate::binary::prefixed_key;
 use crate::box_resolver::persistence::EntityRepo;
 use crate::box_resolver::{Predicted, Traced};
 use crate::data::unique_entity::{Confirmed, Unconfirmed};
-use crate::data::LiquiditySource;
+use crate::data::EntitySnapshot;
 use crate::rocks::RocksConfig;
 
 pub struct EntityRepoRocksDB {
@@ -35,16 +35,16 @@ const LAST_UNCONFIRMED_PREFIX: &str = "unconfirmed:last";
 #[async_trait(?Send)]
 impl<TEntity> EntityRepo<TEntity> for EntityRepoRocksDB
 where
-    TEntity: LiquiditySource + Clone + Serialize + DeserializeOwned + Send + 'static,
-    <TEntity as LiquiditySource>::Version: Clone + Serialize + DeserializeOwned + Send + Debug + 'static,
-    <TEntity as LiquiditySource>::StableId: Clone + Serialize + DeserializeOwned + Send + 'static,
+    TEntity: EntitySnapshot + Clone + Serialize + DeserializeOwned + Send + 'static,
+    <TEntity as EntitySnapshot>::Version: Clone + Serialize + DeserializeOwned + Send + Debug + 'static,
+    <TEntity as EntitySnapshot>::StableId: Clone + Serialize + DeserializeOwned + Send + 'static,
 {
     async fn get_prediction_predecessor<'a>(
         &self,
-        sid: <TEntity as LiquiditySource>::Version,
+        sid: <TEntity as EntitySnapshot>::Version,
     ) -> Option<TEntity::Version>
     where
-        <TEntity as LiquiditySource>::Version: 'a,
+        <TEntity as EntitySnapshot>::Version: 'a,
     {
         let db = self.db.clone();
         let link_key = prefixed_key(PREDICTION_LINK_PREFIX, &sid);
@@ -58,10 +58,10 @@ where
 
     async fn get_last_predicted<'a>(
         &self,
-        id: <TEntity as LiquiditySource>::StableId,
+        id: <TEntity as EntitySnapshot>::StableId,
     ) -> Option<Predicted<TEntity>>
     where
-        <TEntity as LiquiditySource>::StableId: 'a,
+        <TEntity as EntitySnapshot>::StableId: 'a,
     {
         let db = self.db.clone();
         let index_key = prefixed_key(LAST_PREDICTED_PREFIX, &id);
@@ -88,10 +88,10 @@ where
 
     async fn get_last_confirmed<'a>(
         &self,
-        id: <TEntity as LiquiditySource>::StableId,
+        id: <TEntity as EntitySnapshot>::StableId,
     ) -> Option<Confirmed<TEntity>>
     where
-        <TEntity as LiquiditySource>::StableId: 'a,
+        <TEntity as EntitySnapshot>::StableId: 'a,
     {
         let db = self.db.clone();
         let index_key = prefixed_key(LAST_CONFIRMED_PREFIX, &id);
@@ -108,10 +108,10 @@ where
 
     async fn get_last_unconfirmed<'a>(
         &self,
-        id: <TEntity as LiquiditySource>::StableId,
+        id: <TEntity as EntitySnapshot>::StableId,
     ) -> Option<Unconfirmed<TEntity>>
     where
-        <TEntity as LiquiditySource>::StableId: 'a,
+        <TEntity as EntitySnapshot>::StableId: 'a,
     {
         let db = self.db.clone();
         let index_key = prefixed_key(LAST_UNCONFIRMED_PREFIX, &id);
@@ -192,13 +192,13 @@ where
 
     async fn invalidate<'a>(
         &mut self,
-        sid: <TEntity as LiquiditySource>::Version,
-        eid: <TEntity as LiquiditySource>::StableId,
+        sid: <TEntity as EntitySnapshot>::Version,
+        eid: <TEntity as EntitySnapshot>::StableId,
     ) where
-        <TEntity as LiquiditySource>::StableId: 'a,
-        <TEntity as LiquiditySource>::Version: 'a,
+        <TEntity as EntitySnapshot>::StableId: 'a,
+        <TEntity as EntitySnapshot>::Version: 'a,
     {
-        let predecessor: Option<<TEntity as LiquiditySource>::Version> =
+        let predecessor: Option<<TEntity as EntitySnapshot>::Version> =
             <EntityRepoRocksDB as EntityRepo<TEntity>>::get_prediction_predecessor::<'_, '_, '_>(
                 self,
                 sid.clone(),
@@ -247,18 +247,18 @@ where
         .await
     }
 
-    async fn may_exist<'a>(&self, sid: <TEntity as LiquiditySource>::Version) -> bool
+    async fn may_exist<'a>(&self, sid: <TEntity as EntitySnapshot>::Version) -> bool
     where
-        <TEntity as LiquiditySource>::Version: 'a,
+        <TEntity as EntitySnapshot>::Version: 'a,
     {
         let db = self.db.clone();
         let state_key = prefixed_key(STATE_PREFIX, &sid);
         spawn_blocking(move || db.key_may_exist(state_key)).await
     }
 
-    async fn get_state<'a>(&self, sid: <TEntity as LiquiditySource>::Version) -> Option<TEntity>
+    async fn get_state<'a>(&self, sid: <TEntity as EntitySnapshot>::Version) -> Option<TEntity>
     where
-        <TEntity as LiquiditySource>::Version: 'a,
+        <TEntity as EntitySnapshot>::Version: 'a,
     {
         let db = self.db.clone();
         let state_key = prefixed_key(STATE_PREFIX, &sid);

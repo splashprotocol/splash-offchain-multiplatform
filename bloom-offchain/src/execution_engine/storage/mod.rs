@@ -1,9 +1,9 @@
 use spectrum_offchain::data::unique_entity::{Confirmed, Predicted, Traced, Unconfirmed};
-use spectrum_offchain::data::LiquiditySource;
+use spectrum_offchain::data::EntitySnapshot;
 
 pub mod cache;
 
-pub trait StateIndex<Src: LiquiditySource> {
+pub trait StateIndex<Src: EntitySnapshot> {
     /// Get state id preceding given predicted state.
     fn get_prediction_predecessor<'a>(&self, id: Src::Version) -> Option<Src::Version>;
     /// Get last predicted state of the given entity.

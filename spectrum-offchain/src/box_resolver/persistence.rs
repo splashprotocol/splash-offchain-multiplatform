@@ -5,7 +5,7 @@ use log::trace;
 
 use crate::box_resolver::{Predicted, Traced};
 use crate::data::unique_entity::{Confirmed, Unconfirmed};
-use crate::data::LiquiditySource;
+use crate::data::EntitySnapshot;
 
 pub mod inmemory;
 pub mod noop;
@@ -14,23 +14,23 @@ pub mod rocksdb;
 /// Stores on-chain entities.
 /// Operations are atomic.
 #[async_trait(? Send)]
-pub trait EntityRepo<TEntity: LiquiditySource> {
+pub trait EntityRepo<TEntity: EntitySnapshot> {
     /// Get state id preceding given predicted state.
     async fn get_prediction_predecessor<'a>(&self, id: TEntity::Version) -> Option<TEntity::Version>
     where
-        <TEntity as LiquiditySource>::Version: 'a;
+        <TEntity as EntitySnapshot>::Version: 'a;
     /// Get last predicted state of the given entity.
     async fn get_last_predicted<'a>(&self, id: TEntity::StableId) -> Option<Predicted<TEntity>>
     where
-        <TEntity as LiquiditySource>::StableId: 'a;
+        <TEntity as EntitySnapshot>::StableId: 'a;
     /// Get last confirmed state of the given entity.
     async fn get_last_confirmed<'a>(&self, id: TEntity::StableId) -> Option<Confirmed<TEntity>>
     where
-        <TEntity as LiquiditySource>::StableId: 'a;
+        <TEntity as EntitySnapshot>::StableId: 'a;
     /// Get last unconfirmed state of the given entity.
     async fn get_last_unconfirmed<'a>(&self, id: TEntity::StableId) -> Option<Unconfirmed<TEntity>>
     where
-        <TEntity as LiquiditySource>::StableId: 'a;
+        <TEntity as EntitySnapshot>::StableId: 'a;
     /// Persist predicted state of the entity.
     async fn put_predicted<'a>(&mut self, entity: Traced<Predicted<TEntity>>)
     where
@@ -46,8 +46,8 @@ pub trait EntityRepo<TEntity: LiquiditySource> {
     /// Invalidate particular state of the entity.
     async fn invalidate<'a>(&mut self, sid: TEntity::Version, eid: TEntity::StableId)
     where
-        <TEntity as LiquiditySource>::Version: 'a,
-        <TEntity as LiquiditySource>::StableId: 'a;
+        <TEntity as EntitySnapshot>::Version: 'a,
+        <TEntity as EntitySnapshot>::StableId: 'a;
     /// Invalidate particular state of the entity.
     async fn eliminate<'a>(&mut self, entity: TEntity)
     where
@@ -55,10 +55,10 @@ pub trait EntityRepo<TEntity: LiquiditySource> {
     /// False-positive analog of `exists()`.
     async fn may_exist<'a>(&self, sid: TEntity::Version) -> bool
     where
-        <TEntity as LiquiditySource>::Version: 'a;
+        <TEntity as EntitySnapshot>::Version: 'a;
     async fn get_state<'a>(&self, sid: TEntity::Version) -> Option<TEntity>
     where
-        <TEntity as LiquiditySource>::Version: 'a;
+        <TEntity as EntitySnapshot>::Version: 'a;
 }
 
 pub struct EntityRepoTracing<R> {
@@ -74,14 +74,14 @@ impl<R> EntityRepoTracing<R> {
 #[async_trait(? Send)]
 impl<TEntity, R> EntityRepo<TEntity> for EntityRepoTracing<R>
 where
-    TEntity: LiquiditySource,
+    TEntity: EntitySnapshot,
     TEntity::StableId: Debug + Copy,
     TEntity::Version: Debug + Copy,
     R: EntityRepo<TEntity>,
 {
     async fn get_prediction_predecessor<'a>(&self, id: TEntity::Version) -> Option<TEntity::Version>
     where
-        <TEntity as LiquiditySource>::Version: 'a,
+        <TEntity as EntitySnapshot>::Version: 'a,
     {
         trace!(target: "box_resolver", "get_prediction_predecessor({:?})", id);
         let res = self.inner.get_prediction_predecessor(id).await;
@@ -91,7 +91,7 @@ where
 
     async fn get_last_predicted<'a>(&self, id: TEntity::StableId) -> Option<Predicted<TEntity>>
     where
-        <TEntity as LiquiditySource>::StableId: 'a,
+        <TEntity as EntitySnapshot>::StableId: 'a,
     {
         trace!(target: "box_resolver", "get_last_predicted({:?})", id);
         let res = self.inner.get_last_predicted(id).await;
@@ -101,7 +101,7 @@ where
 
     async fn get_last_confirmed<'a>(&self, id: TEntity::StableId) -> Option<Confirmed<TEntity>>
     where
-        <TEntity as LiquiditySource>::StableId: 'a,
+        <TEntity as EntitySnapshot>::StableId: 'a,
     {
         trace!(target: "box_resolver", "get_last_confirmed({:?})", id);
         let res = self.inner.get_last_confirmed(id).await;
@@ -111,7 +111,7 @@ where
 
     async fn get_last_unconfirmed<'a>(&self, id: TEntity::StableId) -> Option<Unconfirmed<TEntity>>
     where
-        <TEntity as LiquiditySource>::StableId: 'a,
+        <TEntity as EntitySnapshot>::StableId: 'a,
     {
         trace!(target: "box_resolver", "get_last_unconfirmed({:?})", id);
         let res = self.inner.get_last_unconfirmed(id).await;
@@ -155,8 +155,8 @@ where
 
     async fn invalidate<'a>(&mut self, sid: TEntity::Version, eid: TEntity::StableId)
     where
-        <TEntity as LiquiditySource>::Version: 'a,
-        <TEntity as LiquiditySource>::StableId: 'a,
+        <TEntity as EntitySnapshot>::Version: 'a,
+        <TEntity as EntitySnapshot>::StableId: 'a,
     {
         trace!(target: "box_resolver", "invalidate({:?})", sid);
         self.inner.invalidate(sid, eid).await;
@@ -175,14 +175,14 @@ where
 
     async fn may_exist<'a>(&self, sid: TEntity::Version) -> bool
     where
-        <TEntity as LiquiditySource>::Version: 'a,
+        <TEntity as EntitySnapshot>::Version: 'a,
     {
         self.inner.may_exist(sid).await
     }
 
     async fn get_state<'a>(&self, sid: TEntity::Version) -> Option<TEntity>
     where
-        <TEntity as LiquiditySource>::Version: 'a,
+        <TEntity as EntitySnapshot>::Version: 'a,
     {
         trace!(target: "box_resolver", "get_state({:?})", sid);
         let res = self.inner.get_state(sid).await;
@@ -207,7 +207,7 @@ pub(crate) mod tests {
         box_resolver::persistence::EntityRepo,
         data::{
             unique_entity::{Confirmed, Predicted, Traced, Unconfirmed},
-            LiquiditySource,
+            EntitySnapshot,
         },
     };
 
@@ -248,7 +248,7 @@ pub(crate) mod tests {
         pub box_id: BoxId,
     }
 
-    impl LiquiditySource for TestEntity {
+    impl EntitySnapshot for TestEntity {
         type StableId = TokenId;
 
         type Version = BoxId;
