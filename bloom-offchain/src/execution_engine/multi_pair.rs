@@ -5,6 +5,12 @@ use crate::maker::Maker;
 
 pub struct MultiPair<PairId, R, Ctx>(HashMap<PairId, R>, Ctx);
 
+impl<PairId, R, Ctx> MultiPair<PairId, R, Ctx> {
+    pub fn new(context: Ctx) -> Self {
+        Self(HashMap::new(), context)
+    }
+}
+
 impl<PairId, R, Ctx> MultiPair<PairId, R, Ctx>
 where
     PairId: Copy + Eq + Hash,

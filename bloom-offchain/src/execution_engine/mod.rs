@@ -96,6 +96,7 @@ where
 pub struct Executor<PairId, StableId, Ver, O, P, Bearer, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err> {
     index: Index,
     cache: Cache,
+    /// Separate TLBs for each pair.
     multi_book: MultiPair<PairId, Book, C>,
     context: C,
     interpreter: Ir,
