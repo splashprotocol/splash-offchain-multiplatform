@@ -1,6 +1,5 @@
 use std::cmp::min;
 
-use cml_chain::{Coin, Value};
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::builders::input_builder::SingleInputBuilder;
@@ -12,6 +11,7 @@ use cml_chain::builders::tx_builder::{
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
 use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, TransactionOutput};
+use cml_chain::{Coin, Value};
 use cml_core::serialization::FromBytes;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
@@ -22,7 +22,6 @@ use void::Void;
 use bloom_offchain::execution_engine::batch_exec::BatchExec;
 use bloom_offchain::execution_engine::liquidity_book::recipe::Swap;
 use bloom_offchain::execution_engine::liquidity_book::side::SideM;
-use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
@@ -31,16 +30,16 @@ use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_cardano_lib::transaction::{BabbageTransactionOutputExtension, TransactionOutputExtension};
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_offchain::data::{Has, EntitySnapshot};
+use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::unique_entity::Predicted;
+use spectrum_offchain::data::{EntitySnapshot, Has};
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
-use spectrum_offchain::ledger::{IntoLedger, try_parse, TryFromLedger};
+use spectrum_offchain::ledger::{try_parse, IntoLedger, TryFromLedger};
 
 use crate::constants::{
     CFMM_LP_FEE_DEN, MAX_LQ_CAP, ORDER_EXECUTION_UNITS, POOL_DEPOSIT_REDEEMER, POOL_DESTROY_REDEEMER,
     POOL_EXECUTION_UNITS, POOL_REDEEM_REDEEMER, POOL_SWAP_REDEEMER,
 };
-use crate::data::{OnChain, OnChainOrderId, PoolId, PoolStateVer, PoolVer};
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::execution_context::ExecutionContext;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
@@ -48,6 +47,7 @@ use crate::data::operation_output::{DepositOutput, RedeemOutput, SwapOutput};
 use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::ref_scripts::RequiresRefScript;
+use crate::data::{OnChain, OnChainOrderId, PoolId, PoolStateVer, PoolVer};
 
 pub struct Rx;
 
@@ -201,7 +201,10 @@ impl EntitySnapshot for CFMMPool {
 }
 
 impl TryFromLedger<BabbageTransactionOutput, OutputRef> for OnChain<CFMMPool> {
-    fn try_from_ledger(repr: BabbageTransactionOutput, ctx: OutputRef) -> Result<Self, BabbageTransactionOutput> {
+    fn try_from_ledger(
+        repr: BabbageTransactionOutput,
+        ctx: OutputRef,
+    ) -> Result<Self, BabbageTransactionOutput> {
         try_parse(repr, ctx, |repr, ctx| {
             if let Some(pool_ver) = PoolVer::try_from_pool_address(repr.address()) {
                 let value = repr.value();

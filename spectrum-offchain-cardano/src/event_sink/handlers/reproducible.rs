@@ -15,8 +15,8 @@ use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::box_resolver::persistence::EntityRepo;
 use spectrum_offchain::combinators::Ior;
-use spectrum_offchain::data::EntitySnapshot;
 use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
+use spectrum_offchain::data::EntitySnapshot;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 

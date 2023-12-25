@@ -51,9 +51,10 @@ async fn main() {
     .expect("ChainSync initialization failed");
 
     // n2c clients:
-    let mempool_sync = LocalTxMonitorClient::<BabbageTransaction>::connect(config.node.path, config.node.magic)
-        .await
-        .expect("MempoolSync initialization failed");
+    let mempool_sync =
+        LocalTxMonitorClient::<BabbageTransaction>::connect(config.node.path, config.node.magic)
+            .await
+            .expect("MempoolSync initialization failed");
     let tx_submission_client =
         LocalTxSubmissionClient::<BABBAGE_ERA_ID, Transaction>::init(config.node.path, config.node.magic)
             .await

@@ -15,8 +15,8 @@ use cardano_mempool_sync::data::MempoolUpdate;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::combinators::Ior;
-use spectrum_offchain::data::{EntitySnapshot, Tradable};
 use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
+use spectrum_offchain::data::{EntitySnapshot, Tradable};
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain::partitioning::Partitioned;
@@ -42,7 +42,11 @@ impl<const N: usize, PairId, Topic, Entity, Index, Pairs>
 where
     Entity: EntitySnapshot + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone,
 {
-    pub fn new(topic: Partitioned<N, PairId, Topic>, index: Arc<Mutex<Index>>, pairs: Arc<Mutex<Pairs>>) -> Self {
+    pub fn new(
+        topic: Partitioned<N, PairId, Topic>,
+        index: Arc<Mutex<Index>>,
+        pairs: Arc<Mutex<Pairs>>,
+    ) -> Self {
         Self {
             topic,
             index,
@@ -126,7 +130,11 @@ where
     PairId: Hash,
     Topic: Sink<EitherMod<StateUpdate<Entity>>> + Unpin,
     Topic::Error: Debug,
-    Entity: EntitySnapshot + Tradable<PairId = PairId> + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone + Debug,
+    Entity: EntitySnapshot
+        + Tradable<PairId = PairId>
+        + TryFromLedger<BabbageTransactionOutput, OutputRef>
+        + Clone
+        + Debug,
     Entity::Version: From<OutputRef>,
     Index: EntityIndex<Entity>,
 {
@@ -142,8 +150,10 @@ where
                         for tr in transitions {
                             let pair = pair_id_of(&tr);
                             let topic = self.topic.get_mut(pair);
-                            topic.feed(EitherMod::Confirmed(Confirmed(StateUpdate::Transition(tr))))
-                                .await.expect("Channel is closed");
+                            topic
+                                .feed(EitherMod::Confirmed(Confirmed(StateUpdate::Transition(tr))))
+                                .await
+                                .expect("Channel is closed");
                             topic.flush().await.expect("Failed to commit message");
                         }
                         None
@@ -151,22 +161,24 @@ where
                     Err(tx) => Some(LedgerTxEvent::TxApplied { tx, slot }),
                 }
             }
-            LedgerTxEvent::TxUnapplied(tx) => {
-                match extract_transitions(Arc::clone(&self.index), tx).await {
-                    Ok(transitions) => {
-                        trace!(target: "offchain_lm", "[{}] entities parsed from unapplied tx", transitions.len());
-                        for tr in transitions {
-                            let pair = pair_id_of(&tr);
-                            let topic = self.topic.get_mut(pair);
-                            topic.feed(EitherMod::Confirmed(Confirmed(StateUpdate::TransitionRollback(tr))))
-                                .await.expect("Channel is closed");
-                            topic.flush().await.expect("Failed to commit message");
-                        }
-                        None
+            LedgerTxEvent::TxUnapplied(tx) => match extract_transitions(Arc::clone(&self.index), tx).await {
+                Ok(transitions) => {
+                    trace!(target: "offchain_lm", "[{}] entities parsed from unapplied tx", transitions.len());
+                    for tr in transitions {
+                        let pair = pair_id_of(&tr);
+                        let topic = self.topic.get_mut(pair);
+                        topic
+                            .feed(EitherMod::Confirmed(Confirmed(StateUpdate::TransitionRollback(
+                                tr,
+                            ))))
+                            .await
+                            .expect("Channel is closed");
+                        topic.flush().await.expect("Failed to commit message");
                     }
-                    Err(tx) => Some(LedgerTxEvent::TxUnapplied(tx)),
+                    None
                 }
-            }
+                Err(tx) => Some(LedgerTxEvent::TxUnapplied(tx)),
+            },
         }
     }
 }
@@ -178,7 +190,11 @@ where
     PairId: Hash,
     Topic: Sink<EitherMod<StateUpdate<Entity>>> + Unpin,
     Topic::Error: Debug,
-    Entity: EntitySnapshot + Tradable<PairId = PairId> + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone + Debug,
+    Entity: EntitySnapshot
+        + Tradable<PairId = PairId>
+        + TryFromLedger<BabbageTransactionOutput, OutputRef>
+        + Clone
+        + Debug,
     Entity::Version: From<OutputRef>,
     Index: EntityIndex<Entity>,
 {
@@ -187,21 +203,21 @@ where
         ev: MempoolUpdate<BabbageTransaction>,
     ) -> Option<MempoolUpdate<BabbageTransaction>> {
         match ev {
-            MempoolUpdate::TxAccepted(tx) => {
-                match extract_transitions(Arc::clone(&self.index), tx).await {
-                    Ok(transitions) => {
-                        for tr in transitions {
-                            let pair = pair_id_of(&tr);
-                            let topic = self.topic.get_mut(pair);
-                            topic.feed(EitherMod::Unconfirmed(Unconfirmed(StateUpdate::Transition(tr))))
-                                .await.expect("Channel is closed");
-                            topic.flush().await.expect("Failed to commit message");
-                        }
-                        None
+            MempoolUpdate::TxAccepted(tx) => match extract_transitions(Arc::clone(&self.index), tx).await {
+                Ok(transitions) => {
+                    for tr in transitions {
+                        let pair = pair_id_of(&tr);
+                        let topic = self.topic.get_mut(pair);
+                        topic
+                            .feed(EitherMod::Unconfirmed(Unconfirmed(StateUpdate::Transition(tr))))
+                            .await
+                            .expect("Channel is closed");
+                        topic.flush().await.expect("Failed to commit message");
                     }
-                    Err(tx) => Some(MempoolUpdate::TxAccepted(tx)),
+                    None
                 }
-            }
+                Err(tx) => Some(MempoolUpdate::TxAccepted(tx)),
+            },
         }
     }
 }

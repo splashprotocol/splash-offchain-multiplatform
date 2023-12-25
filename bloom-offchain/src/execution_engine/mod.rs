@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -25,31 +26,36 @@ use crate::execution_engine::liquidity_book::recipe::{
     ExecutionRecipe, LinkedExecutionRecipe, LinkedFill, LinkedSwap, LinkedTerminalInstruction,
     TerminalInstruction,
 };
+use crate::execution_engine::multi_pair::MultiPair;
 use crate::execution_engine::resolver::resolve_source_state;
 use crate::execution_engine::storage::cache::StateIndexCache;
 use crate::execution_engine::storage::StateIndex;
+use crate::maker::Maker;
 
 pub mod batch_exec;
 pub mod bundled;
 pub mod interpreter;
 pub mod liquidity_book;
+pub mod multi_pair;
 pub mod partial_fill;
 pub mod resolver;
 pub mod storage;
 pub mod types;
 
-/// Instantiate execution stream for a single pair.
-pub fn execution_stream<'a, Id, V, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Interpreter, Prover, Net, Err>(
+/// Instantiate execution stream partition.
+/// Each partition serves total_pairs/num_partitions pairs.
+pub fn execution_part_stream<'a, PairId, Id, V, O, P, B, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Net, Err>(
     index: Index,
     cache: Cache,
-    book: Book,
-    context: Ctx,
-    interpreter: Interpreter,
+    book: MultiPair<PairId, Book, C>,
+    context: C,
+    interpreter: Ir,
     prover: Prover,
-    upstream: mpsc::Receiver<EitherMod<StateUpdate<Bundled<Either<O, P>, B>>>>,
+    upstream: mpsc::Receiver<(PairId, EitherMod<StateUpdate<Bundled<Either<O, P>, B>>>)>,
     network: Net,
 ) -> impl Stream<Item = ()> + 'a
 where
+    PairId: Copy + Eq + Ord + Hash + Display + Unpin + 'a,
     Id: Copy + Eq + Hash + Display + Unpin + 'a,
     V: Copy + Eq + Hash + Display + Unpin + 'a,
     P: EntitySnapshot<StableId = Id, Version = V> + Copy + Unpin + 'a,
@@ -57,17 +63,26 @@ where
     B: Clone + Unpin + 'a,
     Txc: Unpin + 'a,
     Tx: Unpin + 'a,
-    Ctx: Copy + Unpin + 'a,
+    C: Copy + Unpin + 'a,
     Index: StateIndex<Bundled<Either<O, P>, B>> + Unpin + 'a,
     Cache: StateIndexCache<Id, Bundled<Either<O, P>, B>> + Unpin + 'a,
-    Book: TemporalLiquidityBook<O, P> + ExternalTLBEvents<O, P> + TLBFeedback<O, P> + Unpin + 'a,
-    Interpreter: RecipeInterpreter<O, P, Ctx, B, Txc> + Unpin + 'a,
+    Book: TemporalLiquidityBook<O, P> + ExternalTLBEvents<O, P> + TLBFeedback<O, P> + Maker<C> + Unpin + 'a,
+    Ir: RecipeInterpreter<O, P, C, B, Txc> + Unpin + 'a,
     Prover: TxProver<Txc, Tx> + Unpin + 'a,
     Net: Network<Tx, Err> + Clone + 'a,
     Err: Unpin + 'a,
 {
     let (feedback_out, feedback_in) = mpsc::channel(100);
-    let executor = Executor::new(index, cache, book, context, interpreter, prover, upstream, feedback_in);
+    let executor = Executor::new(
+        index,
+        cache,
+        book,
+        context,
+        interpreter,
+        prover,
+        upstream,
+        feedback_in,
+    );
     executor.then(move |tx| {
         let mut network = network.clone();
         let mut feedback = feedback_out.clone();
@@ -78,46 +93,67 @@ where
     })
 }
 
-pub struct Executor<StableId, Version, O, P, Bearer, Txc, Tx, Ctx, Index, Cache, Book, Interpreter, Prover, Err> {
+pub struct Executor<PairId, StableId, Ver, O, P, Bearer, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err> {
     index: Index,
     cache: Cache,
-    book: Book,
-    context: Ctx,
-    interpreter: Interpreter,
+    multi_book: MultiPair<PairId, Book, C>,
+    context: C,
+    interpreter: Ir,
     prover: Prover,
-    upstream: mpsc::Receiver<EitherMod<StateUpdate<Bundled<Either<O, P>, Bearer>>>>,
+    upstream: mpsc::Receiver<(PairId, EitherMod<StateUpdate<Bundled<Either<O, P>, Bearer>>>)>,
+    /// Feedback channel is used to deliver the status of transaction produced by the executor back to it.
     feedback: mpsc::Receiver<Result<(), Err>>,
-    pending_effects: Option<Vec<(Either<O, P>, Bearer)>>,
+    /// Pending effects resulted from execution of a batch trade in a certain [PairId].
+    pending_effects: Option<(PairId, Vec<(Either<O, P>, Bearer)>)>,
+    /// Which pair should we process in the first place.
+    focus_set: BTreeSet<PairId>,
     pd1: PhantomData<StableId>,
-    pd2: PhantomData<Version>,
+    pd2: PhantomData<Ver>,
     pd3: PhantomData<Txc>,
     pd4: PhantomData<Tx>,
     pd5: PhantomData<Err>,
 }
 
-impl<StableId, Version, O, P, Bearer, Txc, Tx, Ctx, Index, Cache, Book, Interpreter,Prover, Err>
-    Executor<StableId, Version, O, P, Bearer, Txc, Tx, Ctx, Index, Cache, Book, Interpreter,Prover, Err>
+impl<PairId, StableId, Version, O, P, Bearer, Txc, Tx, Ctx, Index, Cache, Book, Interpreter, Prover, Err>
+    Executor<
+        PairId,
+        StableId,
+        Version,
+        O,
+        P,
+        Bearer,
+        Txc,
+        Tx,
+        Ctx,
+        Index,
+        Cache,
+        Book,
+        Interpreter,
+        Prover,
+        Err,
+    >
 {
     fn new(
         index: Index,
         cache: Cache,
-        book: Book,
+        multi_book: MultiPair<PairId, Book, Ctx>,
         context: Ctx,
         interpreter: Interpreter,
         prover: Prover,
-        upstream: mpsc::Receiver<EitherMod<StateUpdate<Bundled<Either<O, P>, Bearer>>>>,
+        upstream: mpsc::Receiver<(PairId, EitherMod<StateUpdate<Bundled<Either<O, P>, Bearer>>>)>,
         feedback: mpsc::Receiver<Result<(), Err>>,
     ) -> Self {
         Self {
             index,
             cache,
-            book,
+            multi_book,
             context,
             interpreter,
             prover,
             upstream,
             feedback,
             pending_effects: None,
+            focus_set: Default::default(),
             pd1: Default::default(),
             pd2: Default::default(),
             pd3: Default::default(),
@@ -126,36 +162,38 @@ impl<StableId, Version, O, P, Bearer, Txc, Tx, Ctx, Index, Cache, Book, Interpre
         }
     }
 
-    fn sync_book(&mut self, update: EitherMod<StateUpdate<Bundled<Either<O, P>, Bearer>>>)
+    fn sync_book(&mut self, pair: PairId, update: EitherMod<StateUpdate<Bundled<Either<O, P>, Bearer>>>)
     where
+        PairId: Copy + Eq + Hash + Display,
         StableId: Copy + Eq + Hash + Display,
         Version: Copy + Eq + Hash + Display,
         Bearer: Clone,
+        Ctx: Copy,
         O: EntitySnapshot<StableId = StableId, Version = Version> + Clone,
         P: EntitySnapshot<StableId = StableId, Version = Version> + Clone,
         Index: StateIndex<Bundled<Either<O, P>, Bearer>>,
         Cache: StateIndexCache<StableId, Bundled<Either<O, P>, Bearer>>,
-        Book: ExternalTLBEvents<O, P>,
+        Book: ExternalTLBEvents<O, P> + Maker<Ctx>,
     {
         match self.update_state(update) {
             None => {}
             Some(Ior::Left(e)) => match e {
-                Either::Left(o) => self.book.remove_fragment(o),
-                Either::Right(p) => self.book.remove_pool(p),
+                Either::Left(o) => self.multi_book.get_mut(&pair).remove_fragment(o),
+                Either::Right(p) => self.multi_book.get_mut(&pair).remove_pool(p),
             },
             Some(Ior::Both(old, new)) => match (old, new) {
                 (Either::Left(old), Either::Left(new)) => {
-                    self.book.remove_fragment(old);
-                    self.book.add_fragment(new);
+                    self.multi_book.get_mut(&pair).remove_fragment(old);
+                    self.multi_book.get_mut(&pair).add_fragment(new);
                 }
                 (_, Either::Right(new)) => {
-                    self.book.update_pool(new);
+                    self.multi_book.get_mut(&pair).update_pool(new);
                 }
                 _ => unreachable!(),
             },
             Some(Ior::Right(new)) => match new {
-                Either::Left(new) => self.book.add_fragment(new),
-                Either::Right(new) => self.book.update_pool(new),
+                Either::Left(new) => self.multi_book.get_mut(&pair).add_fragment(new),
+                Either::Right(new) => self.multi_book.get_mut(&pair).update_pool(new),
             },
         }
     }
@@ -242,21 +280,22 @@ impl<StableId, Version, O, P, Bearer, Txc, Tx, Ctx, Index, Cache, Book, Interpre
     }
 }
 
-impl<StableId, Version, O, P, Bearer, Txc, Tx, Ctx, Index, Cache, Book, Interpreter, Prover, Err> Stream
-    for Executor<StableId, Version, O, P, Bearer, Txc, Tx, Ctx, Index, Cache, Book, Interpreter, Prover, Err>
+impl<PairId, StableId, Ver, O, P, Bearer, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err> Stream
+    for Executor<PairId, StableId, Ver, O, P, Bearer, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err>
 where
+    PairId: Copy + Eq + Ord + Hash + Display + Unpin,
     StableId: Copy + Eq + Hash + Display + Unpin,
-    Version: Copy + Eq + Hash + Display + Unpin,
-    P: EntitySnapshot<StableId = StableId, Version = Version> + Copy + Unpin,
-    O: EntitySnapshot<StableId = StableId, Version = Version> + Fragment + OrderState + Copy + Unpin,
+    Ver: Copy + Eq + Hash + Display + Unpin,
+    P: EntitySnapshot<StableId = StableId, Version = Ver> + Copy + Unpin,
+    O: EntitySnapshot<StableId = StableId, Version = Ver> + Fragment + OrderState + Copy + Unpin,
     Bearer: Clone + Unpin,
     Txc: Unpin,
     Tx: Unpin,
-    Ctx: Copy + Unpin,
+    C: Copy + Unpin,
     Index: StateIndex<Bundled<Either<O, P>, Bearer>> + Unpin,
     Cache: StateIndexCache<StableId, Bundled<Either<O, P>, Bearer>> + Unpin,
-    Book: TemporalLiquidityBook<O, P> + ExternalTLBEvents<O, P> + TLBFeedback<O, P> + Unpin,
-    Interpreter: RecipeInterpreter<O, P, Ctx, Bearer, Txc> + Unpin,
+    Book: TemporalLiquidityBook<O, P> + ExternalTLBEvents<O, P> + TLBFeedback<O, P> + Maker<C> + Unpin,
+    Ir: RecipeInterpreter<O, P, C, Bearer, Txc> + Unpin,
     Prover: TxProver<Txc, Tx> + Unpin,
     Err: Unpin,
 {
@@ -265,7 +304,7 @@ where
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         loop {
             // Wait for the feedback from the last pending job.
-            if let Some(mut pending_effects) = self.pending_effects.take() {
+            if let Some((pair, mut pending_effects)) = self.pending_effects.take() {
                 if let Poll::Ready(Some(result)) = Stream::poll_next(Pin::new(&mut self.feedback), cx) {
                     match result {
                         Ok(_) => {
@@ -274,51 +313,57 @@ where
                                     StateUpdate::Transition(Ior::Right(Bundled(e, bearer))),
                                 )));
                             }
-                            self.book.on_recipe_succeeded();
+                            self.multi_book.get_mut(&pair).on_recipe_succeeded();
                         }
                         Err(_err) => {
                             // todo: invalidate missing bearers.
-                            self.book.on_recipe_failed();
+                            self.multi_book.get_mut(&pair).on_recipe_failed();
                         }
                     }
                     continue;
                 }
-                let _ = self.pending_effects.insert(pending_effects);
+                let _ = self.pending_effects.insert((pair, pending_effects));
             }
             // Prioritize external updates over local work.
-            if let Poll::Ready(Some(update)) = Stream::poll_next(Pin::new(&mut self.upstream), cx) {
-                self.sync_book(update);
+            if let Poll::Ready(Some((pair, update))) = Stream::poll_next(Pin::new(&mut self.upstream), cx) {
+                self.sync_book(pair, update);
+                self.focus_set.insert(pair);
                 continue;
             }
             // Finally attempt to execute something.
-            if let Some(recipe) = self.book.attempt() {
-                let linked_recipe = self.link_recipe(recipe.into());
-                let ctx = self.context.clone();
-                let (txc, effects) = self.interpreter.run(linked_recipe, ctx);
-                let _ = self.pending_effects.insert(effects);
-                let tx = self.prover.prove(txc);
-                return Poll::Ready(Some(tx));
+            while let Some(focus_pair) = self.focus_set.pop_first() {
+                if let Some(recipe) = self.multi_book.get_mut(&focus_pair).attempt() {
+                    let linked_recipe = self.link_recipe(recipe.into());
+                    let ctx = self.context.clone();
+                    let (txc, effects) = self.interpreter.run(linked_recipe, ctx);
+                    let _ = self.pending_effects.insert((focus_pair, effects));
+                    let tx = self.prover.prove(txc);
+                    // Return pair to focus set to make sure corresponding TLB will be exhausted.
+                    self.focus_set.insert(focus_pair);
+                    return Poll::Ready(Some(tx));
+                }
             }
             return Poll::Pending;
         }
     }
 }
 
-impl<StableId, Version, O, P, Bearer, Txc, Tx, Ctx, Index, Cache, Book, Interpreter, Prover, Err> FusedStream
-    for Executor<StableId, Version, O, P, Bearer, Txc, Tx, Ctx, Index, Cache, Book, Interpreter, Prover, Err>
+impl<PairId, StableId, Ver, O, P, Bearer, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err> FusedStream
+    for Executor<PairId, StableId, Ver, O, P, Bearer, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err>
 where
+    PairId: Copy + Eq + Ord + Hash + Display + Unpin,
     StableId: Copy + Eq + Hash + Display + Unpin,
-    Version: Copy + Eq + Hash + Display + Unpin,
-    P: EntitySnapshot<StableId = StableId, Version = Version> + Copy + Unpin,
-    O: EntitySnapshot<StableId = StableId, Version = Version> + Fragment + OrderState + Copy + Unpin,
+    Ver: Copy + Eq + Hash + Display + Unpin,
+    P: EntitySnapshot<StableId = StableId, Version = Ver> + Copy + Unpin,
+    O: EntitySnapshot<StableId = StableId, Version = Ver> + Fragment + OrderState + Copy + Unpin,
     Bearer: Clone + Unpin,
     Txc: Unpin,
     Tx: Unpin,
-    Ctx: Copy + Unpin,
+    C: Copy + Unpin,
     Index: StateIndex<Bundled<Either<O, P>, Bearer>> + Unpin,
     Cache: StateIndexCache<StableId, Bundled<Either<O, P>, Bearer>> + Unpin,
-    Book: TemporalLiquidityBook<O, P> + ExternalTLBEvents<O, P> + TLBFeedback<O, P> + Unpin,
-    Interpreter: RecipeInterpreter<O, P, Ctx, Bearer, Txc> + Unpin,
+    Book: TemporalLiquidityBook<O, P> + ExternalTLBEvents<O, P> + TLBFeedback<O, P> + Maker<C> + Unpin,
+    Ir: RecipeInterpreter<O, P, C, Bearer, Txc> + Unpin,
     Prover: TxProver<Txc, Tx> + Unpin,
     Err: Unpin,
 {

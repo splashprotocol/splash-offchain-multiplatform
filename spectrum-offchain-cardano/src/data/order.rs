@@ -6,21 +6,21 @@ use cml_chain::plutus::PlutusData;
 use cml_core::serialization::FromBytes;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
-use spectrum_cardano_lib::OutputRef;
 use spectrum_cardano_lib::plutus_data::RequiresRedeemer;
 use spectrum_cardano_lib::transaction::BabbageTransactionOutputExtension;
+use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::backlog::data::{OrderWeight, Weighted};
-use spectrum_offchain::data::{SpecializedOrder, UniqueOrder};
 use spectrum_offchain::data::unique_entity::Predicted;
+use spectrum_offchain::data::{SpecializedOrder, UniqueOrder};
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::TryFromLedger;
 
-use crate::data::{OnChain, OnChainOrderId, PoolId};
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::execution_context::ExecutionContext;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::pool::CFMMPool;
 use crate::data::redeem::ClassicalOnChainRedeem;
+use crate::data::{OnChain, OnChainOrderId, PoolId};
 
 pub struct Base;
 
@@ -113,7 +113,10 @@ impl RequiresRedeemer<ClassicalOrderAction> for ClassicalOnChainOrder {
 }
 
 impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainOrder {
-    fn try_from_ledger(repr: BabbageTransactionOutput, ctx: OutputRef) -> Result<Self, BabbageTransactionOutput> {
+    fn try_from_ledger(
+        repr: BabbageTransactionOutput,
+        ctx: OutputRef,
+    ) -> Result<Self, BabbageTransactionOutput> {
         match ClassicalOnChainLimitSwap::try_from_ledger(repr.clone(), ctx) {
             Ok(swap) => Ok(ClassicalOnChainOrder::Swap(OnChain {
                 value: swap,
@@ -130,8 +133,8 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainOrde
                         source: repr.upcast(),
                     })),
                     Err(repr) => Err(repr),
-                }
-            }
+                },
+            },
         }
     }
 }
