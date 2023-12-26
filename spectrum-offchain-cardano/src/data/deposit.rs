@@ -11,7 +11,7 @@ use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::UniqueOrder;
-use spectrum_offchain::ledger::{try_parse, TryFromLedger};
+use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::constants::{ORDER_APPLY_RAW_REDEEMER, ORDER_REFUND_RAW_REDEEMER};
 use crate::data::order::{ClassicalOrder, ClassicalOrderAction, PoolNft};
@@ -62,33 +62,28 @@ impl UniqueOrder for ClassicalOnChainDeposit {
 }
 
 impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainDeposit {
-    fn try_from_ledger(
-        repr: BabbageTransactionOutput,
-        ctx: OutputRef,
-    ) -> Result<Self, BabbageTransactionOutput> {
-        try_parse(repr, ctx, |repr, ctx| {
-            let value = repr.value().clone();
-            let conf = OnChainDepositConfig::try_from_pd(repr.clone().into_datum()?.into_pd()?)?;
-            let token_x_amount = TaggedAmount::tag(value.amount_of(conf.token_x.untag()).unwrap_or(0));
-            let token_y_amount = TaggedAmount::tag(value.amount_of(conf.token_y.untag()).unwrap_or(0));
-            let deposit = Deposit {
-                pool_nft: PoolId::try_from(conf.pool_nft).ok()?,
-                token_x: conf.token_x,
-                token_x_amount,
-                token_y: conf.token_y,
-                token_y_amount,
-                token_lq: conf.token_lq,
-                ex_fee: conf.ex_fee,
-                reward_pkh: conf.reward_pkh,
-                reward_stake_pkh: conf.reward_stake_pkh,
-                collateral_ada: conf.collateral_ada,
-            };
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
+        let value = repr.value().clone();
+        let conf = OnChainDepositConfig::try_from_pd(repr.clone().into_datum()?.into_pd()?)?;
+        let token_x_amount = TaggedAmount::tag(value.amount_of(conf.token_x.untag()).unwrap_or(0));
+        let token_y_amount = TaggedAmount::tag(value.amount_of(conf.token_y.untag()).unwrap_or(0));
+        let deposit = Deposit {
+            pool_nft: PoolId::try_from(conf.pool_nft).ok()?,
+            token_x: conf.token_x,
+            token_x_amount,
+            token_y: conf.token_y,
+            token_y_amount,
+            token_lq: conf.token_lq,
+            ex_fee: conf.ex_fee,
+            reward_pkh: conf.reward_pkh,
+            reward_stake_pkh: conf.reward_stake_pkh,
+            collateral_ada: conf.collateral_ada,
+        };
 
-            Some(ClassicalOrder {
-                id: OnChainOrderId::from(ctx),
-                pool_id: PoolId::try_from(conf.pool_nft).ok()?,
-                order: deposit,
-            })
+        Some(ClassicalOrder {
+            id: OnChainOrderId::from(ctx),
+            pool_id: PoolId::try_from(conf.pool_nft).ok()?,
+            order: deposit,
         })
     }
 }

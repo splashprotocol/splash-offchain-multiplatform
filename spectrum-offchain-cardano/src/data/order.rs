@@ -113,29 +113,30 @@ impl RequiresRedeemer<ClassicalOrderAction> for ClassicalOnChainOrder {
 }
 
 impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainOrder {
-    fn try_from_ledger(
-        repr: BabbageTransactionOutput,
-        ctx: OutputRef,
-    ) -> Result<Self, BabbageTransactionOutput> {
-        match ClassicalOnChainLimitSwap::try_from_ledger(repr.clone(), ctx) {
-            Ok(swap) => Ok(ClassicalOnChainOrder::Swap(OnChain {
-                value: swap,
-                source: repr.upcast(),
-            })),
-            Err(repr) => match ClassicalOnChainDeposit::try_from_ledger(repr.clone(), ctx) {
-                Ok(deposit) => Ok(ClassicalOnChainOrder::Deposit(OnChain {
-                    value: deposit,
-                    source: repr.upcast(),
-                })),
-                Err(repr) => match ClassicalOnChainRedeem::try_from_ledger(repr.clone(), ctx) {
-                    Ok(redeem) => Ok(ClassicalOnChainOrder::Redeem(OnChain {
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
+        ClassicalOnChainLimitSwap::try_from_ledger(repr, ctx)
+            .map(|swap| {
+                ClassicalOnChainOrder::Swap(OnChain {
+                    value: swap,
+                    source: repr.clone().upcast(),
+                })
+            })
+            .or_else(|| {
+                ClassicalOnChainDeposit::try_from_ledger(repr, ctx).map(|deposit| {
+                    ClassicalOnChainOrder::Deposit(OnChain {
+                        value: deposit,
+                        source: repr.clone().upcast(),
+                    })
+                })
+            })
+            .or_else(|| {
+                ClassicalOnChainRedeem::try_from_ledger(repr, ctx).map(|redeem| {
+                    ClassicalOnChainOrder::Redeem(OnChain {
                         value: redeem,
-                        source: repr.upcast(),
-                    })),
-                    Err(repr) => Err(repr),
-                },
-            },
-        }
+                        source: repr.clone().upcast(),
+                    })
+                })
+            })
     }
 }
 

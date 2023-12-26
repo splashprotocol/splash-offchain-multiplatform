@@ -9,6 +9,7 @@ use rand::{thread_rng, RngCore};
 
 use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAssetClass, Token};
 use spectrum_offchain::data::{EntitySnapshot, SpecializedOrder};
+use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::constants::POOL_VERSIONS;
 use crate::data::order::PoolNft;
@@ -29,6 +30,18 @@ pub mod execution_context;
 pub struct OnChain<T> {
     pub value: T,
     pub source: TransactionOutput,
+}
+
+impl<T, Ctx> TryFromLedger<TransactionOutput, Ctx> for OnChain<T>
+where
+    T: TryFromLedger<TransactionOutput, Ctx>,
+{
+    fn try_from_ledger(repr: &TransactionOutput, ctx: Ctx) -> Option<Self> {
+        T::try_from_ledger(repr, ctx).map(|value| OnChain {
+            value,
+            source: repr.clone(),
+        })
+    }
 }
 
 impl<T> OnChain<T> {

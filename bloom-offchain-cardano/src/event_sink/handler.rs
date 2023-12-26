@@ -25,37 +25,31 @@ use crate::event_sink::entity_index::EntityIndex;
 
 /// A handler for updates that routes resulted [Entity] updates
 /// into different topics [Topic] according to partitioning key [PairId].
-pub struct PairUpdateHandler<const N: usize, PairId, Topic, Entity, Index, Pairs>
+#[derive(Clone)]
+pub struct PairUpdateHandler<const N: usize, PairId, Topic, Entity, Index>
 where
     Entity: EntitySnapshot,
 {
     pub topic: Partitioned<N, PairId, Topic>,
     /// Index of all non-consumed states of [Entity].
     pub index: Arc<Mutex<Index>>,
-    /// Registry of all trading pairs.
-    pub pairs: Arc<Mutex<Pairs>>,
     pub pd: PhantomData<Entity>,
 }
 
-impl<const N: usize, PairId, Topic, Entity, Index, Pairs>
-    PairUpdateHandler<N, PairId, Topic, Entity, Index, Pairs>
+impl<const N: usize, PairId, Topic, Entity, Index> PairUpdateHandler<N, PairId, Topic, Entity, Index>
 where
     Entity: EntitySnapshot + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone,
 {
-    pub fn new(
-        topic: Partitioned<N, PairId, Topic>,
-        index: Arc<Mutex<Index>>,
-        pairs: Arc<Mutex<Pairs>>,
-    ) -> Self {
+    pub fn new(topic: Partitioned<N, PairId, Topic>, index: Arc<Mutex<Index>>) -> Self {
         Self {
             topic,
             index,
-            pairs,
             pd: Default::default(),
         }
     }
 }
 
+// todo: test for rollback processing correctness.
 async fn extract_transitions<Entity, Index>(
     index: Arc<Mutex<Index>>,
     mut tx: BabbageTransaction,
@@ -69,8 +63,8 @@ where
     for i in &tx.body.inputs {
         let state_id = Entity::Version::from(OutputRef::from((i.transaction_id, i.index)));
         let mut index = index.lock().await;
-        if index.exists(state_id) {
-            if let Some(entity) = index.take_state(state_id) {
+        if index.exists(&state_id) {
+            if let Some(entity) = index.take_state(&state_id) {
                 let entity_id = entity.stable_id();
                 consumed_entities.insert(entity_id, entity);
             }
@@ -81,13 +75,13 @@ where
     let mut ix = tx.body.outputs.len() - 1;
     while let Some(o) = tx.body.outputs.pop() {
         let o_ref = OutputRef::new(tx_hash, ix as u64);
-        match Entity::try_from_ledger(o.clone(), o_ref) {
-            Ok(entity) => {
+        match Entity::try_from_ledger(&o, o_ref) {
+            Some(entity) => {
                 let entity_id = entity.stable_id();
                 produced_entities.insert(entity_id, entity);
             }
-            Err(out) => {
-                tx.body.outputs.push(out);
+            None => {
+                tx.body.outputs.push(o);
             }
         }
         ix += 1;
@@ -124,11 +118,11 @@ fn pair_id_of<T: EntitySnapshot + Tradable>(xa: &Ior<T, T>) -> T::PairId {
 }
 
 #[async_trait(?Send)]
-impl<const N: usize, PairId, Topic, Entity, Index, Pairs> EventHandler<LedgerTxEvent<BabbageTransaction>>
-    for PairUpdateHandler<N, PairId, Topic, Entity, Index, Pairs>
+impl<const N: usize, PairId, Topic, Entity, Index> EventHandler<LedgerTxEvent<BabbageTransaction>>
+    for PairUpdateHandler<N, PairId, Topic, Entity, Index>
 where
-    PairId: Hash,
-    Topic: Sink<EitherMod<StateUpdate<Entity>>> + Unpin,
+    PairId: Copy + Hash,
+    Topic: Sink<(PairId, EitherMod<StateUpdate<Entity>>)> + Unpin,
     Topic::Error: Debug,
     Entity: EntitySnapshot
         + Tradable<PairId = PairId>
@@ -151,7 +145,7 @@ where
                             let pair = pair_id_of(&tr);
                             let topic = self.topic.get_mut(pair);
                             topic
-                                .feed(EitherMod::Confirmed(Confirmed(StateUpdate::Transition(tr))))
+                                .feed((pair, EitherMod::Confirmed(Confirmed(StateUpdate::Transition(tr)))))
                                 .await
                                 .expect("Channel is closed");
                             topic.flush().await.expect("Failed to commit message");
@@ -168,9 +162,10 @@ where
                         let pair = pair_id_of(&tr);
                         let topic = self.topic.get_mut(pair);
                         topic
-                            .feed(EitherMod::Confirmed(Confirmed(StateUpdate::TransitionRollback(
-                                tr,
-                            ))))
+                            .feed((
+                                pair,
+                                EitherMod::Confirmed(Confirmed(StateUpdate::TransitionRollback(tr))),
+                            ))
                             .await
                             .expect("Channel is closed");
                         topic.flush().await.expect("Failed to commit message");
@@ -184,11 +179,11 @@ where
 }
 
 #[async_trait(?Send)]
-impl<const N: usize, PairId, Topic, Entity, Index, Pairs> EventHandler<MempoolUpdate<BabbageTransaction>>
-    for PairUpdateHandler<N, PairId, Topic, Entity, Index, Pairs>
+impl<const N: usize, PairId, Topic, Entity, Index> EventHandler<MempoolUpdate<BabbageTransaction>>
+    for PairUpdateHandler<N, PairId, Topic, Entity, Index>
 where
-    PairId: Hash,
-    Topic: Sink<EitherMod<StateUpdate<Entity>>> + Unpin,
+    PairId: Copy + Hash,
+    Topic: Sink<(PairId, EitherMod<StateUpdate<Entity>>)> + Unpin,
     Topic::Error: Debug,
     Entity: EntitySnapshot
         + Tradable<PairId = PairId>
@@ -209,7 +204,10 @@ where
                         let pair = pair_id_of(&tr);
                         let topic = self.topic.get_mut(pair);
                         topic
-                            .feed(EitherMod::Unconfirmed(Unconfirmed(StateUpdate::Transition(tr))))
+                            .feed((
+                                pair,
+                                EitherMod::Unconfirmed(Unconfirmed(StateUpdate::Transition(tr))),
+                            ))
                             .await
                             .expect("Channel is closed");
                         topic.flush().await.expect("Failed to commit message");

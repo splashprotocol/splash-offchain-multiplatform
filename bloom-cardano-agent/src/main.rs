@@ -1,20 +1,32 @@
-use std::sync::Once;
+use std::sync::{Arc, Once};
 
 use clap::Parser;
 use cml_chain::genesis::network_info::NetworkInfo;
 use cml_chain::transaction::Transaction;
 use cml_multi_era::babbage::BabbageTransaction;
+use futures::channel::mpsc;
 use log::info;
+use tokio::sync::Mutex;
 use tracing_subscriber::fmt::Subscriber;
 
+use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
+use bloom_offchain_cardano::event_sink::handler::PairUpdateHandler;
+use bloom_offchain_cardano::event_sink::CardanoEvent;
+use bloom_offchain_cardano::PairId;
 use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::ChainSyncClient;
+use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_chain_sync::event_source::event_source_ledger;
 use cardano_explorer::client::Explorer;
 use cardano_mempool_sync::client::LocalTxMonitorClient;
+use cardano_mempool_sync::data::MempoolUpdate;
 use cardano_mempool_sync::mempool_stream;
 use cardano_submit_api::client::LocalTxSubmissionClient;
 use spectrum_cardano_lib::constants::BABBAGE_ERA_ID;
+use spectrum_offchain::data::unique_entity::{EitherMod, StateUpdate};
+use spectrum_offchain::event_sink::event_handler::EventHandler;
+use spectrum_offchain::event_sink::process_events;
+use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain_cardano::collaterals::{Collaterals, CollateralsViaExplorer};
 use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::data::ref_scripts::ReferenceOutputs;
@@ -80,7 +92,32 @@ async fn main() {
         .get_collateral()
         .await
         .expect("Couldn't retrieve collateral");
+
+    let (pair_upd_snd_p1, pair_upd_recv_p1) =
+        mpsc::channel::<(PairId, EitherMod<StateUpdate<CardanoEvent>>)>(128);
+    let (pair_upd_snd_p2, pair_upd_recv_p2) =
+        mpsc::channel::<(PairId, EitherMod<StateUpdate<CardanoEvent>>)>(128);
+    let (pair_upd_snd_p3, pair_upd_recv_p3) =
+        mpsc::channel::<(PairId, EitherMod<StateUpdate<CardanoEvent>>)>(128);
+    let (pair_upd_snd_p4, pair_upd_recv_p4) =
+        mpsc::channel::<(PairId, EitherMod<StateUpdate<CardanoEvent>>)>(128);
+
+    let partitioned_pair_upd_snd =
+        Partitioned::new([pair_upd_snd_p1, pair_upd_snd_p2, pair_upd_snd_p3, pair_upd_snd_p4]);
+    let index = Arc::new(Mutex::new(InMemoryEntityIndex::new()));
+    let upd_handler = PairUpdateHandler::new(partitioned_pair_upd_snd, index);
+
+    let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<BabbageTransaction>>>> =
+        vec![Box::new(upd_handler.clone())];
+
+    let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<BabbageTransaction>>>> =
+        vec![Box::new(upd_handler)];
+
+    let process_ledger_events_stream = process_events(ledger_stream, handlers_ledger);
+    let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool);
 }
+
+const NUM_PART: usize = 4;
 
 #[derive(Parser)]
 #[command(name = "bloom-cardano-agent")]

@@ -6,6 +6,7 @@ use std::marker::PhantomData;
 /// Partitioned resource `R`.
 /// `K` - partitioning key;
 /// `N` - number of partitions.
+#[derive(Clone)]
 pub struct Partitioned<const N: usize, K, R> {
     inner: [R; N],
     pd: PhantomData<K>,

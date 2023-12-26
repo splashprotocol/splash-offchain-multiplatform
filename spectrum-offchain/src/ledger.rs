@@ -1,16 +1,20 @@
+use futures::future::Either;
+
 /// Tries to read domain entity from on-chain representation (e.g. a UTxO).
 pub trait TryFromLedger<Repr, Ctx>: Sized {
-    fn try_from_ledger(repr: Repr, ctx: Ctx) -> Result<Self, Repr>;
+    fn try_from_ledger(repr: &Repr, ctx: Ctx) -> Option<Self>;
 }
 
-pub fn try_parse<Repr, Ctx, T, F: FnOnce(&Repr, Ctx) -> Option<T>>(
-    repr: Repr,
-    ctx: Ctx,
-    parse: F,
-) -> Result<T, Repr> {
-    match parse(&repr, ctx) {
-        None => Err(repr),
-        Some(r) => Ok(r),
+impl<A, B, Repr, Ctx> TryFromLedger<Repr, Ctx> for Either<A, B>
+where
+    A: TryFromLedger<Repr, Ctx>,
+    B: TryFromLedger<Repr, Ctx>,
+    Ctx: Copy,
+{
+    fn try_from_ledger(repr: &Repr, ctx: Ctx) -> Option<Self> {
+        A::try_from_ledger(repr, ctx)
+            .map(|a| Either::Left(a))
+            .or_else(|| B::try_from_ledger(repr, ctx).map(|b| Either::Right(b)))
     }
 }
 
