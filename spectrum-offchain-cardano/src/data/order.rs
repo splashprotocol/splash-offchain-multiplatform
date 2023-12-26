@@ -18,7 +18,7 @@ use spectrum_offchain::ledger::TryFromLedger;
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::execution_context::ExecutionContext;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
-use crate::data::pool::CFMMPool;
+use crate::data::pool::{OrderInputIdx, PoolEnum};
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::{OnChain, OnChainOrderId, PoolId};
 
@@ -141,7 +141,7 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainOrde
     }
 }
 
-impl RunOrder<ClassicalOnChainOrder, ExecutionContext, SignedTxBuilder> for OnChain<CFMMPool> {
+impl RunOrder<ClassicalOnChainOrder, ExecutionContext, SignedTxBuilder> for OnChain<PoolEnum> {
     fn try_run(
         self,
         order: ClassicalOnChainOrder,

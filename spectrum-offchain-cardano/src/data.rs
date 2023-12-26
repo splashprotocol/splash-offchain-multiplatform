@@ -5,6 +5,7 @@ use cml_chain::transaction::{TransactionInput, TransactionOutput};
 use cml_chain::{PolicyId, Value};
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use cml_multi_era::babbage::BabbageTransactionOutput;
+use derive_more::Display;
 use num_rational::Ratio;
 use rand::{thread_rng, RngCore};
 
@@ -27,6 +28,8 @@ pub mod redeem;
 pub mod ref_scripts;
 
 pub mod execution_context;
+mod fee_switch_bidirectional_fee;
+mod fee_switch_pool;
 pub mod pair;
 
 /// For persistent on-chain entities (e.g. pools) we want to carry initial utxo.
@@ -101,6 +104,10 @@ where
 
     fn version(&self) -> Self::Version {
         self.value.version()
+    }
+
+    fn update_version(&mut self, new_version: Self::Version) {
+        self.update_version(new_version)
     }
 }
 

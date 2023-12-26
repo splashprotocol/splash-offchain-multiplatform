@@ -13,10 +13,10 @@ use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass
 use spectrum_offchain::data::order::UniqueOrder;
 use spectrum_offchain::ledger::TryFromLedger;
 
-use crate::constants::{ORDER_APPLY_RAW_REDEEMER, ORDER_REFUND_RAW_REDEEMER};
+use crate::constants::{ORDER_APPLY_RAW_REDEEMER, ORDER_APPLY_RAW_REDEEMER_V2, ORDER_REFUND_RAW_REDEEMER};
 use crate::data::order::{ClassicalOrder, ClassicalOrderAction, PoolNft};
 use crate::data::pool::CFMMPoolAction::Redeem as RedeemAction;
-use crate::data::pool::{CFMMPoolAction, Lq, Rx, Ry};
+use crate::data::pool::{CFMMPoolAction, Lq, OrderInputIdx, Rx, Ry};
 use crate::data::{OnChainOrderId, PoolId};
 
 #[derive(Debug, Clone)]
@@ -34,13 +34,16 @@ pub struct Redeem {
 
 pub type ClassicalOnChainRedeem = ClassicalOrder<OnChainOrderId, Redeem>;
 
-impl RequiresRedeemer<ClassicalOrderAction> for ClassicalOnChainRedeem {
-    fn redeemer(action: ClassicalOrderAction) -> PlutusData {
+impl RequiresRedeemer<(ClassicalOrderAction, OrderInputIdx)> for ClassicalOnChainRedeem {
+    fn redeemer(action: (ClassicalOrderAction, OrderInputIdx)) -> PlutusData {
         match action {
-            ClassicalOrderAction::Apply => {
+            (ClassicalOrderAction::Apply, OrderInputIdx::OrderIdx0) => {
+                PlutusData::from_bytes(hex::decode(ORDER_APPLY_RAW_REDEEMER_V2).unwrap()).unwrap()
+            }
+            (ClassicalOrderAction::Apply, OrderInputIdx::OrderIdx1) => {
                 PlutusData::from_bytes(hex::decode(ORDER_APPLY_RAW_REDEEMER).unwrap()).unwrap()
             }
-            ClassicalOrderAction::Refund => {
+            (ClassicalOrderAction::Refund, _) => {
                 PlutusData::from_bytes(hex::decode(ORDER_REFUND_RAW_REDEEMER).unwrap()).unwrap()
             }
         }
@@ -142,7 +145,7 @@ mod tests {
     use crate::creds::operator_creds;
     use crate::data::execution_context::ExecutionContext;
     use crate::data::order::ClassicalOnChainOrder;
-    use crate::data::pool::CFMMPool;
+    use crate::data::pool::{CFMMPool, PoolEnum};
     use crate::data::redeem::OnChainRedeemConfig;
     use crate::data::ref_scripts::ReferenceOutputs;
     use crate::data::OnChain;
@@ -167,15 +170,15 @@ mod tests {
         let pool_box =
             BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(POOL_SAMPLE).unwrap()).unwrap();
         let redeem = ClassicalOnChainOrder::try_from_ledger(&redeem_box, redeem_ref).unwrap();
-        let pool = <OnChain<CFMMPool>>::try_from_ledger(&pool_box, pool_ref).unwrap();
+        let pool = <OnChain<PoolEnum>>::try_from_ledger(&pool_box, pool_ref).unwrap();
 
         let private_key_bech32 = Bip32PrivateKey::generate_ed25519_bip32().to_bech32();
 
         let (_, operator_pkh, operator_addr) =
-            operator_creds(private_key_bech32.as_str(), NetworkInfo::mainnet());
+            operator_creds(private_key_bech32.as_str(), NetworkInfo::testnet());
 
         let test_address = EnterpriseAddress::new(
-            NetworkInfo::mainnet().network_id(),
+            NetworkInfo::testnet().network_id(),
             StakeCredential::new_pub_key(operator_pkh),
         )
         .to_address();
@@ -189,9 +192,12 @@ mod tests {
 
         let mock_requestor = MockBasedRequestor::new(collateral_outputs);
 
-        let explorer = Explorer::new(ExplorerConfig {
-            url: "https://explorer.spectrum.fi",
-        });
+        let explorer = Explorer::new(
+            ExplorerConfig {
+                url: "https://explorer.spectrum.fi",
+            },
+            u32::from(NetworkInfo::mainnet().protocol_magic()) as u64,
+        );
 
         let ref_scripts_conf = ReferenceSources {
             pool_v1_script: "31a497ef6b0033e66862546aa2928a1987f8db3b8f93c59febbe0f47b14a83c6#0"
@@ -200,6 +206,15 @@ mod tests {
             pool_v2_script: "c8c93656e8bce07fabe2f42d703060b7c71bfa2e48a2956820d1bd81cc936faa#0"
                 .try_into()
                 .unwrap(),
+            fee_switch_pool_script: "c8c93656e8bce07fabe2f42d703060b7c71bfa2e48a2956820d1bd81cc936faa#0"
+                .to_string()
+                .try_into()
+                .unwrap(),
+            fee_switch_pool_bidirectional_fee_script:
+                "c8c93656e8bce07fabe2f42d703060b7c71bfa2e48a2956820d1bd81cc936faa#0"
+                    .to_string()
+                    .try_into()
+                    .unwrap(),
             swap_script: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#2"
                 .try_into()
                 .unwrap(),

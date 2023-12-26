@@ -1,20 +1,20 @@
-use std::cmp::min;
-
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
-use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput};
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
 use cml_chain::plutus::{PlutusData, RedeemerTag};
-use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, TransactionOutput};
-use cml_chain::{Coin, Value};
-use cml_core::serialization::FromBytes;
+use cml_chain::transaction::{
+    ConwayFormatTxOut, DatumOption, ScriptRef, TransactionBody, TransactionInput, TransactionOutput,
+};
+use cml_core::serialization::{Deserialize, FromBytes, Serialize};
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
 use num_integer::Roots;
 use num_rational::Ratio;
+use std::fmt::Debug;
+use std::hash::Hash;
 use type_equalities::IsEqual;
 
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
@@ -27,26 +27,37 @@ use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::unique_entity::Predicted;
 use spectrum_offchain::data::{EntitySnapshot, Has, Stable};
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 use crate::constants::{
-    CFMM_LP_FEE_DEN, MAX_LQ_CAP, ORDER_EXECUTION_UNITS, POOL_DEPOSIT_REDEEMER, POOL_DESTROY_REDEEMER,
-    POOL_EXECUTION_UNITS, POOL_REDEEM_REDEEMER, POOL_SWAP_REDEEMER,
+    FEE_DEN, MAX_LQ_CAP, ORDER_EXECUTION_UNITS, POOL_DEPOSIT_REDEEMER, POOL_DESTROY_REDEEMER,
+    POOL_EXECUTION_UNITS, POOL_IDX_0_SWAP_REDEEMER, POOL_IDX_1_SWAP_REDEEMER, POOL_REDEEM_REDEEMER,
 };
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::execution_context::ExecutionContext;
+use crate::data::fee_switch_bidirectional_fee::FeeSwitchBidirectionalPool;
+use crate::data::fee_switch_pool::FeeSwitchPool;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::operation_output::{DepositOutput, RedeemOutput, SwapOutput};
 use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
 use crate::data::pair::order_canonical;
+use crate::data::pool::PoolEnum::{FeeSwitch, FeeSwitchBidirectional, CFMM};
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::ref_scripts::RequiresRefScript;
 use crate::data::{OnChain, OnChainOrderId, PoolId, PoolStateVer, PoolVer};
 use crate::fees::FeeExtension;
+use crate::pool_math::cfmm_math::{output_amount, reward_lp, shares_amount};
+use cml_chain::builders::tx_builder::{
+    ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput, TxBuilderError,
+};
+use cml_chain::{Coin, Value};
+use cml_crypto::ScriptHash;
+use serde::de::Unexpected::Char;
+use spectrum_cardano_lib::hash::hash_transaction_canonical;
+use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
 
 pub struct Rx;
 
@@ -55,7 +66,7 @@ pub struct Ry;
 pub struct Lq;
 
 #[derive(Debug)]
-pub struct Slippage<Order>(Order);
+pub struct Slippage<Order>(pub Order);
 
 impl<T> Slippage<T> {
     pub fn map<F, T1>(self, f: F) -> Slippage<T1>
@@ -72,11 +83,60 @@ impl<Order> From<Slippage<Order>> for RunOrderError<Order> {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub enum PoolIdx {
+    PoolIdx0,
+    PoolIdx1,
+}
+
+impl Into<u64> for PoolIdx {
+    fn into(self) -> u64 {
+        match self {
+            PoolIdx::PoolIdx0 => 0,
+            PoolIdx::PoolIdx1 => 1,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum OrderInputIdx {
+    OrderIdx0,
+    OrderIdx1,
+}
+
+impl Into<u64> for OrderInputIdx {
+    fn into(self) -> u64 {
+        match self {
+            OrderInputIdx::OrderIdx0 => 0,
+            OrderInputIdx::OrderIdx1 => 1,
+        }
+    }
+}
+
 pub enum CFMMPoolAction {
     Swap,
     Deposit,
     Redeem,
     Destroy,
+}
+
+impl CFMMPoolAction {
+    pub fn to_plutus_data(self) -> PlutusData {
+        match self {
+            CFMMPoolAction::Swap => {
+                PlutusData::from_bytes(hex::decode(POOL_IDX_1_SWAP_REDEEMER).unwrap()).unwrap()
+            }
+            CFMMPoolAction::Deposit => {
+                PlutusData::from_bytes(hex::decode(POOL_DEPOSIT_REDEEMER).unwrap()).unwrap()
+            }
+            CFMMPoolAction::Redeem => {
+                PlutusData::from_bytes(hex::decode(POOL_REDEEM_REDEEMER).unwrap()).unwrap()
+            }
+            CFMMPoolAction::Destroy => {
+                PlutusData::from_bytes(hex::decode(POOL_DESTROY_REDEEMER).unwrap()).unwrap()
+            }
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -94,22 +154,163 @@ pub struct CFMMPool {
     pub ver: PoolVer,
 }
 
-impl CFMMPool {
+#[derive(Clone, Debug)]
+pub enum PoolEnum {
+    CFMM(CFMMPool),
+    FeeSwitch(FeeSwitchPool),
+    FeeSwitchBidirectional(FeeSwitchBidirectionalPool),
+}
+
+// In case of standard amm pools we should also require
+// pool idx in input set, because it's affect to
+// final version of redeemer. Pool idx could be only 0 or 1
+impl RequiresRedeemer<(CFMMPoolAction, PoolIdx)> for PoolEnum {
+    fn redeemer(action: (CFMMPoolAction, PoolIdx)) -> PlutusData {
+        match action {
+            (CFMMPoolAction::Swap, PoolIdx::PoolIdx0) => {
+                PlutusData::from_bytes(hex::decode(POOL_IDX_0_SWAP_REDEEMER).unwrap()).unwrap()
+            }
+            (CFMMPoolAction::Swap, PoolIdx::PoolIdx1) => {
+                PlutusData::from_bytes(hex::decode(POOL_IDX_1_SWAP_REDEEMER).unwrap()).unwrap()
+            }
+            (CFMMPoolAction::Deposit, _) => {
+                PlutusData::from_bytes(hex::decode(POOL_DEPOSIT_REDEEMER).unwrap()).unwrap()
+            }
+            (CFMMPoolAction::Redeem, _) => {
+                PlutusData::from_bytes(hex::decode(POOL_REDEEM_REDEEMER).unwrap()).unwrap()
+            }
+            (CFMMPoolAction::Destroy, _) => {
+                PlutusData::from_bytes(hex::decode(POOL_DESTROY_REDEEMER).unwrap()).unwrap()
+            }
+        }
+    }
+}
+
+pub trait PoolOps {
+    fn get_asset_x(&self) -> TaggedAssetClass<Rx>;
+
+    fn get_reserves_x(&self) -> TaggedAmount<Rx>;
+
+    fn get_reserves_y(&self) -> TaggedAmount<Ry>;
+
+    fn set_reserves_x(self, new_value: TaggedAmount<Rx>) -> ();
+
+    fn set_reserves_y(self, new_value: TaggedAmount<Ry>) -> ();
+
+    fn output_amount(
+        &self,
+        base_asset: TaggedAssetClass<Base>,
+        base_amount: TaggedAmount<Base>,
+    ) -> TaggedAmount<Quote>;
+
+    fn reward_lp(
+        &self,
+        in_x_amount: u64,
+        in_y_amount: u64,
+    ) -> (TaggedAmount<Lq>, TaggedAmount<Rx>, TaggedAmount<Ry>);
+
+    fn shares_amount(self, burned_lq: TaggedAmount<Lq>) -> (TaggedAmount<Rx>, TaggedAmount<Ry>);
+}
+
+impl PoolOps for CFMMPool {
+    fn get_asset_x(&self) -> TaggedAssetClass<Rx> {
+        self.asset_x
+    }
+
+    fn get_reserves_x(&self) -> TaggedAmount<Rx> {
+        self.reserves_x
+    }
+
+    fn get_reserves_y(&self) -> TaggedAmount<Ry> {
+        self.reserves_y
+    }
+
+    fn set_reserves_x(mut self, new_value: TaggedAmount<Rx>) -> () {
+        self.reserves_x = new_value
+    }
+
+    fn set_reserves_y(mut self, new_value: TaggedAmount<Ry>) -> () {
+        self.reserves_y = new_value
+    }
+
+    fn output_amount(
+        &self,
+        base_asset: TaggedAssetClass<Base>,
+        base_amount: TaggedAmount<Base>,
+    ) -> TaggedAmount<Quote> {
+        output_amount(
+            self.asset_x,
+            self.reserves_x,
+            self.reserves_y,
+            base_asset,
+            base_amount,
+            self.lp_fee,
+            self.lp_fee,
+        )
+    }
+
+    fn reward_lp(
+        &self,
+        in_x_amount: u64,
+        in_y_amount: u64,
+    ) -> (TaggedAmount<Lq>, TaggedAmount<Rx>, TaggedAmount<Ry>) {
+        reward_lp(
+            self.reserves_x,
+            self.reserves_y,
+            self.liquidity,
+            in_x_amount,
+            in_y_amount,
+        )
+    }
+
+    fn shares_amount(self, burned_lq: TaggedAmount<Lq>) -> (TaggedAmount<Rx>, TaggedAmount<Ry>) {
+        shares_amount(self.reserves_x, self.reserves_y, self.liquidity, burned_lq)
+    }
+}
+
+impl PoolEnum {
+    pub fn update_state_version(&mut self, new_version: PoolStateVer) {
+        match self {
+            CFMM(cfmm_pool) => cfmm_pool.state_ver = new_version,
+            FeeSwitch(fee_switch_pool) => fee_switch_pool.state_ver = new_version,
+            FeeSwitchBidirectional(bidirectional_pool) => bidirectional_pool.state_ver = new_version,
+        }
+    }
+
     pub fn output_amount(
         &self,
         base_asset: TaggedAssetClass<Base>,
         base_amount: TaggedAmount<Base>,
     ) -> TaggedAmount<Quote> {
-        let quote_amount = if base_asset.untag() == self.asset_x.untag() {
-            (self.reserves_y.untag() as u128) * (base_amount.untag() as u128) * (*self.lp_fee.numer() as u128)
-                / ((self.reserves_x.untag() as u128) * (*self.lp_fee.denom() as u128)
-                    + (base_amount.untag() as u128) * (*self.lp_fee.numer() as u128))
-        } else {
-            (self.reserves_x.untag() as u128) * (base_amount.untag() as u128) * (*self.lp_fee.numer() as u128)
-                / ((self.reserves_y.untag() as u128) * (*self.lp_fee.denom() as u128)
-                    + (base_amount.untag() as u128) * (*self.lp_fee.numer() as u128))
-        };
-        TaggedAmount::new(quote_amount as u64)
+        match self {
+            PoolEnum::CFMM(pool) => output_amount(
+                pool.asset_x,
+                pool.reserves_x,
+                pool.reserves_y,
+                base_asset,
+                base_amount,
+                pool.lp_fee,
+                pool.lp_fee,
+            ),
+            PoolEnum::FeeSwitch(pool) => output_amount(
+                pool.asset_x,
+                pool.reserves_x,
+                pool.reserves_y,
+                base_asset,
+                base_amount,
+                pool.lp_fee,
+                pool.lp_fee,
+            ),
+            PoolEnum::FeeSwitchBidirectional(bidirectional_pool) => output_amount(
+                bidirectional_pool.asset_x,
+                bidirectional_pool.reserves_x,
+                bidirectional_pool.reserves_y,
+                base_asset,
+                base_amount,
+                bidirectional_pool.lp_fee_x,
+                bidirectional_pool.lp_fee_y,
+            ),
+        }
     }
 
     pub fn reward_lp(
@@ -117,45 +318,43 @@ impl CFMMPool {
         in_x_amount: u64,
         in_y_amount: u64,
     ) -> (TaggedAmount<Lq>, TaggedAmount<Rx>, TaggedAmount<Ry>) {
-        let min_by_x =
-            (in_x_amount as u128) * (self.liquidity.untag() as u128) / (self.reserves_x.untag() as u128);
-        let min_by_y =
-            (in_y_amount as u128) * (self.liquidity.untag() as u128) / (self.reserves_y.untag() as u128);
-        let (change_by_x, change_by_y): (u64, u64) = if min_by_x == min_by_y {
-            (0, 0)
-        } else {
-            if min_by_x < min_by_y {
-                (
-                    0,
-                    ((min_by_y - min_by_x) * (self.reserves_y.untag() as u128)
-                        / (self.liquidity.untag() as u128)) as u64,
-                )
-            } else {
-                (
-                    ((min_by_x - min_by_y) * (self.reserves_x.untag() as u128)
-                        / (self.liquidity.untag() as u128)) as u64,
-                    0,
-                )
-            }
-        };
-        let unlocked_lq = min(min_by_x, min_by_y) as u64;
-        (
-            TaggedAmount::new(unlocked_lq),
-            TaggedAmount::new(change_by_x),
-            TaggedAmount::new(change_by_y),
-        )
+        match self {
+            PoolEnum::CFMM(pool) => reward_lp(
+                pool.reserves_x,
+                pool.reserves_y,
+                pool.liquidity,
+                in_x_amount,
+                in_y_amount,
+            ),
+            PoolEnum::FeeSwitch(pool) => reward_lp(
+                pool.reserves_x,
+                pool.reserves_y,
+                pool.liquidity,
+                in_x_amount,
+                in_y_amount,
+            ),
+            PoolEnum::FeeSwitchBidirectional(bidirectional_pool) => reward_lp(
+                bidirectional_pool.reserves_x,
+                bidirectional_pool.reserves_y,
+                bidirectional_pool.liquidity,
+                in_x_amount,
+                in_y_amount,
+            ),
+        }
     }
 
     pub fn shares_amount(self, burned_lq: TaggedAmount<Lq>) -> (TaggedAmount<Rx>, TaggedAmount<Ry>) {
-        let x_amount = (burned_lq.untag() as u128) * (self.reserves_x.untag() as u128)
-            / (self.liquidity.untag() as u128);
-        let y_amount = (burned_lq.untag() as u128) * (self.reserves_y.untag() as u128)
-            / (self.liquidity.untag() as u128);
-
-        (
-            TaggedAmount::new(x_amount as u64),
-            TaggedAmount::new(y_amount as u64),
-        )
+        match self {
+            PoolEnum::CFMM(pool) => {
+                shares_amount(pool.reserves_x, pool.reserves_y, pool.liquidity, burned_lq)
+            }
+            PoolEnum::FeeSwitch(pool) => {
+                shares_amount(pool.reserves_x, pool.reserves_y, pool.liquidity, burned_lq)
+            }
+            PoolEnum::FeeSwitchBidirectional(pool) => {
+                shares_amount(pool.reserves_x, pool.reserves_y, pool.liquidity, burned_lq)
+            }
+        }
     }
 }
 
@@ -227,9 +426,23 @@ impl Pool for CFMMPool {
     }
 }
 
-impl Has<PoolStateVer> for CFMMPool {
+impl Has<PoolStateVer> for PoolEnum {
     fn get_labeled<U: IsEqual<PoolStateVer>>(&self) -> PoolStateVer {
-        self.state_ver
+        match self {
+            CFMM(cfmm_pool) => cfmm_pool.state_ver,
+            FeeSwitch(fee_switch) => fee_switch.state_ver,
+            FeeSwitchBidirectional(bidirectional_pool) => bidirectional_pool.state_ver,
+        }
+    }
+}
+
+impl Has<PoolVer> for PoolEnum {
+    fn get_labeled<U: IsEqual<PoolVer>>(&self) -> PoolVer {
+        match self {
+            CFMM(cfmm_pool) => cfmm_pool.ver,
+            FeeSwitch(fee_switch) => fee_switch.ver,
+            FeeSwitchBidirectional(bidirectional_pool) => bidirectional_pool.ver,
+        }
     }
 }
 
@@ -241,17 +454,38 @@ impl Has<PoolVer> for CFMMPool {
 
 impl RequiresRedeemer<CFMMPoolAction> for CFMMPool {
     fn redeemer(action: CFMMPoolAction) -> PlutusData {
-        match action {
-            CFMMPoolAction::Swap => PlutusData::from_bytes(hex::decode(POOL_SWAP_REDEEMER).unwrap()).unwrap(),
-            CFMMPoolAction::Deposit => {
-                PlutusData::from_bytes(hex::decode(POOL_DEPOSIT_REDEEMER).unwrap()).unwrap()
-            }
-            CFMMPoolAction::Redeem => {
-                PlutusData::from_bytes(hex::decode(POOL_REDEEM_REDEEMER).unwrap()).unwrap()
-            }
-            CFMMPoolAction::Destroy => {
-                PlutusData::from_bytes(hex::decode(POOL_DESTROY_REDEEMER).unwrap()).unwrap()
-            }
+        action.to_plutus_data()
+    }
+}
+
+impl Stable for PoolEnum {
+    type StableId = PoolId;
+
+    fn stable_id(&self) -> Self::StableId {
+        match self {
+            CFMM(cfmm) => cfmm.stable_id(),
+            FeeSwitch(feeSwitch) => feeSwitch.stable_id(),
+            FeeSwitchBidirectional(bidirectional) => bidirectional.stable_id(),
+        }
+    }
+}
+
+impl EntitySnapshot for PoolEnum {
+    type Version = PoolStateVer;
+
+    fn version(&self) -> Self::Version {
+        match self {
+            CFMM(cfmmPool) => cfmmPool.state_ver,
+            FeeSwitch(feeSwitchPool) => feeSwitchPool.state_ver,
+            FeeSwitchBidirectional(bidirectional_pool) => bidirectional_pool.state_ver,
+        }
+    }
+
+    fn update_version(&mut self, new_version: Self::Version) {
+        match self {
+            CFMM(cfmmPool) => cfmmPool.update_version(new_version),
+            FeeSwitch(feeSwitchPool) => feeSwitchPool.update_version(new_version),
+            FeeSwitchBidirectional(bidirectional_pool) => bidirectional_pool.update_version(new_version),
         }
     }
 }
@@ -268,13 +502,23 @@ impl EntitySnapshot for CFMMPool {
     fn version(&self) -> Self::Version {
         self.state_ver
     }
+
+    fn update_version(&mut self, new_version: Self::Version) {
+        self.state_ver = new_version
+    }
 }
 
-impl<C> TryFromLedger<BabbageTransactionOutput, C> for CFMMPool
-where
-    C: Has<OutputRef>,
-{
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
+impl TryFromLedger<BabbageTransactionOutput, OutputRef> for PoolEnum {
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
+        FeeSwitchBidirectionalPool::try_from_ledger(repr, ctx)
+            .map(|pool| FeeSwitchBidirectional(pool))
+            .or_else(|| FeeSwitchPool::try_from_ledger(repr, ctx).map(|pool| FeeSwitch(pool)))
+            .or_else(|| CFMMPool::try_from_ledger(repr, ctx).map(|pool| CFMM(pool)))
+    }
+}
+
+impl TryFromLedger<BabbageTransactionOutput, OutputRef> for CFMMPool {
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
         if let Some(pool_ver) = PoolVer::try_from_pool_address(repr.address()) {
             let value = repr.value();
             let pd = repr.datum().clone()?.into_pd()?;
@@ -285,14 +529,14 @@ where
             let liquidity = TaggedAmount::new(MAX_LQ_CAP - liquidity_neg);
             return Some(CFMMPool {
                 id: PoolId::try_from(conf.pool_nft).ok()?,
-                state_ver: ctx.get().into(),
+                state_ver: PoolStateVer::from(ctx),
                 reserves_x,
                 reserves_y,
                 liquidity,
                 asset_x: conf.asset_x,
                 asset_y: conf.asset_y,
                 asset_lq: conf.asset_lq,
-                lp_fee: Ratio::new(conf.lp_fee_num, CFMM_LP_FEE_DEN),
+                lp_fee: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
                 lq_lower_bound: conf.lq_lower_bound,
                 ver: pool_ver,
             });
@@ -319,6 +563,16 @@ impl From<&TransactionOutput> for ImmutablePoolUtxo {
     }
 }
 
+impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for PoolEnum {
+    fn into_ledger(self, ctx: ImmutablePoolUtxo) -> TransactionOutput {
+        match self {
+            CFMM(cfmm) => cfmm.into_ledger(ctx),
+            FeeSwitch(fee_switch) => fee_switch.into_ledger(ctx),
+            FeeSwitchBidirectional(pool) => pool.into_ledger(ctx),
+        }
+    }
+}
+
 impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for CFMMPool {
     fn into_ledger(self, immut_pool: ImmutablePoolUtxo) -> TransactionOutput {
         let mut ma = MultiAsset::new();
@@ -338,7 +592,7 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for CFMMPool {
             immut_pool.value
         };
         let (policy_lq, name_lq) = self.asset_lq.untag().into_token().unwrap();
-        ma.set(policy_lq, name_lq.into(), self.liquidity.untag());
+        ma.set(policy_lq, name_lq.into(), MAX_LQ_CAP - self.liquidity.untag());
 
         TransactionOutput::new_conway_format_tx_out(ConwayFormatTxOut {
             address: immut_pool.address,
@@ -376,6 +630,27 @@ impl TryFromPData for CFMMPoolConfig {
 /// Defines how a particular type of swap order can be applied to the pool.
 pub trait ApplySwap<Swap>: Sized {
     fn apply_swap(self, order: Swap) -> Result<(Self, SwapOutput), Slippage<Swap>>;
+}
+
+impl ApplyOrder<ClassicalOnChainLimitSwap> for PoolEnum {
+    type OrderApplicationResult = SwapOutput;
+
+    fn apply_order(
+        self,
+        order: ClassicalOnChainLimitSwap,
+    ) -> Result<(Self, Self::OrderApplicationResult), Slippage<ClassicalOnChainLimitSwap>> {
+        match self {
+            PoolEnum::CFMM(cfmm_pool) => cfmm_pool
+                .apply_order(order)
+                .map(|(new_cfmm_pool, newOutput)| (CFMM(new_cfmm_pool), newOutput)),
+            PoolEnum::FeeSwitch(fee_switch_pool) => fee_switch_pool
+                .apply_order(order)
+                .map(|(fee_pool, newOutput)| (FeeSwitch(fee_pool), newOutput)),
+            PoolEnum::FeeSwitchBidirectional(bidirectional_pool) => bidirectional_pool
+                .apply_order(order)
+                .map(|(pool, newOutput)| (FeeSwitchBidirectional(pool), newOutput)),
+        }
+    }
 }
 
 impl ApplyOrder<ClassicalOnChainLimitSwap> for CFMMPool {
@@ -419,6 +694,27 @@ pub trait ApplyOrder<Order>: Sized {
     fn apply_order(self, order: Order) -> Result<(Self, Self::OrderApplicationResult), Slippage<Order>>;
 }
 
+impl ApplyOrder<ClassicalOnChainDeposit> for PoolEnum {
+    type OrderApplicationResult = DepositOutput;
+
+    fn apply_order(
+        self,
+        order: ClassicalOnChainDeposit,
+    ) -> Result<(Self, Self::OrderApplicationResult), Slippage<ClassicalOnChainDeposit>> {
+        match self {
+            PoolEnum::CFMM(cfmm_pool) => cfmm_pool
+                .apply_order(order)
+                .map(|(new_cfmm_pool, newOutput)| (CFMM(new_cfmm_pool), newOutput)),
+            PoolEnum::FeeSwitch(fee_switch_pool) => fee_switch_pool
+                .apply_order(order)
+                .map(|(fee_pool, newOutput)| (FeeSwitch(fee_pool), newOutput)),
+            PoolEnum::FeeSwitchBidirectional(bidirectional_pool) => bidirectional_pool
+                .apply_order(order)
+                .map(|(pool, newOutput)| (FeeSwitchBidirectional(pool), newOutput)),
+        }
+    }
+}
+
 impl ApplyOrder<ClassicalOnChainDeposit> for CFMMPool {
     type OrderApplicationResult = DepositOutput;
 
@@ -460,6 +756,27 @@ impl ApplyOrder<ClassicalOnChainDeposit> for CFMMPool {
     }
 }
 
+impl ApplyOrder<ClassicalOnChainRedeem> for PoolEnum {
+    type OrderApplicationResult = RedeemOutput;
+
+    fn apply_order(
+        self,
+        order: ClassicalOnChainRedeem,
+    ) -> Result<(Self, Self::OrderApplicationResult), Slippage<ClassicalOnChainRedeem>> {
+        match self {
+            PoolEnum::CFMM(cfmm_pool) => cfmm_pool
+                .apply_order(order)
+                .map(|(new_cfmm_pool, newOutput)| (CFMM(new_cfmm_pool), newOutput)),
+            PoolEnum::FeeSwitch(fee_switch_pool) => fee_switch_pool
+                .apply_order(order)
+                .map(|(fee_pool, newOutput)| (FeeSwitch(fee_pool), newOutput)),
+            PoolEnum::FeeSwitchBidirectional(bidirectional_pool) => bidirectional_pool
+                .apply_order(order)
+                .map(|(pool, newOutput)| (FeeSwitchBidirectional(pool), newOutput)),
+        }
+    }
+}
+
 impl ApplyOrder<ClassicalOnChainRedeem> for CFMMPool {
     type OrderApplicationResult = RedeemOutput;
 
@@ -487,103 +804,169 @@ impl ApplyOrder<ClassicalOnChainRedeem> for CFMMPool {
     }
 }
 
+fn create_tx_builder<Pool, Order>(
+    pool_idx: PoolIdx,
+    order_idx: OrderInputIdx,
+    order: OnChain<Order>,
+    pool: OnChain<Pool>,
+    ctx: ExecutionContext,
+) -> Result<(SignedTxBuilder, Predicted<OnChain<Pool>>), RunOrderError<OnChain<Order>>>
+where
+    Pool: ApplyOrder<Order>
+        + Has<PoolStateVer>
+        + Has<PoolVer>
+        + RequiresRedeemer<(CFMMPoolAction, PoolIdx)>
+        + IntoLedger<TransactionOutput, ImmutablePoolUtxo>
+        + Clone
+        + RequiresRefScript
+        + EntitySnapshot<Version = PoolStateVer>,
+    <Pool as ApplyOrder<Order>>::OrderApplicationResult: IntoLedger<TransactionOutput, ExecutionContext>,
+    Order: Has<OnChainOrderId>
+        + RequiresRedeemer<(ClassicalOrderAction, OrderInputIdx)>
+        + RequiresRefScript
+        + Clone
+        + Into<CFMMPoolAction>,
+{
+    let OnChain {
+        value: pool,
+        source: pool_out_in,
+    } = pool;
+    let pool_redeemer = Pool::redeemer((order.value.clone().into(), pool_idx));
+    let pool_ref = OutputRef::from(pool.get_labeled::<PoolStateVer>());
+    let order_ref = OutputRef::from(order.value.get_labeled::<OnChainOrderId>());
+    let pool_script = PartialPlutusWitness::new(
+        PlutusScriptWitness::Ref(pool_out_in.script_hash().unwrap()),
+        pool_redeemer,
+    );
+    let immut_pool = ImmutablePoolUtxo::from(&pool_out_in);
+    let pool_in = SingleInputBuilder::new(pool_ref.into(), pool_out_in.clone())
+        .plutus_script_inline_datum(pool_script, Vec::new())
+        .unwrap();
+    let order_redeemer = Order::redeemer((ClassicalOrderAction::Apply, order_idx));
+    let order_script = PartialPlutusWitness::new(
+        PlutusScriptWitness::Ref(order.source.script_hash().unwrap()),
+        order_redeemer,
+    );
+    let order_in = SingleInputBuilder::new(order_ref.into(), order.source.clone())
+        .plutus_script_inline_datum(order_script, Vec::new())
+        .unwrap();
+    let (next_pool, user_out) = match pool.clone().apply_order(order.value.clone()) {
+        Ok(res) => res,
+        Err(slippage) => {
+            return Err(slippage
+                .map(|value: Order| OnChain {
+                    value,
+                    source: order.source,
+                })
+                .into());
+        }
+    };
+    let pool_out = next_pool.clone().into_ledger(immut_pool);
+
+    let mut tx_builder = constant_tx_builder();
+
+    tx_builder.add_collateral(ctx.collateral.clone().into()).unwrap();
+
+    tx_builder.add_reference_input(order.clone().value.get_ref_script(ctx.ref_scripts.clone()));
+    tx_builder.add_reference_input(pool.get_ref_script(ctx.ref_scripts.clone()));
+
+    tx_builder.add_input(pool_in.clone()).unwrap();
+    tx_builder.add_input(order_in).unwrap();
+
+    tx_builder.set_exunits(
+        RedeemerWitnessKey::new(RedeemerTag::Spend, pool_idx.clone().into()),
+        POOL_EXECUTION_UNITS, // ORDER_EXECUTION_UNITS,
+    );
+    tx_builder.set_exunits(
+        RedeemerWitnessKey::new(RedeemerTag::Spend, order_idx.clone().into()),
+        ORDER_EXECUTION_UNITS, // POOL_EXECUTION_UNITS,
+    );
+
+    tx_builder
+        .add_output(SingleOutputBuilderResult::new(pool_out.clone()))
+        .unwrap();
+    tx_builder
+        .add_output(SingleOutputBuilderResult::new(user_out.into_ledger(ctx.clone())))
+        .unwrap();
+
+    let tx = tx_builder
+        .build(ChangeSelectionAlgo::Default, &ctx.operator_addr)
+        .unwrap();
+
+    let tx_hash = hash_transaction_canonical(&tx.body());
+
+    let mut next_pool_new = next_pool.clone();
+
+    next_pool_new.update_version(PoolStateVer(OutputRef::new(tx_hash, pool_idx.clone().into())));
+
+    let predicted_pool = Predicted(OnChain {
+        value: next_pool_new,
+        source: pool_out.clone(),
+    });
+
+    Ok((tx, predicted_pool))
+}
+
 impl<'a, Order, Pool> RunOrder<OnChain<Order>, ExecutionContext, SignedTxBuilder> for OnChain<Pool>
 where
     Pool: ApplyOrder<Order>
         + Has<PoolStateVer>
         + Has<PoolVer>
-        + RequiresRedeemer<CFMMPoolAction>
+        // all AMM ops redeemers depends on action and pool/order input idx
+        + RequiresRedeemer<(CFMMPoolAction, PoolIdx)>
         + IntoLedger<TransactionOutput, ImmutablePoolUtxo>
         + Clone
-        + RequiresRefScript,
-    <Pool as ApplyOrder<Order>>::OrderApplicationResult: IntoLedger<TransactionOutput, ()>,
+        + RequiresRefScript
+        + EntitySnapshot<Version = PoolStateVer>,
+    <Pool as ApplyOrder<Order>>::OrderApplicationResult: IntoLedger<TransactionOutput, ExecutionContext>,
     Order: Has<OnChainOrderId>
-        + RequiresRedeemer<ClassicalOrderAction>
+        // all AMM ops redeemers depends on action and pool/order input idx
+        + RequiresRedeemer<(ClassicalOrderAction, OrderInputIdx)>
         + RequiresRefScript
         + Clone
-        + Into<CFMMPoolAction>,
+        + Into<CFMMPoolAction>
+        + Debug,
 {
+    // Running order for standard AMM/FeeSwitch/Bidirectional pools requires
+    // creation at most 2 tx with different redeemers packs, because we can not cast inputs
+    // to correct underlying cbor set. First pack describes case with pool at 0 index and
+    // order at 1 index in inputs set. The second - oposite case
     fn try_run(
         self,
-        OnChain {
-            value: order,
-            source: order_out_in,
-        }: OnChain<Order>,
+        order: OnChain<Order>,
         ctx: ExecutionContext,
     ) -> Result<(SignedTxBuilder, Predicted<Self>), RunOrderError<OnChain<Order>>> {
-        let OnChain {
-            value: pool,
-            source: pool_out_in,
-        } = self;
-        let pool_ref = OutputRef::from(pool.get_labeled::<PoolStateVer>());
-        let order_ref = OutputRef::from(order.get_labeled::<OnChainOrderId>());
+        let pool_ref = OutputRef::from(self.value.get_labeled::<PoolStateVer>());
+        let order_ref = OutputRef::from(order.value.get_labeled::<OnChainOrderId>());
         info!(target: "offchain", "Running order {} against pool {}", order_ref, pool_ref);
-        let (next_pool, user_out) = match pool.clone().apply_order(order.clone()) {
-            Ok(res) => res,
-            Err(slippage) => {
-                return Err(slippage
-                    .map(|value: Order| OnChain {
-                        value,
-                        source: order_out_in,
-                    })
-                    .into());
-            }
-        };
-        let pool_redeemer = Pool::redeemer(order.clone().into());
-        let pool_script = PartialPlutusWitness::new(
-            PlutusScriptWitness::Ref(pool_out_in.script_hash().unwrap()),
-            pool_redeemer,
-        );
-        let immut_pool = ImmutablePoolUtxo::from(&pool_out_in);
-        let pool_in = SingleInputBuilder::new(pool_ref.into(), pool_out_in)
-            .plutus_script_inline_datum(pool_script, Vec::new())
-            .unwrap();
-        let order_redeemer = Order::redeemer(ClassicalOrderAction::Apply);
-        let order_script = PartialPlutusWitness::new(
-            PlutusScriptWitness::Ref(order_out_in.script_hash().unwrap()),
-            order_redeemer,
-        );
-        let order_in = SingleInputBuilder::new(order_ref.into(), order_out_in)
-            .plutus_script_inline_datum(order_script, Vec::new())
-            .unwrap();
-        let pool_out = next_pool.clone().into_ledger(immut_pool);
-        let predicted_pool = Predicted(OnChain {
-            value: next_pool,
-            source: pool_out.clone(),
-        });
 
-        let mut tx_builder = constant_tx_builder();
+        let (tx_builder_with_pool_at_0_idx, predicted_pool) = create_tx_builder(
+            PoolIdx::PoolIdx0,
+            OrderInputIdx::OrderIdx1,
+            order.clone(),
+            self.clone(),
+            ctx.clone(),
+        )?;
 
-        tx_builder.add_collateral(ctx.collateral.into()).unwrap();
+        let pool_idx0_is_correct = tx_builder_with_pool_at_0_idx
+            .body()
+            .inputs
+            .get(0)
+            .unwrap()
+            .transaction_id
+            == <OutputRef as Into<TransactionInput>>::into(pool_ref.into()).transaction_id;
 
-        tx_builder.add_reference_input(order.clone().get_ref_script(ctx.ref_scripts.clone()));
-        tx_builder.add_reference_input(pool.get_ref_script(ctx.ref_scripts.clone()));
-
-        tx_builder.add_input(pool_in.clone()).unwrap();
-        tx_builder.add_input(order_in).unwrap();
-
-        tx_builder.set_exunits(
-            RedeemerWitnessKey::new(RedeemerTag::Spend, 0),
-            POOL_EXECUTION_UNITS,
-        );
-
-        tx_builder.set_exunits(
-            RedeemerWitnessKey::new(RedeemerTag::Spend, 1),
-            ORDER_EXECUTION_UNITS,
-        );
-
-        tx_builder
-            .add_output(SingleOutputBuilderResult::new(pool_out))
-            .unwrap();
-        tx_builder
-            .add_output(SingleOutputBuilderResult::new(user_out.into_ledger(())))
-            .unwrap();
-
-        let tx = tx_builder
-            .build(ChangeSelectionAlgo::Default, &ctx.operator_addr)
-            .unwrap();
-
-        Ok((tx, predicted_pool))
+        if (pool_idx0_is_correct) {
+            Ok((tx_builder_with_pool_at_0_idx, predicted_pool))
+        } else {
+            Ok(create_tx_builder(
+                PoolIdx::PoolIdx1,
+                OrderInputIdx::OrderIdx0,
+                order.clone(),
+                self.clone(),
+                ctx.clone(),
+            )?)
+        }
     }
 }
 

@@ -9,14 +9,21 @@ pub struct ExecutionContext {
     pub operator_addr: Address,
     pub ref_scripts: ReferenceOutputs,
     pub collateral: Collateral,
+    pub network_id: u8,
 }
 
 impl ExecutionContext {
-    pub fn new(operator_addr: Address, ref_scripts: ReferenceOutputs, collateral: Collateral) -> Self {
+    pub fn new(
+        operator_addr: Address,
+        ref_scripts: ReferenceOutputs,
+        collateral: Collateral,
+        network_id: u8,
+    ) -> Self {
         ExecutionContext {
             operator_addr,
             ref_scripts,
             collateral,
+            network_id,
         }
     }
 }

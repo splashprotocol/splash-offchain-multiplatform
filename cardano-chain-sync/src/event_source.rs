@@ -7,7 +7,7 @@ use cml_core::Slot;
 use cml_multi_era::babbage::{BabbageBlock, BabbageTransaction};
 use futures::stream::StreamExt;
 use futures::{stream, Stream};
-use log::warn;
+use log::{info, warn};
 use tokio::sync::Mutex;
 
 use spectrum_cardano_lib::hash::hash_block_header_canonical;
@@ -61,6 +61,10 @@ where
             } else {
                 cache_point(cache, &blk).await;
             }
+            info!(
+                "Processing block {}",
+                hash_block_header_canonical(&blk.header).to_hex()
+            );
             let applied_txs: Vec<_> = unpack_valid_transactions(blk)
                 .map(|(tx, slot)| LedgerTxEvent::TxApplied { tx, slot })
                 .collect();

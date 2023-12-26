@@ -11,6 +11,7 @@ isahc = { version = "1.7.2", features = ["json"] }
 futures = "0.3.25"
 tokio = { version = "1.22.0", features = ["full"] }
 log = "0.4.17"
+tracing = "0.1.37"
 log4rs = "1.2.0"
 async-trait = "0.1.58"
 async-channel = "1.9.0"
@@ -33,6 +34,7 @@ async-std = "1.12"
 nonempty = "0.8.1"
 num-rational = "0.4.1"
 either = "1.9.0"
+hex = "0.4.3"
 
 [dev-dependencies]
 rocksdb = "0.21.*"

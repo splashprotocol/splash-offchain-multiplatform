@@ -17,6 +17,7 @@ pub struct ExplorerTxOut {
     value: ExplorerValue,
     data: Option<String>,
     data_hash: Option<String>,
+    spent_by_tx_hash: Option<String>,
 }
 
 impl ExplorerTxOut {

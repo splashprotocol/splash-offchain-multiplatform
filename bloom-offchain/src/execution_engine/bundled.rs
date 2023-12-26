@@ -23,6 +23,10 @@ where
     fn version(&self) -> Self::Version {
         self.0.version()
     }
+
+    fn update_version(&mut self, new_version: Self::Version) {
+        self.0.update_version(new_version)
+    }
 }
 
 impl<T, Source> Tradable for Bundled<T, Source>

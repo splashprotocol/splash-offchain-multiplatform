@@ -17,6 +17,12 @@ impl From<u64> for OrderWeight {
     }
 }
 
+impl From<Ratio<u64>> for OrderWeight {
+    fn from(x: Ratio<u64>) -> Self {
+        Self(Ratio::new(x.numer().clone() as u128, x.denom().clone() as u128))
+    }
+}
+
 pub trait Weighted {
     fn weight(&self) -> OrderWeight;
 }

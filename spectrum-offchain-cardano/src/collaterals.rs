@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use cml_chain::builders::input_builder::{InputBuilderResult, SingleInputBuilder};
+use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 
 use cardano_explorer::client::Explorer;
@@ -32,7 +32,7 @@ impl<'a> Collaterals for CollateralsViaExplorer<'a> {
     async fn get_collateral(self) -> Option<Collateral> {
         let utxos = self
             .explorer
-            .get_unspent_utxos(self.batcher_payment_cred, 0, 10)
+            .get_unspent_utxos(self.batcher_payment_cred, 0, 100) //todo: check limit
             .await;
         let collateral_utxo: TransactionUnspentOutput = utxos.into_iter().find_map(|utxo| {
             let utxo_value = utxo.get_value();
