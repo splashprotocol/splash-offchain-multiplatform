@@ -3,6 +3,8 @@ use std::mem;
 
 use futures::future::Either;
 
+use spectrum_offchain::data::Has;
+
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use crate::execution_engine::liquidity_book::pool::Pool;
 use crate::execution_engine::liquidity_book::recipe::{
@@ -11,6 +13,8 @@ use crate::execution_engine::liquidity_book::recipe::{
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::state::{IdleState, TLBState, VersionedState};
 use crate::execution_engine::liquidity_book::types::ExecutionCost;
+use crate::execution_engine::types::Time;
+use crate::maker::Maker;
 
 pub mod fragment;
 pub mod pool;
@@ -45,6 +49,7 @@ pub trait TLBFeedback<Fr, Pl> {
     fn on_recipe_failed(&mut self);
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct ExecutionCap {
     pub soft: ExecutionCost,
     pub hard: ExecutionCost,
@@ -56,9 +61,19 @@ impl ExecutionCap {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct TLB<Fr, Pl> {
     state: TLBState<Fr, Pl>,
     execution_cap: ExecutionCap,
+}
+
+impl<Fr, Pl, Ctx> Maker<Ctx> for TLB<Fr, Pl>
+where
+    Ctx: Has<Time> + Has<ExecutionCap>,
+{
+    fn make(ctx: &Ctx) -> Self {
+        Self::new(ctx.get::<Time>().into(), ctx.get::<ExecutionCap>())
+    }
 }
 
 impl<Fr, Pl> TLB<Fr, Pl> {

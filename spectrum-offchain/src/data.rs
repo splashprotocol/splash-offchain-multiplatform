@@ -83,3 +83,18 @@ where
         }
     }
 }
+
+impl<PairId, A, B> Tradable for Either<A, B>
+where
+    PairId: Copy + Eq + Hash + Display,
+    A: Tradable<PairId = PairId>,
+    B: Tradable<PairId = PairId>,
+{
+    type PairId = PairId;
+    fn pair_id(&self) -> Self::PairId {
+        match self {
+            Either::Left(x) => x.pair_id(),
+            Either::Right(x) => x.pair_id(),
+        }
+    }
+}

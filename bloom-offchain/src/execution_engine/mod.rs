@@ -5,27 +5,27 @@ use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use futures::{SinkExt, StreamExt};
 use futures::channel::mpsc;
 use futures::future::Either;
-use futures::Stream;
 use futures::stream::FusedStream;
+use futures::Stream;
+use futures::{SinkExt, StreamExt};
 use log::trace;
 
 use spectrum_offchain::combinators::Ior;
-use spectrum_offchain::data::EntitySnapshot;
 use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
+use spectrum_offchain::data::EntitySnapshot;
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_prover::TxProver;
 
 use crate::execution_engine::bundled::Bundled;
 use crate::execution_engine::interpreter::RecipeInterpreter;
-use crate::execution_engine::liquidity_book::{ExternalTLBEvents, TemporalLiquidityBook, TLBFeedback};
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState};
 use crate::execution_engine::liquidity_book::recipe::{
     ExecutionRecipe, LinkedExecutionRecipe, LinkedFill, LinkedSwap, LinkedTerminalInstruction,
     TerminalInstruction,
 };
+use crate::execution_engine::liquidity_book::{ExternalTLBEvents, TLBFeedback, TemporalLiquidityBook};
 use crate::execution_engine::multi_pair::MultiPair;
 use crate::execution_engine::resolver::resolve_source_state;
 use crate::execution_engine::storage::cache::StateIndexCache;
@@ -42,32 +42,59 @@ pub mod resolver;
 pub mod storage;
 pub mod types;
 
+pub type Event<O, P, B> = EitherMod<StateUpdate<Bundled<Either<O, P>, B>>>;
+
 /// Instantiate execution stream partition.
 /// Each partition serves total_pairs/num_partitions pairs.
-pub fn execution_part_stream<'a, PairId, Id, V, O, P, B, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Net, Err>(
+pub fn execution_part_stream<
+    'a,
+    Upstream,
+    PairId,
+    StableId,
+    Ver,
+    Order,
+    Pool,
+    Bearer,
+    Txc,
+    Tx,
+    Ctx,
+    Index,
+    Cache,
+    Book,
+    Interpreter,
+    Prover,
+    Net,
+    Err,
+>(
     index: Index,
     cache: Cache,
-    book: MultiPair<PairId, Book, C>,
-    context: C,
-    interpreter: Ir,
+    book: MultiPair<PairId, Book, Ctx>,
+    context: Ctx,
+    interpreter: Interpreter,
     prover: Prover,
-    upstream: mpsc::Receiver<(PairId, EitherMod<StateUpdate<Bundled<Either<O, P>, B>>>)>,
+    upstream: Upstream,
     network: Net,
 ) -> impl Stream<Item = ()> + 'a
 where
+    Upstream: Stream<Item = (PairId, Event<Order, Pool, Bearer>)> + Unpin + 'a,
     PairId: Copy + Eq + Ord + Hash + Display + Unpin + 'a,
-    Id: Copy + Eq + Hash + Display + Unpin + 'a,
-    V: Copy + Eq + Hash + Display + Unpin + 'a,
-    P: EntitySnapshot<StableId = Id, Version = V> + Copy + Unpin + 'a,
-    O: EntitySnapshot<StableId = Id, Version = V> + Fragment + OrderState + Copy + Unpin + 'a,
-    B: Clone + Unpin + 'a,
+    StableId: Copy + Eq + Hash + Display + Unpin + 'a,
+    Ver: Copy + Eq + Hash + Display + Unpin + 'a,
+    Pool: EntitySnapshot<StableId = StableId, Version = Ver> + Copy + Unpin + 'a,
+    Order: EntitySnapshot<StableId = StableId, Version = Ver> + Fragment + OrderState + Copy + Unpin + 'a,
+    Bearer: Clone + Unpin + 'a,
     Txc: Unpin + 'a,
     Tx: Unpin + 'a,
-    C: Copy + Unpin + 'a,
-    Index: StateIndex<Bundled<Either<O, P>, B>> + Unpin + 'a,
-    Cache: StateIndexCache<Id, Bundled<Either<O, P>, B>> + Unpin + 'a,
-    Book: TemporalLiquidityBook<O, P> + ExternalTLBEvents<O, P> + TLBFeedback<O, P> + Maker<C> + Unpin + 'a,
-    Ir: RecipeInterpreter<O, P, C, B, Txc> + Unpin + 'a,
+    Ctx: Clone + Unpin + 'a,
+    Index: StateIndex<Bundled<Either<Order, Pool>, Bearer>> + Unpin + 'a,
+    Cache: StateIndexCache<StableId, Bundled<Either<Order, Pool>, Bearer>> + Unpin + 'a,
+    Book: TemporalLiquidityBook<Order, Pool>
+        + ExternalTLBEvents<Order, Pool>
+        + TLBFeedback<Order, Pool>
+        + Maker<Ctx>
+        + Unpin
+        + 'a,
+    Interpreter: RecipeInterpreter<Order, Pool, Ctx, Bearer, Txc> + Unpin + 'a,
     Prover: TxProver<Txc, Tx> + Unpin + 'a,
     Net: Network<Tx, Err> + Clone + 'a,
     Err: Unpin + 'a,
@@ -93,7 +120,7 @@ where
     })
 }
 
-pub struct Executor<PairId, StableId, Ver, O, P, Bearer, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err> {
+pub struct Executor<S, PairId, StableId, Ver, O, P, Bearer, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err> {
     index: Index,
     cache: Cache,
     /// Separate TLBs for each pair.
@@ -101,7 +128,7 @@ pub struct Executor<PairId, StableId, Ver, O, P, Bearer, Txc, Tx, C, Index, Cach
     context: C,
     interpreter: Ir,
     prover: Prover,
-    upstream: mpsc::Receiver<(PairId, EitherMod<StateUpdate<Bundled<Either<O, P>, Bearer>>>)>,
+    upstream: S,
     /// Feedback channel is used to deliver the status of transaction produced by the executor back to it.
     feedback: mpsc::Receiver<Result<(), Err>>,
     /// Pending effects resulted from execution of a batch trade in a certain [PairId].
@@ -115,33 +142,17 @@ pub struct Executor<PairId, StableId, Ver, O, P, Bearer, Txc, Tx, C, Index, Cach
     pd5: PhantomData<Err>,
 }
 
-impl<PairId, StableId, Version, O, P, Bearer, Txc, Tx, Ctx, Index, Cache, Book, Interpreter, Prover, Err>
-    Executor<
-        PairId,
-        StableId,
-        Version,
-        O,
-        P,
-        Bearer,
-        Txc,
-        Tx,
-        Ctx,
-        Index,
-        Cache,
-        Book,
-        Interpreter,
-        Prover,
-        Err,
-    >
+impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Prover, Err>
+    Executor<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Prover, Err>
 {
     fn new(
         index: Index,
         cache: Cache,
         multi_book: MultiPair<PairId, Book, Ctx>,
         context: Ctx,
-        interpreter: Interpreter,
+        interpreter: Ir,
         prover: Prover,
-        upstream: mpsc::Receiver<(PairId, EitherMod<StateUpdate<Bundled<Either<O, P>, Bearer>>>)>,
+        upstream: S,
         feedback: mpsc::Receiver<Result<(), Err>>,
     ) -> Self {
         Self {
@@ -163,17 +174,17 @@ impl<PairId, StableId, Version, O, P, Bearer, Txc, Tx, Ctx, Index, Cache, Book, 
         }
     }
 
-    fn sync_book(&mut self, pair: PairId, update: EitherMod<StateUpdate<Bundled<Either<O, P>, Bearer>>>)
+    fn sync_book(&mut self, pair: PairId, update: EitherMod<StateUpdate<Bundled<Either<O, P>, B>>>)
     where
         PairId: Copy + Eq + Hash + Display,
         StableId: Copy + Eq + Hash + Display,
-        Version: Copy + Eq + Hash + Display,
-        Bearer: Clone,
-        Ctx: Copy,
-        O: EntitySnapshot<StableId = StableId, Version = Version> + Clone,
-        P: EntitySnapshot<StableId = StableId, Version = Version> + Clone,
-        Index: StateIndex<Bundled<Either<O, P>, Bearer>>,
-        Cache: StateIndexCache<StableId, Bundled<Either<O, P>, Bearer>>,
+        Ver: Copy + Eq + Hash + Display,
+        B: Clone,
+        Ctx: Clone,
+        O: EntitySnapshot<StableId = StableId, Version = Ver> + Clone,
+        P: EntitySnapshot<StableId = StableId, Version = Ver> + Clone,
+        Index: StateIndex<Bundled<Either<O, P>, B>>,
+        Cache: StateIndexCache<StableId, Bundled<Either<O, P>, B>>,
         Book: ExternalTLBEvents<O, P> + Maker<Ctx>,
     {
         match self.update_state(update) {
@@ -199,14 +210,14 @@ impl<PairId, StableId, Version, O, P, Bearer, Txc, Tx, Ctx, Index, Cache, Book, 
         }
     }
 
-    fn update_state<T>(&mut self, update: EitherMod<StateUpdate<Bundled<T, Bearer>>>) -> Option<Ior<T, T>>
+    fn update_state<T>(&mut self, update: EitherMod<StateUpdate<Bundled<T, B>>>) -> Option<Ior<T, T>>
     where
         StableId: Copy + Eq + Hash + Display,
-        Version: Copy + Eq + Hash + Display,
+        Ver: Copy + Eq + Hash + Display,
         T: EntitySnapshot<StableId = StableId> + Clone,
-        Bearer: Clone,
-        Index: StateIndex<Bundled<T, Bearer>>,
-        Cache: StateIndexCache<StableId, Bundled<T, Bearer>>,
+        B: Clone,
+        Index: StateIndex<Bundled<T, B>>,
+        Cache: StateIndexCache<StableId, Bundled<T, B>>,
     {
         let is_confirmed = matches!(update, EitherMod::Confirmed(_));
         let (EitherMod::Confirmed(Confirmed(upd)) | EitherMod::Unconfirmed(Unconfirmed(upd))) = update;
@@ -247,16 +258,13 @@ impl<PairId, StableId, Version, O, P, Bearer, Txc, Tx, Ctx, Index, Cache, Book, 
         }
     }
 
-    fn link_recipe(
-        &self,
-        ExecutionRecipe(mut xs): ExecutionRecipe<O, P>,
-    ) -> LinkedExecutionRecipe<O, P, Bearer>
+    fn link_recipe(&self, ExecutionRecipe(mut xs): ExecutionRecipe<O, P>) -> LinkedExecutionRecipe<O, P, B>
     where
         StableId: Copy + Eq + Hash + Display,
-        Version: Copy + Eq + Hash + Display,
-        O: EntitySnapshot<StableId = StableId, Version = Version>,
-        P: EntitySnapshot<StableId = StableId, Version = Version>,
-        Cache: StateIndexCache<StableId, Bundled<Either<O, P>, Bearer>>,
+        Ver: Copy + Eq + Hash + Display,
+        O: EntitySnapshot<StableId = StableId, Version = Ver>,
+        P: EntitySnapshot<StableId = StableId, Version = Ver>,
+        Cache: StateIndexCache<StableId, Bundled<Either<O, P>, B>>,
     {
         let mut linked = vec![];
         while let Some(i) = xs.pop() {
@@ -281,22 +289,23 @@ impl<PairId, StableId, Version, O, P, Bearer, Txc, Tx, Ctx, Index, Cache, Book, 
     }
 }
 
-impl<PairId, StableId, Ver, O, P, Bearer, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err> Stream
-    for Executor<PairId, StableId, Ver, O, P, Bearer, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err>
+impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err> Stream
+    for Executor<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err>
 where
+    S: Stream<Item = (PairId, EitherMod<StateUpdate<Bundled<Either<O, P>, B>>>)> + Unpin,
     PairId: Copy + Eq + Ord + Hash + Display + Unpin,
     StableId: Copy + Eq + Hash + Display + Unpin,
     Ver: Copy + Eq + Hash + Display + Unpin,
     P: EntitySnapshot<StableId = StableId, Version = Ver> + Copy + Unpin,
     O: EntitySnapshot<StableId = StableId, Version = Ver> + Fragment + OrderState + Copy + Unpin,
-    Bearer: Clone + Unpin,
+    B: Clone + Unpin,
     Txc: Unpin,
     Tx: Unpin,
-    C: Copy + Unpin,
-    Index: StateIndex<Bundled<Either<O, P>, Bearer>> + Unpin,
-    Cache: StateIndexCache<StableId, Bundled<Either<O, P>, Bearer>> + Unpin,
+    C: Clone + Unpin,
+    Index: StateIndex<Bundled<Either<O, P>, B>> + Unpin,
+    Cache: StateIndexCache<StableId, Bundled<Either<O, P>, B>> + Unpin,
     Book: TemporalLiquidityBook<O, P> + ExternalTLBEvents<O, P> + TLBFeedback<O, P> + Maker<C> + Unpin,
-    Ir: RecipeInterpreter<O, P, C, Bearer, Txc> + Unpin,
+    Ir: RecipeInterpreter<O, P, C, B, Txc> + Unpin,
     Prover: TxProver<Txc, Tx> + Unpin,
     Err: Unpin,
 {
@@ -349,22 +358,23 @@ where
     }
 }
 
-impl<PairId, StableId, Ver, O, P, Bearer, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err> FusedStream
-    for Executor<PairId, StableId, Ver, O, P, Bearer, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err>
+impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err> FusedStream
+    for Executor<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err>
 where
+    S: Stream<Item = (PairId, EitherMod<StateUpdate<Bundled<Either<O, P>, B>>>)> + Unpin,
     PairId: Copy + Eq + Ord + Hash + Display + Unpin,
     StableId: Copy + Eq + Hash + Display + Unpin,
     Ver: Copy + Eq + Hash + Display + Unpin,
     P: EntitySnapshot<StableId = StableId, Version = Ver> + Copy + Unpin,
     O: EntitySnapshot<StableId = StableId, Version = Ver> + Fragment + OrderState + Copy + Unpin,
-    Bearer: Clone + Unpin,
+    B: Clone + Unpin,
     Txc: Unpin,
     Tx: Unpin,
-    C: Copy + Unpin,
-    Index: StateIndex<Bundled<Either<O, P>, Bearer>> + Unpin,
-    Cache: StateIndexCache<StableId, Bundled<Either<O, P>, Bearer>> + Unpin,
+    C: Clone + Unpin,
+    Index: StateIndex<Bundled<Either<O, P>, B>> + Unpin,
+    Cache: StateIndexCache<StableId, Bundled<Either<O, P>, B>> + Unpin,
     Book: TemporalLiquidityBook<O, P> + ExternalTLBEvents<O, P> + TLBFeedback<O, P> + Maker<C> + Unpin,
-    Ir: RecipeInterpreter<O, P, C, Bearer, Txc> + Unpin,
+    Ir: RecipeInterpreter<O, P, C, B, Txc> + Unpin,
     Prover: TxProver<Txc, Tx> + Unpin,
     Err: Unpin,
 {

@@ -17,9 +17,9 @@ pub mod handler;
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct CardanoEvent(Bundled<Either<AnyOrder, AnyPool>, FinalizedTxOut>);
+pub struct CardanoEntity(pub Bundled<Either<AnyOrder, AnyPool>, FinalizedTxOut>);
 
-impl EntitySnapshot for CardanoEvent {
+impl EntitySnapshot for CardanoEntity {
     type Version = OutputRef;
     type StableId = PolicyId;
     fn stable_id(&self) -> Self::StableId {
@@ -30,14 +30,14 @@ impl EntitySnapshot for CardanoEvent {
     }
 }
 
-impl Tradable for CardanoEvent {
+impl Tradable for CardanoEntity {
     type PairId = PairId;
     fn pair_id(&self) -> Self::PairId {
-        todo!()
+        self.0.pair_id()
     }
 }
 
-impl TryFromLedger<BabbageTransactionOutput, OutputRef> for CardanoEvent {
+impl TryFromLedger<BabbageTransactionOutput, OutputRef> for CardanoEntity {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
         <Either<AnyOrder, AnyPool>>::try_from_ledger(repr, ctx)
             .map(|inner| Self(Bundled(inner, FinalizedTxOut::new(repr.clone(), ctx))))

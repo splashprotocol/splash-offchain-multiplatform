@@ -15,7 +15,7 @@ use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolVer;
 use crate::ref_scripts::ReferenceSources;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ReferenceOutputs {
     pub pool_v1: TransactionUnspentOutput,
     pub pool_v2: TransactionUnspentOutput,

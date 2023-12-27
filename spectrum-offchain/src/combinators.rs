@@ -1,6 +1,3 @@
-use std::fmt::Display;
-use std::hash::Hash;
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,6 +13,18 @@ impl<O1, O2> Ior<O1, O2> {
             Ior::Left(o1) => Ior::Right(o1),
             Ior::Right(o2) => Ior::Left(o2),
             Ior::Both(o1, o2) => Ior::Both(o2, o1),
+        }
+    }
+
+    pub fn bimap<A, B, F1, F2>(self, lhf: F1, rhf: F2) -> Ior<A, B>
+    where
+        F1: FnOnce(O1) -> A,
+        F2: FnOnce(O2) -> B,
+    {
+        match self {
+            Ior::Left(lh) => Ior::Left(lhf(lh)),
+            Ior::Right(rh) => Ior::Right(rhf(rh)),
+            Ior::Both(lh, rh) => Ior::Both(lhf(lh), rhf(rh)),
         }
     }
 }

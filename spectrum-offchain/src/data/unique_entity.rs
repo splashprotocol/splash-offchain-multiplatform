@@ -2,9 +2,9 @@ use std::fmt;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
 
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use serde::__private::de::missing_field;
 use serde::ser::SerializeStruct;
-use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::combinators::Ior;
 use crate::data::EntitySnapshot;
@@ -281,6 +281,18 @@ pub enum EitherMod<T> {
     Unconfirmed(Unconfirmed<T>),
 }
 
+impl<T> EitherMod<T> {
+    pub fn map<B, F>(self, f: F) -> EitherMod<B>
+    where
+        F: FnOnce(T) -> B,
+    {
+        match self {
+            EitherMod::Confirmed(Confirmed(x)) => EitherMod::Confirmed(Confirmed(f(x))),
+            EitherMod::Unconfirmed(Unconfirmed(x)) => EitherMod::Unconfirmed(Unconfirmed(f(x))),
+        }
+    }
+}
+
 /// State `T` is confirmed to be included into blockchain.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Confirmed<T>(pub T);
@@ -305,4 +317,16 @@ pub enum StateUpdate<T> {
     Transition(Ior<T, T>),
     /// State transition rollback (left: rolled back state, right: revived state).
     TransitionRollback(Ior<T, T>),
+}
+
+impl<T> StateUpdate<T> {
+    pub fn map<B, F>(self, f: F) -> StateUpdate<B>
+    where
+        F: Fn(T) -> B,
+    {
+        match self {
+            StateUpdate::Transition(ior) => StateUpdate::Transition(ior.bimap(&f, &f)),
+            StateUpdate::TransitionRollback(ior) => StateUpdate::TransitionRollback(ior.bimap(&f, &f)),
+        }
+    }
 }
