@@ -7,7 +7,7 @@ use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, St
 use crate::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::types::BasePrice;
-use crate::execution_engine::StableId;
+use crate::execution_engine::types::StableId;
 
 pub trait VersionedState<Fr, Pl> {
     /// Commit preview changes.
@@ -618,7 +618,7 @@ pub mod tests {
     use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, TLBState, VersionedState};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::{BasePrice, ExecutionCost};
-    use crate::execution_engine::StableId;
+    use crate::execution_engine::types::StableId;
 
     #[test]
     fn add_inactive_fragment() {
@@ -660,7 +660,7 @@ pub mod tests {
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.fragments.add_fragment(ord);
         assert_eq!(TLBState::Idle(s0.clone()).pick_best_fr_either(), Some(ord));
-        s0.fragments.advance_clocks(time_now + delta);
+        s0.fragments.advance_clocks(time_now + delta + 1);
         assert_eq!(TLBState::Idle(s0).pick_best_fr_either(), None);
     }
 

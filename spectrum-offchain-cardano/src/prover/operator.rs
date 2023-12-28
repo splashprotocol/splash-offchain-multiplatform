@@ -3,11 +3,11 @@ use cml_chain::crypto::utils::make_vkey_witness;
 use cml_chain::transaction::Transaction;
 use cml_crypto::PrivateKey;
 
+use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_offchain::tx_prover::TxProver;
 
-use spectrum_cardano_lib::hash::hash_transaction_canonical;
-
 /// Signs transactions on behalf of operator.
+#[derive(Copy, Clone)]
 pub struct OperatorProver<'a>(&'a PrivateKey);
 
 impl<'a> OperatorProver<'a> {

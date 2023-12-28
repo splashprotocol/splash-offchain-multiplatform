@@ -4,17 +4,18 @@ use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 
 use cardano_explorer::client::Explorer;
 use cardano_explorer::data::full_tx_out::ExplorerTxOut;
+use spectrum_cardano_lib::collateral::Collateral;
 
 use crate::constants::MIN_SAFE_COLLATERAL;
 
-pub struct ExplorerBasedRequestor<'a> {
+pub struct CollateralsViaExplorer<'a> {
     batcher_payment_cred: String,
     explorer: Explorer<'a>,
 }
 
-impl<'a> ExplorerBasedRequestor<'a> {
-    pub fn new(batcher_payment_cred: String, explorer: Explorer<'a>) -> ExplorerBasedRequestor<'a> {
-        ExplorerBasedRequestor {
+impl<'a> CollateralsViaExplorer<'a> {
+    pub fn new(batcher_payment_cred: String, explorer: Explorer<'a>) -> CollateralsViaExplorer<'a> {
+        CollateralsViaExplorer {
             batcher_payment_cred,
             explorer,
         }
@@ -23,12 +24,12 @@ impl<'a> ExplorerBasedRequestor<'a> {
 
 #[async_trait]
 pub trait Collaterals {
-    async fn get_collateral(self) -> Option<InputBuilderResult>;
+    async fn get_collateral(self) -> Option<Collateral>;
 }
 
 #[async_trait]
-impl<'a> Collaterals for ExplorerBasedRequestor<'a> {
-    async fn get_collateral(self) -> Option<InputBuilderResult> {
+impl<'a> Collaterals for CollateralsViaExplorer<'a> {
+    async fn get_collateral(self) -> Option<Collateral> {
         let utxos = self
             .explorer
             .get_unspent_utxos(self.batcher_payment_cred, 0, 10)
@@ -45,6 +46,7 @@ impl<'a> Collaterals for ExplorerBasedRequestor<'a> {
         SingleInputBuilder::new(collateral_utxo.input, collateral_utxo.output)
             .payment_key()
             .ok()
+            .map(Collateral)
     }
 }
 

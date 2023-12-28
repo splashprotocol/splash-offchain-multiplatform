@@ -36,21 +36,24 @@ use spectrum_offchain::executor::{executor_stream, HotOrderExecutor};
 use spectrum_offchain::network::Network;
 use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::streaming::boxed;
-use spectrum_offchain_cardano::collaterals::{Collaterals, ExplorerBasedRequestor};
-use spectrum_offchain_cardano::config::AppConfig;
+use spectrum_offchain_cardano::collaterals::{Collaterals, CollateralsViaExplorer};
 use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::data::execution_context::ExecutionContext;
 use spectrum_offchain_cardano::data::order::ClassicalOnChainOrder;
 use spectrum_offchain_cardano::data::pool::CFMMPool;
-use spectrum_offchain_cardano::data::ref_scripts::RefScriptsOutputs;
+use spectrum_offchain_cardano::data::ref_scripts::ReferenceOutputs;
 use spectrum_offchain_cardano::data::{OnChain, PoolId};
-use spectrum_offchain_cardano::event_sink::handlers::order::registry::EphemeralHotOrderRegistry;
-use spectrum_offchain_cardano::event_sink::handlers::order::ClassicalOrderUpdatesHandler;
-use spectrum_offchain_cardano::event_sink::handlers::pool::{
+use spectrum_offchain_cardano::event_sink::handlers::reproducible::{
     ConfirmedUpdateHandler, UnconfirmedUpdateHandler,
 };
+use spectrum_offchain_cardano::event_sink::handlers::short_term::registry::EphemeralHotOrderRegistry;
+use spectrum_offchain_cardano::event_sink::handlers::short_term::ClassicalOrderUpdatesHandler;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxRejected, TxSubmissionAgent};
+
+use crate::config::AppConfig;
+
+mod config;
 
 #[tokio::main]
 async fn main() {
@@ -66,7 +69,7 @@ async fn main() {
 
     let explorer = Explorer::new(config.explorer);
 
-    let ref_scripts = RefScriptsOutputs::new(config.ref_scripts, explorer)
+    let ref_scripts = ReferenceOutputs::pull(config.ref_scripts, explorer)
         .await
         .expect("Ref scripts initialization failed");
 
@@ -101,7 +104,7 @@ async fn main() {
     let (operator_sk, operator_pkh, operator_addr) =
         operator_creds(config.batcher_private_key, NetworkInfo::mainnet());
 
-    let explorer_based_requestor = ExplorerBasedRequestor::new(operator_pkh.to_hex(), explorer);
+    let explorer_based_requestor = CollateralsViaExplorer::new(operator_pkh.to_hex(), explorer);
 
     let collateral = explorer_based_requestor
         .get_collateral()
@@ -177,10 +180,8 @@ async fn main() {
     let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<BabbageTransaction>>>> =
         vec![Box::new(pools_handler_mempool), Box::new(orders_handler_mempool)];
 
-    let default_handler = NoopDefaultHandler;
-
-    let process_ledger_events_stream = process_events(ledger_stream, handlers_ledger, default_handler);
-    let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool, default_handler);
+    let process_ledger_events_stream = process_events(ledger_stream, handlers_ledger);
+    let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool);
 
     let mut app = select_all(vec![
         boxed(process_ledger_events_stream),
@@ -244,10 +245,10 @@ where
 }
 
 #[derive(Parser)]
-#[command(name = "spectrum-offchain-cardano")]
-#[command(author = "Spectrum Finance")]
+#[command(name = "spectrum-cardano-agent")]
+#[command(author = "Spectrum Labs")]
 #[command(version = "1.0.0")]
-#[command(about = "Spectrum DEX Offchain Bot", long_about = None)]
+#[command(about = "Spectrum DEX Off-Chain Agent", long_about = None)]
 struct AppArgs {
     /// Path to the JSON configuration file.
     #[arg(long, short)]

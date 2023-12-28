@@ -1,25 +1,25 @@
-use cml_chain::plutus::PlutusData;
 use cml_chain::Coin;
+use cml_chain::plutus::PlutusData;
 use cml_core::serialization::FromBytes;
 use cml_crypto::Ed25519KeyHash;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
 
+use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
 };
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::UniqueOrder;
 use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::constants::{MIN_SAFE_ADA_DEPOSIT, ORDER_APPLY_RAW_REDEEMER, ORDER_REFUND_RAW_REDEEMER};
+use crate::data::{ExecutorFeePerToken, OnChainOrderId, PoolId};
 use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
 use crate::data::pool::CFMMPoolAction;
 use crate::data::pool::CFMMPoolAction::Swap;
-use crate::data::{ExecutorFeePerToken, OnChainOrderId, PoolId};
 
 #[derive(Debug, Clone)]
 pub struct LimitSwap {
@@ -62,9 +62,9 @@ impl UniqueOrder for ClassicalOnChainLimitSwap {
 }
 
 impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainLimitSwap {
-    fn try_from_ledger(repr: BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
         let value = repr.value().clone();
-        let conf = OnChainLimitSwapConfig::try_from_pd(repr.into_datum()?.into_pd()?)?;
+        let conf = OnChainLimitSwapConfig::try_from_pd(repr.datum()?.into_pd()?)?;
         let real_base_input = value.amount_of(conf.base.untag()).unwrap_or(0);
         let (min_base, ada_deposit) = if conf.base.is_native() {
             let min = conf.base_amount.untag()
@@ -136,32 +136,32 @@ impl TryFromPData for OnChainLimitSwapConfig {
 
 #[cfg(test)]
 mod tests {
+    use cml_chain::{Deserialize, Value};
     use cml_chain::address::EnterpriseAddress;
     use cml_chain::certs::StakeCredential;
     use cml_chain::genesis::network_info::NetworkInfo;
     use cml_chain::plutus::PlutusData;
     use cml_chain::transaction::TransactionOutput;
-    use cml_chain::{Deserialize, Value};
     use cml_crypto::{Bip32PrivateKey, TransactionHash};
     use cml_multi_era::babbage::BabbageTransactionOutput;
 
     use cardano_explorer::client::Explorer;
     use cardano_explorer::data::ExplorerConfig;
-    use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_cardano_lib::OutputRef;
+    use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_offchain::executor::RunOrder;
     use spectrum_offchain::ledger::TryFromLedger;
 
-    use crate::collaterals::tests::MockBasedRequestor;
     use crate::collaterals::Collaterals;
-    use crate::config::RefScriptsConfig;
+    use crate::collaterals::tests::MockBasedRequestor;
     use crate::creds::operator_creds;
     use crate::data::execution_context::ExecutionContext;
     use crate::data::limit_swap::OnChainLimitSwapConfig;
+    use crate::data::OnChain;
     use crate::data::order::ClassicalOnChainOrder;
     use crate::data::pool::CFMMPool;
-    use crate::data::ref_scripts::RefScriptsOutputs;
-    use crate::data::OnChain;
+    use crate::data::ref_scripts::ReferenceOutputs;
+    use crate::ref_scripts::ReferenceSources;
 
     #[test]
     fn parse_swap_datum_mainnet() {
@@ -211,14 +211,24 @@ mod tests {
         let explorer = Explorer::new(ExplorerConfig {
             url: "https://explorer.spectrum.fi",
         });
-        let ref_scripts_conf = RefScriptsConfig {
-            pool_v1_ref: "31a497ef6b0033e66862546aa2928a1987f8db3b8f93c59febbe0f47b14a83c6#0".to_string(),
-            pool_v2_ref: "c8c93656e8bce07fabe2f42d703060b7c71bfa2e48a2956820d1bd81cc936faa#0".to_string(),
-            swap_ref: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#2".to_string(),
-            deposit_ref: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#0".to_string(),
-            redeem_ref: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#1".to_string(),
+        let ref_scripts_conf = ReferenceSources {
+            pool_v1_script: "31a497ef6b0033e66862546aa2928a1987f8db3b8f93c59febbe0f47b14a83c6#0"
+                .try_into()
+                .unwrap(),
+            pool_v2_script: "c8c93656e8bce07fabe2f42d703060b7c71bfa2e48a2956820d1bd81cc936faa#0"
+                .try_into()
+                .unwrap(),
+            swap_script: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#2"
+                .try_into()
+                .unwrap(),
+            deposit_script: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#0"
+                .try_into()
+                .unwrap(),
+            redeem_script: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#1"
+                .try_into()
+                .unwrap(),
         };
-        let ref_scripts = RefScriptsOutputs::new(ref_scripts_conf, explorer)
+        let ref_scripts = ReferenceOutputs::pull(ref_scripts_conf, explorer)
             .await
             .expect("Ref scripts initialization failed");
         let collateral = mock_requestor

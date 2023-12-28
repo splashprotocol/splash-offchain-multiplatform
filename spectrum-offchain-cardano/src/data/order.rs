@@ -113,25 +113,30 @@ impl RequiresRedeemer<ClassicalOrderAction> for ClassicalOnChainOrder {
 }
 
 impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainOrder {
-    fn try_from_ledger(repr: BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
-        if let Some(swap) = ClassicalOnChainLimitSwap::try_from_ledger(repr.clone(), ctx) {
-            Some(ClassicalOnChainOrder::Swap(OnChain {
-                value: swap,
-                source: repr.upcast(),
-            }))
-        } else if let Some(deposit) = ClassicalOnChainDeposit::try_from_ledger(repr.clone(), ctx) {
-            Some(ClassicalOnChainOrder::Deposit(OnChain {
-                value: deposit,
-                source: repr.upcast(),
-            }))
-        } else if let Some(redeem) = ClassicalOnChainRedeem::try_from_ledger(repr.clone(), ctx) {
-            Some(ClassicalOnChainOrder::Redeem(OnChain {
-                value: redeem,
-                source: repr.upcast(),
-            }))
-        } else {
-            None
-        }
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
+        ClassicalOnChainLimitSwap::try_from_ledger(repr, ctx)
+            .map(|swap| {
+                ClassicalOnChainOrder::Swap(OnChain {
+                    value: swap,
+                    source: repr.clone().upcast(),
+                })
+            })
+            .or_else(|| {
+                ClassicalOnChainDeposit::try_from_ledger(repr, ctx).map(|deposit| {
+                    ClassicalOnChainOrder::Deposit(OnChain {
+                        value: deposit,
+                        source: repr.clone().upcast(),
+                    })
+                })
+            })
+            .or_else(|| {
+                ClassicalOnChainRedeem::try_from_ledger(repr, ctx).map(|redeem| {
+                    ClassicalOnChainOrder::Redeem(OnChain {
+                        value: redeem,
+                        source: repr.clone().upcast(),
+                    })
+                })
+            })
     }
 }
 

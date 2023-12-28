@@ -1,5 +1,5 @@
 use spectrum_offchain::data::unique_entity::{Confirmed, Predicted, Unconfirmed};
-use spectrum_offchain::data::LiquiditySource;
+use spectrum_offchain::data::EntitySnapshot;
 
 use crate::execution_engine::storage::StateIndex;
 
@@ -7,7 +7,7 @@ use crate::execution_engine::storage::StateIndex;
 pub fn resolve_source_state<Src, Index>(id: Src::StableId, index: &Index) -> Option<Src>
 where
     Index: StateIndex<Src>,
-    Src: LiquiditySource,
+    Src: EntitySnapshot,
     Src::StableId: Copy,
 {
     let states = {
@@ -39,7 +39,7 @@ where
 
 fn is_linking<Src, Index>(ver: Src::Version, anchoring_ver: Src::Version, index: &Index) -> bool
 where
-    Src: LiquiditySource,
+    Src: EntitySnapshot,
     Index: StateIndex<Src>,
 {
     let mut head_sid = ver;

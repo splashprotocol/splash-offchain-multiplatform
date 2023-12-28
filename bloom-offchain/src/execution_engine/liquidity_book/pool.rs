@@ -1,6 +1,6 @@
 use crate::execution_engine::liquidity_book::side::Side;
 use crate::execution_engine::liquidity_book::types::BasePrice;
-use crate::execution_engine::StableId;
+use crate::execution_engine::types::StableId;
 
 /// Pooled liquidity.
 pub trait Pool {

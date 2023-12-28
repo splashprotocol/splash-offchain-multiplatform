@@ -6,16 +6,16 @@ use log::warn;
 
 use crate::box_resolver::persistence::EntityRepo;
 use crate::data::unique_entity::{Confirmed, Predicted, Traced, Unconfirmed};
-use crate::data::LiquiditySource;
+use crate::data::EntitySnapshot;
 
 #[derive(Debug)]
-pub struct InMemoryEntityRepo<T: LiquiditySource> {
+pub struct InMemoryEntityRepo<T: EntitySnapshot> {
     store: HashMap<T::Version, T>,
     index: HashMap<InMemoryIndexKey, T::Version>,
     links: HashMap<T::Version, T::Version>,
 }
 
-impl<T: LiquiditySource> InMemoryEntityRepo<T> {
+impl<T: EntitySnapshot> InMemoryEntityRepo<T> {
     pub fn new() -> Self {
         Self {
             store: HashMap::new(),
@@ -36,20 +36,20 @@ const LAST_UNCONFIRMED_PREFIX: u8 = 4u8;
 #[async_trait(?Send)]
 impl<T> EntityRepo<T> for InMemoryEntityRepo<T>
 where
-    T: LiquiditySource + Clone + Send + 'static,
-    <T as LiquiditySource>::Version: Copy + Send + Debug + 'static,
-    <T as LiquiditySource>::StableId: Copy + Send + Into<[u8; 60]> + 'static,
+    T: EntitySnapshot + Clone + Send + 'static,
+    <T as EntitySnapshot>::Version: Copy + Send + Debug + 'static,
+    <T as EntitySnapshot>::StableId: Copy + Send + Into<[u8; 60]> + 'static,
 {
     async fn get_prediction_predecessor<'a>(&self, id: T::Version) -> Option<T::Version>
     where
-        <T as LiquiditySource>::Version: 'a,
+        <T as EntitySnapshot>::Version: 'a,
     {
         self.links.get(&id).map(|id| *id)
     }
 
     async fn get_last_predicted<'a>(&self, id: T::StableId) -> Option<Predicted<T>>
     where
-        <T as LiquiditySource>::StableId: 'a,
+        <T as EntitySnapshot>::StableId: 'a,
     {
         let index_key = index_key(LAST_PREDICTED_PREFIX, id);
         self.index
@@ -60,7 +60,7 @@ where
 
     async fn get_last_confirmed<'a>(&self, id: T::StableId) -> Option<Confirmed<T>>
     where
-        <T as LiquiditySource>::StableId: 'a,
+        <T as EntitySnapshot>::StableId: 'a,
     {
         let index_key = index_key(LAST_CONFIRMED_PREFIX, id);
         self.index
@@ -71,7 +71,7 @@ where
 
     async fn get_last_unconfirmed<'a>(&self, id: T::StableId) -> Option<Unconfirmed<T>>
     where
-        <T as LiquiditySource>::StableId: 'a,
+        <T as EntitySnapshot>::StableId: 'a,
     {
         let index_key = index_key(LAST_UNCONFIRMED_PREFIX, id);
         self.index
@@ -117,8 +117,8 @@ where
 
     async fn invalidate<'a>(&mut self, sid: T::Version, eid: T::StableId)
     where
-        <T as LiquiditySource>::Version: 'a,
-        <T as LiquiditySource>::StableId: 'a,
+        <T as EntitySnapshot>::Version: 'a,
+        <T as EntitySnapshot>::StableId: 'a,
     {
         let predecessor = self.get_prediction_predecessor(sid).await;
         let last_predicted_index_key = index_key(LAST_PREDICTED_PREFIX, eid);
@@ -155,14 +155,14 @@ where
 
     async fn may_exist<'a>(&self, sid: T::Version) -> bool
     where
-        <T as LiquiditySource>::Version: 'a,
+        <T as EntitySnapshot>::Version: 'a,
     {
         self.store.contains_key(&sid)
     }
 
     async fn get_state<'a>(&self, sid: T::Version) -> Option<T>
     where
-        <T as LiquiditySource>::Version: 'a,
+        <T as EntitySnapshot>::Version: 'a,
     {
         self.store.get(&sid).map(|e| e.clone())
     }

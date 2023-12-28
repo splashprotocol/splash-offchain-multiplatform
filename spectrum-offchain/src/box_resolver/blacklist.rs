@@ -2,18 +2,18 @@ use std::collections::HashSet;
 
 use async_trait::async_trait;
 
-use crate::data::LiquiditySource;
+use crate::data::EntitySnapshot;
 
 #[async_trait(?Send)]
-pub trait EntityBlacklist<T: LiquiditySource> {
+pub trait EntityBlacklist<T: EntitySnapshot> {
     async fn is_blacklisted(&self, id: &T::StableId) -> bool;
 }
 
-pub struct StaticBlacklist<T: LiquiditySource> {
+pub struct StaticBlacklist<T: EntitySnapshot> {
     entries: HashSet<T::StableId>,
 }
 
-impl<T: LiquiditySource> StaticBlacklist<T> {
+impl<T: EntitySnapshot> StaticBlacklist<T> {
     pub fn new(entries: HashSet<T::StableId>) -> Self {
         Self { entries }
     }
@@ -22,7 +22,7 @@ impl<T: LiquiditySource> StaticBlacklist<T> {
 #[async_trait(?Send)]
 impl<T> EntityBlacklist<T> for StaticBlacklist<T>
 where
-    T: LiquiditySource,
+    T: EntitySnapshot,
 {
     async fn is_blacklisted(&self, id: &T::StableId) -> bool {
         self.entries.contains(id)

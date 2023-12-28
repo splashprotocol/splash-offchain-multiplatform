@@ -16,10 +16,11 @@ use spectrum_offchain::data::SpecializedOrder;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 
-use crate::event_sink::handlers::order::registry::HotOrderRegistry;
+use crate::event_sink::handlers::short_term::registry::HotOrderRegistry;
 
 pub mod registry;
 
+// todo: Eliminate copies.
 pub struct ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry> {
     pub topic: TSink,
     pub registry: Arc<Mutex<TRegistry>>,
@@ -61,7 +62,7 @@ impl<TSink, TOrd, TRegistry> ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry
             // no point in searching for new orders in execution tx
             for (i, o) in tx.body.outputs.iter().enumerate() {
                 let o_ref = OutputRef::from((tx_hash, i as u64));
-                if let Some(order) = TOrd::try_from_ledger(o.clone(), o_ref) {
+                if let Some(order) = TOrd::try_from_ledger(o, o_ref) {
                     is_success = true;
                     {
                         let mut registry = self.registry.lock().await;

@@ -71,9 +71,9 @@ struct OnChainRedeemConfig {
 }
 
 impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainRedeem {
-    fn try_from_ledger(repr: BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
         let value = repr.value().clone();
-        let conf = OnChainRedeemConfig::try_from_pd(repr.clone().into_datum()?.into_pd()?)?;
+        let conf = OnChainRedeemConfig::try_from_pd(repr.datum().clone()?.into_pd()?)?;
         let token_lq_amount = TaggedAmount::tag(value.amount_of(conf.token_lq.untag()).unwrap_or(0));
         let collateral_ada = value.amount_of(AssetClass::Native).unwrap_or(0) - conf.ex_fee;
         let redeem = Redeem {
@@ -138,14 +138,14 @@ mod tests {
 
     use crate::collaterals::tests::MockBasedRequestor;
     use crate::collaterals::Collaterals;
-    use crate::config::RefScriptsConfig;
     use crate::creds::operator_creds;
     use crate::data::execution_context::ExecutionContext;
     use crate::data::order::ClassicalOnChainOrder;
     use crate::data::pool::CFMMPool;
     use crate::data::redeem::OnChainRedeemConfig;
-    use crate::data::ref_scripts::RefScriptsOutputs;
+    use crate::data::ref_scripts::ReferenceOutputs;
     use crate::data::OnChain;
+    use crate::ref_scripts::ReferenceSources;
 
     #[test]
     fn parse_deposit_datum_mainnet() {
@@ -165,8 +165,8 @@ mod tests {
             BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(REDEEM_SAMPLE).unwrap()).unwrap();
         let pool_box =
             BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(POOL_SAMPLE).unwrap()).unwrap();
-        let redeem = ClassicalOnChainOrder::try_from_ledger(redeem_box, redeem_ref).unwrap();
-        let pool = <OnChain<CFMMPool>>::try_from_ledger(pool_box, pool_ref).unwrap();
+        let redeem = ClassicalOnChainOrder::try_from_ledger(&redeem_box, redeem_ref).unwrap();
+        let pool = <OnChain<CFMMPool>>::try_from_ledger(&pool_box, pool_ref).unwrap();
 
         let private_key_bech32 = Bip32PrivateKey::generate_ed25519_bip32().to_bech32();
 
@@ -192,15 +192,25 @@ mod tests {
             url: "https://explorer.spectrum.fi",
         });
 
-        let ref_scripts_conf = RefScriptsConfig {
-            pool_v1_ref: "31a497ef6b0033e66862546aa2928a1987f8db3b8f93c59febbe0f47b14a83c6#0".to_string(),
-            pool_v2_ref: "c8c93656e8bce07fabe2f42d703060b7c71bfa2e48a2956820d1bd81cc936faa#0".to_string(),
-            swap_ref: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#2".to_string(),
-            deposit_ref: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#0".to_string(),
-            redeem_ref: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#1".to_string(),
+        let ref_scripts_conf = ReferenceSources {
+            pool_v1_script: "31a497ef6b0033e66862546aa2928a1987f8db3b8f93c59febbe0f47b14a83c6#0"
+                .try_into()
+                .unwrap(),
+            pool_v2_script: "c8c93656e8bce07fabe2f42d703060b7c71bfa2e48a2956820d1bd81cc936faa#0"
+                .try_into()
+                .unwrap(),
+            swap_script: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#2"
+                .try_into()
+                .unwrap(),
+            deposit_script: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#0"
+                .try_into()
+                .unwrap(),
+            redeem_script: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#1"
+                .try_into()
+                .unwrap(),
         };
 
-        let ref_scripts = RefScriptsOutputs::new(ref_scripts_conf, explorer)
+        let ref_scripts = ReferenceOutputs::pull(ref_scripts_conf, explorer)
             .await
             .expect("Ref scripts initialization failed");
 

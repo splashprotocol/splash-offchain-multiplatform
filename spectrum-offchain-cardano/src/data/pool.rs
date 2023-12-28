@@ -5,9 +5,7 @@ use cml_chain::assets::MultiAsset;
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
-use cml_chain::builders::tx_builder::{
-    ChangeSelectionAlgo, SignedTxBuilder, TransactionBuilder, TransactionUnspentOutput,
-};
+use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput};
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
 use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, TransactionOutput};
@@ -17,22 +15,17 @@ use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
 use num_rational::Ratio;
 use type_equalities::IsEqual;
-use void::Void;
 
-use bloom_offchain::execution_engine::batch_exec::BatchExec;
-use bloom_offchain::execution_engine::liquidity_book::recipe::Swap;
-use bloom_offchain::execution_engine::liquidity_book::side::SideM;
-use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
 };
 use spectrum_cardano_lib::protocol_params::constant_tx_builder;
-use spectrum_cardano_lib::transaction::{BabbageTransactionOutputExtension, TransactionOutputExtension};
+use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::unique_entity::Predicted;
-use spectrum_offchain::data::{Has, LiquiditySource};
+use spectrum_offchain::data::{EntitySnapshot, Has};
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
@@ -80,7 +73,7 @@ pub enum CFMMPoolAction {
     Destroy,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct CFMMPool {
     pub id: PoolId,
     pub state_ver: PoolStateVer,
@@ -189,7 +182,7 @@ impl RequiresRedeemer<CFMMPoolAction> for CFMMPool {
     }
 }
 
-impl LiquiditySource for CFMMPool {
+impl EntitySnapshot for CFMMPool {
     type StableId = PoolId;
     type Version = PoolStateVer;
     fn stable_id(&self) -> Self::StableId {
@@ -200,17 +193,17 @@ impl LiquiditySource for CFMMPool {
     }
 }
 
-impl TryFromLedger<BabbageTransactionOutput, OutputRef> for OnChain<CFMMPool> {
-    fn try_from_ledger(repr: BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
+impl TryFromLedger<BabbageTransactionOutput, OutputRef> for CFMMPool {
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
         if let Some(pool_ver) = PoolVer::try_from_pool_address(repr.address()) {
             let value = repr.value();
-            let pd = repr.clone().into_datum()?.into_pd()?;
+            let pd = repr.datum().clone()?.into_pd()?;
             let conf = CFMMPoolConfig::try_from_pd(pd.clone())?;
             let reserves_x = TaggedAmount::tag(value.amount_of(conf.asset_x.into())?);
             let reserves_y = TaggedAmount::tag(value.amount_of(conf.asset_y.into())?);
             let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
             let liquidity = TaggedAmount::tag(MAX_LQ_CAP - liquidity_neg);
-            let pool = CFMMPool {
+            return Some(CFMMPool {
                 id: PoolId::try_from(conf.pool_nft).ok()?,
                 state_ver: PoolStateVer::from(ctx),
                 reserves_x,
@@ -222,11 +215,6 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for OnChain<CFMMPool> {
                 lp_fee: Ratio::new(conf.lp_fee_num, CFMM_LP_FEE_DEN),
                 lq_lower_bound: conf.lq_lower_bound,
                 ver: pool_ver,
-            };
-
-            return Some(OnChain {
-                value: pool,
-                source: repr.upcast(),
             });
         }
         None
@@ -486,7 +474,7 @@ where
 
         let mut tx_builder = constant_tx_builder();
 
-        tx_builder.add_collateral(ctx.collateral).unwrap();
+        tx_builder.add_collateral(ctx.collateral.into()).unwrap();
 
         tx_builder.add_reference_input(order.clone().get_ref_script(ctx.ref_scripts.clone()));
         tx_builder.add_reference_input(pool.get_ref_script(ctx.ref_scripts.clone()));
@@ -521,49 +509,4 @@ where
 
 /// Reference Script Output for [CFMMPool] tagged with pool version [Ver].
 #[derive(Debug, Clone)]
-pub struct CFMMPoolRefScriptOutput<const Ver: u8>(pub TransactionUnspentOutput);
-
-// A newtype is needed to define instances in a proper place.
-pub struct FullCFMMPool(pub Swap<CFMMPool>, pub FinalizedTxOut);
-
-impl<Ctx> BatchExec<TransactionBuilder, TransactionOutput, Ctx, Void> for FullCFMMPool
-where
-    Ctx: Has<CFMMPoolRefScriptOutput<1>> + Has<CFMMPoolRefScriptOutput<2>>,
-{
-    fn try_exec(
-        self,
-        mut tx_builder: TransactionBuilder,
-        context: Ctx,
-    ) -> Result<(TransactionBuilder, TransactionOutput, Ctx), Void> {
-        let FullCFMMPool(swap, FinalizedTxOut(consumed_out, in_ref)) = self;
-        let mut produced_out = consumed_out.clone();
-        let (removed_asset, added_asset) = match swap.side {
-            SideM::Bid => (swap.target.asset_x.untag(), swap.target.asset_y.untag()),
-            SideM::Ask => (swap.target.asset_y.untag(), swap.target.asset_x.untag()),
-        };
-        produced_out.sub_asset(removed_asset, swap.output);
-        produced_out.add_asset(added_asset, swap.input);
-        let successor = produced_out.clone();
-        let pool_script = PartialPlutusWitness::new(
-            PlutusScriptWitness::Ref(produced_out.script_hash().unwrap()),
-            CFMMPool::redeemer(CFMMPoolAction::Swap),
-        );
-        let pool_in = SingleInputBuilder::new(in_ref.into(), consumed_out)
-            .plutus_script_inline_datum(pool_script, Vec::new())
-            .unwrap();
-        tx_builder
-            .add_output(SingleOutputBuilderResult::new(produced_out))
-            .unwrap();
-        let pool_ref_script = match swap.target.ver {
-            PoolVer(1) => context.get::<CFMMPoolRefScriptOutput<1>>().0,
-            PoolVer(_) => context.get::<CFMMPoolRefScriptOutput<2>>().0,
-        };
-        tx_builder.add_reference_input(pool_ref_script);
-        tx_builder.add_input(pool_in).unwrap();
-        tx_builder.set_exunits(
-            RedeemerWitnessKey::new(RedeemerTag::Spend, 0),
-            POOL_EXECUTION_UNITS,
-        );
-        Ok((tx_builder, successor, context))
-    }
-}
+pub struct CFMMPoolRefScriptOutput<const VER: u8>(pub TransactionUnspentOutput);

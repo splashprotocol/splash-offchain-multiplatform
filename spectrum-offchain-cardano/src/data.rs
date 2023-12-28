@@ -4,11 +4,14 @@ use cml_chain::address::Address;
 use cml_chain::transaction::{TransactionInput, TransactionOutput};
 use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
+use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
 use rand::{thread_rng, RngCore};
 
+use spectrum_cardano_lib::transaction::BabbageTransactionOutputExtension;
 use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAssetClass, Token};
-use spectrum_offchain::data::{LiquiditySource, SpecializedOrder};
+use spectrum_offchain::data::{EntitySnapshot, SpecializedOrder};
+use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::constants::POOL_VERSIONS;
 use crate::data::order::PoolNft;
@@ -29,6 +32,30 @@ pub mod execution_context;
 pub struct OnChain<T> {
     pub value: T,
     pub source: TransactionOutput,
+}
+
+impl<T, Ctx> TryFromLedger<TransactionOutput, Ctx> for OnChain<T>
+where
+    T: TryFromLedger<TransactionOutput, Ctx>,
+{
+    fn try_from_ledger(repr: &TransactionOutput, ctx: Ctx) -> Option<Self> {
+        T::try_from_ledger(repr, ctx).map(|value| OnChain {
+            value,
+            source: repr.clone(),
+        })
+    }
+}
+
+impl<T, Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for OnChain<T>
+where
+    T: TryFromLedger<BabbageTransactionOutput, Ctx>,
+{
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: Ctx) -> Option<Self> {
+        T::try_from_ledger(repr, ctx).map(|value| OnChain {
+            value,
+            source: repr.clone().upcast(),
+        })
+    }
 }
 
 impl<T> OnChain<T> {
@@ -53,9 +80,9 @@ where
     }
 }
 
-impl<T> LiquiditySource for OnChain<T>
+impl<T> EntitySnapshot for OnChain<T>
 where
-    T: LiquiditySource,
+    T: EntitySnapshot,
 {
     type StableId = T::StableId;
     type Version = T::Version;
@@ -176,16 +203,11 @@ impl ExecutorFeePerToken {
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, derive_more::From, derive_more::Into)]
-pub struct PoolVer(u8);
+pub struct PoolVer(pub u8);
 
 impl PoolVer {
-    pub const fn v1() -> Self {
-        PoolVer(1)
-    }
-
-    pub const fn v2() -> Self {
-        PoolVer(2)
-    }
+    pub const V1: PoolVer = PoolVer(1);
+    pub const V2: PoolVer = PoolVer(2);
 
     pub fn try_from_pool_address(pool_addr: &Address) -> Option<PoolVer> {
         let this_addr = pool_addr.to_bech32(None).unwrap();

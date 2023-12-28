@@ -16,9 +16,11 @@ use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::Has;
 
+use crate::execution_engine::instances::Magnet;
 use crate::operator_address::OperatorAddress;
 
 /// A short-living interpreter.
+#[derive(Debug, Copy, Clone)]
 pub struct CardanoRecipeInterpreter;
 
 impl<'a, Fr, Pl, Ctx> RecipeInterpreter<Fr, Pl, Ctx, FinalizedTxOut, SignedTxBuilder>
@@ -26,8 +28,8 @@ impl<'a, Fr, Pl, Ctx> RecipeInterpreter<Fr, Pl, Ctx, FinalizedTxOut, SignedTxBui
 where
     Fr: Copy,
     Pl: Copy,
-    LinkedFill<Fr, FinalizedTxOut>: BatchExec<TransactionBuilder, Option<IndexedTxOut>, Ctx, Void>,
-    LinkedSwap<Pl, FinalizedTxOut>: BatchExec<TransactionBuilder, IndexedTxOut, Ctx, Void>,
+    Magnet<LinkedFill<Fr, FinalizedTxOut>>: BatchExec<TransactionBuilder, Option<IndexedTxOut>, Ctx, Void>,
+    Magnet<LinkedSwap<Pl, FinalizedTxOut>>: BatchExec<TransactionBuilder, IndexedTxOut, Ctx, Void>,
     Ctx: Clone + Has<Collateral> + Has<OperatorAddress>,
 {
     fn run(
@@ -62,15 +64,15 @@ fn execute<Fr, Pl, Ctx>(
 where
     Fr: Copy,
     Pl: Copy,
-    LinkedFill<Fr, FinalizedTxOut>: BatchExec<TransactionBuilder, Option<IndexedTxOut>, Ctx, Void>,
-    LinkedSwap<Pl, FinalizedTxOut>: BatchExec<TransactionBuilder, IndexedTxOut, Ctx, Void>,
+    Magnet<LinkedFill<Fr, FinalizedTxOut>>: BatchExec<TransactionBuilder, Option<IndexedTxOut>, Ctx, Void>,
+    Magnet<LinkedSwap<Pl, FinalizedTxOut>>: BatchExec<TransactionBuilder, IndexedTxOut, Ctx, Void>,
     Ctx: Clone,
 {
     if let Some(instruction) = rem.pop() {
         match instruction {
             LinkedTerminalInstruction::Fill(fill_order) => {
                 let next_state = fill_order.transition;
-                let (tx_builder, next_bearer, ctx) = fill_order.try_exec(tx_builder, ctx).unwrap();
+                let (tx_builder, next_bearer, ctx) = Magnet(fill_order).try_exec(tx_builder, ctx).unwrap();
                 if let (StateTrans::Active(next_fr), Some(next_bearer)) = (next_state, next_bearer) {
                     updates_acc.push((Either::Left(next_fr), next_bearer));
                 }
@@ -78,7 +80,7 @@ where
             }
             LinkedTerminalInstruction::Swap(swap) => {
                 let next_state = swap.transition;
-                let (tx_builder, next_bearer, ctx) = swap.try_exec(tx_builder, ctx).unwrap();
+                let (tx_builder, next_bearer, ctx) = Magnet(swap).try_exec(tx_builder, ctx).unwrap();
                 updates_acc.push((Either::Right(next_state), next_bearer));
                 execute(ctx, tx_builder, updates_acc, rem)
             }

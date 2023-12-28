@@ -1,6 +1,10 @@
 use std::fmt::{Debug, Formatter};
 
+use derive_more::{From, Into};
 use rand::{thread_rng, RngCore};
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Into, From)]
+pub struct Time(u64);
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct StableId([u8; 32]);

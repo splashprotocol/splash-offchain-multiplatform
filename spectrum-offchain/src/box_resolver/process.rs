@@ -8,7 +8,7 @@ use tokio::sync::Mutex;
 use crate::box_resolver::persistence::EntityRepo;
 use crate::combinators::Ior;
 use crate::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
-use crate::data::LiquiditySource;
+use crate::data::EntitySnapshot;
 use crate::partitioning::Partitioned;
 
 pub fn pool_tracking_stream<'a, const N: usize, S, Repo, Pool>(
@@ -17,7 +17,7 @@ pub fn pool_tracking_stream<'a, const N: usize, S, Repo, Pool>(
 ) -> impl Stream<Item = ()> + 'a
 where
     S: Stream<Item = EitherMod<StateUpdate<Pool>>> + 'a,
-    Pool: LiquiditySource + 'a,
+    Pool: EntitySnapshot + 'a,
     Pool::StableId: Display,
     Repo: EntityRepo<Pool> + 'a,
 {

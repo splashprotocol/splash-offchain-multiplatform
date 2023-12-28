@@ -10,6 +10,7 @@ members = [
     "cardano-explorer",
     "bloom-offchain",
     "bloom-offchain-cardano",
+    "bloom-cardano-agent",
 ]
 
 [profile.release]
