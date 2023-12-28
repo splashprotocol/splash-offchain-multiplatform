@@ -32,8 +32,7 @@ where
 
 impl<TSink, TEntity, TRepo> ConfirmedUpdateHandler<TSink, TEntity, TRepo>
 where
-    TEntity: EntitySnapshot + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone,
-    TEntity::StableId: Clone,
+    TEntity: EntitySnapshot,
 {
     pub fn new(topic: TSink, entities: Arc<Mutex<TRepo>>) -> Self {
         Self {
@@ -155,8 +154,7 @@ where
 
 impl<TSink, TEntity, TRepo> UnconfirmedUpdateHandler<TSink, TEntity, TRepo>
 where
-    TEntity: EntitySnapshot + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone,
-    TEntity::StableId: Clone,
+    TEntity: EntitySnapshot,
 {
     pub fn new(topic: TSink, entities: Arc<Mutex<TRepo>>) -> Self {
         Self {

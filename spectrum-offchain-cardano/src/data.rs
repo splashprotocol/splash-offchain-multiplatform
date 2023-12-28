@@ -1,12 +1,14 @@
 use std::fmt::{Display, Formatter};
 
 use cml_chain::address::Address;
-use cml_chain::PolicyId;
 use cml_chain::transaction::{TransactionInput, TransactionOutput};
+use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
+use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
-use rand::{RngCore, thread_rng};
+use rand::{thread_rng, RngCore};
 
+use spectrum_cardano_lib::transaction::BabbageTransactionOutputExtension;
 use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAssetClass, Token};
 use spectrum_offchain::data::{EntitySnapshot, SpecializedOrder};
 use spectrum_offchain::ledger::TryFromLedger;
@@ -40,6 +42,18 @@ where
         T::try_from_ledger(repr, ctx).map(|value| OnChain {
             value,
             source: repr.clone(),
+        })
+    }
+}
+
+impl<T, Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for OnChain<T>
+where
+    T: TryFromLedger<BabbageTransactionOutput, Ctx>,
+{
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: Ctx) -> Option<Self> {
+        T::try_from_ledger(repr, ctx).map(|value| OnChain {
+            value,
+            source: repr.clone().upcast(),
         })
     }
 }

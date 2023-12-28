@@ -1,24 +1,21 @@
 use std::cmp::min;
 
-use cml_chain::{Coin, Value};
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
-use cml_chain::builders::tx_builder::{
-    ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput,
-};
+use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput};
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
 use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, TransactionOutput};
+use cml_chain::{Coin, Value};
 use cml_core::serialization::FromBytes;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
 use num_rational::Ratio;
 use type_equalities::IsEqual;
 
-use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
 };
@@ -26,8 +23,9 @@ use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_offchain::data::{EntitySnapshot, Has};
+use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::unique_entity::Predicted;
+use spectrum_offchain::data::{EntitySnapshot, Has};
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
@@ -35,7 +33,6 @@ use crate::constants::{
     CFMM_LP_FEE_DEN, MAX_LQ_CAP, ORDER_EXECUTION_UNITS, POOL_DEPOSIT_REDEEMER, POOL_DESTROY_REDEEMER,
     POOL_EXECUTION_UNITS, POOL_REDEEM_REDEEMER, POOL_SWAP_REDEEMER,
 };
-use crate::data::{OnChain, OnChainOrderId, PoolId, PoolStateVer, PoolVer};
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::execution_context::ExecutionContext;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
@@ -43,6 +40,7 @@ use crate::data::operation_output::{DepositOutput, RedeemOutput, SwapOutput};
 use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::ref_scripts::RequiresRefScript;
+use crate::data::{OnChain, OnChainOrderId, PoolId, PoolStateVer, PoolVer};
 
 pub struct Rx;
 
@@ -476,7 +474,7 @@ where
 
         let mut tx_builder = constant_tx_builder();
 
-        tx_builder.add_collateral(ctx.collateral).unwrap();
+        tx_builder.add_collateral(ctx.collateral.into()).unwrap();
 
         tx_builder.add_reference_input(order.clone().get_ref_script(ctx.ref_scripts.clone()));
         tx_builder.add_reference_input(pool.get_ref_script(ctx.ref_scripts.clone()));
