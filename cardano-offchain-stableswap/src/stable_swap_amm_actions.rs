@@ -6,7 +6,7 @@ use crate::stable_swap_invariant::{
 
 pub(crate) const LP_EMISSION: u64 = 9223372036854775807;
 pub(crate) const LP_NUM_DECIMALS: u32 = 9;
-const DENOM: u64 = 10_000;
+pub(crate) const DENOM: u64 = 10_000;
 
 /// Calculates valid transition of the StablePool reserves in the arbitrary Deposit/Redeem actions.
 ///
@@ -57,7 +57,7 @@ pub fn liquidity_action(
         .map(|(k, &x)| (x - collected_protocol_fees[k]))
         .collect::<Vec<U512>>();
 
-    // Convert to the common precision for calculations:
+    // Convert to the equal precision for calculations:
     let precision = U512::from(reserves_tokens_decimals.iter().max().unwrap().0.as_slice()[0]);
 
     let balances_before_calc = balances_before_no_fees
@@ -94,34 +94,32 @@ pub fn liquidity_action(
         difference.push(abs_diff)
     }
 
-    // Calculate protocol fees in the native units of the tradable assets:
+    // Calculate fees in the native units of the tradable assets:
     let denom = U512::from(DENOM);
     let fee_num = U512::from((swap_fee_num * n_assets) / (4 * (n_assets - 1)));
+
     let protocol_fees_native = difference
         .iter()
         .map(|&x| (fee_num * x * U512::from(*protocol_share_num)) / (denom * denom))
         .collect::<Vec<_>>();
 
-    // Calculate final balances with commissions applied:
-    let mut final_balances = Vec::new();
+    // Calculate final tradable balances with fees applied:
+    let mut final_tradable_balances = Vec::new();
 
-    for (a, b) in balances_after_no_fees
-        .iter()
-        .zip(protocol_fees_native.iter())
-    {
+    for (a, b) in balances_after_no_fees.iter().zip(protocol_fees_native.iter()) {
         assert!(a > b);
         let new_balance = { *a - *b };
-        final_balances.push(new_balance)
+        final_tradable_balances.push(new_balance)
     }
 
-    let final_balances_calc = final_balances
+    let final_tradable_balances_calc = final_tradable_balances
         .iter()
         .enumerate()
         .map(|(k, &x)| x * precision / reserves_tokens_decimals[k])
         .collect::<Vec<U512>>();
 
     // Calculate final value of the invariant:
-    let d2 = calculate_invariant(&final_balances_calc, n_assets, ampl_coefficient);
+    let d2 = calculate_invariant(&final_tradable_balances_calc, n_assets, ampl_coefficient);
 
     // Calculate final collected protocol fees:
     let collected_protocol_fees_final = collected_protocol_fees
@@ -149,13 +147,13 @@ pub fn liquidity_action(
         &n_assets,
         &ann,
         &balances_after_calc,
-        &d1
+        &d1,
     ));
     assert!(check_invariant_extremum(
         &n_assets,
         &ann,
-        &final_balances_calc,
-        &d2
+        &final_tradable_balances_calc,
+        &d2,
     ));
     (
         collected_protocol_fees_final,
@@ -181,6 +179,7 @@ pub fn liquidity_action(
 /// # Outputs
 ///
 /// * `received_reserves_amounts` - Amount of the pool reserve assets to receive;
+/// * `final_balances` - Final reserves of the pool after the action;;
 /// * `final_lp_amount` - Final amount of the LP tokens in the pool after the action;
 /// * `d2` - Invariant value (put into pool.datum).
 pub fn redeem_uniform(
@@ -191,7 +190,7 @@ pub fn redeem_uniform(
     collected_protocol_fees: &Vec<U512>,
     ampl_coefficient: &u32,
     n_assets: &u32,
-) -> (Vec<U512>, U512, U512) {
+) -> (Vec<U512>, Vec<U512>, U512, U512) {
     assert_eq!(*n_assets, reserves_before.len() as u32);
     assert_eq!(*n_assets, collected_protocol_fees.len() as u32);
     assert_eq!(*n_assets, reserves_tokens_decimals.len() as u32);
@@ -212,18 +211,17 @@ pub fn redeem_uniform(
         .collect::<Vec<U512>>();
 
     // Calculate final liquidity token amount and reserves:
-    let final_lp_amount = *lp_amount_before - *redeemed_lp_amount;
-    let final_balances = balances_before_no_fees
+    let final_balances_no_fees = balances_before_no_fees
         .clone()
         .iter()
         .enumerate()
         .map(|(k, &x)| (x - received_reserves_amounts[k]))
         .collect::<Vec<U512>>();
 
-    // Calculate invariant value (balances are converted to the common precision):
+    // Calculate invariant value (balances are converted to the equal precision):
     let precision = U512::from(reserves_tokens_decimals.iter().max().unwrap().0.as_slice()[0]);
 
-    let final_balances_calc = final_balances
+    let final_balances_calc = final_balances_no_fees
         .iter()
         .enumerate()
         .map(|(k, &x)| (x * precision / reserves_tokens_decimals[k]))
@@ -238,10 +236,20 @@ pub fn redeem_uniform(
         &n_assets,
         &ann,
         &final_balances_calc,
-        &d2
+        &d2,
     ));
 
-    (received_reserves_amounts, final_lp_amount, d2)
+    // Calculate final balances with fees:
+    let final_balances = final_balances_no_fees
+        .iter()
+        .enumerate()
+        .map(|(k, &x)| x + collected_protocol_fees[k])
+        .collect::<Vec<U512>>();
+
+    // Calculate final liquidity token amount:
+    let final_lp_amount = *lp_amount_before + *redeemed_lp_amount;
+
+    (received_reserves_amounts, final_balances, final_lp_amount, d2)
 }
 
 /// Calculates valid transition of the StablePool reserves in the Swap action.
@@ -300,7 +308,7 @@ pub fn swap(
     let mut balances_with_i_no_fees = balances_before_no_fees.clone();
     balances_with_i_no_fees[*i] = balances_with_i_no_fees[*i] + *base_amount;
 
-    // Convert balances to the common precision for calculations:
+    // Convert balances to the equal precision for calculations:
     let precision = U512::from(reserves_tokens_decimals.iter().max().unwrap().0.as_slice()[0]);
 
     let balances_before_no_fees_calc = balances_before_no_fees
@@ -325,11 +333,7 @@ pub fn swap(
         .collect();
 
     // ============== Numerical calculation of the "quote" balance after Swap ==============
-    let s = balances_no_j_calc
-        .iter()
-        .copied()
-        .reduce(|a, b| a + b)
-        .unwrap();
+    let s = balances_no_j_calc.iter().copied().reduce(|a, b| a + b).unwrap();
     let p = balances_no_j_calc
         .iter()
         .copied()
@@ -355,8 +359,9 @@ pub fn swap(
     let mut abs_j_error = d0;
     while abs_j_error > unit {
         let balance_j_previous = balance_j;
+        balance_j = (balance_j_previous * balance_j_previous + c) / (unit_x2 * balance_j_previous + b - d0);
         balance_j =
-            (balance_j_previous * balance_j_previous + c) / (unit_x2 * balance_j_previous + b - d0);
+            (balance_j * reserves_tokens_decimals[*j] / precision) * precision / reserves_tokens_decimals[*j];
         abs_j_error = if balance_j >= balance_j_previous {
             balance_j - balance_j_previous
         } else {
@@ -380,19 +385,13 @@ pub fn swap(
         while inv_err < inv_err_previous {
             inv_err_previous = inv_err;
             balances_with_i_no_fees_calc[*j] = balances_with_i_no_fees_calc[*j] + unit;
-            inv_err = calculate_invariant_error_from_balances(
-                n_assets,
-                &ann,
-                &balances_with_i_no_fees_calc,
-                &d0,
-            );
+            inv_err =
+                calculate_invariant_error_from_balances(n_assets, &ann, &balances_with_i_no_fees_calc, &d0);
         }
-        balance_j = balances_with_i_no_fees_calc[*j] - unit;
+        balance_j = balances_with_i_no_fees_calc[*j] - unit * precision / reserves_tokens_decimals[*j];
     }
 
-    let balance_j_native_units = balance_j * reserves_tokens_decimals[*j] / precision;
-    let quote_asset_delta_calc =
-        balance_j_initial_calc - balance_j_native_units * precision / reserves_tokens_decimals[*j];
+    let quote_asset_delta_calc = balance_j_initial_calc - balance_j;
     balances_with_i_no_fees_calc[*j] = balance_j_initial_calc - quote_asset_delta_calc;
 
     // Calculate output (d1 aka native) value of the StableSwap invariant:
@@ -404,50 +403,54 @@ pub fn swap(
     let protocol_share_num = U512::from(*protocol_share_num);
     let denom = U512::from(DENOM);
 
-    let protocol_fees_j =
-        quote_asset_delta_calc * swap_fee_num_calc * protocol_share_num / (denom * denom);
+    let total_fees_j = ((quote_asset_delta_calc * swap_fee_num_calc / denom) * reserves_tokens_decimals[*j]
+        / precision)
+        * precision
+        / reserves_tokens_decimals[*j];
+    let protocol_fees_j = (quote_asset_delta_calc * swap_fee_num_calc * protocol_share_num / (denom * denom)
+        * reserves_tokens_decimals[*j]
+        / precision)
+        * precision
+        / reserves_tokens_decimals[*j];
     let mut collected_protocol_fees_final = collected_protocol_fees.clone();
-    collected_protocol_fees_final[*j] = collected_protocol_fees_final[*j]
-        + protocol_fees_j * reserves_tokens_decimals[*j] / precision;
+    collected_protocol_fees_final[*j] =
+        collected_protocol_fees_final[*j] + protocol_fees_j * reserves_tokens_decimals[*j] / precision;
 
     // Calculate received "quote" amount:
     let quote_amount_received =
-        (quote_asset_delta_calc - protocol_fees_j) * reserves_tokens_decimals[*j] / precision;
+        (quote_asset_delta_calc - total_fees_j) * reserves_tokens_decimals[*j] / precision;
+
+    // Calculate values of the StableSwap invariant:
+    balances_with_i_no_fees_calc[*j] = balances_with_i_no_fees_calc[*j] + (total_fees_j - protocol_fees_j);
+    let final_balances_calc = balances_with_i_no_fees_calc.clone();
+    let d2 = calculate_invariant(&final_balances_calc, n_assets, ampl_coefficient);
 
     // Calculate final balances:
     let final_reserves = balances_with_i_no_fees_calc
         .iter()
         .enumerate()
-        .map(|(k, &x)| {
-            x * reserves_tokens_decimals[k] / precision + collected_protocol_fees_final[k]
-        })
+        .map(|(k, &x)| x * reserves_tokens_decimals[k] / precision + collected_protocol_fees_final[k])
         .collect::<Vec<U512>>();
-
-    // Calculate values of the StableSwap invariant:
-    balances_with_i_no_fees_calc[*j] = balances_with_i_no_fees_calc[*j] + protocol_fees_j;
-    let final_balances_calc = balances_with_i_no_fees_calc.clone();
-    let d2 = calculate_invariant(&final_balances_calc, n_assets, ampl_coefficient);
 
     // Minimal validity checks from the pool contract:
     assert_eq!(final_reserves[*i] - reserves_before[*i], *base_amount);
-    assert!(reserves_before[*j] - final_reserves[*j] <= quote_amount_received + unit);
+    assert!(reserves_before[*j] - final_reserves[*j] <= quote_amount_received + unit_x2);
     assert_eq!(collected_protocol_fees_final.len() as u32, *n_assets);
     assert!(check_invariant_extremum(
         &n_assets,
         &ann,
         &balances_with_no_fees_calc,
-        &d1
+        &d1,
     ));
     assert!(check_invariant_extremum(
         &n_assets,
         &ann,
         &final_balances_calc,
-        &d2
+        &d2,
     ));
-    let min_decimals = U512::from(reserves_tokens_decimals.iter().min().unwrap().0.as_slice()[0]);
-    let max_inv_unit_errror = U512::from(*n_assets) * precision / min_decimals;
+
     let abs_inv_diff = if d1 > d0 { d1 - d0 } else { d0 - d1 };
-    assert!(abs_inv_diff <= max_inv_unit_errror);
+    assert!(abs_inv_diff <= unit_x2 * precision / reserves_tokens_decimals[*j]);
     (
         final_reserves,
         collected_protocol_fees_final,

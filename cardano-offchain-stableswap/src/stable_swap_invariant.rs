@@ -147,13 +147,8 @@ pub fn calculate_invariant(balances: &Vec<U512>, n_assets: &u32, ampl_coefficien
     // Fine tuning of the calculated value:
     let nn_total_prod_calc = nn * p;
     let ann_total_sum_calc = ann * s;
-    let mut inv_err = calculate_invariant_error_from_totals(
-        n_assets,
-        &ann,
-        &nn_total_prod_calc,
-        &ann_total_sum_calc,
-        &d,
-    );
+    let mut inv_err =
+        calculate_invariant_error_from_totals(n_assets, &ann, &nn_total_prod_calc, &ann_total_sum_calc, &d);
     let inv_err_upper = calculate_invariant_error_from_totals(
         n_assets,
         &ann,
@@ -195,8 +190,7 @@ mod test {
     use rand::Rng;
 
     use crate::stable_swap_invariant::{
-        calculate_invariant, calculate_invariant_error_from_balances,
-        calculate_invariant_error_from_totals,
+        calculate_invariant, calculate_invariant_error_from_balances, calculate_invariant_error_from_totals,
     };
 
     #[test]
@@ -211,10 +205,8 @@ mod test {
             let ann = a * nn;
             let balance: u64 = rng.gen();
             let balances_calc = vec![U512::from(balance); n as usize];
-            let nn_total_prod_calc =
-                nn * balances_calc.iter().copied().reduce(|a, b| a * b).unwrap();
-            let ann_total_sum_calc =
-                ann * balances_calc.iter().copied().reduce(|a, b| a + b).unwrap();
+            let nn_total_prod_calc = nn * balances_calc.iter().copied().reduce(|a, b| a * b).unwrap();
+            let ann_total_sum_calc = ann * balances_calc.iter().copied().reduce(|a, b| a + b).unwrap();
             let inv: U512 = U512::from(n) * U512::from(balance);
 
             let err = calculate_invariant_error_from_totals(
