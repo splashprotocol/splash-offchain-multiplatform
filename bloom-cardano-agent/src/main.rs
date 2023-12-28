@@ -101,7 +101,7 @@ async fn main() {
     )));
     let mempool_stream = mempool_stream(&mempool_sync, Some(&signal_tip_reached));
 
-    let (operator_sk, operator_pkh, operator_addr) =
+    let (operator_sk, operator_pkh, _operator_addr) =
         operator_creds(config.batcher_private_key, NetworkInfo::mainnet());
 
     let collaterals = CollateralsViaExplorer::new(operator_pkh.to_hex(), explorer);
@@ -140,7 +140,7 @@ async fn main() {
             soft: 1000,
             hard: 10000,
         },
-        operator_addr: config.operator_address,
+        reward_addr: config.reward_address,
         collateral,
     };
     let book_type: PhantomData<TLB<AnyOrder, AnyPool>> = PhantomData::default();

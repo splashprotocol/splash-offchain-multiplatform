@@ -2,4 +2,4 @@ use cml_chain::address::Address;
 use derive_more::{From, Into};
 
 #[derive(serde::Deserialize, Debug, Clone, Into, From)]
-pub struct OperatorAddress(pub Address);
+pub struct RewardAddress(pub Address);

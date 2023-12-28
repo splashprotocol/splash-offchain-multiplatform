@@ -2,7 +2,7 @@ use type_equalities::IsEqual;
 
 use bloom_offchain::execution_engine::liquidity_book::ExecutionCap;
 use bloom_offchain::execution_engine::types::Time;
-use bloom_offchain_cardano::operator_address::OperatorAddress;
+use bloom_offchain_cardano::operator_address::RewardAddress;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_offchain::data::Has;
 use spectrum_offchain_cardano::data::pool::CFMMPoolRefScriptOutput;
@@ -14,7 +14,7 @@ pub struct ExecutionContext {
     pub execution_caps: ExecutionCap,
     pub refs: ReferenceOutputs,
     pub collateral: Collateral,
-    pub operator_addr: OperatorAddress,
+    pub reward_addr: RewardAddress,
 }
 
 impl Has<Time> for ExecutionContext {
@@ -35,9 +35,9 @@ impl Has<Collateral> for ExecutionContext {
     }
 }
 
-impl Has<OperatorAddress> for ExecutionContext {
-    fn get<U: IsEqual<OperatorAddress>>(&self) -> OperatorAddress {
-        self.operator_addr.clone()
+impl Has<RewardAddress> for ExecutionContext {
+    fn get<U: IsEqual<RewardAddress>>(&self) -> RewardAddress {
+        self.reward_addr.clone()
     }
 }
 

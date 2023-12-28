@@ -17,7 +17,7 @@ use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::Has;
 
 use crate::execution_engine::instances::Magnet;
-use crate::operator_address::OperatorAddress;
+use crate::operator_address::RewardAddress;
 
 /// A short-living interpreter.
 #[derive(Debug, Copy, Clone)]
@@ -30,7 +30,7 @@ where
     Pl: Copy,
     Magnet<LinkedFill<Fr, FinalizedTxOut>>: BatchExec<TransactionBuilder, Option<IndexedTxOut>, Ctx, Void>,
     Magnet<LinkedSwap<Pl, FinalizedTxOut>>: BatchExec<TransactionBuilder, IndexedTxOut, Ctx, Void>,
-    Ctx: Clone + Has<Collateral> + Has<OperatorAddress>,
+    Ctx: Clone + Has<Collateral> + Has<RewardAddress>,
 {
     fn run(
         &mut self,
@@ -41,7 +41,7 @@ where
         let (mut tx_builder, mut indexed_outputs, ctx) = execute(ctx, tx_builder, vec![], instructions);
         tx_builder.add_collateral(ctx.get::<Collateral>().into()).unwrap();
         let tx = tx_builder
-            .build(ChangeSelectionAlgo::Default, &ctx.get::<OperatorAddress>().into())
+            .build(ChangeSelectionAlgo::Default, &ctx.get::<RewardAddress>().into())
             .unwrap();
         let mut finalized_outputs = vec![];
         let tx_hash = hash_transaction_canonical(&tx.body());
