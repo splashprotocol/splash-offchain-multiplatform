@@ -95,6 +95,29 @@ pub fn check_invariant_extremum(n: &u32, ann: &U512, balances_calc: &Vec<U512>, 
     err_left >= err_eq && err_right >= err_eq
 }
 
+pub fn check_invariant_extremum_for_asset(
+    n: &u32,
+    ann: &U512,
+    balances_calc: &Vec<U512>,
+    d: &U512,
+    minimal_asset_unit: &U512,
+    asset_ind: &usize,
+) -> bool {
+    let err_eq = calculate_invariant_error_from_balances(n, ann, balances_calc, d);
+    let mut balances_calc_left = balances_calc.clone();
+
+    balances_calc_left[*asset_ind] =
+        balances_calc_left[*asset_ind] - *minimal_asset_unit - *minimal_asset_unit;
+    let err_left = calculate_invariant_error_from_balances(n, ann, &balances_calc_left, &d);
+    let mut balances_calc_right = balances_calc.clone();
+
+    balances_calc_right[*asset_ind] =
+        balances_calc_right[*asset_ind] + *minimal_asset_unit + *minimal_asset_unit;
+    let err_right = calculate_invariant_error_from_balances(n, ann, &balances_calc_right, &d);
+
+    err_left > err_eq && err_right > err_eq
+}
+
 /// StableSwap invariant value numerical calculation procedure.
 /// \
 /// Note: input balances must be reduced to a common denominator (precision).

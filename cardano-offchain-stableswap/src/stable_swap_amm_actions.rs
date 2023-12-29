@@ -2,11 +2,12 @@ use primitive_types::U512;
 
 use crate::stable_swap_invariant::{
     calculate_invariant, calculate_invariant_error_from_balances, check_invariant_extremum,
+    check_invariant_extremum_for_asset,
 };
 
-pub(crate) const LP_EMISSION: u64 = 9223372036854775807;
-pub(crate) const LP_NUM_DECIMALS: u32 = 9;
-pub(crate) const DENOM: u64 = 10_000;
+pub const LP_EMISSION: u64 = 9223372036854775807;
+pub const LP_NUM_DECIMALS: u32 = 9;
+pub const DENOM: u64 = 10_000;
 
 /// Calculates valid transition of the StablePool reserves in the arbitrary Deposit/Redeem actions.
 ///
@@ -179,7 +180,7 @@ pub fn liquidity_action(
 /// # Outputs
 ///
 /// * `received_reserves_amounts` - Amount of the pool reserve assets to receive;
-/// * `final_balances` - Final reserves of the pool after the action;;
+/// * `final_balances` - Final reserves of the pool after the action;
 /// * `final_lp_amount` - Final amount of the LP tokens in the pool after the action;
 /// * `d2` - Invariant value (put into pool.datum).
 pub fn redeem_uniform(
@@ -229,16 +230,6 @@ pub fn redeem_uniform(
 
     let d2 = calculate_invariant(&final_balances_calc, n_assets, ampl_coefficient);
 
-    // Minimal validity checks from the pool contract:
-    let ann = U512::from(ampl_coefficient * n_assets.pow(*n_assets));
-    assert_eq!(received_reserves_amounts.len() as u32, *n_assets);
-    assert!(check_invariant_extremum(
-        &n_assets,
-        &ann,
-        &final_balances_calc,
-        &d2,
-    ));
-
     // Calculate final balances with fees:
     let final_balances = final_balances_no_fees
         .iter()
@@ -248,6 +239,16 @@ pub fn redeem_uniform(
 
     // Calculate final liquidity token amount:
     let final_lp_amount = *lp_amount_before + *redeemed_lp_amount;
+
+    // Minimal validity checks from the pool contract:
+    let ann = U512::from(ampl_coefficient * n_assets.pow(*n_assets));
+    assert_eq!(received_reserves_amounts.len() as u32, *n_assets);
+    assert!(check_invariant_extremum(
+        &n_assets,
+        &ann,
+        &final_balances_calc,
+        &d2,
+    ));
 
     (received_reserves_amounts, final_balances, final_lp_amount, d2)
 }
@@ -369,88 +370,107 @@ pub fn swap(
         }
     }
 
-    // Adjust the calculated final balance of the "quote" asset:
+    // Adjust the calculated final balance of the "quote" asset.
+    // Note: value is adjusted at least by 'minimal_j_unit'.
+    let minimal_j_unit = precision / reserves_tokens_decimals[*j];
     balances_with_i_no_fees_calc[*j] = balance_j;
     let mut inv_err =
         calculate_invariant_error_from_balances(n_assets, &ann, &balances_with_i_no_fees_calc, &d0);
-    balances_with_i_no_fees_calc[*j] = balance_j + unit;
+    balances_with_i_no_fees_calc[*j] = balance_j + minimal_j_unit;
     let inv_err_upper =
         calculate_invariant_error_from_balances(n_assets, &ann, &balances_with_i_no_fees_calc, &d0);
-    balances_with_i_no_fees_calc[*j] = balance_j - unit;
+    balances_with_i_no_fees_calc[*j] = balance_j - minimal_j_unit;
     let inv_err_lower =
         calculate_invariant_error_from_balances(n_assets, &ann, &balances_with_i_no_fees_calc, &d0);
 
     if !((inv_err < inv_err_upper) && (inv_err < inv_err_lower)) {
-        let mut inv_err_previous = inv_err + unit;
+        let mut inv_err_previous = inv_err + minimal_j_unit;
         while inv_err < inv_err_previous {
             inv_err_previous = inv_err;
-            balances_with_i_no_fees_calc[*j] = balances_with_i_no_fees_calc[*j] + unit;
+            balances_with_i_no_fees_calc[*j] = balances_with_i_no_fees_calc[*j] + minimal_j_unit;
             inv_err =
                 calculate_invariant_error_from_balances(n_assets, &ann, &balances_with_i_no_fees_calc, &d0);
         }
-        balance_j = balances_with_i_no_fees_calc[*j] - unit * precision / reserves_tokens_decimals[*j];
+        balance_j = balances_with_i_no_fees_calc[*j] - minimal_j_unit;
     }
 
-    let quote_asset_delta_calc = balance_j_initial_calc - balance_j;
-    balances_with_i_no_fees_calc[*j] = balance_j_initial_calc - quote_asset_delta_calc;
-
-    // Calculate output (d1 aka native) value of the StableSwap invariant:
-    let balances_with_no_fees_calc = balances_with_i_no_fees_calc.clone();
-    let d1 = calculate_invariant(&balances_with_no_fees_calc, n_assets, ampl_coefficient);
-
+    let quote_asset_delta = (balance_j_initial_calc - balance_j) * reserves_tokens_decimals[*j] / precision;
+    balances_with_i_no_fees_calc[*j] = balance_j;
     // Calculate protocol fees:
     let swap_fee_num_calc = U512::from(*swap_fee_num);
     let protocol_share_num = U512::from(*protocol_share_num);
     let denom = U512::from(DENOM);
 
-    let total_fees_j = ((quote_asset_delta_calc * swap_fee_num_calc / denom) * reserves_tokens_decimals[*j]
-        / precision)
-        * precision
-        / reserves_tokens_decimals[*j];
-    let protocol_fees_j = (quote_asset_delta_calc * swap_fee_num_calc * protocol_share_num / (denom * denom)
-        * reserves_tokens_decimals[*j]
-        / precision)
-        * precision
-        / reserves_tokens_decimals[*j];
+    let total_fees_j = quote_asset_delta * swap_fee_num_calc / denom;
+
+    let protocol_fees_j = total_fees_j * protocol_share_num / denom;
+
+    let lp_fee = protocol_fees_j * (denom - protocol_share_num) / protocol_share_num;
+
+    let total_fees_j = protocol_fees_j + lp_fee;
+
+    // Calculate final protocol fees:
     let mut collected_protocol_fees_final = collected_protocol_fees.clone();
-    collected_protocol_fees_final[*j] =
-        collected_protocol_fees_final[*j] + protocol_fees_j * reserves_tokens_decimals[*j] / precision;
+    collected_protocol_fees_final[*j] = collected_protocol_fees_final[*j] + protocol_fees_j;
 
     // Calculate received "quote" amount:
-    let quote_amount_received =
-        (quote_asset_delta_calc - total_fees_j) * reserves_tokens_decimals[*j] / precision;
-
-    // Calculate values of the StableSwap invariant:
-    balances_with_i_no_fees_calc[*j] = balances_with_i_no_fees_calc[*j] + (total_fees_j - protocol_fees_j);
-    let final_balances_calc = balances_with_i_no_fees_calc.clone();
-    let d2 = calculate_invariant(&final_balances_calc, n_assets, ampl_coefficient);
+    let quote_amount_received = quote_asset_delta - total_fees_j;
 
     // Calculate final balances:
+    balances_with_i_no_fees_calc[*j] =
+        balances_with_i_no_fees_calc[*j] + lp_fee * precision / reserves_tokens_decimals[*j];
+
     let final_reserves = balances_with_i_no_fees_calc
         .iter()
         .enumerate()
         .map(|(k, &x)| x * reserves_tokens_decimals[k] / precision + collected_protocol_fees_final[k])
         .collect::<Vec<U512>>();
 
+    // Calculate values of the StableSwap invariant:
+    let mut reserves_for_d1_calc = final_reserves
+        .iter()
+        .enumerate()
+        .map(|(k, &x)| (x - collected_protocol_fees_final[k]) * precision / reserves_tokens_decimals[k])
+        .collect::<Vec<U512>>();
+    reserves_for_d1_calc[*j] = reserves_for_d1_calc[*j] - lp_fee * precision / reserves_tokens_decimals[*j];
+
+    let d1 = calculate_invariant(&reserves_for_d1_calc, n_assets, ampl_coefficient);
+
+    let mut reserves_for_d2_calc = final_reserves
+        .iter()
+        .enumerate()
+        .map(|(k, &x)| (x - collected_protocol_fees[k]) * precision / reserves_tokens_decimals[k])
+        .collect::<Vec<U512>>();
+
+    reserves_for_d2_calc[*j] =
+        reserves_for_d2_calc[*j] - protocol_fees_j * precision / reserves_tokens_decimals[*j];
+
+    let d2 = calculate_invariant(&reserves_for_d2_calc, n_assets, ampl_coefficient);
+
     // Minimal validity checks from the pool contract:
     assert_eq!(final_reserves[*i] - reserves_before[*i], *base_amount);
-    assert!(reserves_before[*j] - final_reserves[*j] <= quote_amount_received + unit_x2);
+    assert!(reserves_before[*j] - final_reserves[*j] <= quote_amount_received + unit);
     assert_eq!(collected_protocol_fees_final.len() as u32, *n_assets);
-    assert!(check_invariant_extremum(
+    assert!(check_invariant_extremum_for_asset(
         &n_assets,
         &ann,
-        &balances_with_no_fees_calc,
+        &reserves_for_d1_calc,
         &d1,
+        &minimal_j_unit,
+        j
     ));
-    assert!(check_invariant_extremum(
+    assert!(check_invariant_extremum_for_asset(
         &n_assets,
         &ann,
-        &final_balances_calc,
+        &reserves_for_d2_calc,
         &d2,
+        &minimal_j_unit,
+        j
     ));
 
     let abs_inv_diff = if d1 > d0 { d1 - d0 } else { d0 - d1 };
     assert!(abs_inv_diff <= unit_x2 * precision / reserves_tokens_decimals[*j]);
+
     (
         final_reserves,
         collected_protocol_fees_final,

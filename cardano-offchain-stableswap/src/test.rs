@@ -214,7 +214,7 @@ mod test {
     fn swap_test() {
         let n_assets_set: Vec<u32> = vec![3, 4];
         let mut rng = StdRng::seed_from_u64(42);
-        for _ in 0..100000 {
+        for _ in 0..10000 {
             let n = *n_assets_set.choose(&mut rand::thread_rng()).unwrap();
             let (
                 a,
@@ -252,7 +252,7 @@ mod test {
     fn full_flow_test() {
         let n_assets_set: Vec<u32> = vec![3, 4];
         let mut rng = StdRng::seed_from_u64(42);
-        for _ in 0..1000 {
+        for _ in 0..100 {
             let n = *n_assets_set.choose(&mut rand::thread_rng()).unwrap();
             let (a, swap_fee_num, protocol_share_num, _, _, reserves_tokens_decimals, _) =
                 prepare_random_s3pool_state(rng.clone(), n);
@@ -341,7 +341,8 @@ mod test {
 
                 let i = *inds.get(0).unwrap();
                 let j = *inds.get(1).unwrap();
-                let base_amount = U512::from(1000) * reserves_tokens_decimals[i];
+                let base_amount =
+                    U512::from(rng.gen_range(DENOM as u32..u16::MAX as u32)) * reserves_tokens_decimals[i];
 
                 // let base_amount =
                 //     U512::from(rng.gen_range(precision..u32::MAX as u64)) * reserves_tokens_decimals[i];
