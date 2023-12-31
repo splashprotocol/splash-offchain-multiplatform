@@ -1,25 +1,25 @@
-use cml_chain::Coin;
 use cml_chain::plutus::PlutusData;
+use cml_chain::Coin;
 use cml_core::serialization::FromBytes;
 use cml_crypto::Ed25519KeyHash;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
 
-use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
 };
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
+use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::UniqueOrder;
 use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::constants::{MIN_SAFE_ADA_DEPOSIT, ORDER_APPLY_RAW_REDEEMER, ORDER_REFUND_RAW_REDEEMER};
-use crate::data::{ExecutorFeePerToken, OnChainOrderId, PoolId};
 use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
 use crate::data::pool::CFMMPoolAction;
 use crate::data::pool::CFMMPoolAction::Swap;
+use crate::data::{ExecutorFeePerToken, OnChainOrderId, PoolId};
 
 #[derive(Debug, Clone)]
 pub struct LimitSwap {
@@ -85,7 +85,10 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainLimi
             min_expected_quote_amount: conf.min_quote_amount,
             ada_deposit,
             fee: ExecutorFeePerToken::new(
-                Ratio::new(conf.ex_fee_per_token_num, conf.ex_fee_per_token_denom),
+                Ratio::new(
+                    conf.ex_fee_per_token_num as u128,
+                    conf.ex_fee_per_token_denom as u128,
+                ),
                 AssetClass::Native,
             ),
             redeemer_pkh: conf.redeemer_pkh,
@@ -136,31 +139,31 @@ impl TryFromPData for OnChainLimitSwapConfig {
 
 #[cfg(test)]
 mod tests {
-    use cml_chain::{Deserialize, Value};
     use cml_chain::address::EnterpriseAddress;
     use cml_chain::certs::StakeCredential;
     use cml_chain::genesis::network_info::NetworkInfo;
     use cml_chain::plutus::PlutusData;
     use cml_chain::transaction::TransactionOutput;
+    use cml_chain::{Deserialize, Value};
     use cml_crypto::{Bip32PrivateKey, TransactionHash};
     use cml_multi_era::babbage::BabbageTransactionOutput;
 
     use cardano_explorer::client::Explorer;
     use cardano_explorer::data::ExplorerConfig;
-    use spectrum_cardano_lib::OutputRef;
     use spectrum_cardano_lib::types::TryFromPData;
+    use spectrum_cardano_lib::OutputRef;
     use spectrum_offchain::executor::RunOrder;
     use spectrum_offchain::ledger::TryFromLedger;
 
-    use crate::collaterals::Collaterals;
     use crate::collaterals::tests::MockBasedRequestor;
+    use crate::collaterals::Collaterals;
     use crate::creds::operator_creds;
     use crate::data::execution_context::ExecutionContext;
     use crate::data::limit_swap::OnChainLimitSwapConfig;
-    use crate::data::OnChain;
     use crate::data::order::ClassicalOnChainOrder;
     use crate::data::pool::CFMMPool;
     use crate::data::ref_scripts::ReferenceOutputs;
+    use crate::data::OnChain;
     use crate::ref_scripts::ReferenceSources;
 
     #[test]
@@ -185,8 +188,8 @@ mod tests {
             BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(SWAP_SAMPLE).unwrap()).unwrap();
         let pool_box =
             BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(POOL_SAMPLE).unwrap()).unwrap();
-        let swap = ClassicalOnChainOrder::try_from_ledger(swap_box, swap_ref).unwrap();
-        let pool = <OnChain<CFMMPool>>::try_from_ledger(pool_box, pool_ref).unwrap();
+        let swap = ClassicalOnChainOrder::try_from_ledger(&swap_box, swap_ref).unwrap();
+        let pool = <OnChain<CFMMPool>>::try_from_ledger(&pool_box, pool_ref).unwrap();
 
         let private_key_bech32 = Bip32PrivateKey::generate_ed25519_bip32().to_bech32();
 
@@ -236,7 +239,7 @@ mod tests {
             .await
             .expect("Couldn't retrieve collateral");
 
-        let ctx = ExecutionContext::new(operator_addr, ref_scripts, collateral);
+        let ctx = ExecutionContext::new(operator_addr, ref_scripts, collateral.into());
 
         let result = pool.try_run(swap, ctx);
 

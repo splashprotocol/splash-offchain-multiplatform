@@ -189,15 +189,18 @@ impl Display for PoolStateVer {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct ExecutorFeePerToken(Ratio<u64>, AssetClass);
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct ExecutorFeePerToken(Ratio<u128>, pub AssetClass);
 
 impl ExecutorFeePerToken {
-    pub fn new(rational: Ratio<u64>, ac: AssetClass) -> Self {
+    pub fn new(rational: Ratio<u128>, ac: AssetClass) -> Self {
         Self(rational, ac)
     }
-    pub fn get_fee(&self, quote_amount: u64) -> u64 {
-        ((*self.0.numer() as u128) * (quote_amount as u128) / (*self.0.denom() as u128)) as u64
+    pub fn get_fee(&self, output_amount: u64) -> u64 {
+        ((*self.0.numer() as u128) * (output_amount as u128) / (*self.0.denom())) as u64
+    }
+    pub fn value(&self) -> Ratio<u128> {
+        self.0
     }
 }
 

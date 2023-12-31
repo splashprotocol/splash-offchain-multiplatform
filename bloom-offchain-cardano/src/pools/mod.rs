@@ -1,6 +1,6 @@
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
-use bloom_offchain::execution_engine::liquidity_book::types::BasePrice;
+use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use bloom_offchain::execution_engine::types::StableId;
 use cml_chain::PolicyId;
 use cml_multi_era::babbage::BabbageTransactionOutput;
@@ -22,11 +22,11 @@ impl Pool for AnyPool {
         todo!()
     }
 
-    fn static_price(&self) -> BasePrice {
+    fn static_price(&self) -> AbsolutePrice {
         todo!()
     }
 
-    fn real_price(&self, input: Side<u64>) -> BasePrice {
+    fn real_price(&self, input: Side<u64>) -> AbsolutePrice {
         todo!()
     }
 

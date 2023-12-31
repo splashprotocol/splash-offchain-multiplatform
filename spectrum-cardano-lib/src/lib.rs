@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter, Write};
 use std::marker::PhantomData;
-use std::ops::{Add, Sub};
+use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::str::FromStr;
 
 use cml_chain::plutus::PlutusData;
@@ -167,6 +167,15 @@ impl AssetClass {
     }
 }
 
+impl Display for AssetClass {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AssetClass::Native => f.write_str("Native"),
+            AssetClass::Token(tkn) => tkn.fmt(f),
+        }
+    }
+}
+
 impl<T> From<TaggedAssetClass<T>> for AssetClass {
     fn from(value: TaggedAssetClass<T>) -> Self {
         value.0
@@ -254,10 +263,22 @@ impl<T> Add for TaggedAmount<T> {
     }
 }
 
+impl<T> AddAssign for TaggedAmount<T> {
+    fn add_assign(&mut self, rhs: Self) {
+        self.0 += rhs.0
+    }
+}
+
 impl<T> Sub for TaggedAmount<T> {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
         Self(self.0 - rhs.0, PhantomData::default())
+    }
+}
+
+impl<T> SubAssign for TaggedAmount<T> {
+    fn sub_assign(&mut self, rhs: Self) {
+        self.0 -= rhs.0
     }
 }
 

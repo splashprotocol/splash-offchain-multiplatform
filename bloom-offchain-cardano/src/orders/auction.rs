@@ -19,7 +19,7 @@ use bloom_offchain::execution_engine::batch_exec::BatchExec;
 use bloom_offchain::execution_engine::liquidity_book::fragment::Fragment;
 use bloom_offchain::execution_engine::liquidity_book::side::SideM;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
-use bloom_offchain::execution_engine::liquidity_book::types::{BasePrice, ExecutionCost, Price};
+use bloom_offchain::execution_engine::liquidity_book::types::{AbsolutePrice, ExecutionCost, RelativePrice};
 use bloom_offchain::execution_engine::partial_fill::PartiallyFilled;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
@@ -44,7 +44,7 @@ pub struct AuctionOrder {
     pub output_asset: AssetClass,
     pub output_amount: u64,
     /// Price of input asset in output asset.
-    pub start_price: Price,
+    pub start_price: RelativePrice,
     pub start_time: NetworkTime,
     pub step_len: u32,
     pub steps: u32,
@@ -101,7 +101,7 @@ impl Fragment for Stateful<AuctionOrder, TLBCompatibleState> {
         self.order.input_amount
     }
 
-    fn price(&self) -> BasePrice {
+    fn price(&self) -> AbsolutePrice {
         let current_span = (self.state.time_now - self.order.start_time) / (self.order.step_len as u64);
         let decay =
             Ratio::new(self.order.price_decay as u128, PRICE_DECAY_DEN as u128).pow(current_span as i32);
@@ -109,18 +109,12 @@ impl Fragment for Stateful<AuctionOrder, TLBCompatibleState> {
             SideM::Bid => decay.pow(-1),
             SideM::Ask => decay,
         };
-        let base_price = BasePrice::from_price(self.side(), self.order.start_price);
+        let base_price = AbsolutePrice::from_price(self.side(), self.order.start_price);
         base_price * decay
     }
 
-    fn weight(&self) -> u64 {
-        let decay =
-            Ratio::new(self.order.price_decay as u128, PRICE_DECAY_DEN as u128).pow(self.order.steps as i32);
-        let terminal_price = self.order.start_price * decay;
-        Ratio::new(self.order.input_amount as u128, 1)
-            .mul(terminal_price)
-            .mul(self.order.fee_per_quote)
-            .to_integer() as u64
+    fn weight(&self) -> Ratio<u128> {
+        self.order.fee_per_quote
     }
 
     fn cost_hint(&self) -> ExecutionCost {
@@ -204,7 +198,7 @@ mod tests {
 
     use bloom_offchain::execution_engine::liquidity_book::fragment::Fragment;
     use bloom_offchain::execution_engine::liquidity_book::side::SideM;
-    use bloom_offchain::execution_engine::liquidity_book::types::BasePrice;
+    use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
     use spectrum_cardano_lib::AssetClass;
 
     use crate::orders::auction::{AuctionOrder, PRICE_DECAY_DEN};
@@ -240,11 +234,11 @@ mod tests {
             o.start_price * Ratio::new(o.price_decay as u128, PRICE_DECAY_DEN as u128).pow(o.steps as i32);
         assert_eq!(
             Stateful::new(o, init_state).price(),
-            BasePrice::from_price(side, o.start_price)
+            AbsolutePrice::from_price(side, o.start_price)
         );
         assert_eq!(
             Stateful::new(o, term_state).price(),
-            BasePrice::from_price(side, term_price)
+            AbsolutePrice::from_price(side, term_price)
         );
     }
 }

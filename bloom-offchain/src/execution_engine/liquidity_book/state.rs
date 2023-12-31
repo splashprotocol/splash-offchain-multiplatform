@@ -6,7 +6,7 @@ use std::mem;
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use crate::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
-use crate::execution_engine::liquidity_book::types::BasePrice;
+use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 use crate::execution_engine::types::StableId;
 
 pub trait VersionedState<Fr, Pl> {
@@ -269,7 +269,7 @@ where
     Fr: Fragment + Ord + Copy,
     Pl: Pool + Copy,
 {
-    pub fn best_fr_price(&self, side: SideM) -> Option<Side<BasePrice>> {
+    pub fn best_fr_price(&self, side: SideM) -> Option<Side<AbsolutePrice>> {
         let active_fragments = self.active_fragments();
         let side_store = match side {
             SideM::Bid => &active_fragments.bids,
@@ -379,7 +379,7 @@ where
     Fr: Fragment + Ord + Copy,
     Pl: Pool + Copy,
 {
-    pub fn best_pool_price(&self) -> Option<BasePrice> {
+    pub fn best_pool_price(&self) -> Option<AbsolutePrice> {
         let pools = self.pools();
         pools
             .quality_index
@@ -617,7 +617,7 @@ pub mod tests {
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
     use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, TLBState, VersionedState};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
-    use crate::execution_engine::liquidity_book::types::{BasePrice, ExecutionCost};
+    use crate::execution_engine::liquidity_book::types::{AbsolutePrice, ExecutionCost};
     use crate::execution_engine::types::StableId;
 
     #[test]
@@ -800,7 +800,7 @@ pub mod tests {
         pub side: SideM,
         pub input: u64,
         pub accumulated_output: u64,
-        pub price: BasePrice,
+        pub price: AbsolutePrice,
         pub fee: u64,
         pub cost_hint: ExecutionCost,
         pub bounds: TimeBounds<u64>,
@@ -828,7 +828,7 @@ pub mod tests {
     }
 
     impl SimpleOrderPF {
-        pub fn new(side: SideM, input: u64, price: BasePrice, fee: u64) -> Self {
+        pub fn new(side: SideM, input: u64, price: AbsolutePrice, fee: u64) -> Self {
             Self {
                 source: StableId::random(),
                 side,
@@ -846,7 +846,7 @@ pub mod tests {
                 side: SideM::Ask,
                 input: 1000_000_000,
                 accumulated_output: 0,
-                price: BasePrice::new(1, 100),
+                price: AbsolutePrice::new(1, 100),
                 fee: 100,
                 cost_hint: 0,
                 bounds,
@@ -863,7 +863,7 @@ pub mod tests {
             self.input
         }
 
-        fn price(&self) -> BasePrice {
+        fn price(&self) -> AbsolutePrice {
             self.price
         }
 
@@ -919,19 +919,19 @@ pub mod tests {
             self.pool_id
         }
 
-        fn static_price(&self) -> BasePrice {
-            BasePrice::new(self.reserves_quote as u128, self.reserves_base as u128)
+        fn static_price(&self) -> AbsolutePrice {
+            AbsolutePrice::new(self.reserves_quote as u128, self.reserves_base as u128)
         }
 
-        fn real_price(&self, input: Side<u64>) -> BasePrice {
+        fn real_price(&self, input: Side<u64>) -> AbsolutePrice {
             match input {
                 Side::Bid(quote_input) => {
                     let (base_output, _) = self.swap(Side::Bid(quote_input));
-                    BasePrice::new(quote_input as u128, base_output as u128)
+                    AbsolutePrice::new(quote_input as u128, base_output as u128)
                 }
                 Side::Ask(base_input) => {
                     let (quote_output, _) = self.swap(Side::Ask(base_input));
-                    BasePrice::new(quote_output as u128, base_input as u128)
+                    AbsolutePrice::new(quote_output as u128, base_input as u128)
                 }
             }
         }
@@ -963,7 +963,7 @@ pub mod tests {
 
         fn quality(&self) -> PoolQuality {
             PoolQuality(
-                BasePrice::new(self.reserves_quote as u128, self.reserves_base as u128),
+                AbsolutePrice::new(self.reserves_quote as u128, self.reserves_base as u128),
                 self.reserves_quote + self.reserves_base,
             )
         }

@@ -8,6 +8,7 @@ rust-version = "1.74.1"
 
 [dependencies]
 bloom-offchain = { version = "1.0.0", path = "../bloom-offchain" }
+bloom-derivation = { version = "1.0.0", path = "../bloom-derivation" }
 spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain" }
 spectrum-offchain-cardano = { version = "1.0.0", path = "../spectrum-offchain-cardano" }
 cardano-chain-sync = { version = "0.1.0", path = "../cardano-chain-sync" }

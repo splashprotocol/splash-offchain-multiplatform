@@ -418,7 +418,7 @@ mod tests {
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
     use crate::execution_engine::liquidity_book::state::tests::{SimpleCFMMPool, SimpleOrderPF};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
-    use crate::execution_engine::liquidity_book::types::BasePrice;
+    use crate::execution_engine::liquidity_book::types::AbsolutePrice;
     use crate::execution_engine::liquidity_book::{
         fill_from_fragment, fill_from_pool, ExecutionCap, ExternalTLBEvents, FillFromFragment, FillFromPool,
         TemporalLiquidityBook, TLB,
@@ -428,8 +428,8 @@ mod tests {
     #[test]
     fn recipe_fill_fragment_from_fragment() {
         // Assuming pair ADA/USDT @ 0.37
-        let o1 = SimpleOrderPF::new(SideM::Ask, 2000, BasePrice::new(36, 100), 1000);
-        let o2 = SimpleOrderPF::new(SideM::Bid, 370, BasePrice::new(37, 100), 990);
+        let o1 = SimpleOrderPF::new(SideM::Ask, 2000, AbsolutePrice::new(36, 100), 1000);
+        let o2 = SimpleOrderPF::new(SideM::Bid, 370, AbsolutePrice::new(37, 100), 990);
         let p1 = SimpleCFMMPool {
             pool_id: StableId::random(),
             reserves_base: 1000000000000000,
@@ -492,7 +492,7 @@ mod tests {
             side: SideM::Ask,
             input: 1000,
             accumulated_output: 0,
-            price: BasePrice::new(37, 100),
+            price: AbsolutePrice::new(37, 100),
             fee: 1000,
             cost_hint: 100,
             bounds: TimeBounds::None,
@@ -502,7 +502,7 @@ mod tests {
             side: SideM::Bid,
             input: 370,
             accumulated_output: 0,
-            price: BasePrice::new(37, 100),
+            price: AbsolutePrice::new(37, 100),
             fee: 1000,
             cost_hint: 100,
             bounds: TimeBounds::None,
@@ -526,7 +526,7 @@ mod tests {
             side: SideM::Ask,
             input: 1000,
             accumulated_output: 0,
-            price: BasePrice::new(37, 100),
+            price: AbsolutePrice::new(37, 100),
             fee: 2000,
             cost_hint: 100,
             bounds: TimeBounds::None,
@@ -536,7 +536,7 @@ mod tests {
             side: SideM::Bid,
             input: 210,
             accumulated_output: 0,
-            price: BasePrice::new(37, 100),
+            price: AbsolutePrice::new(37, 100),
             fee: 2000,
             cost_hint: 100,
             bounds: TimeBounds::None,
@@ -563,7 +563,7 @@ mod tests {
             side: SideM::Ask,
             input: 1000,
             accumulated_output: 0,
-            price: BasePrice::new(36, 100),
+            price: AbsolutePrice::new(36, 100),
             fee: 1000,
             cost_hint: 100,
             bounds: TimeBounds::None,
@@ -573,7 +573,7 @@ mod tests {
             side: SideM::Bid,
             input: 360,
             accumulated_output: 0,
-            price: BasePrice::new(37, 100),
+            price: AbsolutePrice::new(37, 100),
             fee: 2000,
             cost_hint: 100,
             bounds: TimeBounds::None,
@@ -597,7 +597,7 @@ mod tests {
             side: SideM::Ask,
             input: 1000,
             accumulated_output: 0,
-            price: BasePrice::new(36, 100),
+            price: AbsolutePrice::new(36, 100),
             fee: 1000,
             cost_hint: 100,
             bounds: TimeBounds::None,
