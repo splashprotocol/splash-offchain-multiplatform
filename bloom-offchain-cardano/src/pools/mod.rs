@@ -1,12 +1,12 @@
+use cml_chain::PolicyId;
+use cml_multi_era::babbage::BabbageTransactionOutput;
+
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use bloom_offchain::execution_engine::types::StableId;
-use cml_chain::PolicyId;
-use cml_multi_era::babbage::BabbageTransactionOutput;
-
 use spectrum_cardano_lib::{OutputRef, Token};
-use spectrum_offchain::data::{EntitySnapshot, Tradable};
+use spectrum_offchain::data::{EntitySnapshot, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::data::pool::CFMMPool;
 
@@ -45,17 +45,20 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for AnyPool {
     }
 }
 
-impl EntitySnapshot for AnyPool {
-    type Version = OutputRef;
+impl Stable for AnyPool {
     type StableId = PolicyId;
-    fn version(&self) -> Self::Version {
-        match self {
-            AnyPool::CFMM(p) => p.state_ver.into(),
-        }
-    }
     fn stable_id(&self) -> Self::StableId {
         match self {
             AnyPool::CFMM(p) => Token::from(p.id).0,
+        }
+    }
+}
+
+impl EntitySnapshot for AnyPool {
+    type Version = OutputRef;
+    fn version(&self) -> Self::Version {
+        match self {
+            AnyPool::CFMM(p) => p.state_ver.into(),
         }
     }
 }

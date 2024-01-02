@@ -11,7 +11,7 @@ use crate::binary::prefixed_key;
 use crate::box_resolver::persistence::EntityRepo;
 use crate::box_resolver::{Predicted, Traced};
 use crate::data::unique_entity::{Confirmed, Unconfirmed};
-use crate::data::EntitySnapshot;
+use crate::data::{EntitySnapshot, Stable};
 use crate::rocks::RocksConfig;
 
 pub struct EntityRepoRocksDB {
@@ -37,7 +37,7 @@ impl<TEntity> EntityRepo<TEntity> for EntityRepoRocksDB
 where
     TEntity: EntitySnapshot + Clone + Serialize + DeserializeOwned + Send + 'static,
     <TEntity as EntitySnapshot>::Version: Clone + Serialize + DeserializeOwned + Send + Debug + 'static,
-    <TEntity as EntitySnapshot>::StableId: Clone + Serialize + DeserializeOwned + Send + 'static,
+    <TEntity as Stable>::StableId: Clone + Serialize + DeserializeOwned + Send + 'static,
 {
     async fn get_prediction_predecessor<'a>(
         &self,
@@ -56,12 +56,9 @@ where
         .await
     }
 
-    async fn get_last_predicted<'a>(
-        &self,
-        id: <TEntity as EntitySnapshot>::StableId,
-    ) -> Option<Predicted<TEntity>>
+    async fn get_last_predicted<'a>(&self, id: <TEntity as Stable>::StableId) -> Option<Predicted<TEntity>>
     where
-        <TEntity as EntitySnapshot>::StableId: 'a,
+        <TEntity as Stable>::StableId: 'a,
     {
         let db = self.db.clone();
         let index_key = prefixed_key(LAST_PREDICTED_PREFIX, &id);
@@ -86,12 +83,9 @@ where
         .await
     }
 
-    async fn get_last_confirmed<'a>(
-        &self,
-        id: <TEntity as EntitySnapshot>::StableId,
-    ) -> Option<Confirmed<TEntity>>
+    async fn get_last_confirmed<'a>(&self, id: <TEntity as Stable>::StableId) -> Option<Confirmed<TEntity>>
     where
-        <TEntity as EntitySnapshot>::StableId: 'a,
+        <TEntity as Stable>::StableId: 'a,
     {
         let db = self.db.clone();
         let index_key = prefixed_key(LAST_CONFIRMED_PREFIX, &id);
@@ -108,10 +102,10 @@ where
 
     async fn get_last_unconfirmed<'a>(
         &self,
-        id: <TEntity as EntitySnapshot>::StableId,
+        id: <TEntity as Stable>::StableId,
     ) -> Option<Unconfirmed<TEntity>>
     where
-        <TEntity as EntitySnapshot>::StableId: 'a,
+        <TEntity as Stable>::StableId: 'a,
     {
         let db = self.db.clone();
         let index_key = prefixed_key(LAST_UNCONFIRMED_PREFIX, &id);
@@ -193,9 +187,9 @@ where
     async fn invalidate<'a>(
         &mut self,
         sid: <TEntity as EntitySnapshot>::Version,
-        eid: <TEntity as EntitySnapshot>::StableId,
+        eid: <TEntity as Stable>::StableId,
     ) where
-        <TEntity as EntitySnapshot>::StableId: 'a,
+        <TEntity as Stable>::StableId: 'a,
         <TEntity as EntitySnapshot>::Version: 'a,
     {
         let predecessor: Option<<TEntity as EntitySnapshot>::Version> =

@@ -5,8 +5,8 @@ use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use either::Either;
 use futures::channel::mpsc;
-use futures::future::Either;
 use futures::stream::FusedStream;
 use futures::Stream;
 use futures::{SinkExt, StreamExt};
@@ -14,7 +14,7 @@ use log::trace;
 
 use spectrum_offchain::combinators::Ior;
 use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
-use spectrum_offchain::data::EntitySnapshot;
+use spectrum_offchain::data::{Baked, EntitySnapshot, Has, Stable};
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_prover::TxProver;
 
@@ -42,7 +42,7 @@ pub mod resolver;
 pub mod storage;
 pub mod types;
 
-pub type Event<O, P, B> = EitherMod<StateUpdate<Bundled<Either<O, P>, B>>>;
+pub type Event<O, P, B, V> = EitherMod<StateUpdate<Bundled<BakedEntity<O, P, V>, B>>>;
 
 /// Instantiate execution stream partition.
 /// Each partition serves total_pairs/num_partitions pairs.
@@ -76,25 +76,25 @@ pub fn execution_part_stream<
     network: Net,
 ) -> impl Stream<Item = ()> + 'a
 where
-    Upstream: Stream<Item = (PairId, Event<Order, Pool, Bearer>)> + Unpin + 'a,
+    Upstream: Stream<Item = (PairId, Event<Order, Pool, Bearer, Ver>)> + Unpin + 'a,
     PairId: Copy + Eq + Ord + Hash + Display + Unpin + 'a,
     StableId: Copy + Eq + Hash + Display + Unpin + 'a,
     Ver: Copy + Eq + Hash + Display + Unpin + 'a,
-    Pool: EntitySnapshot<StableId = StableId, Version = Ver> + Copy + Unpin + 'a,
-    Order: EntitySnapshot<StableId = StableId, Version = Ver> + Fragment + OrderState + Copy + Unpin + 'a,
+    Pool: Stable<StableId = StableId> + Copy + Unpin + 'a,
+    Order: Stable<StableId = StableId> + Fragment + OrderState + Copy + Unpin + 'a,
     Bearer: Clone + Unpin + 'a,
     Txc: Unpin + 'a,
     Tx: Unpin + 'a,
     Ctx: Clone + Unpin + 'a,
-    Index: StateIndex<Bundled<Either<Order, Pool>, Bearer>> + Unpin + 'a,
-    Cache: StateIndexCache<StableId, Bundled<Either<Order, Pool>, Bearer>> + Unpin + 'a,
+    Index: StateIndex<Bundled<BakedEntity<Order, Pool, Ver>, Bearer>> + Unpin + 'a,
+    Cache: StateIndexCache<StableId, Bundled<BakedEntity<Order, Pool, Ver>, Bearer>> + Unpin + 'a,
     Book: TemporalLiquidityBook<Order, Pool>
         + ExternalTLBEvents<Order, Pool>
         + TLBFeedback<Order, Pool>
         + Maker<Ctx>
         + Unpin
         + 'a,
-    Interpreter: RecipeInterpreter<Order, Pool, Ctx, Bearer, Txc> + Unpin + 'a,
+    Interpreter: RecipeInterpreter<Order, Pool, Ctx, Ver, Bearer, Txc> + Unpin + 'a,
     Prover: TxProver<Txc, Tx> + Unpin + 'a,
     Net: Network<Tx, Err> + Clone + 'a,
     Err: Unpin + 'a,
@@ -132,7 +132,7 @@ pub struct Executor<S, PairId, StableId, Ver, O, P, Bearer, Txc, Tx, C, Index, C
     /// Feedback channel is used to deliver the status of transaction produced by the executor back to it.
     feedback: mpsc::Receiver<Result<(), Err>>,
     /// Pending effects resulted from execution of a batch trade in a certain [PairId].
-    pending_effects: Option<(PairId, Vec<(Either<O, P>, Bearer)>)>,
+    pending_effects: Option<(PairId, Vec<(BakedEntity<O, P, Ver>, Bearer)>)>,
     /// Which pair should we process in the first place.
     focus_set: BTreeSet<PairId>,
     pd1: PhantomData<StableId>,
@@ -141,6 +141,8 @@ pub struct Executor<S, PairId, StableId, Ver, O, P, Bearer, Txc, Tx, C, Index, C
     pd4: PhantomData<Tx>,
     pd5: PhantomData<Err>,
 }
+
+type BakedEntity<O, P, V> = Either<Baked<O, V>, Baked<P, V>>;
 
 impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Prover, Err>
     Executor<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Prover, Err>
@@ -174,38 +176,38 @@ impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Pr
         }
     }
 
-    fn sync_book(&mut self, pair: PairId, update: EitherMod<StateUpdate<Bundled<Either<O, P>, B>>>)
+    fn sync_book(&mut self, pair: PairId, update: EitherMod<StateUpdate<Bundled<BakedEntity<O, P, Ver>, B>>>)
     where
         PairId: Copy + Eq + Hash + Display,
         StableId: Copy + Eq + Hash + Display,
         Ver: Copy + Eq + Hash + Display,
         B: Clone,
         Ctx: Clone,
-        O: EntitySnapshot<StableId = StableId, Version = Ver> + Clone,
-        P: EntitySnapshot<StableId = StableId, Version = Ver> + Clone,
-        Index: StateIndex<Bundled<Either<O, P>, B>>,
-        Cache: StateIndexCache<StableId, Bundled<Either<O, P>, B>>,
+        O: Stable<StableId = StableId> + Clone,
+        P: Stable<StableId = StableId> + Clone,
+        Index: StateIndex<Bundled<BakedEntity<O, P, Ver>, B>>,
+        Cache: StateIndexCache<StableId, Bundled<BakedEntity<O, P, Ver>, B>>,
         Book: ExternalTLBEvents<O, P> + Maker<Ctx>,
     {
         match self.update_state(update) {
             None => {}
             Some(Ior::Left(e)) => match e {
-                Either::Left(o) => self.multi_book.get_mut(&pair).remove_fragment(o),
-                Either::Right(p) => self.multi_book.get_mut(&pair).remove_pool(p),
+                Either::Left(o) => self.multi_book.get_mut(&pair).remove_fragment(o.entity),
+                Either::Right(p) => self.multi_book.get_mut(&pair).remove_pool(p.entity),
             },
             Some(Ior::Both(old, new)) => match (old, new) {
                 (Either::Left(old), Either::Left(new)) => {
-                    self.multi_book.get_mut(&pair).remove_fragment(old);
-                    self.multi_book.get_mut(&pair).add_fragment(new);
+                    self.multi_book.get_mut(&pair).remove_fragment(old.entity);
+                    self.multi_book.get_mut(&pair).add_fragment(new.entity);
                 }
                 (_, Either::Right(new)) => {
-                    self.multi_book.get_mut(&pair).update_pool(new);
+                    self.multi_book.get_mut(&pair).update_pool(new.entity);
                 }
                 _ => unreachable!(),
             },
             Some(Ior::Right(new)) => match new {
-                Either::Left(new) => self.multi_book.get_mut(&pair).add_fragment(new),
-                Either::Right(new) => self.multi_book.get_mut(&pair).update_pool(new),
+                Either::Left(new) => self.multi_book.get_mut(&pair).add_fragment(new.entity),
+                Either::Right(new) => self.multi_book.get_mut(&pair).update_pool(new.entity),
             },
         }
     }
@@ -214,7 +216,7 @@ impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Pr
     where
         StableId: Copy + Eq + Hash + Display,
         Ver: Copy + Eq + Hash + Display,
-        T: EntitySnapshot<StableId = StableId> + Clone,
+        T: EntitySnapshot<StableId = StableId, Version = Ver> + Clone,
         B: Clone,
         Index: StateIndex<Bundled<T, B>>,
         Cache: StateIndexCache<StableId, Bundled<T, B>>,
@@ -262,9 +264,9 @@ impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Pr
     where
         StableId: Copy + Eq + Hash + Display,
         Ver: Copy + Eq + Hash + Display,
-        O: EntitySnapshot<StableId = StableId, Version = Ver>,
-        P: EntitySnapshot<StableId = StableId, Version = Ver>,
-        Cache: StateIndexCache<StableId, Bundled<Either<O, P>, B>>,
+        O: Stable<StableId = StableId>,
+        P: Stable<StableId = StableId>,
+        Cache: StateIndexCache<StableId, Bundled<BakedEntity<O, P, Ver>, B>>,
     {
         let mut linked = vec![];
         while let Some(i) = xs.pop() {
@@ -292,20 +294,20 @@ impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Pr
 impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err> Stream
     for Executor<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err>
 where
-    S: Stream<Item = (PairId, EitherMod<StateUpdate<Bundled<Either<O, P>, B>>>)> + Unpin,
+    S: Stream<Item = (PairId, EitherMod<StateUpdate<Bundled<BakedEntity<O, P, Ver>, B>>>)> + Unpin,
     PairId: Copy + Eq + Ord + Hash + Display + Unpin,
     StableId: Copy + Eq + Hash + Display + Unpin,
     Ver: Copy + Eq + Hash + Display + Unpin,
-    P: EntitySnapshot<StableId = StableId, Version = Ver> + Copy + Unpin,
-    O: EntitySnapshot<StableId = StableId, Version = Ver> + Fragment + OrderState + Copy + Unpin,
+    P: Stable<StableId = StableId> + Copy + Unpin,
+    O: Stable<StableId = StableId> + Fragment + OrderState + Copy + Unpin,
     B: Clone + Unpin,
     Txc: Unpin,
     Tx: Unpin,
     C: Clone + Unpin,
-    Index: StateIndex<Bundled<Either<O, P>, B>> + Unpin,
-    Cache: StateIndexCache<StableId, Bundled<Either<O, P>, B>> + Unpin,
+    Index: StateIndex<Bundled<BakedEntity<O, P, Ver>, B>> + Unpin,
+    Cache: StateIndexCache<StableId, Bundled<BakedEntity<O, P, Ver>, B>> + Unpin,
     Book: TemporalLiquidityBook<O, P> + ExternalTLBEvents<O, P> + TLBFeedback<O, P> + Maker<C> + Unpin,
-    Ir: RecipeInterpreter<O, P, C, B, Txc> + Unpin,
+    Ir: RecipeInterpreter<O, P, C, Ver, B, Txc> + Unpin,
     Prover: TxProver<Txc, Tx> + Unpin,
     Err: Unpin,
 {
@@ -361,20 +363,20 @@ where
 impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err> FusedStream
     for Executor<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err>
 where
-    S: Stream<Item = (PairId, EitherMod<StateUpdate<Bundled<Either<O, P>, B>>>)> + Unpin,
+    S: Stream<Item = (PairId, EitherMod<StateUpdate<Bundled<BakedEntity<O, P, Ver>, B>>>)> + Unpin,
     PairId: Copy + Eq + Ord + Hash + Display + Unpin,
     StableId: Copy + Eq + Hash + Display + Unpin,
     Ver: Copy + Eq + Hash + Display + Unpin,
-    P: EntitySnapshot<StableId = StableId, Version = Ver> + Copy + Unpin,
-    O: EntitySnapshot<StableId = StableId, Version = Ver> + Fragment + OrderState + Copy + Unpin,
+    P: Stable<StableId = StableId> + Copy + Unpin,
+    O: Stable<StableId = StableId> + Fragment + OrderState + Copy + Unpin,
     B: Clone + Unpin,
     Txc: Unpin,
     Tx: Unpin,
     C: Clone + Unpin,
-    Index: StateIndex<Bundled<Either<O, P>, B>> + Unpin,
-    Cache: StateIndexCache<StableId, Bundled<Either<O, P>, B>> + Unpin,
+    Index: StateIndex<Bundled<BakedEntity<O, P, Ver>, B>> + Unpin,
+    Cache: StateIndexCache<StableId, Bundled<BakedEntity<O, P, Ver>, B>> + Unpin,
     Book: TemporalLiquidityBook<O, P> + ExternalTLBEvents<O, P> + TLBFeedback<O, P> + Maker<C> + Unpin,
-    Ir: RecipeInterpreter<O, P, C, B, Txc> + Unpin,
+    Ir: RecipeInterpreter<O, P, C, Ver, B, Txc> + Unpin,
     Prover: TxProver<Txc, Tx> + Unpin,
     Err: Unpin,
 {

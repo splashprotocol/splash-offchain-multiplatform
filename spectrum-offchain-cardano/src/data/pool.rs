@@ -25,7 +25,7 @@ use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::unique_entity::Predicted;
-use spectrum_offchain::data::{EntitySnapshot, Has};
+use spectrum_offchain::data::{EntitySnapshot, Has, Stable};
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
@@ -182,12 +182,15 @@ impl RequiresRedeemer<CFMMPoolAction> for CFMMPool {
     }
 }
 
-impl EntitySnapshot for CFMMPool {
+impl Stable for CFMMPool {
     type StableId = PoolId;
-    type Version = PoolStateVer;
     fn stable_id(&self) -> Self::StableId {
         self.id
     }
+}
+
+impl EntitySnapshot for CFMMPool {
+    type Version = PoolStateVer;
     fn version(&self) -> Self::Version {
         self.state_ver
     }

@@ -5,8 +5,7 @@ use log::trace;
 use tokio::sync::Mutex;
 
 use crate::backlog::HotBacklog;
-use crate::data::order::{OrderLink, OrderUpdate};
-use crate::data::SpecializedOrder;
+use crate::data::order::{OrderLink, OrderUpdate, SpecializedOrder};
 use crate::partitioning::Partitioned;
 
 /// Create backlog stream that drives processing of order events.

@@ -1,7 +1,7 @@
 use std::cmp::{max, min};
 use std::mem;
 
-use futures::future::Either;
+use either::Either;
 
 use spectrum_offchain::data::Has;
 
@@ -408,7 +408,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use futures::future::Either;
+    use either::Either;
 
     use crate::execution_engine::liquidity_book::fragment::StateTrans;
     use crate::execution_engine::liquidity_book::pool::Pool;

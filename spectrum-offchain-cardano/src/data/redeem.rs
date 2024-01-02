@@ -10,7 +10,7 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
-use spectrum_offchain::data::UniqueOrder;
+use spectrum_offchain::data::order::UniqueOrder;
 use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::constants::{ORDER_APPLY_RAW_REDEEMER, ORDER_REFUND_RAW_REDEEMER};
@@ -131,6 +131,7 @@ mod tests {
 
     use cardano_explorer::client::Explorer;
     use cardano_explorer::data::ExplorerConfig;
+    use spectrum_cardano_lib::collateral::Collateral;
     use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_cardano_lib::OutputRef;
     use spectrum_offchain::executor::RunOrder;

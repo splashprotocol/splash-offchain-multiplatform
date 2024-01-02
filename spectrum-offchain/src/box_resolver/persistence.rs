@@ -5,7 +5,7 @@ use log::trace;
 
 use crate::box_resolver::{Predicted, Traced};
 use crate::data::unique_entity::{Confirmed, Unconfirmed};
-use crate::data::EntitySnapshot;
+use crate::data::{EntitySnapshot, Stable};
 
 pub mod inmemory;
 pub mod noop;
@@ -22,15 +22,15 @@ pub trait EntityRepo<TEntity: EntitySnapshot> {
     /// Get last predicted state of the given entity.
     async fn get_last_predicted<'a>(&self, id: TEntity::StableId) -> Option<Predicted<TEntity>>
     where
-        <TEntity as EntitySnapshot>::StableId: 'a;
+        <TEntity as Stable>::StableId: 'a;
     /// Get last confirmed state of the given entity.
     async fn get_last_confirmed<'a>(&self, id: TEntity::StableId) -> Option<Confirmed<TEntity>>
     where
-        <TEntity as EntitySnapshot>::StableId: 'a;
+        <TEntity as Stable>::StableId: 'a;
     /// Get last unconfirmed state of the given entity.
     async fn get_last_unconfirmed<'a>(&self, id: TEntity::StableId) -> Option<Unconfirmed<TEntity>>
     where
-        <TEntity as EntitySnapshot>::StableId: 'a;
+        <TEntity as Stable>::StableId: 'a;
     /// Persist predicted state of the entity.
     async fn put_predicted<'a>(&mut self, entity: Traced<Predicted<TEntity>>)
     where
@@ -47,7 +47,7 @@ pub trait EntityRepo<TEntity: EntitySnapshot> {
     async fn invalidate<'a>(&mut self, sid: TEntity::Version, eid: TEntity::StableId)
     where
         <TEntity as EntitySnapshot>::Version: 'a,
-        <TEntity as EntitySnapshot>::StableId: 'a;
+        <TEntity as Stable>::StableId: 'a;
     /// Invalidate particular state of the entity.
     async fn eliminate<'a>(&mut self, entity: TEntity)
     where
@@ -91,7 +91,7 @@ where
 
     async fn get_last_predicted<'a>(&self, id: TEntity::StableId) -> Option<Predicted<TEntity>>
     where
-        <TEntity as EntitySnapshot>::StableId: 'a,
+        <TEntity as Stable>::StableId: 'a,
     {
         trace!(target: "box_resolver", "get_last_predicted({:?})", id);
         let res = self.inner.get_last_predicted(id).await;
@@ -101,7 +101,7 @@ where
 
     async fn get_last_confirmed<'a>(&self, id: TEntity::StableId) -> Option<Confirmed<TEntity>>
     where
-        <TEntity as EntitySnapshot>::StableId: 'a,
+        <TEntity as Stable>::StableId: 'a,
     {
         trace!(target: "box_resolver", "get_last_confirmed({:?})", id);
         let res = self.inner.get_last_confirmed(id).await;
@@ -111,7 +111,7 @@ where
 
     async fn get_last_unconfirmed<'a>(&self, id: TEntity::StableId) -> Option<Unconfirmed<TEntity>>
     where
-        <TEntity as EntitySnapshot>::StableId: 'a,
+        <TEntity as Stable>::StableId: 'a,
     {
         trace!(target: "box_resolver", "get_last_unconfirmed({:?})", id);
         let res = self.inner.get_last_unconfirmed(id).await;
@@ -156,7 +156,7 @@ where
     async fn invalidate<'a>(&mut self, sid: TEntity::Version, eid: TEntity::StableId)
     where
         <TEntity as EntitySnapshot>::Version: 'a,
-        <TEntity as EntitySnapshot>::StableId: 'a,
+        <TEntity as Stable>::StableId: 'a,
     {
         trace!(target: "box_resolver", "invalidate({:?})", sid);
         self.inner.invalidate(sid, eid).await;
@@ -203,6 +203,7 @@ pub(crate) mod tests {
 
     use crate::box_resolver::persistence::inmemory::InMemoryEntityRepo;
     use crate::box_resolver::persistence::rocksdb::EntityRepoRocksDB;
+    use crate::data::Stable;
     use crate::{
         box_resolver::persistence::EntityRepo,
         data::{
@@ -248,14 +249,16 @@ pub(crate) mod tests {
         pub box_id: BoxId,
     }
 
-    impl EntitySnapshot for TestEntity {
+    impl Stable for TestEntity {
         type StableId = TokenId;
-
-        type Version = BoxId;
 
         fn stable_id(&self) -> Self::StableId {
             self.token_id
         }
+    }
+
+    impl EntitySnapshot for TestEntity {
+        type Version = BoxId;
 
         fn version(&self) -> Self::Version {
             self.box_id

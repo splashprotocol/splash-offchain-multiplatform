@@ -21,16 +21,38 @@ pub fn derive_fragment(input: TokenStream) -> TokenStream {
     }
 }
 
+#[proc_macro_derive(Stable)]
+pub fn derive_stable(input: TokenStream) -> TokenStream {
+    quick_derive! {
+        input,
+        spectrum_offchain::data::Stable,
+        pub trait Stable {
+            type StableId: Copy + Eq + Hash + Display;
+            fn stable_id(&self) -> Self::StableId;
+        }
+    }
+}
+
 #[proc_macro_derive(EntitySnapshot)]
 pub fn derive_entity_snapshot(input: TokenStream) -> TokenStream {
     quick_derive! {
         input,
         spectrum_offchain::data::EntitySnapshot,
         pub trait EntitySnapshot {
-            type StableId: Copy + Eq + Hash + Display;
             type Version: Copy + Eq + Hash + Display;
-            fn stable_id(&self) -> Self::StableId;
             fn version(&self) -> Self::Version;
+        }
+    }
+}
+
+#[proc_macro_derive(Tradable)]
+pub fn derive_tradable(input: TokenStream) -> TokenStream {
+    quick_derive! {
+        input,
+        spectrum_offchain::data::Tradable,
+        pub trait Tradable {
+            type PairId: Copy + Eq + Hash + Display;
+            fn pair_id(&self) -> Self::PairId;
         }
     }
 }

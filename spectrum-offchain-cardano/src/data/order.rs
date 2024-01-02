@@ -10,8 +10,8 @@ use spectrum_cardano_lib::plutus_data::RequiresRedeemer;
 use spectrum_cardano_lib::transaction::BabbageTransactionOutputExtension;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::backlog::data::{OrderWeight, Weighted};
+use spectrum_offchain::data::order::{SpecializedOrder, UniqueOrder};
 use spectrum_offchain::data::unique_entity::Predicted;
-use spectrum_offchain::data::{SpecializedOrder, UniqueOrder};
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::TryFromLedger;
 

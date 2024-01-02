@@ -2,12 +2,12 @@ use std::fmt;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
 
-use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use serde::__private::de::missing_field;
 use serde::ser::SerializeStruct;
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::combinators::Ior;
-use crate::data::EntitySnapshot;
+use crate::data::{EntitySnapshot, Stable};
 
 /// A unique, persistent, self-reproducible, on-chiain entity.
 #[derive(Debug, Clone)]
@@ -261,13 +261,16 @@ impl<T> Predicted<T> {
     }
 }
 
-impl<T: EntitySnapshot> EntitySnapshot for Predicted<T> {
+impl<T: Stable> Stable for Predicted<T> {
     type StableId = T::StableId;
-    type Version = T::Version;
 
     fn stable_id(&self) -> Self::StableId {
         self.0.stable_id()
     }
+}
+
+impl<T: EntitySnapshot> EntitySnapshot for Predicted<T> {
+    type Version = T::Version;
 
     fn version(&self) -> Self::Version {
         self.0.version()

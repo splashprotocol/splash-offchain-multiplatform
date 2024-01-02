@@ -10,7 +10,8 @@ use rand::{thread_rng, RngCore};
 
 use spectrum_cardano_lib::transaction::BabbageTransactionOutputExtension;
 use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAssetClass, Token};
-use spectrum_offchain::data::{EntitySnapshot, SpecializedOrder};
+use spectrum_offchain::data::order::SpecializedOrder;
+use spectrum_offchain::data::{EntitySnapshot, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::constants::POOL_VERSIONS;
@@ -80,16 +81,23 @@ where
     }
 }
 
-impl<T> EntitySnapshot for OnChain<T>
+impl<T> Stable for OnChain<T>
 where
-    T: EntitySnapshot,
+    T: Stable,
 {
     type StableId = T::StableId;
-    type Version = T::Version;
 
     fn stable_id(&self) -> Self::StableId {
         self.value.stable_id()
     }
+}
+
+impl<T> EntitySnapshot for OnChain<T>
+where
+    T: EntitySnapshot,
+{
+    type Version = T::Version;
+
     fn version(&self) -> Self::Version {
         self.value.version()
     }

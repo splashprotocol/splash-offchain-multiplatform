@@ -6,7 +6,7 @@ use log::warn;
 
 use crate::box_resolver::persistence::EntityRepo;
 use crate::data::unique_entity::{Confirmed, Predicted, Traced, Unconfirmed};
-use crate::data::EntitySnapshot;
+use crate::data::{EntitySnapshot, Stable};
 
 #[derive(Debug)]
 pub struct InMemoryEntityRepo<T: EntitySnapshot> {
@@ -38,7 +38,7 @@ impl<T> EntityRepo<T> for InMemoryEntityRepo<T>
 where
     T: EntitySnapshot + Clone + Send + 'static,
     <T as EntitySnapshot>::Version: Copy + Send + Debug + 'static,
-    <T as EntitySnapshot>::StableId: Copy + Send + Into<[u8; 60]> + 'static,
+    <T as Stable>::StableId: Copy + Send + Into<[u8; 60]> + 'static,
 {
     async fn get_prediction_predecessor<'a>(&self, id: T::Version) -> Option<T::Version>
     where
@@ -49,7 +49,7 @@ where
 
     async fn get_last_predicted<'a>(&self, id: T::StableId) -> Option<Predicted<T>>
     where
-        <T as EntitySnapshot>::StableId: 'a,
+        <T as Stable>::StableId: 'a,
     {
         let index_key = index_key(LAST_PREDICTED_PREFIX, id);
         self.index
@@ -60,7 +60,7 @@ where
 
     async fn get_last_confirmed<'a>(&self, id: T::StableId) -> Option<Confirmed<T>>
     where
-        <T as EntitySnapshot>::StableId: 'a,
+        <T as Stable>::StableId: 'a,
     {
         let index_key = index_key(LAST_CONFIRMED_PREFIX, id);
         self.index
@@ -71,7 +71,7 @@ where
 
     async fn get_last_unconfirmed<'a>(&self, id: T::StableId) -> Option<Unconfirmed<T>>
     where
-        <T as EntitySnapshot>::StableId: 'a,
+        <T as Stable>::StableId: 'a,
     {
         let index_key = index_key(LAST_UNCONFIRMED_PREFIX, id);
         self.index
@@ -118,7 +118,7 @@ where
     async fn invalidate<'a>(&mut self, sid: T::Version, eid: T::StableId)
     where
         <T as EntitySnapshot>::Version: 'a,
-        <T as EntitySnapshot>::StableId: 'a,
+        <T as Stable>::StableId: 'a,
     {
         let predecessor = self.get_prediction_predecessor(sid).await;
         let last_predicted_index_key = index_key(LAST_PREDICTED_PREFIX, eid);

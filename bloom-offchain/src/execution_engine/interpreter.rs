@@ -1,13 +1,14 @@
-use futures::future::Either;
+use either::Either;
+use spectrum_offchain::data::Baked;
 
 use crate::execution_engine::liquidity_book::recipe::LinkedExecutionRecipe;
 
-pub trait RecipeInterpreter<Fr, Pl, Ctx, Bearer, Tx> {
+pub trait RecipeInterpreter<Fr, Pl, Ctx, V, Bearer, Tx> {
     /// Interpret recipe [LinkedExecutionRecipe] into a transaction [Tx] and
     /// a set of new sources resulted from execution.
     fn run(
         &mut self,
         recipe: LinkedExecutionRecipe<Fr, Pl, Bearer>,
         ctx: Ctx,
-    ) -> (Tx, Vec<(Either<Fr, Pl>, Bearer)>);
+    ) -> (Tx, Vec<(Either<Baked<Fr, V>, Baked<Pl, V>>, Bearer)>);
 }

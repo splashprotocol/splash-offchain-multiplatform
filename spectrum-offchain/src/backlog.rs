@@ -14,8 +14,8 @@ use type_equalities::IsEqual;
 
 use crate::backlog::data::{BacklogOrder, OrderWeight, Weighted};
 use crate::backlog::persistence::BacklogStore;
-use crate::data::order::{PendingOrder, ProgressingOrder, SuspendedOrder};
-use crate::data::{Has, UniqueOrder};
+use crate::data::order::{PendingOrder, ProgressingOrder, SuspendedOrder, UniqueOrder};
+use crate::data::Has;
 
 pub mod data;
 pub mod persistence;

@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
-use spectrum_offchain::data::EntitySnapshot;
+use spectrum_offchain::data::{EntitySnapshot, Has};
 
-pub trait StateIndexCache<StableId, Src: EntitySnapshot<StableId = StableId>> {
+pub trait StateIndexCache<StableId, Src> {
     fn insert(&mut self, src: Src) -> Option<Src>;
     fn get(&self, id: StableId) -> Option<Src>;
 }

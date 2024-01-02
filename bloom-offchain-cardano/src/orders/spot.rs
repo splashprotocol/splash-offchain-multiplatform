@@ -4,6 +4,7 @@ use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::utils::BigInt;
 use cml_chain::PolicyId;
 use cml_crypto::Ed25519KeyHash;
+use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
 
 use bloom_offchain::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
@@ -11,10 +12,11 @@ use bloom_offchain::execution_engine::liquidity_book::side::SideM;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
 use bloom_offchain::execution_engine::liquidity_book::types::{AbsolutePrice, ExecutionCost, RelativePrice};
 use spectrum_cardano_lib::{AssetClass, OutputRef};
-use spectrum_offchain::data::EntitySnapshot;
+use spectrum_offchain::data::{Stable, Tradable};
+use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::data::ExecutorFeePerToken;
 
-use crate::side_of;
+use crate::{side_of, PairId};
 
 /// Spot order. Can be executed at a configured or better price as long as there is enough budget.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -102,15 +104,23 @@ impl Fragment for SpotOrder {
     }
 }
 
-impl EntitySnapshot for SpotOrder {
+impl Stable for SpotOrder {
     type StableId = PolicyId;
-    type Version = OutputRef;
-
     fn stable_id(&self) -> Self::StableId {
         self.beacon
     }
+}
 
-    fn version(&self) -> Self::Version {
+impl Tradable for SpotOrder {
+    type PairId = PairId;
+
+    fn pair_id(&self) -> Self::PairId {
+        PairId::canonical(self.input_asset, self.output_asset)
+    }
+}
+
+impl TryFromLedger<BabbageTransactionOutput, OutputRef> for SpotOrder {
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
         todo!()
     }
 }

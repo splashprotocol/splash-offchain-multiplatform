@@ -5,8 +5,8 @@ use clap::Parser;
 use cml_chain::genesis::network_info::NetworkInfo;
 use cml_chain::transaction::Transaction;
 use cml_multi_era::babbage::BabbageTransaction;
+use either::Either;
 use futures::channel::mpsc;
-use futures::future::Either;
 use futures::stream::select_all;
 use futures::{Stream, StreamExt};
 use log::info;
@@ -37,7 +37,9 @@ use cardano_mempool_sync::mempool_stream;
 use cardano_submit_api::client::LocalTxSubmissionClient;
 use spectrum_cardano_lib::constants::BABBAGE_ERA_ID;
 use spectrum_cardano_lib::output::FinalizedTxOut;
+use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::unique_entity::{EitherMod, StateUpdate};
+use spectrum_offchain::data::Baked;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::partitioning::Partitioned;
@@ -212,7 +214,11 @@ fn unwrap_updates(
 ) -> impl Stream<
     Item = (
         PairId,
-        EitherMod<StateUpdate<Bundled<Either<AnyOrder, AnyPool>, FinalizedTxOut>>>,
+        EitherMod<
+            StateUpdate<
+                Bundled<Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>, FinalizedTxOut>,
+            >,
+        >,
     ),
 > {
     upstream.map(|(p, m)| (p, m.map(|s| s.map(|CardanoEntity(e)| e))))

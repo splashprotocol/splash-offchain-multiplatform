@@ -15,8 +15,9 @@ use type_equalities::{trivial_eq, IsEqual};
 use crate::backlog::HotBacklog;
 use crate::box_resolver::persistence::EntityRepo;
 use crate::box_resolver::resolve_entity_state;
+use crate::data::order::SpecializedOrder;
 use crate::data::unique_entity::{Predicted, Traced};
-use crate::data::{EntitySnapshot, SpecializedOrder};
+use crate::data::EntitySnapshot;
 use crate::network::Network;
 use crate::tx_prover::TxProver;
 
