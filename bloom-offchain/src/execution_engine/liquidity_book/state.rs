@@ -612,6 +612,8 @@ pub mod tests {
     use std::cmp::Ordering;
     use std::fmt::{Debug, Formatter};
 
+    use num_rational::Ratio;
+
     use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
     use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
@@ -867,8 +869,8 @@ pub mod tests {
             self.price
         }
 
-        fn weight(&self) -> u64 {
-            self.fee
+        fn weight(&self) -> Ratio<u128> {
+            Ratio::from_integer(self.fee as u128)
         }
 
         fn cost_hint(&self) -> ExecutionCost {

@@ -8,6 +8,8 @@ pub type ExecutionCost = u32;
 /// Price of input asset denominated in units of output asset (Output/Input).
 pub type RelativePrice = Ratio<u128>;
 
+pub type FeePerOutput = Ratio<u128>;
+
 /// Price of base asset denominated in units of quote asset.
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Div, Mul, Display)]
