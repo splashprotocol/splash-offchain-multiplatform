@@ -211,6 +211,9 @@ impl TryFromPData for AssetClass {
 pub struct TaggedAssetClass<T>(AssetClass, PhantomData<T>);
 
 impl<T> TaggedAssetClass<T> {
+    pub fn new(ac: AssetClass) -> Self {
+        Self(ac, PhantomData::default())
+    }
     pub fn is_native(&self) -> bool {
         matches!(self.0, AssetClass::Native)
     }
@@ -243,7 +246,7 @@ impl<T> PartialOrd for TaggedAmount<T> {
 }
 
 impl<T> TaggedAmount<T> {
-    pub fn tag(value: u64) -> Self {
+    pub fn new(value: u64) -> Self {
         Self(value, PhantomData::default())
     }
 
@@ -253,6 +256,18 @@ impl<T> TaggedAmount<T> {
 
     pub fn retag<T1>(self) -> TaggedAmount<T1> {
         TaggedAmount(self.0, PhantomData::default())
+    }
+}
+
+impl<T> AsRef<u64> for TaggedAmount<T> {
+    fn as_ref(&self) -> &u64 {
+        &self.0
+    }
+}
+
+impl<T> AsMut<u64> for TaggedAmount<T> {
+    fn as_mut(&mut self) -> &mut u64 {
+        &mut self.0
     }
 }
 

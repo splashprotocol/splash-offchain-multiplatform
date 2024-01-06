@@ -27,6 +27,7 @@ pub mod redeem;
 pub mod ref_scripts;
 
 pub mod execution_context;
+mod pair;
 
 /// For persistent on-chain entities (e.g. pools) we want to carry initial utxo.
 #[derive(Debug, Clone)]

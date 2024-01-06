@@ -13,9 +13,13 @@ use cml_chain::{Coin, Value};
 use cml_core::serialization::FromBytes;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
+use num_integer::Roots;
 use num_rational::Ratio;
 use type_equalities::IsEqual;
 
+use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
+use bloom_offchain::execution_engine::liquidity_book::side::Side;
+use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
 };
@@ -38,6 +42,7 @@ use crate::data::execution_context::ExecutionContext;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::operation_output::{DepositOutput, RedeemOutput, SwapOutput};
 use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
+use crate::data::pair::order_canonical;
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::ref_scripts::RequiresRefScript;
 use crate::data::{OnChain, OnChainOrderId, PoolId, PoolStateVer, PoolVer};
@@ -103,7 +108,7 @@ impl CFMMPool {
                 / ((self.reserves_y.untag() as u128) * (*self.lp_fee.denom() as u128)
                     + (base_amount.untag() as u128) * (*self.lp_fee.numer() as u128))
         };
-        TaggedAmount::tag(quote_amount as u64)
+        TaggedAmount::new(quote_amount as u64)
     }
 
     pub fn reward_lp(
@@ -134,9 +139,9 @@ impl CFMMPool {
         };
         let unlocked_lq = min(min_by_x, min_by_y) as u64;
         (
-            TaggedAmount::tag(unlocked_lq),
-            TaggedAmount::tag(change_by_x),
-            TaggedAmount::tag(change_by_y),
+            TaggedAmount::new(unlocked_lq),
+            TaggedAmount::new(change_by_x),
+            TaggedAmount::new(change_by_y),
         )
     }
 
@@ -147,9 +152,77 @@ impl CFMMPool {
             / (self.liquidity.untag() as u128);
 
         (
-            TaggedAmount::tag(x_amount as u64),
-            TaggedAmount::tag(y_amount as u64),
+            TaggedAmount::new(x_amount as u64),
+            TaggedAmount::new(y_amount as u64),
         )
+    }
+}
+
+impl Pool for CFMMPool {
+    fn static_price(&self) -> AbsolutePrice {
+        let x = self.asset_x.untag();
+        let y = self.asset_y.untag();
+        let [base, _] = order_canonical(x, y);
+        if x == base {
+            AbsolutePrice::new(self.reserves_y.untag(), self.reserves_x.untag())
+        } else {
+            AbsolutePrice::new(self.reserves_x.untag(), self.reserves_y.untag())
+        }
+    }
+
+    fn real_price(&self, input: Side<u64>) -> AbsolutePrice {
+        let x = self.asset_x.untag();
+        let y = self.asset_y.untag();
+        let [base, quote] = order_canonical(x, y);
+        let (base, quote) = match input {
+            Side::Bid(input) => (
+                self.output_amount(TaggedAssetClass::new(quote), TaggedAmount::new(input))
+                    .untag(),
+                input,
+            ),
+            Side::Ask(input) => (
+                input,
+                self.output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
+                    .untag(),
+            ),
+        };
+        AbsolutePrice::new(quote, base)
+    }
+
+    fn swap(mut self, input: Side<u64>) -> (u64, Self) {
+        let x = self.asset_x.untag();
+        let y = self.asset_y.untag();
+        let [base, quote] = order_canonical(x, y);
+        let output = match input {
+            Side::Bid(input) => self
+                .output_amount(TaggedAssetClass::new(quote), TaggedAmount::new(input))
+                .untag(),
+            Side::Ask(input) => self
+                .output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
+                .untag(),
+        };
+        let (base_reserves, quote_reserves) = if x == base {
+            (self.reserves_x.as_mut(), self.reserves_y.as_mut())
+        } else {
+            (self.reserves_y.as_mut(), self.reserves_x.as_mut())
+        };
+        match input {
+            Side::Bid(input) => {
+                *quote_reserves -= input;
+                *base_reserves += output;
+                (output, self)
+            }
+            Side::Ask(input) => {
+                *base_reserves -= input;
+                *quote_reserves += output;
+                (output, self)
+            }
+        }
+    }
+
+    fn quality(&self) -> PoolQuality {
+        let lq = (self.reserves_x.untag() * self.reserves_y.untag()).sqrt();
+        PoolQuality(self.static_price(), lq)
     }
 }
 
@@ -202,10 +275,10 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for CFMMPool {
             let value = repr.value();
             let pd = repr.datum().clone()?.into_pd()?;
             let conf = CFMMPoolConfig::try_from_pd(pd.clone())?;
-            let reserves_x = TaggedAmount::tag(value.amount_of(conf.asset_x.into())?);
-            let reserves_y = TaggedAmount::tag(value.amount_of(conf.asset_y.into())?);
+            let reserves_x = TaggedAmount::new(value.amount_of(conf.asset_x.into())?);
+            let reserves_y = TaggedAmount::new(value.amount_of(conf.asset_y.into())?);
             let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
-            let liquidity = TaggedAmount::tag(MAX_LQ_CAP - liquidity_neg);
+            let liquidity = TaggedAmount::new(MAX_LQ_CAP - liquidity_neg);
             return Some(CFMMPool {
                 id: PoolId::try_from(conf.pool_nft).ok()?,
                 state_ver: PoolStateVer::from(ctx),
@@ -291,7 +364,7 @@ impl TryFromPData for CFMMPoolConfig {
             asset_y: TaggedAssetClass::try_from_pd(cpd.take_field(2)?)?,
             asset_lq: TaggedAssetClass::try_from_pd(cpd.take_field(3)?)?,
             lp_fee_num: cpd.take_field(4)?.into_u64()?,
-            lq_lower_bound: TaggedAmount::tag(cpd.take_field(6).and_then(|pd| pd.into_u64()).unwrap_or(0)),
+            lq_lower_bound: TaggedAmount::new(cpd.take_field(6).and_then(|pd| pd.into_u64()).unwrap_or(0)),
         })
     }
 }
@@ -363,8 +436,8 @@ impl ApplyOrder<ClassicalOnChainDeposit> for CFMMPool {
 
         let (unlocked_lq, change_x, change_y) = self.reward_lp(net_x, net_y);
 
-        self.reserves_x = self.reserves_x + TaggedAmount::tag(net_x) - change_x;
-        self.reserves_y = self.reserves_y + TaggedAmount::tag(net_y) - change_y;
+        self.reserves_x = self.reserves_x + TaggedAmount::new(net_x) - change_x;
+        self.reserves_y = self.reserves_y + TaggedAmount::new(net_y) - change_y;
         self.liquidity = self.liquidity + unlocked_lq;
 
         let deposit_output = DepositOutput {

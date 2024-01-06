@@ -3,7 +3,7 @@ use std::mem;
 
 use either::Either;
 
-use spectrum_offchain::data::Has;
+use spectrum_offchain::data::{Has, Stable};
 
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use crate::execution_engine::liquidity_book::pool::Pool;
@@ -62,13 +62,14 @@ impl ExecutionCap {
 }
 
 #[derive(Debug, Clone)]
-pub struct TLB<Fr, Pl> {
+pub struct TLB<Fr, Pl: Stable> {
     state: TLBState<Fr, Pl>,
     execution_cap: ExecutionCap,
 }
 
 impl<Fr, Pl, Ctx> Maker<Ctx> for TLB<Fr, Pl>
 where
+    Pl: Stable,
     Ctx: Has<Time> + Has<ExecutionCap>,
 {
     fn make(ctx: &Ctx) -> Self {
@@ -76,7 +77,7 @@ where
     }
 }
 
-impl<Fr, Pl> TLB<Fr, Pl> {
+impl<Fr, Pl: Stable> TLB<Fr, Pl> {
     pub fn new(time: u64, conf: ExecutionCap) -> Self {
         Self {
             state: TLBState::new(time),
@@ -88,7 +89,7 @@ impl<Fr, Pl> TLB<Fr, Pl> {
 impl<Fr, Pl> TLB<Fr, Pl>
 where
     Fr: Fragment + OrderState + Ord + Copy,
-    Pl: Pool + Copy,
+    Pl: Pool + Stable + Copy,
 {
     fn on_transition(&mut self, tx: StateTrans<Fr>) {
         if let StateTrans::Active(fr) = tx {
@@ -100,7 +101,7 @@ where
 impl<Fr, Pl> TemporalLiquidityBook<Fr, Pl> for TLB<Fr, Pl>
 where
     Fr: Fragment + OrderState + Copy + Ord,
-    Pl: Pool + Copy,
+    Pl: Pool + Stable + Copy,
 {
     fn attempt(&mut self) -> Option<IntermediateRecipe<Fr, Pl>> {
         if let Some(best_fr) = self.state.pick_best_fr_either() {
@@ -179,6 +180,7 @@ where
 
 fn requiring_settled_state<Fr, Pl, F>(book: &mut TLB<Fr, Pl>, f: F)
 where
+    Pl: Stable,
     F: Fn(&mut IdleState<Fr, Pl>),
 {
     match book.state {
@@ -194,7 +196,7 @@ where
 impl<Fr, Pl> ExternalTLBEvents<Fr, Pl> for TLB<Fr, Pl>
 where
     Fr: Fragment + OrderState + Ord + Copy,
-    Pl: Pool + Copy,
+    Pl: Pool + Stable + Copy,
 {
     fn advance_clocks(&mut self, new_time: u64) {
         requiring_settled_state(self, |st| st.advance_clocks(new_time))
@@ -220,7 +222,7 @@ where
 impl<Fr, Pl> TLBFeedback<Fr, Pl> for TLB<Fr, Pl>
 where
     Fr: Fragment + OrderState + Ord + Copy,
-    Pl: Pool + Copy,
+    Pl: Pool + Stable + Copy,
 {
     fn on_recipe_succeeded(&mut self) {
         match &mut self.state {

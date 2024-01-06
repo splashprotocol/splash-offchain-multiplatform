@@ -1,16 +1,13 @@
-use cml_chain::PolicyId;
-use cml_multi_era::babbage::BabbageTransactionOutput;
-
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
-use bloom_offchain::execution_engine::types::StableId;
+use cml_chain::PolicyId;
+use cml_multi_era::babbage::BabbageTransactionOutput;
+
 use spectrum_cardano_lib::{OutputRef, Token};
 use spectrum_offchain::data::{EntitySnapshot, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::data::pool::CFMMPool;
-
-use crate::PairId;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum AnyPool {
@@ -18,24 +15,31 @@ pub enum AnyPool {
 }
 
 impl Pool for AnyPool {
-    fn id(&self) -> StableId {
-        todo!()
-    }
-
     fn static_price(&self) -> AbsolutePrice {
-        todo!()
+        match self {
+            AnyPool::CFMM(p) => p.static_price(),
+        }
     }
 
     fn real_price(&self, input: Side<u64>) -> AbsolutePrice {
-        todo!()
+        match self {
+            AnyPool::CFMM(p) => p.real_price(input),
+        }
     }
 
     fn swap(self, input: Side<u64>) -> (u64, Self) {
-        todo!()
+        match self {
+            AnyPool::CFMM(p) => {
+                let (out, p2) = p.swap(input);
+                (out, AnyPool::CFMM(p2))
+            }
+        }
     }
 
     fn quality(&self) -> PoolQuality {
-        todo!()
+        match self {
+            AnyPool::CFMM(p) => p.quality(),
+        }
     }
 }
 
@@ -67,7 +71,7 @@ impl Tradable for AnyPool {
     type PairId = PairId;
     fn pair_id(&self) -> Self::PairId {
         match self {
-            AnyPool::CFMM(p) => todo!(),
+            AnyPool::CFMM(p) => PairId::canonical(p.asset_x.untag(), p.asset_y.untag()),
         }
     }
 }

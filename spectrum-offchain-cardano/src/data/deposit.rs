@@ -65,8 +65,8 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainDepo
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
         let value = repr.value().clone();
         let conf = OnChainDepositConfig::try_from_pd(repr.clone().into_datum()?.into_pd()?)?;
-        let token_x_amount = TaggedAmount::tag(value.amount_of(conf.token_x.untag()).unwrap_or(0));
-        let token_y_amount = TaggedAmount::tag(value.amount_of(conf.token_y.untag()).unwrap_or(0));
+        let token_x_amount = TaggedAmount::new(value.amount_of(conf.token_x.untag()).unwrap_or(0));
+        let token_y_amount = TaggedAmount::new(value.amount_of(conf.token_y.untag()).unwrap_or(0));
         let deposit = Deposit {
             pool_nft: PoolId::try_from(conf.pool_nft).ok()?,
             token_x: conf.token_x,

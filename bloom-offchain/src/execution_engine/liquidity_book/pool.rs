@@ -4,8 +4,6 @@ use crate::execution_engine::types::StableId;
 
 /// Pooled liquidity.
 pub trait Pool {
-    /// Stable identifier of the pool.
-    fn id(&self) -> StableId;
     /// Static price (regardless swap vol) in this pool.
     fn static_price(&self) -> AbsolutePrice;
     /// Real price of swap.

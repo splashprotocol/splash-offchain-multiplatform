@@ -17,8 +17,8 @@ pub struct AbsolutePrice(Ratio<u128>);
 
 impl AbsolutePrice {
     #[inline]
-    pub fn new(numer: u128, denom: u128) -> AbsolutePrice {
-        Self(Ratio::new(numer, denom))
+    pub fn new(numer: u64, denom: u64) -> AbsolutePrice {
+        Self(Ratio::new(numer as u128, denom as u128))
     }
 
     pub fn from_price(side: SideM, price: RelativePrice) -> Self {

@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
 use either::Either;
@@ -15,7 +15,7 @@ pub trait Has<T> {
 
 pub trait Stable {
     /// Unique identifier of the underlying entity which persists among different versions.
-    type StableId: Copy + Eq + Hash + Display;
+    type StableId: Copy + Eq + Hash + Debug + Display;
     fn stable_id(&self) -> Self::StableId;
 }
 
@@ -30,7 +30,7 @@ impl<StableId, A, B> Stable for Either<A, B>
 where
     A: Stable<StableId = StableId>,
     B: Stable<StableId = StableId>,
-    StableId: Copy + Eq + Hash + Display,
+    StableId: Copy + Eq + Hash + Debug + Display,
 {
     type StableId = StableId;
     fn stable_id(&self) -> Self::StableId {
@@ -45,7 +45,7 @@ impl<StableId, Version, A, B> EntitySnapshot for Either<A, B>
 where
     A: EntitySnapshot<StableId = StableId, Version = Version>,
     B: EntitySnapshot<StableId = StableId, Version = Version>,
-    StableId: Copy + Eq + Hash + Display,
+    StableId: Copy + Eq + Hash + Debug + Display,
     Version: Copy + Eq + Hash + Display,
 {
     type Version = Version;
@@ -102,7 +102,7 @@ where
 impl<StableId, Version, T> Stable for Baked<T, Version>
 where
     T: Stable<StableId = StableId>,
-    StableId: Copy + Eq + Hash + Display,
+    StableId: Copy + Eq + Hash + Debug + Display,
     Version: Copy + Eq + Hash + Display,
 {
     type StableId = StableId;
@@ -115,7 +115,7 @@ where
 impl<StableId, Version, T> EntitySnapshot for Baked<T, Version>
 where
     T: Stable<StableId = StableId>,
-    StableId: Copy + Eq + Hash + Display,
+    StableId: Copy + Eq + Hash + Debug + Display,
     Version: Copy + Eq + Hash + Display,
 {
     type Version = Version;

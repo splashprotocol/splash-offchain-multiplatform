@@ -1,5 +1,5 @@
 use std::collections::BTreeSet;
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::pin::Pin;
@@ -78,7 +78,7 @@ pub fn execution_part_stream<
 where
     Upstream: Stream<Item = (PairId, Event<Order, Pool, Bearer, Ver>)> + Unpin + 'a,
     PairId: Copy + Eq + Ord + Hash + Display + Unpin + 'a,
-    StableId: Copy + Eq + Hash + Display + Unpin + 'a,
+    StableId: Copy + Eq + Hash + Debug + Display + Unpin + 'a,
     Ver: Copy + Eq + Hash + Display + Unpin + 'a,
     Pool: Stable<StableId = StableId> + Copy + Unpin + 'a,
     Order: Stable<StableId = StableId> + Fragment + OrderState + Copy + Unpin + 'a,
@@ -179,7 +179,7 @@ impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Pr
     fn sync_book(&mut self, pair: PairId, update: EitherMod<StateUpdate<Bundled<BakedEntity<O, P, Ver>, B>>>)
     where
         PairId: Copy + Eq + Hash + Display,
-        StableId: Copy + Eq + Hash + Display,
+        StableId: Copy + Eq + Hash + Debug + Display,
         Ver: Copy + Eq + Hash + Display,
         B: Clone,
         Ctx: Clone,
@@ -262,7 +262,7 @@ impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Pr
 
     fn link_recipe(&self, ExecutionRecipe(mut xs): ExecutionRecipe<O, P>) -> LinkedExecutionRecipe<O, P, B>
     where
-        StableId: Copy + Eq + Hash + Display,
+        StableId: Copy + Eq + Hash + Debug + Display,
         Ver: Copy + Eq + Hash + Display,
         O: Stable<StableId = StableId>,
         P: Stable<StableId = StableId>,
@@ -296,7 +296,7 @@ impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Ir, Prov
 where
     S: Stream<Item = (PairId, EitherMod<StateUpdate<Bundled<BakedEntity<O, P, Ver>, B>>>)> + Unpin,
     PairId: Copy + Eq + Ord + Hash + Display + Unpin,
-    StableId: Copy + Eq + Hash + Display + Unpin,
+    StableId: Copy + Eq + Hash + Debug + Display + Unpin,
     Ver: Copy + Eq + Hash + Display + Unpin,
     P: Stable<StableId = StableId> + Copy + Unpin,
     O: Stable<StableId = StableId> + Fragment + OrderState + Copy + Unpin,
@@ -365,7 +365,7 @@ impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Ir, Prov
 where
     S: Stream<Item = (PairId, EitherMod<StateUpdate<Bundled<BakedEntity<O, P, Ver>, B>>>)> + Unpin,
     PairId: Copy + Eq + Ord + Hash + Display + Unpin,
-    StableId: Copy + Eq + Hash + Display + Unpin,
+    StableId: Copy + Eq + Hash + Debug + Display + Unpin,
     Ver: Copy + Eq + Hash + Display + Unpin,
     P: Stable<StableId = StableId> + Copy + Unpin,
     O: Stable<StableId = StableId> + Fragment + OrderState + Copy + Unpin,
