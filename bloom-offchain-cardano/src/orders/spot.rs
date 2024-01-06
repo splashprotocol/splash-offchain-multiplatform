@@ -22,9 +22,8 @@ use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{AssetClass, OutputRef};
 use spectrum_offchain::data::{Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
+use spectrum_offchain_cardano::data::pair::{side_of, PairId};
 use spectrum_offchain_cardano::data::ExecutorFeePerToken;
-
-use crate::{side_of, PairId};
 
 /// Spot order. Can be executed at a configured or better price as long as there is enough budget.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

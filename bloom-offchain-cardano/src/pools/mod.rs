@@ -7,6 +7,7 @@ use cml_multi_era::babbage::BabbageTransactionOutput;
 use spectrum_cardano_lib::{OutputRef, Token};
 use spectrum_offchain::data::{EntitySnapshot, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
+use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::data::pool::CFMMPool;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

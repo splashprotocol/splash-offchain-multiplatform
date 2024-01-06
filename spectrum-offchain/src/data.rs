@@ -78,6 +78,8 @@ where
     }
 }
 
+/// A baked entity [T] paired with a computed version [V],
+/// i.e. [T] can no longer be modified.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug)]
 pub struct Baked<T, V> {
     pub entity: T,

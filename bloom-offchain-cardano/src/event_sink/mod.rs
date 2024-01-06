@@ -7,10 +7,10 @@ use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::{Baked, EntitySnapshot, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
+use spectrum_offchain_cardano::data::pair::PairId;
 
 use crate::orders::AnyOrder;
 use crate::pools::AnyPool;
-use crate::PairId;
 
 pub mod entity_index;
 pub mod handler;
