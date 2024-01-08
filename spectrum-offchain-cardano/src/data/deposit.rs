@@ -199,19 +199,24 @@ mod tests {
         let ref_scripts_conf = ReferenceSources {
             pool_v1_script: "31a497ef6b0033e66862546aa2928a1987f8db3b8f93c59febbe0f47b14a83c6#0"
                 .to_string()
-                .into(),
+                .try_into()
+                .unwrap(),
             pool_v2_script: "c8c93656e8bce07fabe2f42d703060b7c71bfa2e48a2956820d1bd81cc936faa#0"
                 .to_string()
-                .into(),
+                .try_into()
+                .unwrap(),
             swap_script: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#2"
                 .to_string()
-                .into(),
+                .try_into()
+                .unwrap(),
             deposit_script: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#0"
                 .to_string()
-                .into(),
+                .try_into()
+                .unwrap(),
             redeem_script: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#1"
                 .to_string()
-                .into(),
+                .try_into()
+                .unwrap(),
         };
 
         let ref_scripts = ReferenceOutputs::pull(ref_scripts_conf, explorer)

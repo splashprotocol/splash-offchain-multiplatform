@@ -13,6 +13,7 @@ pub trait PlutusDataExtension {
     fn into_constr_pd(self) -> Option<ConstrPlutusData>;
     fn into_bytes(self) -> Option<Vec<u8>>;
     fn into_u64(self) -> Option<u64>;
+    fn into_u128(self) -> Option<u128>;
 }
 
 impl PlutusDataExtension for PlutusData {
@@ -33,6 +34,13 @@ impl PlutusDataExtension for PlutusData {
     fn into_u64(self) -> Option<u64> {
         match self {
             PlutusData::Integer(big_int) => Some(big_int.as_u64()?),
+            _ => None,
+        }
+    }
+
+    fn into_u128(self) -> Option<u128> {
+        match self {
+            PlutusData::Integer(big_int) => Some(big_int.as_u128()?),
             _ => None,
         }
     }

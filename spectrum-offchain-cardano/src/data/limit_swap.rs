@@ -85,10 +85,7 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainLimi
             min_expected_quote_amount: conf.min_quote_amount,
             ada_deposit,
             fee: ExecutorFeePerToken::new(
-                Ratio::new(
-                    conf.ex_fee_per_token_num as u128,
-                    conf.ex_fee_per_token_denom as u128,
-                ),
+                Ratio::new(conf.ex_fee_per_token_num, conf.ex_fee_per_token_denom),
                 AssetClass::Native,
             ),
             redeemer_pkh: conf.redeemer_pkh,
@@ -108,8 +105,8 @@ pub struct OnChainLimitSwapConfig {
     pub quote: TaggedAssetClass<Quote>,
     pub min_quote_amount: TaggedAmount<Quote>,
     pub pool_nft: TaggedAssetClass<PoolNft>,
-    pub ex_fee_per_token_num: u64,
-    pub ex_fee_per_token_denom: u64,
+    pub ex_fee_per_token_num: u128,
+    pub ex_fee_per_token_denom: u128,
     pub redeemer_pkh: Ed25519KeyHash,
     pub redeemer_stake_pkh: Option<Ed25519KeyHash>,
 }
@@ -129,8 +126,8 @@ impl TryFromPData for OnChainLimitSwapConfig {
             quote: TaggedAssetClass::try_from_pd(cpd.take_field(1)?)?,
             min_quote_amount: TaggedAmount::try_from_pd(cpd.take_field(9)?)?,
             pool_nft: TaggedAssetClass::try_from_pd(cpd.take_field(2)?)?,
-            ex_fee_per_token_num: cpd.take_field(4)?.into_u64()?,
-            ex_fee_per_token_denom: cpd.take_field(5)?.into_u64()?,
+            ex_fee_per_token_num: cpd.take_field(4)?.into_u128()?,
+            ex_fee_per_token_denom: cpd.take_field(5)?.into_u128()?,
             redeemer_pkh: Ed25519KeyHash::from(<[u8; 28]>::try_from(cpd.take_field(6)?.into_bytes()?).ok()?),
             redeemer_stake_pkh: stake_pkh,
         })
@@ -174,11 +171,10 @@ mod tests {
     }
 
     const DATUM_SAMPLE: &str =
-        "d8799fd8799f581c95a427e384527065f2f8946f5e86320d0117839a5e98ea2c0b55fb004448554e54ffd8799f\
-        4040ffd8799f581ce08fbaa73db55294b3b31f2a365be5c4b38211a47880f0ef6b17a1604c48554e545f4144415\
-        f4e4654ff1903e51b00148f1c351223aa1b8ac7230489e80000581c022835b77a25d6bf00f8cbf7e4744e0065ec\
-        77383500221ed4f32514d8799f581c3cc6ea3784eecc03bc736d90e368abb40f873c48d1fc74133afae5a5ff1b0\
-        0000003882d614c1a9a800dc5ff";
+        "d8799fd8799f581c5d16cc1a177b5d9ba9cfa9793b07e60f1fb70fea1f8aef064415d11443494147ffd8799f4040ffd8799f581cb99258\
+        2b95a3ee20cb4025699808c83caaefa7bae9387b72ba2c57c34b4941475f4144415f4e4654ff1903e51b008269b69644065ec249056bc75\
+        e2d63100000581cf7cfe1832d19b34789d6c3042eeb674907a292f63ba0d4cdbb140689d8799f581c196d9fb5061b3a658eae958c155405\
+        014b1a01c60744c57241e0a374ff1b000000029cf3700f1af39010b7ff";
 
     #[tokio::test]
     async fn run_valid_swap_against_pool() {
