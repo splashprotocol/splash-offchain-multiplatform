@@ -11,13 +11,13 @@ spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain" }
 bloom-offchain = { version = "1.0.0", path = "../bloom-offchain" }
 cardano-chain-sync = { version = "0.1.0", path = "../cardano-chain-sync" }
 cardano-explorer = { version = "0.1.0", path = "../cardano-explorer" }
-cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/enrich_hash_instances" }
+cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/bigint_to_u128" }
 cardano-mempool-sync = { version = "0.1.0", path = "../cardano-mempool-sync" }
 cardano-submit-api = { version = "0.1.0", path = "../cardano-submit-api" }
 spectrum-cardano-lib = { version = "0.1.0", path = "../spectrum-cardano-lib" }
-cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/enrich_hash_instances" }
-cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/enrich_hash_instances" }
-cml-multi-era = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/enrich_hash_instances" }
+cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/bigint_to_u128" }
+cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/bigint_to_u128" }
+cml-multi-era = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/bigint_to_u128" }
 pallas-network = { git = "https://github.com/oskin1/pallas.git", branch = "fix-tx-monitor-decoder" }
 pallas-primitives = { git = "https://github.com/oskin1/pallas.git", branch = "fix-tx-monitor-decoder" }
 isahc = { version = "1.7.2", features = ["json"] }
@@ -45,6 +45,7 @@ async-std = "1.12"
 nonempty = "0.8.1"
 hex = "0.4.3"
 num-rational = "0.4.1"
+num-integer = "0.1.45"
 derivative = "2.2.0"
 lazy_static = "1.4.0"
 tracing = "0.1.31"

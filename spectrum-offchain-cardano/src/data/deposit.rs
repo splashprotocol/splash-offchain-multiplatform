@@ -10,7 +10,7 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
-use spectrum_offchain::data::UniqueOrder;
+use spectrum_offchain::data::order::UniqueOrder;
 use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::constants::{ORDER_APPLY_RAW_REDEEMER, ORDER_REFUND_RAW_REDEEMER};
@@ -65,8 +65,8 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainDepo
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
         let value = repr.value().clone();
         let conf = OnChainDepositConfig::try_from_pd(repr.clone().into_datum()?.into_pd()?)?;
-        let token_x_amount = TaggedAmount::tag(value.amount_of(conf.token_x.untag()).unwrap_or(0));
-        let token_y_amount = TaggedAmount::tag(value.amount_of(conf.token_y.untag()).unwrap_or(0));
+        let token_x_amount = TaggedAmount::new(value.amount_of(conf.token_x.untag()).unwrap_or(0));
+        let token_y_amount = TaggedAmount::new(value.amount_of(conf.token_y.untag()).unwrap_or(0));
         let deposit = Deposit {
             pool_nft: PoolId::try_from(conf.pool_nft).ok()?,
             token_x: conf.token_x,
@@ -169,8 +169,8 @@ mod tests {
             BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(DEPOSIT_SAMPLE).unwrap()).unwrap();
         let pool_box =
             BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(POOL_SAMPLE).unwrap()).unwrap();
-        let deposit = ClassicalOnChainOrder::try_from_ledger(deposit_box, deposit_ref).unwrap();
-        let pool = <OnChain<CFMMPool>>::try_from_ledger(pool_box, pool_ref).unwrap();
+        let deposit = ClassicalOnChainOrder::try_from_ledger(&deposit_box, deposit_ref).unwrap();
+        let pool = <OnChain<CFMMPool>>::try_from_ledger(&pool_box, pool_ref).unwrap();
 
         let private_key_bech32 = Bip32PrivateKey::generate_ed25519_bip32().to_bech32();
 
@@ -197,11 +197,26 @@ mod tests {
         });
 
         let ref_scripts_conf = ReferenceSources {
-            pool_v1_script: "31a497ef6b0033e66862546aa2928a1987f8db3b8f93c59febbe0f47b14a83c6#0".to_string(),
-            pool_v2_script: "c8c93656e8bce07fabe2f42d703060b7c71bfa2e48a2956820d1bd81cc936faa#0".to_string(),
-            swap_script: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#2".to_string(),
-            deposit_script: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#0".to_string(),
-            redeem_script: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#1".to_string(),
+            pool_v1_script: "31a497ef6b0033e66862546aa2928a1987f8db3b8f93c59febbe0f47b14a83c6#0"
+                .to_string()
+                .try_into()
+                .unwrap(),
+            pool_v2_script: "c8c93656e8bce07fabe2f42d703060b7c71bfa2e48a2956820d1bd81cc936faa#0"
+                .to_string()
+                .try_into()
+                .unwrap(),
+            swap_script: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#2"
+                .to_string()
+                .try_into()
+                .unwrap(),
+            deposit_script: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#0"
+                .to_string()
+                .try_into()
+                .unwrap(),
+            redeem_script: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#1"
+                .to_string()
+                .try_into()
+                .unwrap(),
         };
 
         let ref_scripts = ReferenceOutputs::pull(ref_scripts_conf, explorer)

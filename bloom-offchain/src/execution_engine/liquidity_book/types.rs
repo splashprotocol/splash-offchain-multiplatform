@@ -5,20 +5,23 @@ use crate::execution_engine::liquidity_book::side::{Side, SideM};
 
 pub type ExecutionCost = u32;
 
-pub type Price = Ratio<u128>;
+/// Price of input asset denominated in units of output asset (Output/Input).
+pub type RelativePrice = Ratio<u128>;
 
-/// Price of base asset denominated in quote asset.
+pub type FeePerOutput = Ratio<u128>;
+
+/// Price of base asset denominated in units of quote asset.
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Div, Mul, Display)]
-pub struct BasePrice(Ratio<u128>);
+pub struct AbsolutePrice(Ratio<u128>);
 
-impl BasePrice {
+impl AbsolutePrice {
     #[inline]
-    pub fn new(numer: u128, denom: u128) -> BasePrice {
-        Self(Ratio::new(numer, denom))
+    pub fn new(numer: u64, denom: u64) -> AbsolutePrice {
+        Self(Ratio::new(numer as u128, denom as u128))
     }
 
-    pub fn from_price(side: SideM, price: Price) -> Self {
+    pub fn from_price(side: SideM, price: RelativePrice) -> Self {
         Self(match side {
             // In case of bid the price in order is base/quote, so we inverse it.
             SideM::Bid => price.pow(-1),
@@ -37,9 +40,9 @@ impl BasePrice {
     }
 }
 
-impl Side<BasePrice> {
+impl Side<AbsolutePrice> {
     /// Compare prices on opposite sides.
-    pub fn overlaps(self, that: BasePrice) -> bool {
+    pub fn overlaps(self, that: AbsolutePrice) -> bool {
         match self {
             // Bid price must be higher than Ask price to overlap.
             Side::Bid(this) => this >= that,
@@ -49,7 +52,7 @@ impl Side<BasePrice> {
     }
 
     /// Compare prices on the same side.
-    pub fn better_than(self, that: BasePrice) -> bool {
+    pub fn better_than(self, that: AbsolutePrice) -> bool {
         match self {
             // If we compare Bid prices, then we favor highest price.
             Side::Bid(this) => this >= that,

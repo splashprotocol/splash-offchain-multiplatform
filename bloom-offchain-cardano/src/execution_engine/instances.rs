@@ -3,11 +3,13 @@ use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
 use cml_chain::builders::tx_builder::TransactionBuilder;
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
-use cml_chain::plutus::RedeemerTag;
+use cml_chain::plutus::{ConstrPlutusData, PlutusData, RedeemerTag};
+use cml_chain::utils::BigInt;
 use void::Void;
 
 use bloom_offchain::execution_engine::batch_exec::BatchExec;
 use bloom_offchain::execution_engine::bundled::Bundled;
+use bloom_offchain::execution_engine::liquidity_book::fragment::StateTrans;
 use bloom_offchain::execution_engine::liquidity_book::recipe::{LinkedFill, LinkedSwap};
 use bloom_offchain::execution_engine::liquidity_book::side::SideM;
 use spectrum_cardano_lib::output::{FinalizedTxOut, IndexedTxOut};
@@ -18,6 +20,8 @@ use spectrum_offchain_cardano::constants::POOL_EXECUTION_UNITS;
 use spectrum_offchain_cardano::data::pool::{CFMMPool, CFMMPoolAction, CFMMPoolRefScriptOutput};
 use spectrum_offchain_cardano::data::PoolVer;
 
+use crate::orders::auction::AUCTION_EXECUTION_UNITS;
+use crate::orders::spot::SpotOrder;
 use crate::orders::AnyOrder;
 use crate::pools::AnyPool;
 
@@ -30,11 +34,82 @@ impl<Ctx> BatchExec<TransactionBuilder, Option<IndexedTxOut>, Ctx, Void>
 {
     fn try_exec(
         self,
-        accumulator: TransactionBuilder,
+        tx_builder: TransactionBuilder,
         context: Ctx,
     ) -> Result<(TransactionBuilder, Option<IndexedTxOut>, Ctx), Void> {
-        todo!()
+        match self.0 {
+            LinkedFill {
+                target: Bundled(AnyOrder::Spot(o), src),
+                transition,
+                removed_input,
+                added_output,
+            } => Magnet(LinkedFill {
+                target: Bundled(o, src),
+                transition: transition.map(|AnyOrder::Spot(o2)| o2),
+                removed_input,
+                added_output,
+            })
+            .try_exec(tx_builder, context),
+        }
     }
+}
+
+impl<Ctx> BatchExec<TransactionBuilder, Option<IndexedTxOut>, Ctx, Void>
+    for Magnet<LinkedFill<SpotOrder, FinalizedTxOut>>
+{
+    fn try_exec(
+        self,
+        mut tx_builder: TransactionBuilder,
+        context: Ctx,
+    ) -> Result<(TransactionBuilder, Option<IndexedTxOut>, Ctx), Void> {
+        let Magnet(LinkedFill {
+            target: Bundled(ord, FinalizedTxOut(consumed_out, in_ref)),
+            transition,
+            removed_input,
+            added_output,
+        }) = self;
+        let mut candidate = consumed_out.clone();
+        candidate.sub_asset(ord.input_asset, removed_input);
+        candidate.add_asset(ord.output_asset, added_output);
+        let residual_order = match transition {
+            StateTrans::Active(_) => Some(candidate.clone()),
+            StateTrans::EOL => {
+                candidate.null_datum();
+                candidate.update_payment_cred(ord.redeemer_cred());
+                None
+            }
+        };
+        // todo: replace `tx_builder.output_sizes()`
+        let successor_ix = tx_builder.output_sizes().len();
+        let order_script = PartialPlutusWitness::new(
+            PlutusScriptWitness::Ref(candidate.script_hash().unwrap()),
+            spot_exec_redeemer(successor_ix as u16),
+        );
+        let order_in = SingleInputBuilder::new(in_ref.into(), consumed_out)
+            .plutus_script_inline_datum(order_script, Vec::new())
+            .unwrap();
+        tx_builder
+            .add_output(SingleOutputBuilderResult::new(candidate))
+            .unwrap();
+        tx_builder.add_input(order_in).unwrap();
+        tx_builder.set_exunits(
+            // todo: check for possible collisions bc of fixed 0-index.
+            RedeemerWitnessKey::new(RedeemerTag::Spend, 0),
+            AUCTION_EXECUTION_UNITS,
+        );
+        Ok((
+            tx_builder,
+            residual_order.map(|o| IndexedTxOut(successor_ix, o)),
+            context,
+        ))
+    }
+}
+
+fn spot_exec_redeemer(successor_ix: u16) -> PlutusData {
+    PlutusData::ConstrPlutusData(ConstrPlutusData::new(
+        0,
+        vec![PlutusData::Integer(BigInt::from(successor_ix))],
+    ))
 }
 
 /// Batch execution routing for [AnyPool].

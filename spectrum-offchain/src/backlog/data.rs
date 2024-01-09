@@ -1,3 +1,5 @@
+use derive_more::{From, Into};
+use num_rational::Ratio;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone, Serialize, Deserialize)]
@@ -6,12 +8,12 @@ pub struct BacklogOrder<TOrd> {
     pub timestamp: i64,
 }
 
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Copy, Clone, Serialize, Deserialize)]
-pub struct OrderWeight(u64);
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Copy, Clone, Into, From)]
+pub struct OrderWeight(Ratio<u128>);
 
 impl From<u64> for OrderWeight {
     fn from(x: u64) -> Self {
-        Self(x)
+        Self(Ratio::from_integer(x as u128))
     }
 }
 

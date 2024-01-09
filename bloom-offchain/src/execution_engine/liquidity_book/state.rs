@@ -1,3 +1,4 @@
+use spectrum_offchain::data::Stable;
 use std::collections::hash_map::Entry;
 use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
 use std::fmt::Debug;
@@ -6,10 +7,10 @@ use std::mem;
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use crate::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
-use crate::execution_engine::liquidity_book::types::BasePrice;
+use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 use crate::execution_engine::types::StableId;
 
-pub trait VersionedState<Fr, Pl> {
+pub trait VersionedState<Fr, Pl: Stable> {
     /// Commit preview changes.
     fn commit(&mut self) -> IdleState<Fr, Pl>;
     /// Discard preview changes.
@@ -18,12 +19,12 @@ pub trait VersionedState<Fr, Pl> {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 /// State with no uncommitted changes.
-pub struct IdleState<Fr, Pl> {
+pub struct IdleState<Fr, Pl: Stable> {
     fragments: Chronology<Fr>,
     pools: Pools<Pl>,
 }
 
-impl<Fr, Pl> IdleState<Fr, Pl> {
+impl<Fr, Pl: Stable> IdleState<Fr, Pl> {
     fn new(time_now: u64) -> Self {
         Self {
             fragments: Chronology::new(time_now),
@@ -35,7 +36,7 @@ impl<Fr, Pl> IdleState<Fr, Pl> {
 impl<Fr, Pl> IdleState<Fr, Pl>
 where
     Fr: Fragment + OrderState + Ord + Copy,
-    Pl: Pool + Copy,
+    Pl: Pool + Stable + Copy,
 {
     pub fn advance_clocks(&mut self, new_time: u64) {
         self.fragments.advance_clocks(new_time)
@@ -62,14 +63,14 @@ where
 /// We use this one when no preview fragments/pools are generated to avoid
 /// overhead of copying active frontier projection.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct PartialPreviewState<Fr, Pl> {
+pub struct PartialPreviewState<Fr, Pl: Stable> {
     fragments_preview: Chronology<Fr>,
     consumed_active_fragments: Vec<Fr>,
     pools_intact: Pools<Pl>,
     pools_preview: Pools<Pl>,
 }
 
-impl<Fr, Pl> PartialPreviewState<Fr, Pl> {
+impl<Fr, Pl: Stable> PartialPreviewState<Fr, Pl> {
     pub fn new(time_now: u64) -> Self {
         Self {
             fragments_preview: Chronology::new(time_now),
@@ -80,7 +81,7 @@ impl<Fr, Pl> PartialPreviewState<Fr, Pl> {
     }
 }
 
-impl<Fr, Pl> VersionedState<Fr, Pl> for PartialPreviewState<Fr, Pl>
+impl<Fr, Pl: Stable> VersionedState<Fr, Pl> for PartialPreviewState<Fr, Pl>
 where
     Fr: Fragment + Ord,
 {
@@ -109,7 +110,7 @@ where
 /// consumption and production of new fragments/pools.
 /// Comes with overhead of cloning active frontier/pools upon construction.
 #[derive(Debug, Clone)]
-pub struct PreviewState<Fr, Pl> {
+pub struct PreviewState<Fr, Pl: Stable> {
     /// Fragments before changes.
     fragments_intact: Chronology<Fr>,
     /// Active fragments with changes pre-applied.
@@ -122,7 +123,7 @@ pub struct PreviewState<Fr, Pl> {
     pools_preview: Pools<Pl>,
 }
 
-impl<Fr, Pl> PreviewState<Fr, Pl> {
+impl<Fr, Pl: Stable> PreviewState<Fr, Pl> {
     fn new(time_now: u64) -> Self {
         Self {
             fragments_intact: Chronology::new(time_now),
@@ -137,6 +138,7 @@ impl<Fr, Pl> PreviewState<Fr, Pl> {
 impl<Fr, Pl> VersionedState<Fr, Pl> for PreviewState<Fr, Pl>
 where
     Fr: Fragment + Ord,
+    Pl: Stable,
 {
     fn commit(&mut self) -> IdleState<Fr, Pl> {
         // Commit pools preview if available.
@@ -175,7 +177,7 @@ where
 
 /// The idea of TLB state automata is to minimize overhead of maintaining preview of modified state.
 #[derive(Debug, Clone)]
-pub enum TLBState<Fr, Pl> {
+pub enum TLBState<Fr, Pl: Stable> {
     /// State with no uncommitted changes.
     ///
     ///              Idle
@@ -196,13 +198,13 @@ pub enum TLBState<Fr, Pl> {
     Preview(PreviewState<Fr, Pl>),
 }
 
-impl<Fr, Pl> TLBState<Fr, Pl> {
+impl<Fr, Pl: Stable> TLBState<Fr, Pl> {
     pub fn new(time: u64) -> Self {
         Self::Idle(IdleState::new(time))
     }
 }
 
-impl<Fr, Pl> TLBState<Fr, Pl>
+impl<Fr, Pl: Stable> TLBState<Fr, Pl>
 where
     Fr: Fragment + Ord + Copy,
 {
@@ -218,7 +220,7 @@ where
 impl<Fr, Pl> TLBState<Fr, Pl>
 where
     Fr: Fragment + Ord + Copy,
-    Pl: Copy,
+    Pl: Stable + Copy,
 {
     fn move_into_partial_preview(&mut self, target: &mut PartialPreviewState<Fr, Pl>) {
         match self {
@@ -267,9 +269,9 @@ where
 impl<Fr, Pl> TLBState<Fr, Pl>
 where
     Fr: Fragment + Ord + Copy,
-    Pl: Pool + Copy,
+    Pl: Pool + Stable + Copy,
 {
-    pub fn best_fr_price(&self, side: SideM) -> Option<Side<BasePrice>> {
+    pub fn best_fr_price(&self, side: SideM) -> Option<Side<AbsolutePrice>> {
         let active_fragments = self.active_fragments();
         let side_store = match side {
             SideM::Bid => &active_fragments.bids,
@@ -377,9 +379,9 @@ where
 impl<Fr, Pl> TLBState<Fr, Pl>
 where
     Fr: Fragment + Ord + Copy,
-    Pl: Pool + Copy,
+    Pl: Pool + Stable + Copy,
 {
-    pub fn best_pool_price(&self) -> Option<BasePrice> {
+    pub fn best_pool_price(&self) -> Option<AbsolutePrice> {
         let pools = self.pools();
         pools
             .quality_index
@@ -577,12 +579,12 @@ where
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct Pools<Pl> {
-    pools: HashMap<StableId, Pl>,
-    quality_index: BTreeMap<PoolQuality, StableId>,
+pub struct Pools<Pl: Stable> {
+    pools: HashMap<Pl::StableId, Pl>,
+    quality_index: BTreeMap<PoolQuality, Pl::StableId>,
 }
 
-impl<Pl> Pools<Pl> {
+impl<Pl: Stable> Pools<Pl> {
     pub fn new() -> Self {
         Self {
             pools: HashMap::new(),
@@ -593,16 +595,16 @@ impl<Pl> Pools<Pl> {
 
 impl<Pl> Pools<Pl>
 where
-    Pl: Pool + Copy,
+    Pl: Pool + Stable + Copy,
 {
     pub fn update_pool(&mut self, pool: Pl) {
-        if let Some(old_pool) = self.pools.insert(pool.id(), pool) {
+        if let Some(old_pool) = self.pools.insert(pool.stable_id(), pool) {
             self.quality_index.remove(&old_pool.quality());
         }
-        self.quality_index.insert(pool.quality(), pool.id());
+        self.quality_index.insert(pool.quality(), pool.stable_id());
     }
     pub fn remove_pool(&mut self, pool: Pl) {
-        self.pools.remove(&pool.id());
+        self.pools.remove(&pool.stable_id());
         self.quality_index.remove(&pool.quality());
     }
 }
@@ -612,12 +614,15 @@ pub mod tests {
     use std::cmp::Ordering;
     use std::fmt::{Debug, Formatter};
 
+    use num_rational::Ratio;
+    use spectrum_offchain::data::Stable;
+
     use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
     use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
     use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, TLBState, VersionedState};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
-    use crate::execution_engine::liquidity_book::types::{BasePrice, ExecutionCost};
+    use crate::execution_engine::liquidity_book::types::{AbsolutePrice, ExecutionCost};
     use crate::execution_engine::types::StableId;
 
     #[test]
@@ -800,7 +805,7 @@ pub mod tests {
         pub side: SideM,
         pub input: u64,
         pub accumulated_output: u64,
-        pub price: BasePrice,
+        pub price: AbsolutePrice,
         pub fee: u64,
         pub cost_hint: ExecutionCost,
         pub bounds: TimeBounds<u64>,
@@ -828,7 +833,7 @@ pub mod tests {
     }
 
     impl SimpleOrderPF {
-        pub fn new(side: SideM, input: u64, price: BasePrice, fee: u64) -> Self {
+        pub fn new(side: SideM, input: u64, price: AbsolutePrice, fee: u64) -> Self {
             Self {
                 source: StableId::random(),
                 side,
@@ -846,7 +851,7 @@ pub mod tests {
                 side: SideM::Ask,
                 input: 1000_000_000,
                 accumulated_output: 0,
-                price: BasePrice::new(1, 100),
+                price: AbsolutePrice::new(1, 100),
                 fee: 100,
                 cost_hint: 0,
                 bounds,
@@ -863,12 +868,12 @@ pub mod tests {
             self.input
         }
 
-        fn price(&self) -> BasePrice {
+        fn price(&self) -> AbsolutePrice {
             self.price
         }
 
-        fn weight(&self) -> u64 {
-            self.fee
+        fn weight(&self) -> Ratio<u128> {
+            Ratio::from_integer(self.fee as u128)
         }
 
         fn cost_hint(&self) -> ExecutionCost {
@@ -914,24 +919,27 @@ pub mod tests {
         }
     }
 
-    impl Pool for SimpleCFMMPool {
-        fn id(&self) -> StableId {
+    impl Stable for SimpleCFMMPool {
+        type StableId = StableId;
+        fn stable_id(&self) -> Self::StableId {
             self.pool_id
         }
+    }
 
-        fn static_price(&self) -> BasePrice {
-            BasePrice::new(self.reserves_quote as u128, self.reserves_base as u128)
+    impl Pool for SimpleCFMMPool {
+        fn static_price(&self) -> AbsolutePrice {
+            AbsolutePrice::new(self.reserves_quote as u128, self.reserves_base as u128)
         }
 
-        fn real_price(&self, input: Side<u64>) -> BasePrice {
+        fn real_price(&self, input: Side<u64>) -> AbsolutePrice {
             match input {
                 Side::Bid(quote_input) => {
                     let (base_output, _) = self.swap(Side::Bid(quote_input));
-                    BasePrice::new(quote_input as u128, base_output as u128)
+                    AbsolutePrice::new(quote_input as u128, base_output as u128)
                 }
                 Side::Ask(base_input) => {
                     let (quote_output, _) = self.swap(Side::Ask(base_input));
-                    BasePrice::new(quote_output as u128, base_input as u128)
+                    AbsolutePrice::new(quote_output as u128, base_input as u128)
                 }
             }
         }
@@ -963,7 +971,7 @@ pub mod tests {
 
         fn quality(&self) -> PoolQuality {
             PoolQuality(
-                BasePrice::new(self.reserves_quote as u128, self.reserves_base as u128),
+                AbsolutePrice::new(self.reserves_quote as u128, self.reserves_base as u128),
                 self.reserves_quote + self.reserves_base,
             )
         }

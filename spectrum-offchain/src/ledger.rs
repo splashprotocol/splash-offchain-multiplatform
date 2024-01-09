@@ -1,4 +1,4 @@
-use futures::future::Either;
+use either::Either;
 
 /// Tries to read domain entity from on-chain representation (e.g. a UTxO).
 pub trait TryFromLedger<Repr, Ctx>: Sized {

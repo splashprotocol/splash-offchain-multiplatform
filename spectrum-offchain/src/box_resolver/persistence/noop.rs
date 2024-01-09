@@ -2,7 +2,7 @@ use async_trait::async_trait;
 
 use crate::box_resolver::persistence::EntityRepo;
 use crate::data::unique_entity::{Confirmed, Predicted, Traced, Unconfirmed};
-use crate::data::EntitySnapshot;
+use crate::data::{EntitySnapshot, Stable};
 
 #[derive(Debug)]
 pub struct NoopEntityRepo;
@@ -12,7 +12,7 @@ impl<T> EntityRepo<T> for NoopEntityRepo
 where
     T: EntitySnapshot + Clone + Send + 'static,
     <T as EntitySnapshot>::Version: Clone + Send + 'static,
-    <T as EntitySnapshot>::StableId: Clone + Send + 'static,
+    <T as Stable>::StableId: Clone + Send + 'static,
 {
     async fn get_prediction_predecessor<'a>(&self, id: T::Version) -> Option<T::Version>
     where
@@ -23,21 +23,21 @@ where
 
     async fn get_last_predicted<'a>(&self, id: T::StableId) -> Option<Predicted<T>>
     where
-        <T as EntitySnapshot>::StableId: 'a,
+        <T as Stable>::StableId: 'a,
     {
         None
     }
 
     async fn get_last_confirmed<'a>(&self, id: T::StableId) -> Option<Confirmed<T>>
     where
-        <T as EntitySnapshot>::StableId: 'a,
+        <T as Stable>::StableId: 'a,
     {
         None
     }
 
     async fn get_last_unconfirmed<'a>(&self, id: T::StableId) -> Option<Unconfirmed<T>>
     where
-        <T as EntitySnapshot>::StableId: 'a,
+        <T as Stable>::StableId: 'a,
     {
         None
     }
@@ -63,7 +63,7 @@ where
     async fn invalidate<'a>(&mut self, sid: T::Version, eid: T::StableId)
     where
         <T as EntitySnapshot>::Version: 'a,
-        <T as EntitySnapshot>::StableId: 'a,
+        <T as Stable>::StableId: 'a,
     {
     }
 

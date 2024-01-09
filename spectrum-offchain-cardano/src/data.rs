@@ -10,7 +10,8 @@ use rand::{thread_rng, RngCore};
 
 use spectrum_cardano_lib::transaction::BabbageTransactionOutputExtension;
 use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAssetClass, Token};
-use spectrum_offchain::data::{EntitySnapshot, SpecializedOrder};
+use spectrum_offchain::data::order::SpecializedOrder;
+use spectrum_offchain::data::{EntitySnapshot, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::constants::POOL_VERSIONS;
@@ -26,6 +27,7 @@ pub mod redeem;
 pub mod ref_scripts;
 
 pub mod execution_context;
+pub mod pair;
 
 /// For persistent on-chain entities (e.g. pools) we want to carry initial utxo.
 #[derive(Debug, Clone)]
@@ -80,16 +82,23 @@ where
     }
 }
 
-impl<T> EntitySnapshot for OnChain<T>
+impl<T> Stable for OnChain<T>
 where
-    T: EntitySnapshot,
+    T: Stable,
 {
     type StableId = T::StableId;
-    type Version = T::Version;
 
     fn stable_id(&self) -> Self::StableId {
         self.value.stable_id()
     }
+}
+
+impl<T> EntitySnapshot for OnChain<T>
+where
+    T: EntitySnapshot,
+{
+    type Version = T::Version;
+
     fn version(&self) -> Self::Version {
         self.value.version()
     }
@@ -189,15 +198,18 @@ impl Display for PoolStateVer {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct ExecutorFeePerToken(Ratio<u64>, AssetClass);
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct ExecutorFeePerToken(Ratio<u128>, pub AssetClass);
 
 impl ExecutorFeePerToken {
-    pub fn new(rational: Ratio<u64>, ac: AssetClass) -> Self {
+    pub fn new(rational: Ratio<u128>, ac: AssetClass) -> Self {
         Self(rational, ac)
     }
-    pub fn get_fee(&self, quote_amount: u64) -> u64 {
-        ((*self.0.numer() as u128) * (quote_amount as u128) / (*self.0.denom() as u128)) as u64
+    pub fn get_fee(&self, output_amount: u64) -> u64 {
+        ((*self.0.numer() as u128) * (output_amount as u128) / (*self.0.denom())) as u64
+    }
+    pub fn value(&self) -> Ratio<u128> {
+        self.0
     }
 }
 

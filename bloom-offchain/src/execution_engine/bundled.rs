@@ -1,25 +1,34 @@
-use spectrum_offchain::data::{EntitySnapshot, Tradable};
+use spectrum_offchain::data::{EntitySnapshot, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 
 /// Entity bundled with its source.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Bundled<T, Source>(pub T, pub Source);
 
+impl<T, Source> Stable for Bundled<T, Source>
+where
+    T: Stable,
+{
+    type StableId = T::StableId;
+    fn stable_id(&self) -> Self::StableId {
+        self.0.stable_id()
+    }
+}
+
 impl<T, Source> EntitySnapshot for Bundled<T, Source>
 where
     T: EntitySnapshot,
 {
-    type StableId = T::StableId;
     type Version = T::Version;
-    fn stable_id(&self) -> Self::StableId {
-        self.0.stable_id()
-    }
     fn version(&self) -> Self::Version {
         self.0.version()
     }
 }
 
-impl<T, Source> Tradable for Bundled<T, Source> where T: Tradable {
+impl<T, Source> Tradable for Bundled<T, Source>
+where
+    T: Tradable,
+{
     type PairId = T::PairId;
     fn pair_id(&self) -> Self::PairId {
         self.0.pair_id()

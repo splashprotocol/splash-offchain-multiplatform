@@ -56,6 +56,7 @@ pub mod tests {
     use cml_chain::builders::input_builder::{InputBuilderResult, SingleInputBuilder};
     use cml_chain::transaction::{TransactionInput, TransactionOutput};
     use cml_crypto::TransactionHash;
+    use spectrum_cardano_lib::collateral::Collateral;
 
     use crate::collaterals::Collaterals;
 
@@ -75,10 +76,13 @@ pub mod tests {
 
     #[async_trait]
     impl Collaterals for MockBasedRequestor {
-        async fn get_collateral(self) -> Option<InputBuilderResult> {
+        async fn get_collateral(self) -> Option<Collateral> {
             let input = TransactionInput::new(genesis_id(), 0);
 
-            SingleInputBuilder::new(input, self.output).payment_key().ok()
+            SingleInputBuilder::new(input, self.output)
+                .payment_key()
+                .ok()
+                .map(Collateral)
         }
     }
 }

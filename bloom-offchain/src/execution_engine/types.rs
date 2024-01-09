@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
 use derive_more::{From, Into};
 use rand::{thread_rng, RngCore};
@@ -19,6 +19,12 @@ impl StableId {
 }
 
 impl Debug for StableId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&*hex::encode(&self.0))
+    }
+}
+
+impl Display for StableId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(&*hex::encode(&self.0))
     }

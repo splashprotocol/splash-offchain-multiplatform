@@ -5,7 +5,7 @@ use log::warn;
 
 use spectrum_offchain::box_resolver::persistence::EntityRepo;
 use spectrum_offchain::data::unique_entity::{Confirmed, Predicted, Traced, Unconfirmed};
-use spectrum_offchain::data::EntitySnapshot;
+use spectrum_offchain::data::{EntitySnapshot, Stable};
 
 pub mod cache;
 
@@ -62,7 +62,7 @@ impl<T> StateIndex<T> for InMemoryStateIndex<T>
 where
     T: EntitySnapshot + Clone,
     <T as EntitySnapshot>::Version: Copy + Debug,
-    <T as EntitySnapshot>::StableId: Copy + Into<[u8; 28]>,
+    <T as Stable>::StableId: Copy + Into<[u8; 28]>,
 {
     fn get_prediction_predecessor(&self, id: T::Version) -> Option<T::Version> {
         self.links.get(&id).map(|id| *id)

@@ -10,8 +10,8 @@ use spectrum_cardano_lib::plutus_data::RequiresRedeemer;
 use spectrum_cardano_lib::transaction::BabbageTransactionOutputExtension;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::backlog::data::{OrderWeight, Weighted};
+use spectrum_offchain::data::order::{SpecializedOrder, UniqueOrder};
 use spectrum_offchain::data::unique_entity::Predicted;
-use spectrum_offchain::data::{SpecializedOrder, UniqueOrder};
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::TryFromLedger;
 
@@ -21,6 +21,10 @@ use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::pool::CFMMPool;
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::{OnChain, OnChainOrderId, PoolId};
+
+pub struct Input;
+
+pub struct Output;
 
 pub struct Base;
 
@@ -70,10 +74,7 @@ impl Display for ClassicalOnChainOrder {
 impl Weighted for ClassicalOnChainOrder {
     fn weight(&self) -> OrderWeight {
         match self {
-            ClassicalOnChainOrder::Swap(limit_swap) => OrderWeight::from(
-                limit_swap.value.order.min_expected_quote_amount.untag()
-                    * limit_swap.value.order.fee.0.to_integer(),
-            ),
+            ClassicalOnChainOrder::Swap(limit_swap) => OrderWeight::from(limit_swap.value.order.fee.0),
             ClassicalOnChainOrder::Deposit(deposit) => OrderWeight::from(deposit.value.order.ex_fee),
             ClassicalOnChainOrder::Redeem(redeem) => OrderWeight::from(redeem.value.order.ex_fee),
         }

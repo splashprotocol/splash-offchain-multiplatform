@@ -10,7 +10,7 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
-use spectrum_offchain::data::UniqueOrder;
+use spectrum_offchain::data::order::UniqueOrder;
 use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::constants::{ORDER_APPLY_RAW_REDEEMER, ORDER_REFUND_RAW_REDEEMER};
@@ -74,7 +74,7 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainRede
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
         let value = repr.value().clone();
         let conf = OnChainRedeemConfig::try_from_pd(repr.datum().clone()?.into_pd()?)?;
-        let token_lq_amount = TaggedAmount::tag(value.amount_of(conf.token_lq.untag()).unwrap_or(0));
+        let token_lq_amount = TaggedAmount::new(value.amount_of(conf.token_lq.untag()).unwrap_or(0));
         let collateral_ada = value.amount_of(AssetClass::Native).unwrap_or(0) - conf.ex_fee;
         let redeem = Redeem {
             pool_nft: PoolId::try_from(conf.pool_nft).ok()?,
@@ -131,6 +131,7 @@ mod tests {
 
     use cardano_explorer::client::Explorer;
     use cardano_explorer::data::ExplorerConfig;
+    use spectrum_cardano_lib::collateral::Collateral;
     use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_cardano_lib::OutputRef;
     use spectrum_offchain::executor::RunOrder;

@@ -5,8 +5,8 @@ use clap::Parser;
 use cml_chain::genesis::network_info::NetworkInfo;
 use cml_chain::transaction::Transaction;
 use cml_multi_era::babbage::BabbageTransaction;
+use either::Either;
 use futures::channel::mpsc;
-use futures::future::Either;
 use futures::stream::select_all;
 use futures::{Stream, StreamExt};
 use log::info;
@@ -25,7 +25,6 @@ use bloom_offchain_cardano::event_sink::CardanoEntity;
 use bloom_offchain_cardano::execution_engine::interpreter::CardanoRecipeInterpreter;
 use bloom_offchain_cardano::orders::AnyOrder;
 use bloom_offchain_cardano::pools::AnyPool;
-use bloom_offchain_cardano::PairId;
 use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::ChainSyncClient;
 use cardano_chain_sync::data::LedgerTxEvent;
@@ -37,13 +36,16 @@ use cardano_mempool_sync::mempool_stream;
 use cardano_submit_api::client::LocalTxSubmissionClient;
 use spectrum_cardano_lib::constants::BABBAGE_ERA_ID;
 use spectrum_cardano_lib::output::FinalizedTxOut;
+use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::unique_entity::{EitherMod, StateUpdate};
+use spectrum_offchain::data::Baked;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::streaming::boxed;
 use spectrum_offchain_cardano::collaterals::{Collaterals, CollateralsViaExplorer};
 use spectrum_offchain_cardano::creds::operator_creds;
+use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::data::ref_scripts::ReferenceOutputs;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
@@ -212,7 +214,11 @@ fn unwrap_updates(
 ) -> impl Stream<
     Item = (
         PairId,
-        EitherMod<StateUpdate<Bundled<Either<AnyOrder, AnyPool>, FinalizedTxOut>>>,
+        EitherMod<
+            StateUpdate<
+                Bundled<Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>, FinalizedTxOut>,
+            >,
+        >,
     ),
 > {
     upstream.map(|(p, m)| (p, m.map(|s| s.map(|CardanoEntity(e)| e))))

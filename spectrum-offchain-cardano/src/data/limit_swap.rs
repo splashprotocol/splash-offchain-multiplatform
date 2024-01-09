@@ -1,25 +1,25 @@
-use cml_chain::Coin;
 use cml_chain::plutus::PlutusData;
+use cml_chain::Coin;
 use cml_core::serialization::FromBytes;
 use cml_crypto::Ed25519KeyHash;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
 
-use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
 };
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_offchain::data::UniqueOrder;
+use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
+use spectrum_offchain::data::order::UniqueOrder;
 use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::constants::{MIN_SAFE_ADA_DEPOSIT, ORDER_APPLY_RAW_REDEEMER, ORDER_REFUND_RAW_REDEEMER};
-use crate::data::{ExecutorFeePerToken, OnChainOrderId, PoolId};
 use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
 use crate::data::pool::CFMMPoolAction;
 use crate::data::pool::CFMMPoolAction::Swap;
+use crate::data::{ExecutorFeePerToken, OnChainOrderId, PoolId};
 
 #[derive(Debug, Clone)]
 pub struct LimitSwap {
@@ -105,8 +105,8 @@ pub struct OnChainLimitSwapConfig {
     pub quote: TaggedAssetClass<Quote>,
     pub min_quote_amount: TaggedAmount<Quote>,
     pub pool_nft: TaggedAssetClass<PoolNft>,
-    pub ex_fee_per_token_num: u64,
-    pub ex_fee_per_token_denom: u64,
+    pub ex_fee_per_token_num: u128,
+    pub ex_fee_per_token_denom: u128,
     pub redeemer_pkh: Ed25519KeyHash,
     pub redeemer_stake_pkh: Option<Ed25519KeyHash>,
 }
@@ -126,8 +126,8 @@ impl TryFromPData for OnChainLimitSwapConfig {
             quote: TaggedAssetClass::try_from_pd(cpd.take_field(1)?)?,
             min_quote_amount: TaggedAmount::try_from_pd(cpd.take_field(9)?)?,
             pool_nft: TaggedAssetClass::try_from_pd(cpd.take_field(2)?)?,
-            ex_fee_per_token_num: cpd.take_field(4)?.into_u64()?,
-            ex_fee_per_token_denom: cpd.take_field(5)?.into_u64()?,
+            ex_fee_per_token_num: cpd.take_field(4)?.into_u128()?,
+            ex_fee_per_token_denom: cpd.take_field(5)?.into_u128()?,
             redeemer_pkh: Ed25519KeyHash::from(<[u8; 28]>::try_from(cpd.take_field(6)?.into_bytes()?).ok()?),
             redeemer_stake_pkh: stake_pkh,
         })
@@ -136,31 +136,31 @@ impl TryFromPData for OnChainLimitSwapConfig {
 
 #[cfg(test)]
 mod tests {
-    use cml_chain::{Deserialize, Value};
     use cml_chain::address::EnterpriseAddress;
     use cml_chain::certs::StakeCredential;
     use cml_chain::genesis::network_info::NetworkInfo;
     use cml_chain::plutus::PlutusData;
     use cml_chain::transaction::TransactionOutput;
+    use cml_chain::{Deserialize, Value};
     use cml_crypto::{Bip32PrivateKey, TransactionHash};
     use cml_multi_era::babbage::BabbageTransactionOutput;
 
     use cardano_explorer::client::Explorer;
     use cardano_explorer::data::ExplorerConfig;
-    use spectrum_cardano_lib::OutputRef;
     use spectrum_cardano_lib::types::TryFromPData;
+    use spectrum_cardano_lib::OutputRef;
     use spectrum_offchain::executor::RunOrder;
     use spectrum_offchain::ledger::TryFromLedger;
 
-    use crate::collaterals::Collaterals;
     use crate::collaterals::tests::MockBasedRequestor;
+    use crate::collaterals::Collaterals;
     use crate::creds::operator_creds;
     use crate::data::execution_context::ExecutionContext;
     use crate::data::limit_swap::OnChainLimitSwapConfig;
-    use crate::data::OnChain;
     use crate::data::order::ClassicalOnChainOrder;
     use crate::data::pool::CFMMPool;
     use crate::data::ref_scripts::ReferenceOutputs;
+    use crate::data::OnChain;
     use crate::ref_scripts::ReferenceSources;
 
     #[test]
@@ -171,11 +171,10 @@ mod tests {
     }
 
     const DATUM_SAMPLE: &str =
-        "d8799fd8799f581c95a427e384527065f2f8946f5e86320d0117839a5e98ea2c0b55fb004448554e54ffd8799f\
-        4040ffd8799f581ce08fbaa73db55294b3b31f2a365be5c4b38211a47880f0ef6b17a1604c48554e545f4144415\
-        f4e4654ff1903e51b00148f1c351223aa1b8ac7230489e80000581c022835b77a25d6bf00f8cbf7e4744e0065ec\
-        77383500221ed4f32514d8799f581c3cc6ea3784eecc03bc736d90e368abb40f873c48d1fc74133afae5a5ff1b0\
-        0000003882d614c1a9a800dc5ff";
+        "d8799fd8799f581c5d16cc1a177b5d9ba9cfa9793b07e60f1fb70fea1f8aef064415d11443494147ffd8799f4040ffd8799f581cb99258\
+        2b95a3ee20cb4025699808c83caaefa7bae9387b72ba2c57c34b4941475f4144415f4e4654ff1903e51b008269b69644065ec249056bc75\
+        e2d63100000581cf7cfe1832d19b34789d6c3042eeb674907a292f63ba0d4cdbb140689d8799f581c196d9fb5061b3a658eae958c155405\
+        014b1a01c60744c57241e0a374ff1b000000029cf3700f1af39010b7ff";
 
     #[tokio::test]
     async fn run_valid_swap_against_pool() {
@@ -185,8 +184,8 @@ mod tests {
             BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(SWAP_SAMPLE).unwrap()).unwrap();
         let pool_box =
             BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(POOL_SAMPLE).unwrap()).unwrap();
-        let swap = ClassicalOnChainOrder::try_from_ledger(swap_box, swap_ref).unwrap();
-        let pool = <OnChain<CFMMPool>>::try_from_ledger(pool_box, pool_ref).unwrap();
+        let swap = ClassicalOnChainOrder::try_from_ledger(&swap_box, swap_ref).unwrap();
+        let pool = <OnChain<CFMMPool>>::try_from_ledger(&pool_box, pool_ref).unwrap();
 
         let private_key_bech32 = Bip32PrivateKey::generate_ed25519_bip32().to_bech32();
 
@@ -236,7 +235,7 @@ mod tests {
             .await
             .expect("Couldn't retrieve collateral");
 
-        let ctx = ExecutionContext::new(operator_addr, ref_scripts, collateral);
+        let ctx = ExecutionContext::new(operator_addr, ref_scripts, collateral.into());
 
         let result = pool.try_run(swap, ctx);
 

@@ -1,5 +1,5 @@
 use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionBuilder};
-use futures::future::Either;
+use either::Either;
 use tailcall::tailcall;
 use void::Void;
 
@@ -14,7 +14,7 @@ use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::{FinalizedTxOut, IndexedTxOut};
 use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_cardano_lib::OutputRef;
-use spectrum_offchain::data::Has;
+use spectrum_offchain::data::{Baked, Has};
 
 use crate::execution_engine::instances::Magnet;
 use crate::operator_address::RewardAddress;
@@ -23,7 +23,7 @@ use crate::operator_address::RewardAddress;
 #[derive(Debug, Copy, Clone)]
 pub struct CardanoRecipeInterpreter;
 
-impl<'a, Fr, Pl, Ctx> RecipeInterpreter<Fr, Pl, Ctx, FinalizedTxOut, SignedTxBuilder>
+impl<'a, Fr, Pl, Ctx> RecipeInterpreter<Fr, Pl, Ctx, OutputRef, FinalizedTxOut, SignedTxBuilder>
     for CardanoRecipeInterpreter
 where
     Fr: Copy,
@@ -36,7 +36,10 @@ where
         &mut self,
         LinkedExecutionRecipe(instructions): LinkedExecutionRecipe<Fr, Pl, FinalizedTxOut>,
         ctx: Ctx,
-    ) -> (SignedTxBuilder, Vec<(Either<Fr, Pl>, FinalizedTxOut)>) {
+    ) -> (
+        SignedTxBuilder,
+        Vec<(Either<Baked<Fr, OutputRef>, Baked<Pl, OutputRef>>, FinalizedTxOut)>,
+    ) {
         let tx_builder = constant_tx_builder();
         let (mut tx_builder, mut indexed_outputs, ctx) = execute(ctx, tx_builder, vec![], instructions);
         tx_builder.add_collateral(ctx.get::<Collateral>().into()).unwrap();
@@ -45,10 +48,13 @@ where
             .unwrap();
         let mut finalized_outputs = vec![];
         let tx_hash = hash_transaction_canonical(&tx.body());
-        while let Some((sid, IndexedTxOut(ix, out))) = indexed_outputs.pop() {
+        while let Some((e, IndexedTxOut(ix, out))) = indexed_outputs.pop() {
             let out_ref = OutputRef::new(tx_hash, ix as u64);
             let finalized_out = FinalizedTxOut(out, out_ref);
-            finalized_outputs.push((sid, finalized_out))
+            finalized_outputs.push((
+                e.map_either(|x| Baked::new(x, out_ref), |x| Baked::new(x, out_ref)),
+                finalized_out,
+            ))
         }
         (tx, finalized_outputs)
     }

@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter, Write};
 use std::marker::PhantomData;
-use std::ops::{Add, Sub};
+use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::str::FromStr;
 
 use cml_chain::plutus::PlutusData;
@@ -167,6 +167,15 @@ impl AssetClass {
     }
 }
 
+impl Display for AssetClass {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AssetClass::Native => f.write_str("Native"),
+            AssetClass::Token(tkn) => tkn.fmt(f),
+        }
+    }
+}
+
 impl<T> From<TaggedAssetClass<T>> for AssetClass {
     fn from(value: TaggedAssetClass<T>) -> Self {
         value.0
@@ -202,6 +211,9 @@ impl TryFromPData for AssetClass {
 pub struct TaggedAssetClass<T>(AssetClass, PhantomData<T>);
 
 impl<T> TaggedAssetClass<T> {
+    pub fn new(ac: AssetClass) -> Self {
+        Self(ac, PhantomData::default())
+    }
     pub fn is_native(&self) -> bool {
         matches!(self.0, AssetClass::Native)
     }
@@ -234,7 +246,7 @@ impl<T> PartialOrd for TaggedAmount<T> {
 }
 
 impl<T> TaggedAmount<T> {
-    pub fn tag(value: u64) -> Self {
+    pub fn new(value: u64) -> Self {
         Self(value, PhantomData::default())
     }
 
@@ -247,6 +259,18 @@ impl<T> TaggedAmount<T> {
     }
 }
 
+impl<T> AsRef<u64> for TaggedAmount<T> {
+    fn as_ref(&self) -> &u64 {
+        &self.0
+    }
+}
+
+impl<T> AsMut<u64> for TaggedAmount<T> {
+    fn as_mut(&mut self) -> &mut u64 {
+        &mut self.0
+    }
+}
+
 impl<T> Add for TaggedAmount<T> {
     type Output = Self;
     fn add(self, rhs: Self) -> Self::Output {
@@ -254,10 +278,22 @@ impl<T> Add for TaggedAmount<T> {
     }
 }
 
+impl<T> AddAssign for TaggedAmount<T> {
+    fn add_assign(&mut self, rhs: Self) {
+        self.0 += rhs.0
+    }
+}
+
 impl<T> Sub for TaggedAmount<T> {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
         Self(self.0 - rhs.0, PhantomData::default())
+    }
+}
+
+impl<T> SubAssign for TaggedAmount<T> {
+    fn sub_assign(&mut self, rhs: Self) {
+        self.0 -= rhs.0
     }
 }
 
