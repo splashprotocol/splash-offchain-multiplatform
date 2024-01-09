@@ -1,19 +1,21 @@
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use cml_multi_era::babbage::{BabbageBlock, BabbageTransaction};
 use futures::stream::StreamExt;
 use futures::{stream, Stream};
+use tokio::sync::Mutex;
 
-use crate::data::{ChainUpgrade, LedgerTxEvent};
+use crate::data::{ChainUpgrade, LedgerBlockEvent, LedgerTxEvent};
 
-pub fn event_source_ledger<S>(upstream: S) -> impl Stream<Item = LedgerTxEvent<BabbageTransaction>>
+pub fn ledger_transactions<S>(upstream: S) -> impl Stream<Item = LedgerTxEvent<BabbageTransaction>>
 where
     S: Stream<Item = ChainUpgrade<BabbageBlock>>,
 {
-    upstream.flat_map(|u| stream::iter(process_upgrade(u)))
+    upstream.flat_map(|u| stream::iter(process_upstream_by_txs(u)))
 }
 
-fn process_upgrade(upgr: ChainUpgrade<BabbageBlock>) -> Vec<LedgerTxEvent<BabbageTransaction>> {
+fn process_upstream_by_txs(upgr: ChainUpgrade<BabbageBlock>) -> Vec<LedgerTxEvent<BabbageTransaction>> {
     match upgr {
         ChainUpgrade::RollForward(BabbageBlock {
             header,
@@ -44,5 +46,17 @@ fn process_upgrade(upgr: ChainUpgrade<BabbageBlock>) -> Vec<LedgerTxEvent<Babbag
                 .collect()
         }
         ChainUpgrade::RollBackward(_) => Vec::new(),
+    }
+}
+
+async fn process_upstream_by_blocks(
+    cache: Arc<Mutex<BabbageBlock>>,
+    upgr: ChainUpgrade<BabbageBlock>,
+) -> Vec<LedgerBlockEvent<BabbageBlock>> {
+    match upgr {
+        ChainUpgrade::RollForward(blk) => vec![LedgerBlockEvent::RollForward(blk)],
+        ChainUpgrade::RollBackward(_) => {
+            vec![]
+        }
     }
 }

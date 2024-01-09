@@ -28,7 +28,7 @@ use bloom_offchain_cardano::pools::AnyPool;
 use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::ChainSyncClient;
 use cardano_chain_sync::data::LedgerTxEvent;
-use cardano_chain_sync::event_source::event_source_ledger;
+use cardano_chain_sync::event_source::ledger_transactions;
 use cardano_explorer::client::Explorer;
 use cardano_mempool_sync::client::LocalTxMonitorClient;
 use cardano_mempool_sync::data::MempoolUpdate;
@@ -97,7 +97,7 @@ async fn main() {
     // prepare upstreams
     let tx_submission_stream = tx_submission_agent_stream(tx_submission_agent);
     let signal_tip_reached = Once::new();
-    let ledger_stream = Box::pin(event_source_ledger(chain_sync_stream(
+    let ledger_stream = Box::pin(ledger_transactions(chain_sync_stream(
         chain_sync,
         Some(&signal_tip_reached),
     )));

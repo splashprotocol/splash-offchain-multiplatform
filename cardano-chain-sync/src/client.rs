@@ -1,25 +1,37 @@
 use std::marker::PhantomData;
 use std::path::Path;
+use std::sync::Arc;
 
 use cml_core::serialization::Deserialize;
+use log::debug;
 use pallas_network::miniprotocols::chainsync::{BlockContent, NextResponse, State};
 use pallas_network::miniprotocols::handshake::RefuseReason;
 use pallas_network::miniprotocols::{chainsync, handshake, PROTOCOL_N2C_CHAIN_SYNC, PROTOCOL_N2C_HANDSHAKE};
 use pallas_network::multiplexer;
 use pallas_network::multiplexer::Bearer;
+use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
 use crate::data::ChainUpgrade;
+use crate::ledger_index::LedgerCache;
 
-pub struct ChainSyncClient<Block> {
+pub struct ChainSyncClient<Block, Cache> {
     mplex_handle: JoinHandle<Result<(), multiplexer::Error>>,
     chain_sync: chainsync::N2CClient,
     block: PhantomData<Block>,
 }
 
-impl<Block> ChainSyncClient<Block> {
+impl<Block, Cache> ChainSyncClient<Block, Cache>
+where
+    Cache: LedgerCache<Block>,
+{
     #[cfg(not(target_os = "windows"))]
-    pub async fn init<'a>(path: impl AsRef<Path>, magic: u64, starting_point: Point) -> Result<Self, Error> {
+    pub async fn init<'a>(
+        cache: Arc<Mutex<Cache>>,
+        path: impl AsRef<Path>,
+        magic: u64,
+        starting_point: Point,
+    ) -> Result<Self, Error> {
         let bearer = Bearer::connect_unix(path).await.map_err(Error::ConnectFailure)?;
 
         let mut mplex = multiplexer::Plexer::new(bearer);
@@ -43,8 +55,12 @@ impl<Block> ChainSyncClient<Block> {
 
         let mut cs_client = chainsync::Client::new(cs_channel);
 
+        let best_point = cache.lock().await.get_tip().await.unwrap_or(starting_point);
+
+        debug!("Using {:?} as a starting point", best_point);
+
         if let (None, _) = cs_client
-            .find_intersect(vec![starting_point.into()])
+            .find_intersect(vec![best_point.into()])
             .await
             .map_err(Error::ChainSyncProtocol)?
         {
@@ -107,7 +123,7 @@ pub enum RawPoint {
     Specific(u64, String),
 }
 
-#[derive(serde::Deserialize, derive_more::Into, derive_more::From)]
+#[derive(Debug, serde::Deserialize, derive_more::Into, derive_more::From)]
 #[serde(try_from = "RawPoint")]
 pub struct Point(pallas_network::miniprotocols::Point);
 
