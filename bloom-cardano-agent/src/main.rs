@@ -25,6 +25,7 @@ use bloom_offchain_cardano::event_sink::CardanoEntity;
 use bloom_offchain_cardano::execution_engine::interpreter::CardanoRecipeInterpreter;
 use bloom_offchain_cardano::orders::AnyOrder;
 use bloom_offchain_cardano::pools::AnyPool;
+use cardano_chain_sync::cache::LedgerCacheRocksDB;
 use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::ChainSyncClient;
 use cardano_chain_sync::data::LedgerTxEvent;
@@ -74,7 +75,9 @@ async fn main() {
         .await
         .expect("Ref scripts initialization failed");
 
+    let chain_sync_cache = Arc::new(Mutex::new(LedgerCacheRocksDB::new(config.chain_sync.db_path)));
     let chain_sync = ChainSyncClient::init(
+        Arc::clone(&chain_sync_cache),
         config.node.path,
         config.node.magic,
         config.chain_sync.starting_point,
@@ -97,10 +100,10 @@ async fn main() {
     // prepare upstreams
     let tx_submission_stream = tx_submission_agent_stream(tx_submission_agent);
     let signal_tip_reached = Once::new();
-    let ledger_stream = Box::pin(ledger_transactions(chain_sync_stream(
-        chain_sync,
-        Some(&signal_tip_reached),
-    )));
+    let ledger_stream = Box::pin(ledger_transactions(
+        chain_sync_cache,
+        chain_sync_stream(chain_sync, Some(&signal_tip_reached)),
+    ));
     let mempool_stream = mempool_stream(&mempool_sync, Some(&signal_tip_reached));
 
     let (operator_sk, operator_pkh, _operator_addr) =

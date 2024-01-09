@@ -12,26 +12,26 @@ use pallas_network::multiplexer::Bearer;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
+use crate::cache::LedgerCache;
 use crate::data::ChainUpgrade;
-use crate::ledger_index::LedgerCache;
 
-pub struct ChainSyncClient<Block, Cache> {
+pub struct ChainSyncClient<Block> {
     mplex_handle: JoinHandle<Result<(), multiplexer::Error>>,
     chain_sync: chainsync::N2CClient,
     block: PhantomData<Block>,
 }
 
-impl<Block, Cache> ChainSyncClient<Block, Cache>
-where
-    Cache: LedgerCache<Block>,
-{
+impl<Block> ChainSyncClient<Block> {
     #[cfg(not(target_os = "windows"))]
-    pub async fn init<'a>(
+    pub async fn init<'a, Cache>(
         cache: Arc<Mutex<Cache>>,
         path: impl AsRef<Path>,
         magic: u64,
         starting_point: Point,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, Error>
+    where
+        Cache: LedgerCache<Block>,
+    {
         let bearer = Bearer::connect_unix(path).await.map_err(Error::ConnectFailure)?;
 
         let mut mplex = multiplexer::Plexer::new(bearer);
@@ -120,21 +120,31 @@ pub enum Error {
 #[derive(serde::Serialize, serde::Deserialize)]
 pub enum RawPoint {
     Origin,
-    Specific(u64, String),
+    Specific(u64, Vec<u8>),
 }
 
-#[derive(Debug, serde::Deserialize, derive_more::Into, derive_more::From)]
-#[serde(try_from = "RawPoint")]
+#[derive(
+    Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize, derive_more::Into, derive_more::From,
+)]
+#[serde(from = "RawPoint", into = "RawPoint")]
 pub struct Point(pallas_network::miniprotocols::Point);
 
-impl TryFrom<RawPoint> for Point {
-    type Error = String;
-    fn try_from(value: RawPoint) -> Result<Self, Self::Error> {
+impl From<RawPoint> for Point {
+    fn from(value: RawPoint) -> Self {
         match value {
-            RawPoint::Origin => Ok(Point::from(pallas_network::miniprotocols::Point::Origin)),
-            RawPoint::Specific(tip, raw) => hex::decode(raw)
-                .map_err(|_| "Invalid HEX point".to_string())
-                .map(|pt| Point::from(pallas_network::miniprotocols::Point::Specific(tip, pt))),
+            RawPoint::Origin => Point::from(pallas_network::miniprotocols::Point::Origin),
+            RawPoint::Specific(tip, pt) => {
+                Point::from(pallas_network::miniprotocols::Point::Specific(tip, pt))
+            }
+        }
+    }
+}
+
+impl Into<RawPoint> for Point {
+    fn into(self) -> RawPoint {
+        match self.0 {
+            pallas_network::miniprotocols::Point::Origin => RawPoint::Origin,
+            pallas_network::miniprotocols::Point::Specific(tip, pt) => RawPoint::Specific(tip, pt),
         }
     }
 }

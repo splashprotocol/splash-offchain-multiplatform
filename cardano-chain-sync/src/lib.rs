@@ -11,10 +11,10 @@ use log::trace;
 use crate::client::ChainSyncClient;
 use crate::data::ChainUpgrade;
 
+pub mod cache;
 pub mod client;
 pub mod data;
 pub mod event_source;
-mod ledger_index;
 
 pub fn chain_sync_stream<'a, Block>(
     mut chain_sync: ChainSyncClient<Block>,

@@ -7,7 +7,7 @@ use spectrum_offchain_cardano::ref_scripts::ReferenceSources;
 #[serde(bound = "'de: 'a")]
 #[serde(rename_all = "camelCase")]
 pub struct AppConfig<'a> {
-    pub chain_sync: ChainSyncConfig,
+    pub chain_sync: ChainSyncConfig<'a>,
     pub node: NodeConfig<'a>,
     pub tx_submission_buffer_size: usize,
     pub batcher_private_key: &'a str, //todo: store encrypted
@@ -25,6 +25,7 @@ pub struct NodeConfig<'a> {
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ChainSyncConfig {
+pub struct ChainSyncConfig<'a> {
     pub starting_point: Point,
+    pub db_path: &'a str,
 }
