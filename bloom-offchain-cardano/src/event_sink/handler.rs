@@ -49,7 +49,6 @@ where
     }
 }
 
-// todo: test for rollback processing correctness.
 async fn extract_transitions<Entity, Index>(
     index: Arc<Mutex<Index>>,
     mut tx: BabbageTransaction,
@@ -64,7 +63,7 @@ where
         let state_id = Entity::Version::from(OutputRef::from((i.transaction_id, i.index)));
         let mut index = index.lock().await;
         if index.exists(&state_id) {
-            if let Some(entity) = index.take_state(&state_id) {
+            if let Some(entity) = index.get_state(&state_id) {
                 let entity_id = entity.stable_id();
                 consumed_entities.insert(entity_id, entity);
             }
@@ -73,6 +72,7 @@ where
     let mut produced_entities = HashMap::<Entity::StableId, Entity>::new();
     let tx_hash = hash_transaction_canonical(&tx.body);
     let mut ix = tx.body.outputs.len() - 1;
+    let mut non_processed_outputs = vec![];
     while let Some(o) = tx.body.outputs.pop() {
         let o_ref = OutputRef::new(tx_hash, ix as u64);
         match Entity::try_from_ledger(&o, o_ref) {
@@ -81,13 +81,13 @@ where
                 produced_entities.insert(entity_id, entity);
             }
             None => {
-                tx.body.outputs.push(o);
+                non_processed_outputs.push(o);
             }
         }
         ix += 1;
     }
-    // Preserve original ordering of outputs.
-    tx.body.outputs.reverse();
+    // Preserve non processed outputs in original ordering.
+    tx.body.outputs = non_processed_outputs;
 
     // Gather IDs of all recognized entities.
     let mut keys = HashSet::new();
@@ -141,7 +141,20 @@ where
                 match extract_transitions(Arc::clone(&self.index), tx).await {
                     Ok(transitions) => {
                         trace!("[{}] entities parsed from applied tx", transitions.len());
+                        let mut index = self.index.lock().await;
                         for tr in transitions {
+                            match &tr {
+                                Ior::Left(consumed) => {
+                                    index.register_for_eviction(consumed.version());
+                                }
+                                Ior::Right(produced) => {
+                                    index.put_state(produced.clone());
+                                }
+                                Ior::Both(consumed, produced) => {
+                                    index.register_for_eviction(consumed.version());
+                                    index.put_state(produced.clone());
+                                }
+                            }
                             let pair = pair_id_of(&tr);
                             let topic = self.topic.get_mut(pair);
                             topic
@@ -157,8 +170,27 @@ where
             }
             LedgerTxEvent::TxUnapplied(tx) => match extract_transitions(Arc::clone(&self.index), tx).await {
                 Ok(transitions) => {
-                    trace!(target: "offchain_lm", "[{}] entities parsed from unapplied tx", transitions.len());
+                    trace!("[{}] entities parsed from unapplied tx", transitions.len());
+                    let mut index = self.index.lock().await;
+                    if !transitions.is_empty() {
+                        index.run_eviction();
+                    }
                     for tr in transitions {
+                        match &tr {
+                            Ior::Left(consumed) => {
+                                index.put_state(consumed.clone());
+                            }
+                            Ior::Right(produced) => {
+                                index.remove_state(produced.version());
+                            }
+                            Ior::Both(consumed, produced) => {
+                                index.put_state(consumed.clone());
+                                index.remove_state(produced.version());
+                            }
+                        }
+                        if let Ior::Right(produced) | Ior::Both(_, produced) = &tr {
+                            index.remove_state(produced.version());
+                        }
                         let pair = pair_id_of(&tr);
                         let topic = self.topic.get_mut(pair);
                         topic
