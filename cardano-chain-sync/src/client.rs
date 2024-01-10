@@ -3,6 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use cml_core::serialization::Deserialize;
+use cml_crypto::BlockHeaderHash;
 use log::debug;
 use pallas_network::miniprotocols::chainsync::{BlockContent, NextResponse, State};
 use pallas_network::miniprotocols::handshake::RefuseReason;
@@ -117,34 +118,30 @@ pub enum Error {
     IntersectionNotFound,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
-pub enum RawPoint {
+#[derive(Debug, Copy, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum Point {
     Origin,
-    Specific(u64, Vec<u8>),
+    Specific(u64, BlockHeaderHash),
 }
 
-#[derive(
-    Debug, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize, derive_more::Into, derive_more::From,
-)]
-#[serde(from = "RawPoint", into = "RawPoint")]
-pub struct Point(pallas_network::miniprotocols::Point);
-
-impl From<RawPoint> for Point {
-    fn from(value: RawPoint) -> Self {
+impl From<Point> for pallas_network::miniprotocols::Point {
+    fn from(value: Point) -> Self {
         match value {
-            RawPoint::Origin => Point::from(pallas_network::miniprotocols::Point::Origin),
-            RawPoint::Specific(tip, pt) => {
-                Point::from(pallas_network::miniprotocols::Point::Specific(tip, pt))
+            Point::Origin => pallas_network::miniprotocols::Point::Origin,
+            Point::Specific(tip, pt) => {
+                pallas_network::miniprotocols::Point::Specific(tip, <[u8; 32]>::from(pt).into())
             }
         }
     }
 }
 
-impl Into<RawPoint> for Point {
-    fn into(self) -> RawPoint {
-        match self.0 {
-            pallas_network::miniprotocols::Point::Origin => RawPoint::Origin,
-            pallas_network::miniprotocols::Point::Specific(tip, pt) => RawPoint::Specific(tip, pt),
+impl Into<Point> for pallas_network::miniprotocols::Point {
+    fn into(self) -> Point {
+        match self {
+            pallas_network::miniprotocols::Point::Origin => Point::Origin,
+            pallas_network::miniprotocols::Point::Specific(tip, pt) => {
+                Point::Specific(tip, <[u8; 32]>::try_from(pt).unwrap().into())
+            }
         }
     }
 }

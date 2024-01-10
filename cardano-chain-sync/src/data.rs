@@ -11,7 +11,7 @@ pub enum LedgerTxEvent<Tx> {
 }
 
 #[derive(Clone)]
-pub(crate) enum ChainUpgrade<Block> {
+pub enum ChainUpgrade<Block> {
     RollForward(Block),
     RollBackward(pallas_network::miniprotocols::Point),
 }
