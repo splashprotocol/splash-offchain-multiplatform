@@ -11,6 +11,7 @@ use log::trace;
 use crate::client::ChainSyncClient;
 use crate::data::ChainUpgrade;
 
+pub mod cache;
 pub mod client;
 pub mod data;
 pub mod event_source;

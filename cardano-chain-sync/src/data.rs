@@ -1,13 +1,17 @@
-use pallas_network::miniprotocols::Point;
-
 #[derive(Clone)]
-pub enum ChainUpgrade<Block> {
+pub enum LedgerBlockEvent<Block> {
     RollForward(Block),
-    RollBackward(Point),
+    RollBackward(Block),
 }
 
 #[derive(Clone, Debug)]
 pub enum LedgerTxEvent<Tx> {
     TxApplied { tx: Tx, slot: u64 },
     TxUnapplied(Tx),
+}
+
+#[derive(Clone)]
+pub enum ChainUpgrade<Block> {
+    RollForward(Block),
+    RollBackward(pallas_network::miniprotocols::Point),
 }

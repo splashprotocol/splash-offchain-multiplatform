@@ -1,14 +1,19 @@
 use std::marker::PhantomData;
 use std::path::Path;
+use std::sync::Arc;
 
 use cml_core::serialization::Deserialize;
+use cml_crypto::BlockHeaderHash;
+use log::debug;
 use pallas_network::miniprotocols::chainsync::{BlockContent, NextResponse, State};
 use pallas_network::miniprotocols::handshake::RefuseReason;
 use pallas_network::miniprotocols::{chainsync, handshake, PROTOCOL_N2C_CHAIN_SYNC, PROTOCOL_N2C_HANDSHAKE};
 use pallas_network::multiplexer;
 use pallas_network::multiplexer::Bearer;
+use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
+use crate::cache::LedgerCache;
 use crate::data::ChainUpgrade;
 
 pub struct ChainSyncClient<Block> {
@@ -19,7 +24,15 @@ pub struct ChainSyncClient<Block> {
 
 impl<Block> ChainSyncClient<Block> {
     #[cfg(not(target_os = "windows"))]
-    pub async fn init<'a>(path: impl AsRef<Path>, magic: u64, starting_point: Point) -> Result<Self, Error> {
+    pub async fn init<'a, Cache>(
+        cache: Arc<Mutex<Cache>>,
+        path: impl AsRef<Path>,
+        magic: u64,
+        starting_point: Point,
+    ) -> Result<Self, Error>
+    where
+        Cache: LedgerCache<Block>,
+    {
         let bearer = Bearer::connect_unix(path).await.map_err(Error::ConnectFailure)?;
 
         let mut mplex = multiplexer::Plexer::new(bearer);
@@ -43,8 +56,12 @@ impl<Block> ChainSyncClient<Block> {
 
         let mut cs_client = chainsync::Client::new(cs_channel);
 
+        let best_point = cache.lock().await.get_tip().await.unwrap_or(starting_point);
+
+        debug!("Using {:?} as a starting point", best_point);
+
         if let (None, _) = cs_client
-            .find_intersect(vec![starting_point.into()])
+            .find_intersect(vec![best_point.into()])
             .await
             .map_err(Error::ChainSyncProtocol)?
         {
@@ -101,24 +118,30 @@ pub enum Error {
     IntersectionNotFound,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
-pub enum RawPoint {
+#[derive(Debug, Copy, Clone, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum Point {
     Origin,
-    Specific(u64, String),
+    Specific(u64, BlockHeaderHash),
 }
 
-#[derive(serde::Deserialize, derive_more::Into, derive_more::From)]
-#[serde(try_from = "RawPoint")]
-pub struct Point(pallas_network::miniprotocols::Point);
-
-impl TryFrom<RawPoint> for Point {
-    type Error = String;
-    fn try_from(value: RawPoint) -> Result<Self, Self::Error> {
+impl From<Point> for pallas_network::miniprotocols::Point {
+    fn from(value: Point) -> Self {
         match value {
-            RawPoint::Origin => Ok(Point::from(pallas_network::miniprotocols::Point::Origin)),
-            RawPoint::Specific(tip, raw) => hex::decode(raw)
-                .map_err(|_| "Invalid HEX point".to_string())
-                .map(|pt| Point::from(pallas_network::miniprotocols::Point::Specific(tip, pt))),
+            Point::Origin => pallas_network::miniprotocols::Point::Origin,
+            Point::Specific(tip, pt) => {
+                pallas_network::miniprotocols::Point::Specific(tip, <[u8; 32]>::from(pt).into())
+            }
+        }
+    }
+}
+
+impl Into<Point> for pallas_network::miniprotocols::Point {
+    fn into(self) -> Point {
+        match self {
+            pallas_network::miniprotocols::Point::Origin => Point::Origin,
+            pallas_network::miniprotocols::Point::Specific(tip, pt) => {
+                Point::Specific(tip, <[u8; 32]>::try_from(pt).unwrap().into())
+            }
         }
     }
 }
