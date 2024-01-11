@@ -1,3 +1,5 @@
+use crate::client::Point;
+
 #[derive(Clone)]
 pub enum LedgerBlockEvent<Block> {
     RollForward(Block),
@@ -13,5 +15,5 @@ pub enum LedgerTxEvent<Tx> {
 #[derive(Clone)]
 pub enum ChainUpgrade<Block> {
     RollForward(Block),
-    RollBackward(pallas_network::miniprotocols::Point),
+    RollBackward(Point),
 }

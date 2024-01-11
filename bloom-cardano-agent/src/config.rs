@@ -1,7 +1,9 @@
 use bloom_offchain_cardano::operator_address::RewardAddress;
 use cardano_chain_sync::client::Point;
 use cardano_explorer::data::ExplorerConfig;
+use cml_core::Slot;
 use spectrum_offchain_cardano::ref_scripts::ReferenceSources;
+use std::time::Duration;
 
 #[derive(serde::Deserialize)]
 #[serde(bound = "'de: 'a")]
@@ -14,6 +16,7 @@ pub struct AppConfig<'a> {
     pub ref_scripts: ReferenceSources,
     pub explorer: ExplorerConfig<'a>,
     pub reward_address: RewardAddress,
+    pub cardano_finalization_delay: Duration,
 }
 
 #[derive(serde::Deserialize)]
@@ -27,5 +30,6 @@ pub struct NodeConfig<'a> {
 #[serde(rename_all = "camelCase")]
 pub struct ChainSyncConfig<'a> {
     pub starting_point: Point,
+    pub disable_rollbacks_until: Slot,
     pub db_path: &'a str,
 }

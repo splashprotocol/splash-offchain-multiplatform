@@ -30,8 +30,8 @@ impl LedgerCacheRocksDB {
     }
 }
 
-const LATEST_POINT: &str = "a";
-const POINT_PREFIX: &str = "b";
+const LATEST_POINT: &str = "a:";
+const POINT_PREFIX: &str = "b:";
 
 impl<Block> LedgerCache<Block> for LedgerCacheRocksDB
 where
