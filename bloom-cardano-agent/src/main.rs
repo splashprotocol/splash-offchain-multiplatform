@@ -103,6 +103,7 @@ async fn main() {
     let ledger_stream = Box::pin(ledger_transactions(
         chain_sync_cache,
         chain_sync_stream(chain_sync, Some(&signal_tip_reached)),
+        config.chain_sync.disable_rollbacks_until,
     ));
     let mempool_stream = mempool_stream(&mempool_sync, Some(&signal_tip_reached));
 
@@ -127,7 +128,9 @@ async fn main() {
 
     let partitioned_pair_upd_snd =
         Partitioned::new([pair_upd_snd_p1, pair_upd_snd_p2, pair_upd_snd_p3, pair_upd_snd_p4]);
-    let index = Arc::new(Mutex::new(InMemoryEntityIndex::new()));
+    let index = Arc::new(Mutex::new(InMemoryEntityIndex::new(
+        config.cardano_finalization_delay,
+    )));
     let upd_handler = PairUpdateHandler::new(partitioned_pair_upd_snd, index);
 
     let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<BabbageTransaction>>>> =

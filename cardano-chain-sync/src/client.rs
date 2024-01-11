@@ -3,6 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use cml_core::serialization::Deserialize;
+use cml_core::Slot;
 use cml_crypto::BlockHeaderHash;
 use log::debug;
 use pallas_network::miniprotocols::chainsync::{BlockContent, NextResponse, State};
@@ -88,7 +89,7 @@ impl<Block> ChainSyncClient<Block> {
                 let blk = Block::from_cbor_bytes(&raw[BLK_START..]).expect("Block deserialization failed");
                 Some(ChainUpgrade::RollForward(blk))
             }
-            Ok(NextResponse::RollBackward(pt, _)) => Some(ChainUpgrade::RollBackward(pt)),
+            Ok(NextResponse::RollBackward(pt, _)) => Some(ChainUpgrade::RollBackward(pt.into())),
             _ => None,
         }
     }
@@ -122,6 +123,15 @@ pub enum Error {
 pub enum Point {
     Origin,
     Specific(u64, BlockHeaderHash),
+}
+
+impl Point {
+    pub fn get_slot(&self) -> Slot {
+        match self {
+            Point::Origin => 0,
+            Point::Specific(s, _) => *s,
+        }
+    }
 }
 
 impl From<Point> for pallas_network::miniprotocols::Point {
