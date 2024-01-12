@@ -9,14 +9,13 @@ use cml_crypto::blake2b224;
 use futures::Stream;
 use pallas_network::miniprotocols::{handshake, txmonitor, PROTOCOL_N2C_HANDSHAKE};
 use pallas_network::multiplexer;
-use pallas_network::multiplexer::Bearer;
+use pallas_network::multiplexer::{Bearer, RunningPlexer};
 use tokio::sync::Mutex;
-use tokio::task::JoinHandle;
 
 use crate::data::MempoolUpdate;
 
 pub struct LocalTxMonitorClient<Tx> {
-    mplex_handle: JoinHandle<Result<(), multiplexer::Error>>,
+    plexer: RunningPlexer,
     tx_monitor: Arc<Mutex<MonitorState>>,
     tx: PhantomData<Tx>,
 }
@@ -31,7 +30,7 @@ impl<Tx> LocalTxMonitorClient<Tx> {
         let hs_channel = mplex.subscribe_client(PROTOCOL_N2C_HANDSHAKE);
         let tm_channel = mplex.subscribe_client(PROTOCOL_N2C_TX_MONITOR);
 
-        let mplex_handle = tokio::spawn(async move { mplex.run().await });
+        let plexer = mplex.spawn();
 
         let versions = handshake::n2c::VersionTable::v10_and_above(magic);
         let mut client = handshake::Client::new(hs_channel);
@@ -51,7 +50,7 @@ impl<Tx> LocalTxMonitorClient<Tx> {
         };
 
         Ok(Self {
-            mplex_handle,
+            plexer,
             tx_monitor: Arc::new(Mutex::new(state)),
             tx: PhantomData::default(),
         })
@@ -82,8 +81,8 @@ impl<Tx> LocalTxMonitorClient<Tx> {
         }
     }
 
-    pub fn close(self) {
-        self.mplex_handle.abort()
+    pub async fn close(self) {
+        self.plexer.abort().await
     }
 }
 
