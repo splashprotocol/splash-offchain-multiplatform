@@ -1,5 +1,6 @@
 use std::sync::{Arc, Once};
 
+use cardano_chain_sync::cache::LedgerCacheRocksDB;
 use clap::Parser;
 use cml_chain::builders::tx_builder::SignedTxBuilder;
 use cml_chain::genesis::network_info::NetworkInfo;
@@ -73,7 +74,9 @@ async fn main() {
         .await
         .expect("Ref scripts initialization failed");
 
+    let chain_sync_cache = Arc::new(Mutex::new(LedgerCacheRocksDB::new(config.chain_sync.db_path)));
     let chain_sync = ChainSyncClient::init(
+        Arc::clone(&chain_sync_cache),
         config.node.path,
         config.node.magic,
         config.chain_sync.starting_point,
@@ -95,10 +98,11 @@ async fn main() {
     // prepare upstreams
     let tx_submission_stream = tx_submission_agent_stream(tx_submission_agent);
     let signal_tip_reached = Once::new();
-    let ledger_stream = Box::pin(ledger_transactions(chain_sync_stream(
-        chain_sync,
-        Some(&signal_tip_reached),
-    )));
+    let ledger_stream = Box::pin(ledger_transactions(
+        chain_sync_cache,
+        chain_sync_stream(chain_sync, Some(&signal_tip_reached)),
+        config.chain_sync.disable_rollbacks_until,
+    ));
     let mempool_stream = mempool_stream(&mempool_sync, Some(&signal_tip_reached));
 
     let (operator_sk, operator_pkh, operator_addr) =
