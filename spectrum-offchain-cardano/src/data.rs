@@ -2,7 +2,7 @@ use std::fmt::{Display, Formatter};
 
 use cml_chain::address::Address;
 use cml_chain::transaction::{TransactionInput, TransactionOutput};
-use cml_chain::PolicyId;
+use cml_chain::{PolicyId, Value};
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
@@ -206,10 +206,14 @@ impl ExecutorFeePerToken {
         Self(rational, ac)
     }
     pub fn get_fee(&self, output_amount: u64) -> u64 {
-        ((*self.0.numer() as u128) * (output_amount as u128) / (*self.0.denom())) as u64
+        (*self.0.numer() * output_amount as u128 / *self.0.denom()) as u64
     }
     pub fn value(&self) -> Ratio<u128> {
         self.0
+    }
+    pub fn into_cml_value(self, output_amount: u64) -> Value {
+        let fee = self.get_fee(output_amount);
+        self.1.value_of(fee)
     }
 }
 

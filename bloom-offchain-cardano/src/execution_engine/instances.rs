@@ -1,7 +1,6 @@
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
-use cml_chain::builders::tx_builder::TransactionBuilder;
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
 use cml_chain::plutus::{ConstrPlutusData, PlutusData, RedeemerTag};
 use cml_chain::utils::BigInt;
@@ -99,6 +98,8 @@ impl<Ctx> BatchExec<ExecutionState, Option<IndexedTxOut>, Ctx, Void>
             RedeemerWitnessKey::new(RedeemerTag::Spend, 0),
             AUCTION_EXECUTION_UNITS,
         );
+        let execution_fee = ord.fee_per_output.into_cml_value(added_output);
+        state.executor_fee_acc.checked_add(&execution_fee).unwrap();
         Ok((
             state,
             residual_order.map(|o| IndexedTxOut(successor_ix, o)),

@@ -4,9 +4,10 @@ use std::marker::PhantomData;
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::str::FromStr;
 
+use cml_chain::assets::MultiAsset;
 use cml_chain::plutus::PlutusData;
 use cml_chain::transaction::TransactionInput;
-use cml_chain::PolicyId;
+use cml_chain::{PolicyId, Value};
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
 use serde::Deserialize;
@@ -164,6 +165,19 @@ impl AssetClass {
             AssetClass::Token(tkn) => Some(tkn),
             AssetClass::Native => None,
         }
+    }
+
+    pub fn value_of(self, amount: u64) -> Value {
+        let mut value = Value::zero();
+        match self {
+            AssetClass::Native => value.coin += amount,
+            AssetClass::Token((policy, an)) => {
+                let mut ma = MultiAsset::new();
+                ma.set(policy, an.into(), amount);
+                value.multiasset = ma;
+            }
+        }
+        value
     }
 }
 
