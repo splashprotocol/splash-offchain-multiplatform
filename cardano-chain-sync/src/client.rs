@@ -10,7 +10,7 @@ use pallas_network::miniprotocols::chainsync::{BlockContent, NextResponse, State
 use pallas_network::miniprotocols::handshake::RefuseReason;
 use pallas_network::miniprotocols::{chainsync, handshake, PROTOCOL_N2C_CHAIN_SYNC, PROTOCOL_N2C_HANDSHAKE};
 use pallas_network::multiplexer;
-use pallas_network::multiplexer::Bearer;
+use pallas_network::multiplexer::{Bearer, RunningPlexer};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
@@ -18,7 +18,7 @@ use crate::cache::LedgerCache;
 use crate::data::ChainUpgrade;
 
 pub struct ChainSyncClient<Block> {
-    mplex_handle: JoinHandle<Result<(), multiplexer::Error>>,
+    plexer: RunningPlexer,
     chain_sync: chainsync::N2CClient,
     block: PhantomData<Block>,
 }
@@ -41,7 +41,7 @@ impl<Block> ChainSyncClient<Block> {
         let hs_channel = mplex.subscribe_client(PROTOCOL_N2C_HANDSHAKE);
         let cs_channel = mplex.subscribe_client(PROTOCOL_N2C_CHAIN_SYNC);
 
-        let mplex_handle = tokio::spawn(async move { mplex.run().await });
+        let plexer = mplex.spawn();
 
         let versions = handshake::n2c::VersionTable::v10_and_above(magic);
         let mut client = handshake::Client::new(hs_channel);
@@ -70,7 +70,7 @@ impl<Block> ChainSyncClient<Block> {
         }
 
         Ok(Self {
-            mplex_handle,
+            plexer,
             chain_sync: cs_client,
             block: PhantomData::default(),
         })
@@ -94,8 +94,8 @@ impl<Block> ChainSyncClient<Block> {
         }
     }
 
-    pub fn close(self) {
-        self.mplex_handle.abort()
+    pub async fn close(self) {
+        self.plexer.abort().await
     }
 }
 

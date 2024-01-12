@@ -8,16 +8,16 @@ use pallas_network::miniprotocols::{
     handshake, localtxsubmission, PROTOCOL_N2C_HANDSHAKE, PROTOCOL_N2C_TX_SUBMISSION,
 };
 use pallas_network::multiplexer;
-use pallas_network::multiplexer::Bearer;
+use pallas_network::multiplexer::{Bearer, RunningPlexer};
 use tokio::task::JoinHandle;
 
 pub struct LocalTxSubmissionClient<const ERA: u16, Tx> {
-    mplex_handle: JoinHandle<Result<(), multiplexer::Error>>,
+    plexer: RunningPlexer,
     tx_submission: localtxsubmission::Client,
     tx: PhantomData<Tx>,
 }
 
-impl<const EraId: u16, Tx> LocalTxSubmissionClient<EraId, Tx> {
+impl<const ERA: u16, Tx> LocalTxSubmissionClient<ERA, Tx> {
     #[cfg(not(target_os = "windows"))]
     pub async fn init<'a>(path: impl AsRef<Path>, magic: u64) -> Result<Self, Error> {
         let bearer = Bearer::connect_unix(path).await.map_err(Error::ConnectFailure)?;
@@ -27,7 +27,7 @@ impl<const EraId: u16, Tx> LocalTxSubmissionClient<EraId, Tx> {
         let hs_channel = mplex.subscribe_client(PROTOCOL_N2C_HANDSHAKE);
         let ts_channel = mplex.subscribe_client(PROTOCOL_N2C_TX_SUBMISSION);
 
-        let mplex_handle = tokio::spawn(async move { mplex.run().await });
+        let plexer = mplex.spawn();
 
         let versions = handshake::n2c::VersionTable::v10_and_above(magic);
         let mut client = handshake::Client::new(hs_channel);
@@ -44,7 +44,7 @@ impl<const EraId: u16, Tx> LocalTxSubmissionClient<EraId, Tx> {
         let ts_client = localtxsubmission::Client::new(ts_channel);
 
         Ok(Self {
-            mplex_handle,
+            plexer,
             tx_submission: ts_client,
             tx: PhantomData::default(),
         })
@@ -56,14 +56,14 @@ impl<const EraId: u16, Tx> LocalTxSubmissionClient<EraId, Tx> {
     {
         let tx_bytes = tx.to_cbor_bytes();
         self.tx_submission
-            .submit_tx(EraTx(EraId, tx_bytes))
+            .submit_tx(EraTx(ERA, tx_bytes))
             .await
             .map_err(Error::TxSubmissionProtocol)?;
         Ok(())
     }
 
-    pub fn close(self) {
-        self.mplex_handle.abort()
+    pub async fn close(self) {
+        self.plexer.abort().await
     }
 }
 

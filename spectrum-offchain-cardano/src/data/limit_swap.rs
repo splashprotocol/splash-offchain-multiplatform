@@ -15,7 +15,7 @@ use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass
 use spectrum_offchain::data::order::UniqueOrder;
 use spectrum_offchain::ledger::TryFromLedger;
 
-use crate::constants::{MIN_SAFE_ADA_DEPOSIT, ORDER_APPLY_RAW_REDEEMER, ORDER_REFUND_RAW_REDEEMER};
+use crate::constants::{MIN_SAFE_ADA_VALUE, ORDER_APPLY_RAW_REDEEMER, ORDER_REFUND_RAW_REDEEMER};
 use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
 use crate::data::pool::CFMMPoolAction;
 use crate::data::pool::CFMMPoolAction::Swap;
@@ -75,7 +75,7 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainLimi
         } else {
             (conf.base_amount.untag(), value.coin)
         };
-        if real_base_input < min_base || ada_deposit < MIN_SAFE_ADA_DEPOSIT {
+        if real_base_input < min_base || ada_deposit < MIN_SAFE_ADA_VALUE {
             return None;
         }
         let swap = LimitSwap {
