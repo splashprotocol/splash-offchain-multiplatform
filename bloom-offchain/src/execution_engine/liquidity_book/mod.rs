@@ -12,7 +12,8 @@ use crate::execution_engine::liquidity_book::recipe::{
 };
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::state::{IdleState, TLBState, VersionedState};
-use crate::execution_engine::liquidity_book::types::ExecutionCost;
+use crate::execution_engine::liquidity_book::types::{AbsolutePrice, ExecutionCost};
+use crate::execution_engine::liquidity_book::weight::Weighted;
 use crate::execution_engine::types::Time;
 use crate::maker::Maker;
 
@@ -23,6 +24,7 @@ pub mod side;
 mod state;
 pub mod time;
 pub mod types;
+pub mod weight;
 
 /// TLB is a Universal Liquidity Aggregator (ULA), it is able to aggregate every piece of composable
 /// liquidity available in the market.
@@ -153,10 +155,7 @@ where
                                     .wrap(rem.target.price())
                                     .overlaps(pl.real_price(rem_side.wrap(rem.remaining_input)))
                             }) {
-                                let FillFromPool {
-                                    term_fill,
-                                    swap: swap,
-                                } = fill_from_pool(*rem, pool);
+                                let FillFromPool { term_fill, swap } = fill_from_pool(*rem, pool);
                                 recipe.push(TerminalInstruction::Swap(swap));
                                 recipe.terminate(TerminalInstruction::Fill(term_fill));
                                 self.on_transition(term_fill.transition);
@@ -274,7 +273,7 @@ where
                 max
             };
             let price = price_selector(ask.price(), bid.target.price());
-            let demand_base = ((bid.remaining_input as u128) * price.denom() / price.numer()) as u64;
+            let demand_base = linear_output(bid.remaining_input, price);
             let supply_base = ask.input();
             if supply_base > demand_base {
                 let quote_input = bid.remaining_input;
@@ -288,7 +287,7 @@ where
                     }),
                 }
             } else if supply_base < demand_base {
-                let quote_executed = ((supply_base as u128) * price.denom() / price.numer()) as u64;
+                let quote_executed = linear_output(supply_base, price);
                 bid.remaining_input -= quote_executed;
                 bid.accumulated_output += supply_base;
                 FillFromFragment {
@@ -300,7 +299,7 @@ where
                     fill_rt: Either::Right(bid),
                 }
             } else {
-                let quote_executed = ((supply_base as u128) * price.denom() / price.numer()) as u64;
+                let quote_executed = linear_output(supply_base, price);
                 bid.accumulated_output += demand_base;
                 FillFromFragment {
                     term_fill_lt: bid.filled_unsafe(),
@@ -321,7 +320,7 @@ where
                 min
             };
             let price = price_selector(bid.price(), ask.target.price());
-            let demand_base = ((bid.input() as u128) * price.denom() / price.numer()) as u64;
+            let demand_base = linear_output(bid.input(), price);
             let supply_base = ask.remaining_input;
             if supply_base > demand_base {
                 ask.remaining_input -= demand_base;
@@ -335,7 +334,7 @@ where
                     fill_rt: Either::Right(ask),
                 }
             } else if supply_base < demand_base {
-                let quote_executed = ((supply_base as u128) * price.denom() / price.numer()) as u64;
+                let quote_executed = linear_output(supply_base, price);
                 ask.accumulated_output += quote_executed;
                 FillFromFragment {
                     term_fill_lt: ask.filled_unsafe(),
@@ -358,6 +357,10 @@ where
             }
         }
     }
+}
+
+fn linear_output(input: u64, price: AbsolutePrice) -> u64 {
+    (input as u128 * price.denom() / price.numer()) as u64
 }
 
 struct FillFromPool<Fr, Pl> {

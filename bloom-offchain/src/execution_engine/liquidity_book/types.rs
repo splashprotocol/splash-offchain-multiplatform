@@ -3,7 +3,7 @@ use num_rational::Ratio;
 
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 
-pub type ExecutionCost = u32;
+pub type ExecutionCost = u64;
 
 /// Price of input asset denominated in units of output asset (Output/Input).
 pub type RelativePrice = Ratio<u128>;

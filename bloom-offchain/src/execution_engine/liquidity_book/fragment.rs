@@ -1,7 +1,6 @@
 use crate::execution_engine::liquidity_book::side::SideM;
 use crate::execution_engine::liquidity_book::time::TimeBounds;
-use crate::execution_engine::liquidity_book::types::{AbsolutePrice, ExecutionCost};
-use num_rational::Ratio;
+use crate::execution_engine::liquidity_book::types::{AbsolutePrice, ExecutionCost, FeePerOutput};
 
 /// Order as a state machine.
 pub trait OrderState: Sized {
@@ -37,7 +36,7 @@ pub trait Fragment {
     fn input(&self) -> u64;
     /// Price of base asset in quote asset.
     fn price(&self) -> AbsolutePrice;
-    fn weight(&self) -> Ratio<u128>;
+    fn fee(&self) -> FeePerOutput;
     fn cost_hint(&self) -> ExecutionCost;
     fn time_bounds(&self) -> TimeBounds<u64>;
 }

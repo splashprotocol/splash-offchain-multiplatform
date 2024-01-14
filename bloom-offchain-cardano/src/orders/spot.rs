@@ -1,13 +1,12 @@
-use cml_chain::certs::Credential;
 use std::cmp::Ordering;
 
+use cml_chain::certs::Credential;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::utils::BigInt;
 use cml_chain::PolicyId;
 use cml_core::serialization::{LenEncoding, StringEncoding};
 use cml_crypto::Ed25519KeyHash;
 use cml_multi_era::babbage::BabbageTransactionOutput;
-use num_rational::Ratio;
 
 use bloom_offchain::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use bloom_offchain::execution_engine::liquidity_book::side::SideM;
@@ -15,6 +14,7 @@ use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
 use bloom_offchain::execution_engine::liquidity_book::types::{
     AbsolutePrice, ExecutionCost, FeePerOutput, RelativePrice,
 };
+use bloom_offchain::execution_engine::liquidity_book::weight::Weighted;
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
@@ -70,13 +70,19 @@ pub fn spot_exec_redeemer(successor_ix: u16) -> PlutusData {
 
 impl PartialOrd for SpotOrder {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.weight().partial_cmp(&other.weight())
+        match self.price().partial_cmp(&other.price()) {
+            Some(Ordering::Equal) => self.weight().partial_cmp(&other.weight()),
+            cmp => cmp,
+        }
     }
 }
 
 impl Ord for SpotOrder {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.weight().cmp(&other.weight())
+        match self.price().cmp(&other.price()) {
+            Ordering::Equal => self.weight().cmp(&other.weight()),
+            cmp => cmp,
+        }
     }
 }
 
@@ -109,7 +115,7 @@ impl Fragment for SpotOrder {
         AbsolutePrice::from_price(self.side(), self.base_price)
     }
 
-    fn weight(&self) -> Ratio<u128> {
+    fn fee(&self) -> FeePerOutput {
         self.fee_per_output.value()
     }
 

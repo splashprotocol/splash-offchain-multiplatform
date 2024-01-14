@@ -1,14 +1,15 @@
-use spectrum_offchain::data::Stable;
 use std::collections::hash_map::Entry;
 use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
 use std::fmt::Debug;
 use std::mem;
 
+use spectrum_offchain::data::Stable;
+
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use crate::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;
-use crate::execution_engine::types::StableId;
+use crate::execution_engine::liquidity_book::weight::Weighted;
 
 pub trait VersionedState<Fr, Pl: Stable> {
     /// Commit preview changes.
@@ -615,6 +616,7 @@ pub mod tests {
     use std::fmt::{Debug, Formatter};
 
     use num_rational::Ratio;
+
     use spectrum_offchain::data::Stable;
 
     use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
@@ -622,7 +624,7 @@ pub mod tests {
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
     use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, TLBState, VersionedState};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
-    use crate::execution_engine::liquidity_book::types::{AbsolutePrice, ExecutionCost};
+    use crate::execution_engine::liquidity_book::types::{AbsolutePrice, ExecutionCost, FeePerOutput};
     use crate::execution_engine::types::StableId;
 
     #[test]
@@ -872,7 +874,7 @@ pub mod tests {
             self.price
         }
 
-        fn weight(&self) -> Ratio<u128> {
+        fn fee(&self) -> FeePerOutput {
             Ratio::from_integer(self.fee as u128)
         }
 
@@ -928,18 +930,18 @@ pub mod tests {
 
     impl Pool for SimpleCFMMPool {
         fn static_price(&self) -> AbsolutePrice {
-            AbsolutePrice::new(self.reserves_quote as u128, self.reserves_base as u128)
+            AbsolutePrice::new(self.reserves_quote, self.reserves_base)
         }
 
         fn real_price(&self, input: Side<u64>) -> AbsolutePrice {
             match input {
                 Side::Bid(quote_input) => {
                     let (base_output, _) = self.swap(Side::Bid(quote_input));
-                    AbsolutePrice::new(quote_input as u128, base_output as u128)
+                    AbsolutePrice::new(quote_input, base_output)
                 }
                 Side::Ask(base_input) => {
                     let (quote_output, _) = self.swap(Side::Ask(base_input));
-                    AbsolutePrice::new(quote_output as u128, base_input as u128)
+                    AbsolutePrice::new(quote_output, base_input)
                 }
             }
         }
@@ -971,7 +973,7 @@ pub mod tests {
 
         fn quality(&self) -> PoolQuality {
             PoolQuality(
-                AbsolutePrice::new(self.reserves_quote as u128, self.reserves_base as u128),
+                AbsolutePrice::new(self.reserves_quote, self.reserves_base),
                 self.reserves_quote + self.reserves_base,
             )
         }

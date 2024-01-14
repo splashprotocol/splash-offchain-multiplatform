@@ -11,7 +11,7 @@ use spectrum_offchain_cardano::data::ref_scripts::ReferenceOutputs;
 #[derive(Debug, Clone)]
 pub struct ExecutionContext {
     pub time: Time,
-    pub execution_caps: ExecutionCap,
+    pub execution_cap: ExecutionCap,
     pub refs: ReferenceOutputs,
     pub collateral: Collateral,
     pub reward_addr: RewardAddress,
@@ -25,7 +25,7 @@ impl Has<Time> for ExecutionContext {
 
 impl Has<ExecutionCap> for ExecutionContext {
     fn get<U: IsEqual<ExecutionCap>>(&self) -> ExecutionCap {
-        self.execution_caps
+        self.execution_cap
     }
 }
 
