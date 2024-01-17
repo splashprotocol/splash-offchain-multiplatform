@@ -12,7 +12,6 @@ use pallas_network::miniprotocols::{chainsync, handshake, PROTOCOL_N2C_CHAIN_SYN
 use pallas_network::multiplexer;
 use pallas_network::multiplexer::{Bearer, RunningPlexer};
 use tokio::sync::Mutex;
-use tokio::task::JoinHandle;
 
 use crate::cache::LedgerCache;
 use crate::data::ChainUpgrade;

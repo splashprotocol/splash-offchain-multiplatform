@@ -14,7 +14,7 @@ use log::trace;
 
 use spectrum_offchain::combinators::Ior;
 use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
-use spectrum_offchain::data::{Baked, EntitySnapshot, Has, Stable};
+use spectrum_offchain::data::{Baked, EntitySnapshot, Stable};
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_prover::TxProver;
 

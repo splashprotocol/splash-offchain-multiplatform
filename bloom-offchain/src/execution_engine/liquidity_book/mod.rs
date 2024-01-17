@@ -12,7 +12,7 @@ use crate::execution_engine::liquidity_book::recipe::{
 };
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::state::{IdleState, TLBState, VersionedState};
-use crate::execution_engine::liquidity_book::types::{AbsolutePrice, ExecutionCost};
+use crate::execution_engine::liquidity_book::types::{AbsolutePrice, ExCostUnits};
 use crate::execution_engine::liquidity_book::weight::Weighted;
 use crate::execution_engine::types::Time;
 use crate::maker::Maker;
@@ -53,12 +53,12 @@ pub trait TLBFeedback<Fr, Pl> {
 
 #[derive(Debug, Copy, Clone)]
 pub struct ExecutionCap {
-    pub soft: ExecutionCost,
-    pub hard: ExecutionCost,
+    pub soft: ExCostUnits,
+    pub hard: ExCostUnits,
 }
 
 impl ExecutionCap {
-    fn safe_threshold(&self) -> ExecutionCost {
+    fn safe_threshold(&self) -> ExCostUnits {
         self.hard - self.soft
     }
 }
@@ -123,9 +123,9 @@ where
                             let rem_side = rem.target.side();
                             if let Some(opposite_fr) = self.state.try_pick_fr(!rem_side, |fr| {
                                 rem_side.wrap(rem.target.price()).overlaps(fr.price())
-                                    && fr.cost_hint() <= execution_units_left
+                                    && fr.marginal_cost_hint() <= execution_units_left
                             }) {
-                                execution_units_left -= opposite_fr.cost_hint();
+                                execution_units_left -= opposite_fr.marginal_cost_hint();
                                 match fill_from_fragment(*rem, opposite_fr) {
                                     FillFromFragment {
                                         term_fill_lt,
@@ -253,9 +253,9 @@ where
 }
 
 struct FillFromFragment<Fr> {
-    /// [Fill] is always paired with the next state of the underlying order.
+    /// Terminal [Fill].
     term_fill_lt: Fill<Fr>,
-    /// In the case of [PartialFill] calculation of the next state is delayed until matching halts.
+    /// Either terminal [Fill] or [PartialFill].
     fill_rt: Either<Fill<Fr>, PartialFill<Fr>>,
 }
 

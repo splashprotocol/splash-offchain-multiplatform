@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::marker::PhantomData;
 use type_equalities::IsEqual;
 
 use crate::maker::Maker;

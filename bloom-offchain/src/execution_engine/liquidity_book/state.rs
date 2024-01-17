@@ -624,7 +624,7 @@ pub mod tests {
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
     use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, TLBState, VersionedState};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
-    use crate::execution_engine::liquidity_book::types::{AbsolutePrice, ExecutionCost, FeePerOutput};
+    use crate::execution_engine::liquidity_book::types::{AbsolutePrice, ExCostUnits, FeePerOutput};
     use crate::execution_engine::types::StableId;
 
     #[test]
@@ -809,7 +809,7 @@ pub mod tests {
         pub accumulated_output: u64,
         pub price: AbsolutePrice,
         pub fee: u64,
-        pub cost_hint: ExecutionCost,
+        pub cost_hint: ExCostUnits,
         pub bounds: TimeBounds<u64>,
     }
 
@@ -878,7 +878,7 @@ pub mod tests {
             Ratio::from_integer(self.fee as u128)
         }
 
-        fn cost_hint(&self) -> ExecutionCost {
+        fn marginal_cost_hint(&self) -> ExCostUnits {
             self.cost_hint
         }
 

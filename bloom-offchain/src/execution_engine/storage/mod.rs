@@ -3,7 +3,6 @@ use std::fmt::Debug;
 
 use log::warn;
 
-use spectrum_offchain::box_resolver::persistence::EntityRepo;
 use spectrum_offchain::data::unique_entity::{Confirmed, Predicted, Traced, Unconfirmed};
 use spectrum_offchain::data::{EntitySnapshot, Stable};
 

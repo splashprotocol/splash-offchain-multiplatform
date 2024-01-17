@@ -12,7 +12,7 @@ use bloom_offchain::execution_engine::liquidity_book::fragment::{Fragment, Order
 use bloom_offchain::execution_engine::liquidity_book::side::SideM;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
 use bloom_offchain::execution_engine::liquidity_book::types::{
-    AbsolutePrice, ExecutionCost, FeePerOutput, RelativePrice,
+    AbsolutePrice, ExCostUnits, FeePerOutput, RelativePrice,
 };
 use bloom_offchain::execution_engine::liquidity_book::weight::Weighted;
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension};
@@ -119,7 +119,7 @@ impl Fragment for SpotOrder {
         self.fee_per_output.value()
     }
 
-    fn cost_hint(&self) -> ExecutionCost {
+    fn marginal_cost_hint(&self) -> ExCostUnits {
         1 // todo
     }
 
