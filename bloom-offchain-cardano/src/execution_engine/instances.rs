@@ -6,7 +6,6 @@ use cml_chain::plutus::{ConstrPlutusData, PlutusData, RedeemerTag};
 use cml_chain::utils::BigInt;
 use void::Void;
 
-use crate::execution_engine::execution_state::ExecutionState;
 use bloom_offchain::execution_engine::batch_exec::BatchExec;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::liquidity_book::fragment::StateTrans;
@@ -20,6 +19,7 @@ use spectrum_offchain_cardano::constants::POOL_EXECUTION_UNITS;
 use spectrum_offchain_cardano::data::pool::{CFMMPool, CFMMPoolAction, CFMMPoolRefScriptOutput};
 use spectrum_offchain_cardano::data::PoolVer;
 
+use crate::execution_engine::execution_state::ExecutionState;
 use crate::orders::auction::AUCTION_EXECUTION_UNITS;
 use crate::orders::spot::SpotOrder;
 use crate::orders::AnyOrder;
@@ -39,15 +39,17 @@ impl<Ctx> BatchExec<ExecutionState, Option<IndexedTxOut>, Ctx, Void>
     ) -> Result<(ExecutionState, Option<IndexedTxOut>, Ctx), Void> {
         match self.0 {
             LinkedFill {
-                target: Bundled(AnyOrder::Spot(o), src),
-                transition,
+                target_fr: Bundled(AnyOrder::Spot(o), src),
+                next_fr: transition,
                 removed_input,
                 added_output,
+                budget_used,
             } => Magnet(LinkedFill {
-                target: Bundled(o, src),
-                transition: transition.map(|AnyOrder::Spot(o2)| o2),
+                target_fr: Bundled(o, src),
+                next_fr: transition.map(|AnyOrder::Spot(o2)| o2),
                 removed_input,
                 added_output,
+                budget_used,
             })
             .try_exec(state, context),
         }
@@ -63,13 +65,18 @@ impl<Ctx> BatchExec<ExecutionState, Option<IndexedTxOut>, Ctx, Void>
         context: Ctx,
     ) -> Result<(ExecutionState, Option<IndexedTxOut>, Ctx), Void> {
         let Magnet(LinkedFill {
-            target: Bundled(ord, FinalizedTxOut(consumed_out, in_ref)),
-            transition,
+            target_fr: Bundled(ord, FinalizedTxOut(consumed_out, in_ref)),
+            next_fr: transition,
             removed_input,
             added_output,
+            budget_used,
         }) = self;
         let mut candidate = consumed_out.clone();
+        // Subtract budget used to facilitate execution.
+        candidate.sub_asset(ord.fee_asset, budget_used);
+        // Subtract tradable input used in exchange.
         candidate.sub_asset(ord.input_asset, removed_input);
+        // Add output resulted from exchange.
         candidate.add_asset(ord.output_asset, added_output);
         let residual_order = match transition {
             StateTrans::Active(_) => Some(candidate.clone()),
@@ -79,8 +86,7 @@ impl<Ctx> BatchExec<ExecutionState, Option<IndexedTxOut>, Ctx, Void>
                 None
             }
         };
-        // todo: replace `tx_builder.output_sizes()`
-        let successor_ix = state.tx_builder.output_sizes().len();
+        let successor_ix = state.tx_builder.num_outputs();
         let order_script = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(candidate.script_hash().unwrap()),
             spot_exec_redeemer(successor_ix as u16),
@@ -92,14 +98,13 @@ impl<Ctx> BatchExec<ExecutionState, Option<IndexedTxOut>, Ctx, Void>
             .tx_builder
             .add_output(SingleOutputBuilderResult::new(candidate))
             .unwrap();
+        let order_input_index = state.tx_builder.num_inputs() as u64;
         state.tx_builder.add_input(order_in).unwrap();
         state.tx_builder.set_exunits(
-            // todo: check for possible collisions bc of fixed 0-index.
-            RedeemerWitnessKey::new(RedeemerTag::Spend, 0),
+            RedeemerWitnessKey::new(RedeemerTag::Spend, order_input_index),
             AUCTION_EXECUTION_UNITS,
         );
-        let execution_fee = ord.fee_per_output.into_cml_value(added_output);
-        state.executor_fee_acc.checked_add(&execution_fee).unwrap();
+        state.add_ex_budget(ord.fee_asset, budget_used);
         Ok((
             state,
             residual_order.map(|o| IndexedTxOut(successor_ix, o)),

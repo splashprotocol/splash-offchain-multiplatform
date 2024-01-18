@@ -8,13 +8,16 @@ use cml_core::serialization::{LenEncoding, StringEncoding};
 use cml_crypto::Ed25519KeyHash;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
-use bloom_offchain::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
+use bloom_offchain::execution_engine::liquidity_book::fragment::{
+    ExBudgetUsed, Fragment, OrderState, StateTrans,
+};
 use bloom_offchain::execution_engine::liquidity_book::side::SideM;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
 use bloom_offchain::execution_engine::liquidity_book::types::{
-    AbsolutePrice, ExCostUnits, FeePerOutput, RelativePrice,
+    AbsolutePrice, ExCostUnits, FeeExtension, FeePerOutput, RelativePrice,
 };
 use bloom_offchain::execution_engine::liquidity_book::weight::Weighted;
+use spectrum_cardano_lib::credential::AnyCredential;
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
@@ -23,7 +26,8 @@ use spectrum_cardano_lib::{AssetClass, OutputRef};
 use spectrum_offchain::data::{Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::data::pair::{side_of, PairId};
-use spectrum_offchain_cardano::data::ExecutorFeePerToken;
+
+pub type FeeCurrency<T> = T;
 
 /// Spot order. Can be executed at a configured or better price as long as there is enough budget.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -32,22 +36,28 @@ pub struct SpotOrder {
     pub beacon: PolicyId,
     /// What user pays.
     pub input_asset: AssetClass,
-    /// Remaining input.
+    /// Remaining tradable input.
     pub input_amount: u64,
     /// What user receives.
     pub output_asset: AssetClass,
     /// Accumulated output.
     pub output_amount: u64,
-    /// Amount of output sufficient for the order to be terminated.
-    pub termination_threshold: u64,
     /// Worst acceptable price (Output/Input).
     pub base_price: RelativePrice,
+    /// Currency used to pay for execution.
+    pub fee_asset: AssetClass,
+    /// Remaining ADA to facilitate execution.
+    pub execution_budget: FeeCurrency<u64>,
     /// Fee per output unit.
-    pub fee_per_output: ExecutorFeePerToken,
+    pub fee_per_output: FeeCurrency<FeePerOutput>,
+    /// Assumed cost (in Lovelace) of one step of execution.
+    pub max_cost_per_ex_step: FeeCurrency<u64>,
+    /// Minimal marginal output allowed per execution step.
+    pub min_marginal_output: u64,
     /// Redeemer PKH.
     pub redeemer_pkh: Ed25519KeyHash,
     /// Redeemer stake PKH.
-    pub redeemer_stake_pkh: Option<Ed25519KeyHash>,
+    pub redeemer_stake_cred: Option<AnyCredential>,
 }
 
 impl SpotOrder {
@@ -91,14 +101,21 @@ impl OrderState for SpotOrder {
         StateTrans::Active(self)
     }
 
-    fn with_updated_liquidity(mut self, removed_input: u64, added_output: u64) -> StateTrans<Self> {
+    fn with_applied_swap(
+        mut self,
+        removed_input: u64,
+        added_output: u64,
+    ) -> (StateTrans<Self>, ExBudgetUsed) {
         self.input_amount -= removed_input;
         self.output_amount += added_output;
-        if self.output_amount >= self.termination_threshold || self.input_amount == 0 {
+        let budget_used = self.fee_per_output.linear_fee(added_output) + self.max_cost_per_ex_step;
+        self.execution_budget -= budget_used;
+        let next_st = if self.execution_budget < self.max_cost_per_ex_step || self.input_amount == 0 {
             StateTrans::EOL
         } else {
             StateTrans::Active(self)
-        }
+        };
+        (next_st, budget_used)
     }
 }
 
@@ -116,11 +133,11 @@ impl Fragment for SpotOrder {
     }
 
     fn fee(&self) -> FeePerOutput {
-        self.fee_per_output.value()
+        self.fee_per_output
     }
 
     fn marginal_cost_hint(&self) -> ExCostUnits {
-        1 // todo
+        160000000
     }
 
     fn time_bounds(&self) -> TimeBounds<u64> {
@@ -145,52 +162,56 @@ impl Tradable for SpotOrder {
 
 struct ConfigNativeToToken {
     pub beacon: PolicyId,
+    pub tradable_input: u64,
+    pub cost_per_ex_step: u64,
+    pub min_marginal_output: u64,
     pub output: AssetClass,
-    pub termination_threshold: u64,
     pub base_price: RelativePrice,
     pub fee_per_output: FeePerOutput,
     pub redeemer_pkh: Ed25519KeyHash,
-    pub redeemer_stake_pkh: Option<Ed25519KeyHash>,
 }
 
 impl TryFromPData for ConfigNativeToToken {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
-        let stake_pkh: Option<Ed25519KeyHash> = cpd
-            .take_field(6)
-            .and_then(|pd| pd.into_bytes())
-            .and_then(|bytes| <[u8; 28]>::try_from(bytes).ok())
-            .map(|bytes| Ed25519KeyHash::from(bytes));
-
         Some(ConfigNativeToToken {
             beacon: <[u8; 28]>::try_from(cpd.take_field(0)?.into_bytes()?)
                 .map(PolicyId::from)
                 .ok()?,
-            output: AssetClass::try_from_pd(cpd.take_field(1)?)?,
-            base_price: RelativePrice::try_from_pd(cpd.take_field(2)?)?,
-            fee_per_output: FeePerOutput::try_from_pd(cpd.take_field(3)?)?,
-            termination_threshold: cpd.take_field(4)?.into_u64()?,
-            redeemer_pkh: Ed25519KeyHash::from(<[u8; 28]>::try_from(cpd.take_field(5)?.into_bytes()?).ok()?),
-            redeemer_stake_pkh: stake_pkh,
+            tradable_input: cpd.take_field(1)?.into_u64()?,
+            cost_per_ex_step: cpd.take_field(2)?.into_u64()?,
+            min_marginal_output: cpd.take_field(3)?.into_u64()?,
+            output: AssetClass::try_from_pd(cpd.take_field(4)?)?,
+            base_price: RelativePrice::try_from_pd(cpd.take_field(5)?)?,
+            fee_per_output: FeePerOutput::try_from_pd(cpd.take_field(6)?)?,
+            redeemer_pkh: Ed25519KeyHash::from(<[u8; 28]>::try_from(cpd.take_field(7)?.into_bytes()?).ok()?),
         })
     }
 }
 
 impl TryFromLedger<BabbageTransactionOutput, OutputRef> for SpotOrder {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
+    fn try_from_ledger(repr: &BabbageTransactionOutput, _ctx: OutputRef) -> Option<Self> {
         let value = repr.value().clone();
         let conf = ConfigNativeToToken::try_from_pd(repr.datum()?.into_pd()?)?;
-        Some(SpotOrder {
-            beacon: conf.beacon,
-            input_asset: AssetClass::Native,
-            input_amount: value.amount_of(AssetClass::Native)?,
-            output_asset: conf.output,
-            output_amount: value.amount_of(conf.output)?,
-            termination_threshold: conf.termination_threshold,
-            base_price: conf.base_price,
-            fee_per_output: ExecutorFeePerToken::new(conf.fee_per_output, AssetClass::Native),
-            redeemer_pkh: conf.redeemer_pkh,
-            redeemer_stake_pkh: conf.redeemer_stake_pkh,
-        })
+        let total_ada_input = value.amount_of(AssetClass::Native)?;
+        let execution_budget = total_ada_input - conf.tradable_input;
+        if execution_budget > conf.cost_per_ex_step {
+            return Some(SpotOrder {
+                beacon: conf.beacon,
+                input_asset: AssetClass::Native,
+                input_amount: conf.tradable_input,
+                output_asset: conf.output,
+                output_amount: value.amount_of(conf.output)?,
+                base_price: conf.base_price,
+                execution_budget,
+                fee_asset: AssetClass::Native,
+                fee_per_output: conf.fee_per_output,
+                min_marginal_output: conf.min_marginal_output,
+                max_cost_per_ex_step: conf.cost_per_ex_step,
+                redeemer_pkh: conf.redeemer_pkh,
+                redeemer_stake_cred: repr.address().staking_cred().cloned().map(|x| x.into()),
+            });
+        }
+        None
     }
 }

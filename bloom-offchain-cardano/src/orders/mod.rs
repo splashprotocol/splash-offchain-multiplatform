@@ -1,7 +1,7 @@
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
 use bloom_derivation::{Fragment, Stable, Tradable};
-use bloom_offchain::execution_engine::liquidity_book::fragment::{OrderState, StateTrans};
+use bloom_offchain::execution_engine::liquidity_book::fragment::{ExBudgetUsed, OrderState, StateTrans};
 use bloom_offchain::execution_engine::liquidity_book::side::SideM;
 use spectrum_cardano_lib::{NetworkTime, OutputRef};
 use spectrum_offchain::ledger::TryFromLedger;
@@ -22,11 +22,12 @@ impl OrderState for AnyOrder {
             AnyOrder::Spot(spot) => spot.with_updated_time(time).map(AnyOrder::Spot),
         }
     }
-    fn with_updated_liquidity(self, removed_input: u64, added_output: u64) -> StateTrans<Self> {
+    fn with_applied_swap(self, removed_input: u64, added_output: u64) -> (StateTrans<Self>, ExBudgetUsed) {
         match self {
-            AnyOrder::Spot(spot) => spot
-                .with_updated_liquidity(removed_input, added_output)
-                .map(AnyOrder::Spot),
+            AnyOrder::Spot(spot) => {
+                let (tx, budget) = spot.with_applied_swap(removed_input, added_output);
+                (tx.map(AnyOrder::Spot), budget)
+            }
         }
     }
 }

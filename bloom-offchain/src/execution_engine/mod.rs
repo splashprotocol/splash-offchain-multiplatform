@@ -272,7 +272,7 @@ impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Pr
         while let Some(i) = xs.pop() {
             match i {
                 TerminalInstruction::Fill(fill) => {
-                    let id = fill.target.stable_id();
+                    let id = fill.target_fr.stable_id();
                     let Bundled(_, bearer) = self.cache.get(id).expect("State is inconsistent");
                     linked.push(LinkedTerminalInstruction::Fill(LinkedFill::from_fill(
                         fill, bearer,

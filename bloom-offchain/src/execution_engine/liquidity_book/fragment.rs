@@ -2,10 +2,12 @@ use crate::execution_engine::liquidity_book::side::SideM;
 use crate::execution_engine::liquidity_book::time::TimeBounds;
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, ExCostUnits, FeePerOutput};
 
+pub type ExBudgetUsed = u64;
+
 /// Order as a state machine.
 pub trait OrderState: Sized {
     fn with_updated_time(self, time: u64) -> StateTrans<Self>;
-    fn with_updated_liquidity(self, removed_input: u64, added_output: u64) -> StateTrans<Self>;
+    fn with_applied_swap(self, removed_input: u64, added_output: u64) -> (StateTrans<Self>, ExBudgetUsed);
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

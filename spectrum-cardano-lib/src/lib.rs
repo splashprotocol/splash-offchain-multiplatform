@@ -18,6 +18,7 @@ use crate::types::TryFromPData;
 pub mod address;
 pub mod collateral;
 pub mod constants;
+pub mod credential;
 pub mod hash;
 pub mod output;
 pub mod plutus_data;

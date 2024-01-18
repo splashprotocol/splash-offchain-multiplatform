@@ -13,11 +13,11 @@ pub type RelativePrice = Ratio<u128>;
 pub type FeePerOutput = Ratio<u128>;
 
 pub trait FeeExtension {
-    fn absolute_fee(self, output: u64) -> u64;
+    fn linear_fee(self, output: u64) -> u64;
 }
 
 impl FeeExtension for FeePerOutput {
-    fn absolute_fee(self, output: u64) -> u64 {
+    fn linear_fee(self, output: u64) -> u64 {
         u64::try_from((self * output as u128).to_integer()).unwrap()
     }
 }

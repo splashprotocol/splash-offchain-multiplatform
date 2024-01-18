@@ -38,7 +38,7 @@ where
     pub fn new(fr: Fr) -> Self {
         Self {
             terminal: Vec::new(),
-            remainder: Some(PartialFill::new(fr)),
+            remainder: Some(PartialFill::empty(fr)),
         }
     }
 
@@ -75,37 +75,45 @@ pub enum TerminalInstruction<Fr, Pl> {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct LinkedFill<Fr, Src> {
-    pub target: Bundled<Fr, Src>,
-    pub transition: StateTrans<Fr>,
+    pub target_fr: Bundled<Fr, Src>,
+    pub next_fr: StateTrans<Fr>,
     pub removed_input: u64,
     pub added_output: u64,
+    pub budget_used: u64,
 }
 
 impl<Fr, Src> LinkedFill<Fr, Src> {
     pub fn from_fill(fill: Fill<Fr>, target_src: Src) -> Self {
         Self {
-            target: Bundled(fill.target, target_src),
-            transition: fill.transition,
+            target_fr: Bundled(fill.target_fr, target_src),
+            next_fr: fill.next_fr,
             removed_input: fill.removed_input,
             added_output: fill.added_output,
+            budget_used: fill.budget_used,
         }
     }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Fill<Fr> {
-    pub target: Fr,
-    pub transition: StateTrans<Fr>,
+    pub target_fr: Fr,
+    /// Next fragment [Fr] resulted from this transaction.
+    pub next_fr: StateTrans<Fr>,
+    /// Input asset removed as a result of this transaction.
     pub removed_input: u64,
+    /// Output asset added as a result of this transaction.
     pub added_output: u64,
+    /// Execution fee charged.
+    pub budget_used: u64,
 }
 
 impl<Fr: Fragment> Fill<Fr> {
-    pub fn new(target: Fr, transition: StateTrans<Fr>, added_output: u64) -> Self {
+    pub fn new(target: Fr, transition: StateTrans<Fr>, added_output: u64, budget_used: u64) -> Self {
         Self {
             removed_input: target.input(),
-            transition,
-            target,
+            budget_used,
+            next_fr: transition,
+            target_fr: target,
             added_output,
         }
     }
@@ -125,13 +133,15 @@ where
     /// Force fill target fragment.
     /// Does not guarantee that the fragment is actually fully satisfied.
     pub fn filled_unsafe(self) -> Fill<Fr> {
+        let (tx, budget_used) = self
+            .target
+            .with_applied_swap(self.target.input(), self.accumulated_output);
         Fill {
-            target: self.target,
-            transition: self
-                .target
-                .with_updated_liquidity(self.target.input(), self.accumulated_output),
+            target_fr: self.target,
+            next_fr: tx,
             removed_input: self.target.input(),
             added_output: self.accumulated_output,
+            budget_used,
         }
     }
 }
@@ -143,11 +153,13 @@ where
     fn from(value: PartialFill<Fr>) -> Self {
         let removed = value.target.input() - value.remaining_input;
         let added = value.accumulated_output;
+        let (transition, budget_used) = value.target.with_applied_swap(removed, added);
         Self {
             removed_input: removed,
-            transition: value.target.with_updated_liquidity(removed, added),
+            next_fr: transition,
             added_output: added,
-            target: value.target,
+            target_fr: value.target,
+            budget_used,
         }
     }
 }
@@ -156,7 +168,15 @@ impl<Fr> PartialFill<Fr>
 where
     Fr: Fragment,
 {
-    pub fn new(fr: Fr) -> Self {
+    pub fn new(target: Fr, remaining_input: u64, added_output: u64) -> Self {
+        Self {
+            target,
+            remaining_input,
+            accumulated_output: added_output,
+        }
+    }
+
+    pub fn empty(fr: Fr) -> Self {
         Self {
             remaining_input: fr.input(),
             target: fr,

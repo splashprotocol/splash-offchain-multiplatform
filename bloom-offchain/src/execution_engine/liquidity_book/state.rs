@@ -619,7 +619,7 @@ pub mod tests {
 
     use spectrum_offchain::data::Stable;
 
-    use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
+    use crate::execution_engine::liquidity_book::fragment::{ExBudgetUsed, Fragment, OrderState, StateTrans};
     use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
     use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, TLBState, VersionedState};
@@ -809,6 +809,7 @@ pub mod tests {
         pub accumulated_output: u64,
         pub price: AbsolutePrice,
         pub fee: u64,
+        pub ex_budget: u64,
         pub cost_hint: ExCostUnits,
         pub bounds: TimeBounds<u64>,
     }
@@ -843,6 +844,7 @@ pub mod tests {
                 accumulated_output: 0,
                 price,
                 fee,
+                ex_budget: 0,
                 cost_hint: 10,
                 bounds: TimeBounds::None,
             }
@@ -855,6 +857,7 @@ pub mod tests {
                 accumulated_output: 0,
                 price: AbsolutePrice::new(1, 100),
                 fee: 100,
+                ex_budget: 0,
                 cost_hint: 0,
                 bounds,
             }
@@ -896,14 +899,20 @@ pub mod tests {
             }
         }
 
-        fn with_updated_liquidity(mut self, removed_input: u64, added_output: u64) -> StateTrans<Self> {
+        fn with_applied_swap(
+            mut self,
+            removed_input: u64,
+            added_output: u64,
+        ) -> (StateTrans<Self>, ExBudgetUsed) {
             self.input -= removed_input;
             self.accumulated_output += added_output;
-            if self.input > 0 {
+            let budget_used = added_output * self.fee;
+            let next_st = if self.input > 0 {
                 StateTrans::Active(self)
             } else {
                 StateTrans::EOL
-            }
+            };
+            (next_st, budget_used)
         }
     }
 
