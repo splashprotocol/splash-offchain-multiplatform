@@ -207,6 +207,7 @@ pub fn calculate_invariant(balances: &Vec<U512>, n_assets: &u32, ampl_coefficien
     d
 }
 
+#[cfg(test)]
 mod test {
     use primitive_types::U512;
     use rand::seq::SliceRandom;
@@ -264,6 +265,7 @@ mod test {
     #[test]
     fn calculate_invariant_test() {
         let n_assets_set: Vec<u32> = vec![2, 3, 4];
+
         let mut rng = rand::thread_rng();
         for _ in 0..100 {
             let a = rng.gen_range(1..2000);
