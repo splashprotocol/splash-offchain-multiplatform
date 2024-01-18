@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::marker::PhantomData;
+use type_equalities::IsEqual;
 
 use crate::maker::Maker;
 
@@ -8,7 +8,7 @@ use crate::maker::Maker;
 pub struct MultiPair<PairId, R, Ctx>(HashMap<PairId, R>, Ctx);
 
 impl<PairId, R, Ctx> MultiPair<PairId, R, Ctx> {
-    pub fn new(context: Ctx, resource_type_hint: PhantomData<R>) -> Self {
+    pub fn new<Hint: IsEqual<R>>(context: Ctx) -> Self {
         Self(HashMap::new(), context)
     }
 }

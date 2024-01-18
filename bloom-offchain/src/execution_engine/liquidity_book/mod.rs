@@ -12,7 +12,8 @@ use crate::execution_engine::liquidity_book::recipe::{
 };
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::state::{IdleState, TLBState, VersionedState};
-use crate::execution_engine::liquidity_book::types::ExecutionCost;
+use crate::execution_engine::liquidity_book::types::{AbsolutePrice, ExCostUnits, FeeExtension};
+use crate::execution_engine::liquidity_book::weight::Weighted;
 use crate::execution_engine::types::Time;
 use crate::maker::Maker;
 
@@ -23,6 +24,7 @@ pub mod side;
 mod state;
 pub mod time;
 pub mod types;
+pub mod weight;
 
 /// TLB is a Universal Liquidity Aggregator (ULA), it is able to aggregate every piece of composable
 /// liquidity available in the market.
@@ -51,12 +53,12 @@ pub trait TLBFeedback<Fr, Pl> {
 
 #[derive(Debug, Copy, Clone)]
 pub struct ExecutionCap {
-    pub soft: ExecutionCost,
-    pub hard: ExecutionCost,
+    pub soft: ExCostUnits,
+    pub hard: ExCostUnits,
 }
 
 impl ExecutionCap {
-    fn safe_threshold(&self) -> ExecutionCost {
+    fn safe_threshold(&self) -> ExCostUnits {
         self.hard - self.soft
     }
 }
@@ -121,9 +123,9 @@ where
                             let rem_side = rem.target.side();
                             if let Some(opposite_fr) = self.state.try_pick_fr(!rem_side, |fr| {
                                 rem_side.wrap(rem.target.price()).overlaps(fr.price())
-                                    && fr.cost_hint() <= execution_units_left
+                                    && fr.marginal_cost_hint() <= execution_units_left
                             }) {
-                                execution_units_left -= opposite_fr.cost_hint();
+                                execution_units_left -= opposite_fr.marginal_cost_hint();
                                 match fill_from_fragment(*rem, opposite_fr) {
                                     FillFromFragment {
                                         term_fill_lt,
@@ -131,8 +133,8 @@ where
                                     } => {
                                         recipe.push(TerminalInstruction::Fill(term_fill_lt));
                                         recipe.terminate(TerminalInstruction::Fill(term_fill_rt));
-                                        self.on_transition(term_fill_lt.transition);
-                                        self.on_transition(term_fill_rt.transition);
+                                        self.on_transition(term_fill_lt.next_fr);
+                                        self.on_transition(term_fill_rt.next_fr);
                                     }
                                     FillFromFragment {
                                         term_fill_lt,
@@ -140,7 +142,7 @@ where
                                     } => {
                                         recipe.push(TerminalInstruction::Fill(term_fill_lt));
                                         recipe.set_remainder(partial);
-                                        self.on_transition(term_fill_lt.transition);
+                                        self.on_transition(term_fill_lt.next_fr);
                                         continue;
                                     }
                                 }
@@ -153,13 +155,10 @@ where
                                     .wrap(rem.target.price())
                                     .overlaps(pl.real_price(rem_side.wrap(rem.remaining_input)))
                             }) {
-                                let FillFromPool {
-                                    term_fill,
-                                    swap: swap,
-                                } = fill_from_pool(*rem, pool);
+                                let FillFromPool { term_fill, swap } = fill_from_pool(*rem, pool);
                                 recipe.push(TerminalInstruction::Swap(swap));
                                 recipe.terminate(TerminalInstruction::Fill(term_fill));
-                                self.on_transition(term_fill.transition);
+                                self.on_transition(term_fill.next_fr);
                                 self.state.pre_add_pool(swap.transition);
                             }
                         }
@@ -254,9 +253,9 @@ where
 }
 
 struct FillFromFragment<Fr> {
-    /// [Fill] is always paired with the next state of the underlying order.
+    /// Terminal [Fill].
     term_fill_lt: Fill<Fr>,
-    /// In the case of [PartialFill] calculation of the next state is delayed until matching halts.
+    /// Either terminal [Fill] or [PartialFill].
     fill_rt: Either<Fill<Fr>, PartialFill<Fr>>,
 }
 
@@ -274,41 +273,32 @@ where
                 max
             };
             let price = price_selector(ask.price(), bid.target.price());
-            let demand_base = ((bid.remaining_input as u128) * price.denom() / price.numer()) as u64;
+            let demand_base = linear_output(bid.remaining_input, price);
             let supply_base = ask.input();
             if supply_base > demand_base {
                 let quote_input = bid.remaining_input;
                 bid.accumulated_output += demand_base;
+                let remaining_input = supply_base - demand_base;
                 FillFromFragment {
                     term_fill_lt: bid.filled_unsafe(),
-                    fill_rt: Either::Right(PartialFill {
-                        target: ask,
-                        remaining_input: supply_base - demand_base,
-                        accumulated_output: quote_input,
-                    }),
+                    fill_rt: Either::Right(PartialFill::new(ask, remaining_input, quote_input)),
                 }
             } else if supply_base < demand_base {
-                let quote_executed = ((supply_base as u128) * price.denom() / price.numer()) as u64;
+                let quote_executed = linear_output(supply_base, price);
                 bid.remaining_input -= quote_executed;
                 bid.accumulated_output += supply_base;
+                let (next_ask, ask_budget_used) = ask.with_applied_swap(ask.input(), quote_executed);
                 FillFromFragment {
-                    term_fill_lt: Fill::new(
-                        ask,
-                        ask.with_updated_liquidity(ask.input(), quote_executed),
-                        quote_executed,
-                    ),
+                    term_fill_lt: Fill::new(ask, next_ask, quote_executed, ask_budget_used),
                     fill_rt: Either::Right(bid),
                 }
             } else {
-                let quote_executed = ((supply_base as u128) * price.denom() / price.numer()) as u64;
+                let quote_executed = linear_output(supply_base, price);
                 bid.accumulated_output += demand_base;
+                let (next_ask, ask_budget_used) = ask.with_applied_swap(ask.input(), quote_executed);
                 FillFromFragment {
                     term_fill_lt: bid.filled_unsafe(),
-                    fill_rt: Either::Left(Fill::new(
-                        ask,
-                        ask.with_updated_liquidity(ask.input(), quote_executed),
-                        quote_executed,
-                    )),
+                    fill_rt: Either::Left(Fill::new(ask, next_ask, quote_executed, ask_budget_used)),
                 }
             }
         }
@@ -321,43 +311,37 @@ where
                 min
             };
             let price = price_selector(bid.price(), ask.target.price());
-            let demand_base = ((bid.input() as u128) * price.denom() / price.numer()) as u64;
+            let demand_base = linear_output(bid.input(), price);
             let supply_base = ask.remaining_input;
             if supply_base > demand_base {
                 ask.remaining_input -= demand_base;
                 ask.accumulated_output += bid.input();
+                let (next_bid, bid_budget_used) = bid.with_applied_swap(bid.input(), demand_base);
                 FillFromFragment {
-                    term_fill_lt: Fill::new(
-                        bid,
-                        bid.with_updated_liquidity(bid.input(), demand_base),
-                        demand_base,
-                    ),
+                    term_fill_lt: Fill::new(bid, next_bid, demand_base, bid_budget_used),
                     fill_rt: Either::Right(ask),
                 }
             } else if supply_base < demand_base {
-                let quote_executed = ((supply_base as u128) * price.denom() / price.numer()) as u64;
+                let quote_executed = linear_output(supply_base, price);
                 ask.accumulated_output += quote_executed;
                 FillFromFragment {
                     term_fill_lt: ask.filled_unsafe(),
-                    fill_rt: Either::Right(PartialFill {
-                        remaining_input: bid.input() - quote_executed,
-                        target: bid,
-                        accumulated_output: supply_base,
-                    }),
+                    fill_rt: Either::Right(PartialFill::new(bid, bid.input() - quote_executed, supply_base)),
                 }
             } else {
                 ask.accumulated_output += bid.input();
+                let (next_bid, bid_budget_used) = bid.with_applied_swap(bid.input(), demand_base);
                 FillFromFragment {
                     term_fill_lt: ask.filled_unsafe(),
-                    fill_rt: Either::Left(Fill::new(
-                        bid,
-                        bid.with_updated_liquidity(bid.input(), demand_base),
-                        demand_base,
-                    )),
+                    fill_rt: Either::Left(Fill::new(bid, next_bid, demand_base, bid_budget_used)),
                 }
             }
         }
     }
+}
+
+fn linear_output(input: u64, price: AbsolutePrice) -> u64 {
+    (input as u128 * price.denom() / price.numer()) as u64
 }
 
 struct FillFromPool<Fr, Pl> {
@@ -462,10 +446,11 @@ mod tests {
         let expected_recipe = IntermediateRecipe {
             terminal: vec![
                 TerminalInstruction::Fill(Fill {
-                    target: o2,
-                    transition: StateTrans::EOL,
+                    target_fr: o2,
+                    next_fr: StateTrans::EOL,
                     removed_input: o2.input,
                     added_output: 1000,
+                    budget_used: 990000,
                 }),
                 TerminalInstruction::Swap(Swap {
                     target: p1,
@@ -475,10 +460,11 @@ mod tests {
                     output: 368,
                 }),
                 TerminalInstruction::Fill(Fill {
-                    target: o1,
-                    transition: StateTrans::EOL,
+                    target_fr: o1,
+                    next_fr: StateTrans::EOL,
                     removed_input: o1.input,
                     added_output: 738,
+                    budget_used: 738000,
                 }),
             ],
             remainder: None,
@@ -496,6 +482,7 @@ mod tests {
             accumulated_output: 0,
             price: AbsolutePrice::new(37, 100),
             fee: 1000,
+            ex_budget: 0,
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
@@ -506,13 +493,14 @@ mod tests {
             accumulated_output: 0,
             price: AbsolutePrice::new(37, 100),
             fee: 1000,
+            ex_budget: 0,
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
         let FillFromFragment {
             term_fill_lt,
             fill_rt: term_fill_rt,
-        } = fill_from_fragment(PartialFill::new(fr1), fr2);
+        } = fill_from_fragment(PartialFill::empty(fr1), fr2);
         assert_eq!(term_fill_lt.added_output, fr2.input);
         match term_fill_rt {
             Either::Left(fill_rt) => assert_eq!(fill_rt.added_output, fr1.input),
@@ -530,6 +518,7 @@ mod tests {
             accumulated_output: 0,
             price: AbsolutePrice::new(37, 100),
             fee: 2000,
+            ex_budget: 0,
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
@@ -540,13 +529,14 @@ mod tests {
             accumulated_output: 0,
             price: AbsolutePrice::new(37, 100),
             fee: 2000,
+            ex_budget: 0,
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
         let FillFromFragment {
             term_fill_lt,
             fill_rt: term_fill_rt,
-        } = fill_from_fragment(PartialFill::new(fr1), fr2);
+        } = fill_from_fragment(PartialFill::empty(fr1), fr2);
         assert_eq!(
             term_fill_lt.added_output,
             ((fr2.input as u128) * fr1.price.denom() / fr1.price.numer()) as u64
@@ -567,6 +557,7 @@ mod tests {
             accumulated_output: 0,
             price: AbsolutePrice::new(36, 100),
             fee: 1000,
+            ex_budget: 0,
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
@@ -577,13 +568,14 @@ mod tests {
             accumulated_output: 0,
             price: AbsolutePrice::new(37, 100),
             fee: 2000,
+            ex_budget: 0,
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
         let FillFromFragment {
             term_fill_lt,
             fill_rt: term_fill_rt,
-        } = fill_from_fragment(PartialFill::new(ask_fr), bid_fr);
+        } = fill_from_fragment(PartialFill::empty(ask_fr), bid_fr);
         assert_eq!(term_fill_lt.added_output, bid_fr.input);
         match term_fill_rt {
             Either::Left(fill_rt) => assert_eq!(fill_rt.added_output, ask_fr.input),
@@ -601,6 +593,7 @@ mod tests {
             accumulated_output: 0,
             price: AbsolutePrice::new(36, 100),
             fee: 1000,
+            ex_budget: 0,
             cost_hint: 100,
             bounds: TimeBounds::None,
         };

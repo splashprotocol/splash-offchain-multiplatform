@@ -19,7 +19,7 @@ use type_equalities::IsEqual;
 
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
-use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+use bloom_offchain::execution_engine::liquidity_book::types::{AbsolutePrice, FeeExtension};
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
 };
@@ -394,7 +394,7 @@ impl ApplyOrder<ClassicalOnChainLimitSwap> for CFMMPool {
             self.reserves_x = self.reserves_x + order.base_amount.retag();
         }
         // Prepare user output.
-        let batcher_fee = order.fee.get_fee(quote_amount.untag());
+        let batcher_fee = order.fee.value().linear_fee(quote_amount.untag());
         let ada_residue = order.ada_deposit - batcher_fee;
         let swap_output = SwapOutput {
             quote_asset: order.quote_asset,

@@ -9,7 +9,6 @@ use pallas_network::miniprotocols::{
 };
 use pallas_network::multiplexer;
 use pallas_network::multiplexer::{Bearer, RunningPlexer};
-use tokio::task::JoinHandle;
 
 pub struct LocalTxSubmissionClient<const ERA: u16, Tx> {
     plexer: RunningPlexer,

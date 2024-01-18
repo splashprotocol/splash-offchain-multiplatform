@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::fmt::{Debug, Display, Formatter, Write};
+use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::str::FromStr;
@@ -18,6 +18,7 @@ use crate::types::TryFromPData;
 pub mod address;
 pub mod collateral;
 pub mod constants;
+pub mod credential;
 pub mod hash;
 pub mod output;
 pub mod plutus_data;

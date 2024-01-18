@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
-use spectrum_offchain::data::{EntitySnapshot, Has};
+use spectrum_offchain::data::EntitySnapshot;
 
 pub trait StateIndexCache<StableId, Src> {
     fn insert(&mut self, src: Src) -> Option<Src>;

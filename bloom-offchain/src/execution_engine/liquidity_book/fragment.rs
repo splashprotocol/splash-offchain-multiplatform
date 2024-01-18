@@ -1,12 +1,13 @@
 use crate::execution_engine::liquidity_book::side::SideM;
 use crate::execution_engine::liquidity_book::time::TimeBounds;
-use crate::execution_engine::liquidity_book::types::{AbsolutePrice, ExecutionCost};
-use num_rational::Ratio;
+use crate::execution_engine::liquidity_book::types::{AbsolutePrice, ExCostUnits, FeePerOutput};
+
+pub type ExBudgetUsed = u64;
 
 /// Order as a state machine.
 pub trait OrderState: Sized {
     fn with_updated_time(self, time: u64) -> StateTrans<Self>;
-    fn with_updated_liquidity(self, removed_input: u64, added_output: u64) -> StateTrans<Self>;
+    fn with_applied_swap(self, removed_input: u64, added_output: u64) -> (StateTrans<Self>, ExBudgetUsed);
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -37,7 +38,9 @@ pub trait Fragment {
     fn input(&self) -> u64;
     /// Price of base asset in quote asset.
     fn price(&self) -> AbsolutePrice;
-    fn weight(&self) -> Ratio<u128>;
-    fn cost_hint(&self) -> ExecutionCost;
+    /// Batcher fee fer output.
+    fn fee(&self) -> FeePerOutput;
+    /// How much (approximately) execution of this fragment will cost.
+    fn marginal_cost_hint(&self) -> ExCostUnits;
     fn time_bounds(&self) -> TimeBounds<u64>;
 }

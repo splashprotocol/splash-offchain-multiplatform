@@ -205,15 +205,8 @@ impl ExecutorFeePerToken {
     pub fn new(rational: Ratio<u128>, ac: AssetClass) -> Self {
         Self(rational, ac)
     }
-    pub fn get_fee(&self, output_amount: u64) -> u64 {
-        (*self.0.numer() * output_amount as u128 / *self.0.denom()) as u64
-    }
     pub fn value(&self) -> Ratio<u128> {
         self.0
-    }
-    pub fn into_cml_value(self, output_amount: u64) -> Value {
-        let fee = self.get_fee(output_amount);
-        self.1.value_of(fee)
     }
 }
 

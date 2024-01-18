@@ -1,4 +1,3 @@
-use std::marker::PhantomData;
 use std::sync::{Arc, Once};
 
 use clap::Parser;
@@ -56,6 +55,11 @@ use crate::context::ExecutionContext;
 
 mod config;
 mod context;
+
+const EXECUTION_CAP: ExecutionCap = ExecutionCap {
+    soft: 6000000000,
+    hard: 10000000000,
+};
 
 #[tokio::main]
 async fn main() {
@@ -144,15 +148,11 @@ async fn main() {
     let context = ExecutionContext {
         time: 0.into(),
         refs: ref_scripts,
-        execution_caps: ExecutionCap {
-            soft: 1000,
-            hard: 10000,
-        },
+        execution_cap: EXECUTION_CAP,
         reward_addr: config.reward_address,
         collateral,
     };
-    let book_type: PhantomData<TLB<AnyOrder, AnyPool>> = PhantomData::default();
-    let multi_book = MultiPair::new(context.clone(), book_type);
+    let multi_book = MultiPair::new::<TLB<AnyOrder, AnyPool>>(context.clone());
     let state_index = InMemoryStateIndex::new();
     let state_cache = InMemoryStateIndexCache::new();
 

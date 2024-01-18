@@ -1,5 +1,4 @@
 use std::cmp::Ordering;
-use std::ops::Mul;
 
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
@@ -19,7 +18,10 @@ use bloom_offchain::execution_engine::batch_exec::BatchExec;
 use bloom_offchain::execution_engine::liquidity_book::fragment::Fragment;
 use bloom_offchain::execution_engine::liquidity_book::side::SideM;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
-use bloom_offchain::execution_engine::liquidity_book::types::{AbsolutePrice, ExecutionCost, RelativePrice};
+use bloom_offchain::execution_engine::liquidity_book::types::{
+    AbsolutePrice, ExCostUnits, FeePerOutput, RelativePrice,
+};
+use bloom_offchain::execution_engine::liquidity_book::weight::Weighted;
 use bloom_offchain::execution_engine::partial_fill::PartiallyFilled;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
@@ -28,7 +30,7 @@ use spectrum_offchain::data::Has;
 
 use crate::orders::{Stateful, TLBCompatibleState};
 
-const APPROX_AUCTION_COST: ExecutionCost = 1000;
+const APPROX_AUCTION_COST: ExCostUnits = 1000;
 const PRICE_DECAY_DEN: u64 = 10000;
 
 pub const AUCTION_EXECUTION_UNITS: ExUnits = ExUnits {
@@ -113,11 +115,11 @@ impl Fragment for Stateful<AuctionOrder, TLBCompatibleState> {
         base_price * decay
     }
 
-    fn weight(&self) -> Ratio<u128> {
+    fn fee(&self) -> FeePerOutput {
         self.order.fee_per_quote
     }
 
-    fn cost_hint(&self) -> ExecutionCost {
+    fn marginal_cost_hint(&self) -> ExCostUnits {
         APPROX_AUCTION_COST
     }
 

@@ -14,73 +14,73 @@ where
     <T as EntitySnapshot>::Version: Clone + Send + 'static,
     <T as Stable>::StableId: Clone + Send + 'static,
 {
-    async fn get_prediction_predecessor<'a>(&self, id: T::Version) -> Option<T::Version>
+    async fn get_prediction_predecessor<'a>(&self, _id: T::Version) -> Option<T::Version>
     where
         <T as EntitySnapshot>::Version: 'a,
     {
         None
     }
 
-    async fn get_last_predicted<'a>(&self, id: T::StableId) -> Option<Predicted<T>>
+    async fn get_last_predicted<'a>(&self, _id: T::StableId) -> Option<Predicted<T>>
     where
         <T as Stable>::StableId: 'a,
     {
         None
     }
 
-    async fn get_last_confirmed<'a>(&self, id: T::StableId) -> Option<Confirmed<T>>
+    async fn get_last_confirmed<'a>(&self, _id: T::StableId) -> Option<Confirmed<T>>
     where
         <T as Stable>::StableId: 'a,
     {
         None
     }
 
-    async fn get_last_unconfirmed<'a>(&self, id: T::StableId) -> Option<Unconfirmed<T>>
+    async fn get_last_unconfirmed<'a>(&self, _id: T::StableId) -> Option<Unconfirmed<T>>
     where
         <T as Stable>::StableId: 'a,
     {
         None
     }
 
-    async fn put_predicted<'a>(&mut self, entity: Traced<Predicted<T>>)
+    async fn put_predicted<'a>(&mut self, _entity: Traced<Predicted<T>>)
     where
         Traced<Predicted<T>>: 'a,
     {
     }
 
-    async fn put_confirmed<'a>(&mut self, entity: Confirmed<T>)
+    async fn put_confirmed<'a>(&mut self, _entity: Confirmed<T>)
     where
         Traced<Predicted<T>>: 'a,
     {
     }
 
-    async fn put_unconfirmed<'a>(&mut self, entity: Unconfirmed<T>)
+    async fn put_unconfirmed<'a>(&mut self, _entity: Unconfirmed<T>)
     where
         Traced<Predicted<T>>: 'a,
     {
     }
 
-    async fn invalidate<'a>(&mut self, sid: T::Version, eid: T::StableId)
+    async fn invalidate<'a>(&mut self, _sid: T::Version, _eid: T::StableId)
     where
         <T as EntitySnapshot>::Version: 'a,
         <T as Stable>::StableId: 'a,
     {
     }
 
-    async fn eliminate<'a>(&mut self, entity: T)
+    async fn eliminate<'a>(&mut self, _entity: T)
     where
         T: 'a,
     {
     }
 
-    async fn may_exist<'a>(&self, sid: T::Version) -> bool
+    async fn may_exist<'a>(&self, _sid: T::Version) -> bool
     where
         <T as EntitySnapshot>::Version: 'a,
     {
         false
     }
 
-    async fn get_state<'a>(&self, sid: T::Version) -> Option<T>
+    async fn get_state<'a>(&self, _sid: T::Version) -> Option<T>
     where
         <T as EntitySnapshot>::Version: 'a,
     {
