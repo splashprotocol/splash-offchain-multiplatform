@@ -227,13 +227,13 @@ impl Pool for CFMMPool {
 }
 
 impl Has<PoolStateVer> for CFMMPool {
-    fn get<U: IsEqual<PoolStateVer>>(&self) -> PoolStateVer {
+    fn get_labeled<U: IsEqual<PoolStateVer>>(&self) -> PoolStateVer {
         self.state_ver
     }
 }
 
 impl Has<PoolVer> for CFMMPool {
-    fn get<U: IsEqual<PoolVer>>(&self) -> PoolVer {
+    fn get_labeled<U: IsEqual<PoolVer>>(&self) -> PoolVer {
         self.ver
     }
 }
@@ -269,8 +269,11 @@ impl EntitySnapshot for CFMMPool {
     }
 }
 
-impl TryFromLedger<BabbageTransactionOutput, OutputRef> for CFMMPool {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
+impl<C> TryFromLedger<BabbageTransactionOutput, C> for CFMMPool
+where
+    C: Has<OutputRef>,
+{
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
         if let Some(pool_ver) = PoolVer::try_from_pool_address(repr.address()) {
             let value = repr.value();
             let pd = repr.datum().clone()?.into_pd()?;
@@ -281,7 +284,7 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for CFMMPool {
             let liquidity = TaggedAmount::new(MAX_LQ_CAP - liquidity_neg);
             return Some(CFMMPool {
                 id: PoolId::try_from(conf.pool_nft).ok()?,
-                state_ver: PoolStateVer::from(ctx),
+                state_ver: ctx.get().into(),
                 reserves_x,
                 reserves_y,
                 liquidity,
@@ -511,8 +514,8 @@ where
             value: pool,
             source: pool_out_in,
         } = self;
-        let pool_ref = OutputRef::from(pool.get::<PoolStateVer>());
-        let order_ref = OutputRef::from(order.get::<OnChainOrderId>());
+        let pool_ref = OutputRef::from(pool.get_labeled::<PoolStateVer>());
+        let order_ref = OutputRef::from(order.get_labeled::<OnChainOrderId>());
         info!(target: "offchain", "Running order {} against pool {}", order_ref, pool_ref);
         let (next_pool, user_out) = match pool.clone().apply_order(order.clone()) {
             Ok(res) => res,

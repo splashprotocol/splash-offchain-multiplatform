@@ -23,7 +23,7 @@ impl<T> Has<T::TOrderId> for T
 where
     T: UniqueOrder,
 {
-    fn get<U: IsEqual<T::TOrderId>>(&self) -> T::TOrderId {
+    fn get_labeled<U: IsEqual<T::TOrderId>>(&self) -> T::TOrderId {
         self.get_self_ref()
     }
 }

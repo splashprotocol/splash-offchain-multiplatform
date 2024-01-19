@@ -17,9 +17,9 @@ use spectrum_cardano_lib::output::{FinalizedTxOut, IndexedTxOut};
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::{Baked, Has};
 
+use crate::creds::RewardAddress;
 use crate::execution_engine::execution_state::ExecutionState;
 use crate::execution_engine::instances::Magnet;
-use crate::operator_address::RewardAddress;
 
 /// A short-living interpreter.
 #[derive(Debug, Copy, Clone)]
@@ -45,13 +45,15 @@ where
         let state = ExecutionState::new();
         let (ExecutionState { mut tx_builder, .. }, mut indexed_outputs, ctx) =
             execute(ctx, state, vec![], instructions);
-        tx_builder.add_collateral(ctx.get::<Collateral>().into()).unwrap();
+        tx_builder
+            .add_collateral(ctx.get_labeled::<Collateral>().into())
+            .unwrap();
 
         // Set tx fee.
         let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
         tx_builder.set_fee(estimated_tx_fee + TX_FEE_CORRECTION);
 
-        let execution_fee_address: Address = ctx.get::<RewardAddress>().into();
+        let execution_fee_address: Address = ctx.get_labeled::<RewardAddress>().into();
         // Build tx, change is execution fee.
         let tx = tx_builder
             .build(ChangeSelectionAlgo::Default, &execution_fee_address)

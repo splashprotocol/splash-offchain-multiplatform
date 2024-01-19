@@ -1,4 +1,4 @@
-use bloom_offchain_cardano::operator_address::RewardAddress;
+use bloom_offchain_cardano::creds::{ExecutorCred, RewardAddress};
 use cardano_chain_sync::client::Point;
 use cardano_explorer::data::ExplorerConfig;
 use cml_core::Slot;
@@ -16,6 +16,7 @@ pub struct AppConfig<'a> {
     pub ref_scripts: ReferenceSources,
     pub explorer: ExplorerConfig<'a>,
     pub reward_address: RewardAddress,
+    pub executor_cred: ExecutorCred,
     pub cardano_finalization_delay: Duration,
 }
 

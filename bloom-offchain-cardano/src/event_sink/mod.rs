@@ -5,10 +5,11 @@ use either::Either;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::OutputRef;
-use spectrum_offchain::data::{Baked, EntitySnapshot, Stable, Tradable};
+use spectrum_offchain::data::{Baked, EntitySnapshot, Has, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::data::pair::PairId;
 
+use crate::creds::ExecutorCred;
 use crate::orders::AnyOrder;
 use crate::pools::AnyPool;
 
@@ -42,9 +43,18 @@ impl Tradable for CardanoEntity {
     }
 }
 
-impl TryFromLedger<BabbageTransactionOutput, OutputRef> for CardanoEntity {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
-        <Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>>::try_from_ledger(repr, ctx)
-            .map(|inner| Self(Bundled(inner, FinalizedTxOut::new(repr.clone(), ctx))))
+impl<C> TryFromLedger<BabbageTransactionOutput, C> for CardanoEntity
+where
+    C: Copy + Has<ExecutorCred> + Has<OutputRef>,
+{
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
+        <Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>>::try_from_ledger(repr, ctx).map(
+            |inner| {
+                Self(Bundled(
+                    inner,
+                    FinalizedTxOut::new(repr.clone(), ctx.get_labeled::<OutputRef>()),
+                ))
+            },
+        )
     }
 }

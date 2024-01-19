@@ -5,7 +5,7 @@ use cml_chain::PolicyId;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
 use spectrum_cardano_lib::{OutputRef, Token};
-use spectrum_offchain::data::{EntitySnapshot, Stable, Tradable};
+use spectrum_offchain::data::{EntitySnapshot, Has, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::data::pool::CFMMPool;
@@ -44,8 +44,11 @@ impl Pool for AnyPool {
     }
 }
 
-impl TryFromLedger<BabbageTransactionOutput, OutputRef> for AnyPool {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
+impl<C> TryFromLedger<BabbageTransactionOutput, C> for AnyPool
+where
+    C: Has<OutputRef>,
+{
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
         CFMMPool::try_from_ledger(repr, ctx).map(AnyPool::CFMM)
     }
 }

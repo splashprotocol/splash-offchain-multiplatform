@@ -135,7 +135,7 @@ async fn main() {
     let index = Arc::new(Mutex::new(InMemoryEntityIndex::new(
         config.cardano_finalization_delay,
     )));
-    let upd_handler = PairUpdateHandler::new(partitioned_pair_upd_snd, index);
+    let upd_handler = PairUpdateHandler::new(partitioned_pair_upd_snd, index, config.executor_cred);
 
     let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<BabbageTransaction>>>> =
         vec![Box::new(upd_handler.clone())];

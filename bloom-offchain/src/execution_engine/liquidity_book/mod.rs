@@ -75,7 +75,10 @@ where
     Ctx: Has<Time> + Has<ExecutionCap>,
 {
     fn make(ctx: &Ctx) -> Self {
-        Self::new(ctx.get::<Time>().into(), ctx.get::<ExecutionCap>())
+        Self::new(
+            ctx.get_labeled::<Time>().into(),
+            ctx.get_labeled::<ExecutionCap>(),
+        )
     }
 }
 
