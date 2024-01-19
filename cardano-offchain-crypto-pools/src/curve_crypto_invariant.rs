@@ -1,5 +1,31 @@
 use primitive_types::U512;
 
+/// The main CurveCrypto equation is:
+/// `k * d^(n - 1) * Sum(reserves) + Prod(reserves) = k * d^n + (d / n)^n`,
+/// \
+/// \
+/// Coefficient `k` is:
+/// \
+/// \
+/// `k = a * k0 * gamma ^ 2 / (gamma + 1 - k0)^2`,
+/// \
+/// \
+/// where
+/// \
+/// \
+/// `k0 = Prod(reserves) * n^n / d^n`.
+/// \
+/// \
+/// Variables involved are:
+///
+/// * `a` - Amplification coefficient;
+/// * `d` - Invariant value;
+/// * `n` - Number of tradable assets;
+/// * `gamma` - Distance coefficient;
+/// * `reserves = vec![asset_{i}_balance; n]`.
+/// \
+/// \
+
 /// Calculates CurveCrypto invariant error.
 /// Since we are working with integers the left side of the expression is not equal to the right in most cases.
 /// "Invariant error" is the absolute difference between the left and right sides of the expression above.
@@ -131,60 +157,36 @@ pub fn check_crypto_invariant_extremum(
 
 /// CurveCrypto invariant value numerical calculation procedure.
 /// \
-/// Note: input balances must be reduced to a common denominator (precision).
+/// Note: input reserves balances must be reduced to a common denominator (precision).
 /// \
-/// Function solves numerically (relative to `d` while all other parameters are known) the following equation :
-/// \
-/// \
-/// `k * d^(n - 1) * Sum(reserves) + Prod(reserves) = k * d^n + (d / n)^n`,
-/// \
-/// \
-/// Coefficient `k` is:
-/// \
-/// \
-/// `k = a * k0 * gamma ^ 2 / (gamma + 1 - k0)^2`,
-/// \
-/// \
-/// where
-/// \
-/// \
-/// `k0 = Prod(reserves) * n^n / d^n`.
-/// \
-/// \
-/// Variables involved are:
-///
-/// * `a` - Amplification coefficient;
-/// * `d` - Invariant value;
-/// * `n` - Number of tradable assets;
-/// * `gamma` - Distance coefficient;
-/// * `reserves = vec![asset_{i}_balance; n]`.
-/// \
-/// \
+/// Function solves CurveCrypto invariant equation numerically (relative to `d` while all other parameters are known).
 ///
 /// # Arguments
-/// * `balances` -Reserves balances;
-/// * `n` - Number of tradable assets;
-/// * `a` - Amplification coefficient of the CurveCrypto invariant.
+/// * `reserves` - Tradable reserves balances;
+/// * `n_assets` - Number of tradable assets;
+/// * `a` - Amplification coefficient of the CurveCrypto invariant;
+/// * `gamma_num` - Distance coefficient numerator;
+/// * `gamma_denom` - Distance coefficient denominator.
 ///
 /// # Outputs
 /// * `d` - value of the CurveCrypto invariant.
 
 pub fn calculate_crypto_invariant(
-    balances: &Vec<U512>,
+    reserves: &Vec<U512>,
     n_assets: &u32,
     a: &U512,
     gamma_num: &U512,
     gamma_denom: &U512,
 ) -> U512 {
-    assert_eq!(balances.len(), (*n_assets).try_into().unwrap());
+    assert_eq!(*n_assets, reserves.len() as u32);
     // Constants commonly used in calculations:
     let unit = U512::from(1);
     let n = U512::from(*n_assets);
     let nn = U512::from(n_assets.pow(*n_assets));
 
     // Invariant calculation with the Newton-Raphson method:
-    let s = balances.iter().copied().reduce(|x, y| x + y).unwrap();
-    let p = balances.iter().copied().reduce(|x, y| x * y).unwrap();
+    let s = reserves.iter().copied().reduce(|x, y| x + y).unwrap();
+    let p = reserves.iter().copied().reduce(|x, y| x * y).unwrap();
 
     let mut d = s.clone();
     let mut abs_d_error = d;
@@ -273,14 +275,204 @@ pub fn calculate_crypto_invariant(
     d
 }
 
+/// Calculates valid exchange between reserves in the CurveCrypto pool.
+///\
+/// Note: input reserves balances must be reduced to a common denominator (precision).
+/// # Arguments
+///
+/// * `i` - Index of the "base" asset, i.e.index of it's amount in the `reserves_before` vector;
+/// * `j` - Index of the "quote" asset, i.e.index of it's amount in the `reserves_before` vector;
+/// * `base_amount` - Amount of the "base" asset to be exchanged for the "quote".
+/// * `reserves_before` - Tradable reserves balances of the pool before the action;
+/// * `n_assets` - Number of tradable assets;
+/// * `a` - Amplification coefficient of the CurveCrypto invariant;
+/// * `gamma_num` - Distance coefficient numerator;
+/// * `gamma_denom` - Distance coefficient denominator.
+///
+///
+/// # Outputs
+///
+/// * `balance_j` - Balance of the "quote" asset after exchange (in the precision units).
+pub fn calculate_crypto_exchange(
+    i: &usize,
+    j: &usize,
+    base_amount: &U512,
+    reserves_before: &Vec<U512>,
+    n_assets: &u32,
+    a: &U512,
+    gamma_num: &U512,
+    gamma_denom: &U512,
+) -> U512 {
+    assert_eq!(*n_assets, reserves_before.len() as u32);
+
+    // Constants commonly used in calculations:
+    let max_error = U512::from(100);
+    let unit = U512::from(1);
+    let unit_x2 = U512::from(2);
+    let n = U512::from(*n_assets);
+    let nn = U512::from(n_assets.pow(*n_assets));
+
+    // Add `base_amount` to the `i`-th reserves balance:
+    let mut balances_with_i = reserves_before.clone();
+    balances_with_i[*i] = balances_with_i[*i] + *base_amount;
+
+    // ============== Numerical calculation of the "quote" balance after Swap ==============
+    let balances_no_j: Vec<U512> = balances_with_i
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|&(k, _)| k != (*j).try_into().unwrap())
+        .map(|(_, x)| x)
+        .collect();
+
+    let s = balances_no_j.iter().copied().reduce(|a, b| a + b).unwrap();
+    let p = balances_no_j
+        .iter()
+        .copied()
+        .reduce(|a, b| if a != U512::from(0) { a * b } else { b })
+        .unwrap();
+
+    let balance_j_initial = balances_with_i[*j].clone();
+
+    // Get current invariant value (must be preserved in the calculations below):
+    let d = calculate_crypto_invariant(&reserves_before, n_assets, a, gamma_num, gamma_denom);
+
+    //==============INSERT CALCULATIONS HERE==============//
+    let dn = vec![d; usize::try_from(n).unwrap()]
+        .iter()
+        .copied()
+        .reduce(|x, y| x * y)
+        .unwrap();
+
+    // Result is updated "balance_j" value.
+    let mut abs_j_error = d;
+    let mut balance_j = dn / (p * nn);
+    let mut n_iters = 0;
+    let max_iters = 25;
+    if balance_j_initial - balance_j < *base_amount {
+        while abs_j_error > max_error && n_iters < max_iters {
+            n_iters += 1;
+            let balance_j_previous = balance_j;
+
+            let s_total = balances_with_i.iter().copied().reduce(|a, b| a + b).unwrap();
+            let p_total = balances_with_i
+                .iter()
+                .copied()
+                .reduce(|a, b| if a != U512::from(0) { a * b } else { b })
+                .unwrap();
+
+            let k_num = *a * *gamma_num * *gamma_num * p_total * nn;
+            let k_denom_l = p_total * nn * *gamma_denom / dn;
+
+            let gamma_n_d_sum = *gamma_num + *gamma_denom;
+
+            let k_denom_unit = if k_denom_l > gamma_n_d_sum {
+                k_denom_l - gamma_n_d_sum
+            } else {
+                gamma_n_d_sum - k_denom_l
+            };
+
+            let k_denom = k_denom_unit * k_denom_unit;
+            let inv_left = k_num * dn * s_total / (d * k_denom * dn) + p_total;
+            let inv_right = k_num * dn / (k_denom * dn) + dn / nn;
+
+            let f_value = if inv_left > inv_right {
+                inv_left - inv_right
+            } else {
+                inv_right - inv_left
+            };
+
+            let denom0_l = nn * p * balance_j * *gamma_denom / dn;
+            let denom0 = if denom0_l > gamma_n_d_sum {
+                denom0_l - gamma_n_d_sum
+            } else {
+                gamma_n_d_sum - denom0_l
+            };
+            let denom0x2 = denom0 * denom0;
+            let denom0x3 = denom0x2 * denom0;
+            let gamma_denom2 = *gamma_denom * *gamma_denom;
+            let gamma_denom3 = gamma_denom2 * *gamma_denom;
+            let ag2nnp = a * *gamma_num * *gamma_num * nn * p / gamma_denom2;
+            let t1 = ag2nnp * s / (d * denom0x2);
+            let t2 = ag2nnp / denom0x2;
+            let t3 = unit_x2 * ag2nnp * balance_j / (d * denom0x2 * gamma_denom2);
+            let t4 = unit_x2 * ag2nnp * balance_j * p * nn / (denom0x3 * dn * d * gamma_denom3);
+            let t5 = unit_x2 * ag2nnp * balance_j * p * s * nn / (denom0x3 * gamma_denom3 * dn / dn);
+            let t6 = unit_x2 * ag2nnp * balance_j * balance_j * p * nn / (denom0x3 * gamma_denom3 * dn / d);
+            let f_derivative_value = if denom0_l > gamma_n_d_sum {
+                (p + t3 + t4 + t1) - (t2 + t5 + t6)
+            } else {
+                (p + t1 + t3 + t5 + t6) - (t2 + t4)
+            };
+
+            let step_j = f_value / f_derivative_value;
+            balance_j = balance_j_previous - step_j;
+            balances_with_i[*j] = balance_j;
+            abs_j_error = if balance_j >= balance_j_previous {
+                balance_j - balance_j_previous
+            } else {
+                balance_j_previous - balance_j
+            };
+            balance_j = balance_j
+        }
+    }
+    // Adjust the calculated final balance of the "quote" asset:
+    balances_with_i[*j] = balance_j;
+    let mut inv_err = calculate_crypto_invariant_error_from_balances(
+        n_assets,
+        a,
+        gamma_num,
+        gamma_denom,
+        &balances_with_i,
+        &d,
+    );
+    balances_with_i[*j] = balance_j + unit;
+    let inv_err_upper = calculate_crypto_invariant_error_from_balances(
+        n_assets,
+        a,
+        gamma_num,
+        gamma_denom,
+        &balances_with_i,
+        &d,
+    );
+    balances_with_i[*j] = balance_j - unit;
+    let inv_err_lower = calculate_crypto_invariant_error_from_balances(
+        n_assets,
+        a,
+        gamma_num,
+        gamma_denom,
+        &balances_with_i,
+        &d,
+    );
+    if !((inv_err < inv_err_upper) && (inv_err < inv_err_lower)) {
+        let mut inv_err_previous = inv_err + unit;
+        while inv_err < inv_err_previous {
+            inv_err_previous = inv_err;
+            balances_with_i[*j] = balances_with_i[*j] + unit;
+            inv_err = calculate_crypto_invariant_error_from_balances(
+                n_assets,
+                a,
+                gamma_num,
+                gamma_denom,
+                &balances_with_i,
+                &d,
+            );
+        }
+        balance_j = balances_with_i[*j] - unit;
+    }
+
+    balance_j
+}
+
 mod test {
     use primitive_types::U512;
     use rand::seq::SliceRandom;
     use rand::Rng;
 
     use crate::curve_crypto_invariant::{
-        calculate_crypto_invariant, calculate_crypto_invariant_error_from_balances,
-        calculate_crypto_invariant_error_from_totals, check_crypto_invariant_extremum,
+        calculate_crypto_exchange, calculate_crypto_invariant,
+        calculate_crypto_invariant_error_from_balances, calculate_crypto_invariant_error_from_totals,
+        check_crypto_invariant_extremum,
     };
 
     #[test]
@@ -358,7 +550,7 @@ mod test {
     }
 
     #[test]
-    fn calculate_invariant_test() {
+    fn calculate_crypto_invariant_test() {
         let n_assets_set: Vec<u32> = vec![2, 3, 4];
         let mut rng = rand::thread_rng();
         for _ in 0..1000 {
@@ -371,6 +563,39 @@ mod test {
             let inv = calculate_crypto_invariant(&balances_calc, &n, &a, &gamma_num, &gamma_denom);
 
             assert_eq!(inv, U512::from(n) * U512::from(balance))
+        }
+    }
+
+    #[test]
+    fn calculate_crypto_exchange_test() {
+        let n_assets_set: Vec<u32> = vec![3, 4];
+        let mut rng = rand::thread_rng();
+        for _ in 0..1 {
+            let a = U512::from(rng.gen_range(1..2000) as u64);
+            let n = *n_assets_set.choose(&mut rand::thread_rng()).unwrap();
+            let balance: u64 = u64::MAX;
+            let balances_calc = vec![U512::from(balance); n as usize];
+            let gamma_num = U512::from(rng.gen_range(1..10_000));
+            let gamma_denom = U512::from(1_000_000_000u64);
+
+            let idx = rand::seq::index::sample(&mut rng, n as usize, 2).into_vec();
+            let i = *idx.get(0).unwrap();
+            let j = *idx.get(1).unwrap();
+
+            let base_amount = U512::from(rng.gen_range(100..u32::MAX));
+
+            let quote_amount_final = calculate_crypto_exchange(
+                &i,
+                &j,
+                &base_amount,
+                &balances_calc,
+                &n,
+                &a,
+                &gamma_num,
+                &gamma_denom,
+            );
+
+            assert_eq!(balances_calc[j] - quote_amount_final, base_amount)
         }
     }
 }
