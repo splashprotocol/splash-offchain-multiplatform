@@ -9,19 +9,48 @@ use cml_multi_era::babbage::{BabbageTransaction, BabbageTransactionOutput};
 use futures::{Sink, SinkExt};
 use log::trace;
 use tokio::sync::Mutex;
+use type_equalities::IsEqual;
 
+use crate::creds::ExecutorCred;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_mempool_sync::data::MempoolUpdate;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::combinators::Ior;
 use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
-use spectrum_offchain::data::{EntitySnapshot, Tradable};
+use spectrum_offchain::data::{EntitySnapshot, Has, Tradable};
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain::partitioning::Partitioned;
 
 use crate::event_sink::entity_index::EntityIndex;
+
+#[derive(Copy, Clone, Debug)]
+pub struct HandlerContext {
+    pub output_ref: OutputRef,
+    pub executor_cred: ExecutorCred,
+}
+
+impl HandlerContext {
+    pub fn new(output_ref: OutputRef, own_cred: ExecutorCred) -> Self {
+        Self {
+            output_ref,
+            executor_cred: own_cred,
+        }
+    }
+}
+
+impl Has<OutputRef> for HandlerContext {
+    fn get_labeled<U: IsEqual<OutputRef>>(&self) -> OutputRef {
+        self.output_ref
+    }
+}
+
+impl Has<ExecutorCred> for HandlerContext {
+    fn get_labeled<U: IsEqual<ExecutorCred>>(&self) -> ExecutorCred {
+        self.executor_cred
+    }
+}
 
 /// A handler for updates that routes resulted [Entity] updates
 /// into different topics [Topic] according to partitioning key [PairId].
@@ -33,17 +62,23 @@ where
     pub topic: Partitioned<N, PairId, Topic>,
     /// Index of all non-consumed states of [Entity].
     pub index: Arc<Mutex<Index>>,
+    pub executor_cred: ExecutorCred,
     pub pd: PhantomData<Entity>,
 }
 
 impl<const N: usize, PairId, Topic, Entity, Index> PairUpdateHandler<N, PairId, Topic, Entity, Index>
 where
-    Entity: EntitySnapshot + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone,
+    Entity: EntitySnapshot + TryFromLedger<BabbageTransactionOutput, HandlerContext> + Clone,
 {
-    pub fn new(topic: Partitioned<N, PairId, Topic>, index: Arc<Mutex<Index>>) -> Self {
+    pub fn new(
+        topic: Partitioned<N, PairId, Topic>,
+        index: Arc<Mutex<Index>>,
+        executor_cred: ExecutorCred,
+    ) -> Self {
         Self {
             topic,
             index,
+            executor_cred,
             pd: Default::default(),
         }
     }
@@ -51,10 +86,11 @@ where
 
 async fn extract_transitions<Entity, Index>(
     index: Arc<Mutex<Index>>,
+    executor_cred: ExecutorCred,
     mut tx: BabbageTransaction,
 ) -> Result<Vec<Ior<Entity, Entity>>, BabbageTransaction>
 where
-    Entity: EntitySnapshot + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone,
+    Entity: EntitySnapshot + TryFromLedger<BabbageTransactionOutput, HandlerContext> + Clone,
     Entity::Version: From<OutputRef>,
     Index: EntityIndex<Entity>,
 {
@@ -75,7 +111,7 @@ where
     let mut non_processed_outputs = vec![];
     while let Some(o) = tx.body.outputs.pop() {
         let o_ref = OutputRef::new(tx_hash, ix as u64);
-        match Entity::try_from_ledger(&o, o_ref) {
+        match Entity::try_from_ledger(&o, HandlerContext::new(o_ref, executor_cred)) {
             Some(entity) => {
                 let entity_id = entity.stable_id();
                 produced_entities.insert(entity_id, entity);
@@ -126,7 +162,7 @@ where
     Topic::Error: Debug,
     Entity: EntitySnapshot
         + Tradable<PairId = PairId>
-        + TryFromLedger<BabbageTransactionOutput, OutputRef>
+        + TryFromLedger<BabbageTransactionOutput, HandlerContext>
         + Clone
         + Debug,
     Entity::Version: From<OutputRef>,
@@ -138,7 +174,7 @@ where
     ) -> Option<LedgerTxEvent<BabbageTransaction>> {
         match ev {
             LedgerTxEvent::TxApplied { tx, slot } => {
-                match extract_transitions(Arc::clone(&self.index), tx).await {
+                match extract_transitions(Arc::clone(&self.index), self.executor_cred, tx).await {
                     Ok(transitions) => {
                         trace!("[{}] entities parsed from applied tx", transitions.len());
                         let mut index = self.index.lock().await;
@@ -171,41 +207,45 @@ where
                     Err(tx) => Some(LedgerTxEvent::TxApplied { tx, slot }),
                 }
             }
-            LedgerTxEvent::TxUnapplied(tx) => match extract_transitions(Arc::clone(&self.index), tx).await {
-                Ok(transitions) => {
-                    trace!("[{}] entities parsed from unapplied tx", transitions.len());
-                    let mut index = self.index.lock().await;
-                    if !transitions.is_empty() {
-                        index.run_eviction();
-                    }
-                    for tr in transitions {
-                        match &tr {
-                            Ior::Left(consumed) => {
-                                index.put_state(consumed.clone());
-                            }
-                            Ior::Right(produced) => {
-                                index.remove_state(&produced.version());
-                            }
-                            Ior::Both(consumed, produced) => {
-                                index.put_state(consumed.clone());
-                                index.remove_state(&produced.version());
-                            }
+            LedgerTxEvent::TxUnapplied(tx) => {
+                match extract_transitions(Arc::clone(&self.index), self.executor_cred, tx).await {
+                    Ok(transitions) => {
+                        trace!("[{}] entities parsed from unapplied tx", transitions.len());
+                        let mut index = self.index.lock().await;
+                        if !transitions.is_empty() {
+                            index.run_eviction();
                         }
-                        let pair = pair_id_of(&tr);
-                        let topic = self.topic.get_mut(pair);
-                        topic
-                            .feed((
-                                pair,
-                                EitherMod::Confirmed(Confirmed(StateUpdate::TransitionRollback(tr.swap()))),
-                            ))
-                            .await
-                            .expect("Channel is closed");
-                        topic.flush().await.expect("Failed to commit message");
+                        for tr in transitions {
+                            match &tr {
+                                Ior::Left(consumed) => {
+                                    index.put_state(consumed.clone());
+                                }
+                                Ior::Right(produced) => {
+                                    index.remove_state(&produced.version());
+                                }
+                                Ior::Both(consumed, produced) => {
+                                    index.put_state(consumed.clone());
+                                    index.remove_state(&produced.version());
+                                }
+                            }
+                            let pair = pair_id_of(&tr);
+                            let topic = self.topic.get_mut(pair);
+                            topic
+                                .feed((
+                                    pair,
+                                    EitherMod::Confirmed(Confirmed(StateUpdate::TransitionRollback(
+                                        tr.swap(),
+                                    ))),
+                                ))
+                                .await
+                                .expect("Channel is closed");
+                            topic.flush().await.expect("Failed to commit message");
+                        }
+                        None
                     }
-                    None
+                    Err(tx) => Some(LedgerTxEvent::TxUnapplied(tx)),
                 }
-                Err(tx) => Some(LedgerTxEvent::TxUnapplied(tx)),
-            },
+            }
         }
     }
 }
@@ -219,7 +259,7 @@ where
     Topic::Error: Debug,
     Entity: EntitySnapshot
         + Tradable<PairId = PairId>
-        + TryFromLedger<BabbageTransactionOutput, OutputRef>
+        + TryFromLedger<BabbageTransactionOutput, HandlerContext>
         + Clone
         + Debug,
     Entity::Version: From<OutputRef>,
@@ -230,24 +270,26 @@ where
         ev: MempoolUpdate<BabbageTransaction>,
     ) -> Option<MempoolUpdate<BabbageTransaction>> {
         match ev {
-            MempoolUpdate::TxAccepted(tx) => match extract_transitions(Arc::clone(&self.index), tx).await {
-                Ok(transitions) => {
-                    for tr in transitions {
-                        let pair = pair_id_of(&tr);
-                        let topic = self.topic.get_mut(pair);
-                        topic
-                            .feed((
-                                pair,
-                                EitherMod::Unconfirmed(Unconfirmed(StateUpdate::Transition(tr))),
-                            ))
-                            .await
-                            .expect("Channel is closed");
-                        topic.flush().await.expect("Failed to commit message");
+            MempoolUpdate::TxAccepted(tx) => {
+                match extract_transitions(Arc::clone(&self.index), self.executor_cred, tx).await {
+                    Ok(transitions) => {
+                        for tr in transitions {
+                            let pair = pair_id_of(&tr);
+                            let topic = self.topic.get_mut(pair);
+                            topic
+                                .feed((
+                                    pair,
+                                    EitherMod::Unconfirmed(Unconfirmed(StateUpdate::Transition(tr))),
+                                ))
+                                .await
+                                .expect("Channel is closed");
+                            topic.flush().await.expect("Failed to commit message");
+                        }
+                        None
                     }
-                    None
+                    Err(tx) => Some(MempoolUpdate::TxAccepted(tx)),
                 }
-                Err(tx) => Some(MempoolUpdate::TxAccepted(tx)),
-            },
+            }
         }
     }
 }
@@ -270,13 +312,14 @@ mod tests {
     use futures::StreamExt;
     use tokio::sync::Mutex;
 
+    use crate::creds::ExecutorCred;
     use cardano_chain_sync::data::LedgerTxEvent;
     use spectrum_cardano_lib::hash::hash_transaction_canonical;
     use spectrum_cardano_lib::transaction::TransactionOutputExtension;
     use spectrum_cardano_lib::OutputRef;
     use spectrum_offchain::combinators::Ior;
     use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate};
-    use spectrum_offchain::data::{EntitySnapshot, Stable, Tradable};
+    use spectrum_offchain::data::{EntitySnapshot, Has, Stable, Tradable};
     use spectrum_offchain::event_sink::event_handler::EventHandler;
     use spectrum_offchain::ledger::TryFromLedger;
     use spectrum_offchain::partitioning::Partitioned;
@@ -314,9 +357,12 @@ mod tests {
         }
     }
 
-    impl TryFromLedger<BabbageTransactionOutput, OutputRef> for TrivialEntity {
-        fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
-            Some(TrivialEntity(ctx, repr.value().coin))
+    impl<C> TryFromLedger<BabbageTransactionOutput, C> for TrivialEntity
+    where
+        C: Has<OutputRef>,
+    {
+        fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
+            Some(TrivialEntity(ctx.get_labeled::<OutputRef>(), repr.value().coin))
         }
     }
 
@@ -366,7 +412,8 @@ mod tests {
             InMemoryEntityIndex::new(entity_eviction_delay).with_tracing(),
         ));
         let (snd, mut recv) = mpsc::channel::<(u8, EitherMod<StateUpdate<TrivialEntity>>)>(100);
-        let mut handler = PairUpdateHandler::new(Partitioned::new([snd]), index);
+        let ex_cred = ExecutorCred(Ed25519KeyHash::from([0u8; 28]));
+        let mut handler = PairUpdateHandler::new(Partitioned::new([snd]), index, ex_cred);
         // Handle tx application
         EventHandler::<LedgerTxEvent<BabbageTransaction>>::try_handle(
             &mut handler,

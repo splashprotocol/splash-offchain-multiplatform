@@ -159,7 +159,9 @@ where
         };
         // todo: replace `tx_builder.output_sizes()`
         let successor_ix = tx_builder.output_sizes().len();
-        let span = filled_ord.order().current_span_ix(context.get::<NetworkTime>());
+        let span = filled_ord
+            .order()
+            .current_span_ix(context.get_labeled::<NetworkTime>());
         let order_script = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(candidate.script_hash().unwrap()),
             auction_redeemer(span.index, successor_ix as u16),

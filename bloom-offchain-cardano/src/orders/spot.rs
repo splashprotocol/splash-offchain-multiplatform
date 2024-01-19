@@ -8,6 +8,7 @@ use cml_core::serialization::{LenEncoding, StringEncoding};
 use cml_crypto::Ed25519KeyHash;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
+use crate::creds::ExecutorCred;
 use bloom_offchain::execution_engine::liquidity_book::fragment::{
     ExBudgetUsed, Fragment, OrderState, StateTrans,
 };
@@ -22,8 +23,8 @@ use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtensio
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{AssetClass, OutputRef};
-use spectrum_offchain::data::{Stable, Tradable};
+use spectrum_cardano_lib::AssetClass;
+use spectrum_offchain::data::{Has, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::data::pair::{side_of, PairId};
 
@@ -58,6 +59,8 @@ pub struct SpotOrder {
     pub redeemer_pkh: Ed25519KeyHash,
     /// Redeemer stake PKH.
     pub redeemer_stake_cred: Option<AnyCredential>,
+    /// Is executor's signature required.
+    pub requires_executor_sig: bool,
 }
 
 impl SpotOrder {
@@ -169,6 +172,7 @@ struct ConfigNativeToToken {
     pub base_price: RelativePrice,
     pub fee_per_output: FeePerOutput,
     pub redeemer_pkh: Ed25519KeyHash,
+    pub permitted_executors: Vec<Ed25519KeyHash>,
 }
 
 impl TryFromPData for ConfigNativeToToken {
@@ -185,32 +189,45 @@ impl TryFromPData for ConfigNativeToToken {
             base_price: RelativePrice::try_from_pd(cpd.take_field(5)?)?,
             fee_per_output: FeePerOutput::try_from_pd(cpd.take_field(6)?)?,
             redeemer_pkh: Ed25519KeyHash::from(<[u8; 28]>::try_from(cpd.take_field(7)?.into_bytes()?).ok()?),
+            permitted_executors: cpd
+                .take_field(8)?
+                .into_vec()?
+                .into_iter()
+                .filter_map(|pd| Some(Ed25519KeyHash::from(<[u8; 28]>::try_from(pd.into_bytes()?).ok()?)))
+                .collect(),
         })
     }
 }
 
-impl TryFromLedger<BabbageTransactionOutput, OutputRef> for SpotOrder {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, _ctx: OutputRef) -> Option<Self> {
+impl<C> TryFromLedger<BabbageTransactionOutput, C> for SpotOrder
+where
+    C: Has<ExecutorCred>,
+{
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
         let value = repr.value().clone();
         let conf = ConfigNativeToToken::try_from_pd(repr.datum()?.into_pd()?)?;
         let total_ada_input = value.amount_of(AssetClass::Native)?;
         let execution_budget = total_ada_input - conf.tradable_input;
-        if execution_budget > conf.cost_per_ex_step {
-            return Some(SpotOrder {
-                beacon: conf.beacon,
-                input_asset: AssetClass::Native,
-                input_amount: conf.tradable_input,
-                output_asset: conf.output,
-                output_amount: value.amount_of(conf.output)?,
-                base_price: conf.base_price,
-                execution_budget,
-                fee_asset: AssetClass::Native,
-                fee_per_output: conf.fee_per_output,
-                min_marginal_output: conf.min_marginal_output,
-                max_cost_per_ex_step: conf.cost_per_ex_step,
-                redeemer_pkh: conf.redeemer_pkh,
-                redeemer_stake_cred: repr.address().staking_cred().cloned().map(|x| x.into()),
-            });
+        let is_permissionless = conf.permitted_executors.is_empty();
+        if is_permissionless || conf.permitted_executors.contains(&ctx.get().into()) {
+            if execution_budget > conf.cost_per_ex_step {
+                return Some(SpotOrder {
+                    beacon: conf.beacon,
+                    input_asset: AssetClass::Native,
+                    input_amount: conf.tradable_input,
+                    output_asset: conf.output,
+                    output_amount: value.amount_of(conf.output)?,
+                    base_price: conf.base_price,
+                    execution_budget,
+                    fee_asset: AssetClass::Native,
+                    fee_per_output: conf.fee_per_output,
+                    min_marginal_output: conf.min_marginal_output,
+                    max_cost_per_ex_step: conf.cost_per_ex_step,
+                    redeemer_pkh: conf.redeemer_pkh,
+                    redeemer_stake_cred: repr.address().staking_cred().cloned().map(|x| x.into()),
+                    requires_executor_sig: !is_permissionless,
+                });
+            }
         }
         None
     }

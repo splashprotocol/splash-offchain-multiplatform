@@ -2,7 +2,7 @@ use type_equalities::IsEqual;
 
 use bloom_offchain::execution_engine::liquidity_book::ExecutionCap;
 use bloom_offchain::execution_engine::types::Time;
-use bloom_offchain_cardano::operator_address::RewardAddress;
+use bloom_offchain_cardano::creds::RewardAddress;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_offchain::data::Has;
 use spectrum_offchain_cardano::data::pool::CFMMPoolRefScriptOutput;
@@ -18,37 +18,37 @@ pub struct ExecutionContext {
 }
 
 impl Has<Time> for ExecutionContext {
-    fn get<U: IsEqual<Time>>(&self) -> Time {
+    fn get_labeled<U: IsEqual<Time>>(&self) -> Time {
         self.time
     }
 }
 
 impl Has<ExecutionCap> for ExecutionContext {
-    fn get<U: IsEqual<ExecutionCap>>(&self) -> ExecutionCap {
+    fn get_labeled<U: IsEqual<ExecutionCap>>(&self) -> ExecutionCap {
         self.execution_cap
     }
 }
 
 impl Has<Collateral> for ExecutionContext {
-    fn get<U: IsEqual<Collateral>>(&self) -> Collateral {
+    fn get_labeled<U: IsEqual<Collateral>>(&self) -> Collateral {
         self.collateral.clone()
     }
 }
 
 impl Has<RewardAddress> for ExecutionContext {
-    fn get<U: IsEqual<RewardAddress>>(&self) -> RewardAddress {
+    fn get_labeled<U: IsEqual<RewardAddress>>(&self) -> RewardAddress {
         self.reward_addr.clone()
     }
 }
 
 impl Has<CFMMPoolRefScriptOutput<1>> for ExecutionContext {
-    fn get<U: IsEqual<CFMMPoolRefScriptOutput<1>>>(&self) -> CFMMPoolRefScriptOutput<1> {
+    fn get_labeled<U: IsEqual<CFMMPoolRefScriptOutput<1>>>(&self) -> CFMMPoolRefScriptOutput<1> {
         CFMMPoolRefScriptOutput(self.refs.pool_v1.clone())
     }
 }
 
 impl Has<CFMMPoolRefScriptOutput<2>> for ExecutionContext {
-    fn get<U: IsEqual<CFMMPoolRefScriptOutput<2>>>(&self) -> CFMMPoolRefScriptOutput<2> {
+    fn get_labeled<U: IsEqual<CFMMPoolRefScriptOutput<2>>>(&self) -> CFMMPoolRefScriptOutput<2> {
         CFMMPoolRefScriptOutput(self.refs.pool_v2.clone())
     }
 }

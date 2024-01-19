@@ -90,7 +90,7 @@ impl RequiresRefScript for ClassicalOnChainRedeem {
 
 impl RequiresRefScript for CFMMPool {
     fn get_ref_script(self, ref_scripts: ReferenceOutputs) -> TransactionUnspentOutput {
-        match self.get::<PoolVer>() {
+        match self.get_labeled::<PoolVer>() {
             PoolVer(1) => ref_scripts.pool_v1,
             PoolVer(_) => ref_scripts.pool_v2,
         }

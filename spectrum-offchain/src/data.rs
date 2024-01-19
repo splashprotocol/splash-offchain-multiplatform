@@ -9,8 +9,15 @@ use crate::ledger::TryFromLedger;
 pub mod order;
 pub mod unique_entity;
 
+/// Indicates presence of type [T] in implementor's type.
+/// Enables data polymorphism.
 pub trait Has<T> {
-    fn get<U: IsEqual<T>>(&self) -> T;
+    /// Use this when there are multiple [Has] bounds on a single type.
+    fn get_labeled<U: IsEqual<T>>(&self) -> T;
+    /// Use this otherwise.
+    fn get(&self) -> T {
+        self.get_labeled::<T>()
+    }
 }
 
 pub trait Stable {
@@ -96,7 +103,7 @@ impl<T, V> Has<V> for Baked<T, V>
 where
     V: Copy,
 {
-    fn get<U: IsEqual<V>>(&self) -> V {
+    fn get_labeled<U: IsEqual<V>>(&self) -> V {
         self.version
     }
 }
@@ -138,12 +145,13 @@ where
     }
 }
 
-impl<Repr, T, Version> TryFromLedger<Repr, Version> for Baked<T, Version>
+impl<Repr, T, C, Version> TryFromLedger<Repr, C> for Baked<T, Version>
 where
-    T: TryFromLedger<Repr, Version>,
+    T: TryFromLedger<Repr, C>,
     Version: Copy,
+    C: Copy + Has<Version>,
 {
-    fn try_from_ledger(repr: &Repr, ctx: Version) -> Option<Self> {
-        T::try_from_ledger(repr, ctx).map(|r| Baked::new(r, ctx))
+    fn try_from_ledger(repr: &Repr, ctx: C) -> Option<Self> {
+        T::try_from_ledger(repr, ctx).map(|r| Baked::new(r, ctx.get_labeled::<Version>()))
     }
 }

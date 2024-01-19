@@ -187,8 +187,8 @@ where
             .add_output(SingleOutputBuilderResult::new(produced_out))
             .unwrap();
         let pool_ref_script = match pool.ver {
-            PoolVer::V1 => context.get::<CFMMPoolRefScriptOutput<1>>().0,
-            _ => context.get::<CFMMPoolRefScriptOutput<2>>().0,
+            PoolVer::V1 => context.get_labeled::<CFMMPoolRefScriptOutput<1>>().0,
+            _ => context.get_labeled::<CFMMPoolRefScriptOutput<2>>().0,
         };
         state.tx_builder.add_reference_input(pool_ref_script);
         state.tx_builder.add_input(pool_in).unwrap();
