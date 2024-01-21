@@ -155,6 +155,42 @@ pub fn check_crypto_invariant_extremum(
     err_left > err_eq && err_right > err_eq
 }
 
+pub fn calculate_d_as_geometric_mean(n: &u32, nn: &U512, p: &U512, reserves: &Vec<U512>) -> U512 {
+    let unit = U512::from(1);
+    let n_calc = U512::from(*n);
+
+    let mut d = reserves.iter().fold(unit, |a, b| a.max(*b));
+    let mut abs_error = d;
+
+    while abs_error > unit {
+        let d_previous = d;
+
+        let dn = vec![d_previous; usize::try_from(n_calc).unwrap()]
+            .iter()
+            .copied()
+            .reduce(|a, b| a * b)
+            .unwrap();
+
+        let nnp = nn * p;
+        let f_value = if dn > nnp { dn - nnp } else { nnp - dn };
+
+        let f_derivative_value = n_calc * dn / d_previous;
+
+        d = if dn > nnp {
+            d_previous - f_value / f_derivative_value
+        } else {
+            d_previous + f_value / f_derivative_value
+        };
+
+        abs_error = if d >= d_previous {
+            d - d_previous
+        } else {
+            d_previous - d
+        };
+    }
+    d - unit
+}
+
 /// CurveCrypto invariant value numerical calculation procedure.
 /// \
 /// Note: input reserves balances must be reduced to a common denominator (precision).
@@ -188,7 +224,8 @@ pub fn calculate_crypto_invariant(
     let s = reserves.iter().copied().reduce(|x, y| x + y).unwrap();
     let p = reserves.iter().copied().reduce(|x, y| x * y).unwrap();
 
-    let mut d = s.clone();
+    let mut d = calculate_d_as_geometric_mean(n_assets, &nn, &p, reserves);
+    // let mut d = s;
     let mut abs_d_error = d;
     while abs_d_error > unit {
         let d_previous = d;
@@ -413,7 +450,6 @@ pub fn calculate_crypto_exchange(
             } else {
                 balance_j_previous - balance_j
             };
-            balance_j = balance_j
         }
     }
     // Adjust the calculated final balance of the "quote" asset:
@@ -464,6 +500,7 @@ pub fn calculate_crypto_exchange(
     balance_j
 }
 
+#[cfg(test)]
 mod test {
     use primitive_types::U512;
     use rand::seq::SliceRandom;
@@ -472,7 +509,7 @@ mod test {
     use crate::curve_crypto_invariant::{
         calculate_crypto_exchange, calculate_crypto_invariant,
         calculate_crypto_invariant_error_from_balances, calculate_crypto_invariant_error_from_totals,
-        check_crypto_invariant_extremum,
+        calculate_d_as_geometric_mean, check_crypto_invariant_extremum,
     };
 
     #[test]
@@ -480,7 +517,7 @@ mod test {
         let n_assets_set: Vec<u32> = vec![2, 3, 4];
         let mut rng = rand::thread_rng();
         let mut err_vec = Vec::new();
-        for _ in 0..1000 {
+        for _ in 0..10000 {
             let a: U512 = U512::from(rng.gen_range(1..2000));
             let n = *n_assets_set.choose(&mut rand::thread_rng()).unwrap();
             let nn = U512::from(n.pow(n));
@@ -511,7 +548,7 @@ mod test {
     fn calculate_crypto_invariant_error_from_balances_test() {
         let n_assets_set: Vec<u32> = vec![2, 3, 4];
         let mut rng = rand::thread_rng();
-        for _ in 0..1000 {
+        for _ in 0..10000 {
             let a: U512 = U512::from(rng.gen_range(1..2000));
             let n = *n_assets_set.choose(&mut rand::thread_rng()).unwrap();
             let balance: u64 = rng.gen();
@@ -535,7 +572,7 @@ mod test {
     fn check_crypto_invariant_extremum_test() {
         let n_assets_set: Vec<u32> = vec![2, 3, 4];
         let mut rng = rand::thread_rng();
-        for _ in 0..1000 {
+        for _ in 0..10000 {
             let a = U512::from(rng.gen_range(1..2000) as u64);
             let n = *n_assets_set.choose(&mut rand::thread_rng()).unwrap();
             let balance: u64 = rng.gen();
@@ -550,10 +587,25 @@ mod test {
     }
 
     #[test]
-    fn calculate_crypto_invariant_test() {
+    fn calculate_d_as_geometric_mean_test() {
         let n_assets_set: Vec<u32> = vec![2, 3, 4];
         let mut rng = rand::thread_rng();
         for _ in 0..1000 {
+            let n = *n_assets_set.choose(&mut rand::thread_rng()).unwrap();
+            let nn = U512::from(n.pow(n));
+            let balance: u64 = rng.gen();
+            let reserves = vec![U512::from(balance); n as usize];
+            let p = reserves.iter().copied().reduce(|a, b| a * b).unwrap();
+            let s = reserves.iter().copied().reduce(|a, b| a + b).unwrap();
+            let d_mean = calculate_d_as_geometric_mean(&n, &nn, &p, &reserves);
+            assert_eq!(d_mean, s);
+        }
+    }
+    #[test]
+    fn calculate_crypto_invariant_test() {
+        let n_assets_set: Vec<u32> = vec![2, 3, 4];
+        let mut rng = rand::thread_rng();
+        for _ in 0..10000 {
             let a = U512::from(rng.gen_range(1..2000));
             let n = *n_assets_set.choose(&mut rand::thread_rng()).unwrap();
             let balance: u64 = rng.gen();
@@ -570,7 +622,7 @@ mod test {
     fn calculate_crypto_exchange_test() {
         let n_assets_set: Vec<u32> = vec![3, 4];
         let mut rng = rand::thread_rng();
-        for _ in 0..1 {
+        for _ in 0..10000 {
             let a = U512::from(rng.gen_range(1..2000) as u64);
             let n = *n_assets_set.choose(&mut rand::thread_rng()).unwrap();
             let balance: u64 = u64::MAX;
