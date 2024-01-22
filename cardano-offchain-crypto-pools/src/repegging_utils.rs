@@ -1,5 +1,14 @@
 use primitive_types::U512;
 
+/// Calculates constant product profit value.
+///
+/// # Arguments
+/// * `n` - Number of tradable assets;
+/// * `nn` - `n`^`n`;
+/// * `dn` - `d`^`n`, where `d` is current value of the CurveCrypto invariant;
+/// * `price_vector` - vector of the current pool reserves (multiplied by prices) ;
+/// # Outputs
+/// * `x_cp` - profit value.
 pub fn calculate_x_cp(n: &u32, nn: &U512, dn: &U512, price_vector: &Vec<U512>) -> U512 {
     let unit = U512::from(1);
     let n_calc = U512::from(*n);
