@@ -216,7 +216,7 @@ pub fn unsafe_update_n2t_variables(
     tradable_input: InputAsset<u64>,
     fee: FeeAsset<u64>,
 ) {
-    let mut cpd = data.get_constr_pd_mut().unwrap();
+    let cpd = data.get_constr_pd_mut().unwrap();
     cpd.set_field(N2T_DATUM_MAPPING.tradable_input, tradable_input.into_pd());
     cpd.set_field(N2T_DATUM_MAPPING.fee, fee.into_pd());
 }
@@ -225,18 +225,22 @@ impl TryFromPData for ConfigNativeToToken {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
         Some(ConfigNativeToToken {
-            beacon: <[u8; 28]>::try_from(cpd.take_field(0)?.into_bytes()?)
+            beacon: <[u8; 28]>::try_from(cpd.take_field(N2T_DATUM_MAPPING.beacon)?.into_bytes()?)
                 .map(PolicyId::from)
                 .ok()?,
-            tradable_input: cpd.take_field(1)?.into_u64()?,
-            cost_per_ex_step: cpd.take_field(2)?.into_u64()?,
-            min_marginal_output: cpd.take_field(3)?.into_u64()?,
-            output: AssetClass::try_from_pd(cpd.take_field(4)?)?,
-            base_price: RelativePrice::try_from_pd(cpd.take_field(5)?)?,
-            fee: cpd.take_field(6)?.into_u64()?,
-            redeemer_pkh: Ed25519KeyHash::from(<[u8; 28]>::try_from(cpd.take_field(7)?.into_bytes()?).ok()?),
+            tradable_input: cpd.take_field(N2T_DATUM_MAPPING.beacon)?.into_u64()?,
+            cost_per_ex_step: cpd.take_field(N2T_DATUM_MAPPING.cost_per_ex_step)?.into_u64()?,
+            min_marginal_output: cpd
+                .take_field(N2T_DATUM_MAPPING.min_marginal_output)?
+                .into_u64()?,
+            output: AssetClass::try_from_pd(cpd.take_field(N2T_DATUM_MAPPING.output)?)?,
+            base_price: RelativePrice::try_from_pd(cpd.take_field(N2T_DATUM_MAPPING.base_price)?)?,
+            fee: cpd.take_field(N2T_DATUM_MAPPING.fee)?.into_u64()?,
+            redeemer_pkh: Ed25519KeyHash::from(
+                <[u8; 28]>::try_from(cpd.take_field(N2T_DATUM_MAPPING.redeemer_pkh)?.into_bytes()?).ok()?,
+            ),
             permitted_executors: cpd
-                .take_field(8)?
+                .take_field(N2T_DATUM_MAPPING.permitted_executors)?
                 .into_vec()?
                 .into_iter()
                 .filter_map(|pd| Some(Ed25519KeyHash::from(<[u8; 28]>::try_from(pd.into_bytes()?).ok()?)))
