@@ -1,25 +1,25 @@
 use std::cmp::Ordering;
 
 use cml_chain::certs::Credential;
-use cml_chain::plutus::{ConstrPlutusData, PlutusData};
+use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData};
 use cml_chain::utils::BigInt;
 use cml_chain::PolicyId;
 use cml_core::serialization::{LenEncoding, StringEncoding};
 use cml_crypto::Ed25519KeyHash;
 use cml_multi_era::babbage::BabbageTransactionOutput;
+use num_rational::Ratio;
 
-use crate::creds::ExecutorCred;
-use bloom_offchain::execution_engine::liquidity_book::fragment::{
-    ExBudgetUsed, Fragment, OrderState, StateTrans,
-};
+use bloom_offchain::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use bloom_offchain::execution_engine::liquidity_book::side::SideM;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
 use bloom_offchain::execution_engine::liquidity_book::types::{
-    AbsolutePrice, ExCostUnits, FeeExtension, FeePerOutput, RelativePrice,
+    AbsolutePrice, ExBudgetUsed, ExCostUnits, ExFeeUsed, FeeAsset, InputAsset, OutputAsset, RelativePrice,
 };
 use bloom_offchain::execution_engine::liquidity_book::weight::Weighted;
 use spectrum_cardano_lib::credential::AnyCredential;
-use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension};
+use spectrum_cardano_lib::plutus_data::{
+    ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
+};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
@@ -28,7 +28,13 @@ use spectrum_offchain::data::{Has, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::data::pair::{side_of, PairId};
 
-pub type FeeCurrency<T> = T;
+use crate::creds::ExecutorCred;
+
+pub const SPOT_ORDER_N2T_EX_UNITS: ExUnits = ExUnits {
+    mem: 500_000,
+    steps: 200_000_000,
+    encodings: None,
+};
 
 /// Spot order. Can be executed at a configured or better price as long as there is enough budget.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -38,23 +44,23 @@ pub struct SpotOrder {
     /// What user pays.
     pub input_asset: AssetClass,
     /// Remaining tradable input.
-    pub input_amount: u64,
+    pub input_amount: InputAsset<u64>,
     /// What user receives.
     pub output_asset: AssetClass,
     /// Accumulated output.
-    pub output_amount: u64,
+    pub output_amount: OutputAsset<u64>,
     /// Worst acceptable price (Output/Input).
     pub base_price: RelativePrice,
     /// Currency used to pay for execution.
     pub fee_asset: AssetClass,
     /// Remaining ADA to facilitate execution.
-    pub execution_budget: FeeCurrency<u64>,
-    /// Fee per output unit.
-    pub fee_per_output: FeeCurrency<FeePerOutput>,
+    pub execution_budget: FeeAsset<u64>,
+    /// Fee reserved for whole swap.
+    pub fee: FeeAsset<u64>,
     /// Assumed cost (in Lovelace) of one step of execution.
-    pub max_cost_per_ex_step: FeeCurrency<u64>,
+    pub max_cost_per_ex_step: FeeAsset<u64>,
     /// Minimal marginal output allowed per execution step.
-    pub min_marginal_output: u64,
+    pub min_marginal_output: OutputAsset<u64>,
     /// Redeemer PKH.
     pub redeemer_pkh: Ed25519KeyHash,
     /// Redeemer stake PKH.
@@ -108,17 +114,19 @@ impl OrderState for SpotOrder {
         mut self,
         removed_input: u64,
         added_output: u64,
-    ) -> (StateTrans<Self>, ExBudgetUsed) {
+    ) -> (StateTrans<Self>, ExBudgetUsed, ExFeeUsed) {
         self.input_amount -= removed_input;
         self.output_amount += added_output;
-        let budget_used = self.fee_per_output.linear_fee(added_output) + self.max_cost_per_ex_step;
+        let budget_used = self.max_cost_per_ex_step;
         self.execution_budget -= budget_used;
+        let fee_used = self.liner_fee(removed_input);
+        self.fee -= fee_used;
         let next_st = if self.execution_budget < self.max_cost_per_ex_step || self.input_amount == 0 {
             StateTrans::EOL
         } else {
             StateTrans::Active(self)
         };
-        (next_st, budget_used)
+        (next_st, budget_used, fee_used)
     }
 }
 
@@ -135,8 +143,12 @@ impl Fragment for SpotOrder {
         AbsolutePrice::from_price(self.side(), self.base_price)
     }
 
-    fn fee(&self) -> FeePerOutput {
-        self.fee_per_output
+    fn liner_fee(&self, input_consumed: InputAsset<u64>) -> FeeAsset<u64> {
+        self.fee * input_consumed / self.input_amount
+    }
+
+    fn weighted_fee(&self) -> FeeAsset<Ratio<u64>> {
+        Ratio::new(self.fee, self.input_amount)
     }
 
     fn marginal_cost_hint(&self) -> ExCostUnits {
@@ -165,14 +177,48 @@ impl Tradable for SpotOrder {
 
 struct ConfigNativeToToken {
     pub beacon: PolicyId,
-    pub tradable_input: u64,
-    pub cost_per_ex_step: u64,
-    pub min_marginal_output: u64,
+    pub tradable_input: InputAsset<u64>,
+    pub cost_per_ex_step: FeeAsset<u64>,
+    pub min_marginal_output: OutputAsset<u64>,
     pub output: AssetClass,
     pub base_price: RelativePrice,
-    pub fee_per_output: FeePerOutput,
+    pub fee: FeeAsset<u64>,
     pub redeemer_pkh: Ed25519KeyHash,
     pub permitted_executors: Vec<Ed25519KeyHash>,
+}
+
+struct DatumNativeToTokenMapping {
+    pub beacon: usize,
+    pub tradable_input: usize,
+    pub cost_per_ex_step: usize,
+    pub min_marginal_output: usize,
+    pub output: usize,
+    pub base_price: usize,
+    pub fee: usize,
+    pub redeemer_pkh: usize,
+    pub permitted_executors: usize,
+}
+
+pub const N2T_DATUM_MAPPING: DatumNativeToTokenMapping = DatumNativeToTokenMapping {
+    beacon: 0,
+    tradable_input: 1,
+    cost_per_ex_step: 2,
+    min_marginal_output: 3,
+    output: 4,
+    base_price: 5,
+    fee: 6,
+    redeemer_pkh: 7,
+    permitted_executors: 8,
+};
+
+pub fn unsafe_update_n2t_variables(
+    data: &mut PlutusData,
+    tradable_input: InputAsset<u64>,
+    fee: FeeAsset<u64>,
+) {
+    let mut cpd = data.get_constr_pd_mut().unwrap();
+    cpd.set_field(N2T_DATUM_MAPPING.tradable_input, tradable_input.into_pd());
+    cpd.set_field(N2T_DATUM_MAPPING.fee, fee.into_pd());
 }
 
 impl TryFromPData for ConfigNativeToToken {
@@ -187,7 +233,7 @@ impl TryFromPData for ConfigNativeToToken {
             min_marginal_output: cpd.take_field(3)?.into_u64()?,
             output: AssetClass::try_from_pd(cpd.take_field(4)?)?,
             base_price: RelativePrice::try_from_pd(cpd.take_field(5)?)?,
-            fee_per_output: FeePerOutput::try_from_pd(cpd.take_field(6)?)?,
+            fee: cpd.take_field(6)?.into_u64()?,
             redeemer_pkh: Ed25519KeyHash::from(<[u8; 28]>::try_from(cpd.take_field(7)?.into_bytes()?).ok()?),
             permitted_executors: cpd
                 .take_field(8)?
@@ -220,7 +266,7 @@ where
                     base_price: conf.base_price,
                     execution_budget,
                     fee_asset: AssetClass::Native,
-                    fee_per_output: conf.fee_per_output,
+                    fee: conf.fee,
                     min_marginal_output: conf.min_marginal_output,
                     max_cost_per_ex_step: conf.cost_per_ex_step,
                     redeemer_pkh: conf.redeemer_pkh,

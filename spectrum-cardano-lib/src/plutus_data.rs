@@ -2,6 +2,7 @@ use std::mem;
 
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::DatumOption;
+use cml_chain::utils::BigInt;
 use cml_core::serialization::LenEncoding;
 
 /// Some on-chain entities may require a redeemer for a specific action.
@@ -9,8 +10,25 @@ pub trait RequiresRedeemer<Action> {
     fn redeemer(action: Action) -> PlutusData;
 }
 
+pub trait IntoPlutusData {
+    fn into_pd(self) -> PlutusData;
+}
+
+impl IntoPlutusData for u64 {
+    fn into_pd(self) -> PlutusData {
+        PlutusData::Integer(BigInt::from(self))
+    }
+}
+
+impl IntoPlutusData for ConstrPlutusData {
+    fn into_pd(self) -> PlutusData {
+        PlutusData::ConstrPlutusData(self)
+    }
+}
+
 pub trait PlutusDataExtension {
     fn into_constr_pd(self) -> Option<ConstrPlutusData>;
+    fn get_constr_pd_mut(&mut self) -> Option<&mut ConstrPlutusData>;
     fn into_bytes(self) -> Option<Vec<u8>>;
     fn into_u64(self) -> Option<u64>;
     fn into_u128(self) -> Option<u128>;
@@ -19,6 +37,13 @@ pub trait PlutusDataExtension {
 
 impl PlutusDataExtension for PlutusData {
     fn into_constr_pd(self) -> Option<ConstrPlutusData> {
+        match self {
+            PlutusData::ConstrPlutusData(cpd) => Some(cpd),
+            _ => None,
+        }
+    }
+
+    fn get_constr_pd_mut(&mut self) -> Option<&mut ConstrPlutusData> {
         match self {
             PlutusData::ConstrPlutusData(cpd) => Some(cpd),
             _ => None,
@@ -62,6 +87,10 @@ const DUMMY_PD: PlutusData = PlutusData::List {
 pub trait ConstrPlutusDataExtension {
     /// Takes field `PlutusData` at the specified `index` replacing it with a dummy value.
     fn take_field(&mut self, index: usize) -> Option<PlutusData>;
+    fn set_field(&mut self, index: usize, value: PlutusData);
+    fn update_field<F>(&mut self, index: usize, f: F)
+    where
+        F: FnOnce(PlutusData) -> PlutusData;
 }
 
 impl ConstrPlutusDataExtension for ConstrPlutusData {
@@ -69,6 +98,20 @@ impl ConstrPlutusDataExtension for ConstrPlutusData {
         let mut pd = DUMMY_PD;
         mem::swap(&mut pd, self.fields.get_mut(index)?);
         Some(pd)
+    }
+    fn set_field(&mut self, index: usize, value: PlutusData) {
+        self.fields.insert(index, value)
+    }
+    fn update_field<F>(&mut self, index: usize, f: F)
+    where
+        F: FnOnce(PlutusData) -> PlutusData,
+    {
+        if let Some(fld) = self.fields.get_mut(index) {
+            let mut pd = DUMMY_PD;
+            mem::swap(&mut pd, fld);
+            let mut updated_pd = f(pd);
+            mem::swap(&mut updated_pd, fld);
+        }
     }
 }
 

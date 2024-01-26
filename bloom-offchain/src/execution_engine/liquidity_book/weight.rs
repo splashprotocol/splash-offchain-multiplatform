@@ -3,10 +3,10 @@ use std::cmp::Ordering;
 use num_rational::Ratio;
 
 use crate::execution_engine::liquidity_book::fragment::Fragment;
-use crate::execution_engine::liquidity_book::types::{ExCostUnits, FeePerOutput};
+use crate::execution_engine::liquidity_book::types::{ExCostUnits, FeeAsset};
 
 #[derive(Copy, Clone, Eq, PartialEq)]
-pub struct OrderWeight(Ratio<u128>, ExCostUnits);
+pub struct OrderWeight(Ratio<u64>, ExCostUnits);
 
 impl PartialOrd for OrderWeight {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -27,7 +27,7 @@ impl Ord for OrderWeight {
 }
 
 impl OrderWeight {
-    pub fn new(fee: FeePerOutput, cost: ExCostUnits) -> Self {
+    pub fn new(fee: FeeAsset<Ratio<u64>>, cost: ExCostUnits) -> Self {
         Self(fee, cost)
     }
 }
@@ -41,7 +41,7 @@ where
     T: Fragment,
 {
     fn weight(&self) -> OrderWeight {
-        OrderWeight(self.fee(), self.marginal_cost_hint())
+        OrderWeight(self.weighted_fee(), self.marginal_cost_hint())
     }
 }
 

@@ -20,8 +20,7 @@ use spectrum_offchain_cardano::data::pool::{CFMMPool, CFMMPoolAction, CFMMPoolRe
 use spectrum_offchain_cardano::data::PoolVer;
 
 use crate::execution_engine::execution_state::ExecutionState;
-use crate::orders::auction::AUCTION_EXECUTION_UNITS;
-use crate::orders::spot::SpotOrder;
+use crate::orders::spot::{unsafe_update_n2t_variables, SpotOrder, SPOT_ORDER_N2T_EX_UNITS};
 use crate::orders::AnyOrder;
 use crate::pools::AnyPool;
 
@@ -44,12 +43,14 @@ impl<Ctx> BatchExec<ExecutionState, Option<IndexedTxOut>, Ctx, Void>
                 removed_input,
                 added_output,
                 budget_used,
+                fee_used,
             } => Magnet(LinkedFill {
                 target_fr: Bundled(o, src),
                 next_fr: transition.map(|AnyOrder::Spot(o2)| o2),
                 removed_input,
                 added_output,
                 budget_used,
+                fee_used,
             })
             .try_exec(state, context),
         }
@@ -70,16 +71,23 @@ impl<Ctx> BatchExec<ExecutionState, Option<IndexedTxOut>, Ctx, Void>
             removed_input,
             added_output,
             budget_used,
+            fee_used,
         }) = self;
         let mut candidate = consumed_out.clone();
-        // Subtract budget used to facilitate execution.
-        candidate.sub_asset(ord.fee_asset, budget_used);
+        // Subtract budget + fee used to facilitate execution.
+        candidate.sub_asset(ord.fee_asset, budget_used + fee_used);
         // Subtract tradable input used in exchange.
         candidate.sub_asset(ord.input_asset, removed_input);
         // Add output resulted from exchange.
         candidate.add_asset(ord.output_asset, added_output);
         let residual_order = match transition {
-            StateTrans::Active(_) => Some(candidate.clone()),
+            StateTrans::Active(next) => {
+                let mut candidate = candidate.clone();
+                if let Some(data) = candidate.data_mut() {
+                    unsafe_update_n2t_variables(data, next.input_amount, next.fee);
+                }
+                Some(candidate)
+            }
             StateTrans::EOL => {
                 candidate.null_datum();
                 candidate.update_payment_cred(ord.redeemer_cred());
@@ -102,7 +110,7 @@ impl<Ctx> BatchExec<ExecutionState, Option<IndexedTxOut>, Ctx, Void>
         state.tx_builder.add_input(order_in).unwrap();
         state.tx_builder.set_exunits(
             RedeemerWitnessKey::new(RedeemerTag::Spend, order_input_index),
-            AUCTION_EXECUTION_UNITS,
+            SPOT_ORDER_N2T_EX_UNITS,
         );
         state.add_ex_budget(ord.fee_asset, budget_used);
         Ok((

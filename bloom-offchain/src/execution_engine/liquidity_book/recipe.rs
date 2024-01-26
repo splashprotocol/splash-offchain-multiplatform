@@ -1,6 +1,7 @@
 use crate::execution_engine::bundled::Bundled;
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use crate::execution_engine::liquidity_book::side::SideM;
+use crate::execution_engine::liquidity_book::types::{FeeAsset, InputAsset, OutputAsset};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct LinkedExecutionRecipe<Fr, Pl, Src>(pub Vec<LinkedTerminalInstruction<Fr, Pl, Src>>);
@@ -77,9 +78,10 @@ pub enum TerminalInstruction<Fr, Pl> {
 pub struct LinkedFill<Fr, Src> {
     pub target_fr: Bundled<Fr, Src>,
     pub next_fr: StateTrans<Fr>,
-    pub removed_input: u64,
-    pub added_output: u64,
-    pub budget_used: u64,
+    pub removed_input: InputAsset<u64>,
+    pub added_output: OutputAsset<u64>,
+    pub budget_used: FeeAsset<u64>,
+    pub fee_used: FeeAsset<u64>,
 }
 
 impl<Fr, Src> LinkedFill<Fr, Src> {
@@ -90,6 +92,7 @@ impl<Fr, Src> LinkedFill<Fr, Src> {
             removed_input: fill.removed_input,
             added_output: fill.added_output,
             budget_used: fill.budget_used,
+            fee_used: fill.fee_used,
         }
     }
 }
@@ -100,21 +103,30 @@ pub struct Fill<Fr> {
     /// Next fragment [Fr] resulted from this transaction.
     pub next_fr: StateTrans<Fr>,
     /// Input asset removed as a result of this transaction.
-    pub removed_input: u64,
+    pub removed_input: InputAsset<u64>,
     /// Output asset added as a result of this transaction.
-    pub added_output: u64,
+    pub added_output: OutputAsset<u64>,
+    /// Overall execution budget used.
+    pub budget_used: FeeAsset<u64>,
     /// Execution fee charged.
-    pub budget_used: u64,
+    pub fee_used: FeeAsset<u64>,
 }
 
 impl<Fr: Fragment> Fill<Fr> {
-    pub fn new(target: Fr, transition: StateTrans<Fr>, added_output: u64, budget_used: u64) -> Self {
+    pub fn new(
+        target: Fr,
+        transition: StateTrans<Fr>,
+        added_output: OutputAsset<u64>,
+        budget_used: FeeAsset<u64>,
+        fee_used: FeeAsset<u64>,
+    ) -> Self {
         Self {
             removed_input: target.input(),
             budget_used,
             next_fr: transition,
             target_fr: target,
             added_output,
+            fee_used,
         }
     }
 }
@@ -133,7 +145,7 @@ where
     /// Force fill target fragment.
     /// Does not guarantee that the fragment is actually fully satisfied.
     pub fn filled_unsafe(self) -> Fill<Fr> {
-        let (tx, budget_used) = self
+        let (tx, budget_used, fee_used) = self
             .target
             .with_applied_swap(self.target.input(), self.accumulated_output);
         Fill {
@@ -142,6 +154,7 @@ where
             removed_input: self.target.input(),
             added_output: self.accumulated_output,
             budget_used,
+            fee_used,
         }
     }
 }
@@ -153,13 +166,14 @@ where
     fn from(value: PartialFill<Fr>) -> Self {
         let removed = value.target.input() - value.remaining_input;
         let added = value.accumulated_output;
-        let (transition, budget_used) = value.target.with_applied_swap(removed, added);
+        let (transition, budget_used, fee_used) = value.target.with_applied_swap(removed, added);
         Self {
             removed_input: removed,
             next_fr: transition,
             added_output: added,
             target_fr: value.target,
             budget_used,
+            fee_used,
         }
     }
 }

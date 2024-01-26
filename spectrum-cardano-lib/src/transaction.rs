@@ -2,10 +2,11 @@ use std::ops::{AddAssign, SubAssign};
 
 use cml_chain::address::Address;
 use cml_chain::certs::{Credential, StakeCredential};
+use cml_chain::plutus::PlutusData;
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, TransactionOutput};
 use cml_chain::Value;
 use cml_crypto::ScriptHash;
-use cml_multi_era::babbage::{BabbageScriptRef, BabbageTransactionOutput};
+use cml_multi_era::babbage::{BabbageFormatTxOut, BabbageScriptRef, BabbageTransactionOutput};
 
 use crate::address::AddressExtension;
 use crate::AssetClass;
@@ -15,6 +16,7 @@ pub trait TransactionOutputExtension {
     fn value(&self) -> &Value;
     fn value_mut(&mut self) -> &mut Value;
     fn datum(&self) -> Option<DatumOption>;
+    fn data_mut(&mut self) -> Option<&mut PlutusData>;
     fn null_datum(&mut self);
     fn into_datum(self) -> Option<DatumOption>;
     fn script_hash(&self) -> Option<ScriptHash>;
@@ -75,6 +77,15 @@ impl TransactionOutputExtension for BabbageTransactionOutput {
         match self {
             Self::AlonzoFormatTxOut(tx_out) => tx_out.datum_hash.map(DatumOption::new_hash).clone(),
             Self::BabbageFormatTxOut(tx_out) => tx_out.datum_option.clone(),
+        }
+    }
+    fn data_mut(&mut self) -> Option<&mut PlutusData> {
+        match self {
+            Self::BabbageFormatTxOut(BabbageFormatTxOut {
+                datum_option: Some(DatumOption::Datum { datum, .. }),
+                ..
+            }) => Some(datum),
+            _ => None,
         }
     }
     fn null_datum(&mut self) {
@@ -146,6 +157,15 @@ impl TransactionOutputExtension for TransactionOutput {
         match self {
             Self::AlonzoFormatTxOut(tx_out) => tx_out.datum_hash.map(DatumOption::new_hash).clone(),
             Self::ConwayFormatTxOut(tx_out) => tx_out.datum_option.clone(),
+        }
+    }
+    fn data_mut(&mut self) -> Option<&mut PlutusData> {
+        match self {
+            Self::ConwayFormatTxOut(ConwayFormatTxOut {
+                datum_option: Some(DatumOption::Datum { datum, .. }),
+                ..
+            }) => Some(datum),
+            _ => None,
         }
     }
     fn null_datum(&mut self) {
