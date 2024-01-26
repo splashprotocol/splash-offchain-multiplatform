@@ -12,7 +12,7 @@ use crate::execution_engine::liquidity_book::recipe::{
 };
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::state::{IdleState, TLBState, VersionedState};
-use crate::execution_engine::liquidity_book::types::{AbsolutePrice, ExCostUnits, FeeExtension};
+use crate::execution_engine::liquidity_book::types::{AbsolutePrice, ExCostUnits};
 use crate::execution_engine::liquidity_book::weight::Weighted;
 use crate::execution_engine::types::Time;
 use crate::maker::Maker;
@@ -290,18 +290,26 @@ where
                 let quote_executed = linear_output(supply_base, price);
                 bid.remaining_input -= quote_executed;
                 bid.accumulated_output += supply_base;
-                let (next_ask, ask_budget_used) = ask.with_applied_swap(ask.input(), quote_executed);
+                let (next_ask, ask_budget_used, fee_used) =
+                    ask.with_applied_swap(ask.input(), quote_executed);
                 FillFromFragment {
-                    term_fill_lt: Fill::new(ask, next_ask, quote_executed, ask_budget_used),
+                    term_fill_lt: Fill::new(ask, next_ask, quote_executed, ask_budget_used, fee_used),
                     fill_rt: Either::Right(bid),
                 }
             } else {
                 let quote_executed = linear_output(supply_base, price);
                 bid.accumulated_output += demand_base;
-                let (next_ask, ask_budget_used) = ask.with_applied_swap(ask.input(), quote_executed);
+                let (next_ask, ask_budget_used, fee_used) =
+                    ask.with_applied_swap(ask.input(), quote_executed);
                 FillFromFragment {
                     term_fill_lt: bid.filled_unsafe(),
-                    fill_rt: Either::Left(Fill::new(ask, next_ask, quote_executed, ask_budget_used)),
+                    fill_rt: Either::Left(Fill::new(
+                        ask,
+                        next_ask,
+                        quote_executed,
+                        ask_budget_used,
+                        fee_used,
+                    )),
                 }
             }
         }
@@ -319,9 +327,9 @@ where
             if supply_base > demand_base {
                 ask.remaining_input -= demand_base;
                 ask.accumulated_output += bid.input();
-                let (next_bid, bid_budget_used) = bid.with_applied_swap(bid.input(), demand_base);
+                let (next_bid, bid_budget_used, fee_used) = bid.with_applied_swap(bid.input(), demand_base);
                 FillFromFragment {
-                    term_fill_lt: Fill::new(bid, next_bid, demand_base, bid_budget_used),
+                    term_fill_lt: Fill::new(bid, next_bid, demand_base, bid_budget_used, fee_used),
                     fill_rt: Either::Right(ask),
                 }
             } else if supply_base < demand_base {
@@ -333,10 +341,10 @@ where
                 }
             } else {
                 ask.accumulated_output += bid.input();
-                let (next_bid, bid_budget_used) = bid.with_applied_swap(bid.input(), demand_base);
+                let (next_bid, bid_budget_used, fee_used) = bid.with_applied_swap(bid.input(), demand_base);
                 FillFromFragment {
                     term_fill_lt: ask.filled_unsafe(),
-                    fill_rt: Either::Left(Fill::new(bid, next_bid, demand_base, bid_budget_used)),
+                    fill_rt: Either::Left(Fill::new(bid, next_bid, demand_base, bid_budget_used, fee_used)),
                 }
             }
         }
@@ -454,6 +462,7 @@ mod tests {
                     removed_input: o2.input,
                     added_output: 1000,
                     budget_used: 990000,
+                    fee_used: 1000,
                 }),
                 TerminalInstruction::Swap(Swap {
                     target: p1,
@@ -468,6 +477,7 @@ mod tests {
                     removed_input: o1.input,
                     added_output: 738,
                     budget_used: 738000,
+                    fee_used: 1000,
                 }),
             ],
             remainder: None,

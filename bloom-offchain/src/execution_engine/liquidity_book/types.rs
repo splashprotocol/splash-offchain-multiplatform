@@ -10,17 +10,12 @@ pub type ExCostUnits = u64;
 /// Price of input asset denominated in units of output asset (Output/Input).
 pub type RelativePrice = Ratio<u128>;
 
-pub type FeePerOutput = Ratio<u128>;
+pub type InputAsset<T> = T;
+pub type OutputAsset<T> = T;
+pub type FeeAsset<T> = T;
 
-pub trait FeeExtension {
-    fn linear_fee(self, output: u64) -> u64;
-}
-
-impl FeeExtension for FeePerOutput {
-    fn linear_fee(self, output: u64) -> u64 {
-        u64::try_from((self * output as u128).to_integer()).unwrap()
-    }
-}
+pub type ExBudgetUsed = FeeAsset<u64>;
+pub type ExFeeUsed = FeeAsset<u64>;
 
 /// Price of base asset denominated in units of quote asset.
 #[repr(transparent)]

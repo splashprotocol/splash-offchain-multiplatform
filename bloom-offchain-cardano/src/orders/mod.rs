@@ -2,15 +2,15 @@ use cml_multi_era::babbage::BabbageTransactionOutput;
 
 use crate::creds::ExecutorCred;
 use bloom_derivation::{Fragment, Stable, Tradable};
-use bloom_offchain::execution_engine::liquidity_book::fragment::{ExBudgetUsed, OrderState, StateTrans};
+use bloom_offchain::execution_engine::liquidity_book::fragment::{OrderState, StateTrans};
 use bloom_offchain::execution_engine::liquidity_book::side::SideM;
-use spectrum_cardano_lib::{NetworkTime, OutputRef};
+use bloom_offchain::execution_engine::liquidity_book::types::{ExBudgetUsed, ExFeeUsed};
+use spectrum_cardano_lib::NetworkTime;
 use spectrum_offchain::data::Has;
 use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::orders::spot::SpotOrder;
 
-pub mod auction;
 pub mod spot;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Fragment, Stable, Tradable)]
@@ -24,11 +24,15 @@ impl OrderState for AnyOrder {
             AnyOrder::Spot(spot) => spot.with_updated_time(time).map(AnyOrder::Spot),
         }
     }
-    fn with_applied_swap(self, removed_input: u64, added_output: u64) -> (StateTrans<Self>, ExBudgetUsed) {
+    fn with_applied_swap(
+        self,
+        removed_input: u64,
+        added_output: u64,
+    ) -> (StateTrans<Self>, ExBudgetUsed, ExFeeUsed) {
         match self {
             AnyOrder::Spot(spot) => {
-                let (tx, budget) = spot.with_applied_swap(removed_input, added_output);
-                (tx.map(AnyOrder::Spot), budget)
+                let (tx, budget, fee) = spot.with_applied_swap(removed_input, added_output);
+                (tx.map(AnyOrder::Spot), budget, fee)
             }
         }
     }

@@ -19,7 +19,7 @@ use type_equalities::IsEqual;
 
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
-use bloom_offchain::execution_engine::liquidity_book::types::{AbsolutePrice, FeeExtension};
+use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
 };
@@ -46,6 +46,7 @@ use crate::data::pair::order_canonical;
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::ref_scripts::RequiresRefScript;
 use crate::data::{OnChain, OnChainOrderId, PoolId, PoolStateVer, PoolVer};
+use crate::fees::FeeExtension;
 
 pub struct Rx;
 
