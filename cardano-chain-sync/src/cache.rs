@@ -4,7 +4,7 @@ use std::sync::Arc;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tokio::task::spawn_blocking;
-
+use log::info;
 use crate::client::Point;
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -58,6 +58,7 @@ where
     async fn put_block(&self, point: Point, block: Linked<Block>) {
         let db = self.db.clone();
         spawn_blocking(move || {
+            info!("put_block: {}", block.to_string());
             db.put(
                 make_key(POINT_PREFIX, &point),
                 bincode::serialize(&block).unwrap(),
