@@ -11,7 +11,6 @@ use log::trace;
 use tokio::sync::Mutex;
 use type_equalities::IsEqual;
 
-use crate::creds::ExecutorCred;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_mempool_sync::data::MempoolUpdate;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
@@ -23,6 +22,7 @@ use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain::partitioning::Partitioned;
 
+use crate::creds::ExecutorCred;
 use crate::event_sink::entity_index::EntityIndex;
 
 #[derive(Copy, Clone, Debug)]
@@ -94,6 +94,10 @@ where
     Entity::Version: From<OutputRef>,
     Index: EntityIndex<Entity>,
 {
+    let num_outputs = tx.body.outputs.len();
+    if num_outputs == 0 {
+        return Err(tx);
+    }
     let mut consumed_entities = HashMap::<Entity::StableId, Entity>::new();
     for i in &tx.body.inputs {
         let state_id = Entity::Version::from(OutputRef::from((i.transaction_id, i.index)));
@@ -107,7 +111,7 @@ where
     }
     let mut produced_entities = HashMap::<Entity::StableId, Entity>::new();
     let tx_hash = hash_transaction_canonical(&tx.body);
-    let mut ix = tx.body.outputs.len() - 1;
+    let mut ix = num_outputs - 1;
     let mut non_processed_outputs = vec![];
     while let Some(o) = tx.body.outputs.pop() {
         let o_ref = OutputRef::new(tx_hash, ix as u64);
@@ -312,7 +316,6 @@ mod tests {
     use futures::StreamExt;
     use tokio::sync::Mutex;
 
-    use crate::creds::ExecutorCred;
     use cardano_chain_sync::data::LedgerTxEvent;
     use spectrum_cardano_lib::hash::hash_transaction_canonical;
     use spectrum_cardano_lib::transaction::TransactionOutputExtension;
@@ -324,6 +327,7 @@ mod tests {
     use spectrum_offchain::ledger::TryFromLedger;
     use spectrum_offchain::partitioning::Partitioned;
 
+    use crate::creds::ExecutorCred;
     use crate::event_sink::entity_index::InMemoryEntityIndex;
     use crate::event_sink::handler::PairUpdateHandler;
 
