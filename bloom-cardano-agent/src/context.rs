@@ -52,3 +52,25 @@ impl Has<CFMMPoolRefScriptOutput<2>> for ExecutionContext {
         CFMMPoolRefScriptOutput(self.refs.pool_v2.clone())
     }
 }
+
+#[cfg(test)]
+mod test {
+    use cml_crypto::{blake2b256, PrivateKey, RawBytesEncoding};
+
+    #[test]
+    fn make_sig() {
+        let preimage_hex = "F686D9AA9F784C7E3DC0027C57505444C0383776D159733776226ED200";
+        let message_preimage = hex::decode(preimage_hex).unwrap();
+        let message = blake2b256(&*message_preimage);
+        let sk = PrivateKey::generate_ed25519();
+        let pk = sk.to_public();
+        let sig = sk.sign(&message);
+        println!(
+            "pk: {}, sig: {}, preimage: {}, msg: {}",
+            pk.to_raw_hex(),
+            sig.to_hex(),
+            hex::encode(message_preimage),
+            hex::encode(message)
+        )
+    }
+}

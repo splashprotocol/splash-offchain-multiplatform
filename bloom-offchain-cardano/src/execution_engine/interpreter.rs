@@ -49,10 +49,6 @@ where
             .add_collateral(ctx.get_labeled::<Collateral>().into())
             .unwrap();
 
-        // Set tx fee.
-        let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
-        tx_builder.set_fee(estimated_tx_fee + TX_FEE_CORRECTION);
-
         let execution_fee_address: Address = ctx.get_labeled::<RewardAddress>().into();
         // Build tx, change is execution fee.
         let tx = tx_builder
