@@ -69,8 +69,7 @@ impl TryFrom<String> for AssetName {
     type Error = AssetNameParsingError;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        let bytes = hex::decode(value).map_err(|_| AssetNameParsingError)?;
-        AssetName::try_from(bytes).map_err(|_| AssetNameParsingError)
+        AssetName::try_from(value.as_bytes().to_vec()).map_err(|_| AssetNameParsingError)
     }
 }
 
