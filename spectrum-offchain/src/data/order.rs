@@ -19,12 +19,9 @@ where
     }
 }
 
-impl<T> Has<T::TOrderId> for T
-where
-    T: UniqueOrder,
-{
-    fn get_labeled<U: IsEqual<T::TOrderId>>(&self) -> T::TOrderId {
-        self.get_self_ref()
+impl<T: Clone> Has<T> for T {
+    fn get_labeled<U: IsEqual<T>>(&self) -> T {
+        self.clone()
     }
 }
 

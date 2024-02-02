@@ -8,7 +8,7 @@ pub struct BacklogOrder<TOrd> {
     pub timestamp: i64,
 }
 
-#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Copy, Clone, Into, From)]
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Copy, Clone, Into, From, Serialize, Deserialize)]
 pub struct OrderWeight(Ratio<u128>);
 
 impl From<u64> for OrderWeight {

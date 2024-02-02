@@ -180,7 +180,7 @@ where
             LedgerTxEvent::TxApplied { tx, slot } => {
                 match extract_transitions(Arc::clone(&self.index), self.executor_cred, tx).await {
                     Ok(transitions) => {
-                        trace!("[{}] entities parsed from applied tx", transitions.len());
+                        trace!(target: "offchain", "[{}] entities parsed from applied tx", transitions.len());
                         let mut index = self.index.lock().await;
                         if !transitions.is_empty() {
                             index.run_eviction();
