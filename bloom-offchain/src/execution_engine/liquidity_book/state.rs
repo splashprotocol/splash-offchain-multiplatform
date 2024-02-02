@@ -619,12 +619,14 @@ pub mod tests {
 
     use spectrum_offchain::data::Stable;
 
-    use crate::execution_engine::liquidity_book::fragment::{ExBudgetUsed, Fragment, OrderState, StateTrans};
+    use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
     use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
     use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, TLBState, VersionedState};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
-    use crate::execution_engine::liquidity_book::types::{AbsolutePrice, ExCostUnits, FeePerOutput};
+    use crate::execution_engine::liquidity_book::types::{
+        AbsolutePrice, ExBudgetUsed, ExCostUnits, ExFeeUsed,
+    };
     use crate::execution_engine::types::StableId;
 
     #[test]
@@ -877,16 +879,23 @@ pub mod tests {
             self.price
         }
 
-        fn fee(&self) -> FeePerOutput {
-            Ratio::from_integer(self.fee as u128)
-        }
-
         fn marginal_cost_hint(&self) -> ExCostUnits {
             self.cost_hint
         }
 
         fn time_bounds(&self) -> TimeBounds<u64> {
             self.bounds
+        }
+
+        fn linear_fee(
+            &self,
+            input_consumed: crate::execution_engine::liquidity_book::types::InputAsset<u64>,
+        ) -> crate::execution_engine::liquidity_book::types::FeeAsset<u64> {
+            self.fee * input_consumed / self.input
+        }
+
+        fn weighted_fee(&self) -> crate::execution_engine::liquidity_book::types::FeeAsset<Ratio<u64>> {
+            Ratio::new(self.fee, self.input)
         }
     }
 
@@ -903,7 +912,7 @@ pub mod tests {
             mut self,
             removed_input: u64,
             added_output: u64,
-        ) -> (StateTrans<Self>, ExBudgetUsed) {
+        ) -> (StateTrans<Self>, ExBudgetUsed, ExFeeUsed) {
             self.input -= removed_input;
             self.accumulated_output += added_output;
             let budget_used = added_output * self.fee;
@@ -912,7 +921,7 @@ pub mod tests {
             } else {
                 StateTrans::EOL
             };
-            (next_st, budget_used)
+            (next_st, budget_used, ExFeeUsed::from(self.fee))
         }
     }
 

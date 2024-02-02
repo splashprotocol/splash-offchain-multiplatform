@@ -549,8 +549,7 @@ mod tests {
     use crate::backlog::data::{BacklogOrder, OrderWeight, Weighted};
     use crate::backlog::persistence::{BacklogStore, BacklogStoreRocksDB};
     use crate::backlog::{BacklogConfig, PersistentPriorityBacklog, ResilientBacklog};
-    use crate::data::order::{PendingOrder, ProgressingOrder, SuspendedOrder};
-    use crate::data::UniqueOrder;
+    use crate::data::order::{PendingOrder, ProgressingOrder, SuspendedOrder, UniqueOrder};
 
     #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Clone, Copy, Serialize, Deserialize)]
     struct MockOrderId(i64);

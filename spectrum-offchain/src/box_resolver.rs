@@ -78,7 +78,7 @@ mod tests {
     use crate::box_resolver::persistence::EntityRepo;
     use crate::box_resolver::resolve_entity_state;
     use crate::data::unique_entity::Confirmed;
-    use crate::data::EntitySnapshot;
+    use crate::data::Stable;
 
     #[tokio::test]
     async fn test_resolve_state_trivial() {

@@ -12,6 +12,7 @@ use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::backlog::data::{OrderWeight, Weighted};
 use spectrum_offchain::data::order::{SpecializedOrder, UniqueOrder};
 use spectrum_offchain::data::unique_entity::Predicted;
+use spectrum_offchain::data::Has;
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::TryFromLedger;
 
@@ -37,6 +38,12 @@ pub struct ClassicalOrder<Id, Ord> {
     pub id: Id,
     pub pool_id: PoolId,
     pub order: Ord,
+}
+
+impl<Id: Clone, Ord> Has<Id> for ClassicalOrder<Id, Ord> {
+    fn get_labeled<U: type_equalities::IsEqual<Id>>(&self) -> Id {
+        self.id.clone()
+    }
 }
 
 pub enum ClassicalOrderAction {

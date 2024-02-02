@@ -198,6 +198,7 @@ where
 pub(crate) mod tests {
     use std::sync::Arc;
 
+    use derive_more::Display;
     use rand::{thread_rng, RngCore};
     use serde::{Deserialize, Serialize};
 
@@ -213,7 +214,7 @@ pub(crate) mod tests {
     };
 
     #[repr(transparent)]
-    #[derive(Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Hash, Debug)]
+    #[derive(Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Hash, Debug, Display)]
     pub struct TokenId(u64);
 
     impl Into<[u8; 60]> for TokenId {
@@ -234,7 +235,7 @@ pub(crate) mod tests {
     }
 
     #[repr(transparent)]
-    #[derive(Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Hash, Debug)]
+    #[derive(Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Hash, Debug, Display)]
     pub struct BoxId(u64);
 
     impl BoxId {

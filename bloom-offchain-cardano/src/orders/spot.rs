@@ -119,7 +119,7 @@ impl OrderState for SpotOrder {
         self.output_amount += added_output;
         let budget_used = self.max_cost_per_ex_step;
         self.execution_budget -= budget_used;
-        let fee_used = self.liner_fee(removed_input);
+        let fee_used = self.linear_fee(removed_input);
         self.fee -= fee_used;
         let next_st = if self.execution_budget < self.max_cost_per_ex_step || self.input_amount == 0 {
             StateTrans::EOL
@@ -143,7 +143,7 @@ impl Fragment for SpotOrder {
         AbsolutePrice::from_price(self.side(), self.base_price)
     }
 
-    fn liner_fee(&self, input_consumed: InputAsset<u64>) -> FeeAsset<u64> {
+    fn linear_fee(&self, input_consumed: InputAsset<u64>) -> FeeAsset<u64> {
         self.fee * input_consumed / self.input_amount
     }
 

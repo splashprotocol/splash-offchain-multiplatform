@@ -45,7 +45,7 @@ pub trait Fragment {
     /// Price of base asset in quote asset.
     fn price(&self) -> AbsolutePrice;
     /// Batcher fee for whole swap.
-    fn liner_fee(&self, input_consumed: InputAsset<u64>) -> FeeAsset<u64>;
+    fn linear_fee(&self, input_consumed: InputAsset<u64>) -> FeeAsset<u64>;
     /// Fee value weighted by fragment size.
     fn weighted_fee(&self) -> FeeAsset<Ratio<u64>>;
     /// How much (approximately) execution of this fragment will cost.
