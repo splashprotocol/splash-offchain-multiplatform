@@ -1,5 +1,8 @@
 // mod crypto_pools_amm_actions;
+mod crypto_pools_amm_actions;
 pub mod curve_crypto_invariant;
-mod dynamic_fees_utils;
+mod fees_utils;
 mod repegging_utils;
-// mod test;
+mod crypto_pool_data;
+mod math_utils;
+mod generators;
