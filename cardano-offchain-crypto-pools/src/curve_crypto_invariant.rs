@@ -237,7 +237,10 @@ pub fn calculate_crypto_invariant(
 
     let mut d = s;
     let mut abs_d_error = d;
-    while abs_d_error > unit {
+    let max_error = U512::from(CALC_ERROR);
+    let mut n_iters = 0;
+    while abs_d_error > max_error && n_iters <= MAX_ITER {
+        n_iters += 1;
         let d_previous = d;
         let dn = vec![d; usize::try_from(*n).unwrap()]
             .iter()
@@ -392,80 +395,78 @@ pub fn calculate_crypto_exchange(
     let mut balance_j = dn / (p * nn);
     let mut n_iters = 0;
     let max_error = U512::from(CALC_ERROR);
-    if balance_j_initial - balance_j < *base_amount {
-        while abs_j_error > max_error && n_iters <= MAX_ITER {
-            n_iters += 1;
-            let balance_j_previous = balance_j;
+    while abs_j_error > max_error && n_iters <= MAX_ITER {
+        n_iters += 1;
+        let balance_j_previous = balance_j;
 
-            let s_total = balances_with_i.iter().copied().reduce(|a, b| a + b).unwrap();
-            let p_total = nonzero_prod(&balances_with_i);
+        let s_total = balances_with_i.iter().copied().reduce(|a, b| a + b).unwrap();
+        let p_total = nonzero_prod(&balances_with_i);
 
-            let k_num = *a * *gamma_num * *gamma_num * p_total * nn;
-            let k_denom_l = p_total * nn * *gamma_denom / dn;
+        let k_num = *a * *gamma_num * *gamma_num * p_total * nn;
+        let k_denom_l = p_total * nn * *gamma_denom / dn;
 
-            let gamma_n_d_sum = *gamma_num + *gamma_denom;
-            let k_denom_unit = if k_denom_l > gamma_n_d_sum {
-                k_denom_l - gamma_n_d_sum
-            } else if k_denom_l < gamma_n_d_sum {
-                gamma_n_d_sum - k_denom_l
-            } else {
-                unit
-            };
+        let gamma_n_d_sum = *gamma_num + *gamma_denom;
+        let k_denom_unit = if k_denom_l > gamma_n_d_sum {
+            k_denom_l - gamma_n_d_sum
+        } else if k_denom_l < gamma_n_d_sum {
+            gamma_n_d_sum - k_denom_l
+        } else {
+            unit
+        };
 
-            let k_denom = k_denom_unit * k_denom_unit;
-            let inv_left = k_num * s_total / (d * k_denom) + p_total;
-            let inv_right = k_num / k_denom + dn / nn;
+        let k_denom = k_denom_unit * k_denom_unit;
+        let inv_left = k_num * s_total / (d * k_denom) + p_total;
+        let inv_right = k_num / k_denom + dn / nn;
 
-            let f_value = if inv_left > inv_right {
-                inv_left - inv_right
-            } else {
-                inv_right - inv_left
-            };
+        let f_value = if inv_left > inv_right {
+            inv_left - inv_right
+        } else {
+            inv_right - inv_left
+        };
 
-            let denom0_l = nn * p * balance_j * *gamma_denom / dn;
-            let denom0 = if denom0_l > gamma_n_d_sum {
-                denom0_l - gamma_n_d_sum
-            } else {
-                gamma_n_d_sum - denom0_l
-            };
-            let denom0x2 = denom0 * denom0;
-            let denom0x3 = denom0x2 * denom0;
-            let gamma_denom2 = *gamma_denom * *gamma_denom;
-            let gamma_denom3 = gamma_denom2 * *gamma_denom;
-            let ag2nnp = a * *gamma_num * *gamma_num * nn * p / gamma_denom2;
-            let tt = unit_x2 * ag2nnp * balance_j;
-            let t1 = ag2nnp * s / (d * denom0x2);
-            let t2 = ag2nnp / denom0x2;
-            let t3 = tt / (d * denom0x2 * gamma_denom2);
-            let t4 = t3 * p * nn / dn;
-            let t5 = tt * nn * s / gamma_denom3 * p / denom0x3;
-            let t6 = tt * p * nn / dn * d / gamma_denom3 * balance_j / denom0x3;
+        let denom0_l = nn * p * balance_j * *gamma_denom / dn;
+        let denom0 = if denom0_l > gamma_n_d_sum {
+            denom0_l - gamma_n_d_sum
+        } else {
+            gamma_n_d_sum - denom0_l
+        };
+        let denom0x2 = denom0 * denom0;
+        let denom0x3 = denom0x2 * denom0;
+        let gamma_denom2 = *gamma_denom * *gamma_denom;
+        let gamma_denom3 = gamma_denom2 * *gamma_denom;
+        let ag2nnp = a * *gamma_num * *gamma_num * nn * p / gamma_denom2;
+        let tt = unit_x2 * ag2nnp * balance_j;
+        let t1 = ag2nnp * s / (d * denom0x2);
+        let t2 = ag2nnp / denom0x2;
+        let t3 = tt / (d * denom0x2 * gamma_denom2);
+        let t4 = t3 * p * nn / dn;
+        let t5 = tt  / gamma_denom3 * nn * s / denom0x3 * p;
+        let t6 = tt * p * nn / dn * d / gamma_denom3 * balance_j / denom0x3;
 
-            let (positive_der_part, negative_der_part) = if denom0_l > gamma_n_d_sum {
-                (p + t3 + t4 + t1, t2 + t5 + t6)
-            } else {
-                (p + t1 + t3 + t5 + t6, t2 + t4)
-            };
+        let (positive_der_part, negative_der_part) = if denom0_l > gamma_n_d_sum {
+            (p + t3 + t4 + t1, t2 + t5 + t6)
+        } else {
+            (p + t1 + t3 + t5 + t6, t2 + t4)
+        };
 
-            let f_derivative_value = if positive_der_part > negative_der_part {
-                positive_der_part - negative_der_part
-            } else {
-                negative_der_part - positive_der_part
-            };
+        let f_derivative_value = if positive_der_part > negative_der_part {
+            positive_der_part - negative_der_part
+        } else {
+            negative_der_part - positive_der_part
+        };
 
-            let step_j = f_value / f_derivative_value;
-            balance_j = if positive_der_part > negative_der_part {
-                balance_j_previous + step_j
-            } else {
-                balance_j_previous - step_j
-            };
-            balances_with_i[*j] = balance_j;
-            abs_j_error = if balance_j >= balance_j_previous {
-                balance_j - balance_j_previous
-            } else {
-                balance_j_previous - balance_j
-            };
-        }
+        let step_j = f_value / f_derivative_value;
+        balance_j = if positive_der_part > negative_der_part {
+            balance_j_previous + step_j
+        } else {
+            balance_j_previous - step_j
+        };
+        balances_with_i[*j] = balance_j;
+        abs_j_error = if balance_j >= balance_j_previous {
+            balance_j - balance_j_previous
+        } else {
+            balance_j_previous - balance_j
+        };
     }
     // Adjust the calculated final balance of the "quote" asset:
     balances_with_i[*j] = balance_j;

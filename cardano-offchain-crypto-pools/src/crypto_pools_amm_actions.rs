@@ -241,7 +241,11 @@ pub fn swap(
     );
 
     let quote_amount_final_real_units = quote_amount_final * price_scale_vec[*j] / precision;
-    let quote_asset_delta = tradable_balances_before[*j] - quote_amount_final_real_units;
+    let quote_asset_delta = if tradable_balances_before[*j] > quote_amount_final_real_units {
+        tradable_balances_before[*j] - quote_amount_final_real_units
+    } else {
+        U512::zero()
+    };
 
     let total_fees_j = quote_asset_delta * fee_num / fee_denom;
 
@@ -268,6 +272,7 @@ pub fn swap(
         &gamma_num,
         &gamma_denom,
     );
+
     let (new_price_vec, x_cp_profit_new, virtual_price_new) = tweak_price(
         &(n.as_u32()),
         &tradable_balances_final_calc,
@@ -357,7 +362,7 @@ mod test {
     }
     #[test]
     fn swap_test() {
-        for _ in 0..10 {
+        for _ in 0..10000 {
             // Generate random config:
             let pool_conf = pool_config_gen();
 
