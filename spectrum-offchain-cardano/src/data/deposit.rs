@@ -13,7 +13,10 @@ use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::order::UniqueOrder;
 use spectrum_offchain::ledger::TryFromLedger;
 
-use crate::constants::{ORDER_APPLY_RAW_REDEEMER, ORDER_APPLY_RAW_REDEEMER_V2, ORDER_REFUND_RAW_REDEEMER};
+use crate::constants::{
+    DEPOSIT_SCRIPT_V2, ORDER_APPLY_RAW_REDEEMER, ORDER_APPLY_RAW_REDEEMER_V2, ORDER_REFUND_RAW_REDEEMER,
+    SWAP_SCRIPT_V2,
+};
 use crate::data::order::{ClassicalOrder, ClassicalOrderAction, PoolNft};
 use crate::data::pool::CFMMPoolAction::Deposit as DepositAction;
 use crate::data::pool::{CFMMPoolAction, Lq, OrderInputIdx, Rx, Ry};
@@ -66,6 +69,9 @@ impl UniqueOrder for ClassicalOnChainDeposit {
 
 impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainDeposit {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
+        if (repr.address().to_bech32(None).unwrap() != DEPOSIT_SCRIPT_V2) {
+            return None;
+        }
         let value = repr.value().clone();
         let conf = OnChainDepositConfig::try_from_pd(repr.clone().into_datum()?.into_pd()?)?;
         let token_x_amount = TaggedAmount::new(value.amount_of(conf.token_x.untag()).unwrap_or(0));
@@ -107,6 +113,9 @@ impl TryFromPData for OnChainDepositConfig {
         let mut cpd = data.into_constr_pd()?;
         let stake_pkh: Option<Ed25519KeyHash> = cpd
             .take_field(6)
+            .clone()
+            .and_then(|pd| pd.into_constr_pd())
+            .and_then(|mut cpd_spkh| cpd_spkh.take_field(0))
             .and_then(|pd| pd.into_bytes())
             .and_then(|bytes| <[u8; 28]>::try_from(bytes).ok())
             .map(|bytes| Ed25519KeyHash::from(bytes));
@@ -177,8 +186,7 @@ mod tests {
 
         let private_key_bech32 = Bip32PrivateKey::generate_ed25519_bip32().to_bech32();
 
-        let (_, operator_pkh, operator_addr) =
-            operator_creds(private_key_bech32.as_str(), NetworkInfo::testnet());
+        let (_, operator_pkh, operator_addr) = operator_creds(private_key_bech32.as_str(), 1);
 
         let test_address = EnterpriseAddress::new(
             NetworkInfo::testnet().network_id(),
@@ -186,50 +194,44 @@ mod tests {
         )
         .to_address();
 
-        let collateral_outputs: TransactionOutput = TransactionOutput::new(
+        let collateral_output: TransactionOutput = TransactionOutput::new(
             test_address,
             Value::from(10000000),
             None,
             None, // todo: explorer doesn't support script ref. Change to correct after explorer update
         );
 
-        let mock_requestor = MockBasedRequestor::new(collateral_outputs);
+        let mock_requestor = MockBasedRequestor::new(collateral_output);
 
         let explorer = Explorer::new(
             ExplorerConfig {
                 url: "https://explorer.spectrum.fi",
             },
-            u32::from(NetworkInfo::mainnet().protocol_magic()) as u64,
+            u32::from(NetworkInfo::testnet().protocol_magic()) as u64,
         );
-
         let ref_scripts_conf = ReferenceSources {
-            pool_v1_script: "31a497ef6b0033e66862546aa2928a1987f8db3b8f93c59febbe0f47b14a83c6#0"
-                .to_string()
+            pool_v1_script: "8f7625e22caebbb6e082232d39a673e1ac73ae4c4abc747b6ccea9f59316d620#0"
                 .try_into()
                 .unwrap(),
-            pool_v2_script: "c8c93656e8bce07fabe2f42d703060b7c71bfa2e48a2956820d1bd81cc936faa#0"
-                .to_string()
+            pool_v2_script: "c75d08f44ec13ea1f78ee96b7fcb94e3303f1812d3d38dcaeca341d8e146ac98#0"
                 .try_into()
                 .unwrap(),
-            fee_switch_pool_script: "c8c93656e8bce07fabe2f42d703060b7c71bfa2e48a2956820d1bd81cc936faa#0"
+            fee_switch_pool_script: "8f7625e22caebbb6e082232d39a673e1ac73ae4c4abc747b6ccea9f59316d620#0"
                 .to_string()
                 .try_into()
                 .unwrap(),
             fee_switch_pool_bidirectional_fee_script:
-                "c8c93656e8bce07fabe2f42d703060b7c71bfa2e48a2956820d1bd81cc936faa#0"
+                "c75d08f44ec13ea1f78ee96b7fcb94e3303f1812d3d38dcaeca341d8e146ac98#0"
                     .to_string()
                     .try_into()
                     .unwrap(),
-            swap_script: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#2"
-                .to_string()
+            swap_script: "cb4d21dc2cd5471e4c3b3d2125339dcc0577465e9c9fb789636046b174c2a84d#1"
                 .try_into()
                 .unwrap(),
-            deposit_script: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#0"
-                .to_string()
+            deposit_script: "314ff562be2a5670827f42eb81457c827256378b44a59c9fdc13c2b78e67cab3#0"
                 .try_into()
                 .unwrap(),
-            redeem_script: "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a#1"
-                .to_string()
+            redeem_script: "cb4d21dc2cd5471e4c3b3d2125339dcc0577465e9c9fb789636046b174c2a84d#0"
                 .try_into()
                 .unwrap(),
         };
@@ -243,13 +245,12 @@ mod tests {
             .await
             .expect("Couldn't retrieve collateral");
 
-        let ctx = ExecutionContext::new(operator_addr, ref_scripts, collateral);
+        let ctx = ExecutionContext::new(operator_addr, ref_scripts, collateral, 1);
 
         let result = pool.try_run(deposit, ctx);
-
         assert!(result.is_ok())
     }
 
-    const DEPOSIT_SAMPLE: &str = "a300581d71075e09eb0fa89e1dc34691b3c56a7f437e60ac5ea67b338f2e176e2001821a57f316c6a1581c25c5de5f5b286073c593edfd77b48abc7a48e5a4f3d4cd9d428ff935a1434254431a00129beb028201d81858d5d8799fd8799f581cff63b385a615b3dce991f4dcf1ff7bd0082927e01e4e699c88ff7d994b4254435f4144415f4e4654ffd8799f4040ffd8799f581c25c5de5f5b286073c593edfd77b48abc7a48e5a4f3d4cd9d428ff93543425443ffd8799f581c4cf6a914372155ec78f6643141e280d38e3bae4ffbf623765efce3de4a4254435f4144415f4c51ff1a0016e360581c0f1b623e1d789ffea12b31d93418fa09b7ff2340805eb01cfe212491d8799f581c73fe9b3f0e63a8f460dba6af8b8daa5532491f1410cca937cc39960bff1a0014c828ff";
-    const POOL_SAMPLE: &str = "a3005839316b9c456aa650cb808a9ab54326e039d5235ed69f069c9664a8fe5b69b2f6abf60ccde92eae1a2f4fdf65f2eaf6208d872c6f0e597cc10b0701821b000000ef71292ccea3581c25c5de5f5b286073c593edfd77b48abc7a48e5a4f3d4cd9d428ff935a1434254431a32c2ef90581c4cf6a914372155ec78f6643141e280d38e3bae4ffbf623765efce3dea14a4254435f4144415f4c511b7ffffff91d173162581cff63b385a615b3dce991f4dcf1ff7bd0082927e01e4e699c88ff7d99a14b4254435f4144415f4e465401028201d81858afd8799fd8799f581cff63b385a615b3dce991f4dcf1ff7bd0082927e01e4e699c88ff7d994b4254435f4144415f4e4654ffd8799f4040ffd8799f581c25c5de5f5b286073c593edfd77b48abc7a48e5a4f3d4cd9d428ff93543425443ffd8799f581c4cf6a914372155ec78f6643141e280d38e3bae4ffbf623765efce3de4a4254435f4144415f4c51ff1903e59f581c7b6e01b4ef327b039e11178f08369f1ce1861eb978880dcc0d9d6e74ff00ff";
+    const DEPOSIT_SAMPLE: &str = "a300581d7059153a6a2927dcdbd8d81deb3520247c4195605fe044bf60d514e78c01821a003c2a36a1581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26a14574657374421a3b9aca00028201d81858dbd8799fd8799f581c25188bfd0ec2da7b29fad72a37f65ca27aefd50cf4a44d7191068e564d74657374425f4144415f4e4654ffd8799f4040ffd8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737442ffd8799f581cd7209684f1c0460e25e8f8950946c6b69353c3d8ebe80617aeff11364c74657374425f4144415f4c51ff1a0016e360581c24ce811ca3f9afc83a6b35dc1de4017a8b7f4199d95e1dcf3b51d3fbd8799f581c906dfeb836d6597f1e7f9f86a3143ba3490fd72eee1683832c5b8224ff1a00150b80ff";
+    const POOL_SAMPLE: &str = "a300581d70e4259405278073a7ca5afcc006baa5a52c0c66bfc47b75e9a8c8277901821a7e203eeba3581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26a14574657374421b000001cf257827ae581cd7209684f1c0460e25e8f8950946c6b69353c3d8ebe80617aeff1136a14c74657374425f4144415f4c511b7ffffff0e512ba44581c25188bfd0ec2da7b29fad72a37f65ca27aefd50cf4a44d7191068e56a14d74657374425f4144415f4e465401028201d81858b9d8799fd8799f581c25188bfd0ec2da7b29fad72a37f65ca27aefd50cf4a44d7191068e564d74657374425f4144415f4e4654ffd8799f4040ffd8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737442ffd8799f581cd7209684f1c0460e25e8f8950946c6b69353c3d8ebe80617aeff11364c74657374425f4144415f4c51ff19270d01091917708000581c2618e94cdb06792f05ae9b1ec78b0231f4b7f4215b1b4cf52e6342deff";
 }

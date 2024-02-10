@@ -190,9 +190,9 @@ where
                         .await;
                 }
                 if is_success {
-                    Some(MempoolUpdate::TxAccepted(tx))
-                } else {
                     None
+                } else {
+                    Some(MempoolUpdate::TxAccepted(tx))
                 }
             }
         };

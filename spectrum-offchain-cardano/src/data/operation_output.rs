@@ -111,6 +111,10 @@ impl IntoLedger<TransactionOutput, ExecutionContext> for DepositOutput {
 
         let ada = self.ada_residue + ada_from_charge_pair;
 
+        let (policy_lq, name_lq) = self.token_lq_asset.untag().into_token().unwrap();
+
+        ma.set(policy_lq, name_lq.into(), self.token_lq_amount.untag());
+
         TransactionOutput::new_conway_format_tx_out(ConwayFormatTxOut {
             address: addr,
             amount: Value::new(ada, ma),
