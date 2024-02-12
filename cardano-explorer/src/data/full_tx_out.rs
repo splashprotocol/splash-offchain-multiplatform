@@ -11,12 +11,12 @@ use crate::data::value::ExplorerValue;
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExplorerTxOut {
-    tx_hash: String,
-    index: u64,
-    addr: String,
-    value: ExplorerValue,
-    data: Option<String>,
-    data_hash: Option<String>,
+    pub tx_hash: String,
+    pub index: u64,
+    pub addr: String,
+    pub value: ExplorerValue,
+    pub data: Option<String>,
+    pub data_hash: Option<String>,
 }
 
 impl ExplorerTxOut {
