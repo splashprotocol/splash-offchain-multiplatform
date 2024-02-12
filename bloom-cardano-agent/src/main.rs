@@ -32,20 +32,20 @@ async fn main() {
 
     let collateral_1 = to_cml_utxo(explorer.get_utxo(OutputRef::new(
         TransactionHash::from_hex(
-            "ebfc457d13371306ae5541e85f00c0e4e1390ce99e0df71ebe9fcc5c9a6ac5a6").unwrap(),
-        2,
+            "7aca5a6429fa775bfeb2a0c7b704e24ff63cee60d5ed061c5bac8c529dd6479d").unwrap(),
+        0,
     )).await.unwrap());
 
-    let collateral_2 = to_cml_utxo(explorer.get_utxo(OutputRef::new(
-        TransactionHash::from_hex(
-            "bfecffaf09bb9a078cd4d56b1db9d3eff7d99b3fa290c60ceb74f9110a3d2545").unwrap(),
-        2,
-    )).await.unwrap());
+    // let collateral_2 = to_cml_utxo(explorer.get_utxo(OutputRef::new(
+    //     TransactionHash::from_hex(
+    //         "bfecffaf09bb9a078cd4d56b1db9d3eff7d99b3fa290c60ceb74f9110a3d2545").unwrap(),
+    //     2,
+    // )).await.unwrap());
 
     let user_utxo: TransactionUnspentOutput = to_cml_utxo(explorer.get_utxo(OutputRef::new(
         TransactionHash::from_hex(
-            "628bd8390c862e5dfaa620d60cb99f89311d4913476a19dd19b5624bb58a8584").unwrap(),
-        2,
+            "26068b7ec361d2c1a4940ec5bf836569cfa6dbbafd111505e8dc530b773d0cc5").unwrap(),
+        0,
     )).await.unwrap());
 
     let unlock_ref_utxo = to_cml_utxo(explorer.get_utxo(OutputRef::new(
@@ -80,7 +80,7 @@ async fn main() {
     let unlock_utxo: TransactionUnspentOutput = TransactionUnspentOutput::new(
         TransactionInput::new(
             TransactionHash::from_hex(
-                "628bd8390c862e5dfaa620d60cb99f89311d4913476a19dd19b5624bb58a8584").unwrap(),
+                "4fa70fb8aad8f06c932e1593e71f108438342ddb7e3bb51aabf61a3a5474ff63").unwrap(),
             0,
         ),
         unlock_utxo_info.clone(),
@@ -96,7 +96,7 @@ async fn main() {
 
 
     tx_builder.add_collateral(SingleInputBuilder::from(collateral_1).payment_key().unwrap()).unwrap();
-    tx_builder.add_collateral(SingleInputBuilder::from(collateral_2).payment_key().unwrap()).unwrap();
+    // tx_builder.add_collateral(SingleInputBuilder::from(collateral_2).payment_key().unwrap()).unwrap();
 
     tx_builder.add_reference_input(unlock_ref_utxo.clone());
 
@@ -104,7 +104,7 @@ async fn main() {
     tx_builder.add_input(unlock_input.clone()).unwrap();
 
     tx_builder.set_exunits(
-        RedeemerWitnessKey::new(RedeemerTag::Spend, 0),
+        RedeemerWitnessKey::new(RedeemerTag::Spend, 1),
         POOL_EXECUTION_UNITS,
     );
 
@@ -112,7 +112,7 @@ async fn main() {
         .unwrap();
 
     let tx = tx_builder
-        .build(ChangeSelectionAlgo::Default, Address::from_bech32("addr1qyflvqp5kyay8u8aghwuk7zz277p8vn4mwlk8v5kxg6fqwzgmnnxrhzvspsckv7st5kps692hqdvuhq2ytqqgcc7fz0saxzzq5").as_ref().unwrap())
+        .build(ChangeSelectionAlgo::Default, Address::from_bech32("addr1q9u5vlrf4xkxv2qpwngf6cjhtw542ayty80v8dyr49rf5ewvxwdrt70qlcpeeagscasafhffqsxy36t90ldv06wqrk2qld6xc3").as_ref().unwrap())
         .unwrap();
 
     // println!("Tx bytes: {}", hex::encode(tx.build_unchecked().to_canonical_cbor_bytes()));
