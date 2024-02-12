@@ -32,19 +32,19 @@ async fn main() {
 
     let collateral_1 = to_cml_utxo(explorer.get_utxo(OutputRef::new(
         TransactionHash::from_hex(
-            "ebfc457d13371306ae5541e85f00c0e4e1390ce99e0df71ebe9fcc5c9a6ac5a6").unwrap(),
-        2,
+            "c6b954cc840f9dae6525eb41a34727bb219a9e8229aa27f17ced8e62ced09efa").unwrap(),
+        0,
     )).await.unwrap());
 
     let collateral_2 = to_cml_utxo(explorer.get_utxo(OutputRef::new(
         TransactionHash::from_hex(
-            "bfecffaf09bb9a078cd4d56b1db9d3eff7d99b3fa290c60ceb74f9110a3d2545").unwrap(),
+            "628bd8390c862e5dfaa620d60cb99f89311d4913476a19dd19b5624bb58a8584").unwrap(),
         2,
     )).await.unwrap());
 
     let user_utxo: TransactionUnspentOutput = to_cml_utxo(explorer.get_utxo(OutputRef::new(
         TransactionHash::from_hex(
-            "bfecffaf09bb9a078cd4d56b1db9d3eff7d99b3fa290c60ceb74f9110a3d2545").unwrap(),
+            "628bd8390c862e5dfaa620d60cb99f89311d4913476a19dd19b5624bb58a8584").unwrap(),
         2,
     )).await.unwrap());
 
@@ -59,20 +59,20 @@ async fn main() {
         .set(
             PolicyId::from_hex("449b78b977de3bd0bdf66d58d9e28e14762aad9cf1a80c2c3d2e7912").unwrap(),
             AssetName::try_from("LQ_ADA_LQ").unwrap(),
-            29608
+            51178
         );
     let mut unlock_utxo_value = Value::new(1400750, unlock_utxo_multi_asset.clone());
 
     let unlock_utxo_info = TransactionOutput::new(
-        Address::from_bech32("addr1z8wma0rzvdexhnqrty6t8dcur7c5ffu2rjau2ayec3d3az2gmnnxrhzvspsckv7st5kps692hqdvuhq2ytqqgcc7fz0saxza4x").unwrap(),
+        Address::from_bech32("addr1z8wma0rzvdexhnqrty6t8dcur7c5ffu2rjau2ayec3d3az2f2sak7tcj4wal6pm37x3hsrlwtwrk3s26sddscfuh6fnqrnxmhx").unwrap(),
         unlock_utxo_value.clone(),
-        Some(DatumOption::new_datum(PlutusData::from_cbor_bytes(hex::decode("d8799f1b0000018d8a3cd451581c13f60034b13a43f0fd45ddcb784257bc13b275dbbf63b29632349038ff").unwrap().as_ref()).unwrap())),
+        Some(DatumOption::new_datum(PlutusData::from_cbor_bytes(hex::decode("d8799f1b0000018d9c7e5da2581c7c1c952fd498443de35e4df37dd01b1ec5b010aa8c5bbd08e09b9c1eff").unwrap().as_ref()).unwrap())),
         Some(Script::new_plutus_v2(PlutusV2Script::new(
             hex::decode("5903f6010000323232323232323232222323232533300932323232533300d3370e90011806000899191919299980899b8748000c0400044c8c8c8c8c8c94ccc05ccdc3a4000602c002264646464a66603600220042940cc88c8cc00400400c894ccc08400452809919299981019b8f00200514a2266008008002604a0046eb8c08c004dd6180f98101810181018101810181018101810180c1805980c00a9bae3007301801753330193375e6014602e00a6014602e002264a66603466e1d2004301900113232323232325333020002100114a066e24dd69808180e80e1bad3010301d00432323300100100222533302400114a226464a666046646464646466e24004c8c8c94ccc0accdc3a40040022900009bad30303029002302900132533302a3370e90010008a60103d87a8000132323300100100222533303000114c103d87a800013232323253330313371e018004266e95200033035375000297ae0133006006003375a60640066eb8c0c0008c0d0008c0c8004dd598179814001181400099198008008061129998168008a6103d87a8000132323232533302e3371e016004266e95200033032374c00297ae01330060060033756605e0066eb8c0b4008c0c4008c0bc004dd6981600098160011bae302a001302a003375c60500042660080080022940c0a0008dd618130009919198008008011129998120008a5eb804c8ccc888c8cc00400400c894ccc0a8004400c4c8cc0b0dd3998161ba90063302c37526eb8c0a4004cc0b0dd41bad302a0014bd7019801801981700118160009bae302300137566048002660060066050004604c0026eacc02cc070028dd59805180d802980b0009810000980c0008b1802180b800899911919299980e99b87480080044c8c94ccc07ccdc3a400460406ea8c030c074c040c0740184cdc4002800899b89005001375a604600260360042940c06c004c030c064c030c064008c078c07cc07cc07cc07cc07cc07cc07cc05c03cdd69805180b80b180e800980a8008b19991800800911299980e0010a6103d87a800013232533301b3370e0069000099ba548000cc07c0092f5c0266600a00a00266e0400d20023020003301e00237586002602801801c460366038603800260026024004460326034002602e002601e0022c64646600200200444a66602c0022980103d87a80001323253330153375e600c602600400e266e952000330190024bd70099802002000980d001180c0009bac3001300e006230150013013001300b0011630110013011002300f001300700414984d958dd68021800802119299980419b87480000044c8c8c8c94ccc03cc04800852616375c602000260200046eb4c038004c01800858c0180048c014dd5000918019baa0015734aae7555cf2ab9f5740ae855d11").unwrap(),
         ))),
     );
     let unlock_utxo_output = TransactionOutput::new(
-        Address::from_bech32("addr1qyflvqp5kyay8u8aghwuk7zz277p8vn4mwlk8v5kxg6fqwzgmnnxrhzvspsckv7st5kps692hqdvuhq2ytqqgcc7fz0saxzzq5").unwrap(),
+        Address::from_bech32("addr1q97pe9f06jvyg00rtexlxlwsrv0vtvqs42x9h0gguzdec8jf2sak7tcj4wal6pm37x3hsrlwtwrk3s26sddscfuh6fnqz62mg9").unwrap(),
         unlock_utxo_value.clone(),
         None,
         None
@@ -80,7 +80,7 @@ async fn main() {
     let unlock_utxo: TransactionUnspentOutput = TransactionUnspentOutput::new(
         TransactionInput::new(
             TransactionHash::from_hex(
-                "bfecffaf09bb9a078cd4d56b1db9d3eff7d99b3fa290c60ceb74f9110a3d2545").unwrap(),
+                "628bd8390c862e5dfaa620d60cb99f89311d4913476a19dd19b5624bb58a8584").unwrap(),
             0,
         ),
         unlock_utxo_info.clone(),
@@ -115,7 +115,8 @@ async fn main() {
         .build(ChangeSelectionAlgo::Default, Address::from_bech32("addr1qyflvqp5kyay8u8aghwuk7zz277p8vn4mwlk8v5kxg6fqwzgmnnxrhzvspsckv7st5kps692hqdvuhq2ytqqgcc7fz0saxzzq5").as_ref().unwrap())
         .unwrap();
 
-    println!("Tx bytes: {}", hex::encode(tx.build_unchecked().to_canonical_cbor_bytes()));
+    // println!("Tx bytes: {}", hex::encode(tx.build_unchecked().to_canonical_cbor_bytes()));
+    tx.build_checked();
 
     println!("test");
 }
