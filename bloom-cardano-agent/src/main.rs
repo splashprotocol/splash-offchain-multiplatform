@@ -32,13 +32,13 @@ async fn main() {
 
     let collateral_1 = to_cml_utxo(explorer.get_utxo(OutputRef::new(
         TransactionHash::from_hex(
-            "c6b954cc840f9dae6525eb41a34727bb219a9e8229aa27f17ced8e62ced09efa").unwrap(),
-        0,
+            "ebfc457d13371306ae5541e85f00c0e4e1390ce99e0df71ebe9fcc5c9a6ac5a6").unwrap(),
+        2,
     )).await.unwrap());
 
     let collateral_2 = to_cml_utxo(explorer.get_utxo(OutputRef::new(
         TransactionHash::from_hex(
-            "628bd8390c862e5dfaa620d60cb99f89311d4913476a19dd19b5624bb58a8584").unwrap(),
+            "bfecffaf09bb9a078cd4d56b1db9d3eff7d99b3fa290c60ceb74f9110a3d2545").unwrap(),
         2,
     )).await.unwrap());
 
