@@ -119,8 +119,8 @@ impl PoolOps for FeeSwitchPool {
     ) -> TaggedAmount<Quote> {
         output_amount(
             self.asset_x,
-            self.reserves_x,
-            self.reserves_y,
+            self.reserves_x - self.treasury_x,
+            self.reserves_y - self.treasury_y,
             base_asset,
             base_amount,
             self.lp_fee,
@@ -134,8 +134,8 @@ impl PoolOps for FeeSwitchPool {
         in_y_amount: u64,
     ) -> (TaggedAmount<Lq>, TaggedAmount<Rx>, TaggedAmount<Ry>) {
         reward_lp(
-            self.reserves_x,
-            self.reserves_y,
+            self.reserves_x - self.treasury_x,
+            self.reserves_y - self.treasury_y,
             self.liquidity,
             in_x_amount,
             in_y_amount,
@@ -143,7 +143,12 @@ impl PoolOps for FeeSwitchPool {
     }
 
     fn shares_amount(self, burned_lq: TaggedAmount<Lq>) -> (TaggedAmount<Rx>, TaggedAmount<Ry>) {
-        shares_amount(self.reserves_x, self.reserves_y, self.liquidity, burned_lq)
+        shares_amount(
+            self.reserves_x - self.treasury_x,
+            self.reserves_y - self.treasury_y,
+            self.liquidity,
+            burned_lq,
+        )
     }
 }
 
@@ -160,30 +165,29 @@ impl ApplyOrder<ClassicalOnChainLimitSwap> for FeeSwitchPool {
         }
         // Adjust pool value.
         if order.quote_asset.untag() == self.asset_x.untag() {
-            let x_from_swap_without_fee = self.reserves_x.untag()
-                - (self.reserves_y.untag() * self.reserves_x.untag())
-                    / (self.reserves_y.untag() + order.base_amount.untag());
-            let lq_fee = (x_from_swap_without_fee * (10000 - self.lp_fee.numer()) / self.lp_fee.denom());
-            let additional_treasury_x = (((lq_fee as u128) * (*self.treasury_fee.numer() as u128))
+            let lq_fee = ((order.base_amount.untag() as u128)
+                * ((*self.lp_fee.denom() as u128) - (*self.lp_fee.numer() as u128))
+                / (*self.lp_fee.denom() as u128));
+            let additional_treasury_y = ((lq_fee * (*self.treasury_fee.numer() as u128))
                 / (*self.treasury_fee.denom() as u128)) as u64;
             self.reserves_x = self.reserves_x - quote_amount.retag();
+            self.treasury_y = self.treasury_y + TaggedAmount::new(additional_treasury_y);
             self.reserves_y = self.reserves_y + order.base_amount.retag();
-            self.treasury_x = self.treasury_x + TaggedAmount::new(additional_treasury_x);
         } else {
-            let y_from_swap_without_fee = self.reserves_y.untag()
-                - (self.reserves_x.untag() * self.reserves_y.untag())
-                    / (self.reserves_x.untag() + order.base_amount.untag());
-            let lq_fee = (y_from_swap_without_fee * (10000 - self.lp_fee.numer()) / self.lp_fee.denom());
-            let additional_treasury_y = (((lq_fee as u128) * (*self.treasury_fee.numer() as u128))
+            let lq_fee = ((order.base_amount.untag() as u128)
+                * ((*self.lp_fee.denom() as u128) - (*self.lp_fee.numer() as u128))
+                / (*self.lp_fee.denom() as u128));
+            let additional_treasury_x = ((lq_fee * (*self.treasury_fee.numer() as u128))
                 / (*self.treasury_fee.denom() as u128)) as u64;
+            self.treasury_x = self.treasury_x + TaggedAmount::new(additional_treasury_x);
             self.reserves_y = self.reserves_y - quote_amount.retag();
             self.reserves_x = self.reserves_x + order.base_amount.retag();
-            self.treasury_y = self.treasury_y + TaggedAmount::new(additional_treasury_y);
         }
         // Prepare user output.
         let batcher_fee = order.fee.value().linear_fee(quote_amount.untag());
+        //todo: update after removing feeNum/feeDen algorithm
         if (batcher_fee > order.ada_deposit) {
-            //incorrect error
+            info!("batcher_fee error");
             return Err(Slippage(ClassicalOrder { id, pool_id, order }));
         }
         let ada_residue = order.ada_deposit - batcher_fee;
@@ -251,7 +255,7 @@ impl ApplyOrder<ClassicalOnChainRedeem> for FeeSwitchPool {
 
         self.reserves_x = self.reserves_x - x_amount;
         self.reserves_y = self.reserves_y - y_amount;
-        self.liquidity = self.liquidity + order.token_lq_amount;
+        self.liquidity = self.liquidity - order.token_lq_amount;
 
         let redeem_output = RedeemOutput {
             token_x_asset: order.token_x,
@@ -295,8 +299,8 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for FeeSwitchPool {
             let conf = crate::data::fee_switch_pool::FeeSwitchPoolConfig::try_from_pd(pd.clone())?;
             let treasury_x = TaggedAmount::new(conf.treasury_x);
             let treasury_y = TaggedAmount::new(conf.treasury_y);
-            let reserves_x = TaggedAmount::new(value.amount_of(conf.asset_x.into())?) - treasury_x;
-            let reserves_y = TaggedAmount::new(value.amount_of(conf.asset_y.into())?) - treasury_y;
+            let reserves_x = TaggedAmount::new(value.amount_of(conf.asset_x.into())?);
+            let reserves_y = TaggedAmount::new(value.amount_of(conf.asset_y.into())?);
             let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
             let liquidity = TaggedAmount::new(MAX_LQ_CAP - liquidity_neg);
             return Some(FeeSwitchPool {
@@ -325,33 +329,17 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for FeeSwitchPool {
         let mut ma = MultiAsset::new();
         let coins = if self.asset_x.is_native() {
             let (policy, name) = self.asset_y.untag().into_token().unwrap();
-            ma.set(
-                policy,
-                name.into(),
-                (self.reserves_y.untag() + self.treasury_y.untag()),
-            );
-            self.reserves_x.untag() + self.treasury_x.untag()
+            ma.set(policy, name.into(), (self.reserves_y.untag()));
+            self.reserves_x.untag()
         } else if self.asset_y.is_native() {
             let (policy, name) = self.asset_x.untag().into_token().unwrap();
-            ma.set(
-                policy,
-                name.into(),
-                (self.reserves_x.untag() + self.treasury_x.untag()),
-            );
-            self.reserves_y.untag() + self.treasury_y.untag()
+            ma.set(policy, name.into(), (self.reserves_x.untag()));
+            self.reserves_y.untag()
         } else {
             let (policy_x, name_x) = self.asset_x.untag().into_token().unwrap();
-            ma.set(
-                policy_x,
-                name_x.into(),
-                (self.reserves_x.untag() + self.treasury_x.untag()),
-            );
+            ma.set(policy_x, name_x.into(), (self.reserves_x.untag()));
             let (policy_y, name_y) = self.asset_y.untag().into_token().unwrap();
-            ma.set(
-                policy_y,
-                name_y.into(),
-                (self.reserves_y.untag() + self.treasury_y.untag()),
-            );
+            ma.set(policy_y, name_y.into(), (self.reserves_y.untag()));
             immut_pool.value
         };
         let (policy_lq, name_lq) = self.asset_lq.untag().into_token().unwrap();
@@ -400,7 +388,6 @@ impl TryFromPData for FeeSwitchPoolConfig {
 
 mod tests {
     use crate::data::fee_switch_pool::FeeSwitchPoolConfig;
-    use crate::data::limit_swap::OnChainLimitSwapConfig;
     use cml_chain::plutus::PlutusData;
     use cml_core::serialization::Deserialize;
     use spectrum_cardano_lib::types::TryFromPData;

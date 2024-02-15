@@ -17,6 +17,7 @@ use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::constants::{
     MIN_SAFE_ADA_VALUE, ORDER_APPLY_RAW_REDEEMER, ORDER_APPLY_RAW_REDEEMER_V2, ORDER_REFUND_RAW_REDEEMER,
+    REDEEM_SCRIPT_V2, SWAP_SCRIPT_V2,
 };
 use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
 use crate::data::pool::CFMMPoolAction::Swap;
@@ -68,6 +69,9 @@ impl UniqueOrder for ClassicalOnChainLimitSwap {
 
 impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainLimitSwap {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
+        if (repr.address().to_bech32(None).unwrap() != SWAP_SCRIPT_V2) {
+            return None;
+        }
         let value = repr.value().clone();
         let conf = OnChainLimitSwapConfig::try_from_pd(repr.datum()?.into_pd()?)?;
         let real_base_input = value.amount_of(conf.base.untag()).unwrap_or(0);
@@ -119,8 +123,8 @@ pub struct OnChainLimitSwapConfig {
 impl TryFromPData for OnChainLimitSwapConfig {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
-        let field_seven = cpd.take_field(7);
-        let stake_pkh: Option<Ed25519KeyHash> = field_seven
+        let stake_pkh: Option<Ed25519KeyHash> = cpd
+            .take_field(7)
             .clone()
             .and_then(|pd| pd.into_constr_pd())
             .and_then(|mut cpd_spkh| cpd_spkh.take_field(0))
@@ -199,8 +203,7 @@ mod tests {
 
         let private_key_bech32 = Bip32PrivateKey::generate_ed25519_bip32().to_bech32();
 
-        let (_, operator_pkh, operator_addr) =
-            operator_creds(private_key_bech32.as_str(), NetworkInfo::testnet());
+        let (_, operator_pkh, operator_addr) = operator_creds(private_key_bech32.as_str(), 1);
 
         let test_address = EnterpriseAddress::new(
             NetworkInfo::testnet().network_id(),
@@ -257,7 +260,12 @@ mod tests {
             .await
             .expect("Couldn't retrieve collateral");
 
-        let ctx = ExecutionContext::new(operator_addr, ref_scripts, collateral.into());
+        let ctx = ExecutionContext::new(
+            operator_addr,
+            ref_scripts,
+            collateral.into(),
+            NetworkInfo::mainnet().network_id(),
+        );
 
         let result = pool.try_run(swap, ctx);
 
@@ -282,8 +290,10 @@ mod tests {
 
         let private_key_bech32 = Bip32PrivateKey::generate_ed25519_bip32().to_bech32();
 
-        let (_, operator_pkh, operator_addr) =
-            operator_creds(private_key_bech32.as_str(), NetworkInfo::testnet().network_id());
+        let (_, operator_pkh, operator_addr) = operator_creds(
+            private_key_bech32.as_str(),
+            NetworkInfo::testnet().network_id().into(),
+        );
 
         let test_address = EnterpriseAddress::new(
             NetworkInfo::testnet().network_id(),
@@ -340,13 +350,18 @@ mod tests {
             .await
             .expect("Couldn't retrieve collateral");
 
-        let ctx = ExecutionContext::new(operator_addr, ref_scripts, collateral.into());
+        let ctx = ExecutionContext::new(
+            operator_addr,
+            ref_scripts,
+            collateral.into(),
+            NetworkInfo::testnet().network_id().into(),
+        );
 
         let result = pool.try_run(swap, ctx);
 
         assert!(result.is_ok())
     }
 
-    const SWAP_SAMPLE_FEE_SWITCH: &str = "a300581d7007562ee998ab391501a88357c30e0be84646ed7d463eca9b3828673b01821a001d00a6a1581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26a1457465737442192710028201d81858bfd8799fd8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737442ffd8799f4040ffd8799f581c0303293c397a0d0fa962fd891ab285333ade6d15c014c6c9f067e5984d74657374425f4144415f4e4654ff19270b1b001b8992e4dc7cbf1b016345785d8a0000581c24ce811ca3f9afc83a6b35dc1de4017a8b7f4199d95e1dcf3b51d3fbd8799f581c906dfeb836d6597f1e7f9f86a3143ba3490fd72eee1683832c5b8224ff1927101a01274a39ff";
-    const POOL_SAMPLE_FEE_SWITCH: &str = "a300581d7076930108a2d528273fc1db3dad61f4604cdcbb46accb8bbefe157efc01821a5731ab3ca3581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26a14574657374421a000a7021581ccaf179cc7a338121b7bcd9e7015d009399169d372d14e2aa16b8b283a14c74657374425f4144415f4c511b7ffffffffe1d7987581c0303293c397a0d0fa962fd891ab285333ade6d15c014c6c9f067e598a14d74657374425f4144415f4e465401028201d81858b8d8799fd8799f581c0303293c397a0d0fa962fd891ab285333ade6d15c014c6c9f067e5984d74657374425f4144415f4e4654ffd8799f4040ffd8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737442ffd8799f581ccaf179cc7a338121b7bcd9e7015d009399169d372d14e2aa16b8b2834c74657374425f4144415f4c51ff19270b011832008000581c2618e94cdb06792f05ae9b1ec78b0231f4b7f4215b1b4cf52e6342deff";
+    const SWAP_SAMPLE_FEE_SWITCH: &str = "a300581d7007562ee998ab391501a88357c30e0be84646ed7d463eca9b3828673b011a120f3020028201d81858c5d8799fd8799f4040ffd8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737442ffd8799f581c6fb576b6cd7aeee4b783e010fce52b560138398497b444e62370cfaa4d74657374425f4144415f4e4654ff19270d1b0000000d289566ac1b0de0b6b3a7640000581c24ce811ca3f9afc83a6b35dc1de4017a8b7f4199d95e1dcf3b51d3fbd8799f581c906dfeb836d6597f1e7f9f86a3143ba3490fd72eee1683832c5b8224ff1a11e1a3001b00001823a77857e2ff";
+    const POOL_SAMPLE_FEE_SWITCH: &str = "a300581d7076930108a2d528273fc1db3dad61f4604cdcbb46accb8bbefe157efc01821ab2d05e00a3581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26a14574657374421b000110d9316ec000581c6fb576b6cd7aeee4b783e010fce52b560138398497b444e62370cfaaa14d74657374425f4144415f4e465401581cbc485a5c5b3c5929232f8122f9083fade9651ebe26240781a710d140a14c74657374425f4144415f4c511b7fffff231e11aafd028201d81858b7d8799fd8799f581c6fb576b6cd7aeee4b783e010fce52b560138398497b444e62370cfaa4d74657374425f4144415f4e4654ffd8799f4040ffd8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737442ffd8799f581cbc485a5c5b3c5929232f8122f9083fade9651ebe26240781a710d1404c74657374425f4144415f4c51ff19270d0100008000581c2618e94cdb06792f05ae9b1ec78b0231f4b7f4215b1b4cf52e6342deff";
 }

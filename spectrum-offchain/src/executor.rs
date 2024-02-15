@@ -5,11 +5,10 @@ use std::sync::{Arc, Once};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use derive_more::Display;
 use futures::{stream, Stream};
 use futures_timer::Delay;
 use log::{info, trace, warn};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tokio::sync::Mutex;
 use type_equalities::{trivial_eq, IsEqual};
 
@@ -19,7 +18,7 @@ use crate::box_resolver::resolve_entity_state;
 use crate::data::order::SpecializedOrder;
 use crate::data::unique_entity::{Predicted, Traced};
 use crate::data::EntitySnapshot;
-use crate::executor::TxSubmissionError::{OrderUtxoIsSpent, PoolUtxoIsSpent};
+use crate::executor::TxSubmissionError::{OrderUtxoIsSpent, PoolUtxoIsSpent, UnknownError};
 use crate::network::Network;
 use crate::tx_prover::TxProver;
 
@@ -105,7 +104,7 @@ impl<Net, Backlog, Pools, Prover, Ctx, Ord, Pool, TxCandidate, Tx, Err>
 pub enum TxSubmissionError {
     PoolUtxoIsSpent,
     OrderUtxoIsSpent,
-    UnknownError,
+    UnknownError { info: String },
 }
 
 // Temporal solution for handling errors from cardano node socket.
@@ -135,7 +134,7 @@ fn process_tx_rejected_error<'a, Err: Display, PoolVersion: Display, OrderVersio
     let patterns: [(String, TxSubmissionError); 2] =
         [(pool_tx, PoolUtxoIsSpent), (order_tx, OrderUtxoIsSpent)];
 
-    patterns
+    let parsed_errors = patterns
         .iter()
         .flat_map(|(tx_pattern, error)| {
             if (parsed_error.contains(tx_pattern)) {
@@ -144,7 +143,14 @@ fn process_tx_rejected_error<'a, Err: Display, PoolVersion: Display, OrderVersio
                 None
             }
         })
-        .collect()
+        .collect();
+
+    if (parsed_error.len() > 0) {
+        parsed_errors
+    } else {
+        // case when errors are not PoolUtxoIsSpent or OrderUtxoIsSpent
+        vec![UnknownError { info: parsed_error }]
+    }
 }
 
 #[async_trait(? Send)]
