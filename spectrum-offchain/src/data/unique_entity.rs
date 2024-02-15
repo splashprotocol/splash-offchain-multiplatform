@@ -7,7 +7,7 @@ use serde::ser::SerializeStruct;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::combinators::Ior;
-use crate::data::{EntitySnapshot, Stable};
+use crate::data::{EntitySnapshot, Stable, VersionUpdater};
 
 /// A unique, persistent, self-reproducible, on-chiain entity.
 #[derive(Debug, Clone)]
@@ -275,7 +275,9 @@ impl<T: EntitySnapshot> EntitySnapshot for Predicted<T> {
     fn version(&self) -> Self::Version {
         self.0.version()
     }
+}
 
+impl<T: VersionUpdater> VersionUpdater for Predicted<T> {
     fn update_version(&mut self, new_version: Self::Version) {
         self.0.update_version(new_version)
     }

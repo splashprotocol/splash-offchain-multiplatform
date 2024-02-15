@@ -1,6 +1,5 @@
 use async_stream::stream;
 use cml_core::serialization::Serialize;
-use derive_more::Display;
 use futures::channel::{mpsc, oneshot};
 use futures::{SinkExt, Stream, StreamExt};
 use pallas_network::miniprotocols::localtxsubmission;

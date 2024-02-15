@@ -15,7 +15,6 @@ use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::constants::{
     DEPOSIT_SCRIPT_V2, ORDER_APPLY_RAW_REDEEMER, ORDER_APPLY_RAW_REDEEMER_V2, ORDER_REFUND_RAW_REDEEMER,
-    SWAP_SCRIPT_V2,
 };
 use crate::data::order::{ClassicalOrder, ClassicalOrderAction, PoolNft};
 use crate::data::pool::CFMMPoolAction::Deposit as DepositAction;
@@ -41,10 +40,10 @@ pub type ClassicalOnChainDeposit = ClassicalOrder<OnChainOrderId, Deposit>;
 impl RequiresRedeemer<(ClassicalOrderAction, OrderInputIdx)> for ClassicalOnChainDeposit {
     fn redeemer(action: (ClassicalOrderAction, OrderInputIdx)) -> PlutusData {
         match action {
-            (ClassicalOrderAction::Apply, OrderInputIdx::OrderIdx0) => {
+            (ClassicalOrderAction::Apply, OrderInputIdx::Idx0) => {
                 PlutusData::from_bytes(hex::decode(ORDER_APPLY_RAW_REDEEMER_V2).unwrap()).unwrap()
             }
-            (ClassicalOrderAction::Apply, OrderInputIdx::OrderIdx1) => {
+            (ClassicalOrderAction::Apply, OrderInputIdx::Idx1) => {
                 PlutusData::from_bytes(hex::decode(ORDER_APPLY_RAW_REDEEMER).unwrap()).unwrap()
             }
             (ClassicalOrderAction::Refund, _) => {
@@ -69,7 +68,7 @@ impl UniqueOrder for ClassicalOnChainDeposit {
 
 impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainDeposit {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
-        if (repr.address().to_bech32(None).unwrap() != DEPOSIT_SCRIPT_V2) {
+        if repr.address().to_bech32(None).unwrap() != DEPOSIT_SCRIPT_V2 {
             return None;
         }
         let value = repr.value().clone();
@@ -158,7 +157,7 @@ mod tests {
     use crate::data::deposit::OnChainDepositConfig;
     use crate::data::execution_context::ExecutionContext;
     use crate::data::order::ClassicalOnChainOrder;
-    use crate::data::pool::{CFMMPool, PoolEnum};
+    use crate::data::pool::{AnyCFMMPool, ClassicCFMMPool};
     use crate::data::ref_scripts::ReferenceOutputs;
     use crate::data::OnChain;
     use crate::ref_scripts::ReferenceSources;
@@ -182,7 +181,7 @@ mod tests {
         let pool_box =
             BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(POOL_SAMPLE).unwrap()).unwrap();
         let deposit = ClassicalOnChainOrder::try_from_ledger(&deposit_box, deposit_ref).unwrap();
-        let pool = <OnChain<PoolEnum>>::try_from_ledger(&pool_box, pool_ref).unwrap();
+        let pool = <OnChain<AnyCFMMPool>>::try_from_ledger(&pool_box, pool_ref).unwrap();
 
         let private_key_bech32 = Bip32PrivateKey::generate_ed25519_bip32().to_bech32();
 

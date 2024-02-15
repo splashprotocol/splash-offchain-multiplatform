@@ -25,30 +25,6 @@ pub fn output_amount(
     TaggedAmount::new(quote_amount as u64)
 }
 
-pub fn treasury_amount(
-    asset_x: TaggedAssetClass<Rx>,
-    reserves_x: TaggedAmount<Rx>,
-    reserves_y: TaggedAmount<Ry>,
-    base_asset: TaggedAssetClass<Base>,
-    base_amount: TaggedAmount<Base>,
-    lp_fee_x: Ratio<u64>,
-    treasury_fee_x: Ratio<u64>,
-    lp_fee_y: Ratio<u64>,
-    treasury_fee_y: Ratio<u64>,
-) -> (TaggedAmount<Rx>, TaggedAmount<Ry>) {
-    if base_asset.untag() == asset_x.untag() {
-        let y_amount = (reserves_x.untag() as u128) * (reserves_y.untag() as u128)
-            / ((reserves_x.untag() as u128) + (base_amount.untag() as u128));
-        //let lp_amount = y_amount * ((1 - lp_fee_y) as u128) * treasury_fee_x;
-        (TaggedAmount::new(0), TaggedAmount::new(0))
-    } else {
-        let y_amount = (reserves_x.untag() as u128) * (reserves_y.untag() as u128)
-            / ((reserves_x.untag() as u128) + (base_amount.untag() as u128));
-        //let lp_amount = y_amount * ((1 - lp_fee_y) as u128) * treasury_fee_x;
-        (TaggedAmount::new(0), TaggedAmount::new(0))
-    }
-}
-
 pub fn reward_lp(
     reserves_x: TaggedAmount<Rx>,
     reserves_y: TaggedAmount<Ry>,

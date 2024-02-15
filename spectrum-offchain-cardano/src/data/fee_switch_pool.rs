@@ -3,7 +3,7 @@ use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::operation_output::{DepositOutput, RedeemOutput, SwapOutput};
 use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
-use crate::data::pool::{ApplyOrder, CFMMPoolAction, ImmutablePoolUtxo, Lq, Rx, Ry, Slippage};
+use crate::data::pool::{ApplyOrder, ApplyOrderError, CFMMPoolAction, ImmutablePoolUtxo, Lq, Rx, Ry};
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::{PoolId, PoolStateVer, PoolVer};
 use cml_chain::assets::MultiAsset;
@@ -11,13 +11,8 @@ use cml_chain::plutus::PlutusData;
 use cml_chain::plutus::PlutusData::Integer;
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
 use cml_chain::utils::BigInt;
-use cml_chain::{PolicyId, PolicyIdList, Value};
-use cml_core::serialization::Serialize;
-use cml_crypto::typed_bytes::ByteArray;
-use cml_crypto::ScriptHash;
+use cml_chain::Value;
 use cml_multi_era::babbage::BabbageTransactionOutput;
-use isahc::http::Version;
-use log::info;
 use num_rational::Ratio;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
@@ -26,7 +21,7 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
-use spectrum_offchain::data::{EntitySnapshot, Has, Stable};
+use spectrum_offchain::data::{EntitySnapshot, Has, Stable, VersionUpdater};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 use type_equalities::IsEqual;
 
@@ -35,7 +30,7 @@ use crate::fees::FeeExtension;
 use crate::pool_math::cfmm_math::{output_amount, reward_lp, shares_amount};
 
 #[derive(Debug, Copy, Clone)]
-pub struct FeeSwitchPool {
+pub struct FeeSwitchCFMMPool {
     pub id: PoolId,
     pub state_ver: PoolStateVer,
     pub reserves_x: TaggedAmount<Rx>,
@@ -52,7 +47,7 @@ pub struct FeeSwitchPool {
     pub ver: PoolVer,
 }
 
-impl FeeSwitchPool {
+impl FeeSwitchCFMMPool {
     fn update_treasury(self, prev_datum: Option<DatumOption>) -> Option<DatumOption> {
         match prev_datum {
             None => None,
@@ -63,8 +58,8 @@ impl FeeSwitchPool {
 
                 let mut cpd = datum.into_constr_pd()?;
 
-                cpd.update_field_unsafe(6, new_treasury_x)?;
-                cpd.update_field_unsafe(7, new_treasury_y)?;
+                cpd.update_field_unsafe(6, new_treasury_x);
+                cpd.update_field_unsafe(7, new_treasury_y);
 
                 Some(DatumOption::new_datum(PlutusData::ConstrPlutusData(cpd)))
             }
@@ -72,7 +67,7 @@ impl FeeSwitchPool {
     }
 }
 
-impl Stable for FeeSwitchPool {
+impl Stable for FeeSwitchCFMMPool {
     type StableId = PoolId;
 
     fn stable_id(&self) -> Self::StableId {
@@ -80,18 +75,20 @@ impl Stable for FeeSwitchPool {
     }
 }
 
-impl EntitySnapshot for FeeSwitchPool {
+impl EntitySnapshot for FeeSwitchCFMMPool {
     type Version = PoolStateVer;
     fn version(&self) -> Self::Version {
         self.state_ver
     }
+}
 
+impl VersionUpdater for FeeSwitchCFMMPool {
     fn update_version(&mut self, new_version: PoolStateVer) {
         self.state_ver = new_version;
     }
 }
 
-impl PoolOps for FeeSwitchPool {
+impl PoolOps for FeeSwitchCFMMPool {
     fn get_asset_x(&self) -> TaggedAssetClass<Rx> {
         self.asset_x
     }
@@ -152,31 +149,39 @@ impl PoolOps for FeeSwitchPool {
     }
 }
 
-impl ApplyOrder<ClassicalOnChainLimitSwap> for FeeSwitchPool {
+impl ApplyOrder<ClassicalOnChainLimitSwap> for FeeSwitchCFMMPool {
     type OrderApplicationResult = SwapOutput;
 
     fn apply_order(
         mut self,
         ClassicalOrder { id, pool_id, order }: ClassicalOnChainLimitSwap,
-    ) -> Result<(Self, SwapOutput), Slippage<ClassicalOnChainLimitSwap>> {
+    ) -> Result<(Self, SwapOutput), ApplyOrderError<ClassicalOnChainLimitSwap>> {
         let quote_amount = self.output_amount(order.base_asset, order.base_amount);
         if quote_amount < order.min_expected_quote_amount {
-            return Err(Slippage(ClassicalOrder { id, pool_id, order }));
+            return Err(ApplyOrderError::slippage(
+                ClassicalOrder {
+                    id,
+                    pool_id,
+                    order: order.clone(),
+                },
+                quote_amount,
+                order.clone().min_expected_quote_amount,
+            ));
         }
         // Adjust pool value.
         if order.quote_asset.untag() == self.asset_x.untag() {
-            let lq_fee = ((order.base_amount.untag() as u128)
+            let lq_fee = (order.base_amount.untag() as u128)
                 * ((*self.lp_fee.denom() as u128) - (*self.lp_fee.numer() as u128))
-                / (*self.lp_fee.denom() as u128));
+                / (*self.lp_fee.denom() as u128);
             let additional_treasury_y = ((lq_fee * (*self.treasury_fee.numer() as u128))
                 / (*self.treasury_fee.denom() as u128)) as u64;
             self.reserves_x = self.reserves_x - quote_amount.retag();
             self.treasury_y = self.treasury_y + TaggedAmount::new(additional_treasury_y);
             self.reserves_y = self.reserves_y + order.base_amount.retag();
         } else {
-            let lq_fee = ((order.base_amount.untag() as u128)
+            let lq_fee = (order.base_amount.untag() as u128)
                 * ((*self.lp_fee.denom() as u128) - (*self.lp_fee.numer() as u128))
-                / (*self.lp_fee.denom() as u128));
+                / (*self.lp_fee.denom() as u128);
             let additional_treasury_x = ((lq_fee * (*self.treasury_fee.numer() as u128))
                 / (*self.treasury_fee.denom() as u128)) as u64;
             self.treasury_x = self.treasury_x + TaggedAmount::new(additional_treasury_x);
@@ -185,10 +190,16 @@ impl ApplyOrder<ClassicalOnChainLimitSwap> for FeeSwitchPool {
         }
         // Prepare user output.
         let batcher_fee = order.fee.value().linear_fee(quote_amount.untag());
-        //todo: update after removing feeNum/feeDen algorithm
-        if (batcher_fee > order.ada_deposit) {
-            info!("batcher_fee error");
-            return Err(Slippage(ClassicalOrder { id, pool_id, order }));
+        if batcher_fee > order.ada_deposit {
+            return Err(ApplyOrderError::lower_batcher_fee(
+                ClassicalOrder {
+                    id,
+                    pool_id,
+                    order: order.clone(),
+                },
+                batcher_fee,
+                order.clone().ada_deposit,
+            ));
         }
         let ada_residue = order.ada_deposit - batcher_fee;
         let swap_output = SwapOutput {
@@ -203,13 +214,13 @@ impl ApplyOrder<ClassicalOnChainLimitSwap> for FeeSwitchPool {
     }
 }
 
-impl ApplyOrder<ClassicalOnChainDeposit> for FeeSwitchPool {
+impl ApplyOrder<ClassicalOnChainDeposit> for FeeSwitchCFMMPool {
     type OrderApplicationResult = DepositOutput;
 
     fn apply_order(
         mut self,
-        ClassicalOrder { id, pool_id, order }: ClassicalOnChainDeposit,
-    ) -> Result<(Self, DepositOutput), Slippage<ClassicalOnChainDeposit>> {
+        ClassicalOrder { order, .. }: ClassicalOnChainDeposit,
+    ) -> Result<(Self, DepositOutput), ApplyOrderError<ClassicalOnChainDeposit>> {
         let net_x = if order.token_x.is_native() {
             order.token_x_amount.untag() - order.ex_fee - order.collateral_ada
         } else {
@@ -244,13 +255,13 @@ impl ApplyOrder<ClassicalOnChainDeposit> for FeeSwitchPool {
     }
 }
 
-impl ApplyOrder<ClassicalOnChainRedeem> for FeeSwitchPool {
+impl ApplyOrder<ClassicalOnChainRedeem> for FeeSwitchCFMMPool {
     type OrderApplicationResult = RedeemOutput;
 
     fn apply_order(
         mut self,
         ClassicalOrder { order, .. }: ClassicalOnChainRedeem,
-    ) -> Result<(Self, RedeemOutput), Slippage<ClassicalOnChainRedeem>> {
+    ) -> Result<(Self, RedeemOutput), ApplyOrderError<ClassicalOnChainRedeem>> {
         let (x_amount, y_amount) = self.clone().shares_amount(order.token_lq_amount);
 
         self.reserves_x = self.reserves_x - x_amount;
@@ -271,25 +282,25 @@ impl ApplyOrder<ClassicalOnChainRedeem> for FeeSwitchPool {
     }
 }
 
-impl Has<PoolStateVer> for FeeSwitchPool {
+impl Has<PoolStateVer> for FeeSwitchCFMMPool {
     fn get_labeled<U: IsEqual<PoolStateVer>>(&self) -> PoolStateVer {
         self.state_ver
     }
 }
 
-impl Has<PoolVer> for FeeSwitchPool {
+impl Has<PoolVer> for FeeSwitchCFMMPool {
     fn get_labeled<U: IsEqual<PoolVer>>(&self) -> PoolVer {
         self.ver
     }
 }
 
-impl RequiresRedeemer<CFMMPoolAction> for FeeSwitchPool {
+impl RequiresRedeemer<CFMMPoolAction> for FeeSwitchCFMMPool {
     fn redeemer(action: CFMMPoolAction) -> PlutusData {
         action.to_plutus_data()
     }
 }
 
-impl TryFromLedger<BabbageTransactionOutput, OutputRef> for FeeSwitchPool {
+impl TryFromLedger<BabbageTransactionOutput, OutputRef> for FeeSwitchCFMMPool {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
         // BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(SWAP_SAMPLE).unwrap()).unwrap();
 
@@ -303,7 +314,7 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for FeeSwitchPool {
             let reserves_y = TaggedAmount::new(value.amount_of(conf.asset_y.into())?);
             let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
             let liquidity = TaggedAmount::new(MAX_LQ_CAP - liquidity_neg);
-            return Some(FeeSwitchPool {
+            return Some(FeeSwitchCFMMPool {
                 id: PoolId::try_from(conf.pool_nft).ok()?,
                 state_ver: PoolStateVer::from(ctx),
                 reserves_x,
@@ -324,22 +335,22 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for FeeSwitchPool {
     }
 }
 
-impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for FeeSwitchPool {
+impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for FeeSwitchCFMMPool {
     fn into_ledger(self, immut_pool: ImmutablePoolUtxo) -> TransactionOutput {
         let mut ma = MultiAsset::new();
         let coins = if self.asset_x.is_native() {
             let (policy, name) = self.asset_y.untag().into_token().unwrap();
-            ma.set(policy, name.into(), (self.reserves_y.untag()));
+            ma.set(policy, name.into(), self.reserves_y.untag());
             self.reserves_x.untag()
         } else if self.asset_y.is_native() {
             let (policy, name) = self.asset_x.untag().into_token().unwrap();
-            ma.set(policy, name.into(), (self.reserves_x.untag()));
+            ma.set(policy, name.into(), self.reserves_x.untag());
             self.reserves_y.untag()
         } else {
             let (policy_x, name_x) = self.asset_x.untag().into_token().unwrap();
-            ma.set(policy_x, name_x.into(), (self.reserves_x.untag()));
+            ma.set(policy_x, name_x.into(), self.reserves_x.untag());
             let (policy_y, name_y) = self.asset_y.untag().into_token().unwrap();
-            ma.set(policy_y, name_y.into(), (self.reserves_y.untag()));
+            ma.set(policy_y, name_y.into(), self.reserves_y.untag());
             immut_pool.value
         };
         let (policy_lq, name_lq) = self.asset_lq.untag().into_token().unwrap();

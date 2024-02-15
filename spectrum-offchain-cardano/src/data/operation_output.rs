@@ -1,7 +1,6 @@
 use cml_chain::address::{BaseAddress, EnterpriseAddress};
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
-use cml_chain::genesis::network_info::NetworkInfo;
 use cml_chain::transaction::{ConwayFormatTxOut, TransactionOutput};
 use cml_chain::{Coin, Value};
 use cml_crypto::Ed25519KeyHash;

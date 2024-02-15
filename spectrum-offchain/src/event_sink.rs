@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use futures::stream::StreamExt;
 use futures::Stream;
-use log::info;
 use tokio::sync::Mutex;
 
 use crate::event_sink::event_handler::EventHandler;

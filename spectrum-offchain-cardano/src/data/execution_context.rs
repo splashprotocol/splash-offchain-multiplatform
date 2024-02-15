@@ -1,5 +1,4 @@
 use cml_chain::address::Address;
-use cml_chain::builders::input_builder::InputBuilderResult;
 use spectrum_cardano_lib::collateral::Collateral;
 
 use crate::data::ref_scripts::ReferenceOutputs;

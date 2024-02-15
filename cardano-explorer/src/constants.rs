@@ -1,6 +1,4 @@
 use cml_chain::genesis::network_info::NetworkInfo;
-use cml_core::network::BYRON_MAINNET_NETWORK_MAGIC;
-use std::string::ToString;
 
 pub const MAINNET_PREFIX: &str = "mainnet";
 pub const PREPROD_PREFIX: &str = "preprod";

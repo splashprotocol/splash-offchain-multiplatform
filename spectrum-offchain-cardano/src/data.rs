@@ -2,17 +2,16 @@ use std::fmt::{Display, Formatter};
 
 use cml_chain::address::Address;
 use cml_chain::transaction::{TransactionInput, TransactionOutput};
-use cml_chain::{PolicyId, Value};
+use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use cml_multi_era::babbage::BabbageTransactionOutput;
-use derive_more::Display;
 use num_rational::Ratio;
 use rand::{thread_rng, RngCore};
 
 use spectrum_cardano_lib::transaction::BabbageTransactionOutputExtension;
 use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAssetClass, Token};
 use spectrum_offchain::data::order::SpecializedOrder;
-use spectrum_offchain::data::{EntitySnapshot, Stable};
+use spectrum_offchain::data::{EntitySnapshot, Stable, VersionUpdater};
 use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::constants::POOL_VERSIONS;
@@ -105,9 +104,11 @@ where
     fn version(&self) -> Self::Version {
         self.value.version()
     }
+}
 
+impl<T: VersionUpdater> VersionUpdater for OnChain<T> {
     fn update_version(&mut self, new_version: Self::Version) {
-        self.update_version(new_version)
+        self.value.update_version(new_version)
     }
 }
 

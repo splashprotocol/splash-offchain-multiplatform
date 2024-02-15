@@ -100,7 +100,7 @@ pub trait ConstrPlutusDataExtension {
     where
         F: FnOnce(PlutusData) -> PlutusData;
 
-    fn update_field_unsafe(&mut self, index: usize, new_value: PlutusData) -> Option<()>;
+    fn update_field_unsafe(&mut self, index: usize, new_value: PlutusData);
 }
 
 impl ConstrPlutusDataExtension for ConstrPlutusData {
@@ -124,10 +124,11 @@ impl ConstrPlutusDataExtension for ConstrPlutusData {
         }
     }
 
-    fn update_field_unsafe(&mut self, index: usize, new_value: PlutusData) -> Option<()> {
-        let mut pd = new_value.clone();
-        mem::swap(&mut pd, self.fields.get_mut(index)?);
-        Some(())
+    fn update_field_unsafe(&mut self, index: usize, new_value: PlutusData) {
+        if let Some(fld) = self.fields.get_mut(index) {
+            let mut pd = new_value.clone();
+            mem::swap(&mut pd, fld)
+        }
     }
 }
 

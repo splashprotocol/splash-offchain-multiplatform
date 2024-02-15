@@ -3,19 +3,17 @@ use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::operation_output::{DepositOutput, RedeemOutput, SwapOutput};
 use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
-use crate::data::pool::{ApplyOrder, CFMMPoolAction, ImmutablePoolUtxo, Lq, Rx, Ry, Slippage};
+use crate::data::pool::{ApplyOrder, ApplyOrderError, CFMMPoolAction, ImmutablePoolUtxo, Lq, Rx, Ry};
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::{PoolId, PoolStateVer, PoolVer};
-use bloom_offchain::execution_engine::types::StableId;
 use cml_chain::assets::MultiAsset;
 use cml_chain::plutus::PlutusData;
 use cml_chain::plutus::PlutusData::Integer;
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
 use cml_chain::utils::BigInt;
-use cml_chain::{PolicyIdList, Value};
+use cml_chain::Value;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
-use pallas_primitives::alonzo::ScriptHash;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
 };
@@ -23,7 +21,7 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
-use spectrum_offchain::data::{EntitySnapshot, Has, Stable};
+use spectrum_offchain::data::{EntitySnapshot, Has, Stable, VersionUpdater};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 use type_equalities::IsEqual;
 
@@ -32,7 +30,7 @@ use crate::fees::FeeExtension;
 use crate::pool_math::cfmm_math::{output_amount, reward_lp, shares_amount};
 
 #[derive(Debug, Copy, Clone)]
-pub struct FeeSwitchBidirectionalPool {
+pub struct FeeSwitchBidirectionalCFMMPool {
     pub id: PoolId,
     pub state_ver: PoolStateVer,
     pub reserves_x: TaggedAmount<Rx>,
@@ -50,7 +48,7 @@ pub struct FeeSwitchBidirectionalPool {
     pub ver: PoolVer,
 }
 
-impl FeeSwitchBidirectionalPool {
+impl FeeSwitchBidirectionalCFMMPool {
     fn update_treasury(self, prev_datum: Option<DatumOption>) -> Option<DatumOption> {
         match prev_datum {
             None => None,
@@ -61,8 +59,8 @@ impl FeeSwitchBidirectionalPool {
 
                 let mut cpd = datum.into_constr_pd()?;
 
-                cpd.update_field_unsafe(6, new_treasury_x)?;
-                cpd.update_field_unsafe(7, new_treasury_y)?;
+                cpd.update_field_unsafe(6, new_treasury_x);
+                cpd.update_field_unsafe(7, new_treasury_y);
 
                 Some(DatumOption::new_datum(PlutusData::ConstrPlutusData(cpd)))
             }
@@ -70,7 +68,7 @@ impl FeeSwitchBidirectionalPool {
     }
 }
 
-impl Stable for FeeSwitchBidirectionalPool {
+impl Stable for FeeSwitchBidirectionalCFMMPool {
     type StableId = PoolId;
 
     fn stable_id(&self) -> Self::StableId {
@@ -78,18 +76,20 @@ impl Stable for FeeSwitchBidirectionalPool {
     }
 }
 
-impl EntitySnapshot for FeeSwitchBidirectionalPool {
+impl EntitySnapshot for FeeSwitchBidirectionalCFMMPool {
     type Version = PoolStateVer;
     fn version(&self) -> Self::Version {
         self.state_ver
     }
+}
 
+impl VersionUpdater for FeeSwitchBidirectionalCFMMPool {
     fn update_version(&mut self, new_version: Self::Version) {
         self.state_ver = new_version
     }
 }
 
-impl PoolOps for FeeSwitchBidirectionalPool {
+impl PoolOps for FeeSwitchBidirectionalCFMMPool {
     fn get_asset_x(&self) -> TaggedAssetClass<Rx> {
         self.asset_x
     }
@@ -145,16 +145,24 @@ impl PoolOps for FeeSwitchBidirectionalPool {
     }
 }
 
-impl ApplyOrder<ClassicalOnChainLimitSwap> for FeeSwitchBidirectionalPool {
+impl ApplyOrder<ClassicalOnChainLimitSwap> for FeeSwitchBidirectionalCFMMPool {
     type OrderApplicationResult = SwapOutput;
 
     fn apply_order(
         mut self,
         ClassicalOrder { id, pool_id, order }: ClassicalOnChainLimitSwap,
-    ) -> Result<(Self, SwapOutput), Slippage<ClassicalOnChainLimitSwap>> {
+    ) -> Result<(Self, SwapOutput), ApplyOrderError<ClassicalOnChainLimitSwap>> {
         let quote_amount = self.output_amount(order.base_asset, order.base_amount);
         if quote_amount < order.min_expected_quote_amount {
-            return Err(Slippage(ClassicalOrder { id, pool_id, order }));
+            return Err(ApplyOrderError::slippage(
+                ClassicalOrder {
+                    id,
+                    pool_id,
+                    order: order.clone(),
+                },
+                quote_amount,
+                order.clone().min_expected_quote_amount,
+            ));
         }
         // Adjust pool value.
         if order.quote_asset.untag() == self.asset_x.untag() {
@@ -179,13 +187,13 @@ impl ApplyOrder<ClassicalOnChainLimitSwap> for FeeSwitchBidirectionalPool {
     }
 }
 
-impl ApplyOrder<ClassicalOnChainDeposit> for FeeSwitchBidirectionalPool {
+impl ApplyOrder<ClassicalOnChainDeposit> for FeeSwitchBidirectionalCFMMPool {
     type OrderApplicationResult = DepositOutput;
 
     fn apply_order(
         mut self,
-        ClassicalOrder { id, pool_id, order }: ClassicalOnChainDeposit,
-    ) -> Result<(Self, DepositOutput), Slippage<ClassicalOnChainDeposit>> {
+        ClassicalOrder { order, .. }: ClassicalOnChainDeposit,
+    ) -> Result<(Self, DepositOutput), ApplyOrderError<ClassicalOnChainDeposit>> {
         let net_x = if order.token_x.is_native() {
             order.token_x_amount.untag() - order.ex_fee - order.collateral_ada
         } else {
@@ -220,13 +228,13 @@ impl ApplyOrder<ClassicalOnChainDeposit> for FeeSwitchBidirectionalPool {
     }
 }
 
-impl ApplyOrder<ClassicalOnChainRedeem> for FeeSwitchBidirectionalPool {
+impl ApplyOrder<ClassicalOnChainRedeem> for FeeSwitchBidirectionalCFMMPool {
     type OrderApplicationResult = RedeemOutput;
 
     fn apply_order(
         mut self,
         ClassicalOrder { order, .. }: ClassicalOnChainRedeem,
-    ) -> Result<(Self, RedeemOutput), Slippage<ClassicalOnChainRedeem>> {
+    ) -> Result<(Self, RedeemOutput), ApplyOrderError<ClassicalOnChainRedeem>> {
         let (x_amount, y_amount) = self.clone().shares_amount(order.token_lq_amount);
 
         self.reserves_x = self.reserves_x - x_amount;
@@ -247,25 +255,25 @@ impl ApplyOrder<ClassicalOnChainRedeem> for FeeSwitchBidirectionalPool {
     }
 }
 
-impl Has<PoolStateVer> for FeeSwitchBidirectionalPool {
+impl Has<PoolStateVer> for FeeSwitchBidirectionalCFMMPool {
     fn get_labeled<U: IsEqual<PoolStateVer>>(&self) -> PoolStateVer {
         self.state_ver
     }
 }
 
-impl Has<PoolVer> for FeeSwitchBidirectionalPool {
+impl Has<PoolVer> for FeeSwitchBidirectionalCFMMPool {
     fn get_labeled<U: IsEqual<PoolVer>>(&self) -> PoolVer {
         self.ver
     }
 }
 
-impl RequiresRedeemer<CFMMPoolAction> for FeeSwitchBidirectionalPool {
+impl RequiresRedeemer<CFMMPoolAction> for FeeSwitchBidirectionalCFMMPool {
     fn redeemer(action: CFMMPoolAction) -> PlutusData {
         action.to_plutus_data()
     }
 }
 
-impl TryFromLedger<BabbageTransactionOutput, OutputRef> for FeeSwitchBidirectionalPool {
+impl TryFromLedger<BabbageTransactionOutput, OutputRef> for FeeSwitchBidirectionalCFMMPool {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
         if let Some(pool_ver) = PoolVer::try_from_pool_address(repr.address()) {
             let value = repr.value();
@@ -275,7 +283,7 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for FeeSwitchBidirection
             let reserves_y = TaggedAmount::new(value.amount_of(conf.asset_y.into())?);
             let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
             let liquidity = TaggedAmount::new(MAX_LQ_CAP - liquidity_neg);
-            return Some(FeeSwitchBidirectionalPool {
+            return Some(FeeSwitchBidirectionalCFMMPool {
                 id: PoolId::try_from(conf.pool_nft).ok()?,
                 state_ver: PoolStateVer::from(ctx),
                 reserves_x,
@@ -297,7 +305,7 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for FeeSwitchBidirection
     }
 }
 
-impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for FeeSwitchBidirectionalPool {
+impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for FeeSwitchBidirectionalCFMMPool {
     fn into_ledger(self, immut_pool: ImmutablePoolUtxo) -> TransactionOutput {
         let mut ma = MultiAsset::new();
         let coins = if self.asset_x.is_native() {

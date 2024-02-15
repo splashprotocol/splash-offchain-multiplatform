@@ -125,6 +125,7 @@ where
         let last_confirmed_index_key = index_key(LAST_CONFIRMED_PREFIX, eid);
         let last_unconfirmed_index_key = index_key(LAST_UNCONFIRMED_PREFIX, eid);
         if let Some(predecessor) = predecessor {
+            warn!(target: "entity_repo", "invalidating entity: rollback to {:?}", predecessor);
             self.index.insert(last_confirmed_index_key, predecessor);
         } else {
             self.index.remove(&last_confirmed_index_key);

@@ -1,11 +1,9 @@
-use std::fs::File;
 use std::sync::{Arc, Once};
 
 use cardano_chain_sync::cache::LedgerCacheRocksDB;
 use clap::Parser;
 use cml_chain::builders::tx_builder::SignedTxBuilder;
 use cml_chain::transaction::Transaction;
-use cml_core::serialization::Deserialize;
 use cml_crypto::PrivateKey;
 use cml_multi_era::babbage::BabbageTransaction;
 use futures::channel::mpsc;
@@ -24,7 +22,7 @@ use cardano_explorer::constants::get_network_id;
 use cardano_mempool_sync::client::LocalTxMonitorClient;
 use cardano_mempool_sync::data::MempoolUpdate;
 use cardano_mempool_sync::mempool_stream;
-use cardano_submit_api::client::{Error, LocalTxSubmissionClient};
+use cardano_submit_api::client::LocalTxSubmissionClient;
 use spectrum_cardano_lib::constants::BABBAGE_ERA_ID;
 use spectrum_offchain::backlog::process::hot_backlog_stream;
 use spectrum_offchain::backlog::HotPriorityBacklog;
@@ -34,7 +32,7 @@ use spectrum_offchain::box_resolver::persistence::EntityRepoTracing;
 use spectrum_offchain::box_resolver::process::pool_tracking_stream;
 use spectrum_offchain::data::order::{OrderLink, OrderUpdate};
 use spectrum_offchain::data::unique_entity::{EitherMod, StateUpdate};
-use spectrum_offchain::event_sink::event_handler::{EventHandler, NoopDefaultHandler};
+use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::executor::{executor_stream, HotOrderExecutor};
 use spectrum_offchain::network::Network;
@@ -44,7 +42,7 @@ use spectrum_offchain_cardano::collaterals::{Collaterals, CollateralsViaExplorer
 use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::data::execution_context::ExecutionContext;
 use spectrum_offchain_cardano::data::order::ClassicalOnChainOrder;
-use spectrum_offchain_cardano::data::pool::PoolEnum;
+use spectrum_offchain_cardano::data::pool::AnyCFMMPool;
 use spectrum_offchain_cardano::data::ref_scripts::ReferenceOutputs;
 use spectrum_offchain_cardano::data::{OnChain, PoolId};
 use spectrum_offchain_cardano::event_sink::handlers::reproducible::{
@@ -54,7 +52,6 @@ use spectrum_offchain_cardano::event_sink::handlers::short_term::registry::Ephem
 use spectrum_offchain_cardano::event_sink::handlers::short_term::ClassicalOrderUpdatesHandler;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxRejected, TxSubmissionAgent};
-use tracing_subscriber::{filter, prelude::*};
 
 use crate::config::AppConfig;
 
@@ -172,15 +169,15 @@ async fn main() {
         ClassicalOrderUpdatesHandler::<_, ClassicalOnChainOrder, _>::new(orders_snd, orders_registry);
     let backlog_stream = hot_backlog_stream(partitioned_backlog, orders_recv);
 
-    let (pools_snd, pools_recv) = mpsc::channel::<EitherMod<StateUpdate<OnChain<PoolEnum>>>>(128);
+    let (pools_snd, pools_recv) = mpsc::channel::<EitherMod<StateUpdate<OnChain<AnyCFMMPool>>>>(128);
     // This technically disables pool lookups in TX.inputs.
     let noop_pool_repo = Arc::new(Mutex::new(NoopEntityRepo));
-    let pools_handler_ledger = ConfirmedUpdateHandler::<_, OnChain<PoolEnum>, _>::new(
+    let pools_handler_ledger = ConfirmedUpdateHandler::<_, OnChain<AnyCFMMPool>, _>::new(
         pools_snd.clone(),
         Arc::clone(&noop_pool_repo),
     );
     let pools_handler_mempool =
-        UnconfirmedUpdateHandler::<_, OnChain<PoolEnum>, _>::new(pools_snd, noop_pool_repo);
+        UnconfirmedUpdateHandler::<_, OnChain<AnyCFMMPool>, _>::new(pools_snd, noop_pool_repo);
     let partitioned_pool_repo = Partitioned::<NUM_PARTITIONS, PoolId, _>::new([
         Arc::clone(&p1.pool_repo),
         Arc::clone(&p2.pool_repo),
@@ -231,7 +228,7 @@ fn new_partition<'a, Net>(
 ) -> ExecPartition<
     impl Stream<Item = ()> + 'a,
     HotPriorityBacklog<ClassicalOnChainOrder>,
-    EntityRepoTracing<InMemoryEntityRepo<OnChain<PoolEnum>>>,
+    EntityRepoTracing<InMemoryEntityRepo<OnChain<AnyCFMMPool>>>,
 >
 where
     Net: Network<Transaction, TxRejected> + 'a,
@@ -246,7 +243,7 @@ where
         _,
         _,
         ClassicalOnChainOrder,
-        OnChain<PoolEnum>,
+        OnChain<AnyCFMMPool>,
         SignedTxBuilder,
         Transaction,
         TxRejected,

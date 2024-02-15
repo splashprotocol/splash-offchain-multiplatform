@@ -2,7 +2,6 @@ use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
 use either::Either;
-use isahc::http::Version;
 use type_equalities::IsEqual;
 
 use crate::ledger::TryFromLedger;
@@ -32,7 +31,9 @@ pub trait EntitySnapshot: Stable {
     type Version: Copy + Eq + Hash + Display;
 
     fn version(&self) -> Self::Version;
+}
 
+pub trait VersionUpdater: EntitySnapshot {
     fn update_version(&mut self, new_version: Self::Version);
 }
 
@@ -63,13 +64,6 @@ where
         match self {
             Either::Left(a) => a.version(),
             Either::Right(b) => b.version(),
-        }
-    }
-
-    fn update_version(&mut self, new_version: Self::Version) {
-        match self {
-            Either::Left(a) => a.update_version(new_version),
-            Either::Right(b) => b.update_version(new_version),
         }
     }
 }
@@ -141,10 +135,6 @@ where
 
     fn version(&self) -> Self::Version {
         self.version
-    }
-
-    fn update_version(&mut self, new_version: Self::Version) {
-        self.update_version(new_version)
     }
 }
 

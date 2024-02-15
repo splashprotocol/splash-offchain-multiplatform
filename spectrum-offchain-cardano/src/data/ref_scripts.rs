@@ -12,10 +12,10 @@ use crate::constants::{
     POOL_V2_SCRIPT, REDEEM_SCRIPT, SWAP_SCRIPT,
 };
 use crate::data::deposit::ClassicalOnChainDeposit;
-use crate::data::fee_switch_bidirectional_fee::FeeSwitchBidirectionalPool;
-use crate::data::fee_switch_pool::FeeSwitchPool;
+use crate::data::fee_switch_bidirectional_fee::FeeSwitchBidirectionalCFMMPool;
+use crate::data::fee_switch_pool::FeeSwitchCFMMPool;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
-use crate::data::pool::{CFMMPool, PoolEnum};
+use crate::data::pool::{AnyCFMMPool, ClassicCFMMPool};
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolVer;
 use crate::ref_scripts::ReferenceSources;
@@ -106,31 +106,31 @@ impl RequiresRefScript for ClassicalOnChainRedeem {
     }
 }
 
-impl RequiresRefScript for PoolEnum {
+impl RequiresRefScript for AnyCFMMPool {
     fn get_ref_script(self, ref_scripts: ReferenceOutputs) -> TransactionUnspentOutput {
         match self {
-            PoolEnum::CFMM(cfmm_pool) => cfmm_pool.get_ref_script(ref_scripts),
-            PoolEnum::FeeSwitch(fee_switch_pool) => fee_switch_pool.get_ref_script(ref_scripts),
-            PoolEnum::FeeSwitchBidirectional(bidirectional_pool) => {
+            AnyCFMMPool::Classic(cfmm_pool) => cfmm_pool.get_ref_script(ref_scripts),
+            AnyCFMMPool::FeeSwitch(fee_switch_pool) => fee_switch_pool.get_ref_script(ref_scripts),
+            AnyCFMMPool::FeeSwitchBidirectional(bidirectional_pool) => {
                 bidirectional_pool.get_ref_script(ref_scripts)
             }
         }
     }
 }
 
-impl RequiresRefScript for FeeSwitchPool {
+impl RequiresRefScript for FeeSwitchCFMMPool {
     fn get_ref_script(self, ref_scripts: ReferenceOutputs) -> TransactionUnspentOutput {
         ref_scripts.fee_switch_pool
     }
 }
 
-impl RequiresRefScript for FeeSwitchBidirectionalPool {
+impl RequiresRefScript for FeeSwitchBidirectionalCFMMPool {
     fn get_ref_script(self, ref_scripts: ReferenceOutputs) -> TransactionUnspentOutput {
         ref_scripts.fee_switch_pool_bidirectional_fee
     }
 }
 
-impl RequiresRefScript for CFMMPool {
+impl RequiresRefScript for ClassicCFMMPool {
     fn get_ref_script(self, ref_scripts: ReferenceOutputs) -> TransactionUnspentOutput {
         match self.get_labeled::<PoolVer>() {
             PoolVer(1) => ref_scripts.pool_v1,
