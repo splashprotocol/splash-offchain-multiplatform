@@ -3,6 +3,7 @@ use cml_multi_era::babbage::BabbageTransactionOutput;
 use either::Either;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
+use log::trace;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::{Baked, EntitySnapshot, Has, Stable, Tradable};
@@ -48,6 +49,7 @@ where
     C: Copy + Has<ExecutorCred> + Has<OutputRef>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
+        trace!(target: "offchain", "CardanoEntity::try_from_ledger");
         <Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>>::try_from_ledger(repr, ctx).map(
             |inner| {
                 Self(Bundled(

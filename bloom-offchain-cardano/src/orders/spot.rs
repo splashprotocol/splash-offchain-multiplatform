@@ -146,7 +146,11 @@ impl Fragment for SpotOrder {
     }
 
     fn linear_fee(&self, input_consumed: InputAsset<u64>) -> FeeAsset<u64> {
-        self.fee * input_consumed / self.input_amount
+        if self.input_amount > 0 {
+            self.fee * input_consumed / self.input_amount
+        } else {
+            0
+        }
     }
 
     fn weighted_fee(&self) -> FeeAsset<Ratio<u64>> {
@@ -276,6 +280,7 @@ where
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
         let script_hash =
             ScriptHash::from_hex("f29e29d9347eea7f0580392f39e80df64026ecedf7f38170c9736816").unwrap();
+        trace!(target: "offchain", "SpotOrder::try_from_ledger");
         if repr.address().script_hash() == Some(script_hash) {
             info!(target: "offchain", "Spot order address coincides");
             let value = repr.value().clone();
@@ -291,7 +296,7 @@ where
                         input_asset: AssetClass::Native,
                         input_amount: conf.tradable_input,
                         output_asset: conf.output,
-                        output_amount: value.amount_of(conf.output)?,
+                        output_amount: value.amount_of(conf.output).unwrap_or(0),
                         base_price: conf.base_price,
                         execution_budget,
                         fee_asset: AssetClass::Native,

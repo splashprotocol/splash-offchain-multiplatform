@@ -1,4 +1,5 @@
 use cml_multi_era::babbage::BabbageTransactionOutput;
+use log::trace;
 
 use crate::creds::ExecutorCred;
 use bloom_derivation::{Fragment, Stable, Tradable};
@@ -43,7 +44,10 @@ where
     C: Has<ExecutorCred>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
-        SpotOrder::try_from_ledger(repr, ctx).map(AnyOrder::Spot)
+        SpotOrder::try_from_ledger(repr, ctx).map(|s| {
+            trace!(target: "offchain", "AnyOrder::try_from_ledger: Got SPOT");
+            AnyOrder::Spot(s)
+        })
     }
 }
 

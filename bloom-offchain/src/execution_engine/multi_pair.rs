@@ -1,3 +1,4 @@
+use log::trace;
 use std::collections::HashMap;
 use std::hash::Hash;
 use type_equalities::IsEqual;
@@ -15,7 +16,7 @@ impl<PairId, R, Ctx> MultiPair<PairId, R, Ctx> {
 
 impl<PairId, R, Ctx> MultiPair<PairId, R, Ctx>
 where
-    PairId: Copy + Eq + Hash,
+    PairId: Copy + Eq + Hash + std::fmt::Display,
     R: Maker<Ctx>,
     Ctx: Clone,
 {
@@ -30,6 +31,7 @@ where
         if self.0.contains_key(pair) {
             self.0.get_mut(pair).unwrap()
         } else {
+            trace!(target: "offchain", "MultiPair: new pair: {}", pair);
             self.0.insert(*pair, Maker::make(&self.1));
             self.get_mut(pair)
         }

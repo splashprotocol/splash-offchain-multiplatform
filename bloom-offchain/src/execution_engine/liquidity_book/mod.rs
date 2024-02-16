@@ -3,6 +3,7 @@ use std::mem;
 
 use either::Either;
 
+use log::trace;
 use spectrum_offchain::data::{Has, Stable};
 
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
@@ -105,17 +106,21 @@ where
 
 impl<Fr, Pl> TemporalLiquidityBook<Fr, Pl> for TLB<Fr, Pl>
 where
-    Fr: Fragment + OrderState + Copy + Ord,
-    Pl: Pool + Stable + Copy,
+    Fr: Fragment + OrderState + Copy + Ord + std::fmt::Debug,
+    Pl: Pool + Stable + Copy + std::fmt::Debug,
 {
     fn attempt(&mut self) -> Option<IntermediateRecipe<Fr, Pl>> {
         if let Some(best_fr) = self.state.pick_best_fr_either() {
             let mut recipe = IntermediateRecipe::new(best_fr);
+            trace!(target: "tlb", "TLB::attempt: recipe {:?}", recipe);
             let mut execution_units_left = self.execution_cap.hard;
             loop {
                 if let Some(rem) = &recipe.remainder {
+                    trace!(target: "tlb", "TLB::attempt: remainder {:?}", rem);
                     let price_fragments = self.state.best_fr_price(!rem.target.side());
+                    trace!(target: "tlb", "TLB::attempt: price_fragments {:?}", price_fragments);
                     let price_in_pools = self.state.best_pool_price();
+                    trace!(target: "tlb", "TLB::attempt: price_in_pools {:?}", price_in_pools);
                     match (price_in_pools, price_fragments) {
                         (price_in_pools, Some(price_in_fragments))
                             if price_in_pools
@@ -165,7 +170,9 @@ where
                                 self.state.pre_add_pool(swap.transition);
                             }
                         }
-                        _ => {}
+                        _ => {
+                            trace!(target: "tlb", "666");
+                        }
                     }
                 }
                 break;
@@ -205,6 +212,7 @@ where
     }
 
     fn add_fragment(&mut self, fr: Fr) {
+        trace!(target: "tlb", "TLB::add_fragment()");
         requiring_settled_state(self, |st| st.add_fragment(fr))
     }
 
@@ -230,10 +238,12 @@ where
         match &mut self.state {
             TLBState::Idle(_) => {}
             TLBState::PartialPreview(st) => {
+                trace!(target: "tlb", "TLBState::PartialPreview: recipe succeeded");
                 let new_st = st.commit();
                 mem::swap(&mut self.state, &mut TLBState::Idle(new_st));
             }
             TLBState::Preview(st) => {
+                trace!(target: "tlb", "TLBState::Preview: recipe succeeded");
                 let new_st = st.commit();
                 mem::swap(&mut self.state, &mut TLBState::Idle(new_st));
             }
@@ -244,10 +254,12 @@ where
         match &mut self.state {
             TLBState::Idle(_) => {}
             TLBState::PartialPreview(st) => {
+                trace!(target: "tlb", "TLBState::PartialPreview: recipe failed");
                 let new_st = st.rollback();
                 mem::swap(&mut self.state, &mut TLBState::Idle(new_st));
             }
             TLBState::Preview(st) => {
+                trace!(target: "tlb", "TLBState::Preview: recipe failed");
                 let new_st = st.rollback();
                 mem::swap(&mut self.state, &mut TLBState::Idle(new_st));
             }
@@ -367,6 +379,7 @@ where
 {
     match lhs.target.side() {
         SideM::Bid => {
+            trace!(target: "tlb", "fill_from_pool: BID");
             let mut bid = lhs;
             let quote_input = bid.remaining_input;
             let (execution_amount, next_pool) = pool.swap(Side::Bid(quote_input));
@@ -384,6 +397,7 @@ where
             }
         }
         SideM::Ask => {
+            trace!(target: "tlb", "fill_from_pool: ASK");
             let mut ask = lhs;
             let base_input = ask.remaining_input;
             let (execution_amount, next_pool) = pool.swap(Side::Ask(base_input));

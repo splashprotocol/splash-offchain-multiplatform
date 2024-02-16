@@ -42,28 +42,34 @@ where
     T: EntitySnapshot + Clone,
 {
     fn put_state(&mut self, state: T) {
+        trace!(target: "offchain", "InMemoryEntityIndex::put_state()");
         self.store.insert(state.version(), state);
     }
 
     fn get_state(&mut self, ver: &T::Version) -> Option<T> {
+        trace!(target: "offchain", "InMemoryEntityIndex::get_state({})", ver);
         self.store.get(&ver).cloned()
     }
 
     fn remove_state(&mut self, ver: &T::Version) {
+        trace!(target: "offchain", "InMemoryEntityIndex::remove_state({})", ver);
         self.store.remove(ver);
     }
 
     fn exists(&self, ver: &T::Version) -> bool {
+        trace!(target: "offchain", "InMemoryEntityIndex::exists({})", ver);
         self.store.contains_key(&ver)
     }
 
     fn register_for_eviction(&mut self, ver: T::Version) {
         let now = SystemTime::now();
+        trace!(target: "offchain", "InMemoryEntityIndex::register_for_eviction({})", ver);
         self.eviction_queue.push_back((now + self.eviction_delay, ver));
     }
 
     fn run_eviction(&mut self) {
         let now = SystemTime::now();
+        trace!(target: "offchain", "InMemoryEntityIndex::run_eviction()");
         loop {
             match self.eviction_queue.pop_front() {
                 Some((ts, v)) if ts <= now => {

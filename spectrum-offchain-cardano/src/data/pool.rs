@@ -8,7 +8,7 @@ use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, TransactionOutput};
 use cml_core::serialization::FromBytes;
 use cml_multi_era::babbage::BabbageTransactionOutput;
-use log::info;
+use log::trace;
 use num_integer::Roots;
 use num_rational::Ratio;
 use std::fmt::Debug;
@@ -616,10 +616,14 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicCFMMPool {
         if let Some(pool_ver) = PoolVer::try_from_pool_address(repr.address()) {
             let value = repr.value();
             let pd = repr.datum().clone()?.into_pd()?;
+            trace!(target: "offchain", "CFMMPool::try_from_ledger: trying to extract datum");
             let conf = CFMMPoolConfig::try_from_pd(pd.clone())?;
             let reserves_x = TaggedAmount::new(value.amount_of(conf.asset_x.into())?);
+            trace!(target: "offchain", "CFMMPool::try_from_ledger: extracted reserves_x");
             let reserves_y = TaggedAmount::new(value.amount_of(conf.asset_y.into())?);
+            trace!(target: "offchain", "CFMMPool::try_from_ledger: extracted reserves_y");
             let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
+            trace!(target: "offchain", "CFMMPool::try_from_ledger: extracted liquidity_neg");
             let liquidity = TaggedAmount::new(MAX_LQ_CAP - liquidity_neg);
             return Some(ClassicCFMMPool {
                 id: PoolId::try_from(conf.pool_nft).ok()?,
@@ -710,13 +714,24 @@ pub struct CFMMPoolConfig {
 impl TryFromPData for CFMMPoolConfig {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
+        let pool_nft = TaggedAssetClass::try_from_pd(cpd.take_field(0)?)?;
+        trace!(target: "offchain", "extracted pool_nft");
+        let asset_x = TaggedAssetClass::try_from_pd(cpd.take_field(1)?)?;
+        trace!(target: "offchain", "extracted asset_x");
+        let asset_y = TaggedAssetClass::try_from_pd(cpd.take_field(2)?)?;
+        trace!(target: "offchain", "extracted asset_y");
+        let asset_lq = TaggedAssetClass::try_from_pd(cpd.take_field(3)?)?;
+        trace!(target: "offchain", "extracted asset_lq");
+        let lp_fee_num = cpd.take_field(4)?.into_u64()?;
+        trace!(target: "offchain", "extracted lp_fee_num");
+        let lq_lower_bound = TaggedAmount::new(cpd.take_field(6).and_then(|pd| pd.into_u64()).unwrap_or(0));
         Some(Self {
-            pool_nft: TaggedAssetClass::try_from_pd(cpd.take_field(0)?)?,
-            asset_x: TaggedAssetClass::try_from_pd(cpd.take_field(1)?)?,
-            asset_y: TaggedAssetClass::try_from_pd(cpd.take_field(2)?)?,
-            asset_lq: TaggedAssetClass::try_from_pd(cpd.take_field(3)?)?,
-            lp_fee_num: cpd.take_field(4)?.into_u64()?,
-            lq_lower_bound: TaggedAmount::new(cpd.take_field(6).and_then(|pd| pd.into_u64()).unwrap_or(0)),
+            pool_nft,
+            asset_x,
+            asset_y,
+            asset_lq,
+            lp_fee_num,
+            lq_lower_bound,
         })
     }
 }

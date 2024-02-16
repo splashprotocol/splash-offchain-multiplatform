@@ -1,6 +1,7 @@
 use cml_chain::address::Address;
 use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder};
 use either::Either;
+use log::trace;
 use tailcall::tailcall;
 use void::Void;
 
@@ -28,8 +29,8 @@ pub struct CardanoRecipeInterpreter;
 impl<'a, Fr, Pl, Ctx> RecipeInterpreter<Fr, Pl, Ctx, OutputRef, FinalizedTxOut, SignedTxBuilder>
     for CardanoRecipeInterpreter
 where
-    Fr: Copy,
-    Pl: Copy,
+    Fr: Copy + std::fmt::Debug,
+    Pl: Copy + std::fmt::Debug,
     Magnet<LinkedFill<Fr, FinalizedTxOut>>: BatchExec<ExecutionState, Option<IndexedTxOut>, Ctx, Void>,
     Magnet<LinkedSwap<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, IndexedTxOut, Ctx, Void>,
     Ctx: Clone + Has<Collateral> + Has<RewardAddress>,
@@ -45,6 +46,7 @@ where
         let state = ExecutionState::new();
         let (ExecutionState { mut tx_builder, .. }, mut indexed_outputs, ctx) =
             execute(ctx, state, vec![], instructions);
+        trace!(target: "offchain", "CardanoRecipeInterpreter:: execute done");
         tx_builder
             .add_collateral(ctx.get_labeled::<Collateral>().into())
             .unwrap();
@@ -93,6 +95,7 @@ where
     if let Some(instruction) = rem.pop() {
         match instruction {
             LinkedTerminalInstruction::Fill(fill_order) => {
+                trace!(target: "offchain", "Executing FILL");
                 let next_state = fill_order.next_fr;
                 let (tx_builder, next_bearer, ctx) = Magnet(fill_order).try_exec(state, ctx).unwrap();
                 if let (StateTrans::Active(next_fr), Some(next_bearer)) = (next_state, next_bearer) {
@@ -101,6 +104,7 @@ where
                 execute(ctx, tx_builder, updates_acc, rem)
             }
             LinkedTerminalInstruction::Swap(swap) => {
+                trace!(target: "offchain", "Executing SWAP");
                 let next_state = swap.transition;
                 let (tx_builder, next_bearer, ctx) = Magnet(swap).try_exec(state, ctx).unwrap();
                 updates_acc.push((Either::Right(next_state), next_bearer));

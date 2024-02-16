@@ -13,6 +13,7 @@ spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain" }
 spectrum-offchain-cardano = { version = "1.0.0", path = "../spectrum-offchain-cardano" }
 cardano-chain-sync = { version = "0.1.0", path = "../cardano-chain-sync" }
 cardano-explorer = { version = "0.1.0", path = "../cardano-explorer" }
+cbor_event = "2.4.0"
 cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/addr_to_bech_32_byron" }
 cardano-mempool-sync = { version = "0.1.0", path = "../cardano-mempool-sync" }
 cardano-submit-api = { version = "0.1.0", path = "../cardano-submit-api" }

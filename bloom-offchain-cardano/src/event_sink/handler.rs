@@ -117,10 +117,12 @@ where
         let o_ref = OutputRef::new(tx_hash, ix as u64);
         match Entity::try_from_ledger(&o, HandlerContext::new(o_ref, executor_cred)) {
             Some(entity) => {
+                trace!(target: "offchain", "extract_transitions: entity found");
                 let entity_id = entity.stable_id();
                 produced_entities.insert(entity_id, entity);
             }
             None => {
+                trace!(target: "offchain", "extract_transitions: NO entity found");
                 non_processed_outputs.push(o);
             }
         }
