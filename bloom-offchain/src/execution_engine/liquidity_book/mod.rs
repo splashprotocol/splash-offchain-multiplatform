@@ -116,11 +116,8 @@ where
             let mut execution_units_left = self.execution_cap.hard;
             loop {
                 if let Some(rem) = &recipe.remainder {
-                    trace!(target: "tlb", "TLB::attempt: remainder {:?}", rem);
                     let price_fragments = self.state.best_fr_price(!rem.target.side());
-                    trace!(target: "tlb", "TLB::attempt: price_fragments {:?}", price_fragments);
                     let price_in_pools = self.state.best_pool_price();
-                    trace!(target: "tlb", "TLB::attempt: price_in_pools {:?}", price_in_pools);
                     match (price_in_pools, price_fragments) {
                         (price_in_pools, Some(price_in_fragments))
                             if price_in_pools

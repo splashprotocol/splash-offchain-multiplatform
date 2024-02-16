@@ -233,32 +233,23 @@ impl TryFromPData for ConfigNativeToToken {
         let beacon = <[u8; 28]>::try_from(cpd.take_field(N2T_DATUM_MAPPING.beacon)?.into_bytes()?)
             .map(PolicyId::from)
             .ok()?;
-        trace!(target: "offchain", "Extracted ConfigNativeToToken::beacon from plutus data");
         let tradable_input = cpd.take_field(N2T_DATUM_MAPPING.tradable_input)?.into_u64()?;
-        trace!(target: "offchain", "Extracted ConfigNativeToToken::tradable_input from plutus data");
         let cost_per_ex_step = cpd.take_field(N2T_DATUM_MAPPING.cost_per_ex_step)?.into_u64()?;
-        trace!(target: "offchain", "Extracted ConfigNativeToToken::cost_per_ex_step from plutus data");
         let min_marginal_output = cpd
             .take_field(N2T_DATUM_MAPPING.min_marginal_output)?
             .into_u64()?;
-        trace!(target: "offchain", "Extracted ConfigNativeToToken::min_marginal_output from plutus data");
         let output = AssetClass::try_from_pd(cpd.take_field(N2T_DATUM_MAPPING.output)?)?;
-        trace!(target: "offchain", "Extracted ConfigNativeToToken::output from plutus data");
         let base_price = RelativePrice::try_from_pd(cpd.take_field(N2T_DATUM_MAPPING.base_price)?)?;
-        trace!(target: "offchain", "Extracted ConfigNativeToToken::base_price from plutus data");
         let fee = cpd.take_field(N2T_DATUM_MAPPING.fee)?.into_u64()?;
-        trace!(target: "offchain", "Extracted ConfigNativeToToken::fee from plutus data");
         let redeemer_pkh = Ed25519KeyHash::from(
             <[u8; 28]>::try_from(cpd.take_field(N2T_DATUM_MAPPING.redeemer_pkh)?.into_bytes()?).ok()?,
         );
-        trace!(target: "offchain", "Extracted ConfigNativeToToken::redeemer_pkh from plutus data");
         let permitted_executors = cpd
             .take_field(N2T_DATUM_MAPPING.permitted_executors)?
             .into_vec()?
             .into_iter()
             .filter_map(|pd| Some(Ed25519KeyHash::from(<[u8; 28]>::try_from(pd.into_bytes()?).ok()?)))
             .collect();
-        trace!(target: "offchain", "Extracted ConfigNativeToToken::permitted_executors from plutus data");
         Some(ConfigNativeToToken {
             beacon,
             tradable_input,
