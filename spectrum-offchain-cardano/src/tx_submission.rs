@@ -1,8 +1,9 @@
 use async_stream::stream;
 use cml_core::serialization::Serialize;
-use derive_more::Display;
 use futures::channel::{mpsc, oneshot};
 use futures::{SinkExt, Stream, StreamExt};
+use pallas_network::miniprotocols::localtxsubmission;
+use std::fmt::{Display, Formatter};
 
 use cardano_submit_api::client::{Error, LocalTxSubmissionClient};
 use spectrum_offchain::network::Network;
@@ -33,17 +34,19 @@ pub struct TxSubmissionChannel<const ERA: u16, Tx>(mpsc::Sender<SubmitTx<Tx>>);
 
 pub struct SubmitTx<Tx>(Tx, oneshot::Sender<SubmissionResult>);
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub enum SubmissionResult {
     Ok,
-    TxRejected,
+    TxRejectedResult { rejected_bytes: Option<Vec<u8>> },
 }
 
 impl From<SubmissionResult> for Result<(), TxRejected> {
     fn from(value: SubmissionResult) -> Self {
         match value {
             SubmissionResult::Ok => Ok(()),
-            SubmissionResult::TxRejected => Err(TxRejected),
+            SubmissionResult::TxRejectedResult { rejected_bytes } => Err(TxRejected {
+                msg_bytes: rejected_bytes,
+            }),
         }
     }
 }
@@ -59,15 +62,35 @@ where
             let SubmitTx(tx, on_resp) = agent.mailbox.select_next_some().await;
             match agent.client.submit_tx(tx).await {
                 Ok(_) => on_resp.send(SubmissionResult::Ok).expect("Responder was dropped"),
-                Err(Error::TxSubmissionProtocol(_)) => on_resp.send(SubmissionResult::TxRejected).expect("Responder was dropped"),
+                Err(Error::TxSubmissionProtocol(err)) => {
+                    match err {
+                        localtxsubmission::Error::TxRejected(bytes) => {
+                            on_resp.send(SubmissionResult::TxRejectedResult{rejected_bytes: Some(bytes.0)}).expect("Responder was dropped")
+                        },
+                        _ => {
+                            on_resp.send(SubmissionResult::TxRejectedResult{rejected_bytes: None}).expect("Responder was dropped")
+                        }
+                    };
+                },
                 Err(_) => panic!("Cannot submit"),
             }
         }
     }
 }
 
-#[derive(Debug, Display)]
-pub struct TxRejected;
+#[derive(Debug)]
+pub struct TxRejected {
+    pub msg_bytes: Option<Vec<u8>>,
+}
+
+impl Display for TxRejected {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match &self.msg_bytes.clone() {
+            None => write!(f, "TxRejected (None)"),
+            Some(bytes) => write!(f, "TxRejected (Hex: {})", hex::encode(bytes)),
+        }
+    }
+}
 
 #[async_trait::async_trait]
 impl<const ERA: u16, Tx> Network<Tx, TxRejected> for TxSubmissionChannel<ERA, Tx>

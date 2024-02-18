@@ -1,4 +1,4 @@
-use spectrum_offchain::data::{EntitySnapshot, Stable, Tradable};
+use spectrum_offchain::data::{EntitySnapshot, Stable, Tradable, VersionUpdater};
 use spectrum_offchain::ledger::TryFromLedger;
 
 /// Entity bundled with its source.
@@ -22,6 +22,15 @@ where
     type Version = T::Version;
     fn version(&self) -> Self::Version {
         self.0.version()
+    }
+}
+
+impl<T, Source> VersionUpdater for Bundled<T, Source>
+where
+    T: VersionUpdater,
+{
+    fn update_version(&mut self, new_version: Self::Version) {
+        self.0.update_version(new_version)
     }
 }
 

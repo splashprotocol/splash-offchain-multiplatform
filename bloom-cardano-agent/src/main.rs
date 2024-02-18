@@ -73,7 +73,7 @@ async fn main() {
 
     info!("Starting Off-Chain Agent ..");
 
-    let explorer = Explorer::new(config.explorer);
+    let explorer = Explorer::new(config.explorer, config.node.magic);
 
     let ref_scripts = ReferenceOutputs::pull(config.ref_scripts, explorer)
         .await
@@ -112,7 +112,7 @@ async fn main() {
     let mempool_stream = mempool_stream(&mempool_sync, Some(&signal_tip_reached));
 
     let (operator_sk, operator_pkh, _operator_addr) =
-        operator_creds(config.batcher_private_key, NetworkInfo::mainnet());
+        operator_creds(config.batcher_private_key, config.node.magic);
 
     let collaterals = CollateralsViaExplorer::new(operator_pkh.to_hex(), explorer);
 

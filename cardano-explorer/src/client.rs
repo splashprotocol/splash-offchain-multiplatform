@@ -3,25 +3,29 @@ use cml_chain::transaction::TransactionInput;
 use serde::de::DeserializeOwned;
 use spectrum_cardano_lib::OutputRef;
 
+use crate::constants::get_network_prefix;
 use crate::data::full_tx_out::ExplorerTxOut;
 use crate::data::items::Items;
 
 #[derive(Copy, Clone)]
 pub struct Explorer<'a> {
     explorer_config: ExplorerConfig<'a>,
+    network_prefix: &'a str,
 }
 
 impl<'a> Explorer<'a> {
-    pub fn new(config: ExplorerConfig<'a>) -> Self {
+    pub fn new(config: ExplorerConfig<'a>, network_magic: u64) -> Self {
         Explorer {
             explorer_config: config,
+            network_prefix: get_network_prefix(network_magic),
         }
     }
 
     pub async fn get_utxo(self, output_ref: OutputRef) -> Option<ExplorerTxOut> {
         let request_url = format!(
-            "{}/cardano/mainnet/v1/outputs/{}:{}",
+            "{}/cardano/{}/v1/outputs/{}:{}",
             self.explorer_config.url.to_owned(),
+            self.network_prefix,
             TransactionInput::from(output_ref).transaction_id.to_hex(),
             TransactionInput::from(output_ref).index
         );
@@ -37,8 +41,9 @@ impl<'a> Explorer<'a> {
         limit: u32,
     ) -> Vec<ExplorerTxOut> {
         let request_url = format!(
-            "{}/cardano/mainnet/v1/outputs/unspent/byPaymentCred/{}/?offset={}&limit={}",
+            "{}/cardano/{}/v1/outputs/unspent/byPaymentCred/{}/?offset={}&limit={}",
             self.explorer_config.url.to_owned(),
+            self.network_prefix,
             payment_cred.as_str(),
             min_index.to_string().as_str(),
             limit.to_string().as_str()

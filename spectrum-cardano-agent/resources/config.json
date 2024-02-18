@@ -1,0 +1,30 @@
+{
+  "chainSync": {
+    "startingPoint": {
+      "Specific": [
+        50839603,
+        ""
+      ]
+    },
+    "disableRollbacksUntil": 50901268,
+    "dbPath": ""
+  },
+  "node": {
+    "path": "",
+    "magic": 1
+  },
+  "txSubmissionBufferSize": 123,
+  "batcherPrivateKey": "",
+  "refScripts": {
+    "poolV1Script": "8f7625e22caebbb6e082232d39a673e1ac73ae4c4abc747b6ccea9f59316d620#0",
+    "poolV2Script": "c75d08f44ec13ea1f78ee96b7fcb94e3303f1812d3d38dcaeca341d8e146ac98#0",
+    "feeSwitchPoolScript": "8f7625e22caebbb6e082232d39a673e1ac73ae4c4abc747b6ccea9f59316d620#0",
+    "feeSwitchPoolBidirectionalFeeScript": "c75d08f44ec13ea1f78ee96b7fcb94e3303f1812d3d38dcaeca341d8e146ac98#0",
+    "swapScript": "cb4d21dc2cd5471e4c3b3d2125339dcc0577465e9c9fb789636046b174c2a84d#1",
+    "depositScript": "314ff562be2a5670827f42eb81457c827256378b44a59c9fdc13c2b78e67cab3#0",
+    "redeemScript": "cb4d21dc2cd5471e4c3b3d2125339dcc0577465e9c9fb789636046b174c2a84d#0"
+  },
+  "explorer": {
+    "url": ""
+  }
+}

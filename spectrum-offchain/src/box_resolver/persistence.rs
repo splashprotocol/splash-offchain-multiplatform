@@ -83,9 +83,9 @@ where
     where
         <TEntity as EntitySnapshot>::Version: 'a,
     {
-        trace!(target: "box_resolver", "get_prediction_predecessor({:?})", id);
+        trace!(target: "box_resolver", "get_prediction_predecessor({})", id);
         let res = self.inner.get_prediction_predecessor(id).await;
-        trace!(target: "box_resolver", "get_prediction_predecessor({:?}) -> {:?}", id, res);
+        trace!(target: "box_resolver", "get_prediction_predecessor({}) -> {:?}", id, res);
         res
     }
 
@@ -93,9 +93,9 @@ where
     where
         <TEntity as Stable>::StableId: 'a,
     {
-        trace!(target: "box_resolver", "get_last_predicted({:?})", id);
+        trace!(target: "box_resolver", "get_last_predicted({})", id);
         let res = self.inner.get_last_predicted(id).await;
-        trace!(target: "box_resolver", "get_last_predicted({:?}) -> {:?}", id, res.as_ref().map(|_| "<Entity>"));
+        trace!(target: "box_resolver", "get_last_predicted({}) -> {:?}", id, res.as_ref().map(|_| "<Entity>"));
         res
     }
 
@@ -103,9 +103,9 @@ where
     where
         <TEntity as Stable>::StableId: 'a,
     {
-        trace!(target: "box_resolver", "get_last_confirmed({:?})", id);
+        trace!(target: "box_resolver", "get_last_confirmed({})", id);
         let res = self.inner.get_last_confirmed(id).await;
-        trace!(target: "box_resolver", "get_last_confirmed({:?}) -> {:?}", id, res.as_ref().map(|_| "<Entity>"));
+        trace!(target: "box_resolver", "get_last_confirmed({}) -> {:?}", id, res.as_ref().map(|_| "<Entity>"));
         res
     }
 
@@ -113,9 +113,9 @@ where
     where
         <TEntity as Stable>::StableId: 'a,
     {
-        trace!(target: "box_resolver", "get_last_unconfirmed({:?})", id);
+        trace!(target: "box_resolver", "get_last_unconfirmed({})", id);
         let res = self.inner.get_last_unconfirmed(id).await;
-        trace!(target: "box_resolver", "get_last_unconfirmed({:?}) -> {:?}", id, res.as_ref().map(|_| "<Entity>"));
+        trace!(target: "box_resolver", "get_last_unconfirmed({}) -> {:?}", id, res.as_ref().map(|_| "<Entity>"));
         res
     }
 
@@ -137,7 +137,7 @@ where
     where
         Traced<Predicted<TEntity>>: 'a,
     {
-        let show_entity = format!("<Entity({:?}, {:?})>", entity.0.stable_id(), entity.0.version());
+        let show_entity = format!("<Entity({}, {})>", entity.0.stable_id(), entity.0.version());
         trace!(target: "box_resolver", "put_confirmed({})", show_entity);
         self.inner.put_confirmed(entity).await;
         trace!(target: "box_resolver", "put_confirmed({}) -> ()", show_entity);
@@ -147,7 +147,7 @@ where
     where
         Traced<Predicted<TEntity>>: 'a,
     {
-        let show_entity = format!("<Entity({:?}, {:?})>", entity.0.stable_id(), entity.0.version());
+        let show_entity = format!("<Entity({}, {})>", entity.0.stable_id(), entity.0.version());
         trace!(target: "box_resolver", "put_unconfirmed({})", show_entity);
         self.inner.put_unconfirmed(entity).await;
         trace!(target: "box_resolver", "put_unconfirmed({}) -> ()", show_entity);
@@ -158,16 +158,16 @@ where
         <TEntity as EntitySnapshot>::Version: 'a,
         <TEntity as Stable>::StableId: 'a,
     {
-        trace!(target: "box_resolver", "invalidate({:?})", sid);
+        trace!(target: "box_resolver", "invalidate({})", sid);
         self.inner.invalidate(sid, eid).await;
-        trace!(target: "box_resolver", "invalidate({:?}) -> ()", sid);
+        trace!(target: "box_resolver", "invalidate({}) -> ()", sid);
     }
 
     async fn eliminate<'a>(&mut self, entity: TEntity)
     where
         TEntity: 'a,
     {
-        let show_entity = format!("<Entity({:?}, {:?})>", entity.stable_id(), entity.version());
+        let show_entity = format!("<Entity({}, {:?})>", entity.stable_id(), entity.version());
         trace!(target: "box_resolver", "eliminate({})", show_entity);
         self.inner.eliminate(entity).await;
         trace!(target: "box_resolver", "eliminate({}) -> ()", show_entity);
@@ -184,12 +184,12 @@ where
     where
         <TEntity as EntitySnapshot>::Version: 'a,
     {
-        trace!(target: "box_resolver", "get_state({:?})", sid);
+        trace!(target: "box_resolver", "get_state({})", sid);
         let res = self.inner.get_state(sid).await;
         let show_entity = res
             .as_ref()
-            .map(|e| format!("<Entity({:?}, {:?})>", e.stable_id(), e.version()));
-        trace!(target: "box_resolver", "get_state({:?}) -> {:?}", sid, show_entity);
+            .map(|e| format!("<Entity({}, {})>", e.stable_id(), e.version()));
+        trace!(target: "box_resolver", "get_state({}) -> {:?}", sid, show_entity);
         res
     }
 }

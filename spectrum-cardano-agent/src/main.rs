@@ -3,7 +3,6 @@ use std::sync::{Arc, Once};
 use cardano_chain_sync::cache::LedgerCacheRocksDB;
 use clap::Parser;
 use cml_chain::builders::tx_builder::SignedTxBuilder;
-use cml_chain::genesis::network_info::NetworkInfo;
 use cml_chain::transaction::Transaction;
 use cml_crypto::PrivateKey;
 use cml_multi_era::babbage::BabbageTransaction;
@@ -19,6 +18,7 @@ use cardano_chain_sync::client::ChainSyncClient;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_chain_sync::event_source::ledger_transactions;
 use cardano_explorer::client::Explorer;
+use cardano_explorer::constants::get_network_id;
 use cardano_mempool_sync::client::LocalTxMonitorClient;
 use cardano_mempool_sync::data::MempoolUpdate;
 use cardano_mempool_sync::mempool_stream;
@@ -28,10 +28,11 @@ use spectrum_offchain::backlog::process::hot_backlog_stream;
 use spectrum_offchain::backlog::HotPriorityBacklog;
 use spectrum_offchain::box_resolver::persistence::inmemory::InMemoryEntityRepo;
 use spectrum_offchain::box_resolver::persistence::noop::NoopEntityRepo;
+use spectrum_offchain::box_resolver::persistence::EntityRepoTracing;
 use spectrum_offchain::box_resolver::process::pool_tracking_stream;
 use spectrum_offchain::data::order::{OrderLink, OrderUpdate};
 use spectrum_offchain::data::unique_entity::{EitherMod, StateUpdate};
-use spectrum_offchain::event_sink::event_handler::{EventHandler, NoopDefaultHandler};
+use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::executor::{executor_stream, HotOrderExecutor};
 use spectrum_offchain::network::Network;
@@ -41,7 +42,7 @@ use spectrum_offchain_cardano::collaterals::{Collaterals, CollateralsViaExplorer
 use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::data::execution_context::ExecutionContext;
 use spectrum_offchain_cardano::data::order::ClassicalOnChainOrder;
-use spectrum_offchain_cardano::data::pool::CFMMPool;
+use spectrum_offchain_cardano::data::pool::AnyCFMMPool;
 use spectrum_offchain_cardano::data::ref_scripts::ReferenceOutputs;
 use spectrum_offchain_cardano::data::{OnChain, PoolId};
 use spectrum_offchain_cardano::event_sink::handlers::reproducible::{
@@ -60,6 +61,7 @@ mod config;
 async fn main() {
     let subscriber = Subscriber::new();
     tracing::subscriber::set_global_default(subscriber).expect("setting tracing default failed");
+
     let args = AppArgs::parse();
     let raw_config = std::fs::read_to_string(args.config_path).expect("Cannot load configuration file");
     let config: AppConfig = serde_json::from_str(&raw_config).expect("Invalid configuration file");
@@ -68,13 +70,14 @@ async fn main() {
 
     info!("Starting offchain service ..");
 
-    let explorer = Explorer::new(config.explorer);
+    let explorer = Explorer::new(config.explorer, config.node.magic);
 
     let ref_scripts = ReferenceOutputs::pull(config.ref_scripts, explorer)
         .await
         .expect("Ref scripts initialization failed");
 
     let chain_sync_cache = Arc::new(Mutex::new(LedgerCacheRocksDB::new(config.chain_sync.db_path)));
+
     let chain_sync = ChainSyncClient::init(
         Arc::clone(&chain_sync_cache),
         config.node.path,
@@ -106,16 +109,21 @@ async fn main() {
     let mempool_stream = mempool_stream(&mempool_sync, Some(&signal_tip_reached));
 
     let (operator_sk, operator_pkh, operator_addr) =
-        operator_creds(config.batcher_private_key, NetworkInfo::mainnet());
+        operator_creds(config.batcher_private_key, config.node.magic);
 
-    let explorer_based_requestor = CollateralsViaExplorer::new(operator_pkh.to_hex(), explorer);
+    let collaterals_requestor = CollateralsViaExplorer::new(operator_pkh.to_hex(), explorer);
 
-    let collateral = explorer_based_requestor
+    let collateral = collaterals_requestor
         .get_collateral()
         .await
         .expect("Couldn't retrieve collateral");
 
-    let ctx = ExecutionContext::new(operator_addr, ref_scripts, collateral);
+    let ctx = ExecutionContext::new(
+        operator_addr,
+        ref_scripts,
+        collateral,
+        get_network_id(config.node.magic),
+    );
 
     let p1 = new_partition(
         tx_submission_channel.clone(),
@@ -161,15 +169,15 @@ async fn main() {
         ClassicalOrderUpdatesHandler::<_, ClassicalOnChainOrder, _>::new(orders_snd, orders_registry);
     let backlog_stream = hot_backlog_stream(partitioned_backlog, orders_recv);
 
-    let (pools_snd, pools_recv) = mpsc::channel::<EitherMod<StateUpdate<OnChain<CFMMPool>>>>(128);
+    let (pools_snd, pools_recv) = mpsc::channel::<EitherMod<StateUpdate<OnChain<AnyCFMMPool>>>>(128);
     // This technically disables pool lookups in TX.inputs.
     let noop_pool_repo = Arc::new(Mutex::new(NoopEntityRepo));
-    let pools_handler_ledger = ConfirmedUpdateHandler::<_, OnChain<CFMMPool>, _>::new(
+    let pools_handler_ledger = ConfirmedUpdateHandler::<_, OnChain<AnyCFMMPool>, _>::new(
         pools_snd.clone(),
         Arc::clone(&noop_pool_repo),
     );
     let pools_handler_mempool =
-        UnconfirmedUpdateHandler::<_, OnChain<CFMMPool>, _>::new(pools_snd, noop_pool_repo);
+        UnconfirmedUpdateHandler::<_, OnChain<AnyCFMMPool>, _>::new(pools_snd, noop_pool_repo);
     let partitioned_pool_repo = Partitioned::<NUM_PARTITIONS, PoolId, _>::new([
         Arc::clone(&p1.pool_repo),
         Arc::clone(&p2.pool_repo),
@@ -206,10 +214,10 @@ async fn main() {
 
 const NUM_PARTITIONS: usize = 4;
 
-struct ExecPartition<S, Backlog, Pools> {
+struct ExecPartition<S, Backlog, PoolEnums> {
     executor_stream: S,
     backlog: Arc<Mutex<Backlog>>,
-    pool_repo: Arc<Mutex<Pools>>,
+    pool_repo: Arc<Mutex<PoolEnums>>,
 }
 
 fn new_partition<'a, Net>(
@@ -220,13 +228,13 @@ fn new_partition<'a, Net>(
 ) -> ExecPartition<
     impl Stream<Item = ()> + 'a,
     HotPriorityBacklog<ClassicalOnChainOrder>,
-    InMemoryEntityRepo<OnChain<CFMMPool>>,
+    EntityRepoTracing<InMemoryEntityRepo<OnChain<AnyCFMMPool>>>,
 >
 where
     Net: Network<Transaction, TxRejected> + 'a,
 {
     let backlog = Arc::new(Mutex::new(HotPriorityBacklog::new(43)));
-    let pool_repo = Arc::new(Mutex::new(InMemoryEntityRepo::new()));
+    let pool_repo = Arc::new(Mutex::new(EntityRepoTracing::wrap(InMemoryEntityRepo::new())));
     let prover = OperatorProver::new(operator_sk);
     let executor: HotOrderExecutor<
         _,
@@ -235,7 +243,7 @@ where
         _,
         _,
         ClassicalOnChainOrder,
-        OnChain<CFMMPool>,
+        OnChain<AnyCFMMPool>,
         SignedTxBuilder,
         Transaction,
         TxRejected,

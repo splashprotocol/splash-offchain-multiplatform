@@ -33,6 +33,10 @@ pub trait EntitySnapshot: Stable {
     fn version(&self) -> Self::Version;
 }
 
+pub trait VersionUpdater: EntitySnapshot {
+    fn update_version(&mut self, new_version: Self::Version);
+}
+
 impl<StableId, A, B> Stable for Either<A, B>
 where
     A: Stable<StableId = StableId>,
@@ -48,14 +52,14 @@ where
     }
 }
 
-impl<StableId, Version, A, B> EntitySnapshot for Either<A, B>
+impl<StableId, EntityVersion, A, B> EntitySnapshot for Either<A, B>
 where
-    A: EntitySnapshot<StableId = StableId, Version = Version>,
-    B: EntitySnapshot<StableId = StableId, Version = Version>,
+    A: EntitySnapshot<StableId = StableId, Version = EntityVersion>,
+    B: EntitySnapshot<StableId = StableId, Version = EntityVersion>,
     StableId: Copy + Eq + Hash + Debug + Display,
-    Version: Copy + Eq + Hash + Display,
+    EntityVersion: Copy + Eq + Hash + Display,
 {
-    type Version = Version;
+    type Version = EntityVersion;
     fn version(&self) -> Self::Version {
         match self {
             Either::Left(a) => a.version(),
@@ -121,13 +125,13 @@ where
     }
 }
 
-impl<StableId, Version, T> EntitySnapshot for Baked<T, Version>
+impl<StableId, BakedVersion, T> EntitySnapshot for Baked<T, BakedVersion>
 where
     T: Stable<StableId = StableId>,
     StableId: Copy + Eq + Hash + Debug + Display,
-    Version: Copy + Eq + Hash + Display,
+    BakedVersion: Copy + Eq + Hash + Display,
 {
-    type Version = Version;
+    type Version = BakedVersion;
 
     fn version(&self) -> Self::Version {
         self.version

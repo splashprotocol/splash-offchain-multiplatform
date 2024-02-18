@@ -16,7 +16,7 @@ use spectrum_cardano_lib::plutus_data::RequiresRedeemer;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_offchain::data::Has;
 use spectrum_offchain_cardano::constants::POOL_EXECUTION_UNITS;
-use spectrum_offchain_cardano::data::pool::{CFMMPool, CFMMPoolAction, CFMMPoolRefScriptOutput};
+use spectrum_offchain_cardano::data::pool::{CFMMPoolAction, CFMMPoolRefScriptOutput, ClassicCFMMPool};
 use spectrum_offchain_cardano::data::PoolVer;
 
 use crate::execution_engine::execution_state::ExecutionState;
@@ -157,8 +157,9 @@ where
     }
 }
 
-/// Batch execution logic for [CFMMPool].
-impl<Ctx> BatchExec<ExecutionState, IndexedTxOut, Ctx, Void> for Magnet<LinkedSwap<CFMMPool, FinalizedTxOut>>
+/// Batch execution logic for [ClassicCFMMPool].
+impl<Ctx> BatchExec<ExecutionState, IndexedTxOut, Ctx, Void>
+    for Magnet<LinkedSwap<ClassicCFMMPool, FinalizedTxOut>>
 where
     Ctx: Has<CFMMPoolRefScriptOutput<1>> + Has<CFMMPoolRefScriptOutput<2>>,
 {
@@ -185,7 +186,7 @@ where
         let successor_ix = state.tx_builder.output_sizes().len();
         let pool_script = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(produced_out.script_hash().unwrap()),
-            CFMMPool::redeemer(CFMMPoolAction::Swap),
+            ClassicCFMMPool::redeemer(CFMMPoolAction::Swap),
         );
         let pool_in = SingleInputBuilder::new(in_ref.into(), consumed_out)
             .plutus_script_inline_datum(pool_script, Vec::new())

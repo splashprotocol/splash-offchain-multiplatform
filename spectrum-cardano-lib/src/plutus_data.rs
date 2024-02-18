@@ -32,6 +32,7 @@ pub trait PlutusDataExtension {
     fn into_bytes(self) -> Option<Vec<u8>>;
     fn into_u64(self) -> Option<u64>;
     fn into_u128(self) -> Option<u128>;
+    fn into_vec_pd<T>(self, f: fn(PlutusData) -> Option<T>) -> Option<Vec<T>>;
     fn into_vec(self) -> Option<Vec<PlutusData>>;
 }
 
@@ -77,6 +78,13 @@ impl PlutusDataExtension for PlutusData {
             _ => None,
         }
     }
+
+    fn into_vec_pd<T>(self, f: fn(PlutusData) -> Option<T>) -> Option<Vec<T>> {
+        match self {
+            PlutusData::List { list, .. } => Some(list.into_iter().flat_map(f).collect()),
+            _ => None,
+        }
+    }
 }
 
 const DUMMY_PD: PlutusData = PlutusData::List {
@@ -91,6 +99,8 @@ pub trait ConstrPlutusDataExtension {
     fn update_field<F>(&mut self, index: usize, f: F)
     where
         F: FnOnce(PlutusData) -> PlutusData;
+
+    fn update_field_unsafe(&mut self, index: usize, new_value: PlutusData);
 }
 
 impl ConstrPlutusDataExtension for ConstrPlutusData {
@@ -111,6 +121,13 @@ impl ConstrPlutusDataExtension for ConstrPlutusData {
             mem::swap(&mut pd, fld);
             let mut updated_pd = f(pd);
             mem::swap(&mut updated_pd, fld);
+        }
+    }
+
+    fn update_field_unsafe(&mut self, index: usize, new_value: PlutusData) {
+        if let Some(fld) = self.fields.get_mut(index) {
+            let mut pd = new_value.clone();
+            mem::swap(&mut pd, fld)
         }
     }
 }

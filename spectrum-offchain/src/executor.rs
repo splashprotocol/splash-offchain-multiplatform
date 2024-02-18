@@ -7,8 +7,8 @@ use std::time::Duration;
 use async_trait::async_trait;
 use futures::{stream, Stream};
 use futures_timer::Delay;
-use log::trace;
-use log::{info, warn};
+use log::{info, trace, warn};
+use serde::Serialize;
 use tokio::sync::Mutex;
 use type_equalities::{trivial_eq, IsEqual};
 
@@ -18,6 +18,7 @@ use crate::box_resolver::resolve_entity_state;
 use crate::data::order::SpecializedOrder;
 use crate::data::unique_entity::{Predicted, Traced};
 use crate::data::EntitySnapshot;
+use crate::executor::TxSubmissionError::{OrderUtxoIsSpent, PoolUtxoIsSpent, UnknownError};
 use crate::network::Network;
 use crate::tx_prover::TxProver;
 
@@ -99,6 +100,59 @@ impl<Net, Backlog, Pools, Prover, Ctx, Ord, Pool, TxCandidate, Tx, Err>
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum TxSubmissionError {
+    PoolUtxoIsSpent,
+    OrderUtxoIsSpent,
+    UnknownError { info: String },
+}
+
+// Temporal solution for handling errors from cardano node socket.
+// Based on attempt of extracting badInputsUtxo error from Err
+// display instance. In case of submission through socket - display
+// instance is just hex encoded string with error response.
+// Due to impossibility of guarantee that all '25820 + 32 bytes'
+// patterns represent badInputsUtxo case - we can not get error
+// directly after parsing response
+fn process_tx_rejected_error<'a, Err: Display, PoolVersion: Display, OrderVersion: Display>(
+    tx_error: Err,
+    prev_pool_version: PoolVersion,
+    order_version: OrderVersion,
+) -> Vec<TxSubmissionError> {
+    let prefix: String = "25820".to_string(); // prefix of cbor set start?
+    let parsed_error = format!("{}", tx_error);
+    // string like: 25820 + tx_hash_without_index
+    let pool_tx = prefix.clone()
+        + (prev_pool_version.to_string().split("#").collect::<Vec<&str>>())
+            .first()
+            .unwrap();
+    let order_tx = prefix.clone()
+        + (order_version.to_string().split("#").collect::<Vec<&str>>())
+            .first()
+            .unwrap();
+
+    let patterns: [(String, TxSubmissionError); 2] =
+        [(pool_tx, PoolUtxoIsSpent), (order_tx, OrderUtxoIsSpent)];
+
+    let parsed_errors = patterns
+        .iter()
+        .flat_map(|(tx_pattern, error)| {
+            if (parsed_error.contains(tx_pattern)) {
+                Some(error.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if (parsed_error.len() > 0) {
+        parsed_errors
+    } else {
+        // case when errors are not PoolUtxoIsSpent or OrderUtxoIsSpent
+        vec![UnknownError { info: parsed_error }]
+    }
+}
+
 #[async_trait(? Send)]
 impl<Net, Backlog, Pools, Prover, Ctx, Ord, Pool, TxCandidate, Tx, Err> Executor
     for HotOrderExecutor<Net, Backlog, Pools, Prover, Ctx, Ord, Pool, TxCandidate, Tx, Err>
@@ -114,6 +168,7 @@ where
     Prover: TxProver<TxCandidate, Tx>,
     Ctx: Clone,
     Err: Display,
+    Tx: Serialize,
 {
     async fn try_execute_next(&mut self) -> bool {
         let next_ord = {
@@ -128,14 +183,29 @@ where
             {
                 let pool_id = entity.stable_id();
                 let pool_state_id = entity.version();
-                match entity.try_run(ord.clone(), self.ctx.clone()) {
+                match entity.clone().try_run(ord.clone(), self.ctx.clone()) {
                     Ok((tx_candidate, next_entity_state)) => {
                         let mut entity_repo = self.pool_repo.lock().await;
                         let tx = self.prover.prove(tx_candidate);
                         if let Err(err) = self.network.submit_tx(tx).await {
-                            warn!("Failed to submit TX: {}", err);
-                            entity_repo.invalidate(pool_state_id, pool_id).await;
-                            self.backlog.lock().await.recharge(ord); // Return order to backlog
+                            let process_result =
+                                process_tx_rejected_error(err, entity.clone().version(), ord.get_self_ref());
+                            warn!("Failed to submit TX. Errors {:?}", process_result);
+                            if (process_result.len() > 0) {
+                                match process_result {
+                                    poolWithOrderIsEmpty
+                                        if poolWithOrderIsEmpty.contains(&PoolUtxoIsSpent)
+                                            && poolWithOrderIsEmpty.contains(&OrderUtxoIsSpent) =>
+                                    {
+                                        entity_repo.invalidate(pool_state_id, pool_id).await;
+                                    }
+                                    poolIsEmpty if poolIsEmpty.contains(&PoolUtxoIsSpent) => {
+                                        entity_repo.invalidate(pool_state_id, pool_id).await;
+                                        self.backlog.lock().await.recharge(ord);
+                                    }
+                                    _ => {}
+                                }
+                            }
                         } else {
                             entity_repo
                                 .put_predicted(Traced {
@@ -151,6 +221,7 @@ where
                 }
                 return true;
             }
+            info!("Pool {} not found in storage", entity_id);
         }
         false
     }

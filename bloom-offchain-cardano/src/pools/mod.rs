@@ -8,11 +8,11 @@ use spectrum_cardano_lib::{OutputRef, Token};
 use spectrum_offchain::data::{EntitySnapshot, Has, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::data::pair::PairId;
-use spectrum_offchain_cardano::data::pool::CFMMPool;
+use spectrum_offchain_cardano::data::pool::ClassicCFMMPool;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum AnyPool {
-    CFMM(CFMMPool),
+    CFMM(ClassicCFMMPool),
 }
 
 impl Pool for AnyPool {
@@ -49,7 +49,7 @@ where
     C: Has<OutputRef>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
-        CFMMPool::try_from_ledger(repr, ctx).map(AnyPool::CFMM)
+        ClassicCFMMPool::try_from_ledger(repr, ctx).map(AnyPool::CFMM)
     }
 }
 

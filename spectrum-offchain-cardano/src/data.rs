@@ -2,7 +2,7 @@ use std::fmt::{Display, Formatter};
 
 use cml_chain::address::Address;
 use cml_chain::transaction::{TransactionInput, TransactionOutput};
-use cml_chain::{PolicyId, Value};
+use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
@@ -11,7 +11,7 @@ use rand::{thread_rng, RngCore};
 use spectrum_cardano_lib::transaction::BabbageTransactionOutputExtension;
 use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAssetClass, Token};
 use spectrum_offchain::data::order::SpecializedOrder;
-use spectrum_offchain::data::{EntitySnapshot, Stable};
+use spectrum_offchain::data::{EntitySnapshot, Stable, VersionUpdater};
 use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::constants::POOL_VERSIONS;
@@ -27,6 +27,8 @@ pub mod redeem;
 pub mod ref_scripts;
 
 pub mod execution_context;
+mod fee_switch_bidirectional_fee;
+mod fee_switch_pool;
 pub mod pair;
 
 /// For persistent on-chain entities (e.g. pools) we want to carry initial utxo.
@@ -101,6 +103,12 @@ where
 
     fn version(&self) -> Self::Version {
         self.value.version()
+    }
+}
+
+impl<T: VersionUpdater> VersionUpdater for OnChain<T> {
+    fn update_version(&mut self, new_version: Self::Version) {
+        self.value.update_version(new_version)
     }
 }
 
