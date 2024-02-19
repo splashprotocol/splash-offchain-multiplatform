@@ -49,7 +49,7 @@ where
     C: Has<OutputRef>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
-        ClassicCFMMPool::try_from_ledger(repr, ctx).map(AnyPool::CFMM)
+        ClassicCFMMPool::try_from_ledger(repr, ctx.get()).map(AnyPool::CFMM)
     }
 }
 

@@ -8,7 +8,7 @@ use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, TransactionOutput};
 use cml_core::serialization::FromBytes;
 use cml_multi_era::babbage::BabbageTransactionOutput;
-use log::trace;
+use log::{info, trace};
 use num_integer::Roots;
 use num_rational::Ratio;
 use std::fmt::Debug;
