@@ -8,7 +8,7 @@ use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, TransactionOutput};
 use cml_core::serialization::FromBytes;
 use cml_multi_era::babbage::BabbageTransactionOutput;
-use log::info;
+use log::{info, trace};
 use num_integer::Roots;
 use num_rational::Ratio;
 use std::fmt::Debug;
@@ -710,13 +710,19 @@ pub struct CFMMPoolConfig {
 impl TryFromPData for CFMMPoolConfig {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
+        let pool_nft = TaggedAssetClass::try_from_pd(cpd.take_field(0)?)?;
+        let asset_x = TaggedAssetClass::try_from_pd(cpd.take_field(1)?)?;
+        let asset_y = TaggedAssetClass::try_from_pd(cpd.take_field(2)?)?;
+        let asset_lq = TaggedAssetClass::try_from_pd(cpd.take_field(3)?)?;
+        let lp_fee_num = cpd.take_field(4)?.into_u64()?;
+        let lq_lower_bound = TaggedAmount::new(cpd.take_field(6).and_then(|pd| pd.into_u64()).unwrap_or(0));
         Some(Self {
-            pool_nft: TaggedAssetClass::try_from_pd(cpd.take_field(0)?)?,
-            asset_x: TaggedAssetClass::try_from_pd(cpd.take_field(1)?)?,
-            asset_y: TaggedAssetClass::try_from_pd(cpd.take_field(2)?)?,
-            asset_lq: TaggedAssetClass::try_from_pd(cpd.take_field(3)?)?,
-            lp_fee_num: cpd.take_field(4)?.into_u64()?,
-            lq_lower_bound: TaggedAmount::new(cpd.take_field(6).and_then(|pd| pd.into_u64()).unwrap_or(0)),
+            pool_nft,
+            asset_x,
+            asset_y,
+            asset_lq,
+            lp_fee_num,
+            lq_lower_bound,
         })
     }
 }

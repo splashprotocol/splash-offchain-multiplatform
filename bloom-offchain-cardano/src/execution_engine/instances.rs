@@ -4,6 +4,7 @@ use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
 use cml_chain::plutus::{ConstrPlutusData, PlutusData, RedeemerTag};
 use cml_chain::utils::BigInt;
+use log::trace;
 use void::Void;
 
 use bloom_offchain::execution_engine::batch_exec::BatchExec;
@@ -80,18 +81,20 @@ impl<Ctx> BatchExec<ExecutionState, Option<IndexedTxOut>, Ctx, Void>
         candidate.sub_asset(ord.input_asset, removed_input);
         // Add output resulted from exchange.
         candidate.add_asset(ord.output_asset, added_output);
-        let residual_order = match transition {
-            StateTrans::Active(next) => {
-                let mut candidate = candidate.clone();
-                if let Some(data) = candidate.data_mut() {
-                    unsafe_update_n2t_variables(data, next.input_amount, next.fee);
+        let residual_order = {
+            let mut candidate = candidate.clone();
+            match transition {
+                StateTrans::Active(next) => {
+                    if let Some(data) = candidate.data_mut() {
+                        unsafe_update_n2t_variables(data, next.input_amount, next.fee);
+                    }
+                    Some(candidate)
                 }
-                Some(candidate)
-            }
-            StateTrans::EOL => {
-                candidate.null_datum();
-                candidate.update_payment_cred(ord.redeemer_cred());
-                None
+                StateTrans::EOL => {
+                    candidate.null_datum();
+                    candidate.update_payment_cred(ord.redeemer_cred());
+                    None
+                }
             }
         };
         let successor_ix = state.tx_builder.num_outputs();

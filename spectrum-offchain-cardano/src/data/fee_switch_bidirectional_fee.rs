@@ -95,7 +95,7 @@ impl PoolOps for FeeSwitchBidirectionalCFMMPool {
     }
 
     fn get_reserves_x(&self) -> TaggedAmount<Rx> {
-        self.reserves_x - self.reserves_x
+        self.reserves_x - self.treasury_x
     }
 
     fn get_reserves_y(&self) -> TaggedAmount<Ry> {

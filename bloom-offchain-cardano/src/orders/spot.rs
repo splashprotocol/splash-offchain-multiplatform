@@ -5,8 +5,9 @@ use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData};
 use cml_chain::utils::BigInt;
 use cml_chain::PolicyId;
 use cml_core::serialization::{LenEncoding, StringEncoding};
-use cml_crypto::Ed25519KeyHash;
+use cml_crypto::{Ed25519KeyHash, ScriptHash};
 use cml_multi_era::babbage::BabbageTransactionOutput;
+use log::{info, trace};
 use num_rational::Ratio;
 
 use bloom_offchain::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
@@ -16,6 +17,7 @@ use bloom_offchain::execution_engine::liquidity_book::types::{
     AbsolutePrice, ExBudgetUsed, ExCostUnits, ExFeeUsed, FeeAsset, InputAsset, OutputAsset, RelativePrice,
 };
 use bloom_offchain::execution_engine::liquidity_book::weight::Weighted;
+use spectrum_cardano_lib::address::AddressExtension;
 use spectrum_cardano_lib::credential::AnyCredential;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
@@ -26,6 +28,7 @@ use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::AssetClass;
 use spectrum_offchain::data::{Has, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
+use spectrum_offchain_cardano::constants::SPOT_ORDER_NATIVE_TO_TOKEN_SCRIPT_HASH;
 use spectrum_offchain_cardano::data::pair::{side_of, PairId};
 
 use crate::creds::ExecutorCred;
@@ -144,7 +147,11 @@ impl Fragment for SpotOrder {
     }
 
     fn linear_fee(&self, input_consumed: InputAsset<u64>) -> FeeAsset<u64> {
-        self.fee * input_consumed / self.input_amount
+        if self.input_amount > 0 {
+            self.fee * input_consumed / self.input_amount
+        } else {
+            0
+        }
     }
 
     fn weighted_fee(&self) -> FeeAsset<Ratio<u64>> {
@@ -224,27 +231,36 @@ pub fn unsafe_update_n2t_variables(
 impl TryFromPData for ConfigNativeToToken {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
+        let beacon = <[u8; 28]>::try_from(cpd.take_field(N2T_DATUM_MAPPING.beacon)?.into_bytes()?)
+            .map(PolicyId::from)
+            .ok()?;
+        let tradable_input = cpd.take_field(N2T_DATUM_MAPPING.tradable_input)?.into_u64()?;
+        let cost_per_ex_step = cpd.take_field(N2T_DATUM_MAPPING.cost_per_ex_step)?.into_u64()?;
+        let min_marginal_output = cpd
+            .take_field(N2T_DATUM_MAPPING.min_marginal_output)?
+            .into_u64()?;
+        let output = AssetClass::try_from_pd(cpd.take_field(N2T_DATUM_MAPPING.output)?)?;
+        let base_price = RelativePrice::try_from_pd(cpd.take_field(N2T_DATUM_MAPPING.base_price)?)?;
+        let fee = cpd.take_field(N2T_DATUM_MAPPING.fee)?.into_u64()?;
+        let redeemer_pkh = Ed25519KeyHash::from(
+            <[u8; 28]>::try_from(cpd.take_field(N2T_DATUM_MAPPING.redeemer_pkh)?.into_bytes()?).ok()?,
+        );
+        let permitted_executors = cpd
+            .take_field(N2T_DATUM_MAPPING.permitted_executors)?
+            .into_vec()?
+            .into_iter()
+            .filter_map(|pd| Some(Ed25519KeyHash::from(<[u8; 28]>::try_from(pd.into_bytes()?).ok()?)))
+            .collect();
         Some(ConfigNativeToToken {
-            beacon: <[u8; 28]>::try_from(cpd.take_field(N2T_DATUM_MAPPING.beacon)?.into_bytes()?)
-                .map(PolicyId::from)
-                .ok()?,
-            tradable_input: cpd.take_field(N2T_DATUM_MAPPING.beacon)?.into_u64()?,
-            cost_per_ex_step: cpd.take_field(N2T_DATUM_MAPPING.cost_per_ex_step)?.into_u64()?,
-            min_marginal_output: cpd
-                .take_field(N2T_DATUM_MAPPING.min_marginal_output)?
-                .into_u64()?,
-            output: AssetClass::try_from_pd(cpd.take_field(N2T_DATUM_MAPPING.output)?)?,
-            base_price: RelativePrice::try_from_pd(cpd.take_field(N2T_DATUM_MAPPING.base_price)?)?,
-            fee: cpd.take_field(N2T_DATUM_MAPPING.fee)?.into_u64()?,
-            redeemer_pkh: Ed25519KeyHash::from(
-                <[u8; 28]>::try_from(cpd.take_field(N2T_DATUM_MAPPING.redeemer_pkh)?.into_bytes()?).ok()?,
-            ),
-            permitted_executors: cpd
-                .take_field(N2T_DATUM_MAPPING.permitted_executors)?
-                .into_vec()?
-                .into_iter()
-                .filter_map(|pd| Some(Ed25519KeyHash::from(<[u8; 28]>::try_from(pd.into_bytes()?).ok()?)))
-                .collect(),
+            beacon,
+            tradable_input,
+            cost_per_ex_step,
+            min_marginal_output,
+            output,
+            base_price,
+            fee,
+            redeemer_pkh,
+            permitted_executors,
         })
     }
 }
@@ -254,31 +270,38 @@ where
     C: Has<ExecutorCred>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
-        let value = repr.value().clone();
-        let conf = ConfigNativeToToken::try_from_pd(repr.datum()?.into_pd()?)?;
-        let total_ada_input = value.amount_of(AssetClass::Native)?;
-        let execution_budget = total_ada_input - conf.tradable_input;
-        let is_permissionless = conf.permitted_executors.is_empty();
-        if is_permissionless || conf.permitted_executors.contains(&ctx.get().into()) {
-            if execution_budget > conf.cost_per_ex_step {
-                return Some(SpotOrder {
-                    beacon: conf.beacon,
-                    input_asset: AssetClass::Native,
-                    input_amount: conf.tradable_input,
-                    output_asset: conf.output,
-                    output_amount: value.amount_of(conf.output)?,
-                    base_price: conf.base_price,
-                    execution_budget,
-                    fee_asset: AssetClass::Native,
-                    fee: conf.fee,
-                    min_marginal_output: conf.min_marginal_output,
-                    max_cost_per_ex_step: conf.cost_per_ex_step,
-                    redeemer_pkh: conf.redeemer_pkh,
-                    redeemer_stake_cred: repr.address().staking_cred().cloned().map(|x| x.into()),
-                    requires_executor_sig: !is_permissionless,
-                });
+        let script_hash = ScriptHash::from_hex(SPOT_ORDER_NATIVE_TO_TOKEN_SCRIPT_HASH).unwrap();
+        trace!(target: "offchain", "SpotOrder::try_from_ledger");
+        if repr.address().script_hash() == Some(script_hash) {
+            info!(target: "offchain", "Spot order address coincides");
+            let value = repr.value().clone();
+            let conf = ConfigNativeToToken::try_from_pd(repr.datum()?.into_pd()?)?;
+            let total_ada_input = value.amount_of(AssetClass::Native)?;
+            let execution_budget = total_ada_input - conf.tradable_input;
+            let is_permissionless = conf.permitted_executors.is_empty();
+            if is_permissionless || conf.permitted_executors.contains(&ctx.get().into()) {
+                if execution_budget > conf.cost_per_ex_step {
+                    info!(target: "offchain", "Obtained Spot order from ledger.");
+                    return Some(SpotOrder {
+                        beacon: conf.beacon,
+                        input_asset: AssetClass::Native,
+                        input_amount: conf.tradable_input,
+                        output_asset: conf.output,
+                        output_amount: value.amount_of(conf.output).unwrap_or(0),
+                        base_price: conf.base_price,
+                        execution_budget,
+                        fee_asset: AssetClass::Native,
+                        fee: conf.fee,
+                        min_marginal_output: conf.min_marginal_output,
+                        max_cost_per_ex_step: conf.cost_per_ex_step,
+                        redeemer_pkh: conf.redeemer_pkh,
+                        redeemer_stake_cred: repr.address().staking_cred().cloned().map(|x| x.into()),
+                        requires_executor_sig: !is_permissionless,
+                    });
+                }
             }
         }
+
         None
     }
 }

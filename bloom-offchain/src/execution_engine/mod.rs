@@ -80,9 +80,9 @@ where
     PairId: Copy + Eq + Ord + Hash + Display + Unpin + 'a,
     StableId: Copy + Eq + Hash + Debug + Display + Unpin + 'a,
     Ver: Copy + Eq + Hash + Display + Unpin + 'a,
-    Pool: Stable<StableId = StableId> + Copy + Unpin + 'a,
-    Order: Stable<StableId = StableId> + Fragment + OrderState + Copy + Unpin + 'a,
-    Bearer: Clone + Unpin + 'a,
+    Pool: Stable<StableId = StableId> + Copy + Debug + Unpin + 'a,
+    Order: Stable<StableId = StableId> + Fragment + OrderState + Copy + Debug + Unpin + 'a,
+    Bearer: Clone + Unpin + Debug + 'a,
     Txc: Unpin + 'a,
     Tx: Unpin + 'a,
     Ctx: Clone + Unpin + 'a,
@@ -181,14 +181,15 @@ impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Pr
         PairId: Copy + Eq + Hash + Display,
         StableId: Copy + Eq + Hash + Debug + Display,
         Ver: Copy + Eq + Hash + Display,
-        B: Clone,
+        B: Clone + Debug,
         Ctx: Clone,
-        O: Stable<StableId = StableId> + Clone,
-        P: Stable<StableId = StableId> + Clone,
+        O: Stable<StableId = StableId> + Clone + Debug,
+        P: Stable<StableId = StableId> + Clone + Debug,
         Index: StateIndex<Bundled<BakedEntity<O, P, Ver>, B>>,
         Cache: StateIndexCache<StableId, Bundled<BakedEntity<O, P, Ver>, B>>,
         Book: ExternalTLBEvents<O, P> + Maker<Ctx>,
     {
+        trace!(target: "executor", "sync'ing book pair: {}", pair);
         match self.update_state(update) {
             None => {}
             Some(Ior::Left(e)) => match e {
@@ -206,8 +207,14 @@ impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Pr
                 _ => unreachable!(),
             },
             Some(Ior::Right(new)) => match new {
-                Either::Left(new) => self.multi_book.get_mut(&pair).add_fragment(new.entity),
-                Either::Right(new) => self.multi_book.get_mut(&pair).update_pool(new.entity),
+                Either::Left(new) => {
+                    trace!(target: "executor", "sync_book: Left({:?})", new.entity);
+                    self.multi_book.get_mut(&pair).add_fragment(new.entity)
+                }
+                Either::Right(new) => {
+                    trace!(target: "executor", "sync_book: Right({:?})", new.entity);
+                    self.multi_book.get_mut(&pair).update_pool(new.entity)
+                }
             },
         }
     }
@@ -230,10 +237,10 @@ impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Pr
             | StateUpdate::TransitionRollback(Ior::Both(_, new_state)) => {
                 let id = new_state.stable_id();
                 if is_confirmed {
-                    trace!("Observing new confirmed state {}", id);
+                    trace!(target: "executor", "Observing new confirmed state {}", id);
                     self.index.put_confirmed(Confirmed(new_state));
                 } else {
-                    trace!("Observing new unconfirmed state {}", id);
+                    trace!(target: "executor", "Observing new unconfirmed state {}", id);
                     self.index.put_unconfirmed(Unconfirmed(new_state));
                 }
                 match resolve_source_state(id, &self.index) {
@@ -264,8 +271,8 @@ impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Pr
     where
         StableId: Copy + Eq + Hash + Debug + Display,
         Ver: Copy + Eq + Hash + Display,
-        O: Stable<StableId = StableId>,
-        P: Stable<StableId = StableId>,
+        O: Stable<StableId = StableId> + Debug,
+        P: Stable<StableId = StableId> + Debug,
         Cache: StateIndexCache<StableId, Bundled<BakedEntity<O, P, Ver>, B>>,
     {
         let mut linked = vec![];
@@ -298,9 +305,9 @@ where
     PairId: Copy + Eq + Ord + Hash + Display + Unpin,
     StableId: Copy + Eq + Hash + Debug + Display + Unpin,
     Ver: Copy + Eq + Hash + Display + Unpin,
-    P: Stable<StableId = StableId> + Copy + Unpin,
-    O: Stable<StableId = StableId> + Fragment + OrderState + Copy + Unpin,
-    B: Clone + Unpin,
+    P: Stable<StableId = StableId> + Copy + Debug + Unpin,
+    O: Stable<StableId = StableId> + Fragment + OrderState + Copy + Debug + Unpin,
+    B: Clone + Debug + Unpin,
     Txc: Unpin,
     Tx: Unpin,
     C: Clone + Unpin,
@@ -340,12 +347,15 @@ where
             if let Poll::Ready(Some((pair, update))) = Stream::poll_next(Pin::new(&mut self.upstream), cx) {
                 self.sync_book(pair, update);
                 self.focus_set.insert(pair);
+                trace!(target: "executor", "focus_set len: {}", self.focus_set.len());
                 continue;
             }
             // Finally attempt to execute something.
             while let Some(focus_pair) = self.focus_set.pop_first() {
+                trace!(target: "executor", "focus_set pair: {}", focus_pair);
                 if let Some(recipe) = self.multi_book.get_mut(&focus_pair).attempt() {
                     let linked_recipe = self.link_recipe(recipe.into());
+                    trace!(target: "executor", "linked recipe: {:?}", linked_recipe);
                     let ctx = self.context.clone();
                     let (txc, effects) = self.interpreter.run(linked_recipe, ctx);
                     let _ = self.pending_effects.insert((focus_pair, effects));
@@ -367,9 +377,9 @@ where
     PairId: Copy + Eq + Ord + Hash + Display + Unpin,
     StableId: Copy + Eq + Hash + Debug + Display + Unpin,
     Ver: Copy + Eq + Hash + Display + Unpin,
-    P: Stable<StableId = StableId> + Copy + Unpin,
-    O: Stable<StableId = StableId> + Fragment + OrderState + Copy + Unpin,
-    B: Clone + Unpin,
+    P: Stable<StableId = StableId> + Copy + Debug + Unpin,
+    O: Stable<StableId = StableId> + Fragment + OrderState + Copy + Debug + Unpin,
+    B: Clone + Debug + Unpin,
     Txc: Unpin,
     Tx: Unpin,
     C: Clone + Unpin,

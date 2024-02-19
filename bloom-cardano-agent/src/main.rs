@@ -3,6 +3,7 @@ use std::sync::{Arc, Once};
 use clap::Parser;
 use cml_chain::genesis::network_info::NetworkInfo;
 use cml_chain::transaction::Transaction;
+use cml_core::network::ProtocolMagic;
 use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
 use futures::channel::mpsc;

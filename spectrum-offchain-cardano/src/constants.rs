@@ -22,6 +22,9 @@ pub const POOL_IDX_0_REDEEM_REDEEMER: &str = "d8799f0100ff";
 pub const POOL_IDX_1_REDEEM_REDEEMER: &str = "d8799f0101ff";
 pub const POOL_DESTROY_REDEEMER: &str = "d8799f0300ff";
 
+pub const SPOT_ORDER_NATIVE_TO_TOKEN_SCRIPT_HASH: &str =
+    "f29e29d9347eea7f0580392f39e80df64026ecedf7f38170c9736816";
+
 // poolInIx  - 0
 // orderInIx - 1
 // rewardOutIx - 1
