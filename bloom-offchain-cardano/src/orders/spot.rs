@@ -28,6 +28,7 @@ use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::AssetClass;
 use spectrum_offchain::data::{Has, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
+use spectrum_offchain_cardano::constants::SPOT_ORDER_NATIVE_TO_TOKEN_SCRIPT_HASH;
 use spectrum_offchain_cardano::data::pair::{side_of, PairId};
 
 use crate::creds::ExecutorCred;
@@ -269,8 +270,7 @@ where
     C: Has<ExecutorCred>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
-        let script_hash =
-            ScriptHash::from_hex("f29e29d9347eea7f0580392f39e80df64026ecedf7f38170c9736816").unwrap();
+        let script_hash = ScriptHash::from_hex(SPOT_ORDER_NATIVE_TO_TOKEN_SCRIPT_HASH).unwrap();
         trace!(target: "offchain", "SpotOrder::try_from_ledger");
         if repr.address().script_hash() == Some(script_hash) {
             info!(target: "offchain", "Spot order address coincides");
