@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 
+use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::certs::Credential;
 use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData};
 use cml_chain::utils::BigInt;
@@ -308,3 +309,7 @@ where
         None
     }
 }
+
+/// Reference Script Output for [SpotOrder].
+#[derive(Debug, Clone)]
+pub struct SpotOrderRefScriptOutput(pub TransactionUnspentOutput);

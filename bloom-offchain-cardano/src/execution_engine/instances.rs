@@ -25,7 +25,9 @@ use spectrum_offchain_cardano::data::pool::{CFMMPoolAction, CFMMPoolRefScriptOut
 use spectrum_offchain_cardano::data::PoolVer;
 
 use crate::execution_engine::execution_state::ExecutionState;
-use crate::orders::spot::{unsafe_update_n2t_variables, SpotOrder, SPOT_ORDER_N2T_EX_UNITS};
+use crate::orders::spot::{
+    unsafe_update_n2t_variables, SpotOrder, SpotOrderRefScriptOutput, SPOT_ORDER_N2T_EX_UNITS,
+};
 use crate::orders::AnyOrder;
 use crate::pools::AnyPool;
 
@@ -35,6 +37,8 @@ pub struct Magnet<T>(pub T);
 
 impl<Ctx> BatchExec<ExecutionState, (TypedTransactionInput, Option<IndexedTxOut>), Ctx, Void>
     for Magnet<LinkedFill<AnyOrder, FinalizedTxOut>>
+where
+    Ctx: Has<SpotOrderRefScriptOutput>,
 {
     fn try_exec(
         self,
@@ -64,6 +68,8 @@ impl<Ctx> BatchExec<ExecutionState, (TypedTransactionInput, Option<IndexedTxOut>
 
 impl<Ctx> BatchExec<ExecutionState, (TypedTransactionInput, Option<IndexedTxOut>), Ctx, Void>
     for Magnet<LinkedFill<SpotOrder, FinalizedTxOut>>
+where
+    Ctx: Has<SpotOrderRefScriptOutput>,
 {
     fn try_exec(
         self,
@@ -116,6 +122,8 @@ impl<Ctx> BatchExec<ExecutionState, (TypedTransactionInput, Option<IndexedTxOut>
             PlutusScriptWitness::Ref(candidate.script_hash().unwrap()),
             spot_exec_redeemer(successor_ix as u16),
         );
+        let spot_order_ref_script = context.get_labeled::<SpotOrderRefScriptOutput>().0;
+        state.tx_builder.add_reference_input(spot_order_ref_script);
         let order_in = SingleInputBuilder::new(in_ref.into(), consumed_out)
             .plutus_script_inline_datum(order_script, Vec::new())
             .unwrap();
