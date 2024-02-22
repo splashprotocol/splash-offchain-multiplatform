@@ -355,7 +355,7 @@ where
                 trace!(target: "executor", "focus_set pair: {}", focus_pair);
                 if let Some(recipe) = self.multi_book.get_mut(&focus_pair).attempt() {
                     let linked_recipe = self.link_recipe(recipe.into());
-                    trace!(target: "executor", "linked recipe: {:?}", linked_recipe);
+                    // trace!(target: "executor", "linked recipe: {:?}", linked_recipe);
                     let ctx = self.context.clone();
                     let (txc, effects) = self.interpreter.run(linked_recipe, ctx);
                     let _ = self.pending_effects.insert((focus_pair, effects));

@@ -1,9 +1,13 @@
+use std::hash::Hash;
+
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
 use cml_chain::plutus::{ConstrPlutusData, PlutusData, RedeemerTag};
+use cml_chain::transaction::TransactionInput;
 use cml_chain::utils::BigInt;
+use cml_crypto::TransactionHash;
 use log::trace;
 use void::Void;
 
@@ -29,14 +33,14 @@ use crate::pools::AnyPool;
 #[repr(transparent)]
 pub struct Magnet<T>(pub T);
 
-impl<Ctx> BatchExec<ExecutionState, Option<IndexedTxOut>, Ctx, Void>
+impl<Ctx> BatchExec<ExecutionState, (TypedTransactionInput, Option<IndexedTxOut>), Ctx, Void>
     for Magnet<LinkedFill<AnyOrder, FinalizedTxOut>>
 {
     fn try_exec(
         self,
         state: ExecutionState,
         context: Ctx,
-    ) -> Result<(ExecutionState, Option<IndexedTxOut>, Ctx), Void> {
+    ) -> Result<(ExecutionState, (TypedTransactionInput, Option<IndexedTxOut>), Ctx), Void> {
         match self.0 {
             LinkedFill {
                 target_fr: Bundled(AnyOrder::Spot(o), src),
@@ -58,14 +62,14 @@ impl<Ctx> BatchExec<ExecutionState, Option<IndexedTxOut>, Ctx, Void>
     }
 }
 
-impl<Ctx> BatchExec<ExecutionState, Option<IndexedTxOut>, Ctx, Void>
+impl<Ctx> BatchExec<ExecutionState, (TypedTransactionInput, Option<IndexedTxOut>), Ctx, Void>
     for Magnet<LinkedFill<SpotOrder, FinalizedTxOut>>
 {
     fn try_exec(
         self,
         mut state: ExecutionState,
         context: Ctx,
-    ) -> Result<(ExecutionState, Option<IndexedTxOut>, Ctx), Void> {
+    ) -> Result<(ExecutionState, (TypedTransactionInput, Option<IndexedTxOut>), Ctx), Void> {
         let Magnet(LinkedFill {
             target_fr: Bundled(ord, FinalizedTxOut(consumed_out, in_ref)),
             next_fr: transition,
@@ -81,6 +85,16 @@ impl<Ctx> BatchExec<ExecutionState, Option<IndexedTxOut>, Ctx, Void>
         candidate.sub_asset(ord.input_asset, removed_input);
         // Add output resulted from exchange.
         candidate.add_asset(ord.output_asset, added_output);
+        match &candidate {
+            cml_chain::transaction::TransactionOutput::AlonzoFormatTxOut(out) => {
+                trace!(target: "executor", "(Alonzo) spot ADA: {} ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^", out.amount.coin);
+                trace!(target: "executor", "(Alonzo) spot tokens: {:?}", out.amount.multiasset);
+            }
+            cml_chain::transaction::TransactionOutput::ConwayFormatTxOut(out) => {
+                trace!(target: "executor", "(Conway) spot ADA: {} ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^", out.amount.coin);
+                trace!(target: "executor", "(Conway) spot tokens: {:?}", out.amount.multiasset);
+            }
+        }
         let residual_order = {
             let mut candidate = candidate.clone();
             match transition {
@@ -109,16 +123,15 @@ impl<Ctx> BatchExec<ExecutionState, Option<IndexedTxOut>, Ctx, Void>
             .tx_builder
             .add_output(SingleOutputBuilderResult::new(candidate))
             .unwrap();
-        let order_input_index = state.tx_builder.num_inputs() as u64;
+        let indexed_tx_in = TypedTransactionInput::SpotOrder(order_in.input.clone());
         state.tx_builder.add_input(order_in).unwrap();
-        state.tx_builder.set_exunits(
-            RedeemerWitnessKey::new(RedeemerTag::Spend, order_input_index),
-            SPOT_ORDER_N2T_EX_UNITS,
-        );
         state.add_ex_budget(ord.fee_asset, budget_used);
         Ok((
             state,
-            residual_order.map(|o| IndexedTxOut(successor_ix, o)),
+            (
+                indexed_tx_in,
+                residual_order.map(|o| IndexedTxOut(successor_ix, o)),
+            ),
             context,
         ))
     }
@@ -132,7 +145,8 @@ fn spot_exec_redeemer(successor_ix: u16) -> PlutusData {
 }
 
 /// Batch execution routing for [AnyPool].
-impl<Ctx> BatchExec<ExecutionState, IndexedTxOut, Ctx, Void> for Magnet<LinkedSwap<AnyPool, FinalizedTxOut>>
+impl<Ctx> BatchExec<ExecutionState, (TypedTransactionInput, IndexedTxOut), Ctx, Void>
+    for Magnet<LinkedSwap<AnyPool, FinalizedTxOut>>
 where
     Ctx: Has<CFMMPoolRefScriptOutput<1>> + Has<CFMMPoolRefScriptOutput<2>>,
 {
@@ -140,7 +154,7 @@ where
         self,
         state: ExecutionState,
         context: Ctx,
-    ) -> Result<(ExecutionState, IndexedTxOut, Ctx), Void> {
+    ) -> Result<(ExecutionState, (TypedTransactionInput, IndexedTxOut), Ctx), Void> {
         match self.0 {
             LinkedSwap {
                 target: Bundled(AnyPool::CFMM(p), src),
@@ -160,8 +174,22 @@ where
     }
 }
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum TypedTransactionInput {
+    CFMMPool(TransactionInput),
+    SpotOrder(TransactionInput),
+}
+
+impl TypedTransactionInput {
+    pub fn get_inner(&self) -> TransactionInput {
+        match self {
+            TypedTransactionInput::CFMMPool(t) | TypedTransactionInput::SpotOrder(t) => t.clone(),
+        }
+    }
+}
+
 /// Batch execution logic for [ClassicCFMMPool].
-impl<Ctx> BatchExec<ExecutionState, IndexedTxOut, Ctx, Void>
+impl<Ctx> BatchExec<ExecutionState, (TypedTransactionInput, IndexedTxOut), Ctx, Void>
     for Magnet<LinkedSwap<ClassicCFMMPool, FinalizedTxOut>>
 where
     Ctx: Has<CFMMPoolRefScriptOutput<1>> + Has<CFMMPoolRefScriptOutput<2>>,
@@ -170,7 +198,7 @@ where
         self,
         mut state: ExecutionState,
         context: Ctx,
-    ) -> Result<(ExecutionState, IndexedTxOut, Ctx), Void> {
+    ) -> Result<(ExecutionState, (TypedTransactionInput, IndexedTxOut), Ctx), Void> {
         let Magnet(LinkedSwap {
             target: Bundled(pool, FinalizedTxOut(consumed_out, in_ref)),
             side,
@@ -185,6 +213,16 @@ where
         };
         produced_out.sub_asset(removed_asset, output);
         produced_out.add_asset(added_asset, input);
+        match &produced_out {
+            cml_chain::transaction::TransactionOutput::AlonzoFormatTxOut(out) => {
+                trace!(target: "executor", "(Alonzo) pool_coin: {} %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%", out.amount.coin);
+                trace!(target: "executor", "(Alonzo) pool_coin: {:?}", out.amount.multiasset);
+            }
+            cml_chain::transaction::TransactionOutput::ConwayFormatTxOut(out) => {
+                trace!(target: "executor", "(Conway) pool_coin: {} %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%", out.amount.coin);
+                trace!(target: "executor", "(Conway) pool_coin: {:?}", out.amount.multiasset);
+            }
+        }
         let successor = produced_out.clone();
         let successor_ix = state.tx_builder.output_sizes().len();
         let pool_script = PartialPlutusWitness::new(
@@ -203,11 +241,9 @@ where
             _ => context.get_labeled::<CFMMPoolRefScriptOutput<2>>().0,
         };
         state.tx_builder.add_reference_input(pool_ref_script);
+        let indexed_tx_in = TypedTransactionInput::CFMMPool(pool_in.input.clone());
+        let indexed_tx_out = IndexedTxOut(successor_ix, successor);
         state.tx_builder.add_input(pool_in).unwrap();
-        state.tx_builder.set_exunits(
-            RedeemerWitnessKey::new(RedeemerTag::Spend, 0),
-            POOL_EXECUTION_UNITS,
-        );
-        Ok((state, IndexedTxOut(successor_ix, successor), context))
+        Ok((state, (indexed_tx_in, indexed_tx_out), context))
     }
 }

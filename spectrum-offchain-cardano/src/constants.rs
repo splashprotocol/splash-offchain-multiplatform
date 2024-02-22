@@ -43,7 +43,7 @@ pub const ORDER_REFUND_RAW_REDEEMER: &str = "d8799f01000001ff";
 pub const POOL_V1_ADDR: &str = "addr_test1wqmg49kxe2jnfv3ctdlz0rwq6cmyymh6tk7tgwmwx3vuq0g4cpagl";
 
 //"addr1x8nz307k3sr60gu0e47cmajssy4fmld7u493a4xztjrll0aj764lvrxdayh2ux30fl0ktuh27csgmpevdu89jlxppvrswgxsta";
-pub const POOL_V2_ADDR: &str = "addr_test1wph9hxmlhatfppukqmh4vfq992dqpnumx4qaqkw8cc25vxcjm3f7q";
+pub const POOL_V2_ADDR: &str = "addr_test1wp4ec3t25egvhqy2n265xfhq882jxhkknurfe9ny4rl9k6g5eefd8";
 //"addr1x94ec3t25egvhqy2n265xfhq882jxhkknurfe9ny4rl9k6dj764lvrxdayh2ux30fl0ktuh27csgmpevdu89jlxppvrst84slu";
 
 pub const FEE_SWITCH_POOL_ADDR: &str = "addr_test1wrjzt9q9y7q88f72tt7vqp465kjjcrrxhlz8ka0f4ryzw7gm500ss";
