@@ -3,21 +3,23 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use cml_chain::transaction::Transaction;
-use spectrum_cardano_lib::OutputRef;
+use spectrum_cardano_lib::{AssetName, OutputRef};
 use spectrum_offchain::backlog::ResilientBacklog;
-use spectrum_offchain::data::unique_entity::{AnyMod, Confirmed};
+use spectrum_offchain::data::unique_entity::{AnyMod, Confirmed, Traced};
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_prover::TxProver;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::TxRejected;
 
 use crate::entities::offchain::voting_order::VotingOrder;
-use crate::entities::onchain::inflation_box::InflationBox;
-use crate::entities::onchain::permission_manager::PermManager;
-use crate::entities::onchain::poll_factory::PollFactory;
-use crate::entities::onchain::smart_farm::SmartFarm;
-use crate::entities::onchain::voting_escrow::{VotingEscrow, VotingEscrowId};
-use crate::entities::onchain::weighting_poll::{PollState, WeightingOngoing, WeightingPoll};
+use crate::entities::onchain::inflation_box::{InflationBoxId, InflationBoxSnapshot};
+use crate::entities::onchain::permission_manager::{PermManager, PermManagerId, PermManagerSnapshot};
+use crate::entities::onchain::poll_factory::{PollFactory, PollFactoryId, PollFactorySnapshot};
+use crate::entities::onchain::smart_farm::{FarmId, SmartFarm, SmartFarmSnapshot};
+use crate::entities::onchain::voting_escrow::{VotingEscrow, VotingEscrowId, VotingEscrowSnapshot};
+use crate::entities::onchain::weighting_poll::{
+    PollState, WeightingOngoing, WeightingPoll, WeightingPollId, WeightingPollSnapshot,
+};
 use crate::entities::Snapshot;
 use crate::protocol_config::ProtocolConfig;
 use crate::routine::{retry_in, RoutineBehaviour, ToRoutine};
@@ -45,12 +47,71 @@ pub struct Behaviour<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer,
 
 const DEF_DELAY: Duration = Duration::new(5, 0);
 
-pub type InflationBoxSnapshot = Snapshot<InflationBox, OutputRef>;
-pub type PollFactorySnapshot = Snapshot<PollFactory, OutputRef>;
-pub type WeightingPollSnapshot = Snapshot<WeightingPoll, OutputRef>;
-pub type VotingEscrowSnapshot = Snapshot<VotingEscrow, OutputRef>;
-pub type SmartFarmSnapshot = Snapshot<SmartFarm, OutputRef>;
-pub type PermManagerSnapshot = Snapshot<PermManager, OutputRef>;
+impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
+    Behaviour<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
+where
+    IB: StateProjectionRead<InflationBoxSnapshot, Bearer>
+        + StateProjectionWrite<InflationBoxSnapshot, Bearer>
+        + Send
+        + Sync,
+    PF: StateProjectionRead<PollFactorySnapshot, Bearer>
+        + StateProjectionWrite<PollFactorySnapshot, Bearer>
+        + Send
+        + Sync,
+    WP: StateProjectionRead<WeightingPollSnapshot, Bearer>
+        + StateProjectionWrite<WeightingPollSnapshot, Bearer>
+        + Send
+        + Sync,
+    VE: StateProjectionRead<VotingEscrowSnapshot, Bearer>
+        + StateProjectionWrite<VotingEscrowSnapshot, Bearer>
+        + Send
+        + Sync,
+    Backlog: ResilientBacklog<VotingOrder> + Send + Sync,
+    SF: StateProjectionRead<SmartFarmSnapshot, Bearer>
+        + StateProjectionWrite<SmartFarmSnapshot, Bearer>
+        + Send
+        + Sync,
+    PM: StateProjectionRead<PermManagerSnapshot, Bearer>
+        + StateProjectionWrite<PermManagerSnapshot, Bearer>
+        + Send
+        + Sync,
+    Time: NetworkTimeProvider + Send + Sync,
+    Actions: InflationActions<Bearer> + Send + Sync,
+    Bearer: Send + Sync,
+    Net: Network<Transaction, TxRejected> + Clone + std::marker::Sync + std::marker::Send,
+{
+    pub fn new(
+        inflation_box: IB,
+        poll_factory: PF,
+        weighting_poll: WP,
+        voting_escrow: VE,
+        smart_farm: SF,
+        perm_manager: PM,
+        backlog: Backlog,
+        ntp: Time,
+        actions: Actions,
+        conf: ProtocolConfig,
+        pd: PhantomData<Bearer>,
+        network: Net,
+        prover: OperatorProver<'a>,
+    ) -> Self {
+        Self {
+            inflation_box,
+            poll_factory,
+            weighting_poll,
+            voting_escrow,
+            smart_farm,
+            perm_manager,
+            backlog,
+            ntp,
+            actions,
+            conf,
+            pd,
+            network,
+            prover,
+        }
+    }
+}
 
 #[async_trait::async_trait]
 impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net> RoutineBehaviour
@@ -107,14 +168,16 @@ impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
     where
         IB: StateProjectionRead<InflationBoxSnapshot, Bearer>,
     {
-        self.inflation_box.read(self.conf.inflation_box_id).await
+        self.inflation_box.read(InflationBoxId {}).await
     }
 
     async fn poll_factory(&self) -> Option<AnyMod<Bundled<PollFactorySnapshot, Bearer>>>
     where
         PF: StateProjectionRead<PollFactorySnapshot, Bearer>,
     {
-        self.poll_factory.read(self.conf.poll_factory_id).await
+        self.poll_factory
+            .read(PollFactoryId(self.conf.deployed_validators.wp_factory.hash))
+            .await
     }
 
     async fn weighting_poll(
@@ -131,7 +194,11 @@ impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
     where
         PM: StateProjectionRead<PermManagerSnapshot, Bearer>,
     {
-        self.perm_manager.read(self.conf.perm_manager_box_id).await
+        let token = (
+            self.conf.tokens.perm_manager_auth_policy,
+            AssetName::from(self.conf.tokens.perm_manager_auth_name.clone()),
+        );
+        self.perm_manager.read(PermManagerId(token)).await
     }
 
     async fn next_order(
@@ -221,13 +288,15 @@ impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
     {
         if let (AnyMod::Confirmed(inflation_box), AnyMod::Confirmed(factory)) = (inflation_box, poll_factory)
         {
-            let (signed_tx, next_inflation_box, next_factory, next_wpoll) =
-                self.actions.create_wpoll(inflation_box.0, factory.0).await;
+            let (signed_tx, next_inflation_box, next_factory, next_wpoll) = self
+                .actions
+                .create_wpoll(inflation_box.state.0, factory.state.0)
+                .await;
             let tx = self.prover.prove(signed_tx);
             self.network.submit_tx(tx).await.unwrap();
-            self.inflation_box.write(next_inflation_box).await;
-            self.poll_factory.write(next_factory).await;
-            self.weighting_poll.write(next_wpoll).await;
+            self.inflation_box.write_predicted(next_inflation_box).await;
+            self.poll_factory.write_predicted(next_factory).await;
+            self.weighting_poll.write_predicted(next_wpoll).await;
             return None;
         }
         retry_in(DEF_DELAY)
@@ -253,8 +322,8 @@ impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
                 .await;
             let tx = self.prover.prove(signed_tx);
             self.network.submit_tx(tx).await.unwrap();
-            self.weighting_poll.write(next_wpoll).await;
-            self.voting_escrow.write(next_ve).await;
+            self.weighting_poll.write_predicted(next_wpoll).await;
+            self.voting_escrow.write_predicted(next_ve).await;
             return None;
         }
         retry_in(DEF_DELAY)
@@ -286,9 +355,9 @@ impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
             .await;
         let tx = self.prover.prove(signed_tx);
         self.network.submit_tx(tx).await.unwrap();
-        self.weighting_poll.write(next_wpoll).await;
-        self.smart_farm.write(next_sf).await;
-        self.perm_manager.write(next_pm).await;
+        self.weighting_poll.write_predicted(next_wpoll).await;
+        self.smart_farm.write_predicted(next_sf).await;
+        self.perm_manager.write_predicted(next_pm).await;
     }
 
     async fn try_eliminate_poll(
@@ -299,7 +368,11 @@ impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
         Actions: InflationActions<Bearer>,
         Net: Network<Transaction, TxRejected> + Clone + std::marker::Sync + std::marker::Send,
     {
-        if let AnyMod::Confirmed(Confirmed(weighting_poll)) = weighting_poll {
+        if let AnyMod::Confirmed(Traced {
+            state: Confirmed(weighting_poll),
+            ..
+        }) = weighting_poll
+        {
             let signed_tx = self.actions.eliminate_wpoll(weighting_poll).await;
             let tx = self.prover.prove(signed_tx);
             self.network.submit_tx(tx).await.unwrap();
@@ -349,11 +422,12 @@ mod tests {
     use std::sync::Arc;
 
     use async_trait::async_trait;
+    use serde::Serialize;
     use tokio::sync::Mutex;
 
     use bloom_offchain::execution_engine::bundled::Bundled;
-    use spectrum_offchain::data::unique_entity::{AnyMod, Predicted, Traced};
-    use spectrum_offchain::data::{EntitySnapshot, Identifier};
+    use spectrum_offchain::data::unique_entity::{AnyMod, Confirmed, Predicted, Traced};
+    use spectrum_offchain::data::{EntitySnapshot, HasIdentifier, Identifier};
 
     use crate::state_projection::{StateProjectionRead, StateProjectionWrite};
 
@@ -361,25 +435,33 @@ mod tests {
     #[async_trait]
     impl<T, B> StateProjectionWrite<T, B> for StateProjection<T, B>
     where
-        T: EntitySnapshot + Send + Sync + Clone,
+        T: EntitySnapshot + HasIdentifier + Send + Sync + Clone,
         T::Version: Send,
         B: Send + Sync + Clone,
+        T::Id: Send + Serialize + Sync,
     {
-        async fn write(&self, entity: Traced<Predicted<Bundled<T, B>>>) {
+        async fn write_predicted(&self, entity: Traced<Predicted<Bundled<T, B>>>) {
             let _ = self.0.lock().await.insert(AnyMod::Predicted(entity));
+        }
+
+        async fn write_confirmed(&self, entity: Traced<Confirmed<Bundled<T, B>>>) {
+            let _ = self.0.lock().await.insert(AnyMod::Confirmed(entity));
+        }
+
+        async fn remove(&self, id: T::Id) -> Option<T::Version> {
+            // Stub
+            None
         }
     }
     #[async_trait]
     impl<T, B> StateProjectionRead<T, B> for StateProjection<T, B>
     where
-        T: EntitySnapshot + Send + Sync + Clone,
+        T: EntitySnapshot + HasIdentifier + Send + Sync + Clone,
         T::Version: Send,
         B: Send + Sync + Clone,
+        T::Id: Send + Serialize + Sync,
     {
-        async fn read<I>(&self, id: I) -> Option<AnyMod<Bundled<T, B>>>
-        where
-            I: Identifier<For = T> + Send,
-        {
+        async fn read(&self, id: T::Id) -> Option<AnyMod<Bundled<T, B>>> {
             self.0.lock().await.clone()
         }
     }

@@ -1,5 +1,6 @@
 use std::hash::{Hash, Hasher};
 
+use serde::{Deserialize, Serialize};
 use spectrum_offchain::backlog;
 use spectrum_offchain::data::order::SpecializedOrder;
 use spectrum_offchain::data::{EntitySnapshot, Stable, Tradable};
@@ -8,7 +9,7 @@ use spectrum_offchain::ledger::TryFromLedger;
 use crate::execution_engine::liquidity_book;
 
 /// Entity bundled with its source.h
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Bundled<T, Bearer>(pub T, pub Bearer);
 
 impl<T, Bearer> Bundled<T, Bearer> {

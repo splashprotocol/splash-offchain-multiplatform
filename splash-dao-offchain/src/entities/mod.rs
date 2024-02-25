@@ -1,5 +1,6 @@
 use std::{fmt::Display, hash::Hash};
 
+use serde::{de::DeserializeOwned, Serialize};
 use spectrum_offchain::data::{EntitySnapshot, Stable};
 
 pub mod offchain;
@@ -41,7 +42,7 @@ where
 impl<T, V> EntitySnapshot for Snapshot<T, V>
 where
     T: Stable,
-    V: Display + Hash + Eq + Copy,
+    V: Display + Hash + Eq + Copy + Serialize + DeserializeOwned,
 {
     type Version = V;
 
