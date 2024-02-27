@@ -10,17 +10,17 @@ pub fn output_amount(
     reserves_y: TaggedAmount<Ry>,
     base_asset: TaggedAssetClass<Base>,
     base_amount: TaggedAmount<Base>,
-    lp_fee_x: Ratio<u64>,
-    lp_fee_y: Ratio<u64>,
+    pool_fee_x: Ratio<u64>,
+    pool_fee_y: Ratio<u64>,
 ) -> TaggedAmount<Quote> {
     let quote_amount = if base_asset.untag() == asset_x.untag() {
-        (reserves_y.untag() as u128) * (base_amount.untag() as u128) * (*lp_fee_x.numer() as u128)
-            / ((reserves_x.untag() as u128) * (*lp_fee_x.denom() as u128)
-                + (base_amount.untag() as u128) * (*lp_fee_x.numer() as u128))
+        (reserves_y.untag() as u128) * (base_amount.untag() as u128) * (*pool_fee_x.numer() as u128)
+            / ((reserves_x.untag() as u128) * (*pool_fee_x.denom() as u128)
+                + (base_amount.untag() as u128) * (*pool_fee_x.numer() as u128))
     } else {
-        (reserves_x.untag() as u128) * (base_amount.untag() as u128) * (*lp_fee_y.numer() as u128)
-            / ((reserves_y.untag() as u128) * (*lp_fee_y.denom() as u128)
-                + (base_amount.untag() as u128) * (*lp_fee_y.numer() as u128))
+        (reserves_x.untag() as u128) * (base_amount.untag() as u128) * (*pool_fee_y.numer() as u128)
+            / ((reserves_y.untag() as u128) * (*pool_fee_y.denom() as u128)
+                + (base_amount.untag() as u128) * (*pool_fee_y.numer() as u128))
     };
     TaggedAmount::new(quote_amount as u64)
 }
