@@ -120,8 +120,8 @@ impl PoolOps for FeeSwitchCFMMPool {
             self.reserves_y - self.treasury_y,
             base_asset,
             base_amount,
-            self.lp_fee,
-            self.lp_fee,
+            (self.lp_fee - self.treasury_fee),
+            (self.lp_fee - self.treasury_fee),
         )
     }
 
@@ -170,19 +170,13 @@ impl ApplyOrder<ClassicalOnChainLimitSwap> for FeeSwitchCFMMPool {
         }
         // Adjust pool value.
         if order.quote_asset.untag() == self.asset_x.untag() {
-            let lq_fee = (order.base_amount.untag() as u128)
-                * ((*self.lp_fee.denom() as u128) - (*self.lp_fee.numer() as u128))
-                / (*self.lp_fee.denom() as u128);
-            let additional_treasury_y = ((lq_fee * (*self.treasury_fee.numer() as u128))
+            let additional_treasury_y = (((order.base_amount.untag() as u128) * (*self.treasury_fee.numer() as u128))
                 / (*self.treasury_fee.denom() as u128)) as u64;
             self.reserves_x = self.reserves_x - quote_amount.retag();
             self.treasury_y = self.treasury_y + TaggedAmount::new(additional_treasury_y);
             self.reserves_y = self.reserves_y + order.base_amount.retag();
         } else {
-            let lq_fee = (order.base_amount.untag() as u128)
-                * ((*self.lp_fee.denom() as u128) - (*self.lp_fee.numer() as u128))
-                / (*self.lp_fee.denom() as u128);
-            let additional_treasury_x = ((lq_fee * (*self.treasury_fee.numer() as u128))
+            let additional_treasury_x = (((order.base_amount.untag() as u128) * (*self.treasury_fee.numer() as u128))
                 / (*self.treasury_fee.denom() as u128)) as u64;
             self.treasury_x = self.treasury_x + TaggedAmount::new(additional_treasury_x);
             self.reserves_y = self.reserves_y - quote_amount.retag();
