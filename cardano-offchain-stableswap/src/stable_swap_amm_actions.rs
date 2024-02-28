@@ -1,12 +1,11 @@
-use primitive_types::U512;
+use primitive_types::{U512};
 
 use crate::stable_swap_invariant::{
     calculate_invariant, calculate_invariant_error_from_balances, check_invariant_extremum,
     check_invariant_extremum_for_asset,
 };
 
-pub const LP_EMISSION: u64 = 9223372036854775807;
-pub const LP_NUM_DECIMALS: u32 = 9;
+pub const LP_EMISSION: u128 = u128::MAX;
 pub const DENOM: u64 = 10_000;
 
 /// Calculates valid transition of the StablePool reserves in the arbitrary Deposit/Redeem actions.
@@ -19,7 +18,7 @@ pub const DENOM: u64 = 10_000;
 /// * `reserves_tokens_decimals` - Decimals of the tradable tokens;
 /// * `collected_protocol_fees` - Total collected protocol fees before the action (from pool.datum);
 /// * `swap_fee_num` - Numerator of the swap fee;
-/// * `protocol_share_num` - Numerator of the protocol's fee share;
+/// * `protocol_fee_num` - Numerator of the protocol's fee share;
 /// * `ampl_coefficient` - Amplification coefficient of the StableSwap invariant (from pool.datum);
 /// * `n_assets` - Number of tradable tokens in the pool.
 ///
@@ -37,7 +36,7 @@ pub fn liquidity_action(
     reserves_tokens_decimals: &Vec<U512>,
     collected_protocol_fees: &Vec<U512>,
     swap_fee_num: &u32,
-    protocol_share_num: &u32,
+    protocol_fee_num: &u32,
     ampl_coefficient: &u32,
     n_assets: &u32,
 ) -> (Vec<U512>, U512, U512, U512, U512) {
@@ -97,11 +96,17 @@ pub fn liquidity_action(
 
     // Calculate fees in the native units of the tradable assets:
     let denom = U512::from(DENOM);
-    let fee_num = U512::from((swap_fee_num * n_assets) / (4 * (n_assets - 1)));
+    let swap_fee = U512::from((swap_fee_num * n_assets) / (4 * (n_assets - 1)));
+    let protocol_fee = U512::from((protocol_fee_num * n_assets) / (4 * (n_assets - 1)));
+
+    let lp_fees_native = difference
+        .iter()
+        .map(|&x| x * swap_fee / denom)
+        .collect::<Vec<_>>();
 
     let protocol_fees_native = difference
         .iter()
-        .map(|&x| (fee_num * x * U512::from(*protocol_share_num)) / (denom * denom))
+        .map(|&x| x * protocol_fee / denom)
         .collect::<Vec<_>>();
 
     // Calculate final tradable balances with fees applied:
@@ -118,6 +123,21 @@ pub fn liquidity_action(
         .enumerate()
         .map(|(k, &x)| x * precision / reserves_tokens_decimals[k])
         .collect::<Vec<U512>>();
+    // Take LP fees into account:
+    let mut valid_lp_calc_balances = Vec::new();
+
+    for (a, b) in final_tradable_balances.iter().zip(lp_fees_native.iter()) {
+        assert!(a > b);
+        let new_balance: U512 = { *a - *b };
+        valid_lp_calc_balances.push(new_balance)
+    }
+    let valid_lp_calc_balances_calc = valid_lp_calc_balances
+        .iter()
+        .enumerate()
+        .map(|(k, &x)| x * precision / reserves_tokens_decimals[k])
+        .collect::<Vec<U512>>();
+
+    let d2_ = calculate_invariant(&valid_lp_calc_balances_calc, n_assets, ampl_coefficient);
 
     // Calculate final value of the invariant:
     let d2 = calculate_invariant(&final_tradable_balances_calc, n_assets, ampl_coefficient);
@@ -130,14 +150,14 @@ pub fn liquidity_action(
         .collect::<Vec<U512>>();
 
     // Calculate amount of liquidity tokens released:
-    let lp_emission = U512::from(LP_EMISSION) * U512::from(10_u64.pow(LP_NUM_DECIMALS));
+    let lp_emission = U512::from(LP_EMISSION);
     let supply_lp = lp_emission - *lp_amount_before;
-    let (relevant_delta_lp_amount, final_lp_amount) = if d2 > d0 {
-        let relevant_lp_amount = (d2 - d0) * supply_lp / d0;
+    let (relevant_delta_lp_amount, final_lp_amount) = if d2_ > d0 {
+        let relevant_lp_amount = (d2_ - d0) * supply_lp / d0;
         assert!(*lp_amount_before > relevant_lp_amount);
         (relevant_lp_amount, *lp_amount_before - relevant_lp_amount)
     } else {
-        let relevant_lp_amount = (d0 - d2) * supply_lp / d0;
+        let relevant_lp_amount = (d0 - d2_) * supply_lp / d0;
         (relevant_lp_amount, *lp_amount_before + relevant_lp_amount)
     };
     // Minimal validity checks from the pool contract:
@@ -200,11 +220,11 @@ pub fn redeem_uniform(
     let balances_before_no_fees = reserves_before
         .iter()
         .enumerate()
-        .map(|(k, &x)| (x - collected_protocol_fees[k]))
+        .map(|(k, &x)| x - collected_protocol_fees[k])
         .collect::<Vec<U512>>();
 
     // Calculate amount of the pool reserve assets to receive:
-    let lp_emission = U512::from(LP_EMISSION) * U512::from(10_u64.pow(LP_NUM_DECIMALS));
+    let lp_emission = U512::from(LP_EMISSION);
     let supply_lp = lp_emission - *lp_amount_before;
     let received_reserves_amounts = balances_before_no_fees
         .iter()
@@ -264,7 +284,7 @@ pub fn redeem_uniform(
 /// * `reserves_tokens_decimals` - Decimals of the tradable tokens;
 /// * `collected_protocol_fees` - Total collected protocol fees before the action (from pool.datum);
 /// * `swap_fee_num` - Numerator of the swap fee;
-/// * `protocol_share_num` - Numerator of the protocol's fee share;
+/// * `protocol_fee_num` - Numerator of the protocol's fee share;
 /// * `ampl_coefficient` - Amplification coefficient of the StableSwap invariant (from pool.datum);
 /// * `n_assets` - Number of tradable tokens in the pool.
 ///
@@ -284,7 +304,7 @@ pub fn swap(
     collected_protocol_fees: &Vec<U512>,
     reserves_tokens_decimals: &Vec<U512>,
     swap_fee_num: &u32,
-    protocol_share_num: &u32,
+    protocol_fee_num: &u32,
     ampl_coefficient: &u32,
     n_assets: &u32,
 ) -> (Vec<U512>, Vec<U512>, U512, U512, U512) {
@@ -398,20 +418,18 @@ pub fn swap(
     balances_with_i_no_fees_calc[*j] = balance_j;
     // Calculate protocol fees:
     let swap_fee_num_calc = U512::from(*swap_fee_num);
-    let protocol_share_num = U512::from(*protocol_share_num);
+    let protocol_fee_num = U512::from(*protocol_fee_num);
     let denom = U512::from(DENOM);
 
-    let total_fees_j = quote_asset_delta * swap_fee_num_calc / denom;
+    let lp_fee = quote_asset_delta * swap_fee_num_calc / denom;
 
-    let protocol_fees_j = total_fees_j * protocol_share_num / denom;
+    let protocol_fee_j = quote_asset_delta * protocol_fee_num / denom;
 
-    let lp_fee = protocol_fees_j * (denom - protocol_share_num) / protocol_share_num;
-
-    let total_fees_j = protocol_fees_j + lp_fee;
+    let total_fees_j = lp_fee + protocol_fee_j;
 
     // Calculate final protocol fees:
     let mut collected_protocol_fees_final = collected_protocol_fees.clone();
-    collected_protocol_fees_final[*j] = collected_protocol_fees_final[*j] + protocol_fees_j;
+    collected_protocol_fees_final[*j] = collected_protocol_fees_final[*j] + protocol_fee_j;
 
     // Calculate received "quote" amount:
     let quote_amount_received = quote_asset_delta - total_fees_j;
@@ -443,7 +461,7 @@ pub fn swap(
         .collect::<Vec<U512>>();
 
     reserves_for_d2_calc[*j] =
-        reserves_for_d2_calc[*j] - protocol_fees_j * precision / reserves_tokens_decimals[*j];
+        reserves_for_d2_calc[*j] - protocol_fee_j * precision / reserves_tokens_decimals[*j];
 
     let d2 = calculate_invariant(&reserves_for_d2_calc, n_assets, ampl_coefficient);
 
@@ -457,7 +475,7 @@ pub fn swap(
         &reserves_for_d1_calc,
         &d1,
         &minimal_j_unit,
-        j
+        j,
     ));
     assert!(check_invariant_extremum_for_asset(
         &n_assets,
@@ -465,7 +483,7 @@ pub fn swap(
         &reserves_for_d2_calc,
         &d2,
         &minimal_j_unit,
-        j
+        j,
     ));
 
     let abs_inv_diff = if d1 > d0 { d1 - d0 } else { d0 - d1 };
@@ -489,7 +507,7 @@ mod test {
     use rand::{Rng, SeedableRng};
 
     use crate::stable_swap_amm_actions::{
-        liquidity_action, redeem_uniform, swap, DENOM, LP_EMISSION, LP_NUM_DECIMALS,
+        liquidity_action, redeem_uniform, swap, DENOM, LP_EMISSION,
     };
     use crate::stable_swap_invariant::calculate_invariant;
 
@@ -501,7 +519,7 @@ mod test {
         // Random parameters:
         let a: u32 = rng.gen_range(100..2000);
         let swap_fee_num: u32 = rng.gen_range(1_000..5_000);
-        let protocol_share_num: u32 = rng.gen_range(50..5_00);
+        let protocol_fee_num: u32 = rng.gen_range(50..5_00);
 
         // Tradable tokens decimals:
         let mut reserves_tokens_decimals = Vec::new();
@@ -548,7 +566,7 @@ mod test {
         (
             a,
             swap_fee_num,
-            protocol_share_num,
+            protocol_fee_num,
             reserves_before,
             collected_protocol_fees,
             reserves_tokens_decimals,
@@ -566,7 +584,7 @@ mod test {
             let (
                 a,
                 swap_fee_num,
-                protocol_share_num,
+                protocol_fee_num,
                 reserves_before,
                 collected_protocol_fees,
                 reserves_tokens_decimals,
@@ -588,7 +606,7 @@ mod test {
                 .map(|(k, &x)| x + deposited_reserves[k])
                 .collect::<Vec<U512>>();
             let lp_amount_before =
-                U512::from(LP_EMISSION) * U512::from(10_u64.pow(LP_NUM_DECIMALS)) - initial_supply_lp;
+                U512::from(LP_EMISSION) - initial_supply_lp;
 
             liquidity_action(
                 &reserves_before,
@@ -597,7 +615,7 @@ mod test {
                 &reserves_tokens_decimals,
                 &collected_protocol_fees,
                 &swap_fee_num,
-                &protocol_share_num,
+                &protocol_fee_num,
                 &a,
                 &n,
             );
@@ -614,7 +632,7 @@ mod test {
             let (
                 a,
                 swap_fee_num,
-                protocol_share_num,
+                protocol_fee_num,
                 reserves_before,
                 collected_protocol_fees,
                 reserves_tokens_decimals,
@@ -637,7 +655,7 @@ mod test {
                 .collect::<Vec<U512>>();
 
             let lp_amount_before =
-                U512::from(LP_EMISSION) * U512::from(10_u64.pow(LP_NUM_DECIMALS)) - initial_supply_lp;
+                U512::from(LP_EMISSION) - initial_supply_lp;
 
             liquidity_action(
                 &reserves_before,
@@ -646,7 +664,7 @@ mod test {
                 &reserves_tokens_decimals,
                 &collected_protocol_fees,
                 &swap_fee_num,
-                &protocol_share_num,
+                &protocol_fee_num,
                 &a,
                 &n,
             );
@@ -671,7 +689,7 @@ mod test {
             ) = prepare_random_s3pool_state(rng.clone(), n);
 
             let lp_amount_before =
-                U512::from(LP_EMISSION) * U512::from(10_u64.pow(LP_NUM_DECIMALS)) - initial_supply_lp;
+                U512::from(LP_EMISSION) - initial_supply_lp;
             redeem_uniform(
                 &reserves_before,
                 &(initial_supply_lp - U512::from(1)),
@@ -694,7 +712,7 @@ mod test {
             let (
                 a,
                 swap_fee_num,
-                protocol_share_num,
+                protocol_fee_num,
                 reserves_before,
                 collected_protocol_fees,
                 reserves_tokens_decimals,
@@ -715,7 +733,7 @@ mod test {
                 &collected_protocol_fees,
                 &reserves_tokens_decimals,
                 &swap_fee_num,
-                &protocol_share_num,
+                &protocol_fee_num,
                 &a,
                 &n,
             );
@@ -729,7 +747,7 @@ mod test {
         let mut rng = StdRng::seed_from_u64(42);
         for _ in 0..100 {
             let n = *n_assets_set.choose(&mut rand::thread_rng()).unwrap();
-            let (a, swap_fee_num, protocol_share_num, _, _, reserves_tokens_decimals, _) =
+            let (a, swap_fee_num, protocol_fee_num, _, _, reserves_tokens_decimals, _) =
                 prepare_random_s3pool_state(rng.clone(), n);
 
             let collected_protocol_fees = vec![U512::from(0); n as usize];
@@ -766,7 +784,7 @@ mod test {
 
             let initial_supply_lp = calculate_invariant(&reserves_before_calc, &n, &a);
             let lp_amount_before0 =
-                U512::from(LP_EMISSION) * U512::from(10_u64.pow(LP_NUM_DECIMALS)) - initial_supply_lp;
+                U512::from(LP_EMISSION) - initial_supply_lp;
 
             let (collected_protocol_fees0, lp_amount_before1, _, _, received_lp0) = liquidity_action(
                 &reserves_before,
@@ -775,7 +793,7 @@ mod test {
                 &reserves_tokens_decimals,
                 &collected_protocol_fees,
                 &swap_fee_num,
-                &protocol_share_num,
+                &protocol_fee_num,
                 &a,
                 &n,
             );
@@ -800,7 +818,7 @@ mod test {
                 &reserves_tokens_decimals,
                 &collected_protocol_fees0,
                 &swap_fee_num,
-                &protocol_share_num,
+                &protocol_fee_num,
                 &a,
                 &n,
             );
@@ -828,7 +846,7 @@ mod test {
                     &collected_protocol_fees_after_swaps,
                     &reserves_tokens_decimals,
                     &swap_fee_num,
-                    &protocol_share_num,
+                    &protocol_fee_num,
                     &a,
                     &n,
                 );
@@ -859,7 +877,7 @@ mod test {
                 &reserves_tokens_decimals,
                 &collected_protocol_fees_after_swaps,
                 &swap_fee_num,
-                &protocol_share_num,
+                &protocol_fee_num,
                 &a,
                 &n,
             );
@@ -944,11 +962,21 @@ mod test {
                 .copied()
                 .reduce(|a, b| a + b)
                 .unwrap();
-
+            // Checks:
             let usd_profit0 = usd_received0 - usd_deposited0;
             let usd_profit1 = usd_received1 - usd_deposited1;
             let total_usd_profit = usd_after1 - usd_before1;
             let lp_usd_profit = usd_profit0 + usd_profit1;
+            let lp_usd_profit_theoretical = total_volume * (received_lp0 + received_lp1)
+                / (initial_supply_lp + received_lp0 + received_lp1) * U512::from(swap_fee_num)
+                * U512::from(90)
+                / U512::from(DENOM) / U512::from(100);
+            let total_protocol_usd_profit_theoretical = total_volume
+                * U512::from(protocol_fee_num)
+                / U512::from(DENOM);
+            let total_lp_usd_profit_theoretical = total_volume
+                * U512::from(swap_fee_num)
+                / U512::from(DENOM);
             assert_eq!(
                 (lp_usd_profit * precision / total_usd_profit) / precision,
                 ((received_lp0 + received_lp1) * precision
@@ -958,10 +986,20 @@ mod test {
             assert!(
                 collected_protocol_fees_usd
                     >= total_volume
-                        * U512::from(swap_fee_num)
-                        * U512::from(protocol_share_num)
-                        * U512::from(90)
-                        / (U512::from(DENOM) * U512::from(DENOM) * U512::from(100))
+                    * U512::from(protocol_fee_num)
+                    * U512::from(80)
+                    / U512::from(DENOM) / U512::from(100)
+            );
+            assert!(
+                lp_usd_profit
+                    >= lp_usd_profit_theoretical * U512::from(80)
+                    / U512::from(100)
+            );
+
+            assert!(
+                total_usd_profit
+                    <= (total_protocol_usd_profit_theoretical + total_lp_usd_profit_theoretical) * U512::from(110)
+                    / U512::from(100)
             );
             assert_eq!(
                 (usd_received1 * precision / usd_received0) / precision,
