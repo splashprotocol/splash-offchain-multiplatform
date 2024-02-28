@@ -1,4 +1,4 @@
-use primitive_types::{U512};
+use primitive_types::U512;
 
 use crate::stable_swap_invariant::{
     calculate_invariant, calculate_invariant_error_from_balances, check_invariant_extremum,
@@ -18,7 +18,7 @@ pub const DENOM: u64 = 10_000;
 /// * `reserves_tokens_decimals` - Decimals of the tradable tokens;
 /// * `collected_protocol_fees` - Total collected protocol fees before the action (from pool.datum);
 /// * `swap_fee_num` - Numerator of the swap fee;
-/// * `protocol_fee_num` - Numerator of the protocol's fee share;
+/// * `protocol_fee_num` - Numerator of the protocol's fee;
 /// * `ampl_coefficient` - Amplification coefficient of the StableSwap invariant (from pool.datum);
 /// * `n_assets` - Number of tradable tokens in the pool.
 ///
@@ -82,7 +82,7 @@ pub fn liquidity_action(
         .map(|x| d1 * *x / d0)
         .collect::<Vec<_>>();
 
-    // Take commissions from the difference from the ideal distribution of balances:
+    // Take fees from the difference from the ideal distribution of balances:
     let mut difference = Vec::new();
     for asset_amounts in balances_ideal.iter().zip(balances_after_no_fees.iter_mut()) {
         let (ideal, real) = asset_amounts;
@@ -123,6 +123,7 @@ pub fn liquidity_action(
         .enumerate()
         .map(|(k, &x)| x * precision / reserves_tokens_decimals[k])
         .collect::<Vec<U512>>();
+
     // Take LP fees into account:
     let mut valid_lp_calc_balances = Vec::new();
 
@@ -284,7 +285,7 @@ pub fn redeem_uniform(
 /// * `reserves_tokens_decimals` - Decimals of the tradable tokens;
 /// * `collected_protocol_fees` - Total collected protocol fees before the action (from pool.datum);
 /// * `swap_fee_num` - Numerator of the swap fee;
-/// * `protocol_fee_num` - Numerator of the protocol's fee share;
+/// * `protocol_fee_num` - Numerator of the protocol's fee;
 /// * `ampl_coefficient` - Amplification coefficient of the StableSwap invariant (from pool.datum);
 /// * `n_assets` - Number of tradable tokens in the pool.
 ///
@@ -322,7 +323,7 @@ pub fn swap(
     let balances_before_no_fees = reserves_before
         .iter()
         .enumerate()
-        .map(|(k, &x)| (x - collected_protocol_fees[k]))
+        .map(|(k, &x)| x - collected_protocol_fees[k])
         .collect::<Vec<U512>>();
 
     // Add `base_amount` to the `i`-th reserves balance:
@@ -506,9 +507,7 @@ mod test {
     use rand::seq::SliceRandom;
     use rand::{Rng, SeedableRng};
 
-    use crate::stable_swap_amm_actions::{
-        liquidity_action, redeem_uniform, swap, DENOM, LP_EMISSION,
-    };
+    use crate::stable_swap_amm_actions::{liquidity_action, redeem_uniform, swap, DENOM, LP_EMISSION};
     use crate::stable_swap_invariant::calculate_invariant;
 
     /// Prepare random stable3pool parameters and balances.
@@ -605,8 +604,7 @@ mod test {
                 .enumerate()
                 .map(|(k, &x)| x + deposited_reserves[k])
                 .collect::<Vec<U512>>();
-            let lp_amount_before =
-                U512::from(LP_EMISSION) - initial_supply_lp;
+            let lp_amount_before = U512::from(LP_EMISSION) - initial_supply_lp;
 
             liquidity_action(
                 &reserves_before,
@@ -654,8 +652,7 @@ mod test {
                 .map(|(k, &x)| x - desired_reserves[k])
                 .collect::<Vec<U512>>();
 
-            let lp_amount_before =
-                U512::from(LP_EMISSION) - initial_supply_lp;
+            let lp_amount_before = U512::from(LP_EMISSION) - initial_supply_lp;
 
             liquidity_action(
                 &reserves_before,
@@ -688,8 +685,7 @@ mod test {
                 initial_supply_lp,
             ) = prepare_random_s3pool_state(rng.clone(), n);
 
-            let lp_amount_before =
-                U512::from(LP_EMISSION) - initial_supply_lp;
+            let lp_amount_before = U512::from(LP_EMISSION) - initial_supply_lp;
             redeem_uniform(
                 &reserves_before,
                 &(initial_supply_lp - U512::from(1)),
@@ -783,8 +779,7 @@ mod test {
                 .collect::<Vec<U512>>();
 
             let initial_supply_lp = calculate_invariant(&reserves_before_calc, &n, &a);
-            let lp_amount_before0 =
-                U512::from(LP_EMISSION) - initial_supply_lp;
+            let lp_amount_before0 = U512::from(LP_EMISSION) - initial_supply_lp;
 
             let (collected_protocol_fees0, lp_amount_before1, _, _, received_lp0) = liquidity_action(
                 &reserves_before,
@@ -968,15 +963,15 @@ mod test {
             let total_usd_profit = usd_after1 - usd_before1;
             let lp_usd_profit = usd_profit0 + usd_profit1;
             let lp_usd_profit_theoretical = total_volume * (received_lp0 + received_lp1)
-                / (initial_supply_lp + received_lp0 + received_lp1) * U512::from(swap_fee_num)
-                * U512::from(90)
-                / U512::from(DENOM) / U512::from(100);
-            let total_protocol_usd_profit_theoretical = total_volume
-                * U512::from(protocol_fee_num)
-                / U512::from(DENOM);
-            let total_lp_usd_profit_theoretical = total_volume
+                / (initial_supply_lp + received_lp0 + received_lp1)
                 * U512::from(swap_fee_num)
-                / U512::from(DENOM);
+                * U512::from(90)
+                / U512::from(DENOM)
+                / U512::from(100);
+            let total_protocol_usd_profit_theoretical =
+                total_volume * U512::from(protocol_fee_num) / U512::from(DENOM);
+            let total_lp_usd_profit_theoretical = total_volume * U512::from(swap_fee_num) / U512::from(DENOM);
+
             assert_eq!(
                 (lp_usd_profit * precision / total_usd_profit) / precision,
                 ((received_lp0 + received_lp1) * precision
@@ -985,21 +980,17 @@ mod test {
             );
             assert!(
                 collected_protocol_fees_usd
-                    >= total_volume
-                    * U512::from(protocol_fee_num)
-                    * U512::from(80)
-                    / U512::from(DENOM) / U512::from(100)
+                    >= total_volume * U512::from(protocol_fee_num) * U512::from(80)
+                        / U512::from(DENOM)
+                        / U512::from(100)
             );
-            assert!(
-                lp_usd_profit
-                    >= lp_usd_profit_theoretical * U512::from(80)
-                    / U512::from(100)
-            );
+            assert!(lp_usd_profit >= lp_usd_profit_theoretical * U512::from(80) / U512::from(100));
 
             assert!(
                 total_usd_profit
-                    <= (total_protocol_usd_profit_theoretical + total_lp_usd_profit_theoretical) * U512::from(110)
-                    / U512::from(100)
+                    <= (total_protocol_usd_profit_theoretical + total_lp_usd_profit_theoretical)
+                        * U512::from(110)
+                        / U512::from(100)
             );
             assert_eq!(
                 (usd_received1 * precision / usd_received0) / precision,
