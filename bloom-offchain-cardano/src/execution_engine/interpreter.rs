@@ -54,7 +54,7 @@ where
             execute(ctx, state, (vec![], vec![]), instructions);
         trace!(target: "offchain", "CardanoRecipeInterpreter:: execute done");
 
-        // Sort inputs by transaction hashes to properly set the datums
+        // Sort inputs by transaction hashes to properly set the redeemers
         indexed_tx_inputs.sort_by_key(|a| a.get_inner());
         trace!(target: "offchain", "# tx_inputs: {}", indexed_tx_inputs.len());
         for (ix, typed_tx_input) in indexed_tx_inputs.into_iter().enumerate() {
