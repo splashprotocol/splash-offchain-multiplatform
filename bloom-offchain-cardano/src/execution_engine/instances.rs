@@ -9,6 +9,7 @@ use cml_chain::transaction::TransactionInput;
 use cml_chain::utils::BigInt;
 use cml_crypto::TransactionHash;
 use log::trace;
+use spectrum_offchain_cardano::data::pair::order_canonical;
 use void::Void;
 
 use bloom_offchain::execution_engine::batch_exec::BatchExec;
@@ -215,9 +216,19 @@ where
             ..
         }) = self;
         let mut produced_out = consumed_out.clone();
-        let (removed_asset, added_asset) = match side {
-            SideM::Bid => (pool.asset_x.untag(), pool.asset_y.untag()),
-            SideM::Ask => (pool.asset_y.untag(), pool.asset_x.untag()),
+        let x = pool.asset_x.untag();
+        let y = pool.asset_y.untag();
+        let [base, _] = order_canonical(x, y);
+        let (removed_asset, added_asset) = if base == x {
+            match side {
+                SideM::Bid => (x, y),
+                SideM::Ask => (y, x),
+            }
+        } else {
+            match side {
+                SideM::Bid => (y, x),
+                SideM::Ask => (x, y),
+            }
         };
         produced_out.sub_asset(removed_asset, output);
         produced_out.add_asset(added_asset, input);

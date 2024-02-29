@@ -42,6 +42,7 @@ use spectrum_offchain_cardano::constants::{
     DEPOSIT_SCRIPT, FEE_SWITCH_POOL_SCRIPT, FEE_SWITCH_POOL_SCRIPT_BIDIRECTIONAL_FEE_SCRIPT, POOL_V1_SCRIPT,
     POOL_V2_SCRIPT, REDEEM_SCRIPT, SPOT_SCRIPT, SWAP_SCRIPT,
 };
+use test_utils::babbage::to_babbage_transaction;
 use tokio::sync::Mutex;
 use tracing_subscriber::fmt::Subscriber;
 
@@ -85,10 +86,11 @@ const EXECUTION_CAP: ExecutionCap = ExecutionCap {
 async fn integration_test() {
     let subscriber = Subscriber::new();
     tracing::subscriber::set_global_default(subscriber).expect("setting tracing default failed");
-    let raw_config = std::fs::read_to_string("tests/config.json").expect("Cannot load configuration file");
+    let raw_config = std::fs::read_to_string("bloom-cardano-agent/tests/config.json")
+        .expect("Cannot load configuration file");
     let config: AppConfig = serde_json::from_str(&raw_config).expect("Invalid configuration file");
 
-    log4rs::init_file("tests/log4rs.yaml", Default::default()).unwrap();
+    log4rs::init_file("bloom-cardano-agent/tests/log4rs.yaml", Default::default()).unwrap();
 
     info!("Starting Off-Chain Agent ..");
 
@@ -133,7 +135,7 @@ async fn integration_test() {
         trace!(target: "chain_sync", "Tip reached, waiting for new blocks ..");
     });
 
-    let (operator_sk, operator_pkh, _operator_addr) = operator_creds(config.batcher_private_key, 1_u64);
+    let (operator_sk, _, _) = operator_creds(config.batcher_private_key, 1_u64);
 
     let collateral = gen_collateral();
 
@@ -220,8 +222,17 @@ async fn integration_test() {
         boxed(execution_stream_p4),
     ]);
 
+    let start = tokio::time::Instant::now();
+    let duration = tokio::time::Duration::from_secs(3);
     loop {
-        app.select_next_some().await;
+        tokio::select! {
+           () =  app.select_next_some() => {
+
+           }
+           _ = tokio::time::sleep_until(start + duration) => {
+            break;
+           }
+        }
     }
 }
 
@@ -258,7 +269,8 @@ fn gen_pool_babbage_tx(network_id: NetworkId) -> (BabbageTransaction, PolicyId, 
 }
 
 fn gen_pool_transaction_body(network_id: NetworkId) -> (BabbageTransactionBody, PolicyId, &'static str) {
-    let (output, token_policy, token_name) = gen_pool_transaction_output(0);
+    let (output, token_policy, token_name) =
+        test_utils::pool::gen_pool_transaction_output(0, 101_000_000, 900_000_000, false);
     let body = BabbageTransactionBody {
         inputs: vec![gen_transaction_input(0), gen_transaction_input(1)],
         outputs: vec![output],
@@ -299,128 +311,6 @@ fn gen_transaction_input(index: u64) -> TransactionInput {
     }
 }
 
-fn gen_policy_id() -> PolicyId {
-    let mut rng = rand::thread_rng();
-    let mut bytes = [0u8; 28];
-    rng.fill(&mut bytes[..]);
-    PolicyId::from(bytes)
-}
-
-fn gen_pool_transaction_output(index: u64) -> (BabbageTransactionOutput, PolicyId, &'static str) {
-    let network = NetworkInfo::new(0b0000, ProtocolMagic::from(1_u32)).network_id();
-    let script_plutus_v2 = PlutusV2Script::new(hex::decode(POOL_V2_SCRIPT).unwrap());
-    let script = Script::new_plutus_v2(script_plutus_v2.clone());
-    let address =
-        EnterpriseAddress::new(network, StakeCredential::new_script(script.clone().hash())).to_address();
-    info!(
-        "pool_v2_addr: {}, {:?}",
-        address.to_bech32(None).unwrap(),
-        address
-    );
-
-    let pool_y_token_policy = gen_policy_id();
-    let pool_y_token_name = "token Y";
-    let pool_lq_token_policy = gen_policy_id();
-    let pool_lq_token_name = "token LQ";
-
-    let mut bundle = OrderedHashMap::new();
-    bundle.insert(
-        pool_y_token_policy,
-        OrderedHashMap::from_iter(vec![(
-            AssetName::try_from(pool_y_token_name.as_bytes().to_vec()).unwrap(),
-            100_000_000,
-        )]),
-    );
-    bundle.insert(
-        pool_lq_token_policy,
-        OrderedHashMap::from_iter(vec![(
-            AssetName::try_from(pool_lq_token_name.as_bytes().to_vec()).unwrap(),
-            10_000_000,
-        )]),
-    );
-    let amount = Value::new(100_000_000, MultiAsset::from(bundle));
-
-    let datum_option = Some(DatumOption::new_datum(gen_pool_datum(
-        pool_y_token_policy,
-        pool_y_token_name,
-        pool_lq_token_policy,
-        pool_lq_token_name,
-    )));
-
-    // Don't need to set script_reference since the code uses reference inputs for the pool
-    let tx = BabbageFormatTxOut {
-        address,
-        amount,
-        datum_option,
-        script_reference: None, //Some(BabbageScript::new_plutus_v2(script_plutus_v2)),
-        encodings: None,
-    };
-    (
-        BabbageTransactionOutput::BabbageFormatTxOut(tx),
-        pool_y_token_policy,
-        pool_y_token_name,
-    )
-}
-
-// Datum for an ADA-token pool
-fn gen_pool_datum(
-    pool_y_token_policy: PolicyId,
-    pool_y_token_name: &str,
-    pool_lq_token_policy: PolicyId,
-    pool_lq_token_name: &str,
-) -> PlutusData {
-    // Pool NFT
-    let nft_token_policy = PlutusData::new_bytes(gen_policy_id().to_raw_bytes().to_vec());
-    let nft_token_name = PlutusData::new_bytes(b"pool_NFT".to_vec());
-    let nft_output =
-        PlutusData::new_constr_plutus_data(ConstrPlutusData::new(0, vec![nft_token_policy, nft_token_name]));
-
-    // ADA (pool X)
-    let ada_bytes = PlutusData::new_bytes(vec![]);
-    let ada_name_bytes = PlutusData::new_bytes(vec![]);
-
-    let pool_x_output =
-        PlutusData::new_constr_plutus_data(ConstrPlutusData::new(0, vec![ada_bytes, ada_name_bytes]));
-
-    // Pool Y
-    let pool_y_token_policy = PlutusData::new_bytes(pool_y_token_policy.to_raw_bytes().to_vec());
-    let pool_y_token_name = PlutusData::new_bytes(pool_y_token_name.as_bytes().to_vec());
-    let pool_y_output = PlutusData::new_constr_plutus_data(ConstrPlutusData::new(
-        0,
-        vec![pool_y_token_policy, pool_y_token_name],
-    ));
-
-    // Pool LQ
-    let pool_lq_token_policy = PlutusData::new_bytes(pool_lq_token_policy.to_raw_bytes().to_vec());
-    let pool_lq_token_name = PlutusData::new_bytes(pool_lq_token_name.as_bytes().to_vec());
-    let pool_lq_output = PlutusData::new_constr_plutus_data(ConstrPlutusData::new(
-        0,
-        vec![pool_lq_token_policy, pool_lq_token_name],
-    ));
-
-    // Fee
-    let fee_output = PlutusData::new_integer(BigInt::from(9995));
-
-    // Dummy value
-    let dummy_output = PlutusData::new_integer(BigInt::from(1));
-
-    // LQ lower bound
-    let lq_lower_bound_output = PlutusData::new_integer(BigInt::from(10000000000_u64));
-
-    PlutusData::ConstrPlutusData(ConstrPlutusData::new(
-        0,
-        vec![
-            nft_output,
-            pool_x_output,
-            pool_y_output,
-            pool_lq_output,
-            fee_output,
-            dummy_output,
-            lq_lower_bound_output,
-        ],
-    ))
-}
-
 fn gen_spot_order_babbage_tx(
     network_id: NetworkId,
     output_token_policy: PolicyId,
@@ -442,11 +332,11 @@ fn gen_spot_order_transaction_body(
 ) -> BabbageTransactionBody {
     BabbageTransactionBody {
         inputs: vec![gen_transaction_input(0), gen_transaction_input(1)],
-        outputs: vec![gen_spot_order_transaction_output(
-            0,
-            output_token_policy,
-            output_token_name,
-        )],
+        outputs: vec![
+            gen_spot_order_transaction_output(output_token_policy, output_token_name, 6_000_000),
+            gen_spot_order_transaction_output(output_token_policy, output_token_name, 17_000_001),
+            gen_spot_order_transaction_output(output_token_policy, output_token_name, 37_000_004),
+        ],
         fee: 281564,
         ttl: None,
         certs: None,
@@ -467,9 +357,9 @@ fn gen_spot_order_transaction_body(
 }
 
 fn gen_spot_order_transaction_output(
-    index: u64,
     output_token_policy: PolicyId,
     output_token_name: &str,
+    tradable_input: u64,
 ) -> BabbageTransactionOutput {
     let network_info = NetworkInfo::new(0b0000, ProtocolMagic::from(1_u32));
     let network = network_info.network_id();
@@ -499,21 +389,21 @@ fn gen_spot_order_transaction_output(
             1,
         )]),
     );
-    let amount = Value::new(50_000_000, MultiAsset::from(bundle));
+    let amount = Value::new(tradable_input + 2_123_130, MultiAsset::from(bundle));
 
     let datum_option = Some(DatumOption::new_datum(gen_spot_order_datum(
         &beacon_token_policy,
         &operator_pkh,
         output_token_policy,
         output_token_name,
+        tradable_input,
     )));
 
-    // TODO: use input references for spot, allowing us to set script_reference to None. Saving TX costs and min ADA value.
     let tx = BabbageFormatTxOut {
         address,
         amount,
         datum_option,
-        script_reference: None, //Some(BabbageScript::new_plutus_v2(spot_script_inner)),
+        script_reference: None,
         encodings: None,
     };
     BabbageTransactionOutput::BabbageFormatTxOut(tx)
@@ -524,15 +414,15 @@ fn gen_spot_order_datum(
     redeemer_pkh: &Ed25519KeyHash,
     output_token_policy: PolicyId,
     output_token_name: &str,
+    tradable_input: u64,
 ) -> PlutusData {
     let beacon_pd = PlutusData::new_bytes(beacon.to_raw_bytes().to_vec());
-    let tradable_input = 47_000_000_u64;
-    let fee = 1_000_000;
+    let fee = 100_000;
     let cost_per_ex_step = 300_000;
     let tradable_input_pd = PlutusData::new_integer(BigInt::from(tradable_input));
     let cost_per_ex_step_pd = PlutusData::new_integer(BigInt::from(cost_per_ex_step));
     let max_ex_steps = 5;
-    let base_price_num = 50;
+    let base_price_num = 100;
     let base_price_denom = 100;
     let min_final_output = tradable_input * base_price_num / base_price_denom;
     let min_marginal_output = min_final_output / max_ex_steps;
@@ -568,231 +458,11 @@ fn gen_spot_order_datum(
     ))
 }
 
-fn to_babbage_witness_set(ws: TransactionWitnessSet) -> BabbageTransactionWitnessSet {
-    BabbageTransactionWitnessSet {
-        vkeywitnesses: ws.vkeywitnesses,
-        native_scripts: ws.native_scripts,
-        bootstrap_witnesses: ws.bootstrap_witnesses,
-        plutus_v1_scripts: ws.plutus_v1_scripts,
-        plutus_datums: ws.plutus_datums,
-        redeemers: ws.redeemers,
-        plutus_v2_scripts: ws.plutus_v2_scripts,
-        encodings: None,
-    }
-}
-
-fn to_babbage_transaction_output(output: TransactionOutput) -> BabbageTransactionOutput {
-    match output {
-        TransactionOutput::AlonzoFormatTxOut(tx_out) => BabbageTransactionOutput::AlonzoFormatTxOut(tx_out),
-        TransactionOutput::ConwayFormatTxOut(ConwayFormatTxOut {
-            address,
-            amount,
-            datum_option,
-            script_reference,
-            encodings,
-        }) => BabbageTransactionOutput::BabbageFormatTxOut(BabbageFormatTxOut {
-            address,
-            amount,
-            datum_option,
-            script_reference: script_reference.map(to_babbage_script),
-            encodings: encodings.map(to_babbage_encoding),
-        }),
-    }
-}
-
-fn to_babbage_script(script: Script) -> BabbageScript {
-    match script {
-        Script::Native {
-            script,
-            len_encoding,
-            tag_encoding,
-        } => BabbageScript::Native {
-            script,
-            len_encoding,
-            tag_encoding,
-        },
-        Script::PlutusV1 {
-            script,
-            len_encoding,
-            tag_encoding,
-        } => BabbageScript::PlutusV1 {
-            script,
-            len_encoding,
-            tag_encoding,
-        },
-        Script::PlutusV2 {
-            script,
-            len_encoding,
-            tag_encoding,
-        } => BabbageScript::PlutusV2 {
-            script,
-            len_encoding,
-            tag_encoding,
-        },
-        Script::PlutusV3 {
-            script,
-            len_encoding,
-            tag_encoding,
-        } => unreachable!(),
-    }
-}
-
-fn to_babbage_encoding(enc: ConwayFormatTxOutEncoding) -> BabbageFormatTxOutEncoding {
-    let ConwayFormatTxOutEncoding {
-        len_encoding,
-        orig_deser_order,
-        address_key_encoding,
-        amount_key_encoding,
-        datum_option_key_encoding,
-        script_reference_tag_encoding,
-        script_reference_bytes_encoding,
-        script_reference_key_encoding,
-    } = enc;
-
-    BabbageFormatTxOutEncoding {
-        len_encoding,
-        orig_deser_order,
-        address_key_encoding,
-        amount_key_encoding,
-        datum_option_key_encoding,
-        script_reference_tag_encoding,
-        script_reference_bytes_encoding,
-        script_reference_key_encoding,
-    }
-}
-
-fn to_babbage_transaction_body(body: TransactionBody) -> BabbageTransactionBody {
-    let outputs = body
-        .outputs
-        .into_iter()
-        .map(to_babbage_transaction_output)
-        .collect();
-    let certs = body.certs.map(|c| c.into_iter().map(to_allegra_cert).collect());
-    BabbageTransactionBody {
-        inputs: body.inputs,
-        outputs,
-        fee: body.fee,
-        ttl: body.ttl,
-        certs,
-        withdrawals: body.withdrawals,
-        update: None,
-        auxiliary_data_hash: body.auxiliary_data_hash,
-        validity_interval_start: body.validity_interval_start,
-        mint: body.mint,
-        script_data_hash: body.script_data_hash,
-        collateral_inputs: body.collateral_inputs,
-        required_signers: body.required_signers,
-        network_id: body.network_id,
-        collateral_return: body.collateral_return.map(to_babbage_transaction_output),
-        total_collateral: body.total_collateral,
-        reference_inputs: body.reference_inputs,
-        encodings: body.encodings.map(to_babbage_transaction_body_encoding),
-    }
-}
-
-fn to_allegra_cert(cert: Certificate) -> AllegraCertificate {
-    match cert {
-        Certificate::StakeRegistration(s) => AllegraCertificate::StakeRegistration(s),
-        Certificate::StakeDeregistration(s) => AllegraCertificate::StakeDeregistration(s),
-        Certificate::StakeDelegation(s) => AllegraCertificate::StakeDelegation(s),
-        Certificate::PoolRegistration(p) => AllegraCertificate::PoolRegistration(p),
-        Certificate::PoolRetirement(p) => AllegraCertificate::PoolRetirement(p),
-        _ => panic!("Variants not supported"),
-    }
-}
-
-fn to_babbage_transaction_body_encoding(enc: TransactionBodyEncoding) -> BabbageTransactionBodyEncoding {
-    BabbageTransactionBodyEncoding {
-        len_encoding: enc.len_encoding,
-        orig_deser_order: enc.orig_deser_order,
-        inputs_encoding: enc.inputs_encoding,
-        inputs_key_encoding: enc.inputs_key_encoding,
-        outputs_encoding: enc.outputs_encoding,
-        outputs_key_encoding: enc.outputs_key_encoding,
-        fee_encoding: enc.fee_encoding,
-        fee_key_encoding: enc.fee_key_encoding,
-        ttl_encoding: enc.ttl_encoding,
-        ttl_key_encoding: enc.ttl_key_encoding,
-        certs_encoding: enc.certs_encoding,
-        certs_key_encoding: enc.certs_key_encoding,
-        withdrawals_encoding: enc.withdrawals_encoding,
-        withdrawals_value_encodings: enc.withdrawals_value_encodings,
-        withdrawals_key_encoding: enc.withdrawals_key_encoding,
-        update_key_encoding: None,
-        auxiliary_data_hash_encoding: enc.auxiliary_data_hash_encoding,
-        auxiliary_data_hash_key_encoding: enc.auxiliary_data_hash_key_encoding,
-        validity_interval_start_encoding: enc.validity_interval_start_encoding,
-        validity_interval_start_key_encoding: enc.validity_interval_start_key_encoding,
-        mint_encoding: enc.mint_encoding,
-        mint_key_encodings: enc.mint_key_encodings,
-        mint_value_encodings: enc.mint_value_encodings,
-        mint_key_encoding: enc.mint_key_encoding,
-        script_data_hash_encoding: enc.script_data_hash_encoding,
-        script_data_hash_key_encoding: enc.script_data_hash_key_encoding,
-        collateral_inputs_encoding: enc.collateral_inputs_encoding,
-        collateral_inputs_key_encoding: enc.collateral_inputs_key_encoding,
-        required_signers_encoding: enc.required_signers_encoding,
-        required_signers_elem_encodings: enc.required_signers_elem_encodings,
-        required_signers_key_encoding: enc.required_signers_key_encoding,
-        network_id_key_encoding: enc.network_id_key_encoding,
-        collateral_return_key_encoding: enc.collateral_return_key_encoding,
-        total_collateral_encoding: enc.total_collateral_encoding,
-        total_collateral_key_encoding: enc.total_collateral_key_encoding,
-        reference_inputs_encoding: enc.reference_inputs_encoding,
-        reference_inputs_key_encoding: enc.reference_inputs_key_encoding,
-    }
-}
-
-fn to_babbage_auxiliary_data(d: AuxiliaryData) -> BabbageAuxiliaryData {
-    match d {
-        AuxiliaryData::Shelley(s) => BabbageAuxiliaryData::Shelley(s),
-        AuxiliaryData::ShelleyMA(s) => BabbageAuxiliaryData::ShelleyMA(s),
-        AuxiliaryData::Conway(ConwayFormatAuxData {
-            metadata,
-            native_scripts,
-            plutus_v1_scripts,
-            plutus_v2_scripts,
-            plutus_v3_scripts,
-            encodings,
-        }) => {
-            let encodings = encodings.map(|c| BabbageFormatAuxDataEncoding {
-                len_encoding: c.len_encoding,
-                tag_encoding: c.tag_encoding,
-                orig_deser_order: c.orig_deser_order,
-                metadata_key_encoding: c.metadata_key_encoding,
-                native_scripts_encoding: c.native_scripts_encoding,
-                native_scripts_key_encoding: c.native_scripts_key_encoding,
-                plutus_v1_scripts_encoding: c.plutus_v1_scripts_encoding,
-                plutus_v1_scripts_key_encoding: c.plutus_v1_scripts_key_encoding,
-                plutus_v2_scripts_encoding: c.plutus_v2_scripts_encoding,
-                plutus_v2_scripts_key_encoding: c.plutus_v2_scripts_key_encoding,
-            });
-
-            BabbageAuxiliaryData::Babbage(BabbageFormatAuxData {
-                metadata,
-                native_scripts,
-                plutus_v1_scripts,
-                plutus_v2_scripts,
-                encodings,
-            })
-        }
-    }
-}
-
-fn to_babbage_transaction_encoding(enc: TransactionEncoding) -> BabbageTransactionEncoding {
-    BabbageTransactionEncoding {
-        len_encoding: enc.len_encoding,
-    }
-}
-
-fn to_babbage_transaction(tx: Transaction) -> BabbageTransaction {
-    BabbageTransaction {
-        body: to_babbage_transaction_body(tx.body),
-        witness_set: to_babbage_witness_set(tx.witness_set),
-        is_valid: tx.is_valid,
-        auxiliary_data: tx.auxiliary_data.map(to_babbage_auxiliary_data),
-        encodings: tx.encodings.map(to_babbage_transaction_encoding),
-    }
+fn gen_policy_id() -> PolicyId {
+    let mut rng = rand::thread_rng();
+    let mut bytes = [0u8; 28];
+    rng.fill(&mut bytes[..]);
+    PolicyId::from(bytes)
 }
 
 fn gen_tx_unspent_output(hex_encoded_script: &str) -> TransactionUnspentOutput {

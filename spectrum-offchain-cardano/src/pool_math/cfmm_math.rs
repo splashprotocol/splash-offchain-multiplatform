@@ -4,10 +4,10 @@ use num_rational::Ratio;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use std::cmp::min;
 
-pub fn output_amount(
-    asset_x: TaggedAssetClass<Rx>,
-    reserves_x: TaggedAmount<Rx>,
-    reserves_y: TaggedAmount<Ry>,
+pub fn output_amount<X, Y>(
+    asset_x: TaggedAssetClass<X>,
+    reserves_x: TaggedAmount<X>,
+    reserves_y: TaggedAmount<Y>,
     base_asset: TaggedAssetClass<Base>,
     base_amount: TaggedAmount<Base>,
     lp_fee_x: Ratio<u64>,
