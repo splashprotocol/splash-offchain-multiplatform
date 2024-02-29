@@ -123,7 +123,7 @@ async fn integration_test() {
             ),
         ])
         .chain(stream! {
-            let mut slot = 49636100;
+            let mut slot = slot + 300;
             while let Some(tx) = tx_receiver.recv().await {
                 yield  LedgerTxEvent::TxApplied {
                     tx: to_babbage_transaction(tx),
