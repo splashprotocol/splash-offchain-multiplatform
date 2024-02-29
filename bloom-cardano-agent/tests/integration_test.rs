@@ -35,7 +35,7 @@ use futures::channel::mpsc;
 use futures::stream::select_all;
 use futures::{Stream, StreamExt};
 use log::{info, trace};
-use rand::Rng;
+use rand::{thread_rng, Rng};
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_offchain::network::Network;
 use spectrum_offchain_cardano::constants::{
@@ -105,23 +105,38 @@ async fn integration_test() {
     let signal_tip_reached = Once::new();
 
     let n_id = network_info.network_id() as u64;
-    let (pool_tx, token_policy, token_name) = gen_pool_babbage_tx(NetworkId::new(n_id));
-    let spot_order_tx_0 = gen_spot_order_babbage_tx(NetworkId::new(n_id), token_policy, token_name);
+    let pool_lovelaces = 101_000_000;
+    let y_token_quantity = 900_000_000;
+    let (pool_tx, token_policy, token_name) =
+        gen_pool_babbage_tx(NetworkId::new(n_id), pool_lovelaces, y_token_quantity);
+    let slot = 49635947;
+    let min_tradable_lovelaces = 2_300_000;
+    let max_tradable_lovelaces = 20_000_000;
     let ledger_stream = Box::pin(
         futures::stream::iter(vec![
-            LedgerTxEvent::TxApplied {
-                tx: pool_tx,
-                slot: 49635947,
-            },
-            LedgerTxEvent::TxApplied {
-                tx: spot_order_tx_0,
-                slot: 49636000,
-            },
+            LedgerTxEvent::TxApplied { tx: pool_tx, slot },
+            gen_spot_tx(
+                NetworkId::new(n_id),
+                token_policy,
+                token_name,
+                slot + 100,
+                2,
+                min_tradable_lovelaces,
+                max_tradable_lovelaces,
+            ),
+            gen_spot_tx(
+                NetworkId::new(n_id),
+                token_policy,
+                token_name,
+                slot + 200,
+                4,
+                min_tradable_lovelaces,
+                max_tradable_lovelaces / 2,
+            ),
         ])
         .chain(stream! {
             let mut slot = 49636100;
             while let Some(tx) = tx_receiver.recv().await {
-                //let spot_order_tx_1 = gen_spot_order_babbage_tx(NetworkId::new(n_id), token_policy, token_name);
                 yield  LedgerTxEvent::TxApplied {
                     tx: to_babbage_transaction(tx),
                     slot,
@@ -262,15 +277,43 @@ impl Network<Transaction, TxRejected> for TxSubmissionSender {
     }
 }
 
-fn gen_pool_babbage_tx(network_id: NetworkId) -> (BabbageTransaction, PolicyId, &'static str) {
-    let (body, token_policy, token_name) = gen_pool_transaction_body(network_id);
+fn gen_spot_tx(
+    network_id: NetworkId,
+    output_token_policy: PolicyId,
+    output_token_name: &str,
+    slot: u64,
+    num_orders: usize,
+    min_tradable_lovelaces: u64,
+    max_tradable_lovelaces: u64,
+) -> LedgerTxEvent<BabbageTransaction> {
+    let tx = gen_spot_order_babbage_tx(
+        network_id,
+        output_token_policy,
+        output_token_name,
+        min_tradable_lovelaces,
+        max_tradable_lovelaces,
+        num_orders,
+    );
+    LedgerTxEvent::TxApplied { tx, slot }
+}
+
+fn gen_pool_babbage_tx(
+    network_id: NetworkId,
+    lovelaces: u64,
+    y_token_quantity: u64,
+) -> (BabbageTransaction, PolicyId, &'static str) {
+    let (body, token_policy, token_name) = gen_pool_transaction_body(network_id, lovelaces, y_token_quantity);
     let tx = BabbageTransaction::new(body, BabbageTransactionWitnessSet::new(), true, None);
     (tx, token_policy, token_name)
 }
 
-fn gen_pool_transaction_body(network_id: NetworkId) -> (BabbageTransactionBody, PolicyId, &'static str) {
+fn gen_pool_transaction_body(
+    network_id: NetworkId,
+    lovelaces: u64,
+    y_token_quantity: u64,
+) -> (BabbageTransactionBody, PolicyId, &'static str) {
     let (output, token_policy, token_name) =
-        test_utils::pool::gen_pool_transaction_output(0, 101_000_000, 900_000_000, false);
+        test_utils::pool::gen_pool_transaction_output(0, lovelaces, y_token_quantity, false);
     let body = BabbageTransactionBody {
         inputs: vec![gen_transaction_input(0), gen_transaction_input(1)],
         outputs: vec![output],
@@ -315,28 +358,23 @@ fn gen_spot_order_babbage_tx(
     network_id: NetworkId,
     output_token_policy: PolicyId,
     output_token_name: &str,
+    min_tradable_lovelaces: u64,
+    max_tradable_lovelaces: u64,
+    num_orders: usize,
 ) -> BabbageTransaction {
     let witness_set = BabbageTransactionWitnessSet::new();
-    BabbageTransaction::new(
-        gen_spot_order_transaction_body(network_id, output_token_policy, output_token_name),
-        witness_set,
-        true,
-        None,
-    )
-}
-
-fn gen_spot_order_transaction_body(
-    network_id: NetworkId,
-    output_token_policy: PolicyId,
-    output_token_name: &str,
-) -> BabbageTransactionBody {
-    BabbageTransactionBody {
+    let mut outputs = vec![];
+    for _ in 0..num_orders {
+        let tradable_input = thread_rng().gen_range(min_tradable_lovelaces..=max_tradable_lovelaces);
+        outputs.push(gen_spot_order_transaction_output(
+            output_token_policy,
+            output_token_name,
+            tradable_input,
+        ));
+    }
+    let body = BabbageTransactionBody {
         inputs: vec![gen_transaction_input(0), gen_transaction_input(1)],
-        outputs: vec![
-            gen_spot_order_transaction_output(output_token_policy, output_token_name, 6_000_000),
-            gen_spot_order_transaction_output(output_token_policy, output_token_name, 17_000_001),
-            gen_spot_order_transaction_output(output_token_policy, output_token_name, 37_000_004),
-        ],
+        outputs,
         fee: 281564,
         ttl: None,
         certs: None,
@@ -353,7 +391,8 @@ fn gen_spot_order_transaction_body(
         total_collateral: Some(3607615),
         reference_inputs: None,
         encodings: Some(BabbageTransactionBodyEncoding::default()),
-    }
+    };
+    BabbageTransaction::new(body, witness_set, true, None)
 }
 
 fn gen_spot_order_transaction_output(
