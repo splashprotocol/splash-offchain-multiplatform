@@ -7,10 +7,13 @@ use cml_chain::{
     plutus::{ConstrPlutusData, PlutusData, PlutusV2Script},
     transaction::DatumOption,
     utils::BigInt,
-    OrderedHashMap, PolicyId, Script, Value,
+    NetworkId, OrderedHashMap, PolicyId, Script, Value,
 };
 use cml_crypto::{RawBytesEncoding, TransactionHash};
-use cml_multi_era::babbage::{BabbageFormatTxOut, BabbageTransactionOutput};
+use cml_multi_era::babbage::{
+    cbor_encodings::BabbageTransactionBodyEncoding, BabbageFormatTxOut, BabbageTransactionBody,
+    BabbageTransactionOutput,
+};
 use log::info;
 use rand::Rng;
 use spectrum_cardano_lib::OutputRef;
@@ -20,7 +23,7 @@ use spectrum_offchain_cardano::constants::POOL_V2_SCRIPT;
 
 use spectrum_offchain_cardano::data::pool::ClassicCFMMPool;
 
-use crate::gen_policy_id;
+use crate::{gen_policy_id, gen_transaction_input};
 
 pub fn gen_ada_token_pool(lovelaces: u64, y_token_quantity: u64, ada_first: bool) -> ClassicCFMMPool {
     let (repr, _, _) = gen_pool_transaction_output(0, lovelaces, y_token_quantity, ada_first);
@@ -30,6 +33,36 @@ pub fn gen_ada_token_pool(lovelaces: u64, y_token_quantity: u64, ada_first: bool
     let transaction_id = TransactionHash::from(bytes);
     let ctx = OutputRef::new(transaction_id, 0);
     ClassicCFMMPool::try_from_ledger(&repr, ctx).unwrap()
+}
+
+pub fn gen_pool_transaction_body(
+    network_id: NetworkId,
+    lovelaces: u64,
+    y_token_quantity: u64,
+) -> (BabbageTransactionBody, PolicyId, &'static str) {
+    let (output, token_policy, token_name) =
+        gen_pool_transaction_output(0, lovelaces, y_token_quantity, false);
+    let body = BabbageTransactionBody {
+        inputs: vec![gen_transaction_input(0), gen_transaction_input(1)],
+        outputs: vec![output],
+        fee: 281564,
+        ttl: None,
+        certs: None,
+        withdrawals: None,
+        update: None,
+        auxiliary_data_hash: None,
+        validity_interval_start: Some(51438385),
+        mint: None,
+        script_data_hash: None,
+        collateral_inputs: None,
+        required_signers: None,
+        network_id: Some(network_id),
+        collateral_return: None,
+        total_collateral: Some(3607615),
+        reference_inputs: None,
+        encodings: Some(BabbageTransactionBodyEncoding::default()),
+    };
+    (body, token_policy, token_name)
 }
 
 pub fn gen_pool_transaction_output(

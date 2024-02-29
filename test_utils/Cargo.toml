@@ -7,6 +7,8 @@ edition = "2021"
 
 [dependencies]
 bloom-offchain = { version = "1.0.0", path = "../bloom-offchain" }
+cardano-chain-sync = { version = "0.1.0", path = "../cardano-chain-sync" }
+cbor_event = "2.4.0"
 cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/addr_to_bech_32_byron" }
 cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/addr_to_bech_32_byron" }
 cml-multi-era = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/addr_to_bech_32_byron" }
