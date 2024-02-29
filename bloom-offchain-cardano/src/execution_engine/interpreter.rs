@@ -23,7 +23,7 @@ use spectrum_offchain::data::{Baked, Has};
 
 use crate::creds::RewardAddress;
 use crate::execution_engine::execution_state::ExecutionState;
-use crate::execution_engine::instances::{Magnet, TypedTransactionInput};
+use crate::execution_engine::instances::{IndexedExUnits, Magnet};
 use crate::orders::spot::SPOT_ORDER_N2T_EX_UNITS;
 
 /// A short-living interpreter.
@@ -36,9 +36,9 @@ where
     Fr: Copy + std::fmt::Debug,
     Pl: Copy + std::fmt::Debug,
     Magnet<LinkedFill<Fr, FinalizedTxOut>>:
-        BatchExec<ExecutionState, (TypedTransactionInput, Option<IndexedTxOut>), Ctx, Void>,
+        BatchExec<ExecutionState, (IndexedExUnits, Option<IndexedTxOut>), Ctx, Void>,
     Magnet<LinkedSwap<Pl, FinalizedTxOut>>:
-        BatchExec<ExecutionState, (TypedTransactionInput, IndexedTxOut), Ctx, Void>,
+        BatchExec<ExecutionState, (IndexedExUnits, IndexedTxOut), Ctx, Void>,
     Ctx: Clone + Has<Collateral> + Has<RewardAddress>,
 {
     fn run(
@@ -55,23 +55,10 @@ where
         trace!(target: "offchain", "CardanoRecipeInterpreter:: execute done");
 
         // Sort inputs by transaction hashes to properly set the redeemers
-        indexed_tx_inputs.sort_by_key(|a| a.get_inner());
+        indexed_tx_inputs.sort_by_key(|a| a.0);
         trace!(target: "offchain", "# tx_inputs: {}", indexed_tx_inputs.len());
-        for (ix, typed_tx_input) in indexed_tx_inputs.into_iter().enumerate() {
-            match typed_tx_input {
-                TypedTransactionInput::CFMMPool(_) => {
-                    tx_builder.set_exunits(
-                        RedeemerWitnessKey::new(RedeemerTag::Spend, ix as u64),
-                        POOL_EXECUTION_UNITS,
-                    );
-                }
-                TypedTransactionInput::SpotOrder(_) => {
-                    tx_builder.set_exunits(
-                        RedeemerWitnessKey::new(RedeemerTag::Spend, ix as u64),
-                        SPOT_ORDER_N2T_EX_UNITS,
-                    );
-                }
-            }
+        for (ix, IndexedExUnits(_, ex_units)) in indexed_tx_inputs.into_iter().enumerate() {
+            tx_builder.set_exunits(RedeemerWitnessKey::new(RedeemerTag::Spend, ix as u64), ex_units);
         }
 
         tx_builder
@@ -117,20 +104,20 @@ const TX_FEE_CORRECTION: Lovelace = 1000;
 fn execute<Fr, Pl, Ctx>(
     ctx: Ctx,
     state: ExecutionState,
-    mut updates_acc: (Vec<(Either<Fr, Pl>, IndexedTxOut)>, Vec<TypedTransactionInput>),
+    mut updates_acc: (Vec<(Either<Fr, Pl>, IndexedTxOut)>, Vec<IndexedExUnits>),
     mut rem: Vec<LinkedTerminalInstruction<Fr, Pl, FinalizedTxOut>>,
 ) -> (
     ExecutionState,
-    (Vec<(Either<Fr, Pl>, IndexedTxOut)>, Vec<TypedTransactionInput>),
+    (Vec<(Either<Fr, Pl>, IndexedTxOut)>, Vec<IndexedExUnits>),
     Ctx,
 )
 where
     Fr: Copy,
     Pl: Copy,
     Magnet<LinkedFill<Fr, FinalizedTxOut>>:
-        BatchExec<ExecutionState, (TypedTransactionInput, Option<IndexedTxOut>), Ctx, Void>,
+        BatchExec<ExecutionState, (IndexedExUnits, Option<IndexedTxOut>), Ctx, Void>,
     Magnet<LinkedSwap<Pl, FinalizedTxOut>>:
-        BatchExec<ExecutionState, (TypedTransactionInput, IndexedTxOut), Ctx, Void>,
+        BatchExec<ExecutionState, (IndexedExUnits, IndexedTxOut), Ctx, Void>,
     Ctx: Clone,
 {
     if let Some(instruction) = rem.pop() {

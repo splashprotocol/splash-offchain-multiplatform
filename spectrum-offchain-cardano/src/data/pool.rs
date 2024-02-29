@@ -15,7 +15,7 @@ use std::fmt::Debug;
 use type_equalities::IsEqual;
 
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
-use bloom_offchain::execution_engine::liquidity_book::side::Side;
+use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
@@ -54,7 +54,7 @@ use cml_chain::builders::tx_builder::{
 };
 use cml_chain::{Coin, Value};
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
-use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
+use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::executor::RunOrderError::Fatal;
 
 pub struct Rx;
@@ -236,6 +236,42 @@ pub struct ClassicCFMMPool {
     pub lp_fee: Ratio<u64>,
     pub lq_lower_bound: TaggedAmount<Lq>,
     pub ver: PoolVer,
+}
+
+pub struct AssetDeltas {
+    pub asset_to_deduct_from: AssetClass,
+    pub asset_to_add_to: AssetClass,
+}
+
+impl ClassicCFMMPool {
+    pub fn get_asset_deltas(&self, side: SideM) -> AssetDeltas {
+        let x = self.asset_x.untag();
+        let y = self.asset_y.untag();
+        let [base, _] = order_canonical(x, y);
+        if base == x {
+            match side {
+                SideM::Bid => AssetDeltas {
+                    asset_to_deduct_from: x,
+                    asset_to_add_to: y,
+                },
+                SideM::Ask => AssetDeltas {
+                    asset_to_deduct_from: y,
+                    asset_to_add_to: x,
+                },
+            }
+        } else {
+            match side {
+                SideM::Bid => AssetDeltas {
+                    asset_to_deduct_from: y,
+                    asset_to_add_to: x,
+                },
+                SideM::Ask => AssetDeltas {
+                    asset_to_deduct_from: x,
+                    asset_to_add_to: y,
+                },
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
