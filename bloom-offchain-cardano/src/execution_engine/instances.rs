@@ -92,16 +92,6 @@ where
         candidate.sub_asset(ord.input_asset, removed_input);
         // Add output resulted from exchange.
         candidate.add_asset(ord.output_asset, added_output);
-        match &candidate {
-            cml_chain::transaction::TransactionOutput::AlonzoFormatTxOut(out) => {
-                trace!(target: "executor", "(Alonzo) spot ADA: {} ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^", out.amount.coin);
-                trace!(target: "executor", "(Alonzo) spot tokens: {:?}", out.amount.multiasset);
-            }
-            cml_chain::transaction::TransactionOutput::ConwayFormatTxOut(out) => {
-                trace!(target: "executor", "(Conway) spot ADA: {} ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^", out.amount.coin);
-                trace!(target: "executor", "(Conway) spot tokens: {:?}", out.amount.multiasset);
-            }
-        }
         let residual_order = {
             let mut candidate = candidate.clone();
             match transition {
@@ -232,16 +222,6 @@ where
         };
         produced_out.sub_asset(removed_asset, output);
         produced_out.add_asset(added_asset, input);
-        match &produced_out {
-            cml_chain::transaction::TransactionOutput::AlonzoFormatTxOut(out) => {
-                trace!(target: "executor", "(Alonzo) pool_coin: {} %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%", out.amount.coin);
-                trace!(target: "executor", "(Alonzo) pool_coin: {:?}", out.amount.multiasset);
-            }
-            cml_chain::transaction::TransactionOutput::ConwayFormatTxOut(out) => {
-                trace!(target: "executor", "(Conway) pool_coin: {} %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%", out.amount.coin);
-                trace!(target: "executor", "(Conway) pool_coin: {:?}", out.amount.multiasset);
-            }
-        }
         let successor = produced_out.clone();
         let successor_ix = state.tx_builder.output_sizes().len();
         let pool_script = PartialPlutusWitness::new(

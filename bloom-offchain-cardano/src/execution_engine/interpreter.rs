@@ -60,14 +60,12 @@ where
         for (ix, typed_tx_input) in indexed_tx_inputs.into_iter().enumerate() {
             match typed_tx_input {
                 TypedTransactionInput::CFMMPool(_) => {
-                    trace!(target: "offchain", "set redeemer for pool @ ix: {}]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]", ix);
                     tx_builder.set_exunits(
                         RedeemerWitnessKey::new(RedeemerTag::Spend, ix as u64),
                         POOL_EXECUTION_UNITS,
                     );
                 }
                 TypedTransactionInput::SpotOrder(_) => {
-                    trace!(target: "offchain", "set redeemer for spot-order @ ix: {}>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>", ix);
                     tx_builder.set_exunits(
                         RedeemerWitnessKey::new(RedeemerTag::Spend, ix as u64),
                         SPOT_ORDER_N2T_EX_UNITS,
@@ -82,7 +80,7 @@ where
 
         // Set tx fee.
         let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
-        trace!(target: "offchain", "estimated tx_fee: {} ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~", estimated_tx_fee);
+        trace!(target: "offchain", "estimated tx_fee: {}", estimated_tx_fee);
         tx_builder.set_fee(estimated_tx_fee + TX_FEE_CORRECTION);
 
         let execution_fee_address: Address = ctx.get_labeled::<RewardAddress>().into();

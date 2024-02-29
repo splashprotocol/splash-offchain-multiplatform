@@ -23,9 +23,9 @@ impl<'a> Explorer<'a> {
 
     pub async fn get_utxo(self, output_ref: OutputRef) -> Option<ExplorerTxOut> {
         let request_url = format!(
-            "{}/v1/outputs/{}:{}",
+            "{}/cardano/{}/v1/outputs/{}:{}",
             self.explorer_config.url.to_owned(),
-            //self.network_prefix,
+            self.network_prefix,
             TransactionInput::from(output_ref).transaction_id.to_hex(),
             TransactionInput::from(output_ref).index
         );
@@ -41,9 +41,9 @@ impl<'a> Explorer<'a> {
         limit: u32,
     ) -> Vec<ExplorerTxOut> {
         let request_url = format!(
-            "{}/v1/outputs/unspent/byPaymentCred/{}/?offset={}&limit={}",
+            "{}/cardano/{}/v1/outputs/unspent/byPaymentCred/{}/?offset={}&limit={}",
             self.explorer_config.url.to_owned(),
-            //self.network_prefix,
+            self.network_prefix,
             payment_cred.as_str(),
             min_index.to_string().as_str(),
             limit.to_string().as_str()
