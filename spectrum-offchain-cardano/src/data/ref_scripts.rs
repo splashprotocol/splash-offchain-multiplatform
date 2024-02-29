@@ -9,7 +9,7 @@ use spectrum_offchain::data::Has;
 
 use crate::constants::{
     DEPOSIT_SCRIPT, FEE_SWITCH_POOL_SCRIPT, FEE_SWITCH_POOL_SCRIPT_BIDIRECTIONAL_FEE_SCRIPT, POOL_V1_SCRIPT,
-    POOL_V2_SCRIPT, REDEEM_SCRIPT, SWAP_SCRIPT,
+    POOL_V2_SCRIPT, REDEEM_SCRIPT, SPOT_SCRIPT, SWAP_SCRIPT,
 };
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::fee_switch_bidirectional_fee::FeeSwitchBidirectionalCFMMPool;
@@ -29,6 +29,7 @@ pub struct ReferenceOutputs {
     pub swap: TransactionUnspentOutput,
     pub deposit: TransactionUnspentOutput,
     pub redeem: TransactionUnspentOutput,
+    pub spot_order: TransactionUnspentOutput,
 }
 
 impl ReferenceOutputs {
@@ -72,6 +73,7 @@ impl ReferenceOutputs {
         let swap = process_utxo_with_ref_script(config.swap_script, SWAP_SCRIPT, explorer).await?;
         let deposit = process_utxo_with_ref_script(config.deposit_script, DEPOSIT_SCRIPT, explorer).await?;
         let redeem = process_utxo_with_ref_script(config.redeem_script, REDEEM_SCRIPT, explorer).await?;
+        let spot_order = process_utxo_with_ref_script(config.redeem_script, SPOT_SCRIPT, explorer).await?;
         Some(ReferenceOutputs {
             pool_v1,
             pool_v2,
@@ -80,6 +82,7 @@ impl ReferenceOutputs {
             swap,
             deposit,
             redeem,
+            spot_order,
         })
     }
 }

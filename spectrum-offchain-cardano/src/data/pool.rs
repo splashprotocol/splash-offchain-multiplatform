@@ -15,7 +15,7 @@ use std::fmt::Debug;
 use type_equalities::IsEqual;
 
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
-use bloom_offchain::execution_engine::liquidity_book::side::Side;
+use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
@@ -54,7 +54,7 @@ use cml_chain::builders::tx_builder::{
 };
 use cml_chain::{Coin, Value};
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
-use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
+use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::executor::RunOrderError::Fatal;
 
 pub struct Rx;
@@ -238,6 +238,42 @@ pub struct ClassicCFMMPool {
     pub ver: PoolVer,
 }
 
+pub struct AssetDeltas {
+    pub asset_to_deduct_from: AssetClass,
+    pub asset_to_add_to: AssetClass,
+}
+
+impl ClassicCFMMPool {
+    pub fn get_asset_deltas(&self, side: SideM) -> AssetDeltas {
+        let x = self.asset_x.untag();
+        let y = self.asset_y.untag();
+        let [base, _] = order_canonical(x, y);
+        if base == x {
+            match side {
+                SideM::Bid => AssetDeltas {
+                    asset_to_deduct_from: x,
+                    asset_to_add_to: y,
+                },
+                SideM::Ask => AssetDeltas {
+                    asset_to_deduct_from: y,
+                    asset_to_add_to: x,
+                },
+            }
+        } else {
+            match side {
+                SideM::Bid => AssetDeltas {
+                    asset_to_deduct_from: y,
+                    asset_to_add_to: x,
+                },
+                SideM::Ask => AssetDeltas {
+                    asset_to_deduct_from: x,
+                    asset_to_add_to: y,
+                },
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum AnyCFMMPool {
     Classic(ClassicCFMMPool),
@@ -328,15 +364,30 @@ impl PoolOps for ClassicCFMMPool {
         base_asset: TaggedAssetClass<Base>,
         base_amount: TaggedAmount<Base>,
     ) -> TaggedAmount<Quote> {
-        output_amount(
-            self.asset_x,
-            self.reserves_x,
-            self.reserves_y,
-            base_asset,
-            base_amount,
-            self.lp_fee,
-            self.lp_fee,
-        )
+        let x = self.asset_x.untag();
+        let y = self.asset_y.untag();
+        let [base, _] = order_canonical(x, y);
+        if base == x {
+            output_amount(
+                self.asset_x,
+                self.reserves_x,
+                self.reserves_y,
+                base_asset,
+                base_amount,
+                self.lp_fee,
+                self.lp_fee,
+            )
+        } else {
+            output_amount(
+                self.asset_y,
+                self.reserves_y,
+                self.reserves_x,
+                base_asset,
+                base_amount,
+                self.lp_fee,
+                self.lp_fee,
+            )
+        }
     }
 
     fn reward_lp(
@@ -498,13 +549,16 @@ impl Pool for ClassicCFMMPool {
         };
         match input {
             Side::Bid(input) => {
-                *quote_reserves -= input;
-                *base_reserves += output;
+                // A user bid means that they wish to buy the base asset for the quote asset, hence
+                // pool reserves of base decreases while reserves of quote increase.
+                *quote_reserves += input;
+                *base_reserves -= output;
                 (output, self)
             }
             Side::Ask(input) => {
-                *base_reserves -= input;
-                *quote_reserves += output;
+                // User ask is the opposite; sell the base asset for the quote asset.
+                *base_reserves += input;
+                *quote_reserves -= output;
                 (output, self)
             }
         }
@@ -1053,3 +1107,75 @@ where
 /// Reference Script Output for [ClassicCFMMPool] tagged with pool version [Ver].
 #[derive(Debug, Clone)]
 pub struct CFMMPoolRefScriptOutput<const VER: u8>(pub TransactionUnspentOutput);
+
+#[cfg(test)]
+pub mod tests {
+    use bloom_offchain::execution_engine::liquidity_book::{pool::Pool, side::Side};
+    use cml_crypto::TransactionHash;
+    use rand::Rng;
+    use spectrum_cardano_lib::OutputRef;
+    use spectrum_offchain::ledger::TryFromLedger;
+    use test_utils::pool::gen_pool_transaction_output;
+
+    use super::ClassicCFMMPool;
+
+    #[test]
+    fn tlb_amm_pool_canonical_pair_ordering() {
+        // This pool's asset order is canonical
+        let pool = gen_pool(true);
+
+        // Contains ADA
+        let original_reserve_x = pool.reserves_x.untag();
+        // Contains token
+        let original_reserve_y = pool.reserves_y.untag();
+        let ada_qty = 7000000;
+
+        // Test Ask order (sell ADA to buy token)
+        let (output_token_0, next_pool) = pool.swap(Side::Ask(ada_qty));
+        let next_reserve_x = next_pool.reserves_x.untag();
+        let next_reserve_y = next_pool.reserves_y.untag();
+        assert_eq!(original_reserve_x, next_reserve_x - ada_qty);
+        assert_eq!(original_reserve_y, next_reserve_y + output_token_0);
+
+        // Now test Bid order (buy ADA by selling token)
+        let (output_ada_1, final_pool) = next_pool.swap(Side::Bid(output_token_0));
+        println!("final pool ada reserves: {}", final_pool.reserves_x.untag());
+        assert_eq!(next_reserve_x, final_pool.reserves_x.untag() + output_ada_1);
+        assert_eq!(next_reserve_y, final_pool.reserves_y.untag() - output_token_0);
+    }
+
+    #[test]
+    fn tlb_amm_pool_non_canonical_pair_ordering() {
+        // This pool's asset order is non-canonical
+        let pool = gen_pool(false);
+
+        // Contains tokens
+        let original_reserve_x = pool.reserves_x.untag();
+        // Contains ADA
+        let original_reserve_y = pool.reserves_y.untag();
+        let qty = 7000000;
+
+        // Test Ask order (sell ADA to buy token)
+        let (output_token_0, next_pool) = pool.swap(Side::Ask(qty));
+        let next_reserve_x = next_pool.reserves_x.untag();
+        let next_reserve_y = next_pool.reserves_y.untag();
+        println!("next_x: {}, next_y: {}", next_reserve_x, next_reserve_y);
+        assert_eq!(original_reserve_y, next_reserve_y - qty);
+        assert_eq!(original_reserve_x, next_reserve_x + output_token_0);
+
+        // Now test Bid order (buy ADA by selling token)
+        let (output_ada_1, final_pool) = next_pool.swap(Side::Bid(output_token_0));
+        assert_eq!(next_reserve_y, final_pool.reserves_y.untag() + output_ada_1);
+        assert_eq!(next_reserve_x, final_pool.reserves_x.untag() - output_token_0);
+    }
+
+    fn gen_pool(ada_first: bool) -> ClassicCFMMPool {
+        let (repr, _, _) = gen_pool_transaction_output(0, 101_000_000, 9_000_000, ada_first);
+        let mut rng = rand::thread_rng();
+        let mut bytes = [0u8; 32];
+        rng.fill(&mut bytes[..]);
+        let transaction_id = TransactionHash::from(bytes);
+        let ctx = OutputRef::new(transaction_id, 0);
+        ClassicCFMMPool::try_from_ledger(&repr, ctx).unwrap()
+    }
+}

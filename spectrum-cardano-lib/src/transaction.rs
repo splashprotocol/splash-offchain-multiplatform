@@ -7,6 +7,7 @@ use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, Transact
 use cml_chain::Value;
 use cml_crypto::ScriptHash;
 use cml_multi_era::babbage::{BabbageFormatTxOut, BabbageScriptRef, BabbageTransactionOutput};
+use log::trace;
 
 use crate::address::AddressExtension;
 use crate::AssetClass;
@@ -25,6 +26,7 @@ pub trait TransactionOutputExtension {
     fn script_ref(&self) -> Option<&BabbageScriptRef>;
     fn sub_asset(&mut self, asset: AssetClass, amount: u64) {
         self.with_asset_value(asset, |value| {
+            trace!(target: "offchain", "Asset: {:?}: {} - {}", asset, *value, amount);
             value.sub_assign(amount);
         })
     }

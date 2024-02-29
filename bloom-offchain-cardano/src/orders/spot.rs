@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 
+use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::certs::Credential;
 use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData};
 use cml_chain::utils::BigInt;
@@ -277,6 +278,9 @@ where
             let value = repr.value().clone();
             let conf = ConfigNativeToToken::try_from_pd(repr.datum()?.into_pd()?)?;
             let total_ada_input = value.amount_of(AssetClass::Native)?;
+            if total_ada_input < conf.tradable_input {
+                return None;
+            }
             let execution_budget = total_ada_input - conf.tradable_input;
             let is_permissionless = conf.permitted_executors.is_empty();
             if is_permissionless || conf.permitted_executors.contains(&ctx.get().into()) {
@@ -305,3 +309,7 @@ where
         None
     }
 }
+
+/// Reference Script Output for [SpotOrder].
+#[derive(Debug, Clone)]
+pub struct SpotOrderRefScriptOutput(pub TransactionUnspentOutput);

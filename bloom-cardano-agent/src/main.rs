@@ -51,8 +51,8 @@ use spectrum_offchain_cardano::data::ref_scripts::ReferenceOutputs;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
 
-use crate::config::AppConfig;
-use crate::context::ExecutionContext;
+use bloom_cardano_agent::config::AppConfig;
+use bloom_cardano_agent::context::ExecutionContext;
 
 mod config;
 mod context;

@@ -1,3 +1,4 @@
+use bloom_offchain_cardano::orders::spot::SpotOrderRefScriptOutput;
 use type_equalities::IsEqual;
 
 use bloom_offchain::execution_engine::liquidity_book::ExecutionCap;
@@ -50,5 +51,11 @@ impl Has<CFMMPoolRefScriptOutput<1>> for ExecutionContext {
 impl Has<CFMMPoolRefScriptOutput<2>> for ExecutionContext {
     fn get_labeled<U: IsEqual<CFMMPoolRefScriptOutput<2>>>(&self) -> CFMMPoolRefScriptOutput<2> {
         CFMMPoolRefScriptOutput(self.refs.pool_v2.clone())
+    }
+}
+
+impl Has<SpotOrderRefScriptOutput> for ExecutionContext {
+    fn get_labeled<U: IsEqual<SpotOrderRefScriptOutput>>(&self) -> SpotOrderRefScriptOutput {
+        SpotOrderRefScriptOutput(self.refs.spot_order.clone())
     }
 }
