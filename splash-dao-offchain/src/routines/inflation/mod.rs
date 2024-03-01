@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 use std::time::Duration;
 
-use futures::{Stream, StreamExt};
 use futures::channel::mpsc;
+use futures::{Stream, StreamExt};
 use futures_timer::Delay;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
@@ -13,13 +13,13 @@ use crate::entities::onchain::poll_factory::PollFactory;
 use crate::entities::onchain::smart_farm::SmartFarm;
 use crate::entities::onchain::voting_escrow::VotingEscrow;
 use crate::entities::onchain::weighting_poll::{PollState, WeightingPoll};
-use crate::GenesisEpochStartTime;
-use crate::routine::{ApplyEffect, Attempt, postpone, StateRead, transit};
+use crate::routine::{postpone, transit, ApplyEffect, Attempt, StateRead};
 use crate::routines::inflation::actions::InflationActions;
 use crate::routines::inflation::events::InflationEvent;
 use crate::routines::inflation::persistence::{InflationStateRead, InflationStateWrite};
 use crate::routines::inflation::transitions::InflationEffect;
 use crate::time::NetworkTimeProvider;
+use crate::GenesisEpochStartTime;
 
 mod actions;
 mod events;
@@ -252,9 +252,9 @@ mod tests {
     use crate::entities::onchain::poll_factory::PollFactory;
     use crate::entities::onchain::voting_escrow::VotingEscrow;
     use crate::entities::onchain::weighting_poll::WeightingPoll;
-    use crate::FarmId;
     use crate::routines::inflation::persistence::InflationStateRead;
     use crate::time::NetworkTime;
+    use crate::FarmId;
 
     struct NTP(Arc<Mutex<mpsc::Receiver<NetworkTime>>>);
 
