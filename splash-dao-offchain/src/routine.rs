@@ -5,18 +5,18 @@ use std::time::Duration;
 
 use async_stream::stream;
 use either::Either;
+use futures::{Stream, StreamExt};
 use futures::channel::mpsc;
 use futures::stream::FusedStream;
-use futures::{Stream, StreamExt};
 use futures_timer::Delay;
 
-use crate::network_time::{NetworkTime, NetworkTimeProvider};
+use crate::time::{NetworkTime, NetworkTimeProvider};
 
 #[async_trait::async_trait]
-pub trait Attempt<T> {
+pub trait Attempt<T, Tr> {
     /// Make an attempt to execute next step of the routine.
     /// Returns timestamp when the next attempt should be performed on failure.
-    async fn attempt(self) -> Result<Option<T>, NetworkTime>;
+    async fn attempt(self) -> Result<Option<Tr>, NetworkTime>;
 }
 
 #[inline]
@@ -35,19 +35,19 @@ pub trait ApplyEvent<E> {
 }
 
 #[async_trait::async_trait]
-pub trait ApplyTransition<T> {
-    async fn apply_tr(&self, tr: T);
+pub trait ApplyTransition<Tr> {
+    async fn apply_tr(&self, tr: Tr);
 }
 
 #[async_trait::async_trait]
-pub trait StateRead<S, T, C> {
-    async fn state(&self, ntp: &T, ctx: C) -> S;
+pub trait StateRead<S> {
+    async fn read_state(&self) -> S;
 }
 
-pub struct Routine<P, T, E, C> {
+pub struct Routine<S, T, E, C> {
     inbox: mpsc::Receiver<E>,
     waker: Option<Delay>,
-    persistence: P,
+    behaviour: S,
     ntp: T,
     context: C,
 }
@@ -104,22 +104,23 @@ where
     }
 }
 
-pub fn routine<P, T, E, C, S, Tr>(mut this: Routine<P, T, E, C>) -> impl Stream<Item = ()>
+pub fn routine<B, T, E, C, S, Tr>(mut this: Routine<B, T, E, C>) -> impl Stream<Item = ()>
 where
-    P: Unpin + ApplyEvent<E> + ApplyTransition<Tr> + StateRead<S, T, C>,
+    B: Unpin + ApplyEvent<E> + ApplyTransition<Tr> + StateRead<S>,
     T: Unpin + NetworkTimeProvider,
     E: Unpin,
     C: Unpin + Copy,
-    S: Attempt<Tr>,
+    S: Attempt<T, Tr>,
 {
     stream! {
         loop {
             // We prioritize external updates.
             if let Either::Left(event) = this.select_next_some().await {
-                this.persistence.apply_event(event).await;
+                this.behaviour.apply_event(event).await;
             }
-            match this.persistence.state(&this.ntp, this.context).await.attempt().await {
-                Ok(Some(tr)) => this.persistence.apply_tr(tr).await,
+            let state = this.behaviour.read_state().await;
+            match state.attempt().await {
+                Ok(Some(tr)) => this.behaviour.apply_tr(tr).await,
                 Err(postpone_until) => this.postpone_until(postpone_until).await,
                 _ => {}
             }
