@@ -1,17 +1,15 @@
-use crate::constants::EPOCH_LEN;
-use crate::network_time::NetworkTime;
+use derive_more::{From, Into};
 
-mod coin;
+use crate::time::NetworkTime;
+
 mod constants;
 mod entities;
 pub mod event_sink;
-mod network_time;
 mod routine;
 mod routines;
+mod time;
 
 pub type FarmId = u64;
-pub type Epoch = u64;
 
-pub fn epoch_start(zeros_epoch_start: NetworkTime, epoch: Epoch) -> NetworkTime {
-    zeros_epoch_start + epoch * EPOCH_LEN
-}
+#[derive(Copy, Clone, Eq, PartialEq, From, Into)]
+pub struct GenesisEpochStartTime(NetworkTime);

@@ -1,46 +1,85 @@
 use bloom_offchain::execution_engine::bundled::Bundled;
 use spectrum_offchain::data::Has;
 
-use crate::coin::CoinSeedConfig;
 use crate::entities::inflation_box::InflationBox;
 use crate::entities::poll_factory::PollFactory;
 use crate::entities::weighting_poll::WeightingPoll;
-use crate::epoch_start;
-use crate::network_time::{NetworkTime, NetworkTimeProvider};
-use crate::routine::{postpone, transit, Attempt, StateRead};
+use crate::GenesisEpochStartTime;
+use crate::routine::{Attempt, postpone, StateRead, transit};
+use crate::routines::inflation::actions::InflationActions;
 use crate::routines::inflation::persistence::InflationStateRead;
+use crate::routines::inflation::transitions::StateTransition;
+use crate::time::{NetworkTime, NetworkTimeProvider};
 
+mod actions;
+mod events;
 mod persistence;
+mod transitions;
 
-mod proof {
-    use std::marker::PhantomData;
-
-    #[derive(Copy, Clone, Debug)]
-    /// Proof that poll exists.
-    pub struct PollExists(PhantomData<()>);
+pub struct Config {
+    pub genesis_epoch_start: GenesisEpochStartTime,
 }
 
-#[derive(Copy, Clone, Debug)]
-pub enum RoutineStateMarker {
-    /// Too early to do anything.
-    Idle,
-    /// It's time to create a new WP for epoch `e`
-    /// and pour it with epochly emission.
-    PendingCreatePoll,
-    /// Weighting in progress, applying votes from GT holders.
-    WeightingInProgress(proof::PollExists),
-    /// Weighting ended. Time to distribute inflation to farms pro-rata.
-    DistributionInProgress(proof::PollExists),
-    /// Inflation is distributed, time to eliminate the poll.
-    PendingEliminatePoll(proof::PollExists),
+pub struct Behaviour<Actions, TimeProv, P> {
+    actions: Actions,
+    ntp: TimeProv,
+    persistence: P,
+    conf: Config,
 }
 
-pub enum RoutineState<Out> {
-    /// Too early to do anything.
-    Idle(IdleSt),
+impl<Actions, TimeProv, P> Behaviour<Actions, TimeProv, P> {
+    fn in_state<S>(&self, state: S) -> BehaviourInState<Actions, TimeProv, S>
+    where
+        Actions: Clone,
+        TimeProv: Clone,
+    {
+        BehaviourInState {
+            actions: self.actions.clone(),
+            ntp: self.ntp.clone(),
+            state,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl<Out, P, TxId, Actions, TimeProv> StateRead<BehaviourInState<Actions, TimeProv, RoutineState<Out, TxId>>>
+    for Behaviour<Actions, TimeProv, P>
+where
+    Out: Send + Sync,
+    P: InflationStateRead<Out, TxId> + Send + Sync,
+    Actions: Clone + Send + Sync,
+    TimeProv: NetworkTimeProvider + Clone + Send + Sync,
+    TxId: Send + Sync,
+{
+    async fn read_state(&self) -> BehaviourInState<Actions, TimeProv, RoutineState<Out, TxId>> {
+        let now = self.ntp.network_time().await;
+        self.in_state(match self.persistence.weighting_poll().await {
+            Some(wp) if wp.0.weighting_open(now, self.conf.genesis_epoch_start) => {
+                RoutineState::WeightingInProgress(WeightingInProgress { weighting_poll: wp })
+            }
+            Some(wp) if !wp.0.distribution_finished() => {
+                RoutineState::DistributionInProgress(DistributionInProgress { weighting_poll: wp })
+            }
+            Some(wp) => RoutineState::PendingEliminatePoll(PendingEliminatePoll { weighting_poll: wp }),
+            None => RoutineState::PendingCreatePoll(PendingCreatePoll {
+                inflation_box: self.persistence.inflation_box().await,
+                poll_factory: self.persistence.poll_factory().await,
+                pending_attempt: self.persistence.pending_tx().await,
+            }),
+        })
+    }
+}
+
+pub struct BehaviourInState<Actions, TimeProv, S> {
+    actions: Actions,
+    ntp: TimeProv,
+    state: S,
+}
+
+pub enum RoutineState<Out, TxId> {
     /// It's time to create a new WP for epoch `e`
     /// and pour it with epochly emission.
-    PendingCreatePoll(PendingCreatePoll<Out>),
+    PendingCreatePoll(PendingCreatePoll<Out, TxId>),
     /// Weighting in progress, applying votes from GT holders.
     WeightingInProgress(WeightingInProgress<Out>),
     /// Weighting ended. Time to distribute inflation to farms pro-rata.
@@ -49,75 +88,34 @@ pub enum RoutineState<Out> {
     PendingEliminatePoll(PendingEliminatePoll<Out>),
 }
 
-#[async_trait::async_trait]
-impl<Out, P, T, C> StateRead<RoutineState<Out>, T, C> for P
-where
-    Out: Send + Sync,
-    P: InflationStateRead<Out> + Send + Sync,
-    C: Has<CoinSeedConfig> + Send + Sync + 'static,
-    T: NetworkTimeProvider + Send + Sync,
-{
-    async fn state(&self, ntp: &T, ctx: C) -> RoutineState<Out> {
-        match self.state_marker().await {
-            RoutineStateMarker::Idle => RoutineState::Idle(IdleSt {
-                until: epoch_start(
-                    ctx.get().zeroth_epoch_start,
-                    self.inflation_box().await.0.last_processed_epoch + 1,
-                ),
-                current_time: ntp.network_time().await,
-            }),
-            RoutineStateMarker::PendingCreatePoll => RoutineState::PendingCreatePoll(PendingCreatePoll {
-                inflation_box: self.inflation_box().await,
-                poll_factory: self.poll_factory().await,
-            }),
-            RoutineStateMarker::WeightingInProgress(poll_exists) => {
-                RoutineState::WeightingInProgress(WeightingInProgress {
-                    weighting_poll: self.weighting_poll(poll_exists).await,
-                })
-            }
-            RoutineStateMarker::DistributionInProgress(poll_exists) => {
-                RoutineState::DistributionInProgress(DistributionInProgress {
-                    weighting_poll: self.weighting_poll(poll_exists).await,
-                })
-            }
-            RoutineStateMarker::PendingEliminatePoll(poll_exists) => {
-                RoutineState::PendingEliminatePoll(PendingEliminatePoll {
-                    weighting_poll: self.weighting_poll(poll_exists).await,
-                })
-            }
-        }
-    }
-}
-
-pub enum StateTransition {
-    ToPendingCreatePoll,
-}
-
-pub struct IdleSt {
-    until: NetworkTime,
-    current_time: NetworkTime,
-}
-
-impl IdleSt {
-    fn can_start(&self) -> bool {
-        self.until <= self.current_time
-    }
-}
-
-#[async_trait::async_trait]
-impl Attempt<StateTransition> for IdleSt {
-    async fn attempt(self) -> Result<Option<StateTransition>, NetworkTime> {
-        if self.can_start() {
-            transit(StateTransition::ToPendingCreatePoll)
-        } else {
-            postpone(self.until)
-        }
-    }
-}
-
-pub struct PendingCreatePoll<Out> {
+pub struct PendingCreatePoll<Out, TxId> {
     inflation_box: Bundled<InflationBox, Out>,
     poll_factory: Bundled<PollFactory, Out>,
+    pending_attempt: Option<TxId>,
+}
+
+const WAIT_CONFIRMATION: NetworkTime = 60 * 1000;
+
+#[async_trait::async_trait]
+impl<T, Out, TxId, Actions, TimeProv> Attempt<T, StateTransition<TxId>>
+    for BehaviourInState<Actions, TimeProv, PendingCreatePoll<Out, TxId>>
+where
+    T: NetworkTimeProvider + Send + Sync,
+    Out: Send + Sync,
+    TxId: Send + Sync,
+    TimeProv: Send + Sync,
+    Actions: InflationActions<Out, TxId> + Send + Sync,
+{
+    async fn attempt(self) -> Result<Option<StateTransition<TxId>>, NetworkTime> {
+        let state = self.state;
+        if state.pending_attempt.is_some() {
+            postpone(WAIT_CONFIRMATION)
+        } else {
+            let pending_epoch = state.poll_factory.0.next_epoch();
+            let tx_id = self.actions.create_wpoll(state.poll_factory, pending_epoch).await;
+            transit(StateTransition::PendingCreatePoll(tx_id))
+        }
+    }
 }
 
 pub struct WeightingInProgress<Out> {
@@ -132,58 +130,23 @@ pub struct PendingEliminatePoll<Out> {
     weighting_poll: Bundled<WeightingPoll, Out>,
 }
 
-pub enum Event<Out> {
-    InflationBoxUpdated(Bundled<InflationBox, Out>),
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
     use futures::channel::mpsc;
-    use futures::StreamExt;
     use tokio::sync::Mutex;
 
     use bloom_offchain::execution_engine::bundled::Bundled;
 
     use crate::entities::inflation_box::InflationBox;
-    use crate::entities::poll_factory::PollFactory;
-    use crate::entities::weighting_poll::WeightingPoll;
-    use crate::network_time::{NetworkTime, NetworkTimeProvider};
     use crate::routines::inflation::persistence::InflationStateRead;
-    use crate::routines::inflation::proof::PollExists;
-    use crate::routines::inflation::RoutineStateMarker;
+    use crate::time::NetworkTime;
 
     struct NTP(Arc<Mutex<mpsc::Receiver<NetworkTime>>>);
-    #[async_trait::async_trait]
-    impl NetworkTimeProvider for NTP {
-        async fn network_time(&self) -> NetworkTime {
-            self.0.lock().await.select_next_some().await
-        }
-    }
 
     struct DB<Out> {
-        state: RoutineStateMarker,
         best_inflation_box: Bundled<InflationBox, Out>,
-    }
-
-    #[async_trait::async_trait]
-    impl<Out: Send + Sync + Clone> InflationStateRead<Out> for Arc<Mutex<DB<Out>>> {
-        async fn state_marker(&self) -> RoutineStateMarker {
-            self.lock().await.state
-        }
-
-        async fn inflation_box(&self) -> Bundled<InflationBox, Out> {
-            self.lock().await.best_inflation_box.clone()
-        }
-
-        async fn poll_factory(&self) -> Bundled<PollFactory, Out> {
-            todo!()
-        }
-
-        async fn weighting_poll(&self, poll_exists: PollExists) -> Bundled<WeightingPoll, Out> {
-            todo!()
-        }
     }
 
     #[test]
