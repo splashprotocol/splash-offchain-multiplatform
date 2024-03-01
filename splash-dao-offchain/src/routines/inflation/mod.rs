@@ -320,7 +320,7 @@ pub enum RoutineState<Out> {
     /// Weighting ended. Time to distribute inflation to farms pro-rata.
     DistributionInProgress(DistributionInProgress<Out>),
     /// Inflation is distributed, time to eliminate the poll.
-    PendingEliminatePoll(PendingEliminatePoll<Out>),
+    PendingEliminatePoll(PendingEliminatePoll<Out, TxId>),
 }
 
 pub struct PendingCreatePoll<Out> {
