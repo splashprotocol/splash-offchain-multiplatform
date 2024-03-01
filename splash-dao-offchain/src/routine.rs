@@ -3,7 +3,6 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use async_stream::stream;
 use either::Either;
 use futures::{Stream, StreamExt};
 use futures::channel::mpsc;
@@ -13,19 +12,19 @@ use futures_timer::Delay;
 use crate::time::{NetworkTime, NetworkTimeProvider};
 
 #[async_trait::async_trait]
-pub trait Attempt<T, Tr> {
+pub trait Attempt<Eff> {
     /// Make an attempt to execute next step of the routine.
     /// Returns timestamp when the next attempt should be performed on failure.
-    async fn attempt(self) -> Result<Option<Tr>, NetworkTime>;
+    async fn attempt(self) -> Result<Option<Eff>, Duration>;
 }
 
 #[inline]
-pub fn transit<T>(tx: T) -> Result<Option<T>, NetworkTime> {
+pub fn transit<T>(tx: T) -> Result<Option<T>, Duration> {
     Ok(Some(tx))
 }
 
 #[inline]
-pub fn postpone<T>(t: NetworkTime) -> Result<Option<T>, NetworkTime> {
+pub fn postpone<T>(t: Duration) -> Result<Option<T>, Duration> {
     Err(t)
 }
 
@@ -35,8 +34,8 @@ pub trait ApplyEvent<E> {
 }
 
 #[async_trait::async_trait]
-pub trait ApplyTransition<Tr> {
-    async fn apply_tr(&self, tr: Tr);
+pub trait ApplyEffect<E> {
+    async fn apply_effect(&self, eff: E);
 }
 
 #[async_trait::async_trait]
@@ -101,29 +100,5 @@ where
 {
     fn is_terminated(&self) -> bool {
         false
-    }
-}
-
-pub fn routine<B, T, E, C, S, Tr>(mut this: Routine<B, T, E, C>) -> impl Stream<Item = ()>
-where
-    B: Unpin + ApplyEvent<E> + ApplyTransition<Tr> + StateRead<S>,
-    T: Unpin + NetworkTimeProvider,
-    E: Unpin,
-    C: Unpin + Copy,
-    S: Attempt<T, Tr>,
-{
-    stream! {
-        loop {
-            // We prioritize external updates.
-            if let Either::Left(event) = this.select_next_some().await {
-                this.behaviour.apply_event(event).await;
-            }
-            let state = this.behaviour.read_state().await;
-            match state.attempt().await {
-                Ok(Some(tr)) => this.behaviour.apply_tr(tr).await,
-                Err(postpone_until) => this.postpone_until(postpone_until).await,
-                _ => {}
-            }
-        }
     }
 }
