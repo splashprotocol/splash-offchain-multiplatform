@@ -16,6 +16,7 @@ use crate::entities::onchain::inflation_box::InflationBox;
 use crate::entities::onchain::permission_manager::PermManager;
 use crate::entities::onchain::poll_factory::PollFactory;
 use crate::entities::onchain::smart_farm::SmartFarm;
+
 use crate::entities::onchain::voting_escrow::{VotingEscrow, VotingEscrowId};
 use crate::entities::onchain::weighting_poll::{PollState, WeightingOngoing, WeightingPoll};
 use crate::entities::Snapshot;
