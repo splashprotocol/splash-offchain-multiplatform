@@ -35,19 +35,19 @@ impl<'a, Fr, Pl, Ctx> RecipeInterpreter<Fr, Pl, Ctx, OutputRef, FinalizedTxOut, 
 where
     Fr: Copy + std::fmt::Debug,
     Pl: Copy + std::fmt::Debug,
-    Magnet<LinkedFill<Fr, FinalizedTxOut>>:
+    Magnet<LinkedFill<Fr, FinalizedTxOut, OutputRef>>:
         BatchExec<ExecutionState, (IndexedExUnits, Option<IndexedTxOut>), Ctx, Void>,
-    Magnet<LinkedSwap<Pl, FinalizedTxOut>>:
+    Magnet<LinkedSwap<Pl, FinalizedTxOut, OutputRef>>:
         BatchExec<ExecutionState, (IndexedExUnits, IndexedTxOut), Ctx, Void>,
     Ctx: Clone + Has<Collateral> + Has<RewardAddress>,
 {
     fn run(
         &mut self,
-        LinkedExecutionRecipe(instructions): LinkedExecutionRecipe<Fr, Pl, FinalizedTxOut>,
+        LinkedExecutionRecipe(instructions): LinkedExecutionRecipe<Fr, Pl, FinalizedTxOut, OutputRef>,
         ctx: Ctx,
     ) -> (
         SignedTxBuilder,
-        Vec<(Either<Baked<Fr, OutputRef>, Baked<Pl, OutputRef>>, FinalizedTxOut)>,
+        Vec<(Either<Baked<Fr>, Baked<Pl>>, FinalizedTxOut)>,
     ) {
         let state = ExecutionState::new();
         let (ExecutionState { mut tx_builder, .. }, (mut indexed_outputs, mut indexed_tx_inputs), ctx) =
@@ -84,10 +84,7 @@ where
         while let Some((e, IndexedTxOut(output_ix, out))) = indexed_outputs.pop() {
             let out_ref = OutputRef::new(tx_hash, output_ix as u64);
             let finalized_out = FinalizedTxOut(out, out_ref);
-            finalized_outputs.push((
-                e.map_either(|x| Baked::new(x, out_ref), |x| Baked::new(x, out_ref)),
-                finalized_out,
-            ))
+            finalized_outputs.push((e.map_either(|x| Baked::new(x), |x| Baked::new(x)), finalized_out))
         }
 
         // Build tx, change is execution fee.
@@ -105,7 +102,7 @@ fn execute<Fr, Pl, Ctx>(
     ctx: Ctx,
     state: ExecutionState,
     mut updates_acc: (Vec<(Either<Fr, Pl>, IndexedTxOut)>, Vec<IndexedExUnits>),
-    mut rem: Vec<LinkedTerminalInstruction<Fr, Pl, FinalizedTxOut>>,
+    mut rem: Vec<LinkedTerminalInstruction<Fr, Pl, FinalizedTxOut, OutputRef>>,
 ) -> (
     ExecutionState,
     (Vec<(Either<Fr, Pl>, IndexedTxOut)>, Vec<IndexedExUnits>),
@@ -114,9 +111,9 @@ fn execute<Fr, Pl, Ctx>(
 where
     Fr: Copy,
     Pl: Copy,
-    Magnet<LinkedFill<Fr, FinalizedTxOut>>:
+    Magnet<LinkedFill<Fr, FinalizedTxOut, OutputRef>>:
         BatchExec<ExecutionState, (IndexedExUnits, Option<IndexedTxOut>), Ctx, Void>,
-    Magnet<LinkedSwap<Pl, FinalizedTxOut>>:
+    Magnet<LinkedSwap<Pl, FinalizedTxOut, OutputRef>>:
         BatchExec<ExecutionState, (IndexedExUnits, IndexedTxOut), Ctx, Void>,
     Ctx: Clone,
 {

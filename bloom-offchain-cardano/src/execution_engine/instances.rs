@@ -9,7 +9,7 @@ use cml_chain::transaction::TransactionInput;
 use cml_chain::utils::BigInt;
 use cml_crypto::TransactionHash;
 use log::trace;
-use spectrum_cardano_lib::AssetClass;
+use spectrum_cardano_lib::{AssetClass, OutputRef};
 use spectrum_offchain_cardano::data::pair::order_canonical;
 use void::Void;
 
@@ -40,7 +40,7 @@ use crate::pools::AnyPool;
 pub struct Magnet<T>(pub T);
 
 impl<Ctx> BatchExec<ExecutionState, (IndexedExUnits, Option<IndexedTxOut>), Ctx, Void>
-    for Magnet<LinkedFill<AnyOrder, FinalizedTxOut>>
+    for Magnet<LinkedFill<AnyOrder, FinalizedTxOut, OutputRef>>
 where
     Ctx: Has<SpotOrderRefScriptOutput>,
 {
@@ -51,14 +51,19 @@ where
     ) -> Result<(ExecutionState, (IndexedExUnits, Option<IndexedTxOut>), Ctx), Void> {
         match self.0 {
             LinkedFill {
-                target_fr: Bundled(AnyOrder::Spot(o), src),
+                target_fr:
+                    Bundled {
+                        entity: AnyOrder::Spot(o),
+                        source: src,
+                        ..
+                    },
                 next_fr: transition,
                 removed_input,
                 added_output,
                 budget_used,
                 fee_used,
             } => Magnet(LinkedFill {
-                target_fr: Bundled(o, src),
+                target_fr: Bundled::<SpotOrder, FinalizedTxOut, OutputRef>::new(o, src),
                 next_fr: transition.map(|AnyOrder::Spot(o2)| o2),
                 removed_input,
                 added_output,
@@ -71,7 +76,7 @@ where
 }
 
 impl<Ctx> BatchExec<ExecutionState, (IndexedExUnits, Option<IndexedTxOut>), Ctx, Void>
-    for Magnet<LinkedFill<SpotOrder, FinalizedTxOut>>
+    for Magnet<LinkedFill<SpotOrder, FinalizedTxOut, OutputRef>>
 where
     Ctx: Has<SpotOrderRefScriptOutput>,
 {
@@ -81,7 +86,12 @@ where
         context: Ctx,
     ) -> Result<(ExecutionState, (IndexedExUnits, Option<IndexedTxOut>), Ctx), Void> {
         let Magnet(LinkedFill {
-            target_fr: Bundled(ord, FinalizedTxOut(consumed_out, in_ref)),
+            target_fr:
+                Bundled {
+                    entity: ord,
+                    source: FinalizedTxOut(consumed_out, in_ref),
+                    ..
+                },
             next_fr: transition,
             removed_input,
             added_output,
@@ -148,7 +158,7 @@ fn spot_exec_redeemer(successor_ix: u16) -> PlutusData {
 
 /// Batch execution routing for [AnyPool].
 impl<Ctx> BatchExec<ExecutionState, (IndexedExUnits, IndexedTxOut), Ctx, Void>
-    for Magnet<LinkedSwap<AnyPool, FinalizedTxOut>>
+    for Magnet<LinkedSwap<AnyPool, FinalizedTxOut, OutputRef>>
 where
     Ctx: Has<CFMMPoolRefScriptOutput<1>> + Has<CFMMPoolRefScriptOutput<2>>,
 {
@@ -159,13 +169,18 @@ where
     ) -> Result<(ExecutionState, (IndexedExUnits, IndexedTxOut), Ctx), Void> {
         match self.0 {
             LinkedSwap {
-                target: Bundled(AnyPool::CFMM(p), src),
+                target:
+                    Bundled {
+                        entity: AnyPool::CFMM(p),
+                        source: src,
+                        ..
+                    },
                 transition: AnyPool::CFMM(p2),
                 side,
                 input,
                 output,
             } => Magnet(LinkedSwap {
-                target: Bundled(p, src),
+                target: Bundled::<ClassicCFMMPool, FinalizedTxOut, OutputRef>::new(p, src),
                 transition: p2,
                 side,
                 input,
@@ -183,7 +198,7 @@ pub struct IndexedExUnits(pub TransactionHash, pub ExUnits);
 
 /// Batch execution logic for [ClassicCFMMPool].
 impl<Ctx> BatchExec<ExecutionState, (IndexedExUnits, IndexedTxOut), Ctx, Void>
-    for Magnet<LinkedSwap<ClassicCFMMPool, FinalizedTxOut>>
+    for Magnet<LinkedSwap<ClassicCFMMPool, FinalizedTxOut, OutputRef>>
 where
     Ctx: Has<CFMMPoolRefScriptOutput<1>> + Has<CFMMPoolRefScriptOutput<2>>,
 {
@@ -193,7 +208,12 @@ where
         context: Ctx,
     ) -> Result<(ExecutionState, (IndexedExUnits, IndexedTxOut), Ctx), Void> {
         let Magnet(LinkedSwap {
-            target: Bundled(pool, FinalizedTxOut(consumed_out, in_ref)),
+            target:
+                Bundled {
+                    entity: pool,
+                    source: FinalizedTxOut(consumed_out, in_ref),
+                    ..
+                },
             side,
             input,
             output,

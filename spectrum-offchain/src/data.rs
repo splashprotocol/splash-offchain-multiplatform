@@ -89,34 +89,22 @@ where
     }
 }
 
-/// A baked entity [T] paired with a computed version [V],
-/// i.e. [T] can no longer be modified.
+/// A baked entity [T] i.e. [T] can no longer be modified.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug)]
-pub struct Baked<T, V> {
+pub struct Baked<T> {
     pub entity: T,
-    pub version: V,
 }
 
-impl<T, V> Baked<T, V> {
-    pub fn new(entity: T, version: V) -> Self {
-        Self { entity, version }
+impl<T> Baked<T> {
+    pub fn new(entity: T) -> Self {
+        Self { entity }
     }
 }
 
-impl<T, V> Has<V> for Baked<T, V>
-where
-    V: Copy,
-{
-    fn get_labeled<U: IsEqual<V>>(&self) -> V {
-        self.version
-    }
-}
-
-impl<StableId, Version, T> Stable for Baked<T, Version>
+impl<StableId, T> Stable for Baked<T>
 where
     T: Stable<StableId = StableId>,
     StableId: Copy + Eq + Hash + Debug + Display,
-    Version: Copy + Eq + Hash + Display,
 {
     type StableId = StableId;
 
@@ -125,20 +113,7 @@ where
     }
 }
 
-impl<StableId, BakedVersion, T> EntitySnapshot for Baked<T, BakedVersion>
-where
-    T: Stable<StableId = StableId>,
-    StableId: Copy + Eq + Hash + Debug + Display,
-    BakedVersion: Copy + Eq + Hash + Display,
-{
-    type Version = BakedVersion;
-
-    fn version(&self) -> Self::Version {
-        self.version
-    }
-}
-
-impl<T, Version, PairId> Tradable for Baked<T, Version>
+impl<T, PairId> Tradable for Baked<T>
 where
     PairId: Copy + Eq + Hash + Display,
     T: Tradable<PairId = PairId>,
@@ -149,13 +124,12 @@ where
     }
 }
 
-impl<Repr, T, C, Version> TryFromLedger<Repr, C> for Baked<T, Version>
+impl<Repr, T, C> TryFromLedger<Repr, C> for Baked<T>
 where
     T: TryFromLedger<Repr, C>,
-    Version: Copy,
-    C: Copy + Has<Version>,
+    C: Copy,
 {
     fn try_from_ledger(repr: &Repr, ctx: C) -> Option<Self> {
-        T::try_from_ledger(repr, ctx).map(|r| Baked::new(r, ctx.get_labeled::<Version>()))
+        T::try_from_ledger(repr, ctx).map(|r| Baked::new(r))
     }
 }

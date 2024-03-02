@@ -14,7 +14,7 @@ use log::trace;
 
 use spectrum_offchain::combinators::Ior;
 use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
-use spectrum_offchain::data::{Baked, EntitySnapshot, Stable};
+use spectrum_offchain::data::{Baked, EntitySnapshot, Has, Stable};
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_prover::TxProver;
 
@@ -42,7 +42,7 @@ pub mod resolver;
 pub mod storage;
 pub mod types;
 
-pub type Event<O, P, B, V> = EitherMod<StateUpdate<Bundled<BakedEntity<O, P, V>, B>>>;
+pub type Event<O, P, B, V> = EitherMod<StateUpdate<Bundled<BakedEntity<O, P>, B, V>>>;
 
 /// Instantiate execution stream partition.
 /// Each partition serves total_pairs/num_partitions pairs.
@@ -82,13 +82,12 @@ where
     Ver: Copy + Eq + Hash + Display + Unpin + 'a,
     Pool: Stable<StableId = StableId> + Copy + Debug + Unpin + 'a,
     Order: Stable<StableId = StableId> + Fragment + OrderState + Copy + Debug + Unpin + 'a,
-    Bearer: Clone + Unpin + Debug + 'a,
+    Bearer: Clone + Unpin + Debug + Has<Ver> + 'a,
     Txc: Unpin + 'a,
     Tx: Unpin + 'a,
     Ctx: Clone + Unpin + 'a,
-    Bundled<BakedEntity<Order, Pool, Ver>, Bearer>: EntitySnapshot,
-    Index: StateIndex<Bundled<BakedEntity<Order, Pool, Ver>, Bearer>> + Unpin + 'a,
-    Cache: StateIndexCache<StableId, Bundled<BakedEntity<Order, Pool, Ver>, Bearer>> + Unpin + 'a,
+    Index: StateIndex<Bundled<BakedEntity<Order, Pool>, Bearer, Ver>> + Unpin + 'a,
+    Cache: StateIndexCache<StableId, Bundled<BakedEntity<Order, Pool>, Bearer, Ver>> + Unpin + 'a,
     Book: TemporalLiquidityBook<Order, Pool>
         + ExternalTLBEvents<Order, Pool>
         + TLBFeedback<Order, Pool>
@@ -133,7 +132,7 @@ pub struct Executor<S, PairId, StableId, Ver, O, P, Bearer, Txc, Tx, C, Index, C
     /// Feedback channel is used to deliver the status of transaction produced by the executor back to it.
     feedback: mpsc::Receiver<Result<(), Err>>,
     /// Pending effects resulted from execution of a batch trade in a certain [PairId].
-    pending_effects: Option<(PairId, Vec<(BakedEntity<O, P, Ver>, Bearer)>)>,
+    pending_effects: Option<(PairId, Vec<(BakedEntity<O, P>, Bearer)>)>,
     /// Which pair should we process in the first place.
     focus_set: BTreeSet<PairId>,
     pd1: PhantomData<StableId>,
@@ -143,7 +142,7 @@ pub struct Executor<S, PairId, StableId, Ver, O, P, Bearer, Txc, Tx, C, Index, C
     pd5: PhantomData<Err>,
 }
 
-type BakedEntity<O, P, V> = Either<Baked<O, V>, Baked<P, V>>;
+type BakedEntity<O, P> = Either<Baked<O>, Baked<P>>;
 
 impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Prover, Err>
     Executor<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Prover, Err>
@@ -177,18 +176,17 @@ impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Pr
         }
     }
 
-    fn sync_book(&mut self, pair: PairId, update: EitherMod<StateUpdate<Bundled<BakedEntity<O, P, Ver>, B>>>)
+    fn sync_book(&mut self, pair: PairId, update: EitherMod<StateUpdate<Bundled<BakedEntity<O, P>, B, Ver>>>)
     where
         PairId: Copy + Eq + Hash + Display,
         StableId: Copy + Eq + Hash + Debug + Display,
         Ver: Copy + Eq + Hash + Display,
-        B: Clone,
+        B: Clone + Has<Ver>,
         Ctx: Clone,
         O: Stable<StableId = StableId> + Clone + Debug,
         P: Stable<StableId = StableId> + Clone + Debug,
-        Bundled<BakedEntity<O, P, Ver>, B>: EntitySnapshot,
-        Index: StateIndex<Bundled<BakedEntity<O, P, Ver>, B>>,
-        Cache: StateIndexCache<StableId, Bundled<BakedEntity<O, P, Ver>, B>>,
+        Index: StateIndex<Bundled<BakedEntity<O, P>, B, Ver>>,
+        Cache: StateIndexCache<StableId, Bundled<BakedEntity<O, P>, B, Ver>>,
         Book: ExternalTLBEvents<O, P> + Maker<Ctx>,
     {
         trace!(target: "executor", "sync'ing book pair: {}", pair);
@@ -221,15 +219,14 @@ impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Pr
         }
     }
 
-    fn update_state<T>(&mut self, update: EitherMod<StateUpdate<Bundled<T, B>>>) -> Option<Ior<T, T>>
+    fn update_state<T>(&mut self, update: EitherMod<StateUpdate<Bundled<T, B, Ver>>>) -> Option<Ior<T, T>>
     where
         StableId: Copy + Eq + Hash + Display,
         Ver: Copy + Eq + Hash + Display,
         T: Stable<StableId = StableId> + Clone,
-        B: Clone,
-        Bundled<T, B>: EntitySnapshot,
-        Index: StateIndex<Bundled<T, B>>,
-        Cache: StateIndexCache<StableId, Bundled<T, B>>,
+        B: Clone + Has<Ver>,
+        Index: StateIndex<Bundled<T, B, Ver>>,
+        Cache: StateIndexCache<StableId, Bundled<T, B, Ver>>,
     {
         let is_confirmed = matches!(update, EitherMod::Confirmed(_));
         let (EitherMod::Confirmed(Confirmed(upd)) | EitherMod::Unconfirmed(Unconfirmed(upd))) = update;
@@ -248,10 +245,14 @@ impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Pr
                 }
                 match resolve_source_state(id, &self.index) {
                     Some(latest_state) => {
-                        if let Some(Bundled(prev_best_state, _)) = self.cache.insert(latest_state.clone()) {
-                            Some(Ior::Both(prev_best_state, latest_state.0))
+                        if let Some(Bundled {
+                            entity: prev_best_state,
+                            ..
+                        }) = self.cache.insert(latest_state.clone())
+                        {
+                            Some(Ior::Both(prev_best_state, latest_state.entity))
                         } else {
-                            Some(Ior::Right(latest_state.0))
+                            Some(Ior::Right(latest_state.entity))
                         }
                     }
                     None => unreachable!(),
@@ -259,38 +260,41 @@ impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Pr
             }
             StateUpdate::Transition(Ior::Left(st)) => {
                 self.index.eliminate(st.version(), st.stable_id());
-                Some(Ior::Left(st.0))
+                Some(Ior::Left(st.entity))
             }
             StateUpdate::TransitionRollback(Ior::Left(st)) => {
                 let id = st.stable_id();
                 trace!("Rolling back state {}", id);
                 self.index.invalidate(st.version(), id);
-                Some(Ior::Left(st.0))
+                Some(Ior::Left(st.entity))
             }
         }
     }
 
-    fn link_recipe(&self, ExecutionRecipe(mut xs): ExecutionRecipe<O, P>) -> LinkedExecutionRecipe<O, P, B>
+    fn link_recipe(
+        &self,
+        ExecutionRecipe(mut xs): ExecutionRecipe<O, P>,
+    ) -> LinkedExecutionRecipe<O, P, B, Ver>
     where
         StableId: Copy + Eq + Hash + Debug + Display,
         Ver: Copy + Eq + Hash + Display,
         O: Stable<StableId = StableId> + Debug,
         P: Stable<StableId = StableId> + Debug,
-        Cache: StateIndexCache<StableId, Bundled<BakedEntity<O, P, Ver>, B>>,
+        Cache: StateIndexCache<StableId, Bundled<BakedEntity<O, P>, B, Ver>>,
     {
         let mut linked = vec![];
         while let Some(i) = xs.pop() {
             match i {
                 TerminalInstruction::Fill(fill) => {
                     let id = fill.target_fr.stable_id();
-                    let Bundled(_, bearer) = self.cache.get(id).expect("State is inconsistent");
+                    let Bundled { source: bearer, .. } = self.cache.get(id).expect("State is inconsistent");
                     linked.push(LinkedTerminalInstruction::Fill(LinkedFill::from_fill(
                         fill, bearer,
                     )));
                 }
                 TerminalInstruction::Swap(swap) => {
                     let id = swap.target.stable_id();
-                    let Bundled(_, bearer) = self.cache.get(id).expect("State is inconsistent");
+                    let Bundled { source: bearer, .. } = self.cache.get(id).expect("State is inconsistent");
                     linked.push(LinkedTerminalInstruction::Swap(LinkedSwap::from_swap(
                         swap, bearer,
                     )));
@@ -304,19 +308,18 @@ impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Pr
 impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err> Stream
     for Executor<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err>
 where
-    S: Stream<Item = (PairId, EitherMod<StateUpdate<Bundled<BakedEntity<O, P, Ver>, B>>>)> + Unpin,
+    S: Stream<Item = (PairId, EitherMod<StateUpdate<Bundled<BakedEntity<O, P>, B, Ver>>>)> + Unpin,
     PairId: Copy + Eq + Ord + Hash + Display + Unpin,
     StableId: Copy + Eq + Hash + Debug + Display + Unpin,
     Ver: Copy + Eq + Hash + Display + Unpin,
     P: Stable<StableId = StableId> + Copy + Debug + Unpin,
     O: Stable<StableId = StableId> + Fragment + OrderState + Copy + Debug + Unpin,
-    B: Clone + Unpin,
+    B: Clone + Has<Ver> + Unpin,
     Txc: Unpin,
     Tx: Unpin,
     C: Clone + Unpin,
-    Bundled<BakedEntity<O, P, Ver>, B>: EntitySnapshot,
-    Index: StateIndex<Bundled<BakedEntity<O, P, Ver>, B>> + Unpin,
-    Cache: StateIndexCache<StableId, Bundled<BakedEntity<O, P, Ver>, B>> + Unpin,
+    Index: StateIndex<Bundled<BakedEntity<O, P>, B, Ver>> + Unpin,
+    Cache: StateIndexCache<StableId, Bundled<BakedEntity<O, P>, B, Ver>> + Unpin,
     Book: TemporalLiquidityBook<O, P> + ExternalTLBEvents<O, P> + TLBFeedback<O, P> + Maker<C> + Unpin,
     Ir: RecipeInterpreter<O, P, C, Ver, B, Txc> + Unpin,
     Prover: TxProver<Txc, Tx> + Unpin,
@@ -333,7 +336,7 @@ where
                         Ok(_) => {
                             while let Some((e, bearer)) = pending_effects.pop() {
                                 self.update_state(EitherMod::Unconfirmed(Unconfirmed(
-                                    StateUpdate::Transition(Ior::Right(Bundled(e, bearer))),
+                                    StateUpdate::Transition(Ior::Right(Bundled::new(e, bearer))),
                                 )));
                             }
                             self.multi_book.get_mut(&pair).on_recipe_succeeded();
@@ -374,19 +377,18 @@ where
 impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err> FusedStream
     for Executor<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err>
 where
-    S: Stream<Item = (PairId, EitherMod<StateUpdate<Bundled<BakedEntity<O, P, Ver>, B>>>)> + Unpin,
+    S: Stream<Item = (PairId, EitherMod<StateUpdate<Bundled<BakedEntity<O, P>, B, Ver>>>)> + Unpin,
     PairId: Copy + Eq + Ord + Hash + Display + Unpin,
     StableId: Copy + Eq + Hash + Debug + Display + Unpin,
     Ver: Copy + Eq + Hash + Display + Unpin,
     P: Stable<StableId = StableId> + Copy + Debug + Unpin,
     O: Stable<StableId = StableId> + Fragment + OrderState + Copy + Debug + Unpin,
-    B: Clone + Unpin,
+    B: Clone + Has<Ver> + Unpin,
     Txc: Unpin,
     Tx: Unpin,
     C: Clone + Unpin,
-    Bundled<BakedEntity<O, P, Ver>, B>: EntitySnapshot,
-    Index: StateIndex<Bundled<BakedEntity<O, P, Ver>, B>> + Unpin,
-    Cache: StateIndexCache<StableId, Bundled<BakedEntity<O, P, Ver>, B>> + Unpin,
+    Index: StateIndex<Bundled<BakedEntity<O, P>, B, Ver>> + Unpin,
+    Cache: StateIndexCache<StableId, Bundled<BakedEntity<O, P>, B, Ver>> + Unpin,
     Book: TemporalLiquidityBook<O, P> + ExternalTLBEvents<O, P> + TLBFeedback<O, P> + Maker<C> + Unpin,
     Ir: RecipeInterpreter<O, P, C, Ver, B, Txc> + Unpin,
     Prover: TxProver<Txc, Tx> + Unpin,

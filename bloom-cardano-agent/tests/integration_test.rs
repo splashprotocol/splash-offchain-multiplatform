@@ -244,11 +244,7 @@ fn unwrap_updates(
 ) -> impl Stream<
     Item = (
         PairId,
-        EitherMod<
-            StateUpdate<
-                Bundled<Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>, FinalizedTxOut>,
-            >,
-        >,
+        EitherMod<StateUpdate<Bundled<Either<Baked<AnyOrder>, Baked<AnyPool>>, FinalizedTxOut, OutputRef>>>,
     ),
 > {
     upstream.map(|(p, m)| (p, m.map(|s| s.map(|CardanoEntity(e)| e))))

@@ -8,7 +8,7 @@ pub trait RecipeInterpreter<Fr, Pl, Ctx, V, Bearer, Tx> {
     /// a set of new sources resulted from execution.
     fn run(
         &mut self,
-        recipe: LinkedExecutionRecipe<Fr, Pl, Bearer>,
+        recipe: LinkedExecutionRecipe<Fr, Pl, Bearer, V>,
         ctx: Ctx,
-    ) -> (Tx, Vec<(Either<Baked<Fr, V>, Baked<Pl, V>>, Bearer)>);
+    ) -> (Tx, Vec<(Either<Baked<Fr>, Baked<Pl>>, Bearer)>);
 }

@@ -19,9 +19,7 @@ pub mod handler;
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct CardanoEntity(
-    pub Bundled<Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>, FinalizedTxOut>,
-);
+pub struct CardanoEntity(pub Bundled<Either<Baked<AnyOrder>, Baked<AnyPool>>, FinalizedTxOut, OutputRef>);
 
 impl Stable for CardanoEntity {
     type StableId = PolicyId;
@@ -33,7 +31,7 @@ impl Stable for CardanoEntity {
 impl EntitySnapshot for CardanoEntity {
     type Version = OutputRef;
     fn version(&self) -> Self::Version {
-        self.0 .1 .1
+        self.0.source.get()
     }
 }
 
@@ -50,13 +48,11 @@ where
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
         trace!(target: "offchain", "CardanoEntity::try_from_ledger");
-        <Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>>::try_from_ledger(repr, ctx).map(
-            |inner| {
-                Self(Bundled(
-                    inner,
-                    FinalizedTxOut::new(repr.clone(), ctx.get_labeled::<OutputRef>()),
-                ))
-            },
-        )
+        <Either<Baked<AnyOrder>, Baked<AnyPool>>>::try_from_ledger(repr, ctx).map(|inner| {
+            Self(Bundled::new(
+                inner,
+                FinalizedTxOut::new(repr.clone(), ctx.get_labeled::<OutputRef>()),
+            ))
+        })
     }
 }

@@ -4,7 +4,7 @@ use crate::execution_engine::liquidity_book::side::SideM;
 use crate::execution_engine::liquidity_book::types::{FeeAsset, InputAsset, OutputAsset};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct LinkedExecutionRecipe<Fr, Pl, Src>(pub Vec<LinkedTerminalInstruction<Fr, Pl, Src>>);
+pub struct LinkedExecutionRecipe<Fr, Pl, Src, Ver>(pub Vec<LinkedTerminalInstruction<Fr, Pl, Src, Ver>>);
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ExecutionRecipe<Fr, Pl>(pub Vec<TerminalInstruction<Fr, Pl>>);
@@ -63,9 +63,9 @@ where
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub enum LinkedTerminalInstruction<Fr, Pl, Src> {
-    Fill(LinkedFill<Fr, Src>),
-    Swap(LinkedSwap<Pl, Src>),
+pub enum LinkedTerminalInstruction<Fr, Pl, Src, Ver> {
+    Fill(LinkedFill<Fr, Src, Ver>),
+    Swap(LinkedSwap<Pl, Src, Ver>),
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -75,8 +75,8 @@ pub enum TerminalInstruction<Fr, Pl> {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct LinkedFill<Fr, Src> {
-    pub target_fr: Bundled<Fr, Src>,
+pub struct LinkedFill<Fr, Src, Ver> {
+    pub target_fr: Bundled<Fr, Src, Ver>,
     pub next_fr: StateTrans<Fr>,
     pub removed_input: InputAsset<u64>,
     pub added_output: OutputAsset<u64>,
@@ -84,10 +84,10 @@ pub struct LinkedFill<Fr, Src> {
     pub fee_used: FeeAsset<u64>,
 }
 
-impl<Fr, Src> LinkedFill<Fr, Src> {
+impl<Fr, Src, Ver> LinkedFill<Fr, Src, Ver> {
     pub fn from_fill(fill: Fill<Fr>, target_src: Src) -> Self {
         Self {
-            target_fr: Bundled(fill.target_fr, target_src),
+            target_fr: Bundled::new(fill.target_fr, target_src),
             next_fr: fill.next_fr,
             removed_input: fill.removed_input,
             added_output: fill.added_output,
@@ -200,18 +200,18 @@ where
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct LinkedSwap<Pl, Src> {
-    pub target: Bundled<Pl, Src>,
+pub struct LinkedSwap<Pl, Src, Ver> {
+    pub target: Bundled<Pl, Src, Ver>,
     pub transition: Pl,
     pub side: SideM,
     pub input: u64,
     pub output: u64,
 }
 
-impl<Pl, Src> LinkedSwap<Pl, Src> {
+impl<Pl, Src, Ver> LinkedSwap<Pl, Src, Ver> {
     pub fn from_swap(swap: Swap<Pl>, target_src: Src) -> Self {
         Self {
-            target: Bundled(swap.target, target_src),
+            target: Bundled::new(swap.target, target_src),
             transition: swap.transition,
             side: swap.side,
             input: swap.input,
