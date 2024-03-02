@@ -165,7 +165,7 @@ fn gen_pool_datum(
     ));
 
     // Fee
-    let fee_output = PlutusData::new_integer(BigInt::from(9995));
+    let fee_output = PlutusData::new_integer(BigInt::from(99950));
 
     // Dummy value
     let dummy_output = PlutusData::new_integer(BigInt::from(1));

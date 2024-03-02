@@ -12,6 +12,8 @@ cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", b
 cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/addr_to_bech_32_byron" }
 cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/addr_to_bech_32_byron" }
 cml-multi-era = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/addr_to_bech_32_byron" }
+spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain" }
+type-equalities = "0.3.1"
 serde = { version = "1.0", features = ["derive"] }
 hex = "0.4.3"
 thiserror = "1.0.47"

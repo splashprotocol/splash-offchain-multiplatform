@@ -33,7 +33,7 @@ impl Stable for CardanoEntity {
 impl EntitySnapshot for CardanoEntity {
     type Version = OutputRef;
     fn version(&self) -> Self::Version {
-        self.0.version()
+        self.0 .1 .1
     }
 }
 

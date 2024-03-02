@@ -1,4 +1,5 @@
-use spectrum_offchain::data::{EntitySnapshot, Stable, Tradable, VersionUpdater};
+use spectrum_cardano_lib::OutputRef;
+use spectrum_offchain::data::{EntitySnapshot, Has, Stable, Tradable, VersionUpdater};
 use spectrum_offchain::ledger::TryFromLedger;
 
 /// Entity bundled with its source.
@@ -15,22 +16,14 @@ where
     }
 }
 
-impl<T, Source> EntitySnapshot for Bundled<T, Source>
+impl<T, O> EntitySnapshot for Bundled<T, O>
 where
-    T: EntitySnapshot,
+    T: Stable,
+    O: Has<OutputRef>,
 {
-    type Version = T::Version;
+    type Version = OutputRef;
     fn version(&self) -> Self::Version {
-        self.0.version()
-    }
-}
-
-impl<T, Source> VersionUpdater for Bundled<T, Source>
-where
-    T: VersionUpdater,
-{
-    fn update_version(&mut self, new_version: Self::Version) {
-        self.0.update_version(new_version)
+        self.1.get()
     }
 }
 
