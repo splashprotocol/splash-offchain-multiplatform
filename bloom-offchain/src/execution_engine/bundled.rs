@@ -33,13 +33,13 @@ where
     }
 }
 
-impl<T, O, V> EntitySnapshot for Bundled<T, O, V>
+impl<T, Source, Version> EntitySnapshot for Bundled<T, Source, Version>
 where
     T: Stable,
-    O: Has<V>,
-    V: Eq + Copy + Display + Hash,
+    Source: Has<Version>,
+    Version: Eq + Copy + Display + Hash,
 {
-    type Version = V;
+    type Version = Version;
     fn version(&self) -> Self::Version {
         self.source.get()
     }
