@@ -26,6 +26,13 @@ impl Identifier for PollFactoryId {
     type For = PollFactorySnapshot;
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
+pub struct PollFactoryId(Token);
+
+impl Identifier for PollFactoryId {
+    type For = PollFactory;
+}
+
 pub struct PollFactory {
     pub last_poll_epoch: ProtocolEpoch,
     pub active_farms: Vec<FarmId>,
