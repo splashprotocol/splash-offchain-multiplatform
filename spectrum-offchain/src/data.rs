@@ -20,6 +20,10 @@ pub trait Has<T> {
     }
 }
 
+pub trait Identifier: Copy + Clone + Eq + PartialEq {
+    type For;
+}
+
 pub trait Stable {
     /// Unique identifier of the underlying entity which persists among different versions.
     type StableId: Copy + Eq + Hash + Debug + Display;

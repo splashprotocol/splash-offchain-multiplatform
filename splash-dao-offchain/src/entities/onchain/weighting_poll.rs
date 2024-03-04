@@ -1,12 +1,38 @@
 use std::marker::PhantomData;
 
-use crate::{FarmId, GenesisEpochStartTime};
+use derive_more::From;
+
+use spectrum_cardano_lib::Token;
+use spectrum_offchain::data::{EntitySnapshot, Identifier, Stable};
+
 use crate::time::{epoch_end, epoch_start, NetworkTime, ProtocolEpoch};
+use crate::{FarmId, GenesisEpochStartTime};
+
+#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, From)]
+pub struct WeightingPollId(Token);
+
+impl Identifier for WeightingPollId {
+    type For = WeightingPoll;
+}
 
 pub struct WeightingPoll {
     pub epoch: ProtocolEpoch,
     pub distribution: Vec<(FarmId, u64)>,
     pub reserves_splash: u64,
+}
+
+impl Stable for WeightingPoll {
+    type StableId = u64;
+    fn stable_id(&self) -> Self::StableId {
+        todo!()
+    }
+}
+
+impl EntitySnapshot for WeightingPoll {
+    type Version = u64;
+    fn version(&self) -> Self::Version {
+        todo!()
+    }
 }
 
 pub struct WeightingOngoing(PhantomData<()>);
@@ -28,8 +54,8 @@ impl WeightingPoll {
         }
     }
 
-    pub fn state(&self, time_now: NetworkTime, genesis_epoch_start: GenesisEpochStartTime) -> PollState {
-        if self.weighting_open(time_now, genesis_epoch_start) {
+    pub fn state(&self, genesis: GenesisEpochStartTime, time_now: NetworkTime) -> PollState {
+        if self.weighting_open(genesis, time_now) {
             PollState::WeightingOngoing(WeightingOngoing(PhantomData))
         } else if !self.distribution_finished() {
             PollState::DistributionOngoing(DistributionOngoing(PhantomData))
@@ -38,9 +64,8 @@ impl WeightingPoll {
         }
     }
 
-    fn weighting_open(&self, time_now: NetworkTime, genesis_epoch_start: GenesisEpochStartTime) -> bool {
-        epoch_start(genesis_epoch_start, self.epoch) < time_now
-            && epoch_end(genesis_epoch_start, self.epoch) > time_now
+    fn weighting_open(&self, genesis: GenesisEpochStartTime, time_now: NetworkTime) -> bool {
+        epoch_start(genesis, self.epoch) < time_now && epoch_end(genesis, self.epoch) > time_now
     }
 
     fn distribution_finished(&self) -> bool {
