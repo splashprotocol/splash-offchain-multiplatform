@@ -2,9 +2,9 @@ use std::fmt;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
 
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use serde::__private::de::missing_field;
 use serde::ser::SerializeStruct;
-use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::combinators::Ior;
 use crate::data::{EntitySnapshot, Stable};
@@ -288,6 +288,12 @@ pub enum EitherMod<T> {
 }
 
 impl<T> EitherMod<T> {
+    pub fn erased(&self) -> &T {
+        match self {
+            EitherMod::Confirmed(Confirmed(t)) => t,
+            EitherMod::Unconfirmed(Unconfirmed(t)) => t,
+        }
+    }
     pub fn map<B, F>(self, f: F) -> EitherMod<B>
     where
         F: FnOnce(T) -> B,
