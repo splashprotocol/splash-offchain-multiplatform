@@ -2,13 +2,13 @@ use derive_more::{From, Into};
 
 use crate::time::NetworkTime;
 
-mod constants;
-mod entities;
-pub mod event_sink;
+pub mod constants;
+pub mod entities;
+mod protocol_config;
 mod routine;
-mod routines;
-mod time;
-mod tx_tracker;
+pub mod routines;
+pub mod state_projection;
+pub mod time;
 
 pub type FarmId = u64;
 
