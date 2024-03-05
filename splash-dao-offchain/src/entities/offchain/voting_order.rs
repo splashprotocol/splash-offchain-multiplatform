@@ -32,3 +32,10 @@ impl UniqueOrder for VotingOrder {
         self.id
     }
 }
+
+impl UniqueOrder for VotingOrder {
+    type TOrderId = VotingOrderId;
+    fn get_self_ref(&self) -> Self::TOrderId {
+        self.id
+    }
+}

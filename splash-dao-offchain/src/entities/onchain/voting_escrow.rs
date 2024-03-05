@@ -35,6 +35,13 @@ impl Identifier for VotingEscrowId {
     type For = VotingEscrowSnapshot;
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Debug)]
+pub struct VotingEscrowId(Token);
+
+impl Identifier for VotingEscrowId {
+    type For = VotingEscrow;
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct VotingEscrow {
     pub gov_token_amount: u64,
