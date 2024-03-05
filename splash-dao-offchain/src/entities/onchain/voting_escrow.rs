@@ -1,8 +1,16 @@
 use std::time::Duration;
 
-use spectrum_offchain::data::{EntitySnapshot, Stable};
+use spectrum_cardano_lib::Token;
+use spectrum_offchain::data::{EntitySnapshot, Identifier, Stable};
 
 use crate::time::NetworkTime;
+
+#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Debug)]
+pub struct VotingEscrowId(Token);
+
+impl Identifier for VotingEscrowId {
+    type For = VotingEscrow;
+}
 
 #[derive(Copy, Clone, Debug)]
 pub struct VotingEscrow {

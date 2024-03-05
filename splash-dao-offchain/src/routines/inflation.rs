@@ -2,16 +2,15 @@ use std::marker::PhantomData;
 use std::time::Duration;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
+use spectrum_offchain::backlog::ResilientBacklog;
 use spectrum_offchain::data::unique_entity::{AnyMod, Confirmed};
 
 use crate::entities::offchain::voting_order::VotingOrder;
 use crate::entities::onchain::inflation_box::InflationBox;
 use crate::entities::onchain::poll_factory::PollFactory;
 use crate::entities::onchain::smart_farm::SmartFarm;
-use crate::entities::onchain::voting_escrow::VotingEscrow;
-use crate::entities::onchain::weighting_poll::{
-    DistributionOngoing, PollState, WeightingOngoing, WeightingPoll,
-};
+use crate::entities::onchain::voting_escrow::{VotingEscrow, VotingEscrowId};
+use crate::entities::onchain::weighting_poll::{PollState, WeightingOngoing, WeightingPoll};
 use crate::protocol_config::ProtocolConfig;
 use crate::routine::{retry_in, RoutineBehaviour, ToRoutine};
 use crate::routines::inflation::actions::InflationActions;
@@ -20,12 +19,13 @@ use crate::time::{NetworkTimeProvider, ProtocolEpoch};
 
 mod actions;
 
-pub struct Behaviour<IB, PF, WP, VE, SF, Time, Actions, Bearer> {
+pub struct Behaviour<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer> {
     inflation_box: IB,
     poll_factory: PF,
     weighting_poll: WP,
     voting_escrow: VE,
     smart_farm: SF,
+    backlog: Backlog,
     ntp: Time,
     actions: Actions,
     conf: ProtocolConfig,
@@ -35,8 +35,8 @@ pub struct Behaviour<IB, PF, WP, VE, SF, Time, Actions, Bearer> {
 const DEF_DELAY: Duration = Duration::new(5, 0);
 
 #[async_trait::async_trait]
-impl<IB, PF, WP, VE, SF, Time, Actions, Bearer> RoutineBehaviour
-    for Behaviour<IB, PF, WP, VE, SF, Time, Actions, Bearer>
+impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer> RoutineBehaviour
+    for Behaviour<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
 where
     IB: StateProjectionRead<InflationBox, Bearer> + StateProjectionWrite<InflationBox, Bearer> + Send + Sync,
     PF: StateProjectionRead<PollFactory, Bearer> + StateProjectionWrite<PollFactory, Bearer> + Send + Sync,
@@ -45,6 +45,7 @@ where
         + Send
         + Sync,
     VE: StateProjectionRead<VotingEscrow, Bearer> + StateProjectionWrite<VotingEscrow, Bearer> + Send + Sync,
+    Backlog: ResilientBacklog<VotingOrder> + Send + Sync,
     SF: StateProjectionRead<SmartFarm, Bearer> + StateProjectionWrite<SmartFarm, Bearer> + Send + Sync,
     Time: NetworkTimeProvider + Send + Sync,
     Actions: InflationActions<Bearer> + Send + Sync,
@@ -64,7 +65,9 @@ where
     }
 }
 
-impl<IB, PF, WP, VE, SF, Time, Actions, Bearer> Behaviour<IB, PF, WP, VE, SF, Time, Actions, Bearer> {
+impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
+    Behaviour<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
+{
     async fn inflation_box(&self) -> Option<AnyMod<Bundled<InflationBox, Bearer>>>
     where
         IB: StateProjectionRead<InflationBox, Bearer>,
@@ -89,12 +92,19 @@ impl<IB, PF, WP, VE, SF, Time, Actions, Bearer> Behaviour<IB, PF, WP, VE, SF, Ti
     async fn next_order(
         &self,
         _stage: WeightingOngoing,
-    ) -> Option<(VotingOrder, Bundled<VotingEscrow, Bearer>)> {
-        todo!()
-    }
-
-    async fn next_farm(&self, _stage: DistributionOngoing) -> AnyMod<Bundled<SmartFarm, Bearer>> {
-        todo!()
+    ) -> Option<(VotingOrder, Bundled<VotingEscrow, Bearer>)>
+    where
+        Backlog: ResilientBacklog<VotingOrder>,
+        VE: StateProjectionRead<VotingEscrow, Bearer>,
+    {
+        if let Some(ord) = self.backlog.try_pop().await {
+            self.voting_escrow
+                .read(VotingEscrowId::from(ord.id))
+                .await
+                .map(|ve| (ord, ve.erased()))
+        } else {
+            None
+        }
     }
 
     async fn read_state(&self) -> RoutineState<Bearer>
@@ -102,6 +112,9 @@ impl<IB, PF, WP, VE, SF, Time, Actions, Bearer> Behaviour<IB, PF, WP, VE, SF, Ti
         IB: StateProjectionRead<InflationBox, Bearer>,
         PF: StateProjectionRead<PollFactory, Bearer>,
         WP: StateProjectionRead<WeightingPoll, Bearer>,
+        SF: StateProjectionRead<SmartFarm, Bearer>,
+        VE: StateProjectionRead<VotingEscrow, Bearer>,
+        Backlog: ResilientBacklog<VotingOrder>,
         Time: NetworkTimeProvider,
     {
         if let (Some(inflation_box), Some(poll_factory)) =
@@ -123,10 +136,15 @@ impl<IB, PF, WP, VE, SF, Time, Actions, Bearer> Behaviour<IB, PF, WP, VE, SF, Ti
                             next_pending_order: self.next_order(st).await,
                         })
                     }
-                    PollState::DistributionOngoing(st) => {
+                    PollState::DistributionOngoing(next_farm) => {
                         RoutineState::DistributionInProgress(DistributionInProgress {
+                            next_farm: self
+                                .smart_farm
+                                .read(next_farm.farm_id())
+                                .await
+                                .expect("State is inconsistent"),
                             weighting_poll: wp,
-                            next_farm: self.next_farm(st).await,
+                            next_farm_weight: next_farm.farm_weight(),
                         })
                     }
                     PollState::PollExhausted(_) => {
@@ -194,6 +212,7 @@ impl<IB, PF, WP, VE, SF, Time, Actions, Bearer> Behaviour<IB, PF, WP, VE, SF, Ti
         DistributionInProgress {
             weighting_poll,
             next_farm,
+            next_farm_weight,
         }: DistributionInProgress<Bearer>,
     ) where
         WP: StateProjectionWrite<WeightingPoll, Bearer>,
@@ -202,7 +221,7 @@ impl<IB, PF, WP, VE, SF, Time, Actions, Bearer> Behaviour<IB, PF, WP, VE, SF, Ti
     {
         let (next_wpoll, next_sf) = self
             .actions
-            .distribute_inflation(weighting_poll.erased(), next_farm.erased())
+            .distribute_inflation(weighting_poll.erased(), next_farm.erased(), next_farm_weight)
             .await;
         self.weighting_poll.write(next_wpoll).await;
         self.smart_farm.write(next_sf).await;
@@ -251,6 +270,7 @@ pub struct WeightingInProgress<Out> {
 pub struct DistributionInProgress<Out> {
     weighting_poll: AnyMod<Bundled<WeightingPoll, Out>>,
     next_farm: AnyMod<Bundled<SmartFarm, Out>>,
+    next_farm_weight: u64,
 }
 
 pub struct PendingEliminatePoll<Out> {

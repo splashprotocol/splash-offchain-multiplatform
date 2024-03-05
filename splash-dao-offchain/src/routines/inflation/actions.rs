@@ -34,6 +34,7 @@ pub trait InflationActions<Bearer> {
         &self,
         weighting_poll: Bundled<WeightingPoll, Bearer>,
         farm: Bundled<SmartFarm, Bearer>,
+        farm_weight: u64,
     ) -> (
         Traced<Predicted<Bundled<WeightingPoll, Bearer>>>,
         Traced<Predicted<Bundled<SmartFarm, Bearer>>>,

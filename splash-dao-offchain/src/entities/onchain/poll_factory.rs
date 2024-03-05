@@ -1,8 +1,8 @@
 use spectrum_cardano_lib::Token;
 use spectrum_offchain::data::{EntitySnapshot, Identifier, Stable};
 
+use crate::entities::onchain::smart_farm::FarmId;
 use crate::time::ProtocolEpoch;
-use crate::FarmId;
 
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct PollFactoryId(Token);
