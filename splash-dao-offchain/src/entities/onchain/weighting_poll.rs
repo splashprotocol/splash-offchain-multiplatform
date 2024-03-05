@@ -1,10 +1,9 @@
-use std::marker::PhantomData;
-
 use derive_more::From;
 
 use spectrum_cardano_lib::Token;
 use spectrum_offchain::data::{EntitySnapshot, Identifier, Stable};
 
+use crate::entities::onchain::smart_farm::FarmId;
 use crate::time::{epoch_end, epoch_start, NetworkTime, ProtocolEpoch};
 use crate::{FarmId, GenesisEpochStartTime};
 
@@ -18,7 +17,6 @@ impl Identifier for WeightingPollId {
 pub struct WeightingPoll {
     pub epoch: ProtocolEpoch,
     pub distribution: Vec<(FarmId, u64)>,
-    pub reserves_splash: u64,
 }
 
 impl Stable for WeightingPoll {
@@ -35,9 +33,18 @@ impl EntitySnapshot for WeightingPoll {
     }
 }
 
-pub struct WeightingOngoing(PhantomData<()>);
-pub struct DistributionOngoing(PhantomData<()>);
-pub struct PollExhausted(PhantomData<()>);
+pub struct WeightingOngoing;
+pub struct DistributionOngoing(FarmId, u64);
+impl DistributionOngoing {
+    pub fn farm_id(&self) -> FarmId {
+        self.0
+    }
+    pub fn farm_weight(&self) -> u64 {
+        self.1
+    }
+}
+
+pub struct PollExhausted;
 
 pub enum PollState {
     WeightingOngoing(WeightingOngoing),
@@ -50,17 +57,25 @@ impl WeightingPoll {
         Self {
             epoch,
             distribution: farms.into_iter().map(|farm| (farm, 0)).collect(),
-            reserves_splash: 0,
         }
+    }
+
+    pub fn reserves_splash(&self) -> u64 {
+        self.distribution.iter().fold(0, |acc, (_, i)| acc + *i)
+    }
+
+    pub fn next_farm(&self) -> Option<(FarmId, u64)> {
+        self.distribution.iter().find(|x| x.1 > 0).copied()
     }
 
     pub fn state(&self, genesis: GenesisEpochStartTime, time_now: NetworkTime) -> PollState {
         if self.weighting_open(genesis, time_now) {
-            PollState::WeightingOngoing(WeightingOngoing(PhantomData))
-        } else if !self.distribution_finished() {
-            PollState::DistributionOngoing(DistributionOngoing(PhantomData))
+            PollState::WeightingOngoing(WeightingOngoing)
         } else {
-            PollState::PollExhausted(PollExhausted(PhantomData))
+            match self.next_farm() {
+                None => PollState::PollExhausted(PollExhausted),
+                Some((farm, weight)) => PollState::DistributionOngoing(DistributionOngoing(farm, weight)),
+            }
         }
     }
 
@@ -69,6 +84,6 @@ impl WeightingPoll {
     }
 
     fn distribution_finished(&self) -> bool {
-        self.reserves_splash == 0
+        self.reserves_splash() == 0
     }
 }

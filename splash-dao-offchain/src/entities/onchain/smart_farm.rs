@@ -1,4 +1,11 @@
-use spectrum_offchain::data::{EntitySnapshot, Stable};
+use spectrum_offchain::data::{EntitySnapshot, Identifier, Stable};
+
+#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Debug)]
+pub struct FarmId(u64);
+
+impl Identifier for FarmId {
+    type For = SmartFarm;
+}
 
 pub struct SmartFarm {}
 

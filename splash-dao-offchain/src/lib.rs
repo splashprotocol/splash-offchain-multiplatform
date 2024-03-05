@@ -10,7 +10,5 @@ pub mod routines;
 pub mod state_projection;
 pub mod time;
 
-pub type FarmId = u64;
-
 #[derive(Copy, Clone, Eq, PartialEq, From, Into)]
 pub struct GenesisEpochStartTime(NetworkTime);

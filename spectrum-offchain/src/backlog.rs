@@ -1,6 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use bounded_integer::BoundedU8;
@@ -11,6 +12,7 @@ use priority_queue::PriorityQueue;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
+use tokio::sync::Mutex;
 use type_equalities::IsEqual;
 
 use crate::backlog::data::{BacklogOrder, OrderWeight, Weighted};
@@ -138,36 +140,36 @@ where
 
 /// Backlog manages orders on all stages of their life.
 /// Usually in the order defined by some weighting function (e.g. orders with higher fee are preferred).
-#[async_trait(? Send)]
+#[async_trait]
 pub trait ResilientBacklog<TOrd>
 where
     TOrd: UniqueOrder,
 {
     /// Add new pending order to backlog.
-    async fn put<'a>(&mut self, ord: PendingOrder<TOrd>)
+    async fn put<'a>(&self, ord: PendingOrder<TOrd>)
     where
         TOrd: 'a;
     /// Suspend order that temporarily failed.
     /// Potentially retry later.
-    async fn suspend<'a>(&mut self, ord: TOrd) -> bool
+    async fn suspend<'a>(&self, ord: TOrd) -> bool
     where
         TOrd: 'a;
     /// Register successful order to check if it settled later.
-    async fn check_later<'a>(&mut self, ord: ProgressingOrder<TOrd>) -> bool
+    async fn check_later<'a>(&self, ord: ProgressingOrder<TOrd>) -> bool
     where
         TOrd: 'a;
     /// Pop best order.
-    async fn try_pop(&mut self) -> Option<TOrd>;
+    async fn try_pop(&self) -> Option<TOrd>;
     /// Check if order with the given id exists already in backlog.
     async fn exists<'a>(&self, ord_id: TOrd::TOrderId) -> bool
     where
         TOrd::TOrderId: 'a;
     /// Remove order from backlog.
-    async fn remove<'a>(&mut self, ord_id: TOrd::TOrderId)
+    async fn remove<'a>(&self, ord_id: TOrd::TOrderId)
     where
         TOrd::TOrderId: 'a + Clone;
     /// Return order back to backlog.
-    async fn recharge<'a>(&mut self, ord: TOrd)
+    async fn recharge<'a>(&self, ord: TOrd)
     where
         TOrd: 'a;
     /// Return all orders satisfying the given predicate.
@@ -186,14 +188,15 @@ impl<B> BacklogTracing<B> {
     }
 }
 
-#[async_trait(? Send)]
+#[async_trait]
 impl<TOrd, B> ResilientBacklog<TOrd> for BacklogTracing<B>
 where
     TOrd: UniqueOrder + Debug + Clone,
-    TOrd::TOrderId: Debug + Clone,
-    B: ResilientBacklog<TOrd>,
+    TOrd::TOrderId: Debug + Clone + Send + Sync,
+    TOrd: Send + Sync,
+    B: ResilientBacklog<TOrd> + Send + Sync,
 {
-    async fn put<'a>(&mut self, ord: PendingOrder<TOrd>)
+    async fn put<'a>(&self, ord: PendingOrder<TOrd>)
     where
         TOrd: 'a,
     {
@@ -202,7 +205,7 @@ where
         trace!(target: "backlog", "put({:?}) -> ()", ord);
     }
 
-    async fn suspend<'a>(&mut self, ord: TOrd) -> bool
+    async fn suspend<'a>(&self, ord: TOrd) -> bool
     where
         TOrd: 'a,
     {
@@ -212,7 +215,7 @@ where
         res
     }
 
-    async fn check_later<'a>(&mut self, ord: ProgressingOrder<TOrd>) -> bool
+    async fn check_later<'a>(&self, ord: ProgressingOrder<TOrd>) -> bool
     where
         TOrd: 'a,
     {
@@ -222,7 +225,7 @@ where
         res
     }
 
-    async fn try_pop(&mut self) -> Option<TOrd> {
+    async fn try_pop(&self) -> Option<TOrd> {
         trace!(target: "backlog", "try_pop()");
         let res = self.inner.try_pop().await;
         trace!(target: "backlog", "try_pop() -> {:?}", res);
@@ -236,7 +239,7 @@ where
         self.inner.exists(ord_id.clone()).await
     }
 
-    async fn remove<'a>(&mut self, ord_id: TOrd::TOrderId)
+    async fn remove<'a>(&self, ord_id: TOrd::TOrderId)
     where
         TOrd::TOrderId: 'a,
     {
@@ -245,7 +248,7 @@ where
         trace!(target: "backlog", "remove({:?}) -> ()", ord_id);
     }
 
-    async fn recharge<'a>(&mut self, ord: TOrd)
+    async fn recharge<'a>(&self, ord: TOrd)
     where
         TOrd: 'a,
     {
@@ -329,12 +332,7 @@ where
     }
 }
 
-pub struct PersistentPriorityBacklog<TOrd, TStore>
-where
-    TOrd: UniqueOrder + Hash + Eq,
-{
-    store: TStore,
-    conf: BacklogConfig,
+struct InMemoryState<TOrd: UniqueOrder> {
     /// Pending orders ordered by weight.
     pending_pq: PriorityQueue<WeightedOrder<TOrd::TOrderId>, OrderWeight>,
     /// Failed orders waiting for retry (retries are performed with some constant probability, e.g. 5%).
@@ -343,6 +341,15 @@ where
     /// Successfully submitted orders. Left orders should be re-executed in some time.
     /// Normally successful orders are eliminated from this queue before new execution attempt.
     revisit_queue: VecDeque<WeightedOrder<TOrd::TOrderId>>,
+}
+
+pub struct PersistentPriorityBacklog<TOrd, TStore>
+where
+    TOrd: UniqueOrder + Hash + Eq,
+{
+    store: TStore,
+    conf: BacklogConfig,
+    state: Arc<Mutex<InMemoryState<TOrd>>>,
 }
 
 impl<TOrd, TStore> PersistentPriorityBacklog<TOrd, TStore>
@@ -361,22 +368,24 @@ where
         Self {
             store,
             conf,
-            pending_pq,
-            suspended_pq: PriorityQueue::new(),
-            revisit_queue: VecDeque::new(),
+            state: Arc::new(Mutex::new(InMemoryState {
+                pending_pq,
+                suspended_pq: PriorityQueue::new(),
+                revisit_queue: VecDeque::new(),
+            })),
         }
     }
 
-    async fn revisit_progressing_orders(&mut self) {
+    async fn revisit_progressing_orders(&self) {
         let mut too_recent_order = None;
-        while let Some(ord) = self.revisit_queue.pop_front() {
+        while let Some(ord) = self.state.lock().await.revisit_queue.pop_front() {
             let ts_now = Utc::now().timestamp();
             let elapsed_secs = ts_now - ord.timestamp;
             if elapsed_secs > self.conf.order_exec_time.num_seconds() {
                 if elapsed_secs <= self.conf.order_lifespan.num_seconds() {
                     if let Some(ord) = self.store.get(ord.order).await {
                         let wt = ord.order.weight();
-                        self.pending_pq.push((&ord).into(), wt);
+                        self.state.lock().await.pending_pq.push((&ord).into(), wt);
                     }
                 } else {
                     self.store.remove(ord.order).await;
@@ -389,19 +398,20 @@ where
         }
 
         if let Some(ord) = too_recent_order {
-            self.revisit_queue.push_front(ord);
+            self.state.lock().await.revisit_queue.push_front(ord);
         }
     }
 }
 
-#[async_trait(? Send)]
+#[async_trait]
 impl<TOrd, TStore> ResilientBacklog<TOrd> for PersistentPriorityBacklog<TOrd, TStore>
 where
-    TStore: BacklogStore<TOrd>,
-    TOrd::TOrderId: Debug + Clone,
+    TStore: BacklogStore<TOrd> + Send + Sync,
+    TOrd: Send + Sync,
+    TOrd::TOrderId: Debug + Clone + Send + Sync,
     TOrd: UniqueOrder + Weighted + Hash + Eq + Clone,
 {
-    async fn put<'a>(&mut self, ord: PendingOrder<TOrd>)
+    async fn put<'a>(&self, ord: PendingOrder<TOrd>)
     where
         TOrd: 'a,
     {
@@ -414,42 +424,43 @@ where
                 .await;
         }
 
-        if let Some(index) = self
+        let mut st = self.state.lock().await;
+        if let Some(index) = st
             .revisit_queue
             .iter()
             .position(|wo| wo.order == ord.order.get_self_ref())
         {
-            self.revisit_queue.remove(index);
+            st.revisit_queue.remove(index);
         }
 
-        if let Some(element) = self
+        if let Some(element) = st
             .suspended_pq
             .iter()
             .find(|wo| wo.0.order == ord.order.get_self_ref())
             .map(|(e, _)| e)
             .cloned()
         {
-            self.suspended_pq.remove(&element);
+            st.suspended_pq.remove(&element);
         }
 
-        if !self
+        if !st
             .pending_pq
             .iter()
             .any(|wo| wo.0.order == ord.order.get_self_ref())
         {
             let wt = ord.order.weight();
-            self.pending_pq.push((&ord).into(), wt);
+            st.pending_pq.push((&ord).into(), wt);
         }
     }
 
-    async fn suspend<'a>(&mut self, ord: TOrd) -> bool
+    async fn suspend<'a>(&self, ord: TOrd) -> bool
     where
         TOrd: 'a,
     {
         if self.store.exists(ord.get_self_ref()).await {
             let wt = ord.weight();
             if let Some(backlog_ord) = self.store.get(ord.get_self_ref()).await {
-                self.suspended_pq.push(
+                self.state.lock().await.suspended_pq.push(
                     WeightedOrder {
                         order: ord.get_self_ref(),
                         timestamp: backlog_ord.timestamp,
@@ -462,24 +473,24 @@ where
         false
     }
 
-    async fn check_later<'a>(&mut self, ord: ProgressingOrder<TOrd>) -> bool
+    async fn check_later<'a>(&self, ord: ProgressingOrder<TOrd>) -> bool
     where
         TOrd: 'a,
     {
         if self.store.exists(ord.order.get_self_ref()).await {
-            self.revisit_queue.push_back(ord.into());
+            self.state.lock().await.revisit_queue.push_back(ord.into());
             return true;
         }
         false
     }
 
-    async fn try_pop(&mut self) -> Option<TOrd> {
+    async fn try_pop(&self) -> Option<TOrd> {
         self.revisit_progressing_orders().await;
         let rng = rand::thread_rng().gen_range(0..=99);
         if rng >= self.conf.retry_suspended_prob.get() {
-            try_pop_max_order(&self.conf, &mut self.store, &mut self.pending_pq).await
+            try_pop_max_order(&self.conf, &self.store, &mut self.state.lock().await.pending_pq).await
         } else {
-            try_pop_max_order(&self.conf, &mut self.store, &mut self.suspended_pq).await
+            try_pop_max_order(&self.conf, &self.store, &mut self.state.lock().await.suspended_pq).await
         }
     }
 
@@ -490,20 +501,20 @@ where
         self.store.exists(ord_id).await
     }
 
-    async fn remove<'a>(&mut self, ord_id: TOrd::TOrderId)
+    async fn remove<'a>(&self, ord_id: TOrd::TOrderId)
     where
         TOrd::TOrderId: Clone + 'a,
     {
         self.store.remove(ord_id).await;
     }
 
-    async fn recharge<'a>(&mut self, ord: TOrd)
+    async fn recharge<'a>(&self, ord: TOrd)
     where
         TOrd: 'a,
     {
         let wt = ord.weight();
         if let Some(backlog_ord) = self.store.get(ord.get_self_ref()).await {
-            self.pending_pq.push(
+            self.state.lock().await.pending_pq.push(
                 WeightedOrder {
                     order: ord.get_self_ref(),
                     timestamp: backlog_ord.timestamp,
@@ -528,7 +539,7 @@ where
 
 async fn try_pop_max_order<TOrd, TStore>(
     conf: &BacklogConfig,
-    store: &mut TStore,
+    store: &TStore,
     pq: &mut PriorityQueue<WeightedOrder<TOrd::TOrderId>, OrderWeight>,
 ) -> Option<TOrd>
 where
@@ -561,10 +572,11 @@ mod tests {
     use chrono::{Duration, Utc};
     use rand::RngCore;
     use serde::{Deserialize, Serialize};
+    use tokio::sync::Mutex;
 
+    use crate::backlog::{BacklogConfig, PersistentPriorityBacklog, ResilientBacklog};
     use crate::backlog::data::{BacklogOrder, OrderWeight, Weighted};
     use crate::backlog::persistence::{BacklogStore, BacklogStoreRocksDB};
-    use crate::backlog::{BacklogConfig, PersistentPriorityBacklog, ResilientBacklog};
     use crate::data::order::{PendingOrder, ProgressingOrder, SuspendedOrder, UniqueOrder};
 
     #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Clone, Copy, Serialize, Deserialize)]
@@ -635,29 +647,35 @@ mod tests {
         }
     }
 
-    #[async_trait(? Send)]
-    impl BacklogStore<MockOrder> for MockBacklogStore {
-        async fn put(&mut self, ord: BacklogOrder<MockOrder>) {
-            self.inner.insert(ord.order.order_id, ord);
+    #[async_trait]
+    impl BacklogStore<MockOrder> for Arc<Mutex<MockBacklogStore>> {
+        async fn put(&self, ord: BacklogOrder<MockOrder>) {
+            self.lock().await.inner.insert(ord.order.order_id, ord);
         }
 
         async fn exists(&self, ord_id: MockOrderId) -> bool {
-            self.inner.contains_key(&ord_id)
+            self.lock().await.inner.contains_key(&ord_id)
         }
 
-        async fn remove(&mut self, ord_id: MockOrderId) {
-            self.inner.remove(&ord_id);
+        async fn remove(&self, ord_id: MockOrderId) {
+            self.lock().await.inner.remove(&ord_id);
         }
 
         async fn get(&self, ord_id: MockOrderId) -> Option<BacklogOrder<MockOrder>> {
-            self.inner.get(&ord_id).cloned()
+            self.lock().await.inner.get(&ord_id).cloned()
         }
 
         async fn find_orders<F>(&self, f: F) -> Vec<BacklogOrder<MockOrder>>
         where
             F: Fn(&MockOrder) -> bool + Send + 'static,
         {
-            self.inner.values().cloned().filter(|b| f(&b.order)).collect()
+            self.lock()
+                .await
+                .inner
+                .values()
+                .cloned()
+                .filter(|b| f(&b.order))
+                .collect()
         }
     }
 
@@ -665,8 +683,8 @@ mod tests {
         order_lifespan_secs: i64,
         order_exec_time_secs: i64,
         retry_suspended_prob: u8,
-    ) -> PersistentPriorityBacklog<MockOrder, MockBacklogStore> {
-        let store = MockBacklogStore::new();
+    ) -> PersistentPriorityBacklog<MockOrder, Arc<Mutex<MockBacklogStore>>> {
+        let store = Arc::new(Mutex::new(MockBacklogStore::new()));
         let conf = BacklogConfig {
             order_lifespan: Duration::seconds(order_lifespan_secs),
             order_exec_time: Duration::seconds(order_exec_time_secs),
