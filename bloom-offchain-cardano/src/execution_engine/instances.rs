@@ -1,14 +1,18 @@
 use std::hash::Hash;
 
-use cml_chain::builders::input_builder::SingleInputBuilder;
+use cml_chain::builders::input_builder::{InputBuilderResult, SingleInputBuilder};
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
+use cml_chain::builders::withdrawal_builder::SingleWithdrawalBuilder;
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
+use cml_chain::certs::Credential;
 use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData, RedeemerTag};
 use cml_chain::transaction::TransactionInput;
 use cml_chain::utils::BigInt;
+use cml_chain::Coin;
 use cml_crypto::TransactionHash;
 use log::trace;
+use spectrum_cardano_lib::address::AddressExtension;
 use spectrum_cardano_lib::AssetClass;
 use spectrum_offchain_cardano::data::pair::order_canonical;
 use void::Void;
@@ -28,9 +32,11 @@ use spectrum_offchain_cardano::data::pool::{
 };
 use spectrum_offchain_cardano::data::PoolVer;
 
+use crate::creds::RewardAddress;
 use crate::execution_engine::execution_state::ExecutionState;
 use crate::orders::spot::{
-    unsafe_update_n2t_variables, SpotOrder, SpotOrderRefScriptOutput, SPOT_ORDER_N2T_EX_UNITS,
+    unsafe_update_n2t_variables, SpotOrder, SpotOrderBatchValidatorRefScriptOutput, SpotOrderRefScriptOutput,
+    SPOT_ORDER_N2T_EX_UNITS,
 };
 use crate::orders::AnyOrder;
 use crate::pools::AnyPool;
@@ -42,7 +48,7 @@ pub struct Magnet<T>(pub T);
 impl<Ctx> BatchExec<ExecutionState, (IndexedExUnits, Option<IndexedTxOut>), Ctx, Void>
     for Magnet<LinkedFill<AnyOrder, FinalizedTxOut>>
 where
-    Ctx: Has<SpotOrderRefScriptOutput>,
+    Ctx: Has<SpotOrderRefScriptOutput> + Has<RewardAddress> + Has<SpotOrderBatchValidatorRefScriptOutput>,
 {
     fn try_exec(
         self,
@@ -73,7 +79,7 @@ where
 impl<Ctx> BatchExec<ExecutionState, (IndexedExUnits, Option<IndexedTxOut>), Ctx, Void>
     for Magnet<LinkedFill<SpotOrder, FinalizedTxOut>>
 where
-    Ctx: Has<SpotOrderRefScriptOutput>,
+    Ctx: Has<SpotOrderRefScriptOutput> + Has<RewardAddress> + Has<SpotOrderBatchValidatorRefScriptOutput>,
 {
     fn try_exec(
         self,
@@ -118,6 +124,31 @@ where
         );
         let spot_order_ref_script = context.get_labeled::<SpotOrderRefScriptOutput>().0;
         state.tx_builder.add_reference_input(spot_order_ref_script);
+
+        if !state.spot_batch_validator_set {
+            let addr = context.get_labeled::<RewardAddress>();
+            let reward_address = cml_chain::address::RewardAddress::new(
+                addr.0.network_id().unwrap(),
+                addr.0.payment_cred().unwrap().clone(),
+            );
+            let partial_witness = PartialPlutusWitness::new(
+                PlutusScriptWitness::Ref(
+                    context
+                        .get_labeled::<SpotOrderBatchValidatorRefScriptOutput>()
+                        .0
+                        .output
+                        .script_hash()
+                        .unwrap(),
+                ),
+                PlutusData::new_list(vec![]), // dummy value (this validator doesn't require redeemer)
+            );
+            let mut withdrawal_result = SingleWithdrawalBuilder::new(reward_address, 0)
+                .plutus_script(partial_witness, vec![])
+                .unwrap();
+            withdrawal_result.aggregate_witness = None;
+            state.tx_builder.add_withdrawal(withdrawal_result);
+        }
+
         let order_in = SingleInputBuilder::new(in_ref.into(), consumed_out)
             .plutus_script_inline_datum(order_script, Vec::new())
             .unwrap();

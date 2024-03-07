@@ -1,4 +1,6 @@
-use bloom_offchain_cardano::orders::spot::SpotOrderRefScriptOutput;
+use bloom_offchain_cardano::orders::spot::{
+    SpotOrderBatchValidatorRefScriptOutput, SpotOrderRefScriptOutput,
+};
 use type_equalities::IsEqual;
 
 use bloom_offchain::execution_engine::liquidity_book::ExecutionCap;
@@ -57,5 +59,13 @@ impl Has<CFMMPoolRefScriptOutput<2>> for ExecutionContext {
 impl Has<SpotOrderRefScriptOutput> for ExecutionContext {
     fn get_labeled<U: IsEqual<SpotOrderRefScriptOutput>>(&self) -> SpotOrderRefScriptOutput {
         SpotOrderRefScriptOutput(self.refs.spot_order.clone())
+    }
+}
+
+impl Has<SpotOrderBatchValidatorRefScriptOutput> for ExecutionContext {
+    fn get_labeled<U: IsEqual<SpotOrderBatchValidatorRefScriptOutput>>(
+        &self,
+    ) -> SpotOrderBatchValidatorRefScriptOutput {
+        SpotOrderBatchValidatorRefScriptOutput(self.refs.spot_order_batch_validator.clone())
     }
 }

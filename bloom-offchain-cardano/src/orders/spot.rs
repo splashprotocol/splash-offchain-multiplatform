@@ -313,3 +313,7 @@ where
 /// Reference Script Output for [SpotOrder].
 #[derive(Debug, Clone)]
 pub struct SpotOrderRefScriptOutput(pub TransactionUnspentOutput);
+
+/// Reference Script Output for batch validator of [SpotOrder].
+#[derive(Debug, Clone)]
+pub struct SpotOrderBatchValidatorRefScriptOutput(pub TransactionUnspentOutput);
