@@ -1,6 +1,6 @@
 use bloom_offchain::execution_engine::bundled::Bundled;
-use spectrum_offchain::data::unique_entity::{AnyMod, Predicted, Traced};
 use spectrum_offchain::data::{EntitySnapshot, Identifier};
+use spectrum_offchain::data::unique_entity::{AnyMod, Predicted, Traced};
 
 /// Projection of [T] state relative to the ledger.
 #[async_trait::async_trait]
@@ -8,7 +8,9 @@ pub trait StateProjectionRead<T, B>
 where
     T: EntitySnapshot,
 {
-    async fn read<I: Identifier<For = T>>(&self, id: I) -> Option<AnyMod<Bundled<T, B>>>;
+    async fn read<I>(&self, id: I) -> Option<AnyMod<Bundled<T, B>>>
+    where
+        I: Identifier<For = T> + Send;
 }
 
 #[async_trait::async_trait]

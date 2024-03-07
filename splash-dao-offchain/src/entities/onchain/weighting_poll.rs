@@ -1,11 +1,13 @@
+use cml_chain::transaction::TransactionOutput;
 use derive_more::From;
 
 use spectrum_cardano_lib::Token;
 use spectrum_offchain::data::{EntitySnapshot, Identifier, Stable};
+use spectrum_offchain::ledger::IntoLedger;
 
 use crate::entities::onchain::smart_farm::FarmId;
+use crate::GenesisEpochStartTime;
 use crate::time::{epoch_end, epoch_start, NetworkTime, ProtocolEpoch};
-use crate::{FarmId, GenesisEpochStartTime};
 
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, From)]
 pub struct WeightingPollId(Token);
@@ -14,9 +16,16 @@ impl Identifier for WeightingPollId {
     type For = WeightingPoll;
 }
 
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct WeightingPoll {
     pub epoch: ProtocolEpoch,
     pub distribution: Vec<(FarmId, u64)>,
+}
+
+impl<Ctx> IntoLedger<TransactionOutput, Ctx> for WeightingPoll {
+    fn into_ledger(self, ctx: Ctx) -> TransactionOutput {
+        todo!()
+    }
 }
 
 impl Stable for WeightingPoll {

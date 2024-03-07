@@ -2,6 +2,7 @@ use derive_more::{From, Into};
 
 use crate::time::NetworkTime;
 
+mod assets;
 pub mod constants;
 pub mod entities;
 mod protocol_config;
