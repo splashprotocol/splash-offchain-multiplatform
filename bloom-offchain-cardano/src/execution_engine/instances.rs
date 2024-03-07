@@ -125,6 +125,16 @@ where
         let spot_order_ref_script = context.get_labeled::<SpotOrderRefScriptOutput>().0;
         state.tx_builder.add_reference_input(spot_order_ref_script);
 
+        let order_in = SingleInputBuilder::new(in_ref.into(), consumed_out)
+            .plutus_script_inline_datum(order_script, Vec::new())
+            .unwrap();
+        state
+            .tx_builder
+            .add_output(SingleOutputBuilderResult::new(candidate))
+            .unwrap();
+        let indexed_tx_in = IndexedExUnits(order_in.input.transaction_id, SPOT_ORDER_N2T_EX_UNITS);
+        state.tx_builder.add_input(order_in).unwrap();
+        state.add_ex_budget(ord.fee_asset, budget_used);
         if !state.spot_batch_validator_set {
             let addr = context.get_labeled::<RewardAddress>();
             let reward_address = cml_chain::address::RewardAddress::new(
@@ -147,18 +157,11 @@ where
                 .unwrap();
             withdrawal_result.aggregate_witness = None;
             state.tx_builder.add_withdrawal(withdrawal_result);
+            state.tx_builder.set_exunits(
+                RedeemerWitnessKey::new(RedeemerTag::Reward, 0),
+                SPOT_ORDER_N2T_EX_UNITS,
+            )
         }
-
-        let order_in = SingleInputBuilder::new(in_ref.into(), consumed_out)
-            .plutus_script_inline_datum(order_script, Vec::new())
-            .unwrap();
-        state
-            .tx_builder
-            .add_output(SingleOutputBuilderResult::new(candidate))
-            .unwrap();
-        let indexed_tx_in = IndexedExUnits(order_in.input.transaction_id, SPOT_ORDER_N2T_EX_UNITS);
-        state.tx_builder.add_input(order_in).unwrap();
-        state.add_ex_budget(ord.fee_asset, budget_used);
         Ok((
             state,
             (
