@@ -3,8 +3,8 @@ use std::cmp::Ordering;
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::certs::Credential;
 use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData};
-use cml_chain::utils::BigInt;
 use cml_chain::PolicyId;
+use cml_chain::utils::BigInt;
 use cml_core::serialization::{LenEncoding, StringEncoding};
 use cml_crypto::{Ed25519KeyHash, ScriptHash};
 use cml_multi_era::babbage::BabbageTransactionOutput;
@@ -19,6 +19,7 @@ use bloom_offchain::execution_engine::liquidity_book::types::{
 };
 use bloom_offchain::execution_engine::liquidity_book::weight::Weighted;
 use spectrum_cardano_lib::address::AddressExtension;
+use spectrum_cardano_lib::AssetClass;
 use spectrum_cardano_lib::credential::AnyCredential;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
@@ -26,11 +27,10 @@ use spectrum_cardano_lib::plutus_data::{
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::AssetClass;
 use spectrum_offchain::data::{Has, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::constants::SPOT_ORDER_NATIVE_TO_TOKEN_SCRIPT_HASH;
-use spectrum_offchain_cardano::data::pair::{side_of, PairId};
+use spectrum_offchain_cardano::data::pair::{PairId, side_of};
 
 use crate::creds::ExecutorCred;
 
@@ -207,7 +207,7 @@ struct DatumNativeToTokenMapping {
     pub permitted_executors: usize,
 }
 
-pub const N2T_DATUM_MAPPING: DatumNativeToTokenMapping = DatumNativeToTokenMapping {
+const N2T_DATUM_MAPPING: DatumNativeToTokenMapping = DatumNativeToTokenMapping {
     beacon: 0,
     tradable_input: 1,
     cost_per_ex_step: 2,

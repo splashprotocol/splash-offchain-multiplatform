@@ -16,6 +16,12 @@ pub struct Traced<TEntity: EntitySnapshot> {
     pub prev_state_id: Option<TEntity::Version>,
 }
 
+impl<TEntity: EntitySnapshot> Traced<TEntity> {
+    pub fn new(state: TEntity, prev_state_id: Option<TEntity::Version>) -> Self {
+        Self { state, prev_state_id }
+    }
+}
+
 impl<TEntity: EntitySnapshot> Serialize for Traced<TEntity>
 where
     TEntity: Serialize,

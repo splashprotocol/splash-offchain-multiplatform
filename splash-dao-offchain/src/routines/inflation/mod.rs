@@ -17,7 +17,7 @@ use crate::routines::inflation::actions::InflationActions;
 use crate::state_projection::{StateProjectionRead, StateProjectionWrite};
 use crate::time::{NetworkTimeProvider, ProtocolEpoch};
 
-mod actions;
+pub mod actions;
 
 pub struct Behaviour<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer> {
     inflation_box: IB,
@@ -127,7 +127,6 @@ impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
                 None => RoutineState::PendingCreatePoll(PendingCreatePoll {
                     inflation_box,
                     poll_factory,
-                    epoch: current_epoch,
                 }),
                 Some(wp) => match wp.as_erased().0.state(genesis, now) {
                     PollState::WeightingOngoing(st) => {
@@ -162,7 +161,6 @@ impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
         PendingCreatePoll {
             inflation_box,
             poll_factory,
-            epoch,
         }: PendingCreatePoll<Bearer>,
     ) -> Option<ToRoutine>
     where
@@ -174,7 +172,7 @@ impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
         if let (AnyMod::Confirmed(inflation_box), AnyMod::Confirmed(factory)) = (inflation_box, poll_factory)
         {
             let (next_inflation_box, next_factory, next_wpoll) =
-                self.actions.create_wpoll(inflation_box.0, factory.0, epoch).await;
+                self.actions.create_wpoll(inflation_box.0, factory.0).await;
             self.inflation_box.write(next_inflation_box).await;
             self.poll_factory.write(next_factory).await;
             self.weighting_poll.write(next_wpoll).await;
@@ -259,7 +257,6 @@ pub enum RoutineState<Out> {
 pub struct PendingCreatePoll<Out> {
     inflation_box: AnyMod<Bundled<InflationBox, Out>>,
     poll_factory: AnyMod<Bundled<PollFactory, Out>>,
-    epoch: ProtocolEpoch,
 }
 
 pub struct WeightingInProgress<Out> {
@@ -275,4 +272,45 @@ pub struct DistributionInProgress<Out> {
 
 pub struct PendingEliminatePoll<Out> {
     weighting_poll: AnyMod<Bundled<WeightingPoll, Out>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+    use tokio::sync::Mutex;
+
+    use bloom_offchain::execution_engine::bundled::Bundled;
+    use spectrum_offchain::data::unique_entity::{AnyMod, Predicted, Traced};
+    use spectrum_offchain::data::{EntitySnapshot, Identifier};
+
+    use crate::state_projection::{StateProjectionRead, StateProjectionWrite};
+
+    struct StateProjection<T: EntitySnapshot, B>(Arc<Mutex<Option<AnyMod<Bundled<T, B>>>>>);
+    #[async_trait]
+    impl<T, B> StateProjectionWrite<T, B> for StateProjection<T, B>
+    where
+        T: EntitySnapshot + Send + Sync + Clone,
+        T::Version: Send,
+        B: Send + Sync + Clone,
+    {
+        async fn write(&self, entity: Traced<Predicted<Bundled<T, B>>>) {
+            let _ = self.0.lock().await.insert(AnyMod::Predicted(entity));
+        }
+    }
+    #[async_trait]
+    impl<T, B> StateProjectionRead<T, B> for StateProjection<T, B>
+    where
+        T: EntitySnapshot + Send + Sync + Clone,
+        T::Version: Send,
+        B: Send + Sync + Clone,
+    {
+        async fn read<I>(&self, id: I) -> Option<AnyMod<Bundled<T, B>>>
+        where
+            I: Identifier<For = T> + Send,
+        {
+            self.0.lock().await.clone()
+        }
+    }
 }

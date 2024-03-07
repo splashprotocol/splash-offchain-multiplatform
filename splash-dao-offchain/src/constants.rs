@@ -19,7 +19,7 @@ pub const TOTAL_EMISSION: u64 = 100_000_000_000_000;
 
 pub const TOTAL_COMMUNITY_EMISSION: u64 = 32_000_000_000_000;
 
-/// Dayly inflation rate in micro-SPLASH.
+/// Epochly inflation rate in micro-SPLASH.
 pub const RATE_INITIAL: u64 = 224_000_000_000;
 
 pub const RATE_AFTER_FIRST_REDUCTION: u64 = 156_800_000_000;
