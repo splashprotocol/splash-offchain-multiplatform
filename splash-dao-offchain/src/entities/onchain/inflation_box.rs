@@ -1,12 +1,13 @@
 use cml_chain::plutus::PlutusData;
 
-use spectrum_cardano_lib::{TaggedAmount, Token};
 use spectrum_cardano_lib::plutus_data::IntoPlutusData;
+use spectrum_cardano_lib::{TaggedAmount, Token};
 use spectrum_offchain::data::{EntitySnapshot, Identifier, Stable};
 
-use crate::{constants, GenesisEpochStartTime};
 use crate::assets::Splash;
 use crate::time::{epoch_end, NetworkTime, ProtocolEpoch};
+use crate::{constants, GenesisEpochStartTime};
+use crate::{constants, GenesisEpochStartTime};
 
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct InflationBoxId(Token);
