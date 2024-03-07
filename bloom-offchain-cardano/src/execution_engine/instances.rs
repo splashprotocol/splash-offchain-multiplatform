@@ -152,15 +152,15 @@ where
                 ),
                 PlutusData::new_list(vec![]), // dummy value (this validator doesn't require redeemer)
             );
-            let mut withdrawal_result = SingleWithdrawalBuilder::new(reward_address, 0)
+            let withdrawal_result = SingleWithdrawalBuilder::new(reward_address, 0)
                 .plutus_script(partial_witness, vec![])
                 .unwrap();
-            withdrawal_result.aggregate_witness = None;
             state.tx_builder.add_withdrawal(withdrawal_result);
             state.tx_builder.set_exunits(
                 RedeemerWitnessKey::new(RedeemerTag::Reward, 0),
                 SPOT_ORDER_N2T_EX_UNITS,
-            )
+            );
+            state.spot_batch_validator_set = true;
         }
         Ok((
             state,
