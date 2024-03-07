@@ -10,7 +10,7 @@ pub const DEFAULT_AUTH_TOKEN_NAME: u8 = 164;
 pub const EPOCH_LEN: u64 = 604_800_000;
 
 /// Length of the emission reduction period in epochs.
-pub const EMISSION_REDUCTION_PERIOD_LEN: u64 = 13;
+pub const EMISSION_REDUCTION_PERIOD_LEN: u32 = 13;
 
 /// MAX supply of Gov token (== MAX supply of SPLASH/ADA LQ* == MAX supply of ADA lovelace).
 pub const MAX_GT_SUPPLY: u64 = 45_000_000_000_000_000;
