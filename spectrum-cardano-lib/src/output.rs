@@ -12,6 +12,3 @@ impl FinalizedTxOut {
         Self(out.upcast(), out_ref)
     }
 }
-
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct IndexedTxOut(pub usize, pub TransactionOutput);
