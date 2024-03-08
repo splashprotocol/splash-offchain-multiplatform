@@ -75,11 +75,10 @@ const EXECUTION_CAP: ExecutionCap = ExecutionCap {
 async fn integration_test() {
     let subscriber = Subscriber::new();
     tracing::subscriber::set_global_default(subscriber).expect("setting tracing default failed");
-    let raw_config = std::fs::read_to_string("bloom-cardano-agent/tests/config.json")
-        .expect("Cannot load configuration file");
+    let raw_config = std::fs::read_to_string("tests/config.json").expect("Cannot load configuration file");
     let config: AppConfig = serde_json::from_str(&raw_config).expect("Invalid configuration file");
 
-    log4rs::init_file("bloom-cardano-agent/tests/log4rs.yaml", Default::default()).unwrap();
+    log4rs::init_file("tests/log4rs.yaml", Default::default()).unwrap();
 
     info!("Starting Off-Chain Agent ..");
 
