@@ -43,7 +43,7 @@ use crate::pools::AnyPool;
 #[repr(transparent)]
 pub struct Magnet<T>(pub T);
 
-impl<Ctx> BatchExec<ExecutionState, TxBuilderFillStep, Ctx, Void>
+impl<Ctx> BatchExec<ExecutionState, FillOrderResults, Ctx, Void>
     for Magnet<LinkedFill<AnyOrder, FinalizedTxOut>>
 where
     Ctx: Has<SpotOrderRefScriptOutput>,
@@ -52,7 +52,7 @@ where
         self,
         state: ExecutionState,
         context: Ctx,
-    ) -> Result<(ExecutionState, TxBuilderFillStep, Ctx), Void> {
+    ) -> Result<(ExecutionState, FillOrderResults, Ctx), Void> {
         match self.0 {
             LinkedFill {
                 target_fr: Bundled(AnyOrder::Spot(o), src),
@@ -74,7 +74,7 @@ where
     }
 }
 
-impl<Ctx> BatchExec<ExecutionState, TxBuilderFillStep, Ctx, Void>
+impl<Ctx> BatchExec<ExecutionState, FillOrderResults, Ctx, Void>
     for Magnet<LinkedFill<SpotOrder, FinalizedTxOut>>
 where
     Ctx: Has<SpotOrderRefScriptOutput>,
@@ -83,7 +83,7 @@ where
         self,
         mut state: ExecutionState,
         context: Ctx,
-    ) -> Result<(ExecutionState, TxBuilderFillStep, Ctx), Void> {
+    ) -> Result<(ExecutionState, FillOrderResults, Ctx), Void> {
         let Magnet(LinkedFill {
             target_fr: Bundled(ord, FinalizedTxOut(consumed_out, in_ref)),
             next_fr: transition,
@@ -134,15 +134,15 @@ where
         state.tx_builder.add_input(order_in.clone()).unwrap();
         state.add_ex_budget(ord.fee_asset, budget_used);
 
-        let tx_builder_step = TxBuilderStepDetails {
+        let tx_builder_step = TxBuilderElementsFromOrder {
             input: order_in,
             reference_input: spot_order_ref_script,
             ex_units: SPOT_ORDER_N2T_EX_UNITS,
             output,
         };
-        let builder_step = TxBuilderFillStep {
+        let builder_step = FillOrderResults {
             residual_order,
-            step_details: tx_builder_step,
+            tx_builder_elements: tx_builder_step,
         };
         Ok((state, builder_step, context))
     }
@@ -156,7 +156,7 @@ fn spot_exec_redeemer(successor_ix: u16) -> PlutusData {
 }
 
 /// Batch execution routing for [AnyPool].
-impl<Ctx> BatchExec<ExecutionState, TxBuilderStepDetails, Ctx, Void>
+impl<Ctx> BatchExec<ExecutionState, TxBuilderElementsFromOrder, Ctx, Void>
     for Magnet<LinkedSwap<AnyPool, FinalizedTxOut>>
 where
     Ctx: Has<CFMMPoolRefScriptOutput<1>> + Has<CFMMPoolRefScriptOutput<2>>,
@@ -165,7 +165,7 @@ where
         self,
         state: ExecutionState,
         context: Ctx,
-    ) -> Result<(ExecutionState, TxBuilderStepDetails, Ctx), Void> {
+    ) -> Result<(ExecutionState, TxBuilderElementsFromOrder, Ctx), Void> {
         match self.0 {
             LinkedSwap {
                 target: Bundled(AnyPool::CFMM(p), src),
@@ -186,7 +186,7 @@ where
 }
 
 /// Batch execution logic for [ClassicCFMMPool].
-impl<Ctx> BatchExec<ExecutionState, TxBuilderStepDetails, Ctx, Void>
+impl<Ctx> BatchExec<ExecutionState, TxBuilderElementsFromOrder, Ctx, Void>
     for Magnet<LinkedSwap<ClassicCFMMPool, FinalizedTxOut>>
 where
     Ctx: Has<CFMMPoolRefScriptOutput<1>> + Has<CFMMPoolRefScriptOutput<2>>,
@@ -195,7 +195,7 @@ where
         self,
         mut state: ExecutionState,
         context: Ctx,
-    ) -> Result<(ExecutionState, TxBuilderStepDetails, Ctx), Void> {
+    ) -> Result<(ExecutionState, TxBuilderElementsFromOrder, Ctx), Void> {
         let Magnet(LinkedSwap {
             target: Bundled(pool, FinalizedTxOut(consumed_out, in_ref)),
             side,
@@ -225,7 +225,7 @@ where
         };
         state.tx_builder.add_reference_input(pool_ref_script.clone());
         state.tx_builder.add_input(pool_in.clone()).unwrap();
-        let builder_step = TxBuilderStepDetails {
+        let builder_step = TxBuilderElementsFromOrder {
             input: pool_in,
             reference_input: pool_ref_script,
             ex_units: POOL_EXECUTION_UNITS,
@@ -235,15 +235,18 @@ where
     }
 }
 
-///
-pub struct TxBuilderStepDetails {
+/// Contains all the elements that must be given to the TX builder as a result of executing an
+/// order (e.g. fill or swap).
+pub struct TxBuilderElementsFromOrder {
     pub input: InputBuilderResult,
     pub reference_input: TransactionUnspentOutput,
     pub ex_units: ExUnits,
     pub output: SingleOutputBuilderResult,
 }
 
-pub struct TxBuilderFillStep {
+pub struct FillOrderResults {
+    /// The resulting UTxO from a partial-fill order
     pub residual_order: Option<TransactionOutput>,
-    pub step_details: TxBuilderStepDetails,
+    /// TX builder elements for this fill order.
+    pub tx_builder_elements: TxBuilderElementsFromOrder,
 }

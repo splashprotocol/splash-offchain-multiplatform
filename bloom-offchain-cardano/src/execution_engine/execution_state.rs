@@ -8,7 +8,6 @@ use spectrum_cardano_lib::AssetClass;
 pub struct ExecutionState {
     pub tx_builder: TransactionBuilder,
     pub execution_budget_acc: Value,
-    pub spot_batch_validator_set: bool,
 }
 
 impl ExecutionState {
@@ -16,7 +15,6 @@ impl ExecutionState {
         Self {
             tx_builder: constant_tx_builder(),
             execution_budget_acc: Value::zero(),
-            spot_batch_validator_set: false,
         }
     }
 

@@ -30,7 +30,7 @@ use crate::execution_engine::execution_state::ExecutionState;
 use crate::execution_engine::instances::Magnet;
 use crate::orders::spot::{SpotOrderBatchValidatorRefScriptOutput, SPOT_ORDER_N2T_EX_UNITS};
 
-use super::instances::{TxBuilderFillStep, TxBuilderStepDetails};
+use super::instances::{FillOrderResults, TxBuilderElementsFromOrder};
 
 /// A short-living interpreter.
 #[derive(Debug, Copy, Clone)]
@@ -41,8 +41,8 @@ impl<'a, Fr, Pl, Ctx> RecipeInterpreter<Fr, Pl, Ctx, OutputRef, FinalizedTxOut, 
 where
     Fr: Copy + std::fmt::Debug,
     Pl: Copy + std::fmt::Debug,
-    Magnet<LinkedFill<Fr, FinalizedTxOut>>: BatchExec<ExecutionState, TxBuilderFillStep, Ctx, Void>,
-    Magnet<LinkedSwap<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, TxBuilderStepDetails, Ctx, Void>,
+    Magnet<LinkedFill<Fr, FinalizedTxOut>>: BatchExec<ExecutionState, FillOrderResults, Ctx, Void>,
+    Magnet<LinkedSwap<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, TxBuilderElementsFromOrder, Ctx, Void>,
     Ctx: Clone + Has<Collateral> + Has<RewardAddress> + Has<SpotOrderBatchValidatorRefScriptOutput>,
 {
     fn run(
@@ -69,7 +69,7 @@ where
 
         for (
             ix,
-            TxBuilderStepDetails {
+            TxBuilderElementsFromOrder {
                 input,
                 reference_input,
                 ex_units,
@@ -158,22 +158,22 @@ fn execute<Fr, Pl, Ctx>(
     state: ExecutionState,
     mut updates_acc: (
         Vec<(Either<Fr, Pl>, TransactionOutput)>,
-        Vec<TxBuilderStepDetails>,
+        Vec<TxBuilderElementsFromOrder>,
     ),
     mut rem: Vec<LinkedTerminalInstruction<Fr, Pl, FinalizedTxOut>>,
 ) -> (
     ExecutionState,
     (
         Vec<(Either<Fr, Pl>, TransactionOutput)>,
-        Vec<TxBuilderStepDetails>,
+        Vec<TxBuilderElementsFromOrder>,
     ),
     Ctx,
 )
 where
     Fr: Copy,
     Pl: Copy,
-    Magnet<LinkedFill<Fr, FinalizedTxOut>>: BatchExec<ExecutionState, TxBuilderFillStep, Ctx, Void>,
-    Magnet<LinkedSwap<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, TxBuilderStepDetails, Ctx, Void>,
+    Magnet<LinkedFill<Fr, FinalizedTxOut>>: BatchExec<ExecutionState, FillOrderResults, Ctx, Void>,
+    Magnet<LinkedSwap<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, TxBuilderElementsFromOrder, Ctx, Void>,
     Ctx: Clone,
 {
     if let Some(instruction) = rem.pop() {
@@ -182,15 +182,15 @@ where
                 let next_state = fill_order.next_fr;
                 let (
                     tx_builder,
-                    TxBuilderFillStep {
+                    FillOrderResults {
                         residual_order,
-                        step_details,
+                        tx_builder_elements,
                     },
                     ctx,
                 ) = Magnet(fill_order).try_exec(state, ctx).unwrap();
                 trace!(target: "offchain", "Executing FILL. # TX inputs: {}", tx_builder.tx_builder.num_inputs());
                 let (mut updates_acc, mut typed_tx_in_acc) = updates_acc;
-                typed_tx_in_acc.push(step_details);
+                typed_tx_in_acc.push(tx_builder_elements);
                 if let (StateTrans::Active(next_fr), Some(next_bearer)) = (next_state, residual_order) {
                     updates_acc.push((Either::Left(next_fr), next_bearer));
                 }
