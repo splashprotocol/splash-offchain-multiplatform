@@ -1,6 +1,7 @@
 use std::sync::{Arc, Once};
 
 use async_stream::stream;
+use cml_chain::{NetworkId, PolicyId, Script, Value};
 use cml_chain::address::{Address, EnterpriseAddress};
 use cml_chain::assets::MultiAsset;
 use cml_chain::builders::input_builder::InputBuilderResult;
@@ -9,61 +10,59 @@ use cml_chain::builders::witness_builder::RequiredWitnessSet;
 use cml_chain::certs::StakeCredential;
 use cml_chain::genesis::network_info::NetworkInfo;
 use cml_chain::plutus::PlutusV2Script;
-use cml_chain::transaction::cbor_encodings::TransactionInputEncoding;
 use cml_chain::transaction::{
     ConwayFormatTxOut, ScriptRef, Transaction, TransactionInput, TransactionOutput,
 };
-use cml_chain::{NetworkId, PolicyId, Script, Value};
+use cml_chain::transaction::cbor_encodings::TransactionInputEncoding;
 use cml_core::network::ProtocolMagic;
 use cml_crypto::TransactionHash;
 use cml_multi_era::babbage::{BabbageTransaction, BabbageTransactionWitnessSet};
 use either::Either;
+use futures::{Stream, StreamExt};
 use futures::channel::mpsc;
 use futures::stream::select_all;
-use futures::{Stream, StreamExt};
 use log::{info, trace};
 use rand::Rng;
-use spectrum_cardano_lib::collateral::Collateral;
-use spectrum_offchain::network::Network;
-use spectrum_offchain_cardano::constants::{
-    DEPOSIT_SCRIPT, FEE_SWITCH_POOL_SCRIPT, FEE_SWITCH_POOL_SCRIPT_BIDIRECTIONAL_FEE_SCRIPT, POOL_V1_SCRIPT,
-    POOL_V2_SCRIPT, REDEEM_SCRIPT, SPOT_BATCH_VALIDATOR_SCRIPT, SPOT_SCRIPT, SWAP_SCRIPT,
-};
-use test_utils::babbage::to_babbage_transaction;
-use test_utils::pool::gen_pool_transaction_body;
-use test_utils::spot::gen_spot_tx;
 use tokio::sync::Mutex;
 use tracing_subscriber::fmt::Subscriber;
 
+use bloom_cardano_agent::config::AppConfig;
+use bloom_cardano_agent::context::ExecutionContext;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_part_stream;
 use bloom_offchain::execution_engine::liquidity_book::{ExecutionCap, TLB};
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
-use bloom_offchain::execution_engine::storage::cache::InMemoryStateIndexCache;
 use bloom_offchain::execution_engine::storage::InMemoryStateIndex;
+use bloom_offchain::execution_engine::storage::kv_store::InMemoryKvStore;
+use bloom_offchain_cardano::event_sink::CardanoEntity;
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
 use bloom_offchain_cardano::event_sink::handler::PairUpdateHandler;
-use bloom_offchain_cardano::event_sink::CardanoEntity;
 use bloom_offchain_cardano::execution_engine::interpreter::CardanoRecipeInterpreter;
 use bloom_offchain_cardano::orders::AnyOrder;
 use bloom_offchain_cardano::pools::AnyPool;
 use cardano_chain_sync::data::LedgerTxEvent;
+use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::OutputRef;
-use spectrum_offchain::data::unique_entity::{EitherMod, StateUpdate};
 use spectrum_offchain::data::Baked;
+use spectrum_offchain::data::unique_entity::{EitherMod, StateUpdate};
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::event_sink::process_events;
+use spectrum_offchain::network::Network;
 use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::streaming::boxed;
+use spectrum_offchain_cardano::constants::{
+    DEPOSIT_SCRIPT, FEE_SWITCH_POOL_SCRIPT, FEE_SWITCH_POOL_SCRIPT_BIDIRECTIONAL_FEE_SCRIPT, POOL_V1_SCRIPT,
+    POOL_V2_SCRIPT, REDEEM_SCRIPT, SPOT_BATCH_VALIDATOR_SCRIPT, SPOT_SCRIPT, SWAP_SCRIPT,
+};
 use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::data::ref_scripts::ReferenceOutputs;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::TxRejected;
-
-use bloom_cardano_agent::config::AppConfig;
-use bloom_cardano_agent::context::ExecutionContext;
+use test_utils::babbage::to_babbage_transaction;
+use test_utils::pool::gen_pool_transaction_body;
+use test_utils::spot::gen_spot_tx;
 
 const EXECUTION_CAP: ExecutionCap = ExecutionCap {
     soft: 6000000000,
@@ -172,7 +171,7 @@ async fn integration_test() {
     };
     let multi_book = MultiPair::new::<TLB<AnyOrder, AnyPool>>(context.clone());
     let state_index = InMemoryStateIndex::new();
-    let state_cache = InMemoryStateIndexCache::new();
+    let state_cache = InMemoryKvStore::new();
 
     let execution_stream_p1 = execution_part_stream(
         state_index.clone(),

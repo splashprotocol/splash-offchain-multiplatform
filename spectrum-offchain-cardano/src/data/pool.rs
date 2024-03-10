@@ -1,8 +1,14 @@
+use std::fmt::Debug;
+
+use cml_chain::{Coin, Value};
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
+use cml_chain::builders::tx_builder::{
+    ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput, TxBuilderError,
+};
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
 use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, TransactionOutput};
@@ -11,12 +17,13 @@ use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::{info, trace};
 use num_integer::Roots;
 use num_rational::Ratio;
-use std::fmt::Debug;
 use type_equalities::IsEqual;
 
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
+use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
 };
@@ -24,9 +31,10 @@ use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_offchain::data::unique_entity::Predicted;
 use spectrum_offchain::data::{EntitySnapshot, Has, Stable, VersionUpdater};
+use spectrum_offchain::data::unique_entity::Predicted;
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
+use spectrum_offchain::executor::RunOrderError::Fatal;
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 use crate::constants::{
@@ -34,6 +42,7 @@ use crate::constants::{
     POOL_IDX_0_DEPOSIT_REDEEMER, POOL_IDX_0_REDEEM_REDEEMER, POOL_IDX_0_SWAP_REDEEMER,
     POOL_IDX_1_DEPOSIT_REDEEMER, POOL_IDX_1_REDEEM_REDEEMER, POOL_IDX_1_SWAP_REDEEMER,
 };
+use crate::data::{OnChain, OnChainOrderId, PoolId, PoolStateVer, PoolVer};
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::execution_context::ExecutionContext;
 use crate::data::fee_switch_bidirectional_fee::FeeSwitchBidirectionalCFMMPool;
@@ -46,16 +55,8 @@ use crate::data::pool::AnyCFMMPool::{Classic, FeeSwitch, FeeSwitchBidirectional}
 use crate::data::pool::ApplyOrderError::{LowBatcherFeeErr, SlippageErr};
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::ref_scripts::RequiresRefScript;
-use crate::data::{OnChain, OnChainOrderId, PoolId, PoolStateVer, PoolVer};
 use crate::fees::FeeExtension;
 use crate::pool_math::cfmm_math::{output_amount, reward_lp, shares_amount};
-use cml_chain::builders::tx_builder::{
-    ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput, TxBuilderError,
-};
-use cml_chain::{Coin, Value};
-use spectrum_cardano_lib::hash::hash_transaction_canonical;
-use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
-use spectrum_offchain::executor::RunOrderError::Fatal;
 
 pub struct Rx;
 
@@ -787,20 +788,20 @@ pub trait ApplySwap<Swap>: Sized {
 }
 
 impl ApplyOrder<ClassicalOnChainLimitSwap> for AnyCFMMPool {
-    type OrderApplicationResult = SwapOutput;
+    type Result = SwapOutput;
 
     fn apply_order(
         self,
         order: ClassicalOnChainLimitSwap,
-    ) -> Result<(Self, Self::OrderApplicationResult), ApplyOrderError<ClassicalOnChainLimitSwap>> {
+    ) -> Result<(Self, Self::Result), ApplyOrderError<ClassicalOnChainLimitSwap>> {
         match self {
-            AnyCFMMPool::Classic(cfmm_pool) => cfmm_pool
+            Classic(cfmm_pool) => cfmm_pool
                 .apply_order(order)
                 .map(|(new_cfmm_pool, new_output)| (Classic(new_cfmm_pool), new_output)),
-            AnyCFMMPool::FeeSwitch(fee_switch_pool) => fee_switch_pool
+            FeeSwitch(fee_switch_pool) => fee_switch_pool
                 .apply_order(order)
                 .map(|(fee_pool, new_output)| (FeeSwitch(fee_pool), new_output)),
-            AnyCFMMPool::FeeSwitchBidirectional(bidirectional_pool) => bidirectional_pool
+            FeeSwitchBidirectional(bidirectional_pool) => bidirectional_pool
                 .apply_order(order)
                 .map(|(pool, new_output)| (FeeSwitchBidirectional(pool), new_output)),
         }
@@ -808,7 +809,7 @@ impl ApplyOrder<ClassicalOnChainLimitSwap> for AnyCFMMPool {
 }
 
 impl ApplyOrder<ClassicalOnChainLimitSwap> for ClassicCFMMPool {
-    type OrderApplicationResult = SwapOutput;
+    type Result = SwapOutput;
 
     fn apply_order(
         mut self,
@@ -850,30 +851,27 @@ impl ApplyOrder<ClassicalOnChainLimitSwap> for ClassicCFMMPool {
 }
 
 pub trait ApplyOrder<Order>: Sized {
-    type OrderApplicationResult;
+    type Result;
 
     // return: new pool, order output
-    fn apply_order(
-        self,
-        order: Order,
-    ) -> Result<(Self, Self::OrderApplicationResult), ApplyOrderError<Order>>;
+    fn apply_order(self, order: Order) -> Result<(Self, Self::Result), ApplyOrderError<Order>>;
 }
 
 impl ApplyOrder<ClassicalOnChainDeposit> for AnyCFMMPool {
-    type OrderApplicationResult = DepositOutput;
+    type Result = DepositOutput;
 
     fn apply_order(
         self,
         order: ClassicalOnChainDeposit,
-    ) -> Result<(Self, Self::OrderApplicationResult), ApplyOrderError<ClassicalOnChainDeposit>> {
+    ) -> Result<(Self, Self::Result), ApplyOrderError<ClassicalOnChainDeposit>> {
         match self {
-            AnyCFMMPool::Classic(cfmm_pool) => cfmm_pool
+            Classic(cfmm_pool) => cfmm_pool
                 .apply_order(order)
                 .map(|(new_cfmm_pool, new_output)| (Classic(new_cfmm_pool), new_output)),
-            AnyCFMMPool::FeeSwitch(fee_switch_pool) => fee_switch_pool
+            FeeSwitch(fee_switch_pool) => fee_switch_pool
                 .apply_order(order)
                 .map(|(fee_pool, new_output)| (FeeSwitch(fee_pool), new_output)),
-            AnyCFMMPool::FeeSwitchBidirectional(bidirectional_pool) => bidirectional_pool
+            FeeSwitchBidirectional(bidirectional_pool) => bidirectional_pool
                 .apply_order(order)
                 .map(|(pool, new_output)| (FeeSwitchBidirectional(pool), new_output)),
         }
@@ -881,7 +879,7 @@ impl ApplyOrder<ClassicalOnChainDeposit> for AnyCFMMPool {
 }
 
 impl ApplyOrder<ClassicalOnChainDeposit> for ClassicCFMMPool {
-    type OrderApplicationResult = DepositOutput;
+    type Result = DepositOutput;
 
     fn apply_order(
         mut self,
@@ -922,20 +920,20 @@ impl ApplyOrder<ClassicalOnChainDeposit> for ClassicCFMMPool {
 }
 
 impl ApplyOrder<ClassicalOnChainRedeem> for AnyCFMMPool {
-    type OrderApplicationResult = RedeemOutput;
+    type Result = RedeemOutput;
 
     fn apply_order(
         self,
         order: ClassicalOnChainRedeem,
-    ) -> Result<(Self, Self::OrderApplicationResult), ApplyOrderError<ClassicalOnChainRedeem>> {
+    ) -> Result<(Self, Self::Result), ApplyOrderError<ClassicalOnChainRedeem>> {
         match self {
-            AnyCFMMPool::Classic(cfmm_pool) => cfmm_pool
+            Classic(cfmm_pool) => cfmm_pool
                 .apply_order(order)
                 .map(|(new_cfmm_pool, new_output)| (Classic(new_cfmm_pool), new_output)),
-            AnyCFMMPool::FeeSwitch(fee_switch_pool) => fee_switch_pool
+            FeeSwitch(fee_switch_pool) => fee_switch_pool
                 .apply_order(order)
                 .map(|(fee_pool, new_output)| (FeeSwitch(fee_pool), new_output)),
-            AnyCFMMPool::FeeSwitchBidirectional(bidirectional_pool) => bidirectional_pool
+            FeeSwitchBidirectional(bidirectional_pool) => bidirectional_pool
                 .apply_order(order)
                 .map(|(pool, new_output)| (FeeSwitchBidirectional(pool), new_output)),
         }
@@ -943,7 +941,7 @@ impl ApplyOrder<ClassicalOnChainRedeem> for AnyCFMMPool {
 }
 
 impl ApplyOrder<ClassicalOnChainRedeem> for ClassicCFMMPool {
-    type OrderApplicationResult = RedeemOutput;
+    type Result = RedeemOutput;
 
     fn apply_order(
         mut self,
@@ -994,7 +992,7 @@ where
         + RequiresRefScript
         + EntitySnapshot<Version = PoolStateVer>
         + VersionUpdater,
-    <Pool as ApplyOrder<Order>>::OrderApplicationResult: IntoLedger<TransactionOutput, ExecutionContext>,
+    <Pool as ApplyOrder<Order>>::Result: IntoLedger<TransactionOutput, ExecutionContext>,
     Order: Has<OnChainOrderId>
         // all AMM ops redeemers depends on action and pool/order input idx
         + RequiresRedeemer<(ClassicalOrderAction, OrderInputIdx)>
@@ -1110,9 +1108,10 @@ pub struct CFMMPoolRefScriptOutput<const VER: u8>(pub TransactionUnspentOutput);
 
 #[cfg(test)]
 pub mod tests {
-    use bloom_offchain::execution_engine::liquidity_book::{pool::Pool, side::Side};
     use cml_crypto::TransactionHash;
     use rand::Rng;
+
+    use bloom_offchain::execution_engine::liquidity_book::{pool::Pool, side::Side};
     use spectrum_cardano_lib::OutputRef;
     use spectrum_offchain::ledger::TryFromLedger;
     use test_utils::pool::gen_pool_transaction_output;

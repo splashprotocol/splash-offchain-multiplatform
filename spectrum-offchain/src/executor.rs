@@ -10,14 +10,14 @@ use futures_timer::Delay;
 use log::{info, trace, warn};
 use serde::Serialize;
 use tokio::sync::Mutex;
-use type_equalities::{trivial_eq, IsEqual};
+use type_equalities::{IsEqual, trivial_eq};
 
 use crate::backlog::HotBacklog;
 use crate::box_resolver::persistence::EntityRepo;
 use crate::box_resolver::resolve_entity_state;
+use crate::data::EntitySnapshot;
 use crate::data::order::SpecializedOrder;
 use crate::data::unique_entity::{Predicted, Traced};
-use crate::data::EntitySnapshot;
 use crate::executor::TxSubmissionError::{OrderUtxoIsSpent, PoolUtxoIsSpent, UnknownError};
 use crate::network::Network;
 use crate::tx_prover::TxProver;
@@ -145,7 +145,7 @@ fn process_tx_rejected_error<'a, Err: Display, PoolVersion: Display, OrderVersio
         })
         .collect();
 
-    if (parsed_error.len() > 0) {
+    if parsed_error.len() > 0 {
         parsed_errors
     } else {
         // case when errors are not PoolUtxoIsSpent or OrderUtxoIsSpent
@@ -188,22 +188,15 @@ where
                         let mut entity_repo = self.pool_repo.lock().await;
                         let tx = self.prover.prove(tx_candidate);
                         if let Err(err) = self.network.submit_tx(tx).await {
-                            let process_result =
+                            let errors =
                                 process_tx_rejected_error(err, entity.clone().version(), ord.get_self_ref());
-                            warn!("Failed to submit TX. Errors {:?}", process_result);
-                            if (process_result.len() > 0) {
-                                match process_result {
-                                    poolWithOrderIsEmpty
-                                        if poolWithOrderIsEmpty.contains(&PoolUtxoIsSpent)
-                                            && poolWithOrderIsEmpty.contains(&OrderUtxoIsSpent) =>
-                                    {
-                                        entity_repo.invalidate(pool_state_id, pool_id).await;
-                                    }
-                                    poolIsEmpty if poolIsEmpty.contains(&PoolUtxoIsSpent) => {
-                                        entity_repo.invalidate(pool_state_id, pool_id).await;
-                                        self.backlog.lock().await.recharge(ord);
-                                    }
-                                    _ => {}
+                            warn!("Failed to submit TX. Errors {:?}", errors);
+                            if !errors.is_empty() {
+                                if errors.contains(&PoolUtxoIsSpent) && errors.contains(&OrderUtxoIsSpent) {
+                                    entity_repo.invalidate(pool_state_id, pool_id).await;
+                                } else if errors.contains(&PoolUtxoIsSpent) {
+                                    entity_repo.invalidate(pool_state_id, pool_id).await;
+                                    self.backlog.lock().await.recharge(ord);
                                 }
                             }
                         } else {

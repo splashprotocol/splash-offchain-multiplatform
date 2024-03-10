@@ -28,10 +28,11 @@ use crate::execution_engine::liquidity_book::recipe::{
 use crate::execution_engine::liquidity_book::{ExternalTLBEvents, TLBFeedback, TemporalLiquidityBook};
 use crate::execution_engine::multi_pair::MultiPair;
 use crate::execution_engine::resolver::resolve_source_state;
-use crate::execution_engine::storage::cache::StateIndexCache;
+use crate::execution_engine::storage::kv_store::KvStore;
 use crate::execution_engine::storage::StateIndex;
 use crate::maker::Maker;
 
+mod backlog;
 pub mod batch_exec;
 pub mod bundled;
 pub mod interpreter;
@@ -42,6 +43,8 @@ pub mod resolver;
 pub mod storage;
 pub mod types;
 
+// todo: check pool resolving
+
 pub type Event<O, P, B, V> = EitherMod<StateUpdate<Bundled<BakedEntity<O, P, V>, B>>>;
 
 /// Instantiate execution stream partition.
@@ -49,7 +52,7 @@ pub type Event<O, P, B, V> = EitherMod<StateUpdate<Bundled<BakedEntity<O, P, V>,
 pub fn execution_part_stream<
     'a,
     Upstream,
-    PairId,
+    Pair,
     StableId,
     Ver,
     Order,
@@ -61,6 +64,7 @@ pub fn execution_part_stream<
     Index,
     Cache,
     Book,
+    Backlog,
     Interpreter,
     Prover,
     Net,
@@ -68,7 +72,8 @@ pub fn execution_part_stream<
 >(
     index: Index,
     cache: Cache,
-    book: MultiPair<PairId, Book, Ctx>,
+    book: MultiPair<Pair, Book, Ctx>,
+    backlog: MultiPair<Pair, Backlog, Ctx>,
     context: Ctx,
     interpreter: Interpreter,
     prover: Prover,
@@ -76,8 +81,8 @@ pub fn execution_part_stream<
     network: Net,
 ) -> impl Stream<Item = ()> + 'a
 where
-    Upstream: Stream<Item = (PairId, Event<Order, Pool, Bearer, Ver>)> + Unpin + 'a,
-    PairId: Copy + Eq + Ord + Hash + Display + Unpin + 'a,
+    Upstream: Stream<Item = (Pair, Event<Order, Pool, Bearer, Ver>)> + Unpin + 'a,
+    Pair: Copy + Eq + Ord + Hash + Display + Unpin + 'a,
     StableId: Copy + Eq + Hash + Debug + Display + Unpin + 'a,
     Ver: Copy + Eq + Hash + Display + Unpin + 'a,
     Pool: Stable<StableId = StableId> + Copy + Debug + Unpin + 'a,
@@ -87,13 +92,14 @@ where
     Tx: Unpin + 'a,
     Ctx: Clone + Unpin + 'a,
     Index: StateIndex<Bundled<BakedEntity<Order, Pool, Ver>, Bearer>> + Unpin + 'a,
-    Cache: StateIndexCache<StableId, Bundled<BakedEntity<Order, Pool, Ver>, Bearer>> + Unpin + 'a,
+    Cache: KvStore<StableId, Bundled<BakedEntity<Order, Pool, Ver>, Bearer>> + Unpin + 'a,
     Book: TemporalLiquidityBook<Order, Pool>
         + ExternalTLBEvents<Order, Pool>
         + TLBFeedback<Order, Pool>
         + Maker<Ctx>
         + Unpin
         + 'a,
+    Backlog: Unpin + 'a,
     Interpreter: RecipeInterpreter<Order, Pool, Ctx, Ver, Bearer, Txc> + Unpin + 'a,
     Prover: TxProver<Txc, Tx> + Unpin + 'a,
     Net: Network<Tx, Err> + Clone + 'a,
@@ -104,6 +110,7 @@ where
         index,
         cache,
         book,
+        backlog,
         context,
         interpreter,
         prover,
@@ -120,37 +127,54 @@ where
     })
 }
 
-pub struct Executor<S, PairId, StableId, Ver, O, P, Bearer, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err> {
+pub struct Executor<
+    Upstream,
+    Pair,
+    StableId,
+    Ver,
+    Order,
+    Pool,
+    Bearer,
+    Txc,
+    Tx,
+    Ctx,
+    Index,
+    Cache,
+    Book,
+    Backlog,
+    Interpreter,
+    Prover,
+    Err,
+> {
     index: Index,
     cache: Cache,
-    /// Separate TLBs for each pair.
-    multi_book: MultiPair<PairId, Book, C>,
-    context: C,
-    interpreter: Ir,
+    /// Separate TLBs for each pair (for swaps).
+    multi_book: MultiPair<Pair, Book, Ctx>,
+    /// Separate Backlogs for each pair (for specialized operations such as Deposit/Redeem)
+    multi_backlog: MultiPair<Pair, Backlog, Ctx>,
+    context: Ctx,
+    interpreter: Interpreter,
     prover: Prover,
-    upstream: S,
-    /// Feedback channel is used to deliver the status of transaction produced by the executor back to it.
+    upstream: Upstream,
+    /// Feedback channel is used to signal the status of transaction submitted earlier by the executor.
     feedback: mpsc::Receiver<Result<(), Err>>,
-    /// Pending effects resulted from execution of a batch trade in a certain [PairId].
-    pending_effects: Option<(PairId, Vec<(BakedEntity<O, P, Ver>, Bearer)>)>,
-    /// Which pair should we process in the first place.
-    focus_set: BTreeSet<PairId>,
-    pd1: PhantomData<StableId>,
-    pd2: PhantomData<Ver>,
-    pd3: PhantomData<Txc>,
-    pd4: PhantomData<Tx>,
-    pd5: PhantomData<Err>,
+    /// Pending effects resulted from execution of a batch trade in a certain [Pair].
+    pending_effects: Option<(Pair, Vec<(BakedEntity<Order, Pool, Ver>, Bearer)>)>,
+    /// Which pair should we process in the first place. todo: should be a vector.
+    focus_set: BTreeSet<Pair>,
+    pd: PhantomData<(StableId, Ver, Txc, Tx, Err)>,
 }
 
 type BakedEntity<O, P, V> = Either<Baked<O, V>, Baked<P, V>>;
 
-impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Prover, Err>
-    Executor<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Prover, Err>
+impl<S, Pair, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Backlog, Ir, Prover, Err>
+    Executor<S, Pair, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Backlog, Ir, Prover, Err>
 {
     fn new(
         index: Index,
         cache: Cache,
-        multi_book: MultiPair<PairId, Book, Ctx>,
+        multi_book: MultiPair<Pair, Book, Ctx>,
+        multi_backlog: MultiPair<Pair, Backlog, Ctx>,
         context: Ctx,
         interpreter: Ir,
         prover: Prover,
@@ -161,6 +185,7 @@ impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Pr
             index,
             cache,
             multi_book,
+            multi_backlog,
             context,
             interpreter,
             prover,
@@ -168,17 +193,13 @@ impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Pr
             feedback,
             pending_effects: None,
             focus_set: Default::default(),
-            pd1: Default::default(),
-            pd2: Default::default(),
-            pd3: Default::default(),
-            pd4: Default::default(),
-            pd5: Default::default(),
+            pd: Default::default(),
         }
     }
 
-    fn sync_book(&mut self, pair: PairId, update: EitherMod<StateUpdate<Bundled<BakedEntity<O, P, Ver>, B>>>)
+    fn sync_book(&mut self, pair: Pair, update: EitherMod<StateUpdate<Bundled<BakedEntity<O, P, Ver>, B>>>)
     where
-        PairId: Copy + Eq + Hash + Display,
+        Pair: Copy + Eq + Hash + Display,
         StableId: Copy + Eq + Hash + Debug + Display,
         Ver: Copy + Eq + Hash + Display,
         B: Clone + Debug,
@@ -186,10 +207,10 @@ impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Pr
         O: Stable<StableId = StableId> + Clone + Debug,
         P: Stable<StableId = StableId> + Clone + Debug,
         Index: StateIndex<Bundled<BakedEntity<O, P, Ver>, B>>,
-        Cache: StateIndexCache<StableId, Bundled<BakedEntity<O, P, Ver>, B>>,
+        Cache: KvStore<StableId, Bundled<BakedEntity<O, P, Ver>, B>>,
         Book: ExternalTLBEvents<O, P> + Maker<Ctx>,
     {
-        trace!(target: "executor", "sync'ing book pair: {}", pair);
+        trace!(target: "executor", "syncing book pair: {}", pair);
         match self.update_state(update) {
             None => {}
             Some(Ior::Left(e)) => match e {
@@ -226,7 +247,7 @@ impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Pr
         T: EntitySnapshot<StableId = StableId, Version = Ver> + Clone,
         B: Clone,
         Index: StateIndex<Bundled<T, B>>,
-        Cache: StateIndexCache<StableId, Bundled<T, B>>,
+        Cache: KvStore<StableId, Bundled<T, B>>,
     {
         let is_confirmed = matches!(update, EitherMod::Confirmed(_));
         let (EitherMod::Confirmed(Confirmed(upd)) | EitherMod::Unconfirmed(Unconfirmed(upd))) = update;
@@ -243,9 +264,12 @@ impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Pr
                     trace!(target: "executor", "Observing new unconfirmed state {}", id);
                     self.index.put_unconfirmed(Unconfirmed(new_state));
                 }
+                // todo: resolving can be simplified if we don't use predictions.
                 match resolve_source_state(id, &self.index) {
                     Some(latest_state) => {
-                        if let Some(Bundled(prev_best_state, _)) = self.cache.insert(latest_state.clone()) {
+                        if let Some(Bundled(prev_best_state, _)) =
+                            self.cache.insert(latest_state.stable_id(), latest_state.clone())
+                        {
                             Some(Ior::Both(prev_best_state, latest_state.0))
                         } else {
                             Some(Ior::Right(latest_state.0))
@@ -273,7 +297,7 @@ impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Pr
         Ver: Copy + Eq + Hash + Display,
         O: Stable<StableId = StableId> + Debug,
         P: Stable<StableId = StableId> + Debug,
-        Cache: StateIndexCache<StableId, Bundled<BakedEntity<O, P, Ver>, B>>,
+        Cache: KvStore<StableId, Bundled<BakedEntity<O, P, Ver>, B>>,
     {
         let mut linked = vec![];
         while let Some(i) = xs.pop() {
@@ -298,8 +322,8 @@ impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Ir, Pr
     }
 }
 
-impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err> Stream
-    for Executor<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err>
+impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Backlog, Ir, Prover, Err> Stream
+    for Executor<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Backlog, Ir, Prover, Err>
 where
     S: Stream<Item = (PairId, EitherMod<StateUpdate<Bundled<BakedEntity<O, P, Ver>, B>>>)> + Unpin,
     PairId: Copy + Eq + Ord + Hash + Display + Unpin,
@@ -312,8 +336,9 @@ where
     Tx: Unpin,
     C: Clone + Unpin,
     Index: StateIndex<Bundled<BakedEntity<O, P, Ver>, B>> + Unpin,
-    Cache: StateIndexCache<StableId, Bundled<BakedEntity<O, P, Ver>, B>> + Unpin,
+    Cache: KvStore<StableId, Bundled<BakedEntity<O, P, Ver>, B>> + Unpin,
     Book: TemporalLiquidityBook<O, P> + ExternalTLBEvents<O, P> + TLBFeedback<O, P> + Maker<C> + Unpin,
+    Backlog: Unpin,
     Ir: RecipeInterpreter<O, P, C, Ver, B, Txc> + Unpin,
     Prover: TxProver<Txc, Tx> + Unpin,
     Err: Unpin,
@@ -322,6 +347,7 @@ where
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         loop {
+            // todo: swap polling and `pending_effects.take()`; We don't wait here actually.
             // Wait for the feedback from the last pending job.
             if let Some((pair, mut pending_effects)) = self.pending_effects.take() {
                 if let Poll::Ready(Some(result)) = Stream::poll_next(Pin::new(&mut self.feedback), cx) {
@@ -367,8 +393,8 @@ where
     }
 }
 
-impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err> FusedStream
-    for Executor<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Ir, Prover, Err>
+impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Backlog, Ir, Prover, Err> FusedStream
+    for Executor<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Backlog, Ir, Prover, Err>
 where
     S: Stream<Item = (PairId, EitherMod<StateUpdate<Bundled<BakedEntity<O, P, Ver>, B>>>)> + Unpin,
     PairId: Copy + Eq + Ord + Hash + Display + Unpin,
@@ -381,8 +407,9 @@ where
     Tx: Unpin,
     C: Clone + Unpin,
     Index: StateIndex<Bundled<BakedEntity<O, P, Ver>, B>> + Unpin,
-    Cache: StateIndexCache<StableId, Bundled<BakedEntity<O, P, Ver>, B>> + Unpin,
+    Cache: KvStore<StableId, Bundled<BakedEntity<O, P, Ver>, B>> + Unpin,
     Book: TemporalLiquidityBook<O, P> + ExternalTLBEvents<O, P> + TLBFeedback<O, P> + Maker<C> + Unpin,
+    Backlog: Unpin,
     Ir: RecipeInterpreter<O, P, C, Ver, B, Txc> + Unpin,
     Prover: TxProver<Txc, Tx> + Unpin,
     Err: Unpin,

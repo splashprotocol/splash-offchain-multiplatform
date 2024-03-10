@@ -6,22 +6,24 @@ use cml_chain::transaction::Transaction;
 use cml_core::network::ProtocolMagic;
 use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
+use futures::{Stream, StreamExt};
 use futures::channel::mpsc;
 use futures::stream::select_all;
-use futures::{Stream, StreamExt};
 use log::info;
 use tokio::sync::Mutex;
 use tracing_subscriber::fmt::Subscriber;
 
+use bloom_cardano_agent::config::AppConfig;
+use bloom_cardano_agent::context::ExecutionContext;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_part_stream;
 use bloom_offchain::execution_engine::liquidity_book::{ExecutionCap, TLB};
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
-use bloom_offchain::execution_engine::storage::cache::InMemoryStateIndexCache;
 use bloom_offchain::execution_engine::storage::InMemoryStateIndex;
+use bloom_offchain::execution_engine::storage::kv_store::InMemoryKvStore;
+use bloom_offchain_cardano::event_sink::CardanoEntity;
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
 use bloom_offchain_cardano::event_sink::handler::PairUpdateHandler;
-use bloom_offchain_cardano::event_sink::CardanoEntity;
 use bloom_offchain_cardano::execution_engine::interpreter::CardanoRecipeInterpreter;
 use bloom_offchain_cardano::orders::AnyOrder;
 use bloom_offchain_cardano::pools::AnyPool;
@@ -38,8 +40,8 @@ use cardano_submit_api::client::LocalTxSubmissionClient;
 use spectrum_cardano_lib::constants::BABBAGE_ERA_ID;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::OutputRef;
-use spectrum_offchain::data::unique_entity::{EitherMod, StateUpdate};
 use spectrum_offchain::data::Baked;
+use spectrum_offchain::data::unique_entity::{EitherMod, StateUpdate};
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::partitioning::Partitioned;
@@ -50,9 +52,6 @@ use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::data::ref_scripts::ReferenceOutputs;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
-
-use bloom_cardano_agent::config::AppConfig;
-use bloom_cardano_agent::context::ExecutionContext;
 
 mod config;
 mod context;
@@ -155,7 +154,7 @@ async fn main() {
     };
     let multi_book = MultiPair::new::<TLB<AnyOrder, AnyPool>>(context.clone());
     let state_index = InMemoryStateIndex::new();
-    let state_cache = InMemoryStateIndexCache::new();
+    let state_cache = InMemoryKvStore::new();
 
     let execution_stream_p1 = execution_part_stream(
         state_index.clone(),

@@ -3,10 +3,10 @@ use std::fmt::Debug;
 
 use log::warn;
 
-use spectrum_offchain::data::unique_entity::{Confirmed, Predicted, Traced, Unconfirmed};
 use spectrum_offchain::data::{EntitySnapshot, Stable};
+use spectrum_offchain::data::unique_entity::{Confirmed, Predicted, Traced, Unconfirmed};
 
-pub mod cache;
+pub mod kv_store;
 
 pub trait StateIndex<Src: EntitySnapshot> {
     /// Get state id preceding given predicted state.
