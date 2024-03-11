@@ -6,26 +6,26 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use either::Either;
-use futures::channel::mpsc;
-use futures::stream::FusedStream;
-use futures::Stream;
 use futures::{SinkExt, StreamExt};
+use futures::channel::mpsc;
+use futures::Stream;
+use futures::stream::FusedStream;
 use log::trace;
 
 use spectrum_offchain::combinators::Ior;
-use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
 use spectrum_offchain::data::{Baked, EntitySnapshot, Stable};
+use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_prover::TxProver;
 
 use crate::execution_engine::bundled::Bundled;
 use crate::execution_engine::interpreter::RecipeInterpreter;
+use crate::execution_engine::liquidity_book::{ExternalTLBEvents, TemporalLiquidityBook, TLBFeedback};
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState};
 use crate::execution_engine::liquidity_book::recipe::{
     ExecutionRecipe, LinkedExecutionRecipe, LinkedFill, LinkedSwap, LinkedTerminalInstruction,
     TerminalInstruction,
 };
-use crate::execution_engine::liquidity_book::{ExternalTLBEvents, TLBFeedback, TemporalLiquidityBook};
 use crate::execution_engine::multi_pair::MultiPair;
 use crate::execution_engine::resolver::resolve_source_state;
 use crate::execution_engine::storage::kv_store::KvStore;
@@ -347,11 +347,10 @@ where
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         loop {
-            // todo: swap polling and `pending_effects.take()`; We don't wait here actually.
             // Wait for the feedback from the last pending job.
             if let Some((pair, mut pending_effects)) = self.pending_effects.take() {
-                if let Poll::Ready(Some(result)) = Stream::poll_next(Pin::new(&mut self.feedback), cx) {
-                    match result {
+                match Stream::poll_next(Pin::new(&mut self.feedback), cx) {
+                    Poll::Ready(Some(result)) => match result {
                         Ok(_) => {
                             while let Some((e, bearer)) = pending_effects.pop() {
                                 self.update_state(EitherMod::Unconfirmed(Unconfirmed(
@@ -364,10 +363,12 @@ where
                             // todo: invalidate missing bearers.
                             self.multi_book.get_mut(&pair).on_recipe_failed();
                         }
+                    },
+                    _ => {
+                        let _ = self.pending_effects.insert((pair, pending_effects));
+                        return Poll::Pending;
                     }
-                    continue;
                 }
-                let _ = self.pending_effects.insert((pair, pending_effects));
             }
             // Prioritize external updates over local work.
             if let Poll::Ready(Some((pair, update))) = Stream::poll_next(Pin::new(&mut self.upstream), cx) {

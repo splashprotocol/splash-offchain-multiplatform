@@ -11,6 +11,13 @@ pub trait BacklogExecutor<Pl, Op, Txc, Bearer> {
     fn attempt(&mut self) -> Option<(Txc, Bundled<Pl, Bearer>)>;
 }
 
+pub trait BacklogStateWrite<Pl, Op> {
+    fn update_pool(&mut self, pool: Pl);
+    fn remove_pool(&mut self, pool: Pl);
+    fn update_order(&mut self, order: Op);
+    fn remove_order(&mut self, order: Op);
+}
+
 pub struct BacklogImpl<Backlog, Store, Ctx> {
     backlog: Backlog,
     store: Store,
@@ -33,7 +40,7 @@ where
             .and_then(|op| self.store.get(op.get_pool_ref()).map(|pl| (pl, op)))
         {
             match pool.try_run(op, self.context.clone()) {
-                Ok((tx_candidate, next_entity_state)) => {}
+                Ok((tx_candidate, updated_pool)) => {}
                 Err(RunOrderError::NonFatal(err, _) | RunOrderError::Fatal(err, _)) => {}
             }
         }
