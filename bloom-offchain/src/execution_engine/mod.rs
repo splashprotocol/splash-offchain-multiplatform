@@ -35,6 +35,7 @@ use crate::maker::Maker;
 mod backlog;
 pub mod batch_exec;
 pub mod bundled;
+pub mod execution_effect;
 pub mod interpreter;
 pub mod liquidity_book;
 pub mod multi_pair;
