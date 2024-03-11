@@ -19,6 +19,7 @@ use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_prover::TxProver;
 
 use crate::execution_engine::bundled::Bundled;
+use crate::execution_engine::execution_effect::ExecutionEffect;
 use crate::execution_engine::interpreter::RecipeInterpreter;
 use crate::execution_engine::liquidity_book::{ExternalTLBEvents, TemporalLiquidityBook, TLBFeedback};
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState};
@@ -46,7 +47,7 @@ pub mod types;
 
 // todo: check pool resolving
 
-pub type Event<O, P, B, V> = EitherMod<StateUpdate<Bundled<BakedEntity<O, P, V>, B>>>;
+pub type Event<O, P, B, V> = EitherMod<StateUpdate<EvolvingEntity<O, P, V, B>>>;
 
 /// Instantiate execution stream partition.
 /// Each partition serves total_pairs/num_partitions pairs.
@@ -56,7 +57,8 @@ pub fn execution_part_stream<
     Pair,
     StableId,
     Ver,
-    Order,
+    CompOrder,
+    SpecOrder,
     Pool,
     Bearer,
     Txc,
@@ -82,26 +84,26 @@ pub fn execution_part_stream<
     network: Net,
 ) -> impl Stream<Item = ()> + 'a
 where
-    Upstream: Stream<Item = (Pair, Event<Order, Pool, Bearer, Ver>)> + Unpin + 'a,
+    Upstream: Stream<Item = (Pair, Event<CompOrder, Pool, Bearer, Ver>)> + Unpin + 'a,
     Pair: Copy + Eq + Ord + Hash + Display + Unpin + 'a,
     StableId: Copy + Eq + Hash + Debug + Display + Unpin + 'a,
     Ver: Copy + Eq + Hash + Display + Unpin + 'a,
     Pool: Stable<StableId = StableId> + Copy + Debug + Unpin + 'a,
-    Order: Stable<StableId = StableId> + Fragment + OrderState + Copy + Debug + Unpin + 'a,
+    CompOrder: Stable<StableId = StableId> + Fragment + OrderState + Copy + Debug + Unpin + 'a,
     Bearer: Clone + Unpin + Debug + 'a,
     Txc: Unpin + 'a,
     Tx: Unpin + 'a,
     Ctx: Clone + Unpin + 'a,
-    Index: StateIndex<Bundled<BakedEntity<Order, Pool, Ver>, Bearer>> + Unpin + 'a,
-    Cache: KvStore<StableId, Bundled<BakedEntity<Order, Pool, Ver>, Bearer>> + Unpin + 'a,
-    Book: TemporalLiquidityBook<Order, Pool>
-        + ExternalTLBEvents<Order, Pool>
-        + TLBFeedback<Order, Pool>
+    Index: StateIndex<EvolvingEntity<CompOrder, Pool, Ver, Bearer>> + Unpin + 'a,
+    Cache: KvStore<StableId, EvolvingEntity<CompOrder, Pool, Ver, Bearer>> + Unpin + 'a,
+    Book: TemporalLiquidityBook<CompOrder, Pool>
+        + ExternalTLBEvents<CompOrder, Pool>
+        + TLBFeedback<CompOrder, Pool>
         + Maker<Ctx>
         + Unpin
         + 'a,
     Backlog: Unpin + 'a,
-    Interpreter: RecipeInterpreter<Order, Pool, Ctx, Ver, Bearer, Txc> + Unpin + 'a,
+    Interpreter: RecipeInterpreter<CompOrder, Pool, Ctx, Ver, Bearer, Txc> + Unpin + 'a,
     Prover: TxProver<Txc, Tx> + Unpin + 'a,
     Net: Network<Tx, Err> + Clone + 'a,
     Err: Unpin + 'a,
@@ -133,7 +135,7 @@ pub struct Executor<
     Pair,
     StableId,
     Ver,
-    Order,
+    CompOrder,
     Pool,
     Bearer,
     Txc,
@@ -160,16 +162,25 @@ pub struct Executor<
     /// Feedback channel is used to signal the status of transaction submitted earlier by the executor.
     feedback: mpsc::Receiver<Result<(), Err>>,
     /// Pending effects resulted from execution of a batch trade in a certain [Pair].
-    pending_effects: Option<(Pair, Vec<(BakedEntity<Order, Pool, Ver>, Bearer)>)>,
+    pending_effects: Option<(
+        Pair,
+        Vec<
+            ExecutionEffect<
+                EvolvingEntity<CompOrder, Pool, Ver, Bearer>,
+                Bundled<Baked<CompOrder, Ver>, Bearer>,
+            >,
+        >,
+    )>,
     /// Which pair should we process in the first place. todo: should be a vector.
     focus_set: BTreeSet<Pair>,
     pd: PhantomData<(StableId, Ver, Txc, Tx, Err)>,
 }
 
-type BakedEntity<O, P, V> = Either<Baked<O, V>, Baked<P, V>>;
+/// Class of entities that evolve upon execution.
+type EvolvingEntity<CO, P, V, B> = Bundled<Either<Baked<CO, V>, Baked<P, V>>, B>;
 
-impl<S, Pair, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Backlog, Ir, Prover, Err>
-    Executor<S, Pair, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Backlog, Ir, Prover, Err>
+impl<S, Pair, StableId, Ver, CO, P, B, Txc, Tx, Ctx, Index, Cache, Book, Backlog, Ir, Prover, Err>
+    Executor<S, Pair, StableId, Ver, CO, P, B, Txc, Tx, Ctx, Index, Cache, Book, Backlog, Ir, Prover, Err>
 {
     fn new(
         index: Index,
@@ -198,18 +209,18 @@ impl<S, Pair, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Backlog,
         }
     }
 
-    fn sync_book(&mut self, pair: Pair, update: EitherMod<StateUpdate<Bundled<BakedEntity<O, P, Ver>, B>>>)
+    fn sync_book(&mut self, pair: Pair, update: EitherMod<StateUpdate<EvolvingEntity<CO, P, Ver, B>>>)
     where
         Pair: Copy + Eq + Hash + Display,
         StableId: Copy + Eq + Hash + Debug + Display,
         Ver: Copy + Eq + Hash + Display,
         B: Clone + Debug,
         Ctx: Clone,
-        O: Stable<StableId = StableId> + Clone + Debug,
+        CO: Stable<StableId = StableId> + Clone + Debug,
         P: Stable<StableId = StableId> + Clone + Debug,
-        Index: StateIndex<Bundled<BakedEntity<O, P, Ver>, B>>,
-        Cache: KvStore<StableId, Bundled<BakedEntity<O, P, Ver>, B>>,
-        Book: ExternalTLBEvents<O, P> + Maker<Ctx>,
+        Index: StateIndex<EvolvingEntity<CO, P, Ver, B>>,
+        Cache: KvStore<StableId, EvolvingEntity<CO, P, Ver, B>>,
+        Book: ExternalTLBEvents<CO, P> + Maker<Ctx>,
     {
         trace!(target: "executor", "syncing book pair: {}", pair);
         match self.update_state(update) {
@@ -292,13 +303,13 @@ impl<S, Pair, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Backlog,
         }
     }
 
-    fn link_recipe(&self, ExecutionRecipe(mut xs): ExecutionRecipe<O, P>) -> LinkedExecutionRecipe<O, P, B>
+    fn link_recipe(&self, ExecutionRecipe(mut xs): ExecutionRecipe<CO, P>) -> LinkedExecutionRecipe<CO, P, B>
     where
         StableId: Copy + Eq + Hash + Debug + Display,
         Ver: Copy + Eq + Hash + Display,
-        O: Stable<StableId = StableId> + Debug,
+        CO: Stable<StableId = StableId> + Debug,
         P: Stable<StableId = StableId> + Debug,
-        Cache: KvStore<StableId, Bundled<BakedEntity<O, P, Ver>, B>>,
+        Cache: KvStore<StableId, EvolvingEntity<CO, P, Ver, B>>,
     {
         let mut linked = vec![];
         while let Some(i) = xs.pop() {
@@ -323,24 +334,24 @@ impl<S, Pair, StableId, Ver, O, P, B, Txc, Tx, Ctx, Index, Cache, Book, Backlog,
     }
 }
 
-impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Backlog, Ir, Prover, Err> Stream
-    for Executor<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Backlog, Ir, Prover, Err>
+impl<S, Pair, Stab, Ver, CO, P, B, Txc, Tx, C, Index, Cache, Book, Backlog, Ir, Prover, Err> Stream
+    for Executor<S, Pair, Stab, Ver, CO, P, B, Txc, Tx, C, Index, Cache, Book, Backlog, Ir, Prover, Err>
 where
-    S: Stream<Item = (PairId, EitherMod<StateUpdate<Bundled<BakedEntity<O, P, Ver>, B>>>)> + Unpin,
-    PairId: Copy + Eq + Ord + Hash + Display + Unpin,
-    StableId: Copy + Eq + Hash + Debug + Display + Unpin,
+    S: Stream<Item = (Pair, EitherMod<StateUpdate<EvolvingEntity<CO, P, Ver, B>>>)> + Unpin,
+    Pair: Copy + Eq + Ord + Hash + Display + Unpin,
+    Stab: Copy + Eq + Hash + Debug + Display + Unpin,
     Ver: Copy + Eq + Hash + Display + Unpin,
-    P: Stable<StableId = StableId> + Copy + Debug + Unpin,
-    O: Stable<StableId = StableId> + Fragment + OrderState + Copy + Debug + Unpin,
+    P: Stable<StableId = Stab> + Copy + Debug + Unpin,
+    CO: Stable<StableId = Stab> + Fragment + OrderState + Copy + Debug + Unpin,
     B: Clone + Debug + Unpin,
     Txc: Unpin,
     Tx: Unpin,
     C: Clone + Unpin,
-    Index: StateIndex<Bundled<BakedEntity<O, P, Ver>, B>> + Unpin,
-    Cache: KvStore<StableId, Bundled<BakedEntity<O, P, Ver>, B>> + Unpin,
-    Book: TemporalLiquidityBook<O, P> + ExternalTLBEvents<O, P> + TLBFeedback<O, P> + Maker<C> + Unpin,
+    Index: StateIndex<EvolvingEntity<CO, P, Ver, B>> + Unpin,
+    Cache: KvStore<Stab, EvolvingEntity<CO, P, Ver, B>> + Unpin,
+    Book: TemporalLiquidityBook<CO, P> + ExternalTLBEvents<CO, P> + TLBFeedback<CO, P> + Maker<C> + Unpin,
     Backlog: Unpin,
-    Ir: RecipeInterpreter<O, P, C, Ver, B, Txc> + Unpin,
+    Ir: RecipeInterpreter<CO, P, C, Ver, B, Txc> + Unpin,
     Prover: TxProver<Txc, Tx> + Unpin,
     Err: Unpin,
 {
@@ -353,10 +364,19 @@ where
                 match Stream::poll_next(Pin::new(&mut self.feedback), cx) {
                     Poll::Ready(Some(result)) => match result {
                         Ok(_) => {
-                            while let Some((e, bearer)) = pending_effects.pop() {
-                                self.update_state(EitherMod::Unconfirmed(Unconfirmed(
-                                    StateUpdate::Transition(Ior::Right(Bundled(e, bearer))),
-                                )));
+                            while let Some(effect) = pending_effects.pop() {
+                                match effect {
+                                    ExecutionEffect::Updated(upd) => {
+                                        self.update_state(EitherMod::Unconfirmed(Unconfirmed(
+                                            StateUpdate::Transition(Ior::Right(upd)),
+                                        )));
+                                    }
+                                    ExecutionEffect::Eliminated(elim) => {
+                                        self.update_state(EitherMod::Unconfirmed(Unconfirmed(
+                                            StateUpdate::Transition(Ior::Left(elim.map(Either::Left))),
+                                        )));
+                                    }
+                                }
                             }
                             self.multi_book.get_mut(&pair).on_recipe_succeeded();
                         }
@@ -395,24 +415,24 @@ where
     }
 }
 
-impl<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Backlog, Ir, Prover, Err> FusedStream
-    for Executor<S, PairId, StableId, Ver, O, P, B, Txc, Tx, C, Index, Cache, Book, Backlog, Ir, Prover, Err>
+impl<S, Pair, Stab, Ver, CO, P, B, Txc, Tx, C, Index, Cache, Book, Backlog, Ir, Prover, Err> FusedStream
+    for Executor<S, Pair, Stab, Ver, CO, P, B, Txc, Tx, C, Index, Cache, Book, Backlog, Ir, Prover, Err>
 where
-    S: Stream<Item = (PairId, EitherMod<StateUpdate<Bundled<BakedEntity<O, P, Ver>, B>>>)> + Unpin,
-    PairId: Copy + Eq + Ord + Hash + Display + Unpin,
-    StableId: Copy + Eq + Hash + Debug + Display + Unpin,
+    S: Stream<Item = (Pair, EitherMod<StateUpdate<EvolvingEntity<CO, P, Ver, B>>>)> + Unpin,
+    Pair: Copy + Eq + Ord + Hash + Display + Unpin,
+    Stab: Copy + Eq + Hash + Debug + Display + Unpin,
     Ver: Copy + Eq + Hash + Display + Unpin,
-    P: Stable<StableId = StableId> + Copy + Debug + Unpin,
-    O: Stable<StableId = StableId> + Fragment + OrderState + Copy + Debug + Unpin,
+    P: Stable<StableId = Stab> + Copy + Debug + Unpin,
+    CO: Stable<StableId = Stab> + Fragment + OrderState + Copy + Debug + Unpin,
     B: Clone + Debug + Unpin,
     Txc: Unpin,
     Tx: Unpin,
     C: Clone + Unpin,
-    Index: StateIndex<Bundled<BakedEntity<O, P, Ver>, B>> + Unpin,
-    Cache: KvStore<StableId, Bundled<BakedEntity<O, P, Ver>, B>> + Unpin,
-    Book: TemporalLiquidityBook<O, P> + ExternalTLBEvents<O, P> + TLBFeedback<O, P> + Maker<C> + Unpin,
+    Index: StateIndex<EvolvingEntity<CO, P, Ver, B>> + Unpin,
+    Cache: KvStore<Stab, EvolvingEntity<CO, P, Ver, B>> + Unpin,
+    Book: TemporalLiquidityBook<CO, P> + ExternalTLBEvents<CO, P> + TLBFeedback<CO, P> + Maker<C> + Unpin,
     Backlog: Unpin,
-    Ir: RecipeInterpreter<O, P, C, Ver, B, Txc> + Unpin,
+    Ir: RecipeInterpreter<CO, P, C, Ver, B, Txc> + Unpin,
     Prover: TxProver<Txc, Tx> + Unpin,
     Err: Unpin,
 {

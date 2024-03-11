@@ -1,5 +1,5 @@
-use spectrum_offchain::data::{EntitySnapshot, Stable, Tradable, VersionUpdater};
 use spectrum_offchain::data::order::SpecializedOrder;
+use spectrum_offchain::data::{EntitySnapshot, Stable, Tradable, VersionUpdater};
 use spectrum_offchain::ledger::TryFromLedger;
 
 /// Entity bundled with its source.
@@ -12,6 +12,12 @@ impl<T, Bearer> Bundled<T, Bearer> {
         F: FnOnce(T) -> T2,
     {
         Bundled(f(self.0), self.1)
+    }
+    pub fn map_bearer<B2, F>(self, f: F) -> Bundled<T, B2>
+    where
+        F: FnOnce(Bearer) -> B2,
+    {
+        Bundled(self.0, f(self.1))
     }
 }
 
