@@ -1,6 +1,6 @@
 use spectrum_offchain::backlog::HotBacklog;
-use spectrum_offchain::data::EntitySnapshot;
 use spectrum_offchain::data::order::SpecializedOrder;
+use spectrum_offchain::data::EntitySnapshot;
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 
 use crate::execution_engine::bundled::Bundled;
