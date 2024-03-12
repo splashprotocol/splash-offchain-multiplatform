@@ -5,6 +5,7 @@ use std::hash::Hash;
 use async_trait::async_trait;
 use bounded_integer::BoundedU8;
 use chrono::{Duration, Utc};
+use derive_more::{From, Into};
 use log::trace;
 use priority_queue::PriorityQueue;
 use rand::Rng;
@@ -14,7 +15,9 @@ use type_equalities::IsEqual;
 
 use crate::backlog::data::{BacklogOrder, OrderWeight, Weighted};
 use crate::backlog::persistence::BacklogStore;
-use crate::data::order::{PendingOrder, ProgressingOrder, SuspendedOrder, UniqueOrder};
+use crate::data::order::{PendingOrder, ProgressingOrder, SpecializedOrder, SuspendedOrder, UniqueOrder};
+use crate::data::Has;
+use crate::maker::Maker;
 
 pub mod data;
 pub mod persistence;
@@ -45,6 +48,9 @@ where
         TOrd: 'a;
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Into, From)]
+pub struct BacklogCapacity(u32);
+
 #[derive(Debug)]
 pub struct HotPriorityBacklog<TOrd: UniqueOrder> {
     queue: PriorityQueue<TOrd::TOrderId, OrderWeight>,
@@ -53,12 +59,22 @@ pub struct HotPriorityBacklog<TOrd: UniqueOrder> {
 }
 
 impl<TOrd: UniqueOrder> HotPriorityBacklog<TOrd> {
-    pub fn new(capacity: u32) -> Self {
+    pub fn new(capacity: BacklogCapacity) -> Self {
         Self {
             queue: PriorityQueue::new(),
             store: HashMap::new(),
-            capacity,
+            capacity: capacity.into(),
         }
+    }
+}
+
+impl<Ctx, TOrd> Maker<Ctx> for HotPriorityBacklog<TOrd>
+where
+    TOrd: SpecializedOrder,
+    Ctx: Has<BacklogCapacity>,
+{
+    fn make(ctx: &Ctx) -> Self {
+        HotPriorityBacklog::new(ctx.get())
     }
 }
 

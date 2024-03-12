@@ -2,6 +2,7 @@ use std::sync::{Arc, Once};
 
 use clap::Parser;
 use cml_chain::genesis::network_info::NetworkInfo;
+use cml_chain::PolicyId;
 use cml_chain::transaction::Transaction;
 use cml_core::network::ProtocolMagic;
 use cml_multi_era::babbage::BabbageTransaction;
@@ -15,6 +16,7 @@ use tracing_subscriber::fmt::Subscriber;
 
 use bloom_cardano_agent::config::AppConfig;
 use bloom_cardano_agent::context::ExecutionContext;
+use bloom_offchain::execution_engine::backlog::BacklogImpl;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_part_stream;
 use bloom_offchain::execution_engine::liquidity_book::{ExecutionCap, TLB};
@@ -40,6 +42,7 @@ use cardano_submit_api::client::LocalTxSubmissionClient;
 use spectrum_cardano_lib::constants::BABBAGE_ERA_ID;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::OutputRef;
+use spectrum_offchain::backlog::{HotBacklog, HotPriorityBacklog};
 use spectrum_offchain::data::Baked;
 use spectrum_offchain::data::unique_entity::{EitherMod, StateUpdate};
 use spectrum_offchain::event_sink::event_handler::EventHandler;
@@ -48,6 +51,7 @@ use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::streaming::boxed;
 use spectrum_offchain_cardano::collaterals::{Collaterals, CollateralsViaExplorer};
 use spectrum_offchain_cardano::creds::operator_creds;
+use spectrum_offchain_cardano::data::order::ClassicalOnChainOrder;
 use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::data::ref_scripts::ReferenceOutputs;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
@@ -153,6 +157,14 @@ async fn main() {
         collateral,
     };
     let multi_book = MultiPair::new::<TLB<AnyOrder, AnyPool>>(context.clone());
+    let multi_backlog = MultiPair::new::<
+        BacklogImpl<
+            'static,
+            HotPriorityBacklog<ClassicalOnChainOrder>,
+            ExecutionContext,
+            InMemoryKvStore<PolicyId, _>,
+        >,
+    >(context.clone());
     let state_index = InMemoryStateIndex::new();
     let state_cache = InMemoryKvStore::new();
 
@@ -160,6 +172,7 @@ async fn main() {
         state_index.clone(),
         state_cache.clone(),
         multi_book.clone(),
+        multi_backlog.clone(),
         context.clone(),
         interpreter,
         prover,
@@ -170,6 +183,7 @@ async fn main() {
         state_index.clone(),
         state_cache.clone(),
         multi_book.clone(),
+        multi_backlog.clone(),
         context.clone(),
         interpreter,
         prover,
@@ -180,6 +194,7 @@ async fn main() {
         state_index.clone(),
         state_cache.clone(),
         multi_book.clone(),
+        multi_backlog.clone(),
         context.clone(),
         interpreter,
         prover,
@@ -190,6 +205,7 @@ async fn main() {
         state_index,
         state_cache,
         multi_book,
+        multi_backlog,
         context,
         interpreter,
         prover,
