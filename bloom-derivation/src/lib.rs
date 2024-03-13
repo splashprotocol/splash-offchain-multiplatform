@@ -30,6 +30,7 @@ pub fn derive_stable(input: TokenStream) -> TokenStream {
         pub trait Stable {
             type StableId: Copy + Eq + Hash + Display;
             fn stable_id(&self) -> Self::StableId;
+            fn is_quasi_permanent(&self) -> bool;
         }
     }
 }

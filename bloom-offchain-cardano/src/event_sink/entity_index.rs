@@ -4,12 +4,12 @@ use std::time::{Duration, SystemTime};
 
 use log::trace;
 
-use spectrum_offchain::data::EntitySnapshot;
+use spectrum_offchain::data::{EntitySnapshot, Tradable};
 
-pub trait EntityIndex<T: EntitySnapshot> {
+pub trait TradableEntityIndex<T: EntitySnapshot + Tradable> {
     fn put_state(&mut self, state: T);
     fn get_state(&mut self, ver: &T::Version) -> Option<T>;
-    fn remove_state(&mut self, ver: &T::Version);
+    fn pair_of(&self, id: &T::StableId) -> Option<T::PairId>;
     fn exists(&self, ver: &T::Version) -> bool;
     /// Mark an entry identified by the given [T::Version] as subject for future eviction
     fn register_for_eviction(&mut self, ver: T::Version);
@@ -18,16 +18,18 @@ pub trait EntityIndex<T: EntitySnapshot> {
 }
 
 #[derive(Clone)]
-pub struct InMemoryEntityIndex<T: EntitySnapshot> {
+pub struct InMemoryEntityIndex<T: EntitySnapshot + Tradable> {
     store: HashMap<T::Version, T>,
+    permanent_pairs: HashMap<T::StableId, T::PairId>,
     eviction_queue: VecDeque<(SystemTime, T::Version)>,
     eviction_delay: Duration,
 }
 
-impl<T: EntitySnapshot> InMemoryEntityIndex<T> {
+impl<T: EntitySnapshot + Tradable> InMemoryEntityIndex<T> {
     pub fn new(eviction_delay: Duration) -> Self {
         Self {
             store: Default::default(),
+            permanent_pairs: Default::default(),
             eviction_queue: Default::default(),
             eviction_delay,
         }
@@ -37,39 +39,36 @@ impl<T: EntitySnapshot> InMemoryEntityIndex<T> {
     }
 }
 
-impl<T> EntityIndex<T> for InMemoryEntityIndex<T>
+impl<T> TradableEntityIndex<T> for InMemoryEntityIndex<T>
 where
-    T: EntitySnapshot + Clone,
+    T: EntitySnapshot + Tradable + Clone,
 {
     fn put_state(&mut self, state: T) {
-        trace!(target: "offchain", "InMemoryEntityIndex::put_state()");
+        if state.is_quasi_permanent() {
+            self.permanent_pairs.insert(state.stable_id(), state.pair_id());
+        }
         self.store.insert(state.version(), state);
     }
 
     fn get_state(&mut self, ver: &T::Version) -> Option<T> {
-        trace!(target: "offchain", "InMemoryEntityIndex::get_state({})", ver);
         self.store.get(&ver).cloned()
     }
 
-    fn remove_state(&mut self, ver: &T::Version) {
-        trace!(target: "offchain", "InMemoryEntityIndex::remove_state({})", ver);
-        self.store.remove(ver);
+    fn pair_of(&self, id: &T::StableId) -> Option<T::PairId> {
+        self.permanent_pairs.get(id).map(|pid| *pid)
     }
 
     fn exists(&self, ver: &T::Version) -> bool {
-        trace!(target: "offchain", "InMemoryEntityIndex::exists({})", ver);
         self.store.contains_key(&ver)
     }
 
     fn register_for_eviction(&mut self, ver: T::Version) {
         let now = SystemTime::now();
-        trace!(target: "offchain", "InMemoryEntityIndex::register_for_eviction({})", ver);
         self.eviction_queue.push_back((now + self.eviction_delay, ver));
     }
 
     fn run_eviction(&mut self) {
         let now = SystemTime::now();
-        trace!(target: "offchain", "InMemoryEntityIndex::run_eviction()");
         loop {
             match self.eviction_queue.pop_front() {
                 Some((ts, v)) if ts <= now => {
@@ -94,40 +93,40 @@ impl<R> EntityIndexTracing<R> {
     }
 }
 
-impl<T, R> EntityIndex<T> for EntityIndexTracing<R>
+impl<T, R> TradableEntityIndex<T> for EntityIndexTracing<R>
 where
-    T: EntitySnapshot + Debug,
+    T: EntitySnapshot + Tradable + Debug,
     T::Version: Display,
-    R: EntityIndex<T>,
+    R: TradableEntityIndex<T>,
 {
     fn put_state(&mut self, state: T) {
-        trace!("put_state({:?})", state);
+        trace!(target: "offchain", "EntityIndex::put_state({:?})", state);
         self.inner.put_state(state)
     }
 
     fn get_state(&mut self, ver: &T::Version) -> Option<T> {
-        trace!("get_state({})", ver);
+        trace!(target: "offchain", "EntityIndex::get_state({})", ver);
         self.inner.get_state(ver)
     }
 
-    fn remove_state(&mut self, ver: &T::Version) {
-        trace!("remove_state({})", ver);
-        self.inner.remove_state(ver)
+    fn pair_of(&self, id: &T::StableId) -> Option<T::PairId> {
+        trace!(target: "offchain", "EntityIndex::pair_of({})", id);
+        self.inner.pair_of(id)
     }
 
     fn exists(&self, ver: &T::Version) -> bool {
         let res = self.inner.exists(ver);
-        trace!("exists({}) -> {}", ver, res);
+        trace!(target: "offchain", "EntityIndex::exists({}) -> {}", ver, res);
         res
     }
 
     fn register_for_eviction(&mut self, ver: T::Version) {
-        trace!("register_for_eviction({})", ver);
+        trace!(target: "offchain", "EntityIndex::register_for_eviction({})", ver);
         self.inner.register_for_eviction(ver)
     }
 
     fn run_eviction(&mut self) {
-        trace!("run_eviction()");
+        trace!(target: "offchain", "EntityIndex::run_eviction()");
         self.inner.run_eviction()
     }
 }

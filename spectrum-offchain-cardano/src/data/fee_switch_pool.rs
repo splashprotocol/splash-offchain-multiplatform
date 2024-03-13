@@ -74,6 +74,9 @@ impl Stable for FeeSwitchCFMMPool {
     fn stable_id(&self) -> Self::StableId {
         self.id
     }
+    fn is_quasi_permanent(&self) -> bool {
+        true
+    }
 }
 
 impl EntitySnapshot for FeeSwitchCFMMPool {

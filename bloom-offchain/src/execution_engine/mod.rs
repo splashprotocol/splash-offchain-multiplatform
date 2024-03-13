@@ -229,8 +229,8 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
         Ctx: Clone,
     {
         match update {
-            OrderUpdate::NewOrder(new_order) => self.multi_backlog.get_mut(pair).put(new_order),
-            OrderUpdate::OrderEliminated(elim_order) => {
+            OrderUpdate::Created(new_order) => self.multi_backlog.get_mut(pair).put(new_order),
+            OrderUpdate::Eliminated(elim_order) => {
                 self.multi_backlog.get_mut(pair).remove(elim_order.order_id)
             }
         }

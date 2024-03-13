@@ -24,6 +24,8 @@ pub trait Stable {
     /// Unique identifier of the underlying entity which persists among different versions.
     type StableId: Copy + Eq + Hash + Debug + Display;
     fn stable_id(&self) -> Self::StableId;
+    /// Some entities are more stable than others. This flag marks these.
+    fn is_quasi_permanent(&self) -> bool;
 }
 
 pub trait EntitySnapshot: Stable {
@@ -48,6 +50,12 @@ where
         match self {
             Either::Left(a) => a.stable_id(),
             Either::Right(b) => b.stable_id(),
+        }
+    }
+    fn is_quasi_permanent(&self) -> bool {
+        match self {
+            Either::Left(a) => a.is_quasi_permanent(),
+            Either::Right(b) => b.is_quasi_permanent(),
         }
     }
 }
@@ -122,6 +130,9 @@ where
 
     fn stable_id(&self) -> Self::StableId {
         self.entity.stable_id()
+    }
+    fn is_quasi_permanent(&self) -> bool {
+        self.entity.is_quasi_permanent()
     }
 }
 

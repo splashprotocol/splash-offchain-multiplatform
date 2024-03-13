@@ -110,6 +110,9 @@ impl Stable for AnyPool {
             },
         }
     }
+    fn is_quasi_permanent(&self) -> bool {
+        true
+    }
 }
 
 impl EntitySnapshot for AnyPool {

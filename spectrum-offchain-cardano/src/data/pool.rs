@@ -613,6 +613,9 @@ impl Stable for AnyCFMMPool {
             FeeSwitchBidirectional(bidirectional) => bidirectional.stable_id(),
         }
     }
+    fn is_quasi_permanent(&self) -> bool {
+        true
+    }
 }
 
 impl EntitySnapshot for AnyCFMMPool {
@@ -641,6 +644,9 @@ impl Stable for ClassicCFMMPool {
     type StableId = PoolId;
     fn stable_id(&self) -> Self::StableId {
         self.id
+    }
+    fn is_quasi_permanent(&self) -> bool {
+        true
     }
 }
 

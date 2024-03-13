@@ -16,6 +16,7 @@ use crate::pools::AnyPool;
 
 pub mod entity_index;
 pub mod handler;
+mod order_index;
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
@@ -27,6 +28,9 @@ impl Stable for EvolvingCardanoEntity {
     type StableId = PolicyId;
     fn stable_id(&self) -> Self::StableId {
         self.0.stable_id()
+    }
+    fn is_quasi_permanent(&self) -> bool {
+        self.0.is_quasi_permanent()
     }
 }
 

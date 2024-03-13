@@ -99,6 +99,9 @@ where
     fn stable_id(&self) -> Self::StableId {
         self.value.stable_id()
     }
+    fn is_quasi_permanent(&self) -> bool {
+        self.value.is_quasi_permanent()
+    }
 }
 
 impl<T> EntitySnapshot for OnChain<T>

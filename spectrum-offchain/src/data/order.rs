@@ -1,5 +1,6 @@
 use std::hash::Hash;
 
+use either::Either;
 use type_equalities::IsEqual;
 
 use crate::data::Has;
@@ -36,8 +37,17 @@ pub trait SpecializedOrder {
 
 #[derive(Debug, Hash, Clone, Eq, PartialEq)]
 pub enum OrderUpdate<TNewOrd, TElimOrd> {
-    NewOrder(TNewOrd),
-    OrderEliminated(TElimOrd),
+    Created(TNewOrd),
+    Eliminated(TElimOrd),
+}
+
+impl<TNewOrd, TElimOrd> From<Either<TElimOrd, TNewOrd>> for OrderUpdate<TNewOrd, TElimOrd> {
+    fn from(value: Either<TElimOrd, TNewOrd>) -> Self {
+        match value {
+            Either::Left(consumed) => OrderUpdate::Eliminated(consumed),
+            Either::Right(produced) => OrderUpdate::Created(produced),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

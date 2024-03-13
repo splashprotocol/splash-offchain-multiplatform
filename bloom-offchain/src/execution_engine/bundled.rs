@@ -61,6 +61,9 @@ where
     fn stable_id(&self) -> Self::StableId {
         self.0.stable_id()
     }
+    fn is_quasi_permanent(&self) -> bool {
+        self.0.is_quasi_permanent()
+    }
 }
 
 impl<T, Bearer> SpecializedOrder for Bundled<T, Bearer>
