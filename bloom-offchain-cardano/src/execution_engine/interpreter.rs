@@ -12,7 +12,7 @@ use void::Void;
 
 use bloom_offchain::execution_engine::batch_exec::BatchExec;
 use bloom_offchain::execution_engine::bundled::Bundled;
-use bloom_offchain::execution_engine::execution_effect::ExecutionEffect;
+use bloom_offchain::execution_engine::execution_effect::ExecutionEff;
 use bloom_offchain::execution_engine::liquidity_book::fragment::StateTrans;
 use bloom_offchain::execution_engine::liquidity_book::interpreter::RecipeInterpreter;
 use bloom_offchain::execution_engine::liquidity_book::recipe::{
@@ -54,7 +54,7 @@ where
     ) -> (
         SignedTxBuilder,
         Vec<
-            ExecutionEffect<
+            ExecutionEff<
                 Bundled<Either<Baked<Fr, OutputRef>, Baked<Pl, OutputRef>>, FinalizedTxOut>,
                 Bundled<Baked<Fr, OutputRef>, FinalizedTxOut>,
             >,
@@ -143,16 +143,14 @@ where
                 .unwrap();
             let out_ref = OutputRef::new(tx_hash, output_ix as u64);
             let finalized_out = FinalizedTxOut(output, out_ref);
-            finalized_effects.push(ExecutionEffect::Updated(Bundled(
+            finalized_effects.push(ExecutionEff::Updated(Bundled(
                 e.map_either(|x| Baked::new(x, out_ref), |x| Baked::new(x, out_ref)),
                 finalized_out,
             )))
         }
         while let Some(elim) = eliminations.pop() {
             let out_ref = elim.1 .1;
-            finalized_effects.push(ExecutionEffect::Eliminated(
-                elim.map(|fr| Baked::new(fr, out_ref)),
-            ))
+            finalized_effects.push(ExecutionEff::Eliminated(elim.map(|fr| Baked::new(fr, out_ref))))
         }
 
         // Build tx, change is execution fee.

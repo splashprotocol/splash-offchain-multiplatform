@@ -1,6 +1,11 @@
+use std::hash::{Hash, Hasher};
+
+use spectrum_offchain::backlog;
 use spectrum_offchain::data::order::SpecializedOrder;
 use spectrum_offchain::data::{EntitySnapshot, Stable, Tradable, VersionUpdater};
 use spectrum_offchain::ledger::TryFromLedger;
+
+use crate::execution_engine::liquidity_book;
 
 /// Entity bundled with its source.
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -18,6 +23,33 @@ impl<T, Bearer> Bundled<T, Bearer> {
         F: FnOnce(Bearer) -> B2,
     {
         Bundled(self.0, f(self.1))
+    }
+}
+
+impl<T, Bearer> Hash for Bundled<T, Bearer>
+where
+    T: Hash,
+{
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state)
+    }
+}
+
+impl<T, Bearer> liquidity_book::weight::Weighted for Bundled<T, Bearer>
+where
+    T: liquidity_book::weight::Weighted,
+{
+    fn weight(&self) -> liquidity_book::weight::OrderWeight {
+        self.0.weight()
+    }
+}
+
+impl<T, Bearer> backlog::data::Weighted for Bundled<T, Bearer>
+where
+    T: backlog::data::Weighted,
+{
+    fn weight(&self) -> backlog::data::OrderWeight {
+        self.0.weight()
     }
 }
 

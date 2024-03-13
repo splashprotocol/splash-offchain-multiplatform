@@ -21,7 +21,7 @@ use crate::data::pool::CFMMPoolAction::Deposit as DepositAction;
 use crate::data::pool::{CFMMPoolAction, Lq, OrderInputIdx, Rx, Ry};
 use crate::data::{OnChainOrderId, PoolId};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Deposit {
     pub pool_nft: PoolId,
     pub token_x: TaggedAssetClass<Rx>,
@@ -157,7 +157,7 @@ mod tests {
     use crate::data::deposit::OnChainDepositConfig;
     use crate::data::execution_context::ExecutionContext;
     use crate::data::order::ClassicalOnChainOrder;
-    use crate::data::pool::{AnyCFMMPool, ClassicCFMMPool};
+    use crate::data::pool::AnyCFMMPool;
     use crate::data::ref_scripts::ReferenceOutputs;
     use crate::data::OnChain;
     use crate::ref_scripts::ReferenceSources;

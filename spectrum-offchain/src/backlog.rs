@@ -51,7 +51,7 @@ where
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Into, From)]
 pub struct BacklogCapacity(u32);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct HotPriorityBacklog<TOrd: UniqueOrder> {
     queue: PriorityQueue<TOrd::TOrderId, OrderWeight>,
     store: HashMap<TOrd::TOrderId, TOrd>,

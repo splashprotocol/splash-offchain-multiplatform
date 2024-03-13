@@ -34,8 +34,8 @@ use bloom_offchain::execution_engine::liquidity_book::{ExecutionCap, TLB};
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
 use bloom_offchain::execution_engine::storage::InMemoryStateIndex;
 use bloom_offchain::execution_engine::storage::kv_store::InMemoryKvStore;
-use bloom_offchain_cardano::event_sink::CardanoEntity;
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
+use bloom_offchain_cardano::event_sink::EvolvingCardanoEntity;
 use bloom_offchain_cardano::event_sink::handler::PairUpdateHandler;
 use bloom_offchain_cardano::execution_engine::interpreter::CardanoRecipeInterpreter;
 use bloom_offchain_cardano::orders::AnyOrder;
@@ -142,13 +142,13 @@ async fn integration_test() {
     let collateral = gen_collateral();
 
     let (pair_upd_snd_p1, pair_upd_recv_p1) =
-        mpsc::channel::<(PairId, EitherMod<StateUpdate<CardanoEntity>>)>(128);
+        mpsc::channel::<(PairId, EitherMod<StateUpdate<EvolvingCardanoEntity>>)>(128);
     let (pair_upd_snd_p2, pair_upd_recv_p2) =
-        mpsc::channel::<(PairId, EitherMod<StateUpdate<CardanoEntity>>)>(128);
+        mpsc::channel::<(PairId, EitherMod<StateUpdate<EvolvingCardanoEntity>>)>(128);
     let (pair_upd_snd_p3, pair_upd_recv_p3) =
-        mpsc::channel::<(PairId, EitherMod<StateUpdate<CardanoEntity>>)>(128);
+        mpsc::channel::<(PairId, EitherMod<StateUpdate<EvolvingCardanoEntity>>)>(128);
     let (pair_upd_snd_p4, pair_upd_recv_p4) =
-        mpsc::channel::<(PairId, EitherMod<StateUpdate<CardanoEntity>>)>(128);
+        mpsc::channel::<(PairId, EitherMod<StateUpdate<EvolvingCardanoEntity>>)>(128);
 
     let partitioned_pair_upd_snd =
         Partitioned::new([pair_upd_snd_p1, pair_upd_snd_p2, pair_upd_snd_p3, pair_upd_snd_p4]);
@@ -239,7 +239,7 @@ async fn integration_test() {
 }
 
 fn unwrap_updates(
-    upstream: impl Stream<Item = (PairId, EitherMod<StateUpdate<CardanoEntity>>)>,
+    upstream: impl Stream<Item = (PairId, EitherMod<StateUpdate<EvolvingCardanoEntity>>)>,
 ) -> impl Stream<
     Item = (
         PairId,
@@ -250,7 +250,7 @@ fn unwrap_updates(
         >,
     ),
 > {
-    upstream.map(|(p, m)| (p, m.map(|s| s.map(|CardanoEntity(e)| e))))
+    upstream.map(|(p, m)| (p, m.map(|s| s.map(|EvolvingCardanoEntity(e)| e))))
 }
 
 #[derive(Clone)]

@@ -1,9 +1,11 @@
+use std::time::Duration;
+
+use cml_core::Slot;
+
 use bloom_offchain_cardano::creds::{ExecutorCred, RewardAddress};
 use cardano_chain_sync::client::Point;
 use cardano_explorer::data::ExplorerConfig;
-use cml_core::Slot;
 use spectrum_offchain_cardano::ref_scripts::ReferenceSources;
-use std::time::Duration;
 
 #[derive(serde::Deserialize)]
 #[serde(bound = "'de: 'a")]
@@ -18,6 +20,8 @@ pub struct AppConfig<'a> {
     pub reward_address: RewardAddress,
     pub executor_cred: ExecutorCred,
     pub cardano_finalization_delay: Duration,
+    pub backlog_capacity: u32,
+    pub network_id: u8,
 }
 
 #[derive(serde::Deserialize)]

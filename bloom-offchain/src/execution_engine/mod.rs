@@ -16,7 +16,7 @@ use liquidity_book::interpreter::RecipeInterpreter;
 use spectrum_offchain::backlog::HotBacklog;
 use spectrum_offchain::combinators::Ior;
 use spectrum_offchain::data::{Baked, EntitySnapshot, Stable};
-use spectrum_offchain::data::order::SpecializedOrder;
+use spectrum_offchain::data::order::{OrderLink, OrderUpdate, SpecializedOrder};
 use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
 use spectrum_offchain::maker::Maker;
 use spectrum_offchain::network::Network;
@@ -24,7 +24,7 @@ use spectrum_offchain::tx_prover::TxProver;
 
 use crate::execution_engine::backlog::SpecializedInterpreter;
 use crate::execution_engine::bundled::Bundled;
-use crate::execution_engine::execution_effect::ExecutionEffect;
+use crate::execution_engine::execution_effect::ExecutionEff;
 use crate::execution_engine::liquidity_book::{ExternalTLBEvents, TemporalLiquidityBook, TLBFeedback};
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState};
 use crate::execution_engine::liquidity_book::recipe::{
@@ -49,7 +49,18 @@ pub mod types;
 
 // todo: check pool resolving
 
-pub type Event<O, P, B, V> = EitherMod<StateUpdate<EvolvingEntity<O, P, V, B>>>;
+/// Class of entities that evolve upon execution.
+type EvolvingEntity<CO, P, V, B> = Bundled<Either<Baked<CO, V>, Baked<P, V>>, B>;
+
+pub type Event<CO, SO, P, B, V> =
+    Either<EitherMod<StateUpdate<EvolvingEntity<CO, P, V, B>>>, OrderUpdate<Bundled<SO, B>, OrderLink<SO>>>;
+
+pub enum PendingEffects<CompOrd, SpecOrd, Pool, Ver, Bearer> {
+    FromLiquidityBook(
+        Vec<ExecutionEff<EvolvingEntity<CompOrd, Pool, Ver, Bearer>, Bundled<Baked<CompOrd, Ver>, Bearer>>>,
+    ),
+    FromBacklog(Bundled<Baked<Pool, Ver>, Bearer>, Bundled<SpecOrd, Bearer>),
+}
 
 /// Instantiate execution stream partition.
 /// Each partition serves total_pairs/num_partitions pairs.
@@ -88,7 +99,7 @@ pub fn execution_part_stream<
     network: Net,
 ) -> impl Stream<Item = ()> + 'a
 where
-    Upstream: Stream<Item = (Pair, Event<CompOrd, Pool, Bearer, Ver>)> + Unpin + 'a,
+    Upstream: Stream<Item = (Pair, Event<CompOrd, SpecOrd, Pool, Bearer, Ver>)> + Unpin + 'a,
     Pair: Copy + Eq + Ord + Hash + Display + Unpin + 'a,
     StableId: Copy + Eq + Hash + Debug + Display + Unpin + 'a,
     Ver: Copy + Eq + Hash + Display + Unpin + 'a,
@@ -137,15 +148,6 @@ where
     })
 }
 
-pub enum PendingEffects<CompOrd, SpecOrd, Pool, Ver, Bearer> {
-    FromLiquidityBook(
-        Vec<
-            ExecutionEffect<EvolvingEntity<CompOrd, Pool, Ver, Bearer>, Bundled<Baked<CompOrd, Ver>, Bearer>>,
-        >,
-    ),
-    FromBacklog(Bundled<Baked<Pool, Ver>, Bearer>, Bundled<SpecOrd, Bearer>),
-}
-
 pub struct Executor<
     Upstream,
     Pair,
@@ -187,9 +189,6 @@ pub struct Executor<
     pd: PhantomData<(StableId, Ver, Txc, Tx, Err)>,
 }
 
-/// Class of entities that evolve upon execution.
-type EvolvingEntity<CO, P, V, B> = Bundled<Either<Baked<CO, V>, Baked<P, V>>, B>;
-
 impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err>
     Executor<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err>
 {
@@ -222,7 +221,22 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
         }
     }
 
-    fn sync_book(&mut self, pair: Pair, update: EitherMod<StateUpdate<EvolvingEntity<CO, P, V, B>>>)
+    fn sync_backlog(&mut self, pair: &Pair, update: OrderUpdate<Bundled<SO, B>, OrderLink<SO>>)
+    where
+        Pair: Copy + Eq + Hash + Display,
+        SO: SpecializedOrder,
+        Log: HotBacklog<Bundled<SO, B>> + Maker<Ctx>,
+        Ctx: Clone,
+    {
+        match update {
+            OrderUpdate::NewOrder(new_order) => self.multi_backlog.get_mut(pair).put(new_order),
+            OrderUpdate::OrderEliminated(elim_order) => {
+                self.multi_backlog.get_mut(pair).remove(elim_order.order_id)
+            }
+        }
+    }
+
+    fn sync_book(&mut self, pair: &Pair, update: EitherMod<StateUpdate<EvolvingEntity<CO, P, V, B>>>)
     where
         Pair: Copy + Eq + Hash + Display,
         Stab: Copy + Eq + Hash + Debug + Display,
@@ -239,27 +253,27 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
         match self.update_state(update) {
             None => {}
             Some(Ior::Left(e)) => match e {
-                Either::Left(o) => self.multi_book.get_mut(&pair).remove_fragment(o.entity),
-                Either::Right(p) => self.multi_book.get_mut(&pair).remove_pool(p.entity),
+                Either::Left(o) => self.multi_book.get_mut(pair).remove_fragment(o.entity),
+                Either::Right(p) => self.multi_book.get_mut(pair).remove_pool(p.entity),
             },
             Some(Ior::Both(old, new)) => match (old, new) {
                 (Either::Left(old), Either::Left(new)) => {
-                    self.multi_book.get_mut(&pair).remove_fragment(old.entity);
-                    self.multi_book.get_mut(&pair).add_fragment(new.entity);
+                    self.multi_book.get_mut(pair).remove_fragment(old.entity);
+                    self.multi_book.get_mut(pair).add_fragment(new.entity);
                 }
                 (_, Either::Right(new)) => {
-                    self.multi_book.get_mut(&pair).update_pool(new.entity);
+                    self.multi_book.get_mut(pair).update_pool(new.entity);
                 }
                 _ => unreachable!(),
             },
             Some(Ior::Right(new)) => match new {
                 Either::Left(new) => {
                     trace!(target: "executor", "sync_book: Left({:?})", new.entity);
-                    self.multi_book.get_mut(&pair).add_fragment(new.entity)
+                    self.multi_book.get_mut(pair).add_fragment(new.entity)
                 }
                 Either::Right(new) => {
                     trace!(target: "executor", "sync_book: Right({:?})", new.entity);
-                    self.multi_book.get_mut(&pair).update_pool(new.entity)
+                    self.multi_book.get_mut(pair).update_pool(new.entity)
                 }
             },
         }
@@ -350,7 +364,7 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
 impl<S, Pair, Stab, Ver, CO, SO, P, B, Txc, Tx, C, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err> Stream
     for Executor<S, Pair, Stab, Ver, CO, SO, P, B, Txc, Tx, C, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err>
 where
-    S: Stream<Item = (Pair, EitherMod<StateUpdate<EvolvingEntity<CO, P, Ver, B>>>)> + Unpin,
+    S: Stream<Item = (Pair, Event<CO, SO, P, B, Ver>)> + Unpin,
     Pair: Copy + Eq + Ord + Hash + Display + Unpin,
     Stab: Copy + Eq + Hash + Debug + Display + Unpin,
     Ver: Copy + Eq + Hash + Display + Unpin,
@@ -382,12 +396,12 @@ where
                             PendingEffects::FromLiquidityBook(mut pending_effects) => {
                                 while let Some(effect) = pending_effects.pop() {
                                     match effect {
-                                        ExecutionEffect::Updated(upd) => {
+                                        ExecutionEff::Updated(upd) => {
                                             self.update_state(EitherMod::Unconfirmed(Unconfirmed(
                                                 StateUpdate::Transition(Ior::Right(upd)),
                                             )));
                                         }
-                                        ExecutionEffect::Eliminated(elim) => {
+                                        ExecutionEff::Eliminated(elim) => {
                                             self.update_state(EitherMod::Unconfirmed(Unconfirmed(
                                                 StateUpdate::Transition(Ior::Left(elim.map(Either::Left))),
                                             )));
@@ -422,7 +436,10 @@ where
             }
             // Prioritize external updates over local work.
             if let Poll::Ready(Some((pair, update))) = Stream::poll_next(Pin::new(&mut self.upstream), cx) {
-                self.sync_book(pair, update);
+                match update {
+                    Either::Left(evolving_entity) => self.sync_book(&pair, evolving_entity),
+                    Either::Right(atomic_entity) => self.sync_backlog(&pair, atomic_entity),
+                }
                 self.focus_set.insert(pair);
                 continue;
             }
@@ -471,7 +488,7 @@ where
 impl<S, Pair, Stab, Ver, CO, SO, P, B, Txc, Tx, C, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err> FusedStream
     for Executor<S, Pair, Stab, Ver, CO, SO, P, B, Txc, Tx, C, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err>
 where
-    S: Stream<Item = (Pair, EitherMod<StateUpdate<EvolvingEntity<CO, P, Ver, B>>>)> + Unpin,
+    S: Stream<Item = (Pair, Event<CO, SO, P, B, Ver>)> + Unpin,
     Pair: Copy + Eq + Ord + Hash + Display + Unpin,
     Stab: Copy + Eq + Hash + Debug + Display + Unpin,
     Ver: Copy + Eq + Hash + Display + Unpin,

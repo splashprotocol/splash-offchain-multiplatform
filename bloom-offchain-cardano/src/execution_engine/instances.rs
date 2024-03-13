@@ -2,20 +2,11 @@ use std::hash::Hash;
 
 use cml_chain::builders::input_builder::{InputBuilderResult, SingleInputBuilder};
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
-use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
-use cml_chain::builders::withdrawal_builder::SingleWithdrawalBuilder;
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
-use cml_chain::certs::Credential;
-use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData, RedeemerTag};
-use cml_chain::transaction::{TransactionInput, TransactionOutput};
+use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData};
+use cml_chain::transaction::TransactionOutput;
 use cml_chain::utils::BigInt;
-use cml_chain::Coin;
-use cml_crypto::TransactionHash;
-use log::trace;
-use spectrum_cardano_lib::address::AddressExtension;
-use spectrum_cardano_lib::AssetClass;
-use spectrum_offchain_cardano::data::pair::order_canonical;
 use void::Void;
 
 use bloom_offchain::execution_engine::batch_exec::BatchExec;
@@ -28,15 +19,15 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_offchain::data::Has;
 use spectrum_offchain_cardano::constants::POOL_EXECUTION_UNITS;
 use spectrum_offchain_cardano::data::pool::{
-    AssetDeltas, CFMMPoolAction, CFMMPoolRefScriptOutput, ClassicCFMMPool,
+    AnyCFMMPool, AssetDeltas, CFMMPoolAction, CFMMPoolRefScriptOutput, ClassicCFMMPool,
 };
 use spectrum_offchain_cardano::data::PoolVer;
 
 use crate::execution_engine::execution_state::ExecutionState;
-use crate::orders::spot::{
-    unsafe_update_n2t_variables, SpotOrder, SpotOrderRefScriptOutput, SPOT_ORDER_N2T_EX_UNITS,
-};
 use crate::orders::AnyOrder;
+use crate::orders::spot::{
+    SPOT_ORDER_N2T_EX_UNITS, SpotOrder, SpotOrderRefScriptOutput, unsafe_update_n2t_variables,
+};
 use crate::pools::AnyPool;
 
 /// Magnet for local instances.
@@ -168,8 +159,8 @@ where
     ) -> Result<(ExecutionState, TxBuilderElementsFromOrder, Ctx), Void> {
         match self.0 {
             LinkedSwap {
-                target: Bundled(AnyPool::CFMM(p), src),
-                transition: AnyPool::CFMM(p2),
+                target: Bundled(AnyPool::CFMM(AnyCFMMPool::Classic(p)), src),
+                transition: AnyPool::CFMM(AnyCFMMPool::Classic(p2)),
                 side,
                 input,
                 output,
@@ -181,6 +172,7 @@ where
                 output,
             })
             .try_exec(state, context),
+            _ => todo!(),
         }
     }
 }

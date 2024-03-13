@@ -8,29 +8,29 @@ use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
 use type_equalities::IsEqual;
 
-use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
 };
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
+use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{EntitySnapshot, Has, Stable, VersionUpdater};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 use crate::constants::{FEE_DEN, MAX_LQ_CAP};
-use crate::data::{PoolId, PoolStateVer, PoolVer};
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::operation_output::{DepositOutput, RedeemOutput, SwapOutput};
 use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
-use crate::data::pool::{ApplyOrder, ApplyOrderError, CFMMPoolAction, ImmutablePoolUtxo, Lq, Rx, Ry};
 use crate::data::pool::PoolOps;
+use crate::data::pool::{ApplyOrder, ApplyOrderError, CFMMPoolAction, ImmutablePoolUtxo, Lq, Rx, Ry};
 use crate::data::redeem::ClassicalOnChainRedeem;
+use crate::data::{PoolId, PoolStateVer, PoolVer};
 use crate::fees::FeeExtension;
 use crate::pool_math::cfmm_math::{output_amount, reward_lp, shares_amount};
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct FeeSwitchBidirectionalCFMMPool {
     pub id: PoolId,
     pub state_ver: PoolStateVer,

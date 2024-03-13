@@ -30,7 +30,7 @@ use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::fees::FeeExtension;
 use crate::pool_math::cfmm_math::{output_amount, reward_lp, shares_amount};
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct FeeSwitchCFMMPool {
     pub id: PoolId,
     pub state_ver: PoolStateVer,

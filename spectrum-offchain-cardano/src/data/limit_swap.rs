@@ -1,17 +1,17 @@
-use cml_chain::plutus::PlutusData;
 use cml_chain::Coin;
+use cml_chain::plutus::PlutusData;
 use cml_core::serialization::FromBytes;
 use cml_crypto::Ed25519KeyHash;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
 
+use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
 };
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::order::UniqueOrder;
 use spectrum_offchain::ledger::TryFromLedger;
 
@@ -19,12 +19,12 @@ use crate::constants::{
     MIN_SAFE_ADA_VALUE, ORDER_APPLY_RAW_REDEEMER, ORDER_APPLY_RAW_REDEEMER_V2, ORDER_REFUND_RAW_REDEEMER,
     SWAP_SCRIPT_V2,
 };
-use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
-use crate::data::pool::CFMMPoolAction::Swap;
-use crate::data::pool::{CFMMPoolAction, OrderInputIdx};
 use crate::data::{ExecutorFeePerToken, OnChainOrderId, PoolId};
+use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
+use crate::data::pool::{CFMMPoolAction, OrderInputIdx};
+use crate::data::pool::CFMMPoolAction::Swap;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct LimitSwap {
     pub base_asset: TaggedAssetClass<Base>,
     pub base_amount: TaggedAmount<Base>,
@@ -148,32 +148,31 @@ impl TryFromPData for OnChainLimitSwapConfig {
 
 #[cfg(test)]
 mod tests {
+    use cml_chain::{Deserialize, Value};
     use cml_chain::address::EnterpriseAddress;
     use cml_chain::certs::StakeCredential;
     use cml_chain::genesis::network_info::NetworkInfo;
     use cml_chain::plutus::PlutusData;
     use cml_chain::transaction::TransactionOutput;
-    use cml_chain::{Deserialize, Value};
     use cml_crypto::{Bip32PrivateKey, TransactionHash};
     use cml_multi_era::babbage::BabbageTransactionOutput;
-    use minicbor::decode::Error;
 
     use cardano_explorer::client::Explorer;
     use cardano_explorer::data::ExplorerConfig;
-    use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_cardano_lib::OutputRef;
+    use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_offchain::executor::RunOrder;
     use spectrum_offchain::ledger::TryFromLedger;
 
-    use crate::collaterals::tests::MockBasedRequestor;
     use crate::collaterals::Collaterals;
+    use crate::collaterals::tests::MockBasedRequestor;
     use crate::creds::operator_creds;
     use crate::data::execution_context::ExecutionContext;
     use crate::data::limit_swap::OnChainLimitSwapConfig;
+    use crate::data::OnChain;
     use crate::data::order::ClassicalOnChainOrder;
     use crate::data::pool::AnyCFMMPool;
     use crate::data::ref_scripts::ReferenceOutputs;
-    use crate::data::OnChain;
     use crate::ref_scripts::ReferenceSources;
 
     #[test]

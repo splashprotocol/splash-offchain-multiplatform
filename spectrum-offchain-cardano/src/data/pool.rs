@@ -275,15 +275,15 @@ impl ClassicCFMMPool {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum AnyCFMMPool {
     Classic(ClassicCFMMPool),
     FeeSwitch(FeeSwitchCFMMPool),
     FeeSwitchBidirectional(FeeSwitchBidirectionalCFMMPool),
 }
 
-// In case of standard amm pools we should also require
-// pool idx in input set, because it's affect to
+// In case of standard AMM pools we should also require
+// pool idx in input set, because it affects
 // final version of redeemer. Pool idx could be only 0 or 1
 impl RequiresRedeemer<(CFMMPoolAction, PoolInputIdx)> for AnyCFMMPool {
     fn redeemer(action: (CFMMPoolAction, PoolInputIdx)) -> PlutusData {
