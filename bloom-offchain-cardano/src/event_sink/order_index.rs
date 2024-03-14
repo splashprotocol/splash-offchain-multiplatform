@@ -5,7 +5,6 @@ use std::time::{Duration, SystemTime};
 use log::trace;
 
 use spectrum_offchain::data::order::SpecializedOrder;
-use spectrum_offchain::data::EntitySnapshot;
 
 pub trait OrderIndex<T: SpecializedOrder> {
     fn put(&mut self, state: T);

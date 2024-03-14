@@ -50,7 +50,7 @@ impl<TNewOrd, TElimOrd> From<Either<TElimOrd, TNewOrd>> for OrderUpdate<TNewOrd,
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct OrderLink<TOrd: SpecializedOrder> {
     pub order_id: TOrd::TOrderId,
     pub pool_id: TOrd::TPoolId,

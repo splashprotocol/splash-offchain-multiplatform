@@ -194,16 +194,19 @@ impl RequiresRedeemer<ClassicalOrderAction> for ClassicalOnChainOrder {
     }
 }
 
-impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalAMMOrder {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
-        ClassicalOnChainLimitSwap::try_from_ledger(repr, ctx)
+impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for ClassicalAMMOrder
+where
+    Ctx: Has<OutputRef>,
+{
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: Ctx) -> Option<Self> {
+        ClassicalOnChainLimitSwap::try_from_ledger(repr, ctx.get())
             .map(|swap| ClassicalAMMOrder::Swap(swap))
             .or_else(|| {
-                ClassicalOnChainDeposit::try_from_ledger(repr, ctx)
+                ClassicalOnChainDeposit::try_from_ledger(repr, ctx.get())
                     .map(|deposit| ClassicalAMMOrder::Deposit(deposit))
             })
             .or_else(|| {
-                ClassicalOnChainRedeem::try_from_ledger(repr, ctx)
+                ClassicalOnChainRedeem::try_from_ledger(repr, ctx.get())
                     .map(|redeem| ClassicalAMMOrder::Redeem(redeem))
             })
     }

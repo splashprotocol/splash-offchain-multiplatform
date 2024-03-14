@@ -1,15 +1,12 @@
 use std::sync::{Arc, Once};
 
 use clap::Parser;
-use cml_chain::genesis::network_info::NetworkInfo;
 use cml_chain::transaction::Transaction;
-use cml_chain::PolicyId;
-use cml_core::network::ProtocolMagic;
 use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
 use futures::channel::mpsc;
 use futures::stream::select_all;
-use futures::{Stream, StreamExt};
+use futures::{stream_select, Stream, StreamExt};
 use log::info;
 use tokio::sync::Mutex;
 use tracing_subscriber::fmt::Subscriber;
@@ -23,8 +20,9 @@ use bloom_offchain::execution_engine::multi_pair::MultiPair;
 use bloom_offchain::execution_engine::storage::kv_store::InMemoryKvStore;
 use bloom_offchain::execution_engine::storage::InMemoryStateIndex;
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
-use bloom_offchain_cardano::event_sink::handler::PairUpdateHandler;
-use bloom_offchain_cardano::event_sink::EvolvingCardanoEntity;
+use bloom_offchain_cardano::event_sink::handler::{PairUpdateHandler, SpecializedHandler};
+use bloom_offchain_cardano::event_sink::order_index::InMemoryOrderIndex;
+use bloom_offchain_cardano::event_sink::{AtomicCardanoEntity, EvolvingCardanoEntity};
 use bloom_offchain_cardano::execution_engine::backlog::interpreter::SpecializedInterpreterViaRunOrder;
 use bloom_offchain_cardano::execution_engine::interpreter::CardanoRecipeInterpreter;
 use bloom_offchain_cardano::orders::AnyOrder;
@@ -42,8 +40,8 @@ use cardano_submit_api::client::LocalTxSubmissionClient;
 use spectrum_cardano_lib::constants::BABBAGE_ERA_ID;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::OutputRef;
-use spectrum_offchain::backlog::{BacklogCapacity, HotBacklog, HotPriorityBacklog};
-use spectrum_offchain::data::order::{OrderLink, OrderUpdate};
+use spectrum_offchain::backlog::{BacklogCapacity, HotPriorityBacklog};
+use spectrum_offchain::data::order::OrderUpdate;
 use spectrum_offchain::data::unique_entity::{EitherMod, StateUpdate};
 use spectrum_offchain::data::Baked;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
@@ -52,7 +50,7 @@ use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::streaming::boxed;
 use spectrum_offchain_cardano::collaterals::{Collaterals, CollateralsViaExplorer};
 use spectrum_offchain_cardano::creds::operator_creds;
-use spectrum_offchain_cardano::data::order::{ClassicalAMMOrder, ClassicalOnChainOrder};
+use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
 use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::data::ref_scripts::ReferenceOutputs;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
@@ -137,16 +135,42 @@ async fn main() {
 
     let partitioned_pair_upd_snd =
         Partitioned::new([pair_upd_snd_p1, pair_upd_snd_p2, pair_upd_snd_p3, pair_upd_snd_p4]);
-    let index = Arc::new(Mutex::new(InMemoryEntityIndex::new(
+
+    let (spec_upd_snd_p1, spec_upd_recv_p1) =
+        mpsc::channel::<(PairId, OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>)>(128);
+    let (spec_upd_snd_p2, spec_upd_recv_p2) =
+        mpsc::channel::<(PairId, OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>)>(128);
+    let (spec_upd_snd_p3, spec_upd_recv_p3) =
+        mpsc::channel::<(PairId, OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>)>(128);
+    let (spec_upd_snd_p4, spec_upd_recv_p4) =
+        mpsc::channel::<(PairId, OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>)>(128);
+
+    let partitioned_spec_upd_snd =
+        Partitioned::new([spec_upd_snd_p1, spec_upd_snd_p2, spec_upd_snd_p3, spec_upd_snd_p4]);
+
+    let entity_index = Arc::new(Mutex::new(InMemoryEntityIndex::new(
         config.cardano_finalization_delay,
     )));
-    let upd_handler = PairUpdateHandler::new(partitioned_pair_upd_snd, index, config.executor_cred);
+    let spec_order_index = Arc::new(Mutex::new(InMemoryOrderIndex::new(
+        config.cardano_finalization_delay,
+    )));
+    let general_upd_handler = PairUpdateHandler::new(
+        partitioned_pair_upd_snd,
+        Arc::clone(&entity_index),
+        config.executor_cred,
+    );
+    let spec_upd_handler = SpecializedHandler::new(
+        PairUpdateHandler::new(partitioned_spec_upd_snd, entity_index, config.executor_cred),
+        spec_order_index,
+    );
 
-    let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<BabbageTransaction>>>> =
-        vec![Box::new(upd_handler.clone())];
+    let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<BabbageTransaction>>>> = vec![
+        Box::new(general_upd_handler.clone()),
+        Box::new(spec_upd_handler.clone()),
+    ];
 
     let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<BabbageTransaction>>>> =
-        vec![Box::new(upd_handler)];
+        vec![Box::new(general_upd_handler), Box::new(spec_upd_handler.clone())];
 
     let prover = OperatorProver::new(&operator_sk);
     let recipe_interpreter = CardanoRecipeInterpreter;
@@ -175,7 +199,7 @@ async fn main() {
         recipe_interpreter,
         spec_interpreter,
         prover,
-        unwrap_updates(pair_upd_recv_p1),
+        merge_upstreams(pair_upd_recv_p1, spec_upd_recv_p1),
         tx_submission_channel.clone(),
     );
     let execution_stream_p2 = execution_part_stream(
@@ -187,7 +211,7 @@ async fn main() {
         recipe_interpreter,
         spec_interpreter,
         prover,
-        unwrap_updates(pair_upd_recv_p2),
+        merge_upstreams(pair_upd_recv_p2, spec_upd_recv_p2),
         tx_submission_channel.clone(),
     );
     let execution_stream_p3 = execution_part_stream(
@@ -199,7 +223,7 @@ async fn main() {
         recipe_interpreter,
         spec_interpreter,
         prover,
-        unwrap_updates(pair_upd_recv_p3),
+        merge_upstreams(pair_upd_recv_p3, spec_upd_recv_p3),
         tx_submission_channel.clone(),
     );
     let execution_stream_p4 = execution_part_stream(
@@ -211,7 +235,7 @@ async fn main() {
         recipe_interpreter,
         spec_interpreter,
         prover,
-        unwrap_updates(pair_upd_recv_p4),
+        merge_upstreams(pair_upd_recv_p4, spec_upd_recv_p4),
         tx_submission_channel,
     );
 
@@ -233,9 +257,9 @@ async fn main() {
     }
 }
 
-// todo: update upstream to support OrderUpdate(s)
-fn unwrap_updates(
-    upstream: impl Stream<Item = (PairId, EitherMod<StateUpdate<EvolvingCardanoEntity>>)>,
+fn merge_upstreams(
+    xs: impl Stream<Item = (PairId, EitherMod<StateUpdate<EvolvingCardanoEntity>>)> + Unpin,
+    ys: impl Stream<Item = (PairId, OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>)> + Unpin,
 ) -> impl Stream<
     Item = (
         PairId,
@@ -245,11 +269,20 @@ fn unwrap_updates(
                     Bundled<Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>, FinalizedTxOut>,
                 >,
             >,
-            OrderUpdate<Bundled<ClassicalAMMOrder, FinalizedTxOut>, OrderLink<ClassicalAMMOrder>>,
+            OrderUpdate<Bundled<ClassicalAMMOrder, FinalizedTxOut>, ClassicalAMMOrder>,
         >,
     ),
 > {
-    upstream.map(|(p, m)| (p, Either::Left(m.map(|s| s.map(|EvolvingCardanoEntity(e)| e)))))
+    stream_select!(
+        xs.map(|(p, m)| (p, Either::Left(m.map(|s| s.map(|EvolvingCardanoEntity(e)| e))))),
+        ys.map(|(p, m)| (
+            p,
+            Either::Right(match m {
+                OrderUpdate::Created(AtomicCardanoEntity(i)) => OrderUpdate::Created(i),
+                OrderUpdate::Eliminated(AtomicCardanoEntity(Bundled(i, _))) => OrderUpdate::Eliminated(i),
+            })
+        ))
+    )
 }
 
 #[derive(Parser)]

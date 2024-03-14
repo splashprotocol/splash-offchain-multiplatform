@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use cml_multi_era::babbage::{BabbageTransaction, BabbageTransactionOutput};
 use either::Either;
 use futures::{Sink, SinkExt};
-use log::{info, trace};
+use log::trace;
 use tokio::sync::{Mutex, MutexGuard};
 use type_equalities::IsEqual;
 
@@ -17,13 +17,12 @@ use cardano_mempool_sync::data::MempoolUpdate;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::combinators::Ior;
-use spectrum_offchain::data::order::{OrderLink, OrderUpdate, SpecializedOrder};
-use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
 use spectrum_offchain::data::{EntitySnapshot, Has, Tradable};
+use spectrum_offchain::data::order::{OrderUpdate, SpecializedOrder};
+use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain::partitioning::Partitioned;
-use spectrum_offchain_cardano::event_sink::handlers::short_term::registry::HotOrderRegistry;
 
 use crate::creds::ExecutorCred;
 use crate::event_sink::entity_index::TradableEntityIndex;
@@ -89,6 +88,16 @@ pub struct SpecializedHandler<H, OrderIndex, Pool> {
     pd: PhantomData<Pool>,
 }
 
+impl<H, OrderIndex, Pool> SpecializedHandler<H, OrderIndex, Pool> {
+    pub fn new(general_handler: H, order_index: Arc<Mutex<OrderIndex>>) -> Self {
+        Self {
+            general_handler,
+            order_index,
+            pd: PhantomData,
+        }
+    }
+}
+
 #[async_trait(?Send)]
 impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex>
     EventHandler<LedgerTxEvent<BabbageTransaction>>
@@ -121,7 +130,7 @@ where
                 {
                     Ok(transitions) => {
                         trace!(target: "offchain", "[{}] entities parsed from applied tx", transitions.len());
-                        let mut pool_index = self.general_handler.index.lock().await;
+                        let pool_index = self.general_handler.index.lock().await;
                         let mut index = self.order_index.lock().await;
                         index.run_eviction();
                         for tr in transitions {
@@ -148,7 +157,7 @@ where
                     Ok(transitions) => {
                         trace!("[{}] entities parsed from unapplied tx", transitions.len());
                         let mut index = self.order_index.lock().await;
-                        let mut pool_index = self.general_handler.index.lock().await;
+                        let pool_index = self.general_handler.index.lock().await;
                         index.run_eviction();
                         for tr in transitions {
                             if let Some(pair) = pool_index.pair_of(&pool_ref_of(&tr)) {
@@ -165,6 +174,58 @@ where
                         None
                     }
                     Err(tx) => Some(LedgerTxEvent::TxUnapplied(tx)),
+                }
+            }
+        }
+    }
+}
+
+#[async_trait(?Send)]
+impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex>
+    EventHandler<MempoolUpdate<BabbageTransaction>>
+    for SpecializedHandler<PairUpdateHandler<N, PairId, Topic, Order, PoolIndex>, OrderIndex, Pool>
+where
+    PairId: Copy + Hash,
+    Topic: Sink<(PairId, OrderUpdate<Order, Order>)> + Unpin,
+    Topic::Error: Debug,
+    Pool: EntitySnapshot + Tradable<PairId = PairId>,
+    Order: SpecializedOrder<TPoolId = Pool::StableId>
+        + TryFromLedger<BabbageTransactionOutput, HandlerContext>
+        + Clone
+        + Debug,
+    Order::TOrderId: From<OutputRef>,
+    OrderIndex: crate::event_sink::order_index::OrderIndex<Order>,
+    PoolIndex: TradableEntityIndex<Pool>,
+{
+    async fn try_handle(
+        &mut self,
+        ev: MempoolUpdate<BabbageTransaction>,
+    ) -> Option<MempoolUpdate<BabbageTransaction>> {
+        match ev {
+            MempoolUpdate::TxAccepted(tx) => {
+                match extract_atomic_transitions(
+                    Arc::clone(&self.order_index),
+                    self.general_handler.executor_cred,
+                    tx,
+                )
+                .await
+                {
+                    Ok(transitions) => {
+                        trace!(target: "offchain", "[{}] entities parsed from applied tx", transitions.len());
+                        let pool_index = self.general_handler.index.lock().await;
+                        let mut index = self.order_index.lock().await;
+                        index.run_eviction();
+                        for tr in transitions {
+                            if let Some(pair) = pool_index.pair_of(&pool_ref_of(&tr)) {
+                                index_atomic_transition(&mut index, &tr);
+                                let topic = self.general_handler.topic.get_mut(pair);
+                                topic.feed((pair, tr.into())).await.expect("Channel is closed");
+                                topic.flush().await.expect("Failed to commit message");
+                            }
+                        }
+                        None
+                    }
+                    Err(tx) => Some(MempoolUpdate::TxAccepted(tx)),
                 }
             }
         }
@@ -498,11 +559,11 @@ mod tests {
 
     use cardano_chain_sync::data::LedgerTxEvent;
     use spectrum_cardano_lib::hash::hash_transaction_canonical;
-    use spectrum_cardano_lib::transaction::TransactionOutputExtension;
     use spectrum_cardano_lib::OutputRef;
+    use spectrum_cardano_lib::transaction::TransactionOutputExtension;
     use spectrum_offchain::combinators::Ior;
-    use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate};
     use spectrum_offchain::data::{EntitySnapshot, Has, Stable, Tradable};
+    use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate};
     use spectrum_offchain::event_sink::event_handler::EventHandler;
     use spectrum_offchain::ledger::TryFromLedger;
     use spectrum_offchain::partitioning::Partitioned;

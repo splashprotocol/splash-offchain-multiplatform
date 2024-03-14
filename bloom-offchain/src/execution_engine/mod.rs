@@ -53,7 +53,7 @@ pub mod types;
 type EvolvingEntity<CO, P, V, B> = Bundled<Either<Baked<CO, V>, Baked<P, V>>, B>;
 
 pub type Event<CO, SO, P, B, V> =
-    Either<EitherMod<StateUpdate<EvolvingEntity<CO, P, V, B>>>, OrderUpdate<Bundled<SO, B>, OrderLink<SO>>>;
+    Either<EitherMod<StateUpdate<EvolvingEntity<CO, P, V, B>>>, OrderUpdate<Bundled<SO, B>, SO>>;
 
 pub enum PendingEffects<CompOrd, SpecOrd, Pool, Ver, Bearer> {
     FromLiquidityBook(
@@ -221,7 +221,7 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
         }
     }
 
-    fn sync_backlog(&mut self, pair: &Pair, update: OrderUpdate<Bundled<SO, B>, OrderLink<SO>>)
+    fn sync_backlog(&mut self, pair: &Pair, update: OrderUpdate<Bundled<SO, B>, SO>)
     where
         Pair: Copy + Eq + Hash + Display,
         SO: SpecializedOrder,
@@ -231,7 +231,7 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
         match update {
             OrderUpdate::Created(new_order) => self.multi_backlog.get_mut(pair).put(new_order),
             OrderUpdate::Eliminated(elim_order) => {
-                self.multi_backlog.get_mut(pair).remove(elim_order.order_id)
+                self.multi_backlog.get_mut(pair).remove(elim_order.get_self_ref())
             }
         }
     }
