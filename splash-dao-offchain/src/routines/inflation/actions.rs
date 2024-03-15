@@ -26,6 +26,7 @@ use spectrum_cardano_lib::{AssetName, OutputRef};
 use spectrum_offchain::data::unique_entity::{Predicted, Traced};
 use spectrum_offchain::data::{EntitySnapshot, Has, Stable};
 use spectrum_offchain::ledger::IntoLedger;
+use uplc::BigInt;
 
 use crate::assets::SPLASH_AC;
 use crate::constants::{self};
