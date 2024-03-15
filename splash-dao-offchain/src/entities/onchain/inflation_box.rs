@@ -2,7 +2,6 @@ use cml_chain::plutus::PlutusData;
 
 use spectrum_cardano_lib::plutus_data::IntoPlutusData;
 use spectrum_cardano_lib::{TaggedAmount, Token};
-use spectrum_cardano_lib::{TaggedAmount, Token};
 use spectrum_offchain::data::{EntitySnapshot, Identifier, Stable};
 
 use crate::assets::Splash;
