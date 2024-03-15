@@ -4,7 +4,6 @@ use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, ScriptHash};
 use spectrum_cardano_lib::plutus_data::IntoPlutusData;
 use spectrum_cardano_lib::{TaggedAmount, Token};
-use spectrum_cardano_lib::{TaggedAmount, Token};
 use spectrum_offchain::data::{EntitySnapshot, Identifier, Stable};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 use uplc_pallas_codec::utils::{Int, PlutusBytes};
