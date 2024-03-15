@@ -55,6 +55,8 @@ serde_yaml = "0.9.25"
 void = "1.0.2"
 minicbor = { version = "0.20", features = ["std", "half", "derive"] }
 either = "1.10.0"
+uplc = "0.0.29"
+pallas-codec = "0.16"
 
 [dev-dependencies]
 rocksdb = "0.21.*"

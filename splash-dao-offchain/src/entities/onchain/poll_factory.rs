@@ -51,5 +51,5 @@ impl EntitySnapshot for PollFactory {
 
 pub fn unsafe_update_factory_state(data: &mut PlutusData, last_poll_epoch: ProtocolEpoch) {
     let cpd = data.get_constr_pd_mut().unwrap();
-    cpd.set_field(0, last_poll_epoch.into_pd())
+    cpd.set_field(0, PlutusData::new_integer(last_poll_epoch.into()))
 }
