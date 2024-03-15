@@ -1,13 +1,16 @@
+use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::TransactionOutput;
+use cml_chain::utils::BigInt;
 use derive_more::From;
 
+use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::Token;
 use spectrum_offchain::data::{EntitySnapshot, Identifier, Stable};
 use spectrum_offchain::ledger::IntoLedger;
 
 use crate::entities::onchain::smart_farm::FarmId;
-use crate::GenesisEpochStartTime;
 use crate::time::{epoch_end, epoch_start, NetworkTime, ProtocolEpoch};
+use crate::GenesisEpochStartTime;
 
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, From)]
 pub struct WeightingPollId(Token);
@@ -94,5 +97,52 @@ impl WeightingPoll {
 
     fn distribution_finished(&self) -> bool {
         self.reserves_splash() == 0
+    }
+}
+
+fn distribution_to_plutus_data(distribution: &[(FarmId, u64)]) -> PlutusData {
+    let mut list = vec![];
+    for (farm_id, weight) in distribution {
+        list.push(PlutusData::new_list(vec![
+            farm_id.into_pd(),
+            PlutusData::new_integer(BigInt::from(*weight)),
+        ]));
+    }
+    PlutusData::new_list(list)
+}
+
+pub fn unsafe_update_wp_state(data: &mut PlutusData, new_distribution: &[(FarmId, u64)]) {
+    let cpd = data.get_constr_pd_mut().unwrap();
+    cpd.set_field(0, distribution_to_plutus_data(new_distribution))
+}
+
+pub enum PollAction {
+    /// Until epoch end.
+    Vote,
+    /// After epoch end.
+    Distribute {
+        /// Index of the farm.
+        farm_ix: u32,
+        /// Index of the farm input.
+        farm_in_ix: u32,
+    },
+    Destroy,
+}
+
+impl IntoPlutusData for PollAction {
+    fn into_pd(self) -> PlutusData {
+        match self {
+            PollAction::Vote => PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![])),
+            PollAction::Distribute { farm_ix, farm_in_ix } => {
+                PlutusData::ConstrPlutusData(ConstrPlutusData::new(
+                    1,
+                    vec![
+                        PlutusData::Integer(BigInt::from(farm_ix)),
+                        PlutusData::Integer(BigInt::from(farm_in_ix)),
+                    ],
+                ))
+            }
+            PollAction::Destroy => PlutusData::ConstrPlutusData(ConstrPlutusData::new(2, vec![])),
+        }
     }
 }

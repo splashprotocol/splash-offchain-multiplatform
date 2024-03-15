@@ -2,11 +2,11 @@ use cml_chain::plutus::PlutusData;
 
 use spectrum_cardano_lib::plutus_data::IntoPlutusData;
 use spectrum_cardano_lib::{TaggedAmount, Token};
+use spectrum_cardano_lib::{TaggedAmount, Token};
 use spectrum_offchain::data::{EntitySnapshot, Identifier, Stable};
 
 use crate::assets::Splash;
 use crate::time::{epoch_end, NetworkTime, ProtocolEpoch};
-use crate::{constants, GenesisEpochStartTime};
 use crate::{constants, GenesisEpochStartTime};
 
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
@@ -71,5 +71,5 @@ impl EntitySnapshot for InflationBox {
 }
 
 pub fn unsafe_update_ibox_state(data: &mut PlutusData, last_processed_epoch: ProtocolEpoch) {
-    *data = last_processed_epoch.into_pd();
+    *data = PlutusData::new_integer(last_processed_epoch.into());
 }
