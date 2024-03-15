@@ -1,3 +1,5 @@
+use cml_chain::PolicyId;
+use cml_crypto::ScriptHash;
 use derive_more::{From, Into};
 
 use spectrum_offchain::data::order::UniqueOrder;
@@ -19,6 +21,8 @@ pub struct VotingOrder {
     pub id: VotingOrderId,
     pub distribution: Vec<(FarmId, u64)>,
     pub proof: Vec<u8>,
+    pub witness: ScriptHash,
+    pub proposal_auth_policy: PolicyId,
 }
 
 impl UniqueOrder for VotingOrder {

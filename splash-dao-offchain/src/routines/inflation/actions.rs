@@ -1,18 +1,27 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use cml_chain::transaction::TransactionOutput;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
+use cml_chain::PolicyId;
+use cml_crypto::RawBytesEncoding;
+use pallas_codec::minicbor::Encode;
+use pallas_codec::utils::{Int, PlutusBytes};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
-use spectrum_offchain::data::EntitySnapshot;
+use spectrum_cardano_lib::AssetName;
 use spectrum_offchain::data::unique_entity::{Predicted, Traced};
+use spectrum_offchain::data::EntitySnapshot;
 use spectrum_offchain::ledger::IntoLedger;
+use uplc::BigInt;
 
 use crate::assets::SPLASH_AC;
+use crate::constants;
 use crate::entities::offchain::voting_order::VotingOrder;
 use crate::entities::onchain::inflation_box::InflationBox;
-use crate::entities::onchain::poll_factory::{PollFactory, unsafe_update_factory_state};
+use crate::entities::onchain::poll_factory::{unsafe_update_factory_state, PollFactory};
 use crate::entities::onchain::smart_farm::SmartFarm;
-use crate::entities::onchain::voting_escrow::VotingEscrow;
-use crate::entities::onchain::weighting_poll::WeightingPoll;
+use crate::entities::onchain::voting_escrow::{unsafe_update_ve_state, VotingEscrow};
+use crate::entities::onchain::weighting_poll::{unsafe_update_wp_state, WeightingPoll};
 
 #[async_trait::async_trait]
 pub trait InflationActions<Bearer> {
@@ -95,13 +104,54 @@ where
 
     async fn execute_order(
         &self,
-        weighting_poll: Bundled<WeightingPoll, TransactionOutput>,
-        order: (VotingOrder, Bundled<VotingEscrow, TransactionOutput>),
+        Bundled(weighting_poll, poll_box_in): Bundled<WeightingPoll, TransactionOutput>,
+        (order, Bundled(voting_escrow, ve_box_in)): (VotingOrder, Bundled<VotingEscrow, TransactionOutput>),
     ) -> (
         Traced<Predicted<Bundled<WeightingPoll, TransactionOutput>>>,
         Traced<Predicted<Bundled<VotingEscrow, TransactionOutput>>>,
     ) {
-        todo!()
+        let prev_ve_version = voting_escrow.version();
+        let prev_wp_version = weighting_poll.version();
+
+        let mut ve_box_out = ve_box_in.clone();
+        if let Some(data_mut) = ve_box_out.data_mut() {
+            unsafe_update_ve_state(data_mut, weighting_poll.epoch);
+        }
+
+        // Compute the policy for `mint_weighting_power`, to allow us to add the weighting power to WeightingPoll's
+        // UTxO.
+        let mint_weighting_power_policy = compute_mint_weighting_power_policy_id(
+            weighting_poll.epoch,
+            order.proposal_auth_policy,
+            voting_escrow.gt_policy,
+        );
+        let current_posix_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let mut poll_box_out = poll_box_in.clone();
+        if let Some(data_mut) = poll_box_out.data_mut() {
+            unsafe_update_wp_state(data_mut, &order.distribution);
+        }
+        poll_box_out.add_asset(
+            spectrum_cardano_lib::AssetClass::Token((
+                mint_weighting_power_policy,
+                AssetName::try_from(vec![constants::GT_NAME]).unwrap(),
+            )),
+            voting_escrow.voting_power(current_posix_time),
+        );
+
+        let next_weighting_poll = WeightingPoll {
+            distribution: order.distribution,
+            ..weighting_poll
+        };
+
+        let fresh_wp = Traced::new(
+            Predicted(Bundled(next_weighting_poll, poll_box_out)),
+            Some(prev_wp_version),
+        );
+
+        let next_ve = voting_escrow; // Nothing to change here?
+        let fresh_ve = Traced::new(Predicted(Bundled(next_ve, ve_box_out)), Some(prev_ve_version));
+
+        (fresh_wp, fresh_ve)
     }
 
     async fn distribute_inflation(
@@ -115,4 +165,21 @@ where
     ) {
         todo!()
     }
+}
+
+fn compute_mint_weighting_power_policy_id(
+    zeroth_epoch_start: u32,
+    proposal_auth_policy: PolicyId,
+    gt_policy: PolicyId,
+) -> PolicyId {
+    //let params_pd = uplc::PlutusData::Array(vec![
+    //    uplc::PlutusData::BigInt(BigInt::Int(Int::from(zeroth_epoch_start as i64))),
+    //    uplc::PlutusData::BoundedBytes(PlutusBytes::from(proposal_auth_policy.to_raw_bytes().to_vec())),
+    //    uplc::PlutusData::BoundedBytes(PlutusBytes::from(gt_policy.to_raw_bytes().to_vec())),
+    //]);
+    //let mut params_bytes: Vec<u8> = vec![];
+    ////params_pd.encode(&mut params_bytes, &mut ()).unwrap();
+    //let bytes = minicbor::to_vec(params_pd).unwrap();
+
+    todo!()
 }
