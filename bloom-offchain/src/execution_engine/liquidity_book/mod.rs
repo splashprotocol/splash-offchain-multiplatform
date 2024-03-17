@@ -2,9 +2,10 @@ use std::cmp::{max, min};
 use std::mem;
 
 use either::Either;
-
 use log::trace;
+
 use spectrum_offchain::data::{Has, Stable};
+use spectrum_offchain::maker::Maker;
 
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use crate::execution_engine::liquidity_book::pool::Pool;
@@ -16,9 +17,9 @@ use crate::execution_engine::liquidity_book::state::{IdleState, TLBState, Versio
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, ExCostUnits};
 use crate::execution_engine::liquidity_book::weight::Weighted;
 use crate::execution_engine::types::Time;
-use crate::maker::Maker;
 
 pub mod fragment;
+pub mod interpreter;
 pub mod pool;
 pub mod recipe;
 pub mod side;
@@ -420,6 +421,10 @@ where
 mod tests {
     use either::Either;
 
+    use crate::execution_engine::liquidity_book::{
+        ExecutionCap, ExternalTLBEvents, fill_from_fragment, fill_from_pool, FillFromFragment, FillFromPool,
+        TemporalLiquidityBook, TLB,
+    };
     use crate::execution_engine::liquidity_book::fragment::StateTrans;
     use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::recipe::{
@@ -429,10 +434,6 @@ mod tests {
     use crate::execution_engine::liquidity_book::state::tests::{SimpleCFMMPool, SimpleOrderPF};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::AbsolutePrice;
-    use crate::execution_engine::liquidity_book::{
-        fill_from_fragment, fill_from_pool, ExecutionCap, ExternalTLBEvents, FillFromFragment, FillFromPool,
-        TemporalLiquidityBook, TLB,
-    };
     use crate::execution_engine::types::StableId;
 
     #[test]

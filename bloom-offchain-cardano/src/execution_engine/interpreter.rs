@@ -7,14 +7,14 @@ use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::TransactionOutput;
 use either::Either;
 use log::trace;
-use spectrum_cardano_lib::protocol_params::constant_tx_builder;
-use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use tailcall::tailcall;
 use void::Void;
 
 use bloom_offchain::execution_engine::batch_exec::BatchExec;
-use bloom_offchain::execution_engine::interpreter::RecipeInterpreter;
+use bloom_offchain::execution_engine::bundled::Bundled;
+use bloom_offchain::execution_engine::execution_effect::ExecutionEff;
 use bloom_offchain::execution_engine::liquidity_book::fragment::StateTrans;
+use bloom_offchain::execution_engine::liquidity_book::interpreter::RecipeInterpreter;
 use bloom_offchain::execution_engine::liquidity_book::recipe::{
     LinkedExecutionRecipe, LinkedFill, LinkedSwap, LinkedTerminalInstruction,
 };
@@ -23,12 +23,14 @@ use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::OutputRef;
+use spectrum_cardano_lib::protocol_params::constant_tx_builder;
+use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_offchain::data::{Baked, Has};
 
 use crate::creds::RewardAddress;
 use crate::execution_engine::execution_state::ExecutionState;
 use crate::execution_engine::instances::Magnet;
-use crate::orders::spot::{SpotOrderBatchValidatorRefScriptOutput, SPOT_ORDER_N2T_EX_UNITS};
+use crate::orders::spot::{SPOT_ORDER_N2T_EX_UNITS, SpotOrderBatchValidatorRefScriptOutput};
 
 use super::instances::{FillOrderResults, TxBuilderElementsFromOrder};
 
@@ -51,11 +53,16 @@ where
         ctx: Ctx,
     ) -> (
         SignedTxBuilder,
-        Vec<(Either<Baked<Fr, OutputRef>, Baked<Pl, OutputRef>>, FinalizedTxOut)>,
+        Vec<
+            ExecutionEff<
+                Bundled<Either<Baked<Fr, OutputRef>, Baked<Pl, OutputRef>>, FinalizedTxOut>,
+                Bundled<Baked<Fr, OutputRef>, FinalizedTxOut>,
+            >,
+        >,
     ) {
         let state = ExecutionState::new();
-        let (_, (mut indexed_outputs, mut tx_builder_steps), ctx) =
-            execute(ctx, state, (vec![], vec![]), instructions);
+        let (_, (mut indexed_outputs, mut eliminations, mut tx_builder_steps), ctx) =
+            execute(ctx, state, (vec![], vec![], vec![]), instructions);
         trace!(target: "offchain", "CardanoRecipeInterpreter:: execute done");
 
         // REBUILD the TX with ordered outputs
@@ -127,7 +134,7 @@ where
             .body();
 
         // Map finalized outputs to states of corresponding domain entities.
-        let mut finalized_outputs = vec![];
+        let mut finalized_effects = vec![];
         let tx_hash = hash_transaction_canonical(&tx_body);
         while let Some((e, output)) = indexed_outputs.pop() {
             let output_ix = ordered_outputs
@@ -136,17 +143,21 @@ where
                 .unwrap();
             let out_ref = OutputRef::new(tx_hash, output_ix as u64);
             let finalized_out = FinalizedTxOut(output, out_ref);
-            finalized_outputs.push((
+            finalized_effects.push(ExecutionEff::Updated(Bundled(
                 e.map_either(|x| Baked::new(x, out_ref), |x| Baked::new(x, out_ref)),
                 finalized_out,
-            ))
+            )))
+        }
+        while let Some(elim) = eliminations.pop() {
+            let out_ref = elim.1 .1;
+            finalized_effects.push(ExecutionEff::Eliminated(elim.map(|fr| Baked::new(fr, out_ref))))
         }
 
         // Build tx, change is execution fee.
         let tx = new_tx_builder
             .build(ChangeSelectionAlgo::Default, &execution_fee_address)
             .unwrap();
-        (tx, finalized_outputs)
+        (tx, finalized_effects)
     }
 }
 
@@ -158,6 +169,7 @@ fn execute<Fr, Pl, Ctx>(
     state: ExecutionState,
     mut updates_acc: (
         Vec<(Either<Fr, Pl>, TransactionOutput)>,
+        Vec<Bundled<Fr, FinalizedTxOut>>,
         Vec<TxBuilderElementsFromOrder>,
     ),
     mut rem: Vec<LinkedTerminalInstruction<Fr, Pl, FinalizedTxOut>>,
@@ -165,6 +177,7 @@ fn execute<Fr, Pl, Ctx>(
     ExecutionState,
     (
         Vec<(Either<Fr, Pl>, TransactionOutput)>,
+        Vec<Bundled<Fr, FinalizedTxOut>>,
         Vec<TxBuilderElementsFromOrder>,
     ),
     Ctx,
@@ -179,7 +192,11 @@ where
     if let Some(instruction) = rem.pop() {
         match instruction {
             LinkedTerminalInstruction::Fill(fill_order) => {
+                let (mut updates_acc, mut eliminations_acc, mut typed_tx_in_acc) = updates_acc;
                 let next_state = fill_order.next_fr;
+                if let StateTrans::EOL = next_state {
+                    eliminations_acc.push(fill_order.target_fr.clone())
+                }
                 let (
                     tx_builder,
                     FillOrderResults {
@@ -189,24 +206,33 @@ where
                     ctx,
                 ) = Magnet(fill_order).try_exec(state, ctx).unwrap();
                 trace!(target: "offchain", "Executing FILL. # TX inputs: {}", tx_builder.tx_builder.num_inputs());
-                let (mut updates_acc, mut typed_tx_in_acc) = updates_acc;
                 typed_tx_in_acc.push(tx_builder_elements);
                 if let (StateTrans::Active(next_fr), Some(next_bearer)) = (next_state, residual_order) {
                     updates_acc.push((Either::Left(next_fr), next_bearer));
                 }
-                execute(ctx, tx_builder, (updates_acc, typed_tx_in_acc), rem)
+                execute(
+                    ctx,
+                    tx_builder,
+                    (updates_acc, eliminations_acc, typed_tx_in_acc),
+                    rem,
+                )
             }
             LinkedTerminalInstruction::Swap(swap) => {
                 let next_state = swap.transition;
                 let (tx_builder, tx_builder_step_details, ctx) = Magnet(swap).try_exec(state, ctx).unwrap();
                 trace!(target: "offchain", "Executing SWAP. # TX inputs: {}", tx_builder.tx_builder.num_inputs());
-                let (mut updates_acc, mut typed_tx_in_acc) = updates_acc;
+                let (mut updates_acc, eliminations_acc, mut typed_tx_in_acc) = updates_acc;
                 updates_acc.push((
                     Either::Right(next_state),
                     tx_builder_step_details.output.output.clone(),
                 ));
                 typed_tx_in_acc.push(tx_builder_step_details);
-                execute(ctx, tx_builder, (updates_acc, typed_tx_in_acc), rem)
+                execute(
+                    ctx,
+                    tx_builder,
+                    (updates_acc, eliminations_acc, typed_tx_in_acc),
+                    rem,
+                )
             }
         }
     } else {

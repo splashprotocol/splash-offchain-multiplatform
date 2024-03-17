@@ -2,9 +2,9 @@ use std::fmt;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
 
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use serde::__private::de::missing_field;
 use serde::ser::SerializeStruct;
-use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::combinators::Ior;
 use crate::data::{EntitySnapshot, Stable, VersionUpdater};
@@ -266,6 +266,9 @@ impl<T: Stable> Stable for Predicted<T> {
 
     fn stable_id(&self) -> Self::StableId {
         self.0.stable_id()
+    }
+    fn is_quasi_permanent(&self) -> bool {
+        self.0.is_quasi_permanent()
     }
 }
 

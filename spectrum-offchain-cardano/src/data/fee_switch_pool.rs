@@ -1,11 +1,3 @@
-use crate::constants::{FEE_DEN, MAX_LQ_CAP};
-use crate::data::deposit::ClassicalOnChainDeposit;
-use crate::data::limit_swap::ClassicalOnChainLimitSwap;
-use crate::data::operation_output::{DepositOutput, RedeemOutput, SwapOutput};
-use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
-use crate::data::pool::{ApplyOrder, ApplyOrderError, CFMMPoolAction, ImmutablePoolUtxo, Lq, Rx, Ry};
-use crate::data::redeem::ClassicalOnChainRedeem;
-use crate::data::{PoolId, PoolStateVer, PoolVer};
 use cml_chain::assets::MultiAsset;
 use cml_chain::plutus::PlutusData;
 use cml_chain::plutus::PlutusData::Integer;
@@ -14,22 +6,31 @@ use cml_chain::utils::BigInt;
 use cml_chain::Value;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
+use type_equalities::IsEqual;
+
+use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
 };
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{EntitySnapshot, Has, Stable, VersionUpdater};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
-use type_equalities::IsEqual;
 
+use crate::constants::{FEE_DEN, MAX_LQ_CAP};
+use crate::data::{PoolId, PoolStateVer, PoolVer};
+use crate::data::deposit::ClassicalOnChainDeposit;
+use crate::data::limit_swap::ClassicalOnChainLimitSwap;
+use crate::data::operation_output::{DepositOutput, RedeemOutput, SwapOutput};
+use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
+use crate::data::pool::{ApplyOrder, ApplyOrderError, CFMMPoolAction, ImmutablePoolUtxo, Lq, Rx, Ry};
 use crate::data::pool::PoolOps;
+use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::fees::FeeExtension;
 use crate::pool_math::cfmm_math::{output_amount, reward_lp, shares_amount};
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct FeeSwitchCFMMPool {
     pub id: PoolId,
     pub state_ver: PoolStateVer,
@@ -72,6 +73,9 @@ impl Stable for FeeSwitchCFMMPool {
 
     fn stable_id(&self) -> Self::StableId {
         self.id
+    }
+    fn is_quasi_permanent(&self) -> bool {
+        true
     }
 }
 
@@ -150,7 +154,7 @@ impl PoolOps for FeeSwitchCFMMPool {
 }
 
 impl ApplyOrder<ClassicalOnChainLimitSwap> for FeeSwitchCFMMPool {
-    type OrderApplicationResult = SwapOutput;
+    type Result = SwapOutput;
 
     fn apply_order(
         mut self,
@@ -170,13 +174,15 @@ impl ApplyOrder<ClassicalOnChainLimitSwap> for FeeSwitchCFMMPool {
         }
         // Adjust pool value.
         if order.quote_asset.untag() == self.asset_x.untag() {
-            let additional_treasury_y = (((order.base_amount.untag() as u128) * (*self.treasury_fee.numer() as u128))
+            let additional_treasury_y = (((order.base_amount.untag() as u128)
+                * (*self.treasury_fee.numer() as u128))
                 / (*self.treasury_fee.denom() as u128)) as u64;
             self.reserves_x = self.reserves_x - quote_amount.retag();
             self.treasury_y = self.treasury_y + TaggedAmount::new(additional_treasury_y);
             self.reserves_y = self.reserves_y + order.base_amount.retag();
         } else {
-            let additional_treasury_x = (((order.base_amount.untag() as u128) * (*self.treasury_fee.numer() as u128))
+            let additional_treasury_x = (((order.base_amount.untag() as u128)
+                * (*self.treasury_fee.numer() as u128))
                 / (*self.treasury_fee.denom() as u128)) as u64;
             self.treasury_x = self.treasury_x + TaggedAmount::new(additional_treasury_x);
             self.reserves_y = self.reserves_y - quote_amount.retag();
@@ -209,7 +215,7 @@ impl ApplyOrder<ClassicalOnChainLimitSwap> for FeeSwitchCFMMPool {
 }
 
 impl ApplyOrder<ClassicalOnChainDeposit> for FeeSwitchCFMMPool {
-    type OrderApplicationResult = DepositOutput;
+    type Result = DepositOutput;
 
     fn apply_order(
         mut self,
@@ -250,7 +256,7 @@ impl ApplyOrder<ClassicalOnChainDeposit> for FeeSwitchCFMMPool {
 }
 
 impl ApplyOrder<ClassicalOnChainRedeem> for FeeSwitchCFMMPool {
-    type OrderApplicationResult = RedeemOutput;
+    type Result = RedeemOutput;
 
     fn apply_order(
         mut self,
@@ -392,10 +398,12 @@ impl TryFromPData for FeeSwitchPoolConfig {
 }
 
 mod tests {
-    use crate::data::fee_switch_pool::FeeSwitchPoolConfig;
     use cml_chain::plutus::PlutusData;
     use cml_core::serialization::Deserialize;
+
     use spectrum_cardano_lib::types::TryFromPData;
+
+    use crate::data::fee_switch_pool::FeeSwitchPoolConfig;
 
     const DATUM_SAMPLE: &str =
         "d8799fd8799f581c6aaa652b39f5723afc85bba38401a4cbfd5b2f7aa3771504257ac8a74d74657374425f4144415f4e4654ffd8799f4040ffd8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737442ffd8799f581c635f44ae5df86be9e80fd0c57a5ec699a146d9d9034516ffd72febef4c74657374425f4144415f4c51ff19270b010000801b00000002540be400581c2618e94cdb06792f05ae9b1ec78b0231f4b7f4215b1b4cf52e6342deff";

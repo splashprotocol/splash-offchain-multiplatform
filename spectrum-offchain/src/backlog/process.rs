@@ -25,12 +25,12 @@ where
         let backlog = Arc::clone(&backlog);
         async move {
             match upd {
-                OrderUpdate::NewOrder(pending_order) => {
+                OrderUpdate::Created(pending_order) => {
                     let backlog_mux = backlog.get(pending_order.get_pool_ref());
                     let mut backlog = backlog_mux.lock().await;
                     backlog.put(pending_order)
                 }
-                OrderUpdate::OrderEliminated(order_link) => {
+                OrderUpdate::Eliminated(order_link) => {
                     let backlog_mux = backlog.get(order_link.pool_id);
                     let mut backlog = backlog_mux.lock().await;
                     backlog.remove(order_link.order_id)

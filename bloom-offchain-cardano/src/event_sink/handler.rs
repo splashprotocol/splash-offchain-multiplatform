@@ -6,9 +6,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use cml_multi_era::babbage::{BabbageTransaction, BabbageTransactionOutput};
+use either::Either;
 use futures::{Sink, SinkExt};
 use log::trace;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, MutexGuard};
 use type_equalities::IsEqual;
 
 use cardano_chain_sync::data::LedgerTxEvent;
@@ -16,14 +17,16 @@ use cardano_mempool_sync::data::MempoolUpdate;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::combinators::Ior;
-use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
 use spectrum_offchain::data::{EntitySnapshot, Has, Tradable};
+use spectrum_offchain::data::order::{OrderUpdate, SpecializedOrder};
+use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain::partitioning::Partitioned;
 
 use crate::creds::ExecutorCred;
-use crate::event_sink::entity_index::EntityIndex;
+use crate::event_sink::entity_index::TradableEntityIndex;
+use crate::event_sink::order_index::OrderIndex;
 
 #[derive(Copy, Clone, Debug)]
 pub struct HandlerContext {
@@ -55,10 +58,7 @@ impl Has<ExecutorCred> for HandlerContext {
 /// A handler for updates that routes resulted [Entity] updates
 /// into different topics [Topic] according to partitioning key [PairId].
 #[derive(Clone)]
-pub struct PairUpdateHandler<const N: usize, PairId, Topic, Entity, Index>
-where
-    Entity: EntitySnapshot,
-{
+pub struct PairUpdateHandler<const N: usize, PairId, Topic, Entity, Index> {
     pub topic: Partitioned<N, PairId, Topic>,
     /// Index of all non-consumed states of [Entity].
     pub index: Arc<Mutex<Index>>,
@@ -66,10 +66,7 @@ where
     pub pd: PhantomData<Entity>,
 }
 
-impl<const N: usize, PairId, Topic, Entity, Index> PairUpdateHandler<N, PairId, Topic, Entity, Index>
-where
-    Entity: EntitySnapshot + TryFromLedger<BabbageTransactionOutput, HandlerContext> + Clone,
-{
+impl<const N: usize, PairId, Topic, Entity, Index> PairUpdateHandler<N, PairId, Topic, Entity, Index> {
     pub fn new(
         topic: Partitioned<N, PairId, Topic>,
         index: Arc<Mutex<Index>>,
@@ -84,15 +81,244 @@ where
     }
 }
 
-async fn extract_transitions<Entity, Index>(
+#[derive(Clone)]
+pub struct SpecializedHandler<H, OrderIndex, Pool> {
+    general_handler: H,
+    order_index: Arc<Mutex<OrderIndex>>,
+    pd: PhantomData<Pool>,
+}
+
+impl<H, OrderIndex, Pool> SpecializedHandler<H, OrderIndex, Pool> {
+    pub fn new(general_handler: H, order_index: Arc<Mutex<OrderIndex>>) -> Self {
+        Self {
+            general_handler,
+            order_index,
+            pd: PhantomData,
+        }
+    }
+}
+
+#[async_trait(?Send)]
+impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex>
+    EventHandler<LedgerTxEvent<BabbageTransaction>>
+    for SpecializedHandler<PairUpdateHandler<N, PairId, Topic, Order, PoolIndex>, OrderIndex, Pool>
+where
+    PairId: Copy + Hash,
+    Topic: Sink<(PairId, OrderUpdate<Order, Order>)> + Unpin,
+    Topic::Error: Debug,
+    Pool: EntitySnapshot + Tradable<PairId = PairId>,
+    Order: SpecializedOrder<TPoolId = Pool::StableId>
+        + TryFromLedger<BabbageTransactionOutput, HandlerContext>
+        + Clone
+        + Debug,
+    Order::TOrderId: From<OutputRef>,
+    OrderIndex: crate::event_sink::order_index::OrderIndex<Order>,
+    PoolIndex: TradableEntityIndex<Pool>,
+{
+    async fn try_handle(
+        &mut self,
+        ev: LedgerTxEvent<BabbageTransaction>,
+    ) -> Option<LedgerTxEvent<BabbageTransaction>> {
+        match ev {
+            LedgerTxEvent::TxApplied { tx, slot } => {
+                match extract_atomic_transitions(
+                    Arc::clone(&self.order_index),
+                    self.general_handler.executor_cred,
+                    tx,
+                )
+                .await
+                {
+                    Ok(transitions) => {
+                        trace!(target: "offchain", "[{}] entities parsed from applied tx", transitions.len());
+                        let pool_index = self.general_handler.index.lock().await;
+                        let mut index = self.order_index.lock().await;
+                        index.run_eviction();
+                        for tr in transitions {
+                            if let Some(pair) = pool_index.pair_of(&pool_ref_of(&tr)) {
+                                index_atomic_transition(&mut index, &tr);
+                                let topic = self.general_handler.topic.get_mut(pair);
+                                topic.feed((pair, tr.into())).await.expect("Channel is closed");
+                                topic.flush().await.expect("Failed to commit message");
+                            }
+                        }
+                        None
+                    }
+                    Err(tx) => Some(LedgerTxEvent::TxApplied { tx, slot }),
+                }
+            }
+            LedgerTxEvent::TxUnapplied(tx) => {
+                match extract_atomic_transitions(
+                    Arc::clone(&self.order_index),
+                    self.general_handler.executor_cred,
+                    tx,
+                )
+                .await
+                {
+                    Ok(transitions) => {
+                        trace!("[{}] entities parsed from unapplied tx", transitions.len());
+                        let mut index = self.order_index.lock().await;
+                        let pool_index = self.general_handler.index.lock().await;
+                        index.run_eviction();
+                        for tr in transitions {
+                            if let Some(pair) = pool_index.pair_of(&pool_ref_of(&tr)) {
+                                let inverse_tr = tr.flip();
+                                index_atomic_transition(&mut index, &inverse_tr);
+                                let topic = self.general_handler.topic.get_mut(pair);
+                                topic
+                                    .feed((pair, inverse_tr.into()))
+                                    .await
+                                    .expect("Channel is closed");
+                                topic.flush().await.expect("Failed to commit message");
+                            }
+                        }
+                        None
+                    }
+                    Err(tx) => Some(LedgerTxEvent::TxUnapplied(tx)),
+                }
+            }
+        }
+    }
+}
+
+#[async_trait(?Send)]
+impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex>
+    EventHandler<MempoolUpdate<BabbageTransaction>>
+    for SpecializedHandler<PairUpdateHandler<N, PairId, Topic, Order, PoolIndex>, OrderIndex, Pool>
+where
+    PairId: Copy + Hash,
+    Topic: Sink<(PairId, OrderUpdate<Order, Order>)> + Unpin,
+    Topic::Error: Debug,
+    Pool: EntitySnapshot + Tradable<PairId = PairId>,
+    Order: SpecializedOrder<TPoolId = Pool::StableId>
+        + TryFromLedger<BabbageTransactionOutput, HandlerContext>
+        + Clone
+        + Debug,
+    Order::TOrderId: From<OutputRef>,
+    OrderIndex: crate::event_sink::order_index::OrderIndex<Order>,
+    PoolIndex: TradableEntityIndex<Pool>,
+{
+    async fn try_handle(
+        &mut self,
+        ev: MempoolUpdate<BabbageTransaction>,
+    ) -> Option<MempoolUpdate<BabbageTransaction>> {
+        match ev {
+            MempoolUpdate::TxAccepted(tx) => {
+                match extract_atomic_transitions(
+                    Arc::clone(&self.order_index),
+                    self.general_handler.executor_cred,
+                    tx,
+                )
+                .await
+                {
+                    Ok(transitions) => {
+                        trace!(target: "offchain", "[{}] entities parsed from applied tx", transitions.len());
+                        let pool_index = self.general_handler.index.lock().await;
+                        let mut index = self.order_index.lock().await;
+                        index.run_eviction();
+                        for tr in transitions {
+                            if let Some(pair) = pool_index.pair_of(&pool_ref_of(&tr)) {
+                                index_atomic_transition(&mut index, &tr);
+                                let topic = self.general_handler.topic.get_mut(pair);
+                                topic.feed((pair, tr.into())).await.expect("Channel is closed");
+                                topic.flush().await.expect("Failed to commit message");
+                            }
+                        }
+                        None
+                    }
+                    Err(tx) => Some(MempoolUpdate::TxAccepted(tx)),
+                }
+            }
+        }
+    }
+}
+
+fn pool_ref_of<T: SpecializedOrder>(tr: &Either<T, T>) -> T::TPoolId {
+    match tr {
+        Either::Left(o) => o.get_pool_ref(),
+        Either::Right(o) => o.get_pool_ref(),
+    }
+}
+
+async fn extract_atomic_transitions<Order, Index>(
+    index: Arc<Mutex<Index>>,
+    executor_cred: ExecutorCred,
+    mut tx: BabbageTransaction,
+) -> Result<Vec<Either<Order, Order>>, BabbageTransaction>
+where
+    Order: SpecializedOrder + TryFromLedger<BabbageTransactionOutput, HandlerContext> + Clone,
+    Order::TOrderId: From<OutputRef>,
+    Index: OrderIndex<Order>,
+{
+    let num_outputs = tx.body.outputs.len();
+    if num_outputs == 0 {
+        return Err(tx);
+    }
+    let mut consumed_entities = HashMap::<Order::TOrderId, Order>::new();
+    for i in &tx.body.inputs {
+        let state_id = Order::TOrderId::from(OutputRef::from((i.transaction_id, i.index)));
+        let mut index = index.lock().await;
+        if index.exists(&state_id) {
+            if let Some(order) = index.get(&state_id) {
+                let entity_id = order.get_self_ref();
+                consumed_entities.insert(entity_id, order);
+            }
+        }
+    }
+    let mut produced_entities = HashMap::<Order::TOrderId, Order>::new();
+    if !consumed_entities.is_empty() {
+        let tx_hash = hash_transaction_canonical(&tx.body);
+        let mut ix = num_outputs - 1;
+        let mut non_processed_outputs = vec![];
+        while let Some(o) = tx.body.outputs.pop() {
+            let o_ref = OutputRef::new(tx_hash, ix as u64);
+            match Order::try_from_ledger(&o, HandlerContext::new(o_ref, executor_cred)) {
+                Some(entity) => {
+                    trace!(target: "offchain", "extract_atomic_transitions: entity found");
+                    let entity_id = entity.get_self_ref();
+                    produced_entities.insert(entity_id, entity);
+                }
+                None => {
+                    trace!(target: "offchain", "extract_atomic_transitions: NO entity found");
+                    non_processed_outputs.push(o);
+                }
+            }
+            ix += 1;
+        }
+        // Preserve non-processed outputs in original ordering.
+        tx.body.outputs = non_processed_outputs;
+    }
+
+    // Gather IDs of all recognized entities.
+    let mut keys = HashSet::new();
+    for k in consumed_entities.keys().chain(produced_entities.keys()) {
+        keys.insert(*k);
+    }
+
+    // Match consumed versions with produced ones.
+    let mut transitions = vec![];
+    for k in keys.into_iter() {
+        match (consumed_entities.remove(&k), produced_entities.remove(&k)) {
+            (Some(consumed), _) => transitions.push(Either::Left(consumed)),
+            (_, Some(produced)) => transitions.push(Either::Right(produced)),
+            _ => {}
+        };
+    }
+
+    if transitions.is_empty() {
+        return Err(tx);
+    }
+    Ok(transitions)
+}
+
+async fn extract_persistent_transitions<Entity, Index>(
     index: Arc<Mutex<Index>>,
     executor_cred: ExecutorCred,
     mut tx: BabbageTransaction,
 ) -> Result<Vec<Ior<Entity, Entity>>, BabbageTransaction>
 where
-    Entity: EntitySnapshot + TryFromLedger<BabbageTransactionOutput, HandlerContext> + Clone,
+    Entity: EntitySnapshot + Tradable + TryFromLedger<BabbageTransactionOutput, HandlerContext> + Clone,
     Entity::Version: From<OutputRef>,
-    Index: EntityIndex<Entity>,
+    Index: TradableEntityIndex<Entity>,
 {
     let num_outputs = tx.body.outputs.len();
     if num_outputs == 0 {
@@ -117,18 +343,18 @@ where
         let o_ref = OutputRef::new(tx_hash, ix as u64);
         match Entity::try_from_ledger(&o, HandlerContext::new(o_ref, executor_cred)) {
             Some(entity) => {
-                trace!(target: "offchain", "extract_transitions: entity found");
+                trace!(target: "offchain", "extract_persistent_transitions: entity found");
                 let entity_id = entity.stable_id();
                 produced_entities.insert(entity_id, entity);
             }
             None => {
-                trace!(target: "offchain", "extract_transitions: NO entity found");
+                trace!(target: "offchain", "extract_persistent_transitions: NO entity found");
                 non_processed_outputs.push(o);
             }
         }
         ix += 1;
     }
-    // Preserve non processed outputs in original ordering.
+    // Preserve non-processed outputs in original ordering.
     tx.body.outputs = non_processed_outputs;
 
     // Gather IDs of all recognized entities.
@@ -151,7 +377,7 @@ where
     Ok(transitions)
 }
 
-fn pair_id_of<T: EntitySnapshot + Tradable>(xa: &Ior<T, T>) -> T::PairId {
+fn pair_id_of<T: Tradable>(xa: &Ior<T, T>) -> T::PairId {
     match xa {
         Ior::Left(o) => o.pair_id(),
         Ior::Right(o) => o.pair_id(),
@@ -172,7 +398,7 @@ where
         + Clone
         + Debug,
     Entity::Version: From<OutputRef>,
-    Index: EntityIndex<Entity>,
+    Index: TradableEntityIndex<Entity>,
 {
     async fn try_handle(
         &mut self,
@@ -180,26 +406,13 @@ where
     ) -> Option<LedgerTxEvent<BabbageTransaction>> {
         match ev {
             LedgerTxEvent::TxApplied { tx, slot } => {
-                match extract_transitions(Arc::clone(&self.index), self.executor_cred, tx).await {
+                match extract_persistent_transitions(Arc::clone(&self.index), self.executor_cred, tx).await {
                     Ok(transitions) => {
                         trace!(target: "offchain", "[{}] entities parsed from applied tx", transitions.len());
                         let mut index = self.index.lock().await;
-                        if !transitions.is_empty() {
-                            index.run_eviction();
-                        }
+                        index.run_eviction();
                         for tr in transitions {
-                            match &tr {
-                                Ior::Left(consumed) => {
-                                    index.register_for_eviction(consumed.version());
-                                }
-                                Ior::Right(produced) => {
-                                    index.put_state(produced.clone());
-                                }
-                                Ior::Both(consumed, produced) => {
-                                    index.register_for_eviction(consumed.version());
-                                    index.put_state(produced.clone());
-                                }
-                            }
+                            index_transition(&mut index, &tr);
                             let pair = pair_id_of(&tr);
                             let topic = self.topic.get_mut(pair);
                             topic
@@ -214,33 +427,21 @@ where
                 }
             }
             LedgerTxEvent::TxUnapplied(tx) => {
-                match extract_transitions(Arc::clone(&self.index), self.executor_cred, tx).await {
+                match extract_persistent_transitions(Arc::clone(&self.index), self.executor_cred, tx).await {
                     Ok(transitions) => {
                         trace!("[{}] entities parsed from unapplied tx", transitions.len());
                         let mut index = self.index.lock().await;
-                        if !transitions.is_empty() {
-                            index.run_eviction();
-                        }
+                        index.run_eviction();
                         for tr in transitions {
-                            match &tr {
-                                Ior::Left(consumed) => {
-                                    index.put_state(consumed.clone());
-                                }
-                                Ior::Right(produced) => {
-                                    index.remove_state(&produced.version());
-                                }
-                                Ior::Both(consumed, produced) => {
-                                    index.put_state(consumed.clone());
-                                    index.remove_state(&produced.version());
-                                }
-                            }
-                            let pair = pair_id_of(&tr);
+                            let inverse_tr = tr.swap();
+                            index_transition(&mut index, &inverse_tr);
+                            let pair = pair_id_of(&inverse_tr);
                             let topic = self.topic.get_mut(pair);
                             topic
                                 .feed((
                                     pair,
                                     EitherMod::Confirmed(Confirmed(StateUpdate::TransitionRollback(
-                                        tr.swap(),
+                                        inverse_tr,
                                     ))),
                                 ))
                                 .await
@@ -269,7 +470,7 @@ where
         + Clone
         + Debug,
     Entity::Version: From<OutputRef>,
-    Index: EntityIndex<Entity>,
+    Index: TradableEntityIndex<Entity>,
 {
     async fn try_handle(
         &mut self,
@@ -277,9 +478,13 @@ where
     ) -> Option<MempoolUpdate<BabbageTransaction>> {
         match ev {
             MempoolUpdate::TxAccepted(tx) => {
-                match extract_transitions(Arc::clone(&self.index), self.executor_cred, tx).await {
+                match extract_persistent_transitions(Arc::clone(&self.index), self.executor_cred, tx).await {
                     Ok(transitions) => {
+                        trace!("[{}] entities parsed from applied tx", transitions.len());
+                        let mut index = self.index.lock().await;
+                        index.run_eviction();
                         for tr in transitions {
+                            index_transition(&mut index, &tr);
                             let pair = pair_id_of(&tr);
                             let topic = self.topic.get_mut(pair);
                             topic
@@ -296,6 +501,40 @@ where
                     Err(tx) => Some(MempoolUpdate::TxAccepted(tx)),
                 }
             }
+        }
+    }
+}
+
+fn index_atomic_transition<Index, T>(index: &mut MutexGuard<Index>, tr: &Either<T, T>)
+where
+    T: SpecializedOrder + Clone,
+    Index: OrderIndex<T>,
+{
+    match &tr {
+        Either::Left(consumed) => {
+            index.register_for_eviction(consumed.get_self_ref());
+        }
+        Either::Right(produced) => {
+            index.put(produced.clone());
+        }
+    }
+}
+
+fn index_transition<Index, T>(index: &mut MutexGuard<Index>, tr: &Ior<T, T>)
+where
+    T: EntitySnapshot + Tradable + Clone,
+    Index: TradableEntityIndex<T>,
+{
+    match &tr {
+        Ior::Left(consumed) => {
+            index.register_for_eviction(consumed.version());
+        }
+        Ior::Right(produced) => {
+            index.put_state(produced.clone());
+        }
+        Ior::Both(consumed, produced) => {
+            index.register_for_eviction(consumed.version());
+            index.put_state(produced.clone());
         }
     }
 }
@@ -320,11 +559,11 @@ mod tests {
 
     use cardano_chain_sync::data::LedgerTxEvent;
     use spectrum_cardano_lib::hash::hash_transaction_canonical;
-    use spectrum_cardano_lib::transaction::TransactionOutputExtension;
     use spectrum_cardano_lib::OutputRef;
+    use spectrum_cardano_lib::transaction::TransactionOutputExtension;
     use spectrum_offchain::combinators::Ior;
-    use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate};
     use spectrum_offchain::data::{EntitySnapshot, Has, Stable, Tradable};
+    use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate};
     use spectrum_offchain::event_sink::event_handler::EventHandler;
     use spectrum_offchain::ledger::TryFromLedger;
     use spectrum_offchain::partitioning::Partitioned;
@@ -353,6 +592,9 @@ mod tests {
         type StableId = u8;
         fn stable_id(&self) -> Self::StableId {
             0
+        }
+        fn is_quasi_permanent(&self) -> bool {
+            false
         }
     }
 

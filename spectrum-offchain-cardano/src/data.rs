@@ -38,6 +38,12 @@ pub struct OnChain<T> {
     pub source: TransactionOutput,
 }
 
+impl<T> OnChain<T> {
+    pub fn new(value: T, source: TransactionOutput) -> Self {
+        Self { value, source }
+    }
+}
+
 impl<T, Ctx> TryFromLedger<TransactionOutput, Ctx> for OnChain<T>
 where
     T: TryFromLedger<TransactionOutput, Ctx>,
@@ -92,6 +98,9 @@ where
 
     fn stable_id(&self) -> Self::StableId {
         self.value.stable_id()
+    }
+    fn is_quasi_permanent(&self) -> bool {
+        self.value.is_quasi_permanent()
     }
 }
 

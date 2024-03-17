@@ -1,9 +1,10 @@
-use std::collections::hash_map::Entry;
 use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
+use std::collections::hash_map::Entry;
 use std::fmt::Debug;
 use std::mem;
 
 use log::trace;
+
 use spectrum_offchain::data::Stable;
 
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};

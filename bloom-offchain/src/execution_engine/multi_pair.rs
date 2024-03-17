@@ -1,9 +1,10 @@
-use log::trace;
 use std::collections::HashMap;
 use std::hash::Hash;
+
+use log::trace;
 use type_equalities::IsEqual;
 
-use crate::maker::Maker;
+use spectrum_offchain::maker::Maker;
 
 #[derive(Debug, Clone)]
 pub struct MultiPair<PairId, R, Ctx>(HashMap<PairId, R>, Ctx);

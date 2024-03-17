@@ -173,6 +173,9 @@ impl Stable for SpotOrder {
     fn stable_id(&self) -> Self::StableId {
         self.beacon
     }
+    fn is_quasi_permanent(&self) -> bool {
+        false
+    }
 }
 
 impl Tradable for SpotOrder {

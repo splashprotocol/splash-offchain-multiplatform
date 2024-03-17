@@ -52,7 +52,7 @@ impl<TSink, TOrd, TRegistry> ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry
             };
             if let Some(order_link) = maybe_order_link {
                 is_success = true;
-                let _ = self.topic.feed(OrderUpdate::OrderEliminated(order_link)).await;
+                let _ = self.topic.feed(OrderUpdate::Eliminated(order_link)).await;
                 break;
             }
         }
@@ -70,7 +70,7 @@ impl<TSink, TOrd, TRegistry> ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry
                             pool_id: order.get_pool_ref(),
                         });
                     };
-                    let _ = self.topic.feed(OrderUpdate::NewOrder(order)).await;
+                    let _ = self.topic.feed(OrderUpdate::Created(order)).await;
                     info!(target: "offchain", "Observing new order");
                 }
             }
@@ -102,7 +102,7 @@ impl<TSink, TOrd, TRegistry> ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry
             };
             if let Some(order_link) = maybe_order_link {
                 is_success = true;
-                let _ = self.topic.feed(OrderUpdate::OrderEliminated(order_link)).await;
+                let _ = self.topic.feed(OrderUpdate::Eliminated(order_link)).await;
                 break;
             }
         }

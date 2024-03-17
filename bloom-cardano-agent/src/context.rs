@@ -1,12 +1,13 @@
-use bloom_offchain_cardano::orders::spot::{
-    SpotOrderBatchValidatorRefScriptOutput, SpotOrderRefScriptOutput,
-};
 use type_equalities::IsEqual;
 
 use bloom_offchain::execution_engine::liquidity_book::ExecutionCap;
 use bloom_offchain::execution_engine::types::Time;
 use bloom_offchain_cardano::creds::RewardAddress;
+use bloom_offchain_cardano::orders::spot::{
+    SpotOrderBatchValidatorRefScriptOutput, SpotOrderRefScriptOutput,
+};
 use spectrum_cardano_lib::collateral::Collateral;
+use spectrum_offchain::backlog::BacklogCapacity;
 use spectrum_offchain::data::Has;
 use spectrum_offchain_cardano::data::pool::CFMMPoolRefScriptOutput;
 use spectrum_offchain_cardano::data::ref_scripts::ReferenceOutputs;
@@ -18,6 +19,25 @@ pub struct ExecutionContext {
     pub refs: ReferenceOutputs,
     pub collateral: Collateral,
     pub reward_addr: RewardAddress,
+    pub backlog_capacity: BacklogCapacity,
+    pub network_id: u8,
+}
+
+impl From<ExecutionContext> for spectrum_offchain_cardano::data::execution_context::ExecutionContext {
+    fn from(value: ExecutionContext) -> Self {
+        Self {
+            operator_addr: value.reward_addr.into(),
+            ref_scripts: value.refs,
+            collateral: value.collateral,
+            network_id: value.network_id,
+        }
+    }
+}
+
+impl Has<BacklogCapacity> for ExecutionContext {
+    fn get_labeled<U: IsEqual<BacklogCapacity>>(&self) -> BacklogCapacity {
+        self.backlog_capacity
+    }
 }
 
 impl Has<Time> for ExecutionContext {
