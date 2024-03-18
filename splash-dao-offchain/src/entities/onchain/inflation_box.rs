@@ -1,10 +1,12 @@
 use cml_chain::plutus::PlutusData;
 
+use cml_chain::PolicyId;
 use spectrum_cardano_lib::plutus_data::IntoPlutusData;
 use spectrum_cardano_lib::{TaggedAmount, Token};
 use spectrum_offchain::data::{EntitySnapshot, Identifier, Stable};
 
 use crate::assets::Splash;
+use crate::routines::inflation::InflationBoxSnapshot;
 use crate::time::{epoch_end, NetworkTime, ProtocolEpoch};
 use crate::{constants, GenesisEpochStartTime};
 
@@ -12,13 +14,14 @@ use crate::{constants, GenesisEpochStartTime};
 pub struct InflationBoxId(Token);
 
 impl Identifier for InflationBoxId {
-    type For = InflationBox;
+    type For = InflationBoxSnapshot;
 }
 
 #[derive(Copy, Clone, Debug)]
 pub struct InflationBox {
     pub last_processed_epoch: ProtocolEpoch,
     pub splash_reserves: TaggedAmount<Splash>,
+    pub wp_auth_policy: PolicyId,
 }
 
 impl InflationBox {
@@ -56,16 +59,9 @@ pub fn emission_rate(epoch: ProtocolEpoch) -> TaggedAmount<Splash> {
 }
 
 impl Stable for InflationBox {
-    type StableId = u64;
+    type StableId = PolicyId;
     fn stable_id(&self) -> Self::StableId {
-        todo!()
-    }
-}
-
-impl EntitySnapshot for InflationBox {
-    type Version = u64;
-    fn version(&self) -> Self::Version {
-        todo!()
+        self.wp_auth_policy
     }
 }
 

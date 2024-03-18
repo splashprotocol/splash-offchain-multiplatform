@@ -2,6 +2,7 @@ use std::marker::PhantomData;
 use std::time::Duration;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
+use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::backlog::ResilientBacklog;
 use spectrum_offchain::data::unique_entity::{AnyMod, Confirmed};
 
@@ -11,6 +12,7 @@ use crate::entities::onchain::poll_factory::PollFactory;
 use crate::entities::onchain::smart_farm::SmartFarm;
 use crate::entities::onchain::voting_escrow::{VotingEscrow, VotingEscrowId};
 use crate::entities::onchain::weighting_poll::{PollState, WeightingOngoing, WeightingPoll};
+use crate::entities::Snapshot;
 use crate::protocol_config::ProtocolConfig;
 use crate::routine::{retry_in, RoutineBehaviour, ToRoutine};
 use crate::routines::inflation::actions::InflationActions;
@@ -34,11 +36,16 @@ pub struct Behaviour<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer> {
 
 const DEF_DELAY: Duration = Duration::new(5, 0);
 
+pub type InflationBoxSnapshot = Snapshot<InflationBox, OutputRef>;
+
 #[async_trait::async_trait]
 impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer> RoutineBehaviour
     for Behaviour<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
 where
-    IB: StateProjectionRead<InflationBox, Bearer> + StateProjectionWrite<InflationBox, Bearer> + Send + Sync,
+    IB: StateProjectionRead<InflationBoxSnapshot, Bearer>
+        + StateProjectionWrite<InflationBoxSnapshot, Bearer>
+        + Send
+        + Sync,
     PF: StateProjectionRead<PollFactory, Bearer> + StateProjectionWrite<PollFactory, Bearer> + Send + Sync,
     WP: StateProjectionRead<WeightingPoll, Bearer>
         + StateProjectionWrite<WeightingPoll, Bearer>
@@ -68,9 +75,9 @@ where
 impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
     Behaviour<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
 {
-    async fn inflation_box(&self) -> Option<AnyMod<Bundled<InflationBox, Bearer>>>
+    async fn inflation_box(&self) -> Option<AnyMod<Bundled<InflationBoxSnapshot, Bearer>>>
     where
-        IB: StateProjectionRead<InflationBox, Bearer>,
+        IB: StateProjectionRead<InflationBoxSnapshot, Bearer>,
     {
         self.inflation_box.read(self.conf.inflation_box_id).await
     }
@@ -109,7 +116,7 @@ impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
 
     async fn read_state(&self) -> RoutineState<Bearer>
     where
-        IB: StateProjectionRead<InflationBox, Bearer>,
+        IB: StateProjectionRead<InflationBoxSnapshot, Bearer>,
         PF: StateProjectionRead<PollFactory, Bearer>,
         WP: StateProjectionRead<WeightingPoll, Bearer>,
         SF: StateProjectionRead<SmartFarm, Bearer>,
@@ -122,7 +129,7 @@ impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
         {
             let genesis = self.conf.genesis_time;
             let now = self.ntp.network_time().await;
-            let current_epoch = inflation_box.as_erased().0.active_epoch(genesis, now);
+            let current_epoch = inflation_box.as_erased().0.get().active_epoch(genesis, now);
             match self.weighting_poll(current_epoch).await {
                 None => RoutineState::PendingCreatePoll(PendingCreatePoll {
                     inflation_box,
@@ -164,7 +171,7 @@ impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
         }: PendingCreatePoll<Bearer>,
     ) -> Option<ToRoutine>
     where
-        IB: StateProjectionWrite<InflationBox, Bearer>,
+        IB: StateProjectionWrite<InflationBoxSnapshot, Bearer>,
         PF: StateProjectionWrite<PollFactory, Bearer>,
         WP: StateProjectionWrite<WeightingPoll, Bearer>,
         Actions: InflationActions<Bearer>,
@@ -255,7 +262,7 @@ pub enum RoutineState<Out> {
 }
 
 pub struct PendingCreatePoll<Out> {
-    inflation_box: AnyMod<Bundled<InflationBox, Out>>,
+    inflation_box: AnyMod<Bundled<InflationBoxSnapshot, Out>>,
     poll_factory: AnyMod<Bundled<PollFactory, Out>>,
 }
 

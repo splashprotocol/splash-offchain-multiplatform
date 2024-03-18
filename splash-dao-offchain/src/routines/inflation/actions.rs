@@ -24,15 +24,18 @@ use crate::entities::onchain::poll_factory::{unsafe_update_factory_state, PollFa
 use crate::entities::onchain::smart_farm::SmartFarm;
 use crate::entities::onchain::voting_escrow::{unsafe_update_ve_state, VotingEscrow};
 use crate::entities::onchain::weighting_poll::{unsafe_update_wp_state, WeightingPoll};
+use crate::entities::Snapshot;
+
+use super::InflationBoxSnapshot;
 
 #[async_trait::async_trait]
 pub trait InflationActions<Bearer> {
     async fn create_wpoll(
         &self,
-        inflation_box: Bundled<InflationBox, Bearer>,
+        inflation_box: Bundled<InflationBoxSnapshot, Bearer>,
         factory: Bundled<PollFactory, Bearer>,
     ) -> (
-        Traced<Predicted<Bundled<InflationBox, Bearer>>>,
+        Traced<Predicted<Bundled<InflationBoxSnapshot, Bearer>>>,
         Traced<Predicted<Bundled<PollFactory, Bearer>>>,
         Traced<Predicted<Bundled<WeightingPoll, Bearer>>>,
     );
@@ -67,15 +70,15 @@ where
 {
     async fn create_wpoll(
         &self,
-        Bundled(inflation_box, inflation_box_in): Bundled<InflationBox, TransactionOutput>,
+        Bundled(inflation_box, inflation_box_in): Bundled<InflationBoxSnapshot, TransactionOutput>,
         Bundled(factory, factory_in): Bundled<PollFactory, TransactionOutput>,
     ) -> (
-        Traced<Predicted<Bundled<InflationBox, TransactionOutput>>>,
+        Traced<Predicted<Bundled<InflationBoxSnapshot, TransactionOutput>>>,
         Traced<Predicted<Bundled<PollFactory, TransactionOutput>>>,
         Traced<Predicted<Bundled<WeightingPoll, TransactionOutput>>>,
     ) {
         let prev_ib_version = inflation_box.version();
-        let (next_inflation_box, rate) = inflation_box.release_next_tranche();
+        let (next_inflation_box, rate) = inflation_box.get().release_next_tranche();
         let mut inflation_box_out = inflation_box_in.clone();
         if let Some(data_mut) = inflation_box_out.data_mut() {
             unsafe_update_factory_state(data_mut, next_inflation_box.last_processed_epoch);
@@ -87,9 +90,13 @@ where
         if let Some(data_mut) = factory_out.data_mut() {
             unsafe_update_factory_state(data_mut, next_factory.last_poll_epoch);
         }
+        let next_ib_version = *prev_ib_version; // TODO: Fix
         let next_traced_ibox = Traced::new(
-            Predicted(Bundled(next_inflation_box, inflation_box_out.clone())),
-            Some(prev_ib_version),
+            Predicted(Bundled(
+                Snapshot::new(next_inflation_box, next_ib_version),
+                inflation_box_out.clone(),
+            )),
+            Some(*prev_ib_version),
         );
         let next_traced_factory = Traced::new(
             Predicted(Bundled(next_factory, factory_out.clone())),
