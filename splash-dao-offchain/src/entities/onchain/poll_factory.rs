@@ -1,23 +1,28 @@
+use std::fmt::Formatter;
+
 use cml_chain::plutus::PlutusData;
 
+use cml_chain::PolicyId;
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::Token;
 use spectrum_offchain::data::{EntitySnapshot, Identifier, Stable};
 
 use crate::entities::onchain::smart_farm::FarmId;
 use crate::entities::onchain::weighting_poll::WeightingPoll;
+use crate::routines::inflation::PollFactorySnapshot;
 use crate::time::ProtocolEpoch;
 
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct PollFactoryId(Token);
 
 impl Identifier for PollFactoryId {
-    type For = PollFactory;
+    type For = PollFactorySnapshot;
 }
 
 pub struct PollFactory {
     pub last_poll_epoch: ProtocolEpoch,
     pub active_farms: Vec<FarmId>,
+    pub stable_id: PollFactoryStableId,
 }
 
 impl PollFactory {
@@ -35,10 +40,27 @@ impl PollFactory {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct PollFactoryStableId {
+    /// Auth policy of all weighting polls.
+    wp_auth_policy: PolicyId,
+    /// Hash of the Governance Proxy witness.
+    gov_witness_script_hash: PolicyId,
+}
+
+impl std::fmt::Display for PollFactoryStableId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!(
+            "wp_auth_policy: {}, gov_witness_script_hash: {}",
+            self.wp_auth_policy, self.gov_witness_script_hash
+        ))
+    }
+}
+
 impl Stable for PollFactory {
-    type StableId = u64;
+    type StableId = PollFactoryStableId;
     fn stable_id(&self) -> Self::StableId {
-        todo!()
+        self.stable_id
     }
 }
 
