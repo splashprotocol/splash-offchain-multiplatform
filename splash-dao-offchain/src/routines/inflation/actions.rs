@@ -1,21 +1,23 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use cml_chain::transaction::TransactionOutput;
+use cml_chain::plutus::PlutusV2Script;
+use cml_chain::transaction::{ScriptRef, TransactionOutput};
 
 use bloom_offchain::execution_engine::bundled::Bundled;
-use cml_chain::PolicyId;
+use cml_chain::{PolicyId, Script};
 use cml_crypto::RawBytesEncoding;
-use pallas_codec::minicbor::Encode;
-use pallas_codec::utils::{Int, PlutusBytes};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::AssetName;
 use spectrum_offchain::data::unique_entity::{Predicted, Traced};
 use spectrum_offchain::data::EntitySnapshot;
 use spectrum_offchain::ledger::IntoLedger;
-use uplc::BigInt;
+use uplc::tx::apply_params_to_script;
+use uplc::{plutus_data_to_bytes, BigInt};
+use uplc_pallas_codec::utils::{Bytes, Int, PlutusBytes};
+use uplc_pallas_traverse::ComputeHash;
 
 use crate::assets::SPLASH_AC;
-use crate::constants;
+use crate::constants::{self, MINT_WEIGHTING_POWER_SCRIPT};
 use crate::entities::offchain::voting_order::VotingOrder;
 use crate::entities::onchain::inflation_box::InflationBox;
 use crate::entities::onchain::poll_factory::{unsafe_update_factory_state, PollFactory};
@@ -172,14 +174,18 @@ fn compute_mint_weighting_power_policy_id(
     proposal_auth_policy: PolicyId,
     gt_policy: PolicyId,
 ) -> PolicyId {
-    //let params_pd = uplc::PlutusData::Array(vec![
-    //    uplc::PlutusData::BigInt(BigInt::Int(Int::from(zeroth_epoch_start as i64))),
-    //    uplc::PlutusData::BoundedBytes(PlutusBytes::from(proposal_auth_policy.to_raw_bytes().to_vec())),
-    //    uplc::PlutusData::BoundedBytes(PlutusBytes::from(gt_policy.to_raw_bytes().to_vec())),
-    //]);
-    //let mut params_bytes: Vec<u8> = vec![];
-    ////params_pd.encode(&mut params_bytes, &mut ()).unwrap();
-    //let bytes = minicbor::to_vec(params_pd).unwrap();
+    let params_pd = uplc::PlutusData::Array(vec![
+        uplc::PlutusData::BigInt(BigInt::Int(Int::from(zeroth_epoch_start as i64))),
+        uplc::PlutusData::BoundedBytes(PlutusBytes::from(proposal_auth_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(PlutusBytes::from(gt_policy.to_raw_bytes().to_vec())),
+    ]);
+    let params_bytes = plutus_data_to_bytes(&params_pd).unwrap();
+    let script = PlutusV2Script::new(hex::decode(MINT_WEIGHTING_POWER_SCRIPT).unwrap());
 
-    todo!()
+    let script_bytes = apply_params_to_script(&params_bytes, script.get()).unwrap();
+
+    let script_hash =
+        uplc_pallas_primitives::babbage::PlutusV2Script(Bytes::from(script_bytes)).compute_hash();
+
+    PolicyId::from_raw_bytes(script_hash.as_slice()).unwrap()
 }
