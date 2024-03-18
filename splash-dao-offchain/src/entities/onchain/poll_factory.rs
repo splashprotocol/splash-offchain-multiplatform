@@ -30,7 +30,7 @@ impl Identifier for PollFactoryId {
 pub struct PollFactoryId(Token);
 
 impl Identifier for PollFactoryId {
-    type For = PollFactory;
+    type For = PollFactorySnapshot;
 }
 
 pub struct PollFactory {
