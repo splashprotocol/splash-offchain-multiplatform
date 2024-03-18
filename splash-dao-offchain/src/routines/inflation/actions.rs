@@ -26,7 +26,10 @@ use spectrum_cardano_lib::{AssetName, OutputRef};
 use spectrum_offchain::data::unique_entity::{Predicted, Traced};
 use spectrum_offchain::data::{EntitySnapshot, Has, Stable};
 use spectrum_offchain::ledger::IntoLedger;
-use uplc::BigInt;
+use uplc::tx::apply_params_to_script;
+use uplc::{plutus_data_to_bytes, BigInt};
+use uplc_pallas_codec::utils::{Bytes, Int, PlutusBytes};
+use uplc_pallas_traverse::ComputeHash;
 
 use crate::assets::SPLASH_AC;
 use crate::constants::{self};
