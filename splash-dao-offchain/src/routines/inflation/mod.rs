@@ -37,6 +37,7 @@ pub struct Behaviour<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer> {
 const DEF_DELAY: Duration = Duration::new(5, 0);
 
 pub type InflationBoxSnapshot = Snapshot<InflationBox, OutputRef>;
+pub type PollFactorySnapshot = Snapshot<PollFactory, OutputRef>;
 
 #[async_trait::async_trait]
 impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer> RoutineBehaviour
@@ -46,7 +47,10 @@ where
         + StateProjectionWrite<InflationBoxSnapshot, Bearer>
         + Send
         + Sync,
-    PF: StateProjectionRead<PollFactory, Bearer> + StateProjectionWrite<PollFactory, Bearer> + Send + Sync,
+    PF: StateProjectionRead<PollFactorySnapshot, Bearer>
+        + StateProjectionWrite<PollFactorySnapshot, Bearer>
+        + Send
+        + Sync,
     WP: StateProjectionRead<WeightingPoll, Bearer>
         + StateProjectionWrite<WeightingPoll, Bearer>
         + Send
@@ -82,9 +86,9 @@ impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
         self.inflation_box.read(self.conf.inflation_box_id).await
     }
 
-    async fn poll_factory(&self) -> Option<AnyMod<Bundled<PollFactory, Bearer>>>
+    async fn poll_factory(&self) -> Option<AnyMod<Bundled<PollFactorySnapshot, Bearer>>>
     where
-        PF: StateProjectionRead<PollFactory, Bearer>,
+        PF: StateProjectionRead<PollFactorySnapshot, Bearer>,
     {
         self.poll_factory.read(self.conf.poll_factory_id).await
     }
@@ -117,7 +121,7 @@ impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
     async fn read_state(&self) -> RoutineState<Bearer>
     where
         IB: StateProjectionRead<InflationBoxSnapshot, Bearer>,
-        PF: StateProjectionRead<PollFactory, Bearer>,
+        PF: StateProjectionRead<PollFactorySnapshot, Bearer>,
         WP: StateProjectionRead<WeightingPoll, Bearer>,
         SF: StateProjectionRead<SmartFarm, Bearer>,
         VE: StateProjectionRead<VotingEscrow, Bearer>,
@@ -172,7 +176,7 @@ impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
     ) -> Option<ToRoutine>
     where
         IB: StateProjectionWrite<InflationBoxSnapshot, Bearer>,
-        PF: StateProjectionWrite<PollFactory, Bearer>,
+        PF: StateProjectionWrite<PollFactorySnapshot, Bearer>,
         WP: StateProjectionWrite<WeightingPoll, Bearer>,
         Actions: InflationActions<Bearer>,
     {
@@ -263,7 +267,7 @@ pub enum RoutineState<Out> {
 
 pub struct PendingCreatePoll<Out> {
     inflation_box: AnyMod<Bundled<InflationBoxSnapshot, Out>>,
-    poll_factory: AnyMod<Bundled<PollFactory, Out>>,
+    poll_factory: AnyMod<Bundled<PollFactorySnapshot, Out>>,
 }
 
 pub struct WeightingInProgress<Out> {
