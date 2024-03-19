@@ -1,9 +1,10 @@
+use std::fmt::{Display, Formatter};
+
 use async_stream::stream;
 use cml_core::serialization::Serialize;
-use futures::channel::{mpsc, oneshot};
 use futures::{SinkExt, Stream, StreamExt};
+use futures::channel::{mpsc, oneshot};
 use pallas_network::miniprotocols::localtxsubmission;
-use std::fmt::{Display, Formatter};
 
 use cardano_submit_api::client::{Error, LocalTxSubmissionClient};
 use spectrum_offchain::network::Network;
@@ -51,8 +52,8 @@ impl From<SubmissionResult> for Result<(), TxRejected> {
     }
 }
 
-pub fn tx_submission_agent_stream<const EraId: u16, Tx>(
-    mut agent: TxSubmissionAgent<EraId, Tx>,
+pub fn tx_submission_agent_stream<const ERA: u16, Tx>(
+    mut agent: TxSubmissionAgent<ERA, Tx>,
 ) -> impl Stream<Item = ()>
 where
     Tx: Serialize,

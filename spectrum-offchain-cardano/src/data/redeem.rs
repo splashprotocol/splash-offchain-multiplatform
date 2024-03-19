@@ -153,7 +153,7 @@ mod tests {
     use crate::data::execution_context::ExecutionContext;
     use crate::data::OnChain;
     use crate::data::order::ClassicalOnChainOrder;
-    use crate::data::pool::AnyCFMMPool;
+    use crate::data::pool::CFMMPool;
     use crate::data::redeem::OnChainRedeemConfig;
     use crate::data::ref_scripts::ReferenceOutputs;
     use crate::ref_scripts::ReferenceSources;
@@ -177,7 +177,7 @@ mod tests {
         let pool_box =
             BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(POOL_SAMPLE).unwrap()).unwrap();
         let redeem = ClassicalOnChainOrder::try_from_ledger(&redeem_box, redeem_ref).unwrap();
-        let pool = <OnChain<AnyCFMMPool>>::try_from_ledger(&pool_box, pool_ref).unwrap();
+        let pool = <OnChain<CFMMPool>>::try_from_ledger(&pool_box, pool_ref).unwrap();
 
         let private_key_bech32 = Bip32PrivateKey::generate_ed25519_bip32().to_bech32();
 

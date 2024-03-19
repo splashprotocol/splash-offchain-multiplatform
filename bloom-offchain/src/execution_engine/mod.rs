@@ -184,7 +184,7 @@ pub struct Executor<
     feedback: mpsc::Receiver<Result<(), Err>>,
     /// Pending effects resulted from execution of a batch trade in a certain [Pair].
     pending_effects: Option<(Pair, PendingEffects<CompOrd, SpecOrd, Pool, Ver, Bearer>)>,
-    /// Which pair should we process in the first place. todo: should be a vector.
+    /// Which pair should we process in the first place.
     focus_set: BTreeSet<Pair>,
     pd: PhantomData<(StableId, Ver, Txc, Tx, Err)>,
 }

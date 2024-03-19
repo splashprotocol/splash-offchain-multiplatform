@@ -328,7 +328,7 @@ fn gen_reference_outputs() -> ReferenceOutputs {
         pool_v1,
         pool_v2,
         fee_switch_pool,
-        fee_switch_pool_bidirectional_fee,
+        fee_switch_pool_bidir_fee: fee_switch_pool_bidirectional_fee,
         swap,
         deposit,
         redeem,

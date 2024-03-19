@@ -9,22 +9,22 @@ use cml_multi_era::babbage::BabbageTransactionOutput;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use spectrum_cardano_lib::output::FinalizedTxOut;
+use spectrum_cardano_lib::OutputRef;
 use spectrum_cardano_lib::plutus_data::RequiresRedeemer;
 use spectrum_cardano_lib::transaction::BabbageTransactionOutputExtension;
-use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::backlog::data::{OrderWeight, Weighted};
+use spectrum_offchain::data::{EntitySnapshot, Has};
 use spectrum_offchain::data::order::{SpecializedOrder, UniqueOrder};
 use spectrum_offchain::data::unique_entity::Predicted;
-use spectrum_offchain::data::{EntitySnapshot, Has};
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::TryFromLedger;
 
+use crate::data::{OnChain, OnChainOrderId, PoolId};
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::execution_context::ExecutionContext;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
-use crate::data::pool::AnyCFMMPool;
+use crate::data::pool::CFMMPool;
 use crate::data::redeem::ClassicalOnChainRedeem;
-use crate::data::{OnChain, OnChainOrderId, PoolId};
 
 pub struct Input;
 
@@ -241,7 +241,7 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainOrde
 }
 
 impl RunOrder<Bundled<ClassicalAMMOrder, FinalizedTxOut>, ExecutionContext, SignedTxBuilder>
-    for Bundled<AnyCFMMPool, FinalizedTxOut>
+    for Bundled<CFMMPool, FinalizedTxOut>
 {
     fn try_run(
         self,
@@ -251,8 +251,8 @@ impl RunOrder<Bundled<ClassicalAMMOrder, FinalizedTxOut>, ExecutionContext, Sign
     {
         let Bundled(pool, pool_bearer) = self;
         match order {
-            ClassicalAMMOrder::Swap(limit_swap) => OnChain::new(pool, pool_bearer.0)
-                .try_run(OnChain::new(limit_swap, ord_bearer.0), ctx)
+            ClassicalAMMOrder::Swap(o) => OnChain::new(pool, pool_bearer.0)
+                .try_run(OnChain::new(o, ord_bearer.0), ctx)
                 .map(|(txb, Predicted(OnChain { value, source }))| {
                     (
                         txb,
@@ -303,7 +303,7 @@ impl RunOrder<Bundled<ClassicalAMMOrder, FinalizedTxOut>, ExecutionContext, Sign
     }
 }
 
-impl RunOrder<ClassicalOnChainOrder, ExecutionContext, SignedTxBuilder> for OnChain<AnyCFMMPool> {
+impl RunOrder<ClassicalOnChainOrder, ExecutionContext, SignedTxBuilder> for OnChain<CFMMPool> {
     fn try_run(
         self,
         order: ClassicalOnChainOrder,

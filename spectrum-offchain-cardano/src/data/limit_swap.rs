@@ -171,7 +171,7 @@ mod tests {
     use crate::data::limit_swap::OnChainLimitSwapConfig;
     use crate::data::OnChain;
     use crate::data::order::ClassicalOnChainOrder;
-    use crate::data::pool::AnyCFMMPool;
+    use crate::data::pool::CFMMPool;
     use crate::data::ref_scripts::ReferenceOutputs;
     use crate::ref_scripts::ReferenceSources;
 
@@ -198,7 +198,7 @@ mod tests {
         let pool_box =
             BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(POOL_SAMPLE).unwrap()).unwrap();
         let swap = ClassicalOnChainOrder::try_from_ledger(&swap_box, swap_ref).unwrap();
-        let pool = <OnChain<AnyCFMMPool>>::try_from_ledger(&pool_box, pool_ref).unwrap();
+        let pool = <OnChain<CFMMPool>>::try_from_ledger(&pool_box, pool_ref).unwrap();
 
         let private_key_bech32 = Bip32PrivateKey::generate_ed25519_bip32().to_bech32();
 
@@ -285,7 +285,7 @@ mod tests {
             BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(POOL_SAMPLE_FEE_SWITCH).unwrap())
                 .unwrap();
         let swap = ClassicalOnChainOrder::try_from_ledger(&swap_box, swap_ref).unwrap();
-        let pool = <OnChain<AnyCFMMPool>>::try_from_ledger(&pool_box, pool_ref).unwrap();
+        let pool = <OnChain<CFMMPool>>::try_from_ledger(&pool_box, pool_ref).unwrap();
 
         let private_key_bech32 = Bip32PrivateKey::generate_ed25519_bip32().to_bech32();
 

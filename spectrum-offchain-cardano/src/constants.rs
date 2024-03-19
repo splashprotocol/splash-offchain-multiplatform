@@ -1,5 +1,7 @@
-use cml_chain::plutus::ExUnits;
 use cml_chain::Coin;
+use cml_chain::plutus::ExUnits;
+
+use crate::data::PoolVer;
 
 pub const FEE_DEN: u64 = 100000;
 
@@ -58,11 +60,14 @@ pub const FEE_SWITCH_POOL_ADDR: &str = "addr_test1wrj4uuacrrdhkm0rpdgl42fjfy9vae
 pub const FEE_SWITCH_POOL_SCRIPT_BIDIRECTIONAL_FEE_ADDR: &str =
     "addr_test1wph9hxmlhatfppukqmh4vfq992dqpnumx4qaqkw8cc25vxcjm3f7q";
 
-pub const POOL_VERSIONS: [(&str, u8); 4] = [
-    (POOL_V1_ADDR, 1),
-    (POOL_V2_ADDR, 2),
-    (FEE_SWITCH_POOL_ADDR, 3),
-    (FEE_SWITCH_POOL_SCRIPT_BIDIRECTIONAL_FEE_ADDR, 4),
+pub const CFMM_POOL_VERSIONS: [(&str, PoolVer); 4] = [
+    (POOL_V1_ADDR, PoolVer::V1),
+    (POOL_V2_ADDR, PoolVer::V2),
+    (FEE_SWITCH_POOL_ADDR, PoolVer::FeeSwitch),
+    (
+        FEE_SWITCH_POOL_SCRIPT_BIDIRECTIONAL_FEE_ADDR,
+        PoolVer::FeeSwitchBiDirFee,
+    ),
 ];
 
 // todo: remove after explorer update

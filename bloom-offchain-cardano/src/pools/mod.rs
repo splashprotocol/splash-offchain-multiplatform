@@ -6,19 +6,19 @@ use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
-use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::{OutputRef, Token};
-use spectrum_offchain::data::unique_entity::Predicted;
+use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_offchain::data::{EntitySnapshot, Has, Stable, Tradable};
+use spectrum_offchain::data::unique_entity::Predicted;
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
 use spectrum_offchain_cardano::data::pair::PairId;
-use spectrum_offchain_cardano::data::pool::AnyCFMMPool;
+use spectrum_offchain_cardano::data::pool::CFMMPool;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum AnyPool {
-    CFMM(AnyCFMMPool),
+    CFMM(CFMMPool),
 }
 
 /// Magnet for local instances.
@@ -48,44 +48,28 @@ where
 impl Pool for AnyPool {
     fn static_price(&self) -> AbsolutePrice {
         match self {
-            AnyPool::CFMM(p) => match p {
-                AnyCFMMPool::Classic(p) => p.static_price(),
-                AnyCFMMPool::FeeSwitch(p) => todo!(),
-                AnyCFMMPool::FeeSwitchBidirectional(p) => todo!(),
-            },
+            AnyPool::CFMM(p) => p.static_price(),
         }
     }
 
     fn real_price(&self, input: Side<u64>) -> AbsolutePrice {
         match self {
-            AnyPool::CFMM(p) => match p {
-                AnyCFMMPool::Classic(p) => p.real_price(input),
-                AnyCFMMPool::FeeSwitch(p) => todo!(),
-                AnyCFMMPool::FeeSwitchBidirectional(p) => todo!(),
-            },
+            AnyPool::CFMM(p) => p.real_price(input),
         }
     }
 
     fn swap(self, input: Side<u64>) -> (u64, Self) {
         match self {
-            AnyPool::CFMM(p) => match p {
-                AnyCFMMPool::Classic(p) => {
-                    let (out, p2) = p.swap(input);
-                    (out, AnyPool::CFMM(AnyCFMMPool::Classic(p2)))
-                }
-                AnyCFMMPool::FeeSwitch(p) => todo!(),
-                AnyCFMMPool::FeeSwitchBidirectional(p) => todo!(),
-            },
+            AnyPool::CFMM(p) => {
+                let (out, p2) = p.swap(input);
+                (out, AnyPool::CFMM(p2))
+            }
         }
     }
 
     fn quality(&self) -> PoolQuality {
         match self {
-            AnyPool::CFMM(p) => match p {
-                AnyCFMMPool::Classic(p) => p.quality(),
-                AnyCFMMPool::FeeSwitch(p) => todo!(),
-                AnyCFMMPool::FeeSwitchBidirectional(p) => todo!(),
-            },
+            AnyPool::CFMM(p) => p.quality(),
         }
     }
 }
@@ -95,7 +79,7 @@ where
     C: Has<OutputRef>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
-        AnyCFMMPool::try_from_ledger(repr, ctx.get()).map(AnyPool::CFMM)
+        CFMMPool::try_from_ledger(repr, ctx.get()).map(AnyPool::CFMM)
     }
 }
 
@@ -103,11 +87,7 @@ impl Stable for AnyPool {
     type StableId = PolicyId;
     fn stable_id(&self) -> Self::StableId {
         match self {
-            AnyPool::CFMM(p) => match p {
-                AnyCFMMPool::Classic(p) => Token::from(p.id).0,
-                AnyCFMMPool::FeeSwitch(p) => Token::from(p.id).0,
-                AnyCFMMPool::FeeSwitchBidirectional(p) => Token::from(p.id).0,
-            },
+            AnyPool::CFMM(p) => Token::from(p.id).0,
         }
     }
     fn is_quasi_permanent(&self) -> bool {
@@ -119,11 +99,7 @@ impl EntitySnapshot for AnyPool {
     type Version = OutputRef;
     fn version(&self) -> Self::Version {
         match self {
-            AnyPool::CFMM(p) => match p {
-                AnyCFMMPool::Classic(p) => p.state_ver.into(),
-                AnyCFMMPool::FeeSwitch(p) => p.state_ver.into(),
-                AnyCFMMPool::FeeSwitchBidirectional(p) => p.state_ver.into(),
-            },
+            AnyPool::CFMM(p) => p.state_ver.into(),
         }
     }
 }
@@ -132,13 +108,7 @@ impl Tradable for AnyPool {
     type PairId = PairId;
     fn pair_id(&self) -> Self::PairId {
         match self {
-            AnyPool::CFMM(p) => match p {
-                AnyCFMMPool::Classic(p) => PairId::canonical(p.asset_x.untag(), p.asset_y.untag()),
-                AnyCFMMPool::FeeSwitch(p) => PairId::canonical(p.asset_x.untag(), p.asset_y.untag()),
-                AnyCFMMPool::FeeSwitchBidirectional(p) => {
-                    PairId::canonical(p.asset_x.untag(), p.asset_y.untag())
-                }
-            },
+            AnyPool::CFMM(p) => PairId::canonical(p.asset_x.untag(), p.asset_y.untag()),
         }
     }
 }

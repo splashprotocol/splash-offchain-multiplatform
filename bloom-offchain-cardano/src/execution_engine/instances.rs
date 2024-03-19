@@ -18,9 +18,7 @@ use spectrum_cardano_lib::plutus_data::RequiresRedeemer;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_offchain::data::Has;
 use spectrum_offchain_cardano::constants::POOL_EXECUTION_UNITS;
-use spectrum_offchain_cardano::data::pool::{
-    AnyCFMMPool, AssetDeltas, CFMMPoolAction, CFMMPoolRefScriptOutput, ClassicCFMMPool,
-};
+use spectrum_offchain_cardano::data::pool::{AssetDeltas, CFMMPool, CFMMPoolAction, CFMMPoolRefScriptOutput};
 use spectrum_offchain_cardano::data::PoolVer;
 
 use crate::execution_engine::execution_state::ExecutionState;
@@ -159,8 +157,8 @@ where
     ) -> Result<(ExecutionState, TxBuilderElementsFromOrder, Ctx), Void> {
         match self.0 {
             LinkedSwap {
-                target: Bundled(AnyPool::CFMM(AnyCFMMPool::Classic(p)), src),
-                transition: AnyPool::CFMM(AnyCFMMPool::Classic(p2)),
+                target: Bundled(AnyPool::CFMM(p), src),
+                transition: AnyPool::CFMM(p2),
                 side,
                 input,
                 output,
@@ -172,14 +170,13 @@ where
                 output,
             })
             .try_exec(state, context),
-            _ => todo!(),
         }
     }
 }
 
-/// Batch execution logic for [ClassicCFMMPool].
+/// Batch execution logic for [CFMMPool].
 impl<Ctx> BatchExec<ExecutionState, TxBuilderElementsFromOrder, Ctx, Void>
-    for Magnet<LinkedSwap<ClassicCFMMPool, FinalizedTxOut>>
+    for Magnet<LinkedSwap<CFMMPool, FinalizedTxOut>>
 where
     Ctx: Has<CFMMPoolRefScriptOutput<1>> + Has<CFMMPoolRefScriptOutput<2>>,
 {
@@ -204,7 +201,7 @@ where
         produced_out.add_asset(asset_to_add_to, input);
         let pool_script = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(produced_out.script_hash().unwrap()),
-            ClassicCFMMPool::redeemer(CFMMPoolAction::Swap),
+            CFMMPool::redeemer(CFMMPoolAction::Swap),
         );
         let pool_in = SingleInputBuilder::new(in_ref.into(), consumed_out)
             .plutus_script_inline_datum(pool_script, Vec::new())

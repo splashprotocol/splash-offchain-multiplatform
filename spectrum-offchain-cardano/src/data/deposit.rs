@@ -3,23 +3,23 @@ use cml_core::serialization::FromBytes;
 use cml_crypto::Ed25519KeyHash;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
+use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
 };
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::order::UniqueOrder;
 use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::constants::{
     DEPOSIT_SCRIPT_V2, ORDER_APPLY_RAW_REDEEMER, ORDER_APPLY_RAW_REDEEMER_V2, ORDER_REFUND_RAW_REDEEMER,
 };
-use crate::data::order::{ClassicalOrder, ClassicalOrderAction, PoolNft};
-use crate::data::pool::CFMMPoolAction::Deposit as DepositAction;
-use crate::data::pool::{CFMMPoolAction, Lq, OrderInputIdx, Rx, Ry};
 use crate::data::{OnChainOrderId, PoolId};
+use crate::data::order::{ClassicalOrder, ClassicalOrderAction, PoolNft};
+use crate::data::pool::{CFMMPoolAction, Lq, OrderInputIdx, Rx, Ry};
+use crate::data::pool::CFMMPoolAction::Deposit as DepositAction;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Deposit {
@@ -146,20 +146,20 @@ mod tests {
 
     use cardano_explorer::client::Explorer;
     use cardano_explorer::data::ExplorerConfig;
-    use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_cardano_lib::OutputRef;
+    use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_offchain::executor::RunOrder;
     use spectrum_offchain::ledger::TryFromLedger;
 
-    use crate::collaterals::tests::MockBasedRequestor;
     use crate::collaterals::Collaterals;
+    use crate::collaterals::tests::MockBasedRequestor;
     use crate::creds::operator_creds;
     use crate::data::deposit::OnChainDepositConfig;
     use crate::data::execution_context::ExecutionContext;
-    use crate::data::order::ClassicalOnChainOrder;
-    use crate::data::pool::AnyCFMMPool;
-    use crate::data::ref_scripts::ReferenceOutputs;
     use crate::data::OnChain;
+    use crate::data::order::ClassicalOnChainOrder;
+    use crate::data::pool::CFMMPool;
+    use crate::data::ref_scripts::ReferenceOutputs;
     use crate::ref_scripts::ReferenceSources;
 
     #[test]
@@ -181,7 +181,7 @@ mod tests {
         let pool_box =
             BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(POOL_SAMPLE).unwrap()).unwrap();
         let deposit = ClassicalOnChainOrder::try_from_ledger(&deposit_box, deposit_ref).unwrap();
-        let pool = <OnChain<AnyCFMMPool>>::try_from_ledger(&pool_box, pool_ref).unwrap();
+        let pool = <OnChain<CFMMPool>>::try_from_ledger(&pool_box, pool_ref).unwrap();
 
         let private_key_bech32 = Bip32PrivateKey::generate_ed25519_bip32().to_bech32();
 

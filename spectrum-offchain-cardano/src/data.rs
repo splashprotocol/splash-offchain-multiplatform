@@ -14,7 +14,7 @@ use spectrum_offchain::data::order::SpecializedOrder;
 use spectrum_offchain::data::{EntitySnapshot, Stable, VersionUpdater};
 use spectrum_offchain::ledger::TryFromLedger;
 
-use crate::constants::POOL_VERSIONS;
+use crate::constants::CFMM_POOL_VERSIONS;
 use crate::data::order::PoolNft;
 
 pub mod deposit;
@@ -227,22 +227,21 @@ impl ExecutorFeePerToken {
     }
 }
 
-#[repr(transparent)]
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, derive_more::From, derive_more::Into)]
-pub struct PoolVer(pub u8);
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum PoolVer {
+    V1,
+    V2,
+    FeeSwitch,
+    FeeSwitchBiDirFee,
+}
 
 impl PoolVer {
-    pub const V1: PoolVer = PoolVer(1);
-    pub const V2: PoolVer = PoolVer(2);
-
-    pub fn try_from_pool_address(pool_addr: &Address) -> Option<PoolVer> {
-        let this_addr = pool_addr.to_bech32(None).unwrap();
-        POOL_VERSIONS.iter().find_map(|(addr, v)| {
-            if this_addr == *addr {
-                Some(PoolVer(*v))
-            } else {
-                None
-            }
-        })
+    pub fn try_from_address(pool_addr: &Address) -> Option<PoolVer> {
+        if let Ok(this_addr) = pool_addr.to_bech32(None) {
+            return CFMM_POOL_VERSIONS
+                .iter()
+                .find_map(|(addr, v)| if this_addr == *addr { Some(*v) } else { None });
+        }
+        None
     }
 }
