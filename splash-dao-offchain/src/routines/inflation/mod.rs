@@ -182,8 +182,10 @@ impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
     {
         if let (AnyMod::Confirmed(inflation_box), AnyMod::Confirmed(factory)) = (inflation_box, poll_factory)
         {
-            let (next_inflation_box, next_factory, next_wpoll) =
-                self.actions.create_wpoll(inflation_box.0, factory.0).await;
+            let (next_inflation_box, next_factory, next_wpoll) = self
+                .actions
+                .create_wpoll(self.conf.farm_auth_policy, inflation_box.0, factory.0)
+                .await;
             self.inflation_box.write(next_inflation_box).await;
             self.poll_factory.write(next_factory).await;
             self.weighting_poll.write(next_wpoll).await;

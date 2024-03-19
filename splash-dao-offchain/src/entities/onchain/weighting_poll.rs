@@ -1,6 +1,9 @@
+use std::fmt::Formatter;
+
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::utils::BigInt;
+use cml_chain::PolicyId;
 use derive_more::From;
 
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, IntoPlutusData, PlutusDataExtension};
@@ -23,6 +26,7 @@ impl Identifier for WeightingPollId {
 pub struct WeightingPoll {
     pub epoch: ProtocolEpoch,
     pub distribution: Vec<(FarmId, u64)>,
+    pub stable_id: WeightingPollStableId,
 }
 
 impl<Ctx> IntoLedger<TransactionOutput, Ctx> for WeightingPoll {
@@ -31,10 +35,27 @@ impl<Ctx> IntoLedger<TransactionOutput, Ctx> for WeightingPoll {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct WeightingPollStableId {
+    /// The validator will ensure preservation of a token = (`auth_policy`, `binder`).
+    pub auth_policy: PolicyId,
+    /// The validator will look for a token = (`farm_auth_policy`, `farm_id`) to authorize withdrawal to a `farm_id`.
+    pub farm_auth_policy: PolicyId,
+}
+
+impl std::fmt::Display for WeightingPollStableId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!(
+            "WeightingPollStableId: auth_policy: {}, farm_auth_policy: {}",
+            self.auth_policy, self.farm_auth_policy
+        ))
+    }
+}
+
 impl Stable for WeightingPoll {
-    type StableId = u64;
+    type StableId = WeightingPollStableId;
     fn stable_id(&self) -> Self::StableId {
-        todo!()
+        self.stable_id
     }
 }
 
@@ -65,10 +86,20 @@ pub enum PollState {
 }
 
 impl WeightingPoll {
-    pub fn new(epoch: ProtocolEpoch, farms: Vec<FarmId>) -> Self {
+    pub fn new(
+        epoch: ProtocolEpoch,
+        farms: Vec<FarmId>,
+        auth_policy: PolicyId,
+        farm_auth_policy: PolicyId,
+    ) -> Self {
+        let stable_id = WeightingPollStableId {
+            auth_policy,
+            farm_auth_policy,
+        };
         Self {
             epoch,
             distribution: farms.into_iter().map(|farm| (farm, 0)).collect(),
+            stable_id,
         }
     }
 
