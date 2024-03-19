@@ -32,6 +32,7 @@ use super::{InflationBoxSnapshot, PollFactorySnapshot};
 pub trait InflationActions<Bearer> {
     async fn create_wpoll(
         &self,
+        farm_auth_policy: PolicyId,
         inflation_box: Bundled<InflationBoxSnapshot, Bearer>,
         factory: Bundled<PollFactorySnapshot, Bearer>,
     ) -> (
@@ -70,6 +71,7 @@ where
 {
     async fn create_wpoll(
         &self,
+        farm_auth_policy: PolicyId,
         Bundled(inflation_box, inflation_box_in): Bundled<InflationBoxSnapshot, TransactionOutput>,
         Bundled(factory, factory_in): Bundled<PollFactorySnapshot, TransactionOutput>,
     ) -> (
@@ -85,7 +87,7 @@ where
         }
         inflation_box_out.sub_asset(*SPLASH_AC, rate.untag());
         let prev_factory_version = *factory.version();
-        let (next_factory, fresh_wpoll) = factory.unwrap().next_weighting_poll();
+        let (next_factory, fresh_wpoll) = factory.unwrap().next_weighting_poll(farm_auth_policy);
         let mut factory_out = factory_in.clone();
         if let Some(data_mut) = factory_out.data_mut() {
             unsafe_update_factory_state(data_mut, next_factory.last_poll_epoch);
