@@ -38,6 +38,7 @@ const DEF_DELAY: Duration = Duration::new(5, 0);
 
 pub type InflationBoxSnapshot = Snapshot<InflationBox, OutputRef>;
 pub type PollFactorySnapshot = Snapshot<PollFactory, OutputRef>;
+pub type WeightingPollSnapshot = Snapshot<WeightingPoll, OutputRef>;
 
 #[async_trait::async_trait]
 impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer> RoutineBehaviour
@@ -51,8 +52,8 @@ where
         + StateProjectionWrite<PollFactorySnapshot, Bearer>
         + Send
         + Sync,
-    WP: StateProjectionRead<WeightingPoll, Bearer>
-        + StateProjectionWrite<WeightingPoll, Bearer>
+    WP: StateProjectionRead<WeightingPollSnapshot, Bearer>
+        + StateProjectionWrite<WeightingPollSnapshot, Bearer>
         + Send
         + Sync,
     VE: StateProjectionRead<VotingEscrow, Bearer> + StateProjectionWrite<VotingEscrow, Bearer> + Send + Sync,
@@ -93,9 +94,12 @@ impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
         self.poll_factory.read(self.conf.poll_factory_id).await
     }
 
-    async fn weighting_poll(&self, epoch: ProtocolEpoch) -> Option<AnyMod<Bundled<WeightingPoll, Bearer>>>
+    async fn weighting_poll(
+        &self,
+        epoch: ProtocolEpoch,
+    ) -> Option<AnyMod<Bundled<WeightingPollSnapshot, Bearer>>>
     where
-        WP: StateProjectionRead<WeightingPoll, Bearer>,
+        WP: StateProjectionRead<WeightingPollSnapshot, Bearer>,
     {
         self.weighting_poll.read(self.conf.poll_id(epoch)).await
     }
@@ -122,7 +126,7 @@ impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
     where
         IB: StateProjectionRead<InflationBoxSnapshot, Bearer>,
         PF: StateProjectionRead<PollFactorySnapshot, Bearer>,
-        WP: StateProjectionRead<WeightingPoll, Bearer>,
+        WP: StateProjectionRead<WeightingPollSnapshot, Bearer>,
         SF: StateProjectionRead<SmartFarm, Bearer>,
         VE: StateProjectionRead<VotingEscrow, Bearer>,
         Backlog: ResilientBacklog<VotingOrder>,
@@ -139,7 +143,7 @@ impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
                     inflation_box,
                     poll_factory,
                 }),
-                Some(wp) => match wp.as_erased().0.state(genesis, now) {
+                Some(wp) => match wp.as_erased().0.get().state(genesis, now) {
                     PollState::WeightingOngoing(st) => {
                         RoutineState::WeightingInProgress(WeightingInProgress {
                             weighting_poll: wp,
@@ -177,7 +181,7 @@ impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
     where
         IB: StateProjectionWrite<InflationBoxSnapshot, Bearer>,
         PF: StateProjectionWrite<PollFactorySnapshot, Bearer>,
-        WP: StateProjectionWrite<WeightingPoll, Bearer>,
+        WP: StateProjectionWrite<WeightingPollSnapshot, Bearer>,
         Actions: InflationActions<Bearer>,
     {
         if let (AnyMod::Confirmed(inflation_box), AnyMod::Confirmed(factory)) = (inflation_box, poll_factory)
@@ -202,7 +206,7 @@ impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
         }: WeightingInProgress<Bearer>,
     ) -> Option<ToRoutine>
     where
-        WP: StateProjectionWrite<WeightingPoll, Bearer>,
+        WP: StateProjectionWrite<WeightingPollSnapshot, Bearer>,
         VE: StateProjectionWrite<VotingEscrow, Bearer>,
         Actions: InflationActions<Bearer>,
     {
@@ -226,7 +230,7 @@ impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
             next_farm_weight,
         }: DistributionInProgress<Bearer>,
     ) where
-        WP: StateProjectionWrite<WeightingPoll, Bearer>,
+        WP: StateProjectionWrite<WeightingPollSnapshot, Bearer>,
         SF: StateProjectionWrite<SmartFarm, Bearer>,
         Actions: InflationActions<Bearer>,
     {
@@ -273,18 +277,18 @@ pub struct PendingCreatePoll<Out> {
 }
 
 pub struct WeightingInProgress<Out> {
-    weighting_poll: AnyMod<Bundled<WeightingPoll, Out>>,
+    weighting_poll: AnyMod<Bundled<WeightingPollSnapshot, Out>>,
     next_pending_order: Option<(VotingOrder, Bundled<VotingEscrow, Out>)>,
 }
 
 pub struct DistributionInProgress<Out> {
-    weighting_poll: AnyMod<Bundled<WeightingPoll, Out>>,
+    weighting_poll: AnyMod<Bundled<WeightingPollSnapshot, Out>>,
     next_farm: AnyMod<Bundled<SmartFarm, Out>>,
     next_farm_weight: u64,
 }
 
 pub struct PendingEliminatePoll<Out> {
-    weighting_poll: AnyMod<Bundled<WeightingPoll, Out>>,
+    weighting_poll: AnyMod<Bundled<WeightingPollSnapshot, Out>>,
 }
 
 #[cfg(test)]

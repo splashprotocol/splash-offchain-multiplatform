@@ -12,6 +12,7 @@ use spectrum_offchain::data::{EntitySnapshot, Identifier, Stable};
 use spectrum_offchain::ledger::IntoLedger;
 
 use crate::entities::onchain::smart_farm::FarmId;
+use crate::routines::inflation::WeightingPollSnapshot;
 use crate::time::{epoch_end, epoch_start, NetworkTime, ProtocolEpoch};
 use crate::GenesisEpochStartTime;
 
@@ -19,7 +20,7 @@ use crate::GenesisEpochStartTime;
 pub struct WeightingPollId(Token);
 
 impl Identifier for WeightingPollId {
-    type For = WeightingPoll;
+    type For = WeightingPollSnapshot;
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
