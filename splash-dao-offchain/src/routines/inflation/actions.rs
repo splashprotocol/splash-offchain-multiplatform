@@ -69,6 +69,7 @@ use super::{
 pub trait InflationActions<Bearer> {
     async fn create_wpoll(
         &self,
+        farm_auth_policy: PolicyId,
         inflation_box: Bundled<InflationBoxSnapshot, Bearer>,
         factory: Bundled<PollFactorySnapshot, Bearer>,
     ) -> (
@@ -137,6 +138,7 @@ where
 {
     async fn create_wpoll(
         &self,
+        farm_auth_policy: PolicyId,
         Bundled(inflation_box, inflation_box_in): Bundled<InflationBoxSnapshot, TransactionOutput>,
         Bundled(factory, factory_in): Bundled<PollFactorySnapshot, TransactionOutput>,
     ) -> (
