@@ -26,7 +26,7 @@ use crate::entities::onchain::voting_escrow::{unsafe_update_ve_state, VotingEscr
 use crate::entities::onchain::weighting_poll::{unsafe_update_wp_state, WeightingPoll};
 use crate::entities::Snapshot;
 
-use super::{InflationBoxSnapshot, PollFactorySnapshot};
+use super::{InflationBoxSnapshot, PollFactorySnapshot, WeightingPollSnapshot};
 
 #[async_trait::async_trait]
 pub trait InflationActions<Bearer> {
@@ -38,24 +38,24 @@ pub trait InflationActions<Bearer> {
     ) -> (
         Traced<Predicted<Bundled<InflationBoxSnapshot, Bearer>>>,
         Traced<Predicted<Bundled<PollFactorySnapshot, Bearer>>>,
-        Traced<Predicted<Bundled<WeightingPoll, Bearer>>>,
+        Traced<Predicted<Bundled<WeightingPollSnapshot, Bearer>>>,
     );
-    async fn eliminate_wpoll(&self, weighting_poll: Bundled<WeightingPoll, Bearer>);
+    async fn eliminate_wpoll(&self, weighting_poll: Bundled<WeightingPollSnapshot, Bearer>);
     async fn execute_order(
         &self,
-        weighting_poll: Bundled<WeightingPoll, Bearer>,
+        weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
         order: (VotingOrder, Bundled<VotingEscrow, Bearer>),
     ) -> (
-        Traced<Predicted<Bundled<WeightingPoll, Bearer>>>,
+        Traced<Predicted<Bundled<WeightingPollSnapshot, Bearer>>>,
         Traced<Predicted<Bundled<VotingEscrow, Bearer>>>,
     );
     async fn distribute_inflation(
         &self,
-        weighting_poll: Bundled<WeightingPoll, Bearer>,
+        weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
         farm: Bundled<SmartFarm, Bearer>,
         farm_weight: u64,
     ) -> (
-        Traced<Predicted<Bundled<WeightingPoll, Bearer>>>,
+        Traced<Predicted<Bundled<WeightingPollSnapshot, Bearer>>>,
         Traced<Predicted<Bundled<SmartFarm, Bearer>>>,
     );
 }
@@ -77,7 +77,7 @@ where
     ) -> (
         Traced<Predicted<Bundled<InflationBoxSnapshot, TransactionOutput>>>,
         Traced<Predicted<Bundled<PollFactorySnapshot, TransactionOutput>>>,
-        Traced<Predicted<Bundled<WeightingPoll, TransactionOutput>>>,
+        Traced<Predicted<Bundled<WeightingPollSnapshot, TransactionOutput>>>,
     ) {
         let prev_ib_version = *inflation_box.version();
         let (next_inflation_box, rate) = inflation_box.get().release_next_tranche();
@@ -109,20 +109,27 @@ where
             Some(prev_factory_version),
         );
         let wpoll_out = fresh_wpoll.clone().into_ledger(self.ctx);
-        let fresh_wpoll = Traced::new(Predicted(Bundled(fresh_wpoll, wpoll_out.clone())), None);
+        let fresh_wpoll_version = prev_factory_version; // TODO: fix
+        let fresh_wpoll = Traced::new(
+            Predicted(Bundled(
+                Snapshot::new(fresh_wpoll, fresh_wpoll_version),
+                wpoll_out.clone(),
+            )),
+            None,
+        );
         (next_traced_ibox, next_traced_factory, fresh_wpoll)
     }
 
-    async fn eliminate_wpoll(&self, weighting_poll: Bundled<WeightingPoll, TransactionOutput>) {
+    async fn eliminate_wpoll(&self, weighting_poll: Bundled<WeightingPollSnapshot, TransactionOutput>) {
         todo!()
     }
 
     async fn execute_order(
         &self,
-        Bundled(weighting_poll, poll_box_in): Bundled<WeightingPoll, TransactionOutput>,
+        Bundled(weighting_poll, poll_box_in): Bundled<WeightingPollSnapshot, TransactionOutput>,
         (order, Bundled(voting_escrow, ve_box_in)): (VotingOrder, Bundled<VotingEscrow, TransactionOutput>),
     ) -> (
-        Traced<Predicted<Bundled<WeightingPoll, TransactionOutput>>>,
+        Traced<Predicted<Bundled<WeightingPollSnapshot, TransactionOutput>>>,
         Traced<Predicted<Bundled<VotingEscrow, TransactionOutput>>>,
     ) {
         let prev_ve_version = voting_escrow.version();
@@ -130,13 +137,13 @@ where
 
         let mut ve_box_out = ve_box_in.clone();
         if let Some(data_mut) = ve_box_out.data_mut() {
-            unsafe_update_ve_state(data_mut, weighting_poll.epoch);
+            unsafe_update_ve_state(data_mut, weighting_poll.get().epoch);
         }
 
         // Compute the policy for `mint_weighting_power`, to allow us to add the weighting power to WeightingPoll's
         // UTxO.
         let mint_weighting_power_policy = compute_mint_weighting_power_policy_id(
-            weighting_poll.epoch,
+            weighting_poll.get().epoch,
             order.proposal_auth_policy,
             voting_escrow.gt_policy,
         );
@@ -155,12 +162,16 @@ where
 
         let next_weighting_poll = WeightingPoll {
             distribution: order.distribution,
-            ..weighting_poll
+            ..weighting_poll.get().clone()
         };
 
+        let next_wp_version = *prev_wp_version; // TODO: fix
         let fresh_wp = Traced::new(
-            Predicted(Bundled(next_weighting_poll, poll_box_out)),
-            Some(prev_wp_version),
+            Predicted(Bundled(
+                Snapshot::new(next_weighting_poll, next_wp_version),
+                poll_box_out,
+            )),
+            Some(*prev_wp_version),
         );
 
         let next_ve = voting_escrow; // Nothing to change here?
@@ -171,11 +182,11 @@ where
 
     async fn distribute_inflation(
         &self,
-        weighting_poll: Bundled<WeightingPoll, TransactionOutput>,
+        weighting_poll: Bundled<WeightingPollSnapshot, TransactionOutput>,
         farm: Bundled<SmartFarm, TransactionOutput>,
         farm_weight: u64,
     ) -> (
-        Traced<Predicted<Bundled<WeightingPoll, TransactionOutput>>>,
+        Traced<Predicted<Bundled<WeightingPollSnapshot, TransactionOutput>>>,
         Traced<Predicted<Bundled<SmartFarm, TransactionOutput>>>,
     ) {
         todo!()
