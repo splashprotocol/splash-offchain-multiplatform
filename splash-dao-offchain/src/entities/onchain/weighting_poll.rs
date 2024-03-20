@@ -60,13 +60,6 @@ impl Stable for WeightingPoll {
     }
 }
 
-impl EntitySnapshot for WeightingPoll {
-    type Version = u64;
-    fn version(&self) -> Self::Version {
-        todo!()
-    }
-}
-
 pub struct WeightingOngoing;
 pub struct DistributionOngoing(FarmId, u64);
 impl DistributionOngoing {

@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{fmt::Formatter, time::Duration};
 
 use cml_chain::{
     plutus::{ConstrPlutusData, PlutusData},
@@ -19,6 +19,7 @@ use spectrum_offchain::{
 
 use crate::{
     constants::MAX_LOCK_TIME_SECONDS,
+    routines::inflation::VotingEscrowSnapshot,
     time::{NetworkTime, ProtocolEpoch},
 };
 
@@ -26,7 +27,7 @@ use crate::{
 pub struct VotingEscrowId(Token);
 
 impl Identifier for VotingEscrowId {
-    type For = VotingEscrow;
+    type For = VotingEscrowSnapshot;
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -34,6 +35,7 @@ pub struct VotingEscrow {
     pub gov_token_amount: u64,
     pub gt_policy: PolicyId,
     pub locked_until: Lock,
+    pub stable_id: VotingEscrowStableId,
 }
 
 impl VotingEscrow {
@@ -57,17 +59,24 @@ impl<Ctx> IntoLedger<TransactionOutput, Ctx> for VotingEscrow {
     }
 }
 
-impl Stable for VotingEscrow {
-    type StableId = u64;
-    fn stable_id(&self) -> Self::StableId {
-        todo!()
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct VotingEscrowStableId {
+    ve_factory_auth_policy: PolicyId,
+}
+
+impl std::fmt::Display for VotingEscrowStableId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!(
+            "VotingEscrowStableId: ve_factory_auth_policy: {}",
+            self.ve_factory_auth_policy,
+        ))
     }
 }
 
-impl EntitySnapshot for VotingEscrow {
-    type Version = u64;
-    fn version(&self) -> Self::Version {
-        todo!()
+impl Stable for VotingEscrow {
+    type StableId = VotingEscrowStableId;
+    fn stable_id(&self) -> Self::StableId {
+        self.stable_id
     }
 }
 
