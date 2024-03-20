@@ -26,7 +26,7 @@ use crate::entities::onchain::voting_escrow::{unsafe_update_ve_state, VotingEscr
 use crate::entities::onchain::weighting_poll::{unsafe_update_wp_state, WeightingPoll};
 use crate::entities::Snapshot;
 
-use super::{InflationBoxSnapshot, PollFactorySnapshot, WeightingPollSnapshot};
+use super::{InflationBoxSnapshot, PollFactorySnapshot, VotingEscrowSnapshot, WeightingPollSnapshot};
 
 #[async_trait::async_trait]
 pub trait InflationActions<Bearer> {
@@ -44,10 +44,10 @@ pub trait InflationActions<Bearer> {
     async fn execute_order(
         &self,
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
-        order: (VotingOrder, Bundled<VotingEscrow, Bearer>),
+        order: (VotingOrder, Bundled<VotingEscrowSnapshot, Bearer>),
     ) -> (
         Traced<Predicted<Bundled<WeightingPollSnapshot, Bearer>>>,
-        Traced<Predicted<Bundled<VotingEscrow, Bearer>>>,
+        Traced<Predicted<Bundled<VotingEscrowSnapshot, Bearer>>>,
     );
     async fn distribute_inflation(
         &self,
@@ -127,10 +127,13 @@ where
     async fn execute_order(
         &self,
         Bundled(weighting_poll, poll_box_in): Bundled<WeightingPollSnapshot, TransactionOutput>,
-        (order, Bundled(voting_escrow, ve_box_in)): (VotingOrder, Bundled<VotingEscrow, TransactionOutput>),
+        (order, Bundled(voting_escrow, ve_box_in)): (
+            VotingOrder,
+            Bundled<VotingEscrowSnapshot, TransactionOutput>,
+        ),
     ) -> (
         Traced<Predicted<Bundled<WeightingPollSnapshot, TransactionOutput>>>,
-        Traced<Predicted<Bundled<VotingEscrow, TransactionOutput>>>,
+        Traced<Predicted<Bundled<VotingEscrowSnapshot, TransactionOutput>>>,
     ) {
         let prev_ve_version = voting_escrow.version();
         let prev_wp_version = weighting_poll.version();
@@ -145,7 +148,7 @@ where
         let mint_weighting_power_policy = compute_mint_weighting_power_policy_id(
             weighting_poll.get().epoch,
             order.proposal_auth_policy,
-            voting_escrow.gt_policy,
+            voting_escrow.get().gt_policy,
         );
         let current_posix_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
         let mut poll_box_out = poll_box_in.clone();
@@ -157,7 +160,7 @@ where
                 mint_weighting_power_policy,
                 AssetName::try_from(vec![constants::GT_NAME]).unwrap(),
             )),
-            voting_escrow.voting_power(current_posix_time),
+            voting_escrow.get().voting_power(current_posix_time),
         );
 
         let next_weighting_poll = WeightingPoll {
@@ -174,8 +177,12 @@ where
             Some(*prev_wp_version),
         );
 
-        let next_ve = voting_escrow; // Nothing to change here?
-        let fresh_ve = Traced::new(Predicted(Bundled(next_ve, ve_box_out)), Some(prev_ve_version));
+        let next_ve_version = *prev_ve_version; // TODO: fix
+        let next_ve = *voting_escrow.get(); // Nothing to change here?
+        let fresh_ve = Traced::new(
+            Predicted(Bundled(Snapshot::new(next_ve, next_ve_version), ve_box_out)),
+            Some(*prev_ve_version),
+        );
 
         (fresh_wp, fresh_ve)
     }
