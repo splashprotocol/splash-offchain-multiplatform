@@ -39,6 +39,7 @@ const DEF_DELAY: Duration = Duration::new(5, 0);
 pub type InflationBoxSnapshot = Snapshot<InflationBox, OutputRef>;
 pub type PollFactorySnapshot = Snapshot<PollFactory, OutputRef>;
 pub type WeightingPollSnapshot = Snapshot<WeightingPoll, OutputRef>;
+pub type VotingEscrowSnapshot = Snapshot<VotingEscrow, OutputRef>;
 
 #[async_trait::async_trait]
 impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer> RoutineBehaviour
@@ -56,7 +57,10 @@ where
         + StateProjectionWrite<WeightingPollSnapshot, Bearer>
         + Send
         + Sync,
-    VE: StateProjectionRead<VotingEscrow, Bearer> + StateProjectionWrite<VotingEscrow, Bearer> + Send + Sync,
+    VE: StateProjectionRead<VotingEscrowSnapshot, Bearer>
+        + StateProjectionWrite<VotingEscrowSnapshot, Bearer>
+        + Send
+        + Sync,
     Backlog: ResilientBacklog<VotingOrder> + Send + Sync,
     SF: StateProjectionRead<SmartFarm, Bearer> + StateProjectionWrite<SmartFarm, Bearer> + Send + Sync,
     Time: NetworkTimeProvider + Send + Sync,
@@ -107,10 +111,10 @@ impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
     async fn next_order(
         &self,
         _stage: WeightingOngoing,
-    ) -> Option<(VotingOrder, Bundled<VotingEscrow, Bearer>)>
+    ) -> Option<(VotingOrder, Bundled<VotingEscrowSnapshot, Bearer>)>
     where
         Backlog: ResilientBacklog<VotingOrder>,
-        VE: StateProjectionRead<VotingEscrow, Bearer>,
+        VE: StateProjectionRead<VotingEscrowSnapshot, Bearer>,
     {
         if let Some(ord) = self.backlog.try_pop().await {
             self.voting_escrow
@@ -128,7 +132,7 @@ impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
         PF: StateProjectionRead<PollFactorySnapshot, Bearer>,
         WP: StateProjectionRead<WeightingPollSnapshot, Bearer>,
         SF: StateProjectionRead<SmartFarm, Bearer>,
-        VE: StateProjectionRead<VotingEscrow, Bearer>,
+        VE: StateProjectionRead<VotingEscrowSnapshot, Bearer>,
         Backlog: ResilientBacklog<VotingOrder>,
         Time: NetworkTimeProvider,
     {
@@ -207,7 +211,7 @@ impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
     ) -> Option<ToRoutine>
     where
         WP: StateProjectionWrite<WeightingPollSnapshot, Bearer>,
-        VE: StateProjectionWrite<VotingEscrow, Bearer>,
+        VE: StateProjectionWrite<VotingEscrowSnapshot, Bearer>,
         Actions: InflationActions<Bearer>,
     {
         if let Some(next_order) = next_pending_order {
@@ -278,7 +282,7 @@ pub struct PendingCreatePoll<Out> {
 
 pub struct WeightingInProgress<Out> {
     weighting_poll: AnyMod<Bundled<WeightingPollSnapshot, Out>>,
-    next_pending_order: Option<(VotingOrder, Bundled<VotingEscrow, Out>)>,
+    next_pending_order: Option<(VotingOrder, Bundled<VotingEscrowSnapshot, Out>)>,
 }
 
 pub struct DistributionInProgress<Out> {
