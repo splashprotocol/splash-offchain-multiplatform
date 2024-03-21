@@ -1,6 +1,6 @@
 use std::fmt::Formatter;
 
-use cml_chain::plutus::{ConstrPlutusData, PlutusData};
+use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData};
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::utils::BigInt;
 use cml_chain::PolicyId;
@@ -171,3 +171,25 @@ impl IntoPlutusData for PollAction {
         }
     }
 }
+
+pub enum MintAction {
+    MintAuthToken { factory_in_ix: u32 },
+    BurnAuthToken,
+}
+
+impl IntoPlutusData for MintAction {
+    fn into_pd(self) -> PlutusData {
+        match self {
+            MintAction::MintAuthToken { factory_in_ix } => PlutusData::ConstrPlutusData(
+                ConstrPlutusData::new(0, vec![PlutusData::Integer(BigInt::from(factory_in_ix))]),
+            ),
+            MintAction::BurnAuthToken => PlutusData::ConstrPlutusData(ConstrPlutusData::new(1, vec![])),
+        }
+    }
+}
+
+pub const MINT_WP_AUTH_EX_UNITS: ExUnits = ExUnits {
+    mem: 500_000,
+    steps: 200_000_000,
+    encodings: None,
+};
