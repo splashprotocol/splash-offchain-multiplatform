@@ -8,13 +8,14 @@ use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::Has;
 
 use crate::constants::{
-    DEPOSIT_SCRIPT, FEE_SWITCH_POOL_SCRIPT, FEE_SWITCH_POOL_SCRIPT_BIDIRECTIONAL_FEE_SCRIPT,
-    LIMIT_ORDER_SCRIPT, POOL_V1_SCRIPT, POOL_V2_SCRIPT, REDEEM_SCRIPT, SPOT_BATCH_VALIDATOR_SCRIPT,
-    SWAP_SCRIPT,
+    BALANCE_POOL_SCRIPT, DEPOSIT_SCRIPT, FEE_SWITCH_POOL_SCRIPT,
+    FEE_SWITCH_POOL_SCRIPT_BIDIRECTIONAL_FEE_SCRIPT, LIMIT_ORDER_SCRIPT, POOL_V1_SCRIPT, POOL_V2_SCRIPT,
+    REDEEM_SCRIPT, SPOT_BATCH_VALIDATOR_SCRIPT, SWAP_SCRIPT,
 };
+use crate::data::balance_pool::BalancePool;
+use crate::data::cfmm_pool::CFMMPool;
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
-use crate::data::pool::CFMMPool;
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolVer;
 use crate::ref_scripts::ReferenceSources;
@@ -25,6 +26,7 @@ pub struct ReferenceOutputs {
     pub pool_v2: TransactionUnspentOutput,
     pub fee_switch_pool: TransactionUnspentOutput,
     pub fee_switch_pool_bidir_fee: TransactionUnspentOutput,
+    pub balance_pool: TransactionUnspentOutput,
     pub swap: TransactionUnspentOutput,
     pub deposit: TransactionUnspentOutput,
     pub redeem: TransactionUnspentOutput,
@@ -70,6 +72,8 @@ impl ReferenceOutputs {
             explorer,
         )
         .await?;
+        let balance_pool =
+            process_utxo_with_ref_script(config.balance_pool_script, BALANCE_POOL_SCRIPT, explorer).await?;
         let swap = process_utxo_with_ref_script(config.swap_script, SWAP_SCRIPT, explorer).await?;
         let deposit = process_utxo_with_ref_script(config.deposit_script, DEPOSIT_SCRIPT, explorer).await?;
         let redeem = process_utxo_with_ref_script(config.redeem_script, REDEEM_SCRIPT, explorer).await?;
@@ -82,6 +86,7 @@ impl ReferenceOutputs {
             pool_v2,
             fee_switch_pool,
             fee_switch_pool_bidir_fee: fee_switch_pool_bidirectional_fee,
+            balance_pool,
             swap,
             deposit,
             redeem,
@@ -120,6 +125,16 @@ impl RequiresRefScript for CFMMPool {
             PoolVer::V2 => ref_scripts.pool_v2,
             PoolVer::FeeSwitch => ref_scripts.fee_switch_pool,
             PoolVer::FeeSwitchBiDirFee => ref_scripts.fee_switch_pool_bidir_fee,
+            PoolVer::BalancePool => unreachable!(),
+        }
+    }
+}
+
+impl RequiresRefScript for BalancePool {
+    fn get_ref_script(self, ref_scripts: ReferenceOutputs) -> TransactionUnspentOutput {
+        match self.get_labeled::<PoolVer>() {
+            PoolVer::BalancePool => ref_scripts.balance_pool,
+            _ => unreachable!(),
         }
     }
 }

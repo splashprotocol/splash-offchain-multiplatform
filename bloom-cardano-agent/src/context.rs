@@ -8,8 +8,8 @@ use spectrum_offchain::backlog::BacklogCapacity;
 use spectrum_offchain::data::Has;
 use spectrum_offchain_cardano::creds::OperatorRewardAddress;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
-    ConstFnPoolDeposit, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2, LimitOrder,
-    LimitOrderWitness,
+    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolRedeem,
+    ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2, LimitOrder, LimitOrderWitness,
 };
 use spectrum_offchain_cardano::deployment::{DeployedValidator, ProtocolDeployment};
 
@@ -97,6 +97,30 @@ impl Has<DeployedValidator<{ ConstFnPoolRedeem as u8 }>> for ExecutionContext {
         &self,
     ) -> DeployedValidator<{ ConstFnPoolRedeem as u8 }> {
         self.deployment.const_fn_pool_redeem.clone()
+    }
+}
+
+impl Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>> for ExecutionContext {
+    fn get_labeled<U: IsEqual<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ BalanceFnPoolV1 as u8 }> {
+        self.deployment.balance_fn_pool_v1.clone()
+    }
+}
+
+impl Has<DeployedValidator<{ BalanceFnPoolRedeem as u8 }>> for ExecutionContext {
+    fn get_labeled<U: IsEqual<DeployedValidator<{ BalanceFnPoolRedeem as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ BalanceFnPoolRedeem as u8 }> {
+        self.deployment.balance_fn_pool_redeem.clone()
+    }
+}
+
+impl Has<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>> for ExecutionContext {
+    fn get_labeled<U: IsEqual<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ BalanceFnPoolDeposit as u8 }> {
+        self.deployment.balance_fn_pool_deposit.clone()
     }
 }
 

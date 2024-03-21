@@ -10,7 +10,7 @@ use cml_multi_era::babbage::BabbageTransactionOutput;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::output::FinalizedTxOut;
-use spectrum_cardano_lib::{NetworkId, OutputRef};
+
 use spectrum_offchain::backlog::data::{OrderWeight, Weighted};
 use spectrum_offchain::data::order::{SpecializedOrder, UniqueOrder};
 use spectrum_offchain::data::unique_entity::Predicted;
@@ -19,15 +19,18 @@ use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::creds::OperatorRewardAddress;
+
+use crate::data::cfmm_pool::CFMMPool;
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
-use crate::data::pool::{CFMMPool, RunAnyCFMMOrderOverPool};
+use crate::data::pool::RunAnyCFMMOrderOverPool;
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
 use crate::deployment::DeployedValidator;
 use crate::deployment::ProtocolValidator::{
-    ConstFnPoolDeposit, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
+    BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
 };
+use spectrum_cardano_lib::{NetworkId, OutputRef};
 
 pub struct Input;
 
@@ -160,10 +163,10 @@ where
     }
 }
 
-pub struct RunClassicalAMMOrderOrderOverPool<Pool>(pub Bundled<Pool, FinalizedTxOut>);
+pub struct RunClassicalAMMOrderOverPool<Pool>(pub Bundled<Pool, FinalizedTxOut>);
 
 impl<Ctx> RunOrder<Bundled<ClassicalAMMOrder, FinalizedTxOut>, Ctx, SignedTxBuilder>
-    for RunClassicalAMMOrderOrderOverPool<CFMMPool>
+    for RunClassicalAMMOrderOverPool<CFMMPool>
 where
     Ctx: Clone
         + Has<Collateral>
@@ -173,7 +176,9 @@ where
         + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolSwap as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolDeposit as u8 }>>
-        + Has<DeployedValidator<{ ConstFnPoolRedeem as u8 }>>,
+        + Has<DeployedValidator<{ ConstFnPoolRedeem as u8 }>>
+        // comes from common execution for deposit and redeem for balance pool
+        + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>,
 {
     fn try_run(
         self,
@@ -181,38 +186,23 @@ where
         ctx: Ctx,
     ) -> Result<(SignedTxBuilder, Predicted<Self>), RunOrderError<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>
     {
-        let RunClassicalAMMOrderOrderOverPool(pool_bundle) = self;
+        let RunClassicalAMMOrderOverPool(pool_bundle) = self;
         match order {
             ClassicalAMMOrder::Swap(swap) => RunAnyCFMMOrderOverPool(pool_bundle)
                 .try_run(Bundled(swap, ord_bearer), ctx)
-                .map(|(txb, res)| {
-                    (
-                        txb,
-                        res.map(|wrapper| RunClassicalAMMOrderOrderOverPool(wrapper.0)),
-                    )
-                })
+                .map(|(txb, res)| (txb, res.map(|wrapper| RunClassicalAMMOrderOverPool(wrapper.0))))
                 .map_err(|err| {
                     err.map(|Bundled(swap, bundle)| Bundled(ClassicalAMMOrder::Swap(swap), bundle))
                 }),
             ClassicalAMMOrder::Deposit(deposit) => RunAnyCFMMOrderOverPool(pool_bundle)
                 .try_run(Bundled(deposit.clone(), ord_bearer), ctx)
-                .map(|(txb, res)| {
-                    (
-                        txb,
-                        res.map(|wrapper| RunClassicalAMMOrderOrderOverPool(wrapper.0)),
-                    )
-                })
+                .map(|(txb, res)| (txb, res.map(|wrapper| RunClassicalAMMOrderOverPool(wrapper.0))))
                 .map_err(|err| {
                     err.map(|Bundled(_swap, bundle)| Bundled(ClassicalAMMOrder::Deposit(deposit), bundle))
                 }),
             ClassicalAMMOrder::Redeem(redeem) => RunAnyCFMMOrderOverPool(pool_bundle)
                 .try_run(Bundled(redeem.clone(), ord_bearer), ctx)
-                .map(|(txb, res)| {
-                    (
-                        txb,
-                        res.map(|wrapper| RunClassicalAMMOrderOrderOverPool(wrapper.0)),
-                    )
-                })
+                .map(|(txb, res)| (txb, res.map(|wrapper| RunClassicalAMMOrderOverPool(wrapper.0))))
                 .map_err(|err| {
                     err.map(|Bundled(_swap, bundle)| Bundled(ClassicalAMMOrder::Redeem(redeem), bundle))
                 }),

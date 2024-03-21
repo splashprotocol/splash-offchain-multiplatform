@@ -1,7 +1,7 @@
 use std::fmt::{Debug, Display, Formatter};
 
 use derive_more::{From, Into};
-use rand::{thread_rng, RngCore};
+use rand::RngCore;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Into, From)]
 pub struct Time(u64);
@@ -13,7 +13,7 @@ impl StableId {
     #[cfg(test)]
     pub fn random() -> StableId {
         let mut bf = [0u8; 32];
-        thread_rng().fill_bytes(&mut bf);
+        rand::thread_rng().fill_bytes(&mut bf);
         StableId(bf)
     }
 }

@@ -1,69 +1,72 @@
 use std::fmt::Debug;
 
 use cml_chain::address::Address;
-use cml_chain::assets::MultiAsset;
+
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
 use cml_chain::builders::tx_builder::{
-    ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput,
+    ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput, TxBuilderError,
 };
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
+use cml_chain::plutus::PlutusData::Integer;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData, RedeemerTag};
-use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, TransactionOutput};
+use cml_chain::transaction::{DatumOption, ScriptRef, TransactionOutput};
 use cml_chain::utils::BigInt;
-use cml_chain::{Coin, Value};
+
+use cml_chain::{Coin, PolicyId};
 
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
-use num_integer::Roots;
-use num_rational::Ratio;
-use type_equalities::IsEqual;
+
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
-use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
+use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::plutus_data::{
-    ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
+    ConstrPlutusDataExtension, PlutusDataExtension,
 };
 use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
+
 use spectrum_cardano_lib::types::TryFromPData;
-use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
+use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass, Token};
 use spectrum_offchain::data::unique_entity::Predicted;
-
-use spectrum_offchain::data::Has;
-use spectrum_offchain::data::Stable;
-
+use spectrum_offchain::data::{Has, Stable, Tradable};
+use spectrum_offchain::executor::RunOrderError::Fatal;
 
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
-use crate::constants::{
-    FEE_DEN, MAX_LQ_CAP, ORDER_EXECUTION_UNITS, POOL_EXECUTION_UNITS,
-};
+use crate::data::balance_pool::BalancePool;
+use crate::data::cfmm_pool::{CFMMPool, CFMMPoolRedeemer};
+
+use crate::constants::{ORDER_EXECUTION_UNITS, POOL_EXECUTION_UNITS};
 use crate::creds::OperatorRewardAddress;
-use crate::data::deposit::ClassicalOnChainDeposit;
-use crate::data::fee_switch_bidirectional_fee::FeeSwitchBidirectionalPoolConfig;
-use crate::data::fee_switch_pool::FeeSwitchPoolConfig;
-use crate::data::limit_swap::ClassicalOnChainLimitSwap;
-use crate::data::operation_output::{DepositOutput, RedeemOutput, SwapOutput};
+
+
+
+
+
 use crate::data::order::{
-    Base, ClassicalOrder, ClassicalOrderAction, ClassicalOrderRedeemer, PoolNft, Quote,
+    ClassicalOrderAction, ClassicalOrderRedeemer, PoolNft, Quote,
 };
-use crate::data::pair::order_canonical;
+
+use crate::data::pair::PairId;
+use crate::data::pool::AnyPool::{BalancedCFMM, PureCFMM};
 use crate::data::pool::ApplyOrderError::{LowBatcherFeeErr, SlippageErr};
-use crate::data::redeem::ClassicalOnChainRedeem;
-use crate::data::{OnChainOrderId, PoolId, PoolVer};
-use crate::deployment::ProtocolValidator::{ConstFnPoolV1, ConstFnPoolV2};
-use crate::deployment::{DeployedValidator, DeployedValidatorErased, RequiresValidator};
-use crate::fees::FeeExtension;
-use crate::pool_math::cfmm_math::{output_amount, reward_lp, shares_amount};
+
+
+
+use crate::data::{OnChainOrderId, PoolVer};
+use crate::deployment::ProtocolValidator::{BalanceFnPoolV1, ConstFnPoolV1, ConstFnPoolV2};
+use crate::deployment::{DeployedValidator, RequiresValidator};
+
+
 
 pub struct Rx;
 
@@ -175,19 +178,6 @@ impl<Order> From<LowerBatcherFee<Order>> for RunOrderError<Order> {
     }
 }
 
-pub struct CFMMPoolRedeemer {
-    pub pool_input_index: u64,
-    pub action: CFMMPoolAction,
-}
-
-impl CFMMPoolRedeemer {
-    pub fn to_plutus_data(self) -> PlutusData {
-        let action_pd = self.action.to_plutus_data();
-        let self_ix_pd = PlutusData::Integer(BigInt::from(self.pool_input_index));
-        PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![action_pd, self_ix_pd]))
-    }
-}
-
 pub enum CFMMPoolAction {
     Swap,
     Deposit,
@@ -207,21 +197,9 @@ impl CFMMPoolAction {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct CFMMPool {
-    pub id: PoolId,
-    pub reserves_x: TaggedAmount<Rx>,
-    pub reserves_y: TaggedAmount<Ry>,
-    pub liquidity: TaggedAmount<Lq>,
-    pub asset_x: TaggedAssetClass<Rx>,
-    pub asset_y: TaggedAssetClass<Ry>,
-    pub asset_lq: TaggedAssetClass<Lq>,
-    pub lp_fee_x: Ratio<u64>,
-    pub lp_fee_y: Ratio<u64>,
-    pub treasury_fee: Ratio<u64>,
-    pub treasury_x: TaggedAmount<Rx>,
-    pub treasury_y: TaggedAmount<Ry>,
-    pub lq_lower_bound: TaggedAmount<Lq>,
-    pub ver: PoolVer,
+pub enum AnyPool {
+    PureCFMM(CFMMPool),
+    BalancedCFMM(BalancePool),
 }
 
 pub struct AssetDeltas {
@@ -229,277 +207,134 @@ pub struct AssetDeltas {
     pub asset_to_add_to: AssetClass,
 }
 
-impl CFMMPool {
-    pub fn get_asset_deltas(&self, side: SideM) -> AssetDeltas {
-        let x = self.asset_x.untag();
-        let y = self.asset_y.untag();
-        let [base, _] = order_canonical(x, y);
-        if base == x {
-            match side {
-                SideM::Bid => AssetDeltas {
-                    asset_to_deduct_from: x,
-                    asset_to_add_to: y,
-                },
-                SideM::Ask => AssetDeltas {
-                    asset_to_deduct_from: y,
-                    asset_to_add_to: x,
-                },
-            }
-        } else {
-            match side {
-                SideM::Bid => AssetDeltas {
-                    asset_to_deduct_from: y,
-                    asset_to_add_to: x,
-                },
-                SideM::Ask => AssetDeltas {
-                    asset_to_deduct_from: x,
-                    asset_to_add_to: y,
-                },
-            }
-        }
-    }
-}
+// impl TryFromLedger<BabbageTransactionOutput, OutputRef> for AnyPool {
+//     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
+//         if let Some(pool_ver) = PoolVer::try_from_address(repr.address()) {
+//             return match pool_ver {
+//                 PoolVer::V1 | PoolVer::V2 | PoolVer::FeeSwitch | PoolVer::FeeSwitchBiDirFee => {
+//                     CFMMPool::try_from_ledger(repr, ctx).map(PureCFMM)
+//                 }
+//                 PoolVer::BalancePool => BalancePool::try_from_ledger(repr, ctx).map(BalancedCFMM),
+//             };
+//         }
+//         None
+//     }
+// }
 
-impl<Ctx> RequiresValidator<Ctx> for CFMMPool
-where
-    Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>> + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>,
-{
-    fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
-        match self.ver {
-            PoolVer::V1 => ctx
-                .get_labeled::<DeployedValidator<{ ConstFnPoolV1 as u8 }>>()
-                .erased(),
-            _ => ctx
-                .get_labeled::<DeployedValidator<{ ConstFnPoolV2 as u8 }>>()
-                .erased(),
-        }
-    }
-}
-
-impl RequiresRedeemer<CFMMPoolRedeemer> for CFMMPool {
-    fn redeemer(redeemer: CFMMPoolRedeemer) -> PlutusData {
-        redeemer.to_plutus_data()
-    }
-}
-
-pub trait AMMOps {
-    fn output_amount(
-        &self,
-        base_asset: TaggedAssetClass<Base>,
-        base_amount: TaggedAmount<Base>,
-    ) -> TaggedAmount<Quote>;
-
-    fn reward_lp(
-        &self,
-        in_x_amount: u64,
-        in_y_amount: u64,
-    ) -> (TaggedAmount<Lq>, TaggedAmount<Rx>, TaggedAmount<Ry>);
-
-    fn shares_amount(self, burned_lq: TaggedAmount<Lq>) -> (TaggedAmount<Rx>, TaggedAmount<Ry>);
-}
-
-impl AMMOps for CFMMPool {
-    fn output_amount(
-        &self,
-        base_asset: TaggedAssetClass<Base>,
-        base_amount: TaggedAmount<Base>,
-    ) -> TaggedAmount<Quote> {
-        output_amount(
-            self.asset_x,
-            self.reserves_x,
-            self.reserves_y,
-            base_asset,
-            base_amount,
-            self.lp_fee_x - self.treasury_fee,
-            self.lp_fee_y - self.treasury_fee,
-        )
-    }
-
-    fn reward_lp(
-        &self,
-        in_x_amount: u64,
-        in_y_amount: u64,
-    ) -> (TaggedAmount<Lq>, TaggedAmount<Rx>, TaggedAmount<Ry>) {
-        reward_lp(
-            self.reserves_x,
-            self.reserves_y,
-            self.liquidity,
-            in_x_amount,
-            in_y_amount,
-        )
-    }
-
-    fn shares_amount(self, burned_lq: TaggedAmount<Lq>) -> (TaggedAmount<Rx>, TaggedAmount<Ry>) {
-        shares_amount(self.reserves_x, self.reserves_y, self.liquidity, burned_lq)
-    }
-}
-
-impl Pool for CFMMPool {
+impl Pool for AnyPool {
     fn static_price(&self) -> AbsolutePrice {
-        let x = self.asset_x.untag();
-        let y = self.asset_y.untag();
-        let [base, _] = order_canonical(x, y);
-        if x == base {
-            AbsolutePrice::new(self.reserves_y.untag(), self.reserves_x.untag())
-        } else {
-            AbsolutePrice::new(self.reserves_x.untag(), self.reserves_y.untag())
+        match self {
+            PureCFMM(p) => p.static_price(),
+            BalancedCFMM(p) => p.static_price(),
         }
     }
 
     fn real_price(&self, input: Side<u64>) -> AbsolutePrice {
-        let x = self.asset_x.untag();
-        let y = self.asset_y.untag();
-        let [base, quote] = order_canonical(x, y);
-        let (base, quote) = match input {
-            Side::Bid(input) => (
-                self.output_amount(TaggedAssetClass::new(quote), TaggedAmount::new(input))
-                    .untag(),
-                input,
-            ),
-            Side::Ask(input) => (
-                input,
-                self.output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
-                    .untag(),
-            ),
-        };
-        AbsolutePrice::new(quote, base)
+        match self {
+            PureCFMM(p) => p.real_price(input),
+            BalancedCFMM(p) => p.real_price(input),
+        }
+        // let x = self.asset_x.untag();
+        // let y = self.asset_y.untag();
+        // let [base, quote] = order_canonical(x, y);
+        // let (base, quote) = match input {
+        //     Side::Bid(input) => (
+        //         self.output_amount(TaggedAssetClass::new(quote), TaggedAmount::new(input))
+        //             .untag(),
+        //         input,
+        //     ),
+        //     Side::Ask(input) => (
+        //         input,
+        //         self.output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
+        //             .untag(),
+        //     ),
+        // };
+        // AbsolutePrice::new(quote, base)
     }
 
-    fn swap(mut self, input: Side<u64>) -> (u64, Self) {
-        let x = self.asset_x.untag();
-        let y = self.asset_y.untag();
-        let [base, quote] = order_canonical(x, y);
-        let output = match input {
-            Side::Bid(input) => self
-                .output_amount(TaggedAssetClass::new(quote), TaggedAmount::new(input))
-                .untag(),
-            Side::Ask(input) => self
-                .output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
-                .untag(),
-        };
-        let (base_reserves, quote_reserves) = if x == base {
-            (self.reserves_x.as_mut(), self.reserves_y.as_mut())
-        } else {
-            (self.reserves_y.as_mut(), self.reserves_x.as_mut())
-        };
-        match input {
-            Side::Bid(input) => {
-                // A user bid means that they wish to buy the base asset for the quote asset, hence
-                // pool reserves of base decreases while reserves of quote increase.
-                *quote_reserves += input;
-                *base_reserves -= output;
-                (output, self)
+    fn swap(self, input: Side<u64>) -> (u64, Self) {
+        match self {
+            PureCFMM(p) => {
+                let (swap_res, new_pool) = p.swap(input);
+                (swap_res, PureCFMM(new_pool))
             }
-            Side::Ask(input) => {
-                // User ask is the opposite; sell the base asset for the quote asset.
-                *base_reserves += input;
-                *quote_reserves -= output;
-                (output, self)
+            BalancedCFMM(p) => {
+                let (swap_res, new_pool) = p.swap(input);
+                (swap_res, BalancedCFMM(new_pool))
             }
         }
+        // let x = self.asset_x.untag();
+        // let y = self.asset_y.untag();
+        // let [base, quote] = order_canonical(x, y);
+        // let output = match input {
+        //     Side::Bid(input) => self
+        //         .output_amount(TaggedAssetClass::new(quote), TaggedAmount::new(input))
+        //         .untag(),
+        //     Side::Ask(input) => self
+        //         .output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
+        //         .untag(),
+        // };
+        // let (base_reserves, quote_reserves) = if x == base {
+        //     (self.reserves_x.as_mut(), self.reserves_y.as_mut())
+        // } else {
+        //     (self.reserves_y.as_mut(), self.reserves_x.as_mut())
+        // };
+        // match input {
+        //     Side::Bid(input) => {
+        //         // A user bid means that they wish to buy the base asset for the quote asset, hence
+        //         // pool reserves of base decreases while reserves of quote increase.
+        //         *quote_reserves += input;
+        //         *base_reserves -= output;
+        //         (output, self)
+        //     }
+        //     Side::Ask(input) => {
+        //         // User ask is the opposite; sell the base asset for the quote asset.
+        //         *base_reserves += input;
+        //         *quote_reserves -= output;
+        //         (output, self)
+        //     }
+        // }
     }
 
     fn quality(&self) -> PoolQuality {
-        let lq = (self.reserves_x.untag() * self.reserves_y.untag()).sqrt();
-        PoolQuality(self.static_price(), lq)
+        match self {
+            PureCFMM(p) => p.quality(),
+            BalancedCFMM(p) => p.quality(),
+        }
     }
 }
 
-impl Has<PoolVer> for CFMMPool {
-    fn get_labeled<U: IsEqual<PoolVer>>(&self) -> PoolVer {
-        self.ver
+impl<C> TryFromLedger<BabbageTransactionOutput, C> for AnyPool
+where
+    C: Has<OutputRef>,
+{
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
+        let cfmm_pool = CFMMPool::try_from_ledger(repr, ctx.get()).map(PureCFMM);
+        let balance_pool = BalancePool::try_from_ledger(repr, ctx.get()).map(BalancedCFMM);
+        cfmm_pool.or(balance_pool)
     }
 }
 
-impl RequiresRedeemer<CFMMPoolAction> for CFMMPool {
-    fn redeemer(action: CFMMPoolAction) -> PlutusData {
-        action.to_plutus_data()
-    }
-}
-
-impl Stable for CFMMPool {
-    type StableId = PoolId;
+impl Stable for AnyPool {
+    type StableId = PolicyId;
     fn stable_id(&self) -> Self::StableId {
-        self.id
+        match self {
+            PureCFMM(p) => Token::from(p.id).0,
+            BalancedCFMM(p) => Token::from(p.id).0,
+        }
     }
     fn is_quasi_permanent(&self) -> bool {
         true
     }
 }
 
-impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for CFMMPool {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, _: Ctx) -> Option<Self> {
-        if let Some(pool_ver) = PoolVer::try_from_address(repr.address()) {
-            let value = repr.value();
-            let pd = repr.datum().clone()?.into_pd()?;
-            return match pool_ver {
-                PoolVer::V1 | PoolVer::V2 => {
-                    let conf = LegacyCFMMPoolConfig::try_from_pd(pd.clone())?;
-                    let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
-                    Some(CFMMPool {
-                        id: PoolId::try_from(conf.pool_nft).ok()?,
-                        reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
-                        reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
-                        liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
-                        asset_x: conf.asset_x,
-                        asset_y: conf.asset_y,
-                        asset_lq: conf.asset_lq,
-                        lp_fee_x: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
-                        lp_fee_y: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
-                        treasury_fee: Ratio::new_raw(0, 1),
-                        treasury_x: TaggedAmount::new(0),
-                        treasury_y: TaggedAmount::new(0),
-                        lq_lower_bound: conf.lq_lower_bound,
-                        ver: pool_ver,
-                    })
-                }
-                PoolVer::FeeSwitch => {
-                    let conf = FeeSwitchPoolConfig::try_from_pd(pd.clone())?;
-                    let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
-                    Some(CFMMPool {
-                        id: PoolId::try_from(conf.pool_nft).ok()?,
-                        reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?)
-                            - TaggedAmount::new(conf.treasury_x),
-                        reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?)
-                            - TaggedAmount::new(conf.treasury_y),
-                        liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
-                        asset_x: conf.asset_x,
-                        asset_y: conf.asset_y,
-                        asset_lq: conf.asset_lq,
-                        lp_fee_x: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
-                        lp_fee_y: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
-                        treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
-                        treasury_x: TaggedAmount::new(conf.treasury_x),
-                        treasury_y: TaggedAmount::new(conf.treasury_y),
-                        lq_lower_bound: conf.lq_lower_bound,
-                        ver: pool_ver,
-                    })
-                }
-                PoolVer::FeeSwitchBiDirFee => {
-                    let conf = FeeSwitchBidirectionalPoolConfig::try_from_pd(pd.clone())?;
-                    let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
-                    Some(CFMMPool {
-                        id: PoolId::try_from(conf.pool_nft).ok()?,
-                        reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?)
-                            - TaggedAmount::new(conf.treasury_x),
-                        reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?)
-                            - TaggedAmount::new(conf.treasury_y),
-                        liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
-                        asset_x: conf.asset_x,
-                        asset_y: conf.asset_y,
-                        asset_lq: conf.asset_lq,
-                        lp_fee_x: Ratio::new_raw(conf.lp_fee_num_x, FEE_DEN),
-                        lp_fee_y: Ratio::new_raw(conf.lp_fee_num_y, FEE_DEN),
-                        treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
-                        treasury_x: TaggedAmount::new(conf.treasury_x),
-                        treasury_y: TaggedAmount::new(conf.treasury_y),
-                        lq_lower_bound: conf.lq_lower_bound,
-                        ver: pool_ver,
-                    })
-                }
-            };
+impl Tradable for AnyPool {
+    type PairId = PairId;
+    fn pair_id(&self) -> Self::PairId {
+        match self {
+            PureCFMM(p) => PairId::canonical(p.asset_x.untag(), p.asset_y.untag()),
+            BalancedCFMM(p) => PairId::canonical(p.asset_x.untag(), p.asset_y.untag()),
         }
-        None
     }
 }
 
@@ -521,40 +356,7 @@ impl From<&TransactionOutput> for ImmutablePoolUtxo {
     }
 }
 
-impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for CFMMPool {
-    fn into_ledger(self, immut_pool: ImmutablePoolUtxo) -> TransactionOutput {
-        let mut ma = MultiAsset::new();
-        let coins = if self.asset_x.is_native() {
-            let (policy, name) = self.asset_y.untag().into_token().unwrap();
-            ma.set(policy, name.into(), self.reserves_y.untag());
-            self.reserves_x.untag()
-        } else if self.asset_y.is_native() {
-            let (policy, name) = self.asset_x.untag().into_token().unwrap();
-            ma.set(policy, name.into(), self.reserves_x.untag());
-            self.reserves_y.untag()
-        } else {
-            let (policy_x, name_x) = self.asset_x.untag().into_token().unwrap();
-            ma.set(policy_x, name_x.into(), self.reserves_x.untag());
-            let (policy_y, name_y) = self.asset_y.untag().into_token().unwrap();
-            ma.set(policy_y, name_y.into(), self.reserves_y.untag());
-            immut_pool.value
-        };
-        let (policy_lq, name_lq) = self.asset_lq.untag().into_token().unwrap();
-        let (nft_lq, name_nft) = self.id.into();
-        ma.set(policy_lq, name_lq.into(), MAX_LQ_CAP - self.liquidity.untag());
-        ma.set(nft_lq, name_nft.into(), 1);
-
-        TransactionOutput::new_conway_format_tx_out(ConwayFormatTxOut {
-            address: immut_pool.address,
-            amount: Value::new(coins, ma),
-            datum_option: unsafe_update_datum(&self, immut_pool.datum_option),
-            script_reference: immut_pool.script_reference,
-            encodings: None,
-        })
-    }
-}
-
-fn unsafe_update_datum(pool: &CFMMPool, prev_datum: Option<DatumOption>) -> Option<DatumOption> {
+pub(crate) fn unsafe_update_datum(pool: &AnyPool, prev_datum: Option<DatumOption>) -> Option<DatumOption> {
     match prev_datum {
         Some(DatumOption::Datum {
             datum,
@@ -562,22 +364,42 @@ fn unsafe_update_datum(pool: &CFMMPool, prev_datum: Option<DatumOption>) -> Opti
             tag_encoding,
             datum_tag_encoding,
             datum_bytes_encoding,
-        }) => match pool.ver {
-            PoolVer::V1 | PoolVer::V2 => Some(DatumOption::Datum {
-                datum,
-                len_encoding,
-                tag_encoding,
-                datum_tag_encoding,
-                datum_bytes_encoding,
-            }),
-            PoolVer::FeeSwitch | PoolVer::FeeSwitchBiDirFee => {
-                let new_treasury_x = PlutusData::Integer(BigInt::from(pool.treasury_x.untag()));
-                let new_treasury_y = PlutusData::Integer(BigInt::from(pool.treasury_y.untag()));
+        }) => match pool {
+            PureCFMM(pure_cfmm) => match pure_cfmm.ver {
+                PoolVer::V1 | PoolVer::V2 => Some(DatumOption::Datum {
+                    datum,
+                    len_encoding,
+                    tag_encoding,
+                    datum_tag_encoding,
+                    datum_bytes_encoding,
+                }),
+                PoolVer::FeeSwitch | PoolVer::FeeSwitchBiDirFee => {
+                    let new_treasury_x = Integer(BigInt::from(pure_cfmm.treasury_x.untag()));
+                    let new_treasury_y = Integer(BigInt::from(pure_cfmm.treasury_y.untag()));
+
+                    let mut cpd = datum.into_constr_pd()?;
+
+                    cpd.update_field_unsafe(6, new_treasury_x);
+                    cpd.update_field_unsafe(7, new_treasury_y);
+
+                    Some(DatumOption::Datum {
+                        datum: PlutusData::ConstrPlutusData(cpd),
+                        len_encoding,
+                        tag_encoding,
+                        datum_tag_encoding,
+                        datum_bytes_encoding,
+                    })
+                }
+                PoolVer::BalancePool => unreachable!(),
+            },
+            BalancedCFMM(pool) => {
+                let new_treasury_x = Integer(BigInt::from(pool.treasury_x.untag()));
+                let new_treasury_y = Integer(BigInt::from(pool.treasury_y.untag()));
 
                 let mut cpd = datum.into_constr_pd()?;
 
-                cpd.update_field_unsafe(6, new_treasury_x);
-                cpd.update_field_unsafe(7, new_treasury_y);
+                cpd.update_field_unsafe(9, new_treasury_x);
+                cpd.update_field_unsafe(10, new_treasury_y);
 
                 Some(DatumOption::Datum {
                     datum: PlutusData::ConstrPlutusData(cpd),
@@ -589,6 +411,19 @@ fn unsafe_update_datum(pool: &CFMMPool, prev_datum: Option<DatumOption>) -> Opti
             }
         },
         _ => panic!("Expected inline datum"),
+    }
+}
+
+fn process_cml_step<Order>(
+    step: Result<(), TxBuilderError>,
+    order: Order,
+) -> Result<(), RunOrderError<Order>> {
+    match step {
+        Ok(_) => Ok(()),
+        Err(err) => {
+            let error = format!("{:?}", err);
+            Err(Fatal(error, order))
+        }
     }
 }
 
@@ -621,140 +456,11 @@ impl TryFromPData for LegacyCFMMPoolConfig {
     }
 }
 
-impl ApplyOrder<ClassicalOnChainLimitSwap> for CFMMPool {
-    type Result = SwapOutput;
-
-    fn apply_order(
-        mut self,
-        ClassicalOrder { id, pool_id, order }: ClassicalOnChainLimitSwap,
-    ) -> Result<(Self, SwapOutput), ApplyOrderError<ClassicalOnChainLimitSwap>> {
-        let quote_amount = self.output_amount(order.base_asset, order.base_amount);
-        if quote_amount < order.min_expected_quote_amount {
-            return Err(ApplyOrderError::slippage(
-                ClassicalOrder {
-                    id,
-                    pool_id,
-                    order: order.clone(),
-                },
-                quote_amount,
-                order.clone().min_expected_quote_amount,
-            ));
-        }
-        // Adjust pool value.
-        if order.quote_asset.untag() == self.asset_x.untag() {
-            let additional_treasury_y = (((order.base_amount.untag() as u128)
-                * (*self.treasury_fee.numer() as u128))
-                / (*self.treasury_fee.denom() as u128)) as u64;
-            self.reserves_x = self.reserves_x - quote_amount.retag();
-            self.treasury_y = self.treasury_y + TaggedAmount::new(additional_treasury_y);
-            self.reserves_y = self.reserves_y + order.base_amount.retag();
-        } else {
-            let additional_treasury_x = (((order.base_amount.untag() as u128)
-                * (*self.treasury_fee.numer() as u128))
-                / (*self.treasury_fee.denom() as u128)) as u64;
-            self.treasury_x = self.treasury_x + TaggedAmount::new(additional_treasury_x);
-            self.reserves_y = self.reserves_y - quote_amount.retag();
-            self.reserves_x = self.reserves_x + order.base_amount.retag();
-        }
-        // Prepare user output.
-        let batcher_fee = order.fee.value().linear_fee(quote_amount.untag());
-        if batcher_fee > order.ada_deposit {
-            return Err(ApplyOrderError::low_batcher_fee(
-                ClassicalOrder {
-                    id,
-                    pool_id,
-                    order: order.clone(),
-                },
-                batcher_fee,
-                order.clone().ada_deposit,
-            ));
-        }
-        let ada_residue = order.ada_deposit - batcher_fee;
-        let swap_output = SwapOutput {
-            quote_asset: order.quote_asset,
-            quote_amount,
-            ada_residue,
-            redeemer_pkh: order.redeemer_pkh,
-            redeemer_stake_pkh: order.redeemer_stake_pkh,
-        };
-        // Prepare batcher fee.
-        Ok((self, swap_output))
-    }
-}
-
 pub trait ApplyOrder<Order>: Sized {
     type Result;
 
     // return: new pool, order output
     fn apply_order(self, order: Order) -> Result<(Self, Self::Result), ApplyOrderError<Order>>;
-}
-
-impl ApplyOrder<ClassicalOnChainDeposit> for CFMMPool {
-    type Result = DepositOutput;
-
-    fn apply_order(
-        mut self,
-        ClassicalOrder { order, .. }: ClassicalOnChainDeposit,
-    ) -> Result<(Self, DepositOutput), ApplyOrderError<ClassicalOnChainDeposit>> {
-        let net_x = if order.token_x.is_native() {
-            order.token_x_amount.untag() - order.ex_fee - order.collateral_ada
-        } else {
-            order.token_x_amount.untag()
-        };
-
-        let net_y = if order.token_y.is_native() {
-            order.token_y_amount.untag() - order.ex_fee - order.collateral_ada
-        } else {
-            order.token_y_amount.untag()
-        };
-
-        let (unlocked_lq, change_x, change_y) = self.reward_lp(net_x, net_y);
-
-        self.reserves_x = self.reserves_x + TaggedAmount::new(net_x) - change_x;
-        self.reserves_y = self.reserves_y + TaggedAmount::new(net_y) - change_y;
-        self.liquidity = self.liquidity + unlocked_lq;
-
-        let deposit_output = DepositOutput {
-            token_x_asset: order.token_x,
-            token_x_charge_amount: change_x,
-            token_y_asset: order.token_y,
-            token_y_charge_amount: change_y,
-            token_lq_asset: order.token_lq,
-            token_lq_amount: unlocked_lq,
-            ada_residue: order.collateral_ada,
-            redeemer_pkh: order.reward_pkh,
-            redeemer_stake_pkh: order.reward_stake_pkh,
-        };
-
-        Ok((self, deposit_output))
-    }
-}
-
-impl ApplyOrder<ClassicalOnChainRedeem> for CFMMPool {
-    type Result = RedeemOutput;
-
-    fn apply_order(
-        mut self,
-        ClassicalOrder { order, .. }: ClassicalOnChainRedeem,
-    ) -> Result<(Self, RedeemOutput), ApplyOrderError<ClassicalOnChainRedeem>> {
-        let (x_amount, y_amount) = self.clone().shares_amount(order.token_lq_amount);
-
-        self.reserves_x = self.reserves_x - x_amount;
-        self.reserves_y = self.reserves_y - y_amount;
-        self.liquidity = self.liquidity - order.token_lq_amount;
-
-        let redeem_output = RedeemOutput {
-            token_x_asset: order.token_x,
-            token_x_amount: x_amount,
-            token_y_asset: order.token_y,
-            token_y_amount: y_amount,
-            ada_residue: order.collateral_ada,
-            redeemer_pkh: order.reward_pkh,
-            redeemer_stake_pkh: order.reward_stake_pkh,
-        };
-
-        Ok((self, redeem_output))
-    }
 }
 
 pub struct RunAnyCFMMOrderOverPool<Pool>(pub Bundled<Pool, FinalizedTxOut>);
@@ -771,7 +477,9 @@ where
         + Has<Collateral>
         + Has<OperatorRewardAddress>
         + Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>>
-        + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>,
+        + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
+        // balance pool redeem and deposit pipelines are the same as for const pool, except of pool script
+        + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>,
 {
     fn try_run(
         self,
@@ -847,13 +555,19 @@ where
             ORDER_EXECUTION_UNITS,
         );
 
-        tx_builder
-            .add_output(SingleOutputBuilderResult::new(pool_out.clone()))
-            .unwrap();
+        tx_builder.add_output(SingleOutputBuilderResult::new(pool_out.clone()));
 
-        tx_builder
-            .add_output(SingleOutputBuilderResult::new(user_out.into_ledger(ctx.clone())))
-            .unwrap();
+        // process_cml_step(
+        //     tx_builder.add_output(SingleOutputBuilderResult::new(pool_out.clone())),
+        //     order.clone(),
+        // )?;
+
+        tx_builder.add_output(SingleOutputBuilderResult::new(user_out.into_ledger(ctx.clone())));
+
+        // process_cml_step(
+        //     tx_builder.add_output(SingleOutputBuilderResult::new(user_out.into_ledger(ctx.clone()))),
+        //     order,
+        // )?;
 
         let tx = tx_builder
             .build(

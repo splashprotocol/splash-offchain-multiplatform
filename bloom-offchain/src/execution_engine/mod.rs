@@ -15,7 +15,7 @@ use log::trace;
 use liquidity_book::interpreter::RecipeInterpreter;
 use spectrum_offchain::backlog::HotBacklog;
 use spectrum_offchain::combinators::Ior;
-use spectrum_offchain::data::order::{OrderLink, OrderUpdate, SpecializedOrder};
+use spectrum_offchain::data::order::{OrderUpdate, SpecializedOrder};
 use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
 use spectrum_offchain::data::{Baked, EntitySnapshot, Stable};
 use spectrum_offchain::maker::Maker;

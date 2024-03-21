@@ -7,20 +7,22 @@ use bloom_offchain::execution_engine::execution_effect::ExecutionEff;
 use bloom_offchain::execution_engine::liquidity_book::fragment::StateTrans;
 use bloom_offchain::execution_engine::liquidity_book::recipe::{LinkedFill, LinkedSwap};
 use spectrum_cardano_lib::output::FinalizedTxOut;
-use spectrum_cardano_lib::plutus_data::RequiresRedeemer;
+
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_offchain::data::Has;
-use spectrum_offchain_cardano::data::pool::{AssetDeltas, CFMMPool, CFMMPoolAction, CFMMPoolRedeemer};
-use spectrum_offchain_cardano::data::PoolVer;
+use spectrum_offchain_cardano::data::balance_pool::{BalancePool, BalancePoolRedeemer};
+use spectrum_offchain_cardano::data::cfmm_pool::{CFMMPool, CFMMPoolRedeemer};
+use spectrum_offchain_cardano::data::pool::{AnyPool, AssetDeltas, CFMMPoolAction};
+use spectrum_offchain_cardano::deployment::ProtocolValidator::{
+    BalanceFnPoolV1, ConstFnPoolV1, ConstFnPoolV2, LimitOrder,
+};
 use spectrum_offchain_cardano::deployment::{DeployedValidator, RequiresValidator};
-use spectrum_offchain_cardano::deployment::ProtocolValidator::{ConstFnPoolV1, ConstFnPoolV2, LimitOrder};
 
 use crate::execution_engine::execution_state::{
     delayed_redeemer, ready_redeemer, ExecutionState, ScriptInputBlueprint,
 };
 use crate::orders::spot::{unsafe_update_n2t_variables, SpotOrder};
 use crate::orders::{spot, AnyOrder};
-use crate::pools::AnyPool;
 
 /// Magnet for local instances.
 #[repr(transparent)]
@@ -128,7 +130,9 @@ where
 impl<Ctx> BatchExec<ExecutionState, PoolResult<AnyPool>, Ctx, Void>
     for Magnet<LinkedSwap<AnyPool, FinalizedTxOut>>
 where
-    Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>> + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>,
+    Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
+        + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>,
 {
     fn try_exec(
         self,
@@ -137,8 +141,8 @@ where
     ) -> Result<(ExecutionState, PoolResult<AnyPool>, Ctx), Void> {
         match self.0 {
             LinkedSwap {
-                target: Bundled(AnyPool::CFMM(p), src),
-                transition: AnyPool::CFMM(p2),
+                target: Bundled(AnyPool::PureCFMM(p), src),
+                transition: AnyPool::PureCFMM(p2),
                 side,
                 input,
                 output,
@@ -150,7 +154,23 @@ where
                 output,
             })
             .try_exec(state, context)
-            .map(|(st, res, ctx)| (st, res.map(AnyPool::CFMM), ctx)),
+            .map(|(st, res, ctx)| (st, res.map(AnyPool::PureCFMM), ctx)),
+            LinkedSwap {
+                target: Bundled(AnyPool::BalancedCFMM(p), src),
+                transition: AnyPool::BalancedCFMM(p2),
+                side,
+                input,
+                output,
+            } => Magnet(LinkedSwap {
+                target: Bundled(p, src),
+                transition: p2,
+                side,
+                input,
+                output,
+            })
+            .try_exec(state, context)
+            .map(|(st, res, ctx)| (st, res.map(AnyPool::BalancedCFMM), ctx)),
+            _ => unreachable!(),
         }
     }
 }
@@ -180,17 +200,65 @@ where
         } = pool.get_asset_deltas(side);
         produced_out.sub_asset(asset_to_deduct_from, output);
         produced_out.add_asset(asset_to_add_to, input);
-        
+
         let pool_validator = pool.get_validator(&context);
         let input = ScriptInputBlueprint {
             reference: in_ref,
             utxo: consumed_out,
             script: pool_validator,
             redeemer: delayed_redeemer(move |ordering| {
-                CFMMPool::redeemer(CFMMPoolRedeemer {
+                CFMMPoolRedeemer {
                     pool_input_index: ordering.index_of(&in_ref) as u64,
                     action: CFMMPoolAction::Swap,
-                })
+                }
+                .to_plutus_data()
+            }),
+        };
+        let result = Bundled(transition, produced_out.clone());
+
+        state.tx_blueprint.add_io(input, produced_out);
+        Ok((state, result, context))
+    }
+}
+
+impl<Ctx> BatchExec<ExecutionState, PoolResult<BalancePool>, Ctx, Void>
+    for Magnet<LinkedSwap<BalancePool, FinalizedTxOut>>
+where
+    Ctx: Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>,
+{
+    fn try_exec(
+        self,
+        mut state: ExecutionState,
+        context: Ctx,
+    ) -> Result<(ExecutionState, PoolResult<BalancePool>, Ctx), Void> {
+        let Magnet(LinkedSwap {
+            target: Bundled(pool, FinalizedTxOut(consumed_out, in_ref)),
+            transition,
+            side,
+            input,
+            output,
+        }) = self;
+        let mut produced_out = consumed_out.clone();
+        let AssetDeltas {
+            asset_to_deduct_from,
+            asset_to_add_to,
+        } = pool.get_asset_deltas(side);
+        produced_out.sub_asset(asset_to_deduct_from, output);
+        produced_out.add_asset(asset_to_add_to, input);
+
+        let pool_validator = pool.get_validator(&context);
+        let input = ScriptInputBlueprint {
+            reference: in_ref,
+            utxo: consumed_out,
+            script: pool_validator,
+            redeemer: delayed_redeemer(move |ordering| {
+                BalancePoolRedeemer {
+                    pool_input_index: ordering.index_of(&in_ref) as u64,
+                    action: CFMMPoolAction::Swap,
+                    new_pool_state: transition,
+                    prev_pool_state: pool,
+                }
+                .to_plutus_data()
             }),
         };
         let result = Bundled(transition, produced_out.clone());

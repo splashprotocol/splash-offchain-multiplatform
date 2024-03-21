@@ -98,6 +98,10 @@ pub struct DeployedValidators {
     pub const_fn_pool_swap: DeployedValidatorRef,
     pub const_fn_pool_deposit: DeployedValidatorRef,
     pub const_fn_pool_redeem: DeployedValidatorRef,
+    pub balance_fn_pool_v1: DeployedValidatorRef,
+    pub balance_fn_pool_swap: DeployedValidatorRef,
+    pub balance_fn_pool_deposit: DeployedValidatorRef,
+    pub balance_fn_pool_redeem: DeployedValidatorRef,
 }
 
 #[derive(Debug, Clone)]
@@ -159,6 +163,10 @@ pub enum ProtocolValidator {
     ConstFnPoolSwap,
     ConstFnPoolDeposit,
     ConstFnPoolRedeem,
+    BalanceFnPoolV1,
+    BalanceFnPoolSwap,
+    BalanceFnPoolDeposit,
+    BalanceFnPoolRedeem,
 }
 
 #[derive(Debug, Clone)]
@@ -173,6 +181,9 @@ pub struct ProtocolDeployment {
     pub const_fn_pool_swap: DeployedValidator<{ ProtocolValidator::ConstFnPoolSwap as u8 }>,
     pub const_fn_pool_deposit: DeployedValidator<{ ProtocolValidator::ConstFnPoolDeposit as u8 }>,
     pub const_fn_pool_redeem: DeployedValidator<{ ProtocolValidator::ConstFnPoolRedeem as u8 }>,
+    pub balance_fn_pool_v1: DeployedValidator<{ ProtocolValidator::BalanceFnPoolV1 as u8 }>,
+    pub balance_fn_pool_deposit: DeployedValidator<{ ProtocolValidator::BalanceFnPoolDeposit as u8 }>,
+    pub balance_fn_pool_redeem: DeployedValidator<{ ProtocolValidator::BalanceFnPoolRedeem as u8 }>,
 }
 
 impl ProtocolDeployment {
@@ -202,6 +213,18 @@ impl ProtocolDeployment {
             .await,
             const_fn_pool_redeem: DeployedValidator::unsafe_pull(validators.const_fn_pool_redeem, &explorer)
                 .await,
+            balance_fn_pool_v1: DeployedValidator::unsafe_pull(validators.balance_fn_pool_v1, &explorer)
+                .await,
+            balance_fn_pool_deposit: DeployedValidator::unsafe_pull(
+                validators.balance_fn_pool_deposit,
+                &explorer,
+            )
+            .await,
+            balance_fn_pool_redeem: DeployedValidator::unsafe_pull(
+                validators.balance_fn_pool_redeem,
+                &explorer,
+            )
+            .await,
         }
     }
 }

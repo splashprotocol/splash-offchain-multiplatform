@@ -13,9 +13,9 @@ use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
 use spectrum_offchain_cardano::data::pair::PairId;
+use spectrum_offchain_cardano::data::pool::AnyPool;
 
 use crate::orders::AnyOrder;
-use crate::pools::AnyPool;
 
 pub mod entity_index;
 pub mod handler;

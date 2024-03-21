@@ -1,10 +1,14 @@
+
+
 use crate::data::order::{Base, Quote};
 use crate::data::pool::{Lq, Rx, Ry};
+
 use num_rational::Ratio;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use std::cmp::min;
 
-pub fn output_amount<X, Y>(
+
+pub fn classic_cfmm_output_amount<X, Y>(
     asset_x: TaggedAssetClass<X>,
     reserves_x: TaggedAmount<X>,
     reserves_y: TaggedAmount<Y>,
@@ -25,7 +29,7 @@ pub fn output_amount<X, Y>(
     TaggedAmount::new(quote_amount as u64)
 }
 
-pub fn reward_lp(
+pub fn classic_cfmm_reward_lp(
     reserves_x: TaggedAmount<Rx>,
     reserves_y: TaggedAmount<Ry>,
     liquidity: TaggedAmount<Lq>,
@@ -57,7 +61,7 @@ pub fn reward_lp(
     )
 }
 
-pub fn shares_amount(
+pub fn classic_cfmm_shares_amount(
     reserves_x: TaggedAmount<Rx>,
     reserves_y: TaggedAmount<Ry>,
     liquidity: TaggedAmount<Lq>,

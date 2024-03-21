@@ -9,8 +9,7 @@ use rand::{thread_rng, RngCore};
 
 use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAssetClass, Token};
 
-
-use crate::constants::CFMM_POOL_VERSIONS;
+use crate::constants::ANY_POOL_VERSIONS;
 use crate::data::order::PoolNft;
 
 pub mod deposit;
@@ -22,8 +21,12 @@ pub mod redeem;
 
 pub mod ref_scripts;
 
-mod fee_switch_bidirectional_fee;
-mod fee_switch_pool;
+mod balance_order;
+pub mod balance_pool;
+mod cfmm_order;
+pub mod cfmm_pool;
+pub mod fee_switch_bidirectional_fee;
+pub mod fee_switch_pool;
 pub mod pair;
 
 #[repr(transparent)]
@@ -119,16 +122,19 @@ impl ExecutorFeePerToken {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum PoolVer {
+    // Pure CFMM pool versions
     V1,
     V2,
     FeeSwitch,
     FeeSwitchBiDirFee,
+    // Balance CFMM pool version
+    BalancePool,
 }
 
 impl PoolVer {
     pub fn try_from_address(pool_addr: &Address) -> Option<PoolVer> {
         if let Ok(this_addr) = pool_addr.to_bech32(None) {
-            return CFMM_POOL_VERSIONS
+            return ANY_POOL_VERSIONS
                 .iter()
                 .find_map(|(addr, v)| if this_addr == *addr { Some(*v) } else { None });
         }

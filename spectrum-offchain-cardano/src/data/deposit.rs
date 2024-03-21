@@ -2,9 +2,7 @@ use cml_chain::plutus::PlutusData;
 use cml_crypto::Ed25519KeyHash;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
-use spectrum_cardano_lib::plutus_data::{
-    ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension,
-};
+use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;

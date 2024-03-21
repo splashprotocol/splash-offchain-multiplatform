@@ -20,7 +20,7 @@ use rand::Rng;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::constants::POOL_V2_SCRIPT;
-use spectrum_offchain_cardano::data::pool::CFMMPool;
+use spectrum_offchain_cardano::data::cfmm_pool::CFMMPool;
 
 use crate::{gen_policy_id, gen_transaction_input};
 
