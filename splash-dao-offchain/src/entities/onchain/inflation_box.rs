@@ -1,4 +1,4 @@
-use cml_chain::plutus::PlutusData;
+use cml_chain::plutus::{ExUnits, PlutusData};
 
 use cml_chain::PolicyId;
 use spectrum_cardano_lib::plutus_data::IntoPlutusData;
@@ -68,3 +68,9 @@ impl Stable for InflationBox {
 pub fn unsafe_update_ibox_state(data: &mut PlutusData, last_processed_epoch: ProtocolEpoch) {
     *data = PlutusData::new_integer(last_processed_epoch.into());
 }
+
+pub const INFLATION_BOX_EX_UNITS: ExUnits = ExUnits {
+    mem: 500_000,
+    steps: 200_000_000,
+    encodings: None,
+};
