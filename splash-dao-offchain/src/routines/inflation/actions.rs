@@ -26,6 +26,7 @@ use spectrum_cardano_lib::{AssetName, OutputRef};
 use spectrum_offchain::data::unique_entity::{Predicted, Traced};
 use spectrum_offchain::data::{EntitySnapshot, Has, Stable};
 use spectrum_offchain::ledger::IntoLedger;
+use spectrum_offchain_cardano::creds::operator_creds;
 use uplc::tx::apply_params_to_script;
 use uplc::{plutus_data_to_bytes, BigInt};
 use uplc_pallas_codec::utils::{Bytes, Int, PlutusBytes};
@@ -69,7 +70,8 @@ use super::{
 pub trait InflationActions<Bearer> {
     async fn create_wpoll(
         &self,
-        farm_auth_policy: PolicyId,
+        config: &ProtocolConfig,
+        zeroth_epoch_start: u32,
         inflation_box: Bundled<InflationBoxSnapshot, Bearer>,
         factory: Bundled<PollFactorySnapshot, Bearer>,
     ) -> (
@@ -138,7 +140,8 @@ where
 {
     async fn create_wpoll(
         &self,
-        farm_auth_policy: PolicyId,
+        config: &ProtocolConfig,
+        zeroth_epoch_start: u32,
         Bundled(inflation_box, inflation_box_in): Bundled<InflationBoxSnapshot, TransactionOutput>,
         Bundled(factory, factory_in): Bundled<PollFactorySnapshot, TransactionOutput>,
     ) -> (
