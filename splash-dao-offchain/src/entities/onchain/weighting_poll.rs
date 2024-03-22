@@ -4,13 +4,17 @@ use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData};
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::utils::BigInt;
 use cml_chain::PolicyId;
+use cml_crypto::RawBytesEncoding;
 use derive_more::From;
 
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::Token;
-use spectrum_offchain::data::{EntitySnapshot, Identifier, Stable};
+use spectrum_offchain::data::{Identifier, Stable};
 use spectrum_offchain::ledger::IntoLedger;
+use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
+use uplc_pallas_codec::utils::{Int, PlutusBytes};
 
+use crate::constants::MINT_WP_AUTH_TOKEN_SCRIPT;
 use crate::entities::onchain::smart_farm::FarmId;
 use crate::routines::inflation::WeightingPollSnapshot;
 use crate::time::{epoch_end, epoch_start, NetworkTime, ProtocolEpoch};
@@ -193,3 +197,20 @@ pub const MINT_WP_AUTH_EX_UNITS: ExUnits = ExUnits {
     steps: 200_000_000,
     encodings: None,
 };
+
+/// Note that the this is a multivalidator, and can serve as the script that guards the
+/// weighting_poll.
+pub fn compute_mint_wp_auth_token_policy_id(
+    splash_policy: PolicyId,
+    farm_auth_policy: PolicyId,
+    factory_auth_policy: PolicyId,
+    zeroth_epoch_start: u32,
+) -> PolicyId {
+    let params_pd = uplc::PlutusData::Array(vec![
+        uplc::PlutusData::BoundedBytes(PlutusBytes::from(splash_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(PlutusBytes::from(farm_auth_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(PlutusBytes::from(factory_auth_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BigInt(uplc::BigInt::Int(Int::from(zeroth_epoch_start as i64))),
+    ]);
+    apply_params_validator(params_pd, MINT_WP_AUTH_TOKEN_SCRIPT)
+}
