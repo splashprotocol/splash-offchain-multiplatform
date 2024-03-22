@@ -191,7 +191,7 @@ impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
         if let (AnyMod::Confirmed(inflation_box), AnyMod::Confirmed(factory)) = (inflation_box, poll_factory)
         {
             let current_posix_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as u32;
-            let (next_inflation_box, next_factory, next_wpoll) = self
+            let (signed_tx, next_inflation_box, next_factory, next_wpoll) = self
                 .actions
                 .create_wpoll(&self.conf, current_posix_time, inflation_box.0, factory.0)
                 .await;
@@ -254,8 +254,12 @@ impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
     where
         Actions: InflationActions<Bearer>,
     {
+        let current_posix_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as u32;
         if let AnyMod::Confirmed(Confirmed(weighting_poll)) = weighting_poll {
-            self.actions.eliminate_wpoll(weighting_poll).await;
+            let signed_tx = self
+                .actions
+                .eliminate_wpoll(&self.conf, current_posix_time, weighting_poll)
+                .await;
             return None;
         }
         retry_in(DEF_DELAY)

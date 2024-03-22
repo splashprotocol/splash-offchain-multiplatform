@@ -20,6 +20,7 @@ pub struct ProtocolConfig {
     pub poll_factory_id: PollFactoryId,
     pub poll_factory_ref_script: TransactionUnspentOutput,
     pub wpoll_auth_policy: PolicyId,
+    pub wpoll_auth_ref_script: TransactionUnspentOutput,
     pub farm_auth_policy: PolicyId,
     pub factory_auth_policy: PolicyId,
     pub gt_policy: PolicyId,
