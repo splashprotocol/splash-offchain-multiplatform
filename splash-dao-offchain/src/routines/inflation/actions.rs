@@ -216,9 +216,9 @@ where
         minicbor::encode(inflation_box.get().last_processed_epoch, buffer.as_mut()).unwrap();
         let token_name = blake2b256(buffer.as_ref());
         let asset = cml_chain::assets::AssetName::new(token_name.to_vec()).unwrap();
-        let minting_policy = SingleMintBuilder::new_single_asset(asset, 1)
+        let wp_auth_minting_policy = SingleMintBuilder::new_single_asset(asset.clone(), 1)
             .plutus_script(mint_wp_auth_token_witness, vec![operator_pkh]);
-        tx_builder.add_mint(minting_policy).unwrap();
+        tx_builder.add_mint(wp_auth_minting_policy).unwrap();
         tx_builder.set_exunits(
             RedeemerWitnessKey::new(RedeemerTag::Mint, 0),
             MINT_WP_AUTH_EX_UNITS,
@@ -227,15 +227,24 @@ where
         // Contracts require that weighting_poll output resides at index 1.
         let mut wpoll_out = fresh_wpoll.clone().into_ledger(self.ctx);
         // Add wp_auth_token to this output.
-        //match &mut wpoll_out {
-        //    TransactionOutput::AlonzoFormatTxOut(tx_out) => {
-        //        //fn from(bundle: OrderedHashMap<PolicyId, OrderedHashMap<AssetName, T>>) -> Self {
-        //        //let asset_pair =OrderedHashMap::from_iter(vec![(token_name, 1)]);
-        //        //let hash_map = OrderedHashMap::from_iter(())
-        //        //            tx_out.amount.multiasset.checked_add(AssetBundle)
-        //    }
-        //    TransactionOutput::ConwayFormatTxOut(tx_out) => tx_out.amount.clone(),
-        //}
+        let asset_pair = OrderedHashMap::from_iter(vec![(asset, 1)]);
+        let ord_hash_map = OrderedHashMap::from_iter(vec![(mint_wp_auth_token_script_hash, asset_pair)]);
+        match &mut wpoll_out {
+            TransactionOutput::AlonzoFormatTxOut(tx_out) => {
+                tx_out
+                    .amount
+                    .multiasset
+                    .checked_add(&AssetBundle::from(ord_hash_map))
+                    .unwrap();
+            }
+            TransactionOutput::ConwayFormatTxOut(tx_out) => {
+                tx_out
+                    .amount
+                    .multiasset
+                    .checked_add(&AssetBundle::from(ord_hash_map))
+                    .unwrap();
+            }
+        }
         let weighting_poll_output = SingleOutputBuilderResult::new(wpoll_out.clone());
         tx_builder.add_output(weighting_poll_output).unwrap();
 
