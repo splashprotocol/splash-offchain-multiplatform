@@ -4,16 +4,16 @@ use cml_chain::address::Address;
 use cml_chain::assets::AssetBundle;
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::mint_builder::SingleMintBuilder;
-use cml_chain::builders::output_builder::SingleOutputBuilderResult;
+use cml_chain::builders::output_builder::{SingleOutputBuilderResult, TransactionOutputBuilder};
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
-use cml_chain::builders::tx_builder::ChangeSelectionAlgo;
+use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder};
 use cml_chain::builders::withdrawal_builder::SingleWithdrawalBuilder;
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
 use cml_chain::plutus::{PlutusV2Script, RedeemerTag};
 use cml_chain::transaction::{ScriptRef, TransactionInput, TransactionOutput};
 
 use bloom_offchain::execution_engine::bundled::Bundled;
-use cml_chain::{OrderedHashMap, PolicyId, Script};
+use cml_chain::{OrderedHashMap, PolicyId, Script, Value};
 use cml_crypto::{blake2b256, RawBytesEncoding, ScriptHash};
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::plutus_data::IntoPlutusData;
@@ -42,7 +42,7 @@ use crate::entities::onchain::poll_factory::{
 use crate::entities::onchain::smart_farm::SmartFarm;
 use crate::entities::onchain::voting_escrow::{unsafe_update_ve_state, VotingEscrow};
 use crate::entities::onchain::weighting_poll::{
-    unsafe_update_wp_state, MintAction, WeightingPoll, MINT_WP_AUTH_EX_UNITS,
+    self, unsafe_update_wp_state, MintAction, WeightingPoll, MINT_WP_AUTH_EX_UNITS,
 };
 use crate::entities::Snapshot;
 use crate::protocol_config::{ProtocolConfig, TX_FEE_CORRECTION};
@@ -58,11 +58,17 @@ pub trait InflationActions<Bearer> {
         inflation_box: Bundled<InflationBoxSnapshot, Bearer>,
         factory: Bundled<PollFactorySnapshot, Bearer>,
     ) -> (
+        SignedTxBuilder,
         Traced<Predicted<Bundled<InflationBoxSnapshot, Bearer>>>,
         Traced<Predicted<Bundled<PollFactorySnapshot, Bearer>>>,
         Traced<Predicted<Bundled<WeightingPollSnapshot, Bearer>>>,
     );
-    async fn eliminate_wpoll(&self, weighting_poll: Bundled<WeightingPollSnapshot, Bearer>);
+    async fn eliminate_wpoll(
+        &self,
+        config: &ProtocolConfig,
+        zeroth_epoch_start: u32,
+        weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
+    ) -> SignedTxBuilder;
     async fn execute_order(
         &self,
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
@@ -98,6 +104,7 @@ where
         Bundled(inflation_box, inflation_box_in): Bundled<InflationBoxSnapshot, TransactionOutput>,
         Bundled(factory, factory_in): Bundled<PollFactorySnapshot, TransactionOutput>,
     ) -> (
+        SignedTxBuilder,
         Traced<Predicted<Bundled<InflationBoxSnapshot, TransactionOutput>>>,
         Traced<Predicted<Bundled<PollFactorySnapshot, TransactionOutput>>>,
         Traced<Predicted<Bundled<WeightingPollSnapshot, TransactionOutput>>>,
@@ -218,6 +225,7 @@ where
         let asset = cml_chain::assets::AssetName::new(token_name.to_vec()).unwrap();
         let wp_auth_minting_policy = SingleMintBuilder::new_single_asset(asset.clone(), 1)
             .plutus_script(mint_wp_auth_token_witness, vec![operator_pkh]);
+        tx_builder.add_reference_input(config.wpoll_auth_ref_script.clone());
         tx_builder.add_mint(wp_auth_minting_policy).unwrap();
         tx_builder.set_exunits(
             RedeemerWitnessKey::new(RedeemerTag::Mint, 0),
@@ -272,12 +280,12 @@ where
         tx_builder.set_fee(estimated_tx_fee + TX_FEE_CORRECTION);
 
         let execution_fee_address: Address = reward_address.into();
+
         // Build tx, change is execution fee.
-        let tx_body = tx_builder
-            .clone()
+        let signed_tx_builder = tx_builder
             .build(ChangeSelectionAlgo::Default, &execution_fee_address)
-            .unwrap()
-            .body();
+            .unwrap();
+        let tx_body = signed_tx_builder.body();
 
         let tx_hash = hash_transaction_canonical(&tx_body);
 
@@ -305,11 +313,75 @@ where
             )),
             Some(prev_factory_version),
         );
-        (next_traced_ibox, next_traced_factory, fresh_wpoll)
+        (
+            signed_tx_builder,
+            next_traced_ibox,
+            next_traced_factory,
+            fresh_wpoll,
+        )
     }
 
-    async fn eliminate_wpoll(&self, weighting_poll: Bundled<WeightingPollSnapshot, TransactionOutput>) {
-        todo!()
+    async fn eliminate_wpoll(
+        &self,
+        config: &ProtocolConfig,
+        zeroth_epoch_start: u32,
+        Bundled(weighting_poll, weighting_poll_in): Bundled<WeightingPollSnapshot, TransactionOutput>,
+    ) -> SignedTxBuilder {
+        let mut tx_builder = constant_tx_builder();
+
+        let weighting_poll_script_hash = compute_mint_wp_auth_token_policy_id(
+            config.splash_policy,
+            config.farm_auth_policy,
+            config.factory_auth_policy,
+            zeroth_epoch_start,
+        );
+
+        let redeemer = weighting_poll::PollAction::Destroy;
+        let weighting_poll_script = PartialPlutusWitness::new(
+            PlutusScriptWitness::Ref(weighting_poll_script_hash),
+            redeemer.into_pd(),
+        );
+
+        let weighting_poll_input = SingleInputBuilder::new(
+            TransactionInput::from(*(weighting_poll.version())),
+            weighting_poll_in.clone(),
+        )
+        .plutus_script_inline_datum(weighting_poll_script, vec![])
+        .unwrap();
+
+        let mut output_value = match weighting_poll_in {
+            TransactionOutput::AlonzoFormatTxOut(tx) => tx.amount.clone(),
+            TransactionOutput::ConwayFormatTxOut(tx) => tx.amount.clone(),
+        };
+
+        let estimated_tx_fee = tx_builder.min_fee(true).unwrap() + TX_FEE_CORRECTION;
+        tx_builder.set_fee(estimated_tx_fee);
+        if estimated_tx_fee > output_value.coin {
+            panic!("Not enough ADA in weighting_poll");
+        }
+        output_value.coin -= estimated_tx_fee;
+
+        tx_builder.add_reference_input(config.wpoll_auth_ref_script.clone());
+        tx_builder.add_input(weighting_poll_input).unwrap();
+
+        let (_, _, operator_addr) = operator_creds(&config.operator_sk, config.node_magic);
+        let output = TransactionOutputBuilder::new()
+            .with_address(operator_addr)
+            .next()
+            .unwrap()
+            .with_value(output_value)
+            .build()
+            .unwrap();
+        tx_builder.add_output(output).unwrap();
+        tx_builder.set_exunits(
+            RedeemerWitnessKey::new(RedeemerTag::Spend, 0),
+            MINT_WP_AUTH_EX_UNITS,
+        );
+
+        let execution_fee_address: Address = config.reward_address.clone().into();
+        tx_builder
+            .build(ChangeSelectionAlgo::Default, &execution_fee_address)
+            .unwrap()
     }
 
     async fn execute_order(
@@ -435,6 +507,8 @@ fn compute_wp_factory_script_hash(
     apply_params_validator(params_pd, WP_FACTORY_SCRIPT)
 }
 
+/// Note that the this is a multivalidator, and can serve as the script that guards the
+/// weighting_poll.
 fn compute_mint_wp_auth_token_policy_id(
     splash_policy: PolicyId,
     farm_auth_policy: PolicyId,
