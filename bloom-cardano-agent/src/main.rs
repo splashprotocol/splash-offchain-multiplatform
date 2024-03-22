@@ -4,9 +4,9 @@ use clap::Parser;
 use cml_chain::transaction::Transaction;
 use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
+use futures::{Stream, stream_select, StreamExt};
 use futures::channel::mpsc;
 use futures::stream::select_all;
-use futures::{stream_select, Stream, StreamExt};
 use log::info;
 use tokio::sync::Mutex;
 use tracing_subscriber::fmt::Subscriber;
@@ -17,12 +17,12 @@ use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_part_stream;
 use bloom_offchain::execution_engine::liquidity_book::{ExecutionCap, TLB};
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
-use bloom_offchain::execution_engine::storage::kv_store::InMemoryKvStore;
 use bloom_offchain::execution_engine::storage::InMemoryStateIndex;
+use bloom_offchain::execution_engine::storage::kv_store::InMemoryKvStore;
+use bloom_offchain_cardano::event_sink::{AtomicCardanoEntity, EvolvingCardanoEntity};
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
 use bloom_offchain_cardano::event_sink::handler::{PairUpdateHandler, SpecializedHandler};
 use bloom_offchain_cardano::event_sink::order_index::InMemoryOrderIndex;
-use bloom_offchain_cardano::event_sink::{AtomicCardanoEntity, EvolvingCardanoEntity};
 use bloom_offchain_cardano::execution_engine::backlog::interpreter::SpecializedInterpreterViaRunOrder;
 use bloom_offchain_cardano::execution_engine::interpreter::CardanoRecipeInterpreter;
 use bloom_offchain_cardano::orders::AnyOrder;
@@ -41,9 +41,9 @@ use spectrum_cardano_lib::constants::BABBAGE_ERA_ID;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::backlog::{BacklogCapacity, HotPriorityBacklog};
+use spectrum_offchain::data::Baked;
 use spectrum_offchain::data::order::OrderUpdate;
 use spectrum_offchain::data::unique_entity::{EitherMod, StateUpdate};
-use spectrum_offchain::data::Baked;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::partitioning::Partitioned;
@@ -52,7 +52,7 @@ use spectrum_offchain_cardano::collaterals::{Collaterals, CollateralsViaExplorer
 use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
 use spectrum_offchain_cardano::data::pair::PairId;
-use spectrum_offchain_cardano::data::ref_scripts::ReferenceOutputs;
+use spectrum_offchain_cardano::deployment::{DeployedValidators, ProtocolDeployment};
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
 
@@ -72,15 +72,17 @@ async fn main() {
     let raw_config = std::fs::read_to_string(args.config_path).expect("Cannot load configuration file");
     let config: AppConfig = serde_json::from_str(&raw_config).expect("Invalid configuration file");
 
+    let raw_deployment = std::fs::read_to_string(args.deployment_path).expect("Cannot load deployment file");
+    let deployment: DeployedValidators =
+        serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
+
     log4rs::init_file(args.log4rs_path, Default::default()).unwrap();
 
     info!("Starting Off-Chain Agent ..");
 
     let explorer = Explorer::new(config.explorer, config.node.magic);
 
-    let ref_scripts = ReferenceOutputs::pull(config.ref_scripts, explorer)
-        .await
-        .expect("Ref scripts initialization failed");
+    let protocol_deployment = ProtocolDeployment::unsafe_pull(deployment, &explorer).await;
 
     let chain_sync_cache = Arc::new(Mutex::new(LedgerCacheRocksDB::new(config.chain_sync.db_path)));
     let chain_sync = ChainSyncClient::init(
@@ -177,7 +179,7 @@ async fn main() {
     let spec_interpreter = SpecializedInterpreterViaRunOrder;
     let context = ExecutionContext {
         time: 0.into(),
-        refs: ref_scripts,
+        deployment: protocol_deployment,
         execution_cap: EXECUTION_CAP,
         reward_addr: config.reward_address,
         backlog_capacity: BacklogCapacity::from(config.backlog_capacity),
@@ -294,6 +296,9 @@ struct AppArgs {
     /// Path to the JSON configuration file.
     #[arg(long, short)]
     config_path: String,
+    /// Path to the JSON deployment configuration file .
+    #[arg(long, short)]
+    deployment_path: String,
     /// Path to the log4rs YAML configuration file.
     #[arg(long, short)]
     log4rs_path: String,

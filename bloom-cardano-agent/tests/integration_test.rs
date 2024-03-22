@@ -55,8 +55,9 @@ use spectrum_offchain::network::Network;
 use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::streaming::boxed;
 use spectrum_offchain_cardano::constants::{
-    DEPOSIT_SCRIPT, FEE_SWITCH_POOL_SCRIPT, FEE_SWITCH_POOL_SCRIPT_BIDIRECTIONAL_FEE_SCRIPT, POOL_V1_SCRIPT,
-    POOL_V2_SCRIPT, REDEEM_SCRIPT, SPOT_BATCH_VALIDATOR_SCRIPT, SPOT_SCRIPT, SWAP_SCRIPT,
+    DEPOSIT_SCRIPT, FEE_SWITCH_POOL_SCRIPT, FEE_SWITCH_POOL_SCRIPT_BIDIRECTIONAL_FEE_SCRIPT,
+    LIMIT_ORDER_SCRIPT, POOL_V1_SCRIPT, POOL_V2_SCRIPT, REDEEM_SCRIPT, SPOT_BATCH_VALIDATOR_SCRIPT,
+    SWAP_SCRIPT,
 };
 use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
@@ -341,7 +342,7 @@ fn gen_reference_outputs() -> ReferenceOutputs {
     let swap = gen_tx_unspent_output(SWAP_SCRIPT);
     let deposit = gen_tx_unspent_output(DEPOSIT_SCRIPT);
     let redeem = gen_tx_unspent_output(REDEEM_SCRIPT);
-    let spot_order = gen_tx_unspent_output(SPOT_SCRIPT);
+    let spot_order = gen_tx_unspent_output(LIMIT_ORDER_SCRIPT);
     let spot_order_batch_validator = gen_tx_unspent_output(SPOT_BATCH_VALIDATOR_SCRIPT);
     ReferenceOutputs {
         pool_v1,

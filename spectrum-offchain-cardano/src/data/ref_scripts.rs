@@ -1,21 +1,22 @@
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::plutus::PlutusV2Script;
-use cml_chain::transaction::{ScriptRef, TransactionOutput};
 use cml_chain::Script;
+use cml_chain::transaction::{ScriptRef, TransactionOutput};
 
 use cardano_explorer::client::Explorer;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::Has;
 
 use crate::constants::{
-    DEPOSIT_SCRIPT, FEE_SWITCH_POOL_SCRIPT, FEE_SWITCH_POOL_SCRIPT_BIDIRECTIONAL_FEE_SCRIPT, POOL_V1_SCRIPT,
-    POOL_V2_SCRIPT, REDEEM_SCRIPT, SPOT_BATCH_VALIDATOR_SCRIPT, SPOT_SCRIPT, SWAP_SCRIPT,
+    DEPOSIT_SCRIPT, FEE_SWITCH_POOL_SCRIPT, FEE_SWITCH_POOL_SCRIPT_BIDIRECTIONAL_FEE_SCRIPT,
+    LIMIT_ORDER_SCRIPT, POOL_V1_SCRIPT, POOL_V2_SCRIPT, REDEEM_SCRIPT, SPOT_BATCH_VALIDATOR_SCRIPT,
+    SWAP_SCRIPT,
 };
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::pool::CFMMPool;
-use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolVer;
+use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::ref_scripts::ReferenceSources;
 
 #[derive(Debug, Clone)]
@@ -72,7 +73,8 @@ impl ReferenceOutputs {
         let swap = process_utxo_with_ref_script(config.swap_script, SWAP_SCRIPT, explorer).await?;
         let deposit = process_utxo_with_ref_script(config.deposit_script, DEPOSIT_SCRIPT, explorer).await?;
         let redeem = process_utxo_with_ref_script(config.redeem_script, REDEEM_SCRIPT, explorer).await?;
-        let spot_order = process_utxo_with_ref_script(config.redeem_script, SPOT_SCRIPT, explorer).await?;
+        let spot_order =
+            process_utxo_with_ref_script(config.redeem_script, LIMIT_ORDER_SCRIPT, explorer).await?;
         let spot_order_batch_validator =
             process_utxo_with_ref_script(config.redeem_script, SPOT_BATCH_VALIDATOR_SCRIPT, explorer).await?;
         Some(ReferenceOutputs {

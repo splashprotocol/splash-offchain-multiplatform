@@ -1,5 +1,3 @@
-use std::hash::Hash;
-
 use cml_chain::builders::input_builder::{InputBuilderResult, SingleInputBuilder};
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
@@ -17,15 +15,14 @@ use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::plutus_data::RequiresRedeemer;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_offchain::data::Has;
-use spectrum_offchain_cardano::constants::POOL_EXECUTION_UNITS;
-use spectrum_offchain_cardano::data::pool::{AssetDeltas, CFMMPool, CFMMPoolAction, CFMMPoolRefScriptOutput};
+use spectrum_offchain_cardano::data::pool::{AssetDeltas, CFMMPool, CFMMPoolAction};
 use spectrum_offchain_cardano::data::PoolVer;
+use spectrum_offchain_cardano::deployment::DeployedValidator;
+use spectrum_offchain_cardano::deployment::ProtocolValidator::{ConstFnPoolV1, ConstFnPoolV2, LimitOrder};
 
 use crate::execution_engine::execution_state::ExecutionState;
 use crate::orders::AnyOrder;
-use crate::orders::spot::{
-    SPOT_ORDER_N2T_EX_UNITS, SpotOrder, SpotOrderRefScriptOutput, unsafe_update_n2t_variables,
-};
+use crate::orders::spot::{SpotOrder, unsafe_update_n2t_variables};
 use crate::pools::AnyPool;
 
 /// Magnet for local instances.
@@ -35,7 +32,7 @@ pub struct Magnet<T>(pub T);
 impl<Ctx> BatchExec<ExecutionState, FillOrderResults, Ctx, Void>
     for Magnet<LinkedFill<AnyOrder, FinalizedTxOut>>
 where
-    Ctx: Has<SpotOrderRefScriptOutput>,
+    Ctx: Has<DeployedValidator<{ LimitOrder as u8 }>>,
 {
     fn try_exec(
         self,
@@ -66,7 +63,7 @@ where
 impl<Ctx> BatchExec<ExecutionState, FillOrderResults, Ctx, Void>
     for Magnet<LinkedFill<SpotOrder, FinalizedTxOut>>
 where
-    Ctx: Has<SpotOrderRefScriptOutput>,
+    Ctx: Has<DeployedValidator<{ LimitOrder as u8 }>>,
 {
     fn try_exec(
         self,
@@ -110,10 +107,10 @@ where
                 }
             }
         };
-        let spot_order_ref_script = context.get_labeled::<SpotOrderRefScriptOutput>().0;
+        let order_validator = context.get();
         state
             .tx_builder
-            .add_reference_input(spot_order_ref_script.clone());
+            .add_reference_input(order_validator.reference_utxo.clone());
 
         let order_in = SingleInputBuilder::new(in_ref.into(), consumed_out)
             .plutus_script_inline_datum(order_script, Vec::new())
@@ -125,8 +122,8 @@ where
 
         let tx_builder_step = TxBuilderElementsFromOrder {
             input: order_in,
-            reference_input: spot_order_ref_script,
-            ex_units: SPOT_ORDER_N2T_EX_UNITS,
+            reference_input: order_validator.reference_utxo,
+            ex_units: order_validator.ex_budget.into(),
             output,
         };
         let builder_step = FillOrderResults {
@@ -148,7 +145,7 @@ fn spot_exec_redeemer(successor_ix: u16) -> PlutusData {
 impl<Ctx> BatchExec<ExecutionState, TxBuilderElementsFromOrder, Ctx, Void>
     for Magnet<LinkedSwap<AnyPool, FinalizedTxOut>>
 where
-    Ctx: Has<CFMMPoolRefScriptOutput<1>> + Has<CFMMPoolRefScriptOutput<2>>,
+    Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>> + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>,
 {
     fn try_exec(
         self,
@@ -178,7 +175,7 @@ where
 impl<Ctx> BatchExec<ExecutionState, TxBuilderElementsFromOrder, Ctx, Void>
     for Magnet<LinkedSwap<CFMMPool, FinalizedTxOut>>
 where
-    Ctx: Has<CFMMPoolRefScriptOutput<1>> + Has<CFMMPoolRefScriptOutput<2>>,
+    Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>> + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>,
 {
     fn try_exec(
         self,
@@ -208,16 +205,22 @@ where
             .unwrap();
         let output = SingleOutputBuilderResult::new(produced_out);
         state.tx_builder.add_output(output.clone()).unwrap();
-        let pool_ref_script = match pool.ver {
-            PoolVer::V1 => context.get_labeled::<CFMMPoolRefScriptOutput<1>>().0,
-            _ => context.get_labeled::<CFMMPoolRefScriptOutput<2>>().0,
+        let pool_validator = match pool.ver {
+            PoolVer::V1 => context
+                .get_labeled::<DeployedValidator<{ ConstFnPoolV1 as u8 }>>()
+                .erased(),
+            _ => context
+                .get_labeled::<DeployedValidator<{ ConstFnPoolV2 as u8 }>>()
+                .erased(),
         };
-        state.tx_builder.add_reference_input(pool_ref_script.clone());
+        state
+            .tx_builder
+            .add_reference_input(pool_validator.reference_utxo.clone());
         state.tx_builder.add_input(pool_in.clone()).unwrap();
         let builder_step = TxBuilderElementsFromOrder {
             input: pool_in,
-            reference_input: pool_ref_script,
-            ex_units: POOL_EXECUTION_UNITS,
+            reference_input: pool_validator.reference_utxo,
+            ex_units: pool_validator.ex_budget.into(),
             output,
         };
         Ok((state, builder_step, context))

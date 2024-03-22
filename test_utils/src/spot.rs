@@ -1,23 +1,24 @@
-use cardano_chain_sync::data::LedgerTxEvent;
 use cml_chain::{
     address::EnterpriseAddress,
     assets::{AssetName, MultiAsset},
     byron::ProtocolMagic,
     certs::StakeCredential,
     genesis::network_info::NetworkInfo,
+    NetworkId,
+    OrderedHashMap,
     plutus::{ConstrPlutusData, PlutusData, PlutusV2Script},
-    transaction::DatumOption,
-    utils::BigInt,
-    NetworkId, OrderedHashMap, PolicyId, Script, Value,
+    PolicyId, Script, transaction::DatumOption, utils::BigInt, Value,
 };
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding};
 use cml_multi_era::babbage::{
-    cbor_encodings::BabbageTransactionBodyEncoding, BabbageFormatTxOut, BabbageTransaction,
-    BabbageTransactionBody, BabbageTransactionOutput, BabbageTransactionWitnessSet,
+    BabbageFormatTxOut, BabbageTransaction, BabbageTransactionBody,
+    BabbageTransactionOutput, BabbageTransactionWitnessSet, cbor_encodings::BabbageTransactionBodyEncoding,
 };
 use log::info;
-use rand::{thread_rng, Rng};
-use spectrum_offchain_cardano::{constants::SPOT_SCRIPT, creds::operator_creds};
+use rand::{Rng, thread_rng};
+
+use cardano_chain_sync::data::LedgerTxEvent;
+use spectrum_offchain_cardano::{constants::LIMIT_ORDER_SCRIPT, creds::operator_creds};
 
 use crate::{gen_policy_id, gen_transaction_input};
 
@@ -90,7 +91,7 @@ fn gen_spot_order_transaction_output(
     let network_info = NetworkInfo::new(0b0000, ProtocolMagic::from(1_u32));
     let network = network_info.network_id();
     let (operator_sk, operator_pkh, operator_addr) = operator_creds("xprv1cr38ar6z5tn4mcjfa2pq49s2cchjpu6nd9qsqu6zxrruqu8kzfduch8repn8ukxdl4qjj4n002rwgf6dhg4ldq23vgsevt6tmnyc657yrsk5t6v3slm33qkh3f0x4xru6ue8w0k0medspw7fqfrmrppm0sdla648", 1_u64);
-    let spot_script_inner = PlutusV2Script::new(hex::decode(SPOT_SCRIPT).unwrap());
+    let spot_script_inner = PlutusV2Script::new(hex::decode(LIMIT_ORDER_SCRIPT).unwrap());
 
     let script = Script::new_plutus_v2(spot_script_inner.clone());
     let address =

@@ -1,0 +1,38 @@
+{
+  "chainSync": {
+    "startingPoint": {
+      "Specific": [
+        49635947,
+        "76ab065287786e5067337567fe19c067664c1508c95896cf49ec33f1f1d73ca1"
+      ]
+    },
+    "disableRollbacksUntil": 50901268,
+    "dbPath": "/home/tling/work/spectrum-offchain-multiplatform/tmp"
+  },
+  "node": {
+    "path": "/home/tling/node-external/node.socket",
+    "magic": 1
+  },
+  "txSubmissionBufferSize": 123,
+  "backlogCapacity": 100,
+  "networkId": 0,
+  "batcherPrivateKey": "xprv18zssasdcxr4z74naempkwgkwcq30fs6jm7z6x2r28klgamjh4fda0ymk8gd3je2gn548lks76yypqgfqkddnwsnxqw3empn06pg6m3x8flj92eq7hdhjausxq49rlh3c07t4aawj0xxrxmky9f3dvthxwqq70j9n",
+  "refScripts": {
+    "poolV1Script": "8f7625e22caebbb6e082232d39a673e1ac73ae4c4abc747b6ccea9f59316d620#0",
+    "poolV2Script": "c75d08f44ec13ea1f78ee96b7fcb94e3303f1812d3d38dcaeca341d8e146ac98#0",
+    "feeSwitchPoolScript": "8f7625e22caebbb6e082232d39a673e1ac73ae4c4abc747b6ccea9f59316d620#0",
+    "feeSwitchPoolBidirectionalFeeScript": "c75d08f44ec13ea1f78ee96b7fcb94e3303f1812d3d38dcaeca341d8e146ac98#0",
+    "swapScript": "cb4d21dc2cd5471e4c3b3d2125339dcc0577465e9c9fb789636046b174c2a84d#1",
+    "depositScript": "314ff562be2a5670827f42eb81457c827256378b44a59c9fdc13c2b78e67cab3#0",
+    "redeemScript": "cb4d21dc2cd5471e4c3b3d2125339dcc0577465e9c9fb789636046b174c2a84d#0"
+  },
+  "rewardAddress": "addr_test1vzkx6mw5c35slc2t9lzve5g9n0uea7jqma3xsc7nxvuzlhsdsfj4a",
+  "executorCred": "00000000000000000000000000000000000000000000000000000000",
+  "cardanoFinalizationDelay": {
+    "secs": 60,
+    "nanos": 0
+  },
+  "explorer": {
+    "url": "http://88.99.59.114:8099"
+  }
+}

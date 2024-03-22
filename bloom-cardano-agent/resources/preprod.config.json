@@ -1,0 +1,38 @@
+{
+  "chainSync": {
+    "startingPoint": {
+      "Specific": [
+        55424270,
+        "45bd0bfeb5ae4d3db77f27a9b74d12a58cccf768314b75762458fd3b201c242f"
+      ]
+    },
+    "disableRollbacksUntil": 55424270,
+    "dbPath": "state"
+  },
+  "node": {
+    "path": "/root/cardano-node-ipc/node.socket",
+    "magic": 1
+  },
+  "txSubmissionBufferSize": 64,
+  "backlogCapacity": 128,
+  "networkId": 0,
+  "executorCred": "c74ecb78de2fb0e4ec31f1c556d22ec088f2ef411299a37d1ede3b33",
+  "cardanoFinalizationDelay": {
+    "secs": 120,
+    "nanos": 0
+  },
+  "batcherPrivateKey": "",
+  "refScripts": {
+    "poolV1Script": "8f7625e22caebbb6e082232d39a673e1ac73ae4c4abc747b6ccea9f59316d620#0",
+    "poolV2Script": "c75d08f44ec13ea1f78ee96b7fcb94e3303f1812d3d38dcaeca341d8e146ac98#0",
+    "feeSwitchPoolScript": "de81bee032fb9917435ad469892e33d5ee7b29f88c0534d0b9b937c124f3f659#0",
+    "feeSwitchPoolBidirectionalFeeScript": "c75d08f44ec13ea1f78ee96b7fcb94e3303f1812d3d38dcaeca341d8e146ac98#0",
+    "swapScript": "cb4d21dc2cd5471e4c3b3d2125339dcc0577465e9c9fb789636046b174c2a84d#1",
+    "depositScript": "314ff562be2a5670827f42eb81457c827256378b44a59c9fdc13c2b78e67cab3#0",
+    "redeemScript": "cb4d21dc2cd5471e4c3b3d2125339dcc0577465e9c9fb789636046b174c2a84d#0"
+  },
+  "explorer": {
+    "url": "https://explorer.spectrum.fi"
+  },
+  "rewardAddress": "addr_test1qp97f7397q5aznqdwga0fg0xlfcn8lp6vy8csqek4459ewjmmfesg02r4kxltnn4vww0frsl9dz52spmayhszylrw5mstjywvz"
+}

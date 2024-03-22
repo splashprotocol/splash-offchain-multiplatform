@@ -26,11 +26,12 @@ use spectrum_cardano_lib::OutputRef;
 use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_offchain::data::{Baked, Has};
+use spectrum_offchain_cardano::deployment::DeployedValidator;
+use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderWitness;
 
 use crate::creds::RewardAddress;
 use crate::execution_engine::execution_state::ExecutionState;
 use crate::execution_engine::instances::Magnet;
-use crate::orders::spot::{SPOT_ORDER_N2T_EX_UNITS, SpotOrderBatchValidatorRefScriptOutput};
 
 use super::instances::{FillOrderResults, TxBuilderElementsFromOrder};
 
@@ -45,7 +46,7 @@ where
     Pl: Copy + std::fmt::Debug,
     Magnet<LinkedFill<Fr, FinalizedTxOut>>: BatchExec<ExecutionState, FillOrderResults, Ctx, Void>,
     Magnet<LinkedSwap<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, TxBuilderElementsFromOrder, Ctx, Void>,
-    Ctx: Clone + Has<Collateral> + Has<RewardAddress> + Has<SpotOrderBatchValidatorRefScriptOutput>,
+    Ctx: Clone + Has<Collateral> + Has<RewardAddress> + Has<DeployedValidator<{ LimitOrderWitness as u8 }>>,
 {
     fn run(
         &mut self,
@@ -97,14 +98,9 @@ where
             addr.0.network_id().unwrap(),
             addr.0.payment_cred().unwrap().clone(),
         );
+        let order_witness = ctx.get_labeled::<DeployedValidator<{ LimitOrderWitness as u8 }>>();
         let partial_witness = PartialPlutusWitness::new(
-            PlutusScriptWitness::Ref(
-                ctx.get_labeled::<SpotOrderBatchValidatorRefScriptOutput>()
-                    .0
-                    .output
-                    .script_hash()
-                    .unwrap(),
-            ),
+            PlutusScriptWitness::Ref(order_witness.reference_utxo.output.script_hash().unwrap()),
             PlutusData::new_list(vec![]), // dummy value (this validator doesn't require redeemer)
         );
         let withdrawal_result = SingleWithdrawalBuilder::new(reward_address, 0)
@@ -113,7 +109,7 @@ where
         new_tx_builder.add_withdrawal(withdrawal_result);
         new_tx_builder.set_exunits(
             RedeemerWitnessKey::new(RedeemerTag::Reward, 0),
-            SPOT_ORDER_N2T_EX_UNITS,
+            order_witness.ex_budget.into(),
         );
 
         new_tx_builder

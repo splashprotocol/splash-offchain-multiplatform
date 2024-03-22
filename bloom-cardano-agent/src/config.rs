@@ -5,7 +5,6 @@ use cml_core::Slot;
 use bloom_offchain_cardano::creds::{ExecutorCred, RewardAddress};
 use cardano_chain_sync::client::Point;
 use cardano_explorer::data::ExplorerConfig;
-use spectrum_offchain_cardano::ref_scripts::ReferenceSources;
 
 #[derive(serde::Deserialize)]
 #[serde(bound = "'de: 'a")]
@@ -15,7 +14,6 @@ pub struct AppConfig<'a> {
     pub node: NodeConfig<'a>,
     pub tx_submission_buffer_size: usize,
     pub batcher_private_key: &'a str, //todo: store encrypted
-    pub ref_scripts: ReferenceSources,
     pub explorer: ExplorerConfig<'a>,
     pub reward_address: RewardAddress,
     pub executor_cred: ExecutorCred,

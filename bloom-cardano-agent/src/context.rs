@@ -3,20 +3,19 @@ use type_equalities::IsEqual;
 use bloom_offchain::execution_engine::liquidity_book::ExecutionCap;
 use bloom_offchain::execution_engine::types::Time;
 use bloom_offchain_cardano::creds::RewardAddress;
-use bloom_offchain_cardano::orders::spot::{
-    SpotOrderBatchValidatorRefScriptOutput, SpotOrderRefScriptOutput,
-};
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_offchain::backlog::BacklogCapacity;
 use spectrum_offchain::data::Has;
-use spectrum_offchain_cardano::data::pool::CFMMPoolRefScriptOutput;
-use spectrum_offchain_cardano::data::ref_scripts::ReferenceOutputs;
+use spectrum_offchain_cardano::deployment::ProtocolValidator::{
+    ConstFnPoolV1, ConstFnPoolV2, LimitOrder, LimitOrderWitness,
+};
+use spectrum_offchain_cardano::deployment::{DeployedValidator, ProtocolDeployment};
 
 #[derive(Debug, Clone)]
 pub struct ExecutionContext {
     pub time: Time,
     pub execution_cap: ExecutionCap,
-    pub refs: ReferenceOutputs,
+    pub deployment: ProtocolDeployment,
     pub collateral: Collateral,
     pub reward_addr: RewardAddress,
     pub backlog_capacity: BacklogCapacity,
@@ -27,7 +26,7 @@ impl From<ExecutionContext> for spectrum_offchain_cardano::data::execution_conte
     fn from(value: ExecutionContext) -> Self {
         Self {
             operator_addr: value.reward_addr.into(),
-            ref_scripts: value.refs,
+            ref_scripts: todo!("Legacy EC should be using ProtocolDeployment as well"),
             collateral: value.collateral,
             network_id: value.network_id,
         }
@@ -64,28 +63,34 @@ impl Has<RewardAddress> for ExecutionContext {
     }
 }
 
-impl Has<CFMMPoolRefScriptOutput<1>> for ExecutionContext {
-    fn get_labeled<U: IsEqual<CFMMPoolRefScriptOutput<1>>>(&self) -> CFMMPoolRefScriptOutput<1> {
-        CFMMPoolRefScriptOutput(self.refs.pool_v1.clone())
-    }
-}
-
-impl Has<CFMMPoolRefScriptOutput<2>> for ExecutionContext {
-    fn get_labeled<U: IsEqual<CFMMPoolRefScriptOutput<2>>>(&self) -> CFMMPoolRefScriptOutput<2> {
-        CFMMPoolRefScriptOutput(self.refs.pool_v2.clone())
-    }
-}
-
-impl Has<SpotOrderRefScriptOutput> for ExecutionContext {
-    fn get_labeled<U: IsEqual<SpotOrderRefScriptOutput>>(&self) -> SpotOrderRefScriptOutput {
-        SpotOrderRefScriptOutput(self.refs.spot_order.clone())
-    }
-}
-
-impl Has<SpotOrderBatchValidatorRefScriptOutput> for ExecutionContext {
-    fn get_labeled<U: IsEqual<SpotOrderBatchValidatorRefScriptOutput>>(
+impl Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>> for ExecutionContext {
+    fn get_labeled<U: IsEqual<DeployedValidator<{ ConstFnPoolV1 as u8 }>>>(
         &self,
-    ) -> SpotOrderBatchValidatorRefScriptOutput {
-        SpotOrderBatchValidatorRefScriptOutput(self.refs.spot_order_batch_validator.clone())
+    ) -> DeployedValidator<{ ConstFnPoolV1 as u8 }> {
+        self.deployment.const_fn_pool_v1.clone()
+    }
+}
+
+impl Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>> for ExecutionContext {
+    fn get_labeled<U: IsEqual<DeployedValidator<{ ConstFnPoolV2 as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ ConstFnPoolV2 as u8 }> {
+        self.deployment.const_fn_pool_v2.clone()
+    }
+}
+
+impl Has<DeployedValidator<{ LimitOrder as u8 }>> for ExecutionContext {
+    fn get_labeled<U: IsEqual<DeployedValidator<{ LimitOrder as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ LimitOrder as u8 }> {
+        self.deployment.limit_order.clone()
+    }
+}
+
+impl Has<DeployedValidator<{ LimitOrderWitness as u8 }>> for ExecutionContext {
+    fn get_labeled<U: IsEqual<DeployedValidator<{ LimitOrderWitness as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ LimitOrderWitness as u8 }> {
+        self.deployment.limit_order_witness.clone()
     }
 }
