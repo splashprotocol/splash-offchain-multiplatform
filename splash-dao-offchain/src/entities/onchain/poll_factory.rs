@@ -3,10 +3,14 @@ use std::fmt::Formatter;
 use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData};
 
 use cml_chain::PolicyId;
+use cml_crypto::{RawBytesEncoding, ScriptHash};
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::Token;
 use spectrum_offchain::data::{Identifier, Stable};
+use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
+use uplc_pallas_codec::utils::PlutusBytes;
 
+use crate::constants::WP_FACTORY_SCRIPT;
 use crate::entities::onchain::smart_farm::FarmId;
 use crate::entities::onchain::weighting_poll::WeightingPoll;
 use crate::routines::inflation::PollFactorySnapshot;
@@ -132,3 +136,14 @@ pub const GOV_PROXY_EX_UNITS: ExUnits = ExUnits {
     steps: 200_000_000,
     encodings: None,
 };
+
+pub fn compute_wp_factory_script_hash(
+    wp_auth_policy: PolicyId,
+    gov_witness_script_hash: ScriptHash,
+) -> ScriptHash {
+    let params_pd = uplc::PlutusData::Array(vec![
+        uplc::PlutusData::BoundedBytes(PlutusBytes::from(wp_auth_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(PlutusBytes::from(gov_witness_script_hash.to_raw_bytes().to_vec())),
+    ]);
+    apply_params_validator(params_pd, WP_FACTORY_SCRIPT)
+}
