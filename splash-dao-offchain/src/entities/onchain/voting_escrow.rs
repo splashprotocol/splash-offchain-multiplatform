@@ -16,9 +16,11 @@ use spectrum_offchain::{
     data::{EntitySnapshot, Identifier, Stable},
     ledger::IntoLedger,
 };
+use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
+use uplc_pallas_codec::utils::{Int, PlutusBytes};
 
 use crate::{
-    constants::MAX_LOCK_TIME_SECONDS,
+    constants::{MAX_LOCK_TIME_SECONDS, MINT_WEIGHTING_POWER_SCRIPT},
     routines::inflation::VotingEscrowSnapshot,
     time::{NetworkTime, ProtocolEpoch},
 };
@@ -158,4 +160,17 @@ impl IntoPlutusData for VotingEscrowAuthorizedAction {
         );
         PlutusData::ConstrPlutusData(cpd)
     }
+}
+
+pub fn compute_mint_weighting_power_policy_id(
+    zeroth_epoch_start: u32,
+    proposal_auth_policy: PolicyId,
+    gt_policy: PolicyId,
+) -> PolicyId {
+    let params_pd = uplc::PlutusData::Array(vec![
+        uplc::PlutusData::BigInt(uplc::BigInt::Int(Int::from(zeroth_epoch_start as i64))),
+        uplc::PlutusData::BoundedBytes(PlutusBytes::from(proposal_auth_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(PlutusBytes::from(gt_policy.to_raw_bytes().to_vec())),
+    ]);
+    apply_params_validator(params_pd, MINT_WEIGHTING_POWER_SCRIPT)
 }

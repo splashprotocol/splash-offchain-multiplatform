@@ -1,11 +1,15 @@
 use cml_chain::plutus::{ExUnits, PlutusData};
 
 use cml_chain::PolicyId;
+use cml_crypto::{RawBytesEncoding, ScriptHash};
 use spectrum_cardano_lib::plutus_data::IntoPlutusData;
 use spectrum_cardano_lib::{TaggedAmount, Token};
 use spectrum_offchain::data::{EntitySnapshot, Identifier, Stable};
+use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
+use uplc_pallas_codec::utils::{Int, PlutusBytes};
 
 use crate::assets::Splash;
+use crate::constants::INFLATION_SCRIPT;
 use crate::routines::inflation::InflationBoxSnapshot;
 use crate::time::{epoch_end, NetworkTime, ProtocolEpoch};
 use crate::{constants, GenesisEpochStartTime};
@@ -74,3 +78,18 @@ pub const INFLATION_BOX_EX_UNITS: ExUnits = ExUnits {
     steps: 200_000_000,
     encodings: None,
 };
+
+pub fn compute_inflation_box_script_hash(
+    splash_policy: PolicyId,
+    wp_auth_policy: PolicyId,
+    weighting_power_policy: PolicyId,
+    zeroth_epoch_start: u32,
+) -> ScriptHash {
+    let params_pd = uplc::PlutusData::Array(vec![
+        uplc::PlutusData::BoundedBytes(PlutusBytes::from(splash_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(PlutusBytes::from(wp_auth_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(PlutusBytes::from(weighting_power_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BigInt(uplc::BigInt::Int(Int::from(zeroth_epoch_start as i64))),
+    ]);
+    apply_params_validator(params_pd, INFLATION_SCRIPT)
+}

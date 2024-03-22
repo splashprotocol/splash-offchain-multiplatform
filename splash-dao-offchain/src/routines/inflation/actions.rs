@@ -30,19 +30,22 @@ use uplc_pallas_codec::utils::{Bytes, Int, PlutusBytes};
 use uplc_pallas_traverse::ComputeHash;
 
 use crate::assets::SPLASH_AC;
-use crate::constants::{
-    self, INFLATION_SCRIPT, MINT_WEIGHTING_POWER_SCRIPT, MINT_WP_AUTH_TOKEN_SCRIPT, WP_FACTORY_SCRIPT,
-};
+use crate::constants::{self};
 use crate::entities::offchain::voting_order::VotingOrder;
-use crate::entities::onchain::inflation_box::{InflationBox, INFLATION_BOX_EX_UNITS};
+use crate::entities::onchain::inflation_box::{
+    compute_inflation_box_script_hash, InflationBox, INFLATION_BOX_EX_UNITS,
+};
 use crate::entities::onchain::poll_factory::{
-    unsafe_update_factory_state, FactoryRedeemer, PollFactory, PollFactoryAction, GOV_PROXY_EX_UNITS,
-    WP_FACTORY_EX_UNITS,
+    compute_wp_factory_script_hash, unsafe_update_factory_state, FactoryRedeemer, PollFactory,
+    PollFactoryAction, GOV_PROXY_EX_UNITS, WP_FACTORY_EX_UNITS,
 };
 use crate::entities::onchain::smart_farm::SmartFarm;
-use crate::entities::onchain::voting_escrow::{unsafe_update_ve_state, VotingEscrow};
+use crate::entities::onchain::voting_escrow::{
+    compute_mint_weighting_power_policy_id, unsafe_update_ve_state, VotingEscrow,
+};
 use crate::entities::onchain::weighting_poll::{
-    self, unsafe_update_wp_state, MintAction, WeightingPoll, MINT_WP_AUTH_EX_UNITS,
+    self, compute_mint_wp_auth_token_policy_id, unsafe_update_wp_state, MintAction, WeightingPoll,
+    MINT_WP_AUTH_EX_UNITS,
 };
 use crate::entities::Snapshot;
 use crate::protocol_config::{ProtocolConfig, TX_FEE_CORRECTION};
@@ -111,6 +114,8 @@ where
     ) {
         let mut tx_builder = constant_tx_builder();
 
+        // Note that we're not actually minting weighting power here. We only need the minting
+        // policy id as part of the inflation box's script.
         let weighting_power_policy = compute_mint_weighting_power_policy_id(
             zeroth_epoch_start,
             config.wpoll_auth_policy,
@@ -458,82 +463,6 @@ where
     ) {
         todo!()
     }
-}
-
-fn compute_mint_weighting_power_policy_id(
-    zeroth_epoch_start: u32,
-    proposal_auth_policy: PolicyId,
-    gt_policy: PolicyId,
-) -> PolicyId {
-    let params_pd = uplc::PlutusData::Array(vec![
-        uplc::PlutusData::BigInt(BigInt::Int(Int::from(zeroth_epoch_start as i64))),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(proposal_auth_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(gt_policy.to_raw_bytes().to_vec())),
-    ]);
-    let params_bytes = plutus_data_to_bytes(&params_pd).unwrap();
-    let script = PlutusV2Script::new(hex::decode(MINT_WEIGHTING_POWER_SCRIPT).unwrap());
-
-    let script_bytes = apply_params_to_script(&params_bytes, script.get()).unwrap();
-
-    let script_hash =
-        uplc_pallas_primitives::babbage::PlutusV2Script(Bytes::from(script_bytes)).compute_hash();
-
-    PolicyId::from_raw_bytes(script_hash.as_slice()).unwrap()
-}
-
-fn compute_inflation_box_script_hash(
-    splash_policy: PolicyId,
-    wp_auth_policy: PolicyId,
-    weighting_power_policy: PolicyId,
-    zeroth_epoch_start: u32,
-) -> ScriptHash {
-    let params_pd = uplc::PlutusData::Array(vec![
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(splash_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(wp_auth_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(weighting_power_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BigInt(BigInt::Int(Int::from(zeroth_epoch_start as i64))),
-    ]);
-    apply_params_validator(params_pd, INFLATION_SCRIPT)
-}
-
-fn compute_wp_factory_script_hash(
-    wp_auth_policy: PolicyId,
-    gov_witness_script_hash: ScriptHash,
-) -> ScriptHash {
-    let params_pd = uplc::PlutusData::Array(vec![
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(wp_auth_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(gov_witness_script_hash.to_raw_bytes().to_vec())),
-    ]);
-    apply_params_validator(params_pd, WP_FACTORY_SCRIPT)
-}
-
-/// Note that the this is a multivalidator, and can serve as the script that guards the
-/// weighting_poll.
-fn compute_mint_wp_auth_token_policy_id(
-    splash_policy: PolicyId,
-    farm_auth_policy: PolicyId,
-    factory_auth_policy: PolicyId,
-    zeroth_epoch_start: u32,
-) -> PolicyId {
-    let params_pd = uplc::PlutusData::Array(vec![
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(splash_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(farm_auth_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(factory_auth_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BigInt(BigInt::Int(Int::from(zeroth_epoch_start as i64))),
-    ]);
-    apply_params_validator(params_pd, MINT_WP_AUTH_TOKEN_SCRIPT)
-}
-
-fn apply_params_validator(params_pd: uplc::PlutusData, script: &str) -> ScriptHash {
-    let params_bytes = plutus_data_to_bytes(&params_pd).unwrap();
-    let script = PlutusV2Script::new(hex::decode(script).unwrap());
-
-    let script_bytes = apply_params_to_script(&params_bytes, script.get()).unwrap();
-
-    let script_hash =
-        uplc_pallas_primitives::babbage::PlutusV2Script(Bytes::from(script_bytes)).compute_hash();
-
-    PolicyId::from_raw_bytes(script_hash.as_slice()).unwrap()
 }
 
 #[cfg(test)]
