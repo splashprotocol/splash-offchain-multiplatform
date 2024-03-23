@@ -17,9 +17,9 @@ use cardano_mempool_sync::data::MempoolUpdate;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::combinators::Ior;
-use spectrum_offchain::data::{EntitySnapshot, Has, Tradable};
 use spectrum_offchain::data::order::{OrderUpdate, SpecializedOrder};
 use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
+use spectrum_offchain::data::{EntitySnapshot, Has, Tradable};
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain::partitioning::Partitioned;
@@ -559,11 +559,11 @@ mod tests {
 
     use cardano_chain_sync::data::LedgerTxEvent;
     use spectrum_cardano_lib::hash::hash_transaction_canonical;
-    use spectrum_cardano_lib::OutputRef;
     use spectrum_cardano_lib::transaction::TransactionOutputExtension;
+    use spectrum_cardano_lib::OutputRef;
     use spectrum_offchain::combinators::Ior;
-    use spectrum_offchain::data::{EntitySnapshot, Has, Stable, Tradable};
     use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate};
+    use spectrum_offchain::data::{EntitySnapshot, Has, Stable, Tradable};
     use spectrum_offchain::event_sink::event_handler::EventHandler;
     use spectrum_offchain::ledger::TryFromLedger;
     use spectrum_offchain::partitioning::Partitioned;

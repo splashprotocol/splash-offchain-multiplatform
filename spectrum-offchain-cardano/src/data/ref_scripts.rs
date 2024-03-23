@@ -1,7 +1,7 @@
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::plutus::PlutusV2Script;
-use cml_chain::Script;
 use cml_chain::transaction::{ScriptRef, TransactionOutput};
+use cml_chain::Script;
 
 use cardano_explorer::client::Explorer;
 use spectrum_cardano_lib::OutputRef;
@@ -15,8 +15,8 @@ use crate::constants::{
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::pool::CFMMPool;
-use crate::data::PoolVer;
 use crate::data::redeem::ClassicalOnChainRedeem;
+use crate::data::PoolVer;
 use crate::ref_scripts::ReferenceSources;
 
 #[derive(Debug, Clone)]

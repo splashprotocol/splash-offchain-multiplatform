@@ -10,14 +10,14 @@ use futures_timer::Delay;
 use log::{info, trace, warn};
 use serde::Serialize;
 use tokio::sync::Mutex;
-use type_equalities::{IsEqual, trivial_eq};
+use type_equalities::{trivial_eq, IsEqual};
 
 use crate::backlog::HotBacklog;
 use crate::box_resolver::persistence::EntityRepo;
 use crate::box_resolver::resolve_entity_state;
-use crate::data::EntitySnapshot;
 use crate::data::order::SpecializedOrder;
 use crate::data::unique_entity::{Predicted, Traced};
+use crate::data::EntitySnapshot;
 use crate::executor::TxSubmissionError::{OrderUtxoIsSpent, PoolUtxoIsSpent, UnknownError};
 use crate::network::Network;
 use crate::tx_prover::TxProver;

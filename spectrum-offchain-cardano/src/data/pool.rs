@@ -9,8 +9,7 @@ use cml_chain::builders::tx_builder::{
     ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput, TxBuilderError,
 };
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
-use cml_chain::plutus::PlutusData::Integer;
-use cml_chain::plutus::{PlutusData, RedeemerTag};
+use cml_chain::plutus::{ConstrPlutusData, PlutusData, RedeemerTag};
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, TransactionOutput};
 use cml_chain::utils::BigInt;
 use cml_chain::{Coin, Value};
@@ -54,10 +53,11 @@ use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Qu
 use crate::data::pair::order_canonical;
 use crate::data::pool::ApplyOrderError::{LowBatcherFeeErr, SlippageErr};
 use crate::data::redeem::ClassicalOnChainRedeem;
-use crate::data::ref_scripts::RequiresRefScript;
-use crate::data::{OnChain, OnChainOrderId, PoolId, PoolStateVer, PoolVer};
 use crate::fees::FeeExtension;
 use crate::pool_math::cfmm_math::{output_amount, reward_lp, shares_amount};
+
+use crate::data::ref_scripts::RequiresRefScript;
+use crate::data::{OnChain, OnChainOrderId, PoolId, PoolStateVer, PoolVer};
 
 pub struct Rx;
 
@@ -209,18 +209,10 @@ pub enum CFMMPoolAction {
 impl CFMMPoolAction {
     pub fn to_plutus_data(self) -> PlutusData {
         match self {
-            CFMMPoolAction::Swap => {
-                PlutusData::from_bytes(hex::decode(POOL_IDX_1_SWAP_REDEEMER).unwrap()).unwrap()
-            }
-            CFMMPoolAction::Deposit => {
-                PlutusData::from_bytes(hex::decode(POOL_IDX_0_DEPOSIT_REDEEMER).unwrap()).unwrap()
-            }
-            CFMMPoolAction::Redeem => {
-                PlutusData::from_bytes(hex::decode(POOL_IDX_0_REDEEM_REDEEMER).unwrap()).unwrap()
-            }
-            CFMMPoolAction::Destroy => {
-                PlutusData::from_bytes(hex::decode(POOL_DESTROY_REDEEMER).unwrap()).unwrap()
-            }
+            CFMMPoolAction::Swap => PlutusData::ConstrPlutusData(ConstrPlutusData::new(2, Vec::new())),
+            CFMMPoolAction::Deposit => PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, Vec::new())),
+            CFMMPoolAction::Redeem => PlutusData::ConstrPlutusData(ConstrPlutusData::new(1, Vec::new())),
+            CFMMPoolAction::Destroy => PlutusData::ConstrPlutusData(ConstrPlutusData::new(3, Vec::new())),
         }
     }
 }
@@ -250,6 +242,12 @@ pub struct AssetDeltas {
 }
 
 impl CFMMPool {
+    pub fn redeemer(action: CFMMPoolAction, pool_input_index: usize) -> PlutusData {
+        let action_pd = action.to_plutus_data();
+        let self_ix_pd = PlutusData::Integer(BigInt::from(pool_input_index));
+        PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![action_pd, self_ix_pd]))
+    }
+
     pub fn get_asset_deltas(&self, side: SideM) -> AssetDeltas {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
@@ -622,8 +620,8 @@ fn unsafe_update_datum(pool: &CFMMPool, prev_datum: Option<DatumOption>) -> Opti
                 datum_bytes_encoding,
             }),
             PoolVer::FeeSwitch | PoolVer::FeeSwitchBiDirFee => {
-                let new_treasury_x = Integer(BigInt::from(pool.treasury_x.untag()));
-                let new_treasury_y = Integer(BigInt::from(pool.treasury_y.untag()));
+                let new_treasury_x = PlutusData::Integer(BigInt::from(pool.treasury_x.untag()));
+                let new_treasury_y = PlutusData::Integer(BigInt::from(pool.treasury_y.untag()));
 
                 let mut cpd = datum.into_constr_pd()?;
 

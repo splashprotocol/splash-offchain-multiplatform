@@ -34,11 +34,12 @@ use spectrum_offchain_cardano::data::pair::{side_of, PairId};
 
 use crate::creds::ExecutorCred;
 
-pub const SPOT_ORDER_N2T_EX_UNITS: ExUnits = ExUnits {
-    mem: 500_000,
-    steps: 200_000_000,
-    encodings: None,
-};
+pub const EXEC_REDEEMER: PlutusData =
+    PlutusData::ConstrPlutusData(ConstrPlutusData {
+        alternative: 0,
+        fields: vec![],
+        encodings: None,
+    });
 
 /// Spot order. Can be executed at a configured or better price as long as there is enough budget.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

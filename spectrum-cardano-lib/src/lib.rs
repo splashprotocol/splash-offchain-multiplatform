@@ -105,6 +105,12 @@ impl OutputRef {
     pub fn new(hash: TransactionHash, index: u64) -> Self {
         Self(hash, index)
     }
+    pub fn tx_hash(&self) -> TransactionHash {
+        self.0
+    }
+    pub fn index(&self) -> u64 {
+        self.1
+    }
 }
 
 impl Display for OutputRef {

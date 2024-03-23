@@ -2,8 +2,8 @@ use std::fmt::{Display, Formatter};
 
 use async_stream::stream;
 use cml_core::serialization::Serialize;
-use futures::{SinkExt, Stream, StreamExt};
 use futures::channel::{mpsc, oneshot};
+use futures::{SinkExt, Stream, StreamExt};
 use pallas_network::miniprotocols::localtxsubmission;
 
 use cardano_submit_api::client::{Error, LocalTxSubmissionClient};

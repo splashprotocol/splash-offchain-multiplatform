@@ -4,15 +4,15 @@ use cml_chain::{
     byron::ProtocolMagic,
     certs::StakeCredential,
     genesis::network_info::NetworkInfo,
-    NetworkId,
-    OrderedHashMap,
     plutus::{ConstrPlutusData, PlutusData, PlutusV2Script},
-    PolicyId, Script, transaction::DatumOption, utils::BigInt, Value,
+    transaction::DatumOption,
+    utils::BigInt,
+    NetworkId, OrderedHashMap, PolicyId, Script, Value,
 };
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use cml_multi_era::babbage::{
-    BabbageFormatTxOut, BabbageTransactionBody, BabbageTransactionOutput,
-    cbor_encodings::BabbageTransactionBodyEncoding,
+    cbor_encodings::BabbageTransactionBodyEncoding, BabbageFormatTxOut, BabbageTransactionBody,
+    BabbageTransactionOutput,
 };
 use log::info;
 use rand::Rng;

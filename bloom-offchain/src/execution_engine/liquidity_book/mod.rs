@@ -421,10 +421,6 @@ where
 mod tests {
     use either::Either;
 
-    use crate::execution_engine::liquidity_book::{
-        ExecutionCap, ExternalTLBEvents, fill_from_fragment, fill_from_pool, FillFromFragment, FillFromPool,
-        TemporalLiquidityBook, TLB,
-    };
     use crate::execution_engine::liquidity_book::fragment::StateTrans;
     use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::recipe::{
@@ -434,6 +430,10 @@ mod tests {
     use crate::execution_engine::liquidity_book::state::tests::{SimpleCFMMPool, SimpleOrderPF};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::AbsolutePrice;
+    use crate::execution_engine::liquidity_book::{
+        fill_from_fragment, fill_from_pool, ExecutionCap, ExternalTLBEvents, FillFromFragment, FillFromPool,
+        TemporalLiquidityBook, TLB,
+    };
     use crate::execution_engine::types::StableId;
 
     #[test]

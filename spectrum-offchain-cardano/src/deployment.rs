@@ -90,6 +90,7 @@ pub struct DeployedValidators {
 #[derive(Debug, Clone)]
 pub struct DeployedValidator<const TYP: u8> {
     pub reference_utxo: TransactionUnspentOutput,
+    pub hash: ScriptHash,
     pub ex_budget: ExBudget,
 }
 
@@ -97,6 +98,7 @@ impl<const TYP: u8> DeployedValidator<TYP> {
     pub fn erased(self) -> DeployedValidatorErased {
         DeployedValidatorErased {
             reference_utxo: self.reference_utxo,
+            hash: self.hash,
             ex_budget: self.ex_budget,
         }
     }
@@ -105,6 +107,7 @@ impl<const TYP: u8> DeployedValidator<TYP> {
 #[derive(Debug, Clone)]
 pub struct DeployedValidatorErased {
     pub reference_utxo: TransactionUnspentOutput,
+    pub hash: ScriptHash,
     pub ex_budget: ExBudget,
 }
 
@@ -125,6 +128,7 @@ impl<const TYP: u8> DeployedValidator<TYP> {
         }
         Self {
             reference_utxo: ref_output,
+            hash: v.hash,
             ex_budget: v.ex_budget,
         }
     }
