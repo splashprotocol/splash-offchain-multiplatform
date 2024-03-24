@@ -5,11 +5,12 @@ use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData};
 use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, ScriptHash};
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, IntoPlutusData, PlutusDataExtension};
-use spectrum_cardano_lib::Token;
+use spectrum_cardano_lib::{TaggedAmount, Token};
 use spectrum_offchain::data::{Identifier, Stable};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 use uplc_pallas_codec::utils::PlutusBytes;
 
+use crate::assets::Splash;
 use crate::constants::WP_FACTORY_SCRIPT;
 use crate::entities::onchain::smart_farm::FarmId;
 use crate::entities::onchain::weighting_poll::WeightingPoll;
@@ -35,7 +36,11 @@ impl PollFactory {
     pub fn next_epoch(&self) -> ProtocolEpoch {
         self.last_poll_epoch + 1
     }
-    pub fn next_weighting_poll(mut self, farm_auth_policy: PolicyId) -> (PollFactory, WeightingPoll) {
+    pub fn next_weighting_poll(
+        mut self,
+        farm_auth_policy: PolicyId,
+        emission_rate: TaggedAmount<Splash>,
+    ) -> (PollFactory, WeightingPoll) {
         let poll_epoch = self.last_poll_epoch + 1;
         let stable_id = WeightingPollStableId {
             auth_policy: self.stable_id.wp_auth_policy,
@@ -45,6 +50,7 @@ impl PollFactory {
             epoch: poll_epoch,
             distribution: self.active_farms.iter().map(|farm| (*farm, 0u64)).collect(),
             stable_id,
+            emission_rate,
         };
         self.last_poll_epoch = poll_epoch;
         (self, next_poll)

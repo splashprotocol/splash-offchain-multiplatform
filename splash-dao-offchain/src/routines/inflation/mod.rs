@@ -193,7 +193,7 @@ impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
             let current_posix_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as u32;
             let (signed_tx, next_inflation_box, next_factory, next_wpoll) = self
                 .actions
-                .create_wpoll(&self.conf, current_posix_time, inflation_box.0, factory.0)
+                .create_wpoll(&self.conf, inflation_box.0, factory.0)
                 .await;
             self.inflation_box.write(next_inflation_box).await;
             self.poll_factory.write(next_factory).await;
@@ -216,9 +216,10 @@ impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
         Actions: InflationActions<Bearer>,
     {
         if let Some(next_order) = next_pending_order {
-            let (next_wpoll, next_ve) = self
+            let current_posix_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as u32;
+            let (signed_tx, next_wpoll, next_ve) = self
                 .actions
-                .execute_order(weighting_poll.erased(), next_order)
+                .execute_order(&self.conf, weighting_poll.erased(), next_order)
                 .await;
             self.weighting_poll.write(next_wpoll).await;
             self.voting_escrow.write(next_ve).await;
@@ -239,9 +240,15 @@ impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
         SF: StateProjectionWrite<SmartFarm, Bearer>,
         Actions: InflationActions<Bearer>,
     {
+        let current_posix_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as u32;
         let (next_wpoll, next_sf) = self
             .actions
-            .distribute_inflation(weighting_poll.erased(), next_farm.erased(), next_farm_weight)
+            .distribute_inflation(
+                &self.conf,
+                weighting_poll.erased(),
+                next_farm.erased(),
+                next_farm_weight,
+            )
             .await;
         self.weighting_poll.write(next_wpoll).await;
         self.smart_farm.write(next_sf).await;
@@ -256,10 +263,7 @@ impl<IB, PF, WP, VE, SF, Backlog, Time, Actions, Bearer>
     {
         let current_posix_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as u32;
         if let AnyMod::Confirmed(Confirmed(weighting_poll)) = weighting_poll {
-            let signed_tx = self
-                .actions
-                .eliminate_wpoll(&self.conf, current_posix_time, weighting_poll)
-                .await;
+            let signed_tx = self.actions.eliminate_wpoll(&self.conf, weighting_poll).await;
             return None;
         }
         retry_in(DEF_DELAY)

@@ -1,7 +1,7 @@
 use std::{fmt::Formatter, time::Duration};
 
 use cml_chain::{
-    plutus::{ConstrPlutusData, PlutusData},
+    plutus::{ConstrPlutusData, ExUnits, PlutusData},
     transaction::TransactionOutput,
     utils::BigInt,
     PolicyId,
@@ -20,7 +20,7 @@ use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 use uplc_pallas_codec::utils::{Int, PlutusBytes};
 
 use crate::{
-    constants::{MAX_LOCK_TIME_SECONDS, MINT_WEIGHTING_POWER_SCRIPT},
+    constants::{MAX_LOCK_TIME_SECONDS, MINT_WEIGHTING_POWER_SCRIPT, VOTING_ESCROW_SCRIPT},
     routines::inflation::VotingEscrowSnapshot,
     time::{NetworkTime, ProtocolEpoch},
 };
@@ -162,8 +162,55 @@ impl IntoPlutusData for VotingEscrowAuthorizedAction {
     }
 }
 
+pub const VOTING_ESCROW_EX_UNITS: ExUnits = ExUnits {
+    mem: 500_000,
+    steps: 200_000_000,
+    encodings: None,
+};
+
+pub const WEIGHTING_POWER_EX_UNITS: ExUnits = ExUnits {
+    mem: 500_000,
+    steps: 200_000_000,
+    encodings: None,
+};
+
+pub const ORDER_WITNESS_EX_UNITS: ExUnits = ExUnits {
+    mem: 500_000,
+    steps: 200_000_000,
+    encodings: None,
+};
+
+pub enum MintAction {
+    MintPower {
+        binder: u32,
+        ve_in_ix: u32,
+        proposal_in_ix: u32,
+    },
+    Burn,
+}
+
+impl IntoPlutusData for MintAction {
+    fn into_pd(self) -> PlutusData {
+        match self {
+            MintAction::MintPower {
+                binder,
+                ve_in_ix,
+                proposal_in_ix,
+            } => PlutusData::ConstrPlutusData(ConstrPlutusData::new(
+                0,
+                vec![
+                    PlutusData::Integer(BigInt::from(binder)),
+                    PlutusData::Integer(BigInt::from(ve_in_ix)),
+                    PlutusData::Integer(BigInt::from(proposal_in_ix)),
+                ],
+            )),
+            MintAction::Burn => PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![])),
+        }
+    }
+}
+
 pub fn compute_mint_weighting_power_policy_id(
-    zeroth_epoch_start: u32,
+    zeroth_epoch_start: u64,
     proposal_auth_policy: PolicyId,
     gt_policy: PolicyId,
 ) -> PolicyId {
@@ -173,4 +220,11 @@ pub fn compute_mint_weighting_power_policy_id(
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(gt_policy.to_raw_bytes().to_vec())),
     ]);
     apply_params_validator(params_pd, MINT_WEIGHTING_POWER_SCRIPT)
+}
+
+pub fn compute_voting_escrow_policy_id(ve_factory_auth_policy: PolicyId) -> PolicyId {
+    let params_pd = uplc::PlutusData::Array(vec![uplc::PlutusData::BoundedBytes(PlutusBytes::from(
+        ve_factory_auth_policy.to_raw_bytes().to_vec(),
+    ))]);
+    apply_params_validator(params_pd, VOTING_ESCROW_SCRIPT)
 }

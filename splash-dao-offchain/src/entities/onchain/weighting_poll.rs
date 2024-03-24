@@ -8,12 +8,13 @@ use cml_crypto::RawBytesEncoding;
 use derive_more::From;
 
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, IntoPlutusData, PlutusDataExtension};
-use spectrum_cardano_lib::Token;
+use spectrum_cardano_lib::{TaggedAmount, Token};
 use spectrum_offchain::data::{Identifier, Stable};
 use spectrum_offchain::ledger::IntoLedger;
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 use uplc_pallas_codec::utils::{Int, PlutusBytes};
 
+use crate::assets::Splash;
 use crate::constants::MINT_WP_AUTH_TOKEN_SCRIPT;
 use crate::entities::onchain::smart_farm::FarmId;
 use crate::routines::inflation::WeightingPollSnapshot;
@@ -32,6 +33,7 @@ pub struct WeightingPoll {
     pub epoch: ProtocolEpoch,
     pub distribution: Vec<(FarmId, u64)>,
     pub stable_id: WeightingPollStableId,
+    pub emission_rate: TaggedAmount<Splash>,
 }
 
 impl<Ctx> IntoLedger<TransactionOutput, Ctx> for WeightingPoll {
@@ -89,6 +91,7 @@ impl WeightingPoll {
         farms: Vec<FarmId>,
         auth_policy: PolicyId,
         farm_auth_policy: PolicyId,
+        emission_rate: TaggedAmount<Splash>,
     ) -> Self {
         let stable_id = WeightingPollStableId {
             auth_policy,
@@ -98,6 +101,7 @@ impl WeightingPoll {
             epoch,
             distribution: farms.into_iter().map(|farm| (farm, 0)).collect(),
             stable_id,
+            emission_rate,
         }
     }
 
@@ -118,6 +122,10 @@ impl WeightingPoll {
                 Some((farm, weight)) => PollState::DistributionOngoing(DistributionOngoing(farm, weight)),
             }
         }
+    }
+
+    pub fn voting_deadline_time(&self, genesis: GenesisEpochStartTime) -> NetworkTime {
+        epoch_end(genesis, self.epoch)
     }
 
     fn weighting_open(&self, genesis: GenesisEpochStartTime, time_now: NetworkTime) -> bool {
@@ -204,7 +212,7 @@ pub fn compute_mint_wp_auth_token_policy_id(
     splash_policy: PolicyId,
     farm_auth_policy: PolicyId,
     factory_auth_policy: PolicyId,
-    zeroth_epoch_start: u32,
+    zeroth_epoch_start: u64,
 ) -> PolicyId {
     let params_pd = uplc::PlutusData::Array(vec![
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(splash_policy.to_raw_bytes().to_vec())),
