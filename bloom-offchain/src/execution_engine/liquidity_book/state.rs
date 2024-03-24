@@ -969,6 +969,9 @@ pub mod tests {
         fn stable_id(&self) -> Self::StableId {
             self.pool_id
         }
+        fn is_quasi_permanent(&self) -> bool {
+            true
+        }
     }
 
     impl Pool for SimpleCFMMPool {

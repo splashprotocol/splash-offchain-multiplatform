@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::certs::Credential;
-use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData};
+use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::utils::BigInt;
 use cml_chain::PolicyId;
 use cml_core::serialization::{LenEncoding, StringEncoding};

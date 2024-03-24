@@ -65,7 +65,7 @@ where
         let (
             ExecutionState {
                 tx_blueprint,
-                execution_budget_acc,
+                execution_budget_acc: _,
             },
             effects,
             ctx,

@@ -74,7 +74,7 @@ impl TxBlueprint {
     pub fn apply_to_builder(self, mut txb: TransactionBuilder) -> TransactionBuilder {
         let mut sorted_io = self.script_io;
         sorted_io.sort_by(|(left_in, _), (right_in, _)| left_in.reference.cmp(&right_in.reference));
-        let mut enumerated_io = sorted_io.into_iter().enumerate().collect::<Vec<_>>();
+        let enumerated_io = sorted_io.into_iter().enumerate().collect::<Vec<_>>();
         let inputs_ordering = TxInputsOrdering(HashMap::from_iter(
             enumerated_io.iter().map(|(ix, (i, _))| (i.reference, *ix)),
         ));
