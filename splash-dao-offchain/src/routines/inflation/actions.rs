@@ -27,7 +27,7 @@ use spectrum_offchain::data::unique_entity::{Predicted, Traced};
 use spectrum_offchain::data::{EntitySnapshot, Has, Stable};
 use spectrum_offchain::ledger::IntoLedger;
 use spectrum_offchain_cardano::creds::operator_creds;
-use uplc::tx::apply_params_to_script;
+use uplc::tx::{self, apply_params_to_script};
 use uplc::{plutus_data_to_bytes, BigInt};
 use uplc_pallas_codec::utils::{Bytes, Int, PlutusBytes};
 use uplc_pallas_traverse::ComputeHash;
@@ -71,7 +71,6 @@ pub trait InflationActions<Bearer> {
     async fn create_wpoll(
         &self,
         config: &ProtocolConfig,
-        zeroth_epoch_start: u32,
         inflation_box: Bundled<InflationBoxSnapshot, Bearer>,
         factory: Bundled<PollFactorySnapshot, Bearer>,
     ) -> (
@@ -86,6 +85,7 @@ pub trait InflationActions<Bearer> {
     ) -> SignedTxBuilder;
     async fn execute_order(
         &self,
+        config: &ProtocolConfig,
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
         order: (VotingOrder, Bundled<VotingEscrowSnapshot, Bearer>),
     ) -> (
@@ -95,6 +95,7 @@ pub trait InflationActions<Bearer> {
     );
     async fn distribute_inflation(
         &self,
+        config: &ProtocolConfig,
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
         farm: Bundled<SmartFarmSnapshot, Bearer>,
         perm_manager: Bundled<PermManagerSnapshot, Bearer>,
@@ -141,7 +142,6 @@ where
     async fn create_wpoll(
         &self,
         config: &ProtocolConfig,
-        zeroth_epoch_start: u32,
         Bundled(inflation_box, inflation_box_in): Bundled<InflationBoxSnapshot, TransactionOutput>,
         Bundled(factory, factory_in): Bundled<PollFactorySnapshot, TransactionOutput>,
     ) -> (

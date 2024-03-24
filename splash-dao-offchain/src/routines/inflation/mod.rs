@@ -250,7 +250,7 @@ impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
         if let Some(next_order) = next_pending_order {
             let (signed_tx, next_wpoll, next_ve) = self
                 .actions
-                .execute_order(weighting_poll.erased(), next_order)
+                .execute_order(&self.conf, weighting_poll.erased(), next_order)
                 .await;
             let tx = self.prover.prove(signed_tx);
             self.network.submit_tx(tx).await.unwrap();
