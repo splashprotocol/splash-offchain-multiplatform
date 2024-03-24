@@ -2,6 +2,8 @@ use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::plutus::{ExUnits, PlutusV1Script, PlutusV2Script, PlutusV3Script};
 use cml_chain::transaction::TransactionOutput;
 use cml_crypto::{ScriptHash, TransactionHash};
+use derive_more::{From, Into};
+use hex::FromHexError;
 use serde::Deserialize;
 
 use cardano_explorer::client::Explorer;
@@ -15,20 +17,31 @@ pub enum ScriptType {
     PlutusV3,
 }
 
+#[derive(Deserialize, Into, From)]
+#[serde(try_from = "String")]
+pub struct RawScript(Vec<u8>);
+
+impl TryFrom<String> for RawScript {
+    type Error = FromHexError;
+    fn try_from(string: String) -> Result<Self, Self::Error> {
+        hex::decode(string).map(RawScript)
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Script {
     #[serde(rename = "type")]
     pub typ: ScriptType,
-    pub script: Vec<u8>,
+    pub script: RawScript,
 }
 
 impl From<Script> for cml_chain::Script {
     fn from(value: Script) -> Self {
         match value.typ {
-            ScriptType::PlutusV1 => cml_chain::Script::new_plutus_v1(PlutusV1Script::new(value.script)),
-            ScriptType::PlutusV2 => cml_chain::Script::new_plutus_v2(PlutusV2Script::new(value.script)),
-            ScriptType::PlutusV3 => cml_chain::Script::new_plutus_v3(PlutusV3Script::new(value.script)),
+            ScriptType::PlutusV1 => cml_chain::Script::new_plutus_v1(PlutusV1Script::new(value.script.into())),
+            ScriptType::PlutusV2 => cml_chain::Script::new_plutus_v2(PlutusV2Script::new(value.script.into())),
+            ScriptType::PlutusV3 => cml_chain::Script::new_plutus_v3(PlutusV3Script::new(value.script.into())),
         }
     }
 }
