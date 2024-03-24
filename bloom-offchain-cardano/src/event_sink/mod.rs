@@ -10,10 +10,10 @@ use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::order::SpecializedOrder;
 use spectrum_offchain::data::{Baked, EntitySnapshot, Has, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
+use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
 use spectrum_offchain_cardano::data::pair::PairId;
 
-use crate::creds::ExecutorCred;
 use crate::orders::AnyOrder;
 use crate::pools::AnyPool;
 
@@ -40,7 +40,7 @@ impl SpecializedOrder for AtomicCardanoEntity {
 
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for AtomicCardanoEntity
 where
-    C: Copy + Has<ExecutorCred> + Has<OutputRef>,
+    C: Copy + Has<OperatorCred> + Has<OutputRef>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
         trace!(target: "offchain", "AtomicCardanoEntity::try_from_ledger");
@@ -85,7 +85,7 @@ impl Tradable for EvolvingCardanoEntity {
 
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for EvolvingCardanoEntity
 where
-    C: Copy + Has<ExecutorCred> + Has<OutputRef>,
+    C: Copy + Has<OperatorCred> + Has<OutputRef>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
         trace!(target: "offchain", "CardanoEntity::try_from_ledger");

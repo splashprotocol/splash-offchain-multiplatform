@@ -10,7 +10,7 @@ use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::plutus_data::RequiresRedeemer;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_offchain::data::Has;
-use spectrum_offchain_cardano::data::pool::{AssetDeltas, CFMMPool, CFMMPoolAction};
+use spectrum_offchain_cardano::data::pool::{AssetDeltas, CFMMPool, CFMMPoolAction, CFMMPoolRedeemer};
 use spectrum_offchain_cardano::data::PoolVer;
 use spectrum_offchain_cardano::deployment::DeployedValidator;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{ConstFnPoolV1, ConstFnPoolV2, LimitOrder};
@@ -194,7 +194,10 @@ where
             utxo: consumed_out,
             script: pool_validator,
             redeemer: delayed_redeemer(move |ordering| {
-                CFMMPool::redeemer(CFMMPoolAction::Swap, ordering.index_of(&in_ref))
+                CFMMPool::redeemer(CFMMPoolRedeemer {
+                    pool_input_index: ordering.index_of(&in_ref) as u64,
+                    action: CFMMPoolAction::Swap,
+                })
             }),
         };
         let result = Bundled(transition, produced_out.clone());

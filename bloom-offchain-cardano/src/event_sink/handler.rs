@@ -23,19 +23,19 @@ use spectrum_offchain::data::{EntitySnapshot, Has, Tradable};
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain::partitioning::Partitioned;
+use spectrum_offchain_cardano::creds::OperatorCred;
 
-use crate::creds::ExecutorCred;
 use crate::event_sink::entity_index::TradableEntityIndex;
 use crate::event_sink::order_index::OrderIndex;
 
 #[derive(Copy, Clone, Debug)]
 pub struct HandlerContext {
     pub output_ref: OutputRef,
-    pub executor_cred: ExecutorCred,
+    pub executor_cred: OperatorCred,
 }
 
 impl HandlerContext {
-    pub fn new(output_ref: OutputRef, own_cred: ExecutorCred) -> Self {
+    pub fn new(output_ref: OutputRef, own_cred: OperatorCred) -> Self {
         Self {
             output_ref,
             executor_cred: own_cred,
@@ -49,8 +49,8 @@ impl Has<OutputRef> for HandlerContext {
     }
 }
 
-impl Has<ExecutorCred> for HandlerContext {
-    fn get_labeled<U: IsEqual<ExecutorCred>>(&self) -> ExecutorCred {
+impl Has<OperatorCred> for HandlerContext {
+    fn get_labeled<U: IsEqual<OperatorCred>>(&self) -> OperatorCred {
         self.executor_cred
     }
 }
@@ -62,7 +62,7 @@ pub struct PairUpdateHandler<const N: usize, PairId, Topic, Entity, Index> {
     pub topic: Partitioned<N, PairId, Topic>,
     /// Index of all non-consumed states of [Entity].
     pub index: Arc<Mutex<Index>>,
-    pub executor_cred: ExecutorCred,
+    pub executor_cred: OperatorCred,
     pub pd: PhantomData<Entity>,
 }
 
@@ -70,7 +70,7 @@ impl<const N: usize, PairId, Topic, Entity, Index> PairUpdateHandler<N, PairId, 
     pub fn new(
         topic: Partitioned<N, PairId, Topic>,
         index: Arc<Mutex<Index>>,
-        executor_cred: ExecutorCred,
+        executor_cred: OperatorCred,
     ) -> Self {
         Self {
             topic,
@@ -241,7 +241,7 @@ fn pool_ref_of<T: SpecializedOrder>(tr: &Either<T, T>) -> T::TPoolId {
 
 async fn extract_atomic_transitions<Order, Index>(
     index: Arc<Mutex<Index>>,
-    executor_cred: ExecutorCred,
+    executor_cred: OperatorCred,
     mut tx: BabbageTransaction,
 ) -> Result<Vec<Either<Order, Order>>, BabbageTransaction>
 where
@@ -312,7 +312,7 @@ where
 
 async fn extract_persistent_transitions<Entity, Index>(
     index: Arc<Mutex<Index>>,
-    executor_cred: ExecutorCred,
+    executor_cred: OperatorCred,
     mut tx: BabbageTransaction,
 ) -> Result<Vec<Ior<Entity, Entity>>, BabbageTransaction>
 where
@@ -568,7 +568,7 @@ mod tests {
     use spectrum_offchain::ledger::TryFromLedger;
     use spectrum_offchain::partitioning::Partitioned;
 
-    use crate::creds::ExecutorCred;
+    use crate::creds::OperatorCred;
     use crate::event_sink::entity_index::InMemoryEntityIndex;
     use crate::event_sink::handler::PairUpdateHandler;
 
@@ -660,7 +660,7 @@ mod tests {
             InMemoryEntityIndex::new(entity_eviction_delay).with_tracing(),
         ));
         let (snd, mut recv) = mpsc::channel::<(u8, EitherMod<StateUpdate<TrivialEntity>>)>(100);
-        let ex_cred = ExecutorCred(Ed25519KeyHash::from([0u8; 28]));
+        let ex_cred = OperatorCred(Ed25519KeyHash::from([0u8; 28]));
         let mut handler = PairUpdateHandler::new(Partitioned::new([snd]), index, ex_cred);
         // Handle tx application
         EventHandler::<LedgerTxEvent<BabbageTransaction>>::try_handle(

@@ -6,8 +6,8 @@ use cml_chain::utils::BigInt;
 use cml_core::serialization::LenEncoding;
 
 /// Some on-chain entities may require a redeemer for a specific action.
-pub trait RequiresRedeemer<Action> {
-    fn redeemer(action: Action) -> PlutusData;
+pub trait RequiresRedeemer<Redeemer> {
+    fn redeemer(redeemer: Redeemer) -> PlutusData;
 }
 
 pub trait IntoPlutusData {

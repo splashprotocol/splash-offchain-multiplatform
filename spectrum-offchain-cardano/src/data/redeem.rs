@@ -11,15 +11,19 @@ use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::order::UniqueOrder;
+use spectrum_offchain::data::Has;
 use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::constants::{
     ORDER_APPLY_RAW_REDEEMER, ORDER_APPLY_RAW_REDEEMER_V2, ORDER_REFUND_RAW_REDEEMER, REDEEM_SCRIPT_V2,
 };
+use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::order::{ClassicalOrder, ClassicalOrderAction, PoolNft};
 use crate::data::pool::CFMMPoolAction::Redeem as RedeemAction;
-use crate::data::pool::{CFMMPoolAction, Lq, OrderInputIdx, Rx, Ry};
+use crate::data::pool::{CFMMPoolAction, Lq, Rx, Ry};
 use crate::data::{OnChainOrderId, PoolId};
+use crate::deployment::ProtocolValidator::{ConstFnPoolDeposit, ConstFnPoolRedeem};
+use crate::deployment::{DeployedValidator, DeployedValidatorErased, RequiresValidator};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Redeem {
@@ -36,19 +40,12 @@ pub struct Redeem {
 
 pub type ClassicalOnChainRedeem = ClassicalOrder<OnChainOrderId, Redeem>;
 
-impl RequiresRedeemer<(ClassicalOrderAction, OrderInputIdx)> for ClassicalOnChainRedeem {
-    fn redeemer(action: (ClassicalOrderAction, OrderInputIdx)) -> PlutusData {
-        match action {
-            (ClassicalOrderAction::Apply, OrderInputIdx::Idx0) => {
-                PlutusData::from_bytes(hex::decode(ORDER_APPLY_RAW_REDEEMER_V2).unwrap()).unwrap()
-            }
-            (ClassicalOrderAction::Apply, OrderInputIdx::Idx1) => {
-                PlutusData::from_bytes(hex::decode(ORDER_APPLY_RAW_REDEEMER).unwrap()).unwrap()
-            }
-            (ClassicalOrderAction::Refund, _) => {
-                PlutusData::from_bytes(hex::decode(ORDER_REFUND_RAW_REDEEMER).unwrap()).unwrap()
-            }
-        }
+impl<Ctx> RequiresValidator<Ctx> for ClassicalOnChainRedeem
+where
+    Ctx: Has<DeployedValidator<{ ConstFnPoolRedeem as u8 }>>,
+{
+    fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
+        ctx.get().erased()
     }
 }
 

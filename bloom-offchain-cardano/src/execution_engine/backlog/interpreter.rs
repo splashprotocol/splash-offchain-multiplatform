@@ -5,9 +5,11 @@ use log::info;
 
 use bloom_offchain::execution_engine::backlog::SpecializedInterpreter;
 use bloom_offchain::execution_engine::bundled::Bundled;
+use spectrum_cardano_lib::output::FinalizedTxOut;
+use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::order::SpecializedOrder;
 use spectrum_offchain::data::unique_entity::Predicted;
-use spectrum_offchain::data::{Baked, EntitySnapshot, Stable};
+use spectrum_offchain::data::{Baked, EntitySnapshot, Has, Stable};
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 
 use crate::pools::PoolMagnet;
@@ -15,31 +17,32 @@ use crate::pools::PoolMagnet;
 #[derive(Debug, Copy, Clone)]
 pub struct SpecializedInterpreterViaRunOrder;
 
-impl<'a, Pl, Ord, Ver, Txc, Bearer, Ctx> SpecializedInterpreter<Pl, Ord, Ver, Txc, Bearer, Ctx>
+impl<'a, Pl, Ord, Ver, Txc, Ctx> SpecializedInterpreter<Pl, Ord, Ver, Txc, FinalizedTxOut, Ctx>
     for SpecializedInterpreterViaRunOrder
 where
-    Pl: EntitySnapshot<Version = Ver>,
-    PoolMagnet<Bundled<Pl, Bearer>>: RunOrder<Bundled<Ord, Bearer>, Ctx, Txc>,
-    Bearer: Clone,
+    Pl: Stable,
+    PoolMagnet<Bundled<Pl, FinalizedTxOut>>: RunOrder<Bundled<Ord, FinalizedTxOut>, Ctx, Txc>,
     Ord: SpecializedOrder<TPoolId = Pl::StableId> + Clone,
     Ord::TOrderId: Display,
+    Ver: From<OutputRef>,
     Ctx: Clone,
 {
     fn try_run(
         &mut self,
-        pool: Bundled<Pl, Bearer>,
-        order: Bundled<Ord, Bearer>,
+        pool: Bundled<Pl, FinalizedTxOut>,
+        order: Bundled<Ord, FinalizedTxOut>,
         context: Ctx,
-    ) -> Option<(Txc, Bundled<Baked<Pl, Ver>, Bearer>, Bundled<Ord, Bearer>)> {
+    ) -> Option<(
+        Txc,
+        Bundled<Baked<Pl, Ver>, FinalizedTxOut>,
+        Bundled<Ord, FinalizedTxOut>,
+    )> {
         let op_ref = order.get_self_ref();
         match PoolMagnet(pool).try_run(order.clone(), context.clone()) {
-            Ok((tx_candidate, Predicted(updated_pool))) => {
+            Ok((tx_candidate, Predicted(PoolMagnet(Bundled(pool, bearer))))) => {
                 return Some((
                     tx_candidate,
-                    updated_pool.0.map(|p| {
-                        let ver = p.version();
-                        Baked::new(p, ver)
-                    }),
+                    Bundled(Baked::new(pool, bearer.1.into()), bearer),
                     order,
                 ))
             }

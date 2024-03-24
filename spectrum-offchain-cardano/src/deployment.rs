@@ -192,3 +192,7 @@ impl ProtocolDeployment {
         }
     }
 }
+
+pub trait RequiresValidator<Ctx> {
+    fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased;
+}

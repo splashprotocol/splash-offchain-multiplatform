@@ -30,16 +30,14 @@ use spectrum_cardano_lib::AssetClass;
 use spectrum_offchain::data::{Has, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::constants::SPOT_ORDER_NATIVE_TO_TOKEN_SCRIPT_HASH;
+use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::pair::{side_of, PairId};
 
-use crate::creds::ExecutorCred;
-
-pub const EXEC_REDEEMER: PlutusData =
-    PlutusData::ConstrPlutusData(ConstrPlutusData {
-        alternative: 0,
-        fields: vec![],
-        encodings: None,
-    });
+pub const EXEC_REDEEMER: PlutusData = PlutusData::ConstrPlutusData(ConstrPlutusData {
+    alternative: 0,
+    fields: vec![],
+    encodings: None,
+});
 
 /// Spot order. Can be executed at a configured or better price as long as there is enough budget.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -272,7 +270,7 @@ impl TryFromPData for ConfigNativeToToken {
 
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for SpotOrder
 where
-    C: Has<ExecutorCred>,
+    C: Has<OperatorCred>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
         let script_hash = ScriptHash::from_hex(SPOT_ORDER_NATIVE_TO_TOKEN_SCRIPT_HASH).unwrap();

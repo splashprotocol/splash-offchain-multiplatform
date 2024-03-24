@@ -25,10 +25,10 @@ use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::{Baked, Has};
+use spectrum_offchain_cardano::creds::OperatorRewardAddress;
 use spectrum_offchain_cardano::deployment::DeployedValidator;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderWitness;
 
-use crate::creds::RewardAddress;
 use crate::execution_engine::execution_state::ExecutionState;
 use crate::execution_engine::instances::{Magnet, OrderResult, PoolResult};
 
@@ -43,7 +43,10 @@ where
     Pl: Copy + std::fmt::Debug,
     Magnet<LinkedFill<Fr, FinalizedTxOut>>: BatchExec<ExecutionState, OrderResult<Fr>, Ctx, Void>,
     Magnet<LinkedSwap<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, PoolResult<Pl>, Ctx, Void>,
-    Ctx: Clone + Has<Collateral> + Has<RewardAddress> + Has<DeployedValidator<{ LimitOrderWitness as u8 }>>,
+    Ctx: Clone
+        + Has<Collateral>
+        + Has<OperatorRewardAddress>
+        + Has<DeployedValidator<{ LimitOrderWitness as u8 }>>,
 {
     fn run(
         &mut self,
@@ -71,7 +74,7 @@ where
         let mut tx_builder = tx_blueprint.apply_to_builder(constant_tx_builder());
 
         // Set batch validator
-        let addr = ctx.get_labeled::<RewardAddress>();
+        let addr = ctx.get_labeled::<OperatorRewardAddress>();
         let reward_address = cml_chain::address::RewardAddress::new(
             addr.0.network_id().unwrap(),
             addr.0.payment_cred().unwrap().clone(),
@@ -98,7 +101,7 @@ where
         trace!(target: "offchain", "estimated tx_fee: {}", estimated_tx_fee);
         tx_builder.set_fee(estimated_tx_fee + TX_FEE_CORRECTION);
 
-        let execution_fee_address: Address = ctx.get_labeled::<RewardAddress>().into();
+        let execution_fee_address: Address = ctx.get_labeled::<OperatorRewardAddress>().into();
         // Build tx, change is execution fee.
         let tx_body = tx_builder
             .clone()

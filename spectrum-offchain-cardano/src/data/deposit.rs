@@ -11,15 +11,19 @@ use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::order::UniqueOrder;
+use spectrum_offchain::data::Has;
 use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::constants::{
     DEPOSIT_SCRIPT_V2, ORDER_APPLY_RAW_REDEEMER, ORDER_APPLY_RAW_REDEEMER_V2, ORDER_REFUND_RAW_REDEEMER,
 };
+use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::order::{ClassicalOrder, ClassicalOrderAction, PoolNft};
 use crate::data::pool::CFMMPoolAction::Deposit as DepositAction;
-use crate::data::pool::{CFMMPoolAction, Lq, OrderInputIdx, Rx, Ry};
+use crate::data::pool::{CFMMPoolAction, Lq, Rx, Ry};
 use crate::data::{OnChainOrderId, PoolId};
+use crate::deployment::ProtocolValidator::ConstFnPoolDeposit;
+use crate::deployment::{DeployedValidator, DeployedValidatorErased, RequiresValidator};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Deposit {
@@ -37,19 +41,12 @@ pub struct Deposit {
 
 pub type ClassicalOnChainDeposit = ClassicalOrder<OnChainOrderId, Deposit>;
 
-impl RequiresRedeemer<(ClassicalOrderAction, OrderInputIdx)> for ClassicalOnChainDeposit {
-    fn redeemer(action: (ClassicalOrderAction, OrderInputIdx)) -> PlutusData {
-        match action {
-            (ClassicalOrderAction::Apply, OrderInputIdx::Idx0) => {
-                PlutusData::from_bytes(hex::decode(ORDER_APPLY_RAW_REDEEMER_V2).unwrap()).unwrap()
-            }
-            (ClassicalOrderAction::Apply, OrderInputIdx::Idx1) => {
-                PlutusData::from_bytes(hex::decode(ORDER_APPLY_RAW_REDEEMER).unwrap()).unwrap()
-            }
-            (ClassicalOrderAction::Refund, _) => {
-                PlutusData::from_bytes(hex::decode(ORDER_REFUND_RAW_REDEEMER).unwrap()).unwrap()
-            }
-        }
+impl<Ctx> RequiresValidator<Ctx> for ClassicalOnChainDeposit
+where
+    Ctx: Has<DeployedValidator<{ ConstFnPoolDeposit as u8 }>>,
+{
+    fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
+        ctx.get().erased()
     }
 }
 

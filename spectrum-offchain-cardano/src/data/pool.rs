@@ -20,10 +20,13 @@ use num_integer::Roots;
 use num_rational::Ratio;
 use type_equalities::IsEqual;
 
+use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
+use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
 };
@@ -43,21 +46,24 @@ use crate::constants::{
     POOL_IDX_0_DEPOSIT_REDEEMER, POOL_IDX_0_REDEEM_REDEEMER, POOL_IDX_0_SWAP_REDEEMER,
     POOL_IDX_1_DEPOSIT_REDEEMER, POOL_IDX_1_REDEEM_REDEEMER, POOL_IDX_1_SWAP_REDEEMER,
 };
+use crate::creds::OperatorRewardAddress;
 use crate::data::deposit::ClassicalOnChainDeposit;
-use crate::data::execution_context::ExecutionContext;
 use crate::data::fee_switch_bidirectional_fee::FeeSwitchBidirectionalPoolConfig;
 use crate::data::fee_switch_pool::FeeSwitchPoolConfig;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::operation_output::{DepositOutput, RedeemOutput, SwapOutput};
-use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
+use crate::data::order::{
+    Base, ClassicalAMMOrder, ClassicalOrder, ClassicalOrderAction, ClassicalOrderRedeemer, PoolNft, Quote,
+};
 use crate::data::pair::order_canonical;
 use crate::data::pool::ApplyOrderError::{LowBatcherFeeErr, SlippageErr};
 use crate::data::redeem::ClassicalOnChainRedeem;
-use crate::fees::FeeExtension;
-use crate::pool_math::cfmm_math::{output_amount, reward_lp, shares_amount};
-
 use crate::data::ref_scripts::RequiresRefScript;
 use crate::data::{OnChain, OnChainOrderId, PoolId, PoolStateVer, PoolVer};
+use crate::deployment::ProtocolValidator::{ConstFnPoolV1, ConstFnPoolV2, LimitOrderWitness};
+use crate::deployment::{DeployedValidator, DeployedValidatorErased, RequiresValidator};
+use crate::fees::FeeExtension;
+use crate::pool_math::cfmm_math::{output_amount, reward_lp, shares_amount};
 
 pub struct Rx;
 
@@ -169,33 +175,16 @@ impl<Order> From<LowerBatcherFee<Order>> for RunOrderError<Order> {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-pub enum PoolInputIdx {
-    Idx0,
-    Idx1,
+pub struct CFMMPoolRedeemer {
+    pub pool_input_index: u64,
+    pub action: CFMMPoolAction,
 }
 
-impl Into<u64> for PoolInputIdx {
-    fn into(self) -> u64 {
-        match self {
-            PoolInputIdx::Idx0 => 0,
-            PoolInputIdx::Idx1 => 1,
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum OrderInputIdx {
-    Idx0,
-    Idx1,
-}
-
-impl Into<u64> for OrderInputIdx {
-    fn into(self) -> u64 {
-        match self {
-            OrderInputIdx::Idx0 => 0,
-            OrderInputIdx::Idx1 => 1,
-        }
+impl CFMMPoolRedeemer {
+    pub fn to_plutus_data(self) -> PlutusData {
+        let action_pd = self.action.to_plutus_data();
+        let self_ix_pd = PlutusData::Integer(BigInt::from(self.pool_input_index));
+        PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![action_pd, self_ix_pd]))
     }
 }
 
@@ -220,7 +209,6 @@ impl CFMMPoolAction {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct CFMMPool {
     pub id: PoolId,
-    pub state_ver: PoolStateVer,
     pub reserves_x: TaggedAmount<Rx>,
     pub reserves_y: TaggedAmount<Ry>,
     pub liquidity: TaggedAmount<Lq>,
@@ -242,12 +230,6 @@ pub struct AssetDeltas {
 }
 
 impl CFMMPool {
-    pub fn redeemer(action: CFMMPoolAction, pool_input_index: usize) -> PlutusData {
-        let action_pd = action.to_plutus_data();
-        let self_ix_pd = PlutusData::Integer(BigInt::from(pool_input_index));
-        PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![action_pd, self_ix_pd]))
-    }
-
     pub fn get_asset_deltas(&self, side: SideM) -> AssetDeltas {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
@@ -278,34 +260,25 @@ impl CFMMPool {
     }
 }
 
-// In case of standard AMM pools we should also require
-// pool idx in input set, because it affects
-// final version of redeemer. Pool idx could be only 0 or 1
-impl RequiresRedeemer<(CFMMPoolAction, PoolInputIdx)> for CFMMPool {
-    fn redeemer(action: (CFMMPoolAction, PoolInputIdx)) -> PlutusData {
-        match action {
-            (CFMMPoolAction::Swap, PoolInputIdx::Idx0) => {
-                PlutusData::from_bytes(hex::decode(POOL_IDX_0_SWAP_REDEEMER).unwrap()).unwrap()
-            }
-            (CFMMPoolAction::Swap, PoolInputIdx::Idx1) => {
-                PlutusData::from_bytes(hex::decode(POOL_IDX_1_SWAP_REDEEMER).unwrap()).unwrap()
-            }
-            (CFMMPoolAction::Deposit, PoolInputIdx::Idx0) => {
-                PlutusData::from_bytes(hex::decode(POOL_IDX_0_DEPOSIT_REDEEMER).unwrap()).unwrap()
-            }
-            (CFMMPoolAction::Deposit, PoolInputIdx::Idx1) => {
-                PlutusData::from_bytes(hex::decode(POOL_IDX_1_DEPOSIT_REDEEMER).unwrap()).unwrap()
-            }
-            (CFMMPoolAction::Redeem, PoolInputIdx::Idx0) => {
-                PlutusData::from_bytes(hex::decode(POOL_IDX_0_REDEEM_REDEEMER).unwrap()).unwrap()
-            }
-            (CFMMPoolAction::Redeem, PoolInputIdx::Idx1) => {
-                PlutusData::from_bytes(hex::decode(POOL_IDX_1_REDEEM_REDEEMER).unwrap()).unwrap()
-            }
-            (CFMMPoolAction::Destroy, _) => {
-                PlutusData::from_bytes(hex::decode(POOL_DESTROY_REDEEMER).unwrap()).unwrap()
-            }
+impl<Ctx> RequiresValidator<Ctx> for CFMMPool
+where
+    Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>> + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>,
+{
+    fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
+        match self.ver {
+            PoolVer::V1 => ctx
+                .get_labeled::<DeployedValidator<{ ConstFnPoolV1 as u8 }>>()
+                .erased(),
+            _ => ctx
+                .get_labeled::<DeployedValidator<{ ConstFnPoolV2 as u8 }>>()
+                .erased(),
         }
+    }
+}
+
+impl RequiresRedeemer<CFMMPoolRedeemer> for CFMMPool {
+    fn redeemer(redeemer: CFMMPoolRedeemer) -> PlutusData {
+        redeemer.to_plutus_data()
     }
 }
 
@@ -432,12 +405,6 @@ impl Pool for CFMMPool {
     }
 }
 
-impl Has<PoolStateVer> for CFMMPool {
-    fn get_labeled<U: IsEqual<PoolStateVer>>(&self) -> PoolStateVer {
-        self.state_ver
-    }
-}
-
 impl Has<PoolVer> for CFMMPool {
     fn get_labeled<U: IsEqual<PoolVer>>(&self) -> PoolVer {
         self.ver
@@ -460,21 +427,8 @@ impl Stable for CFMMPool {
     }
 }
 
-impl EntitySnapshot for CFMMPool {
-    type Version = PoolStateVer;
-    fn version(&self) -> Self::Version {
-        self.state_ver
-    }
-}
-
-impl VersionUpdater for CFMMPool {
-    fn update_version(&mut self, new_version: Self::Version) {
-        self.state_ver = new_version
-    }
-}
-
-impl TryFromLedger<BabbageTransactionOutput, OutputRef> for CFMMPool {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
+impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for CFMMPool {
+    fn try_from_ledger(repr: &BabbageTransactionOutput, _: Ctx) -> Option<Self> {
         if let Some(pool_ver) = PoolVer::try_from_address(repr.address()) {
             let value = repr.value();
             let pd = repr.datum().clone()?.into_pd()?;
@@ -484,7 +438,6 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for CFMMPool {
                     let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
                     Some(CFMMPool {
                         id: PoolId::try_from(conf.pool_nft).ok()?,
-                        state_ver: PoolStateVer::from(ctx),
                         reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
                         reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
                         liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
@@ -505,7 +458,6 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for CFMMPool {
                     let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
                     Some(CFMMPool {
                         id: PoolId::try_from(conf.pool_nft).ok()?,
-                        state_ver: PoolStateVer::from(ctx),
                         reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?)
                             - TaggedAmount::new(conf.treasury_x),
                         reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?)
@@ -528,7 +480,6 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for CFMMPool {
                     let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
                     Some(CFMMPool {
                         id: PoolId::try_from(conf.pool_nft).ok()?,
-                        state_ver: PoolStateVer::from(ctx),
                         reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?)
                             - TaggedAmount::new(conf.treasury_x),
                         reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?)
@@ -806,88 +757,70 @@ impl ApplyOrder<ClassicalOnChainRedeem> for CFMMPool {
     }
 }
 
-fn process_cml_step<Order>(
-    step: Result<(), TxBuilderError>,
-    order: OnChain<Order>,
-) -> Result<(), RunOrderError<OnChain<Order>>> {
-    match step {
-        Ok(_) => Ok(()),
-        Err(err) => {
-            let error = format!("{:?}", err);
-            Err(Fatal(error, order))
-        }
-    }
-}
+pub struct RunAnyCFMMOrderOverPool<Pool>(pub Bundled<Pool, FinalizedTxOut>);
 
-impl<'a, Order, Pool> RunOrder<OnChain<Order>, ExecutionContext, SignedTxBuilder> for OnChain<Pool>
+impl<'a, Order, Pool, Ctx> RunOrder<Bundled<Order, FinalizedTxOut>, Ctx, SignedTxBuilder>
+    for RunAnyCFMMOrderOverPool<Pool>
 where
-    Pool: ApplyOrder<Order>
-        + Has<PoolStateVer>
-        + Has<PoolVer>
-        // all AMM ops redeemers depends on action and pool/order input idx
-        + RequiresRedeemer<(CFMMPoolAction, PoolInputIdx)>
-        + IntoLedger<TransactionOutput, ImmutablePoolUtxo>
-        + Clone
-        + RequiresRefScript
-        + EntitySnapshot<Version = PoolStateVer>
-        + VersionUpdater,
-    <Pool as ApplyOrder<Order>>::Result: IntoLedger<TransactionOutput, ExecutionContext>,
-    Order: Has<OnChainOrderId>
-        // all AMM ops redeemers depends on action and pool/order input idx
-        + RequiresRedeemer<(ClassicalOrderAction, OrderInputIdx)>
-        + RequiresRefScript
-        + Clone
-        + Into<CFMMPoolAction>
-        + Debug,
+    Pool:
+        ApplyOrder<Order> + RequiresValidator<Ctx> + IntoLedger<TransactionOutput, ImmutablePoolUtxo> + Clone,
+    <Pool as ApplyOrder<Order>>::Result: IntoLedger<TransactionOutput, Ctx>,
+    Order: Has<OnChainOrderId> + RequiresValidator<Ctx> + Clone + Debug,
+    Order: Into<CFMMPoolAction>,
+    Ctx: Clone
+        + Has<Collateral>
+        + Has<OperatorRewardAddress>
+        + Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>,
 {
     fn try_run(
         self,
-        order: OnChain<Order>,
-        ctx: ExecutionContext,
-    ) -> Result<(SignedTxBuilder, Predicted<Self>), RunOrderError<OnChain<Order>>> {
-        let pool_ref = OutputRef::from(self.value.get_labeled::<PoolStateVer>());
-        let order_ref = OutputRef::from(order.value.get_labeled::<OnChainOrderId>());
+        Bundled(order, FinalizedTxOut(order_utxo, order_ref)): Bundled<Order, FinalizedTxOut>,
+        ctx: Ctx,
+    ) -> Result<(SignedTxBuilder, Predicted<Self>), RunOrderError<Bundled<Order, FinalizedTxOut>>> {
+        let RunAnyCFMMOrderOverPool(Bundled(pool, FinalizedTxOut(pool_utxo, pool_ref))) = self;
         info!(target: "offchain", "Running order {} against pool {}", order_ref, pool_ref);
 
         let mut sorted_inputs = [pool_ref, order_ref];
         sorted_inputs.sort();
 
-        let (pool_idx, order_idx) = match sorted_inputs {
-            [pool_ref_first, _] if pool_ref_first == pool_ref => (PoolInputIdx::Idx0, OrderInputIdx::Idx1),
-            _ => (PoolInputIdx::Idx1, OrderInputIdx::Idx0),
+        let (pool_in_idx, order_in_idx) = match sorted_inputs {
+            [lh, _] if lh == pool_ref => (0u64, 1u64),
+            _ => (1u64, 0u64),
         };
 
-        let OnChain {
-            value: pool,
-            source: pool_out_in,
-        } = self;
-        let pool_redeemer = Pool::redeemer((order.value.clone().into(), pool_idx));
-        let pool_ref = OutputRef::from(pool.get_labeled::<PoolStateVer>());
-        let order_ref = OutputRef::from(order.value.get_labeled::<OnChainOrderId>());
+        let pool_redeemer = CFMMPoolRedeemer {
+            pool_input_index: pool_in_idx,
+            action: order.clone().into(),
+        };
+        let pool_validator = pool.get_validator(&ctx);
         let pool_script = PartialPlutusWitness::new(
-            PlutusScriptWitness::Ref(pool_out_in.script_hash().unwrap()),
-            pool_redeemer,
+            PlutusScriptWitness::Ref(pool_validator.hash),
+            pool_redeemer.to_plutus_data(),
         );
-        let immut_pool = ImmutablePoolUtxo::from(&pool_out_in);
-        let pool_in = SingleInputBuilder::new(pool_ref.into(), pool_out_in.clone())
+        let immut_pool = ImmutablePoolUtxo::from(&pool_utxo);
+        let pool_in = SingleInputBuilder::new(pool_ref.into(), pool_utxo.clone())
             .plutus_script_inline_datum(pool_script, Vec::new())
             .unwrap();
-        let order_redeemer = Order::redeemer((ClassicalOrderAction::Apply, order_idx));
+        let order_redeemer = ClassicalOrderRedeemer {
+            pool_input_index: pool_in_idx,
+            order_input_index: order_in_idx,
+            output_index: 1,
+            action: ClassicalOrderAction::Apply,
+        };
+        let order_validator = order.get_validator(&ctx);
         let order_script = PartialPlutusWitness::new(
-            PlutusScriptWitness::Ref(order.source.script_hash().unwrap()),
-            order_redeemer,
+            PlutusScriptWitness::Ref(order_validator.hash),
+            order_redeemer.to_plutus_data(),
         );
-        let order_in = SingleInputBuilder::new(order_ref.into(), order.source.clone())
+        let order_in = SingleInputBuilder::new(order_ref.into(), order_utxo.clone())
             .plutus_script_inline_datum(order_script, Vec::new())
             .unwrap();
-        let (next_pool, user_out) = match pool.clone().apply_order(order.value.clone()) {
+        let (next_pool, user_out) = match pool.clone().apply_order(order.clone()) {
             Ok(res) => res,
             Err(order_error) => {
                 return Err(order_error
-                    .map(|value: Order| OnChain {
-                        value,
-                        source: order.source,
-                    })
+                    .map(|value| Bundled(value, FinalizedTxOut(order_utxo, order_ref)))
                     .into());
             }
         };
@@ -895,47 +828,47 @@ where
 
         let mut tx_builder = constant_tx_builder();
 
-        tx_builder.add_collateral(ctx.collateral.clone().into()).unwrap();
+        tx_builder
+            .add_collateral(ctx.get_labeled::<Collateral>().into())
+            .unwrap();
 
-        tx_builder.add_reference_input(order.clone().value.get_ref_script(ctx.ref_scripts.clone()));
-        tx_builder.add_reference_input(pool.get_ref_script(ctx.ref_scripts.clone()));
+        tx_builder.add_reference_input(order_validator.reference_utxo);
+        tx_builder.add_reference_input(pool_validator.reference_utxo);
 
-        tx_builder.add_input(pool_in.clone()).unwrap();
+        tx_builder.add_input(pool_in).unwrap();
         tx_builder.add_input(order_in).unwrap();
 
         tx_builder.set_exunits(
-            RedeemerWitnessKey::new(RedeemerTag::Spend, pool_idx.clone().into()),
+            RedeemerWitnessKey::new(RedeemerTag::Spend, pool_in_idx.clone().into()),
             POOL_EXECUTION_UNITS,
         );
         tx_builder.set_exunits(
-            RedeemerWitnessKey::new(RedeemerTag::Spend, order_idx.clone().into()),
+            RedeemerWitnessKey::new(RedeemerTag::Spend, order_in_idx.clone().into()),
             ORDER_EXECUTION_UNITS,
         );
 
-        process_cml_step(
-            tx_builder.add_output(SingleOutputBuilderResult::new(pool_out.clone())),
-            order.clone(),
-        )?;
+        tx_builder
+            .add_output(SingleOutputBuilderResult::new(pool_out.clone()))
+            .unwrap();
 
-        process_cml_step(
-            tx_builder.add_output(SingleOutputBuilderResult::new(user_out.into_ledger(ctx.clone()))),
-            order,
-        )?;
+        tx_builder
+            .add_output(SingleOutputBuilderResult::new(user_out.into_ledger(ctx.clone())))
+            .unwrap();
 
         let tx = tx_builder
-            .build(ChangeSelectionAlgo::Default, &ctx.operator_addr)
+            .build(
+                ChangeSelectionAlgo::Default,
+                &ctx.get_labeled::<OperatorRewardAddress>().into(),
+            )
             .unwrap();
 
         let tx_hash = hash_transaction_canonical(&tx.body());
 
-        let mut next_pool_new = next_pool.clone();
-
-        next_pool_new.update_version(PoolStateVer(OutputRef::new(tx_hash, pool_idx.clone().into())));
-
-        let predicted_pool = Predicted(OnChain {
-            value: next_pool_new,
-            source: pool_out.clone(),
-        });
+        let next_pool_ref = OutputRef::new(tx_hash, 0);
+        let predicted_pool = Predicted(RunAnyCFMMOrderOverPool(Bundled(
+            next_pool,
+            FinalizedTxOut(pool_out, next_pool_ref),
+        )));
 
         Ok((tx, predicted_pool))
     }

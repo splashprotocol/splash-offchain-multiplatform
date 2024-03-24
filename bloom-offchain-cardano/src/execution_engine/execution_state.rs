@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use cml_chain::builders::input_builder::SingleInputBuilder;
@@ -12,7 +11,6 @@ use cml_chain::Value;
 
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{AssetClass, OutputRef};
-use spectrum_offchain_cardano::data::pool::ImmutablePoolUtxo;
 use spectrum_offchain_cardano::deployment::DeployedValidatorErased;
 
 pub struct TxInputsOrdering(HashMap<OutputRef, usize>);
@@ -75,13 +73,7 @@ impl TxBlueprint {
 
     pub fn apply_to_builder(self, mut txb: TransactionBuilder) -> TransactionBuilder {
         let mut sorted_io = self.script_io;
-        sorted_io.sort_by(|(left_in, _), (right_in, _)| {
-            match left_in.reference.tx_hash().cmp(&right_in.reference.tx_hash()) {
-                Ordering::Less => Ordering::Less,
-                Ordering::Equal => left_in.reference.index().cmp(&right_in.reference.index()),
-                Ordering::Greater => Ordering::Greater,
-            }
-        });
+        sorted_io.sort_by(|(left_in, _), (right_in, _)| left_in.reference.cmp(&right_in.reference));
         let mut enumerated_io = sorted_io.into_iter().enumerate().collect::<Vec<_>>();
         let inputs_ordering = TxInputsOrdering(HashMap::from_iter(
             enumerated_io.iter().map(|(ix, (i, _))| (i.reference, *ix)),

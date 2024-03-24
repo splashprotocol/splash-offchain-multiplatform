@@ -1,7 +1,6 @@
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::trace;
 
-use crate::creds::ExecutorCred;
 use bloom_derivation::{Fragment, Stable, Tradable};
 use bloom_offchain::execution_engine::liquidity_book::fragment::{OrderState, StateTrans};
 use bloom_offchain::execution_engine::liquidity_book::side::SideM;
@@ -9,6 +8,7 @@ use bloom_offchain::execution_engine::liquidity_book::types::{ExBudgetUsed, ExFe
 use spectrum_cardano_lib::NetworkTime;
 use spectrum_offchain::data::Has;
 use spectrum_offchain::ledger::TryFromLedger;
+use spectrum_offchain_cardano::creds::OperatorCred;
 
 use crate::orders::spot::SpotOrder;
 
@@ -41,7 +41,7 @@ impl OrderState for AnyOrder {
 
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for AnyOrder
 where
-    C: Has<ExecutorCred>,
+    C: Has<OperatorCred>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
         SpotOrder::try_from_ledger(repr, ctx).map(|s| {

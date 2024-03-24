@@ -10,6 +10,7 @@ use cml_chain::transaction::TransactionInput;
 use cml_chain::{PolicyId, Value};
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
+use derive_more::{From, Into};
 use serde::Deserialize;
 
 use crate::plutus_data::{ConstrPlutusDataExtension, PlutusDataExtension};
@@ -324,6 +325,9 @@ impl<T> TryFromPData for TaggedAmount<T> {
 }
 
 pub type NetworkTime = u64;
+
+#[derive(serde::Deserialize, Debug, Copy, Clone, From, Into)]
+pub struct NetworkId(u8);
 
 #[cfg(test)]
 mod tests {

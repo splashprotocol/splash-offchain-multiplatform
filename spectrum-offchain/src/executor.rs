@@ -17,7 +17,7 @@ use crate::box_resolver::persistence::EntityRepo;
 use crate::box_resolver::resolve_entity_state;
 use crate::data::order::SpecializedOrder;
 use crate::data::unique_entity::{Predicted, Traced};
-use crate::data::EntitySnapshot;
+use crate::data::{Baked, EntitySnapshot};
 use crate::executor::TxSubmissionError::{OrderUtxoIsSpent, PoolUtxoIsSpent, UnknownError};
 use crate::network::Network;
 use crate::tx_prover::TxProver;

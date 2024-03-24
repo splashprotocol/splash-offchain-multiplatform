@@ -13,16 +13,21 @@ use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::order::UniqueOrder;
+use spectrum_offchain::data::Has;
 use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::constants::{
     MIN_SAFE_ADA_VALUE, ORDER_APPLY_RAW_REDEEMER, ORDER_APPLY_RAW_REDEEMER_V2, ORDER_REFUND_RAW_REDEEMER,
     SWAP_SCRIPT_V2,
 };
-use crate::data::order::{Base, ClassicalOrder, ClassicalOrderAction, PoolNft, Quote};
+use crate::data::order::{
+    Base, ClassicalOrder, ClassicalOrderAction, ClassicalOrderRedeemer, PoolNft, Quote,
+};
+use crate::data::pool::CFMMPoolAction;
 use crate::data::pool::CFMMPoolAction::Swap;
-use crate::data::pool::{CFMMPoolAction, OrderInputIdx};
 use crate::data::{ExecutorFeePerToken, OnChainOrderId, PoolId};
+use crate::deployment::ProtocolValidator::{ConstFnPoolDeposit, ConstFnPoolSwap};
+use crate::deployment::{DeployedValidator, DeployedValidatorErased, RequiresValidator};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct LimitSwap {
@@ -38,19 +43,12 @@ pub struct LimitSwap {
 
 pub type ClassicalOnChainLimitSwap = ClassicalOrder<OnChainOrderId, LimitSwap>;
 
-impl RequiresRedeemer<(ClassicalOrderAction, OrderInputIdx)> for ClassicalOnChainLimitSwap {
-    fn redeemer(action: (ClassicalOrderAction, OrderInputIdx)) -> PlutusData {
-        match action {
-            (ClassicalOrderAction::Apply, OrderInputIdx::Idx0) => {
-                PlutusData::from_bytes(hex::decode(ORDER_APPLY_RAW_REDEEMER_V2).unwrap()).unwrap()
-            }
-            (ClassicalOrderAction::Apply, OrderInputIdx::Idx1) => {
-                PlutusData::from_bytes(hex::decode(ORDER_APPLY_RAW_REDEEMER).unwrap()).unwrap()
-            }
-            (ClassicalOrderAction::Refund, _) => {
-                PlutusData::from_bytes(hex::decode(ORDER_REFUND_RAW_REDEEMER).unwrap()).unwrap()
-            }
-        }
+impl<Ctx> RequiresValidator<Ctx> for ClassicalOnChainLimitSwap
+where
+    Ctx: Has<DeployedValidator<{ ConstFnPoolSwap as u8 }>>,
+{
+    fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
+        ctx.get().erased()
     }
 }
 

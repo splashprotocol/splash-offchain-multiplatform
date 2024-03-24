@@ -6,15 +6,21 @@ use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::output::FinalizedTxOut;
-use spectrum_cardano_lib::{OutputRef, Token};
+use spectrum_cardano_lib::{NetworkId, OutputRef, Token};
 use spectrum_offchain::data::unique_entity::Predicted;
-use spectrum_offchain::data::{EntitySnapshot, Has, Stable, Tradable};
+use spectrum_offchain::data::{Has, Stable, Tradable};
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::TryFromLedger;
-use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
+use spectrum_offchain_cardano::creds::OperatorRewardAddress;
+use spectrum_offchain_cardano::data::order::{ClassicalAMMOrder, RunClassicalAMMOrderOrderOverPool};
 use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::data::pool::CFMMPool;
+use spectrum_offchain_cardano::deployment::DeployedValidator;
+use spectrum_offchain_cardano::deployment::ProtocolValidator::{
+    ConstFnPoolDeposit, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
+};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum AnyPool {
@@ -28,7 +34,15 @@ pub struct PoolMagnet<T>(pub T);
 impl<Ctx> RunOrder<Bundled<ClassicalAMMOrder, FinalizedTxOut>, Ctx, SignedTxBuilder>
     for PoolMagnet<Bundled<AnyPool, FinalizedTxOut>>
 where
-    spectrum_offchain_cardano::data::execution_context::ExecutionContext: From<Ctx>,
+    Ctx: Clone
+        + Has<NetworkId>
+        + Has<Collateral>
+        + Has<OperatorRewardAddress>
+        + Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolSwap as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolDeposit as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolRedeem as u8 }>>,
 {
     fn try_run(
         self,
@@ -38,9 +52,11 @@ where
     {
         let PoolMagnet(Bundled(pool, bearer)) = self;
         match pool {
-            AnyPool::CFMM(cfmm_pool) => Bundled(cfmm_pool, bearer)
-                .try_run(order, ctx.into())
-                .map(|(txb, Predicted(bundle))| (txb, Predicted(PoolMagnet(bundle.map(AnyPool::CFMM))))),
+            AnyPool::CFMM(cfmm_pool) => RunClassicalAMMOrderOrderOverPool(Bundled(cfmm_pool, bearer))
+                .try_run(order, ctx)
+                .map(|(txb, Predicted(RunClassicalAMMOrderOrderOverPool(bundle)))| {
+                    (txb, Predicted(PoolMagnet(bundle.map(AnyPool::CFMM))))
+                }),
         }
     }
 }
@@ -92,15 +108,6 @@ impl Stable for AnyPool {
     }
     fn is_quasi_permanent(&self) -> bool {
         true
-    }
-}
-
-impl EntitySnapshot for AnyPool {
-    type Version = OutputRef;
-    fn version(&self) -> Self::Version {
-        match self {
-            AnyPool::CFMM(p) => p.state_ver.into(),
-        }
     }
 }
 

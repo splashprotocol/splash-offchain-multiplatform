@@ -2,29 +2,33 @@ use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 
 use cml_chain::builders::tx_builder::SignedTxBuilder;
-use cml_chain::plutus::PlutusData;
-use cml_core::serialization::FromBytes;
+use cml_chain::plutus::{ConstrPlutusData, PlutusData};
+use cml_chain::utils::BigInt;
 use cml_crypto::ScriptHash;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
+use spectrum_cardano_lib::{NetworkId, OutputRef};
+use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::output::FinalizedTxOut;
-use spectrum_cardano_lib::plutus_data::RequiresRedeemer;
 use spectrum_cardano_lib::transaction::BabbageTransactionOutputExtension;
-use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::backlog::data::{OrderWeight, Weighted};
+use spectrum_offchain::data::Has;
 use spectrum_offchain::data::order::{SpecializedOrder, UniqueOrder};
 use spectrum_offchain::data::unique_entity::Predicted;
-use spectrum_offchain::data::{EntitySnapshot, Has};
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::TryFromLedger;
 
-use crate::data::deposit::ClassicalOnChainDeposit;
-use crate::data::execution_context::ExecutionContext;
-use crate::data::limit_swap::ClassicalOnChainLimitSwap;
-use crate::data::pool::CFMMPool;
-use crate::data::redeem::ClassicalOnChainRedeem;
+use crate::creds::OperatorRewardAddress;
 use crate::data::{OnChain, OnChainOrderId, PoolId};
+use crate::data::deposit::ClassicalOnChainDeposit;
+use crate::data::limit_swap::ClassicalOnChainLimitSwap;
+use crate::data::pool::{ApplyOrder, CFMMPool, RunAnyCFMMOrderOverPool};
+use crate::data::redeem::ClassicalOnChainRedeem;
+use crate::deployment::DeployedValidator;
+use crate::deployment::ProtocolValidator::{
+    ConstFnPoolDeposit, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
+};
 
 pub struct Input;
 
@@ -51,7 +55,34 @@ impl<Id: Clone, Ord> Has<Id> for ClassicalOrder<Id, Ord> {
 
 pub enum ClassicalOrderAction {
     Apply,
-    Refund,
+}
+
+impl ClassicalOrderAction {
+    pub fn to_plutus_data(self) -> PlutusData {
+        match self {
+            ClassicalOrderAction::Apply => PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, Vec::new())),
+        }
+    }
+}
+
+pub struct ClassicalOrderRedeemer {
+    pub pool_input_index: u64,
+    pub order_input_index: u64,
+    pub output_index: u64,
+    pub action: ClassicalOrderAction,
+}
+
+impl ClassicalOrderRedeemer {
+    pub fn to_plutus_data(self) -> PlutusData {
+        let action_pd = self.action.to_plutus_data();
+        let pool_in_ix_pd = PlutusData::Integer(BigInt::from(self.pool_input_index));
+        let order_in_ix_pd = PlutusData::Integer(BigInt::from(self.order_input_index));
+        let out_ix_pd = PlutusData::Integer(BigInt::from(self.output_index));
+        PlutusData::ConstrPlutusData(ConstrPlutusData::new(
+            0,
+            vec![pool_in_ix_pd, order_in_ix_pd, out_ix_pd, action_pd],
+        ))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -105,9 +136,9 @@ impl SpecializedOrder for ClassicalAMMOrder {
 
     fn get_pool_ref(&self) -> Self::TPoolId {
         match self {
-            ClassicalAMMOrder::Swap(swap) => swap.pool_id.0 .0,
-            ClassicalAMMOrder::Deposit(dep) => dep.pool_id.0 .0,
-            ClassicalAMMOrder::Redeem(red) => red.pool_id.0 .0,
+            ClassicalAMMOrder::Swap(swap) => swap.pool_id.0.0,
+            ClassicalAMMOrder::Deposit(dep) => dep.pool_id.0.0,
+            ClassicalAMMOrder::Redeem(red) => red.pool_id.0.0,
         }
     }
 }
@@ -168,35 +199,9 @@ impl SpecializedOrder for ClassicalOnChainOrder {
     }
 }
 
-impl RequiresRedeemer<ClassicalOrderAction> for ClassicalAMMOrder {
-    fn redeemer(action: ClassicalOrderAction) -> PlutusData {
-        match action {
-            ClassicalOrderAction::Apply => {
-                PlutusData::from_bytes(hex::decode("d8799f00010100ff").unwrap()).unwrap()
-            }
-            ClassicalOrderAction::Refund => {
-                PlutusData::from_bytes(hex::decode("d8799f01000001ff").unwrap()).unwrap()
-            }
-        }
-    }
-}
-
-impl RequiresRedeemer<ClassicalOrderAction> for ClassicalOnChainOrder {
-    fn redeemer(action: ClassicalOrderAction) -> PlutusData {
-        match action {
-            ClassicalOrderAction::Apply => {
-                PlutusData::from_bytes(hex::decode("d8799f00010100ff").unwrap()).unwrap()
-            }
-            ClassicalOrderAction::Refund => {
-                PlutusData::from_bytes(hex::decode("d8799f01000001ff").unwrap()).unwrap()
-            }
-        }
-    }
-}
-
 impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for ClassicalAMMOrder
-where
-    Ctx: Has<OutputRef>,
+    where
+        Ctx: Has<OutputRef>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: Ctx) -> Option<Self> {
         ClassicalOnChainLimitSwap::try_from_ledger(repr, ctx.get())
@@ -240,94 +245,62 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainOrde
     }
 }
 
-impl RunOrder<Bundled<ClassicalAMMOrder, FinalizedTxOut>, ExecutionContext, SignedTxBuilder>
-    for Bundled<CFMMPool, FinalizedTxOut>
+pub struct RunClassicalAMMOrderOrderOverPool<Pool>(pub Bundled<Pool, FinalizedTxOut>);
+
+impl<Ctx> RunOrder<Bundled<ClassicalAMMOrder, FinalizedTxOut>, Ctx, SignedTxBuilder>
+for RunClassicalAMMOrderOrderOverPool<CFMMPool>
+    where
+        Ctx: Clone
+        + Has<Collateral>
+        + Has<NetworkId>
+        + Has<OperatorRewardAddress>
+        + Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolSwap as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolDeposit as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolRedeem as u8 }>>,
 {
     fn try_run(
         self,
         Bundled(order, ord_bearer): Bundled<ClassicalAMMOrder, FinalizedTxOut>,
-        ctx: ExecutionContext,
+        ctx: Ctx,
     ) -> Result<(SignedTxBuilder, Predicted<Self>), RunOrderError<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>
     {
-        let Bundled(pool, pool_bearer) = self;
+        let RunClassicalAMMOrderOrderOverPool(pool_bundle) = self;
         match order {
-            ClassicalAMMOrder::Swap(o) => OnChain::new(pool, pool_bearer.0)
-                .try_run(OnChain::new(o, ord_bearer.0), ctx)
-                .map(|(txb, Predicted(OnChain { value, source }))| {
+            ClassicalAMMOrder::Swap(swap) => RunAnyCFMMOrderOverPool(pool_bundle)
+                .try_run(Bundled(swap, ord_bearer), ctx)
+                .map(|(txb, res)| {
                     (
                         txb,
-                        Predicted(Bundled(value, FinalizedTxOut(source, value.version().0))),
+                        res.map(|wrapper| RunClassicalAMMOrderOrderOverPool(wrapper.0)),
                     )
                 })
                 .map_err(|err| {
-                    err.map(|OnChain { value, source }| {
-                        Bundled(
-                            ClassicalAMMOrder::Swap(value),
-                            FinalizedTxOut(source, ord_bearer.1),
-                        )
-                    })
+                    err.map(|Bundled(swap, bundle)| Bundled(ClassicalAMMOrder::Swap(swap), bundle))
                 }),
-            ClassicalAMMOrder::Deposit(deposit) => OnChain::new(pool, pool_bearer.0)
-                .try_run(OnChain::new(deposit, ord_bearer.0), ctx)
-                .map(|(txb, Predicted(OnChain { value, source }))| {
+            ClassicalAMMOrder::Deposit(deposit) => RunAnyCFMMOrderOverPool(pool_bundle)
+                .try_run(Bundled(deposit.clone(), ord_bearer), ctx)
+                .map(|(txb, res)| {
                     (
                         txb,
-                        Predicted(Bundled(value, FinalizedTxOut(source, value.version().0))),
+                        res.map(|wrapper| RunClassicalAMMOrderOrderOverPool(wrapper.0)),
                     )
                 })
                 .map_err(|err| {
-                    err.map(|OnChain { value, source }| {
-                        Bundled(
-                            ClassicalAMMOrder::Deposit(value),
-                            FinalizedTxOut(source, ord_bearer.1),
-                        )
-                    })
+                    err.map(|Bundled(swap, bundle)| Bundled(ClassicalAMMOrder::Deposit(deposit), bundle))
                 }),
-            ClassicalAMMOrder::Redeem(redeem) => OnChain::new(pool, pool_bearer.0)
-                .try_run(OnChain::new(redeem, ord_bearer.0), ctx)
-                .map(|(txb, Predicted(OnChain { value, source }))| {
+            ClassicalAMMOrder::Redeem(redeem) => RunAnyCFMMOrderOverPool(pool_bundle)
+                .try_run(Bundled(redeem.clone(), ord_bearer), ctx)
+                .map(|(txb, res)| {
                     (
                         txb,
-                        Predicted(Bundled(value, FinalizedTxOut(source, value.version().0))),
+                        res.map(|wrapper| RunClassicalAMMOrderOrderOverPool(wrapper.0)),
                     )
                 })
                 .map_err(|err| {
-                    err.map(|OnChain { value, source }| {
-                        Bundled(
-                            ClassicalAMMOrder::Redeem(value),
-                            FinalizedTxOut(source, ord_bearer.1),
-                        )
-                    })
+                    err.map(|Bundled(swap, bundle)| Bundled(ClassicalAMMOrder::Redeem(redeem), bundle))
                 }),
-        }
-    }
-}
-
-impl RunOrder<ClassicalOnChainOrder, ExecutionContext, SignedTxBuilder> for OnChain<CFMMPool> {
-    fn try_run(
-        self,
-        order: ClassicalOnChainOrder,
-        ctx: ExecutionContext,
-    ) -> Result<(SignedTxBuilder, Predicted<Self>), RunOrderError<ClassicalOnChainOrder>> {
-        match order {
-            ClassicalOnChainOrder::Swap(limit_swap) => <Self as RunOrder<
-                OnChain<ClassicalOnChainLimitSwap>,
-                ExecutionContext,
-                SignedTxBuilder,
-            >>::try_run(self, limit_swap, ctx)
-            .map_err(|err| err.map(|inner| ClassicalOnChainOrder::Swap(inner))),
-            ClassicalOnChainOrder::Deposit(deposit) => <Self as RunOrder<
-                OnChain<ClassicalOnChainDeposit>,
-                ExecutionContext,
-                SignedTxBuilder,
-            >>::try_run(self, deposit, ctx)
-            .map_err(|err| err.map(|inner| ClassicalOnChainOrder::Deposit(inner))),
-            ClassicalOnChainOrder::Redeem(redeem) => <Self as RunOrder<
-                OnChain<ClassicalOnChainRedeem>,
-                ExecutionContext,
-                SignedTxBuilder,
-            >>::try_run(self, redeem, ctx)
-            .map_err(|err| err.map(|inner| ClassicalOnChainOrder::Redeem(inner))),
         }
     }
 }

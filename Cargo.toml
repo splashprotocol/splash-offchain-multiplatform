@@ -5,7 +5,6 @@ members = [
     "cardano-submit-api",
     "spectrum-offchain",
     "spectrum-offchain-cardano",
-    "spectrum-cardano-agent",
     "spectrum-cardano-lib",
     "cardano-explorer",
     "bloom-offchain",
