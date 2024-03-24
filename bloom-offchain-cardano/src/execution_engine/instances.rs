@@ -12,7 +12,7 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_offchain::data::Has;
 use spectrum_offchain_cardano::data::pool::{AssetDeltas, CFMMPool, CFMMPoolAction, CFMMPoolRedeemer};
 use spectrum_offchain_cardano::data::PoolVer;
-use spectrum_offchain_cardano::deployment::DeployedValidator;
+use spectrum_offchain_cardano::deployment::{DeployedValidator, RequiresValidator};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{ConstFnPoolV1, ConstFnPoolV2, LimitOrder};
 
 use crate::execution_engine::execution_state::{
@@ -180,15 +180,8 @@ where
         } = pool.get_asset_deltas(side);
         produced_out.sub_asset(asset_to_deduct_from, output);
         produced_out.add_asset(asset_to_add_to, input);
-
-        let pool_validator = match pool.ver {
-            PoolVer::V1 => context
-                .get_labeled::<DeployedValidator<{ ConstFnPoolV1 as u8 }>>()
-                .erased(),
-            _ => context
-                .get_labeled::<DeployedValidator<{ ConstFnPoolV2 as u8 }>>()
-                .erased(),
-        };
+        
+        let pool_validator = pool.get_validator(&context);
         let input = ScriptInputBlueprint {
             reference: in_ref,
             utxo: consumed_out,
