@@ -83,7 +83,7 @@ pub fn compute_inflation_box_script_hash(
     splash_policy: PolicyId,
     wp_auth_policy: PolicyId,
     weighting_power_policy: PolicyId,
-    zeroth_epoch_start: u32,
+    zeroth_epoch_start: u64,
 ) -> ScriptHash {
     let params_pd = uplc::PlutusData::Array(vec![
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(splash_policy.to_raw_bytes().to_vec())),

@@ -24,7 +24,7 @@ use spectrum_offchain::data::unique_entity::{Predicted, Traced};
 use spectrum_offchain::data::{EntitySnapshot, Stable};
 use spectrum_offchain::ledger::IntoLedger;
 use spectrum_offchain_cardano::creds::operator_creds;
-use uplc::tx::apply_params_to_script;
+use uplc::tx::{self, apply_params_to_script};
 use uplc::{plutus_data_to_bytes, BigInt};
 use uplc_pallas_codec::utils::{Bytes, Int, PlutusBytes};
 use uplc_pallas_traverse::ComputeHash;
@@ -41,7 +41,9 @@ use crate::entities::onchain::poll_factory::{
 };
 use crate::entities::onchain::smart_farm::SmartFarm;
 use crate::entities::onchain::voting_escrow::{
-    compute_mint_weighting_power_policy_id, unsafe_update_ve_state, VotingEscrow,
+    self, compute_mint_weighting_power_policy_id, compute_voting_escrow_policy_id, unsafe_update_ve_state,
+    VotingEscrow, VotingEscrowAction, VotingEscrowAuthorizedAction, ORDER_WITNESS_EX_UNITS,
+    VOTING_ESCROW_EX_UNITS, WEIGHTING_POWER_EX_UNITS,
 };
 use crate::entities::onchain::weighting_poll::{
     self, compute_mint_wp_auth_token_policy_id, unsafe_update_wp_state, MintAction, WeightingPoll,
@@ -57,7 +59,6 @@ pub trait InflationActions<Bearer> {
     async fn create_wpoll(
         &self,
         config: &ProtocolConfig,
-        zeroth_epoch_start: u32,
         inflation_box: Bundled<InflationBoxSnapshot, Bearer>,
         factory: Bundled<PollFactorySnapshot, Bearer>,
     ) -> (
@@ -69,19 +70,21 @@ pub trait InflationActions<Bearer> {
     async fn eliminate_wpoll(
         &self,
         config: &ProtocolConfig,
-        zeroth_epoch_start: u32,
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
     ) -> SignedTxBuilder;
     async fn execute_order(
         &self,
+        config: &ProtocolConfig,
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
         order: (VotingOrder, Bundled<VotingEscrowSnapshot, Bearer>),
     ) -> (
+        SignedTxBuilder,
         Traced<Predicted<Bundled<WeightingPollSnapshot, Bearer>>>,
         Traced<Predicted<Bundled<VotingEscrowSnapshot, Bearer>>>,
     );
     async fn distribute_inflation(
         &self,
+        config: &ProtocolConfig,
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
         farm: Bundled<SmartFarm, Bearer>,
         farm_weight: u64,
@@ -103,7 +106,6 @@ where
     async fn create_wpoll(
         &self,
         config: &ProtocolConfig,
-        zeroth_epoch_start: u32,
         Bundled(inflation_box, inflation_box_in): Bundled<InflationBoxSnapshot, TransactionOutput>,
         Bundled(factory, factory_in): Bundled<PollFactorySnapshot, TransactionOutput>,
     ) -> (
@@ -117,7 +119,7 @@ where
         // Note that we're not actually minting weighting power here. We only need the minting
         // policy id as part of the inflation box's script.
         let weighting_power_policy = compute_mint_weighting_power_policy_id(
-            zeroth_epoch_start,
+            config.genesis_time.0,
             config.wpoll_auth_policy,
             config.gt_policy,
         );
@@ -126,7 +128,7 @@ where
             config.splash_policy,
             config.wpoll_auth_policy,
             weighting_power_policy,
-            zeroth_epoch_start,
+            config.genesis_time.0,
         );
         let inflation_script = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(inflation_script_hash),
@@ -146,12 +148,12 @@ where
         tx_builder.add_input(inflation_input).unwrap();
 
         let prev_ib_version = *inflation_box.version();
-        let (next_inflation_box, rate) = inflation_box.get().release_next_tranche();
+        let (next_inflation_box, emission_rate) = inflation_box.get().release_next_tranche();
         let mut inflation_box_out = inflation_box_in.clone();
         if let Some(data_mut) = inflation_box_out.data_mut() {
             unsafe_update_factory_state(data_mut, next_inflation_box.last_processed_epoch);
         }
-        inflation_box_out.sub_asset(*SPLASH_AC, rate.untag());
+        inflation_box_out.sub_asset(*SPLASH_AC, emission_rate.untag());
         let inflation_output = SingleOutputBuilderResult::new(inflation_box_out.clone());
         tx_builder.add_output(inflation_output).unwrap();
 
@@ -182,7 +184,9 @@ where
 
         let gov_witness_script_hash = factory.get().stable_id.gov_witness_script_hash;
         let prev_factory_version = *factory.version();
-        let (next_factory, fresh_wpoll) = factory.unwrap().next_weighting_poll(config.farm_auth_policy);
+        let (next_factory, fresh_wpoll) = factory
+            .unwrap()
+            .next_weighting_poll(config.farm_auth_policy, emission_rate);
         let mut factory_out = factory_in.clone();
         if let Some(data_mut) = factory_out.data_mut() {
             unsafe_update_factory_state(data_mut, next_factory.last_poll_epoch);
@@ -215,7 +219,7 @@ where
             config.splash_policy,
             config.farm_auth_policy,
             config.factory_auth_policy,
-            zeroth_epoch_start,
+            config.genesis_time.0,
         );
         let mint_wp_auth_token_witness = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(mint_wp_auth_token_script_hash),
@@ -224,10 +228,7 @@ where
         let (_operator_sk, operator_pkh, _operator_addr) =
             operator_creds(&config.operator_sk, config.node_magic);
 
-        let mut buffer = [0u8; 128];
-        minicbor::encode(inflation_box.get().last_processed_epoch, buffer.as_mut()).unwrap();
-        let token_name = blake2b256(buffer.as_ref());
-        let asset = cml_chain::assets::AssetName::new(token_name.to_vec()).unwrap();
+        let asset = compute_epoch_asset_name(inflation_box.get().last_processed_epoch);
         let wp_auth_minting_policy = SingleMintBuilder::new_single_asset(asset.clone(), 1)
             .plutus_script(mint_wp_auth_token_witness, vec![operator_pkh]);
         tx_builder.add_reference_input(config.wpoll_auth_ref_script.clone());
@@ -329,7 +330,6 @@ where
     async fn eliminate_wpoll(
         &self,
         config: &ProtocolConfig,
-        zeroth_epoch_start: u32,
         Bundled(weighting_poll, weighting_poll_in): Bundled<WeightingPollSnapshot, TransactionOutput>,
     ) -> SignedTxBuilder {
         let mut tx_builder = constant_tx_builder();
@@ -338,7 +338,7 @@ where
             config.splash_policy,
             config.farm_auth_policy,
             config.factory_auth_policy,
-            zeroth_epoch_start,
+            config.genesis_time.0,
         );
 
         let redeemer = weighting_poll::PollAction::Destroy;
@@ -391,36 +391,91 @@ where
 
     async fn execute_order(
         &self,
-        Bundled(weighting_poll, poll_box_in): Bundled<WeightingPollSnapshot, TransactionOutput>,
+        config: &ProtocolConfig,
+        Bundled(weighting_poll, weighting_poll_in): Bundled<WeightingPollSnapshot, TransactionOutput>,
         (order, Bundled(voting_escrow, ve_box_in)): (
             VotingOrder,
             Bundled<VotingEscrowSnapshot, TransactionOutput>,
         ),
     ) -> (
+        SignedTxBuilder,
         Traced<Predicted<Bundled<WeightingPollSnapshot, TransactionOutput>>>,
         Traced<Predicted<Bundled<VotingEscrowSnapshot, TransactionOutput>>>,
     ) {
+        let mut tx_builder = constant_tx_builder();
+
         let prev_ve_version = voting_escrow.version();
         let prev_wp_version = weighting_poll.version();
 
-        let mut ve_box_out = ve_box_in.clone();
-        if let Some(data_mut) = ve_box_out.data_mut() {
+        // Voting escrow ---------------------------------------------------------------------------
+        let mut voting_escrow_out = ve_box_in.clone();
+        if let Some(data_mut) = voting_escrow_out.data_mut() {
             unsafe_update_ve_state(data_mut, weighting_poll.get().epoch);
         }
+
+        let authorized_action = VotingEscrowAuthorizedAction {
+            action: VotingEscrowAction::Governance,
+            witness: order.witness,
+            version: order.version,
+            signature: order.proof,
+        };
+
+        let voting_escrow_script_hash = compute_voting_escrow_policy_id(config.ve_factory_auth_policy);
+        let voting_escrow_script = PartialPlutusWitness::new(
+            PlutusScriptWitness::Ref(voting_escrow_script_hash),
+            authorized_action.into_pd(),
+        );
+
+        let voting_escrow_input = SingleInputBuilder::new(
+            TransactionInput::from(*(voting_escrow.version())),
+            ve_box_in.clone(),
+        )
+        .plutus_script_inline_datum(voting_escrow_script, vec![])
+        .unwrap();
+
+        let voting_escrow_input_tx_hash = voting_escrow_input.input.transaction_id;
+
+        tx_builder.add_reference_input(config.voting_escrow_ref_script.clone());
+        tx_builder.add_input(voting_escrow_input).unwrap();
+
+        // weighting_poll --------------------------------------------------------------------------
+        let weighting_poll_script_hash = compute_mint_wp_auth_token_policy_id(
+            config.splash_policy,
+            config.farm_auth_policy,
+            config.factory_auth_policy,
+            config.genesis_time.0,
+        );
+        let weighting_poll_script = PartialPlutusWitness::new(
+            PlutusScriptWitness::Ref(weighting_poll_script_hash),
+            weighting_poll::PollAction::Vote.into_pd(),
+        );
+
+        let weighting_poll_input = SingleInputBuilder::new(
+            TransactionInput::from(*(weighting_poll.version())),
+            weighting_poll_in.clone(),
+        )
+        .plutus_script_inline_datum(weighting_poll_script, vec![])
+        .unwrap();
+
+        let weighting_poll_input_tx_hash = weighting_poll_input.input.transaction_id;
+
+        tx_builder.add_reference_input(config.wpoll_auth_ref_script.clone());
+        tx_builder.add_input(weighting_poll_input).unwrap();
 
         // Compute the policy for `mint_weighting_power`, to allow us to add the weighting power to WeightingPoll's
         // UTxO.
         let mint_weighting_power_policy = compute_mint_weighting_power_policy_id(
-            weighting_poll.get().epoch,
+            weighting_poll.get().epoch as u64,
             order.proposal_auth_policy,
             voting_escrow.get().gt_policy,
         );
         let current_posix_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        let mut poll_box_out = poll_box_in.clone();
-        if let Some(data_mut) = poll_box_out.data_mut() {
+
+        let mut wpoll_out = weighting_poll_in.clone();
+        if let Some(data_mut) = wpoll_out.data_mut() {
             unsafe_update_wp_state(data_mut, &order.distribution);
         }
-        poll_box_out.add_asset(
+        wpoll_out.add_asset(
             spectrum_cardano_lib::AssetClass::Token((
                 mint_weighting_power_policy,
                 AssetName::try_from(vec![constants::GT_NAME]).unwrap(),
@@ -432,37 +487,157 @@ where
             distribution: order.distribution,
             ..weighting_poll.get().clone()
         };
+        // Set TX outputs --------------------------------------------------------------------------
+        let weighting_poll_output = SingleOutputBuilderResult::new(wpoll_out.clone());
+        tx_builder.add_output(weighting_poll_output).unwrap();
 
-        let next_wp_version = *prev_wp_version; // TODO: fix
+        // The contract requires voting_escrow_out has index 1
+        let voting_escrow_output = SingleOutputBuilderResult::new(voting_escrow_out.clone());
+        tx_builder.add_output(voting_escrow_output).unwrap();
+
+        // Mint weighting power --------------------------------------------------------------------
+        let mint_action = if voting_escrow_input_tx_hash < weighting_poll_input_tx_hash {
+            tx_builder.set_exunits(
+                RedeemerWitnessKey::new(RedeemerTag::Spend, 0),
+                VOTING_ESCROW_EX_UNITS,
+            );
+            tx_builder.set_exunits(
+                RedeemerWitnessKey::new(RedeemerTag::Spend, 1),
+                MINT_WP_AUTH_EX_UNITS,
+            );
+            voting_escrow::MintAction::MintPower {
+                binder: weighting_poll.get().epoch,
+                ve_in_ix: 0,
+                proposal_in_ix: 1,
+            }
+        } else {
+            tx_builder.set_exunits(
+                RedeemerWitnessKey::new(RedeemerTag::Spend, 1),
+                VOTING_ESCROW_EX_UNITS,
+            );
+            tx_builder.set_exunits(
+                RedeemerWitnessKey::new(RedeemerTag::Spend, 0),
+                MINT_WP_AUTH_EX_UNITS,
+            );
+            voting_escrow::MintAction::MintPower {
+                binder: weighting_poll.get().epoch,
+                ve_in_ix: 1,
+                proposal_in_ix: 0,
+            }
+        };
+
+        let mint_weighting_power_script = PartialPlutusWitness::new(
+            PlutusScriptWitness::Ref(mint_weighting_power_policy),
+            mint_action.into_pd(),
+        );
+
+        let (_, operator_pkh, _) = operator_creds(&config.operator_sk, config.node_magic);
+        let asset = compute_epoch_asset_name(weighting_poll.get().epoch);
+        let weighting_power_minting_policy = SingleMintBuilder::new_single_asset(asset.clone(), 1)
+            .plutus_script(mint_weighting_power_script, vec![operator_pkh]);
+        tx_builder.add_reference_input(config.weighting_power_ref_script.clone());
+        tx_builder.add_mint(weighting_power_minting_policy).unwrap();
+        tx_builder.set_exunits(
+            RedeemerWitnessKey::new(RedeemerTag::Mint, 0),
+            WEIGHTING_POWER_EX_UNITS,
+        );
+
+        // Set witness script (needed by voting_escrow script) -------------------------------------
+        let reward_address = config.reward_address.clone();
+        let order_witness = PartialPlutusWitness::new(
+            PlutusScriptWitness::Ref(order.witness),
+            cml_chain::plutus::PlutusData::new_list(vec![]), // dummy value (this validator doesn't require redeemer)
+        );
+        let withdrawal_result = SingleWithdrawalBuilder::new(reward_address.clone(), 0)
+            .plutus_script(order_witness, vec![])
+            .unwrap();
+        tx_builder.add_withdrawal(withdrawal_result);
+        tx_builder.set_exunits(
+            RedeemerWitnessKey::new(RedeemerTag::Reward, 0),
+            ORDER_WITNESS_EX_UNITS,
+        );
+
+        // Set TX validity range
+        tx_builder.set_validity_start_interval(current_posix_time);
+        tx_builder.set_ttl(constants::MAX_TIME_DRIFT_MILLIS);
+
+        tx_builder.add_collateral(config.collateral.0.clone()).unwrap();
+
+        let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
+        tx_builder.set_fee(estimated_tx_fee + TX_FEE_CORRECTION);
+
+        let execution_fee_address: Address = reward_address.into();
+
+        // Build tx, change is execution fee.
+        let signed_tx_builder = tx_builder
+            .build(ChangeSelectionAlgo::Default, &execution_fee_address)
+            .unwrap();
+        let tx_body = signed_tx_builder.body();
+
+        let tx_hash = hash_transaction_canonical(&tx_body);
+
+        let next_wp_version = OutputRef::new(tx_hash, 0);
         let fresh_wp = Traced::new(
             Predicted(Bundled(
                 Snapshot::new(next_weighting_poll, next_wp_version),
-                poll_box_out,
+                wpoll_out,
             )),
             Some(*prev_wp_version),
         );
 
-        let next_ve_version = *prev_ve_version; // TODO: fix
-        let next_ve = *voting_escrow.get(); // Nothing to change here?
+        let next_ve_version = OutputRef::new(tx_hash, 1);
+        let next_ve = *voting_escrow.get();
         let fresh_ve = Traced::new(
-            Predicted(Bundled(Snapshot::new(next_ve, next_ve_version), ve_box_out)),
+            Predicted(Bundled(
+                Snapshot::new(next_ve, next_ve_version),
+                voting_escrow_out,
+            )),
             Some(*prev_ve_version),
         );
 
-        (fresh_wp, fresh_ve)
+        (signed_tx_builder, fresh_wp, fresh_ve)
     }
 
     async fn distribute_inflation(
         &self,
-        weighting_poll: Bundled<WeightingPollSnapshot, TransactionOutput>,
+        config: &ProtocolConfig,
+        Bundled(weighting_poll, weighting_poll_in): Bundled<WeightingPollSnapshot, TransactionOutput>,
         farm: Bundled<SmartFarm, TransactionOutput>,
         farm_weight: u64,
     ) -> (
         Traced<Predicted<Bundled<WeightingPollSnapshot, TransactionOutput>>>,
         Traced<Predicted<Bundled<SmartFarm, TransactionOutput>>>,
     ) {
+        let mut tx_builder = constant_tx_builder();
+
+        let mut next_weighting_poll = weighting_poll.get().clone();
+        if let Some(ix) = next_weighting_poll
+            .distribution
+            .iter()
+            .position(|&(farm_id, _)| true)
+        // TODO: fix
+        {
+            let old_weight = next_weighting_poll.distribution[ix].1;
+            next_weighting_poll.distribution[ix].1 = old_weight + farm_weight;
+        }
+
+        // adjust splash values in weighting_poll and farm.
+
+        // farm output must be at index 1
+
+        // Add operator as signatory
+        let (_, operator_pkh, _) = operator_creds(&config.operator_sk, config.node_magic);
+        tx_builder.add_required_signer(operator_pkh);
+
         todo!()
     }
+}
+
+fn compute_epoch_asset_name(epoch: u32) -> cml_chain::assets::AssetName {
+    let mut buffer = [0u8; 128];
+    minicbor::encode(epoch, buffer.as_mut()).unwrap();
+    let token_name = blake2b256(buffer.as_ref());
+    cml_chain::assets::AssetName::new(token_name.to_vec()).unwrap()
 }
 
 #[cfg(test)]
