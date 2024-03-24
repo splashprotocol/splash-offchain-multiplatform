@@ -24,17 +24,6 @@ pub struct ExecutionContext {
     pub network_id: NetworkId,
 }
 
-impl From<ExecutionContext> for spectrum_offchain_cardano::data::execution_context::ExecutionContext {
-    fn from(value: ExecutionContext) -> Self {
-        Self {
-            operator_addr: value.reward_addr.into(),
-            ref_scripts: todo!("Legacy EC should be using ProtocolDeployment as well"),
-            collateral: value.collateral,
-            network_id: value.network_id.into(),
-        }
-    }
-}
-
 impl Has<NetworkId> for ExecutionContext {
     fn get_labeled<U: IsEqual<NetworkId>>(&self) -> NetworkId {
         self.network_id

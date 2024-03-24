@@ -13,7 +13,7 @@ use cml_chain::plutus::{ConstrPlutusData, PlutusData, RedeemerTag};
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, TransactionOutput};
 use cml_chain::utils::BigInt;
 use cml_chain::{Coin, Value};
-use cml_core::serialization::FromBytes;
+
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
 use num_integer::Roots;
@@ -36,8 +36,11 @@ use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::unique_entity::Predicted;
-use spectrum_offchain::data::{EntitySnapshot, Has, Stable, VersionUpdater};
-use spectrum_offchain::executor::RunOrderError::Fatal;
+use spectrum_offchain::data::EntitySnapshot;
+use spectrum_offchain::data::Has;
+use spectrum_offchain::data::Stable;
+use spectrum_offchain::data::VersionUpdater;
+
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
@@ -53,13 +56,12 @@ use crate::data::fee_switch_pool::FeeSwitchPoolConfig;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::operation_output::{DepositOutput, RedeemOutput, SwapOutput};
 use crate::data::order::{
-    Base, ClassicalAMMOrder, ClassicalOrder, ClassicalOrderAction, ClassicalOrderRedeemer, PoolNft, Quote,
+    Base, ClassicalOrder, ClassicalOrderAction, ClassicalOrderRedeemer, PoolNft, Quote,
 };
 use crate::data::pair::order_canonical;
 use crate::data::pool::ApplyOrderError::{LowBatcherFeeErr, SlippageErr};
 use crate::data::redeem::ClassicalOnChainRedeem;
-use crate::data::ref_scripts::RequiresRefScript;
-use crate::data::{OnChain, OnChainOrderId, PoolId, PoolStateVer, PoolVer};
+use crate::data::{OnChainOrderId, PoolId, PoolVer};
 use crate::deployment::ProtocolValidator::{ConstFnPoolV1, ConstFnPoolV2, LimitOrderWitness};
 use crate::deployment::{DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::fees::FeeExtension;
