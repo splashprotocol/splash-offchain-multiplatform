@@ -11,3 +11,4 @@ tmp/
 seed.txt
 token.txt
 node_modules/
+state/
