@@ -22,6 +22,7 @@ pub struct VotingOrder {
     pub distribution: Vec<(FarmId, u64)>,
     pub proof: Vec<u8>,
     pub witness: ScriptHash,
+    pub version: u32,
     pub proposal_auth_policy: PolicyId,
 }
 

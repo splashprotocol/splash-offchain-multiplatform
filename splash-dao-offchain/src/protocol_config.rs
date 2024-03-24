@@ -23,6 +23,9 @@ pub struct ProtocolConfig {
     pub wpoll_auth_ref_script: TransactionUnspentOutput,
     pub farm_auth_policy: PolicyId,
     pub factory_auth_policy: PolicyId,
+    pub ve_factory_auth_policy: PolicyId,
+    pub voting_escrow_ref_script: TransactionUnspentOutput,
+    pub weighting_power_ref_script: TransactionUnspentOutput,
     pub gt_policy: PolicyId,
     pub genesis_time: GenesisEpochStartTime,
 }
