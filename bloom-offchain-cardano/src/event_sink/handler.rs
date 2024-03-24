@@ -567,8 +567,8 @@ mod tests {
     use spectrum_offchain::event_sink::event_handler::EventHandler;
     use spectrum_offchain::ledger::TryFromLedger;
     use spectrum_offchain::partitioning::Partitioned;
+    use spectrum_offchain_cardano::creds::OperatorCred;
 
-    use crate::creds::OperatorCred;
     use crate::event_sink::entity_index::InMemoryEntityIndex;
     use crate::event_sink::handler::PairUpdateHandler;
 

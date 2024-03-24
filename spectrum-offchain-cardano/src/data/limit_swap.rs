@@ -5,7 +5,7 @@ use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
 
 use spectrum_cardano_lib::plutus_data::{
-    ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension, RequiresRedeemer,
+    ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension,
 };
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;

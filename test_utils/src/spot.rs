@@ -90,7 +90,7 @@ fn gen_spot_order_transaction_output(
 ) -> BabbageTransactionOutput {
     let network_info = NetworkInfo::new(0b0000, ProtocolMagic::from(1_u32));
     let network = network_info.network_id();
-    let (operator_sk, operator_pkh, operator_addr) = operator_creds("xprv1cr38ar6z5tn4mcjfa2pq49s2cchjpu6nd9qsqu6zxrruqu8kzfduch8repn8ukxdl4qjj4n002rwgf6dhg4ldq23vgsevt6tmnyc657yrsk5t6v3slm33qkh3f0x4xru6ue8w0k0medspw7fqfrmrppm0sdla648", 1_u64);
+    let (_operator_sk, operator_pkh, _operator_addr) = operator_creds("xprv1cr38ar6z5tn4mcjfa2pq49s2cchjpu6nd9qsqu6zxrruqu8kzfduch8repn8ukxdl4qjj4n002rwgf6dhg4ldq23vgsevt6tmnyc657yrsk5t6v3slm33qkh3f0x4xru6ue8w0k0medspw7fqfrmrppm0sdla648", 1_u64);
     let spot_script_inner = PlutusV2Script::new(hex::decode(LIMIT_ORDER_SCRIPT).unwrap());
 
     let script = Script::new_plutus_v2(spot_script_inner.clone());

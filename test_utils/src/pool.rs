@@ -65,7 +65,7 @@ pub fn gen_pool_transaction_body(
 }
 
 pub fn gen_pool_transaction_output(
-    index: u64,
+    _index: u64,
     lovelaces: u64,
     y_token_quantity: u64,
     ada_first: bool,

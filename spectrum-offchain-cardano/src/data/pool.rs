@@ -6,7 +6,7 @@ use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
 use cml_chain::builders::tx_builder::{
-    ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput, TxBuilderError,
+    ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput,
 };
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
 use cml_chain::plutus::{ConstrPlutusData, PlutusData, RedeemerTag};
@@ -36,18 +36,16 @@ use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::unique_entity::Predicted;
-use spectrum_offchain::data::EntitySnapshot;
+
 use spectrum_offchain::data::Has;
 use spectrum_offchain::data::Stable;
-use spectrum_offchain::data::VersionUpdater;
+
 
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 use crate::constants::{
-    FEE_DEN, MAX_LQ_CAP, ORDER_EXECUTION_UNITS, POOL_DESTROY_REDEEMER, POOL_EXECUTION_UNITS,
-    POOL_IDX_0_DEPOSIT_REDEEMER, POOL_IDX_0_REDEEM_REDEEMER, POOL_IDX_0_SWAP_REDEEMER,
-    POOL_IDX_1_DEPOSIT_REDEEMER, POOL_IDX_1_REDEEM_REDEEMER, POOL_IDX_1_SWAP_REDEEMER,
+    FEE_DEN, MAX_LQ_CAP, ORDER_EXECUTION_UNITS, POOL_EXECUTION_UNITS,
 };
 use crate::creds::OperatorRewardAddress;
 use crate::data::deposit::ClassicalOnChainDeposit;
@@ -62,7 +60,7 @@ use crate::data::pair::order_canonical;
 use crate::data::pool::ApplyOrderError::{LowBatcherFeeErr, SlippageErr};
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::{OnChainOrderId, PoolId, PoolVer};
-use crate::deployment::ProtocolValidator::{ConstFnPoolV1, ConstFnPoolV2, LimitOrderWitness};
+use crate::deployment::ProtocolValidator::{ConstFnPoolV1, ConstFnPoolV2};
 use crate::deployment::{DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::fees::FeeExtension;
 use crate::pool_math::cfmm_math::{output_amount, reward_lp, shares_amount};

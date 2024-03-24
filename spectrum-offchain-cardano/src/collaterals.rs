@@ -53,7 +53,7 @@ impl<'a> Collaterals for CollateralsViaExplorer<'a> {
 #[cfg(test)]
 pub mod tests {
     use async_trait::async_trait;
-    use cml_chain::builders::input_builder::{InputBuilderResult, SingleInputBuilder};
+    use cml_chain::builders::input_builder::{SingleInputBuilder};
     use cml_chain::transaction::{TransactionInput, TransactionOutput};
     use cml_crypto::TransactionHash;
     use spectrum_cardano_lib::collateral::Collateral;

@@ -8,7 +8,7 @@ use num_rational::Ratio;
 use rand::{thread_rng, RngCore};
 
 use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAssetClass, Token};
-use spectrum_offchain::data::VersionUpdater;
+
 
 use crate::constants::CFMM_POOL_VERSIONS;
 use crate::data::order::PoolNft;

@@ -203,7 +203,7 @@ where
                     )
                 })
                 .map_err(|err| {
-                    err.map(|Bundled(swap, bundle)| Bundled(ClassicalAMMOrder::Deposit(deposit), bundle))
+                    err.map(|Bundled(_swap, bundle)| Bundled(ClassicalAMMOrder::Deposit(deposit), bundle))
                 }),
             ClassicalAMMOrder::Redeem(redeem) => RunAnyCFMMOrderOverPool(pool_bundle)
                 .try_run(Bundled(redeem.clone(), ord_bearer), ctx)
@@ -214,7 +214,7 @@ where
                     )
                 })
                 .map_err(|err| {
-                    err.map(|Bundled(swap, bundle)| Bundled(ClassicalAMMOrder::Redeem(redeem), bundle))
+                    err.map(|Bundled(_swap, bundle)| Bundled(ClassicalAMMOrder::Redeem(redeem), bundle))
                 }),
         }
     }
