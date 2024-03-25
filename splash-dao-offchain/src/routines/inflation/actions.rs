@@ -71,7 +71,6 @@ use super::{
 pub trait InflationActions<Bearer> {
     async fn create_wpoll(
         &self,
-        config: &ProtocolConfig,
         inflation_box: Bundled<InflationBoxSnapshot, Bearer>,
         factory: Bundled<PollFactorySnapshot, Bearer>,
     ) -> (
@@ -86,7 +85,6 @@ pub trait InflationActions<Bearer> {
     ) -> SignedTxBuilder;
     async fn execute_order(
         &self,
-        config: &ProtocolConfig,
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
         order: (VotingOrder, Bundled<VotingEscrowSnapshot, Bearer>),
     ) -> (
@@ -96,7 +94,6 @@ pub trait InflationActions<Bearer> {
     );
     async fn distribute_inflation(
         &self,
-        config: &ProtocolConfig,
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
         farm: Bundled<SmartFarmSnapshot, Bearer>,
         perm_manager: Bundled<PermManagerSnapshot, Bearer>,
@@ -142,7 +139,6 @@ where
 {
     async fn create_wpoll(
         &self,
-        config: &ProtocolConfig,
         Bundled(inflation_box, inflation_box_in): Bundled<InflationBoxSnapshot, TransactionOutput>,
         Bundled(factory, factory_in): Bundled<PollFactorySnapshot, TransactionOutput>,
     ) -> (
