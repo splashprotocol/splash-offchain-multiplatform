@@ -2,7 +2,7 @@ use std::hash::{Hash, Hasher};
 
 use spectrum_offchain::backlog;
 use spectrum_offchain::data::order::SpecializedOrder;
-use spectrum_offchain::data::{EntitySnapshot, Stable, Tradable, VersionUpdater};
+use spectrum_offchain::data::{EntitySnapshot, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::execution_engine::liquidity_book;
@@ -89,15 +89,6 @@ where
     type Version = T::Version;
     fn version(&self) -> Self::Version {
         self.0.version()
-    }
-}
-
-impl<T, Bearer> VersionUpdater for Bundled<T, Bearer>
-where
-    T: VersionUpdater,
-{
-    fn update_version(&mut self, new_version: Self::Version) {
-        self.0.update_version(new_version)
     }
 }
 

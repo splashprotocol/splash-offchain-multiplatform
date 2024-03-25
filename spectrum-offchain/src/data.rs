@@ -35,10 +35,6 @@ pub trait EntitySnapshot: Stable {
     fn version(&self) -> Self::Version;
 }
 
-pub trait VersionUpdater: EntitySnapshot {
-    fn update_version(&mut self, new_version: Self::Version);
-}
-
 impl<StableId, A, B> Stable for Either<A, B>
 where
     A: Stable<StableId = StableId>,
