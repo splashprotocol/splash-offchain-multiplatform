@@ -11,13 +11,14 @@ use spectrum_offchain::data::order::UniqueOrder;
 use spectrum_offchain::data::Has;
 use spectrum_offchain::ledger::TryFromLedger;
 
-use crate::constants::REDEEM_SCRIPT_V2;
 use crate::data::order::{ClassicalOrder, PoolNft};
 use crate::data::pool::CFMMPoolAction::Redeem as RedeemAction;
 use crate::data::pool::{CFMMPoolAction, Lq, Rx, Ry};
 use crate::data::{OnChainOrderId, PoolId};
 use crate::deployment::ProtocolValidator::ConstFnPoolRedeem;
-use crate::deployment::{DeployedValidator, DeployedValidatorErased, RequiresValidator};
+use crate::deployment::{
+    test_address, DeployedScriptHash, DeployedValidator, DeployedValidatorErased, RequiresValidator,
+};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Redeem {
@@ -66,39 +67,42 @@ struct OnChainRedeemConfig {
     reward_stake_pkh: Option<Ed25519KeyHash>,
 }
 
-impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for ClassicalOnChainRedeem where Ctx: Has<OutputRef> {
+impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for ClassicalOnChainRedeem
+where
+    Ctx: Has<OutputRef> + Has<DeployedScriptHash<{ ConstFnPoolRedeem as u8 }>>,
+{
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
-        if repr.address().to_bech32(None).unwrap() != REDEEM_SCRIPT_V2 {
-            return None;
-        }
-        let value = repr.value().clone();
-        let conf = OnChainRedeemConfig::try_from_pd(repr.datum().clone()?.into_pd()?)?;
-        let token_lq_amount = TaggedAmount::new(value.amount_of(conf.token_lq.untag()).unwrap_or(0));
-        let collateral_ada = value.amount_of(AssetClass::Native).unwrap_or(0) - conf.ex_fee;
-        let redeem = Redeem {
-            pool_nft: PoolId::try_from(conf.pool_nft).ok()?,
-            token_x: conf.token_x,
-            token_y: conf.token_y,
-            token_lq: conf.token_lq,
-            token_lq_amount,
-            ex_fee: conf.ex_fee,
-            reward_pkh: conf.reward_pkh,
-            reward_stake_pkh: conf.reward_stake_pkh,
-            collateral_ada,
-        };
+        if test_address(repr.address(), ctx) {
+            let value = repr.value().clone();
+            let conf = OnChainRedeemConfig::try_from_pd(repr.datum().clone()?.into_pd()?)?;
+            let token_lq_amount = TaggedAmount::new(value.amount_of(conf.token_lq.untag()).unwrap_or(0));
+            let collateral_ada = value.amount_of(AssetClass::Native).unwrap_or(0) - conf.ex_fee;
+            let redeem = Redeem {
+                pool_nft: PoolId::try_from(conf.pool_nft).ok()?,
+                token_x: conf.token_x,
+                token_y: conf.token_y,
+                token_lq: conf.token_lq,
+                token_lq_amount,
+                ex_fee: conf.ex_fee,
+                reward_pkh: conf.reward_pkh,
+                reward_stake_pkh: conf.reward_stake_pkh,
+                collateral_ada,
+            };
 
-        Some(ClassicalOrder {
-            id: OnChainOrderId::from(ctx.get()),
-            pool_id: PoolId::try_from(conf.pool_nft).ok()?,
-            order: redeem,
-        })
+            return Some(ClassicalOrder {
+                id: OnChainOrderId::from(ctx.select::<OutputRef>()),
+                pool_id: PoolId::try_from(conf.pool_nft).ok()?,
+                order: redeem,
+            });
+        }
+        None
     }
 }
 
 impl TryFromPData for OnChainRedeemConfig {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
-        let stake_pkh: Option<Ed25519KeyHash> = cpd
+        let stake_pkh = cpd
             .take_field(6)
             .clone()
             .and_then(|pd| pd.into_constr_pd())

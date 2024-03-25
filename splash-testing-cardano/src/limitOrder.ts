@@ -60,7 +60,7 @@ async function main() {
     const myAddr = await lucid.wallet.address();
     const tx = await createLimitOrder(lucid, conf.validators!.limitOrder, {
         input: {
-            policy: "c74ecb78de2fb0e4ec31f1c556d22ec088f2ef411299a37d1ede3b33",
+            policy: "fd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3a",
             name: "74657374746f6b656e",
         },
         output: {

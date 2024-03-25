@@ -102,25 +102,25 @@ impl ConstFnPoolVer {
         });
         if let Some(this_hash) = maybe_hash {
             if ctx
-                .get_labeled::<DeployedScriptHash<{ ConstFnPoolV1 as u8 }>>()
+                .select::<DeployedScriptHash<{ ConstFnPoolV1 as u8 }>>()
                 .unwrap()
                 == *this_hash
             {
                 return Some(ConstFnPoolVer::V1);
             } else if ctx
-                .get_labeled::<DeployedScriptHash<{ ConstFnPoolV2 as u8 }>>()
+                .select::<DeployedScriptHash<{ ConstFnPoolV2 as u8 }>>()
                 .unwrap()
                 == *this_hash
             {
                 return Some(ConstFnPoolVer::V2);
             } else if ctx
-                .get_labeled::<DeployedScriptHash<{ ConstFnPoolFeeSwitch as u8 }>>()
+                .select::<DeployedScriptHash<{ ConstFnPoolFeeSwitch as u8 }>>()
                 .unwrap()
                 == *this_hash
             {
                 return Some(ConstFnPoolVer::FeeSwitch);
             } else if ctx
-                .get_labeled::<DeployedScriptHash<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>()
+                .select::<DeployedScriptHash<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>()
                 .unwrap()
                 == *this_hash
             {
@@ -252,10 +252,10 @@ where
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self.ver {
             ConstFnPoolVer::V1 => ctx
-                .get_labeled::<DeployedValidator<{ ConstFnPoolV1 as u8 }>>()
+                .select::<DeployedValidator<{ ConstFnPoolV1 as u8 }>>()
                 .erased(),
             _ => ctx
-                .get_labeled::<DeployedValidator<{ ConstFnPoolV2 as u8 }>>()
+                .select::<DeployedValidator<{ ConstFnPoolV2 as u8 }>>()
                 .erased(),
         }
     }
@@ -333,7 +333,7 @@ impl Pool for ConstFnPool {
 }
 
 impl Has<ConstFnPoolVer> for ConstFnPool {
-    fn get_labeled<U: IsEqual<ConstFnPoolVer>>(&self) -> ConstFnPoolVer {
+    fn select<U: IsEqual<ConstFnPoolVer>>(&self) -> ConstFnPoolVer {
         self.ver
     }
 }

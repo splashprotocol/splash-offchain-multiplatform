@@ -6,7 +6,7 @@ use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::utils::BigInt;
 use cml_chain::PolicyId;
 use cml_core::serialization::{LenEncoding, StringEncoding};
-use cml_crypto::{Ed25519KeyHash, ScriptHash};
+use cml_crypto::{Ed25519KeyHash};
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::{info, trace};
 use num_rational::Ratio;
@@ -18,7 +18,6 @@ use bloom_offchain::execution_engine::liquidity_book::types::{
     AbsolutePrice, ExBudgetUsed, ExCostUnits, ExFeeUsed, FeeAsset, InputAsset, OutputAsset, RelativePrice,
 };
 use bloom_offchain::execution_engine::liquidity_book::weight::Weighted;
-use spectrum_cardano_lib::address::AddressExtension;
 use spectrum_cardano_lib::credential::AnyCredential;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
@@ -29,9 +28,10 @@ use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::AssetClass;
 use spectrum_offchain::data::{Has, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
-use spectrum_offchain_cardano::constants::SPOT_ORDER_NATIVE_TO_TOKEN_SCRIPT_HASH;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::pair::{side_of, PairId};
+use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrder;
+use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptHash};
 
 pub const EXEC_REDEEMER: PlutusData = PlutusData::ConstrPlutusData(ConstrPlutusData {
     alternative: 0,
@@ -270,12 +270,11 @@ impl TryFromPData for ConfigNativeToToken {
 
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for SpotOrder
 where
-    C: Has<OperatorCred>,
+    C: Has<OperatorCred> + Has<DeployedScriptHash<{ LimitOrder as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
-        let script_hash = ScriptHash::from_hex(SPOT_ORDER_NATIVE_TO_TOKEN_SCRIPT_HASH).unwrap();
         trace!(target: "offchain", "SpotOrder::try_from_ledger");
-        if repr.address().script_hash() == Some(script_hash) {
+        if test_address(repr.address(), ctx) {
             info!(target: "offchain", "Spot order address coincides");
             let value = repr.value().clone();
             let conf = ConfigNativeToToken::try_from_pd(repr.datum()?.into_pd()?)?;
@@ -285,7 +284,11 @@ where
             }
             let execution_budget = total_ada_input - conf.tradable_input;
             let is_permissionless = conf.permitted_executors.is_empty();
-            if is_permissionless || conf.permitted_executors.contains(&ctx.get().into()) {
+            if is_permissionless
+                || conf
+                    .permitted_executors
+                    .contains(&ctx.select::<OperatorCred>().into())
+            {
                 if execution_budget > conf.cost_per_ex_step {
                     info!(target: "offchain", "Obtained Spot order from ledger.");
                     return Some(SpotOrder {

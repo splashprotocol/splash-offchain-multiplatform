@@ -23,13 +23,13 @@ use crate::creds::OperatorRewardAddress;
 use crate::data::cfmm_pool::ConstFnPool;
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
-use crate::data::pool::{try_run_order_against_pool};
+use crate::data::pool::try_run_order_against_pool;
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
-use crate::deployment::DeployedValidator;
 use crate::deployment::ProtocolValidator::{
     BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
 };
+use crate::deployment::{DeployedScriptHash, DeployedValidator};
 use spectrum_cardano_lib::{NetworkId, OutputRef};
 
 pub struct Input;
@@ -50,7 +50,7 @@ pub struct ClassicalOrder<Id, Ord> {
 }
 
 impl<Id: Clone, Ord> Has<Id> for ClassicalOrder<Id, Ord> {
-    fn get_labeled<U: type_equalities::IsEqual<Id>>(&self) -> Id {
+    fn select<U: type_equalities::IsEqual<Id>>(&self) -> Id {
         self.id.clone()
     }
 }
@@ -147,7 +147,10 @@ impl SpecializedOrder for ClassicalAMMOrder {
 
 impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for ClassicalAMMOrder
 where
-    Ctx: Has<OutputRef>,
+    Ctx: Has<OutputRef>
+        + Has<DeployedScriptHash<{ ConstFnPoolSwap as u8 }>>
+        + Has<DeployedScriptHash<{ ConstFnPoolDeposit as u8 }>>
+        + Has<DeployedScriptHash<{ ConstFnPoolRedeem as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         ClassicalOnChainLimitSwap::try_from_ledger(repr, ctx)

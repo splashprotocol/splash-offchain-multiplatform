@@ -98,7 +98,7 @@ impl BalancePoolVer {
         });
         if let Some(this_hash) = maybe_hash {
             if ctx
-                .get_labeled::<DeployedScriptHash<{ BalanceFnPoolV1 as u8 }>>()
+                .select::<DeployedScriptHash<{ BalanceFnPoolV1 as u8 }>>()
                 .unwrap()
                 == *this_hash
             {
@@ -501,7 +501,7 @@ where
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self.ver {
             _ => ctx
-                .get_labeled::<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>()
+                .select::<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>()
                 .erased(),
         }
     }

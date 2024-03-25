@@ -26,28 +26,26 @@ use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
-use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, PlutusDataExtension};
 use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 
-use crate::constants::{ORDER_EXECUTION_UNITS, POOL_EXECUTION_UNITS};
 use crate::creds::OperatorRewardAddress;
 use crate::data::balance_pool::BalancePool;
 use crate::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
-use crate::data::order::{ClassicalOrderAction, ClassicalOrderRedeemer, PoolNft, Quote};
+use crate::data::order::{ClassicalOrderAction, ClassicalOrderRedeemer, Quote};
 use crate::data::pair::PairId;
 use crate::data::pool::AnyPool::{BalancedCFMM, PureCFMM};
 use crate::data::pool::ApplyOrderError::{LowBatcherFeeErr, SlippageErr};
-use spectrum_cardano_lib::types::TryFromPData;
-use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass, Token};
+use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, Token};
 use spectrum_offchain::data::unique_entity::Predicted;
 use spectrum_offchain::data::{Has, Stable, Tradable};
-use spectrum_offchain::executor::RunOrderError::Fatal;
-use spectrum_offchain::executor::{RunOrder, RunOrderError};
+use spectrum_offchain::executor::RunOrderError;
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
-use crate::data::{OnChainOrderId};
-use crate::deployment::ProtocolValidator::{BalanceFnPoolV1, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolV1, ConstFnPoolV2};
-use crate::deployment::{DeployedScriptHash, DeployedValidator, RequiresValidator};
+use crate::data::OnChainOrderId;
+use crate::deployment::ProtocolValidator::{
+    BalanceFnPoolV1, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolV1, ConstFnPoolV2,
+};
+use crate::deployment::{DeployedScriptHash, RequiresValidator};
 
 pub struct Rx;
 
@@ -241,10 +239,10 @@ impl Pool for AnyPool {
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for AnyPool
 where
     C: Has<DeployedScriptHash<{ ConstFnPoolV1 as u8 }>>
-    + Has<DeployedScriptHash<{ ConstFnPoolV2 as u8 }>>
-    + Has<DeployedScriptHash<{ ConstFnPoolFeeSwitch as u8 }>>
-    + Has<DeployedScriptHash<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>> 
-    + Has<DeployedScriptHash<{ BalanceFnPoolV1 as u8 }>>,
+        + Has<DeployedScriptHash<{ ConstFnPoolV2 as u8 }>>
+        + Has<DeployedScriptHash<{ ConstFnPoolFeeSwitch as u8 }>>
+        + Has<DeployedScriptHash<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+        + Has<DeployedScriptHash<{ BalanceFnPoolV1 as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         let cfmm_pool = ConstFnPool::try_from_ledger(repr, ctx).map(PureCFMM);
@@ -367,7 +365,7 @@ where
     let mut tx_builder = constant_tx_builder();
 
     tx_builder
-        .add_collateral(ctx.get_labeled::<Collateral>().into())
+        .add_collateral(ctx.select::<Collateral>().into())
         .unwrap();
 
     tx_builder.add_reference_input(order_validator.reference_utxo);
@@ -396,7 +394,7 @@ where
     let tx = tx_builder
         .build(
             ChangeSelectionAlgo::Default,
-            &ctx.get_labeled::<OperatorRewardAddress>().into(),
+            &ctx.select::<OperatorRewardAddress>().into(),
         )
         .unwrap();
 
@@ -481,6 +479,6 @@ pub mod tests {
         rng.fill(&mut bytes[..]);
         let transaction_id = TransactionHash::from(bytes);
         let ctx = OutputRef::new(transaction_id, 0);
-        ConstFnPool::try_from_ledger(&repr, ctx).unwrap()
+        ConstFnPool::try_from_ledger(&repr, &ctx).unwrap()
     }
 }

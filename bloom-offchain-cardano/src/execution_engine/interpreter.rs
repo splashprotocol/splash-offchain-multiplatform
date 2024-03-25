@@ -74,12 +74,12 @@ where
         let mut tx_builder = tx_blueprint.apply_to_builder(constant_tx_builder());
 
         // Set batch validator
-        let addr = ctx.get_labeled::<OperatorRewardAddress>();
+        let addr = ctx.select::<OperatorRewardAddress>();
         let reward_address = cml_chain::address::RewardAddress::new(
             addr.0.network_id().unwrap(),
             addr.0.payment_cred().unwrap().clone(),
         );
-        let order_witness = ctx.get_labeled::<DeployedValidator<{ LimitOrderWitness as u8 }>>();
+        let order_witness = ctx.select::<DeployedValidator<{ LimitOrderWitness as u8 }>>();
         let partial_witness = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(order_witness.reference_utxo.output.script_hash().unwrap()),
             PlutusData::new_list(vec![]), // dummy value (this validator doesn't require redeemer)
@@ -93,7 +93,7 @@ where
             order_witness.ex_budget.into(),
         );
         tx_builder
-            .add_collateral(ctx.get_labeled::<Collateral>().into())
+            .add_collateral(ctx.select::<Collateral>().into())
             .unwrap();
 
         // Set tx fee.
@@ -101,7 +101,7 @@ where
         trace!(target: "offchain", "estimated tx_fee: {}", estimated_tx_fee);
         tx_builder.set_fee(estimated_tx_fee + TX_FEE_CORRECTION);
 
-        let execution_fee_address: Address = ctx.get_labeled::<OperatorRewardAddress>().into();
+        let execution_fee_address: Address = ctx.select::<OperatorRewardAddress>().into();
         // Build tx, change is execution fee.
         let tx_body = tx_builder
             .clone()

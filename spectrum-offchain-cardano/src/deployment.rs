@@ -1,4 +1,6 @@
+use cml_chain::address::Address;
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
+use cml_chain::certs::StakeCredential;
 use cml_chain::plutus::{ExUnits, PlutusV1Script, PlutusV2Script, PlutusV3Script};
 use cml_chain::transaction::TransactionOutput;
 use cml_crypto::{ScriptHash, TransactionHash};
@@ -8,6 +10,7 @@ use serde::Deserialize;
 
 use cardano_explorer::client::Explorer;
 use spectrum_cardano_lib::OutputRef;
+use spectrum_offchain::data::Has;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,9 +42,15 @@ pub struct Script {
 impl From<Script> for cml_chain::Script {
     fn from(value: Script) -> Self {
         match value.typ {
-            ScriptType::PlutusV1 => cml_chain::Script::new_plutus_v1(PlutusV1Script::new(value.script.into())),
-            ScriptType::PlutusV2 => cml_chain::Script::new_plutus_v2(PlutusV2Script::new(value.script.into())),
-            ScriptType::PlutusV3 => cml_chain::Script::new_plutus_v3(PlutusV3Script::new(value.script.into())),
+            ScriptType::PlutusV1 => {
+                cml_chain::Script::new_plutus_v1(PlutusV1Script::new(value.script.into()))
+            }
+            ScriptType::PlutusV2 => {
+                cml_chain::Script::new_plutus_v2(PlutusV2Script::new(value.script.into()))
+            }
+            ScriptType::PlutusV3 => {
+                cml_chain::Script::new_plutus_v3(PlutusV3Script::new(value.script.into()))
+            }
         }
     }
 }
@@ -111,6 +120,20 @@ impl<const TYP: u8> DeployedScriptHash<TYP> {
     pub fn unwrap(self) -> ScriptHash {
         self.0
     }
+}
+
+pub fn test_address<const TYP: u8, Ctx>(addr: &Address, ctx: &Ctx) -> bool
+where
+    Ctx: Has<DeployedScriptHash<TYP>>,
+{
+    let maybe_hash = addr.payment_cred().and_then(|c| match c {
+        StakeCredential::PubKey { .. } => None,
+        StakeCredential::Script { hash, .. } => Some(hash),
+    });
+    if let Some(this_hash) = maybe_hash {
+        return *this_hash == ctx.get().unwrap();
+    }
+    false
 }
 
 impl<const TYP: u8> From<&DeployedValidator<TYP>> for DeployedScriptHash<TYP> {
