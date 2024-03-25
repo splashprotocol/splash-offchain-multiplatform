@@ -61,7 +61,7 @@ impl IntoPlutusData for Action {
             Action::DistributeRewards {
                 perm_manager_input_ix,
             } => PlutusData::ConstrPlutusData(ConstrPlutusData::new(
-                0,
+                1,
                 vec![PlutusData::Integer(BigInt::from(perm_manager_input_ix))],
             )),
         }
