@@ -1,19 +1,21 @@
 use std::{fmt::Formatter, time::Duration};
 
 use cml_chain::{
+    address::EnterpriseAddress,
+    certs::StakeCredential,
     plutus::{ConstrPlutusData, ExUnits, PlutusData},
-    transaction::TransactionOutput,
+    transaction::{DatumOption, TransactionOutput},
     utils::BigInt,
-    PolicyId,
+    PolicyId, Value,
 };
 use cml_core::serialization::FromBytes;
-use cml_crypto::{chain_crypto::Signature, RawBytesEncoding, ScriptHash};
+use cml_crypto::{chain_crypto::Signature, PublicKey, RawBytesEncoding, ScriptHash};
 use spectrum_cardano_lib::{
     plutus_data::{ConstrPlutusDataExtension, IntoPlutusData, PlutusDataExtension},
     Token,
 };
 use spectrum_offchain::{
-    data::{EntitySnapshot, Identifier, Stable},
+    data::{EntitySnapshot, Has, Identifier, Stable},
     ledger::IntoLedger,
 };
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
@@ -21,6 +23,7 @@ use uplc_pallas_codec::utils::{Int, PlutusBytes};
 
 use crate::{
     constants::{MAX_LOCK_TIME_SECONDS, MINT_WEIGHTING_POWER_SCRIPT, VOTING_ESCROW_SCRIPT},
+    protocol_config::{NodeMagic, OperatorCreds, VEFactoryAuthPolicy},
     routines::inflation::VotingEscrowSnapshot,
     time::{NetworkTime, ProtocolEpoch},
 };
@@ -38,6 +41,8 @@ pub struct VotingEscrow {
     pub gt_policy: PolicyId,
     pub locked_until: Lock,
     pub stable_id: VotingEscrowStableId,
+    pub max_ex_fee: u32,
+    pub version: u32,
 }
 
 impl VotingEscrow {
@@ -53,11 +58,37 @@ impl VotingEscrow {
             Lock::Indef(d) => self.gov_token_amount * d.as_secs() / MAX_LOCK_TIME_SECONDS,
         }
     }
+
+    fn create_datum(&self, pk: PublicKey) -> PlutusData {
+        PlutusData::ConstrPlutusData(ConstrPlutusData::new(
+            0,
+            vec![
+                self.locked_until.into_pd(),
+                PlutusData::new_bytes(pk.to_raw_bytes().to_vec()),
+                PlutusData::new_integer(self.max_ex_fee.into()),
+                PlutusData::new_integer(self.version.into()),
+                PlutusData::new_integer(0_u32.into()), // last_wp_epoch == 0
+                PlutusData::new_integer(0_u32.into()), // last_gp_deadline == 0
+            ],
+        ))
+    }
 }
 
-impl<Ctx> IntoLedger<TransactionOutput, Ctx> for VotingEscrow {
+impl<Ctx> IntoLedger<TransactionOutput, Ctx> for VotingEscrow
+where
+    Ctx: Has<VEFactoryAuthPolicy> + Has<OperatorCreds> + Has<NodeMagic>,
+{
     fn into_ledger(self, ctx: Ctx) -> TransactionOutput {
-        todo!()
+        let OperatorCreds(operator_sk, _, _) = ctx.get_labeled::<OperatorCreds>();
+        let voting_escrow_policy =
+            compute_voting_escrow_policy_id(ctx.get_labeled::<VEFactoryAuthPolicy>().0);
+        let datum = self.create_datum(operator_sk.to_public());
+
+        let cred = StakeCredential::new_script(voting_escrow_policy);
+        let address = EnterpriseAddress::new(ctx.get_labeled::<NodeMagic>().0 as u8, cred).to_address();
+
+        let amount = Value::from(MIN_ADA_IN_BOX);
+        TransactionOutput::new(address, amount, Some(DatumOption::new_datum(datum)), None)
     }
 }
 
@@ -86,6 +117,21 @@ impl Stable for VotingEscrow {
 pub enum Lock {
     Def(NetworkTime),
     Indef(Duration),
+}
+
+impl IntoPlutusData for Lock {
+    fn into_pd(self) -> PlutusData {
+        match self {
+            Lock::Def(n) => PlutusData::ConstrPlutusData(ConstrPlutusData::new(
+                0,
+                vec![PlutusData::new_integer(n.into())],
+            )),
+            Lock::Indef(d) => PlutusData::ConstrPlutusData(ConstrPlutusData::new(
+                1,
+                vec![PlutusData::new_integer(d.as_millis().into())],
+            )),
+        }
+    }
 }
 
 pub fn unsafe_update_ve_state(data: &mut PlutusData, last_poll_epoch: ProtocolEpoch) {
@@ -208,6 +254,8 @@ impl IntoPlutusData for MintAction {
         }
     }
 }
+
+pub const MIN_ADA_IN_BOX: u64 = 1_000_000;
 
 pub fn compute_mint_weighting_power_policy_id(
     zeroth_epoch_start: u64,
