@@ -12,7 +12,7 @@ pub enum ToRoutine {
 
 #[async_trait::async_trait]
 pub trait RoutineBehaviour {
-    async fn attempt(&self) -> Option<ToRoutine>;
+    async fn attempt(&mut self) -> Option<ToRoutine>;
 }
 
 pub fn retry_in(dur: Duration) -> Option<ToRoutine> {
