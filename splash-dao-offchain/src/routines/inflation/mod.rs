@@ -300,7 +300,6 @@ impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
         Actions: InflationActions<Bearer>,
         Net: Network<Transaction, TxRejected> + Clone + std::marker::Sync + std::marker::Send,
     {
-        let current_posix_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as u32;
         if let AnyMod::Confirmed(Confirmed(weighting_poll)) = weighting_poll {
             let signed_tx = self.actions.eliminate_wpoll(weighting_poll).await;
             let tx = self.prover.prove(signed_tx);
