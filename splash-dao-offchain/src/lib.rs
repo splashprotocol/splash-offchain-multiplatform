@@ -11,5 +11,5 @@ pub mod routines;
 pub mod state_projection;
 pub mod time;
 
-#[derive(Copy, Clone, Eq, PartialEq, From, Into)]
+#[derive(Copy, Clone, Eq, PartialEq, From, Into, Debug)]
 pub struct GenesisEpochStartTime(NetworkTime);
