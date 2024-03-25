@@ -99,7 +99,6 @@ pub struct DeployedValidators {
     pub const_fn_pool_deposit: DeployedValidatorRef,
     pub const_fn_pool_redeem: DeployedValidatorRef,
     pub balance_fn_pool_v1: DeployedValidatorRef,
-    pub balance_fn_pool_swap: DeployedValidatorRef,
     pub balance_fn_pool_deposit: DeployedValidatorRef,
     pub balance_fn_pool_redeem: DeployedValidatorRef,
 }
