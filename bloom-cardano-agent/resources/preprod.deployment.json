@@ -11,7 +11,7 @@
     },
     "exBudget": {
       "mem": 500000,
-      "steps": 200000000
+      "steps": 400000000
     }
   },
   "limitOrder": {

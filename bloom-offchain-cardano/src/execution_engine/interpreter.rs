@@ -27,7 +27,7 @@ use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::{Baked, Has};
 use spectrum_offchain_cardano::creds::OperatorRewardAddress;
 use spectrum_offchain_cardano::deployment::DeployedValidator;
-use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderWitness;
+use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderWitnessV1;
 
 use crate::execution_engine::execution_state::ExecutionState;
 use crate::execution_engine::instances::{Magnet, OrderResult, PoolResult};
@@ -46,7 +46,7 @@ where
     Ctx: Clone
         + Has<Collateral>
         + Has<OperatorRewardAddress>
-        + Has<DeployedValidator<{ LimitOrderWitness as u8 }>>,
+        + Has<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>,
 {
     fn run(
         &mut self,
@@ -70,7 +70,6 @@ where
             effects,
             ctx,
         ) = execute(ctx, state, Vec::new(), instructions);
-
         let mut tx_builder = tx_blueprint.apply_to_builder(constant_tx_builder());
 
         // Set batch validator
@@ -79,7 +78,7 @@ where
             addr.0.network_id().unwrap(),
             addr.0.payment_cred().unwrap().clone(),
         );
-        let order_witness = ctx.select::<DeployedValidator<{ LimitOrderWitness as u8 }>>();
+        let order_witness = ctx.select::<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>();
         let partial_witness = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(order_witness.reference_utxo.output.script_hash().unwrap()),
             PlutusData::new_list(vec![]), // dummy value (this validator doesn't require redeemer)

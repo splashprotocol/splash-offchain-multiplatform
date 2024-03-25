@@ -99,9 +99,9 @@ impl TxBlueprint {
                 .plutus_script_inline_datum(cml_script, Vec::new())
                 .unwrap();
             let output = SingleOutputBuilderResult::new(output);
-            txb.add_input(input).unwrap();
-            txb.add_output(output).unwrap();
             txb.add_reference_input(script.reference_utxo);
+            txb.add_input(input).expect("add_input ok");
+            txb.add_output(output).expect("add_output ok");
             txb.set_exunits(
                 RedeemerWitnessKey::new(RedeemerTag::Spend, ix as u64),
                 script.ex_budget.into(),

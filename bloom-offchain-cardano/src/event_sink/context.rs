@@ -6,7 +6,7 @@ use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
     ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
-    LimitOrder, LimitOrderWitness,
+    LimitOrderV1, LimitOrderWitnessV1,
 };
 use spectrum_offchain_cardano::deployment::{DeployedScriptHash, ProtocolScriptHashes};
 
@@ -103,18 +103,18 @@ impl Has<DeployedScriptHash<{ BalanceFnPoolDeposit as u8 }>> for HandlerContext 
     }
 }
 
-impl Has<DeployedScriptHash<{ LimitOrder as u8 }>> for HandlerContext {
-    fn select<U: IsEqual<DeployedScriptHash<{ LimitOrder as u8 }>>>(
+impl Has<DeployedScriptHash<{ LimitOrderV1 as u8 }>> for HandlerContext {
+    fn select<U: IsEqual<DeployedScriptHash<{ LimitOrderV1 as u8 }>>>(
         &self,
-    ) -> DeployedScriptHash<{ LimitOrder as u8 }> {
+    ) -> DeployedScriptHash<{ LimitOrderV1 as u8 }> {
         self.scripts.limit_order.clone()
     }
 }
 
-impl Has<DeployedScriptHash<{ LimitOrderWitness as u8 }>> for HandlerContext {
-    fn select<U: IsEqual<DeployedScriptHash<{ LimitOrderWitness as u8 }>>>(
+impl Has<DeployedScriptHash<{ LimitOrderWitnessV1 as u8 }>> for HandlerContext {
+    fn select<U: IsEqual<DeployedScriptHash<{ LimitOrderWitnessV1 as u8 }>>>(
         &self,
-    ) -> DeployedScriptHash<{ LimitOrderWitness as u8 }> {
+    ) -> DeployedScriptHash<{ LimitOrderWitnessV1 as u8 }> {
         self.scripts.limit_order_witness.clone()
     }
 }

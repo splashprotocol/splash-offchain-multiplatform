@@ -17,7 +17,7 @@ use spectrum_offchain_cardano::data::pool::AnyPool;
 use spectrum_offchain_cardano::deployment::DeployedScriptHash;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,
-    ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2, LimitOrder,
+    ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2, LimitOrderV1,
 };
 
 use crate::orders::AnyOrder;
@@ -104,7 +104,7 @@ where
         + Has<DeployedScriptHash<{ ConstFnPoolFeeSwitch as u8 }>>
         + Has<DeployedScriptHash<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
         + Has<DeployedScriptHash<{ BalanceFnPoolV1 as u8 }>>
-        + Has<DeployedScriptHash<{ LimitOrder as u8 }>>,
+        + Has<DeployedScriptHash<{ LimitOrderV1 as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         trace!(target: "offchain", "CardanoEntity::try_from_ledger");

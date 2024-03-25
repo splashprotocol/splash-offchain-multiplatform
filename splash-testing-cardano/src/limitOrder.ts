@@ -49,7 +49,7 @@ function createLimitOrder(lucid: Lucid, validator: BuiltValidator, conf: LimitOr
       );
     const lovelaceTotal = conf.fee + conf.costPerExStep * 4n;
     const depositedValue = conf.input.policy == "" ? { lovelace: lovelaceTotal + conf.tradableInput } : { lovelace: lovelaceTotal, [asUnit(conf.input)]: conf.tradableInput};
-    const tx = lucid.newTx().payToContract(orderAddress, buildLimitOrderDatum(lucid, conf), depositedValue);
+    const tx = lucid.newTx().payToContract(orderAddress, { inline: buildLimitOrderDatum(lucid, conf) }, depositedValue);
     return tx.complete();
 }
 
@@ -60,19 +60,19 @@ async function main() {
     const myAddr = await lucid.wallet.address();
     const tx = await createLimitOrder(lucid, conf.validators!.limitOrder, {
         input: {
-            policy: "fd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3a",
-            name: "74657374746f6b656e",
-        },
-        output: {
             policy: "",
             name: "",
         },
-        tradableInput: 120_000n,
-        minMarginalOutput: 10_000_000n,
+        output: {
+            policy: "fd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3a",
+            name: "74657374746f6b656e",
+        },
+        tradableInput: 300_000_000n,
+        minMarginalOutput: 100n,
         costPerExStep: 500_000n,
         basePrice: {
-            num: 1000n,
-            denom: 1n,
+            num: 1n,
+            denom: 1000n,
         },
         fee: 500_000n,
         redeemerAddr: myAddr,

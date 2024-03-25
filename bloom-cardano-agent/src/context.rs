@@ -9,7 +9,7 @@ use spectrum_offchain::data::Has;
 use spectrum_offchain_cardano::creds::OperatorRewardAddress;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolRedeem,
-    ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2, LimitOrder, LimitOrderWitness,
+    ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2, LimitOrderV1, LimitOrderWitnessV1,
 };
 use spectrum_offchain_cardano::deployment::{DeployedValidator, ProtocolDeployment};
 
@@ -124,18 +124,18 @@ impl Has<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>> for ExecutionContext
     }
 }
 
-impl Has<DeployedValidator<{ LimitOrder as u8 }>> for ExecutionContext {
-    fn select<U: IsEqual<DeployedValidator<{ LimitOrder as u8 }>>>(
+impl Has<DeployedValidator<{ LimitOrderV1 as u8 }>> for ExecutionContext {
+    fn select<U: IsEqual<DeployedValidator<{ LimitOrderV1 as u8 }>>>(
         &self,
-    ) -> DeployedValidator<{ LimitOrder as u8 }> {
+    ) -> DeployedValidator<{ LimitOrderV1 as u8 }> {
         self.deployment.limit_order.clone()
     }
 }
 
-impl Has<DeployedValidator<{ LimitOrderWitness as u8 }>> for ExecutionContext {
-    fn select<U: IsEqual<DeployedValidator<{ LimitOrderWitness as u8 }>>>(
+impl Has<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>> for ExecutionContext {
+    fn select<U: IsEqual<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>>(
         &self,
-    ) -> DeployedValidator<{ LimitOrderWitness as u8 }> {
+    ) -> DeployedValidator<{ LimitOrderWitnessV1 as u8 }> {
         self.deployment.limit_order_witness.clone()
     }
 }

@@ -6,6 +6,7 @@ use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_effect::ExecutionEff;
 use bloom_offchain::execution_engine::liquidity_book::fragment::StateTrans;
 use bloom_offchain::execution_engine::liquidity_book::recipe::{LinkedFill, LinkedSwap};
+use spectrum_cardano_lib::NetworkId;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
@@ -14,14 +15,14 @@ use spectrum_offchain_cardano::data::balance_pool::{BalancePool, BalancePoolRede
 use spectrum_offchain_cardano::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
 use spectrum_offchain_cardano::data::pool::{AnyPool, AssetDeltas, CFMMPoolAction};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
-    BalanceFnPoolV1, ConstFnPoolV1, ConstFnPoolV2, LimitOrder,
+    BalanceFnPoolV1, ConstFnPoolV1, ConstFnPoolV2, LimitOrderV1,
 };
 use spectrum_offchain_cardano::deployment::{DeployedValidator, RequiresValidator};
 
 use crate::execution_engine::execution_state::{
     delayed_redeemer, ready_redeemer, ExecutionState, ScriptInputBlueprint,
 };
-use crate::orders::spot::{unsafe_update_n2t_variables, SpotOrder};
+use crate::orders::spot::{unsafe_update_n2t_variables, LimitOrder};
 use crate::orders::{spot, AnyOrder};
 
 /// Magnet for local instances.
@@ -36,7 +37,7 @@ pub type PoolResult<Pool> = Bundled<Pool, TransactionOutput>;
 impl<Ctx> BatchExec<ExecutionState, OrderResult<AnyOrder>, Ctx, Void>
     for Magnet<LinkedFill<AnyOrder, FinalizedTxOut>>
 where
-    Ctx: Has<DeployedValidator<{ LimitOrder as u8 }>>,
+    Ctx: Has<NetworkId> + Has<DeployedValidator<{ LimitOrderV1 as u8 }>>,
 {
     fn try_exec(
         self,
@@ -71,16 +72,16 @@ where
     }
 }
 
-impl<Ctx> BatchExec<ExecutionState, OrderResult<SpotOrder>, Ctx, Void>
-    for Magnet<LinkedFill<SpotOrder, FinalizedTxOut>>
+impl<Ctx> BatchExec<ExecutionState, OrderResult<LimitOrder>, Ctx, Void>
+    for Magnet<LinkedFill<LimitOrder, FinalizedTxOut>>
 where
-    Ctx: Has<DeployedValidator<{ LimitOrder as u8 }>>,
+    Ctx: Has<NetworkId> + Has<DeployedValidator<{ LimitOrderV1 as u8 }>>,
 {
     fn try_exec(
         self,
         mut state: ExecutionState,
         context: Ctx,
-    ) -> Result<(ExecutionState, OrderResult<SpotOrder>, Ctx), Void> {
+    ) -> Result<(ExecutionState, OrderResult<LimitOrder>, Ctx), Void> {
         let Magnet(LinkedFill {
             target_fr: Bundled(ord, FinalizedTxOut(consumed_out, in_ref)),
             next_fr: transition,
@@ -92,7 +93,7 @@ where
         let input = ScriptInputBlueprint {
             reference: in_ref,
             utxo: consumed_out.clone(),
-            script: context.get().erased(),
+            script: context.select::<DeployedValidator<{ LimitOrderV1 as u8 }>>().erased(),
             redeemer: ready_redeemer(spot::EXEC_REDEEMER),
         };
         let mut candidate = consumed_out.clone();
@@ -112,7 +113,7 @@ where
                 }
                 StateTrans::EOL => {
                     candidate.null_datum();
-                    candidate.update_payment_cred(ord.redeemer_cred());
+                    candidate.update_address(ord.redeemer_address.to_address(context.select::<NetworkId>()));
                     (
                         candidate,
                         ExecutionEff::Eliminated(Bundled(ord, FinalizedTxOut(consumed_out, in_ref))),

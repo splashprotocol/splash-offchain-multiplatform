@@ -7,10 +7,12 @@ use cml_crypto::{ScriptHash, TransactionHash};
 use derive_more::{From, Into};
 use hex::FromHexError;
 use serde::Deserialize;
+use type_equalities::IsEqual;
 
 use cardano_explorer::client::Explorer;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::Has;
+use crate::deployment::ProtocolValidator::LimitOrderV1;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -112,6 +114,25 @@ pub struct DeployedValidators {
     pub balance_fn_pool_redeem: DeployedValidatorRef,
 }
 
+impl From<&DeployedValidators> for ProtocolScriptHashes {
+    fn from(deployment: &DeployedValidators) -> Self {
+        Self {
+            limit_order_witness: From::from(&deployment.limit_order_witness),
+            limit_order: From::from(&deployment.limit_order),
+            const_fn_pool_v1: From::from(&deployment.const_fn_pool_v1),
+            const_fn_pool_v2: From::from(&deployment.const_fn_pool_v2),
+            const_fn_pool_fee_switch: From::from(&deployment.const_fn_pool_fee_switch),
+            const_fn_pool_fee_switch_bidir_fee: From::from(&deployment.const_fn_pool_fee_switch_bidir_fee),
+            const_fn_pool_swap: From::from(&deployment.const_fn_pool_swap),
+            const_fn_pool_deposit: From::from(&deployment.const_fn_pool_deposit),
+            const_fn_pool_redeem: From::from(&deployment.const_fn_pool_redeem),
+            balance_fn_pool_v1: From::from(&deployment.balance_fn_pool_v1),
+            balance_fn_pool_deposit: From::from(&deployment.balance_fn_pool_deposit),
+            balance_fn_pool_redeem: From::from(&deployment.balance_fn_pool_redeem),
+        }
+    }
+}
+
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, Into, From)]
 pub struct DeployedScriptHash<const TYP: u8>(ScriptHash);
@@ -138,6 +159,12 @@ where
 
 impl<const TYP: u8> From<&DeployedValidator<TYP>> for DeployedScriptHash<TYP> {
     fn from(value: &DeployedValidator<TYP>) -> Self {
+        Self(value.hash)
+    }
+}
+
+impl<const TYP: u8> From<&DeployedValidatorRef> for DeployedScriptHash<TYP> {
+    fn from(value: &DeployedValidatorRef) -> Self {
         Self(value.hash)
     }
 }
@@ -176,10 +203,10 @@ impl<const TYP: u8> DeployedValidator<TYP> {
             .ok()
             .unwrap();
         match &mut ref_output.output {
-            TransactionOutput::AlonzoFormatTxOut(_) => {}
             TransactionOutput::ConwayFormatTxOut(ref mut tx_out) => {
                 tx_out.script_reference = Some(v.script.into())
             }
+            TransactionOutput::AlonzoFormatTxOut(_) => panic!("Must be ConwayFormatTxOut"),
         }
         Self {
             reference_utxo: ref_output,
@@ -192,8 +219,8 @@ impl<const TYP: u8> DeployedValidator<TYP> {
 #[repr(u8)]
 #[derive(Eq, PartialEq)]
 pub enum ProtocolValidator {
-    LimitOrderWitness,
-    LimitOrder,
+    LimitOrderWitnessV1,
+    LimitOrderV1,
     ConstFnPoolV1,
     ConstFnPoolV2,
     ConstFnPoolFeeSwitch,
@@ -209,8 +236,8 @@ pub enum ProtocolValidator {
 
 #[derive(Debug, Copy, Clone)]
 pub struct ProtocolScriptHashes {
-    pub limit_order_witness: DeployedScriptHash<{ ProtocolValidator::LimitOrderWitness as u8 }>,
-    pub limit_order: DeployedScriptHash<{ ProtocolValidator::LimitOrder as u8 }>,
+    pub limit_order_witness: DeployedScriptHash<{ ProtocolValidator::LimitOrderWitnessV1 as u8 }>,
+    pub limit_order: DeployedScriptHash<{ ProtocolValidator::LimitOrderV1 as u8 }>,
     pub const_fn_pool_v1: DeployedScriptHash<{ ProtocolValidator::ConstFnPoolV1 as u8 }>,
     pub const_fn_pool_v2: DeployedScriptHash<{ ProtocolValidator::ConstFnPoolV2 as u8 }>,
     pub const_fn_pool_fee_switch: DeployedScriptHash<{ ProtocolValidator::ConstFnPoolFeeSwitch as u8 }>,
@@ -245,8 +272,8 @@ impl From<&ProtocolDeployment> for ProtocolScriptHashes {
 
 #[derive(Debug, Clone)]
 pub struct ProtocolDeployment {
-    pub limit_order_witness: DeployedValidator<{ ProtocolValidator::LimitOrderWitness as u8 }>,
-    pub limit_order: DeployedValidator<{ ProtocolValidator::LimitOrder as u8 }>,
+    pub limit_order_witness: DeployedValidator<{ ProtocolValidator::LimitOrderWitnessV1 as u8 }>,
+    pub limit_order: DeployedValidator<{ ProtocolValidator::LimitOrderV1 as u8 }>,
     pub const_fn_pool_v1: DeployedValidator<{ ProtocolValidator::ConstFnPoolV1 as u8 }>,
     pub const_fn_pool_v2: DeployedValidator<{ ProtocolValidator::ConstFnPoolV2 as u8 }>,
     pub const_fn_pool_fee_switch: DeployedValidator<{ ProtocolValidator::ConstFnPoolFeeSwitch as u8 }>,
