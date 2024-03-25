@@ -66,8 +66,8 @@ struct OnChainRedeemConfig {
     reward_stake_pkh: Option<Ed25519KeyHash>,
 }
 
-impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainRedeem {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
+impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for ClassicalOnChainRedeem where Ctx: Has<OutputRef> {
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         if repr.address().to_bech32(None).unwrap() != REDEEM_SCRIPT_V2 {
             return None;
         }
@@ -88,7 +88,7 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainRede
         };
 
         Some(ClassicalOrder {
-            id: OnChainOrderId::from(ctx),
+            id: OnChainOrderId::from(ctx.get()),
             pool_id: PoolId::try_from(conf.pool_nft).ok()?,
             order: redeem,
         })

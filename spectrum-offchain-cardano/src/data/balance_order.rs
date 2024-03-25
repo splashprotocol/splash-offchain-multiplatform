@@ -3,7 +3,6 @@ use crate::data::balance_pool::BalancePool;
 
 use crate::data::deposit::ClassicalOnChainDeposit;
 
-use crate::data::pool::RunAnyCFMMOrderOverPool;
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::deployment::DeployedValidator;
 use crate::deployment::ProtocolValidator::{
@@ -25,6 +24,7 @@ use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain::ledger::TryFromLedger;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
+use crate::data::pool::try_run_order_against_pool;
 
 pub enum BalanceAMMOrder {
     Deposit(ClassicalOnChainDeposit),
@@ -83,11 +83,11 @@ impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for BalanceAMMOrder
 where
     Ctx: Has<OutputRef>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: Ctx) -> Option<Self> {
-        ClassicalOnChainDeposit::try_from_ledger(repr, ctx.get())
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
+        ClassicalOnChainDeposit::try_from_ledger(repr, ctx)
             .map(|deposit| BalanceAMMOrder::Deposit(deposit))
             .or_else(|| {
-                ClassicalOnChainRedeem::try_from_ledger(repr, ctx.get())
+                ClassicalOnChainRedeem::try_from_ledger(repr, ctx)
                     .map(|redeem| BalanceAMMOrder::Redeem(redeem))
             })
     }
@@ -120,15 +120,13 @@ where
     {
         let RunBalanceAMMOrderOverPool(pool_bundle) = self;
         match order {
-            BalanceAMMOrder::Deposit(deposit) => RunAnyCFMMOrderOverPool(pool_bundle)
-                .try_run(Bundled(deposit.clone(), ord_bearer), ctx)
-                .map(|(txb, res)| (txb, res.map(|wrapper| RunBalanceAMMOrderOverPool(wrapper.0))))
+            BalanceAMMOrder::Deposit(deposit) => try_run_order_against_pool(pool_bundle, Bundled(deposit.clone(), ord_bearer), ctx)
+                .map(|(txb, res)| (txb, res.map(RunBalanceAMMOrderOverPool)))
                 .map_err(|err| {
                     err.map(|Bundled(_swap, bundle)| Bundled(BalanceAMMOrder::Deposit(deposit), bundle))
                 }),
-            BalanceAMMOrder::Redeem(redeem) => RunAnyCFMMOrderOverPool(pool_bundle)
-                .try_run(Bundled(redeem.clone(), ord_bearer), ctx)
-                .map(|(txb, res)| (txb, res.map(|wrapper| RunBalanceAMMOrderOverPool(wrapper.0))))
+            BalanceAMMOrder::Redeem(redeem) => try_run_order_against_pool(pool_bundle, Bundled(redeem.clone(), ord_bearer), ctx)
+                .map(|(txb, res)| (txb, res.map(RunBalanceAMMOrderOverPool)))
                 .map_err(|err| {
                     err.map(|Bundled(_swap, bundle)| Bundled(BalanceAMMOrder::Redeem(redeem), bundle))
                 }),

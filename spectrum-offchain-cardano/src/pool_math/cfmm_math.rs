@@ -1,12 +1,9 @@
-
-
 use crate::data::order::{Base, Quote};
 use crate::data::pool::{Lq, Rx, Ry};
 
 use num_rational::Ratio;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use std::cmp::min;
-
 
 pub fn classic_cfmm_output_amount<X, Y>(
     asset_x: TaggedAssetClass<X>,

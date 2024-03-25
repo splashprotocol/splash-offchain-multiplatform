@@ -104,6 +104,22 @@ pub struct DeployedValidators {
     pub balance_fn_pool_redeem: DeployedValidatorRef,
 }
 
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Into, From)]
+pub struct DeployedScriptHash<const TYP: u8>(ScriptHash);
+
+impl<const TYP: u8> DeployedScriptHash<TYP> {
+    pub fn unwrap(self) -> ScriptHash {
+        self.0
+    }
+}
+
+impl<const TYP: u8> From<&DeployedValidator<TYP>> for DeployedScriptHash<TYP> {
+    fn from(value: &DeployedValidator<TYP>) -> Self {
+        Self(value.hash)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DeployedValidator<const TYP: u8> {
     pub reference_utxo: TransactionUnspentOutput,
@@ -167,6 +183,42 @@ pub enum ProtocolValidator {
     BalanceFnPoolSwap,
     BalanceFnPoolDeposit,
     BalanceFnPoolRedeem,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct ProtocolScriptHashes {
+    pub limit_order_witness: DeployedScriptHash<{ ProtocolValidator::LimitOrderWitness as u8 }>,
+    pub limit_order: DeployedScriptHash<{ ProtocolValidator::LimitOrder as u8 }>,
+    pub const_fn_pool_v1: DeployedScriptHash<{ ProtocolValidator::ConstFnPoolV1 as u8 }>,
+    pub const_fn_pool_v2: DeployedScriptHash<{ ProtocolValidator::ConstFnPoolV2 as u8 }>,
+    pub const_fn_pool_fee_switch: DeployedScriptHash<{ ProtocolValidator::ConstFnPoolFeeSwitch as u8 }>,
+    pub const_fn_pool_fee_switch_bidir_fee:
+        DeployedScriptHash<{ ProtocolValidator::ConstFnPoolFeeSwitchBiDirFee as u8 }>,
+    pub const_fn_pool_swap: DeployedScriptHash<{ ProtocolValidator::ConstFnPoolSwap as u8 }>,
+    pub const_fn_pool_deposit: DeployedScriptHash<{ ProtocolValidator::ConstFnPoolDeposit as u8 }>,
+    pub const_fn_pool_redeem: DeployedScriptHash<{ ProtocolValidator::ConstFnPoolRedeem as u8 }>,
+    pub balance_fn_pool_v1: DeployedScriptHash<{ ProtocolValidator::BalanceFnPoolV1 as u8 }>,
+    pub balance_fn_pool_deposit: DeployedScriptHash<{ ProtocolValidator::BalanceFnPoolDeposit as u8 }>,
+    pub balance_fn_pool_redeem: DeployedScriptHash<{ ProtocolValidator::BalanceFnPoolRedeem as u8 }>,
+}
+
+impl From<&ProtocolDeployment> for ProtocolScriptHashes {
+    fn from(deployment: &ProtocolDeployment) -> Self {
+        Self {
+            limit_order_witness: From::from(&deployment.limit_order_witness),
+            limit_order: From::from(&deployment.limit_order),
+            const_fn_pool_v1: From::from(&deployment.const_fn_pool_v1),
+            const_fn_pool_v2: From::from(&deployment.const_fn_pool_v2),
+            const_fn_pool_fee_switch: From::from(&deployment.const_fn_pool_fee_switch),
+            const_fn_pool_fee_switch_bidir_fee: From::from(&deployment.const_fn_pool_fee_switch_bidir_fee),
+            const_fn_pool_swap: From::from(&deployment.const_fn_pool_swap),
+            const_fn_pool_deposit: From::from(&deployment.const_fn_pool_deposit),
+            const_fn_pool_redeem: From::from(&deployment.const_fn_pool_redeem),
+            balance_fn_pool_v1: From::from(&deployment.balance_fn_pool_v1),
+            balance_fn_pool_deposit: From::from(&deployment.balance_fn_pool_deposit),
+            balance_fn_pool_redeem: From::from(&deployment.balance_fn_pool_redeem),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

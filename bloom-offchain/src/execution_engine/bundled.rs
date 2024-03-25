@@ -116,7 +116,7 @@ where
     T: TryFromLedger<Bearer, Ctx>,
     Bearer: Clone,
 {
-    fn try_from_ledger(repr: &Bearer, ctx: Ctx) -> Option<Self> {
+    fn try_from_ledger(repr: &Bearer, ctx: &Ctx) -> Option<Self> {
         T::try_from_ledger(&repr, ctx).map(|res| Bundled(res, repr.clone()))
     }
 }

@@ -1,8 +1,10 @@
+use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
+use cml_chain::certs::StakeCredential;
 use std::fmt::Debug;
 
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
-use cml_chain::transaction::{ConwayFormatTxOut, TransactionOutput};
+use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
 use cml_chain::utils::BigInt;
 use cml_chain::Value;
 
@@ -14,7 +16,9 @@ use type_equalities::IsEqual;
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
-use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension};
+use spectrum_cardano_lib::plutus_data::{
+    ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
+};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
@@ -32,15 +36,16 @@ use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::operation_output::{DepositOutput, RedeemOutput, SwapOutput};
 use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
 use crate::data::pair::order_canonical;
-use crate::data::pool::AnyPool::PureCFMM;
 
 use crate::data::pool::{ApplyOrder, ApplyOrderError, AssetDeltas, ImmutablePoolUtxo, Lq, Rx, Ry};
 use crate::data::redeem::ClassicalOnChainRedeem;
 
 use crate::data::fee_switch_pool::FeeSwitchPoolConfig;
-use crate::data::{PoolId, PoolVer};
-use crate::deployment::ProtocolValidator::{ConstFnPoolV1, ConstFnPoolV2};
-use crate::deployment::{DeployedValidator, DeployedValidatorErased, RequiresValidator};
+use crate::data::PoolId;
+use crate::deployment::ProtocolValidator::{
+    ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolV1, ConstFnPoolV2,
+};
+use crate::deployment::{DeployedScriptHash, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::fees::FeeExtension;
 use crate::pool_math::cfmm_math::{
     classic_cfmm_output_amount, classic_cfmm_reward_lp, classic_cfmm_shares_amount,
@@ -76,7 +81,58 @@ impl TryFromPData for LegacyCFMMPoolConfig {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct CFMMPool {
+pub enum ConstFnPoolVer {
+    V1,
+    V2,
+    FeeSwitch,
+    FeeSwitchBiDirFee,
+}
+
+impl ConstFnPoolVer {
+    pub fn try_from_address<Ctx>(pool_addr: &Address, ctx: &Ctx) -> Option<ConstFnPoolVer>
+    where
+        Ctx: Has<DeployedScriptHash<{ ConstFnPoolV1 as u8 }>>
+            + Has<DeployedScriptHash<{ ConstFnPoolV2 as u8 }>>
+            + Has<DeployedScriptHash<{ ConstFnPoolFeeSwitch as u8 }>>
+            + Has<DeployedScriptHash<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>,
+    {
+        let maybe_hash = pool_addr.payment_cred().and_then(|c| match c {
+            StakeCredential::PubKey { .. } => None,
+            StakeCredential::Script { hash, .. } => Some(hash),
+        });
+        if let Some(this_hash) = maybe_hash {
+            if ctx
+                .get_labeled::<DeployedScriptHash<{ ConstFnPoolV1 as u8 }>>()
+                .unwrap()
+                == *this_hash
+            {
+                return Some(ConstFnPoolVer::V1);
+            } else if ctx
+                .get_labeled::<DeployedScriptHash<{ ConstFnPoolV2 as u8 }>>()
+                .unwrap()
+                == *this_hash
+            {
+                return Some(ConstFnPoolVer::V2);
+            } else if ctx
+                .get_labeled::<DeployedScriptHash<{ ConstFnPoolFeeSwitch as u8 }>>()
+                .unwrap()
+                == *this_hash
+            {
+                return Some(ConstFnPoolVer::FeeSwitch);
+            } else if ctx
+                .get_labeled::<DeployedScriptHash<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>()
+                .unwrap()
+                == *this_hash
+            {
+                return Some(ConstFnPoolVer::FeeSwitchBiDirFee);
+            }
+        };
+        None
+    }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct ConstFnPool {
     pub id: PoolId,
     pub reserves_x: TaggedAmount<Rx>,
     pub reserves_y: TaggedAmount<Ry>,
@@ -90,10 +146,10 @@ pub struct CFMMPool {
     pub treasury_x: TaggedAmount<Rx>,
     pub treasury_y: TaggedAmount<Ry>,
     pub lq_lower_bound: TaggedAmount<Lq>,
-    pub ver: PoolVer,
+    pub ver: ConstFnPoolVer,
 }
 
-impl CFMMPool {
+impl ConstFnPool {
     pub fn get_asset_deltas(&self, side: SideM) -> AssetDeltas {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
@@ -153,7 +209,7 @@ pub trait AMMOps {
     fn shares_amount(self, burned_lq: TaggedAmount<Lq>) -> (TaggedAmount<Rx>, TaggedAmount<Ry>);
 }
 
-impl AMMOps for CFMMPool {
+impl AMMOps for ConstFnPool {
     fn output_amount(
         &self,
         base_asset: TaggedAssetClass<Base>,
@@ -189,13 +245,13 @@ impl AMMOps for CFMMPool {
     }
 }
 
-impl<Ctx> RequiresValidator<Ctx> for CFMMPool
+impl<Ctx> RequiresValidator<Ctx> for ConstFnPool
 where
     Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>> + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self.ver {
-            PoolVer::V1 => ctx
+            ConstFnPoolVer::V1 => ctx
                 .get_labeled::<DeployedValidator<{ ConstFnPoolV1 as u8 }>>()
                 .erased(),
             _ => ctx
@@ -205,7 +261,7 @@ where
     }
 }
 
-impl Pool for CFMMPool {
+impl Pool for ConstFnPool {
     fn static_price(&self) -> AbsolutePrice {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
@@ -276,13 +332,13 @@ impl Pool for CFMMPool {
     }
 }
 
-impl Has<PoolVer> for CFMMPool {
-    fn get_labeled<U: IsEqual<PoolVer>>(&self) -> PoolVer {
+impl Has<ConstFnPoolVer> for ConstFnPool {
+    fn get_labeled<U: IsEqual<ConstFnPoolVer>>(&self) -> ConstFnPoolVer {
         self.ver
     }
 }
 
-impl Stable for CFMMPool {
+impl Stable for ConstFnPool {
     type StableId = PoolId;
     fn stable_id(&self) -> Self::StableId {
         self.id
@@ -292,16 +348,22 @@ impl Stable for CFMMPool {
     }
 }
 
-impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for CFMMPool {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, _: Ctx) -> Option<Self> {
-        if let Some(pool_ver) = PoolVer::try_from_address(repr.address()) {
+impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for ConstFnPool
+where
+    Ctx: Has<DeployedScriptHash<{ ConstFnPoolV1 as u8 }>>
+        + Has<DeployedScriptHash<{ ConstFnPoolV2 as u8 }>>
+        + Has<DeployedScriptHash<{ ConstFnPoolFeeSwitch as u8 }>>
+        + Has<DeployedScriptHash<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>,
+{
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
+        if let Some(pool_ver) = ConstFnPoolVer::try_from_address(repr.address(), ctx) {
             let value = repr.value();
             let pd = repr.datum().clone()?.into_pd()?;
             return match pool_ver {
-                PoolVer::V1 | PoolVer::V2 => {
-                    let conf = crate::data::pool::LegacyCFMMPoolConfig::try_from_pd(pd.clone())?;
+                ConstFnPoolVer::V1 | ConstFnPoolVer::V2 => {
+                    let conf = LegacyCFMMPoolConfig::try_from_pd(pd.clone())?;
                     let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
-                    Some(CFMMPool {
+                    Some(ConstFnPool {
                         id: PoolId::try_from(conf.pool_nft).ok()?,
                         reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
                         reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
@@ -318,10 +380,10 @@ impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for CFMMPool {
                         ver: pool_ver,
                     })
                 }
-                PoolVer::FeeSwitch => {
+                ConstFnPoolVer::FeeSwitch => {
                     let conf = FeeSwitchPoolConfig::try_from_pd(pd.clone())?;
                     let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
-                    Some(CFMMPool {
+                    Some(ConstFnPool {
                         id: PoolId::try_from(conf.pool_nft).ok()?,
                         reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?)
                             - TaggedAmount::new(conf.treasury_x),
@@ -340,10 +402,10 @@ impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for CFMMPool {
                         ver: pool_ver,
                     })
                 }
-                PoolVer::FeeSwitchBiDirFee => {
+                ConstFnPoolVer::FeeSwitchBiDirFee => {
                     let conf = FeeSwitchBidirectionalPoolConfig::try_from_pd(pd.clone())?;
                     let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
-                    Some(CFMMPool {
+                    Some(ConstFnPool {
                         id: PoolId::try_from(conf.pool_nft).ok()?,
                         reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?)
                             - TaggedAmount::new(conf.treasury_x),
@@ -362,14 +424,13 @@ impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for CFMMPool {
                         ver: pool_ver,
                     })
                 }
-                PoolVer::BalancePool => unreachable!(),
             };
         };
         None
     }
 }
 
-impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for CFMMPool {
+impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for ConstFnPool {
     fn into_ledger(self, immut_pool: ImmutablePoolUtxo) -> TransactionOutput {
         let mut ma = MultiAsset::new();
         let coins = if self.asset_x.is_native() {
@@ -395,14 +456,49 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for CFMMPool {
         TransactionOutput::new_conway_format_tx_out(ConwayFormatTxOut {
             address: immut_pool.address,
             amount: Value::new(coins, ma),
-            datum_option: crate::data::pool::unsafe_update_datum(&PureCFMM(self), immut_pool.datum_option),
+            datum_option: unsafe_update_datum(&self, immut_pool.datum_option),
             script_reference: immut_pool.script_reference,
             encodings: None,
         })
     }
 }
 
-impl ApplyOrder<ClassicalOnChainLimitSwap> for CFMMPool {
+fn unsafe_update_datum(pool: &ConstFnPool, prev_datum: Option<DatumOption>) -> Option<DatumOption> {
+    match prev_datum {
+        Some(DatumOption::Datum {
+            datum,
+            len_encoding,
+            tag_encoding,
+            datum_tag_encoding,
+            datum_bytes_encoding,
+        }) => match pool.ver {
+            ConstFnPoolVer::V1 | ConstFnPoolVer::V2 => Some(DatumOption::Datum {
+                datum,
+                len_encoding,
+                tag_encoding,
+                datum_tag_encoding,
+                datum_bytes_encoding,
+            }),
+            ConstFnPoolVer::FeeSwitch | ConstFnPoolVer::FeeSwitchBiDirFee => {
+                let mut cpd = datum.into_constr_pd()?;
+
+                cpd.update_field_unsafe(6, pool.treasury_x.untag().into_pd());
+                cpd.update_field_unsafe(7, pool.treasury_y.untag().into_pd());
+
+                Some(DatumOption::Datum {
+                    datum: PlutusData::ConstrPlutusData(cpd),
+                    len_encoding,
+                    tag_encoding,
+                    datum_tag_encoding,
+                    datum_bytes_encoding,
+                })
+            }
+        },
+        _ => panic!("Expected inline datum"),
+    }
+}
+
+impl ApplyOrder<ClassicalOnChainLimitSwap> for ConstFnPool {
     type Result = SwapOutput;
 
     fn apply_order(
@@ -463,7 +559,7 @@ impl ApplyOrder<ClassicalOnChainLimitSwap> for CFMMPool {
     }
 }
 
-impl ApplyOrder<ClassicalOnChainDeposit> for CFMMPool {
+impl ApplyOrder<ClassicalOnChainDeposit> for ConstFnPool {
     type Result = DepositOutput;
 
     fn apply_order(
@@ -504,7 +600,7 @@ impl ApplyOrder<ClassicalOnChainDeposit> for CFMMPool {
     }
 }
 
-impl ApplyOrder<ClassicalOnChainRedeem> for CFMMPool {
+impl ApplyOrder<ClassicalOnChainRedeem> for ConstFnPool {
     type Result = RedeemOutput;
 
     fn apply_order(

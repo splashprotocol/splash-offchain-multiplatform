@@ -166,7 +166,7 @@ where
     Version: Copy,
     C: Copy + Has<Version>,
 {
-    fn try_from_ledger(repr: &Repr, ctx: C) -> Option<Self> {
+    fn try_from_ledger(repr: &Repr, ctx: &C) -> Option<Self> {
         T::try_from_ledger(repr, ctx).map(|r| Baked::new(r, ctx.get_labeled::<Version>()))
     }
 }

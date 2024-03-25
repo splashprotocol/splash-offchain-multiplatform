@@ -57,8 +57,8 @@ impl UniqueOrder for ClassicalOnChainDeposit {
     }
 }
 
-impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainDeposit {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
+impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for ClassicalOnChainDeposit where Ctx: Has<OutputRef> {
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         if repr.address().to_bech32(None).unwrap() != DEPOSIT_SCRIPT_V2 {
             return None;
         }
@@ -80,7 +80,7 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainDepo
         };
 
         Some(ClassicalOrder {
-            id: OnChainOrderId::from(ctx),
+            id: OnChainOrderId::from(ctx.get()),
             pool_id: PoolId::try_from(conf.pool_nft).ok()?,
             order: deposit,
         })

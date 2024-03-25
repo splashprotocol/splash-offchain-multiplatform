@@ -57,8 +57,8 @@ impl UniqueOrder for ClassicalOnChainLimitSwap {
     }
 }
 
-impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainLimitSwap {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
+impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for ClassicalOnChainLimitSwap where Ctx: Has<OutputRef> {
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         if repr.address().to_bech32(None).unwrap() != SWAP_SCRIPT_V2 {
             return None;
         }
@@ -91,7 +91,7 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainLimi
             redeemer_stake_pkh: conf.redeemer_stake_pkh,
         };
         Some(ClassicalOrder {
-            id: OnChainOrderId::from(ctx),
+            id: OnChainOrderId::from(ctx.get()),
             pool_id: PoolId::try_from(conf.pool_nft).ok()?,
             order: swap,
         })

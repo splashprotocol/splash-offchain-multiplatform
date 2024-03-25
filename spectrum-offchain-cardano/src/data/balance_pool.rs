@@ -2,10 +2,13 @@ use bignumber::BigNumber;
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
+use cml_chain::certs::StakeCredential;
 use cml_chain::plutus::utils::ConstrPlutusDataEncoding;
+use cml_chain::plutus::PlutusData::Integer;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
-use cml_chain::transaction::{ConwayFormatTxOut, TransactionOutput};
+use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
 use cml_chain::utils::BigInt;
 use cml_chain::Value;
 use cml_core::serialization::LenEncoding::{Canonical, Indefinite};
@@ -17,8 +20,8 @@ use type_equalities::IsEqual;
 
 use crate::constants::{ADDITIONAL_ROUND_PRECISION, FEE_DEN, MAX_LQ_CAP, WEIGHT_FEE_DEN};
 
-use spectrum_cardano_lib::plutus_data::PlutusDataExtension;
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension};
+use spectrum_cardano_lib::plutus_data::{IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
@@ -27,7 +30,7 @@ use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
-use crate::data::cfmm_pool::AMMOps;
+use crate::data::cfmm_pool::{AMMOps, ConstFnPoolVer};
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::operation_output::{DepositOutput, RedeemOutput, SwapOutput};
@@ -38,9 +41,11 @@ use crate::data::pool::{
     ApplyOrder, ApplyOrderError, AssetDeltas, CFMMPoolAction, ImmutablePoolUtxo, Lq, Rx, Ry,
 };
 use crate::data::redeem::ClassicalOnChainRedeem;
-use crate::data::{PoolId, PoolVer};
-use crate::deployment::ProtocolValidator::BalanceFnPoolV1;
-use crate::deployment::{DeployedValidator, DeployedValidatorErased, RequiresValidator};
+use crate::data::PoolId;
+use crate::deployment::ProtocolValidator::{
+    BalanceFnPoolV1, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolV1, ConstFnPoolV2,
+};
+use crate::deployment::{DeployedScriptHash, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::pool_math::balance_math::balance_cfmm_output_amount;
 use crate::pool_math::cfmm_math::{classic_cfmm_reward_lp, classic_cfmm_shares_amount};
 
@@ -78,6 +83,33 @@ impl TryFromPData for BalancePoolConfig {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum BalancePoolVer {
+    V1,
+}
+
+impl BalancePoolVer {
+    pub fn try_from_address<Ctx>(pool_addr: &Address, ctx: &Ctx) -> Option<BalancePoolVer>
+    where
+        Ctx: Has<DeployedScriptHash<{ BalanceFnPoolV1 as u8 }>>,
+    {
+        let maybe_hash = pool_addr.payment_cred().and_then(|c| match c {
+            StakeCredential::PubKey { .. } => None,
+            StakeCredential::Script { hash, .. } => Some(hash),
+        });
+        if let Some(this_hash) = maybe_hash {
+            if ctx
+                .get_labeled::<DeployedScriptHash<{ BalanceFnPoolV1 as u8 }>>()
+                .unwrap()
+                == *this_hash
+            {
+                return Some(BalancePoolVer::V1);
+            }
+        };
+        None
+    }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct BalancePool {
     pub id: PoolId,
     pub reserves_x: TaggedAmount<Rx>,
@@ -94,7 +126,7 @@ pub struct BalancePool {
     pub treasury_x: TaggedAmount<Rx>,
     pub treasury_y: TaggedAmount<Ry>,
     pub invariant: u64,
-    pub ver: PoolVer,
+    pub ver: BalancePoolVer,
 }
 
 impl BalancePool {
@@ -353,13 +385,16 @@ impl BalancePool {
     }
 }
 
-impl TryFromLedger<BabbageTransactionOutput, OutputRef> for BalancePool {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, _ctx: OutputRef) -> Option<Self> {
-        if let Some(pool_ver) = PoolVer::try_from_address(repr.address()) {
+impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for BalancePool
+where
+    Ctx: Has<DeployedScriptHash<{ BalanceFnPoolV1 as u8 }>>,
+{
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
+        if let Some(pool_ver) = BalancePoolVer::try_from_address(repr.address(), ctx) {
             let value = repr.value();
             let pd = repr.datum().clone()?.into_pd()?;
             return match pool_ver {
-                PoolVer::BalancePool => {
+                BalancePoolVer::V1 => {
                     let conf = BalancePoolConfig::try_from_pd(pd.clone())?;
                     let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
                     Some(BalancePool {
@@ -381,7 +416,6 @@ impl TryFromLedger<BabbageTransactionOutput, OutputRef> for BalancePool {
                         ver: pool_ver,
                     })
                 }
-                _ => None,
             };
         }
         None
@@ -414,19 +448,39 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for BalancePool {
         TransactionOutput::new_conway_format_tx_out(ConwayFormatTxOut {
             address: immut_pool.address,
             amount: Value::new(coins, ma),
-            datum_option: crate::data::pool::unsafe_update_datum(
-                &BalancedCFMM(self),
-                immut_pool.datum_option,
-            ),
+            datum_option: unsafe_update_datum(&self, immut_pool.datum_option),
             script_reference: immut_pool.script_reference,
             encodings: None,
         })
     }
 }
 
-impl Has<PoolVer> for BalancePool {
-    fn get_labeled<U: IsEqual<PoolVer>>(&self) -> PoolVer {
-        self.ver
+pub(crate) fn unsafe_update_datum(
+    pool: &BalancePool,
+    prev_datum: Option<DatumOption>,
+) -> Option<DatumOption> {
+    match prev_datum {
+        Some(DatumOption::Datum {
+            datum,
+            len_encoding,
+            tag_encoding,
+            datum_tag_encoding,
+            datum_bytes_encoding,
+        }) => {
+            let mut cpd = datum.into_constr_pd()?;
+
+            cpd.update_field_unsafe(9, pool.treasury_x.untag().into_pd());
+            cpd.update_field_unsafe(10, pool.treasury_y.untag().into_pd());
+
+            Some(DatumOption::Datum {
+                datum: PlutusData::ConstrPlutusData(cpd),
+                len_encoding,
+                tag_encoding,
+                datum_tag_encoding,
+                datum_bytes_encoding,
+            })
+        }
+        _ => panic!("Expected inline datum"),
     }
 }
 

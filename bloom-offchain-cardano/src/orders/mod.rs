@@ -43,7 +43,7 @@ impl<C> TryFromLedger<BabbageTransactionOutput, C> for AnyOrder
 where
     C: Has<OperatorCred>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         SpotOrder::try_from_ledger(repr, ctx).map(|s| {
             trace!(target: "offchain", "AnyOrder::try_from_ledger: Got SPOT");
             AnyOrder::Spot(s)

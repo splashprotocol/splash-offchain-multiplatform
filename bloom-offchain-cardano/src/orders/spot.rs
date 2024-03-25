@@ -272,7 +272,7 @@ impl<C> TryFromLedger<BabbageTransactionOutput, C> for SpotOrder
 where
     C: Has<OperatorCred>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         let script_hash = ScriptHash::from_hex(SPOT_ORDER_NATIVE_TO_TOKEN_SCRIPT_HASH).unwrap();
         trace!(target: "offchain", "SpotOrder::try_from_ledger");
         if repr.address().script_hash() == Some(script_hash) {

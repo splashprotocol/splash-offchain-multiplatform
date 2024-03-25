@@ -14,12 +14,15 @@ use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
 use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::data::pool::AnyPool;
+use spectrum_offchain_cardano::deployment::DeployedScriptHash;
+use spectrum_offchain_cardano::deployment::ProtocolValidator::{BalanceFnPoolV1, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolV1, ConstFnPoolV2};
 
 use crate::orders::AnyOrder;
 
 pub mod entity_index;
 pub mod handler;
 pub mod order_index;
+pub mod context;
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
@@ -42,7 +45,7 @@ impl<C> TryFromLedger<BabbageTransactionOutput, C> for AtomicCardanoEntity
 where
     C: Copy + Has<OperatorCred> + Has<OutputRef>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         trace!(target: "offchain", "AtomicCardanoEntity::try_from_ledger");
         ClassicalAMMOrder::try_from_ledger(repr, ctx).map(|inner| {
             Self(Bundled(
@@ -85,9 +88,16 @@ impl Tradable for EvolvingCardanoEntity {
 
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for EvolvingCardanoEntity
 where
-    C: Copy + Has<OperatorCred> + Has<OutputRef>,
+    C: Copy
+    + Has<OperatorCred>
+    + Has<OutputRef>
+    + Has<DeployedScriptHash<{ ConstFnPoolV1 as u8 }>>
+    + Has<DeployedScriptHash<{ ConstFnPoolV2 as u8 }>>
+    + Has<DeployedScriptHash<{ ConstFnPoolFeeSwitch as u8 }>>
+    + Has<DeployedScriptHash<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+    + Has<DeployedScriptHash<{ BalanceFnPoolV1 as u8 }>>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         trace!(target: "offchain", "CardanoEntity::try_from_ledger");
         <Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>>::try_from_ledger(repr, ctx).map(
             |inner| {

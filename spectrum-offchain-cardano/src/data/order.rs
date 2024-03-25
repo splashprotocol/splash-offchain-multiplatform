@@ -20,10 +20,10 @@ use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::creds::OperatorRewardAddress;
 
-use crate::data::cfmm_pool::CFMMPool;
+use crate::data::cfmm_pool::ConstFnPool;
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
-use crate::data::pool::RunAnyCFMMOrderOverPool;
+use crate::data::pool::{try_run_order_against_pool};
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
 use crate::deployment::DeployedValidator;
@@ -149,15 +149,15 @@ impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for ClassicalAMMOrder
 where
     Ctx: Has<OutputRef>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: Ctx) -> Option<Self> {
-        ClassicalOnChainLimitSwap::try_from_ledger(repr, ctx.get())
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
+        ClassicalOnChainLimitSwap::try_from_ledger(repr, ctx)
             .map(|swap| ClassicalAMMOrder::Swap(swap))
             .or_else(|| {
-                ClassicalOnChainDeposit::try_from_ledger(repr, ctx.get())
+                ClassicalOnChainDeposit::try_from_ledger(repr, ctx)
                     .map(|deposit| ClassicalAMMOrder::Deposit(deposit))
             })
             .or_else(|| {
-                ClassicalOnChainRedeem::try_from_ledger(repr, ctx.get())
+                ClassicalOnChainRedeem::try_from_ledger(repr, ctx)
                     .map(|redeem| ClassicalAMMOrder::Redeem(redeem))
             })
     }
@@ -166,7 +166,7 @@ where
 pub struct RunClassicalAMMOrderOverPool<Pool>(pub Bundled<Pool, FinalizedTxOut>);
 
 impl<Ctx> RunOrder<Bundled<ClassicalAMMOrder, FinalizedTxOut>, Ctx, SignedTxBuilder>
-    for RunClassicalAMMOrderOverPool<CFMMPool>
+    for RunClassicalAMMOrderOverPool<ConstFnPool>
 where
     Ctx: Clone
         + Has<Collateral>
@@ -188,24 +188,27 @@ where
     {
         let RunClassicalAMMOrderOverPool(pool_bundle) = self;
         match order {
-            ClassicalAMMOrder::Swap(swap) => RunAnyCFMMOrderOverPool(pool_bundle)
-                .try_run(Bundled(swap, ord_bearer), ctx)
-                .map(|(txb, res)| (txb, res.map(|wrapper| RunClassicalAMMOrderOverPool(wrapper.0))))
-                .map_err(|err| {
-                    err.map(|Bundled(swap, bundle)| Bundled(ClassicalAMMOrder::Swap(swap), bundle))
-                }),
-            ClassicalAMMOrder::Deposit(deposit) => RunAnyCFMMOrderOverPool(pool_bundle)
-                .try_run(Bundled(deposit.clone(), ord_bearer), ctx)
-                .map(|(txb, res)| (txb, res.map(|wrapper| RunClassicalAMMOrderOverPool(wrapper.0))))
-                .map_err(|err| {
-                    err.map(|Bundled(_swap, bundle)| Bundled(ClassicalAMMOrder::Deposit(deposit), bundle))
-                }),
-            ClassicalAMMOrder::Redeem(redeem) => RunAnyCFMMOrderOverPool(pool_bundle)
-                .try_run(Bundled(redeem.clone(), ord_bearer), ctx)
-                .map(|(txb, res)| (txb, res.map(|wrapper| RunClassicalAMMOrderOverPool(wrapper.0))))
-                .map_err(|err| {
-                    err.map(|Bundled(_swap, bundle)| Bundled(ClassicalAMMOrder::Redeem(redeem), bundle))
-                }),
+            ClassicalAMMOrder::Swap(swap) => {
+                try_run_order_against_pool(pool_bundle, Bundled(swap, ord_bearer), ctx)
+                    .map(|(txb, res)| (txb, res.map(RunClassicalAMMOrderOverPool)))
+                    .map_err(|err| {
+                        err.map(|Bundled(swap, bundle)| Bundled(ClassicalAMMOrder::Swap(swap), bundle))
+                    })
+            }
+            ClassicalAMMOrder::Deposit(deposit) => {
+                try_run_order_against_pool(pool_bundle, Bundled(deposit.clone(), ord_bearer), ctx)
+                    .map(|(txb, res)| (txb, res.map(RunClassicalAMMOrderOverPool)))
+                    .map_err(|err| {
+                        err.map(|Bundled(_swap, bundle)| Bundled(ClassicalAMMOrder::Deposit(deposit), bundle))
+                    })
+            }
+            ClassicalAMMOrder::Redeem(redeem) => {
+                try_run_order_against_pool(pool_bundle, Bundled(redeem.clone(), ord_bearer), ctx)
+                    .map(|(txb, res)| (txb, res.map(RunClassicalAMMOrderOverPool)))
+                    .map_err(|err| {
+                        err.map(|Bundled(_swap, bundle)| Bundled(ClassicalAMMOrder::Redeem(redeem), bundle))
+                    })
+            }
         }
     }
 }
