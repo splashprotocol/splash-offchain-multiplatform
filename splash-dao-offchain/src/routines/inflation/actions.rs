@@ -16,13 +16,14 @@ use cml_chain::transaction::{ScriptRef, TransactionInput, TransactionOutput};
 use bloom_offchain::execution_engine::bundled::Bundled;
 use cml_chain::{OrderedHashMap, PolicyId, Script, Value};
 use cml_crypto::{blake2b256, RawBytesEncoding, ScriptHash};
+use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::plutus_data::IntoPlutusData;
 use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::{AssetName, OutputRef};
 use spectrum_offchain::data::unique_entity::{Predicted, Traced};
-use spectrum_offchain::data::{EntitySnapshot, Stable};
+use spectrum_offchain::data::{EntitySnapshot, Has, Stable};
 use spectrum_offchain::ledger::IntoLedger;
 use spectrum_offchain_cardano::creds::operator_creds;
 use uplc::tx::{self, apply_params_to_script};
@@ -54,7 +55,14 @@ use crate::entities::onchain::weighting_poll::{
     MINT_WP_AUTH_EX_UNITS,
 };
 use crate::entities::Snapshot;
-use crate::protocol_config::{ProtocolConfig, TX_FEE_CORRECTION};
+use crate::protocol_config::{
+    EDaoMSigAuthPolicy, FactoryAuthPolicy, FarmAuthPolicy, FarmAuthRefScriptOutput, GTAuthPolicy,
+    InflationBoxRefScriptOutput, NodeMagic, OperatorCreds, PermManagerAuthPolicy,
+    PermManagerBoxRefScriptOutput, PollFactoryRefScriptOutput, ProtocolConfig, Reward, SplashPolicy,
+    VEFactoryAuthPolicy, VotingEscrowRefScriptOutput, WPAuthPolicy, WPAuthRefScriptOutput,
+    WeightingPowerRefScriptOutput, TX_FEE_CORRECTION,
+};
+use crate::GenesisEpochStartTime;
 
 use super::{
     InflationBoxSnapshot, PermManagerSnapshot, PollFactorySnapshot, SmartFarmSnapshot, VotingEscrowSnapshot,
@@ -65,7 +73,6 @@ use super::{
 pub trait InflationActions<Bearer> {
     async fn create_wpoll(
         &self,
-        config: &ProtocolConfig,
         inflation_box: Bundled<InflationBoxSnapshot, Bearer>,
         factory: Bundled<PollFactorySnapshot, Bearer>,
     ) -> (
@@ -76,12 +83,10 @@ pub trait InflationActions<Bearer> {
     );
     async fn eliminate_wpoll(
         &self,
-        config: &ProtocolConfig,
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
     ) -> SignedTxBuilder;
     async fn execute_order(
         &self,
-        config: &ProtocolConfig,
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
         order: (VotingOrder, Bundled<VotingEscrowSnapshot, Bearer>),
     ) -> (
@@ -91,7 +96,6 @@ pub trait InflationActions<Bearer> {
     );
     async fn distribute_inflation(
         &self,
-        config: &ProtocolConfig,
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
         farm: Bundled<SmartFarmSnapshot, Bearer>,
         perm_manager: Bundled<PermManagerSnapshot, Bearer>,
@@ -111,11 +115,32 @@ pub struct CardanoInflationActions<Ctx> {
 #[async_trait::async_trait]
 impl<Ctx> InflationActions<TransactionOutput> for CardanoInflationActions<Ctx>
 where
-    Ctx: Send + Sync + Copy,
+    Ctx: Send
+        + Sync
+        + Copy
+        + Has<Reward>
+        + Has<Collateral>
+        + Has<SplashPolicy>
+        + Has<InflationBoxRefScriptOutput>
+        + Has<PollFactoryRefScriptOutput>
+        + Has<WPAuthPolicy>
+        + Has<WPAuthRefScriptOutput>
+        + Has<FarmAuthPolicy>
+        + Has<FarmAuthRefScriptOutput>
+        + Has<FactoryAuthPolicy>
+        + Has<VEFactoryAuthPolicy>
+        + Has<VotingEscrowRefScriptOutput>
+        + Has<WeightingPowerRefScriptOutput>
+        + Has<PermManagerBoxRefScriptOutput>
+        + Has<EDaoMSigAuthPolicy>
+        + Has<PermManagerAuthPolicy>
+        + Has<GTAuthPolicy>
+        + Has<NodeMagic>
+        + Has<OperatorCreds>
+        + Has<GenesisEpochStartTime>,
 {
     async fn create_wpoll(
         &self,
-        config: &ProtocolConfig,
         Bundled(inflation_box, inflation_box_in): Bundled<InflationBoxSnapshot, TransactionOutput>,
         Bundled(factory, factory_in): Bundled<PollFactorySnapshot, TransactionOutput>,
     ) -> (
@@ -126,19 +151,24 @@ where
     ) {
         let mut tx_builder = constant_tx_builder();
 
+        let wpoll_auth_policy = self.ctx.get_labeled::<WPAuthPolicy>().0;
+        let splash_policy = self.ctx.get_labeled::<SplashPolicy>().0;
+        let genesis_time = self.ctx.get_labeled::<GenesisEpochStartTime>().0;
+        let farm_auth_policy = self.ctx.get_labeled::<FarmAuthPolicy>().0;
+
         // Note that we're not actually minting weighting power here. We only need the minting
         // policy id as part of the inflation box's script.
         let weighting_power_policy = compute_mint_weighting_power_policy_id(
-            config.genesis_time.0,
-            config.wpoll_auth_policy,
-            config.gt_policy,
+            self.ctx.get_labeled::<GenesisEpochStartTime>().0,
+            wpoll_auth_policy,
+            self.ctx.get_labeled::<GTAuthPolicy>().0,
         );
 
         let inflation_script_hash = compute_inflation_box_script_hash(
-            config.splash_policy,
-            config.wpoll_auth_policy,
+            splash_policy,
+            wpoll_auth_policy,
             weighting_power_policy,
-            config.genesis_time.0,
+            genesis_time,
         );
         let inflation_script = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(inflation_script_hash),
@@ -154,7 +184,7 @@ where
 
         let inflation_input_tx_hash = inflation_input.input.transaction_id;
 
-        tx_builder.add_reference_input(config.inflation_box_ref_script.clone());
+        tx_builder.add_reference_input(self.ctx.get_labeled::<InflationBoxRefScriptOutput>().0.clone());
         tx_builder.add_input(inflation_input).unwrap();
 
         let prev_ib_version = *inflation_box.version();
@@ -169,7 +199,7 @@ where
 
         // WP factory
         let wp_factory_script_hash = compute_wp_factory_script_hash(
-            config.wpoll_auth_policy,
+            wpoll_auth_policy,
             factory.get().stable_id.gov_witness_script_hash,
         );
 
@@ -189,14 +219,14 @@ where
 
         let wp_factory_input_tx_hash = wp_factory_input.input.transaction_id;
 
-        tx_builder.add_reference_input(config.poll_factory_ref_script.clone());
+        tx_builder.add_reference_input(self.ctx.get_labeled::<PollFactoryRefScriptOutput>().0.clone());
         tx_builder.add_input(wp_factory_input).unwrap();
 
         let gov_witness_script_hash = factory.get().stable_id.gov_witness_script_hash;
         let prev_factory_version = *factory.version();
         let (next_factory, fresh_wpoll) = factory
             .unwrap()
-            .next_weighting_poll(config.farm_auth_policy, emission_rate);
+            .next_weighting_poll(farm_auth_policy, emission_rate);
         let mut factory_out = factory_in.clone();
         if let Some(data_mut) = factory_out.data_mut() {
             unsafe_update_factory_state(data_mut, next_factory.last_poll_epoch);
@@ -226,22 +256,22 @@ where
 
         // Mint wp_auth token
         let mint_wp_auth_token_script_hash = compute_mint_wp_auth_token_policy_id(
-            config.splash_policy,
-            config.farm_auth_policy,
-            config.factory_auth_policy,
-            config.genesis_time.0,
+            splash_policy,
+            farm_auth_policy,
+            self.ctx.get_labeled::<FactoryAuthPolicy>().0,
+            genesis_time,
         );
         let mint_wp_auth_token_witness = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(mint_wp_auth_token_script_hash),
             mint_action.into_pd(),
         );
-        let (_operator_sk, operator_pkh, _operator_addr) =
-            operator_creds(&config.operator_sk, config.node_magic);
+        let OperatorCreds(_operator_sk, operator_pkh, _operator_addr) =
+            self.ctx.get_labeled::<OperatorCreds>();
 
         let asset = compute_epoch_asset_name(inflation_box.get().last_processed_epoch);
         let wp_auth_minting_policy = SingleMintBuilder::new_single_asset(asset.clone(), 1)
             .plutus_script(mint_wp_auth_token_witness, vec![operator_pkh]);
-        tx_builder.add_reference_input(config.wpoll_auth_ref_script.clone());
+        tx_builder.add_reference_input(self.ctx.get_labeled::<WPAuthRefScriptOutput>().0.clone());
         tx_builder.add_mint(wp_auth_minting_policy).unwrap();
         tx_builder.set_exunits(
             RedeemerWitnessKey::new(RedeemerTag::Mint, 0),
@@ -276,7 +306,7 @@ where
         tx_builder.add_output(factory_output).unwrap();
 
         // Set Governance Proxy witness script
-        let reward_address = config.reward_address.clone();
+        let reward_address = self.ctx.get_labeled::<Reward>().0.clone();
         let gp_witness = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(gov_witness_script_hash),
             cml_chain::plutus::PlutusData::new_list(vec![]), // dummy value (this validator doesn't require redeemer)
@@ -290,7 +320,9 @@ where
             GOV_PROXY_EX_UNITS,
         );
 
-        tx_builder.add_collateral(config.collateral.0.clone()).unwrap();
+        tx_builder
+            .add_collateral(self.ctx.get_labeled::<Collateral>().0.clone())
+            .unwrap();
 
         let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
         tx_builder.set_fee(estimated_tx_fee + TX_FEE_CORRECTION);
@@ -339,16 +371,21 @@ where
 
     async fn eliminate_wpoll(
         &self,
-        config: &ProtocolConfig,
         Bundled(weighting_poll, weighting_poll_in): Bundled<WeightingPollSnapshot, TransactionOutput>,
     ) -> SignedTxBuilder {
         let mut tx_builder = constant_tx_builder();
 
+        let splash_policy = self.ctx.get_labeled::<SplashPolicy>().0;
+        let genesis_time = self.ctx.get_labeled::<GenesisEpochStartTime>().0;
+        let farm_auth_policy = self.ctx.get_labeled::<FarmAuthPolicy>().0;
+        let factory_auth_policy = self.ctx.get_labeled::<FactoryAuthPolicy>().0;
+        let wpoll_auth_ref_script = self.ctx.get_labeled::<WPAuthRefScriptOutput>().0;
+
         let weighting_poll_script_hash = compute_mint_wp_auth_token_policy_id(
-            config.splash_policy,
-            config.farm_auth_policy,
-            config.factory_auth_policy,
-            config.genesis_time.0,
+            splash_policy,
+            farm_auth_policy,
+            factory_auth_policy,
+            genesis_time,
         );
 
         let redeemer = weighting_poll::PollAction::Destroy;
@@ -376,10 +413,10 @@ where
         }
         output_value.coin -= estimated_tx_fee;
 
-        tx_builder.add_reference_input(config.wpoll_auth_ref_script.clone());
+        tx_builder.add_reference_input(wpoll_auth_ref_script);
         tx_builder.add_input(weighting_poll_input).unwrap();
 
-        let (_, _, operator_addr) = operator_creds(&config.operator_sk, config.node_magic);
+        let OperatorCreds(_, _, operator_addr) = self.ctx.get_labeled::<OperatorCreds>();
         let output = TransactionOutputBuilder::new()
             .with_address(operator_addr)
             .next()
@@ -393,7 +430,7 @@ where
             MINT_WP_AUTH_EX_UNITS,
         );
 
-        let execution_fee_address: Address = config.reward_address.clone().into();
+        let execution_fee_address: Address = self.ctx.get_labeled::<Reward>().0.clone().into();
         tx_builder
             .build(ChangeSelectionAlgo::Default, &execution_fee_address)
             .unwrap()
@@ -401,7 +438,6 @@ where
 
     async fn execute_order(
         &self,
-        config: &ProtocolConfig,
         Bundled(weighting_poll, weighting_poll_in): Bundled<WeightingPollSnapshot, TransactionOutput>,
         (order, Bundled(voting_escrow, ve_box_in)): (
             VotingOrder,
@@ -430,7 +466,17 @@ where
             signature: order.proof,
         };
 
-        let voting_escrow_script_hash = compute_voting_escrow_policy_id(config.ve_factory_auth_policy);
+        let genesis_time = self.ctx.get_labeled::<GenesisEpochStartTime>().0;
+        let farm_auth_policy = self.ctx.get_labeled::<FarmAuthPolicy>().0;
+        let splash_policy = self.ctx.get_labeled::<SplashPolicy>().0;
+        let ve_factory_auth_policy = self.ctx.get_labeled::<VEFactoryAuthPolicy>().0;
+        let voting_escrow_ref_script = self.ctx.get_labeled::<VotingEscrowRefScriptOutput>().0;
+        let wpoll_auth_policy = self.ctx.get_labeled::<WPAuthPolicy>().0;
+        let factory_auth_policy = self.ctx.get_labeled::<FactoryAuthPolicy>().0;
+        let wpoll_auth_ref_script = self.ctx.get_labeled::<WPAuthRefScriptOutput>().0;
+        let weighting_power_ref_script = self.ctx.get_labeled::<WeightingPowerRefScriptOutput>().0;
+
+        let voting_escrow_script_hash = compute_voting_escrow_policy_id(ve_factory_auth_policy);
         let voting_escrow_script = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(voting_escrow_script_hash),
             authorized_action.into_pd(),
@@ -445,15 +491,15 @@ where
 
         let voting_escrow_input_tx_hash = voting_escrow_input.input.transaction_id;
 
-        tx_builder.add_reference_input(config.voting_escrow_ref_script.clone());
+        tx_builder.add_reference_input(voting_escrow_ref_script);
         tx_builder.add_input(voting_escrow_input).unwrap();
 
         // weighting_poll --------------------------------------------------------------------------
         let weighting_poll_script_hash = compute_mint_wp_auth_token_policy_id(
-            config.splash_policy,
-            config.farm_auth_policy,
-            config.factory_auth_policy,
-            config.genesis_time.0,
+            splash_policy,
+            farm_auth_policy,
+            factory_auth_policy,
+            genesis_time,
         );
         let weighting_poll_script = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(weighting_poll_script_hash),
@@ -469,14 +515,14 @@ where
 
         let weighting_poll_input_tx_hash = weighting_poll_input.input.transaction_id;
 
-        tx_builder.add_reference_input(config.wpoll_auth_ref_script.clone());
+        tx_builder.add_reference_input(wpoll_auth_ref_script);
         tx_builder.add_input(weighting_poll_input).unwrap();
 
         // Compute the policy for `mint_weighting_power`, to allow us to add the weighting power to WeightingPoll's
         // UTxO.
         let mint_weighting_power_policy = compute_mint_weighting_power_policy_id(
             weighting_poll.get().epoch as u64,
-            order.proposal_auth_policy,
+            wpoll_auth_policy,
             voting_escrow.get().gt_policy,
         );
         let current_posix_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
@@ -543,11 +589,11 @@ where
             mint_action.into_pd(),
         );
 
-        let (_, operator_pkh, _) = operator_creds(&config.operator_sk, config.node_magic);
+        let OperatorCreds(_, operator_pkh, _) = self.ctx.get_labeled::<OperatorCreds>();
         let asset = compute_epoch_asset_name(weighting_poll.get().epoch);
         let weighting_power_minting_policy = SingleMintBuilder::new_single_asset(asset.clone(), 1)
             .plutus_script(mint_weighting_power_script, vec![operator_pkh]);
-        tx_builder.add_reference_input(config.weighting_power_ref_script.clone());
+        tx_builder.add_reference_input(weighting_power_ref_script);
         tx_builder.add_mint(weighting_power_minting_policy).unwrap();
         tx_builder.set_exunits(
             RedeemerWitnessKey::new(RedeemerTag::Mint, 0),
@@ -555,7 +601,7 @@ where
         );
 
         // Set witness script (needed by voting_escrow script) -------------------------------------
-        let reward_address = config.reward_address.clone();
+        let reward_address = self.ctx.get_labeled::<Reward>().0;
         let order_witness = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(order.witness),
             cml_chain::plutus::PlutusData::new_list(vec![]), // dummy value (this validator doesn't require redeemer)
@@ -573,7 +619,9 @@ where
         tx_builder.set_validity_start_interval(current_posix_time);
         tx_builder.set_ttl(constants::MAX_TIME_DRIFT_MILLIS);
 
-        tx_builder.add_collateral(config.collateral.0.clone()).unwrap();
+        tx_builder
+            .add_collateral(self.ctx.get_labeled::<Collateral>().0)
+            .unwrap();
 
         let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
         tx_builder.set_fee(estimated_tx_fee + TX_FEE_CORRECTION);
@@ -612,7 +660,6 @@ where
 
     async fn distribute_inflation(
         &self,
-        config: &ProtocolConfig,
         Bundled(weighting_poll, weighting_poll_in): Bundled<WeightingPollSnapshot, TransactionOutput>,
         Bundled(farm, farm_in): Bundled<SmartFarmSnapshot, TransactionOutput>,
         Bundled(perm_manager, perm_manager_in): Bundled<PermManagerSnapshot, TransactionOutput>,
@@ -625,6 +672,16 @@ where
     ) {
         let mut tx_builder = constant_tx_builder();
 
+        let genesis_time = self.ctx.get_labeled::<GenesisEpochStartTime>().0;
+        let farm_auth_policy = self.ctx.get_labeled::<FarmAuthPolicy>().0;
+        let splash_policy = self.ctx.get_labeled::<SplashPolicy>().0;
+        let factory_auth_policy = self.ctx.get_labeled::<FactoryAuthPolicy>().0;
+        let wpoll_auth_ref_script = self.ctx.get_labeled::<WPAuthRefScriptOutput>().0;
+        let farm_auth_ref_script = self.ctx.get_labeled::<FarmAuthRefScriptOutput>().0;
+        let edao_msig_policy = self.ctx.get_labeled::<EDaoMSigAuthPolicy>().0;
+        let perm_manager_auth_policy = self.ctx.get_labeled::<PermManagerAuthPolicy>().0;
+        let perm_manager_box_ref_script = self.ctx.get_labeled::<PermManagerBoxRefScriptOutput>().0;
+
         let mut next_weighting_poll = weighting_poll.get().clone();
         let ix = next_weighting_poll
             .distribution
@@ -635,10 +692,10 @@ where
         next_weighting_poll.distribution[ix].1 = old_weight + farm_weight;
 
         let weighting_poll_script_hash = compute_mint_wp_auth_token_policy_id(
-            config.splash_policy,
-            config.farm_auth_policy,
-            config.factory_auth_policy,
-            config.genesis_time.0,
+            splash_policy,
+            farm_auth_policy,
+            factory_auth_policy,
+            genesis_time,
         );
 
         // Setting TX inputs -----------------------------------------------------------------------
@@ -691,7 +748,7 @@ where
                     )
                     .plutus_script_inline_datum(weighting_poll_script, vec![])
                     .unwrap();
-                    tx_builder.add_reference_input(config.wpoll_auth_ref_script.clone());
+                    tx_builder.add_reference_input(wpoll_auth_ref_script.clone());
                     tx_builder.add_input(weighting_poll_input).unwrap();
                     tx_builder.set_exunits(
                         RedeemerWitnessKey::new(RedeemerTag::Spend, i as u64),
@@ -705,10 +762,8 @@ where
                             perm_manager_input_ix,
                         },
                     };
-                    let smart_farm_script_hash = compute_mint_farm_auth_token_policy_id(
-                        config.splash_policy,
-                        config.factory_auth_policy,
-                    );
+                    let smart_farm_script_hash =
+                        compute_mint_farm_auth_token_policy_id(splash_policy, factory_auth_policy);
                     let smart_farm_script = PartialPlutusWitness::new(
                         PlutusScriptWitness::Ref(smart_farm_script_hash),
                         redeemer.into_pd(),
@@ -720,7 +775,7 @@ where
                     )
                     .plutus_script_inline_datum(smart_farm_script, vec![])
                     .unwrap();
-                    tx_builder.add_reference_input(config.farm_auth_ref_script.clone());
+                    tx_builder.add_reference_input(farm_auth_ref_script.clone());
                     tx_builder.add_input(smart_farm_input).unwrap();
                     tx_builder.set_exunits(
                         RedeemerWitnessKey::new(RedeemerTag::Spend, i as u64),
@@ -728,10 +783,8 @@ where
                     );
                 }
                 InputType::PermManager => {
-                    let perm_manager_script_hash = compute_perm_manager_policy_id(
-                        config.edao_msig_policy,
-                        config.perm_manager_auth_policy,
-                    );
+                    let perm_manager_script_hash =
+                        compute_perm_manager_policy_id(edao_msig_policy, perm_manager_auth_policy);
 
                     let perm_manager_script = PartialPlutusWitness::new(
                         PlutusScriptWitness::Ref(perm_manager_script_hash),
@@ -744,7 +797,7 @@ where
                     )
                     .plutus_script_inline_datum(perm_manager_script, vec![])
                     .unwrap();
-                    tx_builder.add_reference_input(config.perm_manager_box_ref_script.clone());
+                    tx_builder.add_reference_input(perm_manager_box_ref_script.clone());
                     tx_builder.add_input(perm_manager_input).unwrap();
                     tx_builder.set_exunits(
                         RedeemerWitnessKey::new(RedeemerTag::Spend, i as u64),
@@ -773,15 +826,17 @@ where
         tx_builder.add_output(perm_manager_output).unwrap();
 
         // Add operator as signatory
-        let (_, operator_pkh, _) = operator_creds(&config.operator_sk, config.node_magic);
+        let OperatorCreds(_, operator_pkh, _) = self.ctx.get_labeled::<OperatorCreds>();
         tx_builder.add_required_signer(operator_pkh);
 
-        tx_builder.add_collateral(config.collateral.0.clone()).unwrap();
+        tx_builder
+            .add_collateral(self.ctx.get_labeled::<Collateral>().0)
+            .unwrap();
 
         let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
         tx_builder.set_fee(estimated_tx_fee + TX_FEE_CORRECTION);
 
-        let execution_fee_address: Address = config.reward_address.clone().into();
+        let execution_fee_address: Address = self.ctx.get_labeled::<Reward>().0.into();
 
         // Build tx, change is execution fee.
         let signed_tx_builder = tx_builder
