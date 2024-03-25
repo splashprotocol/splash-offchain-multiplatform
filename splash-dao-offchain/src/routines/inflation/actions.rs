@@ -1,5 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use bloom_offchain::execution_engine::liquidity_book::weight;
 use cml_chain::address::Address;
 use cml_chain::assets::AssetBundle;
 use cml_chain::builders::input_builder::SingleInputBuilder;
@@ -35,11 +36,14 @@ use crate::entities::offchain::voting_order::VotingOrder;
 use crate::entities::onchain::inflation_box::{
     compute_inflation_box_script_hash, InflationBox, INFLATION_BOX_EX_UNITS,
 };
+use crate::entities::onchain::permission_manager::{compute_perm_manager_policy_id, PERM_MANAGER_EX_UNITS};
 use crate::entities::onchain::poll_factory::{
     compute_wp_factory_script_hash, unsafe_update_factory_state, FactoryRedeemer, PollFactory,
     PollFactoryAction, GOV_PROXY_EX_UNITS, WP_FACTORY_EX_UNITS,
 };
-use crate::entities::onchain::smart_farm::SmartFarm;
+use crate::entities::onchain::smart_farm::{
+    self, compute_mint_farm_auth_token_policy_id, SmartFarm, FARM_EX_UNITS,
+};
 use crate::entities::onchain::voting_escrow::{
     self, compute_mint_weighting_power_policy_id, compute_voting_escrow_policy_id, unsafe_update_ve_state,
     VotingEscrow, VotingEscrowAction, VotingEscrowAuthorizedAction, ORDER_WITNESS_EX_UNITS,
@@ -52,7 +56,10 @@ use crate::entities::onchain::weighting_poll::{
 use crate::entities::Snapshot;
 use crate::protocol_config::{ProtocolConfig, TX_FEE_CORRECTION};
 
-use super::{InflationBoxSnapshot, PollFactorySnapshot, VotingEscrowSnapshot, WeightingPollSnapshot};
+use super::{
+    InflationBoxSnapshot, PermManagerSnapshot, PollFactorySnapshot, SmartFarmSnapshot, VotingEscrowSnapshot,
+    WeightingPollSnapshot,
+};
 
 #[async_trait::async_trait]
 pub trait InflationActions<Bearer> {
@@ -86,11 +93,14 @@ pub trait InflationActions<Bearer> {
         &self,
         config: &ProtocolConfig,
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
-        farm: Bundled<SmartFarm, Bearer>,
+        farm: Bundled<SmartFarmSnapshot, Bearer>,
+        perm_manager: Bundled<PermManagerSnapshot, Bearer>,
         farm_weight: u64,
     ) -> (
+        SignedTxBuilder,
         Traced<Predicted<Bundled<WeightingPollSnapshot, Bearer>>>,
-        Traced<Predicted<Bundled<SmartFarm, Bearer>>>,
+        Traced<Predicted<Bundled<SmartFarmSnapshot, Bearer>>>,
+        Traced<Predicted<Bundled<PermManagerSnapshot, Bearer>>>,
     );
 }
 
@@ -475,16 +485,18 @@ where
         if let Some(data_mut) = wpoll_out.data_mut() {
             unsafe_update_wp_state(data_mut, &order.distribution);
         }
+        let weighting_power = voting_escrow.get().voting_power(current_posix_time);
         wpoll_out.add_asset(
             spectrum_cardano_lib::AssetClass::Token((
                 mint_weighting_power_policy,
                 AssetName::try_from(vec![constants::GT_NAME]).unwrap(),
             )),
-            voting_escrow.get().voting_power(current_posix_time),
+            weighting_power,
         );
 
         let next_weighting_poll = WeightingPoll {
             distribution: order.distribution,
+            weighting_power: Some(weighting_power),
             ..weighting_poll.get().clone()
         };
         // Set TX outputs --------------------------------------------------------------------------
@@ -602,34 +614,210 @@ where
         &self,
         config: &ProtocolConfig,
         Bundled(weighting_poll, weighting_poll_in): Bundled<WeightingPollSnapshot, TransactionOutput>,
-        farm: Bundled<SmartFarm, TransactionOutput>,
+        Bundled(farm, farm_in): Bundled<SmartFarmSnapshot, TransactionOutput>,
+        Bundled(perm_manager, perm_manager_in): Bundled<PermManagerSnapshot, TransactionOutput>,
         farm_weight: u64,
     ) -> (
+        SignedTxBuilder,
         Traced<Predicted<Bundled<WeightingPollSnapshot, TransactionOutput>>>,
-        Traced<Predicted<Bundled<SmartFarm, TransactionOutput>>>,
+        Traced<Predicted<Bundled<SmartFarmSnapshot, TransactionOutput>>>,
+        Traced<Predicted<Bundled<PermManagerSnapshot, TransactionOutput>>>,
     ) {
         let mut tx_builder = constant_tx_builder();
 
         let mut next_weighting_poll = weighting_poll.get().clone();
-        if let Some(ix) = next_weighting_poll
+        let ix = next_weighting_poll
             .distribution
             .iter()
-            .position(|&(farm_id, _)| true)
-        // TODO: fix
-        {
-            let old_weight = next_weighting_poll.distribution[ix].1;
-            next_weighting_poll.distribution[ix].1 = old_weight + farm_weight;
+            .position(|&(farm_id, _)| farm_id == farm.get().farm_id)
+            .unwrap();
+        let old_weight = next_weighting_poll.distribution[ix].1;
+        next_weighting_poll.distribution[ix].1 = old_weight + farm_weight;
+
+        let weighting_poll_script_hash = compute_mint_wp_auth_token_policy_id(
+            config.splash_policy,
+            config.farm_auth_policy,
+            config.factory_auth_policy,
+            config.genesis_time.0,
+        );
+
+        // Setting TX inputs -----------------------------------------------------------------------
+        enum InputType {
+            WPoll,
+            Farm,
+            PermManager,
         }
 
-        // adjust splash values in weighting_poll and farm.
+        let mut typed_inputs = vec![
+            (
+                TransactionInput::from(*weighting_poll.version()).transaction_id,
+                InputType::WPoll,
+            ),
+            (
+                TransactionInput::from(*farm.version()).transaction_id,
+                InputType::Farm,
+            ),
+            (
+                TransactionInput::from(*perm_manager.version()).transaction_id,
+                InputType::PermManager,
+            ),
+        ];
+
+        typed_inputs.sort_by_key(|(tx_hash, _)| *tx_hash);
+        let farm_in_ix = typed_inputs
+            .iter()
+            .position(|(_, t)| matches!(t, InputType::Farm))
+            .unwrap() as u32;
+        let perm_manager_input_ix = typed_inputs
+            .iter()
+            .position(|(_, t)| matches!(t, InputType::PermManager))
+            .unwrap() as u32;
+
+        for (i, (_, input_type)) in typed_inputs.into_iter().enumerate() {
+            match input_type {
+                InputType::WPoll => {
+                    let redeemer = weighting_poll::PollAction::Distribute {
+                        farm_ix: farm.get().farm_id.0 as u32,
+                        farm_in_ix,
+                    };
+                    let weighting_poll_script = PartialPlutusWitness::new(
+                        PlutusScriptWitness::Ref(weighting_poll_script_hash),
+                        redeemer.into_pd(),
+                    );
+
+                    let weighting_poll_input = SingleInputBuilder::new(
+                        TransactionInput::from(*(weighting_poll.version())),
+                        weighting_poll_in.clone(),
+                    )
+                    .plutus_script_inline_datum(weighting_poll_script, vec![])
+                    .unwrap();
+                    tx_builder.add_reference_input(config.wpoll_auth_ref_script.clone());
+                    tx_builder.add_input(weighting_poll_input).unwrap();
+                    tx_builder.set_exunits(
+                        RedeemerWitnessKey::new(RedeemerTag::Spend, i as u64),
+                        MINT_WP_AUTH_EX_UNITS,
+                    );
+                }
+                InputType::Farm => {
+                    let redeemer = smart_farm::Redeemer {
+                        successor_out_ix: 1,
+                        action: smart_farm::Action::DistributeRewards {
+                            perm_manager_input_ix,
+                        },
+                    };
+                    let smart_farm_script_hash = compute_mint_farm_auth_token_policy_id(
+                        config.splash_policy,
+                        config.factory_auth_policy,
+                    );
+                    let smart_farm_script = PartialPlutusWitness::new(
+                        PlutusScriptWitness::Ref(smart_farm_script_hash),
+                        redeemer.into_pd(),
+                    );
+
+                    let smart_farm_input = SingleInputBuilder::new(
+                        TransactionInput::from(*(farm.version())),
+                        weighting_poll_in.clone(),
+                    )
+                    .plutus_script_inline_datum(smart_farm_script, vec![])
+                    .unwrap();
+                    tx_builder.add_reference_input(config.farm_auth_ref_script.clone());
+                    tx_builder.add_input(smart_farm_input).unwrap();
+                    tx_builder.set_exunits(
+                        RedeemerWitnessKey::new(RedeemerTag::Spend, i as u64),
+                        FARM_EX_UNITS,
+                    );
+                }
+                InputType::PermManager => {
+                    let perm_manager_script_hash = compute_perm_manager_policy_id(
+                        config.edao_msig_policy,
+                        config.perm_manager_auth_policy,
+                    );
+
+                    let perm_manager_script = PartialPlutusWitness::new(
+                        PlutusScriptWitness::Ref(perm_manager_script_hash),
+                        cml_chain::plutus::PlutusData::Integer(cml_chain::utils::BigInt::from(2)), // set successor_out_ix to 2
+                    );
+
+                    let perm_manager_input = SingleInputBuilder::new(
+                        TransactionInput::from(*(perm_manager.version())),
+                        weighting_poll_in.clone(),
+                    )
+                    .plutus_script_inline_datum(perm_manager_script, vec![])
+                    .unwrap();
+                    tx_builder.add_reference_input(config.perm_manager_box_ref_script.clone());
+                    tx_builder.add_input(perm_manager_input).unwrap();
+                    tx_builder.set_exunits(
+                        RedeemerWitnessKey::new(RedeemerTag::Spend, i as u64),
+                        PERM_MANAGER_EX_UNITS,
+                    );
+                }
+            }
+        }
+
+        // Adjust splash values in weighting_poll and farm.
+        let splash_emission = weighting_poll.get().emission_rate.untag() * farm_weight
+            / weighting_poll.get().weighting_power.unwrap();
+
+        let mut weighting_poll_out = weighting_poll_in.clone();
+        weighting_poll_out.sub_asset(*SPLASH_AC, splash_emission);
+
+        let mut farm_out = farm_in.clone();
+        farm_out.add_asset(*SPLASH_AC, splash_emission);
 
         // farm output must be at index 1
+        let weighting_poll_output = SingleOutputBuilderResult::new(weighting_poll_out.clone());
+        let farm_output = SingleOutputBuilderResult::new(farm_out.clone());
+        let perm_manager_output = SingleOutputBuilderResult::new(perm_manager_in.clone());
+        tx_builder.add_output(weighting_poll_output).unwrap();
+        tx_builder.add_output(farm_output).unwrap();
+        tx_builder.add_output(perm_manager_output).unwrap();
 
         // Add operator as signatory
         let (_, operator_pkh, _) = operator_creds(&config.operator_sk, config.node_magic);
         tx_builder.add_required_signer(operator_pkh);
 
-        todo!()
+        tx_builder.add_collateral(config.collateral.0.clone()).unwrap();
+
+        let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
+        tx_builder.set_fee(estimated_tx_fee + TX_FEE_CORRECTION);
+
+        let execution_fee_address: Address = config.reward_address.clone().into();
+
+        // Build tx, change is execution fee.
+        let signed_tx_builder = tx_builder
+            .build(ChangeSelectionAlgo::Default, &execution_fee_address)
+            .unwrap();
+        let tx_body = signed_tx_builder.body();
+
+        let tx_hash = hash_transaction_canonical(&tx_body);
+
+        let next_wp_version = OutputRef::new(tx_hash, 0);
+        let fresh_wp = Traced::new(
+            Predicted(Bundled(
+                Snapshot::new(next_weighting_poll, next_wp_version),
+                weighting_poll_out,
+            )),
+            Some(*weighting_poll.version()),
+        );
+
+        let next_farm_version = OutputRef::new(tx_hash, 1);
+        let next_farm = farm.get().clone();
+        let fresh_farm = Traced::new(
+            Predicted(Bundled(Snapshot::new(next_farm, next_farm_version), farm_out)),
+            Some(*farm.version()),
+        );
+
+        let next_perm_manager_version = OutputRef::new(tx_hash, 2);
+        let next_perm_manager = perm_manager.get().clone();
+        let fresh_perm_manager = Traced::new(
+            Predicted(Bundled(
+                Snapshot::new(next_perm_manager, next_perm_manager_version),
+                perm_manager_in,
+            )),
+            Some(*perm_manager.version()),
+        );
+
+        (signed_tx_builder, fresh_wp, fresh_farm, fresh_perm_manager)
     }
 }
 

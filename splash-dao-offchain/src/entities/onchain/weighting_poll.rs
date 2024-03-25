@@ -34,6 +34,8 @@ pub struct WeightingPoll {
     pub distribution: Vec<(FarmId, u64)>,
     pub stable_id: WeightingPollStableId,
     pub emission_rate: TaggedAmount<Splash>,
+    /// Note: weighting power is not determined until vote stage.
+    pub weighting_power: Option<u64>,
 }
 
 impl<Ctx> IntoLedger<TransactionOutput, Ctx> for WeightingPoll {
@@ -102,6 +104,7 @@ impl WeightingPoll {
             distribution: farms.into_iter().map(|farm| (farm, 0)).collect(),
             stable_id,
             emission_rate,
+            weighting_power: None,
         }
     }
 

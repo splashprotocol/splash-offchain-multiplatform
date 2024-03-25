@@ -51,6 +51,7 @@ impl PollFactory {
             distribution: self.active_farms.iter().map(|farm| (*farm, 0u64)).collect(),
             stable_id,
             emission_rate,
+            weighting_power: None,
         };
         self.last_poll_epoch = poll_epoch;
         (self, next_poll)
