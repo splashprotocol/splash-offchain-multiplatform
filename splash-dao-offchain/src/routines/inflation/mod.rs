@@ -221,10 +221,8 @@ impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
     {
         if let (AnyMod::Confirmed(inflation_box), AnyMod::Confirmed(factory)) = (inflation_box, poll_factory)
         {
-            let (signed_tx, next_inflation_box, next_factory, next_wpoll) = self
-                .actions
-                .create_wpoll(&self.conf, inflation_box.0, factory.0)
-                .await;
+            let (signed_tx, next_inflation_box, next_factory, next_wpoll) =
+                self.actions.create_wpoll(inflation_box.0, factory.0).await;
             let tx = self.prover.prove(signed_tx);
             self.network.submit_tx(tx).await.unwrap();
             self.inflation_box.write(next_inflation_box).await;
@@ -251,7 +249,7 @@ impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
         if let Some(next_order) = next_pending_order {
             let (signed_tx, next_wpoll, next_ve) = self
                 .actions
-                .execute_order(&self.conf, weighting_poll.erased(), next_order)
+                .execute_order(weighting_poll.erased(), next_order)
                 .await;
             let tx = self.prover.prove(signed_tx);
             self.network.submit_tx(tx).await.unwrap();
@@ -280,7 +278,6 @@ impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
         let (signed_tx, next_wpoll, next_sf, next_pm) = self
             .actions
             .distribute_inflation(
-                &self.conf,
                 weighting_poll.erased(),
                 next_farm.erased(),
                 perm_manager.erased(),
@@ -303,7 +300,7 @@ impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
         Net: Network<Transaction, TxRejected> + Clone + std::marker::Sync + std::marker::Send,
     {
         if let AnyMod::Confirmed(Confirmed(weighting_poll)) = weighting_poll {
-            let signed_tx = self.actions.eliminate_wpoll(&self.conf, weighting_poll).await;
+            let signed_tx = self.actions.eliminate_wpoll(weighting_poll).await;
             let tx = self.prover.prove(signed_tx);
             self.network.submit_tx(tx).await.unwrap();
             return None;

@@ -1,22 +1,27 @@
 use std::fmt::Formatter;
 
+use cml_chain::address::{BaseAddress, EnterpriseAddress};
+use cml_chain::assets::AssetName;
+use cml_chain::certs::StakeCredential;
 use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData};
-use cml_chain::transaction::TransactionOutput;
+use cml_chain::transaction::{DatumOption, TransactionOutput};
 use cml_chain::utils::BigInt;
-use cml_chain::PolicyId;
+use cml_chain::{OrderedHashMap, PolicyId, Value};
 use cml_crypto::RawBytesEncoding;
 use derive_more::From;
 
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::{TaggedAmount, Token};
-use spectrum_offchain::data::{Identifier, Stable};
+use spectrum_offchain::data::{Has, Identifier, Stable};
 use spectrum_offchain::ledger::IntoLedger;
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 use uplc_pallas_codec::utils::{Int, PlutusBytes};
 
 use crate::assets::Splash;
-use crate::constants::MINT_WP_AUTH_TOKEN_SCRIPT;
+use crate::constants::{MINT_WP_AUTH_TOKEN_SCRIPT, SPLASH_NAME};
 use crate::entities::onchain::smart_farm::FarmId;
+use crate::entities::onchain::voting_escrow::compute_mint_weighting_power_policy_id;
+use crate::protocol_config::{GTAuthPolicy, NodeMagic, SplashPolicy, WPAuthPolicy};
 use crate::routines::inflation::WeightingPollSnapshot;
 use crate::time::{epoch_end, epoch_start, NetworkTime, ProtocolEpoch};
 use crate::GenesisEpochStartTime;
@@ -38,10 +43,63 @@ pub struct WeightingPoll {
     pub weighting_power: Option<u64>,
 }
 
-impl<Ctx> IntoLedger<TransactionOutput, Ctx> for WeightingPoll {
+impl<Ctx> IntoLedger<TransactionOutput, Ctx> for WeightingPoll
+where
+    Ctx: Has<SplashPolicy>
+        + Has<GenesisEpochStartTime>
+        + Has<WPAuthPolicy>
+        + Has<GTAuthPolicy>
+        + Has<NodeMagic>,
+{
     fn into_ledger(self, ctx: Ctx) -> TransactionOutput {
-        todo!()
+        let weighting_poll_policy = ctx.get_labeled::<WPAuthPolicy>().0;
+        let weighting_power_policy = compute_mint_weighting_power_policy_id(
+            self.epoch as u64,
+            ctx.get_labeled::<WPAuthPolicy>().0,
+            ctx.get_labeled::<GTAuthPolicy>().0,
+        );
+        let datum = create_datum(
+            &self,
+            ctx.get_labeled::<GenesisEpochStartTime>(),
+            weighting_power_policy,
+        );
+
+        let cred = StakeCredential::new_script(weighting_poll_policy);
+        let address = EnterpriseAddress::new(ctx.get_labeled::<NodeMagic>().0 as u8, cred).to_address();
+
+        let mut bundle = OrderedHashMap::new();
+        bundle.insert(
+            ctx.get_labeled::<SplashPolicy>().0,
+            OrderedHashMap::from_iter(vec![(
+                AssetName::try_from(SPLASH_NAME.as_bytes().to_vec()).unwrap(),
+                self.emission_rate.untag(),
+            )]),
+        );
+        let amount = Value::new(MIN_ADA_IN_BOX, bundle.into());
+        TransactionOutput::new(address, amount, Some(DatumOption::new_datum(datum)), None)
     }
+}
+
+fn create_datum(
+    wpoll: &WeightingPoll,
+    genesis_epoch_start_time: GenesisEpochStartTime,
+    weighting_power_policy: PolicyId,
+) -> PlutusData {
+    let distribution_pd = distribution_to_plutus_data(&wpoll.distribution);
+    let deadline =
+        PlutusData::new_integer(BigInt::from(wpoll.voting_deadline_time(genesis_epoch_start_time)));
+    let emission_rate = PlutusData::new_integer(BigInt::from(wpoll.emission_rate.untag()));
+    let weighting_power_policy_pd = PlutusData::new_bytes(weighting_power_policy.to_raw_bytes().to_vec());
+
+    PlutusData::ConstrPlutusData(ConstrPlutusData::new(
+        0,
+        vec![
+            distribution_pd,
+            deadline,
+            emission_rate,
+            weighting_power_policy_pd,
+        ],
+    ))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -208,6 +266,8 @@ pub const MINT_WP_AUTH_EX_UNITS: ExUnits = ExUnits {
     steps: 200_000_000,
     encodings: None,
 };
+
+pub const MIN_ADA_IN_BOX: u64 = 1_000_000;
 
 /// Note that the this is a multivalidator, and can serve as the script that guards the
 /// weighting_poll.
