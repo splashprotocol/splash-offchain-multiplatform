@@ -59,6 +59,10 @@ num = "0.2.1"
 bigdecimal = "0.4.3"
 bignumber = "0.1.1"
 cbor_event = "2.4.0"
+uplc = "0.0.29"
+uplc-pallas-codec = { package = "pallas-codec", version = "0.16" }
+uplc-pallas-traverse = { package = "pallas-traverse", version = "0.16" }
+uplc-pallas-primitives = { package = "pallas-primitives", version = "0.16" }
 
 [dev-dependencies]
 rocksdb = "0.21.*"
