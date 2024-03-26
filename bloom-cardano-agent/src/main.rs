@@ -4,9 +4,9 @@ use clap::Parser;
 use cml_chain::transaction::Transaction;
 use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
-use futures::{Stream, stream_select, StreamExt};
 use futures::channel::mpsc;
 use futures::stream::select_all;
+use futures::{stream_select, Stream, StreamExt};
 use log::info;
 use tokio::sync::Mutex;
 use tracing_subscriber::fmt::Subscriber;
@@ -17,16 +17,16 @@ use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_part_stream;
 use bloom_offchain::execution_engine::liquidity_book::{ExecutionCap, TLB};
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
-use bloom_offchain::execution_engine::storage::InMemoryStateIndex;
 use bloom_offchain::execution_engine::storage::kv_store::InMemoryKvStore;
-use bloom_offchain_cardano::event_sink::{AtomicCardanoEntity, EvolvingCardanoEntity};
+use bloom_offchain::execution_engine::storage::InMemoryStateIndex;
+use bloom_offchain_cardano::event_sink::context::HandlerContextProto;
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
 use bloom_offchain_cardano::event_sink::handler::{PairUpdateHandler, SpecializedHandler};
 use bloom_offchain_cardano::event_sink::order_index::InMemoryOrderIndex;
+use bloom_offchain_cardano::event_sink::{AtomicCardanoEntity, EvolvingCardanoEntity};
 use bloom_offchain_cardano::execution_engine::backlog::interpreter::SpecializedInterpreterViaRunOrder;
 use bloom_offchain_cardano::execution_engine::interpreter::CardanoRecipeInterpreter;
 use bloom_offchain_cardano::orders::AnyOrder;
-use bloom_offchain_cardano::pools::AnyPool;
 use cardano_chain_sync::cache::LedgerCacheRocksDB;
 use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::ChainSyncClient;
@@ -41,9 +41,9 @@ use spectrum_cardano_lib::constants::BABBAGE_ERA_ID;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::backlog::{BacklogCapacity, HotPriorityBacklog};
-use spectrum_offchain::data::Baked;
 use spectrum_offchain::data::order::OrderUpdate;
 use spectrum_offchain::data::unique_entity::{EitherMod, StateUpdate};
+use spectrum_offchain::data::Baked;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::partitioning::Partitioned;
@@ -52,7 +52,8 @@ use spectrum_offchain_cardano::collaterals::{Collaterals, CollateralsViaExplorer
 use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
 use spectrum_offchain_cardano::data::pair::PairId;
-use spectrum_offchain_cardano::deployment::{DeployedValidators, ProtocolDeployment};
+use spectrum_offchain_cardano::data::pool::AnyPool;
+use spectrum_offchain_cardano::deployment::{DeployedValidators, ProtocolDeployment, ProtocolScriptHashes};
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
 
@@ -156,13 +157,17 @@ async fn main() {
     let spec_order_index = Arc::new(Mutex::new(InMemoryOrderIndex::new(
         config.cardano_finalization_delay,
     )));
+    let handler_context = HandlerContextProto {
+        executor_cred: config.executor_cred,
+        scripts: ProtocolScriptHashes::from(&protocol_deployment),
+    };
     let general_upd_handler = PairUpdateHandler::new(
         partitioned_pair_upd_snd,
         Arc::clone(&entity_index),
-        config.executor_cred,
+        handler_context,
     );
     let spec_upd_handler = SpecializedHandler::new(
-        PairUpdateHandler::new(partitioned_spec_upd_snd, entity_index, config.executor_cred),
+        PairUpdateHandler::new(partitioned_spec_upd_snd, entity_index, handler_context),
         spec_order_index,
     );
 

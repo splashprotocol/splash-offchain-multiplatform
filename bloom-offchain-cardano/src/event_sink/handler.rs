@@ -10,50 +10,23 @@ use either::Either;
 use futures::{Sink, SinkExt};
 use log::trace;
 use tokio::sync::{Mutex, MutexGuard};
-use type_equalities::IsEqual;
 
+use crate::event_sink::context::{HandlerContext, HandlerContextProto};
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_mempool_sync::data::MempoolUpdate;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::combinators::Ior;
-use spectrum_offchain::data::{EntitySnapshot, Has, Tradable};
 use spectrum_offchain::data::order::{OrderUpdate, SpecializedOrder};
 use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
+use spectrum_offchain::data::{EntitySnapshot, Has, Tradable};
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain::partitioning::Partitioned;
+use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
-use crate::creds::ExecutorCred;
 use crate::event_sink::entity_index::TradableEntityIndex;
 use crate::event_sink::order_index::OrderIndex;
-
-#[derive(Copy, Clone, Debug)]
-pub struct HandlerContext {
-    pub output_ref: OutputRef,
-    pub executor_cred: ExecutorCred,
-}
-
-impl HandlerContext {
-    pub fn new(output_ref: OutputRef, own_cred: ExecutorCred) -> Self {
-        Self {
-            output_ref,
-            executor_cred: own_cred,
-        }
-    }
-}
-
-impl Has<OutputRef> for HandlerContext {
-    fn get_labeled<U: IsEqual<OutputRef>>(&self) -> OutputRef {
-        self.output_ref
-    }
-}
-
-impl Has<ExecutorCred> for HandlerContext {
-    fn get_labeled<U: IsEqual<ExecutorCred>>(&self) -> ExecutorCred {
-        self.executor_cred
-    }
-}
 
 /// A handler for updates that routes resulted [Entity] updates
 /// into different topics [Topic] according to partitioning key [PairId].
@@ -62,7 +35,7 @@ pub struct PairUpdateHandler<const N: usize, PairId, Topic, Entity, Index> {
     pub topic: Partitioned<N, PairId, Topic>,
     /// Index of all non-consumed states of [Entity].
     pub index: Arc<Mutex<Index>>,
-    pub executor_cred: ExecutorCred,
+    pub context: HandlerContextProto,
     pub pd: PhantomData<Entity>,
 }
 
@@ -70,12 +43,12 @@ impl<const N: usize, PairId, Topic, Entity, Index> PairUpdateHandler<N, PairId, 
     pub fn new(
         topic: Partitioned<N, PairId, Topic>,
         index: Arc<Mutex<Index>>,
-        executor_cred: ExecutorCred,
+        context: HandlerContextProto,
     ) -> Self {
         Self {
             topic,
             index,
-            executor_cred,
+            context,
             pd: Default::default(),
         }
     }
@@ -123,7 +96,7 @@ where
             LedgerTxEvent::TxApplied { tx, slot } => {
                 match extract_atomic_transitions(
                     Arc::clone(&self.order_index),
-                    self.general_handler.executor_cred,
+                    self.general_handler.context,
                     tx,
                 )
                 .await
@@ -149,7 +122,7 @@ where
             LedgerTxEvent::TxUnapplied(tx) => {
                 match extract_atomic_transitions(
                     Arc::clone(&self.order_index),
-                    self.general_handler.executor_cred,
+                    self.general_handler.context,
                     tx,
                 )
                 .await
@@ -205,7 +178,7 @@ where
             MempoolUpdate::TxAccepted(tx) => {
                 match extract_atomic_transitions(
                     Arc::clone(&self.order_index),
-                    self.general_handler.executor_cred,
+                    self.general_handler.context,
                     tx,
                 )
                 .await
@@ -241,7 +214,7 @@ fn pool_ref_of<T: SpecializedOrder>(tr: &Either<T, T>) -> T::TPoolId {
 
 async fn extract_atomic_transitions<Order, Index>(
     index: Arc<Mutex<Index>>,
-    executor_cred: ExecutorCred,
+    context: HandlerContextProto,
     mut tx: BabbageTransaction,
 ) -> Result<Vec<Either<Order, Order>>, BabbageTransaction>
 where
@@ -254,8 +227,11 @@ where
         return Err(tx);
     }
     let mut consumed_entities = HashMap::<Order::TOrderId, Order>::new();
+    let mut consumed_utxos = Vec::new();
     for i in &tx.body.inputs {
-        let state_id = Order::TOrderId::from(OutputRef::from((i.transaction_id, i.index)));
+        let oref = OutputRef::from((i.transaction_id, i.index));
+        consumed_utxos.push(oref);
+        let state_id = Order::TOrderId::from(oref);
         let mut index = index.lock().await;
         if index.exists(&state_id) {
             if let Some(order) = index.get(&state_id) {
@@ -265,13 +241,14 @@ where
         }
     }
     let mut produced_entities = HashMap::<Order::TOrderId, Order>::new();
+    let consumed_utxos = ConsumedInputs::new(consumed_utxos.into_iter());
     if !consumed_entities.is_empty() {
         let tx_hash = hash_transaction_canonical(&tx.body);
         let mut ix = num_outputs - 1;
         let mut non_processed_outputs = vec![];
         while let Some(o) = tx.body.outputs.pop() {
             let o_ref = OutputRef::new(tx_hash, ix as u64);
-            match Order::try_from_ledger(&o, HandlerContext::new(o_ref, executor_cred)) {
+            match Order::try_from_ledger(&o, &HandlerContext::new(o_ref, consumed_utxos, context)) {
                 Some(entity) => {
                     trace!(target: "offchain", "extract_atomic_transitions: entity found");
                     let entity_id = entity.get_self_ref();
@@ -312,7 +289,7 @@ where
 
 async fn extract_persistent_transitions<Entity, Index>(
     index: Arc<Mutex<Index>>,
-    executor_cred: ExecutorCred,
+    context: HandlerContextProto,
     mut tx: BabbageTransaction,
 ) -> Result<Vec<Ior<Entity, Entity>>, BabbageTransaction>
 where
@@ -325,8 +302,11 @@ where
         return Err(tx);
     }
     let mut consumed_entities = HashMap::<Entity::StableId, Entity>::new();
+    let mut consumed_utxos = Vec::new();
     for i in &tx.body.inputs {
-        let state_id = Entity::Version::from(OutputRef::from((i.transaction_id, i.index)));
+        let oref = OutputRef::from((i.transaction_id, i.index));
+        consumed_utxos.push(oref);
+        let state_id = Entity::Version::from(oref);
         let mut index = index.lock().await;
         if index.exists(&state_id) {
             if let Some(entity) = index.get_state(&state_id) {
@@ -337,11 +317,13 @@ where
     }
     let mut produced_entities = HashMap::<Entity::StableId, Entity>::new();
     let tx_hash = hash_transaction_canonical(&tx.body);
+    trace!(target: "offchain", "scanning TX {}", tx_hash);
     let mut ix = num_outputs - 1;
     let mut non_processed_outputs = vec![];
+    let consumed_utxos = ConsumedInputs::new(consumed_utxos.into_iter());
     while let Some(o) = tx.body.outputs.pop() {
         let o_ref = OutputRef::new(tx_hash, ix as u64);
-        match Entity::try_from_ledger(&o, HandlerContext::new(o_ref, executor_cred)) {
+        match Entity::try_from_ledger(&o, &HandlerContext::new(o_ref, consumed_utxos, context)) {
             Some(entity) => {
                 trace!(target: "offchain", "extract_persistent_transitions: entity found");
                 let entity_id = entity.stable_id();
@@ -406,7 +388,7 @@ where
     ) -> Option<LedgerTxEvent<BabbageTransaction>> {
         match ev {
             LedgerTxEvent::TxApplied { tx, slot } => {
-                match extract_persistent_transitions(Arc::clone(&self.index), self.executor_cred, tx).await {
+                match extract_persistent_transitions(Arc::clone(&self.index), self.context, tx).await {
                     Ok(transitions) => {
                         trace!(target: "offchain", "[{}] entities parsed from applied tx", transitions.len());
                         let mut index = self.index.lock().await;
@@ -427,7 +409,7 @@ where
                 }
             }
             LedgerTxEvent::TxUnapplied(tx) => {
-                match extract_persistent_transitions(Arc::clone(&self.index), self.executor_cred, tx).await {
+                match extract_persistent_transitions(Arc::clone(&self.index), self.context, tx).await {
                     Ok(transitions) => {
                         trace!("[{}] entities parsed from unapplied tx", transitions.len());
                         let mut index = self.index.lock().await;
@@ -478,7 +460,7 @@ where
     ) -> Option<MempoolUpdate<BabbageTransaction>> {
         match ev {
             MempoolUpdate::TxAccepted(tx) => {
-                match extract_persistent_transitions(Arc::clone(&self.index), self.executor_cred, tx).await {
+                match extract_persistent_transitions(Arc::clone(&self.index), self.context, tx).await {
                     Ok(transitions) => {
                         trace!("[{}] entities parsed from applied tx", transitions.len());
                         let mut index = self.index.lock().await;
@@ -548,7 +530,7 @@ mod tests {
     use cml_chain::address::{Address, RewardAddress};
     use cml_chain::certs::Credential;
     use cml_chain::transaction::TransactionInput;
-    use cml_crypto::Ed25519KeyHash;
+    use cml_crypto::{Ed25519KeyHash, ScriptHash};
     use cml_multi_era::babbage::{
         BabbageFormatTxOut, BabbageTransaction, BabbageTransactionBody, BabbageTransactionOutput,
         BabbageTransactionWitnessSet,
@@ -557,18 +539,20 @@ mod tests {
     use futures::StreamExt;
     use tokio::sync::Mutex;
 
+    use crate::event_sink::context::HandlerContextProto;
     use cardano_chain_sync::data::LedgerTxEvent;
     use spectrum_cardano_lib::hash::hash_transaction_canonical;
-    use spectrum_cardano_lib::OutputRef;
     use spectrum_cardano_lib::transaction::TransactionOutputExtension;
+    use spectrum_cardano_lib::OutputRef;
     use spectrum_offchain::combinators::Ior;
-    use spectrum_offchain::data::{EntitySnapshot, Has, Stable, Tradable};
     use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate};
+    use spectrum_offchain::data::{EntitySnapshot, Has, Stable, Tradable};
     use spectrum_offchain::event_sink::event_handler::EventHandler;
     use spectrum_offchain::ledger::TryFromLedger;
     use spectrum_offchain::partitioning::Partitioned;
+    use spectrum_offchain_cardano::creds::OperatorCred;
+    use spectrum_offchain_cardano::deployment::{DeployedScriptHash, ProtocolScriptHashes};
 
-    use crate::creds::ExecutorCred;
     use crate::event_sink::entity_index::InMemoryEntityIndex;
     use crate::event_sink::handler::PairUpdateHandler;
 
@@ -609,8 +593,8 @@ mod tests {
     where
         C: Has<OutputRef>,
     {
-        fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
-            Some(TrivialEntity(ctx.get_labeled::<OutputRef>(), repr.value().coin))
+        fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+            Some(TrivialEntity(ctx.select::<OutputRef>(), repr.value().coin))
         }
     }
 
@@ -660,8 +644,25 @@ mod tests {
             InMemoryEntityIndex::new(entity_eviction_delay).with_tracing(),
         ));
         let (snd, mut recv) = mpsc::channel::<(u8, EitherMod<StateUpdate<TrivialEntity>>)>(100);
-        let ex_cred = ExecutorCred(Ed25519KeyHash::from([0u8; 28]));
-        let mut handler = PairUpdateHandler::new(Partitioned::new([snd]), index, ex_cred);
+        let ex_cred = OperatorCred(Ed25519KeyHash::from([0u8; 28]));
+        let context = HandlerContextProto {
+            executor_cred: ex_cred,
+            scripts: ProtocolScriptHashes {
+                limit_order_witness: DeployedScriptHash::from(ScriptHash::from([0u8; 28])),
+                limit_order: DeployedScriptHash::from(ScriptHash::from([0u8; 28])),
+                const_fn_pool_v1: DeployedScriptHash::from(ScriptHash::from([0u8; 28])),
+                const_fn_pool_v2: DeployedScriptHash::from(ScriptHash::from([0u8; 28])),
+                const_fn_pool_fee_switch: DeployedScriptHash::from(ScriptHash::from([0u8; 28])),
+                const_fn_pool_fee_switch_bidir_fee: DeployedScriptHash::from(ScriptHash::from([0u8; 28])),
+                const_fn_pool_swap: DeployedScriptHash::from(ScriptHash::from([0u8; 28])),
+                const_fn_pool_deposit: DeployedScriptHash::from(ScriptHash::from([0u8; 28])),
+                const_fn_pool_redeem: DeployedScriptHash::from(ScriptHash::from([0u8; 28])),
+                balance_fn_pool_v1: DeployedScriptHash::from(ScriptHash::from([0u8; 28])),
+                balance_fn_pool_deposit: DeployedScriptHash::from(ScriptHash::from([0u8; 28])),
+                balance_fn_pool_redeem: DeployedScriptHash::from(ScriptHash::from([0u8; 28])),
+            },
+        };
+        let mut handler = PairUpdateHandler::new(Partitioned::new([snd]), index, context);
         // Handle tx application
         EventHandler::<LedgerTxEvent<BabbageTransaction>>::try_handle(
             &mut handler,

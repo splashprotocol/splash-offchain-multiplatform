@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 use spectrum_offchain::data::Baked;
 
 use crate::execution_engine::bundled::Bundled;
