@@ -99,7 +99,7 @@ impl TryFrom<Vec<u8>> for AssetName {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Deserialize)]
 #[serde(try_from = "String")]
 pub struct OutputRef(TransactionHash, u64);
 impl OutputRef {
@@ -111,6 +111,12 @@ impl OutputRef {
     }
     pub fn index(&self) -> u64 {
         self.1
+    }
+}
+
+impl Debug for OutputRef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(self, f)
     }
 }
 

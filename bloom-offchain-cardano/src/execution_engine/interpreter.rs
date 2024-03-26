@@ -62,6 +62,16 @@ where
         >,
     ) {
         let state = ExecutionState::new();
+        println!(
+            "Recipe {:?}",
+            instructions
+                .iter()
+                .map(|i| match i {
+                    LinkedTerminalInstruction::Fill(fill) => fill.target_fr.0,
+                    LinkedTerminalInstruction::Swap(_) => panic!(),
+                })
+                .collect::<Vec<_>>()
+        );
         let (
             ExecutionState {
                 tx_blueprint,

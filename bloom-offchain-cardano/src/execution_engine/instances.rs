@@ -6,8 +6,8 @@ use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_effect::ExecutionEff;
 use bloom_offchain::execution_engine::liquidity_book::fragment::StateTrans;
 use bloom_offchain::execution_engine::liquidity_book::recipe::{LinkedFill, LinkedSwap};
-use spectrum_cardano_lib::NetworkId;
 use spectrum_cardano_lib::output::FinalizedTxOut;
+use spectrum_cardano_lib::NetworkId;
 
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_offchain::data::Has;
@@ -93,7 +93,9 @@ where
         let input = ScriptInputBlueprint {
             reference: in_ref,
             utxo: consumed_out.clone(),
-            script: context.select::<DeployedValidator<{ LimitOrderV1 as u8 }>>().erased(),
+            script: context
+                .select::<DeployedValidator<{ LimitOrderV1 as u8 }>>()
+                .erased(),
             redeemer: ready_redeemer(spot::EXEC_REDEEMER),
         };
         let mut candidate = consumed_out.clone();

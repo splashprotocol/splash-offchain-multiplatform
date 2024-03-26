@@ -1,13 +1,9 @@
 use std::cmp::Ordering;
-use cml_chain::address::Address;
 
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
-use cml_chain::certs::Credential;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
-use cml_chain::utils::BigInt;
 use cml_chain::PolicyId;
-use cml_core::serialization::{LenEncoding, Serialize, StringEncoding};
-use cml_crypto::{Ed25519KeyHash, RawBytesEncoding};
+use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::{info, trace};
 use num_rational::Ratio;
@@ -20,20 +16,20 @@ use bloom_offchain::execution_engine::liquidity_book::types::{
 };
 use bloom_offchain::execution_engine::liquidity_book::weight::Weighted;
 use spectrum_cardano_lib::address::PlutusAddress;
-use spectrum_cardano_lib::credential::AnyCredential;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
 };
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::AssetClass;
+use spectrum_cardano_lib::{AssetClass, OutputRef};
 use spectrum_offchain::data::{Has, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::pair::{side_of, PairId};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptHash};
+use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
 pub const EXEC_REDEEMER: PlutusData = PlutusData::ConstrPlutusData(ConstrPlutusData {
     alternative: 0,
@@ -229,14 +225,14 @@ impl TryFromPData for Datum {
         let input = AssetClass::try_from_pd(cpd.take_field(DATUM_MAPPING.input)?)?;
         let tradable_input = cpd.take_field(DATUM_MAPPING.tradable_input)?.into_u64()?;
         let cost_per_ex_step = cpd.take_field(DATUM_MAPPING.cost_per_ex_step)?.into_u64()?;
-        let min_marginal_output = cpd
-            .take_field(DATUM_MAPPING.min_marginal_output)?
-            .into_u64()?;
+        let min_marginal_output = cpd.take_field(DATUM_MAPPING.min_marginal_output)?.into_u64()?;
         let output = AssetClass::try_from_pd(cpd.take_field(DATUM_MAPPING.output)?)?;
         let base_price = RelativePrice::try_from_pd(cpd.take_field(DATUM_MAPPING.base_price)?)?;
         let fee = cpd.take_field(DATUM_MAPPING.fee)?.into_u64()?;
         let redeemer_address = PlutusAddress::try_from_pd(cpd.take_field(DATUM_MAPPING.redeemer_address)?)?;
-        let cancellation_pkh = Ed25519KeyHash::from_raw_bytes(&*cpd.take_field(DATUM_MAPPING.cancellation_pkh)?.into_bytes()?).ok()?;
+        let cancellation_pkh =
+            Ed25519KeyHash::from_raw_bytes(&*cpd.take_field(DATUM_MAPPING.cancellation_pkh)?.into_bytes()?)
+                .ok()?;
         let permitted_executors = cpd
             .take_field(DATUM_MAPPING.permitted_executors)?
             .into_vec()?
@@ -259,9 +255,16 @@ impl TryFromPData for Datum {
     }
 }
 
+fn beacon_from_oref(oref: OutputRef) -> PolicyId {
+    let mut bf = vec![];
+    bf.append(&mut oref.tx_hash().to_raw_bytes().to_vec());
+    bf.append(&mut oref.index().to_string().as_bytes().to_vec());
+    blake2b224(&*bf).into()
+}
+
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for LimitOrder
 where
-    C: Has<OperatorCred> + Has<DeployedScriptHash<{ LimitOrderV1 as u8 }>>,
+    C: Has<OperatorCred> + Has<ConsumedInputs> + Has<DeployedScriptHash<{ LimitOrderV1 as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         trace!(target: "offchain", "LimitOrder::try_from_ledger");
@@ -280,7 +283,11 @@ where
                     .permitted_executors
                     .contains(&ctx.select::<OperatorCred>().into())
             {
-                if execution_budget > conf.cost_per_ex_step {
+                // beacon must be derived from one of consumed utxos.
+                let valid_beacon = ctx
+                    .select::<ConsumedInputs>()
+                    .find(|o| beacon_from_oref(*o) == conf.beacon);
+                if valid_beacon && execution_budget > conf.cost_per_ex_step {
                     info!(target: "offchain", "Obtained Spot order from ledger.");
                     return Some(LimitOrder {
                         beacon: conf.beacon,
@@ -316,20 +323,31 @@ pub struct SpotOrderBatchValidatorRefScriptOutput(pub TransactionUnspentOutput);
 
 #[cfg(test)]
 mod tests {
+    use crate::orders::spot::{beacon_from_oref, LimitOrder};
     use cml_core::serialization::Deserialize;
-    use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, ScriptHash};
+    use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, ScriptHash, TransactionHash};
     use cml_multi_era::babbage::BabbageTransactionOutput;
-    use type_equalities::IsEqual;
+    use spectrum_cardano_lib::OutputRef;
     use spectrum_offchain::data::Has;
     use spectrum_offchain::ledger::TryFromLedger;
     use spectrum_offchain_cardano::creds::OperatorCred;
-    use spectrum_offchain_cardano::deployment::{DeployedScriptHash, DeployedValidators, ProtocolScriptHashes, ProtocolValidator};
     use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
-    use crate::orders::spot::LimitOrder;
+    use spectrum_offchain_cardano::deployment::{
+        DeployedScriptHash, DeployedValidators, ProtocolScriptHashes,
+    };
+    use spectrum_offchain_cardano::utxo::ConsumedInputs;
+    use type_equalities::IsEqual;
 
     struct Context {
         limit_order: DeployedScriptHash<{ LimitOrderV1 as u8 }>,
         cred: OperatorCred,
+        consumed_inputs: ConsumedInputs,
+    }
+
+    impl Has<ConsumedInputs> for Context {
+        fn select<U: IsEqual<ConsumedInputs>>(&self) -> ConsumedInputs {
+            self.consumed_inputs
+        }
     }
 
     impl Has<OperatorCred> for Context {
@@ -339,14 +357,31 @@ mod tests {
     }
 
     impl Has<DeployedScriptHash<{ LimitOrderV1 as u8 }>> for Context {
-        fn select<U: IsEqual<DeployedScriptHash<{ LimitOrderV1 as u8 }>>>(&self) -> DeployedScriptHash<{ LimitOrderV1 as u8 }> {
+        fn select<U: IsEqual<DeployedScriptHash<{ LimitOrderV1 as u8 }>>>(
+            &self,
+        ) -> DeployedScriptHash<{ LimitOrderV1 as u8 }> {
             self.limit_order
         }
     }
 
     #[test]
+    fn beacon_derivation_eqv() {
+        let oref = OutputRef::new(TransactionHash::from_hex(TX).unwrap(), IX);
+        assert_eq!(
+            beacon_from_oref(oref).to_hex(),
+            "eb9575d907ac66f8f0c75c44ad51189a4b41756e8543cd59e331bc02"
+        )
+    }
+
+    const TX: &str = "6c038a69587061acd5611507e68b1fd3a7e7d189367b7853f3bb5079a118b880";
+    const IX: u64 = 1;
+
+    #[test]
     fn try_read() {
-        let sh = ScriptHash::from_raw_bytes(&[43, 5, 173, 152, 64, 206, 96, 8, 59, 78, 87, 134, 150, 142, 30, 23, 248, 69, 158, 20, 157, 154, 250, 196, 212, 77, 255, 23]);
+        let sh = ScriptHash::from_raw_bytes(&[
+            43, 5, 173, 152, 64, 206, 96, 8, 59, 78, 87, 134, 150, 142, 30, 23, 248, 69, 158, 20, 157, 154,
+            250, 196, 212, 77, 255, 23,
+        ]);
         println!("{}", sh.unwrap());
         let raw_deployment = std::fs::read_to_string("/Users/oskin/dev/spectrum/spectrum-offchain-multiplatform/bloom-cardano-agent/resources/preprod.deployment.json").expect("Cannot load deployment file");
         let deployment: DeployedValidators =
@@ -354,7 +389,8 @@ mod tests {
         let scripts = ProtocolScriptHashes::from(&deployment);
         let ctx = Context {
             limit_order: scripts.limit_order,
-            cred: OperatorCred(Ed25519KeyHash::from([0u8;28])),
+            cred: OperatorCred(Ed25519KeyHash::from([0u8; 28])),
+            consumed_inputs: ConsumedInputs::new(vec![].into_iter()),
         };
         let bearer = BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(ORDER_UTXO).unwrap()).unwrap();
         LimitOrder::try_from_ledger(&bearer, &ctx).expect("LimitOrder expected");
