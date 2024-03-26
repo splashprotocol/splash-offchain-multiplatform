@@ -1,0 +1,48 @@
+{
+  "root": true,
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "project": "./tsconfig.json",
+    "createDefaultProgram": true
+  },
+  "extends": [
+    "airbnb-base",
+    "airbnb-typescript/base",
+    "plugin:@typescript-eslint/eslint-recommended",
+    "plugin:@typescript-eslint/recommended"
+  ],
+  "plugins": [
+    "@typescript-eslint",
+    "prettier"
+  ],
+  "rules": {
+    "import/prefer-default-export": 0,
+    "import/extensions": 0,
+    "no-underscore-dangle": 1,
+    "no-use-before-define": 1,
+    "no-shadow": 1,
+    "max-classes-per-file": 0
+  },
+  "overrides": [
+    {
+      "files": [
+        "*.js"
+      ],
+      "rules": {
+        "@typescript-eslint/explicit-function-return-type": [
+          "off"
+        ]
+      }
+    },
+    {
+      "files": [
+        "tools/node_*.js"
+      ],
+      "rules": {
+        "@typescript-eslint/no-var-requires": [
+          "off"
+        ]
+      }
+    }
+  ]
+}

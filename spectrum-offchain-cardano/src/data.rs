@@ -1,20 +1,14 @@
 use std::fmt::{Display, Formatter};
 
 use cml_chain::address::Address;
-use cml_chain::transaction::{TransactionInput, TransactionOutput};
+use cml_chain::transaction::TransactionInput;
 use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
-use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
 use rand::{thread_rng, RngCore};
 
-use spectrum_cardano_lib::transaction::BabbageTransactionOutputExtension;
 use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAssetClass, Token};
-use spectrum_offchain::data::order::SpecializedOrder;
-use spectrum_offchain::data::{EntitySnapshot, Stable, VersionUpdater};
-use spectrum_offchain::ledger::TryFromLedger;
 
-use crate::constants::POOL_VERSIONS;
 use crate::data::order::PoolNft;
 
 pub mod deposit;
@@ -26,115 +20,12 @@ pub mod redeem;
 
 pub mod ref_scripts;
 
-pub mod execution_context;
-mod fee_switch_bidirectional_fee;
-mod fee_switch_pool;
+mod balance_order;
+pub mod balance_pool;
+pub mod cfmm_pool;
+pub mod fee_switch_bidirectional_fee;
+pub mod fee_switch_pool;
 pub mod pair;
-
-/// For persistent on-chain entities (e.g. pools) we want to carry initial utxo.
-#[derive(Debug, Clone)]
-pub struct OnChain<T> {
-    pub value: T,
-    pub source: TransactionOutput,
-}
-
-impl<T> OnChain<T> {
-    pub fn new(value: T, source: TransactionOutput) -> Self {
-        Self { value, source }
-    }
-}
-
-impl<T, Ctx> TryFromLedger<TransactionOutput, Ctx> for OnChain<T>
-where
-    T: TryFromLedger<TransactionOutput, Ctx>,
-{
-    fn try_from_ledger(repr: &TransactionOutput, ctx: Ctx) -> Option<Self> {
-        T::try_from_ledger(repr, ctx).map(|value| OnChain {
-            value,
-            source: repr.clone(),
-        })
-    }
-}
-
-impl<T, Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for OnChain<T>
-where
-    T: TryFromLedger<BabbageTransactionOutput, Ctx>,
-{
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: Ctx) -> Option<Self> {
-        T::try_from_ledger(repr, ctx).map(|value| OnChain {
-            value,
-            source: repr.clone().upcast(),
-        })
-    }
-}
-
-impl<T> OnChain<T> {
-    pub fn map<F, A>(self, f: F) -> OnChain<A>
-    where
-        F: FnOnce(T) -> A,
-    {
-        let OnChain { value, source } = self;
-        OnChain {
-            value: f(value),
-            source,
-        }
-    }
-}
-
-impl<T> Display for OnChain<T>
-where
-    T: Display,
-{
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(format!("OnChain({})", self.value).as_str())
-    }
-}
-
-impl<T> Stable for OnChain<T>
-where
-    T: Stable,
-{
-    type StableId = T::StableId;
-
-    fn stable_id(&self) -> Self::StableId {
-        self.value.stable_id()
-    }
-    fn is_quasi_permanent(&self) -> bool {
-        self.value.is_quasi_permanent()
-    }
-}
-
-impl<T> EntitySnapshot for OnChain<T>
-where
-    T: EntitySnapshot,
-{
-    type Version = T::Version;
-
-    fn version(&self) -> Self::Version {
-        self.value.version()
-    }
-}
-
-impl<T: VersionUpdater> VersionUpdater for OnChain<T> {
-    fn update_version(&mut self, new_version: Self::Version) {
-        self.value.update_version(new_version)
-    }
-}
-
-impl<T> SpecializedOrder for OnChain<T>
-where
-    T: SpecializedOrder,
-{
-    type TOrderId = T::TOrderId;
-    type TPoolId = T::TPoolId;
-
-    fn get_self_ref(&self) -> Self::TOrderId {
-        self.value.get_self_ref()
-    }
-    fn get_pool_ref(&self) -> Self::TPoolId {
-        self.value.get_pool_ref()
-    }
-}
 
 #[repr(transparent)]
 #[derive(
@@ -224,25 +115,5 @@ impl ExecutorFeePerToken {
     }
     pub fn value(&self) -> Ratio<u128> {
         self.0
-    }
-}
-
-#[repr(transparent)]
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, derive_more::From, derive_more::Into)]
-pub struct PoolVer(pub u8);
-
-impl PoolVer {
-    pub const V1: PoolVer = PoolVer(1);
-    pub const V2: PoolVer = PoolVer(2);
-
-    pub fn try_from_pool_address(pool_addr: &Address) -> Option<PoolVer> {
-        let this_addr = pool_addr.to_bech32(None).unwrap();
-        POOL_VERSIONS.iter().find_map(|(addr, v)| {
-            if this_addr == *addr {
-                Some(PoolVer(*v))
-            } else {
-                None
-            }
-        })
     }
 }

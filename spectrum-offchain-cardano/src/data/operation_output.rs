@@ -5,8 +5,8 @@ use cml_chain::transaction::{ConwayFormatTxOut, TransactionOutput};
 use cml_chain::{Coin, Value};
 use cml_crypto::Ed25519KeyHash;
 
-use crate::data::execution_context::ExecutionContext;
-use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
+use spectrum_cardano_lib::{NetworkId, TaggedAmount, TaggedAssetClass};
+use spectrum_offchain::data::Has;
 use spectrum_offchain::ledger::IntoLedger;
 
 use crate::data::order::Quote;
@@ -21,17 +21,20 @@ pub struct SwapOutput {
     pub redeemer_stake_pkh: Option<Ed25519KeyHash>,
 }
 
-impl IntoLedger<TransactionOutput, ExecutionContext> for SwapOutput {
-    fn into_ledger(self, ctx: ExecutionContext) -> TransactionOutput {
+impl<Ctx> IntoLedger<TransactionOutput, Ctx> for SwapOutput
+where
+    Ctx: Has<NetworkId>,
+{
+    fn into_ledger(self, ctx: Ctx) -> TransactionOutput {
         let addr = if let Some(stake_pkh) = self.redeemer_stake_pkh {
             BaseAddress::new(
-                ctx.network_id,
+                ctx.get().into(),
                 StakeCredential::new_pub_key(self.redeemer_pkh),
                 StakeCredential::new_pub_key(stake_pkh),
             )
             .to_address()
         } else {
-            EnterpriseAddress::new(ctx.network_id, StakeCredential::new_pub_key(self.redeemer_pkh))
+            EnterpriseAddress::new(ctx.get().into(), StakeCredential::new_pub_key(self.redeemer_pkh))
                 .to_address()
         };
 
@@ -70,17 +73,20 @@ pub struct DepositOutput {
     pub redeemer_stake_pkh: Option<Ed25519KeyHash>,
 }
 
-impl IntoLedger<TransactionOutput, ExecutionContext> for DepositOutput {
-    fn into_ledger(self, ctx: ExecutionContext) -> TransactionOutput {
+impl<Ctx> IntoLedger<TransactionOutput, Ctx> for DepositOutput
+where
+    Ctx: Has<NetworkId>,
+{
+    fn into_ledger(self, ctx: Ctx) -> TransactionOutput {
         let addr = if let Some(stake_pkh) = self.redeemer_stake_pkh {
             BaseAddress::new(
-                ctx.network_id,
+                ctx.get().into(),
                 StakeCredential::new_pub_key(self.redeemer_pkh),
                 StakeCredential::new_pub_key(stake_pkh),
             )
             .to_address()
         } else {
-            EnterpriseAddress::new(ctx.network_id, StakeCredential::new_pub_key(self.redeemer_pkh))
+            EnterpriseAddress::new(ctx.get().into(), StakeCredential::new_pub_key(self.redeemer_pkh))
                 .to_address()
         };
 
@@ -135,17 +141,20 @@ pub struct RedeemOutput {
     pub redeemer_stake_pkh: Option<Ed25519KeyHash>,
 }
 
-impl IntoLedger<TransactionOutput, ExecutionContext> for RedeemOutput {
-    fn into_ledger(self, ctx: ExecutionContext) -> TransactionOutput {
+impl<Ctx> IntoLedger<TransactionOutput, Ctx> for RedeemOutput
+where
+    Ctx: Has<NetworkId>,
+{
+    fn into_ledger(self, ctx: Ctx) -> TransactionOutput {
         let addr = if let Some(stake_pkh) = self.redeemer_stake_pkh {
             BaseAddress::new(
-                ctx.network_id,
+                ctx.get().into(),
                 StakeCredential::new_pub_key(self.redeemer_pkh),
                 StakeCredential::new_pub_key(stake_pkh),
             )
             .to_address()
         } else {
-            EnterpriseAddress::new(ctx.network_id, StakeCredential::new_pub_key(self.redeemer_pkh))
+            EnterpriseAddress::new(ctx.get().into(), StakeCredential::new_pub_key(self.redeemer_pkh))
                 .to_address()
         };
 

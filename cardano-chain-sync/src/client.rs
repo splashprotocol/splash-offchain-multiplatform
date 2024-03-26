@@ -31,7 +31,7 @@ impl<Block> ChainSyncClient<Block> {
         starting_point: Point,
     ) -> Result<Self, Error>
     where
-        Cache: LedgerCache<Block>,
+        Cache: LedgerCache,
     {
         let bearer = Bearer::connect_unix(path).await.map_err(Error::ConnectFailure)?;
 
@@ -85,8 +85,9 @@ impl<Block> ChainSyncClient<Block> {
         };
         match response {
             Ok(NextResponse::RollForward(BlockContent(raw), _)) => {
-                let blk = Block::from_cbor_bytes(&raw[BLK_START..]).expect("Block deserialization failed");
-                Some(ChainUpgrade::RollForward(blk))
+                let original_bytes = raw[BLK_START..].to_vec();
+                let blk = Block::from_cbor_bytes(&original_bytes).expect("Block deserialization failed");
+                Some(ChainUpgrade::RollForward(blk, original_bytes))
             }
             Ok(NextResponse::RollBackward(pt, _)) => Some(ChainUpgrade::RollBackward(pt.into())),
             _ => None,

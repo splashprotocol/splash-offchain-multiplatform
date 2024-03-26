@@ -68,7 +68,7 @@ where
     let tx_hash = hash_transaction_canonical(&tx.body);
     for (i, o) in tx.body.outputs.iter().enumerate() {
         let o_ref = OutputRef::from((tx_hash, i as u64));
-        if let Some(entity) = TEntity::try_from_ledger(o, o_ref) {
+        if let Some(entity) = TEntity::try_from_ledger(o, &o_ref) {
             let entity_id = entity.stable_id();
             created_entities.insert(entity_id.clone(), entity);
         }

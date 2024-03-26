@@ -21,7 +21,7 @@ where
 }
 
 impl<T: Clone> Has<T> for T {
-    fn get_labeled<U: IsEqual<T>>(&self) -> T {
+    fn select<U: IsEqual<T>>(&self) -> T {
         self.clone()
     }
 }

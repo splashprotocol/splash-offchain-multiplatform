@@ -16,23 +16,22 @@ use cml_multi_era::babbage::{
 };
 use log::info;
 use rand::Rng;
+
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::ledger::TryFromLedger;
-
 use spectrum_offchain_cardano::constants::POOL_V2_SCRIPT;
-
-use spectrum_offchain_cardano::data::pool::ClassicCFMMPool;
+use spectrum_offchain_cardano::data::cfmm_pool::ConstFnPool;
 
 use crate::{gen_policy_id, gen_transaction_input};
 
-pub fn gen_ada_token_pool(lovelaces: u64, y_token_quantity: u64, ada_first: bool) -> ClassicCFMMPool {
+pub fn gen_ada_token_pool(lovelaces: u64, y_token_quantity: u64, ada_first: bool) -> ConstFnPool {
     let (repr, _, _) = gen_pool_transaction_output(0, lovelaces, y_token_quantity, ada_first);
     let mut rng = rand::thread_rng();
     let mut bytes = [0u8; 32];
     rng.fill(&mut bytes[..]);
     let transaction_id = TransactionHash::from(bytes);
     let ctx = OutputRef::new(transaction_id, 0);
-    ClassicCFMMPool::try_from_ledger(&repr, ctx).unwrap()
+    ConstFnPool::try_from_ledger(&repr, ctx).unwrap()
 }
 
 pub fn gen_pool_transaction_body(
@@ -66,7 +65,7 @@ pub fn gen_pool_transaction_body(
 }
 
 pub fn gen_pool_transaction_output(
-    index: u64,
+    _index: u64,
     lovelaces: u64,
     y_token_quantity: u64,
     ada_first: bool,

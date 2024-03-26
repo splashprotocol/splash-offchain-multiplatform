@@ -1,7 +1,6 @@
 use std::sync::{Arc, Once};
 
 use async_stream::stream;
-use cml_chain::{NetworkId, PolicyId, Script, Value};
 use cml_chain::address::{Address, EnterpriseAddress};
 use cml_chain::assets::MultiAsset;
 use cml_chain::builders::input_builder::InputBuilderResult;
@@ -10,17 +9,18 @@ use cml_chain::builders::witness_builder::RequiredWitnessSet;
 use cml_chain::certs::StakeCredential;
 use cml_chain::genesis::network_info::NetworkInfo;
 use cml_chain::plutus::PlutusV2Script;
+use cml_chain::transaction::cbor_encodings::TransactionInputEncoding;
 use cml_chain::transaction::{
     ConwayFormatTxOut, ScriptRef, Transaction, TransactionInput, TransactionOutput,
 };
-use cml_chain::transaction::cbor_encodings::TransactionInputEncoding;
+use cml_chain::{NetworkId, PolicyId, Script, Value};
 use cml_core::network::ProtocolMagic;
 use cml_crypto::TransactionHash;
 use cml_multi_era::babbage::{BabbageTransaction, BabbageTransactionWitnessSet};
-use either::Either;
-use futures::{Stream, StreamExt};
+use either::{Either, Left};
 use futures::channel::mpsc;
 use futures::stream::select_all;
+use futures::{Stream, StreamExt};
 use log::{info, trace};
 use rand::Rng;
 use tokio::sync::Mutex;
@@ -29,14 +29,15 @@ use tracing_subscriber::fmt::Subscriber;
 use bloom_cardano_agent::config::AppConfig;
 use bloom_cardano_agent::context::ExecutionContext;
 use bloom_offchain::execution_engine::bundled::Bundled;
-use bloom_offchain::execution_engine::execution_part_stream;
 use bloom_offchain::execution_engine::liquidity_book::{ExecutionCap, TLB};
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
-use bloom_offchain::execution_engine::storage::InMemoryStateIndex;
 use bloom_offchain::execution_engine::storage::kv_store::InMemoryKvStore;
+use bloom_offchain::execution_engine::storage::InMemoryStateIndex;
+use bloom_offchain::execution_engine::{execution_part_stream, Event};
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
-use bloom_offchain_cardano::event_sink::EvolvingCardanoEntity;
 use bloom_offchain_cardano::event_sink::handler::PairUpdateHandler;
+use bloom_offchain_cardano::event_sink::EvolvingCardanoEntity;
+use bloom_offchain_cardano::execution_engine::backlog::interpreter::SpecializedInterpreterViaRunOrder;
 use bloom_offchain_cardano::execution_engine::interpreter::CardanoRecipeInterpreter;
 use bloom_offchain_cardano::orders::AnyOrder;
 use bloom_offchain_cardano::pools::AnyPool;
@@ -44,18 +45,22 @@ use cardano_chain_sync::data::LedgerTxEvent;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::OutputRef;
-use spectrum_offchain::data::Baked;
+use spectrum_offchain::backlog::{BacklogCapacity, HotPriorityBacklog};
+use spectrum_offchain::data::order::OrderUpdate;
 use spectrum_offchain::data::unique_entity::{EitherMod, StateUpdate};
+use spectrum_offchain::data::Baked;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::network::Network;
 use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::streaming::boxed;
 use spectrum_offchain_cardano::constants::{
-    DEPOSIT_SCRIPT, FEE_SWITCH_POOL_SCRIPT, FEE_SWITCH_POOL_SCRIPT_BIDIRECTIONAL_FEE_SCRIPT, POOL_V1_SCRIPT,
-    POOL_V2_SCRIPT, REDEEM_SCRIPT, SPOT_BATCH_VALIDATOR_SCRIPT, SPOT_SCRIPT, SWAP_SCRIPT,
+    DEPOSIT_SCRIPT, FEE_SWITCH_POOL_SCRIPT, FEE_SWITCH_POOL_SCRIPT_BIDIRECTIONAL_FEE_SCRIPT,
+    LIMIT_ORDER_SCRIPT, POOL_V1_SCRIPT, POOL_V2_SCRIPT, REDEEM_SCRIPT, SPOT_BATCH_VALIDATOR_SCRIPT,
+    SWAP_SCRIPT,
 };
 use spectrum_offchain_cardano::creds::operator_creds;
+use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
 use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::data::ref_scripts::ReferenceOutputs;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
@@ -70,7 +75,6 @@ const EXECUTION_CAP: ExecutionCap = ExecutionCap {
 };
 
 #[tokio::test]
-// #[ignore]
 async fn integration_test() {
     let subscriber = Subscriber::new();
     tracing::subscriber::set_global_default(subscriber).expect("setting tracing default failed");
@@ -161,15 +165,20 @@ async fn integration_test() {
         vec![Box::new(upd_handler.clone())];
 
     let prover = OperatorProver::new(&operator_sk);
-    let interpreter = CardanoRecipeInterpreter;
+    let rec_interpreter = CardanoRecipeInterpreter;
+    let spec_interpreter = SpecializedInterpreterViaRunOrder;
     let context = ExecutionContext {
         time: 0.into(),
         refs: ref_scripts,
         execution_cap: EXECUTION_CAP,
         reward_addr: config.reward_address,
+        backlog_capacity: BacklogCapacity::from(100),
         collateral,
+        network_id: 0,
     };
     let multi_book = MultiPair::new::<TLB<AnyOrder, AnyPool>>(context.clone());
+    let multi_backlog =
+        MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(context.clone());
     let state_index = InMemoryStateIndex::new();
     let state_cache = InMemoryKvStore::new();
 
@@ -177,8 +186,10 @@ async fn integration_test() {
         state_index.clone(),
         state_cache.clone(),
         multi_book.clone(),
+        multi_backlog.clone(),
         context.clone(),
-        interpreter,
+        rec_interpreter,
+        spec_interpreter,
         prover,
         unwrap_updates(pair_upd_recv_p1),
         tx_sender.clone(),
@@ -187,8 +198,10 @@ async fn integration_test() {
         state_index.clone(),
         state_cache.clone(),
         multi_book.clone(),
+        multi_backlog.clone(),
         context.clone(),
-        interpreter,
+        rec_interpreter,
+        spec_interpreter,
         prover,
         unwrap_updates(pair_upd_recv_p2),
         tx_sender.clone(),
@@ -197,8 +210,10 @@ async fn integration_test() {
         state_index.clone(),
         state_cache.clone(),
         multi_book.clone(),
+        multi_backlog.clone(),
         context.clone(),
-        interpreter,
+        rec_interpreter,
+        spec_interpreter,
         prover,
         unwrap_updates(pair_upd_recv_p3),
         tx_sender.clone(),
@@ -207,8 +222,10 @@ async fn integration_test() {
         state_index,
         state_cache,
         multi_book,
+        multi_backlog,
         context,
-        interpreter,
+        rec_interpreter,
+        spec_interpreter,
         prover,
         unwrap_updates(pair_upd_recv_p4),
         tx_sender,
@@ -243,14 +260,17 @@ fn unwrap_updates(
 ) -> impl Stream<
     Item = (
         PairId,
-        EitherMod<
-            StateUpdate<
-                Bundled<Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>, FinalizedTxOut>,
+        Either<
+            EitherMod<
+                StateUpdate<
+                    Bundled<Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>, FinalizedTxOut>,
+                >,
             >,
+            OrderUpdate<Bundled<ClassicalAMMOrder, FinalizedTxOut>, ClassicalAMMOrder>,
         >,
     ),
 > {
-    upstream.map(|(p, m)| (p, m.map(|s| s.map(|EvolvingCardanoEntity(e)| e))))
+    upstream.map(|(p, m)| (p, Left(m.map(|s| s.map(|EvolvingCardanoEntity(e)| e)))))
 }
 
 #[derive(Clone)]
@@ -322,13 +342,13 @@ fn gen_reference_outputs() -> ReferenceOutputs {
     let swap = gen_tx_unspent_output(SWAP_SCRIPT);
     let deposit = gen_tx_unspent_output(DEPOSIT_SCRIPT);
     let redeem = gen_tx_unspent_output(REDEEM_SCRIPT);
-    let spot_order = gen_tx_unspent_output(SPOT_SCRIPT);
+    let spot_order = gen_tx_unspent_output(LIMIT_ORDER_SCRIPT);
     let spot_order_batch_validator = gen_tx_unspent_output(SPOT_BATCH_VALIDATOR_SCRIPT);
     ReferenceOutputs {
         pool_v1,
         pool_v2,
         fee_switch_pool,
-        fee_switch_pool_bidirectional_fee,
+        fee_switch_pool_bidir_fee: fee_switch_pool_bidirectional_fee,
         swap,
         deposit,
         redeem,
