@@ -1,7 +1,7 @@
 use cml_chain::address::Address;
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::plutus::PlutusData;
-use cml_chain::transaction::{DatumOption, TransactionInput, TransactionOutput};
+use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionInput, TransactionOutput};
 use cml_core::serialization::FromBytes;
 use cml_crypto::{DatumHash, TransactionHash};
 use serde::Deserialize;
@@ -17,39 +17,30 @@ pub struct ExplorerTxOut {
     value: ExplorerValue,
     data: Option<String>,
     data_hash: Option<String>,
-    spent_by_tx_hash: Option<String>,
 }
 
 impl ExplorerTxOut {
     pub fn get_value(&self) -> &ExplorerValue {
         &self.value
     }
-}
-
-pub struct ParsingError;
-
-impl TryInto<TransactionUnspentOutput> for ExplorerTxOut {
-    type Error = ParsingError;
-    fn try_into(self) -> Result<TransactionUnspentOutput, Self::Error> {
+    pub fn try_into_cml(self) -> Option<TransactionUnspentOutput> {
         let datum = if let Some(hash) = self.data_hash {
-            Some(DatumOption::new_hash(DatumHash::from_hex(hash.as_str()).unwrap()))
+            Some(DatumOption::new_hash(DatumHash::from_hex(hash.as_str()).ok()?))
         } else if let Some(datum) = self.data {
             Some(DatumOption::new_datum(
-                PlutusData::from_bytes(hex::decode(datum).unwrap()).unwrap(),
+                PlutusData::from_bytes(hex::decode(datum).ok()?).ok()?,
             ))
         } else {
             None
         };
-        let input: TransactionInput = TransactionInput::new(
-            TransactionHash::from_hex(self.tx_hash.as_str()).unwrap(),
-            self.index,
-        );
-        let output: TransactionOutput = TransactionOutput::new(
-            Address::from_bech32(self.addr.as_str()).unwrap(),
-            ExplorerValue::try_into(self.value).unwrap(),
-            datum,
-            None, // todo: explorer doesn't support script ref. Change to correct after explorer update
-        );
-        Ok(TransactionUnspentOutput::new(input, output))
+        let input = TransactionInput::new(TransactionHash::from_hex(self.tx_hash.as_str()).ok()?, self.index);
+        let output = TransactionOutput::ConwayFormatTxOut(ConwayFormatTxOut {
+            address: Address::from_bech32(self.addr.as_str()).unwrap(),
+            amount: ExplorerValue::try_into(self.value).unwrap(),
+            datum_option: datum,
+            script_reference: None,
+            encodings: None,
+        });
+        Some(TransactionUnspentOutput::new(input, output))
     }
 }

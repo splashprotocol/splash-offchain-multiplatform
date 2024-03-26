@@ -1,20 +1,19 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use serde::de::DeserializeOwned;
 use serde::Serialize;
 use tokio::task::spawn_blocking;
 
 use crate::client::Point;
 
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct Linked<Block>(pub Block, pub Point);
+pub struct LinkedBlock(pub Vec<u8>, pub Point);
 
-pub trait LedgerCache<Block> {
+pub trait LedgerCache {
     async fn set_tip(&self, point: Point);
     async fn get_tip(&self) -> Option<Point>;
-    async fn put_block(&self, point: Point, block: Linked<Block>);
-    async fn get_block(&self, point: Point) -> Option<Linked<Block>>;
+    async fn put_block(&self, point: Point, block: LinkedBlock);
+    async fn get_block(&self, point: Point) -> Option<LinkedBlock>;
     async fn delete(&self, point: Point) -> bool;
 }
 
@@ -33,10 +32,7 @@ impl LedgerCacheRocksDB {
 const LATEST_POINT: &str = "a:";
 const POINT_PREFIX: &str = "b:";
 
-impl<Block> LedgerCache<Block> for LedgerCacheRocksDB
-where
-    Block: Serialize + DeserializeOwned + Send + 'static,
-{
+impl LedgerCache for LedgerCacheRocksDB {
     async fn set_tip(&self, point: Point) {
         let db = self.db.clone();
         spawn_blocking(move || db.put(LATEST_POINT, bincode::serialize(&point).unwrap()).unwrap())
@@ -55,7 +51,7 @@ where
         .unwrap()
     }
 
-    async fn put_block(&self, point: Point, block: Linked<Block>) {
+    async fn put_block(&self, point: Point, block: LinkedBlock) {
         let db = self.db.clone();
         spawn_blocking(move || {
             db.put(
@@ -68,7 +64,7 @@ where
         .unwrap();
     }
 
-    async fn get_block(&self, point: Point) -> Option<Linked<Block>> {
+    async fn get_block(&self, point: Point) -> Option<LinkedBlock> {
         let db = self.db.clone();
         spawn_blocking(move || db.get(make_key(POINT_PREFIX, &point)).unwrap())
             .await

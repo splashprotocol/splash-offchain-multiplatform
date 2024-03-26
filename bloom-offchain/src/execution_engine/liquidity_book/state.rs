@@ -752,7 +752,7 @@ pub mod tests {
         let o2 = SimpleOrderPF::default_with_bounds(TimeBounds::None);
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.fragments.add_fragment(o1);
-        let s0_copy = s0.clone();
+        let _s0_copy = s0.clone();
         let mut state = TLBState::Idle(s0);
         state.pre_add_fragment(o2);
         match state {
@@ -968,6 +968,9 @@ pub mod tests {
         type StableId = StableId;
         fn stable_id(&self) -> Self::StableId {
             self.pool_id
+        }
+        fn is_quasi_permanent(&self) -> bool {
+            true
         }
     }
 

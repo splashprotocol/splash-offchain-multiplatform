@@ -137,7 +137,7 @@ fn process_tx_rejected_error<'a, Err: Display, PoolVersion: Display, OrderVersio
     let parsed_errors = patterns
         .iter()
         .flat_map(|(tx_pattern, error)| {
-            if (parsed_error.contains(tx_pattern)) {
+            if parsed_error.contains(tx_pattern) {
                 Some(error.clone())
             } else {
                 None

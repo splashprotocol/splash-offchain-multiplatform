@@ -10,6 +10,7 @@ use cml_chain::transaction::TransactionInput;
 use cml_chain::{PolicyId, Value};
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
+use derive_more::{From, Into};
 use serde::Deserialize;
 
 use crate::plutus_data::{ConstrPlutusDataExtension, PlutusDataExtension};
@@ -98,7 +99,7 @@ impl TryFrom<Vec<u8>> for AssetName {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Deserialize)]
 #[serde(try_from = "String")]
 pub struct OutputRef(TransactionHash, u64);
 impl OutputRef {
@@ -110,6 +111,12 @@ impl OutputRef {
     }
     pub fn index(&self) -> u64 {
         self.1
+    }
+}
+
+impl Debug for OutputRef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(self, f)
     }
 }
 
@@ -324,6 +331,9 @@ impl<T> TryFromPData for TaggedAmount<T> {
 }
 
 pub type NetworkTime = u64;
+
+#[derive(serde::Deserialize, Debug, Copy, Clone, From, Into)]
+pub struct NetworkId(u8);
 
 #[cfg(test)]
 mod tests {
