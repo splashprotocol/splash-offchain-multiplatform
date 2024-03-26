@@ -8,10 +8,10 @@ rust-version = "1.75.0"
 
 [dependencies]
 base16 = "0.2"
-cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/addr_to_bech_32_byron" }
-cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/addr_to_bech_32_byron" }
-cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/addr_to_bech_32_byron" }
-cml-multi-era = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/addr_to_bech_32_byron" }
+cml-chain = "5.2.0"
+cml-core = "5.2.0"
+cml-crypto = "5.2.0"
+cml-multi-era = "5.2.0"
 serde = { version = "1.0", features = ["derive"] }
 hex = "0.4.3"
 thiserror = "1.0.47"

@@ -8,7 +8,10 @@ pub trait TryFromPData: Sized {
     fn try_from_pd(data: PlutusData) -> Option<Self>;
 }
 
-impl<T> TryFromPData for Option<T> where T: TryFromPData {
+impl<T> TryFromPData for Option<T>
+where
+    T: TryFromPData,
+{
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
         match cpd.alternative {

@@ -37,7 +37,7 @@ impl<'a> Collaterals for CollateralsViaExplorer<'a> {
         let collateral_utxo: TransactionUnspentOutput = utxos.into_iter().find_map(|utxo| {
             let utxo_value = utxo.get_value();
             if utxo_value.contains_only_ada() && utxo_value.get_ada_qty() > MIN_SAFE_COLLATERAL {
-                ExplorerTxOut::try_into(utxo).ok()
+                utxo.try_into_cml()
             } else {
                 None
             }

@@ -9,6 +9,7 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     LimitOrderV1, LimitOrderWitnessV1,
 };
 use spectrum_offchain_cardano::deployment::{DeployedScriptHash, ProtocolScriptHashes};
+use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
 #[derive(Copy, Clone, Debug)]
 pub struct HandlerContextProto {
@@ -19,8 +20,15 @@ pub struct HandlerContextProto {
 #[derive(Copy, Clone, Debug)]
 pub struct HandlerContext {
     pub output_ref: OutputRef,
+    pub consumed_utxos: ConsumedInputs,
     pub executor_cred: OperatorCred,
     pub scripts: ProtocolScriptHashes,
+}
+
+impl Has<ConsumedInputs> for HandlerContext {
+    fn select<U: IsEqual<ConsumedInputs>>(&self) -> ConsumedInputs {
+        self.consumed_utxos
+    }
 }
 
 impl Has<DeployedScriptHash<{ ConstFnPoolV1 as u8 }>> for HandlerContext {
@@ -120,9 +128,14 @@ impl Has<DeployedScriptHash<{ LimitOrderWitnessV1 as u8 }>> for HandlerContext {
 }
 
 impl HandlerContext {
-    pub fn new(output_ref: OutputRef, prototype: HandlerContextProto) -> Self {
+    pub fn new(
+        output_ref: OutputRef,
+        consumed_utxos: ConsumedInputs,
+        prototype: HandlerContextProto,
+    ) -> Self {
         Self {
             output_ref,
+            consumed_utxos,
             executor_cred: prototype.executor_cred,
             scripts: prototype.scripts,
         }

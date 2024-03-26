@@ -23,6 +23,7 @@ use spectrum_offchain::data::{EntitySnapshot, Has, Tradable};
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain::partitioning::Partitioned;
+use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
 use crate::event_sink::entity_index::TradableEntityIndex;
 use crate::event_sink::order_index::OrderIndex;
@@ -226,8 +227,11 @@ where
         return Err(tx);
     }
     let mut consumed_entities = HashMap::<Order::TOrderId, Order>::new();
+    let mut consumed_utxos = Vec::new();
     for i in &tx.body.inputs {
-        let state_id = Order::TOrderId::from(OutputRef::from((i.transaction_id, i.index)));
+        let oref = OutputRef::from((i.transaction_id, i.index));
+        consumed_utxos.push(oref);
+        let state_id = Order::TOrderId::from(oref);
         let mut index = index.lock().await;
         if index.exists(&state_id) {
             if let Some(order) = index.get(&state_id) {
@@ -237,13 +241,14 @@ where
         }
     }
     let mut produced_entities = HashMap::<Order::TOrderId, Order>::new();
+    let consumed_utxos = ConsumedInputs::new(consumed_utxos.into_iter());
     if !consumed_entities.is_empty() {
         let tx_hash = hash_transaction_canonical(&tx.body);
         let mut ix = num_outputs - 1;
         let mut non_processed_outputs = vec![];
         while let Some(o) = tx.body.outputs.pop() {
             let o_ref = OutputRef::new(tx_hash, ix as u64);
-            match Order::try_from_ledger(&o, &HandlerContext::new(o_ref, context)) {
+            match Order::try_from_ledger(&o, &HandlerContext::new(o_ref, consumed_utxos, context)) {
                 Some(entity) => {
                     trace!(target: "offchain", "extract_atomic_transitions: entity found");
                     let entity_id = entity.get_self_ref();
@@ -297,8 +302,11 @@ where
         return Err(tx);
     }
     let mut consumed_entities = HashMap::<Entity::StableId, Entity>::new();
+    let mut consumed_utxos = Vec::new();
     for i in &tx.body.inputs {
-        let state_id = Entity::Version::from(OutputRef::from((i.transaction_id, i.index)));
+        let oref = OutputRef::from((i.transaction_id, i.index));
+        consumed_utxos.push(oref);
+        let state_id = Entity::Version::from(oref);
         let mut index = index.lock().await;
         if index.exists(&state_id) {
             if let Some(entity) = index.get_state(&state_id) {
@@ -312,9 +320,10 @@ where
     trace!(target: "offchain", "scanning TX {}", tx_hash);
     let mut ix = num_outputs - 1;
     let mut non_processed_outputs = vec![];
+    let consumed_utxos = ConsumedInputs::new(consumed_utxos.into_iter());
     while let Some(o) = tx.body.outputs.pop() {
         let o_ref = OutputRef::new(tx_hash, ix as u64);
-        match Entity::try_from_ledger(&o, &HandlerContext::new(o_ref, context)) {
+        match Entity::try_from_ledger(&o, &HandlerContext::new(o_ref, consumed_utxos, context)) {
             Some(entity) => {
                 trace!(target: "offchain", "extract_persistent_transitions: entity found");
                 let entity_id = entity.stable_id();

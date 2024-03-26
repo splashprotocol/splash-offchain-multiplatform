@@ -3,18 +3,17 @@ use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::certs::StakeCredential;
 use cml_chain::plutus::{ExUnits, PlutusV1Script, PlutusV2Script, PlutusV3Script};
 use cml_chain::transaction::TransactionOutput;
+use cml_core::serialization::Deserialize;
+use cml_core::DeserializeError;
 use cml_crypto::{ScriptHash, TransactionHash};
 use derive_more::{From, Into};
 use hex::FromHexError;
-use serde::Deserialize;
-use type_equalities::IsEqual;
 
 use cardano_explorer::client::Explorer;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::Has;
-use crate::deployment::ProtocolValidator::LimitOrderV1;
 
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ScriptType {
     PlutusV1,
@@ -22,42 +21,43 @@ pub enum ScriptType {
     PlutusV3,
 }
 
-#[derive(Deserialize, Into, From)]
+#[derive(serde::Deserialize, Into, From)]
 #[serde(try_from = "String")]
-pub struct RawScript(Vec<u8>);
+pub struct RawCBORScript(Vec<u8>);
 
-impl TryFrom<String> for RawScript {
+impl TryFrom<String> for RawCBORScript {
     type Error = FromHexError;
     fn try_from(string: String) -> Result<Self, Self::Error> {
-        hex::decode(string).map(RawScript)
+        hex::decode(string).map(RawCBORScript)
     }
 }
 
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Script {
     #[serde(rename = "type")]
     pub typ: ScriptType,
-    pub script: RawScript,
+    pub script: RawCBORScript,
 }
 
-impl From<Script> for cml_chain::Script {
-    fn from(value: Script) -> Self {
-        match value.typ {
+impl TryFrom<Script> for cml_chain::Script {
+    type Error = DeserializeError;
+    fn try_from(value: Script) -> Result<Self, Self::Error> {
+        Ok(match value.typ {
             ScriptType::PlutusV1 => {
-                cml_chain::Script::new_plutus_v1(PlutusV1Script::new(value.script.into()))
+                cml_chain::Script::new_plutus_v1(PlutusV1Script::from_cbor_bytes(&*value.script.0)?)
             }
             ScriptType::PlutusV2 => {
-                cml_chain::Script::new_plutus_v2(PlutusV2Script::new(value.script.into()))
+                cml_chain::Script::new_plutus_v2(PlutusV2Script::from_cbor_bytes(&*value.script.0)?)
             }
             ScriptType::PlutusV3 => {
-                cml_chain::Script::new_plutus_v3(PlutusV3Script::new(value.script.into()))
+                cml_chain::Script::new_plutus_v3(PlutusV3Script::from_cbor_bytes(&*value.script.0)?)
             }
-        }
+        })
     }
 }
 
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReferenceUTxO {
     pub tx_hash: TransactionHash,
@@ -70,7 +70,7 @@ impl From<ReferenceUTxO> for OutputRef {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[derive(Debug, Clone)]
 pub struct ExBudget {
@@ -88,7 +88,7 @@ impl From<ExBudget> for ExUnits {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeployedValidatorRef {
     pub script: Script,
@@ -97,7 +97,7 @@ pub struct DeployedValidatorRef {
     pub ex_budget: ExBudget,
 }
 
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeployedValidators {
     pub limit_order_witness: DeployedValidatorRef,
@@ -195,16 +195,15 @@ pub struct DeployedValidatorErased {
 
 impl<const TYP: u8> DeployedValidator<TYP> {
     async fn unsafe_pull<'a>(v: DeployedValidatorRef, explorer: &Explorer<'a>) -> Self {
-        let mut ref_output: TransactionUnspentOutput = explorer
+        let mut ref_output = explorer
             .get_utxo(v.reference_utxo.into())
             .await
-            .expect("Reference UTxO not found")
-            .try_into()
-            .ok()
+            .expect("Reference UTxO from config not found")
+            .try_into_cml()
             .unwrap();
         match &mut ref_output.output {
             TransactionOutput::ConwayFormatTxOut(ref mut tx_out) => {
-                tx_out.script_reference = Some(v.script.into())
+                tx_out.script_reference = Some(v.script.try_into().expect("Invalid script was provided"))
             }
             TransactionOutput::AlonzoFormatTxOut(_) => panic!("Must be ConwayFormatTxOut"),
         }

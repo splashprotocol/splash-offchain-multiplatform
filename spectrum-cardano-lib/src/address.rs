@@ -1,10 +1,10 @@
+use crate::plutus_data::{ConstrPlutusDataExtension, PlutusDataExtension};
+use crate::types::TryFromPData;
+use crate::NetworkId;
 use cml_chain::address::{Address, BaseAddress, EnterpriseAddress};
 use cml_chain::certs::{Credential, StakeCredential};
 use cml_chain::plutus::PlutusData;
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, ScriptHash};
-use crate::NetworkId;
-use crate::plutus_data::{ConstrPlutusDataExtension, PlutusDataExtension};
-use crate::types::TryFromPData;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum PlutusCredential {
@@ -17,7 +17,9 @@ impl TryFromPData for PlutusCredential {
         let mut cpd = data.into_constr_pd()?;
         let f0 = cpd.take_field(0)?.into_bytes()?;
         match cpd.alternative {
-            0 => Some(PlutusCredential::PubKey(Ed25519KeyHash::from_raw_bytes(&*f0).ok()?)),
+            0 => Some(PlutusCredential::PubKey(
+                Ed25519KeyHash::from_raw_bytes(&*f0).ok()?,
+            )),
             1 => Some(PlutusCredential::Script(ScriptHash::from_raw_bytes(&*f0).ok()?)),
             _ => None,
         }
@@ -41,9 +43,16 @@ pub struct PlutusAddress {
 
 impl PlutusAddress {
     pub fn to_address(self, network_id: NetworkId) -> Address {
-        let PlutusAddress {payment_cred, stake_cred} = self;
+        let PlutusAddress {
+            payment_cred,
+            stake_cred,
+        } = self;
         match stake_cred {
-            Some(stake_cred) => Address::Base(BaseAddress::new(network_id.into(), payment_cred.into(), stake_cred.into())),
+            Some(stake_cred) => Address::Base(BaseAddress::new(
+                network_id.into(),
+                payment_cred.into(),
+                stake_cred.into(),
+            )),
             None => Address::Enterprise(EnterpriseAddress::new(network_id.into(), payment_cred.into())),
         }
     }

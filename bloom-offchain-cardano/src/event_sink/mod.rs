@@ -19,6 +19,7 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,
     ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2, LimitOrderV1,
 };
+use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
 use crate::orders::AnyOrder;
 
@@ -99,6 +100,7 @@ where
     C: Copy
         + Has<OperatorCred>
         + Has<OutputRef>
+        + Has<ConsumedInputs>
         + Has<DeployedScriptHash<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedScriptHash<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedScriptHash<{ ConstFnPoolFeeSwitch as u8 }>>

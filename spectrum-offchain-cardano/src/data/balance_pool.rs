@@ -9,7 +9,7 @@ use cml_chain::plutus::utils::ConstrPlutusDataEncoding;
 use cml_chain::plutus::PlutusData::Integer;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
-use cml_chain::utils::BigInt;
+use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_core::serialization::LenEncoding::{Canonical, Indefinite};
 use cml_multi_era::babbage::BabbageTransactionOutput;
@@ -361,14 +361,14 @@ impl BalancePool {
         */
 
         let action_plutus_data = cfmmpool_action.to_plutus_data();
-        let self_ix_pd = PlutusData::Integer(BigInt::from(pool_idx));
+        let self_ix_pd = PlutusData::Integer(BigInteger::from(pool_idx));
         let g_list_pd = PlutusData::new_list(Vec::from([
-            PlutusData::Integer(BigInt::from(new_g_t[0])),
-            PlutusData::Integer(BigInt::from(new_g_t[2])),
+            PlutusData::Integer(BigInteger::from(new_g_t[0])),
+            PlutusData::Integer(BigInteger::from(new_g_t[2])),
         ]));
         let t_list_pd = PlutusData::new_list(Vec::from([
-            PlutusData::Integer(BigInt::from(new_g_t[1])),
-            PlutusData::Integer(BigInt::from(new_g_t[3])),
+            PlutusData::Integer(BigInteger::from(new_g_t[1])),
+            PlutusData::Integer(BigInteger::from(new_g_t[3])),
         ]));
 
         PlutusData::ConstrPlutusData(ConstrPlutusData {
