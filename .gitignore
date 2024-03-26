@@ -8,5 +8,7 @@ log/
 .local
 .vscode
 tmp/
-config.json
-*.yaml
+seed.txt
+token.txt
+node_modules/
+state/

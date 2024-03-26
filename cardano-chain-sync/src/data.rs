@@ -14,6 +14,7 @@ pub enum LedgerTxEvent<Tx> {
 
 #[derive(Clone)]
 pub enum ChainUpgrade<Block> {
-    RollForward(Block),
+    /// Deserialized block and it's serialized representation.
+    RollForward(Block, Vec<u8>),
     RollBackward(Point),
 }

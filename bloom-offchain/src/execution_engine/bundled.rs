@@ -2,12 +2,12 @@ use std::hash::{Hash, Hasher};
 
 use spectrum_offchain::backlog;
 use spectrum_offchain::data::order::SpecializedOrder;
-use spectrum_offchain::data::{EntitySnapshot, Stable, Tradable, VersionUpdater};
+use spectrum_offchain::data::{EntitySnapshot, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::execution_engine::liquidity_book;
 
-/// Entity bundled with its source.
+/// Entity bundled with its source.h
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Bundled<T, Bearer>(pub T, pub Bearer);
 
@@ -92,15 +92,6 @@ where
     }
 }
 
-impl<T, Bearer> VersionUpdater for Bundled<T, Bearer>
-where
-    T: VersionUpdater,
-{
-    fn update_version(&mut self, new_version: Self::Version) {
-        self.0.update_version(new_version)
-    }
-}
-
 impl<T, Bearer> Tradable for Bundled<T, Bearer>
 where
     T: Tradable,
@@ -116,7 +107,7 @@ where
     T: TryFromLedger<Bearer, Ctx>,
     Bearer: Clone,
 {
-    fn try_from_ledger(repr: &Bearer, ctx: Ctx) -> Option<Self> {
+    fn try_from_ledger(repr: &Bearer, ctx: &Ctx) -> Option<Self> {
         T::try_from_ledger(&repr, ctx).map(|res| Bundled(res, repr.clone()))
     }
 }

@@ -1,47 +1,49 @@
-use std::hash::Hash;
-
-use cml_chain::builders::input_builder::{InputBuilderResult, SingleInputBuilder};
-use cml_chain::builders::output_builder::SingleOutputBuilderResult;
-use cml_chain::builders::tx_builder::TransactionUnspentOutput;
-use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
-use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData};
 use cml_chain::transaction::TransactionOutput;
-use cml_chain::utils::BigInt;
 use void::Void;
 
 use bloom_offchain::execution_engine::batch_exec::BatchExec;
 use bloom_offchain::execution_engine::bundled::Bundled;
+use bloom_offchain::execution_engine::execution_effect::ExecutionEff;
 use bloom_offchain::execution_engine::liquidity_book::fragment::StateTrans;
 use bloom_offchain::execution_engine::liquidity_book::recipe::{LinkedFill, LinkedSwap};
 use spectrum_cardano_lib::output::FinalizedTxOut;
-use spectrum_cardano_lib::plutus_data::RequiresRedeemer;
+use spectrum_cardano_lib::NetworkId;
+
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_offchain::data::Has;
-use spectrum_offchain_cardano::constants::POOL_EXECUTION_UNITS;
-use spectrum_offchain_cardano::data::pool::{AssetDeltas, CFMMPool, CFMMPoolAction, CFMMPoolRefScriptOutput};
-use spectrum_offchain_cardano::data::PoolVer;
-
-use crate::execution_engine::execution_state::ExecutionState;
-use crate::orders::AnyOrder;
-use crate::orders::spot::{
-    SPOT_ORDER_N2T_EX_UNITS, SpotOrder, SpotOrderRefScriptOutput, unsafe_update_n2t_variables,
+use spectrum_offchain_cardano::data::balance_pool::{BalancePool, BalancePoolRedeemer};
+use spectrum_offchain_cardano::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
+use spectrum_offchain_cardano::data::pool::{AnyPool, AssetDeltas, CFMMPoolAction};
+use spectrum_offchain_cardano::deployment::ProtocolValidator::{
+    BalanceFnPoolV1, ConstFnPoolV1, ConstFnPoolV2, LimitOrderV1,
 };
-use crate::pools::AnyPool;
+use spectrum_offchain_cardano::deployment::{DeployedValidator, RequiresValidator};
+
+use crate::execution_engine::execution_state::{
+    delayed_redeemer, ready_redeemer, ExecutionState, ScriptInputBlueprint,
+};
+use crate::orders::spot::{unsafe_update_n2t_variables, LimitOrder};
+use crate::orders::{spot, AnyOrder};
 
 /// Magnet for local instances.
 #[repr(transparent)]
 pub struct Magnet<T>(pub T);
 
-impl<Ctx> BatchExec<ExecutionState, FillOrderResults, Ctx, Void>
+/// Result of order execution.
+pub type OrderResult<Order> = ExecutionEff<Bundled<Order, TransactionOutput>, Bundled<Order, FinalizedTxOut>>;
+/// Result of operation applied to a pool.
+pub type PoolResult<Pool> = Bundled<Pool, TransactionOutput>;
+
+impl<Ctx> BatchExec<ExecutionState, OrderResult<AnyOrder>, Ctx, Void>
     for Magnet<LinkedFill<AnyOrder, FinalizedTxOut>>
 where
-    Ctx: Has<SpotOrderRefScriptOutput>,
+    Ctx: Has<NetworkId> + Has<DeployedValidator<{ LimitOrderV1 as u8 }>>,
 {
     fn try_exec(
         self,
         state: ExecutionState,
         context: Ctx,
-    ) -> Result<(ExecutionState, FillOrderResults, Ctx), Void> {
+    ) -> Result<(ExecutionState, OrderResult<AnyOrder>, Ctx), Void> {
         match self.0 {
             LinkedFill {
                 target_fr: Bundled(AnyOrder::Spot(o), src),
@@ -58,21 +60,28 @@ where
                 budget_used,
                 fee_used,
             })
-            .try_exec(state, context),
+            .try_exec(state, context)
+            .map(|(st, res, ctx)| {
+                (
+                    st,
+                    res.bimap(|u| u.map(AnyOrder::Spot), |e| e.map(AnyOrder::Spot)),
+                    ctx,
+                )
+            }),
         }
     }
 }
 
-impl<Ctx> BatchExec<ExecutionState, FillOrderResults, Ctx, Void>
-    for Magnet<LinkedFill<SpotOrder, FinalizedTxOut>>
+impl<Ctx> BatchExec<ExecutionState, OrderResult<LimitOrder>, Ctx, Void>
+    for Magnet<LinkedFill<LimitOrder, FinalizedTxOut>>
 where
-    Ctx: Has<SpotOrderRefScriptOutput>,
+    Ctx: Has<NetworkId> + Has<DeployedValidator<{ LimitOrderV1 as u8 }>>,
 {
     fn try_exec(
         self,
         mut state: ExecutionState,
         context: Ctx,
-    ) -> Result<(ExecutionState, FillOrderResults, Ctx), Void> {
+    ) -> Result<(ExecutionState, OrderResult<LimitOrder>, Ctx), Void> {
         let Magnet(LinkedFill {
             target_fr: Bundled(ord, FinalizedTxOut(consumed_out, in_ref)),
             next_fr: transition,
@@ -81,6 +90,14 @@ where
             budget_used,
             fee_used,
         }) = self;
+        let input = ScriptInputBlueprint {
+            reference: in_ref,
+            utxo: consumed_out.clone(),
+            script: context
+                .select::<DeployedValidator<{ LimitOrderV1 as u8 }>>()
+                .erased(),
+            redeemer: ready_redeemer(spot::EXEC_REDEEMER),
+        };
         let mut candidate = consumed_out.clone();
         // Subtract budget + fee used to facilitate execution.
         candidate.sub_asset(ord.fee_asset, budget_used + fee_used);
@@ -88,77 +105,47 @@ where
         candidate.sub_asset(ord.input_asset, removed_input);
         // Add output resulted from exchange.
         candidate.add_asset(ord.output_asset, added_output);
-
-        let successor_ix = state.tx_builder.num_outputs();
-        let order_script = PartialPlutusWitness::new(
-            PlutusScriptWitness::Ref(candidate.script_hash().unwrap()),
-            spot_exec_redeemer(successor_ix as u16),
-        );
-        let residual_order = {
+        let (residual_order, effect) = {
             match transition {
                 StateTrans::Active(next) => {
-                    let mut candidate = candidate.clone();
                     if let Some(data) = candidate.data_mut() {
                         unsafe_update_n2t_variables(data, next.input_amount, next.fee);
                     }
-                    Some(candidate)
+                    (candidate.clone(), ExecutionEff::Updated(Bundled(next, candidate)))
                 }
                 StateTrans::EOL => {
                     candidate.null_datum();
-                    candidate.update_payment_cred(ord.redeemer_cred());
-                    None
+                    candidate.update_address(ord.redeemer_address.to_address(context.select::<NetworkId>()));
+                    (
+                        candidate,
+                        ExecutionEff::Eliminated(Bundled(ord, FinalizedTxOut(consumed_out, in_ref))),
+                    )
                 }
             }
         };
-        let spot_order_ref_script = context.get_labeled::<SpotOrderRefScriptOutput>().0;
-        state
-            .tx_builder
-            .add_reference_input(spot_order_ref_script.clone());
-
-        let order_in = SingleInputBuilder::new(in_ref.into(), consumed_out)
-            .plutus_script_inline_datum(order_script, Vec::new())
-            .unwrap();
-        let output = SingleOutputBuilderResult::new(candidate.clone());
-        state.tx_builder.add_output(output.clone()).unwrap();
-        state.tx_builder.add_input(order_in.clone()).unwrap();
+        state.tx_blueprint.add_io(input, residual_order);
         state.add_ex_budget(ord.fee_asset, budget_used);
-
-        let tx_builder_step = TxBuilderElementsFromOrder {
-            input: order_in,
-            reference_input: spot_order_ref_script,
-            ex_units: SPOT_ORDER_N2T_EX_UNITS,
-            output,
-        };
-        let builder_step = FillOrderResults {
-            residual_order,
-            tx_builder_elements: tx_builder_step,
-        };
-        Ok((state, builder_step, context))
+        Ok((state, effect, context))
     }
 }
 
-fn spot_exec_redeemer(successor_ix: u16) -> PlutusData {
-    PlutusData::ConstrPlutusData(ConstrPlutusData::new(
-        0,
-        vec![PlutusData::Integer(BigInt::from(successor_ix))],
-    ))
-}
-
 /// Batch execution routing for [AnyPool].
-impl<Ctx> BatchExec<ExecutionState, TxBuilderElementsFromOrder, Ctx, Void>
+impl<Ctx> BatchExec<ExecutionState, PoolResult<AnyPool>, Ctx, Void>
     for Magnet<LinkedSwap<AnyPool, FinalizedTxOut>>
 where
-    Ctx: Has<CFMMPoolRefScriptOutput<1>> + Has<CFMMPoolRefScriptOutput<2>>,
+    Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
+        + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>,
 {
     fn try_exec(
         self,
         state: ExecutionState,
         context: Ctx,
-    ) -> Result<(ExecutionState, TxBuilderElementsFromOrder, Ctx), Void> {
+    ) -> Result<(ExecutionState, PoolResult<AnyPool>, Ctx), Void> {
         match self.0 {
             LinkedSwap {
-                target: Bundled(AnyPool::CFMM(p), src),
-                transition: AnyPool::CFMM(p2),
+                target: Bundled(AnyPool::PureCFMM(p), src),
+                transition: AnyPool::PureCFMM(p2),
                 side,
                 input,
                 output,
@@ -169,28 +156,45 @@ where
                 input,
                 output,
             })
-            .try_exec(state, context),
+            .try_exec(state, context)
+            .map(|(st, res, ctx)| (st, res.map(AnyPool::PureCFMM), ctx)),
+            LinkedSwap {
+                target: Bundled(AnyPool::BalancedCFMM(p), src),
+                transition: AnyPool::BalancedCFMM(p2),
+                side,
+                input,
+                output,
+            } => Magnet(LinkedSwap {
+                target: Bundled(p, src),
+                transition: p2,
+                side,
+                input,
+                output,
+            })
+            .try_exec(state, context)
+            .map(|(st, res, ctx)| (st, res.map(AnyPool::BalancedCFMM), ctx)),
+            _ => unreachable!(),
         }
     }
 }
 
-/// Batch execution logic for [CFMMPool].
-impl<Ctx> BatchExec<ExecutionState, TxBuilderElementsFromOrder, Ctx, Void>
-    for Magnet<LinkedSwap<CFMMPool, FinalizedTxOut>>
+/// Batch execution logic for [ConstFnPool].
+impl<Ctx> BatchExec<ExecutionState, PoolResult<ConstFnPool>, Ctx, Void>
+    for Magnet<LinkedSwap<ConstFnPool, FinalizedTxOut>>
 where
-    Ctx: Has<CFMMPoolRefScriptOutput<1>> + Has<CFMMPoolRefScriptOutput<2>>,
+    Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>> + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>,
 {
     fn try_exec(
         self,
         mut state: ExecutionState,
         context: Ctx,
-    ) -> Result<(ExecutionState, TxBuilderElementsFromOrder, Ctx), Void> {
+    ) -> Result<(ExecutionState, PoolResult<ConstFnPool>, Ctx), Void> {
         let Magnet(LinkedSwap {
             target: Bundled(pool, FinalizedTxOut(consumed_out, in_ref)),
+            transition,
             side,
             input,
             output,
-            ..
         }) = self;
         let mut produced_out = consumed_out.clone();
         let AssetDeltas {
@@ -199,43 +203,70 @@ where
         } = pool.get_asset_deltas(side);
         produced_out.sub_asset(asset_to_deduct_from, output);
         produced_out.add_asset(asset_to_add_to, input);
-        let pool_script = PartialPlutusWitness::new(
-            PlutusScriptWitness::Ref(produced_out.script_hash().unwrap()),
-            CFMMPool::redeemer(CFMMPoolAction::Swap),
-        );
-        let pool_in = SingleInputBuilder::new(in_ref.into(), consumed_out)
-            .plutus_script_inline_datum(pool_script, Vec::new())
-            .unwrap();
-        let output = SingleOutputBuilderResult::new(produced_out);
-        state.tx_builder.add_output(output.clone()).unwrap();
-        let pool_ref_script = match pool.ver {
-            PoolVer::V1 => context.get_labeled::<CFMMPoolRefScriptOutput<1>>().0,
-            _ => context.get_labeled::<CFMMPoolRefScriptOutput<2>>().0,
+
+        let pool_validator = pool.get_validator(&context);
+        let input = ScriptInputBlueprint {
+            reference: in_ref,
+            utxo: consumed_out,
+            script: pool_validator,
+            redeemer: delayed_redeemer(move |ordering| {
+                CFMMPoolRedeemer {
+                    pool_input_index: ordering.index_of(&in_ref) as u64,
+                    action: CFMMPoolAction::Swap,
+                }
+                .to_plutus_data()
+            }),
         };
-        state.tx_builder.add_reference_input(pool_ref_script.clone());
-        state.tx_builder.add_input(pool_in.clone()).unwrap();
-        let builder_step = TxBuilderElementsFromOrder {
-            input: pool_in,
-            reference_input: pool_ref_script,
-            ex_units: POOL_EXECUTION_UNITS,
-            output,
-        };
-        Ok((state, builder_step, context))
+        let result = Bundled(transition, produced_out.clone());
+
+        state.tx_blueprint.add_io(input, produced_out);
+        Ok((state, result, context))
     }
 }
 
-/// Contains all the elements that must be given to the TX builder as a result of executing an
-/// order (e.g. fill or swap).
-pub struct TxBuilderElementsFromOrder {
-    pub input: InputBuilderResult,
-    pub reference_input: TransactionUnspentOutput,
-    pub ex_units: ExUnits,
-    pub output: SingleOutputBuilderResult,
-}
+impl<Ctx> BatchExec<ExecutionState, PoolResult<BalancePool>, Ctx, Void>
+    for Magnet<LinkedSwap<BalancePool, FinalizedTxOut>>
+where
+    Ctx: Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>,
+{
+    fn try_exec(
+        self,
+        mut state: ExecutionState,
+        context: Ctx,
+    ) -> Result<(ExecutionState, PoolResult<BalancePool>, Ctx), Void> {
+        let Magnet(LinkedSwap {
+            target: Bundled(pool, FinalizedTxOut(consumed_out, in_ref)),
+            transition,
+            side,
+            input,
+            output,
+        }) = self;
+        let mut produced_out = consumed_out.clone();
+        let AssetDeltas {
+            asset_to_deduct_from,
+            asset_to_add_to,
+        } = pool.get_asset_deltas(side);
+        produced_out.sub_asset(asset_to_deduct_from, output);
+        produced_out.add_asset(asset_to_add_to, input);
 
-pub struct FillOrderResults {
-    /// The resulting UTxO from a partial-fill order
-    pub residual_order: Option<TransactionOutput>,
-    /// TX builder elements for this fill order.
-    pub tx_builder_elements: TxBuilderElementsFromOrder,
+        let pool_validator = pool.get_validator(&context);
+        let input = ScriptInputBlueprint {
+            reference: in_ref,
+            utxo: consumed_out,
+            script: pool_validator,
+            redeemer: delayed_redeemer(move |ordering| {
+                BalancePoolRedeemer {
+                    pool_input_index: ordering.index_of(&in_ref) as u64,
+                    action: CFMMPoolAction::Swap,
+                    new_pool_state: transition,
+                    prev_pool_state: pool,
+                }
+                .to_plutus_data()
+            }),
+        };
+        let result = Bundled(transition, produced_out.clone());
+
+        state.tx_blueprint.add_io(input, produced_out);
+        Ok((state, result, context))
+    }
 }

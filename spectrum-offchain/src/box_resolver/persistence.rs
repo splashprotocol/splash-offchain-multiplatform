@@ -256,6 +256,9 @@ pub(crate) mod tests {
         fn stable_id(&self) -> Self::StableId {
             self.token_id
         }
+        fn is_quasi_permanent(&self) -> bool {
+            true
+        }
     }
 
     impl EntitySnapshot for TestEntity {

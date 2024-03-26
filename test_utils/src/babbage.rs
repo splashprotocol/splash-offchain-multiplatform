@@ -92,9 +92,9 @@ fn to_babbage_script(script: Script) -> BabbageScript {
             tag_encoding,
         },
         Script::PlutusV3 {
-            script,
-            len_encoding,
-            tag_encoding,
+            script: _,
+            len_encoding: _,
+            tag_encoding: _,
         } => unreachable!(),
     }
 }
@@ -214,7 +214,7 @@ fn to_babbage_auxiliary_data(d: AuxiliaryData) -> BabbageAuxiliaryData {
             native_scripts,
             plutus_v1_scripts,
             plutus_v2_scripts,
-            plutus_v3_scripts,
+            plutus_v3_scripts: _,
             encodings,
         }) => {
             let encodings = encodings.map(|c| BabbageFormatAuxDataEncoding {

@@ -6,18 +6,18 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use either::Either;
-use futures::{SinkExt, StreamExt};
 use futures::channel::mpsc;
-use futures::Stream;
 use futures::stream::FusedStream;
+use futures::Stream;
+use futures::{SinkExt, StreamExt};
 use log::trace;
 
 use liquidity_book::interpreter::RecipeInterpreter;
 use spectrum_offchain::backlog::HotBacklog;
 use spectrum_offchain::combinators::Ior;
-use spectrum_offchain::data::{Baked, EntitySnapshot, Stable};
-use spectrum_offchain::data::order::{OrderLink, OrderUpdate, SpecializedOrder};
+use spectrum_offchain::data::order::{OrderUpdate, SpecializedOrder};
 use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
+use spectrum_offchain::data::{Baked, EntitySnapshot, Stable};
 use spectrum_offchain::maker::Maker;
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_prover::TxProver;
@@ -25,12 +25,12 @@ use spectrum_offchain::tx_prover::TxProver;
 use crate::execution_engine::backlog::SpecializedInterpreter;
 use crate::execution_engine::bundled::Bundled;
 use crate::execution_engine::execution_effect::ExecutionEff;
-use crate::execution_engine::liquidity_book::{ExternalTLBEvents, TemporalLiquidityBook, TLBFeedback};
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState};
 use crate::execution_engine::liquidity_book::recipe::{
     ExecutionRecipe, LinkedExecutionRecipe, LinkedFill, LinkedSwap, LinkedTerminalInstruction,
     TerminalInstruction,
 };
+use crate::execution_engine::liquidity_book::{ExternalTLBEvents, TLBFeedback, TemporalLiquidityBook};
 use crate::execution_engine::multi_pair::MultiPair;
 use crate::execution_engine::resolver::resolve_source_state;
 use crate::execution_engine::storage::kv_store::KvStore;
