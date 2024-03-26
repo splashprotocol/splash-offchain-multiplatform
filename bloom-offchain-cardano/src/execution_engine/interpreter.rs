@@ -27,7 +27,7 @@ use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::{Baked, Has};
 use spectrum_offchain_cardano::creds::OperatorRewardAddress;
 use spectrum_offchain_cardano::deployment::DeployedValidator;
-use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderWitness;
+use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderWitnessV1;
 
 use crate::execution_engine::execution_state::ExecutionState;
 use crate::execution_engine::instances::{Magnet, OrderResult, PoolResult};
@@ -46,7 +46,7 @@ where
     Ctx: Clone
         + Has<Collateral>
         + Has<OperatorRewardAddress>
-        + Has<DeployedValidator<{ LimitOrderWitness as u8 }>>,
+        + Has<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>,
 {
     fn run(
         &mut self,
@@ -62,6 +62,16 @@ where
         >,
     ) {
         let state = ExecutionState::new();
+        println!(
+            "Recipe {:?}",
+            instructions
+                .iter()
+                .map(|i| match i {
+                    LinkedTerminalInstruction::Fill(fill) => fill.target_fr.0,
+                    LinkedTerminalInstruction::Swap(_) => panic!(),
+                })
+                .collect::<Vec<_>>()
+        );
         let (
             ExecutionState {
                 tx_blueprint,
@@ -70,16 +80,15 @@ where
             effects,
             ctx,
         ) = execute(ctx, state, Vec::new(), instructions);
-
         let mut tx_builder = tx_blueprint.apply_to_builder(constant_tx_builder());
 
         // Set batch validator
-        let addr = ctx.get_labeled::<OperatorRewardAddress>();
+        let addr = ctx.select::<OperatorRewardAddress>();
         let reward_address = cml_chain::address::RewardAddress::new(
             addr.0.network_id().unwrap(),
             addr.0.payment_cred().unwrap().clone(),
         );
-        let order_witness = ctx.get_labeled::<DeployedValidator<{ LimitOrderWitness as u8 }>>();
+        let order_witness = ctx.select::<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>();
         let partial_witness = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(order_witness.reference_utxo.output.script_hash().unwrap()),
             PlutusData::new_list(vec![]), // dummy value (this validator doesn't require redeemer)
@@ -93,7 +102,7 @@ where
             order_witness.ex_budget.into(),
         );
         tx_builder
-            .add_collateral(ctx.get_labeled::<Collateral>().into())
+            .add_collateral(ctx.select::<Collateral>().into())
             .unwrap();
 
         // Set tx fee.
@@ -101,7 +110,7 @@ where
         trace!(target: "offchain", "estimated tx_fee: {}", estimated_tx_fee);
         tx_builder.set_fee(estimated_tx_fee + TX_FEE_CORRECTION);
 
-        let execution_fee_address: Address = ctx.get_labeled::<OperatorRewardAddress>().into();
+        let execution_fee_address: Address = ctx.select::<OperatorRewardAddress>().into();
         // Build tx, change is execution fee.
         let tx_body = tx_builder
             .clone()

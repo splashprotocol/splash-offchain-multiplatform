@@ -13,10 +13,10 @@ pub mod unique_entity;
 /// Enables data polymorphism.
 pub trait Has<T> {
     /// Use this when there are multiple [Has] bounds on a single type.
-    fn get_labeled<U: IsEqual<T>>(&self) -> T;
+    fn select<U: IsEqual<T>>(&self) -> T;
     /// Use this otherwise.
     fn get(&self) -> T {
-        self.get_labeled::<T>()
+        self.select::<T>()
     }
 }
 
@@ -33,10 +33,6 @@ pub trait EntitySnapshot: Stable {
     type Version: Copy + Eq + Hash + Display;
 
     fn version(&self) -> Self::Version;
-}
-
-pub trait VersionUpdater: EntitySnapshot {
-    fn update_version(&mut self, new_version: Self::Version);
 }
 
 impl<StableId, A, B> Stable for Either<A, B>
@@ -115,7 +111,7 @@ impl<T, V> Has<V> for Baked<T, V>
 where
     V: Copy,
 {
-    fn get_labeled<U: IsEqual<V>>(&self) -> V {
+    fn select<U: IsEqual<V>>(&self) -> V {
         self.version
     }
 }
@@ -166,7 +162,7 @@ where
     Version: Copy,
     C: Copy + Has<Version>,
 {
-    fn try_from_ledger(repr: &Repr, ctx: C) -> Option<Self> {
-        T::try_from_ledger(repr, ctx).map(|r| Baked::new(r, ctx.get_labeled::<Version>()))
+    fn try_from_ledger(repr: &Repr, ctx: &C) -> Option<Self> {
+        T::try_from_ledger(repr, ctx).map(|r| Baked::new(r, ctx.select::<Version>()))
     }
 }

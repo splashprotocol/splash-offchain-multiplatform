@@ -1,15 +1,19 @@
+use cml_chain::address::Address;
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
+use cml_chain::certs::StakeCredential;
 use cml_chain::plutus::{ExUnits, PlutusV1Script, PlutusV2Script, PlutusV3Script};
 use cml_chain::transaction::TransactionOutput;
+use cml_core::serialization::Deserialize;
+use cml_core::DeserializeError;
 use cml_crypto::{ScriptHash, TransactionHash};
 use derive_more::{From, Into};
 use hex::FromHexError;
-use serde::Deserialize;
 
 use cardano_explorer::client::Explorer;
 use spectrum_cardano_lib::OutputRef;
+use spectrum_offchain::data::Has;
 
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ScriptType {
     PlutusV1,
@@ -17,36 +21,43 @@ pub enum ScriptType {
     PlutusV3,
 }
 
-#[derive(Deserialize, Into, From)]
+#[derive(serde::Deserialize, Into, From)]
 #[serde(try_from = "String")]
-pub struct RawScript(Vec<u8>);
+pub struct RawCBORScript(Vec<u8>);
 
-impl TryFrom<String> for RawScript {
+impl TryFrom<String> for RawCBORScript {
     type Error = FromHexError;
     fn try_from(string: String) -> Result<Self, Self::Error> {
-        hex::decode(string).map(RawScript)
+        hex::decode(string).map(RawCBORScript)
     }
 }
 
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Script {
     #[serde(rename = "type")]
     pub typ: ScriptType,
-    pub script: RawScript,
+    pub script: RawCBORScript,
 }
 
-impl From<Script> for cml_chain::Script {
-    fn from(value: Script) -> Self {
-        match value.typ {
-            ScriptType::PlutusV1 => cml_chain::Script::new_plutus_v1(PlutusV1Script::new(value.script.into())),
-            ScriptType::PlutusV2 => cml_chain::Script::new_plutus_v2(PlutusV2Script::new(value.script.into())),
-            ScriptType::PlutusV3 => cml_chain::Script::new_plutus_v3(PlutusV3Script::new(value.script.into())),
-        }
+impl TryFrom<Script> for cml_chain::Script {
+    type Error = DeserializeError;
+    fn try_from(value: Script) -> Result<Self, Self::Error> {
+        Ok(match value.typ {
+            ScriptType::PlutusV1 => {
+                cml_chain::Script::new_plutus_v1(PlutusV1Script::from_cbor_bytes(&*value.script.0)?)
+            }
+            ScriptType::PlutusV2 => {
+                cml_chain::Script::new_plutus_v2(PlutusV2Script::from_cbor_bytes(&*value.script.0)?)
+            }
+            ScriptType::PlutusV3 => {
+                cml_chain::Script::new_plutus_v3(PlutusV3Script::from_cbor_bytes(&*value.script.0)?)
+            }
+        })
     }
 }
 
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReferenceUTxO {
     pub tx_hash: TransactionHash,
@@ -59,7 +70,7 @@ impl From<ReferenceUTxO> for OutputRef {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[derive(Debug, Clone)]
 pub struct ExBudget {
@@ -77,7 +88,7 @@ impl From<ExBudget> for ExUnits {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeployedValidatorRef {
     pub script: Script,
@@ -86,7 +97,7 @@ pub struct DeployedValidatorRef {
     pub ex_budget: ExBudget,
 }
 
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeployedValidators {
     pub limit_order_witness: DeployedValidatorRef,
@@ -98,6 +109,64 @@ pub struct DeployedValidators {
     pub const_fn_pool_swap: DeployedValidatorRef,
     pub const_fn_pool_deposit: DeployedValidatorRef,
     pub const_fn_pool_redeem: DeployedValidatorRef,
+    pub balance_fn_pool_v1: DeployedValidatorRef,
+    pub balance_fn_pool_deposit: DeployedValidatorRef,
+    pub balance_fn_pool_redeem: DeployedValidatorRef,
+}
+
+impl From<&DeployedValidators> for ProtocolScriptHashes {
+    fn from(deployment: &DeployedValidators) -> Self {
+        Self {
+            limit_order_witness: From::from(&deployment.limit_order_witness),
+            limit_order: From::from(&deployment.limit_order),
+            const_fn_pool_v1: From::from(&deployment.const_fn_pool_v1),
+            const_fn_pool_v2: From::from(&deployment.const_fn_pool_v2),
+            const_fn_pool_fee_switch: From::from(&deployment.const_fn_pool_fee_switch),
+            const_fn_pool_fee_switch_bidir_fee: From::from(&deployment.const_fn_pool_fee_switch_bidir_fee),
+            const_fn_pool_swap: From::from(&deployment.const_fn_pool_swap),
+            const_fn_pool_deposit: From::from(&deployment.const_fn_pool_deposit),
+            const_fn_pool_redeem: From::from(&deployment.const_fn_pool_redeem),
+            balance_fn_pool_v1: From::from(&deployment.balance_fn_pool_v1),
+            balance_fn_pool_deposit: From::from(&deployment.balance_fn_pool_deposit),
+            balance_fn_pool_redeem: From::from(&deployment.balance_fn_pool_redeem),
+        }
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Into, From)]
+pub struct DeployedScriptHash<const TYP: u8>(ScriptHash);
+
+impl<const TYP: u8> DeployedScriptHash<TYP> {
+    pub fn unwrap(self) -> ScriptHash {
+        self.0
+    }
+}
+
+pub fn test_address<const TYP: u8, Ctx>(addr: &Address, ctx: &Ctx) -> bool
+where
+    Ctx: Has<DeployedScriptHash<TYP>>,
+{
+    let maybe_hash = addr.payment_cred().and_then(|c| match c {
+        StakeCredential::PubKey { .. } => None,
+        StakeCredential::Script { hash, .. } => Some(hash),
+    });
+    if let Some(this_hash) = maybe_hash {
+        return *this_hash == ctx.get().unwrap();
+    }
+    false
+}
+
+impl<const TYP: u8> From<&DeployedValidator<TYP>> for DeployedScriptHash<TYP> {
+    fn from(value: &DeployedValidator<TYP>) -> Self {
+        Self(value.hash)
+    }
+}
+
+impl<const TYP: u8> From<&DeployedValidatorRef> for DeployedScriptHash<TYP> {
+    fn from(value: &DeployedValidatorRef) -> Self {
+        Self(value.hash)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -126,18 +195,17 @@ pub struct DeployedValidatorErased {
 
 impl<const TYP: u8> DeployedValidator<TYP> {
     async fn unsafe_pull<'a>(v: DeployedValidatorRef, explorer: &Explorer<'a>) -> Self {
-        let mut ref_output: TransactionUnspentOutput = explorer
+        let mut ref_output = explorer
             .get_utxo(v.reference_utxo.into())
             .await
-            .expect("Reference UTxO not found")
-            .try_into()
-            .ok()
+            .expect("Reference UTxO from config not found")
+            .try_into_cml()
             .unwrap();
         match &mut ref_output.output {
-            TransactionOutput::AlonzoFormatTxOut(_) => {}
             TransactionOutput::ConwayFormatTxOut(ref mut tx_out) => {
-                tx_out.script_reference = Some(v.script.into())
+                tx_out.script_reference = Some(v.script.try_into().expect("Invalid script was provided"))
             }
+            TransactionOutput::AlonzoFormatTxOut(_) => panic!("Must be ConwayFormatTxOut"),
         }
         Self {
             reference_utxo: ref_output,
@@ -150,8 +218,8 @@ impl<const TYP: u8> DeployedValidator<TYP> {
 #[repr(u8)]
 #[derive(Eq, PartialEq)]
 pub enum ProtocolValidator {
-    LimitOrderWitness,
-    LimitOrder,
+    LimitOrderWitnessV1,
+    LimitOrderV1,
     ConstFnPoolV1,
     ConstFnPoolV2,
     ConstFnPoolFeeSwitch,
@@ -159,12 +227,52 @@ pub enum ProtocolValidator {
     ConstFnPoolSwap,
     ConstFnPoolDeposit,
     ConstFnPoolRedeem,
+    BalanceFnPoolV1,
+    BalanceFnPoolSwap,
+    BalanceFnPoolDeposit,
+    BalanceFnPoolRedeem,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct ProtocolScriptHashes {
+    pub limit_order_witness: DeployedScriptHash<{ ProtocolValidator::LimitOrderWitnessV1 as u8 }>,
+    pub limit_order: DeployedScriptHash<{ ProtocolValidator::LimitOrderV1 as u8 }>,
+    pub const_fn_pool_v1: DeployedScriptHash<{ ProtocolValidator::ConstFnPoolV1 as u8 }>,
+    pub const_fn_pool_v2: DeployedScriptHash<{ ProtocolValidator::ConstFnPoolV2 as u8 }>,
+    pub const_fn_pool_fee_switch: DeployedScriptHash<{ ProtocolValidator::ConstFnPoolFeeSwitch as u8 }>,
+    pub const_fn_pool_fee_switch_bidir_fee:
+        DeployedScriptHash<{ ProtocolValidator::ConstFnPoolFeeSwitchBiDirFee as u8 }>,
+    pub const_fn_pool_swap: DeployedScriptHash<{ ProtocolValidator::ConstFnPoolSwap as u8 }>,
+    pub const_fn_pool_deposit: DeployedScriptHash<{ ProtocolValidator::ConstFnPoolDeposit as u8 }>,
+    pub const_fn_pool_redeem: DeployedScriptHash<{ ProtocolValidator::ConstFnPoolRedeem as u8 }>,
+    pub balance_fn_pool_v1: DeployedScriptHash<{ ProtocolValidator::BalanceFnPoolV1 as u8 }>,
+    pub balance_fn_pool_deposit: DeployedScriptHash<{ ProtocolValidator::BalanceFnPoolDeposit as u8 }>,
+    pub balance_fn_pool_redeem: DeployedScriptHash<{ ProtocolValidator::BalanceFnPoolRedeem as u8 }>,
+}
+
+impl From<&ProtocolDeployment> for ProtocolScriptHashes {
+    fn from(deployment: &ProtocolDeployment) -> Self {
+        Self {
+            limit_order_witness: From::from(&deployment.limit_order_witness),
+            limit_order: From::from(&deployment.limit_order),
+            const_fn_pool_v1: From::from(&deployment.const_fn_pool_v1),
+            const_fn_pool_v2: From::from(&deployment.const_fn_pool_v2),
+            const_fn_pool_fee_switch: From::from(&deployment.const_fn_pool_fee_switch),
+            const_fn_pool_fee_switch_bidir_fee: From::from(&deployment.const_fn_pool_fee_switch_bidir_fee),
+            const_fn_pool_swap: From::from(&deployment.const_fn_pool_swap),
+            const_fn_pool_deposit: From::from(&deployment.const_fn_pool_deposit),
+            const_fn_pool_redeem: From::from(&deployment.const_fn_pool_redeem),
+            balance_fn_pool_v1: From::from(&deployment.balance_fn_pool_v1),
+            balance_fn_pool_deposit: From::from(&deployment.balance_fn_pool_deposit),
+            balance_fn_pool_redeem: From::from(&deployment.balance_fn_pool_redeem),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct ProtocolDeployment {
-    pub limit_order_witness: DeployedValidator<{ ProtocolValidator::LimitOrderWitness as u8 }>,
-    pub limit_order: DeployedValidator<{ ProtocolValidator::LimitOrder as u8 }>,
+    pub limit_order_witness: DeployedValidator<{ ProtocolValidator::LimitOrderWitnessV1 as u8 }>,
+    pub limit_order: DeployedValidator<{ ProtocolValidator::LimitOrderV1 as u8 }>,
     pub const_fn_pool_v1: DeployedValidator<{ ProtocolValidator::ConstFnPoolV1 as u8 }>,
     pub const_fn_pool_v2: DeployedValidator<{ ProtocolValidator::ConstFnPoolV2 as u8 }>,
     pub const_fn_pool_fee_switch: DeployedValidator<{ ProtocolValidator::ConstFnPoolFeeSwitch as u8 }>,
@@ -173,6 +281,9 @@ pub struct ProtocolDeployment {
     pub const_fn_pool_swap: DeployedValidator<{ ProtocolValidator::ConstFnPoolSwap as u8 }>,
     pub const_fn_pool_deposit: DeployedValidator<{ ProtocolValidator::ConstFnPoolDeposit as u8 }>,
     pub const_fn_pool_redeem: DeployedValidator<{ ProtocolValidator::ConstFnPoolRedeem as u8 }>,
+    pub balance_fn_pool_v1: DeployedValidator<{ ProtocolValidator::BalanceFnPoolV1 as u8 }>,
+    pub balance_fn_pool_deposit: DeployedValidator<{ ProtocolValidator::BalanceFnPoolDeposit as u8 }>,
+    pub balance_fn_pool_redeem: DeployedValidator<{ ProtocolValidator::BalanceFnPoolRedeem as u8 }>,
 }
 
 impl ProtocolDeployment {
@@ -202,6 +313,18 @@ impl ProtocolDeployment {
             .await,
             const_fn_pool_redeem: DeployedValidator::unsafe_pull(validators.const_fn_pool_redeem, &explorer)
                 .await,
+            balance_fn_pool_v1: DeployedValidator::unsafe_pull(validators.balance_fn_pool_v1, &explorer)
+                .await,
+            balance_fn_pool_deposit: DeployedValidator::unsafe_pull(
+                validators.balance_fn_pool_deposit,
+                &explorer,
+            )
+            .await,
+            balance_fn_pool_redeem: DeployedValidator::unsafe_pull(
+                validators.balance_fn_pool_redeem,
+                &explorer,
+            )
+            .await,
         }
     }
 }

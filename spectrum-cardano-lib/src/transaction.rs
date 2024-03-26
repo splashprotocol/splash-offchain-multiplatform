@@ -22,6 +22,7 @@ pub trait TransactionOutputExtension {
     fn into_datum(self) -> Option<DatumOption>;
     fn script_hash(&self) -> Option<ScriptHash>;
     fn update_payment_cred(&mut self, cred: StakeCredential);
+    fn update_address(&mut self, addr: Address);
     fn update_value(&mut self, value: Value);
     fn script_ref(&self) -> Option<&BabbageScriptRef>;
     fn sub_asset(&mut self, asset: AssetClass, amount: u64) {
@@ -118,6 +119,12 @@ impl TransactionOutputExtension for BabbageTransactionOutput {
             Self::BabbageFormatTxOut(tx_out) => tx_out.address.update_payment_cred(cred),
         }
     }
+    fn update_address(&mut self, addr: Address) {
+        match self {
+            BabbageTransactionOutput::AlonzoFormatTxOut(tx_out) => tx_out.address = addr,
+            BabbageTransactionOutput::BabbageFormatTxOut(tx_out) => tx_out.address = addr,
+        }
+    }
     fn update_value(&mut self, value: Value) {
         match self {
             Self::AlonzoFormatTxOut(ref mut out) => {
@@ -196,6 +203,12 @@ impl TransactionOutputExtension for TransactionOutput {
         match self {
             Self::AlonzoFormatTxOut(tx_out) => tx_out.address.update_payment_cred(cred),
             Self::ConwayFormatTxOut(tx_out) => tx_out.address.update_payment_cred(cred),
+        }
+    }
+    fn update_address(&mut self, addr: Address) {
+        match self {
+            Self::AlonzoFormatTxOut(tx_out) => tx_out.address = addr,
+            Self::ConwayFormatTxOut(tx_out) => tx_out.address = addr,
         }
     }
     fn update_value(&mut self, value: Value) {

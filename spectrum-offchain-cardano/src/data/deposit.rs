@@ -2,9 +2,7 @@ use cml_chain::plutus::PlutusData;
 use cml_crypto::Ed25519KeyHash;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
-use spectrum_cardano_lib::plutus_data::{
-    ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension,
-};
+use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
@@ -13,13 +11,14 @@ use spectrum_offchain::data::order::UniqueOrder;
 use spectrum_offchain::data::Has;
 use spectrum_offchain::ledger::TryFromLedger;
 
-use crate::constants::DEPOSIT_SCRIPT_V2;
 use crate::data::order::{ClassicalOrder, PoolNft};
 use crate::data::pool::CFMMPoolAction::Deposit as DepositAction;
 use crate::data::pool::{CFMMPoolAction, Lq, Rx, Ry};
 use crate::data::{OnChainOrderId, PoolId};
 use crate::deployment::ProtocolValidator::ConstFnPoolDeposit;
-use crate::deployment::{DeployedValidator, DeployedValidatorErased, RequiresValidator};
+use crate::deployment::{
+    test_address, DeployedScriptHash, DeployedValidator, DeployedValidatorErased, RequiresValidator,
+};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Deposit {
@@ -59,33 +58,36 @@ impl UniqueOrder for ClassicalOnChainDeposit {
     }
 }
 
-impl TryFromLedger<BabbageTransactionOutput, OutputRef> for ClassicalOnChainDeposit {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
-        if repr.address().to_bech32(None).unwrap() != DEPOSIT_SCRIPT_V2 {
-            return None;
-        }
-        let value = repr.value().clone();
-        let conf = OnChainDepositConfig::try_from_pd(repr.clone().into_datum()?.into_pd()?)?;
-        let token_x_amount = TaggedAmount::new(value.amount_of(conf.token_x.untag()).unwrap_or(0));
-        let token_y_amount = TaggedAmount::new(value.amount_of(conf.token_y.untag()).unwrap_or(0));
-        let deposit = Deposit {
-            pool_nft: PoolId::try_from(conf.pool_nft).ok()?,
-            token_x: conf.token_x,
-            token_x_amount,
-            token_y: conf.token_y,
-            token_y_amount,
-            token_lq: conf.token_lq,
-            ex_fee: conf.ex_fee,
-            reward_pkh: conf.reward_pkh,
-            reward_stake_pkh: conf.reward_stake_pkh,
-            collateral_ada: conf.collateral_ada,
-        };
+impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for ClassicalOnChainDeposit
+where
+    Ctx: Has<OutputRef> + Has<DeployedScriptHash<{ ConstFnPoolDeposit as u8 }>>,
+{
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
+        if test_address(repr.address(), ctx) {
+            let value = repr.value().clone();
+            let conf = OnChainDepositConfig::try_from_pd(repr.clone().into_datum()?.into_pd()?)?;
+            let token_x_amount = TaggedAmount::new(value.amount_of(conf.token_x.untag()).unwrap_or(0));
+            let token_y_amount = TaggedAmount::new(value.amount_of(conf.token_y.untag()).unwrap_or(0));
+            let deposit = Deposit {
+                pool_nft: PoolId::try_from(conf.pool_nft).ok()?,
+                token_x: conf.token_x,
+                token_x_amount,
+                token_y: conf.token_y,
+                token_y_amount,
+                token_lq: conf.token_lq,
+                ex_fee: conf.ex_fee,
+                reward_pkh: conf.reward_pkh,
+                reward_stake_pkh: conf.reward_stake_pkh,
+                collateral_ada: conf.collateral_ada,
+            };
 
-        Some(ClassicalOrder {
-            id: OnChainOrderId::from(ctx),
-            pool_id: PoolId::try_from(conf.pool_nft).ok()?,
-            order: deposit,
-        })
+            return Some(ClassicalOrder {
+                id: OnChainOrderId::from(ctx.select::<OutputRef>()),
+                pool_id: PoolId::try_from(conf.pool_nft).ok()?,
+                order: deposit,
+            });
+        }
+        None
     }
 }
 

@@ -17,7 +17,7 @@ use crate::box_resolver::persistence::EntityRepo;
 use crate::box_resolver::resolve_entity_state;
 use crate::data::order::SpecializedOrder;
 use crate::data::unique_entity::{Predicted, Traced};
-use crate::data::{Baked, EntitySnapshot};
+use crate::data::EntitySnapshot;
 use crate::executor::TxSubmissionError::{OrderUtxoIsSpent, PoolUtxoIsSpent, UnknownError};
 use crate::network::Network;
 use crate::tx_prover::TxProver;
@@ -137,7 +137,7 @@ fn process_tx_rejected_error<'a, Err: Display, PoolVersion: Display, OrderVersio
     let parsed_errors = patterns
         .iter()
         .flat_map(|(tx_pattern, error)| {
-            if (parsed_error.contains(tx_pattern)) {
+            if parsed_error.contains(tx_pattern) {
                 Some(error.clone())
             } else {
                 None

@@ -38,12 +38,11 @@ impl TryFromPData for FeeSwitchPoolConfig {
 }
 
 mod tests {
-    use cml_chain::plutus::PlutusData;
-    use cml_core::serialization::Deserialize;
-
-    use spectrum_cardano_lib::types::TryFromPData;
 
     use crate::data::fee_switch_pool::FeeSwitchPoolConfig;
+    use cml_chain::plutus::PlutusData;
+    use cml_chain::Deserialize;
+    use spectrum_cardano_lib::types::TryFromPData;
 
     const DATUM_SAMPLE: &str =
         "d8799fd8799f581c6aaa652b39f5723afc85bba38401a4cbfd5b2f7aa3771504257ac8a74d74657374425f4144415f4e4654ffd8799f4040ffd8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737442ffd8799f581c635f44ae5df86be9e80fd0c57a5ec699a146d9d9034516ffd72febef4c74657374425f4144415f4c51ff19270b010000801b00000002540be400581c2618e94cdb06792f05ae9b1ec78b0231f4b7f4215b1b4cf52e6342deff";

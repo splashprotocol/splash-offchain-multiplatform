@@ -13,10 +13,17 @@ use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
 use spectrum_offchain_cardano::data::pair::PairId;
+use spectrum_offchain_cardano::data::pool::AnyPool;
+use spectrum_offchain_cardano::deployment::DeployedScriptHash;
+use spectrum_offchain_cardano::deployment::ProtocolValidator::{
+    BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,
+    ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2, LimitOrderV1,
+};
+use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
 use crate::orders::AnyOrder;
-use crate::pools::AnyPool;
 
+pub mod context;
 pub mod entity_index;
 pub mod handler;
 pub mod order_index;
@@ -40,14 +47,19 @@ impl SpecializedOrder for AtomicCardanoEntity {
 
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for AtomicCardanoEntity
 where
-    C: Copy + Has<OperatorCred> + Has<OutputRef>,
+    C: Copy
+        + Has<OperatorCred>
+        + Has<OutputRef>
+        + Has<DeployedScriptHash<{ ConstFnPoolSwap as u8 }>>
+        + Has<DeployedScriptHash<{ ConstFnPoolDeposit as u8 }>>
+        + Has<DeployedScriptHash<{ ConstFnPoolRedeem as u8 }>>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         trace!(target: "offchain", "AtomicCardanoEntity::try_from_ledger");
         ClassicalAMMOrder::try_from_ledger(repr, ctx).map(|inner| {
             Self(Bundled(
                 inner,
-                FinalizedTxOut::new(repr.clone(), ctx.get_labeled::<OutputRef>()),
+                FinalizedTxOut::new(repr.clone(), ctx.select::<OutputRef>()),
             ))
         })
     }
@@ -85,15 +97,24 @@ impl Tradable for EvolvingCardanoEntity {
 
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for EvolvingCardanoEntity
 where
-    C: Copy + Has<OperatorCred> + Has<OutputRef>,
+    C: Copy
+        + Has<OperatorCred>
+        + Has<OutputRef>
+        + Has<ConsumedInputs>
+        + Has<DeployedScriptHash<{ ConstFnPoolV1 as u8 }>>
+        + Has<DeployedScriptHash<{ ConstFnPoolV2 as u8 }>>
+        + Has<DeployedScriptHash<{ ConstFnPoolFeeSwitch as u8 }>>
+        + Has<DeployedScriptHash<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+        + Has<DeployedScriptHash<{ BalanceFnPoolV1 as u8 }>>
+        + Has<DeployedScriptHash<{ LimitOrderV1 as u8 }>>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         trace!(target: "offchain", "CardanoEntity::try_from_ledger");
         <Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>>::try_from_ledger(repr, ctx).map(
             |inner| {
                 Self(Bundled(
                     inner,
-                    FinalizedTxOut::new(repr.clone(), ctx.get_labeled::<OutputRef>()),
+                    FinalizedTxOut::new(repr.clone(), ctx.select::<OutputRef>()),
                 ))
             },
         )

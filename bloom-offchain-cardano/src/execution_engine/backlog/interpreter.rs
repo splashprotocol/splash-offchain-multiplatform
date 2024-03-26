@@ -1,6 +1,5 @@
 use std::fmt::Display;
 
-
 use log::info;
 
 use bloom_offchain::execution_engine::backlog::SpecializedInterpreter;

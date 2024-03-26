@@ -9,14 +9,17 @@ use spectrum_cardano_lib::NetworkTime;
 use spectrum_offchain::data::Has;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::creds::OperatorCred;
+use spectrum_offchain_cardano::deployment::DeployedScriptHash;
+use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
+use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
-use crate::orders::spot::SpotOrder;
+use crate::orders::spot::LimitOrder;
 
 pub mod spot;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Fragment, Stable, Tradable)]
 pub enum AnyOrder {
-    Spot(SpotOrder),
+    Spot(LimitOrder),
 }
 
 impl OrderState for AnyOrder {
@@ -41,10 +44,10 @@ impl OrderState for AnyOrder {
 
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for AnyOrder
 where
-    C: Has<OperatorCred>,
+    C: Has<OperatorCred> + Has<ConsumedInputs> + Has<DeployedScriptHash<{ LimitOrderV1 as u8 }>>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: C) -> Option<Self> {
-        SpotOrder::try_from_ledger(repr, ctx).map(|s| {
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+        LimitOrder::try_from_ledger(repr, ctx).map(|s| {
             trace!(target: "offchain", "AnyOrder::try_from_ledger: Got SPOT");
             AnyOrder::Spot(s)
         })
