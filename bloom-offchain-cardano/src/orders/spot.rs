@@ -1,12 +1,8 @@
-use cml_chain::address::Address;
 use std::cmp::Ordering;
 
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
-use cml_chain::certs::Credential;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
-use cml_chain::utils::BigInteger;
 use cml_chain::PolicyId;
-use cml_core::serialization::{LenEncoding, Serialize, StringEncoding, ToBytes};
 use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::{info, trace};
@@ -262,7 +258,7 @@ impl TryFromPData for Datum {
 fn beacon_from_oref(oref: OutputRef) -> PolicyId {
     let mut bf = vec![];
     bf.append(&mut oref.tx_hash().to_raw_bytes().to_vec());
-    bf.append(&mut oref.index().to_bytes());
+    bf.append(&mut oref.index().to_string().as_bytes().to_vec());
     blake2b224(&*bf).into()
 }
 
@@ -327,22 +323,31 @@ pub struct SpotOrderBatchValidatorRefScriptOutput(pub TransactionUnspentOutput);
 
 #[cfg(test)]
 mod tests {
-    use crate::orders::spot::LimitOrder;
+    use crate::orders::spot::{beacon_from_oref, LimitOrder};
     use cml_core::serialization::Deserialize;
-    use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, ScriptHash};
+    use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, ScriptHash, TransactionHash};
     use cml_multi_era::babbage::BabbageTransactionOutput;
+    use spectrum_cardano_lib::OutputRef;
     use spectrum_offchain::data::Has;
     use spectrum_offchain::ledger::TryFromLedger;
     use spectrum_offchain_cardano::creds::OperatorCred;
     use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
     use spectrum_offchain_cardano::deployment::{
-        DeployedScriptHash, DeployedValidators, ProtocolScriptHashes, ProtocolValidator,
+        DeployedScriptHash, DeployedValidators, ProtocolScriptHashes,
     };
+    use spectrum_offchain_cardano::utxo::ConsumedInputs;
     use type_equalities::IsEqual;
 
     struct Context {
         limit_order: DeployedScriptHash<{ LimitOrderV1 as u8 }>,
         cred: OperatorCred,
+        consumed_inputs: ConsumedInputs,
+    }
+
+    impl Has<ConsumedInputs> for Context {
+        fn select<U: IsEqual<ConsumedInputs>>(&self) -> ConsumedInputs {
+            self.consumed_inputs
+        }
     }
 
     impl Has<OperatorCred> for Context {
@@ -360,6 +365,18 @@ mod tests {
     }
 
     #[test]
+    fn beacon_derivation_eqv() {
+        let oref = OutputRef::new(TransactionHash::from_hex(TX).unwrap(), IX);
+        assert_eq!(
+            beacon_from_oref(oref).to_hex(),
+            "eb9575d907ac66f8f0c75c44ad51189a4b41756e8543cd59e331bc02"
+        )
+    }
+
+    const TX: &str = "6c038a69587061acd5611507e68b1fd3a7e7d189367b7853f3bb5079a118b880";
+    const IX: u64 = 1;
+
+    #[test]
     fn try_read() {
         let sh = ScriptHash::from_raw_bytes(&[
             43, 5, 173, 152, 64, 206, 96, 8, 59, 78, 87, 134, 150, 142, 30, 23, 248, 69, 158, 20, 157, 154,
@@ -373,6 +390,7 @@ mod tests {
         let ctx = Context {
             limit_order: scripts.limit_order,
             cred: OperatorCred(Ed25519KeyHash::from([0u8; 28])),
+            consumed_inputs: ConsumedInputs::new(vec![].into_iter()),
         };
         let bearer = BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(ORDER_UTXO).unwrap()).unwrap();
         LimitOrder::try_from_ledger(&bearer, &ctx).expect("LimitOrder expected");

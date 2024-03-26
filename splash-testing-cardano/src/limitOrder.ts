@@ -3,10 +3,12 @@ import { getLucid } from "./lucid.ts";
 import { asUnit } from "./types.ts";
 import { BuiltValidator } from "./types.ts";
 import { Asset, PubKeyHash, Rational} from "./types.ts";
-import { Address, Data, Datum, Lovelace, Lucid, TxComplete } from 'https://deno.land/x/lucid@0.10.7/mod.ts';
+import { Address, Data, Datum, Lovelace, Lucid, PolicyId, TxComplete, UTxO, applyDoubleCborEncoding, fromHex, toHex } from 'https://deno.land/x/lucid@0.10.7/mod.ts';
 import { setupWallet } from "./wallet.ts";
 import { getConfig } from "./config.ts";
 import { BuiltValidators } from "./types.ts";
+import { hash_blake2b224 } from "https://deno.land/x/lucid@0.10.7/src/core/libs/cardano_multiplatform_lib/cardano_multiplatform_lib.generated.js";
+import { decodeString } from "https://deno.land/std@0.100.0/encoding/hex.ts";
 
 export type LimitOrderConf = {
     input: Asset,
@@ -21,10 +23,10 @@ export type LimitOrderConf = {
     permittedExecutors: PubKeyHash[],
 }
 
-function buildLimitOrderDatum(lucid: Lucid, conf: LimitOrderConf): Datum {
+function buildLimitOrderDatum(lucid: Lucid, conf: LimitOrderConf, beacon: PolicyId): Datum {
     return Data.to({
         tag: "00",
-        beacon: "c74ecb78de2fb0e4ec31f1c556d22ec088f2ef411299a37d1ede3b33",
+        beacon: beacon,
         input: conf.input,
         tradableInput: conf.tradableInput,
         costPerExStep: conf.costPerExStep,
@@ -43,13 +45,22 @@ function buildLimitOrderDatum(lucid: Lucid, conf: LimitOrderConf): Datum {
     }, LimitOrderLimitOrder.conf)
 }
 
-function createLimitOrder(lucid: Lucid, validator: BuiltValidator, conf: LimitOrderConf): Promise<TxComplete> {
+function beaconFromInput(utxo: UTxO): PolicyId {
+    const txHash = fromHex(utxo.txHash);
+    const index = new TextEncoder().encode(utxo.outputIndex.toString())
+    return toHex(hash_blake2b224(new Uint8Array([...txHash, ...index])))
+}
+
+async function createLimitOrder(lucid: Lucid, validator: BuiltValidator, conf: LimitOrderConf): Promise<TxComplete> {
     const orderAddress = lucid.utils.credentialToAddress(
         { hash: validator.hash, type: 'Script' },
       );
+    const input = (await lucid.wallet.getUtxos())[0];
+    const beacon = beaconFromInput(input);
+    console.log("Beacon: " + beacon);
     const lovelaceTotal = conf.fee + conf.costPerExStep * 4n;
     const depositedValue = conf.input.policy == "" ? { lovelace: lovelaceTotal + conf.tradableInput } : { lovelace: lovelaceTotal, [asUnit(conf.input)]: conf.tradableInput};
-    const tx = lucid.newTx().payToContract(orderAddress, { inline: buildLimitOrderDatum(lucid, conf) }, depositedValue);
+    const tx = lucid.newTx().collectFrom([input]).payToContract(orderAddress, { inline: buildLimitOrderDatum(lucid, conf, beacon) }, depositedValue);
     return tx.complete();
 }
 
@@ -60,19 +71,19 @@ async function main() {
     const myAddr = await lucid.wallet.address();
     const tx = await createLimitOrder(lucid, conf.validators!.limitOrder, {
         input: {
-            policy: "",
-            name: "",
-        },
-        output: {
             policy: "fd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3a",
             name: "74657374746f6b656e",
         },
-        tradableInput: 300_000_000n,
-        minMarginalOutput: 100n,
+        output: {
+            policy: "",
+            name: "",
+        },
+        tradableInput: 100_000n,
+        minMarginalOutput: 1_000n,
         costPerExStep: 500_000n,
         basePrice: {
-            num: 1n,
-            denom: 1000n,
+            num: 1000n,
+            denom: 1n,
         },
         fee: 500_000n,
         redeemerAddr: myAddr,
