@@ -259,7 +259,9 @@ where
                     non_processed_outputs.push(o);
                 }
             }
-            ix += 1;
+            if let Some(next_ix) = ix.checked_sub(1) {
+                ix = next_ix;
+            }
         }
         // Preserve non-processed outputs in original ordering.
         tx.body.outputs = non_processed_outputs;
@@ -334,7 +336,9 @@ where
                 non_processed_outputs.push(o);
             }
         }
-        ix += 1;
+        if let Some(next_ix) = ix.checked_sub(1) {
+            ix = next_ix;
+        }
     }
     // Preserve non-processed outputs in original ordering.
     tx.body.outputs = non_processed_outputs;

@@ -1,6 +1,6 @@
 use std::collections::hash_map::Entry;
 use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
 use std::mem;
 
 use log::trace;
@@ -203,6 +203,16 @@ pub enum TLBState<Fr, Pl: Stable> {
     ///                |
     ///              Idle
     Preview(PreviewState<Fr, Pl>),
+}
+
+impl<Fr, Pl: Stable> Display for TLBState<Fr, Pl> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            TLBState::Idle(inner) => format!("TLBState::Idle(active: {} asks, {} bids)", inner.fragments.active.asks.len(), inner.fragments.active.bids.len()),
+            TLBState::PartialPreview(inner) => format!("TLBState::PartialPreview(active: {} asks, {} bids)", inner.fragments_preview.active.asks.len(), inner.fragments_preview.active.bids.len()),
+            TLBState::Preview(inner) => format!("TLBState::Preview(active: {} asks, {} bids)", inner.active_fragments_preview.asks.len(), inner.active_fragments_preview.bids.len()),
+        }.as_str())
+    }
 }
 
 impl<Fr, Pl: Stable> TLBState<Fr, Pl> {

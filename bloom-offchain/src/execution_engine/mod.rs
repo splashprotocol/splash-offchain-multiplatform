@@ -10,7 +10,7 @@ use futures::channel::mpsc;
 use futures::stream::FusedStream;
 use futures::Stream;
 use futures::{SinkExt, StreamExt};
-use log::trace;
+use log::{error, trace};
 
 use liquidity_book::interpreter::RecipeInterpreter;
 use spectrum_offchain::backlog::HotBacklog;
@@ -123,7 +123,7 @@ where
     SpecInterpreter: SpecializedInterpreter<Pool, SpecOrd, Ver, Txc, Bearer, Ctx> + Unpin + 'a,
     Prover: TxProver<Txc, Tx> + Unpin + 'a,
     Net: Network<Tx, Err> + Clone + 'a,
-    Err: Unpin + 'a,
+    Err: Unpin + Debug + 'a,
 {
     let (feedback_out, feedback_in) = mpsc::channel(100);
     let executor = Executor::new(
@@ -382,7 +382,7 @@ where
     RecIr: RecipeInterpreter<CO, P, C, Ver, B, Txc> + Unpin,
     SpecIr: SpecializedInterpreter<P, SO, Ver, Txc, B, C> + Unpin,
     Prov: TxProver<Txc, Tx> + Unpin,
-    Err: Unpin,
+    Err: Unpin + Debug,
 {
     type Item = Tx;
 
@@ -416,7 +416,8 @@ where
                                 )));
                             }
                         },
-                        Err(_err) => {
+                        Err(err) => {
+                            error!("TX failed {:?}", err);
                             // todo: invalidate missing bearers.
                             match pending_effects {
                                 PendingEffects::FromLiquidityBook(_) => {
@@ -506,7 +507,7 @@ where
     RecIr: RecipeInterpreter<CO, P, C, Ver, B, Txc> + Unpin,
     SpecIr: SpecializedInterpreter<P, SO, Ver, Txc, B, C> + Unpin,
     Prov: TxProver<Txc, Tx> + Unpin,
-    Err: Unpin,
+    Err: Unpin + Debug,
 {
     fn is_terminated(&self) -> bool {
         false

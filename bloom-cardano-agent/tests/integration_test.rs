@@ -15,6 +15,7 @@ use cml_chain::transaction::{
 };
 use cml_chain::{NetworkId, PolicyId, Script, Value};
 use cml_core::network::ProtocolMagic;
+use cml_core::serialization::Serialize;
 use cml_crypto::TransactionHash;
 use cml_multi_era::babbage::{BabbageTransaction, BabbageTransactionWitnessSet};
 use either::{Either, Left};
