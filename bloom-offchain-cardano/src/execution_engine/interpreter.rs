@@ -64,12 +64,14 @@ where
         >,
     ) {
         let state = ExecutionState::new();
+        // A: -100000000 ADA, +100000    TT
+        // B: -100000    TT , +100000000 ADA
         println!(
             "Recipe {:?}",
             instructions
                 .iter()
                 .map(|i| match i {
-                    LinkedTerminalInstruction::Fill(fill) => fill.target_fr.0,
+                    LinkedTerminalInstruction::Fill(fill) => format!("Fill(RemovedIn: {}, AddedOut {}, BudgetUsed: {}, FeeUsed: {})", fill.removed_input, fill.added_output, fill.budget_used, fill.fee_used),
                     LinkedTerminalInstruction::Swap(_) => panic!(),
                 })
                 .collect::<Vec<_>>()
@@ -77,7 +79,7 @@ where
         let (
             ExecutionState {
                 tx_blueprint,
-                execution_budget_acc: _,
+                execution_budget_acc,
             },
             effects,
             ctx,
@@ -106,27 +108,20 @@ where
             .add_collateral(ctx.select::<Collateral>().into())
             .unwrap();
 
-        // Set tx fee.
-        let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
-        trace!(target: "offchain", "estimated tx_fee: {}", estimated_tx_fee);
-        tx_builder.set_fee(estimated_tx_fee + TX_FEE_CORRECTION);
-
-        let execution_fee_address: Address = ctx.select::<OperatorRewardAddress>().into();
+        let execution_fee_address = ctx.select::<OperatorRewardAddress>().into();
         // Build tx, change is execution fee.
-        let tx_body = tx_builder
-            .clone()
+        let tx = tx_builder
             .build(ChangeSelectionAlgo::Default, &execution_fee_address)
-            .unwrap()
-            .body();
-
-        let tx_hash = hash_transaction_canonical(&tx_body);
+            .unwrap();
+        let tx_body_cloned = tx.body();
+        let tx_hash = hash_transaction_canonical(&tx_body_cloned);
 
         // Map finalized outputs to states of corresponding domain entities.
         let mut finalized_effects = vec![];
         for eff in effects {
             finalized_effects.push(eff.bimap(
                 |u| {
-                    let output_ix = tx_body
+                    let output_ix = tx_body_cloned
                         .outputs
                         .iter()
                         .position(|out| out == &u.1)
@@ -143,11 +138,6 @@ where
                 },
             ))
         }
-
-        // Build tx, change is execution fee.
-        let tx = tx_builder
-            .build(ChangeSelectionAlgo::Default, &execution_fee_address)
-            .unwrap();
         (tx, finalized_effects)
     }
 }

@@ -4,7 +4,7 @@ use void::Void;
 use bloom_offchain::execution_engine::batch_exec::BatchExec;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_effect::ExecutionEff;
-use bloom_offchain::execution_engine::liquidity_book::fragment::StateTrans;
+use bloom_offchain::execution_engine::liquidity_book::fragment::{Fragment, StateTrans};
 use bloom_offchain::execution_engine::liquidity_book::recipe::{LinkedFill, LinkedSwap};
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::NetworkId;
@@ -102,8 +102,12 @@ where
             redeemer: ready_redeemer(spot::EXEC_REDEEMER),
         };
         let mut candidate = consumed_out.clone();
+        println!("---");
+        println!("Executing order: Side: {}, InputAsset: {}, OutputAsset: {}", ord.side(), ord.input_asset, ord.output_asset);
+        println!("Recipe: RemoveInput: {}, AddOutput: {}", removed_input, added_output);
         // Subtract budget + fee used to facilitate execution.
         candidate.sub_asset(ord.fee_asset, budget_used + fee_used);
+        println!("^ ex budget removed");
         // Subtract tradable input used in exchange.
         candidate.sub_asset(ord.input_asset, removed_input);
         // Add output resulted from exchange.
