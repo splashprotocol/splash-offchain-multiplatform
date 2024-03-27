@@ -193,6 +193,12 @@ pub struct DeployedValidatorErased {
     pub ex_budget: ExBudget,
 }
 
+#[derive(Debug, Clone)]
+pub struct ScriptWitness {
+    pub hash: ScriptHash,
+    pub ex_budget: ExBudget,
+}
+
 impl<const TYP: u8> DeployedValidator<TYP> {
     async fn unsafe_pull<'a>(v: DeployedValidatorRef, explorer: &Explorer<'a>) -> Self {
         let mut ref_output = explorer

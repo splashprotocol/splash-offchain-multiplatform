@@ -1,17 +1,17 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
-use cml_chain::builders::tx_builder::TransactionBuilder;
+use cml_chain::builders::tx_builder::{TransactionBuilder, TransactionUnspentOutput};
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
 use cml_chain::plutus::{PlutusData, RedeemerTag};
-use cml_chain::transaction::TransactionOutput;
+use cml_chain::transaction::{TransactionInput, TransactionOutput};
 use cml_chain::Value;
 
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{AssetClass, OutputRef};
-use spectrum_offchain_cardano::deployment::DeployedValidatorErased;
+use spectrum_offchain_cardano::deployment::{DeployedValidatorErased, ScriptWitness};
 
 pub struct TxInputsOrdering(HashMap<OutputRef, usize>);
 
@@ -41,7 +41,7 @@ impl DelayedRedeemer {
 pub struct ScriptInputBlueprint {
     pub reference: OutputRef,
     pub utxo: TransactionOutput,
-    pub script: DeployedValidatorErased,
+    pub script: ScriptWitness,
     pub redeemer: DelayedRedeemer,
 }
 
@@ -58,17 +58,23 @@ pub fn delayed_redeemer(f: impl FnOnce(&TxInputsOrdering) -> PlutusData + 'stati
 /// that executes a batch of DEX operations.
 pub struct TxBlueprint {
     pub script_io: Vec<(ScriptInputBlueprint, TransactionOutput)>,
+    pub reference_inputs: HashSet<(TransactionInput, TransactionOutput)>,
 }
 
 impl TxBlueprint {
     pub fn new() -> Self {
         Self {
             script_io: Vec::new(),
+            reference_inputs: HashSet::new(),
         }
     }
 
     pub fn add_io(&mut self, input: ScriptInputBlueprint, output: TransactionOutput) {
         self.script_io.push((input, output));
+    }
+    
+    pub fn add_ref_input(&mut self, utxo: TransactionUnspentOutput) {
+        self.reference_inputs.insert((utxo.input, utxo.output));
     }
 
     pub fn apply_to_builder(self, mut txb: TransactionBuilder) -> TransactionBuilder {
@@ -78,6 +84,9 @@ impl TxBlueprint {
         let inputs_ordering = TxInputsOrdering(HashMap::from_iter(
             enumerated_io.iter().map(|(ix, (i, _))| (i.reference, *ix)),
         ));
+        for (ref_in, ref_utxo) in self.reference_inputs {
+            txb.add_reference_input(TransactionUnspentOutput::new(ref_in, ref_utxo));
+        }
         for (
             ix,
             (
@@ -99,7 +108,6 @@ impl TxBlueprint {
                 .plutus_script_inline_datum(cml_script, Vec::new())
                 .unwrap();
             let output = SingleOutputBuilderResult::new(output);
-            txb.add_reference_input(script.reference_utxo);
             txb.add_input(input).expect("add_input ok");
             println!("Added input {}", reference);
             txb.add_output(output).expect("add_output ok");

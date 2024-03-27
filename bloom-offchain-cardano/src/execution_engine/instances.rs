@@ -17,7 +17,7 @@ use spectrum_offchain_cardano::data::pool::{AnyPool, AssetDeltas, CFMMPoolAction
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolV1, ConstFnPoolV1, ConstFnPoolV2, LimitOrderV1,
 };
-use spectrum_offchain_cardano::deployment::{DeployedValidator, RequiresValidator};
+use spectrum_offchain_cardano::deployment::{DeployedValidator, DeployedValidatorErased, RequiresValidator, ScriptWitness};
 
 use crate::execution_engine::execution_state::{
     delayed_redeemer, ready_redeemer, ExecutionState, ScriptInputBlueprint,
@@ -90,12 +90,15 @@ where
             budget_used,
             fee_used,
         }) = self;
+        let DeployedValidatorErased { reference_utxo, hash, ex_budget } = context
+            .select::<DeployedValidator<{ LimitOrderV1 as u8 }>>()
+            .erased();
         let input = ScriptInputBlueprint {
             reference: in_ref,
             utxo: consumed_out.clone(),
-            script: context
-                .select::<DeployedValidator<{ LimitOrderV1 as u8 }>>()
-                .erased(),
+            script: ScriptWitness {
+                hash, ex_budget,
+            },
             redeemer: ready_redeemer(spot::EXEC_REDEEMER),
         };
         let mut candidate = consumed_out.clone();
@@ -124,6 +127,7 @@ where
             }
         };
         state.tx_blueprint.add_io(input, residual_order);
+        state.tx_blueprint.add_ref_input(reference_utxo);
         state.add_ex_budget(ord.fee_asset, budget_used);
         Ok((state, effect, context))
     }
@@ -204,11 +208,14 @@ where
         produced_out.sub_asset(asset_to_deduct_from, output);
         produced_out.add_asset(asset_to_add_to, input);
 
-        let pool_validator = pool.get_validator(&context);
+        let DeployedValidatorErased { reference_utxo, hash, ex_budget } = pool.get_validator(&context);
         let input = ScriptInputBlueprint {
             reference: in_ref,
             utxo: consumed_out,
-            script: pool_validator,
+            script: ScriptWitness {
+                hash,
+                ex_budget,
+            },
             redeemer: delayed_redeemer(move |ordering| {
                 CFMMPoolRedeemer {
                     pool_input_index: ordering.index_of(&in_ref) as u64,
@@ -220,6 +227,7 @@ where
         let result = Bundled(transition, produced_out.clone());
 
         state.tx_blueprint.add_io(input, produced_out);
+        state.tx_blueprint.add_ref_input(reference_utxo);
         Ok((state, result, context))
     }
 }
@@ -249,11 +257,11 @@ where
         produced_out.sub_asset(asset_to_deduct_from, output);
         produced_out.add_asset(asset_to_add_to, input);
 
-        let pool_validator = pool.get_validator(&context);
+        let DeployedValidatorErased { reference_utxo, hash, ex_budget } = pool.get_validator(&context);
         let input = ScriptInputBlueprint {
             reference: in_ref,
             utxo: consumed_out,
-            script: pool_validator,
+            script: ScriptWitness { hash, ex_budget },
             redeemer: delayed_redeemer(move |ordering| {
                 BalancePoolRedeemer {
                     pool_input_index: ordering.index_of(&in_ref) as u64,
@@ -267,6 +275,7 @@ where
         let result = Bundled(transition, produced_out.clone());
 
         state.tx_blueprint.add_io(input, produced_out);
+        state.tx_blueprint.add_ref_input(reference_utxo);
         Ok((state, result, context))
     }
 }

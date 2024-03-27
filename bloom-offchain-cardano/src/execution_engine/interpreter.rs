@@ -3,6 +3,7 @@ use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
 use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder};
 use cml_chain::builders::withdrawal_builder::SingleWithdrawalBuilder;
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
+use cml_chain::certs::Credential;
 use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::TransactionOutput;
 use either::Either;
@@ -23,7 +24,7 @@ use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
-use spectrum_cardano_lib::OutputRef;
+use spectrum_cardano_lib::{NetworkId, OutputRef};
 use spectrum_offchain::data::{Baked, Has};
 use spectrum_offchain_cardano::creds::OperatorRewardAddress;
 use spectrum_offchain_cardano::deployment::DeployedValidator;
@@ -45,6 +46,7 @@ where
     Magnet<LinkedSwap<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, PoolResult<Pl>, Ctx, Void>,
     Ctx: Clone
         + Has<Collateral>
+        + Has<NetworkId>
         + Has<OperatorRewardAddress>
         + Has<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>,
 {
@@ -82,24 +84,23 @@ where
         ) = execute(ctx, state, Vec::new(), instructions);
         let mut tx_builder = tx_blueprint.apply_to_builder(constant_tx_builder());
 
-        // Set batch validator
-        let addr = ctx.select::<OperatorRewardAddress>();
+        let order_witness_validator = ctx.select::<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>();
         let reward_address = cml_chain::address::RewardAddress::new(
-            addr.0.network_id().unwrap(),
-            addr.0.payment_cred().unwrap().clone(),
+            ctx.select::<NetworkId>().into(),
+            Credential::new_script(order_witness_validator.hash),
         );
-        let order_witness = ctx.select::<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>();
         let partial_witness = PartialPlutusWitness::new(
-            PlutusScriptWitness::Ref(order_witness.reference_utxo.output.script_hash().unwrap()),
-            PlutusData::new_list(vec![]), // dummy value (this validator doesn't require redeemer)
+            PlutusScriptWitness::Ref(order_witness_validator.hash),
+            PlutusData::new_list(vec![]),
         );
         let withdrawal_result = SingleWithdrawalBuilder::new(reward_address, 0)
             .plutus_script(partial_witness, vec![])
             .unwrap();
+        tx_builder.add_reference_input(order_witness_validator.reference_utxo);
         tx_builder.add_withdrawal(withdrawal_result);
         tx_builder.set_exunits(
             RedeemerWitnessKey::new(RedeemerTag::Reward, 0),
-            order_witness.ex_budget.into(),
+            order_witness_validator.ex_budget.into(),
         );
         tx_builder
             .add_collateral(ctx.select::<Collateral>().into())
