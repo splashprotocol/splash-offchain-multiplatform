@@ -72,7 +72,7 @@ impl TxBlueprint {
     pub fn add_io(&mut self, input: ScriptInputBlueprint, output: TransactionOutput) {
         self.script_io.push((input, output));
     }
-    
+
     pub fn add_ref_input(&mut self, utxo: TransactionUnspentOutput) {
         self.reference_inputs.insert((utxo.input, utxo.output));
     }
@@ -109,9 +109,7 @@ impl TxBlueprint {
                 .unwrap();
             let output = SingleOutputBuilderResult::new(output);
             txb.add_input(input).expect("add_input ok");
-            println!("Added input {}", reference);
             txb.add_output(output).expect("add_output ok");
-            println!("Adding ex_units at index {}", ix);
             txb.set_exunits(
                 RedeemerWitnessKey::new(RedeemerTag::Spend, ix as u64),
                 script.ex_budget.into(),

@@ -98,3 +98,21 @@ impl AddressExtension for Address {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use crate::address::PlutusAddress;
+    use crate::types::TryFromPData;
+    use cml_chain::plutus::PlutusData;
+    use cml_core::serialization::Deserialize;
+
+    const RAW_ADDR: &str = "D8799FD8799F581C4BE4FA25F029D14C0D723AF4A1E6FA7133FC3A610F880336AD685CBAFFD8799FD8799FD8799F581C5BDA73043D43AD8DF5CE75639CF48E1F2B4545403BE92F0113E37537FFFFFFFF";
+
+    #[test]
+    fn decode_address() {
+        let addr: PlutusAddress =
+            TryFromPData::try_from_pd(PlutusData::from_cbor_bytes(&*hex::decode(RAW_ADDR).unwrap()).unwrap())
+                .unwrap();
+        dbg!(addr);
+    }
+}

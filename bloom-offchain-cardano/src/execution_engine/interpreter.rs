@@ -1,4 +1,3 @@
-use cml_chain::address::Address;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
 use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder};
 use cml_chain::builders::withdrawal_builder::SingleWithdrawalBuilder;
@@ -7,7 +6,6 @@ use cml_chain::certs::Credential;
 use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::TransactionOutput;
 use either::Either;
-use log::trace;
 use tailcall::tailcall;
 use void::Void;
 
@@ -23,7 +21,6 @@ use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::protocol_params::constant_tx_builder;
-use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::{NetworkId, OutputRef};
 use spectrum_offchain::data::{Baked, Has};
 use spectrum_offchain_cardano::creds::OperatorRewardAddress;
@@ -64,18 +61,6 @@ where
         >,
     ) {
         let state = ExecutionState::new();
-        // A: -100000000 ADA, +100000    TT
-        // B: -100000    TT , +100000000 ADA
-        println!(
-            "Recipe {:?}",
-            instructions
-                .iter()
-                .map(|i| match i {
-                    LinkedTerminalInstruction::Fill(fill) => format!("Fill(RemovedIn: {}, AddedOut {}, BudgetUsed: {}, FeeUsed: {})", fill.removed_input, fill.added_output, fill.budget_used, fill.fee_used),
-                    LinkedTerminalInstruction::Swap(_) => panic!(),
-                })
-                .collect::<Vec<_>>()
-        );
         let (
             ExecutionState {
                 tx_blueprint,
@@ -125,7 +110,7 @@ where
                         .outputs
                         .iter()
                         .position(|out| out == &u.1)
-                        .expect("Tx.output must be coherent with effects!");
+                        .expect("Tx.outputs must be coherent with effects!");
                     let out_ref = OutputRef::new(tx_hash, output_ix as u64);
                     u.map(|inner| {
                         inner.map_either(|lh| Baked::new(lh, out_ref), |rh| Baked::new(rh, out_ref))

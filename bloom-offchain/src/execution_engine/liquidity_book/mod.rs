@@ -12,8 +12,8 @@ use crate::execution_engine::liquidity_book::pool::Pool;
 use crate::execution_engine::liquidity_book::recipe::{
     Fill, IntermediateRecipe, PartialFill, Swap, TerminalInstruction,
 };
-use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::side::Side::{Ask, Bid};
+use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::state::{IdleState, TLBState, VersionedState};
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, ExCostUnits};
 use crate::execution_engine::liquidity_book::weight::Weighted;
@@ -362,10 +362,10 @@ where
 }
 
 fn linear_output(input: u64, price: Side<AbsolutePrice>) -> u64 {
-   match price {
-       Bid(price) => (input as u128 * price.denom() / price.numer()) as u64,
-       Ask(price) => (input as u128 * price.numer() / price.denom()) as u64,
-   }
+    match price {
+        Bid(price) => (input as u128 * price.denom() / price.numer()) as u64,
+        Ask(price) => (input as u128 * price.numer() / price.denom()) as u64,
+    }
 }
 
 struct FillFromPool<Fr, Pl> {
