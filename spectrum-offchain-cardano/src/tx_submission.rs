@@ -4,6 +4,7 @@ use async_stream::stream;
 use cml_core::serialization::Serialize;
 use futures::channel::{mpsc, oneshot};
 use futures::{SinkExt, Stream, StreamExt};
+use log::trace;
 use pallas_network::miniprotocols::localtxsubmission;
 
 use cardano_submit_api::client::{Error, LocalTxSubmissionClient};
@@ -61,6 +62,7 @@ where
     stream! {
         loop {
             let SubmitTx(tx, on_resp) = agent.mailbox.select_next_some().await;
+            trace!("Submitting TX: {}", hex::encode(tx.to_cbor_bytes()));
             match agent.client.submit_tx(tx).await {
                 Ok(_) => on_resp.send(SubmissionResult::Ok).expect("Responder was dropped"),
                 Err(Error::TxSubmissionProtocol(err)) => {

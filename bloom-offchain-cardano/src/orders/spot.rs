@@ -32,7 +32,7 @@ use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptHash};
 use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
 pub const EXEC_REDEEMER: PlutusData = PlutusData::ConstrPlutusData(ConstrPlutusData {
-    alternative: 0,
+    alternative: 1,
     fields: vec![],
     encodings: None,
 });

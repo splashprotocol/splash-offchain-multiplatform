@@ -180,7 +180,7 @@ impl AssetClass {
         }
     }
 
-    pub fn value_of(self, amount: u64) -> Value {
+    pub fn into_value(self, amount: u64) -> Value {
         let mut value = Value::zero();
         match self {
             AssetClass::Native => value.coin += amount,
@@ -198,7 +198,7 @@ impl Display for AssetClass {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             AssetClass::Native => f.write_str("Native"),
-            AssetClass::Token(tkn) => tkn.fmt(f),
+            AssetClass::Token((pol, tn)) => f.write_str(format!("{}:{}", pol, tn).as_str()),
         }
     }
 }

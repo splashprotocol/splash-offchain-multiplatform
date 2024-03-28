@@ -41,7 +41,10 @@ export class Deployment {
       slot: 0,
     });
     const lockScript = this.lucid.utils.validatorToAddress(ns);
-
+    const witnessRewardAddress = this.lucid.utils.credentialToRewardAddress({
+      type: "Script",
+      hash: builtValidators.limitOrderWitness.hash
+    });
     const tx = await this.lucid
       .newTx()
       .payToAddressWithData(
@@ -54,6 +57,7 @@ export class Deployment {
         { scriptRef: builtValidators.limitOrderWitness.script },
         {},
       )
+      .registerStake(witnessRewardAddress)
       .complete();
 
     return tx;
