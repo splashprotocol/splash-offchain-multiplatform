@@ -53,11 +53,13 @@ const plutusVersion = `Plutus${
 
 const { definitions } = plutusJson;
 
+const denoVersion = "0.10.7"
+
 const imports = `// deno-lint-ignore-file
 import { applyParamsToScript, Data, Validator } from "${
   flags.npm
     ? 'lucid-cardano'
-    : `https://deno.land/x/lucid@${packageJson.version}/mod.ts`
+    : `https://deno.land/x/lucid@${denoVersion}/mod.ts`
 }"`;
 
 const validators = plutusJson.validators.map((validator) => {

@@ -13,6 +13,7 @@ use crate::execution_engine::liquidity_book::recipe::{
     Fill, IntermediateRecipe, PartialFill, Swap, TerminalInstruction,
 };
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
+use crate::execution_engine::liquidity_book::side::Side::{Ask, Bid};
 use crate::execution_engine::liquidity_book::state::{IdleState, TLBState, VersionedState};
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, ExCostUnits};
 use crate::execution_engine::liquidity_book::weight::Weighted;
@@ -285,7 +286,7 @@ where
                 max
             };
             let price = price_selector(ask.price(), bid.target.price());
-            let demand_base = linear_output(bid.remaining_input, price);
+            let demand_base = linear_output(bid.remaining_input, Bid(price));
             let supply_base = ask.input();
             if supply_base > demand_base {
                 let quote_input = bid.remaining_input;
@@ -296,7 +297,7 @@ where
                     fill_rt: Either::Right(PartialFill::new(ask, remaining_input, quote_input)),
                 }
             } else if supply_base < demand_base {
-                let quote_executed = linear_output(supply_base, price);
+                let quote_executed = linear_output(supply_base, Ask(price));
                 bid.remaining_input -= quote_executed;
                 bid.accumulated_output += supply_base;
                 let (next_ask, ask_budget_used, fee_used) =
@@ -306,7 +307,7 @@ where
                     fill_rt: Either::Right(bid),
                 }
             } else {
-                let quote_executed = linear_output(supply_base, price);
+                let quote_executed = linear_output(supply_base, Ask(price));
                 bid.accumulated_output += demand_base;
                 let (next_ask, ask_budget_used, fee_used) =
                     ask.with_applied_swap(ask.input(), quote_executed);
@@ -331,7 +332,7 @@ where
                 min
             };
             let price = price_selector(bid.price(), ask.target.price());
-            let demand_base = linear_output(bid.input(), price);
+            let demand_base = linear_output(bid.input(), Bid(price));
             let supply_base = ask.remaining_input;
             if supply_base > demand_base {
                 ask.remaining_input -= demand_base;
@@ -342,7 +343,7 @@ where
                     fill_rt: Either::Right(ask),
                 }
             } else if supply_base < demand_base {
-                let quote_executed = linear_output(supply_base, price);
+                let quote_executed = linear_output(supply_base, Ask(price));
                 ask.accumulated_output += quote_executed;
                 FillFromFragment {
                     term_fill_lt: ask.filled_unsafe(),
@@ -360,8 +361,11 @@ where
     }
 }
 
-fn linear_output(input: u64, price: AbsolutePrice) -> u64 {
-    (input as u128 * price.denom() / price.numer()) as u64
+fn linear_output(input: u64, price: Side<AbsolutePrice>) -> u64 {
+   match price {
+       Bid(price) => (input as u128 * price.denom() / price.numer()) as u64,
+       Ask(price) => (input as u128 * price.numer() / price.denom()) as u64,
+   }
 }
 
 struct FillFromPool<Fr, Pl> {
