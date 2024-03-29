@@ -33,6 +33,7 @@ type ParseBlueprint = {
         $ref: string;
       };
     }[];
+    plutarchCode?: boolean,
     compiledCode: string;
     hash: string;
   }[];
@@ -79,6 +80,7 @@ const validators = plutusJson.validators.map((validator) => {
   const redeemerSchema = resolveSchema(redeemer.schema, definitions);
 
   const params = validator.parameters || [];
+  const plutarchScript = validator.plutarchCode ? true : false;
   const paramsSchema = {
     dataType: 'list',
     items: params.map((param) => resolveSchema(param.schema, definitions)),
@@ -99,7 +101,7 @@ const validators = plutusJson.validators.map((validator) => {
 
   export const ${name} = Object.assign(
     function (${paramsArgs.map((param) => param.join(':')).join(',')}) {${
-  paramsArgs.length > 0
+  (paramsArgs.length > 0 && !plutarchScript)
     ? `return { type: "${plutusVersion}", script: applyParamsToScript("${script}", [${
       paramsArgs.map((param) => param[0]).join(',')
     }], ${JSON.stringify(paramsSchema)}) };`
