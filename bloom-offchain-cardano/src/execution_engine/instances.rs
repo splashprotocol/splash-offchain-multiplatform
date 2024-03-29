@@ -24,7 +24,7 @@ use spectrum_offchain_cardano::deployment::{
 use crate::execution_engine::execution_state::{
     delayed_redeemer, ready_redeemer, ExecutionState, ScriptInputBlueprint,
 };
-use crate::orders::spot::{unsafe_update_n2t_variables, LimitOrder};
+use crate::orders::spot::{unsafe_update_datum, LimitOrder};
 use crate::orders::{spot, AnyOrder};
 
 /// Magnet for local instances.
@@ -120,7 +120,7 @@ where
             match transition {
                 StateTrans::Active(next) => {
                     if let Some(data) = candidate.data_mut() {
-                        unsafe_update_n2t_variables(data, next.input_amount, next.fee);
+                        unsafe_update_datum(data, next.input_amount, next.fee);
                     }
                     (candidate.clone(), ExecutionEff::Updated(Bundled(next, candidate)))
                 }

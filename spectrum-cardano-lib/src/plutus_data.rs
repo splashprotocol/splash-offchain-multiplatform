@@ -110,7 +110,7 @@ impl ConstrPlutusDataExtension for ConstrPlutusData {
         Some(pd)
     }
     fn set_field(&mut self, index: usize, value: PlutusData) {
-        self.fields.insert(index, value)
+        self.fields[index] = value;
     }
     fn update_field<F>(&mut self, index: usize, f: F)
     where
