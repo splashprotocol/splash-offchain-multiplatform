@@ -64,19 +64,18 @@ async function createLimitOrder(lucid: Lucid, validator: BuiltValidator, conf: L
     return tx.complete();
 }
 
-const txb = "84a70082825820480206002a0f169aea35f906b2fb358dccf52eb62bf0bf14dc19399af45e1eca00825820f69d38aacbfd12cdee8ad0eefb36f403bc23ff72b59437cee28e1dad703cd363000182a2005839004be4fa25f029d14c0d723af4a1e6fa7133fc3a610f880336ad685cba5bda73043d43ad8df5ce75639cf48e1f2b4545403be92f0113e3753701821a001e8480a1581cfd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3aa14974657374746f6b656e1a000186a0a2005839004be4fa25f029d14c0d723af4a1e6fa7133fc3a610f880336ad685cba5bda73043d43ad8df5ce75639cf48e1f2b4545403be92f0113e37537011a06146580021a000f424005a1581df0b1b6d801f3925f6f55248ce445f7fff0152136abc8a045f1164f9cd8000b5820fe0601ad51d6ea7ca5e02abf3200ce0c7926d5cab1b118cc151d41ca1d798df00d818258202730de014f65658ae457f4d299cc80f4d0fc5c07ccf50528c78907d52f832e81001282825820f7454c8ef770078ea385c797715d75ac5628829d60e4a34f1cd190f85021360300825820f7454c8ef770078ea385c797715d75ac5628829d60e4a34f1cd190f85021360301a20081825820ca91ad1721ca4f58f32de66256ba8f56c7dffdd4f869ab83e95448101c48e1fc5840b6748958916990131dc8cc586547b2e6e4b29d5b0afe84a4ef261e1007480ad83fbb73a5a7869d3dcd06c6cd623d1a26427a488d5566efc54834f218638379060583840000d87a80821a0007a1201a0bebc200840001d87a80821a0007a1201a0bebc20084030080821a000dbba01a0ee6b280f5f6";
+const txb = "84a700828258207f5a9e3d5997c594abc59e6cb0567a58c7a9d010397630dd1d9c877701c708d100825820f9602eafa9415daadb1ba5122c7d98fdb07cf894ab86176f6bbccee4496cf8f1000183a300581d70dca27c481d7864e3a42ce075095295cde3de08e843aaf4b731a3d57801821a01e2f0d0a1581c40079b8ba147fb87a00da10deff7ddd13d64daf48802bb3f82530c3ea14a53504c415348546573741a00011170028201d81858e0d8799f4100581c0896cb319806556fe598d40dcc625c74fa27d29e19a00188c8f830bdd8799f4040ff1a01c9c3801a0007a1201903e8d8799f581c40079b8ba147fb87a00da10deff7ddd13d64daf48802bb3f82530c3e4a53504c41534854657374ffd8799f011903e8ff1a000249f0d8799fd8799f581cab450d88aab97ff92b1614217e5e34b5710e201da0057d3aab684390ffd8799fd8799fd8799f581c1bc47eaccd81a6a13070fdf67304fc5dc9723d85cff31f0421c53101ffffffff581cab450d88aab97ff92b1614217e5e34b5710e201da0057d3aab68439080ffa200583900ab450d88aab97ff92b1614217e5e34b5710e201da0057d3aab6843901bc47eaccd81a6a13070fdf67304fc5dc9723d85cff31f0421c53101011a044794c0825839004be4fa25f029d14c0d723af4a1e6fa7133fc3a610f880336ad685cba5bda73043d43ad8df5ce75639cf48e1f2b4545403be92f0113e375371a0018dd8d021a00066a4305a1581df0b1b6d801f3925f6f55248ce445f7fff0152136abc8a045f1164f9cd8000b58208a04cffbcb7ebc6c94c64fca3aded5499f2cf1c0777425865d17ebecdabb40460d818258202730de014f65658ae457f4d299cc80f4d0fc5c07ccf50528c78907d52f832e81001282825820f7454c8ef770078ea385c797715d75ac5628829d60e4a34f1cd190f85021360300825820f7454c8ef770078ea385c797715d75ac5628829d60e4a34f1cd190f85021360301a20081825820ca91ad1721ca4f58f32de66256ba8f56c7dffdd4f869ab83e95448101c48e1fc5840fa0c91bce3c2f19104c1621885ebf902878c5f3438298de1a75844848f8f14f6c521132a936ab4eec64a3a8c7c73c7ed84fcb22f904859379af48bec6c7fb6020583840000d87a80821a0007a1201a0bebc200840001d87a80821a0007a1201a0bebc20084030080821a001b77401a1dcd6500f5f6";
+
+const lucid = await getLucid();
+await setupWallet(lucid);
+const conf = await getConfig<BuiltValidators>();
 
 async function submit() {
-    const lucid = await getLucid();
-    await setupWallet(lucid);
     const id = await lucid.wallet.submitTx(txb);
     console.log(id);
 }
 
 async function main() {
-    const lucid = await getLucid();
-    await setupWallet(lucid);
-    const conf = await getConfig<BuiltValidators>();
     const myAddr = await lucid.wallet.address();
     console.log("My address: ", lucid.utils.getAddressDetails(myAddr));
     const txBid = await createLimitOrder(lucid, conf.validators!.limitOrder, {
@@ -128,4 +127,80 @@ async function main() {
     console.log(txAskId);
 }
 
-main();
+async function createMToNOrders() {
+    const myAddr = await lucid.wallet.address();
+    console.log("My address: ", lucid.utils.getAddressDetails(myAddr));
+    const txBid1 = await createLimitOrder(lucid, conf.validators!.limitOrder, {
+        input: {
+            policy: "fd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3a",
+            name: "74657374746f6b656e",
+        },
+        output: {
+            policy: "",
+            name: "",
+        },
+        tradableInput: 70_000n,
+        minMarginalOutput: 1_000n,
+        costPerExStep: 600_000n,
+        basePrice: {
+            num: 1000n,
+            denom: 1n,
+        },
+        fee: 600_000n,
+        redeemerAddr: myAddr,
+        cancellationPkh: lucid.utils.getAddressDetails(myAddr).paymentCredential!.hash,
+        permittedExecutors: [],
+    });
+    const txBidId1 = await (await txBid1.sign().complete()).submit();
+    console.log("Bid #0: " + txBidId1);
+    await sleep(180);
+    const txBid2 = await createLimitOrder(lucid, conf.validators!.limitOrder, {
+        input: {
+            policy: "fd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3a",
+            name: "74657374746f6b656e",
+        },
+        output: {
+            policy: "",
+            name: "",
+        },
+        tradableInput: 60_000n,
+        minMarginalOutput: 1_000n,
+        costPerExStep: 600_000n,
+        basePrice: {
+            num: 1000n,
+            denom: 1n,
+        },
+        fee: 500_000n,
+        redeemerAddr: myAddr,
+        cancellationPkh: lucid.utils.getAddressDetails(myAddr).paymentCredential!.hash,
+        permittedExecutors: [],
+    });
+    const txBidId2 = await (await txBid2.sign().complete()).submit();
+    console.log("Bid #1: " + txBidId2);
+    await sleep(180);
+    const txAsk = await createLimitOrder(lucid, conf.validators!.limitOrder, {
+        input: {
+            policy: "",
+            name: "",
+        },
+        output: {
+            policy: "fd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3a",
+            name: "74657374746f6b656e",
+        },
+        tradableInput: 100_000_000n,
+        minMarginalOutput: 1_000n,
+        costPerExStep: 500_000n,
+        basePrice: {
+            num: 1n,
+            denom: 1000n,
+        },
+        fee: 500_000n,
+        redeemerAddr: myAddr,
+        cancellationPkh: lucid.utils.getAddressDetails(myAddr).paymentCredential!.hash,
+        permittedExecutors: [],
+    });
+    const txAskId = await (await txAsk.sign().complete()).submit();
+    console.log("Ask #0: " + txAskId);
+}
+
+createMToNOrders();
