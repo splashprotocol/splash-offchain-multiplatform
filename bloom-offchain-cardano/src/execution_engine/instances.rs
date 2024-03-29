@@ -1,21 +1,21 @@
+use cml_chain::plutus::PlutusData;
 use cml_chain::transaction::TransactionOutput;
 use void::Void;
 
 use bloom_offchain::execution_engine::batch_exec::BatchExec;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_effect::ExecutionEff;
-use bloom_offchain::execution_engine::liquidity_book::fragment::{Fragment, StateTrans};
+use bloom_offchain::execution_engine::liquidity_book::fragment::StateTrans;
 use bloom_offchain::execution_engine::liquidity_book::recipe::{LinkedFill, LinkedSwap};
 use spectrum_cardano_lib::output::FinalizedTxOut;
-use spectrum_cardano_lib::NetworkId;
-
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
+use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::data::Has;
 use spectrum_offchain_cardano::data::balance_pool::{BalancePool, BalancePoolRedeemer};
 use spectrum_offchain_cardano::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
 use spectrum_offchain_cardano::data::pool::{AnyPool, AssetDeltas, CFMMPoolAction};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
-    BalanceFnPoolV1, ConstFnPoolV1, ConstFnPoolV2, LimitOrderV1,
+    BalanceFnPoolV1, ConstFnPoolV1, ConstFnPoolV2, LimitOrderV1, LimitOrderWitnessV1,
 };
 use spectrum_offchain_cardano::deployment::{
     DeployedValidator, DeployedValidatorErased, RequiresValidator, ScriptWitness,
@@ -39,7 +39,9 @@ pub type PoolResult<Pool> = Bundled<Pool, TransactionOutput>;
 impl<Ctx> BatchExec<ExecutionState, OrderResult<AnyOrder>, Ctx, Void>
     for Magnet<LinkedFill<AnyOrder, FinalizedTxOut>>
 where
-    Ctx: Has<NetworkId> + Has<DeployedValidator<{ LimitOrderV1 as u8 }>>,
+    Ctx: Has<NetworkId>
+        + Has<DeployedValidator<{ LimitOrderV1 as u8 }>>
+        + Has<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>,
 {
     fn try_exec(
         self,
@@ -77,7 +79,9 @@ where
 impl<Ctx> BatchExec<ExecutionState, OrderResult<LimitOrder>, Ctx, Void>
     for Magnet<LinkedFill<LimitOrder, FinalizedTxOut>>
 where
-    Ctx: Has<NetworkId> + Has<DeployedValidator<{ LimitOrderV1 as u8 }>>,
+    Ctx: Has<NetworkId>
+        + Has<DeployedValidator<{ LimitOrderV1 as u8 }>>
+        + Has<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>,
 {
     fn try_exec(
         self,
@@ -130,9 +134,12 @@ where
                 }
             }
         };
+        let witness = context.select::<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>();
+        state
+            .tx_blueprint
+            .add_witness(witness.erased(), PlutusData::new_list(vec![]));
         state.tx_blueprint.add_io(input, residual_order);
         state.tx_blueprint.add_ref_input(reference_utxo);
-        state.add_ex_budget(ord.fee_asset, budget_used);
         Ok((state, effect, context))
     }
 }

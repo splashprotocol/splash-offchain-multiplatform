@@ -61,34 +61,9 @@ where
         >,
     ) {
         let state = ExecutionState::new();
-        let (
-            ExecutionState {
-                tx_blueprint,
-                execution_budget_acc,
-            },
-            effects,
-            ctx,
-        ) = execute(ctx, state, Vec::new(), instructions);
-        let mut tx_builder = tx_blueprint.apply_to_builder(constant_tx_builder());
-
-        let order_witness_validator = ctx.select::<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>();
-        let reward_address = cml_chain::address::RewardAddress::new(
-            ctx.select::<NetworkId>().into(),
-            Credential::new_script(order_witness_validator.hash),
-        );
-        let partial_witness = PartialPlutusWitness::new(
-            PlutusScriptWitness::Ref(order_witness_validator.hash),
-            PlutusData::new_list(vec![]),
-        );
-        let withdrawal_result = SingleWithdrawalBuilder::new(reward_address, 0)
-            .plutus_script(partial_witness, vec![])
-            .unwrap();
-        tx_builder.add_reference_input(order_witness_validator.reference_utxo);
-        tx_builder.add_withdrawal(withdrawal_result);
-        tx_builder.set_exunits(
-            RedeemerWitnessKey::new(RedeemerTag::Reward, 0),
-            order_witness_validator.ex_budget.into(),
-        );
+        let (ExecutionState { tx_blueprint }, effects, ctx) = execute(ctx, state, Vec::new(), instructions);
+        let mut tx_builder =
+            tx_blueprint.project_onto_builder(constant_tx_builder(), ctx.select::<NetworkId>());
         tx_builder
             .add_collateral(ctx.select::<Collateral>().into())
             .unwrap();

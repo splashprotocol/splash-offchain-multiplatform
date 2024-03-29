@@ -8,6 +8,8 @@ use cml_core::DeserializeError;
 use cml_crypto::{ScriptHash, TransactionHash};
 use derive_more::{From, Into};
 use hex::FromHexError;
+use std::hash::{Hash, Hasher};
+use std::ops::Mul;
 
 use cardano_explorer::client::Explorer;
 use spectrum_cardano_lib::OutputRef;
@@ -76,6 +78,15 @@ impl From<ReferenceUTxO> for OutputRef {
 pub struct ExBudget {
     pub mem: u64,
     pub steps: u64,
+}
+
+impl ExBudget {
+    pub fn scale(self, factor: u64) -> Self {
+        Self {
+            mem: self.mem * factor,
+            steps: self.steps * factor,
+        }
+    }
 }
 
 impl From<ExBudget> for ExUnits {
@@ -192,6 +203,20 @@ pub struct DeployedValidatorErased {
     pub hash: ScriptHash,
     pub ex_budget: ExBudget,
 }
+
+impl Hash for DeployedValidatorErased {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.hash.hash(state)
+    }
+}
+
+impl PartialEq for DeployedValidatorErased {
+    fn eq(&self, other: &Self) -> bool {
+        self.hash.eq(&other.hash)
+    }
+}
+
+impl Eq for DeployedValidatorErased {}
 
 #[derive(Debug, Clone)]
 pub struct ScriptWitness {
