@@ -1,8 +1,9 @@
-import { getConfig } from "../config.ts";
+import { Config, getConfig } from "../config.ts";
 import { getLucid } from "../lucid.ts";
 import { Asset, BuiltValidator, BuiltValidators } from "../types.ts";
 import { setupWallet } from "../wallet.ts";
 import { PubKeyHash } from "../types.ts";
+import { getUtxoWithToken, getUtxoWithAda } from "./balancePool.ts";
 import { Data, Datum, Lucid, TxComplete } from "https://deno.land/x/lucid@0.10.7/mod.ts";
 import { BalancedepositContract, BalanceredeemContract } from "../../plutus.ts";
 import { asUnit } from "../types.ts";
@@ -17,6 +18,15 @@ export type DepositConf = {
   stakePkh: PubKeyHash | null,
   collateralAda: bigint
 };
+
+const poolNftCS = "a1c289a39d73339915a57db0af3ae31a4f0100eca47446c42de11292";
+const poolNftTN = "6e6674";
+
+const encodedTestB  = "7465737443";
+const TokenBCS = "4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26";
+
+const TokenLQTn = "6c71";
+const TokenLQCs = "a48393deaa97d6f71329988497081b5456d32362a1a12f3c92a366ac";
 
 function buildDepositDatum(conf: DepositConf): Datum {
   return Data.to({
@@ -53,7 +63,18 @@ function buildRedeemDatum(conf: RedeemConf): Datum {
   }, BalanceredeemContract.conf);
 }
 
-function deposit(lucid: Lucid, validator: BuiltValidator, conf: DepositConf): Promise<TxComplete> {
+const stringifyBigIntReviewer = (_: any, value: any) =>
+  typeof value === 'bigint'
+    ? { value: value.toString(), _bigint: true }
+    : value;
+
+async function deposit(lucid: Lucid, validator: BuiltValidator, conf: DepositConf): Promise<TxComplete> {
+
+  const utxos = (await lucid.wallet.getUtxos());
+
+  const boxWithToken = await getUtxoWithToken(utxos, encodedTestB);
+  const boxWithAda   = await getUtxoWithAda(utxos)
+
   const orderAddress = lucid.utils.credentialToAddress(
     { hash: validator.hash, type: 'Script' },
   );
@@ -61,20 +82,129 @@ function deposit(lucid: Lucid, validator: BuiltValidator, conf: DepositConf): Pr
   const depositedValue = conf.x[0].policy == ""
     ? { lovelace: lovelaceTotal + conf.x[1], [asUnit(conf.y[0])]: conf.y[1] } : conf.y[0].policy == ""
     ? { lovelace: lovelaceTotal + conf.y[1], [asUnit(conf.x[0])]: conf.x[1] } : { lovelace: lovelaceTotal, [asUnit(conf.x[0])]: conf.x[1], [asUnit(conf.y[0])]: conf.y[1] };
-  const tx = lucid.newTx().payToContract(orderAddress, { inline: buildDepositDatum(conf) }, depositedValue);
-  return tx.complete();
+  
+  console.log(`ada utxo: ${JSON.stringify(boxWithAda!, stringifyBigIntReviewer)}`)
+
+  console.log(`boxWithToken: ${JSON.stringify(boxWithToken!, stringifyBigIntReviewer)}`)
+
+  console.log(`depositedValue: ${JSON.stringify(depositedValue, stringifyBigIntReviewer)}`)
+
+  const tx = await lucid.newTx()
+    .collectFrom([boxWithToken!, boxWithAda!])
+    .payToContract(orderAddress, { inline: buildDepositDatum(conf) }, depositedValue)
+    .complete();
+  const txId = await (await tx.sign().complete()).submit();
+  return txId
 }
 
-function redeem(lucid: Lucid, validator: BuiltValidator, conf: RedeemConf): Promise<TxComplete> {
+async function redeem(lucid: Lucid, validator: BuiltValidator, conf: RedeemConf): Promise<TxComplete> {
   const orderAddress = lucid.utils.credentialToAddress(
     { hash: validator.hash, type: 'Script' },
   );
+
+  const utxos = (await lucid.wallet.getUtxos());
+
+  console.log(`utxos: ${JSON.stringify(utxos, stringifyBigIntReviewer)}`);
+
+
+  const boxWithToken = await getUtxoWithToken(utxos, TokenLQCs);
+  const boxWithAda   = await getUtxoWithAda(utxos)
+
   const lovelaceTotal = conf.exFee;
   const depositedValue = { lovelace: lovelaceTotal, [asUnit(conf.lq[0])]: conf.lq[1] };
-  const tx = lucid.newTx().payToContract(orderAddress, { inline: buildRedeemDatum(conf) }, depositedValue);
-  return tx.complete();
+
+  console.log(`ada utxo: ${JSON.stringify(boxWithAda!, stringifyBigIntReviewer)}`)
+
+  console.log(`boxWithToken: ${JSON.stringify(boxWithToken!, stringifyBigIntReviewer)}`)
+
+  console.log(`depositedValue: ${JSON.stringify(depositedValue, stringifyBigIntReviewer)}`)
+
+  const tx = await lucid.newTx()
+    .collectFrom([boxWithToken!, boxWithAda!])
+    .payToContract(orderAddress, { inline: buildRedeemDatum(conf) }, depositedValue)
+    .complete();
+
+  const txId = await (await tx.sign().complete()).submit();
+  return txId
 }
 
-const lucid = await getLucid();
-await setupWallet(lucid);
-const conf = await getConfig<BuiltValidators>();
+async function doDeposit(lucid: Lucid, conf: Config<BuiltValidators>) {
+
+  const myAddr = await lucid.wallet.address();
+  
+  const depositConf: DepositConf = {
+    poolnft: {
+      policy: poolNftCS,
+      name: poolNftTN,
+    },
+    x: [
+      {
+        policy: "",
+        name: "",
+      }, 1000_000_000n
+    ],
+    y: [
+      {
+        policy: TokenBCS,
+        name: encodedTestB,
+      }, 1000_000_000n
+    ],
+    lq: {
+      policy: TokenLQCs,
+      name: TokenLQTn,
+    },
+    exFee: 2_000_000n,
+    rewardPkh: lucid.utils.getAddressDetails(myAddr).paymentCredential!.hash,
+    stakePkh: null,
+    collateralAda: 2_000_000n
+  };
+
+  const depositTxId = await deposit(lucid, conf.validators!.balanceDeposit, depositConf);
+
+  console.log(`txId: ${depositTxId}`);
+}
+
+async function doRedeem(lucid: Lucid, conf: Config<BuiltValidators>) {
+
+  const myAddr = await lucid.wallet.address();
+  
+  const redeemConf: RedeemConf = {
+    poolnft: {
+      policy: poolNftCS,
+      name: poolNftTN,
+    },
+    x: {
+      policy: "",
+      name: "",
+    },
+    y: {
+      policy: TokenBCS,
+      name: encodedTestB,
+    },
+    lq: [{
+      policy: TokenLQCs,
+      name: TokenLQTn,
+    }, 3_000_000n],
+    exFee: 2_000_000n,
+    rewardPkh: lucid.utils.getAddressDetails(myAddr).paymentCredential!.hash,
+    stakePkh: null
+  };
+
+  const redeemTxId = await redeem(lucid, conf.validators!.balanceRedeem, redeemConf);
+
+  console.log(`txId: ${redeemTxId}`);
+}
+
+async function main() {
+
+  const lucid = await getLucid();
+  await setupWallet(lucid);
+  const conf = await getConfig<BuiltValidators>();
+  const myAddr = await lucid.wallet.address();
+
+  doDeposit(lucid, conf);
+
+  // doRedeem(lucid, conf);
+}
+
+main();

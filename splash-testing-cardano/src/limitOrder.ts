@@ -130,71 +130,71 @@ async function main() {
 async function createMToNOrders() {
     const myAddr = await lucid.wallet.address();
     console.log("My address: ", lucid.utils.getAddressDetails(myAddr));
-    const txBid1 = await createLimitOrder(lucid, conf.validators!.limitOrder, {
-        input: {
-            policy: "fd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3a",
-            name: "74657374746f6b656e",
-        },
-        output: {
-            policy: "",
-            name: "",
-        },
-        tradableInput: 70_000n,
-        minMarginalOutput: 1_000n,
-        costPerExStep: 600_000n,
-        basePrice: {
-            num: 1000n,
-            denom: 1n,
-        },
-        fee: 600_000n,
-        redeemerAddr: myAddr,
-        cancellationPkh: lucid.utils.getAddressDetails(myAddr).paymentCredential!.hash,
-        permittedExecutors: [],
-    });
-    const txBidId1 = await (await txBid1.sign().complete()).submit();
-    console.log("Bid #0: " + txBidId1);
-    await sleep(60);
-    const txBid2 = await createLimitOrder(lucid, conf.validators!.limitOrder, {
-        input: {
-            policy: "fd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3a",
-            name: "74657374746f6b656e",
-        },
-        output: {
-            policy: "",
-            name: "",
-        },
-        tradableInput: 60_000n,
-        minMarginalOutput: 1_000n,
-        costPerExStep: 600_000n,
-        basePrice: {
-            num: 1000n,
-            denom: 1n,
-        },
-        fee: 500_000n,
-        redeemerAddr: myAddr,
-        cancellationPkh: lucid.utils.getAddressDetails(myAddr).paymentCredential!.hash,
-        permittedExecutors: [],
-    });
-    const txBidId2 = await (await txBid2.sign().complete()).submit();
-    console.log("Bid #1: " + txBidId2);
-    await sleep(60);
+    // const txBid1 = await createLimitOrder(lucid, conf.validators!.limitOrder, {
+    //     input: {
+    //         policy: "fd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3a",
+    //         name: "74657374746f6b656e",
+    //     },
+    //     output: {
+    //         policy: "",
+    //         name: "",
+    //     },
+    //     tradableInput: 70_000n,
+    //     minMarginalOutput: 1_000n,
+    //     costPerExStep: 600_000n,
+    //     basePrice: {
+    //         num: 1000n,
+    //         denom: 1n,
+    //     },
+    //     fee: 600_000n,
+    //     redeemerAddr: myAddr,
+    //     cancellationPkh: lucid.utils.getAddressDetails(myAddr).paymentCredential!.hash,
+    //     permittedExecutors: [],
+    // });
+    // const txBidId1 = await (await txBid1.sign().complete()).submit();
+    // console.log("Bid #0: " + txBidId1);
+    // await sleep(60);
+    // const txBid2 = await createLimitOrder(lucid, conf.validators!.limitOrder, {
+    //     input: {
+    //         policy: "4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26",
+    //         name: "7465737443",
+    //     },
+    //     output: {
+    //         policy: "",
+    //         name: "",
+    //     },
+    //     tradableInput: 3_000_000n,
+    //     minMarginalOutput: 3n,
+    //     costPerExStep: 600_000n,
+    //     basePrice: {
+    //         num: 13000n,
+    //         denom: 1n,
+    //     },
+    //     fee: 500_000n,
+    //     redeemerAddr: myAddr,
+    //     cancellationPkh: lucid.utils.getAddressDetails(myAddr).paymentCredential!.hash,
+    //     permittedExecutors: [],
+    // });
+    // const txBidId2 = await (await txBid2.sign().complete()).submit();
+    //console.log("Bid #1: " + txBidId2);
+    //await sleep(60);
     const txAsk = await createLimitOrder(lucid, conf.validators!.limitOrder, {
         input: {
             policy: "",
             name: "",
         },
         output: {
-            policy: "fd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3a",
-            name: "74657374746f6b656e",
+            policy: "95a427e384527065f2f8946f5e86320d0117839a5e98ea2c0b55fb00",
+            name: "48554e54",
         },
-        tradableInput: 100_000_000n,
+        tradableInput: 10_000_000n,
         minMarginalOutput: 1_000n,
-        costPerExStep: 500_000n,
+        costPerExStep: 5_000n,
         basePrice: {
             num: 1n,
             denom: 1000n,
         },
-        fee: 500_000n,
+        fee: 250_000n,
         redeemerAddr: myAddr,
         cancellationPkh: lucid.utils.getAddressDetails(myAddr).paymentCredential!.hash,
         permittedExecutors: [],
