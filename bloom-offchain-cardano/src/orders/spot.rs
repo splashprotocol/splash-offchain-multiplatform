@@ -99,12 +99,12 @@ impl OrderState for LimitOrder {
         removed_input: u64,
         added_output: u64,
     ) -> (StateTrans<Self>, ExBudgetUsed, ExFeeUsed) {
+        let fee_used = self.linear_fee(removed_input);
+        self.fee -= fee_used;
         self.input_amount -= removed_input;
         self.output_amount += added_output;
         let budget_used = self.max_cost_per_ex_step;
         self.execution_budget -= budget_used;
-        let fee_used = self.linear_fee(removed_input);
-        self.fee -= fee_used;
         let next_st = if self.execution_budget < self.max_cost_per_ex_step || self.input_amount == 0 {
             StateTrans::EOL
         } else {
@@ -180,7 +180,7 @@ struct Datum {
     pub permitted_executors: Vec<Ed25519KeyHash>,
 }
 
-struct DatumNativeToTokenMapping {
+struct DatumMapping {
     pub beacon: usize,
     pub input: usize,
     pub tradable_input: usize,
@@ -194,7 +194,7 @@ struct DatumNativeToTokenMapping {
     pub permitted_executors: usize,
 }
 
-const DATUM_MAPPING: DatumNativeToTokenMapping = DatumNativeToTokenMapping {
+const DATUM_MAPPING: DatumMapping = DatumMapping {
     beacon: 1,
     input: 2,
     tradable_input: 3,
