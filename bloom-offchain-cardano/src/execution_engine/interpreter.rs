@@ -1,11 +1,8 @@
-use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
 use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder};
-use cml_chain::builders::withdrawal_builder::SingleWithdrawalBuilder;
-use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
-use cml_chain::certs::Credential;
-use cml_chain::plutus::{PlutusData, RedeemerTag};
+
 use cml_chain::transaction::TransactionOutput;
 use either::Either;
+use log::trace;
 use tailcall::tailcall;
 use void::Void;
 
@@ -16,7 +13,6 @@ use bloom_offchain::execution_engine::liquidity_book::interpreter::RecipeInterpr
 use bloom_offchain::execution_engine::liquidity_book::recipe::{
     LinkedExecutionRecipe, LinkedFill, LinkedSwap, LinkedTerminalInstruction,
 };
-use bloom_offchain::execution_engine::liquidity_book::types::Lovelace;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
@@ -98,11 +94,10 @@ where
                 },
             ))
         }
+        trace!("Finished TX: {}", tx_hash);
         (tx, finalized_effects)
     }
 }
-
-const TX_FEE_CORRECTION: Lovelace = 1000;
 
 #[tailcall]
 fn execute<Fr, Pl, Ctx>(

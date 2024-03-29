@@ -210,11 +210,7 @@ const DATUM_MAPPING: DatumMapping = DatumMapping {
     permitted_executors: 11,
 };
 
-pub fn unsafe_update_datum(
-    data: &mut PlutusData,
-    tradable_input: InputAsset<u64>,
-    fee: FeeAsset<u64>,
-) {
+pub fn unsafe_update_datum(data: &mut PlutusData, tradable_input: InputAsset<u64>, fee: FeeAsset<u64>) {
     let cpd = data.get_constr_pd_mut().unwrap();
     cpd.set_field(DATUM_MAPPING.tradable_input, tradable_input.into_pd());
     cpd.set_field(DATUM_MAPPING.fee, fee.into_pd());
@@ -325,11 +321,12 @@ pub struct SpotOrderBatchValidatorRefScriptOutput(pub TransactionUnspentOutput);
 
 #[cfg(test)]
 mod tests {
+    use crate::orders::spot::{beacon_from_oref, unsafe_update_datum, Datum, LimitOrder};
     use cml_chain::plutus::PlutusData;
-    use crate::orders::spot::{beacon_from_oref, Datum, LimitOrder, unsafe_update_datum};
     use cml_core::serialization::Deserialize;
     use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, ScriptHash, TransactionHash};
     use cml_multi_era::babbage::BabbageTransactionOutput;
+    use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_cardano_lib::OutputRef;
     use spectrum_offchain::data::Has;
     use spectrum_offchain::ledger::TryFromLedger;
@@ -340,7 +337,6 @@ mod tests {
     };
     use spectrum_offchain_cardano::utxo::ConsumedInputs;
     use type_equalities::IsEqual;
-    use spectrum_cardano_lib::types::TryFromPData;
 
     struct Context {
         limit_order: DeployedScriptHash<{ LimitOrderV1 as u8 }>,
@@ -388,9 +384,14 @@ mod tests {
         let new_fee = 50;
         unsafe_update_datum(&mut datum, new_ti, new_fee);
         let conf_1 = Datum::try_from_pd(datum).unwrap();
-        assert_eq!(Datum {
-            tradable_input: new_ti, fee: new_fee, ..conf_0 
-        }, conf_1);
+        assert_eq!(
+            Datum {
+                tradable_input: new_ti,
+                fee: new_fee,
+                ..conf_0
+            },
+            conf_1
+        );
     }
 
     const DATA: &str = "d8799f4100581c0896cb319806556fe598d40dcc625c74fa27d29e19a00188c8f830bdd8799f4040ff1a05f5e1001a0007a1201903e8d8799f581c40079b8ba147fb87a00da10deff7ddd13d64daf48802bb3f82530c3e4a53504c41534854657374ffd8799f011903e8ff1a0007a120d8799fd8799f581cab450d88aab97ff92b1614217e5e34b5710e201da0057d3aab684390ffd8799fd8799fd8799f581c1bc47eaccd81a6a13070fdf67304fc5dc9723d85cff31f0421c53101ffffffff581cab450d88aab97ff92b1614217e5e34b5710e201da0057d3aab68439080ff";
