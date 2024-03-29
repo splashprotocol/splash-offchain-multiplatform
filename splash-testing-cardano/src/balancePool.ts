@@ -84,21 +84,21 @@ async function main() {
 
     const mintingLqAssets: Record<Unit | "lovelace", bigint> = 
         {
-            lqUnit: 9223372036854775807n
+            [lqUnit]: 9223372036854775807n
             //nftUnit: 1n
         }
 
     const mintingNftAssets: Record<Unit | "lovelace", bigint> = 
         {
-            lqUnit: 9223372036854775807n
+            [nftUnit]: 9223372036854775807n
             //nftUnit: 1n
         }
     
-    const tx = await lucid.newTx().collectFrom([boxWithAdaAndToken])
+    const tx = await lucid.newTx().collectFrom([boxWithAdaAndToken!])
         .attachMintingPolicy(nftMintingPolicy)
-        .mintAssets(mintingNftAssets, Data.Boolean())
+        .mintAssets(mintingNftAssets)
         .attachMintingPolicy(lqMintingPolicy)
-        .mintAssets(mintingLqAssets, Data.Boolean())
+        .mintAssets(mintingLqAssets)
         .complete();
         //.payToContract(poolAddress, { inline: buildLimitOrderDatum(lucid, conf, beacon) }, depositedValue);
 
