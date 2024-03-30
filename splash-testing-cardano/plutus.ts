@@ -3,7 +3,7 @@ import {
   applyParamsToScript,
   Data,
   Validator,
-} from "https://deno.land/x/lucid@1.0.0/mod.ts";
+} from "https://deno.land/x/lucid@0.10.7/mod.ts";
 
 export interface IBeaconBeacon {
   new (
