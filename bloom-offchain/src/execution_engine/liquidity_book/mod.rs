@@ -193,7 +193,7 @@ where
     match book.state {
         TLBState::Idle(ref mut st) => f(st),
         // If there is an attempt to apply external mutations to TLB in a Preview state
-        // this is a developer's error so we fail explicitly.
+        // this is a developer's error, so we fail explicitly.
         TLBState::PartialPreview(_) | TLBState::Preview(_) => {
             panic!("PartialPreview|Preview state cannot be externally mutated")
         }

@@ -418,7 +418,6 @@ pub mod tests {
     use bloom_offchain::execution_engine::liquidity_book::{pool::Pool, side::Side};
     use spectrum_cardano_lib::OutputRef;
     use spectrum_offchain::ledger::TryFromLedger;
-    use test_utils::pool::gen_pool_transaction_output;
 
     use super::ConstFnPool;
 
@@ -473,12 +472,6 @@ pub mod tests {
     }
 
     fn gen_pool(ada_first: bool) -> ConstFnPool {
-        let (repr, _, _) = gen_pool_transaction_output(0, 101_000_000, 9_000_000, ada_first);
-        let mut rng = rand::thread_rng();
-        let mut bytes = [0u8; 32];
-        rng.fill(&mut bytes[..]);
-        let transaction_id = TransactionHash::from(bytes);
-        let ctx = OutputRef::new(transaction_id, 0);
-        ConstFnPool::try_from_ledger(&repr, &ctx).unwrap()
+        todo!()
     }
 }

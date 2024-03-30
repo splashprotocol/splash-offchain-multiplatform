@@ -24,9 +24,9 @@ pub trait StateIndex<Src: EntitySnapshot> {
     /// Persist unconfirmed state of the entity.
     fn put_unconfirmed<'a>(&mut self, entity: Unconfirmed<Src>);
     /// Invalidate particular state of the entity.
-    fn invalidate<'a>(&mut self, ver: Src::Version, id: Src::StableId);
+    fn invalidate<'a>(&mut self, ver: Src::Version) -> Option<Src::StableId>;
     /// Invalidate particular state of the entity.
-    fn eliminate<'a>(&mut self, ver: Src::Version, id: Src::StableId);
+    fn eliminate<'a>(&mut self, ver: Src::Version);
     /// False-positive analog of `exists()`.
     fn may_exist<'a>(&self, sid: Src::Version) -> bool;
     fn get_state<'a>(&self, sid: Src::Version) -> Option<Src>;
@@ -118,33 +118,39 @@ where
         self.store.insert(entity.version(), entity);
     }
 
-    fn invalidate(&mut self, sid: T::Version, eid: T::StableId) {
-        let predecessor = self.get_prediction_predecessor(sid);
-        let last_predicted_index_key = index_key(LAST_PREDICTED_PREFIX, eid);
-        let last_confirmed_index_key = index_key(LAST_CONFIRMED_PREFIX, eid);
-        let last_unconfirmed_index_key = index_key(LAST_UNCONFIRMED_PREFIX, eid);
-        if let Some(predecessor) = predecessor {
-            warn!(target: "entity_repo", "invalidating entity: rollback to {:?}", predecessor);
-            warn!(target: "entity_repo", "invalidating entity: rollback to {:?}", predecessor);
-            self.index.insert(last_confirmed_index_key, predecessor);
-        } else {
-            self.index.remove(&last_confirmed_index_key);
+    fn invalidate(&mut self, ver: T::Version) -> Option<T::StableId> {
+        let predecessor = self.get_prediction_predecessor(ver);
+        if let Some(entity) = self.store.remove(&ver) {
+            let id = entity.stable_id();
+            let last_predicted_index_key = index_key(LAST_PREDICTED_PREFIX, id);
+            let last_confirmed_index_key = index_key(LAST_CONFIRMED_PREFIX, id);
+            let last_unconfirmed_index_key = index_key(LAST_UNCONFIRMED_PREFIX, id);
+            if let Some(predecessor) = predecessor {
+                warn!(target: "entity_repo", "invalidating entity: rollback to {:?}", predecessor);
+                warn!(target: "entity_repo", "invalidating entity: rollback to {:?}", predecessor);
+                self.index.insert(last_confirmed_index_key, predecessor);
+            } else {
+                self.index.remove(&last_confirmed_index_key);
+            }
+            self.index.remove(&last_predicted_index_key);
+            self.index.remove(&last_unconfirmed_index_key);
+            self.links.remove(&ver);
+            return Some(id);
         }
-        self.index.remove(&last_predicted_index_key);
-        self.index.remove(&last_unconfirmed_index_key);
-        self.links.remove(&sid);
-        self.store.remove(&sid);
+        None
     }
 
-    fn eliminate(&mut self, ver: T::Version, id: T::StableId) {
-        let last_predicted_index_key = index_key(LAST_PREDICTED_PREFIX, id);
-        let last_confirmed_index_key = index_key(LAST_CONFIRMED_PREFIX, id);
-        let last_unconfirmed_index_key = index_key(LAST_UNCONFIRMED_PREFIX, id);
-        self.index.remove(&last_predicted_index_key);
-        self.index.remove(&last_confirmed_index_key);
-        self.index.remove(&last_unconfirmed_index_key);
-        self.links.remove(&ver);
-        self.store.remove(&ver);
+    fn eliminate(&mut self, ver: T::Version) {
+        if let Some(entity) = self.store.remove(&ver) {
+            let id = entity.stable_id();
+            let last_predicted_index_key = index_key(LAST_PREDICTED_PREFIX, id);
+            let last_confirmed_index_key = index_key(LAST_CONFIRMED_PREFIX, id);
+            let last_unconfirmed_index_key = index_key(LAST_UNCONFIRMED_PREFIX, id);
+            self.index.remove(&last_predicted_index_key);
+            self.index.remove(&last_confirmed_index_key);
+            self.index.remove(&last_unconfirmed_index_key);
+            self.links.remove(&ver);
+        }
     }
 
     fn may_exist(&self, sid: T::Version) -> bool {

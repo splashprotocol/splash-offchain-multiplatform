@@ -70,6 +70,8 @@ pub struct LimitOrder {
     pub cancellation_pkh: Ed25519KeyHash,
     /// Is executor's signature required.
     pub requires_executor_sig: bool,
+    /// Whether the order has just been created.
+    pub virgin: bool,
 }
 
 impl PartialOrd for LimitOrder {
@@ -281,11 +283,11 @@ where
                     .permitted_executors
                     .contains(&ctx.select::<OperatorCred>().into())
             {
-                // beacon must be derived from one of consumed utxos.
-                let valid_beacon = ctx
-                    .select::<ConsumedInputs>()
-                    .find(|o| beacon_from_oref(*o) == conf.beacon);
-                if valid_beacon && execution_budget > conf.cost_per_ex_step {
+                if execution_budget > conf.cost_per_ex_step {
+                    // Fresh beacon must be derived from one of consumed utxos.
+                    let valid_fresh_beacon = ctx
+                        .select::<ConsumedInputs>()
+                        .find(|o| beacon_from_oref(*o) == conf.beacon);
                     info!(target: "offchain", "Obtained Spot order from ledger.");
                     return Some(LimitOrder {
                         beacon: conf.beacon,
@@ -302,6 +304,7 @@ where
                         redeemer_address: conf.redeemer_address,
                         cancellation_pkh: conf.cancellation_pkh,
                         requires_executor_sig: !is_permissionless,
+                        virgin: valid_fresh_beacon,
                     });
                 }
             }

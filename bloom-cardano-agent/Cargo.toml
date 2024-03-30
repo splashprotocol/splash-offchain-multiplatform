@@ -60,4 +60,3 @@ either = "1.9.0"
 [dev-dependencies]
 rocksdb = "0.21.*"
 spectrum-offchain-cardano = { version = "1.0.0", path = "../spectrum-offchain-cardano" }
-test_utils = { version = "0.1.0", path = "../test_utils" }
