@@ -262,6 +262,8 @@ fn beacon_from_oref(oref: OutputRef) -> PolicyId {
     blake2b224(&*bf).into()
 }
 
+const MIN_LOVELACE: u64 = 1_500_000;
+
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for LimitOrder
 where
     C: Has<OperatorCred> + Has<ConsumedInputs> + Has<DeployedScriptHash<{ LimitOrderV1 as u8 }>>,
@@ -273,10 +275,12 @@ where
             let value = repr.value().clone();
             let conf = Datum::try_from_pd(repr.datum()?.into_pd()?)?;
             let total_ada_input = value.amount_of(AssetClass::Native)?;
-            if total_ada_input < conf.tradable_input {
-                return None;
-            }
-            let execution_budget = total_ada_input - conf.tradable_input;
+            let (reserved_lovelace, tradable_lovelace) = match (conf.input, conf.output) {
+                (AssetClass::Native, _) => (MIN_LOVELACE, conf.tradable_input),
+                (_, AssetClass::Native) => (0, 0),
+                _ => (MIN_LOVELACE, 0),
+            };
+            let execution_budget = total_ada_input - reserved_lovelace - tradable_lovelace;
             let is_permissionless = conf.permitted_executors.is_empty();
             if is_permissionless
                 || conf
@@ -309,7 +313,6 @@ where
                 }
             }
         }
-
         None
     }
 }

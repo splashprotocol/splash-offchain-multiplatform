@@ -271,12 +271,8 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
                 _ => unreachable!(),
             },
             Ior::Right(new) => match new {
-                Either::Left(new) => {
-                    self.multi_book.get_mut(pair).add_fragment(new.entity)
-                }
-                Either::Right(new) => {
-                    self.multi_book.get_mut(pair).update_pool(new.entity)
-                }
+                Either::Left(new) => self.multi_book.get_mut(pair).add_fragment(new.entity),
+                Either::Right(new) => self.multi_book.get_mut(pair).update_pool(new.entity),
             },
         }
     }

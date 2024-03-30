@@ -1,5 +1,5 @@
-use std::fmt::{Display, Formatter};
 use serde::{Deserialize, Serialize};
+use std::fmt::{Display, Formatter};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Ior<O1, O2> {
@@ -8,14 +8,14 @@ pub enum Ior<O1, O2> {
     Both(O1, O2),
 }
 
-impl<O1, O2> Display for Ior<O1, O2>{
+impl<O1, O2> Display for Ior<O1, O2> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Ior::Left(_) => f.write_str("Ior::Left(_)"),
             Ior::Right(_) => f.write_str("Ior::Right(_)"),
             Ior::Both(_, _) => f.write_str("Ior::Both(_, _)"),
         }
-    }   
+    }
 }
 
 impl<O1, O2> Ior<O1, O2> {
