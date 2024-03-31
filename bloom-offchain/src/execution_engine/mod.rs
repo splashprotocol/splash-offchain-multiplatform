@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -10,7 +10,7 @@ use futures::channel::mpsc;
 use futures::stream::FusedStream;
 use futures::Stream;
 use futures::{SinkExt, StreamExt};
-use log::{error, trace};
+use log::{error, trace, warn};
 
 use liquidity_book::interpreter::RecipeInterpreter;
 use spectrum_offchain::backlog::HotBacklog;
@@ -123,7 +123,7 @@ where
     SpecInterpreter: SpecializedInterpreter<Pool, SpecOrd, Ver, Txc, Bearer, Ctx> + Unpin + 'a,
     Prover: TxProver<Txc, Tx> + Unpin + 'a,
     Net: Network<Tx, Err> + Clone + 'a,
-    Err: Unpin + Debug + 'a,
+    Err: TryInto<HashSet<Ver>> + Unpin + Debug + 'a,
 {
     let (feedback_out, feedback_in) = mpsc::channel(100);
     let executor = Executor::new(
@@ -169,7 +169,9 @@ pub struct Executor<
     Prover,
     Err,
 > {
+    /// Storage for all on-chain states.
     index: Index,
+    /// Hot storage for resolved states.
     cache: Cache,
     /// Separate TLBs for each pair (for swaps).
     multi_book: MultiPair<Pair, Book, Ctx>,
@@ -236,8 +238,11 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
         }
     }
 
-    fn sync_book(&mut self, pair: &Pair, update: EitherMod<StateUpdate<EvolvingEntity<CO, P, V, B>>>)
-    where
+    fn sync_book(
+        &mut self,
+        pair: &Pair,
+        transition: Ior<Either<Baked<CO, V>, Baked<P, V>>, Either<Baked<CO, V>, Baked<P, V>>>,
+    ) where
         Pair: Copy + Eq + Hash + Display,
         Stab: Copy + Eq + Hash + Debug + Display,
         V: Copy + Eq + Hash + Display,
@@ -250,13 +255,12 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
         Book: ExternalTLBEvents<CO, P> + Maker<Ctx>,
     {
         trace!(target: "executor", "syncing book pair: {}", pair);
-        match self.update_state(update) {
-            None => {}
-            Some(Ior::Left(e)) => match e {
+        match transition {
+            Ior::Left(e) => match e {
                 Either::Left(o) => self.multi_book.get_mut(pair).remove_fragment(o.entity),
                 Either::Right(p) => self.multi_book.get_mut(pair).remove_pool(p.entity),
             },
-            Some(Ior::Both(old, new)) => match (old, new) {
+            Ior::Both(old, new) => match (old, new) {
                 (Either::Left(old), Either::Left(new)) => {
                     self.multi_book.get_mut(pair).remove_fragment(old.entity);
                     self.multi_book.get_mut(pair).add_fragment(new.entity);
@@ -266,16 +270,59 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
                 }
                 _ => unreachable!(),
             },
-            Some(Ior::Right(new)) => match new {
-                Either::Left(new) => {
-                    trace!(target: "executor", "sync_book: Left({:?})", new.entity);
-                    self.multi_book.get_mut(pair).add_fragment(new.entity)
-                }
-                Either::Right(new) => {
-                    trace!(target: "executor", "sync_book: Right({:?})", new.entity);
-                    self.multi_book.get_mut(pair).update_pool(new.entity)
-                }
+            Ior::Right(new) => match new {
+                Either::Left(new) => self.multi_book.get_mut(pair).add_fragment(new.entity),
+                Either::Right(new) => self.multi_book.get_mut(pair).update_pool(new.entity),
             },
+        }
+    }
+
+    fn cache<T>(&mut self, new_entity_state: Bundled<T, B>) -> Option<Ior<T, T>>
+    where
+        Stab: Copy + Eq + Hash + Display,
+        V: Copy + Eq + Hash + Display,
+        T: EntitySnapshot<StableId = Stab, Version = V> + Clone,
+        B: Clone,
+        Cache: KvStore<Stab, Bundled<T, B>>,
+    {
+        if let Some(Bundled(prev_best_state, _)) = self
+            .cache
+            .insert(new_entity_state.stable_id(), new_entity_state.clone())
+        {
+            Some(Ior::Both(prev_best_state, new_entity_state.0))
+        } else {
+            Some(Ior::Right(new_entity_state.0))
+        }
+    }
+
+    fn invalidate_bearers(&mut self, pair: &Pair, bearers: HashSet<V>)
+    where
+        Pair: Copy + Eq + Hash + Display,
+        Stab: Copy + Eq + Hash + Debug + Display,
+        V: Copy + Eq + Hash + Display,
+        B: Clone + Debug,
+        Ctx: Clone,
+        CO: Stable<StableId = Stab> + Clone + Debug,
+        P: Stable<StableId = Stab> + Clone + Debug,
+        Ix: StateIndex<EvolvingEntity<CO, P, V, B>>,
+        Cache: KvStore<Stab, EvolvingEntity<CO, P, V, B>>,
+        Book: ExternalTLBEvents<CO, P> + Maker<Ctx>,
+    {
+        for bearer in bearers {
+            if let Some(stable_id) = self.index.invalidate(bearer) {
+                trace!("Invalidating bearer of {}", stable_id);
+                let maybe_transition = match resolve_source_state(stable_id, &self.index) {
+                    None => self
+                        .cache
+                        .remove(stable_id)
+                        .map(|Bundled(elim_state, _)| Ior::Left(elim_state)),
+                    Some(latest_state) => self.cache(latest_state),
+                };
+                if let Some(tr) = maybe_transition {
+                    trace!("Resulting transition is {}", tr);
+                    self.sync_book(pair, tr)
+                }
+            }
         }
     }
 
@@ -305,26 +352,18 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
                 }
                 // todo: resolving can be simplified if we don't use predictions.
                 match resolve_source_state(id, &self.index) {
-                    Some(latest_state) => {
-                        if let Some(Bundled(prev_best_state, _)) =
-                            self.cache.insert(latest_state.stable_id(), latest_state.clone())
-                        {
-                            Some(Ior::Both(prev_best_state, latest_state.0))
-                        } else {
-                            Some(Ior::Right(latest_state.0))
-                        }
-                    }
+                    Some(latest_state) => self.cache(latest_state),
                     None => unreachable!(),
                 }
             }
             StateUpdate::Transition(Ior::Left(st)) => {
-                self.index.eliminate(st.version(), st.stable_id());
+                self.index.eliminate(st.version());
                 Some(Ior::Left(st.0))
             }
             StateUpdate::TransitionRollback(Ior::Left(st)) => {
                 let id = st.stable_id();
                 trace!("Rolling back state {}", id);
-                self.index.invalidate(st.version(), id);
+                self.index.invalidate(st.version());
                 Some(Ior::Left(st.0))
             }
         }
@@ -382,7 +421,7 @@ where
     RecIr: RecipeInterpreter<CO, P, C, Ver, B, Txc> + Unpin,
     SpecIr: SpecializedInterpreter<P, SO, Ver, Txc, B, C> + Unpin,
     Prov: TxProver<Txc, Tx> + Unpin,
-    Err: Unpin + Debug,
+    Err: TryInto<HashSet<Ver>> + Unpin + Debug,
 {
     type Item = Tx;
 
@@ -417,8 +456,7 @@ where
                             }
                         },
                         Err(err) => {
-                            error!("TX failed {:?}", err);
-                            // todo: invalidate missing bearers.
+                            warn!("TX failed {:?}", err);
                             match pending_effects {
                                 PendingEffects::FromLiquidityBook(_) => {
                                     self.multi_book.get_mut(&pair).on_recipe_failed();
@@ -426,6 +464,9 @@ where
                                 PendingEffects::FromBacklog(_, consumed_order) => {
                                     self.multi_backlog.get_mut(&pair).recharge(consumed_order);
                                 }
+                            }
+                            if let Ok(missing_bearers) = err.try_into() {
+                                self.invalidate_bearers(&pair, missing_bearers);
                             }
                         }
                     },
@@ -438,7 +479,11 @@ where
             // Prioritize external updates over local work.
             if let Poll::Ready(Some((pair, update))) = Stream::poll_next(Pin::new(&mut self.upstream), cx) {
                 match update {
-                    Either::Left(evolving_entity) => self.sync_book(&pair, evolving_entity),
+                    Either::Left(evolving_entity) => {
+                        if let Some(upd) = self.update_state(evolving_entity) {
+                            self.sync_book(&pair, upd)
+                        }
+                    }
                     Either::Right(atomic_entity) => self.sync_backlog(&pair, atomic_entity),
                 }
                 self.focus_set.insert(pair);
@@ -507,7 +552,7 @@ where
     RecIr: RecipeInterpreter<CO, P, C, Ver, B, Txc> + Unpin,
     SpecIr: SpecializedInterpreter<P, SO, Ver, Txc, B, C> + Unpin,
     Prov: TxProver<Txc, Tx> + Unpin,
-    Err: Unpin + Debug,
+    Err: TryInto<HashSet<Ver>> + Unpin + Debug,
 {
     fn is_terminated(&self) -> bool {
         false

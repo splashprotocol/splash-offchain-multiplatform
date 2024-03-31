@@ -70,6 +70,8 @@ pub struct LimitOrder {
     pub cancellation_pkh: Ed25519KeyHash,
     /// Is executor's signature required.
     pub requires_executor_sig: bool,
+    /// Whether the order has just been created.
+    pub virgin: bool,
 }
 
 impl PartialOrd for LimitOrder {
@@ -260,32 +262,34 @@ fn beacon_from_oref(oref: OutputRef) -> PolicyId {
     blake2b224(&*bf).into()
 }
 
+const MIN_LOVELACE: u64 = 1_500_000;
+
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for LimitOrder
 where
     C: Has<OperatorCred> + Has<ConsumedInputs> + Has<DeployedScriptHash<{ LimitOrderV1 as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
-        trace!(target: "offchain", "LimitOrder::try_from_ledger");
         if test_address(repr.address(), ctx) {
-            info!(target: "offchain", "LimitOrder address coincides");
             let value = repr.value().clone();
             let conf = Datum::try_from_pd(repr.datum()?.into_pd()?)?;
             let total_ada_input = value.amount_of(AssetClass::Native)?;
-            if total_ada_input < conf.tradable_input {
-                return None;
-            }
-            let execution_budget = total_ada_input - conf.tradable_input;
+            let (reserved_lovelace, tradable_lovelace) = match (conf.input, conf.output) {
+                (AssetClass::Native, _) => (MIN_LOVELACE, conf.tradable_input),
+                (_, AssetClass::Native) => (0, 0),
+                _ => (MIN_LOVELACE, 0),
+            };
+            let execution_budget = total_ada_input - reserved_lovelace - tradable_lovelace;
             let is_permissionless = conf.permitted_executors.is_empty();
             if is_permissionless
                 || conf
                     .permitted_executors
                     .contains(&ctx.select::<OperatorCred>().into())
             {
-                // beacon must be derived from one of consumed utxos.
-                let valid_beacon = ctx
-                    .select::<ConsumedInputs>()
-                    .find(|o| beacon_from_oref(*o) == conf.beacon);
-                if valid_beacon && execution_budget > conf.cost_per_ex_step {
+                if execution_budget > conf.cost_per_ex_step {
+                    // Fresh beacon must be derived from one of consumed utxos.
+                    let valid_fresh_beacon = ctx
+                        .select::<ConsumedInputs>()
+                        .find(|o| beacon_from_oref(*o) == conf.beacon);
                     info!(target: "offchain", "Obtained Spot order from ledger.");
                     return Some(LimitOrder {
                         beacon: conf.beacon,
@@ -302,11 +306,11 @@ where
                         redeemer_address: conf.redeemer_address,
                         cancellation_pkh: conf.cancellation_pkh,
                         requires_executor_sig: !is_permissionless,
+                        virgin: valid_fresh_beacon,
                     });
                 }
             }
         }
-
         None
     }
 }

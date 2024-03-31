@@ -50,6 +50,7 @@ where
     }
 
     pub fn remove_fragment(&mut self, fr: Fr) {
+        trace!("Removing fragment");
         self.fragments.remove_fragment(fr);
     }
 
@@ -564,12 +565,7 @@ where
 
     fn remove_fragment(&mut self, fr: Fr) {
         if let Some(lower_bound) = fr.time_bounds().lower_bound() {
-            if lower_bound <= self.time_now {
-                match fr.side() {
-                    SideM::Bid => self.active.bids.remove(&fr),
-                    SideM::Ask => self.active.asks.remove(&fr),
-                };
-            } else {
+            if lower_bound > self.time_now {
                 match self.inactive.entry(lower_bound) {
                     btree_map::Entry::Occupied(e) => {
                         match fr.side() {
@@ -579,8 +575,14 @@ where
                     }
                     btree_map::Entry::Vacant(_) => {}
                 }
+                return;
             }
         }
+        trace!("Removing fragment from active frontier");
+        match fr.side() {
+            SideM::Bid => self.active.bids.remove(&fr),
+            SideM::Ask => self.active.asks.remove(&fr),
+        };
     }
 
     fn add_fragment(&mut self, fr: Fr) {

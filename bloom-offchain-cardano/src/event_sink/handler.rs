@@ -255,7 +255,6 @@ where
                     produced_entities.insert(entity_id, entity);
                 }
                 None => {
-                    trace!(target: "offchain", "extract_atomic_transitions: NO entity found");
                     non_processed_outputs.push(o);
                 }
             }
@@ -332,7 +331,6 @@ where
                 produced_entities.insert(entity_id, entity);
             }
             None => {
-                trace!(target: "offchain", "extract_persistent_transitions: NO entity found");
                 non_processed_outputs.push(o);
             }
         }

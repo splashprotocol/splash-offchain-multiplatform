@@ -55,7 +55,6 @@ where
         + Has<DeployedScriptHash<{ ConstFnPoolRedeem as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
-        trace!(target: "offchain", "AtomicCardanoEntity::try_from_ledger");
         ClassicalAMMOrder::try_from_ledger(repr, ctx).map(|inner| {
             Self(Bundled(
                 inner,
@@ -109,7 +108,6 @@ where
         + Has<DeployedScriptHash<{ LimitOrderV1 as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
-        trace!(target: "offchain", "CardanoEntity::try_from_ledger");
         <Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>>::try_from_ledger(repr, ctx).map(
             |inner| {
                 Self(Bundled(

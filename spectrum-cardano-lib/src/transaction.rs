@@ -1,16 +1,10 @@
-use std::ops::{AddAssign, SubAssign};
-
 use cml_chain::address::Address;
-use cml_chain::assets::{AssetName, PositiveCoin};
 use cml_chain::certs::{Credential, StakeCredential};
 use cml_chain::plutus::PlutusData;
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, TransactionOutput};
-use cml_chain::{PolicyId, Value};
-use cml_core::ordered_hash_map::OrderedHashMap;
+use cml_chain::Value;
 use cml_crypto::ScriptHash;
 use cml_multi_era::babbage::{BabbageFormatTxOut, BabbageScriptRef, BabbageTransactionOutput};
-use linked_hash_map::Entry;
-use log::trace;
 
 use crate::address::AddressExtension;
 use crate::AssetClass;
@@ -29,12 +23,10 @@ pub trait TransactionOutputExtension {
     fn update_value(&mut self, value: Value);
     fn script_ref(&self) -> Option<&BabbageScriptRef>;
     fn sub_asset(&mut self, asset: AssetClass, amount: u64) {
-        println!("Sub: {}: - {}", asset, amount);
         let updated_value = self.value().checked_sub(&asset.into_value(amount)).unwrap();
         *self.value_mut() = updated_value;
     }
     fn add_asset(&mut self, asset: AssetClass, amount: u64) {
-        println!("Add: {}: + {}", asset, amount);
         let updated_value = self.value().checked_add(&asset.into_value(amount)).unwrap();
         *self.value_mut() = updated_value;
     }

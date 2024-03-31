@@ -11,8 +11,8 @@ members = [
     "bloom-offchain-cardano",
     "bloom-cardano-agent",
     "bloom-derivation",
-    "cardano-offchain-stableswap"
-, "test_utils"]
+    "cardano-offchain-stableswap",
+]
 
 [profile.release]
 # Tell `rustc` to optimize for small code size.

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 
 use async_stream::stream;
@@ -8,7 +9,10 @@ use log::trace;
 use pallas_network::miniprotocols::localtxsubmission;
 
 use cardano_submit_api::client::{Error, LocalTxSubmissionClient};
+use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::network::Network;
+
+use crate::node_error::transcribe_bad_inputs_error;
 
 pub struct TxSubmissionAgent<const ERA: u16, Tx> {
     client: LocalTxSubmissionClient<ERA, Tx>,
@@ -46,9 +50,17 @@ impl From<SubmissionResult> for Result<(), TxRejected> {
     fn from(value: SubmissionResult) -> Self {
         match value {
             SubmissionResult::Ok => Ok(()),
-            SubmissionResult::TxRejectedResult { rejected_bytes } => Err(TxRejected {
-                msg_bytes: rejected_bytes,
-            }),
+            SubmissionResult::TxRejectedResult {
+                rejected_bytes: Some(error),
+            } => {
+                let missing_inputs = transcribe_bad_inputs_error(error);
+                Err(if !missing_inputs.is_empty() {
+                    TxRejected::MissingInputs(missing_inputs)
+                } else {
+                    TxRejected::Unknown
+                })
+            }
+            _ => Err(TxRejected::Unknown),
         }
     }
 }
@@ -82,15 +94,26 @@ where
 }
 
 #[derive(Debug)]
-pub struct TxRejected {
-    pub msg_bytes: Option<Vec<u8>>,
+pub enum TxRejected {
+    MissingInputs(HashSet<OutputRef>),
+    Unknown,
+}
+
+impl TryFrom<TxRejected> for HashSet<OutputRef> {
+    type Error = &'static str;
+    fn try_from(value: TxRejected) -> Result<Self, Self::Error> {
+        match value {
+            TxRejected::MissingInputs(inputs) => Ok(inputs),
+            TxRejected::Unknown => Err("Unknown rejection"),
+        }
+    }
 }
 
 impl Display for TxRejected {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match &self.msg_bytes.clone() {
-            None => write!(f, "TxRejected (None)"),
-            Some(bytes) => write!(f, "TxRejected (Hex: {})", hex::encode(bytes)),
+        match &self {
+            TxRejected::MissingInputs(inputs) => write!(f, "TxRejected::MissingInputs({:?})", inputs),
+            TxRejected::Unknown => write!(f, "TxRejected::Unknown"),
         }
     }
 }

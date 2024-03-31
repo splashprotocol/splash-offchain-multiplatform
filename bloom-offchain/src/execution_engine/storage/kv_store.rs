@@ -4,6 +4,7 @@ use std::hash::Hash;
 pub trait KvStore<K, V> {
     fn insert(&mut self, key: K, value: V) -> Option<V>;
     fn get(&self, key: K) -> Option<V>;
+    fn remove(&mut self, key: K) -> Option<V>;
 }
 
 #[derive(Debug, Clone)]
@@ -26,5 +27,9 @@ where
 
     fn get(&self, key: K) -> Option<V> {
         self.0.get(&key).cloned()
+    }
+
+    fn remove(&mut self, key: K) -> Option<V> {
+        self.0.remove(&key)
     }
 }
