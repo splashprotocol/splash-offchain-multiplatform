@@ -6,6 +6,7 @@ use bignumber::BigNumber;
 use num_rational::Ratio;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 
+use log::{info, log};
 use std::ops::{Add, Div, Mul};
 
 pub fn balance_cfmm_output_amount<X, Y>(
@@ -52,5 +53,10 @@ pub fn balance_cfmm_output_amount<X, Y>(
     let quote_new_part = BigNumber::from(invariant as f64).div(base_new_part);
     // quote_amount = quote_reserves - quote_new_part ^ (weight_den / quote_weight)
     let delta_y = quote_new_part.pow(&BigNumber::from(WEIGHT_FEE_DEN).div(BigNumber::from(quote_weight)));
-    TaggedAmount::new(round_big_number(delta_y, 0))
+    info!("Test y {}", round_big_number(delta_y.clone(), 0));
+    info!(
+        "Test y u64 {}",
+        round_big_number(delta_y.clone(), 0).as_u64().unwrap()
+    );
+    TaggedAmount::new(round_big_number(delta_y, 0).as_u64().unwrap())
 }

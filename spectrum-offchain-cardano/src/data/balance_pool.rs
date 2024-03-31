@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 use std::ops::{Add, Div, Mul, Sub};
+use std::str::FromStr;
 
 use bignumber::BigNumber;
 use cml_chain::address::Address;
@@ -12,6 +13,7 @@ use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_core::serialization::LenEncoding::{Canonical, Indefinite};
 use cml_multi_era::babbage::BabbageTransactionOutput;
+use log::info;
 use num_integer::Roots;
 use num_rational::Ratio;
 
@@ -159,7 +161,7 @@ impl BalancePool {
         base_asset_ac: TaggedAssetClass<Rx>,
         base_asset_in: TaggedAmount<Rx>,
         precision: usize,
-    ) -> (u64, u64) {
+    ) -> (BigInteger, BigInteger) {
         let (asset_reserves, asset_weight, lp_fee) = if base_asset_ac.untag() == self.asset_x.untag() {
             (
                 self.reserves_x.untag() as f64,
@@ -197,16 +199,17 @@ impl BalancePool {
         quote_asset_ac: TaggedAssetClass<Ry>,
         quote_asset_out: TaggedAmount<Ry>,
         precision: usize,
-    ) -> (u64, u64) {
+    ) -> (BigInteger, BigInteger) {
         let (asset_reserves, asset_weight) = if quote_asset_ac.untag() == self.asset_x.untag() {
             (self.reserves_x.untag() as f64, self.weight_x as f64)
         } else {
             (self.reserves_y.untag() as f64, self.weight_y as f64)
         };
-
-        let new_token_value = BigNumber::from(asset_reserves)
-            .add(BigNumber::from(asset_reserves).sub(BigNumber::from(quote_asset_out.untag() as f64)));
+        info!("asset_reserves {}", asset_reserves);
+        info!("quote_asset_out {}", quote_asset_out.untag());
+        let new_token_value = BigNumber::from(asset_reserves).add(BigNumber::from(asset_reserves));
         // g = newTokenValue ^ (tokenWeight / commonWeightDenum)
+        info!("new_token_value {}", new_token_value);
         let new_g_raw =
             new_token_value.pow(&BigNumber::from(asset_weight).div(BigNumber::from(WEIGHT_FEE_DEN)));
         // t = newTokenValue ^ (1 / commonWeightDenum)
@@ -224,7 +227,7 @@ impl BalancePool {
         token_in_asset_ac: AssetClass,
         token_in: u64,
         precision: usize,
-    ) -> (u64, u64) {
+    ) -> (BigInteger, BigInteger) {
         let (asset_reserves, asset_weight) = if token_in_asset_ac == self.asset_x.untag() {
             (self.reserves_x.untag() as f64, self.weight_x as f64)
         } else {
@@ -251,7 +254,7 @@ impl BalancePool {
         token_in_asset_ac: AssetClass,
         token_in: u64,
         precision: usize,
-    ) -> (u64, u64) {
+    ) -> (BigInteger, BigInteger) {
         let (asset_reserves, asset_weight) = if token_in_asset_ac == self.asset_x.untag() {
             (self.reserves_x.untag() as f64, self.weight_x as f64)
         } else {
@@ -279,7 +282,7 @@ impl BalancePool {
         base_asset_in: TaggedAmount<Rx>,
         quote_asset_ac: TaggedAssetClass<Ry>,
         quote_asset_out: TaggedAmount<Ry>,
-    ) -> [u64; 4] {
+    ) -> [BigInteger; 4] {
         let x_length = self.reserves_x.untag().to_string().len();
         let y_length = self.reserves_y.untag().to_string().len();
 
@@ -306,7 +309,7 @@ impl BalancePool {
         token_x_in: TaggedAmount<Rx>,
         token_y: TaggedAssetClass<Ry>,
         token_y_in: TaggedAmount<Ry>,
-    ) -> [u64; 4] {
+    ) -> [BigInteger; 4] {
         let x_length = self.reserves_x.untag().to_string().len();
         let y_length = self.reserves_y.untag().to_string().len();
 
@@ -327,7 +330,7 @@ impl BalancePool {
         token_x_in: TaggedAmount<Rx>,
         token_y: TaggedAssetClass<Ry>,
         token_y_in: TaggedAmount<Ry>,
-    ) -> [u64; 4] {
+    ) -> [BigInteger; 4] {
         let x_length = self.reserves_x.untag().to_string().len();
         let y_length = self.reserves_y.untag().to_string().len();
 
@@ -343,7 +346,11 @@ impl BalancePool {
     }
 
     // [gx, tx, gy, ty]
-    fn create_redeemer(cfmmpool_action: CFMMPoolAction, pool_idx: u64, new_g_t: [u64; 4]) -> PlutusData {
+    fn create_redeemer(
+        cfmmpool_action: CFMMPoolAction,
+        pool_idx: u64,
+        new_g_t: [BigInteger; 4],
+    ) -> PlutusData {
         /*
           Original structure of pool redeemer
             [ "action" ':= BalancePoolAction
@@ -358,12 +365,12 @@ impl BalancePool {
         let action_plutus_data = cfmmpool_action.to_plutus_data();
         let self_ix_pd = PlutusData::Integer(BigInteger::from(pool_idx));
         let g_list_pd = PlutusData::new_list(Vec::from([
-            PlutusData::Integer(BigInteger::from(new_g_t[0])),
-            PlutusData::Integer(BigInteger::from(new_g_t[2])),
+            PlutusData::Integer(new_g_t[0].clone()),
+            PlutusData::Integer(new_g_t[2].clone()),
         ]));
         let t_list_pd = PlutusData::new_list(Vec::from([
-            PlutusData::Integer(BigInteger::from(new_g_t[1])),
-            PlutusData::Integer(BigInteger::from(new_g_t[3])),
+            PlutusData::Integer(new_g_t[1].clone()),
+            PlutusData::Integer(new_g_t[3].clone()),
         ]));
 
         PlutusData::ConstrPlutusData(ConstrPlutusData {
@@ -518,7 +525,7 @@ impl BalancePoolRedeemer {
             .untag()
             .abs_diff(self.prev_pool_state.reserves_y.untag());
 
-        let gt_list: [u64; 4] = match self.action {
+        let gt_list: [BigInteger; 4] = match self.action {
             CFMMPoolAction::Swap => {
                 let (base_asset_ac, base_asset, quote_asset_ac, quote_asset) =
                     // x -> y swap
@@ -555,12 +562,20 @@ impl BalancePoolRedeemer {
     }
 }
 
-pub fn round_big_number(orig_value: BigNumber, precision: usize) -> u64 {
+pub fn round_big_number(orig_value: BigNumber, precision: usize) -> BigInteger {
+    info!("Orig value: {}", orig_value.to_string());
     let int_part = orig_value.to_string().split(".").nth(0).unwrap().len();
-    orig_value.to_string().replace(".", "")[..(int_part + precision)]
-        .to_string()
-        .parse::<u64>()
-        .unwrap()
+    info!("Orig value: {} int_part", int_part.to_string());
+    info!(
+        "replaced {}",
+        orig_value.to_string().replace(".", "")[..(int_part + precision)].to_string()
+    );
+    BigInteger::from_str(
+        orig_value.to_string().replace(".", "")[..(int_part + precision)]
+            .to_string()
+            .as_str(),
+    )
+    .unwrap()
 }
 
 impl AMMOps for BalancePool {
