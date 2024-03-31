@@ -395,7 +395,7 @@ where
                 reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
                 weight_x: conf.asset_x_weight,
                 reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
-                weight_y: conf.asset_x_weight,
+                weight_y: conf.asset_y_weight,
                 liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
                 asset_x: conf.asset_x,
                 asset_y: conf.asset_y,
@@ -641,6 +641,8 @@ impl Pool for BalancePool {
     }
 
     fn swap(mut self, input: Side<u64>) -> (u64, Self) {
+        println!("Pool: {:?}", self);
+        println!("Input: {:?}", input);
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, quote] = order_canonical(x, y);
@@ -652,6 +654,8 @@ impl Pool for BalancePool {
                 .output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
                 .untag(),
         };
+        println!("Base: {}, Quote: {}", base, quote);
+        println!("Calculated output: {}", output);
         let (base_reserves, quote_reserves) = if x == base {
             (self.reserves_x.as_mut(), self.reserves_y.as_mut())
         } else {
@@ -752,17 +756,46 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
 mod tests {
     use cml_chain::plutus::PlutusData;
     use cml_chain::Deserialize;
+    use cml_crypto::ScriptHash;
+    use num_rational::Ratio;
+    use bloom_offchain::execution_engine::liquidity_book::pool::Pool;
+    use bloom_offchain::execution_engine::liquidity_book::side::Side;
+    use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
 
     use spectrum_cardano_lib::types::TryFromPData;
 
-    use crate::data::balance_pool::BalancePoolConfig;
+    use crate::data::balance_pool::{BalancePool, BalancePoolConfig, BalancePoolVer};
+    use crate::data::PoolId;
 
     const DATUM_SAMPLE: &str = "d8799fd8799f581cdd061b480daddd9a833d2477c791356be4e134a433e19df7eb18be10504f534f43494554595f4144415f4e4654ffd8799f4040ff08d8799f581c279f842c33eed9054b9e3c70cd6a3b32298259c24b78b895cb41d91a4454554e41ff02d8799f581cc44de4596c7f4d600b631fab7ef1363331168463d4229cbc75ca18894c4b534f43494554595f5f4c51ff1a00018574181e000080581cdb73d7b28075e8869bb862857ded32d9b6fe9420d95aa94f5d34f80a01ff";
 
     #[test]
-    fn parse_balance_pool_datum_mainnet() {
+    fn parse_balance_pool_datum() {
         let pd = PlutusData::from_cbor_bytes(&*hex::decode(DATUM_SAMPLE).unwrap()).unwrap();
         let maybe_conf = BalancePoolConfig::try_from_pd(pd);
         assert!(maybe_conf.is_some())
+    }
+    
+    #[test]
+    fn swap() {
+        let pool = BalancePool {
+            id: PoolId::from((ScriptHash::from([162, 206, 112, 95, 150, 240, 52, 167, 61, 102, 158, 92, 11, 47, 25, 41, 48, 224, 188, 211, 138, 203, 127, 107, 246, 89, 115, 157]), AssetName::from((3, [110, 102, 116, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])))),
+            reserves_x: TaggedAmount::new(100000000),
+            weight_x: 2,
+            reserves_y: TaggedAmount::new(100000000),
+            weight_y: 8,
+            liquidity: TaggedAmount::new(0),
+            asset_x: TaggedAssetClass::new(AssetClass::Native),
+            asset_y: TaggedAssetClass::new(AssetClass::Token((ScriptHash::from([75, 52, 89, 253, 24, 161, 219, 171, 226, 7, 205, 25, 201, 149, 26, 159, 172, 159, 92, 15, 156, 56, 78, 61, 151, 239, 186, 38]), AssetName::from((5, [116, 101, 115, 116, 67, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]))))),
+            asset_lq: TaggedAssetClass::new(AssetClass::Token((ScriptHash::from([114, 191, 27, 172, 195, 20, 1, 41, 111, 158, 228, 210, 254, 123, 132, 165, 36, 56, 38, 251, 3, 233, 206, 25, 51, 218, 254, 192]), AssetName::from((2, [108, 113, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]))))),
+            lp_fee_x: Ratio::new_raw(99970, 100000),
+            lp_fee_y: Ratio::new_raw(99970,  100000),
+            treasury_fee: Ratio::new_raw(0,  1),
+            treasury_x: TaggedAmount::new(0),
+            treasury_y: TaggedAmount::new(0),
+            invariant: 100000000,
+            ver: BalancePoolVer::V1,
+        };
+        let result = pool.swap(Side::Ask(100000000));
     }
 }
