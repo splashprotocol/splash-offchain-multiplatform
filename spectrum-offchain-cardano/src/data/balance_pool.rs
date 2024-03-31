@@ -556,7 +556,8 @@ impl BalancePoolRedeemer {
 }
 
 pub fn round_big_number(orig_value: BigNumber, precision: usize) -> u64 {
-    orig_value.to_string().replace(".", "")[..(precision + 15)]
+    let int_part = orig_value.to_string().split(".").nth(0).unwrap().len();
+    orig_value.to_string().replace(".", "")[..(int_part + precision)]
         .to_string()
         .parse::<u64>()
         .unwrap()
@@ -754,12 +755,12 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
 }
 
 mod tests {
+    use bloom_offchain::execution_engine::liquidity_book::pool::Pool;
+    use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use cml_chain::plutus::PlutusData;
     use cml_chain::Deserialize;
     use cml_crypto::ScriptHash;
     use num_rational::Ratio;
-    use bloom_offchain::execution_engine::liquidity_book::pool::Pool;
-    use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
 
     use spectrum_cardano_lib::types::TryFromPData;
@@ -775,22 +776,58 @@ mod tests {
         let maybe_conf = BalancePoolConfig::try_from_pd(pd);
         assert!(maybe_conf.is_some())
     }
-    
+
     #[test]
     fn swap() {
         let pool = BalancePool {
-            id: PoolId::from((ScriptHash::from([162, 206, 112, 95, 150, 240, 52, 167, 61, 102, 158, 92, 11, 47, 25, 41, 48, 224, 188, 211, 138, 203, 127, 107, 246, 89, 115, 157]), AssetName::from((3, [110, 102, 116, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])))),
+            id: PoolId::from((
+                ScriptHash::from([
+                    162, 206, 112, 95, 150, 240, 52, 167, 61, 102, 158, 92, 11, 47, 25, 41, 48, 224, 188,
+                    211, 138, 203, 127, 107, 246, 89, 115, 157,
+                ]),
+                AssetName::from((
+                    3,
+                    [
+                        110, 102, 116, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0,
+                    ],
+                )),
+            )),
             reserves_x: TaggedAmount::new(100000000),
             weight_x: 2,
             reserves_y: TaggedAmount::new(100000000),
             weight_y: 8,
             liquidity: TaggedAmount::new(0),
             asset_x: TaggedAssetClass::new(AssetClass::Native),
-            asset_y: TaggedAssetClass::new(AssetClass::Token((ScriptHash::from([75, 52, 89, 253, 24, 161, 219, 171, 226, 7, 205, 25, 201, 149, 26, 159, 172, 159, 92, 15, 156, 56, 78, 61, 151, 239, 186, 38]), AssetName::from((5, [116, 101, 115, 116, 67, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]))))),
-            asset_lq: TaggedAssetClass::new(AssetClass::Token((ScriptHash::from([114, 191, 27, 172, 195, 20, 1, 41, 111, 158, 228, 210, 254, 123, 132, 165, 36, 56, 38, 251, 3, 233, 206, 25, 51, 218, 254, 192]), AssetName::from((2, [108, 113, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]))))),
+            asset_y: TaggedAssetClass::new(AssetClass::Token((
+                ScriptHash::from([
+                    75, 52, 89, 253, 24, 161, 219, 171, 226, 7, 205, 25, 201, 149, 26, 159, 172, 159, 92, 15,
+                    156, 56, 78, 61, 151, 239, 186, 38,
+                ]),
+                AssetName::from((
+                    5,
+                    [
+                        116, 101, 115, 116, 67, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0,
+                    ],
+                )),
+            ))),
+            asset_lq: TaggedAssetClass::new(AssetClass::Token((
+                ScriptHash::from([
+                    114, 191, 27, 172, 195, 20, 1, 41, 111, 158, 228, 210, 254, 123, 132, 165, 36, 56, 38,
+                    251, 3, 233, 206, 25, 51, 218, 254, 192,
+                ]),
+                AssetName::from((
+                    2,
+                    [
+                        108, 113, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0,
+                    ],
+                )),
+            ))),
             lp_fee_x: Ratio::new_raw(99970, 100000),
-            lp_fee_y: Ratio::new_raw(99970,  100000),
-            treasury_fee: Ratio::new_raw(0,  1),
+            lp_fee_y: Ratio::new_raw(99970, 100000),
+            treasury_fee: Ratio::new_raw(0, 1),
             treasury_x: TaggedAmount::new(0),
             treasury_y: TaggedAmount::new(0),
             invariant: 100000000,
