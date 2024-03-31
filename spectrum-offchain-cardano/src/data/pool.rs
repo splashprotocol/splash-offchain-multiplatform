@@ -186,20 +186,6 @@ pub struct AssetDeltas {
     pub asset_to_add_to: AssetClass,
 }
 
-// impl TryFromLedger<BabbageTransactionOutput, OutputRef> for AnyPool {
-//     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: OutputRef) -> Option<Self> {
-//         if let Some(pool_ver) = PoolVer::try_from_address(repr.address()) {
-//             return match pool_ver {
-//                 PoolVer::V1 | PoolVer::V2 | PoolVer::FeeSwitch | PoolVer::FeeSwitchBiDirFee => {
-//                     CFMMPool::try_from_ledger(repr, ctx).map(PureCFMM)
-//                 }
-//                 PoolVer::BalancePool => BalancePool::try_from_ledger(repr, ctx).map(BalancedCFMM),
-//             };
-//         }
-//         None
-//     }
-// }
-
 impl Pool for AnyPool {
     fn static_price(&self) -> AbsolutePrice {
         match self {

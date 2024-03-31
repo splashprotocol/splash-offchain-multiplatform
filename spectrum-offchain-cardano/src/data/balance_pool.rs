@@ -1,54 +1,49 @@
+use std::fmt::Debug;
+use std::ops::{Add, Div, Mul, Sub};
+
 use bignumber::BigNumber;
-use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
-use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
-use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
 use cml_chain::plutus::utils::ConstrPlutusDataEncoding;
-use cml_chain::plutus::PlutusData::Integer;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_core::serialization::LenEncoding::{Canonical, Indefinite};
 use cml_multi_era::babbage::BabbageTransactionOutput;
+use num_integer::Roots;
 use num_rational::Ratio;
-use std::fmt::Debug;
-use std::ops::{Add, Div, Mul, Sub};
-use type_equalities::IsEqual;
 
-use crate::constants::{ADDITIONAL_ROUND_PRECISION, FEE_DEN, MAX_LQ_CAP, WEIGHT_FEE_DEN};
-
+use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
+use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
+use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension};
 use spectrum_cardano_lib::plutus_data::{IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
-
+use spectrum_cardano_lib::{AssetClass, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
-use crate::data::cfmm_pool::{AMMOps, ConstFnPoolVer};
+use crate::constants::{ADDITIONAL_ROUND_PRECISION, FEE_DEN, MAX_LQ_CAP, WEIGHT_FEE_DEN};
+use crate::data::cfmm_pool::AMMOps;
 use crate::data::deposit::ClassicalOnChainDeposit;
-use crate::data::limit_swap::ClassicalOnChainLimitSwap;
-use crate::data::operation_output::{DepositOutput, RedeemOutput, SwapOutput};
+use crate::data::operation_output::{DepositOutput, RedeemOutput};
 use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
 use crate::data::pair::order_canonical;
-use crate::data::pool::AnyPool::BalancedCFMM;
 use crate::data::pool::{
     ApplyOrder, ApplyOrderError, AssetDeltas, CFMMPoolAction, ImmutablePoolUtxo, Lq, Rx, Ry,
 };
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
-use crate::deployment::ProtocolValidator::{
-    BalanceFnPoolV1, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolV1, ConstFnPoolV2,
-};
+use crate::deployment::ProtocolValidator::BalanceFnPoolV1;
 use crate::deployment::{DeployedScriptHash, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::pool_math::balance_math::balance_cfmm_output_amount;
 use crate::pool_math::cfmm_math::{classic_cfmm_reward_lp, classic_cfmm_shares_amount};
 
+#[derive(Debug)]
 pub struct BalancePoolConfig {
     pub pool_nft: TaggedAssetClass<PoolNft>,
     pub asset_x: TaggedAssetClass<Rx>,
@@ -393,30 +388,26 @@ where
         if let Some(pool_ver) = BalancePoolVer::try_from_address(repr.address(), ctx) {
             let value = repr.value();
             let pd = repr.datum().clone()?.into_pd()?;
-            return match pool_ver {
-                BalancePoolVer::V1 => {
-                    let conf = BalancePoolConfig::try_from_pd(pd.clone())?;
-                    let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
-                    Some(BalancePool {
-                        id: PoolId::try_from(conf.pool_nft).ok()?,
-                        reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
-                        weight_x: conf.asset_x_weight,
-                        reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
-                        weight_y: conf.asset_x_weight,
-                        liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
-                        asset_x: conf.asset_x,
-                        asset_y: conf.asset_y,
-                        asset_lq: conf.asset_lq,
-                        lp_fee_x: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
-                        lp_fee_y: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
-                        treasury_fee: Ratio::new_raw(0, 1),
-                        treasury_x: TaggedAmount::new(0),
-                        treasury_y: TaggedAmount::new(0),
-                        invariant: conf.invariant,
-                        ver: pool_ver,
-                    })
-                }
-            };
+            let conf = BalancePoolConfig::try_from_pd(pd.clone())?;
+            let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
+            return Some(BalancePool {
+                id: PoolId::try_from(conf.pool_nft).ok()?,
+                reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
+                weight_x: conf.asset_x_weight,
+                reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
+                weight_y: conf.asset_x_weight,
+                liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
+                asset_x: conf.asset_x,
+                asset_y: conf.asset_y,
+                asset_lq: conf.asset_lq,
+                lp_fee_x: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
+                lp_fee_y: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
+                treasury_fee: Ratio::new_raw(0, 1),
+                treasury_x: TaggedAmount::new(0),
+                treasury_y: TaggedAmount::new(0),
+                invariant: conf.invariant,
+                ver: pool_ver,
+            });
         }
         None
     }
@@ -684,23 +675,9 @@ impl Pool for BalancePool {
     }
 
     fn quality(&self) -> PoolQuality {
-        todo!()
-    }
-}
-
-impl ApplyOrder<ClassicalOnChainLimitSwap> for BalancePool {
-    type Result = SwapOutput;
-
-    fn apply_order(
-        self,
-        ClassicalOrder {
-            id: _,
-            pool_id: _,
-            order: _,
-        }: ClassicalOnChainLimitSwap,
-    ) -> Result<(Self, SwapOutput), ApplyOrderError<ClassicalOnChainLimitSwap>> {
-        // swap orders for balance pools works only with spot orders
-        unreachable!()
+        let lq =
+            ((self.reserves_x.untag() / self.weight_x) * (self.reserves_y.untag() / self.weight_y)).sqrt();
+        PoolQuality(self.static_price(), lq)
     }
 }
 
@@ -773,11 +750,12 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
 }
 
 mod tests {
-
-    use crate::data::balance_pool::BalancePoolConfig;
     use cml_chain::plutus::PlutusData;
     use cml_chain::Deserialize;
+
     use spectrum_cardano_lib::types::TryFromPData;
+
+    use crate::data::balance_pool::BalancePoolConfig;
 
     const DATUM_SAMPLE: &str = "d8799fd8799f581cdd061b480daddd9a833d2477c791356be4e134a433e19df7eb18be10504f534f43494554595f4144415f4e4654ffd8799f4040ff08d8799f581c279f842c33eed9054b9e3c70cd6a3b32298259c24b78b895cb41d91a4454554e41ff02d8799f581cc44de4596c7f4d600b631fab7ef1363331168463d4229cbc75ca18894c4b534f43494554595f5f4c51ff1a00018574181e000080581cdb73d7b28075e8869bb862857ded32d9b6fe9420d95aa94f5d34f80a01ff";
 

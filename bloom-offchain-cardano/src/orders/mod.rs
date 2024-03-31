@@ -47,10 +47,7 @@ where
     C: Has<OperatorCred> + Has<ConsumedInputs> + Has<DeployedScriptHash<{ LimitOrderV1 as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
-        LimitOrder::try_from_ledger(repr, ctx).map(|s| {
-            trace!(target: "offchain", "AnyOrder::try_from_ledger: Got SPOT");
-            AnyOrder::Spot(s)
-        })
+        LimitOrder::try_from_ledger(repr, ctx).map(|s| AnyOrder::Spot(s))
     }
 }
 

@@ -269,9 +269,7 @@ where
     C: Has<OperatorCred> + Has<ConsumedInputs> + Has<DeployedScriptHash<{ LimitOrderV1 as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
-        trace!(target: "offchain", "LimitOrder::try_from_ledger");
         if test_address(repr.address(), ctx) {
-            info!(target: "offchain", "LimitOrder address coincides");
             let value = repr.value().clone();
             let conf = Datum::try_from_pd(repr.datum()?.into_pd()?)?;
             let total_ada_input = value.amount_of(AssetClass::Native)?;
