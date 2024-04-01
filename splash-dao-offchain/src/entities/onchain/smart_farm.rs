@@ -1,6 +1,6 @@
+use cml_chain::utils::BigInteger;
 use cml_chain::{
     plutus::{ConstrPlutusData, ExUnits, PlutusData},
-    utils::BigInt,
     PolicyId,
 };
 use cml_crypto::RawBytesEncoding;
@@ -19,7 +19,7 @@ impl Identifier for FarmId {
 
 impl IntoPlutusData for FarmId {
     fn into_pd(self) -> cml_chain::plutus::PlutusData {
-        cml_chain::plutus::PlutusData::new_integer(BigInt::from(self.0))
+        cml_chain::plutus::PlutusData::new_integer(BigInteger::from(self.0))
     }
 }
 
@@ -33,6 +33,9 @@ impl Stable for SmartFarm {
     fn stable_id(&self) -> Self::StableId {
         self.farm_id
     }
+    fn is_quasi_permanent(&self) -> bool {
+        true
+    }
 }
 
 pub struct Redeemer {
@@ -42,8 +45,10 @@ pub struct Redeemer {
 
 impl IntoPlutusData for Redeemer {
     fn into_pd(self) -> PlutusData {
-        let mut cpd =
-            ConstrPlutusData::new(0, vec![PlutusData::Integer(BigInt::from(self.successor_out_ix))]);
+        let mut cpd = ConstrPlutusData::new(
+            0,
+            vec![PlutusData::Integer(BigInteger::from(self.successor_out_ix))],
+        );
         cpd.set_field(1, self.action.into_pd());
         PlutusData::ConstrPlutusData(cpd)
     }
@@ -62,7 +67,7 @@ impl IntoPlutusData for Action {
                 perm_manager_input_ix,
             } => PlutusData::ConstrPlutusData(ConstrPlutusData::new(
                 1,
-                vec![PlutusData::Integer(BigInt::from(perm_manager_input_ix))],
+                vec![PlutusData::Integer(BigInteger::from(perm_manager_input_ix))],
             )),
         }
     }

@@ -100,121 +100,121 @@ pub struct NodeMagic(pub u64);
 pub struct OperatorCreds(pub PrivateKey, pub Ed25519KeyHash, pub Address);
 
 impl Has<Reward> for ProtocolConfig {
-    fn get_labeled<U: IsEqual<Reward>>(&self) -> Reward {
+    fn select<U: IsEqual<Reward>>(&self) -> Reward {
         Reward(self.reward_address.clone())
     }
 }
 
 impl Has<Collateral> for ProtocolConfig {
-    fn get_labeled<U: IsEqual<Collateral>>(&self) -> Collateral {
+    fn select<U: IsEqual<Collateral>>(&self) -> Collateral {
         self.collateral.clone()
     }
 }
 
 impl Has<SplashPolicy> for ProtocolConfig {
-    fn get_labeled<U: IsEqual<SplashPolicy>>(&self) -> SplashPolicy {
+    fn select<U: IsEqual<SplashPolicy>>(&self) -> SplashPolicy {
         SplashPolicy(self.splash_policy)
     }
 }
 
 impl Has<InflationBoxRefScriptOutput> for ProtocolConfig {
-    fn get_labeled<U: IsEqual<InflationBoxRefScriptOutput>>(&self) -> InflationBoxRefScriptOutput {
+    fn select<U: IsEqual<InflationBoxRefScriptOutput>>(&self) -> InflationBoxRefScriptOutput {
         InflationBoxRefScriptOutput(self.inflation_box_ref_script.clone())
     }
 }
 
 impl Has<PollFactoryRefScriptOutput> for ProtocolConfig {
-    fn get_labeled<U: IsEqual<PollFactoryRefScriptOutput>>(&self) -> PollFactoryRefScriptOutput {
+    fn select<U: IsEqual<PollFactoryRefScriptOutput>>(&self) -> PollFactoryRefScriptOutput {
         PollFactoryRefScriptOutput(self.poll_factory_ref_script.clone())
     }
 }
 
 impl Has<WPAuthPolicy> for ProtocolConfig {
-    fn get_labeled<U: IsEqual<WPAuthPolicy>>(&self) -> WPAuthPolicy {
+    fn select<U: IsEqual<WPAuthPolicy>>(&self) -> WPAuthPolicy {
         WPAuthPolicy(self.wpoll_auth_policy)
     }
 }
 
 impl Has<WPAuthRefScriptOutput> for ProtocolConfig {
-    fn get_labeled<U: IsEqual<WPAuthRefScriptOutput>>(&self) -> WPAuthRefScriptOutput {
+    fn select<U: IsEqual<WPAuthRefScriptOutput>>(&self) -> WPAuthRefScriptOutput {
         WPAuthRefScriptOutput(self.wpoll_auth_ref_script.clone())
     }
 }
 
 impl Has<FarmAuthPolicy> for ProtocolConfig {
-    fn get_labeled<U: IsEqual<FarmAuthPolicy>>(&self) -> FarmAuthPolicy {
+    fn select<U: IsEqual<FarmAuthPolicy>>(&self) -> FarmAuthPolicy {
         FarmAuthPolicy(self.farm_auth_policy)
     }
 }
 
 impl Has<FarmAuthRefScriptOutput> for ProtocolConfig {
-    fn get_labeled<U: IsEqual<FarmAuthRefScriptOutput>>(&self) -> FarmAuthRefScriptOutput {
+    fn select<U: IsEqual<FarmAuthRefScriptOutput>>(&self) -> FarmAuthRefScriptOutput {
         FarmAuthRefScriptOutput(self.farm_auth_ref_script.clone())
     }
 }
 
 impl Has<FactoryAuthPolicy> for ProtocolConfig {
-    fn get_labeled<U: IsEqual<FactoryAuthPolicy>>(&self) -> FactoryAuthPolicy {
+    fn select<U: IsEqual<FactoryAuthPolicy>>(&self) -> FactoryAuthPolicy {
         FactoryAuthPolicy(self.factory_auth_policy)
     }
 }
 
 impl Has<VEFactoryAuthPolicy> for ProtocolConfig {
-    fn get_labeled<U: IsEqual<VEFactoryAuthPolicy>>(&self) -> VEFactoryAuthPolicy {
+    fn select<U: IsEqual<VEFactoryAuthPolicy>>(&self) -> VEFactoryAuthPolicy {
         VEFactoryAuthPolicy(self.ve_factory_auth_policy)
     }
 }
 
 impl Has<VotingEscrowRefScriptOutput> for ProtocolConfig {
-    fn get_labeled<U: IsEqual<VotingEscrowRefScriptOutput>>(&self) -> VotingEscrowRefScriptOutput {
+    fn select<U: IsEqual<VotingEscrowRefScriptOutput>>(&self) -> VotingEscrowRefScriptOutput {
         VotingEscrowRefScriptOutput(self.voting_escrow_ref_script.clone())
     }
 }
 
 impl Has<WeightingPowerRefScriptOutput> for ProtocolConfig {
-    fn get_labeled<U: IsEqual<WeightingPowerRefScriptOutput>>(&self) -> WeightingPowerRefScriptOutput {
+    fn select<U: IsEqual<WeightingPowerRefScriptOutput>>(&self) -> WeightingPowerRefScriptOutput {
         WeightingPowerRefScriptOutput(self.weighting_power_ref_script.clone())
     }
 }
 
 impl Has<PermManagerBoxRefScriptOutput> for ProtocolConfig {
-    fn get_labeled<U: IsEqual<PermManagerBoxRefScriptOutput>>(&self) -> PermManagerBoxRefScriptOutput {
+    fn select<U: IsEqual<PermManagerBoxRefScriptOutput>>(&self) -> PermManagerBoxRefScriptOutput {
         PermManagerBoxRefScriptOutput(self.perm_manager_box_ref_script.clone())
     }
 }
 
 impl Has<EDaoMSigAuthPolicy> for ProtocolConfig {
-    fn get_labeled<U: IsEqual<EDaoMSigAuthPolicy>>(&self) -> EDaoMSigAuthPolicy {
+    fn select<U: IsEqual<EDaoMSigAuthPolicy>>(&self) -> EDaoMSigAuthPolicy {
         EDaoMSigAuthPolicy(self.edao_msig_policy)
     }
 }
 
 impl Has<PermManagerAuthPolicy> for ProtocolConfig {
-    fn get_labeled<U: IsEqual<PermManagerAuthPolicy>>(&self) -> PermManagerAuthPolicy {
+    fn select<U: IsEqual<PermManagerAuthPolicy>>(&self) -> PermManagerAuthPolicy {
         PermManagerAuthPolicy(self.perm_manager_auth_policy)
     }
 }
 
 impl Has<GTAuthPolicy> for ProtocolConfig {
-    fn get_labeled<U: IsEqual<GTAuthPolicy>>(&self) -> GTAuthPolicy {
+    fn select<U: IsEqual<GTAuthPolicy>>(&self) -> GTAuthPolicy {
         GTAuthPolicy(self.gt_policy)
     }
 }
 
 impl Has<GenesisEpochStartTime> for ProtocolConfig {
-    fn get_labeled<U: IsEqual<GenesisEpochStartTime>>(&self) -> GenesisEpochStartTime {
+    fn select<U: IsEqual<GenesisEpochStartTime>>(&self) -> GenesisEpochStartTime {
         self.genesis_time
     }
 }
 
 impl Has<NodeMagic> for ProtocolConfig {
-    fn get_labeled<U: IsEqual<NodeMagic>>(&self) -> NodeMagic {
+    fn select<U: IsEqual<NodeMagic>>(&self) -> NodeMagic {
         NodeMagic(self.node_magic)
     }
 }
 
 impl Has<OperatorCreds> for ProtocolConfig {
-    fn get_labeled<U: IsEqual<OperatorCreds>>(&self) -> OperatorCreds {
+    fn select<U: IsEqual<OperatorCreds>>(&self) -> OperatorCreds {
         let (operator_sk, operator_pkh, operator_addr) = operator_creds(&self.operator_sk, self.node_magic);
         OperatorCreds(operator_sk, operator_pkh, operator_addr)
     }
