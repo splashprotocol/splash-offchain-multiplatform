@@ -574,9 +574,9 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use tokio::sync::Mutex;
 
-    use crate::backlog::{BacklogConfig, PersistentPriorityBacklog, ResilientBacklog};
     use crate::backlog::data::{BacklogOrder, OrderWeight, Weighted};
     use crate::backlog::persistence::{BacklogStore, BacklogStoreRocksDB};
+    use crate::backlog::{BacklogConfig, PersistentPriorityBacklog, ResilientBacklog};
     use crate::data::order::{PendingOrder, ProgressingOrder, SuspendedOrder, UniqueOrder};
 
     #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Clone, Copy, Serialize, Deserialize)]

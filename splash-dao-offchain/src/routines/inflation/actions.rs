@@ -1,6 +1,5 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use bloom_offchain::execution_engine::liquidity_book::weight;
 use cml_chain::address::Address;
 use cml_chain::assets::AssetBundle;
 use cml_chain::builders::input_builder::SingleInputBuilder;
@@ -27,11 +26,6 @@ use spectrum_cardano_lib::{AssetName, OutputRef};
 use spectrum_offchain::data::unique_entity::{Predicted, Traced};
 use spectrum_offchain::data::{EntitySnapshot, Has, Stable};
 use spectrum_offchain::ledger::IntoLedger;
-use spectrum_offchain_cardano::creds::operator_creds;
-use uplc::tx::{self, apply_params_to_script};
-use uplc::{plutus_data_to_bytes, BigInt};
-use uplc_pallas_codec::utils::{Bytes, Int, PlutusBytes};
-use uplc_pallas_traverse::ComputeHash;
 
 use crate::assets::SPLASH_AC;
 use crate::constants::{self};
