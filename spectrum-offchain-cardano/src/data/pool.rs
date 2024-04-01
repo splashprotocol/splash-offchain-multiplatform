@@ -12,7 +12,7 @@ use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWit
 use cml_chain::plutus::PlutusData::Integer;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData, RedeemerTag};
 use cml_chain::transaction::{DatumOption, ScriptRef, TransactionOutput};
-use cml_chain::utils::BigInteger;
+use cml_chain::utils::BigInt;
 
 use cml_chain::{Coin, PolicyId};
 

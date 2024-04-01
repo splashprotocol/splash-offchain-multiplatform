@@ -2,15 +2,15 @@
   "chainSync": {
     "startingPoint": {
       "Specific": [
-        56027495,
-        "d17c06f640f311b3ad08004453983e52987a01dd2da63501c2a0f65a293458a3"
+        56119227,
+        "f1066d610f0b156f5cb8d19851fbf4c484e5c9b0ca578ce4347c0ff424bb7965"
       ]
     },
     "disableRollbacksUntil": 55424270,
     "dbPath": "state"
   },
   "node": {
-    "path": "/Users/oskin/node-external/node.socket",
+    "path": "/root/cardano-vasil-docker/ipc/node.socket",
     "magic": 1
   },
   "txSubmissionBufferSize": 64,

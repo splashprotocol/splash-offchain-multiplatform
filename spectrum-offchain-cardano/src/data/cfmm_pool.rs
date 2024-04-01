@@ -5,7 +5,7 @@ use std::fmt::Debug;
 
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
-use cml_chain::utils::BigInteger;
+use cml_chain::utils::BigInt;
 use cml_chain::Value;
 
 use cml_multi_era::babbage::BabbageTransactionOutput;
@@ -188,7 +188,7 @@ pub struct CFMMPoolRedeemer {
 impl CFMMPoolRedeemer {
     pub fn to_plutus_data(self) -> PlutusData {
         let action_pd = self.action.to_plutus_data();
-        let self_ix_pd = PlutusData::Integer(BigInteger::from(self.pool_input_index));
+        let self_ix_pd = PlutusData::Integer(BigInt::from(self.pool_input_index));
         PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![action_pd, self_ix_pd]))
     }
 }
@@ -452,6 +452,8 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for ConstFnPool {
         let (nft_lq, name_nft) = self.id.into();
         ma.set(policy_lq, name_lq.into(), MAX_LQ_CAP - self.liquidity.untag());
         ma.set(nft_lq, name_nft.into(), 1);
+
+        println!("aaaa");
 
         TransactionOutput::new_conway_format_tx_out(ConwayFormatTxOut {
             address: immut_pool.address,

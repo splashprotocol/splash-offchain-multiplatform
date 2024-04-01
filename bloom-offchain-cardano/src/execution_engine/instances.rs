@@ -11,7 +11,7 @@ use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::data::Has;
-use spectrum_offchain_cardano::data::balance_pool::{BalancePool, BalancePoolRedeemer};
+use spectrum_offchain_cardano::data::balance_pool::{BalancePool, BalancePoolRedeemer, unsafe_update_datum_pool};
 use spectrum_offchain_cardano::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
 use spectrum_offchain_cardano::data::pool::{AnyPool, AssetDeltas, CFMMPoolAction};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
@@ -236,6 +236,7 @@ where
                 .to_plutus_data()
             }),
         };
+
         let result = Bundled(transition, produced_out.clone());
 
         state.tx_blueprint.add_io(input, produced_out);
@@ -288,6 +289,14 @@ where
                 .to_plutus_data()
             }),
         };
+
+        println!("pool test treasury x {}", transition.treasury_x.untag());
+        println!("pool test treasury y {}", transition.treasury_y.untag());
+
+        if let Some(data) = produced_out.data_mut() {
+            unsafe_update_datum_pool(data, transition.treasury_x.untag(), transition.treasury_y.untag());
+        }
+
         let result = Bundled(transition, produced_out.clone());
 
         state.tx_blueprint.add_io(input, produced_out);

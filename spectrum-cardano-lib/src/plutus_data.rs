@@ -2,7 +2,7 @@ use std::mem;
 
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::DatumOption;
-use cml_chain::utils::BigInteger;
+use cml_chain::utils::{BigInt};
 use cml_core::serialization::LenEncoding;
 
 /// Some on-chain entities may require a redeemer for a specific action.
@@ -16,7 +16,7 @@ pub trait IntoPlutusData {
 
 impl IntoPlutusData for u64 {
     fn into_pd(self) -> PlutusData {
-        PlutusData::Integer(BigInteger::from(self))
+        PlutusData::Integer(BigInt::from(self))
     }
 }
 
