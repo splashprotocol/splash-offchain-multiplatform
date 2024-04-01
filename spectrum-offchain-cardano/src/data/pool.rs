@@ -167,10 +167,10 @@ pub enum CFMMPoolAction {
 impl CFMMPoolAction {
     pub fn to_plutus_data(self) -> PlutusData {
         match self {
-            CFMMPoolAction::Swap => PlutusData::ConstrPlutusData(ConstrPlutusData::new(2, Vec::new())),
-            CFMMPoolAction::Deposit => PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, Vec::new())),
-            CFMMPoolAction::Redeem => PlutusData::ConstrPlutusData(ConstrPlutusData::new(1, Vec::new())),
-            CFMMPoolAction::Destroy => PlutusData::ConstrPlutusData(ConstrPlutusData::new(3, Vec::new())),
+            CFMMPoolAction::Swap => PlutusData::Integer(BigInt::from(2)),
+            CFMMPoolAction::Deposit => PlutusData::Integer(BigInt::from(0)),
+            CFMMPoolAction::Redeem => PlutusData::Integer(BigInt::from(1)),
+            CFMMPoolAction::Destroy => PlutusData::Integer(BigInt::from(3)),
         }
     }
 }

@@ -145,8 +145,8 @@
       "outputIndex": 0
     },
     "exBudget": {
-      "mem": 500000,
-      "steps": 200000000
+      "mem": 5104748,
+      "steps": 2100928253
     }
   },
   "balanceFnPoolDeposit": {

@@ -86,8 +86,8 @@ pub enum BalancePoolVer {
 
 impl BalancePoolVer {
     pub fn try_from_address<Ctx>(pool_addr: &Address, ctx: &Ctx) -> Option<BalancePoolVer>
-    where
-        Ctx: Has<DeployedScriptHash<{ BalanceFnPoolV1 as u8 }>>,
+        where
+            Ctx: Has<DeployedScriptHash<{ BalanceFnPoolV1 as u8 }>>,
     {
         let maybe_hash = pool_addr.payment_cred().and_then(|c| match c {
             StakeCredential::PubKey { .. } => None,
@@ -207,11 +207,16 @@ impl BalancePool {
         };
         info!("asset_reserves {}", asset_reserves);
         info!("quote_asset_out {}", quote_asset_out.untag());
-        let new_token_value = BigNumber::from(asset_reserves);
+        let new_token_value =
+            BigNumber::from(asset_reserves)
+                .sub(BigNumber::from(quote_asset_out.untag() as f64));
         // g = newTokenValue ^ (tokenWeight / commonWeightDenum)
         info!("new_token_value {}", new_token_value);
+        info!("asset_weight {}", asset_weight);
+        info!("WEIGHT_FEE_DEN {}", WEIGHT_FEE_DEN);
         let new_g_raw =
             new_token_value.pow(&BigNumber::from(asset_weight).div(BigNumber::from(WEIGHT_FEE_DEN)));
+        info!("new_g_raw {}", asset_weight);
         // t = newTokenValue ^ (1 / commonWeightDenum)
         let new_t_raw = new_token_value.pow(&BigNumber::from(1).div(BigNumber::from(WEIGHT_FEE_DEN)));
 
@@ -388,8 +393,8 @@ impl BalancePool {
 }
 
 impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for BalancePool
-where
-    Ctx: Has<DeployedScriptHash<{ BalanceFnPoolV1 as u8 }>>,
+    where
+        Ctx: Has<DeployedScriptHash<{ BalanceFnPoolV1 as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         if let Some(pool_ver) = BalancePoolVer::try_from_address(repr.address(), ctx) {
@@ -468,12 +473,12 @@ pub(crate) fn unsafe_update_datum(
 ) -> Option<DatumOption> {
     match prev_datum {
         Some(DatumOption::Datum {
-            datum,
-            len_encoding,
-            tag_encoding,
-            datum_tag_encoding,
-            datum_bytes_encoding,
-        }) => {
+                 datum,
+                 len_encoding,
+                 tag_encoding,
+                 datum_tag_encoding,
+                 datum_bytes_encoding,
+             }) => {
             let mut cpd = datum.into_constr_pd()?;
 
             cpd.update_field_unsafe(9, pool.treasury_x.untag().into_pd());
@@ -504,8 +509,8 @@ impl Stable for BalancePool {
 }
 
 impl<Ctx> RequiresValidator<Ctx> for BalancePool
-where
-    Ctx: Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>,
+    where
+        Ctx: Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self.ver {
@@ -545,20 +550,20 @@ impl BalancePoolRedeemer {
                     } else {
                         (TaggedAssetClass::new(self.new_pool_state.asset_y.untag()), TaggedAmount::new(y_delta), TaggedAssetClass::new(self.new_pool_state.asset_x.untag()), TaggedAmount::new(x_delta))
                     };
-                self.new_pool_state.construct_g_and_t_for_swap(
+                self.prev_pool_state.construct_g_and_t_for_swap(
                     base_asset_ac,
                     base_asset,
                     quote_asset_ac,
                     quote_asset,
                 )
             }
-            CFMMPoolAction::Deposit => self.new_pool_state.construct_g_and_t_for_deposit(
+            CFMMPoolAction::Deposit => self.prev_pool_state.construct_g_and_t_for_deposit(
                 self.new_pool_state.asset_x,
                 TaggedAmount::new(x_delta),
                 self.new_pool_state.asset_y,
                 TaggedAmount::new(y_delta),
             ),
-            CFMMPoolAction::Redeem => self.new_pool_state.construct_g_and_t_for_redeem(
+            CFMMPoolAction::Redeem => self.prev_pool_state.construct_g_and_t_for_redeem(
                 self.new_pool_state.asset_x,
                 TaggedAmount::new(x_delta),
                 self.new_pool_state.asset_y,
@@ -576,17 +581,26 @@ impl BalancePoolRedeemer {
 pub fn round_big_number(orig_value: BigNumber, precision: usize) -> BigInt {
     info!("Orig value: {}", orig_value.to_string());
     let int_part = orig_value.to_string().split(".").nth(0).unwrap().len();
-    info!("Orig value: {} int_part", int_part.to_string());
-    info!(
+    if (precision == 0) {
+        BigInt::from_str(
+            orig_value.to_string().replace(".", "")[..(int_part)]
+                .to_string()
+                .as_str(),
+        ).unwrap()
+    } else {
+        info!("Orig value: {} int_part", int_part.to_string());
+        info!("precision: {} ", precision);
+        info!(
         "replaced {}",
-        orig_value.to_string().replace(".", "")[..(int_part + precision)].to_string()
-    );
-    BigInt::from_str(
-        orig_value.to_string().replace(".", "")[..(int_part + precision)]
-            .to_string()
-            .as_str(),
-    )
-    .unwrap()
+        orig_value.to_string().replace(".", "")[..(precision)].to_string()
+         );
+        BigInt::from_str(
+            orig_value.to_string().replace(".", "")[..(precision)]
+                .to_string()
+                .as_str(),
+        )
+            .unwrap()
+    }
 }
 
 impl AMMOps for BalancePool {
