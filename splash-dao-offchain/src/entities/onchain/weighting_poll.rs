@@ -1,21 +1,21 @@
 use std::fmt::Formatter;
 
-use cml_chain::address::{BaseAddress, EnterpriseAddress};
+use cml_chain::address::EnterpriseAddress;
 use cml_chain::assets::AssetName;
 use cml_chain::certs::StakeCredential;
 use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData};
 use cml_chain::transaction::{DatumOption, TransactionOutput};
-use cml_chain::utils::BigInt;
+use cml_chain::utils::BigInteger;
 use cml_chain::{OrderedHashMap, PolicyId, Value};
 use cml_crypto::RawBytesEncoding;
 use derive_more::From;
+use uplc_pallas_codec::utils::{Int, PlutusBytes};
 
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::{TaggedAmount, Token};
 use spectrum_offchain::data::{Has, Identifier, Stable};
 use spectrum_offchain::ledger::IntoLedger;
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
-use uplc_pallas_codec::utils::{Int, PlutusBytes};
 
 use crate::assets::Splash;
 use crate::constants::{MINT_WP_AUTH_TOKEN_SCRIPT, SPLASH_NAME};
@@ -52,24 +52,24 @@ where
         + Has<NodeMagic>,
 {
     fn into_ledger(self, ctx: Ctx) -> TransactionOutput {
-        let weighting_poll_policy = ctx.get_labeled::<WPAuthPolicy>().0;
+        let weighting_poll_policy = ctx.select::<WPAuthPolicy>().0;
         let weighting_power_policy = compute_mint_weighting_power_policy_id(
             self.epoch as u64,
-            ctx.get_labeled::<WPAuthPolicy>().0,
-            ctx.get_labeled::<GTAuthPolicy>().0,
+            ctx.select::<WPAuthPolicy>().0,
+            ctx.select::<GTAuthPolicy>().0,
         );
         let datum = create_datum(
             &self,
-            ctx.get_labeled::<GenesisEpochStartTime>(),
+            ctx.select::<GenesisEpochStartTime>(),
             weighting_power_policy,
         );
 
         let cred = StakeCredential::new_script(weighting_poll_policy);
-        let address = EnterpriseAddress::new(ctx.get_labeled::<NodeMagic>().0 as u8, cred).to_address();
+        let address = EnterpriseAddress::new(ctx.select::<NodeMagic>().0 as u8, cred).to_address();
 
         let mut bundle = OrderedHashMap::new();
         bundle.insert(
-            ctx.get_labeled::<SplashPolicy>().0,
+            ctx.select::<SplashPolicy>().0,
             OrderedHashMap::from_iter(vec![(
                 AssetName::try_from(SPLASH_NAME.as_bytes().to_vec()).unwrap(),
                 self.emission_rate.untag(),
@@ -86,9 +86,10 @@ fn create_datum(
     weighting_power_policy: PolicyId,
 ) -> PlutusData {
     let distribution_pd = distribution_to_plutus_data(&wpoll.distribution);
-    let deadline =
-        PlutusData::new_integer(BigInt::from(wpoll.voting_deadline_time(genesis_epoch_start_time)));
-    let emission_rate = PlutusData::new_integer(BigInt::from(wpoll.emission_rate.untag()));
+    let deadline = PlutusData::new_integer(BigInteger::from(
+        wpoll.voting_deadline_time(genesis_epoch_start_time),
+    ));
+    let emission_rate = PlutusData::new_integer(BigInteger::from(wpoll.emission_rate.untag()));
     let weighting_power_policy_pd = PlutusData::new_bytes(weighting_power_policy.to_raw_bytes().to_vec());
 
     PlutusData::ConstrPlutusData(ConstrPlutusData::new(
@@ -123,6 +124,9 @@ impl Stable for WeightingPoll {
     type StableId = WeightingPollStableId;
     fn stable_id(&self) -> Self::StableId {
         self.stable_id
+    }
+    fn is_quasi_permanent(&self) -> bool {
+        true
     }
 }
 
@@ -203,7 +207,7 @@ fn distribution_to_plutus_data(distribution: &[(FarmId, u64)]) -> PlutusData {
     for (farm_id, weight) in distribution {
         list.push(PlutusData::new_list(vec![
             farm_id.into_pd(),
-            PlutusData::new_integer(BigInt::from(*weight)),
+            PlutusData::new_integer(BigInteger::from(*weight)),
         ]));
     }
     PlutusData::new_list(list)
@@ -235,8 +239,8 @@ impl IntoPlutusData for PollAction {
                 PlutusData::ConstrPlutusData(ConstrPlutusData::new(
                     1,
                     vec![
-                        PlutusData::Integer(BigInt::from(farm_ix)),
-                        PlutusData::Integer(BigInt::from(farm_in_ix)),
+                        PlutusData::Integer(BigInteger::from(farm_ix)),
+                        PlutusData::Integer(BigInteger::from(farm_in_ix)),
                     ],
                 ))
             }
@@ -254,7 +258,7 @@ impl IntoPlutusData for MintAction {
     fn into_pd(self) -> PlutusData {
         match self {
             MintAction::MintAuthToken { factory_in_ix } => PlutusData::ConstrPlutusData(
-                ConstrPlutusData::new(0, vec![PlutusData::Integer(BigInt::from(factory_in_ix))]),
+                ConstrPlutusData::new(0, vec![PlutusData::Integer(BigInteger::from(factory_in_ix))]),
             ),
             MintAction::BurnAuthToken => PlutusData::ConstrPlutusData(ConstrPlutusData::new(1, vec![])),
         }

@@ -2,9 +2,9 @@ use std::fmt;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
 
-use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use serde::__private::de::missing_field;
 use serde::ser::SerializeStruct;
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::combinators::Ior;
 use crate::data::{EntitySnapshot, Stable};
@@ -283,6 +283,35 @@ impl<T: EntitySnapshot> EntitySnapshot for Predicted<T> {
 
     fn version(&self) -> Self::Version {
         self.0.version()
+    }
+}
+
+/// Any possible modality of `T`.
+#[derive(Clone)]
+pub enum AnyMod<T: EntitySnapshot> {
+    Confirmed(Confirmed<T>),
+    Unconfirmed(Unconfirmed<T>),
+    Predicted(Traced<Predicted<T>>),
+}
+
+impl<T: EntitySnapshot> AnyMod<T> {
+    pub fn as_erased(&self) -> &T {
+        match self {
+            AnyMod::Confirmed(Confirmed(t)) => t,
+            AnyMod::Unconfirmed(Unconfirmed(t)) => t,
+            AnyMod::Predicted(Traced {
+                state: Predicted(t), ..
+            }) => t,
+        }
+    }
+    pub fn erased(self) -> T {
+        match self {
+            AnyMod::Confirmed(Confirmed(t)) => t,
+            AnyMod::Unconfirmed(Unconfirmed(t)) => t,
+            AnyMod::Predicted(Traced {
+                state: Predicted(t), ..
+            }) => t,
+        }
     }
 }
 

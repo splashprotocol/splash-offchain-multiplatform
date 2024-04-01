@@ -80,6 +80,9 @@ impl Stable for PollFactory {
     fn stable_id(&self) -> Self::StableId {
         self.stable_id
     }
+    fn is_quasi_permanent(&self) -> bool {
+        true
+    }
 }
 
 pub fn unsafe_update_factory_state(data: &mut PlutusData, last_poll_epoch: ProtocolEpoch) {

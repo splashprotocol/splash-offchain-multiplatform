@@ -67,6 +67,9 @@ impl Stable for InflationBox {
     fn stable_id(&self) -> Self::StableId {
         self.wp_auth_policy
     }
+    fn is_quasi_permanent(&self) -> bool {
+        true
+    }
 }
 
 pub fn unsafe_update_ibox_state(data: &mut PlutusData, last_processed_epoch: ProtocolEpoch) {

@@ -42,6 +42,9 @@ impl Stable for PermManager {
     fn stable_id(&self) -> Self::StableId {
         self.stable_id
     }
+    fn is_quasi_permanent(&self) -> bool {
+        true
+    }
 }
 
 pub fn compute_perm_manager_policy_id(

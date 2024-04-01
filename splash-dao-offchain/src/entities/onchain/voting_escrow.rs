@@ -1,25 +1,25 @@
 use std::{fmt::Formatter, time::Duration};
 
+use cml_chain::utils::BigInteger;
 use cml_chain::{
     address::EnterpriseAddress,
     certs::StakeCredential,
     plutus::{ConstrPlutusData, ExUnits, PlutusData},
     transaction::{DatumOption, TransactionOutput},
-    utils::BigInt,
     PolicyId, Value,
 };
-use cml_core::serialization::FromBytes;
-use cml_crypto::{chain_crypto::Signature, PublicKey, RawBytesEncoding, ScriptHash};
+use cml_crypto::{PublicKey, RawBytesEncoding, ScriptHash};
+use uplc_pallas_codec::utils::{Int, PlutusBytes};
+
 use spectrum_cardano_lib::{
     plutus_data::{ConstrPlutusDataExtension, IntoPlutusData, PlutusDataExtension},
     Token,
 };
 use spectrum_offchain::{
-    data::{EntitySnapshot, Has, Identifier, Stable},
+    data::{Has, Identifier, Stable},
     ledger::IntoLedger,
 };
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
-use uplc_pallas_codec::utils::{Int, PlutusBytes};
 
 use crate::{
     constants::{MAX_LOCK_TIME_SECONDS, MINT_WEIGHTING_POWER_SCRIPT, VOTING_ESCROW_SCRIPT},
@@ -79,13 +79,12 @@ where
     Ctx: Has<VEFactoryAuthPolicy> + Has<OperatorCreds> + Has<NodeMagic>,
 {
     fn into_ledger(self, ctx: Ctx) -> TransactionOutput {
-        let OperatorCreds(operator_sk, _, _) = ctx.get_labeled::<OperatorCreds>();
-        let voting_escrow_policy =
-            compute_voting_escrow_policy_id(ctx.get_labeled::<VEFactoryAuthPolicy>().0);
+        let OperatorCreds(operator_sk, _, _) = ctx.select::<OperatorCreds>();
+        let voting_escrow_policy = compute_voting_escrow_policy_id(ctx.select::<VEFactoryAuthPolicy>().0);
         let datum = self.create_datum(operator_sk.to_public());
 
         let cred = StakeCredential::new_script(voting_escrow_policy);
-        let address = EnterpriseAddress::new(ctx.get_labeled::<NodeMagic>().0 as u8, cred).to_address();
+        let address = EnterpriseAddress::new(ctx.select::<NodeMagic>().0 as u8, cred).to_address();
 
         let amount = Value::from(MIN_ADA_IN_BOX);
         TransactionOutput::new(address, amount, Some(DatumOption::new_datum(datum)), None)
@@ -110,6 +109,9 @@ impl Stable for VotingEscrow {
     type StableId = VotingEscrowStableId;
     fn stable_id(&self) -> Self::StableId {
         self.stable_id
+    }
+    fn is_quasi_permanent(&self) -> bool {
+        true
     }
 }
 
@@ -155,7 +157,7 @@ impl IntoPlutusData for VotingEscrowAction {
                 PlutusData::ConstrPlutusData(ConstrPlutusData::new(1, vec![]))
             }
             VotingEscrowAction::Redeem { ve_factory_in_ix } => PlutusData::ConstrPlutusData(
-                ConstrPlutusData::new(2, vec![PlutusData::Integer(BigInt::from(ve_factory_in_ix))]),
+                ConstrPlutusData::new(2, vec![PlutusData::Integer(BigInteger::from(ve_factory_in_ix))]),
             ),
         }
     }
@@ -198,7 +200,7 @@ impl IntoPlutusData for VotingEscrowAuthorizedAction {
         );
         cpd.set_field(
             VEAA_REDEEMER_MAPPING.version,
-            PlutusData::new_integer(BigInt::from(self.version)),
+            PlutusData::new_integer(BigInteger::from(self.version)),
         );
         cpd.set_field(
             VEAA_REDEEMER_MAPPING.signature,
@@ -245,9 +247,9 @@ impl IntoPlutusData for MintAction {
             } => PlutusData::ConstrPlutusData(ConstrPlutusData::new(
                 0,
                 vec![
-                    PlutusData::Integer(BigInt::from(binder)),
-                    PlutusData::Integer(BigInt::from(ve_in_ix)),
-                    PlutusData::Integer(BigInt::from(proposal_in_ix)),
+                    PlutusData::Integer(BigInteger::from(binder)),
+                    PlutusData::Integer(BigInteger::from(ve_in_ix)),
+                    PlutusData::Integer(BigInteger::from(proposal_in_ix)),
                 ],
             )),
             MintAction::Burn => PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![])),
