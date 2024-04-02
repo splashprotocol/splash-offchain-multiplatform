@@ -3,7 +3,7 @@ import { getConfig } from "./config.ts";
 import { getLucid } from "./lucid.ts";
 import { Asset, BuiltValidators, PubKeyHash, asUnit } from "./types.ts";
 import { setupWallet } from "./wallet.ts";
-import { Unit, Datum, MintingPolicy, UTxO, Script, PlutusVersion, Assets, Data, Lucid} from "https://deno.land/x/lucid@0.10.7/mod.ts";
+import { Unit, Datum, MintingPolicy, UTxO, Script, PlutusVersion, Assets, Data, Lucid, C, fromHex} from "https://deno.land/x/lucid@0.10.7/mod.ts";
 import { encoder } from 'npm:js-encoding-utils';
 
 export const stringToHex = (str: string): string =>
@@ -161,6 +161,12 @@ async function buildPoolConfig(lucid: Lucid, xQty: number, xWeight: number, yQty
 
     const dao = await getDAOPolicy(nftCS)
 
+    const scriptCred: C.StakeCredential = C.StakeCredential.from_scripthash(
+        C.ScriptHash.from_bytes(
+          fromHex(dao.curSymbol),
+        )
+      );
+
     return {
         poolNft: {
             policy: nftCS,
@@ -185,7 +191,9 @@ async function buildPoolConfig(lucid: Lucid, xQty: number, xWeight: number, yQty
         treasuryFee: treasuryFee,
         treasuryX: 0,
         treasuryY: 0,
-        DAOPolicy: [dao.curSymbol],
+        DAOPolicy: [{
+            Inline: [{ ScriptCredential: [dao.curSymbol] }]
+        }],
         // incorrect treasury address. change to script
         treasuryAddress: lucid.utils.getAddressDetails(myAddr).paymentCredential!.hash,
         invariant: invariant

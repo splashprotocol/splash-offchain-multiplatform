@@ -204,7 +204,21 @@ export interface IBalanceContract {
     treasuryFee: bigint;
     treasuryx: bigint;
     treasuryy: bigint;
-    daoPolicy: Array<string>;
+    daoPolicy: Array<
+      {
+        Inline: [
+          { VerificationKeyCredential: [string] } | {
+            ScriptCredential: [string];
+          },
+        ];
+      } | {
+        Pointer: {
+          slotNumber: bigint;
+          transactionIndex: bigint;
+          certificateIndex: bigint;
+        };
+      }
+    >;
     treasuryAddress: string;
     invariant: bigint;
   };
@@ -283,7 +297,39 @@ export const BalanceContract = Object.assign(
           { "dataType": "integer", "title": "treasuryy" },
           {
             "dataType": "list",
-            "items": { "dataType": "bytes" },
+            "items": {
+              "title": "Referenced",
+              "description":
+                "Represent a type of object that can be represented either inline (by hash)\n or via a reference (i.e. a pointer to an on-chain location).\n\n This is mainly use for capturing pointers to a stake credential\n registration certificate in the case of so-called pointer addresses.",
+              "anyOf": [{
+                "title": "Inline",
+                "dataType": "constructor",
+                "index": 0,
+                "fields": [{
+                  "description":
+                    "A general structure for representing an on-chain `Credential`.\n\n Credentials are always one of two kinds: a direct public/private key\n pair, or a script (native or Plutus).",
+                  "anyOf": [{
+                    "title": "VerificationKeyCredential",
+                    "dataType": "constructor",
+                    "index": 0,
+                    "fields": [{ "dataType": "bytes" }],
+                  }, {
+                    "title": "ScriptCredential",
+                    "dataType": "constructor",
+                    "index": 1,
+                    "fields": [{ "dataType": "bytes" }],
+                  }],
+                }],
+              }, {
+                "title": "Pointer",
+                "dataType": "constructor",
+                "index": 1,
+                "fields": [{ "dataType": "integer", "title": "slotNumber" }, {
+                  "dataType": "integer",
+                  "title": "transactionIndex",
+                }, { "dataType": "integer", "title": "certificateIndex" }],
+              }],
+            },
             "title": "daoPolicy",
           },
           { "dataType": "bytes", "title": "treasuryAddress" },

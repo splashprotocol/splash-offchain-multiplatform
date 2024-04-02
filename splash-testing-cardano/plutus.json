@@ -189,6 +189,12 @@
         "$ref": "#/definitions/ByteArray"
       }
     },
+    "List$aiken/transaction/credential/Referenced$aiken/transaction/credential/Credential": {
+      "dataType": "list",
+      "items": {
+        "$ref": "#/definitions/aiken~1transaction~1credential~1Referenced$aiken~1transaction~1credential~1Credential"
+      }
+    },
     "Option$aiken/transaction/credential/Referenced$aiken/transaction/credential/Credential": {
       "title": "Optional",
       "anyOf": [
@@ -454,7 +460,7 @@
             },
             {
               "title": "DAO_policy",
-              "$ref": "#/definitions/List$ByteArray"
+              "$ref": "#/definitions/List$aiken~1transaction~1credential~1Referenced$aiken~1transaction~1credential~1Credential"
             },
             {
               "title": "treasury_address",
