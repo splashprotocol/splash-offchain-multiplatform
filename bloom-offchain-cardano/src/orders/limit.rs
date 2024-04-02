@@ -325,7 +325,7 @@ pub struct SpotOrderBatchValidatorRefScriptOutput(pub TransactionUnspentOutput);
 
 #[cfg(test)]
 mod tests {
-    use crate::orders::spot::{beacon_from_oref, unsafe_update_datum, Datum, LimitOrder};
+    use crate::orders::limit::{beacon_from_oref, unsafe_update_datum, Datum, LimitOrder};
     use cml_chain::plutus::PlutusData;
     use cml_core::serialization::Deserialize;
     use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, ScriptHash, TransactionHash};

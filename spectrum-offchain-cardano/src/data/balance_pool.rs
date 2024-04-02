@@ -9,7 +9,7 @@ use cml_chain::certs::StakeCredential;
 use cml_chain::plutus::utils::ConstrPlutusDataEncoding;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
-use cml_chain::utils::BigInt;
+use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_core::serialization::LenEncoding::{Canonical, Indefinite};
 use cml_multi_era::babbage::BabbageTransactionOutput;
@@ -86,8 +86,8 @@ pub enum BalancePoolVer {
 
 impl BalancePoolVer {
     pub fn try_from_address<Ctx>(pool_addr: &Address, ctx: &Ctx) -> Option<BalancePoolVer>
-        where
-            Ctx: Has<DeployedScriptHash<{ BalanceFnPoolV1 as u8 }>>,
+    where
+        Ctx: Has<DeployedScriptHash<{ BalanceFnPoolV1 as u8 }>>,
     {
         let maybe_hash = pool_addr.payment_cred().and_then(|c| match c {
             StakeCredential::PubKey { .. } => None,
@@ -161,7 +161,7 @@ impl BalancePool {
         base_asset_ac: TaggedAssetClass<Rx>,
         base_asset_in: TaggedAmount<Rx>,
         precision: usize,
-    ) -> (BigInt, BigInt) {
+    ) -> (BigInteger, BigInteger) {
         let (asset_reserves, asset_weight, lp_fee) = if base_asset_ac.untag() == self.asset_x.untag() {
             (
                 self.reserves_x.untag() as f64,
@@ -199,7 +199,7 @@ impl BalancePool {
         quote_asset_ac: TaggedAssetClass<Ry>,
         quote_asset_out: TaggedAmount<Ry>,
         precision: usize,
-    ) -> (BigInt, BigInt) {
+    ) -> (BigInteger, BigInteger) {
         let (asset_reserves, asset_weight) = if quote_asset_ac.untag() == self.asset_x.untag() {
             (self.reserves_x.untag() as f64, self.weight_x as f64)
         } else {
@@ -208,8 +208,7 @@ impl BalancePool {
         info!("asset_reserves {}", asset_reserves);
         info!("quote_asset_out {}", quote_asset_out.untag());
         let new_token_value =
-            BigNumber::from(asset_reserves)
-                .sub(BigNumber::from(quote_asset_out.untag() as f64));
+            BigNumber::from(asset_reserves).sub(BigNumber::from(quote_asset_out.untag() as f64));
         // g = newTokenValue ^ (tokenWeight / commonWeightDenum)
         info!("new_token_value {}", new_token_value);
         info!("asset_weight {}", asset_weight);
@@ -232,7 +231,7 @@ impl BalancePool {
         token_in_asset_ac: AssetClass,
         token_in: u64,
         precision: usize,
-    ) -> (BigInt, BigInt) {
+    ) -> (BigInteger, BigInteger) {
         let (asset_reserves, asset_weight) = if token_in_asset_ac == self.asset_x.untag() {
             (self.reserves_x.untag() as f64, self.weight_x as f64)
         } else {
@@ -259,7 +258,7 @@ impl BalancePool {
         token_in_asset_ac: AssetClass,
         token_in: u64,
         precision: usize,
-    ) -> (BigInt, BigInt) {
+    ) -> (BigInteger, BigInteger) {
         let (asset_reserves, asset_weight) = if token_in_asset_ac == self.asset_x.untag() {
             (self.reserves_x.untag() as f64, self.weight_x as f64)
         } else {
@@ -287,7 +286,7 @@ impl BalancePool {
         base_asset_in: TaggedAmount<Rx>,
         quote_asset_ac: TaggedAssetClass<Ry>,
         quote_asset_out: TaggedAmount<Ry>,
-    ) -> [BigInt; 4] {
+    ) -> [BigInteger; 4] {
         let x_length = self.reserves_x.untag().to_string().len();
         let y_length = self.reserves_y.untag().to_string().len();
 
@@ -314,7 +313,7 @@ impl BalancePool {
         token_x_in: TaggedAmount<Rx>,
         token_y: TaggedAssetClass<Ry>,
         token_y_in: TaggedAmount<Ry>,
-    ) -> [BigInt; 4] {
+    ) -> [BigInteger; 4] {
         let x_length = self.reserves_x.untag().to_string().len();
         let y_length = self.reserves_y.untag().to_string().len();
 
@@ -335,7 +334,7 @@ impl BalancePool {
         token_x_in: TaggedAmount<Rx>,
         token_y: TaggedAssetClass<Ry>,
         token_y_in: TaggedAmount<Ry>,
-    ) -> [BigInt; 4] {
+    ) -> [BigInteger; 4] {
         let x_length = self.reserves_x.untag().to_string().len();
         let y_length = self.reserves_y.untag().to_string().len();
 
@@ -354,7 +353,7 @@ impl BalancePool {
     fn create_redeemer(
         cfmmpool_action: CFMMPoolAction,
         pool_idx: u64,
-        new_g_t: [BigInt; 4],
+        new_g_t: [BigInteger; 4],
     ) -> PlutusData {
         /*
           Original structure of pool redeemer
@@ -368,7 +367,7 @@ impl BalancePool {
         */
 
         let action_plutus_data = cfmmpool_action.to_plutus_data();
-        let self_ix_pd = PlutusData::Integer(BigInt::from(pool_idx));
+        let self_ix_pd = PlutusData::Integer(BigInteger::from(pool_idx));
         let g_list_pd = PlutusData::new_list(Vec::from([
             PlutusData::Integer(new_g_t[0].clone()),
             PlutusData::Integer(new_g_t[2].clone()),
@@ -393,8 +392,8 @@ impl BalancePool {
 }
 
 impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for BalancePool
-    where
-        Ctx: Has<DeployedScriptHash<{ BalanceFnPoolV1 as u8 }>>,
+where
+    Ctx: Has<DeployedScriptHash<{ BalanceFnPoolV1 as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         if let Some(pool_ver) = BalancePoolVer::try_from_address(repr.address(), ctx) {
@@ -426,8 +425,7 @@ impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for BalancePool
 }
 
 impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for BalancePool {
-    fn into_ledger(self, immut_pool: ImmutablePoolUtxo) -> TransactionOutput {
-        println!("into_ledger");
+    fn into_ledger(self, mut immut_pool: ImmutablePoolUtxo) -> TransactionOutput {
         let mut ma = MultiAsset::new();
         let coins = if self.asset_x.is_native() {
             let (policy, name) = self.asset_y.untag().into_token().unwrap();
@@ -449,53 +447,24 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for BalancePool {
         ma.set(policy_lq, name_lq.into(), MAX_LQ_CAP - self.liquidity.untag());
         ma.set(nft_lq, name_nft.into(), 1);
 
-        println!("going to update datum");
+        if let Some(DatumOption::Datum { datum, .. }) = &mut immut_pool.datum_option {
+            unsafe_update_datum(datum, self.treasury_x.untag(), self.treasury_y.untag());
+        }
 
         TransactionOutput::new_conway_format_tx_out(ConwayFormatTxOut {
             address: immut_pool.address,
             amount: Value::new(coins, ma),
-            datum_option: unsafe_update_datum(&self, immut_pool.datum_option),
+            datum_option: immut_pool.datum_option,
             script_reference: immut_pool.script_reference,
             encodings: None,
         })
     }
 }
 
-pub fn unsafe_update_datum_pool(data: &mut PlutusData, treasury_x: u64, treasury_y: u64) {
+pub fn unsafe_update_datum(data: &mut PlutusData, treasury_x: u64, treasury_y: u64) {
     let cpd = data.get_constr_pd_mut().unwrap();
     cpd.set_field(8, treasury_x.into_pd());
     cpd.set_field(9, treasury_y.into_pd());
-}
-
-pub(crate) fn unsafe_update_datum(
-    pool: &BalancePool,
-    prev_datum: Option<DatumOption>,
-) -> Option<DatumOption> {
-    match prev_datum {
-        Some(DatumOption::Datum {
-                 datum,
-                 len_encoding,
-                 tag_encoding,
-                 datum_tag_encoding,
-                 datum_bytes_encoding,
-             }) => {
-            let mut cpd = datum.into_constr_pd()?;
-
-            cpd.update_field_unsafe(9, pool.treasury_x.untag().into_pd());
-            cpd.update_field_unsafe(10, pool.treasury_y.untag().into_pd());
-
-            info!("Updated datum tx {}", pool.treasury_x.untag());
-
-            Some(DatumOption::Datum {
-                datum: PlutusData::ConstrPlutusData(cpd),
-                len_encoding,
-                tag_encoding,
-                datum_tag_encoding,
-                datum_bytes_encoding,
-            })
-        }
-        _ => panic!("Expected inline datum"),
-    }
 }
 
 impl Stable for BalancePool {
@@ -509,8 +478,8 @@ impl Stable for BalancePool {
 }
 
 impl<Ctx> RequiresValidator<Ctx> for BalancePool
-    where
-        Ctx: Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>,
+where
+    Ctx: Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self.ver {
@@ -541,7 +510,7 @@ impl BalancePoolRedeemer {
             .untag()
             .abs_diff(self.prev_pool_state.reserves_y.untag());
 
-        let gt_list: [BigInt; 4] = match self.action {
+        let gt_list: [BigInteger; 4] = match self.action {
             CFMMPoolAction::Swap => {
                 let (base_asset_ac, base_asset, quote_asset_ac, quote_asset) =
                     // x -> y swap
@@ -578,28 +547,29 @@ impl BalancePoolRedeemer {
     }
 }
 
-pub fn round_big_number(orig_value: BigNumber, precision: usize) -> BigInt {
+pub fn round_big_number(orig_value: BigNumber, precision: usize) -> BigInteger {
     info!("Orig value: {}", orig_value.to_string());
     let int_part = orig_value.to_string().split(".").nth(0).unwrap().len();
     if (precision == 0) {
-        BigInt::from_str(
+        BigInteger::from_str(
             orig_value.to_string().replace(".", "")[..(int_part)]
                 .to_string()
                 .as_str(),
-        ).unwrap()
+        )
+        .unwrap()
     } else {
         info!("Orig value: {} int_part", int_part.to_string());
         info!("precision: {} ", precision);
         info!(
-        "replaced {}",
-        orig_value.to_string().replace(".", "")[..(precision)].to_string()
-         );
-        BigInt::from_str(
+            "replaced {}",
+            orig_value.to_string().replace(".", "")[..(precision)].to_string()
+        );
+        BigInteger::from_str(
             orig_value.to_string().replace(".", "")[..(precision)]
                 .to_string()
                 .as_str(),
         )
-            .unwrap()
+        .unwrap()
     }
 }
 
@@ -611,7 +581,10 @@ impl AMMOps for BalancePool {
     ) -> TaggedAmount<Quote> {
         println!("self.lp_fee_x: {}", self.lp_fee_x);
         println!("self.treasury_fee: {}", self.treasury_fee);
-        println!("self.lp_fee_x - self.treasury_fee: {}", self.lp_fee_x - self.treasury_fee);
+        println!(
+            "self.lp_fee_x - self.treasury_fee: {}",
+            self.lp_fee_x - self.treasury_fee
+        );
         balance_cfmm_output_amount(
             self.asset_x,
             self.reserves_x,
@@ -711,14 +684,18 @@ impl Pool for BalancePool {
                 // pool reserves of base decreases while reserves of quote increase.
                 *quote_reserves += input;
                 *base_reserves -= output;
-                self.treasury_y = TaggedAmount::new(self.treasury_y.untag() + (input * self.treasury_fee.numer() / self.treasury_fee.denom()));
+                self.treasury_y = TaggedAmount::new(
+                    self.treasury_y.untag() + (input * self.treasury_fee.numer() / self.treasury_fee.denom()),
+                );
                 (output, self)
             }
             Side::Ask(input) => {
                 // User ask is the opposite; sell the base asset for the quote asset.
                 *base_reserves += input;
                 *quote_reserves -= output;
-                self.treasury_x = TaggedAmount::new(self.treasury_x.untag() + (input * self.treasury_fee.numer() / self.treasury_fee.denom()));
+                self.treasury_x = TaggedAmount::new(
+                    self.treasury_x.untag() + (input * self.treasury_fee.numer() / self.treasury_fee.denom()),
+                );
                 println!("self.treasury_x {}", self.treasury_x.untag());
                 (output, self)
             }

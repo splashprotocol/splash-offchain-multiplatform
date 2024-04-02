@@ -13,9 +13,9 @@ use spectrum_offchain_cardano::deployment::DeployedScriptHash;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
 use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
-use crate::orders::spot::LimitOrder;
+use crate::orders::limit::LimitOrder;
 
-pub mod spot;
+pub mod limit;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Fragment, Stable, Tradable)]
 pub enum AnyOrder {

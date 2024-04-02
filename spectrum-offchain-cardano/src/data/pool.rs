@@ -12,7 +12,7 @@ use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWit
 use cml_chain::plutus::PlutusData::Integer;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData, RedeemerTag};
 use cml_chain::transaction::{DatumOption, ScriptRef, TransactionOutput};
-use cml_chain::utils::BigInt;
+use cml_chain::utils::BigInteger;
 
 use cml_chain::{Coin, PolicyId};
 
@@ -167,10 +167,10 @@ pub enum CFMMPoolAction {
 impl CFMMPoolAction {
     pub fn to_plutus_data(self) -> PlutusData {
         match self {
-            CFMMPoolAction::Swap => PlutusData::Integer(BigInt::from(2)),
-            CFMMPoolAction::Deposit => PlutusData::Integer(BigInt::from(0)),
-            CFMMPoolAction::Redeem => PlutusData::Integer(BigInt::from(1)),
-            CFMMPoolAction::Destroy => PlutusData::Integer(BigInt::from(3)),
+            CFMMPoolAction::Swap => PlutusData::Integer(BigInteger::from(2)),
+            CFMMPoolAction::Deposit => PlutusData::Integer(BigInteger::from(0)),
+            CFMMPoolAction::Redeem => PlutusData::Integer(BigInteger::from(1)),
+            CFMMPoolAction::Destroy => PlutusData::Integer(BigInteger::from(3)),
         }
     }
 }

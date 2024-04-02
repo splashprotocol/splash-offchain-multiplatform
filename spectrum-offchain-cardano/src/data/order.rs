@@ -3,7 +3,7 @@ use std::hash::{Hash, Hasher};
 
 use cml_chain::builders::tx_builder::SignedTxBuilder;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
-use cml_chain::utils::BigInt;
+use cml_chain::utils::BigInteger;
 use cml_crypto::ScriptHash;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
@@ -77,9 +77,9 @@ pub struct ClassicalOrderRedeemer {
 impl ClassicalOrderRedeemer {
     pub fn to_plutus_data(self) -> PlutusData {
         let action_pd = self.action.to_plutus_data();
-        let pool_in_ix_pd = PlutusData::Integer(BigInt::from(self.pool_input_index));
-        let order_in_ix_pd = PlutusData::Integer(BigInt::from(self.order_input_index));
-        let out_ix_pd = PlutusData::Integer(BigInt::from(self.output_index));
+        let pool_in_ix_pd = PlutusData::Integer(BigInteger::from(self.pool_input_index));
+        let order_in_ix_pd = PlutusData::Integer(BigInteger::from(self.order_input_index));
+        let out_ix_pd = PlutusData::Integer(BigInteger::from(self.output_index));
         PlutusData::ConstrPlutusData(ConstrPlutusData::new(
             0,
             vec![pool_in_ix_pd, order_in_ix_pd, out_ix_pd, action_pd],
