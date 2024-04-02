@@ -4,7 +4,7 @@ pub const FEE_DEN: u64 = 100000;
 
 pub const WEIGHT_FEE_DEN: f64 = 10_f64;
 
-pub const ADDITIONAL_ROUND_PRECISION: usize = 15;
+pub const ADDITIONAL_ROUND_PRECISION: usize = 10;
 
 pub const MAX_LQ_CAP: u64 = 0x7fffffffffffffff;
 

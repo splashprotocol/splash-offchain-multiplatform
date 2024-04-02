@@ -12,18 +12,19 @@ const TX_ID_LEN: usize = 32;
 const TX_IX_LEN: usize = 1;
 const SEGMENT_LEN: usize = TX_ID_LEN + TX_IX_LEN;
 
-#[tailcall]
 pub fn transcribe_bad_inputs_error(error_response: Vec<u8>) -> HashSet<OutputRef> {
+    #[tailcall]
     fn go(
         mut prefix: CircularBuffer<PREFIX_LEN, u8>,
         mut acc: Vec<OutputRef>,
-        mut rem: impl Iterator<Item = u8>,
+        mut rem: Box<dyn Iterator<Item = u8>>,
     ) -> Vec<OutputRef> {
         match rem.next() {
             None => acc,
             Some(byte) => {
                 prefix.push_back(byte);
                 if prefix == PREFIX {
+                    #[tailcall]
                     fn read_segment(
                         mut acc: Vec<u8>,
                         mut rem: impl Iterator<Item = u8>,
@@ -45,7 +46,7 @@ pub fn transcribe_bad_inputs_error(error_response: Vec<u8>) -> HashSet<OutputRef
                     let tx_ix = segment[TX_ID_LEN] as u64;
                     let oref = OutputRef::new(tx_id, tx_ix);
                     acc.push(oref);
-                    go(prefix, acc, rem)
+                    go(prefix, acc, Box::new(rem))
                 } else {
                     go(prefix, acc, rem)
                 }
@@ -53,7 +54,7 @@ pub fn transcribe_bad_inputs_error(error_response: Vec<u8>) -> HashSet<OutputRef
         }
     }
     let prefix_buff = CircularBuffer::<3, u8>::new();
-    HashSet::from_iter(go(prefix_buff, vec![], error_response.into_iter()))
+    HashSet::from_iter(go(prefix_buff, vec![], Box::new(error_response.into_iter())))
 }
 
 #[cfg(test)]

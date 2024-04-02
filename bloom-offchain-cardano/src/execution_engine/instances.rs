@@ -11,6 +11,7 @@ use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::data::Has;
+use spectrum_offchain_cardano::data::balance_pool;
 use spectrum_offchain_cardano::data::balance_pool::{BalancePool, BalancePoolRedeemer};
 use spectrum_offchain_cardano::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
 use spectrum_offchain_cardano::data::pool::{AnyPool, AssetDeltas, CFMMPoolAction};
@@ -24,8 +25,8 @@ use spectrum_offchain_cardano::deployment::{
 use crate::execution_engine::execution_state::{
     delayed_redeemer, ready_redeemer, ExecutionState, ScriptInputBlueprint,
 };
-use crate::orders::spot::{unsafe_update_datum, LimitOrder};
-use crate::orders::{spot, AnyOrder};
+use crate::orders::limit::LimitOrder;
+use crate::orders::{limit, AnyOrder};
 
 /// Magnet for local instances.
 #[repr(transparent)]
@@ -107,7 +108,7 @@ where
             reference: in_ref,
             utxo: consumed_out.clone(),
             script: ScriptWitness { hash, ex_budget },
-            redeemer: ready_redeemer(spot::EXEC_REDEEMER),
+            redeemer: ready_redeemer(limit::EXEC_REDEEMER),
         };
         let mut candidate = consumed_out.clone();
         // Subtract budget + fee used to facilitate execution.
@@ -120,7 +121,7 @@ where
             match transition {
                 StateTrans::Active(next) => {
                     if let Some(data) = candidate.data_mut() {
-                        unsafe_update_datum(data, next.input_amount, next.fee);
+                        limit::unsafe_update_datum(data, next.input_amount, next.fee);
                     }
                     (candidate.clone(), ExecutionEff::Updated(Bundled(next, candidate)))
                 }
@@ -236,6 +237,7 @@ where
                 .to_plutus_data()
             }),
         };
+
         let result = Bundled(transition, produced_out.clone());
 
         state.tx_blueprint.add_io(input, produced_out);
@@ -288,6 +290,15 @@ where
                 .to_plutus_data()
             }),
         };
+
+        if let Some(data) = produced_out.data_mut() {
+            balance_pool::unsafe_update_datum(
+                data,
+                transition.treasury_x.untag(),
+                transition.treasury_y.untag(),
+            );
+        }
+
         let result = Bundled(transition, produced_out.clone());
 
         state.tx_blueprint.add_io(input, produced_out);
