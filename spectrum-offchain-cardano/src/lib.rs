@@ -1,4 +1,4 @@
-pub mod collaterals;
+pub mod collateral;
 pub mod constants;
 pub mod creds;
 pub mod data;

@@ -1,3 +1,4 @@
+use cardano_explorer::CardanoNetwork;
 use cml_chain::address::Address;
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::certs::StakeCredential;
@@ -9,9 +10,7 @@ use cml_crypto::{ScriptHash, TransactionHash};
 use derive_more::{From, Into};
 use hex::FromHexError;
 use std::hash::{Hash, Hasher};
-use std::ops::Mul;
 
-use cardano_explorer::client::Explorer;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::Has;
 
@@ -225,13 +224,11 @@ pub struct ScriptWitness {
 }
 
 impl<const TYP: u8> DeployedValidator<TYP> {
-    async fn unsafe_pull<'a>(v: DeployedValidatorRef, explorer: &Explorer<'a>) -> Self {
+    async fn unsafe_pull<Net: CardanoNetwork>(v: DeployedValidatorRef, explorer: &Net) -> Self {
         let mut ref_output = explorer
-            .get_utxo(v.reference_utxo.into())
+            .utxo_by_ref(v.reference_utxo.into())
             .await
-            .expect("Reference UTxO from config not found")
-            .try_into_cml()
-            .unwrap();
+            .expect("Reference UTxO from config not found");
         match &mut ref_output.output {
             TransactionOutput::ConwayFormatTxOut(ref mut tx_out) => {
                 tx_out.script_reference = Some(v.script.try_into().expect("Invalid script was provided"))
@@ -318,42 +315,37 @@ pub struct ProtocolDeployment {
 }
 
 impl ProtocolDeployment {
-    pub async fn unsafe_pull<'a>(validators: DeployedValidators, explorer: &Explorer<'a>) -> Self {
+    pub async fn unsafe_pull<Net: CardanoNetwork>(validators: DeployedValidators, explorer: &Net) -> Self {
         Self {
-            limit_order_witness: DeployedValidator::unsafe_pull(validators.limit_order_witness, &explorer)
+            limit_order_witness: DeployedValidator::unsafe_pull(validators.limit_order_witness, explorer)
                 .await,
-            limit_order: DeployedValidator::unsafe_pull(validators.limit_order, &explorer).await,
-            const_fn_pool_v1: DeployedValidator::unsafe_pull(validators.const_fn_pool_v1, &explorer).await,
-            const_fn_pool_v2: DeployedValidator::unsafe_pull(validators.const_fn_pool_v2, &explorer).await,
+            limit_order: DeployedValidator::unsafe_pull(validators.limit_order, explorer).await,
+            const_fn_pool_v1: DeployedValidator::unsafe_pull(validators.const_fn_pool_v1, explorer).await,
+            const_fn_pool_v2: DeployedValidator::unsafe_pull(validators.const_fn_pool_v2, explorer).await,
             const_fn_pool_fee_switch: DeployedValidator::unsafe_pull(
                 validators.const_fn_pool_fee_switch,
-                &explorer,
+                explorer,
             )
             .await,
             const_fn_pool_fee_switch_bidir_fee: DeployedValidator::unsafe_pull(
                 validators.const_fn_pool_fee_switch_bidir_fee,
-                &explorer,
+                explorer,
             )
             .await,
-            const_fn_pool_swap: DeployedValidator::unsafe_pull(validators.const_fn_pool_swap, &explorer)
+            const_fn_pool_swap: DeployedValidator::unsafe_pull(validators.const_fn_pool_swap, explorer).await,
+            const_fn_pool_deposit: DeployedValidator::unsafe_pull(validators.const_fn_pool_deposit, explorer)
                 .await,
-            const_fn_pool_deposit: DeployedValidator::unsafe_pull(
-                validators.const_fn_pool_deposit,
-                &explorer,
-            )
-            .await,
-            const_fn_pool_redeem: DeployedValidator::unsafe_pull(validators.const_fn_pool_redeem, &explorer)
+            const_fn_pool_redeem: DeployedValidator::unsafe_pull(validators.const_fn_pool_redeem, explorer)
                 .await,
-            balance_fn_pool_v1: DeployedValidator::unsafe_pull(validators.balance_fn_pool_v1, &explorer)
-                .await,
+            balance_fn_pool_v1: DeployedValidator::unsafe_pull(validators.balance_fn_pool_v1, explorer).await,
             balance_fn_pool_deposit: DeployedValidator::unsafe_pull(
                 validators.balance_fn_pool_deposit,
-                &explorer,
+                explorer,
             )
             .await,
             balance_fn_pool_redeem: DeployedValidator::unsafe_pull(
                 validators.balance_fn_pool_redeem,
-                &explorer,
+                explorer,
             )
             .await,
         }

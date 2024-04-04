@@ -21,6 +21,7 @@ pub struct AppConfig<'a> {
     pub cardano_finalization_delay: Duration,
     pub backlog_capacity: u32,
     pub network_id: NetworkId,
+    pub maestro_key_path: &'a str,
 }
 
 #[derive(serde::Deserialize)]

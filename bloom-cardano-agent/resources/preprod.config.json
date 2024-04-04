@@ -2,11 +2,11 @@
   "chainSync": {
     "startingPoint": {
       "Specific": [
-        56027495,
-        "d17c06f640f311b3ad08004453983e52987a01dd2da63501c2a0f65a293458a3"
+        56539435,
+        "eeaae645d2df467e498f3dab3a9ef95383bdf2043fb5c229162ad7d176431959"
       ]
     },
-    "disableRollbacksUntil": 55424270,
+    "disableRollbacksUntil": 56539435,
     "dbPath": "state"
   },
   "node": {
@@ -25,5 +25,6 @@
   "explorer": {
     "url": "https://explorer.spectrum.fi"
   },
-  "rewardAddress": "addr_test1qp97f7397q5aznqdwga0fg0xlfcn8lp6vy8csqek4459ewjmmfesg02r4kxltnn4vww0frsl9dz52spmayhszylrw5mstjywvz"
+  "rewardAddress": "addr_test1qp97f7397q5aznqdwga0fg0xlfcn8lp6vy8csqek4459ewjmmfesg02r4kxltnn4vww0frsl9dz52spmayhszylrw5mstjywvz",
+  "maestroKeyPath": "bloom-cardano-agent/resources/maestro.key"
 }

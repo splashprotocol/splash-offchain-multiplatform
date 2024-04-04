@@ -33,6 +33,7 @@ use cardano_chain_sync::client::ChainSyncClient;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_chain_sync::event_source::ledger_transactions;
 use cardano_explorer::client::Explorer;
+use cardano_explorer::Maestro;
 use cardano_mempool_sync::client::LocalTxMonitorClient;
 use cardano_mempool_sync::data::MempoolUpdate;
 use cardano_mempool_sync::mempool_stream;
@@ -48,7 +49,7 @@ use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::streaming::boxed;
-use spectrum_offchain_cardano::collaterals::{Collaterals, CollateralsViaExplorer};
+use spectrum_offchain_cardano::collateral::pull_collateral;
 use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
 use spectrum_offchain_cardano::data::pair::PairId;
@@ -81,7 +82,9 @@ async fn main() {
 
     info!("Starting Off-Chain Agent ..");
 
-    let explorer = Explorer::new(config.explorer, config.node.magic);
+    let explorer = Maestro::new(config.maestro_key_path, config.network_id.into())
+        .await
+        .expect("Maestro instantiation failed");
 
     let protocol_deployment = ProtocolDeployment::unsafe_pull(deployment, &explorer).await;
 
@@ -120,10 +123,7 @@ async fn main() {
     let (operator_sk, operator_pkh, _operator_addr) =
         operator_creds(config.batcher_private_key, config.node.magic);
 
-    let collaterals = CollateralsViaExplorer::new(operator_pkh.to_hex(), explorer);
-
-    let collateral = collaterals
-        .get_collateral()
+    let collateral = pull_collateral(operator_pkh, &explorer)
         .await
         .expect("Couldn't retrieve collateral");
 

@@ -335,6 +335,10 @@ pub type NetworkTime = u64;
 #[derive(serde::Deserialize, Debug, Copy, Clone, From, Into)]
 pub struct NetworkId(u8);
 
+/// Payment credential in bech32.
+#[derive(serde::Deserialize, Debug, Clone, From, Into)]
+pub struct PaymentCredential(String);
+
 #[cfg(test)]
 mod tests {
     use crate::AssetName;
