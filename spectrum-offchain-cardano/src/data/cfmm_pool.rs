@@ -45,7 +45,7 @@ use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::{
     ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolV1, ConstFnPoolV2,
 };
-use crate::deployment::{DeployedScriptHash, DeployedValidator, DeployedValidatorErased, RequiresValidator};
+use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::fees::FeeExtension;
 use crate::pool_math::cfmm_math::{
     classic_cfmm_output_amount, classic_cfmm_reward_lp, classic_cfmm_shares_amount,
@@ -91,10 +91,10 @@ pub enum ConstFnPoolVer {
 impl ConstFnPoolVer {
     pub fn try_from_address<Ctx>(pool_addr: &Address, ctx: &Ctx) -> Option<ConstFnPoolVer>
     where
-        Ctx: Has<DeployedScriptHash<{ ConstFnPoolV1 as u8 }>>
-            + Has<DeployedScriptHash<{ ConstFnPoolV2 as u8 }>>
-            + Has<DeployedScriptHash<{ ConstFnPoolFeeSwitch as u8 }>>
-            + Has<DeployedScriptHash<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>,
+        Ctx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
+            + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
+            + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
+            + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>,
     {
         let maybe_hash = pool_addr.payment_cred().and_then(|c| match c {
             StakeCredential::PubKey { .. } => None,
@@ -102,26 +102,26 @@ impl ConstFnPoolVer {
         });
         if let Some(this_hash) = maybe_hash {
             if ctx
-                .select::<DeployedScriptHash<{ ConstFnPoolV1 as u8 }>>()
-                .unwrap()
+                .select::<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>()
+                .script_hash
                 == *this_hash
             {
                 return Some(ConstFnPoolVer::V1);
             } else if ctx
-                .select::<DeployedScriptHash<{ ConstFnPoolV2 as u8 }>>()
-                .unwrap()
+                .select::<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>()
+                .script_hash
                 == *this_hash
             {
                 return Some(ConstFnPoolVer::V2);
             } else if ctx
-                .select::<DeployedScriptHash<{ ConstFnPoolFeeSwitch as u8 }>>()
-                .unwrap()
+                .select::<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>()
+                .script_hash
                 == *this_hash
             {
                 return Some(ConstFnPoolVer::FeeSwitch);
             } else if ctx
-                .select::<DeployedScriptHash<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>()
-                .unwrap()
+                .select::<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>()
+                .script_hash
                 == *this_hash
             {
                 return Some(ConstFnPoolVer::FeeSwitchBiDirFee);
@@ -350,10 +350,10 @@ impl Stable for ConstFnPool {
 
 impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for ConstFnPool
 where
-    Ctx: Has<DeployedScriptHash<{ ConstFnPoolV1 as u8 }>>
-        + Has<DeployedScriptHash<{ ConstFnPoolV2 as u8 }>>
-        + Has<DeployedScriptHash<{ ConstFnPoolFeeSwitch as u8 }>>
-        + Has<DeployedScriptHash<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>,
+    Ctx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         if let Some(pool_ver) = ConstFnPoolVer::try_from_address(repr.address(), ctx) {

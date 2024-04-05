@@ -3,6 +3,7 @@ use type_equalities::IsEqual;
 use bloom_offchain::execution_engine::liquidity_book::ExecutionCap;
 use bloom_offchain::execution_engine::types::Time;
 use spectrum_cardano_lib::collateral::Collateral;
+use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::backlog::BacklogCapacity;
 use spectrum_offchain::data::Has;
@@ -16,7 +17,7 @@ use spectrum_offchain_cardano::deployment::{DeployedValidator, ProtocolDeploymen
 #[derive(Debug, Clone)]
 pub struct ExecutionContext {
     pub time: Time,
-    pub execution_cap: ExecutionCap,
+    pub execution_cap: ExecutionCap<ExUnits>,
     pub deployment: ProtocolDeployment,
     pub collateral: Collateral,
     pub reward_addr: OperatorRewardAddress,
@@ -42,8 +43,8 @@ impl Has<Time> for ExecutionContext {
     }
 }
 
-impl Has<ExecutionCap> for ExecutionContext {
-    fn select<U: IsEqual<ExecutionCap>>(&self) -> ExecutionCap {
+impl Has<ExecutionCap<ExUnits>> for ExecutionContext {
+    fn select<U: IsEqual<ExecutionCap<ExUnits>>>(&self) -> ExecutionCap<ExUnits> {
         self.execution_cap
     }
 }

@@ -35,11 +35,11 @@ where
     }
 }
 
-impl<T, Bearer> liquidity_book::weight::Weighted for Bundled<T, Bearer>
+impl<T, U, Bearer> liquidity_book::weight::Weighted<U> for Bundled<T, Bearer>
 where
-    T: liquidity_book::weight::Weighted,
+    T: liquidity_book::weight::Weighted<U>,
 {
-    fn weight(&self) -> liquidity_book::weight::OrderWeight {
+    fn weight(&self) -> liquidity_book::weight::OrderWeight<U> {
         self.0.weight()
     }
 }

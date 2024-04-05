@@ -24,12 +24,13 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{AssetClass, OutputRef};
+use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_offchain::data::{Has, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::pair::{side_of, PairId};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
-use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptHash};
+use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
 pub const EXEC_REDEEMER: PlutusData = PlutusData::ConstrPlutusData(ConstrPlutusData {
@@ -72,6 +73,8 @@ pub struct LimitOrder {
     pub requires_executor_sig: bool,
     /// Whether the order has just been created.
     pub virgin: bool,
+    /// How many execution units each order consumes.
+    pub marginal_cost: ExUnits,
 }
 
 impl PartialOrd for LimitOrder {
@@ -118,6 +121,8 @@ impl OrderState for LimitOrder {
 }
 
 impl Fragment for LimitOrder {
+    type U = ExUnits;
+    
     fn side(&self) -> SideM {
         side_of(self.input_asset, self.output_asset)
     }
@@ -142,8 +147,8 @@ impl Fragment for LimitOrder {
         Ratio::new(self.fee, self.input_amount)
     }
 
-    fn marginal_cost_hint(&self) -> ExCostUnits {
-        160000000
+    fn marginal_cost_hint(&self) -> ExUnits {
+        self.marginal_cost
     }
 
     fn time_bounds(&self) -> TimeBounds<u64> {
@@ -266,7 +271,7 @@ const MIN_LOVELACE: u64 = 1_500_000;
 
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for LimitOrder
 where
-    C: Has<OperatorCred> + Has<ConsumedInputs> + Has<DeployedScriptHash<{ LimitOrderV1 as u8 }>>,
+    C: Has<OperatorCred> + Has<ConsumedInputs> + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
@@ -291,6 +296,7 @@ where
                         .select::<ConsumedInputs>()
                         .find(|o| beacon_from_oref(*o) == conf.beacon);
                     info!(target: "offchain", "Obtained Spot order from ledger.");
+                    let script_info = ctx.select::<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>();
                     return Some(LimitOrder {
                         beacon: conf.beacon,
                         input_asset: conf.input,
@@ -307,6 +313,7 @@ where
                         cancellation_pkh: conf.cancellation_pkh,
                         requires_executor_sig: !is_permissionless,
                         virgin: valid_fresh_beacon,
+                        marginal_cost: script_info.cost
                     });
                 }
             }
@@ -337,13 +344,13 @@ mod tests {
     use spectrum_offchain_cardano::creds::OperatorCred;
     use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
     use spectrum_offchain_cardano::deployment::{
-        DeployedScriptHash, DeployedValidators, ProtocolScriptHashes,
+        DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes,
     };
     use spectrum_offchain_cardano::utxo::ConsumedInputs;
     use type_equalities::IsEqual;
 
     struct Context {
-        limit_order: DeployedScriptHash<{ LimitOrderV1 as u8 }>,
+        limit_order: DeployedScriptInfo<{ LimitOrderV1 as u8 }>,
         cred: OperatorCred,
         consumed_inputs: ConsumedInputs,
     }
@@ -360,10 +367,10 @@ mod tests {
         }
     }
 
-    impl Has<DeployedScriptHash<{ LimitOrderV1 as u8 }>> for Context {
-        fn select<U: IsEqual<DeployedScriptHash<{ LimitOrderV1 as u8 }>>>(
+    impl Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>> for Context {
+        fn select<U: IsEqual<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>>(
             &self,
-        ) -> DeployedScriptHash<{ LimitOrderV1 as u8 }> {
+        ) -> DeployedScriptInfo<{ LimitOrderV1 as u8 }> {
             self.limit_order
         }
     }
@@ -402,11 +409,6 @@ mod tests {
 
     #[test]
     fn try_read() {
-        let sh = ScriptHash::from_raw_bytes(&[
-            43, 5, 173, 152, 64, 206, 96, 8, 59, 78, 87, 134, 150, 142, 30, 23, 248, 69, 158, 20, 157, 154,
-            250, 196, 212, 77, 255, 23,
-        ]);
-        println!("{}", sh.unwrap());
         let raw_deployment = std::fs::read_to_string("/Users/oskin/dev/spectrum/spectrum-offchain-multiplatform/bloom-cardano-agent/resources/preprod.deployment.json").expect("Cannot load deployment file");
         let deployment: DeployedValidators =
             serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
@@ -419,5 +421,5 @@ mod tests {
         let bearer = BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(ORDER_UTXO).unwrap()).unwrap();
         LimitOrder::try_from_ledger(&bearer, &ctx).expect("LimitOrder expected");
     }
-    const ORDER_UTXO: &str = "a300581d702b05ad9840ce60083b4e5786968e1e17f8459e149d9afac4d44dff1701821a002625a0a1581cfd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3aa14974657374746f6b656e1a0001d4c0028201d81858e1d8799f4100581cc74ecb78de2fb0e4ec31f1c556d22ec088f2ef411299a37d1ede3b33d8799f581cfd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3a4974657374746f6b656eff1a0001d4c01a0007a1201a00989680d8799f4040ffd8799f1903e801ff1a0007a120d8799fd8799f581c4be4fa25f029d14c0d723af4a1e6fa7133fc3a610f880336ad685cbaffd8799fd8799fd8799f581c5bda73043d43ad8df5ce75639cf48e1f2b4545403be92f0113e37537ffffffff581c4be4fa25f029d14c0d723af4a1e6fa7133fc3a610f880336ad685cba80ff";
+    const ORDER_UTXO: &str = "a300581d70dfaa80c9732ed3b7752ba189786723c6709e2876a024f8f4d9910fb3011a0037fc12028201d81858edd8798c41005840e90bcf244759e9250a757641d757b6dae90c7e1ede1bba51e1a153623e6e0aea9d7424a8846f699f54d117f5ab39ef365d0a5fdaeff3e12fe80bd91fee8ec876d8798240401903e81a0007a12000d87982581cfd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3a4974657374746f6b656ed879821903e8011a0007a120d87982581c1e5b525041f0d70ad830f1d7dbd2ed7012c1d89788b4385d7bdd0c37d87981581c6b6723106d7725d57913612286514abb81148d344b1675df297ee224581c1e5b525041f0d70ad830f1d7dbd2ed7012c1d89788b4385d7bdd0c3780";
 }

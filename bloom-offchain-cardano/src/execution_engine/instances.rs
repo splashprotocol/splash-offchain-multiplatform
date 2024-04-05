@@ -107,7 +107,7 @@ where
         let input = ScriptInputBlueprint {
             reference: in_ref,
             utxo: consumed_out.clone(),
-            script: ScriptWitness { hash, ex_budget },
+            script: ScriptWitness { hash, cost: ex_budget },
             redeemer: ready_redeemer(limit::EXEC_REDEEMER),
         };
         let mut candidate = consumed_out.clone();
@@ -228,7 +228,7 @@ where
         let input = ScriptInputBlueprint {
             reference: in_ref,
             utxo: consumed_out,
-            script: ScriptWitness { hash, ex_budget },
+            script: ScriptWitness { hash, cost: ex_budget },
             redeemer: delayed_redeemer(move |ordering| {
                 CFMMPoolRedeemer {
                     pool_input_index: ordering.index_of(&in_ref) as u64,
@@ -279,7 +279,7 @@ where
         let input = ScriptInputBlueprint {
             reference: in_ref,
             utxo: consumed_out,
-            script: ScriptWitness { hash, ex_budget },
+            script: ScriptWitness { hash, cost: ex_budget },
             redeemer: delayed_redeemer(move |ordering| {
                 BalancePoolRedeemer {
                     pool_input_index: ordering.index_of(&in_ref) as u64,

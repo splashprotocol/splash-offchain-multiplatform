@@ -14,7 +14,7 @@ use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
 use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::data::pool::AnyPool;
-use spectrum_offchain_cardano::deployment::DeployedScriptHash;
+use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,
     ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2, LimitOrderV1,
@@ -50,9 +50,9 @@ where
     C: Copy
         + Has<OperatorCred>
         + Has<OutputRef>
-        + Has<DeployedScriptHash<{ ConstFnPoolSwap as u8 }>>
-        + Has<DeployedScriptHash<{ ConstFnPoolDeposit as u8 }>>
-        + Has<DeployedScriptHash<{ ConstFnPoolRedeem as u8 }>>,
+        + Has<DeployedScriptInfo<{ ConstFnPoolSwap as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolDeposit as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolRedeem as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         ClassicalAMMOrder::try_from_ledger(repr, ctx).map(|inner| {
@@ -100,12 +100,12 @@ where
         + Has<OperatorCred>
         + Has<OutputRef>
         + Has<ConsumedInputs>
-        + Has<DeployedScriptHash<{ ConstFnPoolV1 as u8 }>>
-        + Has<DeployedScriptHash<{ ConstFnPoolV2 as u8 }>>
-        + Has<DeployedScriptHash<{ ConstFnPoolFeeSwitch as u8 }>>
-        + Has<DeployedScriptHash<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
-        + Has<DeployedScriptHash<{ BalanceFnPoolV1 as u8 }>>
-        + Has<DeployedScriptHash<{ LimitOrderV1 as u8 }>>,
+        + Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+        + Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>
+        + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         <Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>>::try_from_ledger(repr, ctx).map(

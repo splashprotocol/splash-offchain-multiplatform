@@ -9,7 +9,7 @@ use crate::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolRedeem,
     ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
 };
-use crate::deployment::{DeployedScriptHash, DeployedValidator};
+use crate::deployment::{DeployedScriptInfo, DeployedValidator};
 use bloom_offchain::execution_engine::bundled::Bundled;
 use cml_chain::builders::tx_builder::SignedTxBuilder;
 use cml_crypto::ScriptHash;
@@ -82,8 +82,8 @@ impl SpecializedOrder for BalanceAMMOrder {
 impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for BalanceAMMOrder
 where
     Ctx: Has<OutputRef>
-        + Has<DeployedScriptHash<{ ConstFnPoolDeposit as u8 }>>
-        + Has<DeployedScriptHash<{ ConstFnPoolRedeem as u8 }>>,
+        + Has<DeployedScriptInfo<{ ConstFnPoolDeposit as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolRedeem as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         ClassicalOnChainDeposit::try_from_ledger(repr, ctx)

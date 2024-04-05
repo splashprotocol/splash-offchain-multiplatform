@@ -1,9 +1,11 @@
 use std::time::Duration;
 
 use cml_core::Slot;
+use bloom_offchain::execution_engine::liquidity_book;
 
 use cardano_chain_sync::client::Point;
 use cardano_explorer::data::ExplorerConfig;
+use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain_cardano::creds::{OperatorCred, OperatorRewardAddress};
 
@@ -22,6 +24,7 @@ pub struct AppConfig<'a> {
     pub backlog_capacity: u32,
     pub network_id: NetworkId,
     pub maestro_key_path: &'a str,
+    pub execution_cap: ExecutionCap,
 }
 
 #[derive(serde::Deserialize)]
@@ -37,4 +40,16 @@ pub struct ChainSyncConfig<'a> {
     pub starting_point: Point,
     pub disable_rollbacks_until: Slot,
     pub db_path: &'a str,
+}
+
+#[derive(serde::Deserialize)]
+pub struct ExecutionCap {
+    pub soft: ExUnits,
+    pub hard: ExUnits,
+}
+
+impl From<ExecutionCap> for liquidity_book::ExecutionCap<ExUnits> {
+    fn from(value: ExecutionCap) -> Self {
+        Self { soft: value.soft, hard: value.hard }
+    }
 }

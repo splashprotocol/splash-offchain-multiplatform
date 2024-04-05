@@ -8,7 +8,7 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
     LimitOrderV1, LimitOrderWitnessV1,
 };
-use spectrum_offchain_cardano::deployment::{DeployedScriptHash, ProtocolScriptHashes};
+use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHashes};
 use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
 #[derive(Copy, Clone, Debug)]
@@ -31,98 +31,98 @@ impl Has<ConsumedInputs> for HandlerContext {
     }
 }
 
-impl Has<DeployedScriptHash<{ ConstFnPoolV1 as u8 }>> for HandlerContext {
-    fn select<U: IsEqual<DeployedScriptHash<{ ConstFnPoolV1 as u8 }>>>(
+impl Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>> for HandlerContext {
+    fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>>(
         &self,
-    ) -> DeployedScriptHash<{ ConstFnPoolV1 as u8 }> {
+    ) -> DeployedScriptInfo<{ ConstFnPoolV1 as u8 }> {
         self.scripts.const_fn_pool_v1.clone()
     }
 }
 
-impl Has<DeployedScriptHash<{ ConstFnPoolV2 as u8 }>> for HandlerContext {
-    fn select<U: IsEqual<DeployedScriptHash<{ ConstFnPoolV2 as u8 }>>>(
+impl Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>> for HandlerContext {
+    fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>>(
         &self,
-    ) -> DeployedScriptHash<{ ConstFnPoolV2 as u8 }> {
+    ) -> DeployedScriptInfo<{ ConstFnPoolV2 as u8 }> {
         self.scripts.const_fn_pool_v2.clone()
     }
 }
 
-impl Has<DeployedScriptHash<{ ConstFnPoolFeeSwitch as u8 }>> for HandlerContext {
-    fn select<U: IsEqual<DeployedScriptHash<{ ConstFnPoolFeeSwitch as u8 }>>>(
+impl Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>> for HandlerContext {
+    fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>>(
         &self,
-    ) -> DeployedScriptHash<{ ConstFnPoolFeeSwitch as u8 }> {
+    ) -> DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }> {
         self.scripts.const_fn_pool_fee_switch.clone()
     }
 }
 
-impl Has<DeployedScriptHash<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>> for HandlerContext {
-    fn select<U: IsEqual<DeployedScriptHash<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>>(
+impl Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>> for HandlerContext {
+    fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>>(
         &self,
-    ) -> DeployedScriptHash<{ ConstFnPoolFeeSwitchBiDirFee as u8 }> {
+    ) -> DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }> {
         self.scripts.const_fn_pool_fee_switch_bidir_fee.clone()
     }
 }
 
-impl Has<DeployedScriptHash<{ ConstFnPoolSwap as u8 }>> for HandlerContext {
-    fn select<U: IsEqual<DeployedScriptHash<{ ConstFnPoolSwap as u8 }>>>(
+impl Has<DeployedScriptInfo<{ ConstFnPoolSwap as u8 }>> for HandlerContext {
+    fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolSwap as u8 }>>>(
         &self,
-    ) -> DeployedScriptHash<{ ConstFnPoolSwap as u8 }> {
+    ) -> DeployedScriptInfo<{ ConstFnPoolSwap as u8 }> {
         self.scripts.const_fn_pool_swap.clone()
     }
 }
 
-impl Has<DeployedScriptHash<{ ConstFnPoolDeposit as u8 }>> for HandlerContext {
-    fn select<U: IsEqual<DeployedScriptHash<{ ConstFnPoolDeposit as u8 }>>>(
+impl Has<DeployedScriptInfo<{ ConstFnPoolDeposit as u8 }>> for HandlerContext {
+    fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolDeposit as u8 }>>>(
         &self,
-    ) -> DeployedScriptHash<{ ConstFnPoolDeposit as u8 }> {
+    ) -> DeployedScriptInfo<{ ConstFnPoolDeposit as u8 }> {
         self.scripts.const_fn_pool_deposit.clone()
     }
 }
 
-impl Has<DeployedScriptHash<{ ConstFnPoolRedeem as u8 }>> for HandlerContext {
-    fn select<U: IsEqual<DeployedScriptHash<{ ConstFnPoolRedeem as u8 }>>>(
+impl Has<DeployedScriptInfo<{ ConstFnPoolRedeem as u8 }>> for HandlerContext {
+    fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolRedeem as u8 }>>>(
         &self,
-    ) -> DeployedScriptHash<{ ConstFnPoolRedeem as u8 }> {
+    ) -> DeployedScriptInfo<{ ConstFnPoolRedeem as u8 }> {
         self.scripts.const_fn_pool_redeem.clone()
     }
 }
 
-impl Has<DeployedScriptHash<{ BalanceFnPoolV1 as u8 }>> for HandlerContext {
-    fn select<U: IsEqual<DeployedScriptHash<{ BalanceFnPoolV1 as u8 }>>>(
+impl Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>> for HandlerContext {
+    fn select<U: IsEqual<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>>(
         &self,
-    ) -> DeployedScriptHash<{ BalanceFnPoolV1 as u8 }> {
+    ) -> DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }> {
         self.scripts.balance_fn_pool_v1.clone()
     }
 }
 
-impl Has<DeployedScriptHash<{ BalanceFnPoolRedeem as u8 }>> for HandlerContext {
-    fn select<U: IsEqual<DeployedScriptHash<{ BalanceFnPoolRedeem as u8 }>>>(
+impl Has<DeployedScriptInfo<{ BalanceFnPoolRedeem as u8 }>> for HandlerContext {
+    fn select<U: IsEqual<DeployedScriptInfo<{ BalanceFnPoolRedeem as u8 }>>>(
         &self,
-    ) -> DeployedScriptHash<{ BalanceFnPoolRedeem as u8 }> {
+    ) -> DeployedScriptInfo<{ BalanceFnPoolRedeem as u8 }> {
         self.scripts.balance_fn_pool_redeem.clone()
     }
 }
 
-impl Has<DeployedScriptHash<{ BalanceFnPoolDeposit as u8 }>> for HandlerContext {
-    fn select<U: IsEqual<DeployedScriptHash<{ BalanceFnPoolDeposit as u8 }>>>(
+impl Has<DeployedScriptInfo<{ BalanceFnPoolDeposit as u8 }>> for HandlerContext {
+    fn select<U: IsEqual<DeployedScriptInfo<{ BalanceFnPoolDeposit as u8 }>>>(
         &self,
-    ) -> DeployedScriptHash<{ BalanceFnPoolDeposit as u8 }> {
+    ) -> DeployedScriptInfo<{ BalanceFnPoolDeposit as u8 }> {
         self.scripts.balance_fn_pool_deposit.clone()
     }
 }
 
-impl Has<DeployedScriptHash<{ LimitOrderV1 as u8 }>> for HandlerContext {
-    fn select<U: IsEqual<DeployedScriptHash<{ LimitOrderV1 as u8 }>>>(
+impl Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>> for HandlerContext {
+    fn select<U: IsEqual<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>>(
         &self,
-    ) -> DeployedScriptHash<{ LimitOrderV1 as u8 }> {
+    ) -> DeployedScriptInfo<{ LimitOrderV1 as u8 }> {
         self.scripts.limit_order.clone()
     }
 }
 
-impl Has<DeployedScriptHash<{ LimitOrderWitnessV1 as u8 }>> for HandlerContext {
-    fn select<U: IsEqual<DeployedScriptHash<{ LimitOrderWitnessV1 as u8 }>>>(
+impl Has<DeployedScriptInfo<{ LimitOrderWitnessV1 as u8 }>> for HandlerContext {
+    fn select<U: IsEqual<DeployedScriptInfo<{ LimitOrderWitnessV1 as u8 }>>>(
         &self,
-    ) -> DeployedScriptHash<{ LimitOrderWitnessV1 as u8 }> {
+    ) -> DeployedScriptInfo<{ LimitOrderWitnessV1 as u8 }> {
         self.scripts.limit_order_witness.clone()
     }
 }

@@ -6,9 +6,9 @@ use crate::execution_engine::liquidity_book::fragment::Fragment;
 use crate::execution_engine::liquidity_book::types::{ExCostUnits, FeeAsset};
 
 #[derive(Copy, Clone, Eq, PartialEq)]
-pub struct OrderWeight(Ratio<u64>, ExCostUnits);
+pub struct OrderWeight<CostUnits>(Ratio<u64>, CostUnits);
 
-impl PartialOrd for OrderWeight {
+impl<U: PartialOrd> PartialOrd for OrderWeight<U> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match PartialOrd::partial_cmp(&self.0, &other.0) {
             Some(Ordering::Equal) => PartialOrd::partial_cmp(&self.1, &other.1).map(|x| x.reverse()),
@@ -17,7 +17,7 @@ impl PartialOrd for OrderWeight {
     }
 }
 
-impl Ord for OrderWeight {
+impl<U: Ord> Ord for OrderWeight<U> {
     fn cmp(&self, other: &Self) -> Ordering {
         match Ord::cmp(&self.0, &other.0) {
             Ordering::Equal => Ord::cmp(&self.1, &other.1).reverse(),
@@ -26,21 +26,21 @@ impl Ord for OrderWeight {
     }
 }
 
-impl OrderWeight {
-    pub fn new(fee: FeeAsset<Ratio<u64>>, cost: ExCostUnits) -> Self {
+impl<U> OrderWeight<U> {
+    pub fn new(fee: FeeAsset<Ratio<u64>>, cost: U) -> Self {
         Self(fee, cost)
     }
 }
 
-pub trait Weighted {
-    fn weight(&self) -> OrderWeight;
+pub trait Weighted<U> {
+    fn weight(&self) -> OrderWeight<U>;
 }
 
-impl<T> Weighted for T
+impl<T, U> Weighted<U> for T
 where
-    T: Fragment,
+    T: Fragment<U=U>,
 {
-    fn weight(&self) -> OrderWeight {
+    fn weight(&self) -> OrderWeight<U> {
         OrderWeight(self.weighted_fee(), self.marginal_cost_hint())
     }
 }

@@ -543,6 +543,7 @@ mod tests {
 
     use crate::event_sink::context::HandlerContextProto;
     use cardano_chain_sync::data::LedgerTxEvent;
+    use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::hash::hash_transaction_canonical;
     use spectrum_cardano_lib::transaction::TransactionOutputExtension;
     use spectrum_cardano_lib::OutputRef;
@@ -553,7 +554,8 @@ mod tests {
     use spectrum_offchain::ledger::TryFromLedger;
     use spectrum_offchain::partitioning::Partitioned;
     use spectrum_offchain_cardano::creds::OperatorCred;
-    use spectrum_offchain_cardano::deployment::{DeployedScriptHash, ProtocolScriptHashes};
+    use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHashes};
+    use algebra_core::monoid::Monoid;
 
     use crate::event_sink::entity_index::InMemoryEntityIndex;
     use crate::event_sink::handler::PairUpdateHandler;
@@ -650,18 +652,18 @@ mod tests {
         let context = HandlerContextProto {
             executor_cred: ex_cred,
             scripts: ProtocolScriptHashes {
-                limit_order_witness: DeployedScriptHash::from(ScriptHash::from([0u8; 28])),
-                limit_order: DeployedScriptHash::from(ScriptHash::from([0u8; 28])),
-                const_fn_pool_v1: DeployedScriptHash::from(ScriptHash::from([0u8; 28])),
-                const_fn_pool_v2: DeployedScriptHash::from(ScriptHash::from([0u8; 28])),
-                const_fn_pool_fee_switch: DeployedScriptHash::from(ScriptHash::from([0u8; 28])),
-                const_fn_pool_fee_switch_bidir_fee: DeployedScriptHash::from(ScriptHash::from([0u8; 28])),
-                const_fn_pool_swap: DeployedScriptHash::from(ScriptHash::from([0u8; 28])),
-                const_fn_pool_deposit: DeployedScriptHash::from(ScriptHash::from([0u8; 28])),
-                const_fn_pool_redeem: DeployedScriptHash::from(ScriptHash::from([0u8; 28])),
-                balance_fn_pool_v1: DeployedScriptHash::from(ScriptHash::from([0u8; 28])),
-                balance_fn_pool_deposit: DeployedScriptHash::from(ScriptHash::from([0u8; 28])),
-                balance_fn_pool_redeem: DeployedScriptHash::from(ScriptHash::from([0u8; 28])),
+                limit_order_witness: DeployedScriptInfo { script_hash: ScriptHash::from([0u8; 28]), cost: ExUnits::identity() },
+                limit_order: DeployedScriptInfo { script_hash: ScriptHash::from([0u8; 28]), cost: ExUnits::identity() },
+                const_fn_pool_v1: DeployedScriptInfo { script_hash: ScriptHash::from([0u8; 28]), cost: ExUnits::identity() },
+                const_fn_pool_v2: DeployedScriptInfo { script_hash: ScriptHash::from([0u8; 28]), cost: ExUnits::identity() },
+                const_fn_pool_fee_switch: DeployedScriptInfo { script_hash: ScriptHash::from([0u8; 28]), cost: ExUnits::identity() },
+                const_fn_pool_fee_switch_bidir_fee: DeployedScriptInfo { script_hash: ScriptHash::from([0u8; 28]), cost: ExUnits::identity() },
+                const_fn_pool_swap: DeployedScriptInfo { script_hash: ScriptHash::from([0u8; 28]), cost: ExUnits::identity() },
+                const_fn_pool_deposit: DeployedScriptInfo { script_hash: ScriptHash::from([0u8; 28]), cost: ExUnits::identity() },
+                const_fn_pool_redeem: DeployedScriptInfo { script_hash: ScriptHash::from([0u8; 28]), cost: ExUnits::identity() },
+                balance_fn_pool_v1: DeployedScriptInfo { script_hash: ScriptHash::from([0u8; 28]), cost: ExUnits::identity() },
+                balance_fn_pool_deposit: DeployedScriptInfo { script_hash: ScriptHash::from([0u8; 28]), cost: ExUnits::identity() },
+                balance_fn_pool_redeem: DeployedScriptInfo { script_hash: ScriptHash::from([0u8; 28]), cost: ExUnits::identity() },
             },
         };
         let mut handler = PairUpdateHandler::new(Partitioned::new([snd]), index, context);

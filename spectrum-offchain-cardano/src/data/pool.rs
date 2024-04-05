@@ -45,7 +45,7 @@ use crate::data::OnChainOrderId;
 use crate::deployment::ProtocolValidator::{
     BalanceFnPoolV1, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolV1, ConstFnPoolV2,
 };
-use crate::deployment::{DeployedScriptHash, RequiresValidator};
+use crate::deployment::{DeployedScriptInfo, RequiresValidator};
 
 pub struct Rx;
 
@@ -224,11 +224,11 @@ impl Pool for AnyPool {
 
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for AnyPool
 where
-    C: Has<DeployedScriptHash<{ ConstFnPoolV1 as u8 }>>
-        + Has<DeployedScriptHash<{ ConstFnPoolV2 as u8 }>>
-        + Has<DeployedScriptHash<{ ConstFnPoolFeeSwitch as u8 }>>
-        + Has<DeployedScriptHash<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
-        + Has<DeployedScriptHash<{ BalanceFnPoolV1 as u8 }>>,
+    C: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+        + Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         let cfmm_pool = ConstFnPool::try_from_ledger(repr, ctx).map(PureCFMM);

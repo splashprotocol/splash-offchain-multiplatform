@@ -137,7 +137,7 @@ impl TxBlueprint {
             txb.add_output(output).expect("add_output ok");
             txb.set_exunits(
                 RedeemerWitnessKey::new(RedeemerTag::Spend, ix as u64),
-                script.ex_budget.into(),
+                script.cost.into(),
             );
         }
         // Project common witness scripts.

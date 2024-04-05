@@ -2,7 +2,7 @@ use cardano_explorer::CardanoNetwork;
 use cml_chain::address::Address;
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::certs::StakeCredential;
-use cml_chain::plutus::{ExUnits, PlutusV1Script, PlutusV2Script, PlutusV3Script};
+use cml_chain::plutus::{PlutusV1Script, PlutusV2Script, PlutusV3Script};
 use cml_chain::transaction::TransactionOutput;
 use cml_core::serialization::Deserialize;
 use cml_core::DeserializeError;
@@ -10,6 +10,8 @@ use cml_crypto::{ScriptHash, TransactionHash};
 use derive_more::{From, Into};
 use hex::FromHexError;
 use std::hash::{Hash, Hasher};
+use uplc::machine::cost_model::ExBudget;
+use spectrum_cardano_lib::ex_units::ExUnits;
 
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::Has;
@@ -73,38 +75,10 @@ impl From<ReferenceUTxO> for OutputRef {
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[derive(Debug, Clone)]
-pub struct ExBudget {
-    pub mem: u64,
-    pub steps: u64,
-}
-
-impl ExBudget {
-    pub fn scale(self, factor: u64) -> Self {
-        Self {
-            mem: self.mem * factor,
-            steps: self.steps * factor,
-        }
-    }
-}
-
-impl From<ExBudget> for ExUnits {
-    fn from(value: ExBudget) -> Self {
-        Self {
-            mem: value.mem,
-            steps: value.steps,
-            encodings: None,
-        }
-    }
-}
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct DeployedValidatorRef {
-    pub script: Script,
     pub hash: ScriptHash,
     pub reference_utxo: ReferenceUTxO,
-    pub ex_budget: ExBudget,
+    pub cost: ExUnits,
 }
 
 #[derive(serde::Deserialize)]
@@ -143,39 +117,41 @@ impl From<&DeployedValidators> for ProtocolScriptHashes {
     }
 }
 
-#[repr(transparent)]
 #[derive(Debug, Copy, Clone, Into, From)]
-pub struct DeployedScriptHash<const TYP: u8>(ScriptHash);
-
-impl<const TYP: u8> DeployedScriptHash<TYP> {
-    pub fn unwrap(self) -> ScriptHash {
-        self.0
-    }
+pub struct DeployedScriptInfo<const TYP: u8> {
+    pub script_hash: ScriptHash,
+    pub cost: ExUnits,
 }
 
 pub fn test_address<const TYP: u8, Ctx>(addr: &Address, ctx: &Ctx) -> bool
 where
-    Ctx: Has<DeployedScriptHash<TYP>>,
+    Ctx: Has<DeployedScriptInfo<TYP>>,
 {
     let maybe_hash = addr.payment_cred().and_then(|c| match c {
         StakeCredential::PubKey { .. } => None,
         StakeCredential::Script { hash, .. } => Some(hash),
     });
     if let Some(this_hash) = maybe_hash {
-        return *this_hash == ctx.get().unwrap();
+        return *this_hash == ctx.get().script_hash;
     }
     false
 }
 
-impl<const TYP: u8> From<&DeployedValidator<TYP>> for DeployedScriptHash<TYP> {
+impl<const TYP: u8> From<&DeployedValidator<TYP>> for DeployedScriptInfo<TYP> {
     fn from(value: &DeployedValidator<TYP>) -> Self {
-        Self(value.hash)
+        Self {
+            script_hash: value.hash,
+            cost: value.cost,
+        }
     }
 }
 
-impl<const TYP: u8> From<&DeployedValidatorRef> for DeployedScriptHash<TYP> {
+impl<const TYP: u8> From<&DeployedValidatorRef> for DeployedScriptInfo<TYP> {
     fn from(value: &DeployedValidatorRef) -> Self {
-        Self(value.hash)
+        Self {
+            script_hash: value.hash,
+            cost: value.cost,
+        }
     }
 }
 
@@ -183,7 +159,7 @@ impl<const TYP: u8> From<&DeployedValidatorRef> for DeployedScriptHash<TYP> {
 pub struct DeployedValidator<const TYP: u8> {
     pub reference_utxo: TransactionUnspentOutput,
     pub hash: ScriptHash,
-    pub ex_budget: ExBudget,
+    pub cost: ExUnits,
 }
 
 impl<const TYP: u8> DeployedValidator<TYP> {
@@ -191,7 +167,7 @@ impl<const TYP: u8> DeployedValidator<TYP> {
         DeployedValidatorErased {
             reference_utxo: self.reference_utxo,
             hash: self.hash,
-            ex_budget: self.ex_budget,
+            ex_budget: self.cost,
         }
     }
 }
@@ -200,7 +176,7 @@ impl<const TYP: u8> DeployedValidator<TYP> {
 pub struct DeployedValidatorErased {
     pub reference_utxo: TransactionUnspentOutput,
     pub hash: ScriptHash,
-    pub ex_budget: ExBudget,
+    pub ex_budget: ExUnits,
 }
 
 impl Hash for DeployedValidatorErased {
@@ -220,7 +196,7 @@ impl Eq for DeployedValidatorErased {}
 #[derive(Debug, Clone)]
 pub struct ScriptWitness {
     pub hash: ScriptHash,
-    pub ex_budget: ExBudget,
+    pub cost: ExUnits,
 }
 
 impl<const TYP: u8> DeployedValidator<TYP> {
@@ -229,16 +205,10 @@ impl<const TYP: u8> DeployedValidator<TYP> {
             .utxo_by_ref(v.reference_utxo.into())
             .await
             .expect("Reference UTxO from config not found");
-        match &mut ref_output.output {
-            TransactionOutput::ConwayFormatTxOut(ref mut tx_out) => {
-                tx_out.script_reference = Some(v.script.try_into().expect("Invalid script was provided"))
-            }
-            TransactionOutput::AlonzoFormatTxOut(_) => panic!("Must be ConwayFormatTxOut"),
-        }
         Self {
             reference_utxo: ref_output,
             hash: v.hash,
-            ex_budget: v.ex_budget,
+            cost: v.cost,
         }
     }
 }
@@ -263,19 +233,19 @@ pub enum ProtocolValidator {
 
 #[derive(Debug, Copy, Clone)]
 pub struct ProtocolScriptHashes {
-    pub limit_order_witness: DeployedScriptHash<{ ProtocolValidator::LimitOrderWitnessV1 as u8 }>,
-    pub limit_order: DeployedScriptHash<{ ProtocolValidator::LimitOrderV1 as u8 }>,
-    pub const_fn_pool_v1: DeployedScriptHash<{ ProtocolValidator::ConstFnPoolV1 as u8 }>,
-    pub const_fn_pool_v2: DeployedScriptHash<{ ProtocolValidator::ConstFnPoolV2 as u8 }>,
-    pub const_fn_pool_fee_switch: DeployedScriptHash<{ ProtocolValidator::ConstFnPoolFeeSwitch as u8 }>,
+    pub limit_order_witness: DeployedScriptInfo<{ ProtocolValidator::LimitOrderWitnessV1 as u8 }>,
+    pub limit_order: DeployedScriptInfo<{ ProtocolValidator::LimitOrderV1 as u8 }>,
+    pub const_fn_pool_v1: DeployedScriptInfo<{ ProtocolValidator::ConstFnPoolV1 as u8 }>,
+    pub const_fn_pool_v2: DeployedScriptInfo<{ ProtocolValidator::ConstFnPoolV2 as u8 }>,
+    pub const_fn_pool_fee_switch: DeployedScriptInfo<{ ProtocolValidator::ConstFnPoolFeeSwitch as u8 }>,
     pub const_fn_pool_fee_switch_bidir_fee:
-        DeployedScriptHash<{ ProtocolValidator::ConstFnPoolFeeSwitchBiDirFee as u8 }>,
-    pub const_fn_pool_swap: DeployedScriptHash<{ ProtocolValidator::ConstFnPoolSwap as u8 }>,
-    pub const_fn_pool_deposit: DeployedScriptHash<{ ProtocolValidator::ConstFnPoolDeposit as u8 }>,
-    pub const_fn_pool_redeem: DeployedScriptHash<{ ProtocolValidator::ConstFnPoolRedeem as u8 }>,
-    pub balance_fn_pool_v1: DeployedScriptHash<{ ProtocolValidator::BalanceFnPoolV1 as u8 }>,
-    pub balance_fn_pool_deposit: DeployedScriptHash<{ ProtocolValidator::BalanceFnPoolDeposit as u8 }>,
-    pub balance_fn_pool_redeem: DeployedScriptHash<{ ProtocolValidator::BalanceFnPoolRedeem as u8 }>,
+        DeployedScriptInfo<{ ProtocolValidator::ConstFnPoolFeeSwitchBiDirFee as u8 }>,
+    pub const_fn_pool_swap: DeployedScriptInfo<{ ProtocolValidator::ConstFnPoolSwap as u8 }>,
+    pub const_fn_pool_deposit: DeployedScriptInfo<{ ProtocolValidator::ConstFnPoolDeposit as u8 }>,
+    pub const_fn_pool_redeem: DeployedScriptInfo<{ ProtocolValidator::ConstFnPoolRedeem as u8 }>,
+    pub balance_fn_pool_v1: DeployedScriptInfo<{ ProtocolValidator::BalanceFnPoolV1 as u8 }>,
+    pub balance_fn_pool_deposit: DeployedScriptInfo<{ ProtocolValidator::BalanceFnPoolDeposit as u8 }>,
+    pub balance_fn_pool_redeem: DeployedScriptInfo<{ ProtocolValidator::BalanceFnPoolRedeem as u8 }>,
 }
 
 impl From<&ProtocolDeployment> for ProtocolScriptHashes {

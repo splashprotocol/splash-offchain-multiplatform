@@ -39,6 +39,8 @@ impl<T> StateTrans<T> {
 /// Immutable discrete fragment of liquidity available at a specified timeframe at a specified price.
 /// Fragment is a projection of an order [OrderState] at a specific point on time axis.
 pub trait Fragment {
+    /// Quantifier of execution cost.
+    type U;
     /// Side of the fragment relative to pair it maps to.
     fn side(&self) -> SideM;
     fn input(&self) -> InputAsset<u64>;
@@ -49,6 +51,6 @@ pub trait Fragment {
     /// Fee value weighted by fragment size.
     fn weighted_fee(&self) -> FeeAsset<Ratio<u64>>;
     /// How much (approximately) execution of this fragment will cost.
-    fn marginal_cost_hint(&self) -> ExCostUnits;
+    fn marginal_cost_hint(&self) -> Self::U;
     fn time_bounds(&self) -> TimeBounds<u64>;
 }

@@ -20,7 +20,7 @@ use crate::data::pool::CFMMPoolAction::Swap;
 use crate::data::{ExecutorFeePerToken, OnChainOrderId, PoolId};
 use crate::deployment::ProtocolValidator::ConstFnPoolSwap;
 use crate::deployment::{
-    test_address, DeployedScriptHash, DeployedValidator, DeployedValidatorErased, RequiresValidator,
+    test_address, DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator,
 };
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -61,7 +61,7 @@ impl UniqueOrder for ClassicalOnChainLimitSwap {
 
 impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for ClassicalOnChainLimitSwap
 where
-    Ctx: Has<OutputRef> + Has<DeployedScriptHash<{ ConstFnPoolSwap as u8 }>>,
+    Ctx: Has<OutputRef> + Has<DeployedScriptInfo<{ ConstFnPoolSwap as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         if test_address(repr.address(), ctx) {

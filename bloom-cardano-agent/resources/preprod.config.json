@@ -2,8 +2,8 @@
   "chainSync": {
     "startingPoint": {
       "Specific": [
-        56539435,
-        "eeaae645d2df467e498f3dab3a9ef95383bdf2043fb5c229162ad7d176431959"
+        56628853,
+        "911268a01bec550ee35e734539ea0b802d34c32569bc483bd43d8bc624060c7e"
       ]
     },
     "disableRollbacksUntil": 56539435,
@@ -26,5 +26,15 @@
     "url": "https://explorer.spectrum.fi"
   },
   "rewardAddress": "addr_test1qp97f7397q5aznqdwga0fg0xlfcn8lp6vy8csqek4459ewjmmfesg02r4kxltnn4vww0frsl9dz52spmayhszylrw5mstjywvz",
-  "maestroKeyPath": "bloom-cardano-agent/resources/maestro.key"
+  "maestroKeyPath": "bloom-cardano-agent/resources/maestro.key",
+  "executionCap": {
+    "soft": {
+      "mem": 5000000,
+      "steps": 4000000000
+    },
+    "hard": {
+      "mem": 14000000,
+      "steps": 10000000000
+    }
+  }
 }

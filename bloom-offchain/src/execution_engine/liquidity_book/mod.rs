@@ -1,8 +1,10 @@
 use std::cmp::{max, min};
 use std::mem;
+use std::ops::{Sub, SubAssign};
 
 use either::Either;
 use log::trace;
+use algebra_core::monoid::Monoid;
 
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::maker::Maker;
@@ -55,35 +57,35 @@ pub trait TLBFeedback<Fr, Pl> {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct ExecutionCap {
-    pub soft: ExCostUnits,
-    pub hard: ExCostUnits,
+pub struct ExecutionCap<U> {
+    pub soft: U,
+    pub hard: U,
 }
 
-impl ExecutionCap {
-    fn safe_threshold(&self) -> ExCostUnits {
+impl<U: Sub<Output=U> + Copy> ExecutionCap<U> {
+    fn safe_threshold(&self) -> U {
         self.hard - self.soft
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct TLB<Fr, Pl: Stable> {
+pub struct TLB<Fr, Pl: Stable, U> {
     state: TLBState<Fr, Pl>,
-    execution_cap: ExecutionCap,
+    execution_cap: ExecutionCap<U>,
 }
 
-impl<Fr, Pl, Ctx> Maker<Ctx> for TLB<Fr, Pl>
+impl<Fr, Pl, Ctx, U> Maker<Ctx> for TLB<Fr, Pl, U>
 where
     Pl: Stable,
-    Ctx: Has<Time> + Has<ExecutionCap>,
+    Ctx: Has<Time> + Has<ExecutionCap<U>>,
 {
     fn make(ctx: &Ctx) -> Self {
-        Self::new(ctx.select::<Time>().into(), ctx.select::<ExecutionCap>())
+        Self::new(ctx.select::<Time>().into(), ctx.select::<ExecutionCap<U>>())
     }
 }
 
-impl<Fr, Pl: Stable> TLB<Fr, Pl> {
-    pub fn new(time: u64, conf: ExecutionCap) -> Self {
+impl<Fr, Pl: Stable, U> TLB<Fr, Pl, U> {
+    pub fn new(time: u64, conf: ExecutionCap<U>) -> Self {
         Self {
             state: TLBState::new(time),
             execution_cap: conf,
@@ -91,10 +93,11 @@ impl<Fr, Pl: Stable> TLB<Fr, Pl> {
     }
 }
 
-impl<Fr, Pl> TLB<Fr, Pl>
+impl<Fr, Pl, U> TLB<Fr, Pl, U>
 where
-    Fr: Fragment + OrderState + Ord + Copy,
+    Fr: Fragment<U=U> + OrderState + Ord + Copy,
     Pl: Pool + Stable + Copy,
+    U: PartialOrd
 {
     fn on_transition(&mut self, tx: StateTrans<Fr>) {
         if let StateTrans::Active(fr) = tx {
@@ -103,10 +106,11 @@ where
     }
 }
 
-impl<Fr, Pl> TemporalLiquidityBook<Fr, Pl> for TLB<Fr, Pl>
+impl<Fr, Pl, U> TemporalLiquidityBook<Fr, Pl> for TLB<Fr, Pl, U>
 where
-    Fr: Fragment + OrderState + Copy + Ord + std::fmt::Debug,
+    Fr: Fragment<U=U> + OrderState + Copy + Ord + std::fmt::Debug,
     Pl: Pool + Stable + Copy + std::fmt::Debug,
+    U: Monoid + PartialOrd + SubAssign + Sub<Output=U> + Copy,
 {
     fn attempt(&mut self) -> Option<IntermediateRecipe<Fr, Pl>> {
         if let Some(best_fr) = self.state.pick_best_fr_either() {
@@ -152,7 +156,7 @@ where
                                 }
                             }
                         }
-                        (Some(_), _) if execution_units_left > 0 => {
+                        (Some(_), _) if execution_units_left > U::identity() => {
                             let rem_side = rem.target.side();
                             if let Some(pool) = self.state.try_pick_pool(|pl| {
                                 let real_price = pl.real_price(rem_side.wrap(rem.remaining_input));
@@ -185,7 +189,7 @@ where
     }
 }
 
-fn requiring_settled_state<Fr, Pl, F>(book: &mut TLB<Fr, Pl>, f: F)
+fn requiring_settled_state<Fr, Pl, U, F>(book: &mut TLB<Fr, Pl, U>, f: F)
 where
     Pl: Stable,
     F: Fn(&mut IdleState<Fr, Pl>),
@@ -200,7 +204,7 @@ where
     }
 }
 
-impl<Fr, Pl> ExternalTLBEvents<Fr, Pl> for TLB<Fr, Pl>
+impl<Fr, Pl, U> ExternalTLBEvents<Fr, Pl> for TLB<Fr, Pl, U>
 where
     Fr: Fragment + OrderState + Ord + Copy,
     Pl: Pool + Stable + Copy,
@@ -227,7 +231,7 @@ where
     }
 }
 
-impl<Fr, Pl> TLBFeedback<Fr, Pl> for TLB<Fr, Pl>
+impl<Fr, Pl, U> TLBFeedback<Fr, Pl> for TLB<Fr, Pl, U>
 where
     Fr: Fragment + OrderState + Ord + Copy,
     Pl: Pool + Stable + Copy,
@@ -272,9 +276,10 @@ struct FillFromFragment<Fr> {
     fill_rt: Either<Fill<Fr>, PartialFill<Fr>>,
 }
 
-fn fill_from_fragment<Fr>(lhs: PartialFill<Fr>, rhs: Fr) -> FillFromFragment<Fr>
+fn fill_from_fragment<Fr, U>(lhs: PartialFill<Fr>, rhs: Fr) -> FillFromFragment<Fr>
 where
-    Fr: Fragment + OrderState + Copy,
+    Fr: Fragment<U=U> + OrderState + Copy,
+    U: PartialOrd
 {
     match lhs.target.side() {
         SideM::Bid => {

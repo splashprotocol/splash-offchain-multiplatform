@@ -29,7 +29,7 @@ use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::{
     BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
 };
-use crate::deployment::{DeployedScriptHash, DeployedValidator};
+use crate::deployment::{DeployedScriptInfo, DeployedValidator};
 use spectrum_cardano_lib::{NetworkId, OutputRef};
 
 pub struct Input;
@@ -148,9 +148,9 @@ impl SpecializedOrder for ClassicalAMMOrder {
 impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for ClassicalAMMOrder
 where
     Ctx: Has<OutputRef>
-        + Has<DeployedScriptHash<{ ConstFnPoolSwap as u8 }>>
-        + Has<DeployedScriptHash<{ ConstFnPoolDeposit as u8 }>>
-        + Has<DeployedScriptHash<{ ConstFnPoolRedeem as u8 }>>,
+        + Has<DeployedScriptInfo<{ ConstFnPoolSwap as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolDeposit as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolRedeem as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         ClassicalOnChainLimitSwap::try_from_ledger(repr, ctx)

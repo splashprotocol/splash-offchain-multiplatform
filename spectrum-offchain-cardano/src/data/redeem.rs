@@ -17,7 +17,7 @@ use crate::data::pool::{CFMMPoolAction, Lq, Rx, Ry};
 use crate::data::{OnChainOrderId, PoolId};
 use crate::deployment::ProtocolValidator::ConstFnPoolRedeem;
 use crate::deployment::{
-    test_address, DeployedScriptHash, DeployedValidator, DeployedValidatorErased, RequiresValidator,
+    test_address, DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator,
 };
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -69,7 +69,7 @@ struct OnChainRedeemConfig {
 
 impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for ClassicalOnChainRedeem
 where
-    Ctx: Has<OutputRef> + Has<DeployedScriptHash<{ ConstFnPoolRedeem as u8 }>>,
+    Ctx: Has<OutputRef> + Has<DeployedScriptInfo<{ ConstFnPoolRedeem as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         if test_address(repr.address(), ctx) {

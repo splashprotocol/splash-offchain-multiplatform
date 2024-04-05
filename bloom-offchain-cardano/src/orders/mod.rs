@@ -9,7 +9,7 @@ use spectrum_cardano_lib::NetworkTime;
 use spectrum_offchain::data::Has;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::creds::OperatorCred;
-use spectrum_offchain_cardano::deployment::DeployedScriptHash;
+use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
 use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
@@ -44,7 +44,7 @@ impl OrderState for AnyOrder {
 
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for AnyOrder
 where
-    C: Has<OperatorCred> + Has<ConsumedInputs> + Has<DeployedScriptHash<{ LimitOrderV1 as u8 }>>,
+    C: Has<OperatorCred> + Has<ConsumedInputs> + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         LimitOrder::try_from_ledger(repr, ctx).map(|s| AnyOrder::Spot(s))
