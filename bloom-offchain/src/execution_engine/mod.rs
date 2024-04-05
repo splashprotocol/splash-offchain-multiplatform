@@ -106,7 +106,7 @@ where
     Ver: Copy + Eq + Hash + Display + Unpin + 'a,
     Pool: Stable<StableId = StableId> + Copy + Debug + Unpin + 'a,
     CompOrd: Stable<StableId = StableId> + Fragment<U = U> + OrderState + Copy + Debug + Unpin + 'a,
-    SpecOrd: SpecializedOrder<TPoolId = StableId> + Debug + Unpin + 'a,
+    SpecOrd: SpecializedOrder<TPoolId = StableId, TOrderId = Ver> + Debug + Unpin + 'a,
     Bearer: Clone + Unpin + Debug + 'a,
     Txc: Unpin + 'a,
     Tx: Unpin + 'a,
@@ -417,7 +417,7 @@ where
     Ver: Copy + Eq + Hash + Display + Unpin,
     P: Stable<StableId = Stab> + Copy + Debug + Unpin,
     CO: Stable<StableId = Stab> + Fragment<U = U> + OrderState + Copy + Debug + Unpin,
-    SO: SpecializedOrder<TPoolId = Stab> + Unpin,
+    SO: SpecializedOrder<TPoolId = Stab, TOrderId = Ver> + Unpin,
     B: Clone + Debug + Unpin,
     Txc: Unpin,
     Tx: Unpin,
@@ -465,16 +465,33 @@ where
                         },
                         Err(err) => {
                             warn!("TX failed {:?}", err);
-                            match pending_effects {
-                                PendingEffects::FromLiquidityBook(_) => {
-                                    self.multi_book.get_mut(&pair).on_recipe_failed();
-                                }
-                                PendingEffects::FromBacklog(_, consumed_order) => {
-                                    self.multi_backlog.get_mut(&pair).recharge(consumed_order);
-                                }
-                            }
                             if let Ok(missing_bearers) = err.try_into() {
-                                self.invalidate_bearers(&pair, missing_bearers);
+                                self.invalidate_bearers(&pair, missing_bearers.clone());
+                                match pending_effects {
+                                    PendingEffects::FromLiquidityBook(_) => {
+                                        self.multi_book.get_mut(&pair).on_recipe_failed();
+                                    }
+                                    PendingEffects::FromBacklog(_, consumed_order) => {
+                                        let order_utxo_is_spent =
+                                            missing_bearers.contains(&consumed_order.0.get_self_ref());
+                                        if (order_utxo_is_spent) {
+                                            self.multi_backlog
+                                                .get_mut(&pair)
+                                                .remove(consumed_order.get_self_ref());
+                                        } else {
+                                            self.multi_backlog.get_mut(&pair).recharge(consumed_order);
+                                        }
+                                    }
+                                }
+                            } else {
+                                match pending_effects {
+                                    PendingEffects::FromLiquidityBook(_) => {
+                                        self.multi_book.get_mut(&pair).on_recipe_failed();
+                                    }
+                                    PendingEffects::FromBacklog(_, consumed_order) => {
+                                        self.multi_backlog.get_mut(&pair).recharge(consumed_order);
+                                    }
+                                }
                             }
                         }
                     },
@@ -549,7 +566,7 @@ where
     Ver: Copy + Eq + Hash + Display + Unpin,
     P: Stable<StableId = Stab> + Copy + Debug + Unpin,
     CO: Stable<StableId = Stab> + Fragment<U = U> + OrderState + Copy + Debug + Unpin,
-    SO: SpecializedOrder<TPoolId = Stab> + Unpin,
+    SO: SpecializedOrder<TPoolId = Stab, TOrderId = Ver> + Unpin,
     B: Clone + Debug + Unpin,
     Txc: Unpin,
     Tx: Unpin,
