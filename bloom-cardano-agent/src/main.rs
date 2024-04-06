@@ -4,9 +4,9 @@ use clap::Parser;
 use cml_chain::transaction::Transaction;
 use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
-use futures::{Stream, stream_select, StreamExt};
 use futures::channel::mpsc;
 use futures::stream::select_all;
+use futures::{stream_select, Stream, StreamExt};
 use log::info;
 use tokio::sync::Mutex;
 use tracing_subscriber::fmt::Subscriber;
@@ -17,13 +17,13 @@ use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_part_stream;
 use bloom_offchain::execution_engine::liquidity_book::{ExecutionCap, TLB};
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
-use bloom_offchain::execution_engine::storage::InMemoryStateIndex;
 use bloom_offchain::execution_engine::storage::kv_store::InMemoryKvStore;
-use bloom_offchain_cardano::event_sink::{AtomicCardanoEntity, EvolvingCardanoEntity};
+use bloom_offchain::execution_engine::storage::InMemoryStateIndex;
 use bloom_offchain_cardano::event_sink::context::HandlerContextProto;
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
 use bloom_offchain_cardano::event_sink::handler::{PairUpdateHandler, SpecializedHandler};
 use bloom_offchain_cardano::event_sink::order_index::InMemoryOrderIndex;
+use bloom_offchain_cardano::event_sink::{AtomicCardanoEntity, EvolvingCardanoEntity};
 use bloom_offchain_cardano::execution_engine::backlog::interpreter::SpecializedInterpreterViaRunOrder;
 use bloom_offchain_cardano::execution_engine::interpreter::CardanoRecipeInterpreter;
 use bloom_offchain_cardano::orders::AnyOrder;
@@ -43,9 +43,9 @@ use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::backlog::{BacklogCapacity, HotPriorityBacklog};
-use spectrum_offchain::data::Baked;
 use spectrum_offchain::data::order::OrderUpdate;
 use spectrum_offchain::data::unique_entity::{EitherMod, StateUpdate};
+use spectrum_offchain::data::Baked;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::partitioning::Partitioned;
@@ -91,8 +91,8 @@ async fn main() {
         config.node.magic,
         config.chain_sync.starting_point,
     )
-        .await
-        .expect("ChainSync initialization failed");
+    .await
+    .expect("ChainSync initialization failed");
 
     // n2c clients:
     let mempool_sync =
@@ -261,10 +261,10 @@ async fn main() {
 }
 
 fn merge_upstreams(
-    xs: impl Stream<Item=(PairId, EitherMod<StateUpdate<EvolvingCardanoEntity>>)> + Unpin,
-    ys: impl Stream<Item=(PairId, OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>)> + Unpin,
+    xs: impl Stream<Item = (PairId, EitherMod<StateUpdate<EvolvingCardanoEntity>>)> + Unpin,
+    ys: impl Stream<Item = (PairId, OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>)> + Unpin,
 ) -> impl Stream<
-    Item=(
+    Item = (
         PairId,
         Either<
             EitherMod<

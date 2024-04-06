@@ -579,12 +579,6 @@ impl AMMOps for BalancePool {
         base_asset: TaggedAssetClass<Base>,
         base_amount: TaggedAmount<Base>,
     ) -> TaggedAmount<Quote> {
-        println!("self.lp_fee_x: {}", self.lp_fee_x);
-        println!("self.treasury_fee: {}", self.treasury_fee);
-        println!(
-            "self.lp_fee_x - self.treasury_fee: {}",
-            self.lp_fee_x - self.treasury_fee
-        );
         balance_cfmm_output_amount(
             self.asset_x,
             self.reserves_x,
@@ -658,8 +652,6 @@ impl Pool for BalancePool {
     }
 
     fn swap(mut self, input: Side<u64>) -> (u64, Self) {
-        println!("Pool: {:?}", self);
-        println!("Input: {:?}", input);
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, quote] = order_canonical(x, y);
@@ -671,8 +663,6 @@ impl Pool for BalancePool {
                 .output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
                 .untag(),
         };
-        println!("Base: {}, Quote: {}", base, quote);
-        println!("Calculated output: {}", output);
         let (base_reserves, quote_reserves) = if x == base {
             (self.reserves_x.as_mut(), self.reserves_y.as_mut())
         } else {
@@ -696,7 +686,6 @@ impl Pool for BalancePool {
                 self.treasury_x = TaggedAmount::new(
                     self.treasury_x.untag() + (input * self.treasury_fee.numer() / self.treasury_fee.denom()),
                 );
-                println!("self.treasury_x {}", self.treasury_x.untag());
                 (output, self)
             }
         }

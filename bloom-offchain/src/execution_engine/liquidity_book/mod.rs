@@ -2,9 +2,9 @@ use std::cmp::{max, min};
 use std::mem;
 use std::ops::{Sub, SubAssign};
 
+use algebra_core::monoid::Monoid;
 use either::Either;
 use log::trace;
-use algebra_core::monoid::Monoid;
 
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::maker::Maker;
@@ -62,7 +62,7 @@ pub struct ExecutionCap<U> {
     pub hard: U,
 }
 
-impl<U: Sub<Output=U> + Copy> ExecutionCap<U> {
+impl<U: Sub<Output = U> + Copy> ExecutionCap<U> {
     fn safe_threshold(&self) -> U {
         self.hard - self.soft
     }
@@ -95,9 +95,9 @@ impl<Fr, Pl: Stable, U> TLB<Fr, Pl, U> {
 
 impl<Fr, Pl, U> TLB<Fr, Pl, U>
 where
-    Fr: Fragment<U=U> + OrderState + Ord + Copy,
+    Fr: Fragment<U = U> + OrderState + Ord + Copy,
     Pl: Pool + Stable + Copy,
-    U: PartialOrd
+    U: PartialOrd,
 {
     fn on_transition(&mut self, tx: StateTrans<Fr>) {
         if let StateTrans::Active(fr) = tx {
@@ -108,9 +108,9 @@ where
 
 impl<Fr, Pl, U> TemporalLiquidityBook<Fr, Pl> for TLB<Fr, Pl, U>
 where
-    Fr: Fragment<U=U> + OrderState + Copy + Ord + std::fmt::Debug,
+    Fr: Fragment<U = U> + OrderState + Copy + Ord + std::fmt::Debug,
     Pl: Pool + Stable + Copy + std::fmt::Debug,
-    U: Monoid + PartialOrd + SubAssign + Sub<Output=U> + Copy,
+    U: Monoid + PartialOrd + SubAssign + Sub<Output = U> + Copy,
 {
     fn attempt(&mut self) -> Option<IntermediateRecipe<Fr, Pl>> {
         if let Some(best_fr) = self.state.pick_best_fr_either() {
@@ -278,8 +278,8 @@ struct FillFromFragment<Fr> {
 
 fn fill_from_fragment<Fr, U>(lhs: PartialFill<Fr>, rhs: Fr) -> FillFromFragment<Fr>
 where
-    Fr: Fragment<U=U> + OrderState + Copy,
-    U: PartialOrd
+    Fr: Fragment<U = U> + OrderState + Copy,
+    U: PartialOrd,
 {
     match lhs.target.side() {
         SideM::Bid => {

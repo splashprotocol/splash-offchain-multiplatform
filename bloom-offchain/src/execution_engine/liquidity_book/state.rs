@@ -306,7 +306,7 @@ where
 
 impl<Fr, Pl, U> TLBState<Fr, Pl>
 where
-    Fr: Fragment<U=U> + Ord + Copy,
+    Fr: Fragment<U = U> + Ord + Copy,
     Pl: Pool + Stable + Copy,
     U: PartialOrd,
 {
@@ -489,8 +489,8 @@ where
 
 fn pick_best_fr_either<Fr, U>(active_frontier: &mut Fragments<Fr>) -> Option<Fr>
 where
-    Fr: Fragment<U=U> + Ord + Copy,
-    U: PartialOrd
+    Fr: Fragment<U = U> + Ord + Copy,
+    U: PartialOrd,
 {
     let best_bid = active_frontier.bids.pop_first();
     let best_ask = active_frontier.asks.pop_first();
@@ -922,7 +922,7 @@ pub mod tests {
 
     impl Fragment for SimpleOrderPF {
         type U = u64;
-        
+
         fn side(&self) -> SideM {
             self.side
         }

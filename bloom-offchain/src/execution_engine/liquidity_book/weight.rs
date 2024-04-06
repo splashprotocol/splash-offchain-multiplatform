@@ -38,7 +38,7 @@ pub trait Weighted<U> {
 
 impl<T, U> Weighted<U> for T
 where
-    T: Fragment<U=U>,
+    T: Fragment<U = U>,
 {
     fn weight(&self) -> OrderWeight<U> {
         OrderWeight(self.weighted_fee(), self.marginal_cost_hint())

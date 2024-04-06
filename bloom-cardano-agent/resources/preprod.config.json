@@ -2,8 +2,8 @@
   "chainSync": {
     "startingPoint": {
       "Specific": [
-        56628853,
-        "911268a01bec550ee35e734539ea0b802d34c32569bc483bd43d8bc624060c7e"
+        56651485,
+        "fdd4ca79946a62cc53291a2cbbc690ea7f99f5fa32660c16d9ce324592d1c122"
       ]
     },
     "disableRollbacksUntil": 56539435,

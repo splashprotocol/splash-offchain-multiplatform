@@ -20,6 +20,7 @@ pub mod address;
 pub mod collateral;
 pub mod constants;
 pub mod credential;
+pub mod ex_units;
 pub mod hash;
 pub mod output;
 pub mod plutus_data;
@@ -27,7 +28,6 @@ pub mod protocol_params;
 pub mod transaction;
 pub mod types;
 pub mod value;
-pub mod ex_units;
 
 /// Asset name bytes padded to 32-byte fixed array and tupled with the len of the original asset name.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, derive_more::From)]

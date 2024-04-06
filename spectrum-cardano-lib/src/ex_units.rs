@@ -1,9 +1,10 @@
-use std::ops::Add;
-use derive_more::{Add, AddAssign, Sub, SubAssign};
 use algebra_core::monoid::Monoid;
+use derive_more::{Add, AddAssign, Sub, SubAssign};
+use std::ops::Add;
 
-#[derive(serde::Deserialize)]
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Add, Sub, AddAssign, SubAssign)]
+#[derive(
+    serde::Deserialize, Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Add, Sub, AddAssign, SubAssign,
+)]
 pub struct ExUnits {
     pub mem: u64,
     pub steps: u64,
@@ -20,10 +21,7 @@ impl ExUnits {
 
 impl Monoid for ExUnits {
     fn identity() -> Self {
-        ExUnits {
-            mem: 0,
-            steps: 0,
-        }
+        ExUnits { mem: 0, steps: 0 }
     }
     fn combine(self, other: Self) -> Self {
         self.add(other)

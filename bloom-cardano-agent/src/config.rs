@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use cml_core::Slot;
 use bloom_offchain::execution_engine::liquidity_book;
+use cml_core::Slot;
 
 use cardano_chain_sync::client::Point;
 use cardano_explorer::data::ExplorerConfig;
@@ -50,6 +50,9 @@ pub struct ExecutionCap {
 
 impl From<ExecutionCap> for liquidity_book::ExecutionCap<ExUnits> {
     fn from(value: ExecutionCap) -> Self {
-        Self { soft: value.soft, hard: value.hard }
+        Self {
+            soft: value.soft,
+            hard: value.hard,
+        }
     }
 }

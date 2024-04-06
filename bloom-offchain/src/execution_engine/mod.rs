@@ -105,7 +105,7 @@ where
     StableId: Copy + Eq + Hash + Debug + Display + Unpin + 'a,
     Ver: Copy + Eq + Hash + Display + Unpin + 'a,
     Pool: Stable<StableId = StableId> + Copy + Debug + Unpin + 'a,
-    CompOrd: Stable<StableId = StableId> + Fragment<U=U> + OrderState + Copy + Debug + Unpin + 'a,
+    CompOrd: Stable<StableId = StableId> + Fragment<U = U> + OrderState + Copy + Debug + Unpin + 'a,
     SpecOrd: SpecializedOrder<TPoolId = StableId> + Debug + Unpin + 'a,
     Bearer: Clone + Unpin + Debug + 'a,
     Txc: Unpin + 'a,
@@ -409,7 +409,7 @@ where
     Stab: Copy + Eq + Hash + Debug + Display + Unpin,
     Ver: Copy + Eq + Hash + Display + Unpin,
     P: Stable<StableId = Stab> + Copy + Debug + Unpin,
-    CO: Stable<StableId = Stab> + Fragment<U=U> + OrderState + Copy + Debug + Unpin,
+    CO: Stable<StableId = Stab> + Fragment<U = U> + OrderState + Copy + Debug + Unpin,
     SO: SpecializedOrder<TPoolId = Stab> + Unpin,
     B: Clone + Debug + Unpin,
     Txc: Unpin,
@@ -532,7 +532,8 @@ where
     }
 }
 
-impl<S, Pair, Stab, Ver, CO, SO, P, B, Txc, Tx, U, C, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err> FusedStream
+impl<S, Pair, Stab, Ver, CO, SO, P, B, Txc, Tx, U, C, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err>
+    FusedStream
     for Executor<S, Pair, Stab, Ver, CO, SO, P, B, Txc, Tx, C, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err>
 where
     S: Stream<Item = (Pair, Event<CO, SO, P, B, Ver>)> + Unpin,
@@ -540,7 +541,7 @@ where
     Stab: Copy + Eq + Hash + Debug + Display + Unpin,
     Ver: Copy + Eq + Hash + Display + Unpin,
     P: Stable<StableId = Stab> + Copy + Debug + Unpin,
-    CO: Stable<StableId = Stab> + Fragment<U=U> + OrderState + Copy + Debug + Unpin,
+    CO: Stable<StableId = Stab> + Fragment<U = U> + OrderState + Copy + Debug + Unpin,
     SO: SpecializedOrder<TPoolId = Stab> + Unpin,
     B: Clone + Debug + Unpin,
     Txc: Unpin,

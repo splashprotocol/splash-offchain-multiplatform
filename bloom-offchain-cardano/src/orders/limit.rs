@@ -17,6 +17,7 @@ use bloom_offchain::execution_engine::liquidity_book::types::{
 };
 use bloom_offchain::execution_engine::liquidity_book::weight::Weighted;
 use spectrum_cardano_lib::address::PlutusAddress;
+use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
 };
@@ -24,7 +25,6 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{AssetClass, OutputRef};
-use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_offchain::data::{Has, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::creds::OperatorCred;
@@ -122,7 +122,7 @@ impl OrderState for LimitOrder {
 
 impl Fragment for LimitOrder {
     type U = ExUnits;
-    
+
     fn side(&self) -> SideM {
         side_of(self.input_asset, self.output_asset)
     }
@@ -313,7 +313,7 @@ where
                         cancellation_pkh: conf.cancellation_pkh,
                         requires_executor_sig: !is_permissionless,
                         virgin: valid_fresh_beacon,
-                        marginal_cost: script_info.cost
+                        marginal_cost: script_info.cost,
                     });
                 }
             }
@@ -332,11 +332,12 @@ pub struct SpotOrderBatchValidatorRefScriptOutput(pub TransactionUnspentOutput);
 
 #[cfg(test)]
 mod tests {
-    use crate::orders::limit::{beacon_from_oref, unsafe_update_datum, Datum, LimitOrder};
     use cml_chain::plutus::PlutusData;
     use cml_core::serialization::Deserialize;
-    use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, ScriptHash, TransactionHash};
+    use cml_crypto::{Ed25519KeyHash, TransactionHash};
     use cml_multi_era::babbage::BabbageTransactionOutput;
+    use type_equalities::IsEqual;
+
     use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_cardano_lib::OutputRef;
     use spectrum_offchain::data::Has;
@@ -347,7 +348,8 @@ mod tests {
         DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes,
     };
     use spectrum_offchain_cardano::utxo::ConsumedInputs;
-    use type_equalities::IsEqual;
+
+    use crate::orders::limit::{beacon_from_oref, unsafe_update_datum, Datum, LimitOrder};
 
     struct Context {
         limit_order: DeployedScriptInfo<{ LimitOrderV1 as u8 }>,
@@ -419,7 +421,9 @@ mod tests {
             consumed_inputs: ConsumedInputs::new(vec![].into_iter()),
         };
         let bearer = BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(ORDER_UTXO).unwrap()).unwrap();
-        LimitOrder::try_from_ledger(&bearer, &ctx).expect("LimitOrder expected");
+        let ord = LimitOrder::try_from_ledger(&bearer, &ctx).expect("LimitOrder expected");
+        println!("Addr: {:?}", ord.redeemer_address);
     }
-    const ORDER_UTXO: &str = "a300581d70dfaa80c9732ed3b7752ba189786723c6709e2876a024f8f4d9910fb3011a0037fc12028201d81858edd8798c41005840e90bcf244759e9250a757641d757b6dae90c7e1ede1bba51e1a153623e6e0aea9d7424a8846f699f54d117f5ab39ef365d0a5fdaeff3e12fe80bd91fee8ec876d8798240401903e81a0007a12000d87982581cfd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3a4974657374746f6b656ed879821903e8011a0007a120d87982581c1e5b525041f0d70ad830f1d7dbd2ed7012c1d89788b4385d7bdd0c37d87981581c6b6723106d7725d57913612286514abb81148d344b1675df297ee224581c1e5b525041f0d70ad830f1d7dbd2ed7012c1d89788b4385d7bdd0c3780";
+
+    const ORDER_UTXO: &str = "a300581d70dfaa80c9732ed3b7752ba189786723c6709e2876a024f8f4d9910fb301821a002dc6c0a1581cfd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3aa14974657374746f6b656e1a00011170028201d81858dfd8799f4100581c4824e94585a8ab56a6c0b7db9984202b3fcd0f1257025d419eca9247d8799f581cfd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3a4974657374746f6b656eff1a000111701a000927c01903e8d8799f4040ffd8799f1903e801ff1a000927c0d8799fd8799f581c4be4fa25f029d14c0d723af4a1e6fa7133fc3a610f880336ad685cbaffd8799fd8799fd8799f581c5bda73043d43ad8df5ce75639cf48e1f2b4545403be92f0113e37537ffffffff581c4be4fa25f029d14c0d723af4a1e6fa7133fc3a610f880336ad685cba80ff";
 }

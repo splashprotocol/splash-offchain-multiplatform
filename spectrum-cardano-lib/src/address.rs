@@ -36,9 +36,23 @@ impl From<PlutusCredential> for Credential {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct InlineCredential(PlutusCredential);
+impl TryFromPData for InlineCredential {
+    fn try_from_pd(data: PlutusData) -> Option<Self> {
+        let mut cpd = data.into_constr_pd()?;
+        match cpd.alternative {
+            0 => Some(InlineCredential(PlutusCredential::try_from_pd(
+                cpd.take_field(0)?,
+            )?)),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct PlutusAddress {
     pub payment_cred: PlutusCredential,
-    pub stake_cred: Option<PlutusCredential>,
+    pub stake_cred: Option<InlineCredential>,
 }
 
 impl PlutusAddress {
@@ -48,7 +62,7 @@ impl PlutusAddress {
             stake_cred,
         } = self;
         match stake_cred {
-            Some(stake_cred) => Address::Base(BaseAddress::new(
+            Some(InlineCredential(stake_cred)) => Address::Base(BaseAddress::new(
                 network_id.into(),
                 payment_cred.into(),
                 stake_cred.into(),
