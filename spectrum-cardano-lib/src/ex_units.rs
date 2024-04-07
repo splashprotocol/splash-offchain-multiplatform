@@ -20,7 +20,7 @@ impl ExUnits {
 }
 
 impl Monoid for ExUnits {
-    fn identity() -> Self {
+    fn empty() -> Self {
         ExUnits { mem: 0, steps: 0 }
     }
     fn combine(self, other: Self) -> Self {

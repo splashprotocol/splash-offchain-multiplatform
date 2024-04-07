@@ -156,7 +156,7 @@ where
                                 }
                             }
                         }
-                        (Some(_), _) if execution_units_left > U::identity() => {
+                        (Some(_), _) if execution_units_left > U::empty() => {
                             let rem_side = rem.target.side();
                             if let Some(pool) = self.state.try_pick_pool(|pl| {
                                 let real_price = pl.real_price(rem_side.wrap(rem.remaining_input));

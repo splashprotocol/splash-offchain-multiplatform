@@ -19,6 +19,7 @@ pub fn derive_fragment(input: TokenStream) -> TokenStream {
             fn weighted_fee(&self) -> bloom_offchain::execution_engine::liquidity_book::types::FeeAsset<num_rational::Ratio<u64>>;
             fn marginal_cost_hint(&self) -> Self::U;
             fn time_bounds(&self) -> bloom_offchain::execution_engine::liquidity_book::time::TimeBounds<u64>;
+            fn min_marginal_output(&self) -> bloom_offchain::execution_engine::liquidity_book::types::OutputAsset<u64>;
         }
     }
 }

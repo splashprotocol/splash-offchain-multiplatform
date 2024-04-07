@@ -151,6 +151,10 @@ impl Fragment for LimitOrder {
         self.marginal_cost
     }
 
+    fn min_marginal_output(&self) -> OutputAsset<u64> {
+        self.min_marginal_output
+    }
+
     fn time_bounds(&self) -> TimeBounds<u64> {
         TimeBounds::None
     }
@@ -284,13 +288,15 @@ where
                 _ => (MIN_LOVELACE, 0),
             };
             let execution_budget = total_ada_input - reserved_lovelace - tradable_lovelace;
+            let min_output = conf.tradable_input as u128 * conf.base_price.numer() / conf.base_price.denom();
+            let min_marginal_output = conf.min_marginal_output as u128;
             let is_permissionless = conf.permitted_executors.is_empty();
             if is_permissionless
                 || conf
                     .permitted_executors
                     .contains(&ctx.select::<OperatorCred>().into())
             {
-                if execution_budget > conf.cost_per_ex_step {
+                if execution_budget > conf.cost_per_ex_step && min_output > min_marginal_output {
                     // Fresh beacon must be derived from one of consumed utxos.
                     let valid_fresh_beacon = ctx
                         .select::<ConsumedInputs>()
