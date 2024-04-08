@@ -11,14 +11,10 @@ pub mod kv_store;
 pub trait StateIndex<Src: EntitySnapshot> {
     /// Get state id preceding given predicted state.
     fn get_prediction_predecessor<'a>(&self, id: Src::Version) -> Option<Src::Version>;
-    /// Get last predicted state of the given entity.
-    fn get_last_predicted<'a>(&self, id: Src::StableId) -> Option<Predicted<Src>>;
     /// Get last confirmed state of the given entity.
     fn get_last_confirmed<'a>(&self, id: Src::StableId) -> Option<Confirmed<Src>>;
     /// Get last unconfirmed state of the given entity.
     fn get_last_unconfirmed<'a>(&self, id: Src::StableId) -> Option<Unconfirmed<Src>>;
-    /// Persist predicted state of the entity.
-    fn put_predicted<'a>(&mut self, entity: Traced<Predicted<Src>>);
     /// Persist confirmed state of the entity.
     fn put_confirmed<'a>(&mut self, entity: Confirmed<Src>);
     /// Persist unconfirmed state of the entity.
@@ -67,14 +63,6 @@ where
         self.links.get(&id).map(|id| *id)
     }
 
-    fn get_last_predicted(&self, id: T::StableId) -> Option<Predicted<T>> {
-        let index_key = index_key(LAST_PREDICTED_PREFIX, id);
-        self.index
-            .get(&index_key)
-            .and_then(|sid| self.store.get(sid))
-            .map(|e| Predicted(e.clone()))
-    }
-
     fn get_last_confirmed(&self, id: T::StableId) -> Option<Confirmed<T>> {
         let index_key = index_key(LAST_CONFIRMED_PREFIX, id);
         self.index
@@ -89,21 +77,6 @@ where
             .get(&index_key)
             .and_then(|sid| self.store.get(sid))
             .map(|e| Unconfirmed(e.clone()))
-    }
-
-    fn put_predicted(
-        &mut self,
-        Traced {
-            state: Predicted(entity),
-            prev_state_id,
-        }: Traced<Predicted<T>>,
-    ) {
-        let index_key = index_key(LAST_PREDICTED_PREFIX, entity.stable_id());
-        self.index.insert(index_key, entity.version());
-        if let Some(prev_sid) = prev_state_id {
-            self.links.insert(entity.version(), prev_sid);
-        }
-        self.store.insert(entity.version(), entity);
     }
 
     fn put_confirmed(&mut self, Confirmed(entity): Confirmed<T>) {
@@ -122,7 +95,6 @@ where
         let predecessor = self.get_prediction_predecessor(ver);
         if let Some(entity) = self.store.remove(&ver) {
             let id = entity.stable_id();
-            let last_predicted_index_key = index_key(LAST_PREDICTED_PREFIX, id);
             let last_confirmed_index_key = index_key(LAST_CONFIRMED_PREFIX, id);
             let last_unconfirmed_index_key = index_key(LAST_UNCONFIRMED_PREFIX, id);
             if let Some(predecessor) = predecessor {
@@ -132,7 +104,6 @@ where
             } else {
                 self.index.remove(&last_confirmed_index_key);
             }
-            self.index.remove(&last_predicted_index_key);
             self.index.remove(&last_unconfirmed_index_key);
             self.links.remove(&ver);
             return Some(id);
@@ -143,10 +114,8 @@ where
     fn eliminate(&mut self, ver: T::Version) {
         if let Some(entity) = self.store.remove(&ver) {
             let id = entity.stable_id();
-            let last_predicted_index_key = index_key(LAST_PREDICTED_PREFIX, id);
             let last_confirmed_index_key = index_key(LAST_CONFIRMED_PREFIX, id);
             let last_unconfirmed_index_key = index_key(LAST_UNCONFIRMED_PREFIX, id);
-            self.index.remove(&last_predicted_index_key);
             self.index.remove(&last_confirmed_index_key);
             self.index.remove(&last_unconfirmed_index_key);
             self.links.remove(&ver);

@@ -13,26 +13,11 @@ where
     let states = {
         let confirmed = index.get_last_confirmed(id);
         let unconfirmed = index.get_last_unconfirmed(id);
-        let predicted = index.get_last_predicted(id);
-        (confirmed, unconfirmed, predicted)
+        (confirmed, unconfirmed)
     };
     match states {
-        (Some(Confirmed(conf)), unconf, Some(Predicted(pred))) => {
-            let anchoring_point = unconf.map(|Unconfirmed(e)| e).unwrap_or(conf);
-            let anchoring_ver = anchoring_point.version();
-            let predicted_ver = pred.version();
-            let prediction_is_anchoring_point = predicted_ver == anchoring_ver;
-            let prediction_is_valid =
-                prediction_is_anchoring_point || is_linking(predicted_ver, anchoring_ver, index);
-            let safe_point = if prediction_is_valid {
-                pred
-            } else {
-                anchoring_point
-            };
-            Some(safe_point)
-        }
-        (_, Some(Unconfirmed(unconf)), None) => Some(unconf),
-        (Some(Confirmed(conf)), _, _) => Some(conf),
+        (_, Some(Unconfirmed(unconfirmed))) => Some(unconfirmed),
+        (Some(Confirmed(confirmed)), _) => Some(confirmed),
         _ => None,
     }
 }
