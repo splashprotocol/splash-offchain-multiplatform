@@ -12,12 +12,12 @@ use spectrum_offchain::maker::Maker;
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use crate::execution_engine::liquidity_book::pool::Pool;
 use crate::execution_engine::liquidity_book::recipe::{
-    Fill, IntermediateRecipe, PartialFill, Swap, TerminalInstruction,
+    ExecutionRecipe, Fill, IntermediateRecipe, PartialFill, Swap, TerminalInstruction,
 };
 use crate::execution_engine::liquidity_book::side::Side::{Ask, Bid};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::state::{IdleState, TLBState, VersionedState};
-use crate::execution_engine::liquidity_book::types::{AbsolutePrice, ExCostUnits};
+use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 use crate::execution_engine::liquidity_book::weight::Weighted;
 use crate::execution_engine::types::Time;
 
@@ -38,7 +38,7 @@ pub mod weight;
 /// (1.) Discrete Fragments of liquidity;
 /// (2.) Pooled (according to some AMM formula) liquidity;
 pub trait TemporalLiquidityBook<Fr, Pl> {
-    fn attempt(&mut self) -> Option<IntermediateRecipe<Fr, Pl>>;
+    fn attempt(&mut self) -> Option<ExecutionRecipe<Fr, Pl>>;
 }
 
 /// TLB API for external events affecting its state.
@@ -112,7 +112,7 @@ where
     Pl: Pool + Stable + Copy + std::fmt::Debug,
     U: Monoid + PartialOrd + SubAssign + Sub<Output = U> + Copy,
 {
-    fn attempt(&mut self) -> Option<IntermediateRecipe<Fr, Pl>> {
+    fn attempt(&mut self) -> Option<ExecutionRecipe<Fr, Pl>> {
         if let Some(best_fr) = self.state.pick_best_fr_either() {
             let mut recipe = IntermediateRecipe::new(best_fr);
             trace!(target: "tlb", "TLB::attempt: recipe {:?}", recipe);
@@ -179,11 +179,10 @@ where
                 }
                 break;
             }
-            if recipe.is_complete() {
-                return Some(recipe);
-            } else {
-                self.on_recipe_failed()
+            if let Some(ex_recipe) = ExecutionRecipe::try_from(recipe) {
+                return Some(ex_recipe);
             }
+            self.on_recipe_failed();
         }
         None
     }
@@ -430,7 +429,7 @@ mod tests {
     use crate::execution_engine::liquidity_book::fragment::StateTrans;
     use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::recipe::{
-        Fill, IntermediateRecipe, PartialFill, Swap, TerminalInstruction,
+        ExecutionRecipe, Fill, IntermediateRecipe, PartialFill, Swap, TerminalInstruction,
     };
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
     use crate::execution_engine::liquidity_book::state::tests::{SimpleCFMMPool, SimpleOrderPF};
@@ -467,7 +466,7 @@ mod tests {
         let p2 = recipe
             .clone()
             .unwrap()
-            .terminal
+            .instructions()
             .iter()
             .find_map(|i| match i {
                 TerminalInstruction::Fill(_) => None,
@@ -502,7 +501,7 @@ mod tests {
             ],
             remainder: None,
         };
-        assert_eq!(recipe, Some(expected_recipe));
+        assert_eq!(recipe, ExecutionRecipe::try_from(expected_recipe));
     }
 
     #[test]

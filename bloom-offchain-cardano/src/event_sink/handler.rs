@@ -242,29 +242,27 @@ where
     }
     let mut produced_entities = HashMap::<Order::TOrderId, Order>::new();
     let consumed_utxos = ConsumedInputs::new(consumed_utxos.into_iter());
-    if !consumed_entities.is_empty() {
-        let tx_hash = hash_transaction_canonical(&tx.body);
-        let mut ix = num_outputs - 1;
-        let mut non_processed_outputs = vec![];
-        while let Some(o) = tx.body.outputs.pop() {
-            let o_ref = OutputRef::new(tx_hash, ix as u64);
-            match Order::try_from_ledger(&o, &HandlerContext::new(o_ref, consumed_utxos, context)) {
-                Some(entity) => {
-                    trace!(target: "offchain", "extract_atomic_transitions: entity found");
-                    let entity_id = entity.get_self_ref();
-                    produced_entities.insert(entity_id, entity);
-                }
-                None => {
-                    non_processed_outputs.push(o);
-                }
+    let tx_hash = hash_transaction_canonical(&tx.body);
+    let mut ix = num_outputs - 1;
+    let mut non_processed_outputs = vec![];
+    while let Some(o) = tx.body.outputs.pop() {
+        let o_ref = OutputRef::new(tx_hash, ix as u64);
+        match Order::try_from_ledger(&o, &HandlerContext::new(o_ref, consumed_utxos, context)) {
+            Some(entity) => {
+                trace!(target: "offchain", "extract_atomic_transitions: entity found");
+                let entity_id = entity.get_self_ref();
+                produced_entities.insert(entity_id, entity);
             }
-            if let Some(next_ix) = ix.checked_sub(1) {
-                ix = next_ix;
+            None => {
+                non_processed_outputs.push(o);
             }
         }
-        // Preserve non-processed outputs in original ordering.
-        tx.body.outputs = non_processed_outputs;
+        if let Some(next_ix) = ix.checked_sub(1) {
+            ix = next_ix;
+        }
     }
+    // Preserve non-processed outputs in original ordering.
+    tx.body.outputs = non_processed_outputs;
 
     // Gather IDs of all recognized entities.
     let mut keys = HashSet::new();

@@ -99,14 +99,14 @@
     }
   },
   "balanceFnPoolV1": {
-    "hash": "ae6ca75d8406c36f5dc8f5a2bc224bf1d735491adf8ce5031b7a9ee2",
+    "hash": "af32320947df026c6a14070b2de20bac54ce97e12bc944565c53c7a5",
     "referenceUtxo": {
-      "txHash": "0d0cc568675a8d0b704d2d901ad2437dd9818e7eb6b7f540edaf1f4e9d178ad1",
+      "txHash": "cfaba9517d5be2a7f4efd16159813464e0ae98aff659d89361e70d8a0d55d8e9",
       "outputIndex": 0
     },
     "cost": {
-      "mem": 5104748,
-      "steps": 2100928253
+      "mem": 1500000,
+      "steps": 900000000
     }
   },
   "balanceFnPoolDeposit": {

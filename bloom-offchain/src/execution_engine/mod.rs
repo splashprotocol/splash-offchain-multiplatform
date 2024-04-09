@@ -370,7 +370,7 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
         }
     }
 
-    fn link_recipe(&self, ExecutionRecipe(mut xs): ExecutionRecipe<CO, P>) -> LinkedExecutionRecipe<CO, P, B>
+    fn link_recipe(&self, recipe: ExecutionRecipe<CO, P>) -> LinkedExecutionRecipe<CO, P, B>
     where
         Stab: Copy + Eq + Hash + Debug + Display,
         V: Copy + Eq + Hash + Display,
@@ -378,6 +378,7 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
         P: Stable<StableId = Stab> + Debug,
         Cache: KvStore<Stab, EvolvingEntity<CO, P, V, B>>,
     {
+        let mut xs = recipe.instructions();
         let mut linked = vec![];
         while let Some(i) = xs.pop() {
             match i {

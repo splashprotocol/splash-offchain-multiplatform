@@ -2,7 +2,7 @@ use cml_chain::Coin;
 
 pub const FEE_DEN: u64 = 100000;
 
-pub const WEIGHT_FEE_DEN: f64 = 10_f64;
+pub const WEIGHT_FEE_DEN: usize = 5;
 
 pub const ADDITIONAL_ROUND_PRECISION: usize = 10;
 
