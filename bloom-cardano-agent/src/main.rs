@@ -21,7 +21,9 @@ use bloom_offchain::execution_engine::storage::kv_store::InMemoryKvStore;
 use bloom_offchain::execution_engine::storage::InMemoryStateIndex;
 use bloom_offchain_cardano::event_sink::context::HandlerContextProto;
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
-use bloom_offchain_cardano::event_sink::handler::{PairUpdateHandler, SpecializedHandler};
+use bloom_offchain_cardano::event_sink::handler::{
+    PairUpdateHandler, ProcessingTransaction, SpecializedHandler,
+};
 use bloom_offchain_cardano::event_sink::order_index::InMemoryOrderIndex;
 use bloom_offchain_cardano::event_sink::{AtomicCardanoEntity, EvolvingCardanoEntity};
 use bloom_offchain_cardano::execution_engine::backlog::interpreter::SpecializedInterpreterViaRunOrder;
@@ -40,6 +42,7 @@ use cardano_mempool_sync::mempool_stream;
 use cardano_submit_api::client::LocalTxSubmissionClient;
 use spectrum_cardano_lib::constants::BABBAGE_ERA_ID;
 use spectrum_cardano_lib::ex_units::ExUnits;
+use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::backlog::{BacklogCapacity, HotPriorityBacklog};
@@ -113,8 +116,21 @@ async fn main() {
         chain_sync_cache,
         chain_sync_stream(chain_sync, Some(&signal_tip_reached)),
         config.chain_sync.disable_rollbacks_until,
-    ));
-    let mempool_stream = mempool_stream(&mempool_sync, Some(&signal_tip_reached));
+    ))
+    .map(|ev| match ev {
+        LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
+            tx: (hash_transaction_canonical(&tx.body), tx),
+            slot,
+        },
+        LedgerTxEvent::TxUnapplied(tx) => {
+            LedgerTxEvent::TxUnapplied((hash_transaction_canonical(&tx.body), tx))
+        }
+    });
+    let mempool_stream = mempool_stream(&mempool_sync, Some(&signal_tip_reached)).map(|ev| match ev {
+        MempoolUpdate::TxAccepted(tx) => {
+            MempoolUpdate::TxAccepted((hash_transaction_canonical(&tx.body), tx))
+        }
+    });
 
     let (operator_sk, operator_pkh, _operator_addr) =
         operator_creds(config.batcher_private_key, config.node.magic);
@@ -167,12 +183,12 @@ async fn main() {
         spec_order_index,
     );
 
-    let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<BabbageTransaction>>>> = vec![
+    let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<ProcessingTransaction>>>> = vec![
         Box::new(general_upd_handler.clone()),
         Box::new(spec_upd_handler.clone()),
     ];
 
-    let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<BabbageTransaction>>>> =
+    let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<ProcessingTransaction>>>> =
         vec![Box::new(general_upd_handler), Box::new(spec_upd_handler.clone())];
 
     let prover = OperatorProver::new(&operator_sk);
