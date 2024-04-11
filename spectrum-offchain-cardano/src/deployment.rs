@@ -225,7 +225,7 @@ pub struct ScriptWitness {
 }
 
 impl<const TYP: u8> DeployedValidator<TYP> {
-    async fn unsafe_pull<'a>(v: DeployedValidatorRef, explorer: &Explorer<'a>) -> Self {
+    pub async fn unsafe_pull<'a>(v: DeployedValidatorRef, explorer: &Explorer<'a>) -> Self {
         let mut ref_output = explorer
             .get_utxo(v.reference_utxo.into())
             .await
