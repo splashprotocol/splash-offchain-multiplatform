@@ -47,8 +47,6 @@ pub mod resolver;
 pub mod storage;
 pub mod types;
 
-// todo: check pool resolving
-
 /// Class of entities that evolve upon execution.
 type EvolvingEntity<CO, P, V, B> = Bundled<Either<Baked<CO, V>, Baked<P, V>>, B>;
 

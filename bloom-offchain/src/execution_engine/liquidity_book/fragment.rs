@@ -50,7 +50,7 @@ pub trait Fragment {
     /// Batcher fee for whole swap.
     fn linear_fee(&self, input_consumed: InputAsset<u64>) -> FeeAsset<u64>;
     /// Fee value weighted by fragment size.
-    fn weighted_fee(&self) -> FeeAsset<Ratio<u64>>;
+    fn fee(&self) -> FeeAsset<u64>;
     /// How much (approximately) execution of this fragment will cost.
     fn marginal_cost_hint(&self) -> Self::U;
     /// Minimal amount of output per execution step.
