@@ -386,10 +386,7 @@ where
             let price = matchmaker(&bid, &ask.target);
             let demand_base = linear_output(bid.input(), Bid(price));
             let supply_base = ask.remaining_input;
-            println!("supply_base: {}, demand_base: {}", supply_base, demand_base);
             if supply_base > demand_base {
-                println!("Ask sold: {} at price {}", demand_base, price);
-                println!("Ask received: {}", bid.input());
                 ask.remaining_input -= demand_base;
                 ask.accumulated_output += bid.input();
                 let (next_bid, bid_budget_used, fee_used) = bid.with_applied_swap(bid.input(), demand_base);
