@@ -139,7 +139,7 @@ where
                                         SideM::Bid => (y, x),
                                         SideM::Ask => (x, y),
                                     };
-                                    settle_price(ask, bid, price_in_pools.unwrap_or(AbsolutePrice::zero()))
+                                    settle_price(ask, bid, price_in_pools)
                                 };
                                 match fill_from_fragment(*rem, opposite_fr, make_match) {
                                     FillFromFragment {
@@ -283,14 +283,14 @@ const MAX_BIAS_PERCENT: u128 = 3;
 //           |         |         |        |
 //          ask      bias<=3%..pivot     bid
 /// Settle execution price for two interleaving fragments.
-fn settle_price<Fr: Fragment>(ask: &Fr, bid: &Fr, index_price: AbsolutePrice) -> AbsolutePrice {
+fn settle_price<Fr: Fragment>(ask: &Fr, bid: &Fr, index_price: Option<AbsolutePrice>) -> AbsolutePrice {
     let price_ask = ask.price();
     let price_bid = bid.price();
     let price_ask_rat = price_ask.unwrap();
     let price_bid_rat = price_bid.unwrap();
     let d = price_bid_rat - price_ask_rat;
-    let pivotal_price = if price_ask <= index_price && index_price <= price_bid {
-        index_price.unwrap()
+    let pivotal_price = if let Some(index_price) = index_price {
+        truncated(index_price.unwrap(), price_ask_rat, price_bid_rat)
     } else {
         price_ask_rat + d / 2
     };
@@ -304,15 +304,17 @@ fn settle_price<Fr: Fragment>(ask: &Fr, bid: &Fr, index_price: AbsolutePrice) ->
     let max_deviation = pivotal_price * Ratio::new(MAX_BIAS_PERCENT, 100);
     let deviation = to_signed(max_deviation) * Ratio::new(bias_percent, 100);
     let corrected_price = to_unsigned(to_signed(pivotal_price) + deviation);
-    AbsolutePrice::from(
-        if corrected_price >= price_ask_rat && corrected_price <= price_bid_rat {
-            corrected_price
-        } else if corrected_price < price_ask_rat {
-            price_ask_rat
-        } else {
-            price_bid_rat
-        },
-    )
+    AbsolutePrice::from(truncated(corrected_price, price_ask_rat, price_bid_rat))
+}
+
+fn truncated<I: PartialOrd>(value: I, low: I, high: I) -> I {
+    if value >= low && value <= high {
+        value
+    } else if value < low {
+        low
+    } else {
+        high
+    }
 }
 
 fn to_signed(r: Ratio<u128>) -> Ratio<i128> {
@@ -579,7 +581,7 @@ mod tests {
             bounds: TimeBounds::None,
         };
         let make_match =
-            |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, AbsolutePrice::new(37, 100));
+            |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(AbsolutePrice::new(37, 100)));
         let FillFromFragment {
             term_fill_lt,
             fill_rt: term_fill_rt,
@@ -617,7 +619,7 @@ mod tests {
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
-        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, p);
+        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(p));
         let FillFromFragment {
             term_fill_lt,
             fill_rt: term_fill_rt,
@@ -658,7 +660,7 @@ mod tests {
             bounds: TimeBounds::None,
         };
         let make_match =
-            |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, AbsolutePrice::new(37, 100));
+            |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(AbsolutePrice::new(37, 100)));
         let FillFromFragment {
             term_fill_lt,
             fill_rt: term_fill_rt,
@@ -730,14 +732,40 @@ mod tests {
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
-        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, index_price);
+        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(index_price));
         let final_price = make_match(&ask_fr, &bid_fr);
-        println!("Pfin: {}", final_price);
-        println!(
-            "{} {}",
-            final_price.unwrap() - ask_price.unwrap(),
-            bid_price.unwrap() - final_price.unwrap()
-        );
+        assert!(final_price.unwrap() - ask_price.unwrap() > bid_price.unwrap() - final_price.unwrap());
+    }
+
+    #[test]
+    fn match_price_biased_towards_best_fee_() {
+        let ask_price = AbsolutePrice::new(30, 100);
+        let bid_price = AbsolutePrice::new(50, 100);
+        let index_price = AbsolutePrice::new(51, 100);
+        let ask_fr = SimpleOrderPF {
+            source: StableId::random(),
+            side: SideM::Ask,
+            input: 1000,
+            accumulated_output: 0,
+            price: ask_price,
+            fee: 4000,
+            ex_budget: 0,
+            cost_hint: 100,
+            bounds: TimeBounds::None,
+        };
+        let bid_fr = SimpleOrderPF {
+            source: StableId::random(),
+            side: SideM::Bid,
+            input: 360,
+            accumulated_output: 0,
+            price: bid_price,
+            fee: 2000,
+            ex_budget: 0,
+            cost_hint: 100,
+            bounds: TimeBounds::None,
+        };
+        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(index_price));
+        let final_price = make_match(&ask_fr, &bid_fr);
         assert!(final_price.unwrap() - ask_price.unwrap() > bid_price.unwrap() - final_price.unwrap());
     }
 
@@ -768,7 +796,7 @@ mod tests {
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
-        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, index_price);
+        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(index_price));
         let final_price = make_match(&ask_fr, &bid_fr);
         assert_eq!(final_price, bid_price)
     }
