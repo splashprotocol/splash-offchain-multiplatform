@@ -139,18 +139,21 @@ where
         upstream,
         feedback_in,
     );
-    let wait_signal = async move { let _ = tip_reached_signal.recv().await; };
-    wait_signal.map(move |_| {
-        info!("Staring executor");
-        executor.then(move |tx| {
-            let mut network = network.clone();
-            let mut feedback = feedback_out.clone();
-            async move {
-                let result = network.submit_tx(tx).await;
-                feedback.send(result).await.expect("Filed to propagate feedback.");
-            }
+    let wait_signal = async move {
+        let _ = tip_reached_signal.recv().await;
+    };
+    wait_signal
+        .map(move |_| {
+            executor.then(move |tx| {
+                let mut network = network.clone();
+                let mut feedback = feedback_out.clone();
+                async move {
+                    let result = network.submit_tx(tx).await;
+                    feedback.send(result).await.expect("Filed to propagate feedback.");
+                }
+            })
         })
-    }).flatten_stream()
+        .flatten_stream()
 }
 
 pub struct Executor<

@@ -215,7 +215,7 @@ async fn main() {
         prover,
         merge_upstreams(pair_upd_recv_p2, spec_upd_recv_p2),
         tx_submission_channel.clone(),
-        signal_tip_reached_snd.subscribe()
+        signal_tip_reached_snd.subscribe(),
     );
     let execution_stream_p3 = execution_part_stream(
         state_index.clone(),
@@ -228,7 +228,7 @@ async fn main() {
         prover,
         merge_upstreams(pair_upd_recv_p3, spec_upd_recv_p3),
         tx_submission_channel.clone(),
-        signal_tip_reached_snd.subscribe()
+        signal_tip_reached_snd.subscribe(),
     );
     let execution_stream_p4 = execution_part_stream(
         state_index,
@@ -241,7 +241,7 @@ async fn main() {
         prover,
         merge_upstreams(pair_upd_recv_p4, spec_upd_recv_p4),
         tx_submission_channel,
-        signal_tip_reached_snd.subscribe()
+        signal_tip_reached_snd.subscribe(),
     );
 
     let ledger_stream = Box::pin(ledger_transactions(
@@ -249,15 +249,15 @@ async fn main() {
         chain_sync_stream(chain_sync, signal_tip_reached_snd),
         config.chain_sync.disable_rollbacks_until,
     ))
-        .map(|ev| match ev {
-            LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
-                tx: (hash_transaction_canonical(&tx.body), tx),
-                slot,
-            },
-            LedgerTxEvent::TxUnapplied(tx) => {
-                LedgerTxEvent::TxUnapplied((hash_transaction_canonical(&tx.body), tx))
-            }
-        });
+    .map(|ev| match ev {
+        LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
+            tx: (hash_transaction_canonical(&tx.body), tx),
+            slot,
+        },
+        LedgerTxEvent::TxUnapplied(tx) => {
+            LedgerTxEvent::TxUnapplied((hash_transaction_canonical(&tx.body), tx))
+        }
+    });
     let mempool_stream = mempool_stream(&mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
         MempoolUpdate::TxAccepted(tx) => {
             MempoolUpdate::TxAccepted((hash_transaction_canonical(&tx.body), tx))

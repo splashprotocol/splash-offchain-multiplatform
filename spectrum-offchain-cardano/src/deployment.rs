@@ -1,4 +1,3 @@
-use std::fmt::{Display, Formatter};
 use cardano_explorer::CardanoNetwork;
 use cml_chain::address::Address;
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
@@ -11,6 +10,7 @@ use cml_crypto::{ScriptHash, TransactionHash};
 use derive_more::{From, Into};
 use hex::FromHexError;
 use spectrum_cardano_lib::ex_units::ExUnits;
+use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use uplc::machine::cost_model::ExBudget;
 

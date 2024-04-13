@@ -19,9 +19,9 @@ pub mod event_source;
 pub fn chain_sync_stream<'a, Block>(
     mut chain_sync: ChainSyncClient<Block>,
     tip_reached_signal: broadcast::Sender<bool>,
-) -> impl Stream<Item=ChainUpgrade<Block>> + 'a
-    where
-        Block: Deserialize + 'a,
+) -> impl Stream<Item = ChainUpgrade<Block>> + 'a
+where
+    Block: Deserialize + 'a,
 {
     let delay_mux: Mutex<Option<Delay>> = Mutex::new(None);
     stream! {
