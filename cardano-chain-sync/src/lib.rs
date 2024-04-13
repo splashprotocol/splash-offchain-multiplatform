@@ -1,4 +1,3 @@
-use std::sync::Once;
 use std::time::Duration;
 
 use async_stream::stream;
@@ -7,6 +6,7 @@ use futures::lock::Mutex;
 use futures::Stream;
 use futures_timer::Delay;
 use log::trace;
+use tokio::sync::broadcast;
 
 use crate::client::ChainSyncClient;
 use crate::data::ChainUpgrade;
@@ -18,10 +18,10 @@ pub mod event_source;
 
 pub fn chain_sync_stream<'a, Block>(
     mut chain_sync: ChainSyncClient<Block>,
-    tip_reached_signal: Option<&'a Once>,
-) -> impl Stream<Item = ChainUpgrade<Block>> + 'a
-where
-    Block: Deserialize + 'a,
+    tip_reached_signal: broadcast::Sender<bool>,
+) -> impl Stream<Item=ChainUpgrade<Block>> + 'a
+    where
+        Block: Deserialize + 'a,
 {
     let delay_mux: Mutex<Option<Delay>> = Mutex::new(None);
     stream! {
@@ -33,12 +33,9 @@ where
             if let Some(upgr) = chain_sync.try_pull_next().await {
                 yield upgr;
             } else {
+                trace!(target: "chain_sync", "Tip reached, waiting for new blocks ..");
                 *delay_mux.lock().await = Some(Delay::new(Duration::from_secs(THROTTLE_SECS)));
-                if let Some(sig) = tip_reached_signal {
-                    sig.call_once(|| {
-                        trace!(target: "chain_sync", "Tip reached, waiting for new blocks ..");
-                    });
-                }
+                let _ = tip_reached_signal.send(true);
             }
         }
     }

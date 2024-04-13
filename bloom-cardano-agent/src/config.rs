@@ -17,7 +17,6 @@ pub struct AppConfig<'a> {
     pub node: NodeConfig<'a>,
     pub tx_submission_buffer_size: usize,
     pub batcher_private_key: &'a str, //todo: store encrypted
-    pub explorer: ExplorerConfig<'a>,
     pub reward_address: OperatorRewardAddress,
     pub executor_cred: OperatorCred,
     pub cardano_finalization_delay: Duration,
