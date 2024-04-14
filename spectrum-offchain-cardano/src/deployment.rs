@@ -10,6 +10,7 @@ use cml_crypto::{ScriptHash, TransactionHash};
 use derive_more::{From, Into};
 use hex::FromHexError;
 use spectrum_cardano_lib::ex_units::ExUnits;
+use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use uplc::machine::cost_model::ExBudget;
 
@@ -60,11 +61,17 @@ impl TryFrom<Script> for cml_chain::Script {
     }
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Copy, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReferenceUTxO {
     pub tx_hash: TransactionHash,
     pub output_index: u64,
+}
+
+impl Display for ReferenceUTxO {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(format!("{}:{}", self.tx_hash, self.output_index).as_str())
+    }
 }
 
 impl From<ReferenceUTxO> for OutputRef {
@@ -201,10 +208,10 @@ pub struct ScriptWitness {
 
 impl<const TYP: u8> DeployedValidator<TYP> {
     async fn unsafe_pull<Net: CardanoNetwork>(v: DeployedValidatorRef, explorer: &Net) -> Self {
-        let mut ref_output = explorer
+        let ref_output = explorer
             .utxo_by_ref(v.reference_utxo.into())
             .await
-            .expect("Reference UTxO from config not found");
+            .expect(format!("Reference UTxO {} from config not found", v.reference_utxo).as_str());
         Self {
             reference_utxo: ref_output,
             hash: v.hash,

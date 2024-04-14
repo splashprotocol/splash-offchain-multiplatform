@@ -143,8 +143,8 @@ impl Fragment for LimitOrder {
         }
     }
 
-    fn weighted_fee(&self) -> FeeAsset<Ratio<u64>> {
-        Ratio::new(self.fee, self.input_amount)
+    fn fee(&self) -> FeeAsset<u64> {
+        self.fee
     }
 
     fn marginal_cost_hint(&self) -> ExUnits {

@@ -679,7 +679,7 @@ pub mod tests {
     use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, TLBState, VersionedState};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::{
-        AbsolutePrice, ExBudgetUsed, ExCostUnits, ExFeeUsed,
+        AbsolutePrice, ExBudgetUsed, ExCostUnits, ExFeeUsed, OutputAsset,
     };
     use crate::execution_engine::types::StableId;
 
@@ -950,8 +950,12 @@ pub mod tests {
             self.fee * input_consumed / self.input
         }
 
-        fn weighted_fee(&self) -> crate::execution_engine::liquidity_book::types::FeeAsset<Ratio<u64>> {
-            Ratio::new(self.fee, self.input)
+        fn min_marginal_output(&self) -> OutputAsset<u64> {
+            0
+        }
+
+        fn fee(&self) -> crate::execution_engine::liquidity_book::types::FeeAsset<u64> {
+            self.fee
         }
     }
 

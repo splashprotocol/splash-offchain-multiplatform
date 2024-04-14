@@ -22,9 +22,6 @@
     "nanos": 0
   },
   "batcherPrivateKey": "xprv1lzpajzrahfy23zyt8479w6h5rj7tvj5e4sa4f3pg7xk0439l2dtdc0m3j2squs5vc2fzjljaamm6a32t364ncwjkhexnnr3kezqz8v22kwsh967asaxz7jqvjdsefvvktg4zkwphtfe60fhylj248eyetvr9x6sr",
-  "explorer": {
-    "url": "https://explorer.spectrum.fi"
-  },
   "rewardAddress": "addr_test1qp97f7397q5aznqdwga0fg0xlfcn8lp6vy8csqek4459ewjmmfesg02r4kxltnn4vww0frsl9dz52spmayhszylrw5mstjywvz",
   "maestroKeyPath": "bloom-cardano-agent/resources/maestro.key",
   "executionCap": {
