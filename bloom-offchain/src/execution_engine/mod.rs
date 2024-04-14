@@ -8,9 +8,10 @@ use std::task::{Context, Poll};
 use either::Either;
 use futures::channel::mpsc;
 use futures::stream::FusedStream;
-use futures::Stream;
+use futures::{FutureExt, Stream};
 use futures::{SinkExt, StreamExt};
-use log::{error, trace, warn};
+use log::{error, info, trace, warn};
+use tokio::sync::broadcast;
 
 use liquidity_book::interpreter::RecipeInterpreter;
 use spectrum_offchain::backlog::HotBacklog;
@@ -96,6 +97,7 @@ pub fn execution_part_stream<
     prover: Prover,
     upstream: Upstream,
     network: Net,
+    mut tip_reached_signal: broadcast::Receiver<bool>,
 ) -> impl Stream<Item = ()> + 'a
 where
     Upstream: Stream<Item = (Pair, Event<CompOrd, SpecOrd, Pool, Bearer, Ver>)> + Unpin + 'a,
@@ -137,14 +139,21 @@ where
         upstream,
         feedback_in,
     );
-    executor.then(move |tx| {
-        let mut network = network.clone();
-        let mut feedback = feedback_out.clone();
-        async move {
-            let result = network.submit_tx(tx).await;
-            feedback.send(result).await.expect("Filed to propagate feedback.");
-        }
-    })
+    let wait_signal = async move {
+        let _ = tip_reached_signal.recv().await;
+    };
+    wait_signal
+        .map(move |_| {
+            executor.then(move |tx| {
+                let mut network = network.clone();
+                let mut feedback = feedback_out.clone();
+                async move {
+                    let result = network.submit_tx(tx).await;
+                    feedback.send(result).await.expect("Filed to propagate feedback.");
+                }
+            })
+        })
+        .flatten_stream()
 }
 
 pub struct Executor<
