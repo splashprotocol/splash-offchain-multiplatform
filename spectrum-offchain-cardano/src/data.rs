@@ -20,7 +20,7 @@ pub mod redeem;
 
 pub mod ref_scripts;
 
-mod balance_order;
+pub mod balance_order;
 pub mod balance_pool;
 pub mod cfmm_pool;
 pub mod fee_switch_bidirectional_fee;

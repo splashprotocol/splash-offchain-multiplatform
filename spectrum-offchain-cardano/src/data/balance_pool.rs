@@ -13,19 +13,18 @@ use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_core::serialization::LenEncoding::{Canonical, Indefinite};
 use cml_multi_era::babbage::BabbageTransactionOutput;
-use log::info;
 use num_integer::Roots;
 use num_rational::Ratio;
 
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
-use bloom_offchain::execution_engine::liquidity_book::types::{AbsolutePrice, FeeAsset, InputAsset};
+use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension};
 use spectrum_cardano_lib::plutus_data::{IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{AssetClass, TaggedAmount, TaggedAssetClass};
+use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
@@ -58,6 +57,7 @@ pub struct BalancePoolConfig {
     pub treasury_x: u64,
     pub treasury_y: u64,
     pub invariant: u64,
+    pub invariant_length: u64,
 }
 
 impl TryFromPData for BalancePoolConfig {
@@ -75,6 +75,7 @@ impl TryFromPData for BalancePoolConfig {
             treasury_x: cpd.take_field(8)?.into_u64()?,
             treasury_y: cpd.take_field(9)?.into_u64()?,
             invariant: cpd.take_field(12)?.into_u64()?,
+            invariant_length: cpd.take_field(13)?.into_u64()?,
         })
     }
 }
@@ -123,6 +124,7 @@ pub struct BalancePool {
     pub treasury_x: TaggedAmount<Rx>,
     pub treasury_y: TaggedAmount<Ry>,
     pub invariant: u64,
+    pub invariant_length: u64,
     pub ver: BalancePoolVer,
 }
 
@@ -161,16 +163,16 @@ impl BalancePool {
         base_asset_ac: TaggedAssetClass<Rx>,
         base_asset_in: TaggedAmount<Rx>,
         precision: usize,
-    ) -> (BigInteger, BigInteger) {
+    ) -> (BigInteger, BigInteger, [BigInteger; 6]) {
         let (asset_reserves, asset_weight, lp_fee) = if base_asset_ac.untag() == self.asset_x.untag() {
             (
-                self.reserves_x.untag() as f64,
+                (self.reserves_x.untag() - self.treasury_x.untag()) as f64,
                 self.weight_x as f64,
                 *self.lp_fee_x.numer() as f64,
             )
         } else {
             (
-                self.reserves_y.untag() as f64,
+                (self.reserves_y.untag() - self.treasury_y.untag()) as f64,
                 self.weight_y as f64,
                 *self.lp_fee_y.numer() as f64,
             )
@@ -181,6 +183,7 @@ impl BalancePool {
                 .mul(BigNumber::from(lp_fee - *self.treasury_fee.numer() as f64))
                 .div(BigNumber::from(FEE_DEN as f64)),
         );
+
         // g = newTokenValue ^ (tokenWeight / commonWeightDenum)
         let new_g_raw =
             new_token_value.pow(&BigNumber::from(asset_weight).div(BigNumber::from(WEIGHT_FEE_DEN)));
@@ -191,7 +194,60 @@ impl BalancePool {
 
         let new_g = round_big_number(new_g_raw, precision + ADDITIONAL_ROUND_PRECISION);
         let new_t = round_big_number(new_t_raw, precision + ADDITIONAL_ROUND_PRECISION);
-        (new_g, new_t)
+
+        let new_balance_len = BigInteger::from(new_token_value.to_string().len());
+        let g_len = BigInteger::from(BigNumber::from_str(&new_g.to_string()).unwrap().to_string().len());
+
+        let new_t_pow_denum_len = BigInteger::from(
+            BigNumber::from_str(&new_t.to_string())
+                .unwrap()
+                .pow(&BigNumber::from(WEIGHT_FEE_DEN))
+                .to_string()
+                .len(),
+        );
+        let new_t_pow_weight_len = BigInteger::from(
+            BigNumber::from_str(&new_t.to_string())
+                .unwrap()
+                .pow(&BigNumber::from(asset_weight))
+                .to_string()
+                .len(),
+        );
+
+        // len( g ^ (weightDen) * feeDen)
+        let g_equation_left_side_len = BigInteger::from(
+            BigNumber::from_str(&new_g.to_string())
+                .unwrap()
+                .pow(&BigNumber::from(WEIGHT_FEE_DEN))
+                .mul(BigNumber::from(FEE_DEN as f64))
+                .to_string()
+                .len(),
+        );
+
+        // (prevTokenBalance * feeDen + tokenDelta * fees)
+        let right_side_len = BigInteger::from(
+            BigNumber::from_str(&asset_reserves.to_string())
+                .unwrap()
+                .mul(BigNumber::from(FEE_DEN as f64))
+                .add(
+                    BigNumber::from(base_asset_in.untag() as f64)
+                        .mul(BigNumber::from(lp_fee - *self.treasury_fee.numer() as f64)),
+                )
+                .to_string()
+                .len(),
+        );
+
+        (
+            new_g,
+            new_t,
+            [
+                new_balance_len,
+                g_len,
+                new_t_pow_denum_len,
+                new_t_pow_weight_len,
+                g_equation_left_side_len,
+                right_side_len,
+            ],
+        )
     }
 
     fn calculate_out_gt_values_for_swap(
@@ -199,154 +255,128 @@ impl BalancePool {
         quote_asset_ac: TaggedAssetClass<Ry>,
         quote_asset_out: TaggedAmount<Ry>,
         precision: usize,
-    ) -> (BigInteger, BigInteger) {
+    ) -> (BigInteger, BigInteger, [BigInteger; 6]) {
         let (asset_reserves, asset_weight) = if quote_asset_ac.untag() == self.asset_x.untag() {
-            (self.reserves_x.untag() as f64, self.weight_x as f64)
+            (
+                (self.reserves_x.untag() - self.treasury_x.untag()) as f64,
+                self.weight_x as f64,
+            )
         } else {
-            (self.reserves_y.untag() as f64, self.weight_y as f64)
+            (
+                (self.reserves_y.untag() - self.treasury_y.untag()) as f64,
+                self.weight_y as f64,
+            )
         };
-        info!("asset_reserves {}", asset_reserves);
-        info!("quote_asset_out {}", quote_asset_out.untag());
         let new_token_value =
             BigNumber::from(asset_reserves).sub(BigNumber::from(quote_asset_out.untag() as f64));
         // g = newTokenValue ^ (tokenWeight / commonWeightDenum)
-        info!("new_token_value {}", new_token_value);
-        info!("asset_weight {}", asset_weight);
-        info!("WEIGHT_FEE_DEN {}", WEIGHT_FEE_DEN);
         let new_g_raw =
             new_token_value.pow(&BigNumber::from(asset_weight).div(BigNumber::from(WEIGHT_FEE_DEN)));
-        info!("new_g_raw {}", asset_weight);
         // t = newTokenValue ^ (1 / commonWeightDenum)
         let new_t_raw = new_token_value.pow(&BigNumber::from(1).div(BigNumber::from(WEIGHT_FEE_DEN)));
-
         // we should round raw value to max precision + additional round
 
         let new_g = round_big_number(new_g_raw, precision + ADDITIONAL_ROUND_PRECISION);
         let new_t = round_big_number(new_t_raw, precision + ADDITIONAL_ROUND_PRECISION);
-        (new_g, new_t)
-    }
 
-    fn calculate_gt_values_for_deposit(
-        self,
-        token_in_asset_ac: AssetClass,
-        token_in: u64,
-        precision: usize,
-    ) -> (BigInteger, BigInteger) {
-        let (asset_reserves, asset_weight) = if token_in_asset_ac == self.asset_x.untag() {
-            (self.reserves_x.untag() as f64, self.weight_x as f64)
+        let new_balance_len = BigInteger::from(new_token_value.to_string().len());
+        let g_len = BigInteger::from(BigNumber::from_str(&new_g.to_string()).unwrap().to_string().len());
+
+        let new_t_pow_denum_len = BigInteger::from(
+            BigNumber::from_str(&new_t.to_string())
+                .unwrap()
+                .pow(&BigNumber::from(WEIGHT_FEE_DEN))
+                .to_string()
+                .len(),
+        );
+        let new_t_pow_weight_len = BigInteger::from(
+            BigNumber::from_str(&new_t.to_string())
+                .unwrap()
+                .pow(&BigNumber::from(asset_weight))
+                .to_string()
+                .len(),
+        );
+
+        let g_in_weight_degree_multiplicator = if (asset_weight == 1_f64) {
+            BigNumber::from(1_f64)
         } else {
-            (self.reserves_y.untag() as f64, self.weight_y as f64)
+            BigNumber::from(WEIGHT_FEE_DEN) - BigNumber::from(asset_weight)
         };
 
-        let new_token_value = BigNumber::from(asset_reserves)
-            .add(BigNumber::from(asset_reserves).add(BigNumber::from(token_in as f64)));
-        // g = newTokenValue ^ (tokenWeight / commonWeightDenum)
-        let new_g_raw =
-            new_token_value.pow(&BigNumber::from(asset_weight).div(BigNumber::from(WEIGHT_FEE_DEN)));
-        // t = newTokenValue ^ (1 / commonWeightDenum)
-        let new_t_raw = new_token_value.pow(&BigNumber::from(1).div(BigNumber::from(WEIGHT_FEE_DEN)));
+        let g_in_weight_degree_mul_len = BigInteger::from(
+            BigNumber::from_str(&new_g.to_string())
+                .unwrap()
+                .pow(&BigNumber::from(WEIGHT_FEE_DEN))
+                .mul(&g_in_weight_degree_multiplicator)
+                .to_string()
+                .len(),
+        );
+        let new_assets_len = BigInteger::from(
+            BigNumber::from(asset_reserves)
+                .sub(BigNumber::from(quote_asset_out.untag() as f64))
+                .to_string()
+                .len(),
+        );
 
-        // we should round raw value to max precision + additional round
-
-        let new_g = round_big_number(new_g_raw, precision + ADDITIONAL_ROUND_PRECISION);
-        let new_t = round_big_number(new_t_raw, precision + ADDITIONAL_ROUND_PRECISION);
-        (new_g, new_t)
+        (
+            new_g,
+            new_t,
+            [
+                new_balance_len,
+                g_len,
+                new_t_pow_denum_len,
+                new_t_pow_weight_len,
+                g_in_weight_degree_mul_len,
+                new_assets_len,
+            ],
+        )
     }
 
-    fn calculate_gt_values_for_redeem(
-        self,
-        token_in_asset_ac: AssetClass,
-        token_in: u64,
-        precision: usize,
-    ) -> (BigInteger, BigInteger) {
-        let (asset_reserves, asset_weight) = if token_in_asset_ac == self.asset_x.untag() {
-            (self.reserves_x.untag() as f64, self.weight_x as f64)
-        } else {
-            (self.reserves_y.untag() as f64, self.weight_y as f64)
-        };
-
-        let new_token_value = BigNumber::from(asset_reserves)
-            .add(BigNumber::from(asset_reserves).sub(BigNumber::from(token_in as f64)));
-        // g = newTokenValue ^ (tokenWeight / commonWeightDenum)
-        let new_g_raw =
-            new_token_value.pow(&BigNumber::from(asset_weight).div(BigNumber::from(WEIGHT_FEE_DEN)));
-        // t = newTokenValue ^ (1 / commonWeightDenum)
-        let new_t_raw = new_token_value.pow(&BigNumber::from(1).div(BigNumber::from(WEIGHT_FEE_DEN)));
-
-        // we should round raw value to max precision + additional round
-
-        let new_g = round_big_number(new_g_raw, precision + ADDITIONAL_ROUND_PRECISION);
-        let new_t = round_big_number(new_t_raw, precision + ADDITIONAL_ROUND_PRECISION);
-        (new_g, new_t)
-    }
-
-    fn construct_g_and_t_for_swap(
+    // [BigInteger; 4]  - g and t related values
+    // [BigInteger; 13] - lengths of variables in calculations
+    fn construct_swap_related_values(
         self,
         base_asset_ac: TaggedAssetClass<Rx>,
         base_asset_in: TaggedAmount<Rx>,
         quote_asset_ac: TaggedAssetClass<Ry>,
         quote_asset_out: TaggedAmount<Ry>,
-    ) -> [BigInteger; 4] {
-        let x_length = self.reserves_x.untag().to_string().len();
-        let y_length = self.reserves_y.untag().to_string().len();
+    ) -> ([BigInteger; 4], Vec<BigInteger>) {
+        let x_length = (self.reserves_x.untag() - self.treasury_x.untag())
+            .to_string()
+            .len();
+        let y_length = (self.reserves_y.untag() - self.treasury_y.untag())
+            .to_string()
+            .len();
 
         let max_precision = if x_length >= y_length { x_length } else { y_length };
 
-        let (new_g_x, new_t_x) = if base_asset_ac.untag() == self.asset_x.untag() {
+        let (new_g_x, new_t_x, x_lengths) = if base_asset_ac.untag() == self.asset_x.untag() {
             self.calculate_in_gt_values_for_swap(base_asset_ac, base_asset_in, max_precision)
         } else {
             self.calculate_out_gt_values_for_swap(quote_asset_ac, quote_asset_out, max_precision)
         };
 
-        let (new_g_y, new_t_y) = if base_asset_ac.untag() == self.asset_y.untag() {
+        let (new_g_y, new_t_y, y_lengths) = if base_asset_ac.untag() == self.asset_y.untag() {
             self.calculate_in_gt_values_for_swap(base_asset_ac, base_asset_in, max_precision)
         } else {
             self.calculate_out_gt_values_for_swap(quote_asset_ac, quote_asset_out, max_precision)
         };
 
-        [new_g_x, new_t_x, new_g_y, new_t_y]
-    }
+        let gx_gy_length = BigInteger::from(
+            BigNumber::from_str(&new_g_x.to_string())
+                .unwrap()
+                .mul(BigNumber::from_str(&new_g_y.to_string()).unwrap())
+                .to_string()
+                .len(),
+        );
 
-    fn construct_g_and_t_for_deposit(
-        self,
-        token_x: TaggedAssetClass<Rx>,
-        token_x_in: TaggedAmount<Rx>,
-        token_y: TaggedAssetClass<Ry>,
-        token_y_in: TaggedAmount<Ry>,
-    ) -> [BigInteger; 4] {
-        let x_length = self.reserves_x.untag().to_string().len();
-        let y_length = self.reserves_y.untag().to_string().len();
+        let mut mut_arr = [x_lengths, y_lengths].concat();
 
-        let max_precision = if x_length >= y_length { x_length } else { y_length };
+        let mut common_vector = vec![gx_gy_length];
 
-        let (new_g_x, new_t_x) =
-            self.calculate_gt_values_for_deposit(token_x.untag(), token_x_in.untag(), max_precision);
+        common_vector.append(&mut mut_arr);
 
-        let (new_g_y, new_t_y) =
-            self.calculate_gt_values_for_deposit(token_y.untag(), token_y_in.untag(), max_precision);
-
-        [new_g_x, new_t_x, new_g_y, new_t_y]
-    }
-
-    fn construct_g_and_t_for_redeem(
-        self,
-        token_x: TaggedAssetClass<Rx>,
-        token_x_in: TaggedAmount<Rx>,
-        token_y: TaggedAssetClass<Ry>,
-        token_y_in: TaggedAmount<Ry>,
-    ) -> [BigInteger; 4] {
-        let x_length = self.reserves_x.untag().to_string().len();
-        let y_length = self.reserves_y.untag().to_string().len();
-
-        let max_precision = if x_length >= y_length { x_length } else { y_length };
-
-        let (new_g_x, new_t_x) =
-            self.calculate_gt_values_for_redeem(token_x.untag(), token_x_in.untag(), max_precision);
-
-        let (new_g_y, new_t_y) =
-            self.calculate_gt_values_for_redeem(token_y.untag(), token_y_in.untag(), max_precision);
-
-        [new_g_x, new_t_x, new_g_y, new_t_y]
+        ([new_g_x, new_t_x, new_g_y, new_t_y], common_vector)
     }
 
     // [gx, tx, gy, ty]
@@ -354,6 +384,8 @@ impl BalancePool {
         cfmmpool_action: CFMMPoolAction,
         pool_idx: u64,
         new_g_t: [BigInteger; 4],
+        // contains lengths of variables in balance pool math calculations
+        lengths: Vec<BigInteger>,
     ) -> PlutusData {
         /*
           Original structure of pool redeemer
@@ -363,6 +395,7 @@ impl BalancePool {
             , "g"     ':= PBuiltinList (PAsData PInteger)
             -- for swap, deposit / redeem (All assets) contains: tX, tY
             , "t"     ':= PBuiltinList (PAsData PInteger)
+            , "lengths" ':= PBuiltinList (PAsData PInteger)
             ]
         */
 
@@ -377,9 +410,16 @@ impl BalancePool {
             PlutusData::Integer(new_g_t[3].clone()),
         ]));
 
+        let processed_lengths_vector: Vec<PlutusData> = lengths
+            .into_iter()
+            .map(|value| PlutusData::Integer(value))
+            .collect();
+
+        let lengths_pd = PlutusData::new_list(processed_lengths_vector);
+
         PlutusData::ConstrPlutusData(ConstrPlutusData {
             alternative: 0,
-            fields: Vec::from([action_plutus_data, self_ix_pd, g_list_pd, t_list_pd]),
+            fields: Vec::from([action_plutus_data, self_ix_pd, g_list_pd, t_list_pd, lengths_pd]),
             encodings: Some(ConstrPlutusDataEncoding {
                 len_encoding: Canonical,
                 tag_encoding: Some(cbor_event::Sz::One),
@@ -414,9 +454,10 @@ where
                 lp_fee_x: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
                 lp_fee_y: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
                 treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
-                treasury_x: TaggedAmount::new(0),
-                treasury_y: TaggedAmount::new(0),
+                treasury_x: TaggedAmount::new(conf.treasury_x),
+                treasury_y: TaggedAmount::new(conf.treasury_y),
                 invariant: conf.invariant,
+                invariant_length: conf.invariant_length,
                 ver: pool_ver,
             });
         }
@@ -448,7 +489,13 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for BalancePool {
         ma.set(nft_lq, name_nft.into(), 1);
 
         if let Some(DatumOption::Datum { datum, .. }) = &mut immut_pool.datum_option {
-            unsafe_update_datum(datum, self.treasury_x.untag(), self.treasury_y.untag());
+            unsafe_update_datum(
+                datum,
+                self.treasury_x.untag(),
+                self.treasury_y.untag(),
+                self.invariant,
+                self.invariant_length,
+            );
         }
 
         TransactionOutput::new_conway_format_tx_out(ConwayFormatTxOut {
@@ -461,10 +508,18 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for BalancePool {
     }
 }
 
-pub fn unsafe_update_datum(data: &mut PlutusData, treasury_x: u64, treasury_y: u64) {
+pub fn unsafe_update_datum(
+    data: &mut PlutusData,
+    treasury_x: u64,
+    treasury_y: u64,
+    invariant: u64,
+    invariant_length: u64,
+) {
     let cpd = data.get_constr_pd_mut().unwrap();
     cpd.set_field(8, treasury_x.into_pd());
     cpd.set_field(9, treasury_y.into_pd());
+    cpd.set_field(12, invariant.into_pd());
+    cpd.set_field(13, invariant_length.into_pd());
 }
 
 impl Stable for BalancePool {
@@ -510,7 +565,7 @@ impl BalancePoolRedeemer {
             .untag()
             .abs_diff(self.prev_pool_state.reserves_y.untag());
 
-        let gt_list: [BigInteger; 4] = match self.action {
+        let (gt_list, lengths_list): ([BigInteger; 4], Vec<BigInteger>) = match self.action {
             CFMMPoolAction::Swap => {
                 let (base_asset_ac, base_asset, quote_asset_ac, quote_asset) =
                     // x -> y swap
@@ -519,36 +574,41 @@ impl BalancePoolRedeemer {
                     } else {
                         (TaggedAssetClass::new(self.new_pool_state.asset_y.untag()), TaggedAmount::new(y_delta), TaggedAssetClass::new(self.new_pool_state.asset_x.untag()), TaggedAmount::new(x_delta))
                     };
-                self.prev_pool_state.construct_g_and_t_for_swap(
+                self.prev_pool_state.construct_swap_related_values(
                     base_asset_ac,
                     base_asset,
                     quote_asset_ac,
                     quote_asset,
                 )
             }
-            CFMMPoolAction::Deposit => self.prev_pool_state.construct_g_and_t_for_deposit(
-                self.new_pool_state.asset_x,
-                TaggedAmount::new(x_delta),
-                self.new_pool_state.asset_y,
-                TaggedAmount::new(y_delta),
+            CFMMPoolAction::Deposit => (
+                [
+                    BigInteger::from(0),
+                    BigInteger::from(0),
+                    BigInteger::from(0),
+                    BigInteger::from(0),
+                ],
+                vec![],
             ),
-            CFMMPoolAction::Redeem => self.prev_pool_state.construct_g_and_t_for_redeem(
-                self.new_pool_state.asset_x,
-                TaggedAmount::new(x_delta),
-                self.new_pool_state.asset_y,
-                TaggedAmount::new(y_delta),
+            CFMMPoolAction::Redeem => (
+                [
+                    BigInteger::from(0),
+                    BigInteger::from(0),
+                    BigInteger::from(0),
+                    BigInteger::from(0),
+                ],
+                vec![],
             ),
             CFMMPoolAction::Destroy => {
                 unimplemented!();
             }
         };
 
-        BalancePool::create_redeemer(self.action, self.pool_input_index, gt_list)
+        BalancePool::create_redeemer(self.action, self.pool_input_index, gt_list, lengths_list)
     }
 }
 
 pub fn round_big_number(orig_value: BigNumber, precision: usize) -> BigInteger {
-    info!("Orig value: {}", orig_value.to_string());
     let int_part = orig_value.to_string().split(".").nth(0).unwrap().len();
     if (precision == 0) {
         BigInteger::from_str(
@@ -558,12 +618,6 @@ pub fn round_big_number(orig_value: BigNumber, precision: usize) -> BigInteger {
         )
         .unwrap()
     } else {
-        info!("Orig value: {} int_part", int_part.to_string());
-        info!("precision: {} ", precision);
-        info!(
-            "replaced {}",
-            orig_value.to_string().replace(".", "")[..(precision)].to_string()
-        );
         BigInteger::from_str(
             orig_value.to_string().replace(".", "")[..(precision)]
                 .to_string()
@@ -581,9 +635,9 @@ impl AMMOps for BalancePool {
     ) -> TaggedAmount<Quote> {
         balance_cfmm_output_amount(
             self.asset_x,
-            self.reserves_x,
+            (self.reserves_x - self.treasury_x),
             self.weight_x,
-            self.reserves_y,
+            (self.reserves_y - self.treasury_y),
             self.weight_y,
             base_asset,
             base_amount,
@@ -598,19 +652,38 @@ impl AMMOps for BalancePool {
         in_x_amount: u64,
         in_y_amount: u64,
     ) -> (TaggedAmount<Lq>, TaggedAmount<Rx>, TaggedAmount<Ry>) {
-        // Balance pool reward lp calculation is the same as for cfmm pool
-        classic_cfmm_reward_lp(
-            self.reserves_x,
-            self.reserves_y,
+        // Balance pool reward lp calculation is the same as for cfmm pool,
+        // but we should "recalculate" change_x, change_y based on unlocked_lq
+        let (unlocked_lq, change_x, change_y) = classic_cfmm_reward_lp(
+            self.reserves_x - self.treasury_x,
+            self.reserves_y - self.treasury_y,
             self.liquidity,
             in_x_amount,
             in_y_amount,
+        );
+
+        let x_to_deposit = (unlocked_lq.untag() as u128
+            * (self.reserves_x.untag() - self.treasury_x.untag()) as u128)
+            / (self.liquidity.untag() as u128);
+        let y_to_deposit_bn = (unlocked_lq.untag() as u128
+            * (self.reserves_y.untag() - self.treasury_y.untag()) as u128)
+            / (self.liquidity.untag() as u128);
+
+        (
+            unlocked_lq,
+            TaggedAmount::new(in_x_amount - x_to_deposit as u64),
+            TaggedAmount::new(in_y_amount - y_to_deposit_bn as u64),
         )
     }
 
     fn shares_amount(self, burned_lq: TaggedAmount<Lq>) -> (TaggedAmount<Rx>, TaggedAmount<Ry>) {
         // Balance pool shares amount calculation is the same as for cfmm pool
-        classic_cfmm_shares_amount(self.reserves_x, self.reserves_y, self.liquidity, burned_lq)
+        classic_cfmm_shares_amount(
+            self.reserves_x - self.treasury_x,
+            self.reserves_y - self.treasury_y,
+            self.liquidity,
+            burned_lq,
+        )
     }
 }
 
@@ -721,7 +794,24 @@ impl ApplyOrder<ClassicalOnChainDeposit> for BalancePool {
 
         self.reserves_x = self.reserves_x + TaggedAmount::new(net_x) - change_x;
         self.reserves_y = self.reserves_y + TaggedAmount::new(net_y) - change_y;
+
+        let invariant_num =
+            (((self.reserves_x.untag() - self.treasury_x.untag()) as u128) * self.invariant as u128);
+        let invariant_denum =
+            ((self.reserves_x.untag() - self.treasury_x.untag() - net_x + change_x.untag()) as u128);
+
+        let additional = if (invariant_num % invariant_denum == 0) {
+            0
+        } else {
+            1
+        };
+
+        let new_invariant = (invariant_num / invariant_denum + additional);
+        let new_invariant_length = (format!("{}", new_invariant)).len();
+
         self.liquidity = self.liquidity + unlocked_lq;
+        self.invariant = new_invariant as u64;
+        self.invariant_length = new_invariant_length as u64;
 
         let deposit_output = DepositOutput {
             token_x_asset: order.token_x,
@@ -748,6 +838,27 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
     ) -> Result<(Self, RedeemOutput), ApplyOrderError<ClassicalOnChainRedeem>> {
         let (x_amount, y_amount) = self.clone().shares_amount(order.token_lq_amount);
 
+        let additional = if ((((self.reserves_x.untag() - x_amount.untag() - self.treasury_x.untag())
+            as u128)
+            * self.invariant as u128)
+            % ((self.reserves_x.untag() - self.treasury_x.untag()) as u128)
+            == 0)
+        {
+            0
+        } else {
+            1
+        };
+
+        let new_invariant = ((((self.reserves_x.untag() - x_amount.untag() - self.treasury_x.untag())
+            as u128)
+            * self.invariant as u128)
+            / ((self.reserves_x.untag() - self.treasury_x.untag()) as u128))
+            + additional;
+
+        let new_invariant_length = (format!("{}", new_invariant)).len();
+
+        self.invariant = new_invariant as u64;
+        self.invariant_length = new_invariant_length as u64;
         self.reserves_x = self.reserves_x - x_amount;
         self.reserves_y = self.reserves_y - y_amount;
         self.liquidity = self.liquidity - order.token_lq_amount;
@@ -771,16 +882,18 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use cml_chain::plutus::PlutusData;
     use cml_chain::Deserialize;
+    use cml_core::serialization::Serialize;
     use cml_crypto::ScriptHash;
     use num_rational::Ratio;
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
 
     use spectrum_cardano_lib::types::TryFromPData;
 
-    use crate::data::balance_pool::{BalancePool, BalancePoolConfig, BalancePoolVer};
+    use crate::data::balance_pool::{BalancePool, BalancePoolConfig, BalancePoolRedeemer, BalancePoolVer};
+    use crate::data::pool::CFMMPoolAction;
     use crate::data::PoolId;
 
-    const DATUM_SAMPLE: &str = "d8799fd8799f581cdd061b480daddd9a833d2477c791356be4e134a433e19df7eb18be10504f534f43494554595f4144415f4e4654ffd8799f4040ff08d8799f581c279f842c33eed9054b9e3c70cd6a3b32298259c24b78b895cb41d91a4454554e41ff02d8799f581cc44de4596c7f4d600b631fab7ef1363331168463d4229cbc75ca18894c4b534f43494554595f5f4c51ff1a00018574181e000080581cdb73d7b28075e8869bb862857ded32d9b6fe9420d95aa94f5d34f80a01ff";
+    const DATUM_SAMPLE: &str = "d8799fd8799f581c5df8fe3f9f0e10855f930e0ea6c227e3bba0aba54d39f9d55b95e21c436e6674ffd8799f4040ff01d8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737443ff04d8799f581c0df79145b95580c14ef4baf8d022d7f0cbb08f3bed43bf97a2ddd8cb426c71ff1a000186820a00009fd8799fd87a9f581cb046b660db0eaf9be4f4300180ccf277e4209dada77c48fbd37ba81dffffff581c8d4be10d934b60a22f267699ea3f7ebdade1f8e535d1bd0ef7ce18b61a0501bced08ff";
 
     #[test]
     fn parse_balance_pool_datum() {
@@ -843,8 +956,161 @@ mod tests {
             treasury_x: TaggedAmount::new(0),
             treasury_y: TaggedAmount::new(0),
             invariant: 100000000,
+            invariant_length: 9,
             ver: BalancePoolVer::V1,
         };
         let result = pool.swap(Side::Ask(100000000));
+    }
+
+    #[test]
+    fn swap_redeemer_test() {
+        let pool = BalancePool {
+            id: PoolId::from((
+                ScriptHash::from([
+                    162, 206, 112, 95, 150, 240, 52, 167, 61, 102, 158, 92, 11, 47, 25, 41, 48, 224, 188,
+                    211, 138, 203, 127, 107, 246, 89, 115, 157,
+                ]),
+                AssetName::from((
+                    3,
+                    [
+                        110, 102, 116, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0,
+                    ],
+                )),
+            )),
+            reserves_x: TaggedAmount::new(200000000),
+            weight_x: 1,
+            reserves_y: TaggedAmount::new(84093845),
+            weight_y: 4,
+            liquidity: TaggedAmount::new(0),
+            asset_x: TaggedAssetClass::new(AssetClass::Native),
+            asset_y: TaggedAssetClass::new(AssetClass::Token((
+                ScriptHash::from([
+                    75, 52, 89, 253, 24, 161, 219, 171, 226, 7, 205, 25, 201, 149, 26, 159, 172, 159, 92, 15,
+                    156, 56, 78, 61, 151, 239, 186, 38,
+                ]),
+                AssetName::from((
+                    5,
+                    [
+                        116, 101, 115, 116, 67, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0,
+                    ],
+                )),
+            ))),
+            asset_lq: TaggedAssetClass::new(AssetClass::Token((
+                ScriptHash::from([
+                    114, 191, 27, 172, 195, 20, 1, 41, 111, 158, 228, 210, 254, 123, 132, 165, 36, 56, 38,
+                    251, 3, 233, 206, 25, 51, 218, 254, 192,
+                ]),
+                AssetName::from((
+                    2,
+                    [
+                        108, 113, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0,
+                    ],
+                )),
+            ))),
+            lp_fee_x: Ratio::new_raw(99970, 100000),
+            lp_fee_y: Ratio::new_raw(99970, 100000),
+            treasury_fee: Ratio::new_raw(10, 100000),
+            treasury_x: TaggedAmount::new(10000),
+            treasury_y: TaggedAmount::new(0),
+            invariant: 99999999,
+            invariant_length: 8,
+            ver: BalancePoolVer::V1,
+        };
+
+        let (result, new_pool) = pool.clone().swap(Side::Ask(100000000));
+
+        let test_swap_redeemer = BalancePoolRedeemer {
+            pool_input_index: 0,
+            action: CFMMPoolAction::Swap,
+            new_pool_state: new_pool,
+            prev_pool_state: pool,
+        }
+        .to_plutus_data();
+
+        assert_eq!(
+            hex::encode(test_swap_redeemer.to_canonical_cbor_bytes()),
+            "d879850200821b44d28ae9357d3d221b1bfbea3f996900a4821b44d28ae9357d3d221b344bc15514617ce98d18250913185e1318630e0813185d184b185c08"
+        )
+    }
+
+    #[test]
+    fn deposit_redeemer_test() {
+        let pool = BalancePool {
+            id: PoolId::from((
+                ScriptHash::from([
+                    162, 206, 112, 95, 150, 240, 52, 167, 61, 102, 158, 92, 11, 47, 25, 41, 48, 224, 188,
+                    211, 138, 203, 127, 107, 246, 89, 115, 157,
+                ]),
+                AssetName::from((
+                    3,
+                    [
+                        110, 102, 116, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0,
+                    ],
+                )),
+            )),
+            reserves_x: TaggedAmount::new(100000000),
+            weight_x: 1,
+            reserves_y: TaggedAmount::new(100000000),
+            weight_y: 4,
+            liquidity: TaggedAmount::new(9223372036754775808),
+            asset_x: TaggedAssetClass::new(AssetClass::Native),
+            asset_y: TaggedAssetClass::new(AssetClass::Token((
+                ScriptHash::from([
+                    75, 52, 89, 253, 24, 161, 219, 171, 226, 7, 205, 25, 201, 149, 26, 159, 172, 159, 92, 15,
+                    156, 56, 78, 61, 151, 239, 186, 38,
+                ]),
+                AssetName::from((
+                    5,
+                    [
+                        116, 101, 115, 116, 67, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0,
+                    ],
+                )),
+            ))),
+            asset_lq: TaggedAssetClass::new(AssetClass::Token((
+                ScriptHash::from([
+                    114, 191, 27, 172, 195, 20, 1, 41, 111, 158, 228, 210, 254, 123, 132, 165, 36, 56, 38,
+                    251, 3, 233, 206, 25, 51, 218, 254, 192,
+                ]),
+                AssetName::from((
+                    2,
+                    [
+                        108, 113, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0,
+                    ],
+                )),
+            ))),
+            lp_fee_x: Ratio::new_raw(99970, 100000),
+            lp_fee_y: Ratio::new_raw(99970, 100000),
+            treasury_fee: Ratio::new_raw(10, 100000),
+            treasury_x: TaggedAmount::new(0),
+            treasury_y: TaggedAmount::new(0),
+            invariant: 99999999,
+            invariant_length: 8,
+            ver: BalancePoolVer::V1,
+        };
+
+        let mut new_pool = pool.clone();
+
+        new_pool.reserves_x = TaggedAmount::new(108000000);
+        new_pool.reserves_y = TaggedAmount::new(108000000);
+        new_pool.liquidity = TaggedAmount::new(9223372036746775809);
+
+        let test_deposit_redeemer = BalancePoolRedeemer {
+            pool_input_index: 0,
+            action: CFMMPoolAction::Deposit,
+            new_pool_state: new_pool,
+            prev_pool_state: pool,
+        }
+        .to_plutus_data();
+
+        assert_eq!(
+            hex::encode(test_deposit_redeemer.to_canonical_cbor_bytes()),
+            "d87985000082000082000080"
+        )
     }
 }

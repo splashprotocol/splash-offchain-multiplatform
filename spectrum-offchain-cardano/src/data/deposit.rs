@@ -11,11 +11,11 @@ use spectrum_offchain::data::order::UniqueOrder;
 use spectrum_offchain::data::Has;
 use spectrum_offchain::ledger::TryFromLedger;
 
-use crate::data::order::{ClassicalOrder, PoolNft};
+use crate::data::order::{ClassicalOrder, OrderType, PoolNft};
 use crate::data::pool::CFMMPoolAction::Deposit as DepositAction;
 use crate::data::pool::{CFMMPoolAction, Lq, Rx, Ry};
 use crate::data::{OnChainOrderId, PoolId};
-use crate::deployment::ProtocolValidator::ConstFnPoolDeposit;
+use crate::deployment::ProtocolValidator::{BalanceFnPoolDeposit, ConstFnPoolDeposit};
 use crate::deployment::{
     test_address, DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator,
 };
@@ -32,16 +32,27 @@ pub struct Deposit {
     pub reward_pkh: Ed25519KeyHash,
     pub reward_stake_pkh: Option<Ed25519KeyHash>,
     pub collateral_ada: u64,
+    pub order_type: OrderType,
 }
 
 pub type ClassicalOnChainDeposit = ClassicalOrder<OnChainOrderId, Deposit>;
 
 impl<Ctx> RequiresValidator<Ctx> for ClassicalOnChainDeposit
 where
-    Ctx: Has<DeployedValidator<{ ConstFnPoolDeposit as u8 }>>,
+    Ctx: Has<DeployedValidator<{ ConstFnPoolDeposit as u8 }>>
+        + Has<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
-        ctx.get().erased()
+        match self.order.order_type {
+            OrderType::ConstFn => {
+                let validator: DeployedValidator<{ ConstFnPoolDeposit as u8 }> = ctx.get();
+                validator.erased()
+            }
+            OrderType::BalanceFn => {
+                let validator: DeployedValidator<{ BalanceFnPoolDeposit as u8 }> = ctx.get();
+                validator.erased()
+            }
+        }
     }
 }
 
@@ -60,10 +71,20 @@ impl UniqueOrder for ClassicalOnChainDeposit {
 
 impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for ClassicalOnChainDeposit
 where
-    Ctx: Has<OutputRef> + Has<DeployedScriptInfo<{ ConstFnPoolDeposit as u8 }>>,
+    Ctx: Has<OutputRef>
+        + Has<DeployedScriptInfo<{ ConstFnPoolDeposit as u8 }>>
+        + Has<DeployedScriptInfo<{ BalanceFnPoolDeposit as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
-        if test_address(repr.address(), ctx) {
+        let is_const_pool_deposit = test_address::<{ ConstFnPoolDeposit as u8 }, Ctx>(repr.address(), ctx);
+        let is_deposit_pool_deposit =
+            test_address::<{ BalanceFnPoolDeposit as u8 }, Ctx>(repr.address(), ctx);
+        if (is_const_pool_deposit || is_deposit_pool_deposit) {
+            let order_type = if (is_const_pool_deposit) {
+                OrderType::ConstFn
+            } else {
+                OrderType::BalanceFn
+            };
             let value = repr.value().clone();
             let conf = OnChainDepositConfig::try_from_pd(repr.clone().into_datum()?.into_pd()?)?;
             let token_x_amount = TaggedAmount::new(value.amount_of(conf.token_x.untag()).unwrap_or(0));
@@ -79,6 +100,7 @@ where
                 reward_pkh: conf.reward_pkh,
                 reward_stake_pkh: conf.reward_stake_pkh,
                 collateral_ada: conf.collateral_ada,
+                order_type,
             };
 
             return Some(ClassicalOrder {
@@ -144,5 +166,5 @@ mod tests {
     }
 
     const DATUM_SAMPLE: &str =
-        "d8799fd8799f581ca80022230c821a52e426d2fdb096e7d967b5ab25d350d469a7603dbf4b5350465f4144415f4e4654ffd8799f4040ffd8799f581c09f2d4e4a5c3662f4c1e6a7d9600e9605279dbdcedb22d4507cb6e7543535046ffd8799f581c74f47c99ac793c29280575b08fe20c7fb75543bff5b1581f7c162e7c4a5350465f4144415f4c51ff1a0016e360581ca104c691610dccf8e15f156bb96923cce7d61cc74370ed8e9111ef05d8799f581c874ea2c1b94eed88c1d09f057e96ffe0fa6311527e2003432a968794ff1a0014c828ff";
+        "d8799fd8799f581c6a875653bb9e387d3dbd030c4195e027c333fd075b105302457e2470436e6674ffd8799f4040ffd8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737443ffd8799f581cf716e211496e520e79d6a1573a3de09d3f2eb36f883178083cf30e7d426c71ff1a001e8480581c8d4be10d934b60a22f267699ea3f7ebdade1f8e535d1bd0ef7ce18b6d87a801a001e8480ff";
 }

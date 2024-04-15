@@ -5,11 +5,6 @@ use cml_chain::transaction::DatumOption;
 use cml_chain::utils::BigInteger;
 use cml_core::serialization::LenEncoding;
 
-/// Some on-chain entities may require a redeemer for a specific action.
-pub trait RequiresRedeemer<Redeemer> {
-    fn redeemer(self, action: Redeemer) -> PlutusData;
-}
-
 pub trait IntoPlutusData {
     fn into_pd(self) -> PlutusData;
 }
