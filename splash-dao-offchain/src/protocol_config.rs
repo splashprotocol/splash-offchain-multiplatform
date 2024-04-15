@@ -32,6 +32,7 @@ pub struct ProtocolConfig {
     pub farm_auth_ref_script: TransactionUnspentOutput,
     pub factory_auth_policy: PolicyId,
     pub ve_factory_auth_policy: PolicyId,
+    pub ve_factory_auth_name: AssetName,
     pub voting_escrow_ref_script: TransactionUnspentOutput,
     pub weighting_power_ref_script: TransactionUnspentOutput,
     pub perm_manager_box_id: PermManagerId,
@@ -41,6 +42,7 @@ pub struct ProtocolConfig {
     pub perm_manager_auth_name: AssetName,
     pub gov_proxy_ref_script: TransactionUnspentOutput,
     pub gt_policy: PolicyId,
+    pub gt_name: AssetName,
     pub genesis_time: GenesisEpochStartTime,
 }
 
@@ -84,6 +86,9 @@ pub struct FactoryAuthPolicy(pub PolicyId);
 pub struct VEFactoryAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
+pub struct VEFactoryAuthName(pub AssetName);
+
+#[derive(Debug, Clone)]
 pub struct VotingEscrowRefScriptOutput(pub TransactionUnspentOutput);
 
 #[derive(Debug, Clone)]
@@ -106,6 +111,9 @@ pub struct PermManagerAuthName(pub AssetName);
 
 #[derive(Debug, Clone)]
 pub struct GTAuthPolicy(pub PolicyId);
+
+#[derive(Debug, Clone)]
+pub struct GTAuthName(pub AssetName);
 
 #[derive(Debug, Clone)]
 pub struct NodeMagic(pub u64);
@@ -184,6 +192,12 @@ impl Has<VEFactoryAuthPolicy> for ProtocolConfig {
     }
 }
 
+impl Has<VEFactoryAuthName> for ProtocolConfig {
+    fn select<U: IsEqual<VEFactoryAuthName>>(&self) -> VEFactoryAuthName {
+        VEFactoryAuthName(self.ve_factory_auth_name)
+    }
+}
+
 impl Has<VotingEscrowRefScriptOutput> for ProtocolConfig {
     fn select<U: IsEqual<VotingEscrowRefScriptOutput>>(&self) -> VotingEscrowRefScriptOutput {
         VotingEscrowRefScriptOutput(self.voting_escrow_ref_script.clone())
@@ -229,6 +243,12 @@ impl Has<GovProxyRefScriptOutput> for ProtocolConfig {
 impl Has<GTAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<GTAuthPolicy>>(&self) -> GTAuthPolicy {
         GTAuthPolicy(self.gt_policy)
+    }
+}
+
+impl Has<GTAuthName> for ProtocolConfig {
+    fn select<U: IsEqual<GTAuthName>>(&self) -> GTAuthName {
+        GTAuthName(self.gt_name)
     }
 }
 
