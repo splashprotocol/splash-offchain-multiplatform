@@ -131,30 +131,18 @@ impl Stable for VotingEscrow {
 
 pub struct VotingEscrowConfig {
     pub locked_until: Lock,
-    pub owner: Vec<u8>,
+    pub owner: Owner,
     pub max_ex_fee: u32,
     pub version: u32,
     pub last_wp_epoch: u32,
     pub last_gp_deadline: u32,
 }
 
-impl IntoPlutusData for VotingEscrowConfig {
-    fn into_pd(self) -> PlutusData {
-        let mut constr = ConstrPlutusData::new(0, vec![self.locked_until.into_pd()]);
-        constr.set_field(1, PlutusData::new_bytes(self.owner));
-        constr.set_field(2, PlutusData::new_integer(self.max_ex_fee.into()));
-        constr.set_field(3, PlutusData::new_integer(self.version.into()));
-        constr.set_field(4, PlutusData::new_integer(self.last_wp_epoch.into()));
-        constr.set_field(5, PlutusData::new_integer(self.last_gp_deadline.into()));
-        PlutusData::ConstrPlutusData(constr)
-    }
-}
-
 impl TryFromPData for VotingEscrowConfig {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
         let locked_until = Lock::try_from_pd(cpd.take_field(0)?)?;
-        let owner = cpd.take_field(1)?.into_bytes()?;
+        let owner = Owner::try_from_pd(cpd.take_field(1)?)?;
         let max_ex_fee = cpd.take_field(2)?.into_u64()? as u32;
         let version = cpd.take_field(3)?.into_u64()? as u32;
         let last_wp_epoch = cpd.take_field(4)?.into_u64()? as u32;
@@ -206,6 +194,34 @@ impl TryFromPData for Lock {
             if let Some(pd) = fields.first() {
                 let millis = pd.into_u64()?;
                 return Some(Lock::Indef(Duration::from_millis(millis)));
+            }
+        }
+
+        None
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum Owner {
+    PubKey(Vec<u8>),
+    Script(ScriptHash),
+}
+
+impl TryFromPData for Owner {
+    fn try_from_pd(data: PlutusData) -> Option<Self> {
+        let mut cpd = data.into_constr_pd()?;
+        if let Some(fields) = cpd.take_field(0) {
+            let fields = fields.into_vec()?;
+            if let Some(pd) = fields.first() {
+                let bytes = pd.into_bytes()?;
+                return Some(Owner::PubKey(bytes));
+            }
+        } else if let Some(fields) = cpd.take_field(1) {
+            let fields = fields.into_vec()?;
+            if let Some(pd) = fields.first() {
+                if let Ok(script_hash) = ScriptHash::from_raw_bytes(&pd.into_bytes()?) {
+                    return Some(Owner::Script(script_hash));
+                }
             }
         }
 
