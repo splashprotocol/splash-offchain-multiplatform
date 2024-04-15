@@ -10,7 +10,7 @@ use futures::channel::mpsc;
 use futures::stream::FusedStream;
 use futures::{FutureExt, Stream};
 use futures::{SinkExt, StreamExt};
-use log::{error, info, trace, warn};
+use log::{trace, warn};
 use tokio::sync::broadcast;
 
 use liquidity_book::interpreter::RecipeInterpreter;
@@ -471,15 +471,12 @@ where
                                     PendingEffects::FromLiquidityBook(_) => {
                                         self.multi_book.get_mut(&pair).on_recipe_failed();
                                     }
-                                    PendingEffects::FromBacklog(_, consumed_order) => {
-                                        let order_utxo_is_spent =
-                                            missing_bearers.contains(&consumed_order.0.get_self_ref());
-                                        if (order_utxo_is_spent) {
-                                            self.multi_backlog
-                                                .get_mut(&pair)
-                                                .remove(consumed_order.get_self_ref());
+                                    PendingEffects::FromBacklog(_, Bundled(order, br)) => {
+                                        let order_ref = order.get_self_ref();
+                                        if missing_bearers.contains(&order_ref) {
+                                            self.multi_backlog.get_mut(&pair).remove(order_ref);
                                         } else {
-                                            self.multi_backlog.get_mut(&pair).recharge(consumed_order);
+                                            self.multi_backlog.get_mut(&pair).recharge(Bundled(order, br));
                                         }
                                     }
                                 }
