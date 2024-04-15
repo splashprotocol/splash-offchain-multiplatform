@@ -358,7 +358,6 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
                     trace!(target: "executor", "Observing new unconfirmed state {}", id);
                     self.index.put_unconfirmed(Unconfirmed(new_state));
                 }
-                // todo: resolving can be simplified if we don't use predictions.
                 match resolve_source_state(id, &self.index) {
                     Some(latest_state) => self.cache(latest_state),
                     None => unreachable!(),
