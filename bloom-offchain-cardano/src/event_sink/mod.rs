@@ -16,8 +16,9 @@ use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::data::pool::AnyPool;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
-    BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,
-    ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2, LimitOrderV1,
+    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
+    ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
+    LimitOrderV1,
 };
 use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
@@ -52,7 +53,9 @@ where
         + Has<OutputRef>
         + Has<DeployedScriptInfo<{ ConstFnPoolSwap as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolDeposit as u8 }>>
-        + Has<DeployedScriptInfo<{ ConstFnPoolRedeem as u8 }>>,
+        + Has<DeployedScriptInfo<{ ConstFnPoolRedeem as u8 }>>
+        + Has<DeployedScriptInfo<{ BalanceFnPoolDeposit as u8 }>>
+        + Has<DeployedScriptInfo<{ BalanceFnPoolRedeem as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         ClassicalAMMOrder::try_from_ledger(repr, ctx).map(|inner| {

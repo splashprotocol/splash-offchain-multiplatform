@@ -27,7 +27,8 @@ use crate::data::pool::try_run_order_against_pool;
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::{
-    BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
+    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolRedeem,
+    ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
 };
 use crate::deployment::{DeployedScriptInfo, DeployedValidator};
 use spectrum_cardano_lib::{NetworkId, OutputRef};
@@ -49,6 +50,12 @@ pub struct ClassicalOrder<Id, Ord> {
     pub order: Ord,
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum OrderType {
+    BalanceFn,
+    ConstFn,
+}
+
 impl<Id: Clone, Ord> Has<Id> for ClassicalOrder<Id, Ord> {
     fn select<U: type_equalities::IsEqual<Id>>(&self) -> Id {
         self.id.clone()
@@ -62,7 +69,7 @@ pub enum ClassicalOrderAction {
 impl ClassicalOrderAction {
     pub fn to_plutus_data(self) -> PlutusData {
         match self {
-            ClassicalOrderAction::Apply => PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, Vec::new())),
+            ClassicalOrderAction::Apply => PlutusData::Integer(BigInteger::from(0)),
         }
     }
 }
@@ -150,7 +157,9 @@ where
     Ctx: Has<OutputRef>
         + Has<DeployedScriptInfo<{ ConstFnPoolSwap as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolDeposit as u8 }>>
-        + Has<DeployedScriptInfo<{ ConstFnPoolRedeem as u8 }>>,
+        + Has<DeployedScriptInfo<{ ConstFnPoolRedeem as u8 }>>
+        + Has<DeployedScriptInfo<{ BalanceFnPoolDeposit as u8 }>>
+        + Has<DeployedScriptInfo<{ BalanceFnPoolRedeem as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         ClassicalOnChainLimitSwap::try_from_ledger(repr, ctx)
@@ -181,7 +190,9 @@ where
         + Has<DeployedValidator<{ ConstFnPoolDeposit as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolRedeem as u8 }>>
         // comes from common execution for deposit and redeem for balance pool
-        + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>,
+        + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>>
+        + Has<DeployedValidator<{ BalanceFnPoolRedeem as u8 }>>,
 {
     fn try_run(
         self,

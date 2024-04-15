@@ -11,11 +11,13 @@ use spectrum_offchain::data::order::UniqueOrder;
 use spectrum_offchain::data::Has;
 use spectrum_offchain::ledger::TryFromLedger;
 
-use crate::data::order::{ClassicalOrder, PoolNft};
+use crate::data::order::{ClassicalOrder, OrderType, PoolNft};
 use crate::data::pool::CFMMPoolAction::Redeem as RedeemAction;
 use crate::data::pool::{CFMMPoolAction, Lq, Rx, Ry};
 use crate::data::{OnChainOrderId, PoolId};
-use crate::deployment::ProtocolValidator::ConstFnPoolRedeem;
+use crate::deployment::ProtocolValidator::{
+    BalanceFnPoolDeposit, BalanceFnPoolRedeem, ConstFnPoolDeposit, ConstFnPoolRedeem,
+};
 use crate::deployment::{
     test_address, DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator,
 };
@@ -31,16 +33,27 @@ pub struct Redeem {
     pub reward_pkh: Ed25519KeyHash,
     pub reward_stake_pkh: Option<Ed25519KeyHash>,
     pub collateral_ada: u64,
+    pub order_type: OrderType,
 }
 
 pub type ClassicalOnChainRedeem = ClassicalOrder<OnChainOrderId, Redeem>;
 
 impl<Ctx> RequiresValidator<Ctx> for ClassicalOnChainRedeem
 where
-    Ctx: Has<DeployedValidator<{ ConstFnPoolRedeem as u8 }>>,
+    Ctx: Has<DeployedValidator<{ ConstFnPoolRedeem as u8 }>>
+        + Has<DeployedValidator<{ BalanceFnPoolRedeem as u8 }>>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
-        ctx.get().erased()
+        match self.order.order_type {
+            OrderType::ConstFn => {
+                let validator: DeployedValidator<{ ConstFnPoolRedeem as u8 }> = ctx.get();
+                validator.erased()
+            }
+            OrderType::BalanceFn => {
+                let validator: DeployedValidator<{ BalanceFnPoolRedeem as u8 }> = ctx.get();
+                validator.erased()
+            }
+        }
     }
 }
 
@@ -69,10 +82,19 @@ struct OnChainRedeemConfig {
 
 impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for ClassicalOnChainRedeem
 where
-    Ctx: Has<OutputRef> + Has<DeployedScriptInfo<{ ConstFnPoolRedeem as u8 }>>,
+    Ctx: Has<OutputRef>
+        + Has<DeployedScriptInfo<{ ConstFnPoolRedeem as u8 }>>
+        + Has<DeployedScriptInfo<{ BalanceFnPoolRedeem as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
-        if test_address(repr.address(), ctx) {
+        let is_const_pool_deposit = test_address::<{ ConstFnPoolRedeem as u8 }, Ctx>(repr.address(), ctx);
+        let is_deposit_pool_deposit = test_address::<{ BalanceFnPoolRedeem as u8 }, Ctx>(repr.address(), ctx);
+        if (is_const_pool_deposit || is_deposit_pool_deposit) {
+            let order_type = if (is_const_pool_deposit) {
+                OrderType::ConstFn
+            } else {
+                OrderType::BalanceFn
+            };
             let value = repr.value().clone();
             let conf = OnChainRedeemConfig::try_from_pd(repr.datum().clone()?.into_pd()?)?;
             let token_lq_amount = TaggedAmount::new(value.amount_of(conf.token_lq.untag()).unwrap_or(0));
@@ -87,6 +109,7 @@ where
                 reward_pkh: conf.reward_pkh,
                 reward_stake_pkh: conf.reward_stake_pkh,
                 collateral_ada,
+                order_type,
             };
 
             return Some(ClassicalOrder {

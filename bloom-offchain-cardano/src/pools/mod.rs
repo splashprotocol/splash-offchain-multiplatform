@@ -8,6 +8,7 @@ use spectrum_offchain::data::unique_entity::Predicted;
 use spectrum_offchain::data::Has;
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain_cardano::creds::OperatorRewardAddress;
+use spectrum_offchain_cardano::data::balance_order::RunBalanceAMMOrderOverPool;
 
 use spectrum_offchain_cardano::data::order::{ClassicalAMMOrder, RunClassicalAMMOrderOverPool};
 
@@ -15,7 +16,8 @@ use spectrum_offchain_cardano::data::pool::AnyPool;
 use spectrum_offchain_cardano::data::pool::AnyPool::{BalancedCFMM, PureCFMM};
 use spectrum_offchain_cardano::deployment::DeployedValidator;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
-    BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
+    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolRedeem,
+    ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
 };
 
 /// Magnet for local instances.
@@ -34,7 +36,9 @@ where
         + Has<DeployedValidator<{ ConstFnPoolSwap as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolDeposit as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolRedeem as u8 }>>
-        + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>,
+        + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>>
+        + Has<DeployedValidator<{ BalanceFnPoolRedeem as u8 }>>,
 {
     fn try_run(
         self,
@@ -47,7 +51,9 @@ where
             PureCFMM(cfmm_pool) => RunClassicalAMMOrderOverPool(Bundled(cfmm_pool, bearer))
                 .try_run(order, ctx)
                 .map(|(txb, Predicted(bundle))| (txb, Predicted(PoolMagnet(bundle.0.map(PureCFMM))))),
-            BalancedCFMM(_balance_pool) => unreachable!(),
+            BalancedCFMM(balance_pool) => RunBalanceAMMOrderOverPool(Bundled(balance_pool, bearer))
+                .try_run(order, ctx)
+                .map(|(txb, Predicted(bundle))| (txb, Predicted(PoolMagnet(bundle.0.map(BalancedCFMM))))),
         }
     }
 }

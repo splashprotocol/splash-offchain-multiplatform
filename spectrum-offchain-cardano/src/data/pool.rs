@@ -29,7 +29,7 @@ use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 
 use crate::creds::OperatorRewardAddress;
-use crate::data::balance_pool::BalancePool;
+use crate::data::balance_pool::{BalancePool, BalancePoolRedeemer};
 use crate::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
 use crate::data::order::{ClassicalOrderAction, ClassicalOrderRedeemer, Quote};
 use crate::data::pair::PairId;
@@ -278,6 +278,33 @@ impl From<&TransactionOutput> for ImmutablePoolUtxo {
     }
 }
 
+/// Some on-chain entities may require a redeemer for a specific action.
+pub trait RequiresRedeemer<Action> {
+    fn redeemer(self, prev_state: Self, pool_input_index: u64, action: Action) -> PlutusData;
+}
+
+impl RequiresRedeemer<CFMMPoolAction> for ConstFnPool {
+    fn redeemer(self, prev_state: Self, pool_input_index: u64, action: CFMMPoolAction) -> PlutusData {
+        CFMMPoolRedeemer {
+            pool_input_index,
+            action,
+        }
+        .to_plutus_data()
+    }
+}
+
+impl RequiresRedeemer<CFMMPoolAction> for BalancePool {
+    fn redeemer(self, prev_state: Self, pool_input_index: u64, action: CFMMPoolAction) -> PlutusData {
+        BalancePoolRedeemer {
+            pool_input_index: pool_input_index,
+            action: action,
+            new_pool_state: self,
+            prev_pool_state: prev_state,
+        }
+        .to_plutus_data()
+    }
+}
+
 pub trait ApplyOrder<Order>: Sized {
     type Result;
 
@@ -294,8 +321,11 @@ pub fn try_run_order_against_pool<Order, Pool, Ctx>(
     RunOrderError<Bundled<Order, FinalizedTxOut>>,
 >
 where
-    Pool:
-        ApplyOrder<Order> + RequiresValidator<Ctx> + IntoLedger<TransactionOutput, ImmutablePoolUtxo> + Clone,
+    Pool: ApplyOrder<Order>
+        + RequiresValidator<Ctx>
+        + IntoLedger<TransactionOutput, ImmutablePoolUtxo>
+        + RequiresRedeemer<CFMMPoolAction>
+        + Clone,
     <Pool as ApplyOrder<Order>>::Result: IntoLedger<TransactionOutput, Ctx>,
     Order: Has<OnChainOrderId> + RequiresValidator<Ctx> + Clone + Debug,
     Order: Into<CFMMPoolAction>,
@@ -311,19 +341,7 @@ where
         _ => (1u64, 0u64),
     };
 
-    let pool_redeemer = CFMMPoolRedeemer {
-        pool_input_index: pool_in_idx,
-        action: order.clone().into(),
-    };
-    let pool_validator = pool.get_validator(&ctx);
-    let pool_script = PartialPlutusWitness::new(
-        PlutusScriptWitness::Ref(pool_validator.hash),
-        pool_redeemer.to_plutus_data(),
-    );
     let immut_pool = ImmutablePoolUtxo::from(&pool_utxo);
-    let pool_in = SingleInputBuilder::new(pool_ref.into(), pool_utxo.clone())
-        .plutus_script_inline_datum(pool_script, Vec::new())
-        .unwrap();
     let order_redeemer = ClassicalOrderRedeemer {
         pool_input_index: pool_in_idx,
         order_input_index: order_in_idx,
@@ -347,6 +365,18 @@ where
         }
     };
     let pool_out = next_pool.clone().into_ledger(immut_pool);
+
+    let pool_validator = pool.get_validator(&ctx);
+    let pool_script = PartialPlutusWitness::new(
+        PlutusScriptWitness::Ref(pool_validator.hash),
+        next_pool
+            .clone()
+            .redeemer(pool.clone(), pool_in_idx, order.clone().into()),
+    );
+
+    let pool_in = SingleInputBuilder::new(pool_ref.into(), pool_utxo.clone())
+        .plutus_script_inline_datum(pool_script, Vec::new())
+        .unwrap();
 
     let mut tx_builder = constant_tx_builder();
 
