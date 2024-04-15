@@ -1,4 +1,4 @@
-use std::cmp::{max, min};
+use std::fmt::{Debug, Display};
 use std::mem;
 use std::ops::{Sub, SubAssign};
 
@@ -95,7 +95,7 @@ impl<Fr, Pl: Stable, U> TLB<Fr, Pl, U> {
 
 impl<Fr, Pl, U> TLB<Fr, Pl, U>
 where
-    Fr: Fragment<U = U> + OrderState + Ord + Copy,
+    Fr: Fragment<U = U> + OrderState + Ord + Copy + Debug,
     Pl: Pool + Stable + Copy,
     U: PartialOrd,
 {
@@ -108,19 +108,24 @@ where
 
 impl<Fr, Pl, U> TemporalLiquidityBook<Fr, Pl> for TLB<Fr, Pl, U>
 where
-    Fr: Fragment<U = U> + OrderState + Copy + Ord + std::fmt::Debug,
-    Pl: Pool + Stable + Copy + std::fmt::Debug,
-    U: Monoid + PartialOrd + SubAssign + Sub<Output = U> + Copy,
+    Fr: Fragment<U = U> + OrderState + Copy + Ord + Display + Debug,
+    Pl: Pool + Stable + Copy + Debug,
+    U: Monoid + PartialOrd + SubAssign + Sub<Output = U> + Copy + Debug,
 {
     fn attempt(&mut self) -> Option<ExecutionRecipe<Fr, Pl>> {
         if let Some(best_fr) = self.state.pick_best_fr_either() {
+            trace!("Best Fr: {}", best_fr);
             let mut recipe = IntermediateRecipe::new(best_fr);
-            trace!(target: "tlb", "TLB::attempt: recipe {:?}", recipe);
             let mut execution_units_left = self.execution_cap.hard;
             loop {
                 if let Some(rem) = &recipe.remainder {
                     let price_fragments = self.state.best_fr_price(!rem.target.side());
                     let price_in_pools = self.state.best_pool_price();
+                    trace!(
+                        "Continuing. P_fr: {:?}, P_pl: {:?}",
+                        price_fragments,
+                        price_in_pools
+                    );
                     match (price_in_pools, price_fragments) {
                         (price_in_pools, Some(price_in_fragments))
                             if price_in_pools
@@ -133,6 +138,7 @@ where
                                 rem_side.wrap(rem.target.price()).overlaps(fr.price())
                                     && fr.marginal_cost_hint() <= execution_units_left
                             }) {
+                                trace!("Matched with Fr: {}", opposite_fr);
                                 execution_units_left -= opposite_fr.marginal_cost_hint();
                                 let make_match = |x: &Fr, y: &Fr| {
                                     let (ask, bid) = match x.side() {
@@ -180,7 +186,7 @@ where
                             }
                         }
                         _ => {
-                            trace!(target: "tlb", "TLD::attempt(): No-OP");
+                            trace!("Finishing matching attempt");
                         }
                     }
                 }
@@ -212,7 +218,7 @@ where
 
 impl<Fr, Pl, U> ExternalTLBEvents<Fr, Pl> for TLB<Fr, Pl, U>
 where
-    Fr: Fragment + OrderState + Ord + Copy,
+    Fr: Fragment + OrderState + Ord + Copy + Display,
     Pl: Pool + Stable + Copy,
 {
     fn advance_clocks(&mut self, new_time: u64) {
@@ -220,11 +226,12 @@ where
     }
 
     fn add_fragment(&mut self, fr: Fr) {
-        trace!(target: "tlb", "TLB::add_fragment()");
+        trace!(target: "tlb", "TLB::add_fragment({})", fr);
         requiring_settled_state(self, |st| st.add_fragment(fr))
     }
 
     fn remove_fragment(&mut self, fr: Fr) {
+        trace!(target: "tlb", "TLB::remove_fragment({})", fr);
         requiring_settled_state(self, |st| st.remove_fragment(fr))
     }
 
@@ -479,6 +486,7 @@ mod tests {
     use crate::execution_engine::liquidity_book::recipe::{
         ExecutionRecipe, Fill, IntermediateRecipe, PartialFill, Swap, TerminalInstruction,
     };
+    use crate::execution_engine::liquidity_book::side::SideM::Bid;
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
     use crate::execution_engine::liquidity_book::state::tests::{SimpleCFMMPool, SimpleOrderPF};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
@@ -796,5 +804,14 @@ mod tests {
         let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(index_price));
         let final_price = make_match(&ask_fr, &bid_fr);
         assert_eq!(final_price, bid_price)
+    }
+
+    #[test]
+    fn price_overlap() {
+        //rem_side.wrap(rem.target.price()).overlaps(fr.price())
+        let rem_side = Bid;
+        let rem_price = AbsolutePrice::new(12692989795594245882, 12061765702237861555);
+        let other_fr_price = AbsolutePrice::new(1, 1);
+        assert!(rem_side.wrap(rem_price).overlaps(other_fr_price))
     }
 }

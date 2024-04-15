@@ -319,7 +319,7 @@ where
         }
     }
     let mut produced_entities = HashMap::<Entity::StableId, Entity>::new();
-    trace!(target: "offchain", "scanning TX {}", tx_hash);
+    trace!(target: "offchain", "+- Scanning Tx {}", tx_hash);
     let mut ix = num_outputs - 1;
     let mut non_processed_outputs = VecDeque::new();
     let consumed_utxos = ConsumedInputs::new(consumed_utxos.into_iter());

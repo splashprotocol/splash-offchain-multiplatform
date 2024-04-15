@@ -1,5 +1,5 @@
 use cml_multi_era::babbage::BabbageTransactionOutput;
-use log::trace;
+use std::fmt::{Debug, Display, Formatter};
 
 use bloom_derivation::{Fragment, Stable, Tradable};
 use bloom_offchain::execution_engine::liquidity_book::fragment::{OrderState, StateTrans};
@@ -19,13 +19,21 @@ pub mod limit;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Fragment, Stable, Tradable)]
 pub enum AnyOrder {
-    Spot(LimitOrder),
+    Limit(LimitOrder),
+}
+
+impl Display for AnyOrder {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AnyOrder::Limit(lo) => std::fmt::Display::fmt(&lo, f),
+        }
+    }
 }
 
 impl OrderState for AnyOrder {
     fn with_updated_time(self, time: u64) -> StateTrans<Self> {
         match self {
-            AnyOrder::Spot(spot) => spot.with_updated_time(time).map(AnyOrder::Spot),
+            AnyOrder::Limit(spot) => spot.with_updated_time(time).map(AnyOrder::Limit),
         }
     }
     fn with_applied_swap(
@@ -34,9 +42,9 @@ impl OrderState for AnyOrder {
         added_output: u64,
     ) -> (StateTrans<Self>, ExBudgetUsed, ExFeeUsed) {
         match self {
-            AnyOrder::Spot(spot) => {
+            AnyOrder::Limit(spot) => {
                 let (tx, budget, fee) = spot.with_applied_swap(removed_input, added_output);
-                (tx.map(AnyOrder::Spot), budget, fee)
+                (tx.map(AnyOrder::Limit), budget, fee)
             }
         }
     }
@@ -47,7 +55,7 @@ where
     C: Has<OperatorCred> + Has<ConsumedInputs> + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
-        LimitOrder::try_from_ledger(repr, ctx).map(|s| AnyOrder::Spot(s))
+        LimitOrder::try_from_ledger(repr, ctx).map(|s| AnyOrder::Limit(s))
     }
 }
 

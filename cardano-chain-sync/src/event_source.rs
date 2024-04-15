@@ -63,7 +63,7 @@ where
                 cache_point(cache, &blk).await;
             }
             info!(
-                "Processing block {}",
+                "Scanning Block {}",
                 hash_block_header_canonical(&blk.header).to_hex()
             );
             let applied_txs: Vec<_> = unpack_valid_transactions(blk)

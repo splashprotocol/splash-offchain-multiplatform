@@ -667,7 +667,7 @@ where
 #[cfg(test)]
 pub mod tests {
     use std::cmp::Ordering;
-    use std::fmt::{Debug, Formatter};
+    use std::fmt::{Debug, Display, Formatter};
 
     use num_rational::Ratio;
 
@@ -857,7 +857,7 @@ pub mod tests {
     }
 
     /// Order that supports partial filling.
-    #[derive(Copy, Clone, PartialEq, Eq, Hash)]
+    #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
     pub struct SimpleOrderPF {
         pub source: StableId,
         pub side: SideM,
@@ -870,7 +870,7 @@ pub mod tests {
         pub bounds: TimeBounds<u64>,
     }
 
-    impl Debug for SimpleOrderPF {
+    impl Display for SimpleOrderPF {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             f.write_str(&*format!(
                 "Ord(input={}, price={}, side={}, fee={})",

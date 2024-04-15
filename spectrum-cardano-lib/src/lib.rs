@@ -199,7 +199,9 @@ impl Display for AssetClass {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             AssetClass::Native => f.write_str("Native"),
-            AssetClass::Token((pol, tn)) => f.write_str(format!("{}:{}", pol, tn).as_str()),
+            AssetClass::Token((pol, tn)) => {
+                f.write_str(format!("{}:{}", pol.to_hex()[0..6].to_string(), tn).as_str())
+            }
         }
     }
 }

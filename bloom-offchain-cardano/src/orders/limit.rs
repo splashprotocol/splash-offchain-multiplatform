@@ -1,19 +1,18 @@
 use std::cmp::Ordering;
+use std::fmt::{Display, Formatter};
 
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::PolicyId;
-use cml_core::serialization::Serialize;
 use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
 use cml_multi_era::babbage::BabbageTransactionOutput;
-use log::{info, trace};
-use num_rational::Ratio;
+use log::info;
 
 use bloom_offchain::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use bloom_offchain::execution_engine::liquidity_book::side::SideM;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
 use bloom_offchain::execution_engine::liquidity_book::types::{
-    AbsolutePrice, ExBudgetUsed, ExCostUnits, ExFeeUsed, FeeAsset, InputAsset, OutputAsset, RelativePrice,
+    AbsolutePrice, ExBudgetUsed, ExFeeUsed, FeeAsset, InputAsset, OutputAsset, RelativePrice,
 };
 use bloom_offchain::execution_engine::liquidity_book::weight::Weighted;
 use spectrum_cardano_lib::address::PlutusAddress;
@@ -77,18 +76,38 @@ pub struct LimitOrder {
     pub marginal_cost: ExUnits,
 }
 
+impl Display for LimitOrder {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            format!(
+                "LimOrd({}, {}, {}, in: {} @ {}, out: {})",
+                self.beacon,
+                self.side(),
+                self.pair_id(),
+                self.input_amount,
+                self.price(),
+                self.output_amount
+            )
+            .as_str(),
+        )
+    }
+}
+
 impl PartialOrd for LimitOrder {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match self.price().partial_cmp(&other.price()) {
-            Some(Ordering::Equal) => self.weight().partial_cmp(&other.weight()),
-            cmp => cmp,
-        }
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for LimitOrder {
     fn cmp(&self, other: &Self) -> Ordering {
-        match self.price().cmp(&other.price()) {
+        let cmp_by_price = self.price().cmp(&other.price());
+        let cmp_by_price = if matches!(self.side(), SideM::Bid) {
+            cmp_by_price.reverse()
+        } else {
+            cmp_by_price
+        };
+        match cmp_by_price {
             Ordering::Equal => self.weight().cmp(&other.weight()),
             cmp => cmp,
         }
@@ -287,7 +306,9 @@ where
                 (_, AssetClass::Native) => (0, 0),
                 _ => (MIN_LOVELACE, 0),
             };
-            let execution_budget = total_ada_input - reserved_lovelace - tradable_lovelace;
+            let execution_budget = total_ada_input
+                .checked_sub(reserved_lovelace)
+                .and_then(|lov| lov.checked_sub(tradable_lovelace))?;
             let min_output = conf.tradable_input as u128 * conf.base_price.numer() / conf.base_price.denom();
             let min_marginal_output = conf.min_marginal_output as u128;
             let is_permissionless = conf.permitted_executors.is_empty();
@@ -301,7 +322,7 @@ where
                     let valid_fresh_beacon = ctx
                         .select::<ConsumedInputs>()
                         .find(|o| beacon_from_oref(*o) == conf.beacon);
-                    info!(target: "offchain", "Obtained Spot order from ledger.");
+                    info!(target: "offchain", "Obtained Limit Order from confirmed UTXO. Beacon: {}", conf.beacon);
                     let script_info = ctx.select::<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>();
                     return Some(LimitOrder {
                         beacon: conf.beacon,
@@ -432,4 +453,13 @@ mod tests {
     }
 
     const ORDER_UTXO: &str = "a300581d70dfaa80c9732ed3b7752ba189786723c6709e2876a024f8f4d9910fb301821a002dc6c0a1581cfd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3aa14974657374746f6b656e1a00011170028201d81858dfd8799f4100581c4824e94585a8ab56a6c0b7db9984202b3fcd0f1257025d419eca9247d8799f581cfd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3a4974657374746f6b656eff1a000111701a000927c01903e8d8799f4040ffd8799f1903e801ff1a000927c0d8799fd8799f581c4be4fa25f029d14c0d723af4a1e6fa7133fc3a610f880336ad685cbaffd8799fd8799fd8799f581c5bda73043d43ad8df5ce75639cf48e1f2b4545403be92f0113e37537ffffffff581c4be4fa25f029d14c0d723af4a1e6fa7133fc3a610f880336ad685cba80ff";
+
+    #[test]
+    fn read_config() {
+        let conf =
+            Datum::try_from_pd(PlutusData::from_cbor_bytes(&*hex::decode(DATUM).unwrap()).unwrap()).unwrap();
+        dbg!(conf);
+    }
+
+    const DATUM: &str = "d8799f4100581c6386211b2897ed9515fcd840a936d6069d47a35add1ec1cf861da6ccd8799f4040ff1a002dc6c01a00061a801a00061a80d8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737442ffd8799f0101ff1a0007a120d8799fd8799f581c1e5b525041f0d70ad830f1d7dbd2ed7012c1d89788b4385d7bdd0c37ffd8799fd8799fd8799f581c6b6723106d7725d57913612286514abb81148d344b1675df297ee224ffffffff581c1e5b525041f0d70ad830f1d7dbd2ed7012c1d89788b4385d7bdd0c3780ff";
 }

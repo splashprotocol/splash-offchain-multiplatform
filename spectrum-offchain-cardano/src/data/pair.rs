@@ -1,4 +1,4 @@
-use std::fmt::{Display, Formatter};
+use std::fmt::{Display, Formatter, Write};
 
 use bloom_offchain::execution_engine::liquidity_book::side::SideM;
 use spectrum_cardano_lib::AssetClass;
@@ -34,6 +34,6 @@ pub fn order_canonical(x: AssetClass, y: AssetClass) -> [AssetClass; 2] {
 
 impl Display for PairId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(format!("{}:{}", self.0, self.1).as_str())
+        f.write_str(format!("[{}]/[{}]", self.0, self.1).as_str())
     }
 }

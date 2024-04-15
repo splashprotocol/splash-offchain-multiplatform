@@ -51,7 +51,7 @@ where
     ) -> Result<(ExecutionState, OrderResult<AnyOrder>, Ctx), Void> {
         match self.0 {
             LinkedFill {
-                target_fr: Bundled(AnyOrder::Spot(o), src),
+                target_fr: Bundled(AnyOrder::Limit(o), src),
                 next_fr: transition,
                 removed_input,
                 added_output,
@@ -59,7 +59,7 @@ where
                 fee_used,
             } => Magnet(LinkedFill {
                 target_fr: Bundled(o, src),
-                next_fr: transition.map(|AnyOrder::Spot(o2)| o2),
+                next_fr: transition.map(|AnyOrder::Limit(o2)| o2),
                 removed_input,
                 added_output,
                 budget_used,
@@ -69,7 +69,7 @@ where
             .map(|(st, res, ctx)| {
                 (
                     st,
-                    res.bimap(|u| u.map(AnyOrder::Spot), |e| e.map(AnyOrder::Spot)),
+                    res.bimap(|u| u.map(AnyOrder::Limit), |e| e.map(AnyOrder::Limit)),
                     ctx,
                 )
             }),
