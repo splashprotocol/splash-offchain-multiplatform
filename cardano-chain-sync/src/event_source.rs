@@ -72,6 +72,7 @@ where
             Box::pin(stream::iter(applied_txs))
         }
         ChainUpgrade::RollBackward(point) if point.get_slot() > handle_rollbacks_after => {
+            warn!("Node requested rollback to point {:?}", point);
             Box::pin(rollback(cache, point.into()).flat_map(|blk| {
                 let unapplied_txs: Vec<_> = unpack_valid_transactions(blk)
                     .map(|(tx, _)| LedgerTxEvent::TxUnapplied(tx))
@@ -175,13 +176,14 @@ where
             if let Some(tip) = cache.get_tip().await {
                 if let Some(LinkedBlock(block_bytes, prev_point)) = cache.get_block(tip.clone()).await {
                     let rollback_finished = prev_point == to_point;
+                    if rollback_finished {
+                        break;
+                    }
                     cache.delete(tip).await;
                     cache.set_tip(prev_point).await;
                     let block = BabbageBlock::from_cbor_bytes(&block_bytes).expect("Block deserialization failed");
                     yield block;
-                    if !rollback_finished {
-                        continue;
-                    }
+                    continue;
                 }
             }
             break;
