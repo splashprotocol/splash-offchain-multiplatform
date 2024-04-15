@@ -20,7 +20,7 @@ pub trait Has<T> {
     }
 }
 
-pub trait Identifier: Copy + Clone + Eq + PartialEq {
+pub trait Identifier: Clone + Eq + PartialEq {
     type For;
 }
 

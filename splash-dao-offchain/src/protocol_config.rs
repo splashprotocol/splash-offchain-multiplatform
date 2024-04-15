@@ -1,4 +1,5 @@
 use cml_chain::address::Address;
+use cml_chain::assets::AssetName;
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::PolicyId;
 use cml_crypto::{Ed25519KeyHash, PrivateKey};
@@ -20,6 +21,7 @@ pub struct ProtocolConfig {
     pub reward_address: cml_chain::address::RewardAddress,
     pub collateral: Collateral,
     pub splash_policy: PolicyId,
+    pub splash_name: AssetName,
     pub inflation_box_id: InflationBoxId,
     pub inflation_box_ref_script: TransactionUnspentOutput,
     pub poll_factory_id: PollFactoryId,
@@ -36,6 +38,8 @@ pub struct ProtocolConfig {
     pub perm_manager_box_ref_script: TransactionUnspentOutput,
     pub edao_msig_policy: PolicyId,
     pub perm_manager_auth_policy: PolicyId,
+    pub perm_manager_auth_name: AssetName,
+    pub gov_proxy_ref_script: TransactionUnspentOutput,
     pub gt_policy: PolicyId,
     pub genesis_time: GenesisEpochStartTime,
 }
@@ -54,6 +58,9 @@ pub struct Reward(pub cml_chain::address::RewardAddress);
 
 #[derive(Debug, Clone)]
 pub struct SplashPolicy(pub PolicyId);
+
+#[derive(Debug, Clone)]
+pub struct SplashAssetName(pub AssetName);
 
 #[derive(Debug, Clone)]
 pub struct PollFactoryRefScriptOutput(pub TransactionUnspentOutput);
@@ -86,10 +93,16 @@ pub struct WeightingPowerRefScriptOutput(pub TransactionUnspentOutput);
 pub struct PermManagerBoxRefScriptOutput(pub TransactionUnspentOutput);
 
 #[derive(Debug, Clone)]
+pub struct GovProxyRefScriptOutput(pub TransactionUnspentOutput);
+
+#[derive(Debug, Clone)]
 pub struct EDaoMSigAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
 pub struct PermManagerAuthPolicy(pub PolicyId);
+
+#[derive(Debug, Clone)]
+pub struct PermManagerAuthName(pub AssetName);
 
 #[derive(Debug, Clone)]
 pub struct GTAuthPolicy(pub PolicyId);
@@ -114,6 +127,12 @@ impl Has<Collateral> for ProtocolConfig {
 impl Has<SplashPolicy> for ProtocolConfig {
     fn select<U: IsEqual<SplashPolicy>>(&self) -> SplashPolicy {
         SplashPolicy(self.splash_policy)
+    }
+}
+
+impl Has<SplashAssetName> for ProtocolConfig {
+    fn select<U: IsEqual<SplashAssetName>>(&self) -> SplashAssetName {
+        SplashAssetName(self.splash_name.clone())
     }
 }
 
@@ -192,6 +211,18 @@ impl Has<EDaoMSigAuthPolicy> for ProtocolConfig {
 impl Has<PermManagerAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<PermManagerAuthPolicy>>(&self) -> PermManagerAuthPolicy {
         PermManagerAuthPolicy(self.perm_manager_auth_policy)
+    }
+}
+
+impl Has<PermManagerAuthName> for ProtocolConfig {
+    fn select<U: IsEqual<PermManagerAuthName>>(&self) -> PermManagerAuthName {
+        PermManagerAuthName(self.perm_manager_auth_name.clone())
+    }
+}
+
+impl Has<GovProxyRefScriptOutput> for ProtocolConfig {
+    fn select<U: IsEqual<GovProxyRefScriptOutput>>(&self) -> GovProxyRefScriptOutput {
+        GovProxyRefScriptOutput(self.gov_proxy_ref_script.clone())
     }
 }
 

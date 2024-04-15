@@ -12,9 +12,9 @@ use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::TxRejected;
 
 use crate::entities::offchain::voting_order::VotingOrder;
-use crate::entities::onchain::inflation_box::InflationBox;
-use crate::entities::onchain::permission_manager::PermManager;
-use crate::entities::onchain::poll_factory::PollFactory;
+use crate::entities::onchain::inflation_box::InflationBoxSnapshot;
+use crate::entities::onchain::permission_manager::{PermManager, PermManagerSnapshot};
+use crate::entities::onchain::poll_factory::{PollFactory, PollFactorySnapshot};
 use crate::entities::onchain::smart_farm::SmartFarm;
 use crate::entities::onchain::voting_escrow::{VotingEscrow, VotingEscrowId};
 use crate::entities::onchain::weighting_poll::{PollState, WeightingOngoing, WeightingPoll};
@@ -45,12 +45,9 @@ pub struct Behaviour<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer,
 
 const DEF_DELAY: Duration = Duration::new(5, 0);
 
-pub type InflationBoxSnapshot = Snapshot<InflationBox, OutputRef>;
-pub type PollFactorySnapshot = Snapshot<PollFactory, OutputRef>;
 pub type WeightingPollSnapshot = Snapshot<WeightingPoll, OutputRef>;
 pub type VotingEscrowSnapshot = Snapshot<VotingEscrow, OutputRef>;
 pub type SmartFarmSnapshot = Snapshot<SmartFarm, OutputRef>;
-pub type PermManagerSnapshot = Snapshot<PermManager, OutputRef>;
 
 #[async_trait::async_trait]
 impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net> RoutineBehaviour

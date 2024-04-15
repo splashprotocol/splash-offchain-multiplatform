@@ -4,20 +4,31 @@ use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData};
 
 use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, ScriptHash};
-use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, IntoPlutusData, PlutusDataExtension};
-use spectrum_cardano_lib::{TaggedAmount, Token};
-use spectrum_offchain::data::{Identifier, Stable};
+use cml_multi_era::babbage::BabbageTransactionOutput;
+use spectrum_cardano_lib::plutus_data::{
+    ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
+};
+use spectrum_cardano_lib::transaction::TransactionOutputExtension;
+use spectrum_cardano_lib::types::TryFromPData;
+use spectrum_cardano_lib::{AssetName, OutputRef, TaggedAmount, Token};
+use spectrum_offchain::data::{Has, Identifier, Stable};
+use spectrum_offchain::ledger::TryFromLedger;
+use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptHash};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 use uplc_pallas_codec::utils::PlutusBytes;
 
 use crate::assets::Splash;
 use crate::constants::WP_FACTORY_SCRIPT;
+use crate::deployment::ProtocolValidator;
 use crate::entities::onchain::smart_farm::FarmId;
 use crate::entities::onchain::weighting_poll::WeightingPoll;
-use crate::routines::inflation::PollFactorySnapshot;
+use crate::entities::Snapshot;
+use crate::protocol_config::{GovProxyRefScriptOutput, WPAuthPolicy};
 use crate::time::ProtocolEpoch;
 
 use super::weighting_poll::WeightingPollStableId;
+
+pub type PollFactorySnapshot = Snapshot<PollFactory, OutputRef>;
 
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct PollFactoryId(Token);
@@ -55,6 +66,43 @@ impl PollFactory {
         };
         self.last_poll_epoch = poll_epoch;
         (self, next_poll)
+    }
+}
+
+impl<C> TryFromLedger<BabbageTransactionOutput, C> for PollFactorySnapshot
+where
+    C: Has<WPAuthPolicy>
+        + Has<OutputRef>
+        + Has<DeployedScriptHash<{ ProtocolValidator::WpFactory as u8 }>>
+        + Has<DeployedScriptHash<{ ProtocolValidator::GovProxy as u8 }>>,
+{
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+        if test_address::<{ ProtocolValidator::WpFactory as u8 }, C>(repr.address(), ctx) {
+            let gov_proxy_script_hash = ctx
+                .select::<DeployedScriptHash<{ ProtocolValidator::GovProxy as u8 }>>()
+                .unwrap();
+            let output_ref = ctx.select::<OutputRef>();
+            let PollFactoryConfig {
+                last_poll_epoch,
+                active_farms,
+            } = repr
+                .datum()?
+                .into_pd()
+                .map(|pd| PollFactoryConfig::try_from_pd(pd).unwrap())?;
+
+            let stable_id = PollFactoryStableId {
+                wp_auth_policy: ctx.select::<WPAuthPolicy>().0,
+                gov_witness_script_hash: gov_proxy_script_hash,
+            };
+            let poll_factory = PollFactory {
+                last_poll_epoch,
+                active_farms,
+                stable_id,
+            };
+
+            return Some(Snapshot::new(poll_factory, output_ref));
+        }
+        None
     }
 }
 
@@ -156,4 +204,29 @@ pub fn compute_wp_factory_script_hash(
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(gov_witness_script_hash.to_raw_bytes().to_vec())),
     ]);
     apply_params_validator(params_pd, WP_FACTORY_SCRIPT)
+}
+
+pub struct PollFactoryConfig {
+    /// Epoch of the last WP.
+    last_poll_epoch: u32,
+    /// Active farms.
+    active_farms: Vec<FarmId>,
+}
+
+impl TryFromPData for PollFactoryConfig {
+    fn try_from_pd(data: cml_chain::plutus::PlutusData) -> Option<Self> {
+        let mut cpd = data.into_constr_pd()?;
+        let last_poll_epoch = cpd.take_field(0)?.into_u128().unwrap() as u32;
+        let active_farms: Vec<_> = cpd
+            .take_field(1)?
+            .into_vec()
+            .unwrap()
+            .into_iter()
+            .map(|pd| FarmId(AssetName::try_from(pd.into_bytes().unwrap()).unwrap()))
+            .collect();
+        Some(Self {
+            last_poll_epoch,
+            active_farms,
+        })
+    }
 }

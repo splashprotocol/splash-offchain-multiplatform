@@ -1,18 +1,27 @@
+use cml_chain::assets::AssetName;
 use cml_chain::plutus::{ExUnits, PlutusData};
 
 use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, ScriptHash};
-use spectrum_cardano_lib::plutus_data::IntoPlutusData;
-use spectrum_cardano_lib::{TaggedAmount, Token};
-use spectrum_offchain::data::{EntitySnapshot, Identifier, Stable};
+use cml_multi_era::babbage::BabbageTransactionOutput;
+use spectrum_cardano_lib::plutus_data::{DatumExtension, IntoPlutusData, PlutusDataExtension};
+use spectrum_cardano_lib::transaction::TransactionOutputExtension;
+use spectrum_cardano_lib::{OutputRef, TaggedAmount, Token};
+use spectrum_offchain::data::{EntitySnapshot, Has, Identifier, Stable};
+use spectrum_offchain::ledger::TryFromLedger;
+use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptHash};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 use uplc_pallas_codec::utils::{Int, PlutusBytes};
 
 use crate::assets::Splash;
-use crate::constants::INFLATION_SCRIPT;
-use crate::routines::inflation::InflationBoxSnapshot;
+use crate::constants::{INFLATION_SCRIPT, SPLASH_NAME};
+use crate::deployment::ProtocolValidator;
+use crate::entities::Snapshot;
+use crate::protocol_config::{SplashAssetName, SplashPolicy};
 use crate::time::{epoch_end, NetworkTime, ProtocolEpoch};
 use crate::{constants, GenesisEpochStartTime};
+
+pub type InflationBoxSnapshot = Snapshot<InflationBox, OutputRef>;
 
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct InflationBoxId(Token);
@@ -25,7 +34,7 @@ impl Identifier for InflationBoxId {
 pub struct InflationBox {
     pub last_processed_epoch: ProtocolEpoch,
     pub splash_reserves: TaggedAmount<Splash>,
-    pub wp_auth_policy: PolicyId,
+    pub script_hash: ScriptHash,
 }
 
 impl InflationBox {
@@ -63,12 +72,42 @@ pub fn emission_rate(epoch: ProtocolEpoch) -> TaggedAmount<Splash> {
 }
 
 impl Stable for InflationBox {
-    type StableId = PolicyId;
+    type StableId = ScriptHash;
     fn stable_id(&self) -> Self::StableId {
-        self.wp_auth_policy
+        self.script_hash
     }
     fn is_quasi_permanent(&self) -> bool {
         true
+    }
+}
+
+impl<C> TryFromLedger<BabbageTransactionOutput, C> for InflationBoxSnapshot
+where
+    C: Has<SplashPolicy>
+        + Has<SplashAssetName>
+        + Has<DeployedScriptHash<{ ProtocolValidator::Inflation as u8 }>>
+        + Has<OutputRef>,
+{
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+        if test_address(repr.address(), ctx) {
+            let value = repr.value().clone();
+            let epoch = repr.datum()?.into_pd()?.into_u64()?;
+            let splash = value.multiasset.get(
+                &ctx.select::<SplashPolicy>().0,
+                &ctx.select::<SplashAssetName>().0,
+            )?;
+            let script_hash = repr.script_hash()?;
+
+            let inflation_box = InflationBox {
+                last_processed_epoch: epoch as u32,
+                splash_reserves: TaggedAmount::new(splash),
+                script_hash,
+            };
+            let output_ref = ctx.select::<OutputRef>();
+
+            return Some(Snapshot::new(inflation_box, output_ref));
+        }
+        None
     }
 }
 
