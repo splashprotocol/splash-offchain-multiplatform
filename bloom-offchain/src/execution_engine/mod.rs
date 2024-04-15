@@ -466,7 +466,6 @@ where
                         Err(err) => {
                             warn!("TX failed {:?}", err);
                             if let Ok(missing_bearers) = err.try_into() {
-                                self.invalidate_bearers(&pair, missing_bearers.clone());
                                 match pending_effects {
                                     PendingEffects::FromLiquidityBook(_) => {
                                         self.multi_book.get_mut(&pair).on_recipe_failed();
@@ -480,13 +479,15 @@ where
                                         }
                                     }
                                 }
+                                self.invalidate_bearers(&pair, missing_bearers.clone());
                             } else {
+                                warn!("Unknown Tx submission error!");
                                 match pending_effects {
                                     PendingEffects::FromLiquidityBook(_) => {
                                         self.multi_book.get_mut(&pair).on_recipe_failed();
                                     }
-                                    PendingEffects::FromBacklog(_, consumed_order) => {
-                                        self.multi_backlog.get_mut(&pair).recharge(consumed_order);
+                                    PendingEffects::FromBacklog(_, order) => {
+                                        self.multi_backlog.get_mut(&pair).recharge(order);
                                     }
                                 }
                             }
