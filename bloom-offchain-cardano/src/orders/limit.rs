@@ -7,6 +7,7 @@ use cml_chain::PolicyId;
 use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
+use serde::Deserialize;
 
 use bloom_offchain::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use bloom_offchain::execution_engine::liquidity_book::side::SideM;
@@ -294,7 +295,10 @@ const MIN_LOVELACE: u64 = 1_500_000;
 
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for LimitOrder
 where
-    C: Has<OperatorCred> + Has<ConsumedInputs> + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>,
+    C: Has<OperatorCred>
+        + Has<ConsumedInputs>
+        + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
+        + Has<LimitOrderBounds>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
@@ -317,7 +321,11 @@ where
                     .permitted_executors
                     .contains(&ctx.select::<OperatorCred>().into())
             {
-                if execution_budget > conf.cost_per_ex_step && min_output > min_marginal_output {
+                let bounds = ctx.select::<LimitOrderBounds>();
+                let valid_configuration = conf.cost_per_ex_step >= bounds.min_cost_per_ex_step
+                    && execution_budget > conf.cost_per_ex_step
+                    && min_output > min_marginal_output;
+                if valid_configuration {
                     // Fresh beacon must be derived from one of consumed utxos.
                     let valid_fresh_beacon = ctx
                         .select::<ConsumedInputs>()
@@ -349,13 +357,11 @@ where
     }
 }
 
-/// Reference Script Output for [LimitOrder].
-#[derive(Debug, Clone)]
-pub struct SpotOrderRefScriptOutput(pub TransactionUnspentOutput);
-
-/// Reference Script Output for batch validator of [LimitOrder].
-#[derive(Debug, Clone)]
-pub struct SpotOrderBatchValidatorRefScriptOutput(pub TransactionUnspentOutput);
+#[derive(Copy, Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LimitOrderBounds {
+    pub min_cost_per_ex_step: u64,
+}
 
 #[cfg(test)]
 mod tests {

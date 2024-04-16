@@ -5,12 +5,9 @@ use cml_chain::address::Address;
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
-use cml_chain::builders::tx_builder::{
-    ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput, TxBuilderError,
-};
+use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput};
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
-use cml_chain::plutus::PlutusData::Integer;
-use cml_chain::plutus::{ConstrPlutusData, PlutusData, RedeemerTag};
+use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::{DatumOption, ScriptRef, TransactionOutput};
 use cml_chain::utils::BigInteger;
 
@@ -284,7 +281,7 @@ pub trait RequiresRedeemer<Action> {
 }
 
 impl RequiresRedeemer<CFMMPoolAction> for ConstFnPool {
-    fn redeemer(self, prev_state: Self, pool_input_index: u64, action: CFMMPoolAction) -> PlutusData {
+    fn redeemer(self, _: Self, pool_input_index: u64, action: CFMMPoolAction) -> PlutusData {
         CFMMPoolRedeemer {
             pool_input_index,
             action,
@@ -296,8 +293,8 @@ impl RequiresRedeemer<CFMMPoolAction> for ConstFnPool {
 impl RequiresRedeemer<CFMMPoolAction> for BalancePool {
     fn redeemer(self, prev_state: Self, pool_input_index: u64, action: CFMMPoolAction) -> PlutusData {
         BalancePoolRedeemer {
-            pool_input_index: pool_input_index,
-            action: action,
+            pool_input_index,
+            action,
             new_pool_state: self,
             prev_pool_state: prev_state,
         }
@@ -308,7 +305,7 @@ impl RequiresRedeemer<CFMMPoolAction> for BalancePool {
 pub trait ApplyOrder<Order>: Sized {
     type Result;
 
-    // return: new pool, order output
+    /// Returns new pool, order output
     fn apply_order(self, order: Order) -> Result<(Self, Self::Result), ApplyOrderError<Order>>;
 }
 

@@ -56,8 +56,10 @@ where
             >,
         >,
     ) {
+        trace!("Going to evaluate recipe: {:?}", instructions);
         let state = ExecutionState::new();
         let (ExecutionState { tx_blueprint }, effects, ctx) = execute(ctx, state, Vec::new(), instructions);
+        trace!("Going to interpret blueprint: {}", tx_blueprint);
         let mut tx_builder =
             tx_blueprint.project_onto_builder(constant_tx_builder(), ctx.select::<NetworkId>());
         tx_builder
@@ -94,7 +96,7 @@ where
                 },
             ))
         }
-        trace!("Finished TX: {}", tx_hash);
+        trace!("Finished Tx: {}", tx_hash);
         (tx, finalized_effects)
     }
 }
