@@ -4,9 +4,9 @@ use clap::Parser;
 use cml_chain::transaction::Transaction;
 use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
+use futures::{Stream, stream_select, StreamExt};
 use futures::channel::mpsc;
 use futures::stream::select_all;
-use futures::{stream_select, Stream, StreamExt};
 use log::info;
 use tokio::sync::{broadcast, Mutex};
 use tracing_subscriber::fmt::Subscriber;
@@ -17,15 +17,16 @@ use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_part_stream;
 use bloom_offchain::execution_engine::liquidity_book::{ExecutionCap, TLB};
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
-use bloom_offchain::execution_engine::storage::kv_store::InMemoryKvStore;
 use bloom_offchain::execution_engine::storage::InMemoryStateIndex;
+use bloom_offchain::execution_engine::storage::kv_store::InMemoryKvStore;
+use bloom_offchain_cardano::bounds::Bounds;
+use bloom_offchain_cardano::event_sink::{AtomicCardanoEntity, EvolvingCardanoEntity};
 use bloom_offchain_cardano::event_sink::context::HandlerContextProto;
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
 use bloom_offchain_cardano::event_sink::handler::{
     PairUpdateHandler, ProcessingTransaction, SpecializedHandler,
 };
 use bloom_offchain_cardano::event_sink::order_index::InMemoryOrderIndex;
-use bloom_offchain_cardano::event_sink::{AtomicCardanoEntity, EvolvingCardanoEntity};
 use bloom_offchain_cardano::execution_engine::backlog::interpreter::SpecializedInterpreterViaRunOrder;
 use bloom_offchain_cardano::execution_engine::interpreter::CardanoRecipeInterpreter;
 use bloom_offchain_cardano::orders::AnyOrder;
@@ -46,9 +47,9 @@ use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::backlog::{BacklogCapacity, HotPriorityBacklog};
+use spectrum_offchain::data::Baked;
 use spectrum_offchain::data::order::OrderUpdate;
 use spectrum_offchain::data::unique_entity::{EitherMod, StateUpdate};
-use spectrum_offchain::data::Baked;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::partitioning::Partitioned;
@@ -77,6 +78,10 @@ async fn main() {
     let deployment: DeployedValidators =
         serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
 
+    let raw_bounds = std::fs::read_to_string(args.bounds_path).expect("Cannot load bounds file");
+    let bounds: Bounds =
+        serde_json::from_str(&raw_bounds).expect("Invalid bounds file");
+
     log4rs::init_file(args.log4rs_path, Default::default()).unwrap();
 
     info!("Starting Off-Chain Agent ..");
@@ -94,8 +99,8 @@ async fn main() {
         config.node.magic,
         config.chain_sync.starting_point,
     )
-    .await
-    .expect("ChainSync initialization failed");
+        .await
+        .expect("ChainSync initialization failed");
 
     // n2c clients:
     let mempool_sync =
@@ -152,6 +157,7 @@ async fn main() {
     let handler_context = HandlerContextProto {
         executor_cred: config.executor_cred,
         scripts: ProtocolScriptHashes::from(&protocol_deployment),
+        bounds,
     };
     let general_upd_handler = PairUpdateHandler::new(
         partitioned_pair_upd_snd,
@@ -249,15 +255,15 @@ async fn main() {
         chain_sync_stream(chain_sync, signal_tip_reached_snd),
         config.chain_sync.disable_rollbacks_until,
     ))
-    .map(|ev| match ev {
-        LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
-            tx: (hash_transaction_canonical(&tx.body), tx),
-            slot,
-        },
-        LedgerTxEvent::TxUnapplied(tx) => {
-            LedgerTxEvent::TxUnapplied((hash_transaction_canonical(&tx.body), tx))
-        }
-    });
+        .map(|ev| match ev {
+            LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
+                tx: (hash_transaction_canonical(&tx.body), tx),
+                slot,
+            },
+            LedgerTxEvent::TxUnapplied(tx) => {
+                LedgerTxEvent::TxUnapplied((hash_transaction_canonical(&tx.body), tx))
+            }
+        });
     let mempool_stream = mempool_stream(&mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
         MempoolUpdate::TxAccepted(tx) => {
             MempoolUpdate::TxAccepted((hash_transaction_canonical(&tx.body), tx))
@@ -283,10 +289,10 @@ async fn main() {
 }
 
 fn merge_upstreams(
-    xs: impl Stream<Item = (PairId, EitherMod<StateUpdate<EvolvingCardanoEntity>>)> + Unpin,
-    ys: impl Stream<Item = (PairId, OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>)> + Unpin,
+    xs: impl Stream<Item=(PairId, EitherMod<StateUpdate<EvolvingCardanoEntity>>)> + Unpin,
+    ys: impl Stream<Item=(PairId, OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>)> + Unpin,
 ) -> impl Stream<
-    Item = (
+    Item=(
         PairId,
         Either<
             EitherMod<
@@ -319,9 +325,12 @@ struct AppArgs {
     /// Path to the JSON configuration file.
     #[arg(long, short)]
     config_path: String,
-    /// Path to the JSON deployment configuration file .
+    /// Path to the deployment JSON configuration file .
     #[arg(long, short)]
     deployment_path: String,
+    /// Path to the bounds JSON configuration file .
+    #[arg(long, short)]
+    bounds_path: String,
     /// Path to the log4rs YAML configuration file.
     #[arg(long, short)]
     log4rs_path: String,

@@ -13,7 +13,7 @@ use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
 use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
-use crate::orders::limit::LimitOrder;
+use crate::orders::limit::{LimitOrder, LimitOrderBounds};
 
 pub mod limit;
 
@@ -52,29 +52,9 @@ impl OrderState for AnyOrder {
 
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for AnyOrder
 where
-    C: Has<OperatorCred> + Has<ConsumedInputs> + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>,
+    C: Has<OperatorCred> + Has<ConsumedInputs> + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>> + Has<LimitOrderBounds>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         LimitOrder::try_from_ledger(repr, ctx).map(|s| AnyOrder::Limit(s))
     }
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct Stateful<O, S> {
-    pub order: O,
-    pub state: S,
-}
-
-impl<O, S> Stateful<O, S> {
-    pub fn new(order: O, state: S) -> Self {
-        Self { order, state }
-    }
-}
-
-/// State of order compatible with TLB.
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct TLBCompatibleState {
-    /// Side of the order relative to pair it maps to.
-    pub side: SideM,
-    pub time_now: NetworkTime,
 }

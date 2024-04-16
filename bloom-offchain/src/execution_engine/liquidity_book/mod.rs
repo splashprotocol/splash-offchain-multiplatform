@@ -173,10 +173,13 @@ where
                             let rem_side = rem.target.side();
                             if let Some(pool) = self.state.try_pick_pool(|pl| {
                                 let real_price = pl.real_price(rem_side.wrap(rem.remaining_input));
-                                trace!("Trying to fill from AMM: side: {}, real_price: {}, remaining_input: {}", rem_side, real_price, rem.remaining_input);
-                                rem_side
-                                    .wrap(rem.target.price())
-                                    .overlaps(real_price)
+                                trace!(
+                                    "Trying to fill from AMM: side: {}, real_price: {}, remaining_input: {}",
+                                    rem_side,
+                                    real_price,
+                                    rem.remaining_input
+                                );
+                                rem_side.wrap(rem.target.price()).overlaps(real_price)
                             }) {
                                 let FillFromPool { term_fill, swap } = fill_from_pool(*rem, pool);
                                 recipe.push(TerminalInstruction::Swap(swap));

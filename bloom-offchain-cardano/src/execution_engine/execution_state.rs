@@ -1,5 +1,6 @@
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::fmt::{Display, Formatter, Write};
 
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
@@ -11,6 +12,7 @@ use cml_chain::certs::Credential;
 use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::{TransactionInput, TransactionOutput};
 
+use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::{NetworkId, OutputRef};
 use spectrum_offchain_cardano::deployment::{DeployedValidatorErased, ScriptWitness};
 
@@ -63,6 +65,35 @@ pub struct TxBlueprint {
     pub script_io: Vec<(ScriptInputBlueprint, TransactionOutput)>,
     pub reference_inputs: HashSet<(TransactionInput, TransactionOutput)>,
     pub witness_scripts: HashMap<DeployedValidatorErased, (PlutusData, ScalingFactor)>,
+}
+
+impl Display for TxBlueprint {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("TxBlueprint(io: ")?;
+        for (ix, (i, o)) in self.script_io.iter().enumerate() {
+            f.write_str("[")?;
+            f.write_str(
+                format!(
+                    "I#{}: [{}, {}],",
+                    ix,
+                    i.utxo.address().to_hex(),
+                    serde_json::to_string(i.utxo.value()).unwrap_or_else(|_| "-".to_string())
+                )
+                .as_str(),
+            )?;
+            f.write_str(
+                format!(
+                    "O#{}: [{}, {}]",
+                    ix,
+                    o.address().to_hex(),
+                    serde_json::to_string(o.value()).unwrap_or_else(|_| "-".to_string())
+                )
+                .as_str(),
+            )?;
+            f.write_str("]")?;
+        }
+        f.write_str(")")
+    }
 }
 
 impl TxBlueprint {
