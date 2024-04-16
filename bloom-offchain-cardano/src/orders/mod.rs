@@ -52,7 +52,10 @@ impl OrderState for AnyOrder {
 
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for AnyOrder
 where
-    C: Has<OperatorCred> + Has<ConsumedInputs> + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>> + Has<LimitOrderBounds>,
+    C: Has<OperatorCred>
+        + Has<ConsumedInputs>
+        + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
+        + Has<LimitOrderBounds>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         LimitOrder::try_from_ledger(repr, ctx).map(|s| AnyOrder::Limit(s))

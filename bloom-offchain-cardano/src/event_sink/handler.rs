@@ -557,9 +557,11 @@ mod tests {
     use spectrum_offchain::partitioning::Partitioned;
     use spectrum_offchain_cardano::creds::OperatorCred;
     use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHashes};
+    use crate::bounds::Bounds;
 
     use crate::event_sink::entity_index::InMemoryEntityIndex;
     use crate::event_sink::handler::{PairUpdateHandler, ProcessingTransaction};
+    use crate::orders::limit::LimitOrderBounds;
 
     #[derive(Clone, Eq, PartialEq)]
     struct TrivialEntity(OutputRef, u64);
@@ -652,6 +654,11 @@ mod tests {
         let (snd, mut recv) = mpsc::channel::<(u8, EitherMod<StateUpdate<TrivialEntity>>)>(100);
         let ex_cred = OperatorCred(Ed25519KeyHash::from([0u8; 28]));
         let context = HandlerContextProto {
+            bounds: Bounds {
+                limit_order: LimitOrderBounds {
+                    min_cost_per_ex_step: 1000,
+                },
+            },
             executor_cred: ex_cred,
             scripts: ProtocolScriptHashes {
                 limit_order_witness: DeployedScriptInfo {
