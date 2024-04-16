@@ -2,7 +2,6 @@ use cml_chain::PolicyId;
 use cml_crypto::ScriptHash;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use either::Either;
-use log::trace;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use spectrum_cardano_lib::output::FinalizedTxOut;
@@ -22,8 +21,8 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
 };
 use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
-use crate::orders::AnyOrder;
 use crate::orders::limit::LimitOrderBounds;
+use crate::orders::AnyOrder;
 
 pub mod context;
 pub mod entity_index;
@@ -110,7 +109,7 @@ where
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
         + Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
-        + Has<LimitOrderBounds>
+        + Has<LimitOrderBounds>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         <Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>>::try_from_ledger(repr, ctx).map(

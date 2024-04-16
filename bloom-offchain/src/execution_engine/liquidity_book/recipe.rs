@@ -1,3 +1,6 @@
+use num_rational::Ratio;
+use std::cmp::{max, min};
+
 use crate::execution_engine::bundled::Bundled;
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use crate::execution_engine::liquidity_book::side::SideM;
@@ -81,6 +84,34 @@ where
 pub enum LinkedTerminalInstruction<Fr, Pl, Src> {
     Fill(LinkedFill<Fr, Src>),
     Swap(LinkedSwap<Pl, Src>),
+}
+
+impl<Fr, Pl, Src> LinkedTerminalInstruction<Fr, Pl, Src> {
+    pub fn scale_fee(&mut self, scale: Ratio<u64>) -> i64 {
+        match self {
+            LinkedTerminalInstruction::Fill(fill) => {
+                let old_val = fill.fee_used;
+                let new_val = fill.fee_used * scale.numer() / scale.denom();
+                fill.fee_used = new_val;
+                let delta = new_val as i64 - old_val as i64;
+                delta
+            }
+            LinkedTerminalInstruction::Swap(_) => 0,
+        }
+    }
+
+    pub fn correct_fee(&mut self, val: i64) -> i64 {
+        match self {
+            LinkedTerminalInstruction::Fill(fill) => {
+                let old_val = fill.fee_used as i64;
+                let new_val = max(old_val + val, 0);
+                fill.fee_used = new_val as u64;
+                let delta = new_val - old_val;
+                delta
+            }
+            LinkedTerminalInstruction::Swap(_) => 0,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
