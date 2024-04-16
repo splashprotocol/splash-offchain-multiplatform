@@ -21,10 +21,10 @@ use spectrum_offchain::ledger::TryFromLedger;
 use crate::creds::OperatorRewardAddress;
 
 use crate::data::cfmm_pool::ConstFnPool;
-use crate::data::deposit::ClassicalOnChainDeposit;
+use crate::data::deposit::{ClassicalOnChainDeposit, DepositOrderBounds};
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::pool::try_run_order_against_pool;
-use crate::data::redeem::ClassicalOnChainRedeem;
+use crate::data::redeem::{ClassicalOnChainRedeem, RedeemOrderBounds};
 use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolRedeem,
@@ -159,7 +159,9 @@ where
         + Has<DeployedScriptInfo<{ ConstFnPoolDeposit as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolRedeem as u8 }>>
         + Has<DeployedScriptInfo<{ BalanceFnPoolDeposit as u8 }>>
-        + Has<DeployedScriptInfo<{ BalanceFnPoolRedeem as u8 }>>,
+        + Has<DeployedScriptInfo<{ BalanceFnPoolRedeem as u8 }>>
+        + Has<DepositOrderBounds>
+        + Has<RedeemOrderBounds>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         ClassicalOnChainLimitSwap::try_from_ledger(repr, ctx)
