@@ -2,6 +2,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter, Write};
 
+use bloom_offchain::execution_engine::liquidity_book::types::Lovelace;
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
@@ -192,13 +193,19 @@ impl TxBlueprint {
 
 pub struct ExecutionState {
     pub tx_blueprint: TxBlueprint,
+    pub reserved_fee: Lovelace,
 }
 
 impl ExecutionState {
     pub fn new() -> Self {
         Self {
             tx_blueprint: TxBlueprint::new(),
+            reserved_fee: 0,
         }
+    }
+
+    pub fn add_fee(&mut self, amount: Lovelace) {
+        self.reserved_fee += amount;
     }
 }
 

@@ -37,18 +37,14 @@ pub type OrderResult<Order> = ExecutionEff<Bundled<Order, TransactionOutput>, Bu
 /// Result of operation applied to a pool.
 pub type PoolResult<Pool> = Bundled<Pool, TransactionOutput>;
 
-impl<Ctx> BatchExec<ExecutionState, OrderResult<AnyOrder>, Ctx, Void>
+impl<Ctx> BatchExec<ExecutionState, OrderResult<AnyOrder>, Ctx>
     for Magnet<LinkedFill<AnyOrder, FinalizedTxOut>>
 where
     Ctx: Has<NetworkId>
         + Has<DeployedValidator<{ LimitOrderV1 as u8 }>>
         + Has<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>,
 {
-    fn try_exec(
-        self,
-        state: ExecutionState,
-        context: Ctx,
-    ) -> Result<(ExecutionState, OrderResult<AnyOrder>, Ctx), Void> {
+    fn exec(self, state: ExecutionState, context: Ctx) -> (ExecutionState, OrderResult<AnyOrder>, Ctx) {
         match self.0 {
             LinkedFill {
                 target_fr: Bundled(AnyOrder::Limit(o), src),
@@ -57,38 +53,34 @@ where
                 added_output,
                 budget_used,
                 fee_used,
-            } => Magnet(LinkedFill {
-                target_fr: Bundled(o, src),
-                next_fr: transition.map(|AnyOrder::Limit(o2)| o2),
-                removed_input,
-                added_output,
-                budget_used,
-                fee_used,
-            })
-            .try_exec(state, context)
-            .map(|(st, res, ctx)| {
+            } => {
+                let (st, res, ctx) = Magnet(LinkedFill {
+                    target_fr: Bundled(o, src),
+                    next_fr: transition.map(|AnyOrder::Limit(o2)| o2),
+                    removed_input,
+                    added_output,
+                    budget_used,
+                    fee_used,
+                })
+                .exec(state, context);
                 (
                     st,
                     res.bimap(|u| u.map(AnyOrder::Limit), |e| e.map(AnyOrder::Limit)),
                     ctx,
                 )
-            }),
+            }
         }
     }
 }
 
-impl<Ctx> BatchExec<ExecutionState, OrderResult<LimitOrder>, Ctx, Void>
+impl<Ctx> BatchExec<ExecutionState, OrderResult<LimitOrder>, Ctx>
     for Magnet<LinkedFill<LimitOrder, FinalizedTxOut>>
 where
     Ctx: Has<NetworkId>
         + Has<DeployedValidator<{ LimitOrderV1 as u8 }>>
         + Has<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>,
 {
-    fn try_exec(
-        self,
-        mut state: ExecutionState,
-        context: Ctx,
-    ) -> Result<(ExecutionState, OrderResult<LimitOrder>, Ctx), Void> {
+    fn exec(self, mut state: ExecutionState, context: Ctx) -> (ExecutionState, OrderResult<LimitOrder>, Ctx) {
         let Magnet(LinkedFill {
             target_fr: Bundled(ord, FinalizedTxOut(consumed_out, in_ref)),
             next_fr: transition,
@@ -139,28 +131,24 @@ where
             }
         };
         let witness = context.select::<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>();
+        state.add_fee(fee_used);
         state
             .tx_blueprint
             .add_witness(witness.erased(), PlutusData::new_list(vec![]));
         state.tx_blueprint.add_io(input, residual_order);
         state.tx_blueprint.add_ref_input(reference_utxo);
-        Ok((state, effect, context))
+        (state, effect, context)
     }
 }
 
 /// Batch execution routing for [AnyPool].
-impl<Ctx> BatchExec<ExecutionState, PoolResult<AnyPool>, Ctx, Void>
-    for Magnet<LinkedSwap<AnyPool, FinalizedTxOut>>
+impl<Ctx> BatchExec<ExecutionState, PoolResult<AnyPool>, Ctx> for Magnet<LinkedSwap<AnyPool, FinalizedTxOut>>
 where
     Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>,
 {
-    fn try_exec(
-        self,
-        state: ExecutionState,
-        context: Ctx,
-    ) -> Result<(ExecutionState, PoolResult<AnyPool>, Ctx), Void> {
+    fn exec(self, state: ExecutionState, context: Ctx) -> (ExecutionState, PoolResult<AnyPool>, Ctx) {
         match self.0 {
             LinkedSwap {
                 target: Bundled(AnyPool::PureCFMM(p), src),
@@ -168,46 +156,46 @@ where
                 side,
                 input,
                 output,
-            } => Magnet(LinkedSwap {
-                target: Bundled(p, src),
-                transition: p2,
-                side,
-                input,
-                output,
-            })
-            .try_exec(state, context)
-            .map(|(st, res, ctx)| (st, res.map(AnyPool::PureCFMM), ctx)),
+            } => {
+                let (st, res, ctx) = Magnet(LinkedSwap {
+                    target: Bundled(p, src),
+                    transition: p2,
+                    side,
+                    input,
+                    output,
+                })
+                .exec(state, context);
+                (st, res.map(AnyPool::PureCFMM), ctx)
+            }
             LinkedSwap {
                 target: Bundled(AnyPool::BalancedCFMM(p), src),
                 transition: AnyPool::BalancedCFMM(p2),
                 side,
                 input,
                 output,
-            } => Magnet(LinkedSwap {
-                target: Bundled(p, src),
-                transition: p2,
-                side,
-                input,
-                output,
-            })
-            .try_exec(state, context)
-            .map(|(st, res, ctx)| (st, res.map(AnyPool::BalancedCFMM), ctx)),
+            } => {
+                let (st, res, ctx) = Magnet(LinkedSwap {
+                    target: Bundled(p, src),
+                    transition: p2,
+                    side,
+                    input,
+                    output,
+                })
+                .exec(state, context);
+                (st, res.map(AnyPool::BalancedCFMM), ctx)
+            }
             _ => unreachable!(),
         }
     }
 }
 
 /// Batch execution logic for [ConstFnPool].
-impl<Ctx> BatchExec<ExecutionState, PoolResult<ConstFnPool>, Ctx, Void>
+impl<Ctx> BatchExec<ExecutionState, PoolResult<ConstFnPool>, Ctx>
     for Magnet<LinkedSwap<ConstFnPool, FinalizedTxOut>>
 where
     Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>> + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>,
 {
-    fn try_exec(
-        self,
-        mut state: ExecutionState,
-        context: Ctx,
-    ) -> Result<(ExecutionState, PoolResult<ConstFnPool>, Ctx), Void> {
+    fn exec(self, mut state: ExecutionState, context: Ctx) -> (ExecutionState, PoolResult<ConstFnPool>, Ctx) {
         let Magnet(LinkedSwap {
             target: Bundled(pool, FinalizedTxOut(consumed_out, in_ref)),
             transition,
@@ -248,20 +236,16 @@ where
 
         state.tx_blueprint.add_io(input, produced_out);
         state.tx_blueprint.add_ref_input(reference_utxo);
-        Ok((state, result, context))
+        (state, result, context)
     }
 }
 
-impl<Ctx> BatchExec<ExecutionState, PoolResult<BalancePool>, Ctx, Void>
+impl<Ctx> BatchExec<ExecutionState, PoolResult<BalancePool>, Ctx>
     for Magnet<LinkedSwap<BalancePool, FinalizedTxOut>>
 where
     Ctx: Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>,
 {
-    fn try_exec(
-        self,
-        mut state: ExecutionState,
-        context: Ctx,
-    ) -> Result<(ExecutionState, PoolResult<BalancePool>, Ctx), Void> {
+    fn exec(self, mut state: ExecutionState, context: Ctx) -> (ExecutionState, PoolResult<BalancePool>, Ctx) {
         let Magnet(LinkedSwap {
             target: Bundled(pool, FinalizedTxOut(consumed_out, in_ref)),
             transition,
@@ -314,6 +298,6 @@ where
 
         state.tx_blueprint.add_io(input, produced_out);
         state.tx_blueprint.add_ref_input(reference_utxo);
-        Ok((state, result, context))
+        (state, result, context)
     }
 }

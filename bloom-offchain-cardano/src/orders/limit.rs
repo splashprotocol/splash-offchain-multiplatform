@@ -382,12 +382,18 @@ mod tests {
     };
     use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
-    use crate::orders::limit::{beacon_from_oref, unsafe_update_datum, Datum, LimitOrder};
+    use crate::orders::limit::{beacon_from_oref, unsafe_update_datum, Datum, LimitOrder, LimitOrderBounds};
 
     struct Context {
         limit_order: DeployedScriptInfo<{ LimitOrderV1 as u8 }>,
         cred: OperatorCred,
         consumed_inputs: ConsumedInputs,
+    }
+    
+    impl Has<LimitOrderBounds> for Context {
+        fn select<U: IsEqual<LimitOrderBounds>>(&self) -> LimitOrderBounds {
+            LimitOrderBounds { min_cost_per_ex_step: 0 }
+        }
     }
 
     impl Has<ConsumedInputs> for Context {
