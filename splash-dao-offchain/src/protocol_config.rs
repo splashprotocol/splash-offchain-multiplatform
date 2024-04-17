@@ -194,7 +194,7 @@ impl Has<VEFactoryAuthPolicy> for ProtocolConfig {
 
 impl Has<VEFactoryAuthName> for ProtocolConfig {
     fn select<U: IsEqual<VEFactoryAuthName>>(&self) -> VEFactoryAuthName {
-        VEFactoryAuthName(self.ve_factory_auth_name)
+        VEFactoryAuthName(self.ve_factory_auth_name.clone())
     }
 }
 
@@ -248,7 +248,7 @@ impl Has<GTAuthPolicy> for ProtocolConfig {
 
 impl Has<GTAuthName> for ProtocolConfig {
     fn select<U: IsEqual<GTAuthName>>(&self) -> GTAuthName {
-        GTAuthName(self.gt_name)
+        GTAuthName(self.gt_name.clone())
     }
 }
 

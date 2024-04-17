@@ -230,3 +230,23 @@ impl TryFromPData for PollFactoryConfig {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use cbor_event::de::Deserializer;
+    use cml_chain::{plutus::PlutusData, Deserialize};
+    use spectrum_cardano_lib::types::TryFromPData;
+    use std::io::Cursor;
+
+    use super::PollFactoryConfig;
+
+    #[test]
+    fn test_poll_factory_datum_deserialization() {
+        // Hex-encoded datum from preprod deployment TX
+        let bytes = hex::decode("d8799f009f456661726d30426631ffff").unwrap();
+        let mut raw = Deserializer::from(Cursor::new(bytes));
+
+        let data = PlutusData::deserialize(&mut raw).unwrap();
+        assert!(PollFactoryConfig::try_from_pd(data).is_some());
+    }
+}

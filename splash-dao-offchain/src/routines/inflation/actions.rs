@@ -725,7 +725,7 @@ where
             match input_type {
                 InputType::WPoll => {
                     let redeemer = weighting_poll::PollAction::Distribute {
-                        farm_ix: farm.get().farm_id.0 as u32,
+                        farm_ix: 1,
                         farm_in_ix,
                     };
                     let weighting_poll_script = PartialPlutusWitness::new(

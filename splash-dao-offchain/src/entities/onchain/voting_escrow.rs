@@ -87,7 +87,7 @@ where
             let value = repr.value().clone();
             let VotingEscrowConfig {
                 locked_until,
-                owner,
+                owner: _,
                 max_ex_fee,
                 version,
                 last_wp_epoch,
@@ -183,20 +183,15 @@ impl IntoPlutusData for Lock {
 impl TryFromPData for Lock {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
-        if let Some(fields) = cpd.take_field(0) {
-            let fields = fields.into_vec()?;
-            if let Some(pd) = fields.first() {
-                let n = pd.into_u64()?;
-                return Some(Lock::Def(n));
-            }
-        } else if let Some(fields) = cpd.take_field(1) {
-            let fields = fields.into_vec()?;
-            if let Some(pd) = fields.first() {
-                let millis = pd.into_u64()?;
-                return Some(Lock::Indef(Duration::from_millis(millis)));
-            }
+        if cpd.alternative == 0 {
+            let pd = cpd.take_field(0)?;
+            let n = pd.into_u64()?;
+            return Some(Lock::Def(n));
+        } else if cpd.alternative == 1 {
+            let pd = cpd.take_field(0)?;
+            let millis = pd.clone().into_u64()?;
+            return Some(Lock::Indef(Duration::from_millis(millis)));
         }
-
         None
     }
 }
@@ -210,21 +205,16 @@ pub enum Owner {
 impl TryFromPData for Owner {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
-        if let Some(fields) = cpd.take_field(0) {
-            let fields = fields.into_vec()?;
-            if let Some(pd) = fields.first() {
-                let bytes = pd.into_bytes()?;
-                return Some(Owner::PubKey(bytes));
-            }
-        } else if let Some(fields) = cpd.take_field(1) {
-            let fields = fields.into_vec()?;
-            if let Some(pd) = fields.first() {
-                if let Ok(script_hash) = ScriptHash::from_raw_bytes(&pd.into_bytes()?) {
-                    return Some(Owner::Script(script_hash));
-                }
+        if cpd.alternative == 0 {
+            let pd = cpd.take_field(0)?;
+            let bytes = pd.clone().into_bytes()?;
+            return Some(Owner::PubKey(bytes));
+        } else if cpd.alternative == 1 {
+            let pd = cpd.take_field(0)?;
+            if let Ok(script_hash) = ScriptHash::from_raw_bytes(&pd.clone().into_bytes()?) {
+                return Some(Owner::Script(script_hash));
             }
         }
-
         None
     }
 }
@@ -345,7 +335,7 @@ impl IntoPlutusData for MintAction {
                     PlutusData::Integer(BigInteger::from(proposal_in_ix)),
                 ],
             )),
-            MintAction::Burn => PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![])),
+            MintAction::Burn => PlutusData::ConstrPlutusData(ConstrPlutusData::new(1, vec![])),
         }
     }
 }
@@ -370,4 +360,25 @@ pub fn compute_voting_escrow_policy_id(ve_factory_auth_policy: PolicyId) -> Poli
         ve_factory_auth_policy.to_raw_bytes().to_vec(),
     ))]);
     apply_params_validator(params_pd, VOTING_ESCROW_SCRIPT)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use cbor_event::de::Deserializer;
+    use cml_chain::{plutus::PlutusData, Deserialize};
+    use spectrum_cardano_lib::types::TryFromPData;
+
+    use crate::entities::onchain::voting_escrow::VotingEscrowConfig;
+
+    #[test]
+    fn test_ve_datum_deserialization() {
+        // Hex-encoded datum from preprod deployment TX
+        let bytes = hex::decode("d8799fd8799f01ffd8799f5820d129974b472a9ca1148791369969572e0db24075649211b60472e52a3fb3401aff01010101ff").unwrap();
+        let mut raw = Deserializer::from(Cursor::new(bytes));
+
+        let data = PlutusData::deserialize(&mut raw).unwrap();
+        assert!(VotingEscrowConfig::try_from_pd(data).is_some());
+    }
 }

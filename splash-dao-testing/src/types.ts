@@ -21,6 +21,7 @@ export type BuiltPolicy = {
   script: Script;
   policyId: PolicyId;
   assetName: string;
+  quantity: bigint;
 };
 
 export type ScriptNames =
@@ -65,6 +66,7 @@ export type WPFactoryState = {
 };
 
 export type DaoInput = {
+  numGTTokens: bigint;
   inflation: IInflationInflation["epoch"];
   votingEscrow: IVotingEscrowVotingEscrow["state"];
   farmFactory: ISmartFarmFarmFactory["state"];

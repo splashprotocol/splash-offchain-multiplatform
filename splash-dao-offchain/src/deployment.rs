@@ -62,7 +62,7 @@ impl From<&ProtocolDeployment> for ProtocolScriptHashes {
 pub struct ProtocolDeployment {
     pub inflation: DeployedValidator<{ ProtocolValidator::Inflation as u8 }>,
     pub voting_escrow: DeployedValidator<{ ProtocolValidator::VotingEscrow as u8 }>,
-    pub smart_farm: DeployedScriptHash<{ ProtocolValidator::SmartFarm as u8 }>,
+    pub smart_farm: DeployedValidator<{ ProtocolValidator::SmartFarm as u8 }>,
     pub farm_factory: DeployedValidator<{ ProtocolValidator::FarmFactory as u8 }>,
     pub wp_factory: DeployedValidator<{ ProtocolValidator::WpFactory as u8 }>,
     pub ve_factory: DeployedValidator<{ ProtocolValidator::VeFactory as u8 }>,

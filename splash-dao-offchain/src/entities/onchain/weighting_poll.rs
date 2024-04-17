@@ -8,23 +8,26 @@ use cml_chain::transaction::{DatumOption, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::{OrderedHashMap, PolicyId, Value};
 use cml_crypto::RawBytesEncoding;
+use cml_multi_era::babbage::BabbageTransactionOutput;
 use derive_more::From;
 use uplc_pallas_codec::utils::{Int, PlutusBytes};
 
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, IntoPlutusData, PlutusDataExtension};
-use spectrum_cardano_lib::{TaggedAmount, Token};
+use spectrum_cardano_lib::{OutputRef, TaggedAmount, Token};
 use spectrum_offchain::data::{Has, Identifier, Stable};
-use spectrum_offchain::ledger::IntoLedger;
+use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 
 use crate::assets::Splash;
 use crate::constants::{MINT_WP_AUTH_TOKEN_SCRIPT, SPLASH_NAME};
 use crate::entities::onchain::smart_farm::FarmId;
 use crate::entities::onchain::voting_escrow::compute_mint_weighting_power_policy_id;
+use crate::entities::Snapshot;
 use crate::protocol_config::{GTAuthPolicy, NodeMagic, SplashPolicy, WPAuthPolicy};
-use crate::routines::inflation::WeightingPollSnapshot;
 use crate::time::{epoch_end, epoch_start, NetworkTime, ProtocolEpoch};
 use crate::GenesisEpochStartTime;
+
+pub type WeightingPollSnapshot = Snapshot<WeightingPoll, OutputRef>;
 
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, From)]
 pub struct WeightingPollId(Token);
@@ -201,6 +204,16 @@ impl WeightingPoll {
         self.reserves_splash() == 0
     }
 }
+
+//impl<C> TryFromLedger<BabbageTransactionOutput, C> for InflationBoxSnapshot
+//where
+//    C: Has<SplashPolicy>
+//        + Has<SplashAssetName>
+//        + Has<DeployedScriptHash<{ ProtocolValidator::Inflation as u8 }>>
+//        + Has<OutputRef>,
+//{
+//    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+//    }}
 
 fn distribution_to_plutus_data(distribution: &[(FarmId, u64)]) -> PlutusData {
     let mut list = vec![];

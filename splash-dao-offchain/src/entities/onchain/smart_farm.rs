@@ -16,10 +16,10 @@ use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptHash};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 
+use crate::constants::MINT_FARM_AUTH_TOKEN_SCRIPT;
 use crate::deployment::ProtocolValidator;
 use crate::entities::Snapshot;
 use crate::protocol_config::PermManagerAuthPolicy;
-use crate::{constants::MINT_FARM_AUTH_TOKEN_SCRIPT, routines::inflation::SmartFarmSnapshot};
 
 pub type SmartFarmSnapshot = Snapshot<SmartFarm, OutputRef>;
 
@@ -32,7 +32,7 @@ impl Identifier for FarmId {
 
 impl IntoPlutusData for FarmId {
     fn into_pd(self) -> cml_chain::plutus::PlutusData {
-        cml_chain::plutus::PlutusData::new_bytes(cml_chain::assets::AssetName::from(self.0.clone()).inner)
+        cml_chain::plutus::PlutusData::new_bytes(cml_chain::assets::AssetName::from(self.0).inner)
     }
 }
 

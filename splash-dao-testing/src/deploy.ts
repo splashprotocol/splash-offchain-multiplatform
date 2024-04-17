@@ -7,7 +7,8 @@ import {
 import { getLucid } from "./lucid.ts";
 import { setupWallet } from "./wallet.ts";
 import {
-  NftPostmintNft,
+  DeploymentMintingMintGtTokens,
+  DeploymentMintingPostmintNft,
   PermManagerPermManager,
   VeFactoryMintVeCompositionToken,
 } from "./../plutus.ts";
@@ -35,13 +36,47 @@ const NFT_JSON_FILENAME = "nfts.json";
 const BUILT_VALIDATORS_JSON_FILENAME = "validators.json";
 const DEPLOYED_VALIDATORS_JSON_FILENAME = "deployedValidators.json";
 const PREPROD_DEPLOYMENT_JSON_FILENAME = "preprod.deployment.json";
+const TX_CONFIRMATION_WAIT_TIME = 90000;
 
 async function main() {
   const lucid = await getLucid();
-  await setupWallet(lucid);
+  const pubKey = await setupWallet(lucid);
+
+  // SPECIFY SETTINGS HERE -------------------------------------------------------------------------
+
   // To differentiate different deployments for testing
-  const postfix = "_7";
-  await mintNFTs(lucid, postfix, 1n);
+  const postfix = "_10";
+  const acceptedAssets = new Map();
+  acceptedAssets.set({
+    policy: "40079b8ba147fb87a00da10deff7ddd13d64daf48802bb3f82530c3e",
+    name: fromText("SPLASHTest"),
+  }, { num: 100n, den: 1000n });
+
+  const daoInput: DaoInput = {
+    numGTTokens: 10000n,
+    inflation: 1n,
+    votingEscrow: {
+      lockedUntil: { Def: [1n] },
+      owner: { PubKey: [pubKey] },
+      maxExFee: 1n,
+      version: 1n,
+      lastWpEpoch: 1n,
+      lastGpDeadline: 1n,
+    },
+    farmFactory: { lastFarmId: 1n, farmSeedData: "" },
+    wpFactory: {
+      lastPollEpoch: 0n,
+      activeFarms: [fromText("farm0"), fromText("f1")],
+    },
+    veFactory: {
+      acceptedAssets,
+      legacyAcceptedAssets: new Map(),
+    },
+  };
+
+  //------------------------------------------------------------------------------------------------
+
+  await mintNFTs(lucid, postfix, daoInput.numGTTokens);
 
   const nftDetails = JSON.parse(
     await Deno.readTextFile(NFT_JSON_FILENAME),
@@ -60,31 +95,6 @@ async function main() {
   const deployedValidators = JSON.parse(
     await Deno.readTextFile(DEPLOYED_VALIDATORS_JSON_FILENAME),
   );
-
-  // SPECIFY SETTINGS HERE -------------------------------------------------------------------------
-  const acceptedAssets = new Map();
-  acceptedAssets.set({
-    policy: "40079b8ba147fb87a00da10deff7ddd13d64daf48802bb3f82530c3e",
-    name: fromText("SPLASHTest"),
-  }, { num: 100n, den: 1000n });
-
-  const daoInput: DaoInput = {
-    inflation: 1n,
-    votingEscrow: {
-      lockedUntil: { Def: [1n] },
-      owner: "",
-      maxExFee: 1n,
-      version: 1n,
-      lastWpEpoch: 1n,
-      lastGpDeadline: 1n,
-    },
-    farmFactory: { lastFarmId: 1n, farmSeedData: "" },
-    wpFactory: { lastPollEpoch: 0n, activeFarms: [""] },
-    veFactory: {
-      acceptedAssets,
-      legacyAcceptedAssets: new Map(),
-    },
-  };
 
   await createEntities(lucid, deployedValidators, nftDetails, daoInput);
   const preprodConfig = {
@@ -117,44 +127,50 @@ async function createMultipleMintingUtxOs(
   const txHash = await signedTx.submit();
   console.log("Creating UTxOs. tx hash: " + txHash);
   await lucid.awaitTx(txHash);
-  await sleep(60000);
+  await sleep(TX_CONFIRMATION_WAIT_TIME);
   return txHash;
 }
 
 async function mintNFTs(
   lucid: Lucid,
   namePostfix: string,
-  quantity: bigint,
+  gtTokenQuantity: bigint,
 ) {
   const myAddr = await lucid.wallet.address();
 
-  const multipleUTxOTxId = await createMultipleMintingUtxOs(
-    lucid,
-    myAddr,
-    20000000n,
-    3000000n,
-  );
+  //const multipleUTxOTxId = await createMultipleMintingUtxOs(
+  //  lucid,
+  //  myAddr,
+  //  20000000n,
+  //  3000000n,
+  //);
 
-  console.log("Waiting for multiple UTxOs to be confirmed");
-  await lucid.awaitTx(multipleUTxOTxId);
-  await sleep(60000);
+  //console.log("Waiting for multiple UTxOs to be confirmed");
+  //await lucid.awaitTx(multipleUTxOTxId);
+  //await sleep(TX_CONFIRMATION_WAIT_TIME);
 
-  console.log("created multiple UTxOs.");
+  //console.log("created multiple UTxOs.");
 
   const utxos = (await lucid.utxosAt(myAddr)).filter((utxo) =>
-    utxo.txHash === multipleUTxOTxId
+    utxo.txHash ===
+      "685b67e12eb7b9761f79af22d90a3cdbcbda15656416f35670c63da69d399ac0"
   );
-  const nftDetails = buildNFTDetails(lucid, multipleUTxOTxId, namePostfix);
+
+  const nftDetails = buildNFTDetails(
+    lucid,
+    "685b67e12eb7b9761f79af22d90a3cdbcbda15656416f35670c63da69d399ac0",
+    namePostfix,
+    gtTokenQuantity,
+  );
   let txBuilder = lucid.newTx().collectFrom(utxos);
 
   const keys = Object.keys(nftDetails) as NFTNames[];
   for (const key of keys) {
-    const { script, policyId, assetName } = nftDetails[key];
+    const { script, policyId, assetName, quantity } = nftDetails[key];
     console.log("Policy ID for " + assetName + ": " + policyId);
     const unit = policyId + fromText(assetName);
     txBuilder = txBuilder
       .mintAssets({ [unit]: quantity }, Data.void())
-      //.validTo(now + 200000)
       .attachMintingPolicy(script);
     console.log("Added mint to TX for " + assetName);
   }
@@ -163,7 +179,7 @@ async function mintNFTs(
   const filePath = NFT_JSON_FILENAME;
 
   // Write the object to a JSON file
-  await Deno.writeTextFile(filePath, JSON.stringify(nftDetails));
+  await Deno.writeTextFile(filePath, toJson(nftDetails));
 
   const tx = await txBuilder.complete();
   const signedTx = await tx.sign().complete();
@@ -171,7 +187,7 @@ async function mintNFTs(
   console.log("Minting NFTs. tx hash: " + txHash);
   console.log("Waiting for TX to be confirmed");
   await lucid.awaitTx(txHash);
-  await sleep(60000);
+  await sleep(TX_CONFIRMATION_WAIT_TIME);
 
   console.log("Minted NFTs.");
 }
@@ -180,10 +196,12 @@ function buildNFTDetails(
   lucid: Lucid,
   multipleUTxOTxId: string,
   namePostfix: string,
+  gtTokenQuantity: bigint,
 ): NFTDetails {
   const toMint: [Script, string][] = [];
-  for (let i = 0; i < 6; i++) {
-    const script = new NftPostmintNft({
+  // 5 NFTs
+  for (let i = 0; i < 5; i++) {
+    const script = new DeploymentMintingPostmintNft({
       transactionId: { hash: multipleUTxOTxId },
       outputIndex: BigInt(i),
     });
@@ -192,20 +210,34 @@ function buildNFTDetails(
     toMint.push([script, policyId]);
   }
 
-  const toBuiltPolicy = (e: [Script, string], assetName: string) => {
+  // gt_policy tokens
+  const mintGTScript = new DeploymentMintingMintGtTokens({
+    transactionId: { hash: multipleUTxOTxId },
+    outputIndex: BigInt(5),
+  });
+  const gtPolicyId = lucid.utils.mintingPolicyToId(mintGTScript);
+
+  toMint.push([mintGTScript, gtPolicyId]);
+
+  const toBuiltPolicy = (
+    e: [Script, string],
+    assetName: string,
+    quantity: bigint,
+  ) => {
     return {
       script: e[0],
       policyId: e[1],
       assetName: assetName + namePostfix,
+      quantity,
     };
   };
   return {
-    factory_auth: toBuiltPolicy(toMint[0], "factory_auth"),
-    gt: toBuiltPolicy(toMint[1], "gt"),
-    ve_factory_auth: toBuiltPolicy(toMint[2], "ve_factory_auth"),
-    perm_auth: toBuiltPolicy(toMint[3], "perm_auth"),
-    proposal_auth: toBuiltPolicy(toMint[4], "proposal_auth"),
-    edao_msig: toBuiltPolicy(toMint[5], "edao_msig"),
+    factory_auth: toBuiltPolicy(toMint[0], "factory_auth", 1n),
+    ve_factory_auth: toBuiltPolicy(toMint[1], "ve_factory_auth", 1n),
+    perm_auth: toBuiltPolicy(toMint[2], "perm_auth", 1n),
+    proposal_auth: toBuiltPolicy(toMint[3], "proposal_auth", 1n),
+    edao_msig: toBuiltPolicy(toMint[4], "edao_msig", 1n),
+    gt: toBuiltPolicy(toMint[5], "gt", gtTokenQuantity),
   };
 }
 
@@ -391,7 +423,7 @@ async function deployValidators(
   console.log("Deploying validators (first batch). tx hash: " + txHash0);
   console.log("Waiting for TX to be confirmed");
   await lucid.awaitTx(txHash0);
-  await sleep(60000);
+  await sleep(TX_CONFIRMATION_WAIT_TIME);
 
   const tx = await lucid
     .newTx()
@@ -421,7 +453,7 @@ async function deployValidators(
   console.log("Deploying validators (2nd batch). tx hash: " + txHash1);
   console.log("Waiting for TX to be confirmed");
   await lucid.awaitTx(txHash1);
-  await sleep(60000);
+  await sleep(TX_CONFIRMATION_WAIT_TIME);
 
   return [txHash0, txHash1];
 }
@@ -436,6 +468,7 @@ async function createEntities(
     fromText(nftDetails.perm_auth.assetName);
   const veFactoryAuthToken = nftDetails.ve_factory_auth.policyId +
     fromText(nftDetails.ve_factory_auth.assetName);
+  const gtToken = nftDetails.gt.policyId + fromText(nftDetails.gt.assetName);
 
   const toAddr = (hash: string) =>
     lucid.utils.credentialToAddress(
@@ -462,7 +495,11 @@ async function createEntities(
     .payToContract(
       toAddr(dv.votingEscrow.hash),
       Data.to(daoInput.votingEscrow, VotingEscrowVotingEscrow.state),
-      { lovelace: qty, [veFactoryAuthToken]: 1n },
+      {
+        lovelace: qty,
+        [veFactoryAuthToken]: 1n,
+        [gtToken]: BigInt(nftDetails.gt.quantity),
+      },
     )
     .payToContract(
       toAddr(dv.farmFactory.hash),
@@ -494,7 +531,7 @@ async function createEntities(
   console.log("Creating entities. TX hash: " + txHash);
   console.log("Waiting for TX to be confirmed");
   await lucid.awaitTx(txHash);
-  await sleep(60000);
+  await sleep(TX_CONFIRMATION_WAIT_TIME);
 
   console.log("Entities created.");
 }
