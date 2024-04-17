@@ -199,78 +199,100 @@ where
 }
 
 mod tests {
-    use num_rational::Ratio;
+    use crate::execution_engine::interpreter::balance_fee;
     use bloom_offchain::execution_engine::bundled::Bundled;
     use bloom_offchain::execution_engine::liquidity_book::fragment::StateTrans;
-    use bloom_offchain::execution_engine::liquidity_book::recipe::{Fill, LinkedFill, LinkedSwap, LinkedTerminalInstruction, TerminalInstruction};
+    use bloom_offchain::execution_engine::liquidity_book::recipe::{
+        Fill, LinkedFill, LinkedSwap, LinkedTerminalInstruction, TerminalInstruction,
+    };
     use bloom_offchain::execution_engine::liquidity_book::side::SideM;
-    use crate::execution_engine::interpreter::balance_fee;
+    use num_rational::Ratio;
 
     #[test]
     fn fee_overuse_balancing() {
-        let instructions = vec![LinkedTerminalInstruction::Fill(LinkedFill {
-            target_fr: Bundled((), ()),
-            next_fr: StateTrans::EOL,
-            removed_input: 0,
-            added_output: 0,
-            budget_used: 0,
-            fee_used: 1_000,
-        }), LinkedTerminalInstruction::Swap(LinkedSwap {
-            target: Bundled((), ()),
-            transition: (),
-            side: SideM::Bid,
-            input: 0,
-            output: 0,
-        }), LinkedTerminalInstruction::Fill(LinkedFill {
-            target_fr: Bundled((), ()),
-            next_fr: StateTrans::EOL,
-            removed_input: 0,
-            added_output: 0,
-            budget_used: 0,
-            fee_used: 2_000,
-        })];
+        let instructions = vec![
+            LinkedTerminalInstruction::Fill(LinkedFill {
+                target_fr: Bundled((), ()),
+                next_fr: StateTrans::EOL,
+                removed_input: 0,
+                added_output: 0,
+                budget_used: 0,
+                fee_used: 1_000,
+            }),
+            LinkedTerminalInstruction::Swap(LinkedSwap {
+                target: Bundled((), ()),
+                transition: (),
+                side: SideM::Bid,
+                input: 0,
+                output: 0,
+            }),
+            LinkedTerminalInstruction::Fill(LinkedFill {
+                target_fr: Bundled((), ()),
+                next_fr: StateTrans::EOL,
+                removed_input: 0,
+                added_output: 0,
+                budget_used: 0,
+                fee_used: 2_000,
+            }),
+        ];
         let reserved_fee = 3_000;
         let estimated_fee = 2_000;
         let rescale_factor = Ratio::new(estimated_fee, reserved_fee);
         let fee_mismatch = reserved_fee as i64 - estimated_fee as i64;
         let balanced_instructions = balance_fee(fee_mismatch, rescale_factor, instructions);
-        assert_eq!(balanced_instructions.iter().map(|i| match i {
-            LinkedTerminalInstruction::Fill(f) => f.fee_used,
-            LinkedTerminalInstruction::Swap(_) => 0,
-        }).sum::<u64>(), estimated_fee)
+        assert_eq!(
+            balanced_instructions
+                .iter()
+                .map(|i| match i {
+                    LinkedTerminalInstruction::Fill(f) => f.fee_used,
+                    LinkedTerminalInstruction::Swap(_) => 0,
+                })
+                .sum::<u64>(),
+            estimated_fee
+        )
     }
 
     #[test]
     fn fee_underuse_balancing() {
-        let instructions = vec![LinkedTerminalInstruction::Fill(LinkedFill {
-            target_fr: Bundled((), ()),
-            next_fr: StateTrans::EOL,
-            removed_input: 0,
-            added_output: 0,
-            budget_used: 0,
-            fee_used: 1_000,
-        }), LinkedTerminalInstruction::Swap(LinkedSwap {
-            target: Bundled((), ()),
-            transition: (),
-            side: SideM::Bid,
-            input: 0,
-            output: 0,
-        }), LinkedTerminalInstruction::Fill(LinkedFill {
-            target_fr: Bundled((), ()),
-            next_fr: StateTrans::EOL,
-            removed_input: 0,
-            added_output: 0,
-            budget_used: 0,
-            fee_used: 2_000,
-        })];
+        let instructions = vec![
+            LinkedTerminalInstruction::Fill(LinkedFill {
+                target_fr: Bundled((), ()),
+                next_fr: StateTrans::EOL,
+                removed_input: 0,
+                added_output: 0,
+                budget_used: 0,
+                fee_used: 1_000,
+            }),
+            LinkedTerminalInstruction::Swap(LinkedSwap {
+                target: Bundled((), ()),
+                transition: (),
+                side: SideM::Bid,
+                input: 0,
+                output: 0,
+            }),
+            LinkedTerminalInstruction::Fill(LinkedFill {
+                target_fr: Bundled((), ()),
+                next_fr: StateTrans::EOL,
+                removed_input: 0,
+                added_output: 0,
+                budget_used: 0,
+                fee_used: 2_000,
+            }),
+        ];
         let reserved_fee = 3_000;
         let estimated_fee = 4_000;
         let rescale_factor = Ratio::new(estimated_fee, reserved_fee);
         let fee_mismatch = reserved_fee as i64 - estimated_fee as i64;
         let balanced_instructions = balance_fee(fee_mismatch, rescale_factor, instructions);
-        assert_eq!(balanced_instructions.iter().map(|i| match i {
-            LinkedTerminalInstruction::Fill(f) => f.fee_used,
-            LinkedTerminalInstruction::Swap(_) => 0,
-        }).sum::<u64>(), estimated_fee)
+        assert_eq!(
+            balanced_instructions
+                .iter()
+                .map(|i| match i {
+                    LinkedTerminalInstruction::Fill(f) => f.fee_used,
+                    LinkedTerminalInstruction::Swap(_) => 0,
+                })
+                .sum::<u64>(),
+            estimated_fee
+        )
     }
 }

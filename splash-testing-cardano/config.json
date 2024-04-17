@@ -7,7 +7,7 @@
       },
       "hash": "2be9e0e775b72db02ab618a03ccbe70c357a47bcd8437323e7e0f51a",
       "referenceUtxo": {
-        "txHash": "651244494300b196458fe5667f84929641dd1fb743308012ffd7ec8e86b9d537",
+        "txHash": "d7d667b858644f39bde1ff9d1e88e914ac0ba7f5a3134b31860bd0ab888a35fa",
         "outputIndex": 1,
         "assets": {
           "lovelace": "9158750"
@@ -26,7 +26,7 @@
       },
       "hash": "dfaa80c9732ed3b7752ba189786723c6709e2876a024f8f4d9910fb3",
       "referenceUtxo": {
-        "txHash": "651244494300b196458fe5667f84929641dd1fb743308012ffd7ec8e86b9d537",
+        "txHash": "d7d667b858644f39bde1ff9d1e88e914ac0ba7f5a3134b31860bd0ab888a35fa",
         "outputIndex": 0,
         "assets": {
           "lovelace": "5413360"

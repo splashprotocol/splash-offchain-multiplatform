@@ -542,6 +542,7 @@ mod tests {
     use futures::StreamExt;
     use tokio::sync::Mutex;
 
+    use crate::bounds::Bounds;
     use crate::event_sink::context::HandlerContextProto;
     use algebra_core::monoid::Monoid;
     use cardano_chain_sync::data::LedgerTxEvent;
@@ -557,7 +558,6 @@ mod tests {
     use spectrum_offchain::partitioning::Partitioned;
     use spectrum_offchain_cardano::creds::OperatorCred;
     use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHashes};
-    use crate::bounds::Bounds;
 
     use crate::event_sink::entity_index::InMemoryEntityIndex;
     use crate::event_sink::handler::{PairUpdateHandler, ProcessingTransaction};
