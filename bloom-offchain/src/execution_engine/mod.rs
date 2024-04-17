@@ -353,7 +353,17 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
                 let id = new_state.stable_id();
                 if is_confirmed {
                     trace!(target: "executor", "Observing new confirmed state {}", id);
+                    let ver = new_state.version();
                     self.index.put_confirmed(Confirmed(new_state));
+                    let unconfirmed_state_exists = self
+                        .index
+                        .get_last_unconfirmed(id)
+                        .map(|Unconfirmed(st)| st.version() == ver)
+                        .unwrap_or(false);
+                    if unconfirmed_state_exists {
+                        // No TLB update is needed.
+                        return None;
+                    }
                 } else {
                     trace!(target: "executor", "Observing new unconfirmed state {}", id);
                     self.index.put_unconfirmed(Unconfirmed(new_state));

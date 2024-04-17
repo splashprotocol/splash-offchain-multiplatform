@@ -1,13 +1,11 @@
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 
-use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::PolicyId;
 use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
-use serde::Deserialize;
 
 use bloom_offchain::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use bloom_offchain::execution_engine::liquidity_book::side::SideM;
@@ -389,10 +387,12 @@ mod tests {
         cred: OperatorCred,
         consumed_inputs: ConsumedInputs,
     }
-    
+
     impl Has<LimitOrderBounds> for Context {
         fn select<U: IsEqual<LimitOrderBounds>>(&self) -> LimitOrderBounds {
-            LimitOrderBounds { min_cost_per_ex_step: 0 }
+            LimitOrderBounds {
+                min_cost_per_ex_step: 0,
+            }
         }
     }
 
