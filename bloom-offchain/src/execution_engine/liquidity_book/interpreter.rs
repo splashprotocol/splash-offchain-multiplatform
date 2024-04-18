@@ -1,6 +1,7 @@
 use either::Either;
 
 use spectrum_offchain::data::Baked;
+use spectrum_offchain::executor::RunOrderError;
 
 use crate::execution_engine::bundled::Bundled;
 use crate::execution_engine::execution_effect::ExecutionEff;
@@ -13,8 +14,8 @@ pub trait RecipeInterpreter<Fr, Pl, Ctx, V, Bearer, Txc> {
         &mut self,
         recipe: LinkedExecutionRecipe<Fr, Pl, Bearer>,
         ctx: Ctx,
-    ) -> (
+    ) -> Result<(
         Txc,
         Vec<ExecutionEff<Bundled<Either<Baked<Fr, V>, Baked<Pl, V>>, Bearer>, Bundled<Baked<Fr, V>, Bearer>>>,
-    );
+    ), RunOrderError<u64>>;
 }

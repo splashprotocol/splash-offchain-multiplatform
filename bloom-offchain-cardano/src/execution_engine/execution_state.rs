@@ -165,8 +165,11 @@ impl TxBlueprint {
                 .plutus_script_inline_datum(cml_script, Vec::new())
                 .unwrap();
             let output = SingleOutputBuilderResult::new(output);
+
+            if txb.add_output(output).is_err() {
+                continue;
+            };
             txb.add_input(input).expect("add_input ok");
-            txb.add_output(output).expect("add_output ok");
             txb.set_exunits(
                 RedeemerWitnessKey::new(RedeemerTag::Spend, ix as u64),
                 script.cost.into(),

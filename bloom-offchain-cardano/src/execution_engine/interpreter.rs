@@ -19,6 +19,7 @@ use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_cardano_lib::{NetworkId, OutputRef};
 use spectrum_offchain::data::{Baked, Has};
+use spectrum_offchain::executor::RunOrderError;
 use spectrum_offchain_cardano::creds::OperatorRewardAddress;
 use spectrum_offchain_cardano::deployment::DeployedValidator;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderWitnessV1;
@@ -48,7 +49,7 @@ where
         &mut self,
         LinkedExecutionRecipe(instructions): LinkedExecutionRecipe<Fr, Pl, FinalizedTxOut>,
         ctx: Ctx,
-    ) -> (
+    ) -> Result<(
         SignedTxBuilder,
         Vec<
             ExecutionEff<
@@ -56,13 +57,12 @@ where
                 Bundled<Baked<Fr, OutputRef>, FinalizedTxOut>,
             >,
         >,
-    ) {
+    ), RunOrderError<u64>> {
         let (mut tx_builder, effects, ctx) = execute_recipe(ctx, instructions);
         let execution_fee_address = ctx.select::<OperatorRewardAddress>().into();
         // Build tx, change is execution fee.
         let tx = tx_builder
-            .build(ChangeSelectionAlgo::Default, &execution_fee_address)
-            .unwrap();
+            .build(ChangeSelectionAlgo::Default, &execution_fee_address).map_err(|_| RunOrderError::Fatal("123".to_string(), 123))?;
         let tx_body_cloned = tx.body();
         let tx_hash = hash_transaction_canonical(&tx_body_cloned);
 
@@ -89,7 +89,7 @@ where
             ))
         }
         trace!("Finished Tx: {}", tx_hash);
-        (tx, finalized_effects)
+        Ok((tx, finalized_effects))
     }
 }
 

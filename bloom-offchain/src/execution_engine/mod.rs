@@ -528,14 +528,15 @@ where
                 if let Some(recipe) = self.multi_book.get_mut(&focus_pair).attempt() {
                     let linked_recipe = self.link_recipe(recipe.into());
                     let ctx = self.context.clone();
-                    let (txc, effects) = self.trade_interpreter.run(linked_recipe, ctx);
-                    let _ = self
-                        .pending_effects
-                        .insert((focus_pair, PendingEffects::FromLiquidityBook(effects)));
-                    let tx = self.prover.prove(txc);
-                    // Return pair to focus set to make sure corresponding TLB will be exhausted.
-                    self.focus_set.insert(focus_pair);
-                    return Poll::Ready(Some(tx));
+                    if let Ok((txc, effects)) = self.trade_interpreter.run(linked_recipe, ctx) {
+                        let _ = self
+                            .pending_effects
+                            .insert((focus_pair, PendingEffects::FromLiquidityBook(effects)));
+                        let tx = self.prover.prove(txc);
+                        // Return pair to focus set to make sure corresponding TLB will be exhausted.
+                        self.focus_set.insert(focus_pair);
+                        return Poll::Ready(Some(tx));
+                    }
                 }
                 // Try Backlog:
                 if let Some(next_order) = self.multi_backlog.get_mut(&focus_pair).try_pop() {
