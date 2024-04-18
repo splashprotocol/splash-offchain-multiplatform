@@ -35,6 +35,12 @@ pub struct Deposit {
     pub order_type: OrderType,
 }
 
+#[derive(Copy, Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DepositOrderBounds {
+    pub min_collateral_ada: u64,
+}
+
 pub type ClassicalOnChainDeposit = ClassicalOrder<OnChainOrderId, Deposit>;
 
 impl<Ctx> RequiresValidator<Ctx> for ClassicalOnChainDeposit
@@ -73,7 +79,8 @@ impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for ClassicalOnChainDepos
 where
     Ctx: Has<OutputRef>
         + Has<DeployedScriptInfo<{ ConstFnPoolDeposit as u8 }>>
-        + Has<DeployedScriptInfo<{ BalanceFnPoolDeposit as u8 }>>,
+        + Has<DeployedScriptInfo<{ BalanceFnPoolDeposit as u8 }>>
+        + Has<DepositOrderBounds>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         let is_const_pool_deposit = test_address::<{ ConstFnPoolDeposit as u8 }, Ctx>(repr.address(), ctx);
@@ -103,12 +110,16 @@ where
                 order_type,
             };
 
-            return Some(ClassicalOrder {
-                id: OnChainOrderId::from(ctx.select::<OutputRef>()),
-                pool_id: PoolId::try_from(conf.pool_nft).ok()?,
-                order: deposit,
-            });
-        }
+            let bounds = ctx.select::<DepositOrderBounds>();
+
+            if conf.collateral_ada >= bounds.min_collateral_ada {
+                return Some(ClassicalOrder {
+                    id: OnChainOrderId::from(ctx.select::<OutputRef>()),
+                    pool_id: PoolId::try_from(conf.pool_nft).ok()?,
+                    order: deposit,
+                });
+            }
+        };
         None
     }
 }

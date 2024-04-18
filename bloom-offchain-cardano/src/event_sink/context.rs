@@ -3,6 +3,8 @@ use type_equalities::IsEqual;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::Has;
 use spectrum_offchain_cardano::creds::OperatorCred;
+use spectrum_offchain_cardano::data::deposit::DepositOrderBounds;
+use spectrum_offchain_cardano::data::redeem::RedeemOrderBounds;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
     ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
@@ -33,6 +35,18 @@ pub struct HandlerContext {
 impl Has<LimitOrderBounds> for HandlerContext {
     fn select<U: IsEqual<LimitOrderBounds>>(&self) -> LimitOrderBounds {
         self.bounds.limit_order
+    }
+}
+
+impl Has<DepositOrderBounds> for HandlerContext {
+    fn select<U: IsEqual<DepositOrderBounds>>(&self) -> DepositOrderBounds {
+        self.bounds.deposit_order
+    }
+}
+
+impl Has<RedeemOrderBounds> for HandlerContext {
+    fn select<U: IsEqual<RedeemOrderBounds>>(&self) -> RedeemOrderBounds {
+        self.bounds.redeem_order
     }
 }
 

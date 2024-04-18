@@ -795,10 +795,23 @@ impl ApplyOrder<ClassicalOnChainDeposit> for BalancePool {
         self.reserves_x = self.reserves_x + TaggedAmount::new(net_x) - change_x;
         self.reserves_y = self.reserves_y + TaggedAmount::new(net_y) - change_y;
 
-        let invariant_num =
-            (((self.reserves_x.untag() - self.treasury_x.untag()) as u128) * self.invariant as u128);
-        let invariant_denum =
-            ((self.reserves_x.untag() - self.treasury_x.untag() - net_x + change_x.untag()) as u128);
+        let invariant_num = round_big_number(
+            BigNumber::from(self.reserves_x.untag() as f64)
+                .sub(BigNumber::from(self.treasury_x.untag() as f64))
+                .mul(BigNumber::from(self.invariant as f64)),
+            0,
+        )
+        .as_u64()
+        .unwrap();
+        let invariant_denum = round_big_number(
+            BigNumber::from(self.reserves_x.untag() as f64)
+                .sub(BigNumber::from(self.treasury_x.untag() as f64))
+                .sub(BigNumber::from(net_x as f64))
+                .add(BigNumber::from(change_x.untag() as f64)),
+            0,
+        )
+        .as_u64()
+        .unwrap();
 
         let additional = if (invariant_num % invariant_denum == 0) {
             0

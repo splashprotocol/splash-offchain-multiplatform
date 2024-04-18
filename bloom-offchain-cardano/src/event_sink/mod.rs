@@ -10,9 +10,11 @@ use spectrum_offchain::data::order::SpecializedOrder;
 use spectrum_offchain::data::{Baked, EntitySnapshot, Has, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::creds::OperatorCred;
+use spectrum_offchain_cardano::data::deposit::DepositOrderBounds;
 use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
 use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::data::pool::AnyPool;
+use spectrum_offchain_cardano::data::redeem::RedeemOrderBounds;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
@@ -55,7 +57,9 @@ where
         + Has<DeployedScriptInfo<{ ConstFnPoolDeposit as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolRedeem as u8 }>>
         + Has<DeployedScriptInfo<{ BalanceFnPoolDeposit as u8 }>>
-        + Has<DeployedScriptInfo<{ BalanceFnPoolRedeem as u8 }>>,
+        + Has<DeployedScriptInfo<{ BalanceFnPoolRedeem as u8 }>>
+        + Has<DepositOrderBounds>
+        + Has<RedeemOrderBounds>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         ClassicalAMMOrder::try_from_ledger(repr, ctx).map(|inner| {
@@ -109,7 +113,8 @@ where
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
         + Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
-        + Has<LimitOrderBounds>,
+        + Has<LimitOrderBounds>
+        + Has<DepositOrderBounds>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         <Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>>::try_from_ledger(repr, ctx).map(
