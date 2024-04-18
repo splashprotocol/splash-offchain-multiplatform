@@ -112,12 +112,12 @@ where
 
             let bounds = ctx.select::<DepositOrderBounds>();
 
-            if (conf.collateral_ada >= bounds.min_collateral_ada) {
+            if conf.collateral_ada >= bounds.min_collateral_ada {
                 return Some(ClassicalOrder {
                     id: OnChainOrderId::from(ctx.select::<OutputRef>()),
                     pool_id: PoolId::try_from(conf.pool_nft).ok()?,
                     order: deposit,
-                })
+                });
             }
         };
         None

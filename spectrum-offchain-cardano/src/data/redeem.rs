@@ -121,7 +121,7 @@ where
 
             let bounds = ctx.select::<RedeemOrderBounds>();
 
-            if (collateral_ada >= bounds.min_collateral_ada) {
+            if collateral_ada >= bounds.min_collateral_ada {
                 return Some(ClassicalOrder {
                     id: OnChainOrderId::from(ctx.select::<OutputRef>()),
                     pool_id: PoolId::try_from(conf.pool_nft).ok()?,
