@@ -306,7 +306,7 @@ where
 
 impl<Fr, Pl, U> TLBState<Fr, Pl>
 where
-    Fr: Fragment<U = U> + Ord + Copy,
+    Fr: Fragment<U = U> + Ord + Copy + Debug,
     Pl: Pool + Stable + Copy,
     U: PartialOrd,
 {
@@ -318,7 +318,7 @@ where
         };
         side_store.first().map(|fr| side.wrap(fr.price()))
     }
-
+    
     /// Pick best fragment from either side
     pub fn pick_best_fr_either(&mut self) -> Option<Fr> {
         trace!(target: "state", "pick_best_fr_either");

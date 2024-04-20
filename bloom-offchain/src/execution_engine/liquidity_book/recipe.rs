@@ -54,6 +54,13 @@ where
         }
     }
 
+    pub fn empty() -> Self {
+        Self {
+            terminal: Vec::new(),
+            remainder: None,
+        }
+    }
+
     pub fn push(&mut self, instruction: TerminalInstruction<Fr, Pl>) {
         self.terminal.push(instruction)
     }

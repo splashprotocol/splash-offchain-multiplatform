@@ -557,6 +557,8 @@ mod tests {
     use spectrum_offchain::ledger::TryFromLedger;
     use spectrum_offchain::partitioning::Partitioned;
     use spectrum_offchain_cardano::creds::OperatorCred;
+    use spectrum_offchain_cardano::data::deposit::DepositOrderBounds;
+    use spectrum_offchain_cardano::data::redeem::RedeemOrderBounds;
     use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHashes};
 
     use crate::event_sink::entity_index::InMemoryEntityIndex;
@@ -658,6 +660,12 @@ mod tests {
                 limit_order: LimitOrderBounds {
                     min_cost_per_ex_step: 1000,
                 },
+                deposit_order: DepositOrderBounds {
+                    min_collateral_ada: 1000,
+                },
+                redeem_order: RedeemOrderBounds {
+                    min_collateral_ada: 1000,
+                }
             },
             executor_cred: ex_cred,
             scripts: ProtocolScriptHashes {

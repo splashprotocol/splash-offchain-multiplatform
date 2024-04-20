@@ -368,6 +368,7 @@ mod tests {
     use cml_crypto::{Ed25519KeyHash, TransactionHash};
     use cml_multi_era::babbage::BabbageTransactionOutput;
     use type_equalities::IsEqual;
+    use bloom_offchain::execution_engine::liquidity_book::fragment::Fragment;
 
     use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_cardano_lib::OutputRef;
@@ -461,10 +462,11 @@ mod tests {
         };
         let bearer = BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(ORDER_UTXO).unwrap()).unwrap();
         let ord = LimitOrder::try_from_ledger(&bearer, &ctx).expect("LimitOrder expected");
-        println!("Addr: {:?}", ord.redeemer_address);
+        println!("Order: {:?}", ord);
+        println!("P_abs: {}", ord.price());
     }
 
-    const ORDER_UTXO: &str = "a300581d70dfaa80c9732ed3b7752ba189786723c6709e2876a024f8f4d9910fb301821a002dc6c0a1581cfd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3aa14974657374746f6b656e1a00011170028201d81858dfd8799f4100581c4824e94585a8ab56a6c0b7db9984202b3fcd0f1257025d419eca9247d8799f581cfd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3a4974657374746f6b656eff1a000111701a000927c01903e8d8799f4040ffd8799f1903e801ff1a000927c0d8799fd8799f581c4be4fa25f029d14c0d723af4a1e6fa7133fc3a610f880336ad685cbaffd8799fd8799fd8799f581c5bda73043d43ad8df5ce75639cf48e1f2b4545403be92f0113e37537ffffffff581c4be4fa25f029d14c0d723af4a1e6fa7133fc3a610f880336ad685cba80ff";
+    const ORDER_UTXO: &str = "a300583910dfaa80c9732ed3b7752ba189786723c6709e2876a024f8f4d9910fb36b6723106d7725d57913612286514abb81148d344b1675df297ee22401821a002625a0a1581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26a14574657374431a00b71b00028201d81858e2d8798c4100581c64699bc6a6fb8a1cc7870dce35d3ab73f7fed5e7c385019373b695bbd87982581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba264574657374431a00b71b001a0007a1201a0007a120d879824040d879821b00244af2e97c32301b002386f26fc100001a0007a120d87982d87981581c1e5b525041f0d70ad830f1d7dbd2ed7012c1d89788b4385d7bdd0c37d87981d87981d87981581c6b6723106d7725d57913612286514abb81148d344b1675df297ee224581c1e5b525041f0d70ad830f1d7dbd2ed7012c1d89788b4385d7bdd0c3780";
 
     #[test]
     fn read_config() {
