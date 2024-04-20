@@ -113,94 +113,98 @@ where
     U:  PartialOrd + SubAssign + Sub<Output = U> + Copy + Debug,
 {
     fn attempt(&mut self) -> Option<ExecutionRecipe<Fr, Pl>> {
-        if let Some(best_fr) = self.state.pick_best_fr_either() {
-            trace!("Best Fr: {}", best_fr);
-            let mut recipe = IntermediateRecipe::new(best_fr);
-            let mut execution_units_left = self.execution_cap.hard;
-            loop {
-                if let Some(rem) = &recipe.remainder {
-                    let price_fragments = self.state.best_fr_price(!rem.target.side());
-                    let price_in_pools = self.state.best_pool_price();
-                    trace!(
+        let mut recipe: IntermediateRecipe<Fr, Pl> = IntermediateRecipe::empty();
+        let mut execution_units_left = self.execution_cap.hard;
+        while execution_units_left > self.execution_cap.safe_threshold() {
+            if let Some(best_fr) = self.state.pick_best_fr_either() {
+                trace!("Best Fr: {}", best_fr);
+                recipe.set_remainder(PartialFill::empty(best_fr));
+                loop {
+                    if let Some(rem) = &recipe.remainder {
+                        let price_fragments = self.state.best_fr_price(!rem.target.side());
+                        let price_in_pools = self.state.best_pool_price();
+                        trace!(
                         "Continuing. P_fr: {:?}, P_pl: {:?}",
                         price_fragments,
                         price_in_pools
                     );
-                    match (price_in_pools, price_fragments) {
-                        (price_in_pools, Some(price_in_fragments))
+                        match (price_in_pools, price_fragments) {
+                            (price_in_pools, Some(price_in_fragments))
                             if price_in_pools
                                 .map(|p| price_in_fragments.better_than(p))
                                 .unwrap_or(true)
                                 && execution_units_left > self.execution_cap.safe_threshold() =>
-                        {
-                            let rem_side = rem.target.side();
-                            if let Some(opposite_fr) = self.state.try_pick_fr(!rem_side, |fr| {
-                                rem_side.wrap(rem.target.price()).overlaps(fr.price())
-                                    && fr.marginal_cost_hint() <= execution_units_left
-                            }) {
-                                trace!("Matched with Fr: {}", opposite_fr);
-                                execution_units_left -= opposite_fr.marginal_cost_hint();
-                                let make_match = |x: &Fr, y: &Fr| {
-                                    let (ask, bid) = match x.side() {
-                                        SideM::Bid => (y, x),
-                                        SideM::Ask => (x, y),
-                                    };
-                                    settle_price(ask, bid, price_in_pools)
-                                };
-                                match fill_from_fragment(*rem, opposite_fr, make_match) {
-                                    FillFromFragment {
-                                        term_fill_lt,
-                                        fill_rt: Either::Left(term_fill_rt),
-                                    } => {
-                                        recipe.push(TerminalInstruction::Fill(term_fill_lt));
-                                        recipe.terminate(TerminalInstruction::Fill(term_fill_rt));
-                                        self.on_transition(term_fill_lt.next_fr);
-                                        self.on_transition(term_fill_rt.next_fr);
-                                    }
-                                    FillFromFragment {
-                                        term_fill_lt,
-                                        fill_rt: Either::Right(partial),
-                                    } => {
-                                        recipe.push(TerminalInstruction::Fill(term_fill_lt));
-                                        recipe.set_remainder(partial);
-                                        self.on_transition(term_fill_lt.next_fr);
-                                        continue;
+                                {
+                                    let rem_side = rem.target.side();
+                                    if let Some(opposite_fr) = self.state.try_pick_fr(!rem_side, |fr| {
+                                        rem_side.wrap(rem.target.price()).overlaps(fr.price())
+                                            && fr.marginal_cost_hint() <= execution_units_left
+                                    }) {
+                                        trace!("Matched with Fr: {}", opposite_fr);
+                                        execution_units_left -= opposite_fr.marginal_cost_hint();
+                                        let make_match = |x: &Fr, y: &Fr| {
+                                            let (ask, bid) = match x.side() {
+                                                SideM::Bid => (y, x),
+                                                SideM::Ask => (x, y),
+                                            };
+                                            settle_price(ask, bid, price_in_pools)
+                                        };
+                                        match fill_from_fragment(*rem, opposite_fr, make_match) {
+                                            FillFromFragment {
+                                                term_fill_lt,
+                                                fill_rt: Either::Left(term_fill_rt),
+                                            } => {
+                                                recipe.push(TerminalInstruction::Fill(term_fill_lt));
+                                                recipe.terminate(TerminalInstruction::Fill(term_fill_rt));
+                                                self.on_transition(term_fill_lt.next_fr);
+                                                self.on_transition(term_fill_rt.next_fr);
+                                            }
+                                            FillFromFragment {
+                                                term_fill_lt,
+                                                fill_rt: Either::Right(partial),
+                                            } => {
+                                                recipe.push(TerminalInstruction::Fill(term_fill_lt));
+                                                recipe.set_remainder(partial);
+                                                self.on_transition(term_fill_lt.next_fr);
+                                                continue;
+                                            }
+                                        }
                                     }
                                 }
-                            }
-                        }
-                        (Some(_), _) if execution_units_left > self.execution_cap.safe_threshold() => {
-                            let rem_side = rem.target.side();
-                            if let Some(pool) = self.state.try_pick_pool(|pl| {
-                                let real_price = pl.real_price(rem_side.wrap(rem.remaining_input));
-                                trace!(
+                            (Some(_), _) if execution_units_left > self.execution_cap.safe_threshold() => {
+                                let rem_side = rem.target.side();
+                                if let Some(pool) = self.state.try_pick_pool(|pl| {
+                                    let real_price = pl.real_price(rem_side.wrap(rem.remaining_input));
+                                    trace!(
                                     "Trying to fill from AMM: side: {}, real_price: {}, remaining_input: {}",
                                     rem_side,
                                     real_price,
                                     rem.remaining_input
                                 );
-                                rem_side.wrap(rem.target.price()).overlaps(real_price)
-                            }) {
-                                trace!("Matched with AMM pool {}", pool.stable_id());
-                                let FillFromPool { term_fill, swap } = fill_from_pool(*rem, pool);
-                                recipe.push(TerminalInstruction::Swap(swap));
-                                recipe.terminate(TerminalInstruction::Fill(term_fill));
-                                self.on_transition(term_fill.next_fr);
-                                self.state.pre_add_pool(swap.transition);
+                                    rem_side.wrap(rem.target.price()).overlaps(real_price)
+                                }) {
+                                    trace!("Matched with AMM pool {}", pool.stable_id());
+                                    let FillFromPool { term_fill, swap } = fill_from_pool(*rem, pool);
+                                    recipe.push(TerminalInstruction::Swap(swap));
+                                    recipe.terminate(TerminalInstruction::Fill(term_fill));
+                                    self.on_transition(term_fill.next_fr);
+                                    self.state.pre_add_pool(swap.transition);
+                                }
+                            }
+                            _ => {
+                                trace!("Finishing matching attempt");
                             }
                         }
-                        _ => {
-                            trace!("Finishing matching attempt");
-                        }
                     }
+                    break;
                 }
-                break;
             }
-            if let Some(ex_recipe) = ExecutionRecipe::try_from(recipe) {
-                return Some(ex_recipe);
-            }
-            self.on_recipe_failed();
+            break;
         }
+        if let Some(ex_recipe) = ExecutionRecipe::try_from(recipe) {
+            return Some(ex_recipe);
+        }
+        self.on_recipe_failed();
         None
     }
 }
@@ -515,8 +519,8 @@ mod tests {
         let mut book = TLB::new(
             0,
             ExecutionCap {
-                soft: 10000,
-                hard: 16000,
+                soft: 1000000,
+                hard: 1600000,
             },
         );
         book.add_fragment(o1);
