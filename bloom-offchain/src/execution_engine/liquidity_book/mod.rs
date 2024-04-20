@@ -110,7 +110,7 @@ impl<Fr, Pl, U> TemporalLiquidityBook<Fr, Pl> for TLB<Fr, Pl, U>
 where
     Fr: Fragment<U = U> + OrderState + Copy + Ord + Display + Debug,
     Pl: Pool + Stable + Copy + Debug,
-    U: Monoid + PartialOrd + SubAssign + Sub<Output = U> + Copy + Debug,
+    U:  PartialOrd + SubAssign + Sub<Output = U> + Copy + Debug,
 {
     fn attempt(&mut self) -> Option<ExecutionRecipe<Fr, Pl>> {
         if let Some(best_fr) = self.state.pick_best_fr_either() {
@@ -169,7 +169,7 @@ where
                                 }
                             }
                         }
-                        (Some(_), _) if execution_units_left > U::empty() => {
+                        (Some(_), _) if execution_units_left > self.execution_cap.safe_threshold() => {
                             let rem_side = rem.target.side();
                             if let Some(pool) = self.state.try_pick_pool(|pl| {
                                 let real_price = pl.real_price(rem_side.wrap(rem.remaining_input));
@@ -181,6 +181,7 @@ where
                                 );
                                 rem_side.wrap(rem.target.price()).overlaps(real_price)
                             }) {
+                                trace!("Matched with AMM pool {}", pool.stable_id());
                                 let FillFromPool { term_fill, swap } = fill_from_pool(*rem, pool);
                                 recipe.push(TerminalInstruction::Swap(swap));
                                 recipe.terminate(TerminalInstruction::Fill(term_fill));
