@@ -665,7 +665,7 @@ mod tests {
                 },
                 redeem_order: RedeemOrderBounds {
                     min_collateral_ada: 1000,
-                }
+                },
             },
             executor_cred: ex_cred,
             scripts: ProtocolScriptHashes {

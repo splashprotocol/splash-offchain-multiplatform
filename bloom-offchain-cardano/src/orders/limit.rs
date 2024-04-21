@@ -363,12 +363,12 @@ pub struct LimitOrderBounds {
 
 #[cfg(test)]
 mod tests {
+    use bloom_offchain::execution_engine::liquidity_book::fragment::Fragment;
     use cml_chain::plutus::PlutusData;
     use cml_core::serialization::Deserialize;
     use cml_crypto::{Ed25519KeyHash, TransactionHash};
     use cml_multi_era::babbage::BabbageTransactionOutput;
     use type_equalities::IsEqual;
-    use bloom_offchain::execution_engine::liquidity_book::fragment::Fragment;
 
     use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_cardano_lib::OutputRef;

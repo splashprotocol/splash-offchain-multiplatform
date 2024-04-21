@@ -166,7 +166,8 @@ impl TxBlueprint {
                 .unwrap();
             let output = SingleOutputBuilderResult::new(output);
             txb.add_input(input).expect("add_input ok");
-            txb.add_output(output.clone()).expect(format!("add_output ok {:?}", output).as_str());
+            txb.add_output(output.clone())
+                .expect(format!("add_output ok {:?}", output).as_str());
             txb.set_exunits(
                 RedeemerWitnessKey::new(RedeemerTag::Spend, ix as u64),
                 script.cost.into(),

@@ -188,9 +188,11 @@ async fn main() {
         collateral,
         network_id: config.network_id,
     };
-    let multi_book = MultiPair::new::<TLB<AnyOrder, AnyPool, ExUnits>>(context.clone());
-    let multi_backlog =
-        MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(context.clone());
+    let multi_book = MultiPair::new::<TLB<AnyOrder, AnyPool, ExUnits>>(context.clone(), "Book");
+    let multi_backlog = MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(
+        context.clone(),
+        "Backlog",
+    );
     let state_index = InMemoryStateIndex::new();
     let state_cache = InMemoryKvStore::new();
 
