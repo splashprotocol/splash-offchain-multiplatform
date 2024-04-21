@@ -33,6 +33,7 @@ use crate::data::pair::PairId;
 use crate::data::pool::AnyPool::{BalancedCFMM, PureCFMM};
 use crate::data::pool::ApplyOrderError::{LowBatcherFeeErr, SlippageErr};
 use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, Token};
+use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_offchain::data::unique_entity::Predicted;
 use spectrum_offchain::data::{Has, Stable, Tradable};
 use spectrum_offchain::executor::RunOrderError;
@@ -184,6 +185,7 @@ pub struct AssetDeltas {
 }
 
 impl Pool for AnyPool {
+    type U = ExUnits;
     fn static_price(&self) -> AbsolutePrice {
         match self {
             PureCFMM(p) => p.static_price(),
@@ -215,6 +217,13 @@ impl Pool for AnyPool {
         match self {
             PureCFMM(p) => p.quality(),
             BalancedCFMM(p) => p.quality(),
+        }
+    }
+
+    fn marginal_cost_hint(&self) -> Self::U {
+        match self {
+            PureCFMM(p) => p.marginal_cost_hint(),
+            BalancedCFMM(p) => p.marginal_cost_hint(),
         }
     }
 }

@@ -318,7 +318,7 @@ where
         };
         side_store.first().map(|fr| side.wrap(fr.price()))
     }
-    
+
     /// Pick best fragment from either side
     pub fn pick_best_fr_either(&mut self) -> Option<Fr> {
         trace!(target: "state", "pick_best_fr_either");
@@ -429,12 +429,16 @@ where
     Fr: Fragment + Ord + Copy,
     Pl: Pool + Stable + Copy,
 {
-    pub fn best_pool_price(&self) -> Option<AbsolutePrice> {
-        let pools = self.pools();
-        pools
-            .quality_index
-            .first_key_value()
-            .map(|(PoolQuality(p, _), _)| *p)
+    pub fn try_select_pool(&self, trade_hint: Side<u64>) -> Option<(AbsolutePrice, Pl::StableId)> {
+        let pools = self
+            .pools()
+            .pools
+            .values()
+            .map(|p| (p.real_price(trade_hint), p.stable_id()));
+        match trade_hint {
+            Side::Bid(_) => pools.min_by_key(|(p, _)| *p),
+            Side::Ask(_) => pools.max_by_key(|(p, _)| *p),
+        }
     }
 
     pub fn try_pick_pool<F>(&mut self, test: F) -> Option<Pl>
@@ -450,6 +454,10 @@ where
             }
             None
         })
+    }
+
+    pub fn take_pool(&mut self, pid: &Pl::StableId) -> Option<Pl> {
+        self.pick_pool(|pools| pools.pools.remove(pid))
     }
 
     /// Pick pool ensuring TLB is in proper state.
@@ -1010,6 +1018,8 @@ pub mod tests {
     }
 
     impl Pool for SimpleCFMMPool {
+        type U = u64;
+        
         fn static_price(&self) -> AbsolutePrice {
             AbsolutePrice::new(self.reserves_quote, self.reserves_base)
         }
@@ -1053,10 +1063,13 @@ pub mod tests {
         }
 
         fn quality(&self) -> PoolQuality {
-            PoolQuality(
-                AbsolutePrice::new(self.reserves_quote, self.reserves_base),
+            PoolQuality::from(
                 self.reserves_quote + self.reserves_base,
             )
+        }
+
+        fn marginal_cost_hint(&self) -> Self::U {
+            10
         }
     }
 }

@@ -23,6 +23,7 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
+use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
@@ -147,6 +148,7 @@ pub struct ConstFnPool {
     pub treasury_y: TaggedAmount<Ry>,
     pub lq_lower_bound: TaggedAmount<Lq>,
     pub ver: ConstFnPoolVer,
+    pub marginal_cost: ExUnits,
 }
 
 impl ConstFnPool {
@@ -262,6 +264,8 @@ where
 }
 
 impl Pool for ConstFnPool {
+    type U = ExUnits;
+    
     fn static_price(&self) -> AbsolutePrice {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
@@ -327,8 +331,12 @@ impl Pool for ConstFnPool {
     }
 
     fn quality(&self) -> PoolQuality {
-        let lq = (self.reserves_x.untag() * self.reserves_y.untag()).sqrt();
-        PoolQuality(self.static_price(), lq)
+        let lq = self.reserves_x.untag() * self.reserves_y.untag();
+        PoolQuality::from(lq.sqrt())
+    }
+
+    fn marginal_cost_hint(&self) -> Self::U {
+        self.marginal_cost
     }
 }
 
@@ -359,6 +367,12 @@ where
         if let Some(pool_ver) = ConstFnPoolVer::try_from_address(repr.address(), ctx) {
             let value = repr.value();
             let pd = repr.datum().clone()?.into_pd()?;
+            let marginal_cost = match pool_ver {
+                ConstFnPoolVer::V1 => ctx.select::<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>().cost,
+                ConstFnPoolVer::V2 => ctx.select::<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>().cost,
+                ConstFnPoolVer::FeeSwitch => ctx.select::<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>().cost,
+                ConstFnPoolVer::FeeSwitchBiDirFee => ctx.select::<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>().cost,
+            };
             return match pool_ver {
                 ConstFnPoolVer::V1 | ConstFnPoolVer::V2 => {
                     let conf = LegacyCFMMPoolConfig::try_from_pd(pd.clone())?;
@@ -378,6 +392,7 @@ where
                         treasury_y: TaggedAmount::new(0),
                         lq_lower_bound: conf.lq_lower_bound,
                         ver: pool_ver,
+                        marginal_cost
                     })
                 }
                 ConstFnPoolVer::FeeSwitch => {
@@ -400,6 +415,7 @@ where
                         treasury_y: TaggedAmount::new(conf.treasury_y),
                         lq_lower_bound: conf.lq_lower_bound,
                         ver: pool_ver,
+                        marginal_cost,
                     })
                 }
                 ConstFnPoolVer::FeeSwitchBiDirFee => {
@@ -422,6 +438,7 @@ where
                         treasury_y: TaggedAmount::new(conf.treasury_y),
                         lq_lower_bound: conf.lq_lower_bound,
                         ver: pool_ver,
+                        marginal_cost
                     })
                 }
             };

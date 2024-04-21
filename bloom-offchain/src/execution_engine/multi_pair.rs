@@ -7,11 +7,11 @@ use type_equalities::IsEqual;
 use spectrum_offchain::maker::Maker;
 
 #[derive(Debug, Clone)]
-pub struct MultiPair<PairId, R, Ctx>(HashMap<PairId, R>, Ctx);
+pub struct MultiPair<PairId, R, Ctx>(HashMap<PairId, R>, Ctx, &'static str);
 
 impl<PairId, R, Ctx> MultiPair<PairId, R, Ctx> {
-    pub fn new<Hint: IsEqual<R>>(context: Ctx) -> Self {
-        Self(HashMap::new(), context)
+    pub fn new<Hint: IsEqual<R>>(context: Ctx, tag: &'static str) -> Self {
+        Self(HashMap::new(), context, tag)
     }
 }
 
@@ -32,7 +32,7 @@ where
         if self.0.contains_key(pair) {
             self.0.get_mut(pair).unwrap()
         } else {
-            trace!(target: "offchain", "MultiPair: new pair: {}", pair);
+            trace!(target: "offchain", "MultiPair[{}]: new pair: {}", self.2, pair);
             self.0.insert(*pair, Maker::make(&self.1));
             self.get_mut(pair)
         }

@@ -25,6 +25,7 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
+use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
@@ -126,6 +127,8 @@ pub struct BalancePool {
     pub invariant: u64,
     pub invariant_length: u64,
     pub ver: BalancePoolVer,
+    /// How many execution units pool invokation costs.
+    pub marginal_cost: ExUnits,
 }
 
 impl BalancePool {
@@ -459,6 +462,7 @@ where
                 invariant: conf.invariant,
                 invariant_length: conf.invariant_length,
                 ver: pool_ver,
+                marginal_cost: ctx.get().cost
             });
         }
         None
@@ -688,6 +692,7 @@ impl AMMOps for BalancePool {
 }
 
 impl Pool for BalancePool {
+    type U = ExUnits;
     fn static_price(&self) -> AbsolutePrice {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
@@ -765,9 +770,12 @@ impl Pool for BalancePool {
     }
 
     fn quality(&self) -> PoolQuality {
-        let lq =
-            ((self.reserves_x.untag() / self.weight_x) * (self.reserves_y.untag() / self.weight_y)).sqrt();
-        PoolQuality(self.static_price(), lq)
+        let lq = (self.reserves_x.untag() / self.weight_x) * (self.reserves_y.untag() / self.weight_y);
+        PoolQuality::from(lq.sqrt())
+    }
+
+    fn marginal_cost_hint(&self) -> Self::U {
+        self.marginal_cost
     }
 }
 
