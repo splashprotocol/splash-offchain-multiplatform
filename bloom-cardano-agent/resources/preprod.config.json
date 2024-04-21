@@ -1,4 +1,5 @@
 {
+  "channelBufferSize": 1024,
   "chainSync": {
     "startingPoint": {
       "Specific": [
