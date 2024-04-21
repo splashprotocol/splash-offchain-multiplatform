@@ -95,7 +95,7 @@ impl<Fr, Pl: Stable, U> TLB<Fr, Pl, U> {
 
 impl<Fr, Pl, U> TLB<Fr, Pl, U>
 where
-    Fr: Fragment<U = U> + OrderState + Ord + Copy + Debug,
+    Fr: Fragment<U = U> + OrderState + Ord + Copy + Debug + Display,
     Pl: Pool + Stable + Copy,
     U: PartialOrd,
 {

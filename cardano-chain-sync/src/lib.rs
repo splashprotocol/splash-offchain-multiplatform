@@ -5,7 +5,7 @@ use cml_core::serialization::Deserialize;
 use futures::lock::Mutex;
 use futures::Stream;
 use futures_timer::Delay;
-use log::trace;
+use log::{info, trace};
 use tokio::sync::broadcast;
 
 use crate::client::ChainSyncClient;
@@ -26,11 +26,13 @@ where
     let delay_mux: Mutex<Option<Delay>> = Mutex::new(None);
     stream! {
         loop {
+            info!("going to get next!");
             let delay = {delay_mux.lock().await.take()};
             if let Some(delay) = delay {
                 delay.await;
             }
             if let Some(upgr) = chain_sync.try_pull_next().await {
+                info!("next upgr exist!");
                 yield upgr;
             } else {
                 trace!(target: "chain_sync", "Tip reached, waiting for new blocks ..");

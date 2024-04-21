@@ -9,7 +9,7 @@ use cml_crypto::TransactionHash;
 use cml_multi_era::babbage::{BabbageTransaction, BabbageTransactionOutput};
 use either::Either;
 use futures::{Sink, SinkExt};
-use log::trace;
+use log::{info, trace};
 use tokio::sync::{Mutex, MutexGuard};
 
 use crate::event_sink::context::{HandlerContext, HandlerContextProto};
@@ -396,16 +396,22 @@ where
                         trace!(target: "offchain", "[{}] entities parsed from applied tx", transitions.len());
                         let mut index = self.index.lock().await;
                         index.run_eviction();
+                        info!("run_eviction ended");
                         for tr in transitions {
+                            info!("index_transition started {:?}", tr);
                             index_transition(&mut index, &tr);
+                            info!("index_transition ended");
                             let pair = pair_id_of(&tr);
                             let topic = self.topic.get_mut(pair);
                             topic
                                 .feed((pair, EitherMod::Confirmed(Confirmed(StateUpdate::Transition(tr)))))
                                 .await
                                 .expect("Channel is closed");
+                            info!("topic feeded");
                             topic.flush().await.expect("Failed to commit message");
+                            info!("topic flushed");
                         }
+                        info!("transitions processed");
                         None
                     }
                     Err(tx) => Some(LedgerTxEvent::TxApplied { tx, slot }),

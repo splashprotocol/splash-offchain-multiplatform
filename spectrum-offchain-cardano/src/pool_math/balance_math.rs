@@ -1,6 +1,7 @@
 use std::ops::{Add, Div, Mul};
 
 use bignumber::BigNumber;
+use log::info;
 use num_rational::Ratio;
 
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
@@ -39,6 +40,14 @@ pub fn balance_cfmm_output_amount<X, Y>(
                 pool_fee_y,
             )
         };
+
+    // info!("base_reserves: {:?}", base_reserves);
+    // info!("base_weight: {:?}", base_weight);
+    // info!("_quote_reserves: {:?}", _quote_reserves);
+    // info!("quote_weight: {:?}", quote_weight);
+    // info!("pool_fee: {:?}", pool_fee);
+    // info!("invariant: {:?}", invariant);
+
     // (base_reserves + base_amount * (poolFee / feeDen)) ^ (base_weight / weight_den)
     let base_new_part = (
         // (base_reserves + base_amount * (poolFeeNum - treasuryFeeNum) / feeDen)
@@ -50,11 +59,26 @@ pub fn balance_cfmm_output_amount<X, Y>(
         )
     )
     .pow(&BigNumber::from(base_weight).div(BigNumber::from(WEIGHT_FEE_DEN)));
+
+    //info!("base_new_part: {}", base_new_part.clone());
+
     // (quote_reserves - quote_amount) ^ (quote_weight / weight_den) = invariant / base_new_part
     let quote_new_part = BigNumber::from(invariant as f64).div(base_new_part);
+
+    //info!("quote_new_part: {}", quote_new_part.clone());
+
     // quote_amount = quote_reserves - quote_new_part ^ (weight_den / quote_weight)
     let delta_y = quote_new_part.pow(&BigNumber::from(WEIGHT_FEE_DEN).div(BigNumber::from(quote_weight)));
+
+    //info!("delta_y: {}", delta_y.clone());
+
     let delta_y_rounded = round_big_number(delta_y.clone(), 0);
+
+    //info!("delta_y_rounded: {}", delta_y_rounded.clone());
+
     let output_amount = _quote_reserves - delta_y_rounded.as_u64().unwrap();
+
+    //info!("output_amount: {}", output_amount);
+
     TaggedAmount::new(output_amount)
 }

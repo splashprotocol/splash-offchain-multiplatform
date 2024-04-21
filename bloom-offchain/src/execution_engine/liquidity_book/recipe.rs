@@ -1,5 +1,6 @@
 use num_rational::Ratio;
 use std::cmp::{max, min};
+use log::info;
 
 use crate::execution_engine::bundled::Bundled;
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
@@ -19,6 +20,8 @@ impl<Fr, Pl> ExecutionRecipe<Fr, Pl> {
     where
         Fr: Fragment + OrderState + Copy,
     {
+        info!("rec.is_complete(): {}", rec.is_complete());
+        info!("rec.is_sufficient(): {}", rec.is_sufficient());
         if rec.is_complete() && rec.is_sufficient() {
             let IntermediateRecipe {
                 mut terminal,
@@ -80,8 +83,14 @@ where
     }
 
     pub fn is_sufficient(&self) -> bool {
+        info!("is_sufficient start");
+        info!("self.terminal.iter().len {}", self.terminal.iter().len());
         self.terminal.iter().all(|x| match x {
-            TerminalInstruction::Fill(fill) => fill.added_output >= fill.target_fr.min_marginal_output(),
+            TerminalInstruction::Fill(fill) => {
+                info!("fill.added_output: {}", fill.added_output);
+                info!("fill.target_fr.min_marginal_output(): {}", fill.target_fr.min_marginal_output());
+                fill.added_output >= fill.target_fr.min_marginal_output()
+            },
             TerminalInstruction::Swap(_) => true,
         })
     }

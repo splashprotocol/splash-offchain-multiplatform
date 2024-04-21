@@ -1,9 +1,9 @@
 use std::collections::hash_map::Entry;
 use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Display, Error, Formatter};
 use std::mem;
 
-use log::trace;
+use log::{info, trace};
 
 use spectrum_offchain::data::Stable;
 
@@ -206,7 +206,7 @@ pub enum TLBState<Fr, Pl: Stable> {
     Preview(PreviewState<Fr, Pl>),
 }
 
-impl<Fr, Pl: Stable> Display for TLBState<Fr, Pl> {
+impl<Fr: Display, Pl: Stable> Display for TLBState<Fr, Pl> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(
             match self {
@@ -306,7 +306,7 @@ where
 
 impl<Fr, Pl, U> TLBState<Fr, Pl>
 where
-    Fr: Fragment<U = U> + Ord + Copy + Debug,
+    Fr: Fragment<U = U> + Ord + Copy + Debug + Display,
     Pl: Pool + Stable + Copy,
     U: PartialOrd,
 {
@@ -427,7 +427,7 @@ where
 impl<Fr, Pl> TLBState<Fr, Pl>
 where
     Fr: Fragment + Ord + Copy,
-    Pl: Pool + Stable + Copy,
+    Pl: Pool + Stable + Copy + Debug,
 {
     pub fn try_select_pool(&self, trade_hint: Side<u64>) -> Option<(AbsolutePrice, Pl::StableId)> {
         let pools = self
@@ -449,7 +449,13 @@ where
             for id in pools.quality_index.values() {
                 match pools.pools.entry(*id) {
                     Entry::Occupied(pl) if test(pl.get()) => return Some(pl.remove()),
-                    _ => {}
+                    Entry::Occupied(pl) => {
+                        info!("pool! {:?}", pl);
+                        info!("empty! {}", id);
+                    }
+                    _ => {
+                        info!("empty123!");
+                    }
                 }
             }
             None
@@ -495,13 +501,35 @@ where
     }
 }
 
+struct NumVec<Fr>(Vec<Fr>);
+
+impl<Fr: Display> Display for NumVec<Fr> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        let mut comma_separated = String::new();
+
+        if (self.0.len() > 0) {
+            for num in &self.0[0..self.0.len() - 1] {
+                comma_separated.push_str(&num.to_string());
+                comma_separated.push_str(", ");
+            }
+
+            comma_separated.push_str(&self.0[self.0.len() - 1].to_string());
+            write!(f, "{}", comma_separated)
+        } else {
+            write!(f, "Empty")
+        }
+    }
+}
+
 fn pick_best_fr_either<Fr, U>(active_frontier: &mut Fragments<Fr>) -> Option<Fr>
 where
-    Fr: Fragment<U = U> + Ord + Copy,
+    Fr: Fragment<U = U> + Ord + Copy + Display + Debug,
     U: PartialOrd,
 {
     let best_bid = active_frontier.bids.pop_first();
+    info!("bids: {}", NumVec(active_frontier.bids.clone().into_iter().collect::<Vec<Fr>>()));
     let best_ask = active_frontier.asks.pop_first();
+    info!("asks: {}", NumVec(active_frontier.asks.clone().into_iter().collect::<Vec<Fr>>()));
     match (best_bid, best_ask) {
         (Some(bid), Some(ask)) if bid.weight() >= ask.weight() => {
             active_frontier.asks.insert(ask);
@@ -1019,7 +1047,7 @@ pub mod tests {
 
     impl Pool for SimpleCFMMPool {
         type U = u64;
-        
+
         fn static_price(&self) -> AbsolutePrice {
             AbsolutePrice::new(self.reserves_quote, self.reserves_base)
         }

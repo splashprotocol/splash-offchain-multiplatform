@@ -5,7 +5,7 @@ use std::sync::Arc;
 use cml_core::serialization::Deserialize;
 use cml_core::Slot;
 use cml_crypto::BlockHeaderHash;
-use log::debug;
+use log::{debug, info};
 use pallas_network::miniprotocols::chainsync::{BlockContent, NextResponse, State};
 use pallas_network::miniprotocols::handshake::RefuseReason;
 use pallas_network::miniprotocols::{chainsync, handshake, PROTOCOL_N2C_CHAIN_SYNC, PROTOCOL_N2C_HANDSHAKE};
@@ -79,15 +79,21 @@ impl<Block> ChainSyncClient<Block> {
     where
         Block: Deserialize,
     {
+        info!("try_pull_next");
         let response = match self.chain_sync.state() {
             State::MustReply => self.chain_sync.recv_while_can_await().await,
             _ => self.chain_sync.request_next().await,
         };
+        info!("response: {}", response.is_ok());
         match response {
             Ok(NextResponse::RollForward(BlockContent(raw), _)) => {
+                info!("RollForward");
                 let original_bytes = raw[BLK_START..].to_vec();
                 match Block::from_cbor_bytes(&original_bytes) {
-                    Ok(blk) => Some(ChainUpgrade::RollForward(blk, original_bytes)),
+                    Ok(blk) => {
+                        info!("blk");
+                        Some(ChainUpgrade::RollForward(blk, original_bytes))
+                    },
                     Err(err) => panic!(
                         "Block deserialization failed: {}, bytes: {}",
                         err,
@@ -95,8 +101,14 @@ impl<Block> ChainSyncClient<Block> {
                     ),
                 }
             }
-            Ok(NextResponse::RollBackward(pt, _)) => Some(ChainUpgrade::RollBackward(pt.into())),
-            _ => None,
+            Ok(NextResponse::RollBackward(pt, _)) => {
+                info!("RollBackward");
+                Some(ChainUpgrade::RollBackward(pt.into()))
+            },
+            _ => {
+                info!("none");
+                None
+            },
         }
     }
 

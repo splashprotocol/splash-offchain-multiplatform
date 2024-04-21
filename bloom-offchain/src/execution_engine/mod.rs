@@ -10,7 +10,7 @@ use futures::channel::mpsc;
 use futures::stream::FusedStream;
 use futures::{FutureExt, Stream};
 use futures::{SinkExt, StreamExt};
-use log::{trace, warn};
+use log::{info, trace, warn};
 use tokio::sync::broadcast;
 
 use liquidity_book::interpreter::RecipeInterpreter;
@@ -445,6 +445,7 @@ where
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         loop {
+            info!("polling!");
             // Wait for the feedback from the last pending job.
             if let Some((pair, pending_effects)) = self.pending_effects.take() {
                 match Stream::poll_next(Pin::new(&mut self.feedback), cx) {
@@ -478,6 +479,7 @@ where
                             if let Ok(missing_bearers) = err.try_into() {
                                 match pending_effects {
                                     PendingEffects::FromLiquidityBook(_) => {
+                                        info!("on_recipe_failed. PendingEffects::FromLiquidityBook(_) ");
                                         self.multi_book.get_mut(&pair).on_recipe_failed();
                                     }
                                     PendingEffects::FromBacklog(_, Bundled(order, br)) => {
@@ -494,6 +496,7 @@ where
                                 warn!("Unknown Tx submission error!");
                                 match pending_effects {
                                     PendingEffects::FromLiquidityBook(_) => {
+                                        info!("Unknown Tx submission error! on_recipe_failed");
                                         self.multi_book.get_mut(&pair).on_recipe_failed();
                                     }
                                     PendingEffects::FromBacklog(_, order) => {
@@ -524,6 +527,7 @@ where
             }
             // Finally attempt to execute something.
             while let Some(focus_pair) = self.focus_set.pop_first() {
+                info!("attempt Some(focus_pair)");
                 // Try TLB:
                 if let Some(recipe) = self.multi_book.get_mut(&focus_pair).attempt() {
                     let linked_recipe = self.link_recipe(recipe.into());

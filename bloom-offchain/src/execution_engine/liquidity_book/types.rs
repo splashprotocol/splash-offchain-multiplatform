@@ -1,4 +1,5 @@
 use derive_more::{Display, Div, From, Into, Mul};
+use log::info;
 use num_rational::Ratio;
 
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
@@ -64,7 +65,12 @@ impl Side<AbsolutePrice> {
             // Bid price must be higher than Ask price to overlap.
             Side::Bid(this) => this >= that,
             // Ask price must be lower than Bid side to overlap.
-            Side::Ask(this) => this <= that,
+            Side::Ask(this) => {
+                info!("this: {:?}", this);
+                info!("that: {:?}", that);
+                info!("this <= that: {:?}", (this <= that));
+                this <= that
+            },
         }
     }
 
