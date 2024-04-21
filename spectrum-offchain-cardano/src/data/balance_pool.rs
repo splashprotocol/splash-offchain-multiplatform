@@ -198,7 +198,8 @@ impl BalancePool {
         let new_g = round_big_number(new_g_raw, precision + ADDITIONAL_ROUND_PRECISION);
         let new_t = round_big_number(new_t_raw, precision + ADDITIONAL_ROUND_PRECISION);
 
-        let new_balance_len = BigInteger::from(new_token_value.to_string().len());
+        let new_balance_len = BigInteger::from(BigNumber::from(asset_reserves).add(
+            BigNumber::from(base_asset_in.untag() as f64)).to_string().len());
         let g_len = BigInteger::from(BigNumber::from_str(&new_g.to_string()).unwrap().to_string().len());
 
         let new_t_pow_denum_len = BigInteger::from(
