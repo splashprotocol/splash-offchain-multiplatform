@@ -24,6 +24,7 @@ pub struct AppConfig<'a> {
     pub network_id: NetworkId,
     pub maestro_key_path: &'a str,
     pub execution_cap: ExecutionCap,
+    pub channel_buffer_size: usize,
 }
 
 #[derive(serde::Deserialize)]
