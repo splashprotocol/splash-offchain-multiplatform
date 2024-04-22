@@ -449,33 +449,26 @@ where
             let pd = repr.datum().clone()?.into_pd()?;
             let conf = BalancePoolConfig::try_from_pd(pd.clone())?;
             let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
-            let ada_qty = if (conf.asset_x.is_native()) {
-                value.amount_of(conf.asset_x.into())?
-            } else {
-                value.amount_of(conf.asset_y.into())?
-            };
-            if (ada_qty >= 1000000000) {
-                return Some(BalancePool {
-                    id: PoolId::try_from(conf.pool_nft).ok()?,
-                    reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
-                    weight_x: conf.asset_x_weight,
-                    reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
-                    weight_y: conf.asset_y_weight,
-                    liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
-                    asset_x: conf.asset_x,
-                    asset_y: conf.asset_y,
-                    asset_lq: conf.asset_lq,
-                    lp_fee_x: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
-                    lp_fee_y: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
-                    treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
-                    treasury_x: TaggedAmount::new(conf.treasury_x),
-                    treasury_y: TaggedAmount::new(conf.treasury_y),
-                    invariant: conf.invariant,
-                    invariant_length: conf.invariant_length,
-                    ver: pool_ver,
-                    marginal_cost: ctx.get().cost,
-                });
-            }
+            return Some(BalancePool {
+                id: PoolId::try_from(conf.pool_nft).ok()?,
+                reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
+                weight_x: conf.asset_x_weight,
+                reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
+                weight_y: conf.asset_y_weight,
+                liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
+                asset_x: conf.asset_x,
+                asset_y: conf.asset_y,
+                asset_lq: conf.asset_lq,
+                lp_fee_x: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
+                lp_fee_y: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
+                treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
+                treasury_x: TaggedAmount::new(conf.treasury_x),
+                treasury_y: TaggedAmount::new(conf.treasury_y),
+                invariant: conf.invariant,
+                invariant_length: conf.invariant_length,
+                ver: pool_ver,
+                marginal_cost: ctx.get().cost,
+            });
         }
         None
     }
