@@ -135,14 +135,22 @@ async fn main() {
     let partitioned_pair_upd_snd =
         Partitioned::new([pair_upd_snd_p1, pair_upd_snd_p2, pair_upd_snd_p3, pair_upd_snd_p4]);
 
-    let (spec_upd_snd_p1, spec_upd_recv_p1) =
-        mpsc::channel::<(PairId, OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>)>(config.channel_buffer_size);
-    let (spec_upd_snd_p2, spec_upd_recv_p2) =
-        mpsc::channel::<(PairId, OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>)>(config.channel_buffer_size);
-    let (spec_upd_snd_p3, spec_upd_recv_p3) =
-        mpsc::channel::<(PairId, OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>)>(config.channel_buffer_size);
-    let (spec_upd_snd_p4, spec_upd_recv_p4) =
-        mpsc::channel::<(PairId, OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>)>(config.channel_buffer_size);
+    let (spec_upd_snd_p1, spec_upd_recv_p1) = mpsc::channel::<(
+        PairId,
+        OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>,
+    )>(config.channel_buffer_size);
+    let (spec_upd_snd_p2, spec_upd_recv_p2) = mpsc::channel::<(
+        PairId,
+        OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>,
+    )>(config.channel_buffer_size);
+    let (spec_upd_snd_p3, spec_upd_recv_p3) = mpsc::channel::<(
+        PairId,
+        OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>,
+    )>(config.channel_buffer_size);
+    let (spec_upd_snd_p4, spec_upd_recv_p4) = mpsc::channel::<(
+        PairId,
+        OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>,
+    )>(config.channel_buffer_size);
 
     let partitioned_spec_upd_snd =
         Partitioned::new([spec_upd_snd_p1, spec_upd_snd_p2, spec_upd_snd_p3, spec_upd_snd_p4]);

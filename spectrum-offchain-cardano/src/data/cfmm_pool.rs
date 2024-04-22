@@ -16,6 +16,7 @@ use type_equalities::IsEqual;
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
 };
@@ -23,7 +24,6 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
-use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
@@ -265,7 +265,7 @@ where
 
 impl Pool for ConstFnPool {
     type U = ExUnits;
-    
+
     fn static_price(&self) -> AbsolutePrice {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
@@ -370,8 +370,14 @@ where
             let marginal_cost = match pool_ver {
                 ConstFnPoolVer::V1 => ctx.select::<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>().cost,
                 ConstFnPoolVer::V2 => ctx.select::<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>().cost,
-                ConstFnPoolVer::FeeSwitch => ctx.select::<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>().cost,
-                ConstFnPoolVer::FeeSwitchBiDirFee => ctx.select::<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>().cost,
+                ConstFnPoolVer::FeeSwitch => {
+                    ctx.select::<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>()
+                        .cost
+                }
+                ConstFnPoolVer::FeeSwitchBiDirFee => {
+                    ctx.select::<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>()
+                        .cost
+                }
             };
             return match pool_ver {
                 ConstFnPoolVer::V1 | ConstFnPoolVer::V2 => {
@@ -392,7 +398,7 @@ where
                         treasury_y: TaggedAmount::new(0),
                         lq_lower_bound: conf.lq_lower_bound,
                         ver: pool_ver,
-                        marginal_cost
+                        marginal_cost,
                     })
                 }
                 ConstFnPoolVer::FeeSwitch => {
@@ -438,7 +444,7 @@ where
                         treasury_y: TaggedAmount::new(conf.treasury_y),
                         lq_lower_bound: conf.lq_lower_bound,
                         ver: pool_ver,
-                        marginal_cost
+                        marginal_cost,
                     })
                 }
             };

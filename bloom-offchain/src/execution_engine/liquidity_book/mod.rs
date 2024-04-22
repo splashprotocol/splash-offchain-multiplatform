@@ -123,6 +123,7 @@ where
                 loop {
                     if let Some(rem) = &recipe.remainder {
                         let target_side = rem.target.side();
+                        let target_price = target_side.wrap(rem.target.price());
                         let price_fragments = self.state.best_fr_price(!target_side);
                         let maybe_best_pool =
                             self.state.try_select_pool(target_side.wrap(rem.remaining_input));
@@ -138,9 +139,8 @@ where
                                     .unwrap_or(true)
                                     && execution_units_left > self.execution_cap.safe_threshold() =>
                             {
-                                let rem_side = rem.target.side();
-                                if let Some(opposite_fr) = self.state.try_pick_fr(!rem_side, |fr| {
-                                    rem_side.wrap(rem.target.price()).overlaps(fr.price())
+                                if let Some(opposite_fr) = self.state.try_pick_fr(!target_side, |fr| {
+                                    target_price.overlaps(fr.price())
                                         && fr.marginal_cost_hint() <= execution_units_left
                                 }) {
                                     trace!("Matched with Fr: {}", opposite_fr);
@@ -174,8 +174,9 @@ where
                                     }
                                 }
                             }
-                            (Some((_, pool_id)), _)
-                                if execution_units_left > self.execution_cap.safe_threshold() =>
+                            (Some((price_in_pool, pool_id)), _)
+                                if target_price.overlaps(price_in_pool)
+                                    && execution_units_left > self.execution_cap.safe_threshold() =>
                             {
                                 trace!("Matched with AMM pool {}", pool_id);
                                 if let Some(pool) = self.state.take_pool(&pool_id) {
