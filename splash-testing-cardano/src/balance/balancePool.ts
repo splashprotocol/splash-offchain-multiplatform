@@ -16,7 +16,7 @@ const TokenB   = "testC"
 const TokenBCS = "4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26"
 
 const startLovelaceValue = 5000000;
-const startTokenB        = 5000000;
+const startTokenB        = 5000000*4;
 
 const adaWeight = 1;
 const weigtDen = 5;

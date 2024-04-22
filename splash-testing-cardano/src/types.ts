@@ -30,6 +30,6 @@ export type DeployedValidator = BuiltValidator & {
     referenceUtxo: UTxO;
 };
 
-export type ScriptNames = "limitOrder" | "limitOrderWitness" | "balancePool" | "balanceDeposit" | "balanceRedeem";
+export type ScriptNames = "limitOrder" | "limitOrderWitness" | "balancePool" | "balanceDeposit" | "balanceRedeem" | "feeSwitchPool";
 export type BuiltValidators = Record<ScriptNames, BuiltValidator>;
 export type DeployedValidators = Record<ScriptNames, DeployedValidator>;

@@ -19,14 +19,14 @@ export type DepositConf = {
   collateralAda: bigint
 };
 
-const poolNftCS = "a1c289a39d73339915a57db0af3ae31a4f0100eca47446c42de11292";
+const poolNftCS = "62d20c0f9b1486f2b27a89d76c2c0992bb3933720d2ba5e42f9eb065";
 const poolNftTN = "6e6674";
 
 const encodedTestB  = "7465737443";
 const TokenBCS = "4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26";
 
 const TokenLQTn = "6c71";
-const TokenLQCs = "a48393deaa97d6f71329988497081b5456d32362a1a12f3c92a366ac";
+const TokenLQCs = "8dcb9153bddbac9558d41c8e3b103f858ecfda1381b7b15cbd9ab25e";
 
 function buildDepositDatum(conf: DepositConf): Datum {
   return Data.to({
@@ -110,7 +110,10 @@ async function redeem(lucid: Lucid, validator: BuiltValidator, conf: RedeemConf)
   const boxWithToken = await getUtxoWithToken(utxos, TokenLQCs);
   const boxWithAda   = await getUtxoWithAda(utxos)
 
-  const lovelaceTotal = conf.exFee;
+  // should bew the same or greather than value in rust config
+  const collateralAda = 1_500_000n
+
+  const lovelaceTotal = conf.exFee + 1_500_000n;
   const depositedValue = { lovelace: lovelaceTotal, [asUnit(conf.lq[0])]: conf.lq[1] };
 
   console.log(`ada utxo: ${JSON.stringify(boxWithAda!, stringifyBigIntReviewer)}`)
@@ -120,7 +123,7 @@ async function redeem(lucid: Lucid, validator: BuiltValidator, conf: RedeemConf)
   console.log(`depositedValue: ${JSON.stringify(depositedValue, stringifyBigIntReviewer)}`)
 
   const tx = await lucid.newTx()
-    .collectFrom([boxWithToken!, boxWithAda!])
+    .collectFrom([boxWithAda!, boxWithToken!])
     .payToContract(orderAddress, { inline: buildRedeemDatum(conf) }, depositedValue)
     .complete();
 
@@ -156,7 +159,7 @@ async function doDeposit(lucid: Lucid, conf: Config<BuiltValidators>) {
     exFee: 2_000_000n,
     rewardPkh: lucid.utils.getAddressDetails(myAddr).paymentCredential!.hash,
     stakePkh: null,
-    collateralAda: 2_000_000n
+    collateralAda: 5_000_000n
   };
 
   const depositTxId = await deposit(lucid, conf.validators!.balanceDeposit, depositConf);
@@ -200,11 +203,10 @@ async function main() {
   const lucid = await getLucid();
   await setupWallet(lucid);
   const conf = await getConfig<BuiltValidators>();
-  const myAddr = await lucid.wallet.address();
 
-  doDeposit(lucid, conf);
+  //doDeposit(lucid, conf);
 
-  // doRedeem(lucid, conf);
+  doRedeem(lucid, conf);
 }
 
-main();
+//main();
