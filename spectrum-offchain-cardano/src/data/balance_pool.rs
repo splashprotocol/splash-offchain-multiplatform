@@ -19,13 +19,13 @@ use num_rational::Ratio;
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension};
 use spectrum_cardano_lib::plutus_data::{IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
-use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
@@ -198,8 +198,12 @@ impl BalancePool {
         let new_g = round_big_number(new_g_raw, precision + ADDITIONAL_ROUND_PRECISION);
         let new_t = round_big_number(new_t_raw, precision + ADDITIONAL_ROUND_PRECISION);
 
-        let new_balance_len = BigInteger::from(BigNumber::from(asset_reserves).add(
-            BigNumber::from(base_asset_in.untag() as f64)).to_string().len());
+        let new_balance_len = BigInteger::from(
+            BigNumber::from(asset_reserves)
+                .add(BigNumber::from(base_asset_in.untag() as f64))
+                .to_string()
+                .len(),
+        );
         let g_len = BigInteger::from(BigNumber::from_str(&new_g.to_string()).unwrap().to_string().len());
 
         let new_t_pow_denum_len = BigInteger::from(
@@ -463,7 +467,7 @@ where
                 invariant: conf.invariant,
                 invariant_length: conf.invariant_length,
                 ver: pool_ver,
-                marginal_cost: ctx.get().cost
+                marginal_cost: ctx.get().cost,
             });
         }
         None

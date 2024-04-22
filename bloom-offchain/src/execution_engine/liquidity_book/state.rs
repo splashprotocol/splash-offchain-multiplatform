@@ -1019,7 +1019,7 @@ pub mod tests {
 
     impl Pool for SimpleCFMMPool {
         type U = u64;
-        
+
         fn static_price(&self) -> AbsolutePrice {
             AbsolutePrice::new(self.reserves_quote, self.reserves_base)
         }
@@ -1063,9 +1063,7 @@ pub mod tests {
         }
 
         fn quality(&self) -> PoolQuality {
-            PoolQuality::from(
-                self.reserves_quote + self.reserves_base,
-            )
+            PoolQuality::from(self.reserves_quote + self.reserves_base)
         }
 
         fn marginal_cost_hint(&self) -> Self::U {
