@@ -18,7 +18,7 @@ use bloom_offchain::execution_engine::execution_part_stream;
 use bloom_offchain::execution_engine::liquidity_book::{ExecutionCap, TLB};
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
 use bloom_offchain::execution_engine::storage::kv_store::InMemoryKvStore;
-use bloom_offchain::execution_engine::storage::InMemoryStateIndex;
+use bloom_offchain::execution_engine::storage::{InMemoryStateIndex, StateIndexTracing};
 use bloom_offchain_cardano::bounds::Bounds;
 use bloom_offchain_cardano::event_sink::context::HandlerContextProto;
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
@@ -201,7 +201,7 @@ async fn main() {
         context.clone(),
         "Backlog",
     );
-    let state_index = InMemoryStateIndex::new();
+    let state_index = StateIndexTracing(InMemoryStateIndex::new());
     let state_cache = InMemoryKvStore::new();
 
     let (signal_tip_reached_snd, signal_tip_reached_recv) = broadcast::channel(1);
