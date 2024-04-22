@@ -19,7 +19,7 @@ pub fn balance_cfmm_output_amount<X, Y>(
     base_amount: TaggedAmount<Base>,
     pool_fee_x: Ratio<u64>,
     pool_fee_y: Ratio<u64>,
-    invariant: u64,
+    invariant: u128,
 ) -> TaggedAmount<Quote> {
     let (base_reserves, base_weight, _quote_reserves, quote_weight, pool_fee) =
         if asset_x.untag() == base_asset.untag() {

@@ -57,7 +57,7 @@ pub struct BalancePoolConfig {
     pub treasury_fee_num: u64,
     pub treasury_x: u64,
     pub treasury_y: u64,
-    pub invariant: u64,
+    pub invariant: u128,
     pub invariant_length: u64,
 }
 
@@ -75,7 +75,7 @@ impl TryFromPData for BalancePoolConfig {
             treasury_fee_num: cpd.take_field(7)?.into_u64()?,
             treasury_x: cpd.take_field(8)?.into_u64()?,
             treasury_y: cpd.take_field(9)?.into_u64()?,
-            invariant: cpd.take_field(12)?.into_u64()?,
+            invariant: cpd.take_field(12)?.into_u128()?,
             invariant_length: cpd.take_field(13)?.into_u64()?,
         })
     }
@@ -124,7 +124,7 @@ pub struct BalancePool {
     pub treasury_fee: Ratio<u64>,
     pub treasury_x: TaggedAmount<Rx>,
     pub treasury_y: TaggedAmount<Ry>,
-    pub invariant: u64,
+    pub invariant: u128,
     pub invariant_length: u64,
     pub ver: BalancePoolVer,
     /// How many execution units pool invokation costs.
@@ -449,26 +449,33 @@ where
             let pd = repr.datum().clone()?.into_pd()?;
             let conf = BalancePoolConfig::try_from_pd(pd.clone())?;
             let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
-            return Some(BalancePool {
-                id: PoolId::try_from(conf.pool_nft).ok()?,
-                reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
-                weight_x: conf.asset_x_weight,
-                reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
-                weight_y: conf.asset_y_weight,
-                liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
-                asset_x: conf.asset_x,
-                asset_y: conf.asset_y,
-                asset_lq: conf.asset_lq,
-                lp_fee_x: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
-                lp_fee_y: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
-                treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
-                treasury_x: TaggedAmount::new(conf.treasury_x),
-                treasury_y: TaggedAmount::new(conf.treasury_y),
-                invariant: conf.invariant,
-                invariant_length: conf.invariant_length,
-                ver: pool_ver,
-                marginal_cost: ctx.get().cost,
-            });
+            let ada_qty = if (conf.asset_x.is_native()) {
+                value.amount_of(conf.asset_x.into())?
+            } else {
+                value.amount_of(conf.asset_y.into())?
+            };
+            if (ada_qty >= 1000000000) {
+                return Some(BalancePool {
+                    id: PoolId::try_from(conf.pool_nft).ok()?,
+                    reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
+                    weight_x: conf.asset_x_weight,
+                    reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
+                    weight_y: conf.asset_y_weight,
+                    liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
+                    asset_x: conf.asset_x,
+                    asset_y: conf.asset_y,
+                    asset_lq: conf.asset_lq,
+                    lp_fee_x: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
+                    lp_fee_y: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
+                    treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
+                    treasury_x: TaggedAmount::new(conf.treasury_x),
+                    treasury_y: TaggedAmount::new(conf.treasury_y),
+                    invariant: conf.invariant,
+                    invariant_length: conf.invariant_length,
+                    ver: pool_ver,
+                    marginal_cost: ctx.get().cost,
+                });
+            }
         }
         None
     }
@@ -521,7 +528,7 @@ pub fn unsafe_update_datum(
     data: &mut PlutusData,
     treasury_x: u64,
     treasury_y: u64,
-    invariant: u64,
+    invariant: u128,
     invariant_length: u64,
 ) {
     let cpd = data.get_constr_pd_mut().unwrap();
@@ -775,7 +782,7 @@ impl Pool for BalancePool {
     }
 
     fn quality(&self) -> PoolQuality {
-        let lq = (self.reserves_x.untag() / self.weight_x) * (self.reserves_y.untag() / self.weight_y);
+        let lq = (self.reserves_x.untag() as u128 / self.weight_x as u128) * (self.reserves_y.untag() as u128 / self.weight_y as u128);
         PoolQuality::from(lq.sqrt())
     }
 
@@ -814,7 +821,7 @@ impl ApplyOrder<ClassicalOnChainDeposit> for BalancePool {
                 .mul(BigNumber::from(self.invariant as f64)),
             0,
         )
-        .as_u64()
+        .as_u128()
         .unwrap();
         let invariant_denum = round_big_number(
             BigNumber::from(self.reserves_x.untag() as f64)
@@ -823,7 +830,7 @@ impl ApplyOrder<ClassicalOnChainDeposit> for BalancePool {
                 .add(BigNumber::from(change_x.untag() as f64)),
             0,
         )
-        .as_u64()
+        .as_u128()
         .unwrap();
 
         let additional = if (invariant_num % invariant_denum == 0) {
@@ -836,7 +843,7 @@ impl ApplyOrder<ClassicalOnChainDeposit> for BalancePool {
         let new_invariant_length = (format!("{}", new_invariant)).len();
 
         self.liquidity = self.liquidity + unlocked_lq;
-        self.invariant = new_invariant as u64;
+        self.invariant = new_invariant as u128;
         self.invariant_length = new_invariant_length as u64;
 
         let deposit_output = DepositOutput {
@@ -883,7 +890,7 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
 
         let new_invariant_length = (format!("{}", new_invariant)).len();
 
-        self.invariant = new_invariant as u64;
+        self.invariant = new_invariant;
         self.invariant_length = new_invariant_length as u64;
         self.reserves_x = self.reserves_x - x_amount;
         self.reserves_y = self.reserves_y - y_amount;
