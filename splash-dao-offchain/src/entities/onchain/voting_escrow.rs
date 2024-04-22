@@ -10,6 +10,7 @@ use cml_chain::{
 };
 use cml_crypto::{PublicKey, RawBytesEncoding, ScriptHash};
 use cml_multi_era::babbage::BabbageTransactionOutput;
+use serde::Serialize;
 use spectrum_cardano_lib::plutus_data::DatumExtension;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
@@ -39,7 +40,7 @@ use crate::{
 
 pub type VotingEscrowSnapshot = Snapshot<VotingEscrow, OutputRef>;
 
-#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Debug, Serialize)]
 pub struct VotingEscrowId(Token);
 
 impl Identifier for VotingEscrowId {

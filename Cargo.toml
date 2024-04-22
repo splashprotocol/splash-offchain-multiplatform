@@ -12,7 +12,7 @@ members = [
     "bloom-cardano-agent",
     "bloom-derivation",
     "cardano-offchain-stableswap",
-    "splash-dao-offchain",
+    "splash-dao-offchain", "splash-dao-agent",
 ]
 
 [profile.release]

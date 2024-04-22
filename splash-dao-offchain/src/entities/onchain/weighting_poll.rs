@@ -10,6 +10,7 @@ use cml_chain::{OrderedHashMap, PolicyId, Value};
 use cml_crypto::RawBytesEncoding;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use derive_more::From;
+use serde::Serialize;
 use uplc_pallas_codec::utils::{Int, PlutusBytes};
 
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, IntoPlutusData, PlutusDataExtension};
@@ -29,7 +30,7 @@ use crate::GenesisEpochStartTime;
 
 pub type WeightingPollSnapshot = Snapshot<WeightingPoll, OutputRef>;
 
-#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, From)]
+#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, From, Serialize)]
 pub struct WeightingPollId(Token);
 
 impl Identifier for WeightingPollId {

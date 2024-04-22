@@ -6,6 +6,7 @@ use cml_chain::{
 };
 use cml_crypto::RawBytesEncoding;
 use cml_multi_era::babbage::BabbageTransactionOutput;
+use serde::Serialize;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
 };
@@ -23,7 +24,7 @@ use crate::protocol_config::PermManagerAuthPolicy;
 
 pub type SmartFarmSnapshot = Snapshot<SmartFarm, OutputRef>;
 
-#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Debug, Hash, derive_more::Display)]
+#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Debug, Hash, derive_more::Display, Serialize)]
 pub struct FarmId(pub AssetName);
 
 impl Identifier for FarmId {

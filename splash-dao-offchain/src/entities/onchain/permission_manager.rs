@@ -2,6 +2,7 @@ use cml_chain::{assets::AssetName, plutus::ExUnits, PolicyId};
 use cml_crypto::RawBytesEncoding;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use derive_more::From;
+use serde::Serialize;
 use spectrum_cardano_lib::{
     plutus_data::{ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension},
     transaction::TransactionOutputExtension,
@@ -24,7 +25,7 @@ use crate::{
     protocol_config::{PermManagerAuthName, PermManagerAuthPolicy},
 };
 
-#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, From)]
+#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, From, Serialize)]
 pub struct PermManagerId(Token);
 
 impl Identifier for PermManagerId {

@@ -5,6 +5,7 @@ use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData};
 use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, ScriptHash};
 use cml_multi_era::babbage::BabbageTransactionOutput;
+use serde::Serialize;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
 };
@@ -30,7 +31,7 @@ use super::weighting_poll::WeightingPollStableId;
 
 pub type PollFactorySnapshot = Snapshot<PollFactory, OutputRef>;
 
-#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Serialize)]
 pub struct PollFactoryId(Token);
 
 impl Identifier for PollFactoryId {

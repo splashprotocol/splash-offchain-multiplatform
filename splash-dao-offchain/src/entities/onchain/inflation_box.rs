@@ -4,6 +4,7 @@ use cml_chain::plutus::{ExUnits, PlutusData};
 use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, ScriptHash};
 use cml_multi_era::babbage::BabbageTransactionOutput;
+use serde::Serialize;
 use spectrum_cardano_lib::plutus_data::{DatumExtension, IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::{OutputRef, TaggedAmount, Token};
@@ -23,7 +24,7 @@ use crate::{constants, GenesisEpochStartTime};
 
 pub type InflationBoxSnapshot = Snapshot<InflationBox, OutputRef>;
 
-#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
+#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Serialize)]
 pub struct InflationBoxId(Token);
 
 impl Identifier for InflationBoxId {
