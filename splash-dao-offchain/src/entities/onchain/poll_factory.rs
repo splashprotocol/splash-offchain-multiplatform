@@ -12,7 +12,7 @@ use spectrum_cardano_lib::plutus_data::{
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::{AssetName, OutputRef, TaggedAmount, Token};
-use spectrum_offchain::data::{Has, Identifier, Stable};
+use spectrum_offchain::data::{Has, HasIdentifier, Identifier, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptHash};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
@@ -67,6 +67,17 @@ impl PollFactory {
         };
         self.last_poll_epoch = poll_epoch;
         (self, next_poll)
+    }
+}
+
+impl HasIdentifier for PollFactorySnapshot {
+    type Id = PollFactoryId;
+
+    fn identifier(&self) -> Self::Id {
+        PollFactoryId((
+            ScriptHash::from_hex("").unwrap(),
+            AssetName::utf8_unsafe("".into()),
+        ))
     }
 }
 

@@ -15,6 +15,7 @@ use spectrum_cardano_lib::plutus_data::DatumExtension;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::OutputRef;
+use spectrum_offchain::data::HasIdentifier;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptHash};
 use uplc_pallas_codec::utils::{Int, PlutusBytes};
@@ -40,6 +41,7 @@ use crate::{
 
 pub type VotingEscrowSnapshot = Snapshot<VotingEscrow, OutputRef>;
 
+/// Identified by GT Token
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Debug, Serialize)]
 pub struct VotingEscrowId(Token);
 
@@ -71,6 +73,14 @@ impl VotingEscrow {
             }
             Lock::Indef(d) => self.gov_token_amount * d.as_secs() / MAX_LOCK_TIME_SECONDS,
         }
+    }
+}
+
+impl HasIdentifier for VotingEscrowSnapshot {
+    type Id = VotingEscrowId;
+
+    fn identifier(&self) -> Self::Id {
+        todo!()
     }
 }
 

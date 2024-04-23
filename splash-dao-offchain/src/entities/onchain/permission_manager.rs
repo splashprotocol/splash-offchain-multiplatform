@@ -1,4 +1,4 @@
-use cml_chain::{assets::AssetName, plutus::ExUnits, PolicyId};
+use cml_chain::{plutus::ExUnits, PolicyId};
 use cml_crypto::RawBytesEncoding;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use derive_more::From;
@@ -7,10 +7,10 @@ use spectrum_cardano_lib::{
     plutus_data::{ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension},
     transaction::TransactionOutputExtension,
     types::TryFromPData,
-    OutputRef, Token,
+    AssetName, OutputRef, Token,
 };
 use spectrum_offchain::{
-    data::{Has, Identifier, Stable},
+    data::{Has, HasIdentifier, Identifier, Stable},
     ledger::TryFromLedger,
 };
 use spectrum_offchain_cardano::{
@@ -37,6 +37,14 @@ pub type PermManagerSnapshot = Snapshot<PermManager, OutputRef>;
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct PermManager {
     pub perm_manager_auth_policy: PolicyId,
+}
+
+impl HasIdentifier for PermManagerSnapshot {
+    type Id = PermManagerId;
+
+    fn identifier(&self) -> Self::Id {
+        PermManagerId((self.0.perm_manager_auth_policy, AssetName::utf8_unsafe("".into())))
+    }
 }
 
 impl Stable for PermManager {

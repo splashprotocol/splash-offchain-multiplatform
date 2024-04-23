@@ -26,6 +26,11 @@ pub trait Identifier: Clone + Eq + PartialEq {
     type For;
 }
 
+pub trait HasIdentifier {
+    type Id: Identifier<For = Self>;
+    fn identifier(&self) -> Self::Id;
+}
+
 pub trait Stable {
     /// Unique identifier of the underlying entity which persists among different versions.
     type StableId: Copy + Eq + Hash + Debug + Display;

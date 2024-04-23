@@ -15,7 +15,7 @@ use uplc_pallas_codec::utils::{Int, PlutusBytes};
 
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::{OutputRef, TaggedAmount, Token};
-use spectrum_offchain::data::{Has, Identifier, Stable};
+use spectrum_offchain::data::{Has, HasIdentifier, Identifier, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 
@@ -45,6 +45,14 @@ pub struct WeightingPoll {
     pub emission_rate: TaggedAmount<Splash>,
     /// Note: weighting power is not determined until vote stage.
     pub weighting_power: Option<u64>,
+}
+
+impl HasIdentifier for WeightingPollSnapshot {
+    type Id = WeightingPollId;
+
+    fn identifier(&self) -> Self::Id {
+        todo!()
+    }
 }
 
 impl<Ctx> IntoLedger<TransactionOutput, Ctx> for WeightingPoll

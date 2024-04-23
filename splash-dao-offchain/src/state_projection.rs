@@ -6,27 +6,27 @@ use bloom_offchain::execution_engine::bundled::Bundled;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use spectrum_offchain::data::unique_entity::{AnyMod, Confirmed, Predicted, Traced};
-use spectrum_offchain::data::{EntitySnapshot, Identifier};
+use spectrum_offchain::data::{EntitySnapshot, HasIdentifier, Identifier};
 
 /// Projection of [T] state relative to the ledger.
 #[async_trait::async_trait]
-pub trait StateProjectionRead<T, I, B>
+pub trait StateProjectionRead<T, B>
 where
-    T: EntitySnapshot,
-    I: Identifier<For = T> + Send + Serialize,
+    T: EntitySnapshot + HasIdentifier,
+    T::Id: Send + Serialize,
 {
-    async fn read(&self, id: I) -> Option<AnyMod<Bundled<T, B>>>;
+    async fn read(&self, id: T::Id) -> Option<AnyMod<Bundled<T, B>>>;
 }
 
 #[async_trait::async_trait]
-pub trait StateProjectionWrite<T, I, B>
+pub trait StateProjectionWrite<T, B>
 where
-    T: EntitySnapshot,
-    I: Identifier<For = T> + Send,
+    T: EntitySnapshot + HasIdentifier,
+    T::Id: Send,
 {
     async fn write_predicted(&self, entity: Traced<Predicted<Bundled<T, B>>>);
     async fn write_confirmed(&self, entity: Traced<Confirmed<Bundled<T, B>>>);
-    async fn remove(&self, id: I) -> Option<I>;
+    async fn remove(&self, id: T::Id) -> Option<T::Id>;
 }
 
 const LATEST_VERSION_PREFIX: &str = "id:";
@@ -38,14 +38,14 @@ pub struct StateProjectionRocksDB {
 }
 
 #[async_trait::async_trait]
-impl<T, B, I> StateProjectionRead<T, I, B> for StateProjectionRocksDB
+impl<T, B> StateProjectionRead<T, B> for StateProjectionRocksDB
 where
-    T: EntitySnapshot + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
+    T: EntitySnapshot + HasIdentifier + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
     T::Version: Send,
     B: Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
-    I: Identifier<For = T> + Send + Serialize + 'static,
+    T::Id: Send + Serialize + 'static,
 {
-    async fn read(&self, id: I) -> Option<AnyMod<Bundled<T, B>>> {
+    async fn read(&self, id: T::Id) -> Option<AnyMod<Bundled<T, B>>> {
         let db = self.db.clone();
         let version_key = prefixed_key(LATEST_VERSION_PREFIX, &id);
         spawn_blocking(move || {
@@ -63,16 +63,16 @@ where
 }
 
 #[async_trait::async_trait]
-impl<T, B, I> StateProjectionWrite<T, I, B> for StateProjectionRocksDB
+impl<T, B> StateProjectionWrite<T, B> for StateProjectionRocksDB
 where
-    T: EntitySnapshot + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
+    T: EntitySnapshot + HasIdentifier + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
     T::Version: Send,
     B: Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
-    I: Identifier<For = T> + Send + Serialize + 'static,
+    T::Id: Send + Serialize + 'static,
 {
     async fn write_predicted(&self, entity: Traced<Predicted<Bundled<T, B>>>) {}
     async fn write_confirmed(&self, entity: Traced<Confirmed<Bundled<T, B>>>) {}
-    async fn remove(&self, id: I) -> Option<I> {
+    async fn remove(&self, id: T::Id) -> Option<T::Id> {
         None
     }
 }

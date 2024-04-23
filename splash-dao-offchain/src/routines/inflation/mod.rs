@@ -51,29 +51,29 @@ const DEF_DELAY: Duration = Duration::new(5, 0);
 impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net> RoutineBehaviour
     for Behaviour<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
 where
-    IB: StateProjectionRead<InflationBoxSnapshot, InflationBoxId, Bearer>
-        + StateProjectionWrite<InflationBoxSnapshot, InflationBoxId, Bearer>
+    IB: StateProjectionRead<InflationBoxSnapshot, Bearer>
+        + StateProjectionWrite<InflationBoxSnapshot, Bearer>
         + Send
         + Sync,
-    PF: StateProjectionRead<PollFactorySnapshot, PollFactoryId, Bearer>
-        + StateProjectionWrite<PollFactorySnapshot, PollFactoryId, Bearer>
+    PF: StateProjectionRead<PollFactorySnapshot, Bearer>
+        + StateProjectionWrite<PollFactorySnapshot, Bearer>
         + Send
         + Sync,
-    WP: StateProjectionRead<WeightingPollSnapshot, WeightingPollId, Bearer>
-        + StateProjectionWrite<WeightingPollSnapshot, WeightingPollId, Bearer>
+    WP: StateProjectionRead<WeightingPollSnapshot, Bearer>
+        + StateProjectionWrite<WeightingPollSnapshot, Bearer>
         + Send
         + Sync,
-    VE: StateProjectionRead<VotingEscrowSnapshot, VotingEscrowId, Bearer>
-        + StateProjectionWrite<VotingEscrowSnapshot, VotingEscrowId, Bearer>
+    VE: StateProjectionRead<VotingEscrowSnapshot, Bearer>
+        + StateProjectionWrite<VotingEscrowSnapshot, Bearer>
         + Send
         + Sync,
     Backlog: ResilientBacklog<VotingOrder> + Send + Sync,
-    SF: StateProjectionRead<SmartFarmSnapshot, FarmId, Bearer>
-        + StateProjectionWrite<SmartFarmSnapshot, FarmId, Bearer>
+    SF: StateProjectionRead<SmartFarmSnapshot, Bearer>
+        + StateProjectionWrite<SmartFarmSnapshot, Bearer>
         + Send
         + Sync,
-    PM: StateProjectionRead<PermManagerSnapshot, PermManagerId, Bearer>
-        + StateProjectionWrite<PermManagerSnapshot, PermManagerId, Bearer>
+    PM: StateProjectionRead<PermManagerSnapshot, Bearer>
+        + StateProjectionWrite<PermManagerSnapshot, Bearer>
         + Send
         + Sync,
     Time: NetworkTimeProvider + Send + Sync,
@@ -100,14 +100,14 @@ impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
 {
     async fn inflation_box(&self) -> Option<AnyMod<Bundled<InflationBoxSnapshot, Bearer>>>
     where
-        IB: StateProjectionRead<InflationBoxSnapshot, InflationBoxId, Bearer>,
+        IB: StateProjectionRead<InflationBoxSnapshot, Bearer>,
     {
         self.inflation_box.read(self.conf.inflation_box_id).await
     }
 
     async fn poll_factory(&self) -> Option<AnyMod<Bundled<PollFactorySnapshot, Bearer>>>
     where
-        PF: StateProjectionRead<PollFactorySnapshot, PollFactoryId, Bearer>,
+        PF: StateProjectionRead<PollFactorySnapshot, Bearer>,
     {
         self.poll_factory.read(self.conf.poll_factory_id).await
     }
@@ -117,14 +117,14 @@ impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
         epoch: ProtocolEpoch,
     ) -> Option<AnyMod<Bundled<WeightingPollSnapshot, Bearer>>>
     where
-        WP: StateProjectionRead<WeightingPollSnapshot, WeightingPollId, Bearer>,
+        WP: StateProjectionRead<WeightingPollSnapshot, Bearer>,
     {
         self.weighting_poll.read(self.conf.poll_id(epoch)).await
     }
 
     async fn perm_manager(&self) -> Option<AnyMod<Bundled<PermManagerSnapshot, Bearer>>>
     where
-        PM: StateProjectionRead<PermManagerSnapshot, PermManagerId, Bearer>,
+        PM: StateProjectionRead<PermManagerSnapshot, Bearer>,
     {
         self.perm_manager.read(self.conf.perm_manager_box_id).await
     }
@@ -135,7 +135,7 @@ impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
     ) -> Option<(VotingOrder, Bundled<VotingEscrowSnapshot, Bearer>)>
     where
         Backlog: ResilientBacklog<VotingOrder>,
-        VE: StateProjectionRead<VotingEscrowSnapshot, VotingEscrowId, Bearer>,
+        VE: StateProjectionRead<VotingEscrowSnapshot, Bearer>,
     {
         if let Some(ord) = self.backlog.try_pop().await {
             self.voting_escrow
@@ -149,12 +149,12 @@ impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
 
     async fn read_state(&self) -> RoutineState<Bearer>
     where
-        IB: StateProjectionRead<InflationBoxSnapshot, InflationBoxId, Bearer>,
-        PF: StateProjectionRead<PollFactorySnapshot, PollFactoryId, Bearer>,
-        WP: StateProjectionRead<WeightingPollSnapshot, WeightingPollId, Bearer>,
-        SF: StateProjectionRead<SmartFarmSnapshot, FarmId, Bearer>,
-        PM: StateProjectionRead<PermManagerSnapshot, PermManagerId, Bearer>,
-        VE: StateProjectionRead<VotingEscrowSnapshot, VotingEscrowId, Bearer>,
+        IB: StateProjectionRead<InflationBoxSnapshot, Bearer>,
+        PF: StateProjectionRead<PollFactorySnapshot, Bearer>,
+        WP: StateProjectionRead<WeightingPollSnapshot, Bearer>,
+        SF: StateProjectionRead<SmartFarmSnapshot, Bearer>,
+        PM: StateProjectionRead<PermManagerSnapshot, Bearer>,
+        VE: StateProjectionRead<VotingEscrowSnapshot, Bearer>,
         Backlog: ResilientBacklog<VotingOrder>,
         Time: NetworkTimeProvider,
     {
@@ -208,9 +208,9 @@ impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
         }: PendingCreatePoll<Bearer>,
     ) -> Option<ToRoutine>
     where
-        IB: StateProjectionWrite<InflationBoxSnapshot, InflationBoxId, Bearer>,
-        PF: StateProjectionWrite<PollFactorySnapshot, PollFactoryId, Bearer>,
-        WP: StateProjectionWrite<WeightingPollSnapshot, WeightingPollId, Bearer>,
+        IB: StateProjectionWrite<InflationBoxSnapshot, Bearer>,
+        PF: StateProjectionWrite<PollFactorySnapshot, Bearer>,
+        WP: StateProjectionWrite<WeightingPollSnapshot, Bearer>,
         Actions: InflationActions<Bearer>,
         Net: Network<Transaction, TxRejected> + Clone + std::marker::Sync,
     {
@@ -238,8 +238,8 @@ impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
         }: WeightingInProgress<Bearer>,
     ) -> Option<ToRoutine>
     where
-        WP: StateProjectionWrite<WeightingPollSnapshot, WeightingPollId, Bearer>,
-        VE: StateProjectionWrite<VotingEscrowSnapshot, VotingEscrowId, Bearer>,
+        WP: StateProjectionWrite<WeightingPollSnapshot, Bearer>,
+        VE: StateProjectionWrite<VotingEscrowSnapshot, Bearer>,
         Actions: InflationActions<Bearer>,
         Net: Network<Transaction, TxRejected> + Clone + std::marker::Sync + std::marker::Send,
     {
@@ -266,9 +266,9 @@ impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
             next_farm_weight,
         }: DistributionInProgress<Bearer>,
     ) where
-        WP: StateProjectionWrite<WeightingPollSnapshot, WeightingPollId, Bearer>,
-        SF: StateProjectionWrite<SmartFarmSnapshot, FarmId, Bearer>,
-        PM: StateProjectionWrite<PermManagerSnapshot, PermManagerId, Bearer>,
+        WP: StateProjectionWrite<WeightingPollSnapshot, Bearer>,
+        SF: StateProjectionWrite<SmartFarmSnapshot, Bearer>,
+        PM: StateProjectionWrite<PermManagerSnapshot, Bearer>,
         Actions: InflationActions<Bearer>,
         Net: Network<Transaction, TxRejected> + Clone + std::marker::Sync + std::marker::Send,
     {
@@ -347,7 +347,6 @@ pub struct PendingEliminatePoll<Out> {
 
 #[cfg(test)]
 mod tests {
-    use std::marker::PhantomData;
     use std::sync::Arc;
 
     use async_trait::async_trait;
@@ -356,21 +355,18 @@ mod tests {
 
     use bloom_offchain::execution_engine::bundled::Bundled;
     use spectrum_offchain::data::unique_entity::{AnyMod, Confirmed, Predicted, Traced};
-    use spectrum_offchain::data::{EntitySnapshot, Identifier};
+    use spectrum_offchain::data::{EntitySnapshot, HasIdentifier, Identifier};
 
     use crate::state_projection::{StateProjectionRead, StateProjectionWrite};
 
-    struct StateProjection<T: EntitySnapshot, B, I>(
-        Arc<Mutex<Option<AnyMod<Bundled<T, B>>>>>,
-        PhantomData<I>,
-    );
+    struct StateProjection<T: EntitySnapshot, B>(Arc<Mutex<Option<AnyMod<Bundled<T, B>>>>>);
     #[async_trait]
-    impl<T, B, I> StateProjectionWrite<T, I, B> for StateProjection<T, B, I>
+    impl<T, B> StateProjectionWrite<T, B> for StateProjection<T, B>
     where
-        T: EntitySnapshot + Send + Sync + Clone,
+        T: EntitySnapshot + HasIdentifier + Send + Sync + Clone,
         T::Version: Send,
         B: Send + Sync + Clone,
-        I: Identifier<For = T> + Send + Serialize + Sync,
+        T::Id: Send + Serialize + Sync,
     {
         async fn write_predicted(&self, entity: Traced<Predicted<Bundled<T, B>>>) {
             let _ = self.0.lock().await.insert(AnyMod::Predicted(entity));
@@ -380,20 +376,20 @@ mod tests {
             let _ = self.0.lock().await.insert(AnyMod::Confirmed(entity));
         }
 
-        async fn remove(&self, id: I) -> Option<I> {
+        async fn remove(&self, id: T::Id) -> Option<T::Id> {
             // Stub
             None
         }
     }
     #[async_trait]
-    impl<T, B, I> StateProjectionRead<T, I, B> for StateProjection<T, B, I>
+    impl<T, B> StateProjectionRead<T, B> for StateProjection<T, B>
     where
-        T: EntitySnapshot + Send + Sync + Clone,
+        T: EntitySnapshot + HasIdentifier + Send + Sync + Clone,
         T::Version: Send,
         B: Send + Sync + Clone,
-        I: Identifier<For = T> + Send + Serialize + Sync,
+        T::Id: Send + Serialize + Sync,
     {
-        async fn read(&self, id: I) -> Option<AnyMod<Bundled<T, B>>> {
+        async fn read(&self, id: T::Id) -> Option<AnyMod<Bundled<T, B>>> {
             self.0.lock().await.clone()
         }
     }

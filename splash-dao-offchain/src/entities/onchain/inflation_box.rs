@@ -8,7 +8,7 @@ use serde::Serialize;
 use spectrum_cardano_lib::plutus_data::{DatumExtension, IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::{OutputRef, TaggedAmount, Token};
-use spectrum_offchain::data::{EntitySnapshot, Has, Identifier, Stable};
+use spectrum_offchain::data::{EntitySnapshot, Has, HasIdentifier, Identifier, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptHash};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
@@ -25,7 +25,7 @@ use crate::{constants, GenesisEpochStartTime};
 pub type InflationBoxSnapshot = Snapshot<InflationBox, OutputRef>;
 
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Serialize)]
-pub struct InflationBoxId(Token);
+pub struct InflationBoxId;
 
 impl Identifier for InflationBoxId {
     type For = InflationBoxSnapshot;
@@ -53,6 +53,14 @@ impl InflationBox {
         self.last_processed_epoch = next_epoch;
         self.splash_reserves -= rate;
         (self, rate)
+    }
+}
+
+impl HasIdentifier for InflationBoxSnapshot {
+    type Id = InflationBoxId;
+
+    fn identifier(&self) -> Self::Id {
+        InflationBoxId {}
     }
 }
 
