@@ -19,11 +19,17 @@ pub trait Pool {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Into, From)]
-pub struct PoolQuality(u64);
+pub struct PoolQuality(u128);
 
 impl PartialOrd for PoolQuality {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
+    }
+}
+
+impl From<u64> for PoolQuality {
+    fn from(value: u64) -> Self {
+        PoolQuality(value as u128)
     }
 }
 
