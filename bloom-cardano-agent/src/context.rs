@@ -9,8 +9,9 @@ use spectrum_offchain::backlog::BacklogCapacity;
 use spectrum_offchain::data::Has;
 use spectrum_offchain_cardano::creds::OperatorRewardAddress;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
-    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolRedeem,
-    ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2, LimitOrderV1, LimitOrderWitnessV1,
+    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
+    ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
+    LimitOrderV1, LimitOrderWitnessV1,
 };
 use spectrum_offchain_cardano::deployment::{DeployedValidator, ProtocolDeployment};
 
@@ -74,6 +75,22 @@ impl Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>> for ExecutionContext {
         &self,
     ) -> DeployedValidator<{ ConstFnPoolV2 as u8 }> {
         self.deployment.const_fn_pool_v2.clone()
+    }
+}
+
+impl Has<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>> for ExecutionContext {
+    fn select<U: IsEqual<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }> {
+        self.deployment.const_fn_pool_fee_switch.clone()
+    }
+}
+
+impl Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>> for ExecutionContext {
+    fn select<U: IsEqual<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }> {
+        self.deployment.const_fn_pool_fee_switch_bidir_fee.clone()
     }
 }
 

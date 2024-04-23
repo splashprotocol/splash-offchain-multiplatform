@@ -249,12 +249,21 @@ impl AMMOps for ConstFnPool {
 
 impl<Ctx> RequiresValidator<Ctx> for ConstFnPool
 where
-    Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>> + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>,
+    Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self.ver {
             ConstFnPoolVer::V1 => ctx
                 .select::<DeployedValidator<{ ConstFnPoolV1 as u8 }>>()
+                .erased(),
+            ConstFnPoolVer::FeeSwitch => ctx
+                .select::<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>()
+                .erased(),
+            ConstFnPoolVer::FeeSwitchBiDirFee => ctx
+                .select::<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>()
                 .erased(),
             _ => ctx
                 .select::<DeployedValidator<{ ConstFnPoolV2 as u8 }>>()

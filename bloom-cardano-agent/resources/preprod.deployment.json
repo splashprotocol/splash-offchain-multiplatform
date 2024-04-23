@@ -22,7 +22,7 @@
     }
   },
   "constFnPoolV1": {
-    "hash": "2b05ad9840ce60083b4e5786968e1e17f8459e149d9afac4d44dff17",
+    "hash": "6b9c456aa650cb808a9ab54326e039d5235ed69f069c9664a8fe5b69",
     "referenceUtxo": {
       "txHash": "45c4725eddc643859874b0c08ce29985ae382fec539a544d3dc9b7814192d2ce",
       "outputIndex": 0
@@ -33,7 +33,7 @@
     }
   },
   "constFnPoolV2": {
-    "hash": "2b05ad9840ce60083b4e5786968e1e17f8459e149d9afac4d44dff17",
+    "hash": "6b9c456aa650cb808a9ab54326e039d5235ed69f069c9664a8fe5b69",
     "referenceUtxo": {
       "txHash": "45c4725eddc643859874b0c08ce29985ae382fec539a544d3dc9b7814192d2ce",
       "outputIndex": 0
@@ -46,7 +46,7 @@
   "constFnPoolFeeSwitch": {
     "hash": "f002facfd69d51b63e7046c6d40349b0b17c8dd775ee415c66af3ccc",
     "referenceUtxo": {
-      "txHash": "8072dfa2d441e0d46026b9291482ea9d919c89ac00dd9b00ec002fa275da649d",
+      "txHash": "87667ef8344509121af1275e2ee19ebb61ca3db957a766bbab74a43da0118140",
       "outputIndex": 0
     },
     "cost": {
@@ -55,7 +55,7 @@
     }
   },
   "constFnPoolFeeSwitchBidirFee": {
-    "hash": "2b05ad9840ce60083b4e5786968e1e17f8459e149d9afac4d44dff17",
+    "hash": "6b9c456aa650cb808a9ab54326e039d5235ed69f069c9664a8fe5b69",
     "referenceUtxo": {
       "txHash": "45c4725eddc643859874b0c08ce29985ae382fec539a544d3dc9b7814192d2ce",
       "outputIndex": 0

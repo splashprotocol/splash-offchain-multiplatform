@@ -16,7 +16,8 @@ use spectrum_offchain_cardano::data::balance_pool::{BalancePool, BalancePoolRede
 use spectrum_offchain_cardano::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
 use spectrum_offchain_cardano::data::pool::{AnyPool, AssetDeltas, CFMMPoolAction};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
-    BalanceFnPoolV1, ConstFnPoolV1, ConstFnPoolV2, LimitOrderV1, LimitOrderWitnessV1,
+    BalanceFnPoolV1, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolV1, ConstFnPoolV2,
+    LimitOrderV1, LimitOrderWitnessV1,
 };
 use spectrum_offchain_cardano::deployment::{
     DeployedValidator, DeployedValidatorErased, RequiresValidator, ScriptWitness,
@@ -146,6 +147,8 @@ impl<Ctx> BatchExec<ExecutionState, PoolResult<AnyPool>, Ctx> for Magnet<LinkedS
 where
     Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>,
 {
     fn exec(self, state: ExecutionState, context: Ctx) -> (ExecutionState, PoolResult<AnyPool>, Ctx) {
@@ -193,7 +196,10 @@ where
 impl<Ctx> BatchExec<ExecutionState, PoolResult<ConstFnPool>, Ctx>
     for Magnet<LinkedSwap<ConstFnPool, FinalizedTxOut>>
 where
-    Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>> + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>,
+    Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>,
 {
     fn exec(self, mut state: ExecutionState, context: Ctx) -> (ExecutionState, PoolResult<ConstFnPool>, Ctx) {
         let Magnet(LinkedSwap {
