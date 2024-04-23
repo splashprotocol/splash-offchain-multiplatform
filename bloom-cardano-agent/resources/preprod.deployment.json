@@ -50,8 +50,8 @@
       "outputIndex": 0
     },
     "cost": {
-      "mem": 500000,
-      "steps": 200000000
+      "mem": 1600000,
+      "steps": 1200000000
     }
   },
   "constFnPoolFeeSwitchBidirFee": {
@@ -105,8 +105,8 @@
       "outputIndex": 0
     },
     "cost": {
-      "mem": 1500000,
-      "steps": 900000000
+      "mem": 1600000,
+      "steps": 1200000000
     }
   },
   "balanceFnPoolDeposit": {
