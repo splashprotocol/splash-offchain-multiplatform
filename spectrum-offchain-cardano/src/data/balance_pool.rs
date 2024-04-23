@@ -775,7 +775,8 @@ impl Pool for BalancePool {
     }
 
     fn quality(&self) -> PoolQuality {
-        let lq = (self.reserves_x.untag() as u128 / self.weight_x as u128) * (self.reserves_y.untag() as u128 / self.weight_y as u128);
+        let lq = (self.reserves_x.untag() / self.weight_x) as u128
+            * (self.reserves_y.untag() / self.weight_y) as u128;
         PoolQuality::from(lq.sqrt())
     }
 

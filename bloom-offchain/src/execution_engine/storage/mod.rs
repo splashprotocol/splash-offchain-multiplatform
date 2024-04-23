@@ -28,40 +28,69 @@ pub trait StateIndex<Src: EntitySnapshot> {
     fn get_state<'a>(&self, sid: Src::Version) -> Option<Src>;
 }
 
+#[derive(Clone)]
 pub struct StateIndexTracing<In>(pub In);
 
-impl<In, Src> StateIndex<Src> for StateIndexTracing<In> where In: StateIndex<Src>, Src: EntitySnapshot {
+impl<In, Src> StateIndex<Src> for StateIndexTracing<In>
+where
+    In: StateIndex<Src>,
+    Src: EntitySnapshot,
+{
     fn get_prediction_predecessor<'a>(&self, id: Src::Version) -> Option<Src::Version> {
         let res = self.0.get_prediction_predecessor(id);
-        trace!("get_prediction_predecessor({}) -> {}", id, if res.is_some() { "Some(_)" } else { "None" });
+        trace!(
+            "get_prediction_predecessor({}) -> {}",
+            id,
+            if res.is_some() { "Some(_)" } else { "None" }
+        );
         res
     }
 
     fn get_last_confirmed<'a>(&self, id: Src::StableId) -> Option<Confirmed<Src>> {
         let res = self.0.get_last_confirmed(id);
-        trace!("get_last_confirmed({}) -> {}", id, if res.is_some() { "Some(_)" } else { "None" });
+        trace!(
+            "get_last_confirmed({}) -> {}",
+            id,
+            if res.is_some() { "Some(_)" } else { "None" }
+        );
         res
     }
 
     fn get_last_unconfirmed<'a>(&self, id: Src::StableId) -> Option<Unconfirmed<Src>> {
         let res = self.0.get_last_unconfirmed(id);
-        trace!("get_last_unconfirmed({}) -> {}", id, if res.is_some() { "Some(_)" } else { "None" });
+        trace!(
+            "get_last_unconfirmed({}) -> {}",
+            id,
+            if res.is_some() { "Some(_)" } else { "None" }
+        );
         res
     }
 
     fn put_confirmed<'a>(&mut self, entity: Confirmed<Src>) {
-        trace!("put_confirmed(Entity({}, {}))", entity.0.stable_id(), entity.0.version());
+        trace!(
+            "put_confirmed(Entity({}, {}))",
+            entity.0.stable_id(),
+            entity.0.version()
+        );
         self.0.put_confirmed(entity);
     }
 
     fn put_unconfirmed<'a>(&mut self, entity: Unconfirmed<Src>) {
-        trace!("put_unconfirmed(Entity({}, {}))", entity.0.stable_id(), entity.0.version());
+        trace!(
+            "put_unconfirmed(Entity({}, {}))",
+            entity.0.stable_id(),
+            entity.0.version()
+        );
         self.0.put_unconfirmed(entity);
     }
 
     fn invalidate<'a>(&mut self, ver: Src::Version) -> Option<Src::StableId> {
         let res = self.0.invalidate(ver);
-        trace!("invalidate({}) -> {}", ver, if res.is_some() { "Some(_)" } else { "None" });
+        trace!(
+            "invalidate({}) -> {}",
+            ver,
+            if res.is_some() { "Some(_)" } else { "None" }
+        );
         res
     }
 
@@ -78,7 +107,11 @@ impl<In, Src> StateIndex<Src> for StateIndexTracing<In> where In: StateIndex<Src
 
     fn get_state<'a>(&self, sid: Src::Version) -> Option<Src> {
         let res = self.0.get_state(sid);
-        trace!("get_state({}) -> {}", sid, if res.is_some() { "Some(_)" } else { "None" });
+        trace!(
+            "get_state({}) -> {}",
+            sid,
+            if res.is_some() { "Some(_)" } else { "None" }
+        );
         res
     }
 }

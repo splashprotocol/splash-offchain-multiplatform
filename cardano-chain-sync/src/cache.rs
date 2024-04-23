@@ -1,3 +1,9 @@
+use async_std::stream::Stream;
+use futures::channel::mpsc;
+use futures::executor::block_on;
+use futures::SinkExt;
+use log::trace;
+use rocksdb::{Direction, IteratorMode};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -9,12 +15,15 @@ use crate::client::Point;
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct LinkedBlock(pub Vec<u8>, pub Point);
 
+pub type Inclusive<T> = T;
+
 pub trait LedgerCache {
     async fn set_tip(&self, point: Point);
     async fn get_tip(&self) -> Option<Point>;
     async fn put_block(&self, point: Point, block: LinkedBlock);
     async fn get_block(&self, point: Point) -> Option<LinkedBlock>;
     async fn delete(&self, point: Point) -> bool;
+    fn replay<'a>(&self, from_point: Inclusive<Point>) -> impl Stream<Item = LinkedBlock> + Send + 'a;
 }
 
 pub struct LedgerCacheRocksDB {
@@ -55,7 +64,7 @@ impl LedgerCache for LedgerCacheRocksDB {
         let db = self.db.clone();
         spawn_blocking(move || {
             db.put(
-                make_key(POINT_PREFIX, &point),
+                slot_key(POINT_PREFIX, point.get_slot()),
                 bincode::serialize(&block).unwrap(),
             )
             .unwrap()
@@ -66,7 +75,7 @@ impl LedgerCache for LedgerCacheRocksDB {
 
     async fn get_block(&self, point: Point) -> Option<LinkedBlock> {
         let db = self.db.clone();
-        spawn_blocking(move || db.get(make_key(POINT_PREFIX, &point)).unwrap())
+        spawn_blocking(move || db.get(slot_key(POINT_PREFIX, point.get_slot())).unwrap())
             .await
             .unwrap()
             .and_then(|raw| bincode::deserialize(raw.as_ref()).ok())
@@ -74,16 +83,44 @@ impl LedgerCache for LedgerCacheRocksDB {
 
     async fn delete(&self, point: Point) -> bool {
         let db = self.db.clone();
-        spawn_blocking(move || db.delete(make_key(POINT_PREFIX, &point)).unwrap())
+        spawn_blocking(move || db.delete(slot_key(POINT_PREFIX, point.get_slot())).unwrap())
             .await
             .unwrap();
         true
     }
+
+    fn replay<'a>(&self, from_point: Inclusive<Point>) -> impl Stream<Item = LinkedBlock> + Send + 'a {
+        let db = self.db.clone();
+        let (mut snd, recv) = mpsc::unbounded();
+        spawn_blocking(move || {
+            trace!("Replaying blocks from point {:?}", from_point);
+            let key = slot_key(POINT_PREFIX, from_point.get_slot());
+            let iter = db.iterator(IteratorMode::From(&key, Direction::Forward));
+            let mut counter = 0;
+            for item in iter {
+                if let Some(blk) = item
+                    .ok()
+                    .and_then(|(_, raw_blk)| bincode::deserialize::<LinkedBlock>(raw_blk.as_ref()).ok())
+                {
+                    counter += 1;
+                    block_on(snd.send(blk)).unwrap();
+                }
+            }
+            trace!("{} blocks replayed", counter);
+        });
+        recv
+    }
 }
 
-fn make_key<T: Serialize>(prefix: &str, id: &T) -> Vec<u8> {
-    let mut key_bytes = bincode::serialize(prefix).unwrap();
+fn point_key<T: Serialize>(prefix: &str, id: &T) -> Vec<u8> {
+    let mut key_bytes = Vec::from(prefix.as_bytes());
     let id_bytes = bincode::serialize(&id).unwrap();
     key_bytes.extend_from_slice(&id_bytes);
+    key_bytes
+}
+
+fn slot_key(prefix: &str, slot: u64) -> Vec<u8> {
+    let mut key_bytes = Vec::from(prefix.as_bytes());
+    key_bytes.extend_from_slice(&slot.to_be_bytes());
     key_bytes
 }

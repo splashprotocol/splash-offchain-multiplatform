@@ -38,6 +38,7 @@ pub struct NodeConfig<'a> {
 #[serde(rename_all = "camelCase")]
 pub struct ChainSyncConfig<'a> {
     pub starting_point: Point,
+    pub replay_from_point: Option<Point>,
     pub disable_rollbacks_until: Slot,
     pub db_path: &'a str,
 }

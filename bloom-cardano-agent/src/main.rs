@@ -35,7 +35,6 @@ use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::ChainSyncClient;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_chain_sync::event_source::ledger_transactions;
-use cardano_explorer::client::Explorer;
 use cardano_explorer::Maestro;
 use cardano_mempool_sync::client::LocalTxMonitorClient;
 use cardano_mempool_sync::data::MempoolUpdate;
@@ -263,7 +262,9 @@ async fn main() {
         chain_sync_cache,
         chain_sync_stream(chain_sync, signal_tip_reached_snd),
         config.chain_sync.disable_rollbacks_until,
+        config.chain_sync.replay_from_point,
     ))
+    .await
     .map(|ev| match ev {
         LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
             tx: (hash_transaction_canonical(&tx.body), tx),
