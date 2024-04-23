@@ -87,7 +87,11 @@ impl<Block> ChainSyncClient<Block> {
             Ok(NextResponse::RollForward(BlockContent(raw), _)) => {
                 let original_bytes = raw[BLK_START..].to_vec();
                 match Block::from_cbor_bytes(&original_bytes) {
-                    Ok(blk) => Some(ChainUpgrade::RollForward { blk, blk_bytes: original_bytes, replayed: false }),
+                    Ok(blk) => Some(ChainUpgrade::RollForward {
+                        blk,
+                        blk_bytes: original_bytes,
+                        replayed: false,
+                    }),
                     Err(err) => panic!(
                         "Block deserialization failed: {}, bytes: {}",
                         err,
