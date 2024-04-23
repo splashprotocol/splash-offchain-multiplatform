@@ -1,4 +1,5 @@
 use async_std::stream::Stream;
+use cml_crypto::RawBytesEncoding;
 use futures::channel::mpsc;
 use futures::executor::block_on;
 use futures::SinkExt;
@@ -13,7 +14,7 @@ use tokio::task::spawn_blocking;
 use crate::client::Point;
 
 #[derive(serde::Serialize, serde::Deserialize)]
-pub struct LinkedBlock(pub Vec<u8>, pub Point);
+pub struct LinkedBlock(/*block bytes*/ pub Vec<u8>, /*prev point*/ pub Point);
 
 pub type Inclusive<T> = T;
 
@@ -64,7 +65,7 @@ impl LedgerCache for LedgerCacheRocksDB {
         let db = self.db.clone();
         spawn_blocking(move || {
             db.put(
-                slot_key(POINT_PREFIX, point.get_slot()),
+                point_key(POINT_PREFIX, &point),
                 bincode::serialize(&block).unwrap(),
             )
             .unwrap()
@@ -75,7 +76,7 @@ impl LedgerCache for LedgerCacheRocksDB {
 
     async fn get_block(&self, point: Point) -> Option<LinkedBlock> {
         let db = self.db.clone();
-        spawn_blocking(move || db.get(slot_key(POINT_PREFIX, point.get_slot())).unwrap())
+        spawn_blocking(move || db.get(point_key(POINT_PREFIX, &point)).unwrap())
             .await
             .unwrap()
             .and_then(|raw| bincode::deserialize(raw.as_ref()).ok())
@@ -83,7 +84,7 @@ impl LedgerCache for LedgerCacheRocksDB {
 
     async fn delete(&self, point: Point) -> bool {
         let db = self.db.clone();
-        spawn_blocking(move || db.delete(slot_key(POINT_PREFIX, point.get_slot())).unwrap())
+        spawn_blocking(move || db.delete(point_key(POINT_PREFIX, &point)).unwrap())
             .await
             .unwrap();
         true
@@ -94,7 +95,7 @@ impl LedgerCache for LedgerCacheRocksDB {
         let (mut snd, recv) = mpsc::unbounded();
         spawn_blocking(move || {
             trace!("Replaying blocks from point {:?}", from_point);
-            let key = slot_key(POINT_PREFIX, from_point.get_slot());
+            let key = point_key(POINT_PREFIX, &from_point);
             let iter = db.iterator(IteratorMode::From(&key, Direction::Forward));
             let mut counter = 0;
             for item in iter {
@@ -112,15 +113,13 @@ impl LedgerCache for LedgerCacheRocksDB {
     }
 }
 
-fn point_key<T: Serialize>(prefix: &str, id: &T) -> Vec<u8> {
+fn point_key(prefix: &str, point: &Point) -> Vec<u8> {
     let mut key_bytes = Vec::from(prefix.as_bytes());
-    let id_bytes = bincode::serialize(&id).unwrap();
-    key_bytes.extend_from_slice(&id_bytes);
-    key_bytes
-}
-
-fn slot_key(prefix: &str, slot: u64) -> Vec<u8> {
-    let mut key_bytes = Vec::from(prefix.as_bytes());
+    let (slot, hash) = match point {
+        Point::Origin => (0, vec![]),
+        Point::Specific(pt, hash) => (*pt, Vec::from(hash.to_raw_bytes())),
+    };
     key_bytes.extend_from_slice(&slot.to_be_bytes());
+    key_bytes.extend_from_slice(&hash);
     key_bytes
 }
