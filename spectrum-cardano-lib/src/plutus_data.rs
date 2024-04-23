@@ -15,6 +15,12 @@ impl IntoPlutusData for u64 {
     }
 }
 
+impl IntoPlutusData for u128 {
+    fn into_pd(self) -> PlutusData {
+        PlutusData::Integer(BigInteger::from(self))
+    }
+}
+
 impl IntoPlutusData for ConstrPlutusData {
     fn into_pd(self) -> PlutusData {
         PlutusData::ConstrPlutusData(self)

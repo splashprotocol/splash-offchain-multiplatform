@@ -44,9 +44,9 @@
     }
   },
   "constFnPoolFeeSwitch": {
-    "hash": "2b05ad9840ce60083b4e5786968e1e17f8459e149d9afac4d44dff17",
+    "hash": "f002facfd69d51b63e7046c6d40349b0b17c8dd775ee415c66af3ccc",
     "referenceUtxo": {
-      "txHash": "45c4725eddc643859874b0c08ce29985ae382fec539a544d3dc9b7814192d2ce",
+      "txHash": "8072dfa2d441e0d46026b9291482ea9d919c89ac00dd9b00ec002fa275da649d",
       "outputIndex": 0
     },
     "cost": {
@@ -77,9 +77,9 @@
     }
   },
   "constFnPoolDeposit": {
-    "hash": "2b05ad9840ce60083b4e5786968e1e17f8459e149d9afac4d44dff17",
+    "hash": "680f52841c06f32cecdcdeff2c20ce6b70c2a5249b94d1a2b4eff294",
     "referenceUtxo": {
-      "txHash": "45c4725eddc643859874b0c08ce29985ae382fec539a544d3dc9b7814192d2ce",
+      "txHash": "6eebdea4d351d198bc93452afba5b9cb4420617e6c94339f5b85f827c0f74479",
       "outputIndex": 0
     },
     "cost": {
@@ -88,10 +88,10 @@
     }
   },
   "constFnPoolRedeem": {
-    "hash": "2b05ad9840ce60083b4e5786968e1e17f8459e149d9afac4d44dff17",
+    "hash": "87f504b07add9e1d74ae102f53ab7f9ff2456dee897a43d8e27b348b",
     "referenceUtxo": {
-      "txHash": "45c4725eddc643859874b0c08ce29985ae382fec539a544d3dc9b7814192d2ce",
-      "outputIndex": 0
+      "txHash": "6eebdea4d351d198bc93452afba5b9cb4420617e6c94339f5b85f827c0f74479",
+      "outputIndex": 2
     },
     "cost": {
       "mem": 500000,
@@ -110,10 +110,10 @@
     }
   },
   "balanceFnPoolDeposit": {
-    "hash": "89e0100445dace3070e080e9426e42a5368fd8ec88ace0735542dc74",
+    "hash": "f557ee007dadc958fb882fffc8867c24a79bdc60c26fd604d25ffbb2",
     "referenceUtxo": {
-      "txHash": "107e637470e209d9481c9fd4447f0728db6bdb6af4566312f2277c7f5905094c",
-      "outputIndex": 0
+      "txHash": "6eebdea4d351d198bc93452afba5b9cb4420617e6c94339f5b85f827c0f74479",
+      "outputIndex": 1
     },
     "cost": {
       "mem": 500000,
@@ -121,10 +121,10 @@
     }
   },
   "balanceFnPoolRedeem": {
-    "hash": "7e903a4cd684312167571e14c7b19a37ad8b89f10285e9397addf139",
+    "hash": "b2e089e6dd94051998cd2f491e2074de7b577b3daa0eba6856c88f14",
     "referenceUtxo": {
-      "txHash": "107e637470e209d9481c9fd4447f0728db6bdb6af4566312f2277c7f5905094c",
-      "outputIndex": 1
+      "txHash": "6eebdea4d351d198bc93452afba5b9cb4420617e6c94339f5b85f827c0f74479",
+      "outputIndex": 3
     },
     "cost": {
       "mem": 500000,
