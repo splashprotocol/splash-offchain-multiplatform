@@ -18,17 +18,34 @@ use crate::client::Point;
 use crate::data::{ChainUpgrade, LedgerBlockEvent, LedgerTxEvent};
 
 /// Stream ledger updates as individual transactions.
-pub fn ledger_transactions<'a, S, Cache>(
+pub async fn ledger_transactions<'a, S, Cache>(
     cache: Arc<Mutex<Cache>>,
     upstream: S,
     // Rollbacks will not be handled until the specified slot is reached.
     handle_rollbacks_after: Slot,
+    // Before pulling new blocks
+    replay_from: Option<Point>,
 ) -> impl Stream<Item = LedgerTxEvent<BabbageTransaction>> + 'a
 where
     S: Stream<Item = ChainUpgrade<BabbageBlock>> + 'a,
     Cache: LedgerCache + 'a,
 {
-    upstream
+    let raw_replayed_blocks = match replay_from {
+        None => stream::empty().boxed(),
+        Some(replay_from_point) => {
+            let cache = cache.lock().await;
+            cache.replay(replay_from_point).boxed()
+        }
+    };
+    let replayed_blocks = raw_replayed_blocks
+        .map(|LinkedBlock(raw_blk, _)| {
+            bincode::deserialize::<'_, BabbageBlock>(&raw_blk)
+                .ok()
+                .map(|blk| ChainUpgrade::RollForward(blk, raw_blk))
+        })
+        .filter_map(|result| async { result });
+    replayed_blocks
+        .chain(upstream)
         .then(move |u| process_upstream_by_txs(Arc::clone(&cache), u, handle_rollbacks_after))
         .flatten()
 }

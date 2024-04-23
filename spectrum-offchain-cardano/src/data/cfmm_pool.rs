@@ -331,7 +331,7 @@ impl Pool for ConstFnPool {
     }
 
     fn quality(&self) -> PoolQuality {
-        let lq = self.reserves_x.untag() * self.reserves_y.untag();
+        let lq = self.reserves_x.untag() as u128 * self.reserves_y.untag() as u128;
         PoolQuality::from(lq.sqrt())
     }
 
