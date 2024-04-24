@@ -16,8 +16,8 @@ use spectrum_offchain_cardano::data::pool::AnyPool;
 use spectrum_offchain_cardano::data::pool::AnyPool::{BalancedCFMM, PureCFMM};
 use spectrum_offchain_cardano::deployment::DeployedValidator;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
-    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolRedeem,
-    ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
+    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
+    ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
 };
 
 /// Magnet for local instances.
@@ -33,6 +33,8 @@ where
         + Has<OperatorRewardAddress>
         + Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolSwap as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolDeposit as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolRedeem as u8 }>>

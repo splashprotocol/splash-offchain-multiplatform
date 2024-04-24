@@ -913,6 +913,7 @@ mod tests {
     use cml_crypto::ScriptHash;
     use num_rational::Ratio;
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
+    use spectrum_cardano_lib::ex_units::ExUnits;
 
     use spectrum_cardano_lib::types::TryFromPData;
 
@@ -985,6 +986,10 @@ mod tests {
             invariant: 100000000,
             invariant_length: 9,
             ver: BalancePoolVer::V1,
+            marginal_cost: ExUnits {
+                mem: 120000000,
+                steps: 100000000000,
+            }
         };
         let result = pool.swap(Side::Ask(100000000));
     }
@@ -1045,6 +1050,10 @@ mod tests {
             invariant: 99999999,
             invariant_length: 8,
             ver: BalancePoolVer::V1,
+            marginal_cost: ExUnits {
+                mem: 120000000,
+                steps: 100000000000,
+            }
         };
 
         let (result, new_pool) = pool.clone().swap(Side::Ask(100000000));
@@ -1119,6 +1128,10 @@ mod tests {
             invariant: 99999999,
             invariant_length: 8,
             ver: BalancePoolVer::V1,
+            marginal_cost: ExUnits {
+                mem: 120000000,
+                steps: 100000000000,
+            }
         };
 
         let mut new_pool = pool.clone();
