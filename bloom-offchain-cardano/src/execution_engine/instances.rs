@@ -10,10 +10,10 @@ use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::data::Has;
-use spectrum_offchain_cardano::data::{balance_pool, cfmm_pool};
 use spectrum_offchain_cardano::data::balance_pool::{BalancePool, BalancePoolRedeemer};
 use spectrum_offchain_cardano::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
 use spectrum_offchain_cardano::data::pool::{AnyPool, AssetDeltas, CFMMPoolAction};
+use spectrum_offchain_cardano::data::{balance_pool, cfmm_pool};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolV1, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolV1, ConstFnPoolV2,
     LimitOrderV1, LimitOrderWitnessV1,
@@ -93,6 +93,7 @@ where
             reference_utxo,
             hash,
             ex_budget,
+            ..
         } = context
             .select::<DeployedValidator<{ LimitOrderV1 as u8 }>>()
             .erased();
@@ -220,6 +221,7 @@ where
             reference_utxo,
             hash,
             ex_budget,
+            ..
         } = pool.get_validator(&context);
         let input = ScriptInputBlueprint {
             reference: in_ref,
@@ -238,11 +240,7 @@ where
         };
 
         if let Some(data) = produced_out.data_mut() {
-            cfmm_pool::unsafe_update_pd(
-                data,
-                transition.treasury_x.untag(),
-                transition.treasury_y.untag(),
-            );
+            cfmm_pool::unsafe_update_pd(data, transition.treasury_x.untag(), transition.treasury_y.untag());
         }
 
         let mut updated_output = produced_out.clone();
@@ -280,6 +278,7 @@ where
             reference_utxo,
             hash,
             ex_budget,
+            ..
         } = pool.get_validator(&context);
         let input = ScriptInputBlueprint {
             reference: in_ref,

@@ -671,51 +671,51 @@ mod tests {
             scripts: ProtocolScriptHashes {
                 limit_order_witness: DeployedScriptInfo {
                     script_hash: ScriptHash::from([0u8; 28]),
-                    cost: ExUnits::empty(),
+                    marginal_cost: ExUnits::empty(),
                 },
                 limit_order: DeployedScriptInfo {
                     script_hash: ScriptHash::from([0u8; 28]),
-                    cost: ExUnits::empty(),
+                    marginal_cost: ExUnits::empty(),
                 },
                 const_fn_pool_v1: DeployedScriptInfo {
                     script_hash: ScriptHash::from([0u8; 28]),
-                    cost: ExUnits::empty(),
+                    marginal_cost: ExUnits::empty(),
                 },
                 const_fn_pool_v2: DeployedScriptInfo {
                     script_hash: ScriptHash::from([0u8; 28]),
-                    cost: ExUnits::empty(),
+                    marginal_cost: ExUnits::empty(),
                 },
                 const_fn_pool_fee_switch: DeployedScriptInfo {
                     script_hash: ScriptHash::from([0u8; 28]),
-                    cost: ExUnits::empty(),
+                    marginal_cost: ExUnits::empty(),
                 },
                 const_fn_pool_fee_switch_bidir_fee: DeployedScriptInfo {
                     script_hash: ScriptHash::from([0u8; 28]),
-                    cost: ExUnits::empty(),
+                    marginal_cost: ExUnits::empty(),
                 },
                 const_fn_pool_swap: DeployedScriptInfo {
                     script_hash: ScriptHash::from([0u8; 28]),
-                    cost: ExUnits::empty(),
+                    marginal_cost: ExUnits::empty(),
                 },
                 const_fn_pool_deposit: DeployedScriptInfo {
                     script_hash: ScriptHash::from([0u8; 28]),
-                    cost: ExUnits::empty(),
+                    marginal_cost: ExUnits::empty(),
                 },
                 const_fn_pool_redeem: DeployedScriptInfo {
                     script_hash: ScriptHash::from([0u8; 28]),
-                    cost: ExUnits::empty(),
+                    marginal_cost: ExUnits::empty(),
                 },
                 balance_fn_pool_v1: DeployedScriptInfo {
                     script_hash: ScriptHash::from([0u8; 28]),
-                    cost: ExUnits::empty(),
+                    marginal_cost: ExUnits::empty(),
                 },
                 balance_fn_pool_deposit: DeployedScriptInfo {
                     script_hash: ScriptHash::from([0u8; 28]),
-                    cost: ExUnits::empty(),
+                    marginal_cost: ExUnits::empty(),
                 },
                 balance_fn_pool_redeem: DeployedScriptInfo {
                     script_hash: ScriptHash::from([0u8; 28]),
-                    cost: ExUnits::empty(),
+                    marginal_cost: ExUnits::empty(),
                 },
             },
         };

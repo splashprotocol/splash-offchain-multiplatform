@@ -467,7 +467,7 @@ where
                 invariant: conf.invariant,
                 invariant_length: conf.invariant_length,
                 ver: pool_ver,
-                marginal_cost: ctx.get().cost,
+                marginal_cost: ctx.get().marginal_cost,
             });
         }
         None
@@ -912,8 +912,8 @@ mod tests {
     use cml_core::serialization::Serialize;
     use cml_crypto::ScriptHash;
     use num_rational::Ratio;
-    use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
     use spectrum_cardano_lib::ex_units::ExUnits;
+    use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
 
     use spectrum_cardano_lib::types::TryFromPData;
 
@@ -989,7 +989,7 @@ mod tests {
             marginal_cost: ExUnits {
                 mem: 120000000,
                 steps: 100000000000,
-            }
+            },
         };
         let result = pool.swap(Side::Ask(100000000));
     }
@@ -1053,7 +1053,7 @@ mod tests {
             marginal_cost: ExUnits {
                 mem: 120000000,
                 steps: 100000000000,
-            }
+            },
         };
 
         let (result, new_pool) = pool.clone().swap(Side::Ask(100000000));
@@ -1131,7 +1131,7 @@ mod tests {
             marginal_cost: ExUnits {
                 mem: 120000000,
                 steps: 100000000000,
-            }
+            },
         };
 
         let mut new_pool = pool.clone();

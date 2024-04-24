@@ -12,6 +12,7 @@ use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWit
 use cml_chain::certs::Credential;
 use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::{TransactionInput, TransactionOutput};
+use log::trace;
 
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::{NetworkId, OutputRef};
@@ -183,9 +184,10 @@ impl TxBlueprint {
                 .unwrap();
             txb.add_reference_input(wit.reference_utxo);
             txb.add_withdrawal(withdrawal_result);
+            trace!("Witness: Base budget: {:?}, scaling factor: {}", wit.ex_budget, scaling_factor);
             txb.set_exunits(
                 RedeemerWitnessKey::new(RedeemerTag::Reward, 0),
-                wit.ex_budget.scale(scaling_factor).into(),
+                (wit.ex_budget + wit.marginal_cost.scale(scaling_factor)).into(),
             );
         }
         txb

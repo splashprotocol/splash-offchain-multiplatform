@@ -85,7 +85,12 @@ impl From<ReferenceUTxO> for OutputRef {
 pub struct DeployedValidatorRef {
     pub hash: ScriptHash,
     pub reference_utxo: ReferenceUTxO,
+    /// Cost per contract invokation.
     pub cost: ExUnits,
+    /// Cost per each subsequent contract invokation.
+    /// Consider a batch witness script: first invokation costs `cost`,
+    /// each subsequent invokation adds `marginal_cost` to base cost.
+    pub marginal_cost: Option<ExUnits>,
 }
 
 #[derive(serde::Deserialize)]
@@ -127,7 +132,7 @@ impl From<&DeployedValidators> for ProtocolScriptHashes {
 #[derive(Debug, Copy, Clone, Into, From)]
 pub struct DeployedScriptInfo<const TYP: u8> {
     pub script_hash: ScriptHash,
-    pub cost: ExUnits,
+    pub marginal_cost: ExUnits,
 }
 
 pub fn test_address<const TYP: u8, Ctx>(addr: &Address, ctx: &Ctx) -> bool
@@ -148,7 +153,7 @@ impl<const TYP: u8> From<&DeployedValidator<TYP>> for DeployedScriptInfo<TYP> {
     fn from(value: &DeployedValidator<TYP>) -> Self {
         Self {
             script_hash: value.hash,
-            cost: value.cost,
+            marginal_cost: value.marginal_cost,
         }
     }
 }
@@ -157,7 +162,7 @@ impl<const TYP: u8> From<&DeployedValidatorRef> for DeployedScriptInfo<TYP> {
     fn from(value: &DeployedValidatorRef) -> Self {
         Self {
             script_hash: value.hash,
-            cost: value.cost,
+            marginal_cost: value.marginal_cost.unwrap_or(value.cost),
         }
     }
 }
@@ -166,7 +171,12 @@ impl<const TYP: u8> From<&DeployedValidatorRef> for DeployedScriptInfo<TYP> {
 pub struct DeployedValidator<const TYP: u8> {
     pub reference_utxo: TransactionUnspentOutput,
     pub hash: ScriptHash,
+    /// Cost per contract invokation.
     pub cost: ExUnits,
+    /// Cost per each subsequent contract invokation.
+    /// Consider a batch witness script: first invokation costs `cost`,
+    /// each subsequent invokation adds `marginal_cost` to base cost.
+    pub marginal_cost: ExUnits,
 }
 
 impl<const TYP: u8> DeployedValidator<TYP> {
@@ -175,6 +185,7 @@ impl<const TYP: u8> DeployedValidator<TYP> {
             reference_utxo: self.reference_utxo,
             hash: self.hash,
             ex_budget: self.cost,
+            marginal_cost: self.marginal_cost
         }
     }
 }
@@ -184,6 +195,7 @@ pub struct DeployedValidatorErased {
     pub reference_utxo: TransactionUnspentOutput,
     pub hash: ScriptHash,
     pub ex_budget: ExUnits,
+    pub marginal_cost: ExUnits,
 }
 
 impl Hash for DeployedValidatorErased {
@@ -216,6 +228,7 @@ impl<const TYP: u8> DeployedValidator<TYP> {
             reference_utxo: ref_output,
             hash: v.hash,
             cost: v.cost,
+            marginal_cost: v.marginal_cost.unwrap_or(v.cost),
         }
     }
 }
