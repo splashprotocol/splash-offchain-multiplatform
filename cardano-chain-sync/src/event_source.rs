@@ -172,7 +172,7 @@ fn process_upstream_by_blocks<'a, Cache>(
                     cache_block(cache, &blk, blk_bytes).await;
                 } else {
                     cache_point(cache, &blk).await;
-                } 
+                }
             }
             LedgerBlockEvent::RollForward(blk)
         })),

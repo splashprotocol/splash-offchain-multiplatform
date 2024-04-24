@@ -1,6 +1,5 @@
 use cml_chain::plutus::PlutusData;
 use cml_chain::transaction::TransactionOutput;
-use void::Void;
 
 use bloom_offchain::execution_engine::batch_exec::BatchExec;
 use bloom_offchain::execution_engine::bundled::Bundled;
@@ -11,7 +10,7 @@ use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::data::Has;
-use spectrum_offchain_cardano::data::balance_pool;
+use spectrum_offchain_cardano::data::{balance_pool, cfmm_pool};
 use spectrum_offchain_cardano::data::balance_pool::{BalancePool, BalancePoolRedeemer};
 use spectrum_offchain_cardano::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
 use spectrum_offchain_cardano::data::pool::{AnyPool, AssetDeltas, CFMMPoolAction};
@@ -238,9 +237,19 @@ where
             }),
         };
 
-        let result = Bundled(transition, produced_out.clone());
+        if let Some(data) = produced_out.data_mut() {
+            cfmm_pool::unsafe_update_pd(
+                data,
+                transition.treasury_x.untag(),
+                transition.treasury_y.untag(),
+            );
+        }
 
-        state.tx_blueprint.add_io(input, produced_out);
+        let mut updated_output = produced_out.clone();
+
+        let result = Bundled(transition, updated_output.clone());
+
+        state.tx_blueprint.add_io(input, updated_output);
         state.tx_blueprint.add_ref_input(reference_utxo);
         (state, result, context)
     }
