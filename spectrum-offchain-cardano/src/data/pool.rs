@@ -1,11 +1,11 @@
-use std::fmt::Debug;
+use std::fmt::{Debug, format};
 
 use cml_chain::address::Address;
 
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
-use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput};
+use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput, TxBuilderError};
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
 use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::{DatumOption, ScriptRef, TransactionOutput};
@@ -318,6 +318,13 @@ pub trait ApplyOrder<Order>: Sized {
     fn apply_order(self, order: Order) -> Result<(Self, Self::Result), ApplyOrderError<Order>>;
 }
 
+fn wrap_cml_action<U, Order>(action: Result<U, TxBuilderError>, ord: Bundled<Order, FinalizedTxOut>) -> Result<U, RunOrderError<Bundled<Order, FinalizedTxOut>>> {
+    match action {
+        Ok(res) => Ok(res),
+        Err(some_err) => Err(RunOrderError::Fatal(format!("Cml error: {:?}", some_err), ord))
+    }
+}
+
 pub fn try_run_order_against_pool<Order, Pool, Ctx>(
     Bundled(pool, FinalizedTxOut(pool_utxo, pool_ref)): Bundled<Pool, FinalizedTxOut>,
     Bundled(order, FinalizedTxOut(order_utxo, order_ref)): Bundled<Order, FinalizedTxOut>,
@@ -413,12 +420,11 @@ where
         .add_output(SingleOutputBuilderResult::new(user_out.into_ledger(ctx.clone())))
         .unwrap();
 
-    let tx = tx_builder
+    let tx = wrap_cml_action(tx_builder
         .build(
             ChangeSelectionAlgo::Default,
             &ctx.select::<OperatorRewardAddress>().into(),
-        )
-        .unwrap();
+        ), Bundled(order, FinalizedTxOut(order_utxo, order_ref)))?;
 
     let tx_hash = hash_transaction_canonical(&tx.body());
 
