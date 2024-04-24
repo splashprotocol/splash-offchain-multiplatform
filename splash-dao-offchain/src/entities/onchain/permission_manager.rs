@@ -37,13 +37,14 @@ pub type PermManagerSnapshot = Snapshot<PermManager, OutputRef>;
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct PermManager {
     pub perm_manager_auth_policy: PolicyId,
+    pub auth_token_asset_name: AssetName,
 }
 
 impl HasIdentifier for PermManagerSnapshot {
     type Id = PermManagerId;
 
     fn identifier(&self) -> Self::Id {
-        PermManagerId((self.0.perm_manager_auth_policy, AssetName::utf8_unsafe("".into())))
+        PermManagerId((self.0.perm_manager_auth_policy, self.0.auth_token_asset_name))
     }
 }
 
@@ -67,14 +68,16 @@ where
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
             let perm_manager_auth_policy = ctx.select::<PermManagerAuthPolicy>().0;
+            let auth_token_cml_asset_name = ctx.select::<PermManagerAuthName>().0;
             let auth_token_qty = repr
                 .value()
                 .multiasset
-                .get(&perm_manager_auth_policy, &ctx.select::<PermManagerAuthName>().0)?;
+                .get(&perm_manager_auth_policy, &auth_token_cml_asset_name)?;
             assert_eq!(auth_token_qty, 1);
             let output_ref = ctx.select::<OutputRef>();
             let perm_manager = PermManager {
                 perm_manager_auth_policy,
+                auth_token_asset_name: AssetName::from(auth_token_cml_asset_name),
             };
 
             return Some(Snapshot::new(perm_manager, output_ref));

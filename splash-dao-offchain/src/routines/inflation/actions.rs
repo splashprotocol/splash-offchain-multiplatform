@@ -14,6 +14,7 @@ use cml_chain::transaction::{TransactionInput, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::OrderedHashMap;
 use cml_crypto::{blake2b256, RawBytesEncoding};
+use spectrum_offchain_cardano::deployment::DeployedScriptHash;
 use uplc_pallas_traverse::ComputeHash;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
@@ -29,6 +30,7 @@ use spectrum_offchain::ledger::IntoLedger;
 
 use crate::assets::SPLASH_AC;
 use crate::constants::{self};
+use crate::deployment::ProtocolValidator;
 use crate::entities::offchain::voting_order::VotingOrder;
 use crate::entities::onchain::inflation_box::{compute_inflation_box_script_hash, INFLATION_BOX_EX_UNITS};
 use crate::entities::onchain::permission_manager::{compute_perm_manager_policy_id, PERM_MANAGER_EX_UNITS};
@@ -129,7 +131,8 @@ where
         + Has<GTAuthPolicy>
         + Has<NodeMagic>
         + Has<OperatorCreds>
-        + Has<GenesisEpochStartTime>,
+        + Has<GenesisEpochStartTime>
+        + Has<DeployedScriptHash<{ ProtocolValidator::GovProxy as u8 }>>,
 {
     async fn create_wpoll(
         &self,
@@ -190,10 +193,13 @@ where
         tx_builder.add_output(inflation_output).unwrap();
 
         // WP factory
-        let wp_factory_script_hash = compute_wp_factory_script_hash(
-            wpoll_auth_policy,
-            factory.get().stable_id.gov_witness_script_hash,
-        );
+        let gov_witness_script_hash = self
+            .ctx
+            .select::<DeployedScriptHash<{ ProtocolValidator::GovProxy as u8 }>>()
+            .unwrap();
+
+        let wp_factory_script_hash =
+            compute_wp_factory_script_hash(wpoll_auth_policy, gov_witness_script_hash);
 
         let factory_redeemer = FactoryRedeemer {
             successor_ix: 1,
@@ -214,11 +220,11 @@ where
         tx_builder.add_reference_input(self.ctx.select::<PollFactoryRefScriptOutput>().0.clone());
         tx_builder.add_input(wp_factory_input).unwrap();
 
-        let gov_witness_script_hash = factory.get().stable_id.gov_witness_script_hash;
         let prev_factory_version = *factory.version();
-        let (next_factory, fresh_wpoll) = factory
-            .unwrap()
-            .next_weighting_poll(farm_auth_policy, emission_rate);
+        let (next_factory, fresh_wpoll) =
+            factory
+                .unwrap()
+                .next_weighting_poll(farm_auth_policy, emission_rate, wpoll_auth_policy);
         let mut factory_out = factory_in.clone();
         if let Some(data_mut) = factory_out.data_mut() {
             unsafe_update_factory_state(data_mut, next_factory.last_poll_epoch);

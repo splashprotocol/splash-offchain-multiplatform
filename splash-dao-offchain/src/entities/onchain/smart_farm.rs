@@ -56,7 +56,7 @@ impl HasIdentifier for SmartFarmSnapshot {
     type Id = FarmId;
 
     fn identifier(&self) -> Self::Id {
-        todo!()
+        self.0.farm_id
     }
 }
 

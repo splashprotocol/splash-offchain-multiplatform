@@ -1,5 +1,3 @@
-use std::fmt::Formatter;
-
 use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData};
 
 use cml_chain::PolicyId;
@@ -11,7 +9,7 @@ use spectrum_cardano_lib::plutus_data::{
 };
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
-use spectrum_cardano_lib::{AssetName, OutputRef, TaggedAmount, Token};
+use spectrum_cardano_lib::{AssetName, OutputRef, TaggedAmount};
 use spectrum_offchain::data::{Has, HasIdentifier, Identifier, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptHash};
@@ -24,15 +22,15 @@ use crate::deployment::ProtocolValidator;
 use crate::entities::onchain::smart_farm::FarmId;
 use crate::entities::onchain::weighting_poll::WeightingPoll;
 use crate::entities::Snapshot;
-use crate::protocol_config::{GovProxyRefScriptOutput, WPAuthPolicy};
+use crate::protocol_config::WPAuthPolicy;
 use crate::time::ProtocolEpoch;
 
 use super::weighting_poll::WeightingPollStableId;
 
 pub type PollFactorySnapshot = Snapshot<PollFactory, OutputRef>;
 
-#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Serialize)]
-pub struct PollFactoryId(Token);
+#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Debug, derive_more::Display)]
+pub struct PollFactoryId(ScriptHash);
 
 impl Identifier for PollFactoryId {
     type For = PollFactorySnapshot;
@@ -41,7 +39,7 @@ impl Identifier for PollFactoryId {
 pub struct PollFactory {
     pub last_poll_epoch: ProtocolEpoch,
     pub active_farms: Vec<FarmId>,
-    pub stable_id: PollFactoryStableId,
+    pub stable_id: ScriptHash,
 }
 
 impl PollFactory {
@@ -52,10 +50,11 @@ impl PollFactory {
         mut self,
         farm_auth_policy: PolicyId,
         emission_rate: TaggedAmount<Splash>,
+        wp_auth_policy: PolicyId,
     ) -> (PollFactory, WeightingPoll) {
         let poll_epoch = self.last_poll_epoch + 1;
         let stable_id = WeightingPollStableId {
-            auth_policy: self.stable_id.wp_auth_policy,
+            auth_policy: wp_auth_policy,
             farm_auth_policy,
         };
         let next_poll = WeightingPoll {
@@ -74,25 +73,16 @@ impl HasIdentifier for PollFactorySnapshot {
     type Id = PollFactoryId;
 
     fn identifier(&self) -> Self::Id {
-        PollFactoryId((
-            ScriptHash::from_hex("").unwrap(),
-            AssetName::utf8_unsafe("".into()),
-        ))
+        PollFactoryId(self.0.stable_id)
     }
 }
 
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for PollFactorySnapshot
 where
-    C: Has<WPAuthPolicy>
-        + Has<OutputRef>
-        + Has<DeployedScriptHash<{ ProtocolValidator::WpFactory as u8 }>>
-        + Has<DeployedScriptHash<{ ProtocolValidator::GovProxy as u8 }>>,
+    C: Has<WPAuthPolicy> + Has<OutputRef> + Has<DeployedScriptHash<{ ProtocolValidator::WpFactory as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
-        if test_address::<{ ProtocolValidator::WpFactory as u8 }, C>(repr.address(), ctx) {
-            let gov_proxy_script_hash = ctx
-                .select::<DeployedScriptHash<{ ProtocolValidator::GovProxy as u8 }>>()
-                .unwrap();
+        if test_address(repr.address(), ctx) {
             let output_ref = ctx.select::<OutputRef>();
             let PollFactoryConfig {
                 last_poll_epoch,
@@ -102,14 +92,12 @@ where
                 .into_pd()
                 .map(|pd| PollFactoryConfig::try_from_pd(pd).unwrap())?;
 
-            let stable_id = PollFactoryStableId {
-                wp_auth_policy: ctx.select::<WPAuthPolicy>().0,
-                gov_witness_script_hash: gov_proxy_script_hash,
-            };
             let poll_factory = PollFactory {
                 last_poll_epoch,
                 active_farms,
-                stable_id,
+                stable_id: ctx
+                    .select::<DeployedScriptHash<{ ProtocolValidator::WpFactory as u8 }>>()
+                    .unwrap(),
             };
 
             return Some(Snapshot::new(poll_factory, output_ref));
@@ -118,27 +106,10 @@ where
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct PollFactoryStableId {
-    /// Auth policy of all weighting polls.
-    pub wp_auth_policy: PolicyId,
-    /// Hash of the Governance Proxy witness.
-    pub gov_witness_script_hash: PolicyId,
-}
-
-impl std::fmt::Display for PollFactoryStableId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&format!(
-            "wp_auth_policy: {}, gov_witness_script_hash: {}",
-            self.wp_auth_policy, self.gov_witness_script_hash
-        ))
-    }
-}
-
 impl Stable for PollFactory {
-    type StableId = PollFactoryStableId;
+    type StableId = PollFactoryId;
     fn stable_id(&self) -> Self::StableId {
-        self.stable_id
+        PollFactoryId(self.stable_id)
     }
     fn is_quasi_permanent(&self) -> bool {
         true

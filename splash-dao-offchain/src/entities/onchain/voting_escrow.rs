@@ -14,7 +14,7 @@ use serde::Serialize;
 use spectrum_cardano_lib::plutus_data::DatumExtension;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
-use spectrum_cardano_lib::OutputRef;
+use spectrum_cardano_lib::{AssetName, OutputRef};
 use spectrum_offchain::data::HasIdentifier;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptHash};
@@ -53,6 +53,7 @@ impl Identifier for VotingEscrowId {
 pub struct VotingEscrow {
     pub gov_token_amount: u64,
     pub gt_policy: PolicyId,
+    pub gt_auth_name: AssetName,
     pub locked_until: Lock,
     pub ve_factory_auth_policy: PolicyId,
     pub max_ex_fee: u32,
@@ -80,7 +81,7 @@ impl HasIdentifier for VotingEscrowSnapshot {
     type Id = VotingEscrowId;
 
     fn identifier(&self) -> Self::Id {
-        todo!()
+        VotingEscrowId((self.0.gt_policy, self.0.gt_auth_name))
     }
 }
 
@@ -111,11 +112,14 @@ where
                 .get(&ve_factory_auth_policy, &ctx.select::<VEFactoryAuthName>().0)?;
             assert_eq!(ve_factory_auth_qty, 1);
             let gt_policy = ctx.select::<GTAuthPolicy>().0;
-            let gov_token_amount = value.multiasset.get(&gt_policy, &ctx.select::<GTAuthName>().0)?;
+            let cml_gt_policy_name = ctx.select::<GTAuthName>().0;
+            let gov_token_amount = value.multiasset.get(&gt_policy, &cml_gt_policy_name)?;
+            let gt_auth_name = AssetName::from(cml_gt_policy_name);
 
             let voting_escrow = VotingEscrow {
                 gov_token_amount,
                 gt_policy,
+                gt_auth_name,
                 locked_until,
                 ve_factory_auth_policy,
                 max_ex_fee,

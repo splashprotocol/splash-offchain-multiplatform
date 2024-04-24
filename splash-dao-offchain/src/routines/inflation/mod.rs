@@ -14,7 +14,7 @@ use spectrum_offchain_cardano::tx_submission::TxRejected;
 use crate::entities::offchain::voting_order::VotingOrder;
 use crate::entities::onchain::inflation_box::{InflationBoxId, InflationBoxSnapshot};
 use crate::entities::onchain::permission_manager::{PermManager, PermManagerId, PermManagerSnapshot};
-use crate::entities::onchain::poll_factory::{PollFactory, PollFactoryId, PollFactorySnapshot};
+use crate::entities::onchain::poll_factory::{PollFactory, PollFactorySnapshot};
 use crate::entities::onchain::smart_farm::{FarmId, SmartFarm, SmartFarmSnapshot};
 use crate::entities::onchain::voting_escrow::{VotingEscrow, VotingEscrowId, VotingEscrowSnapshot};
 use crate::entities::onchain::weighting_poll::{

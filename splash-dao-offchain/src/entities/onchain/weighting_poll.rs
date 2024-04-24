@@ -11,6 +11,7 @@ use cml_crypto::RawBytesEncoding;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use derive_more::From;
 use serde::Serialize;
+use spectrum_offchain_cardano::deployment::DeployedScriptHash;
 use uplc_pallas_codec::utils::{Int, PlutusBytes};
 
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, IntoPlutusData, PlutusDataExtension};
@@ -21,6 +22,7 @@ use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 
 use crate::assets::Splash;
 use crate::constants::{MINT_WP_AUTH_TOKEN_SCRIPT, SPLASH_NAME};
+use crate::deployment::ProtocolValidator;
 use crate::entities::onchain::smart_farm::FarmId;
 use crate::entities::onchain::voting_escrow::compute_mint_weighting_power_policy_id;
 use crate::entities::Snapshot;
@@ -214,15 +216,16 @@ impl WeightingPoll {
     }
 }
 
-//impl<C> TryFromLedger<BabbageTransactionOutput, C> for InflationBoxSnapshot
-//where
-//    C: Has<SplashPolicy>
-//        + Has<SplashAssetName>
-//        + Has<DeployedScriptHash<{ ProtocolValidator::Inflation as u8 }>>
-//        + Has<OutputRef>,
-//{
-//    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
-//    }}
+impl<C> TryFromLedger<BabbageTransactionOutput, C> for WeightingPollSnapshot
+where
+    C: Has<SplashPolicy>
+        + Has<DeployedScriptHash<{ ProtocolValidator::WpAuthPolicy as u8 }>>
+        + Has<OutputRef>,
+{
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+        todo!()
+    }
+}
 
 fn distribution_to_plutus_data(distribution: &[(FarmId, u64)]) -> PlutusData {
     let mut list = vec![];
