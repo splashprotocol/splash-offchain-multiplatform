@@ -23,7 +23,7 @@ pub async fn ledger_transactions<'a, S, Cache>(
     upstream: S,
     // Rollbacks will not be handled until the specified slot is reached.
     handle_rollbacks_after: Slot,
-    // Before pulling new blocks
+    // Reapply known blocks before pulling new ones.
     replay_from: Option<Point>,
 ) -> impl Stream<Item = LedgerTxEvent<BabbageTransaction>> + 'a
 where
@@ -39,7 +39,7 @@ where
     };
     let replayed_blocks = raw_replayed_blocks
         .map(|LinkedBlock(raw_blk, _)| {
-            bincode::deserialize::<'_, BabbageBlock>(&raw_blk)
+            BabbageBlock::from_cbor_bytes(&raw_blk)
                 .ok()
                 .map(|blk| ChainUpgrade::RollForward {
                     blk,
