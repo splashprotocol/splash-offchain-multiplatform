@@ -376,7 +376,7 @@ mod tests {
             let _ = self.0.lock().await.insert(AnyMod::Confirmed(entity));
         }
 
-        async fn remove(&self, id: T::Id) -> Option<T::Id> {
+        async fn remove(&self, id: T::Id) -> Option<T::Version> {
             // Stub
             None
         }
