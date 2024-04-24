@@ -1,11 +1,13 @@
-use std::fmt::{Debug, format};
+use std::fmt::{format, Debug};
 
 use cml_chain::address::Address;
 
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
-use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput, TxBuilderError};
+use cml_chain::builders::tx_builder::{
+    ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput, TxBuilderError,
+};
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
 use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::{DatumOption, ScriptRef, TransactionOutput};
@@ -318,10 +320,13 @@ pub trait ApplyOrder<Order>: Sized {
     fn apply_order(self, order: Order) -> Result<(Self, Self::Result), ApplyOrderError<Order>>;
 }
 
-fn wrap_cml_action<U, Order>(action: Result<U, TxBuilderError>, ord: Bundled<Order, FinalizedTxOut>) -> Result<U, RunOrderError<Bundled<Order, FinalizedTxOut>>> {
+fn wrap_cml_action<U, Order>(
+    action: Result<U, TxBuilderError>,
+    ord: Bundled<Order, FinalizedTxOut>,
+) -> Result<U, RunOrderError<Bundled<Order, FinalizedTxOut>>> {
     match action {
         Ok(res) => Ok(res),
-        Err(some_err) => Err(RunOrderError::Fatal(format!("Cml error: {:?}", some_err), ord))
+        Err(some_err) => Err(RunOrderError::Fatal(format!("Cml error: {:?}", some_err), ord)),
     }
 }
 
@@ -420,11 +425,13 @@ where
         .add_output(SingleOutputBuilderResult::new(user_out.into_ledger(ctx.clone())))
         .unwrap();
 
-    let tx = wrap_cml_action(tx_builder
-        .build(
+    let tx = wrap_cml_action(
+        tx_builder.build(
             ChangeSelectionAlgo::Default,
             &ctx.select::<OperatorRewardAddress>().into(),
-        ), Bundled(order, FinalizedTxOut(order_utxo, order_ref)))?;
+        ),
+        Bundled(order, FinalizedTxOut(order_utxo, order_ref)),
+    )?;
 
     let tx_hash = hash_transaction_canonical(&tx.body());
 

@@ -8,6 +8,10 @@
     "cost": {
       "mem": 520000,
       "steps": 200000000
+    },
+    "marginalCost": {
+      "mem": 240000,
+      "steps": 85000000
     }
   },
   "limitOrder": {
@@ -19,6 +23,10 @@
     "cost": {
       "mem": 170000,
       "steps": 65000000
+    },
+    "marginalCost": {
+      "mem": 410000,
+      "steps": 91500000
     }
   },
   "constFnPoolV1": {

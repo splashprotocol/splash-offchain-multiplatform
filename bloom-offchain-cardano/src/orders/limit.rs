@@ -14,7 +14,6 @@ use bloom_offchain::execution_engine::liquidity_book::types::{
     AbsolutePrice, ExBudgetUsed, ExFeeUsed, FeeAsset, InputAsset, OutputAsset, RelativePrice,
 };
 use bloom_offchain::execution_engine::liquidity_book::weight::Weighted;
-use spectrum_cardano_lib::{AssetClass, OutputRef};
 use spectrum_cardano_lib::address::PlutusAddress;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{
@@ -23,12 +22,13 @@ use spectrum_cardano_lib::plutus_data::{
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
+use spectrum_cardano_lib::{AssetClass, OutputRef};
 use spectrum_offchain::data::{Has, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::creds::OperatorCred;
-use spectrum_offchain_cardano::data::pair::{PairId, side_of};
-use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, test_address};
+use spectrum_offchain_cardano::data::pair::{side_of, PairId};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
+use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
 pub const EXEC_REDEEMER: PlutusData = PlutusData::ConstrPlutusData(ConstrPlutusData {
@@ -87,7 +87,7 @@ impl Display for LimitOrder {
                 self.price(),
                 self.output_amount
             )
-                .as_str(),
+            .as_str(),
         )
     }
 }
@@ -106,14 +106,9 @@ impl Ord for LimitOrder {
         } else {
             cmp_by_price
         };
-        let cmp_by_weight = match cmp_by_price {
-            Ordering::Equal => self.weight().cmp(&other.weight()),
-            cmp => cmp,
-        };
-        match cmp_by_weight {
-            Ordering::Equal => self.stable_id().cmp(&other.stable_id()),
-            cmp => cmp,
-        }
+        cmp_by_price
+            .then(self.weight().cmp(&other.weight()))
+            .then(self.stable_id().cmp(&other.stable_id()))
     }
 }
 
@@ -296,8 +291,8 @@ fn beacon_from_oref(oref: OutputRef) -> PolicyId {
 const MIN_LOVELACE: u64 = 1_500_000;
 
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for LimitOrder
-    where
-        C: Has<OperatorCred>
+where
+    C: Has<OperatorCred>
         + Has<ConsumedInputs>
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
         + Has<LimitOrderBounds>,
@@ -320,8 +315,8 @@ impl<C> TryFromLedger<BabbageTransactionOutput, C> for LimitOrder
             let is_permissionless = conf.permitted_executors.is_empty();
             if is_permissionless
                 || conf
-                .permitted_executors
-                .contains(&ctx.select::<OperatorCred>().into())
+                    .permitted_executors
+                    .contains(&ctx.select::<OperatorCred>().into())
             {
                 let bounds = ctx.select::<LimitOrderBounds>();
                 let valid_configuration = conf.cost_per_ex_step >= bounds.min_cost_per_ex_step
@@ -350,7 +345,7 @@ impl<C> TryFromLedger<BabbageTransactionOutput, C> for LimitOrder
                         cancellation_pkh: conf.cancellation_pkh,
                         requires_executor_sig: !is_permissionless,
                         virgin: valid_fresh_beacon,
-                        marginal_cost: script_info.cost,
+                        marginal_cost: script_info.marginal_cost,
                     });
                 }
             }
@@ -374,18 +369,18 @@ mod tests {
     use type_equalities::IsEqual;
 
     use bloom_offchain::execution_engine::liquidity_book::fragment::Fragment;
-    use spectrum_cardano_lib::OutputRef;
     use spectrum_cardano_lib::types::TryFromPData;
+    use spectrum_cardano_lib::OutputRef;
     use spectrum_offchain::data::Has;
     use spectrum_offchain::ledger::TryFromLedger;
     use spectrum_offchain_cardano::creds::OperatorCred;
+    use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
     use spectrum_offchain_cardano::deployment::{
         DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes,
     };
-    use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
     use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
-    use crate::orders::limit::{beacon_from_oref, Datum, LimitOrder, LimitOrderBounds, unsafe_update_datum};
+    use crate::orders::limit::{beacon_from_oref, unsafe_update_datum, Datum, LimitOrder, LimitOrderBounds};
 
     struct Context {
         limit_order: DeployedScriptInfo<{ LimitOrderV1 as u8 }>,

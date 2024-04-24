@@ -246,7 +246,8 @@ impl AMMOps for ConstFnPool {
         classic_cfmm_shares_amount(
             self.reserves_x - self.treasury_x,
             self.reserves_y - self.treasury_y,
-            self.liquidity, burned_lq
+            self.liquidity,
+            burned_lq,
         )
     }
 }
@@ -387,15 +388,15 @@ where
             let value = repr.value();
             let pd = repr.datum().clone()?.into_pd()?;
             let marginal_cost = match pool_ver {
-                ConstFnPoolVer::V1 => ctx.select::<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>().cost,
-                ConstFnPoolVer::V2 => ctx.select::<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>().cost,
+                ConstFnPoolVer::V1 => ctx.select::<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>().marginal_cost,
+                ConstFnPoolVer::V2 => ctx.select::<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>().marginal_cost,
                 ConstFnPoolVer::FeeSwitch => {
                     ctx.select::<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>()
-                        .cost
+                        .marginal_cost
                 }
                 ConstFnPoolVer::FeeSwitchBiDirFee => {
                     ctx.select::<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>()
-                        .cost
+                        .marginal_cost
                 }
             };
             return match pool_ver {
@@ -494,11 +495,7 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for ConstFnPool {
         ma.set(nft_lq, name_nft.into(), 1);
 
         if let Some(DatumOption::Datum { datum, .. }) = &mut immut_pool.datum_option {
-            unsafe_update_pd(
-                datum,
-                self.treasury_x.untag(),
-                self.treasury_y.untag()
-            );
+            unsafe_update_pd(datum, self.treasury_x.untag(), self.treasury_y.untag());
         }
 
         TransactionOutput::new_conway_format_tx_out(ConwayFormatTxOut {
