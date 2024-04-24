@@ -234,8 +234,8 @@ impl AMMOps for ConstFnPool {
         in_y_amount: u64,
     ) -> (TaggedAmount<Lq>, TaggedAmount<Rx>, TaggedAmount<Ry>) {
         classic_cfmm_reward_lp(
-            self.reserves_x,
-            self.reserves_y,
+            self.reserves_x - self.treasury_x,
+            self.reserves_y - self.treasury_y,
             self.liquidity,
             in_x_amount,
             in_y_amount,
@@ -243,7 +243,11 @@ impl AMMOps for ConstFnPool {
     }
 
     fn shares_amount(self, burned_lq: TaggedAmount<Lq>) -> (TaggedAmount<Rx>, TaggedAmount<Ry>) {
-        classic_cfmm_shares_amount(self.reserves_x, self.reserves_y, self.liquidity, burned_lq)
+        classic_cfmm_shares_amount(
+            self.reserves_x - self.treasury_x,
+            self.reserves_y - self.treasury_y,
+            self.liquidity, burned_lq
+        )
     }
 }
 
