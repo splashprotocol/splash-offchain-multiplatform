@@ -118,7 +118,7 @@ where
         let mut execution_units_left = self.execution_cap.hard;
         while execution_units_left > self.execution_cap.safe_threshold() {
             if let Some(best_fr) = self.state.pick_best_fr_either() {
-                trace!("Best Fr: {}", best_fr);
+                trace!("Best fragment: {}", best_fr);
                 recipe.set_remainder(PartialFill::empty(best_fr));
                 loop {
                     if let Some(rem) = &recipe.remainder {

@@ -2,6 +2,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
 use std::fmt::{Debug, Display, Formatter};
 use std::mem;
+use std::ops::Add;
 
 use log::trace;
 
@@ -500,18 +501,25 @@ where
     Fr: Fragment<U = U> + Ord + Copy,
     U: PartialOrd,
 {
+    trace!("Picking best fragment");
     let best_bid = active_frontier.bids.pop_first();
     let best_ask = active_frontier.asks.pop_first();
     match (best_bid, best_ask) {
         (Some(bid), Some(ask)) if bid.weight() >= ask.weight() => {
             active_frontier.asks.insert(ask);
+            trace!("All BIDs: {}", active_frontier.bids.iter().map(|i| i.price().to_string()).fold("".to_string(), |acc, x| acc.add(format!("{}, ", x).as_str())));
             Some(bid)
         }
         (Some(bid), Some(ask)) => {
             active_frontier.bids.insert(bid);
+            trace!("All ASKs: {}", active_frontier.asks.iter().map(|i| i.price().to_string()).fold("".to_string(), |x, axx| x.add(format!("{}, ", axx).as_str())));
             Some(ask)
         }
-        (Some(any), None) | (None, Some(any)) => Some(any),
+        (Some(any), None) | (None, Some(any)) => {
+            trace!("All BIDs: {}", active_frontier.bids.iter().map(|i| i.price().to_string()).fold("".to_string(), |acc, x| acc.add(format!("{}, ", x).as_str())));
+            trace!("All ASKs: {}", active_frontier.asks.iter().map(|i| i.price().to_string()).fold("".to_string(), |x, axx| x.add(format!("{}, ", axx).as_str())));
+            Some(any)
+        },
         _ => {
             trace!(target: "state", "No best fragment");
             None
@@ -590,8 +598,14 @@ where
         }
         trace!("Removing fragment from active frontier");
         match fr.side() {
-            SideM::Bid => self.active.bids.remove(&fr),
-            SideM::Ask => self.active.asks.remove(&fr),
+            SideM::Bid => {
+                self.active.bids.remove(&fr);
+                trace!("All BIDs after removal: {}", self.active.bids.iter().map(|i| i.price().to_string()).fold("".to_string(), |acc, x| acc.add(format!("{}, ", x).as_str())));
+            },
+            SideM::Ask => {
+                self.active.asks.remove(&fr);
+                trace!("All ASKs after removal: {}", self.active.bids.iter().map(|i| i.price().to_string()).fold("".to_string(), |acc, x| acc.add(format!("{}, ", x).as_str())));
+            },
         };
     }
 
@@ -607,7 +621,11 @@ where
                     e.into_mut().insert(fr);
                 }
             },
-            _ => self.active.insert(fr),
+            _ => {
+                self.active.insert(fr);
+                trace!("All BIDs after addition: {}", self.active.bids.iter().map(|i| i.price().to_string()).fold("".to_string(), |acc, x| acc.add(format!("{}, ", x).as_str())));
+                trace!("All ASKs after addition: {}", self.active.bids.iter().map(|i| i.price().to_string()).fold("".to_string(), |acc, x| acc.add(format!("{}, ", x).as_str())));
+            },
         }
     }
 }
