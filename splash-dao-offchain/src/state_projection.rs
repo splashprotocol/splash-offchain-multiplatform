@@ -215,7 +215,7 @@ mod tests {
         type For = Entity;
     }
 
-    #[derive(Clone, Serialize, Deserialize)]
+    #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
     struct Entity {
         value: u32,
         id: u32,
@@ -271,26 +271,75 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_sp() {
+    async fn test_state_projection_rocksdb() {
         let sp = spawn_db();
         let mut entity = Entity::new(0, 0);
         let id = entity.identifier();
-        sp.write_predicted(mk_predicted(entity.clone())).await;
+        sp.write_predicted(mk_predicted(entity.clone(), 0, None)).await;
         let e: AnyMod<Bundled<Entity, u32>> = sp.read(id).await.unwrap();
         assert!(matches!(e, AnyMod::Predicted(_)));
-        sp.write_confirmed(mk_confirmed(entity.clone())).await;
+
+        let confirmed = mk_confirmed(entity.clone(), 1, None);
+        sp.write_confirmed(confirmed.clone()).await;
         let e: AnyMod<Bundled<Entity, u32>> = sp.read(id).await.unwrap();
-        assert!(matches!(e, AnyMod::Confirmed(_)));
-        <StateProjectionRocksDB as StateProjectionWrite<Entity, u32>>::remove(&sp, id).await;
-        let e: Option<AnyMod<Bundled<Entity, u32>>> = sp.read(id).await;
-        assert!(e.is_none());
+        if let AnyMod::Confirmed(Traced { state, prev_state_id }) = e {
+            // This confirmed entity has same version as the previous predicted.
+            assert_eq!(prev_state_id, None);
+            assert_eq!(confirmed.state.0, state.0);
+        } else {
+            panic!("");
+        }
+
+        // Write successive entities with incremented versions
+
+        let mut expected_entities = vec![];
+        for _ in 0..10 {
+            entity.incr_version();
+            let confirmed = mk_confirmed(entity.clone(), entity.version(), Some(entity.version() - 1));
+            expected_entities.push(confirmed.clone());
+            sp.write_confirmed(confirmed.clone()).await;
+            let e: AnyMod<Bundled<Entity, u32>> = sp.read(id).await.unwrap();
+            if let AnyMod::Confirmed(Traced { state, prev_state_id }) = e {
+                // This confirmed entity has same version as the previous predicted.
+                assert_eq!(prev_state_id, Some(entity.version() - 1));
+                assert_eq!(confirmed.state.0, state.0);
+            } else {
+                panic!("");
+            }
+        }
+
+        // Start removing entities
+        let mut expected_prev_version = entity.version() - 1;
+
+        for expected_entity in expected_entities.into_iter().rev().skip(1) {
+            let prev_ver =
+                <StateProjectionRocksDB as StateProjectionWrite<Entity, u32>>::remove(&sp, id).await;
+            assert_eq!(prev_ver, Some(expected_prev_version));
+            let e: AnyMod<Bundled<Entity, u32>> = sp.read(id).await.unwrap();
+            if let AnyMod::Confirmed(Traced { state, prev_state_id }) = e {
+                assert_eq!(prev_state_id, Some(expected_prev_version - 1));
+                assert_eq!(expected_entity.state.0, state.0);
+            } else {
+                panic!("");
+            }
+
+            expected_prev_version -= 1;
+        }
     }
 
-    fn mk_predicted(entity: Entity) -> Traced<Predicted<Bundled<Entity, u32>>> {
-        Traced::new(Predicted(Bundled(entity, 2)), None)
+    fn mk_predicted(
+        entity: Entity,
+        bearer: u32,
+        prev_state_id: Option<u32>,
+    ) -> Traced<Predicted<Bundled<Entity, u32>>> {
+        Traced::new(Predicted(Bundled(entity, bearer)), prev_state_id)
     }
 
-    fn mk_confirmed(entity: Entity) -> Traced<Confirmed<Bundled<Entity, u32>>> {
-        Traced::new(Confirmed(Bundled(entity, 2)), None)
+    fn mk_confirmed(
+        entity: Entity,
+        bearer: u32,
+        prev_state_id: Option<u32>,
+    ) -> Traced<Confirmed<Bundled<Entity, u32>>> {
+        Traced::new(Confirmed(Bundled(entity, bearer)), prev_state_id)
     }
 }
