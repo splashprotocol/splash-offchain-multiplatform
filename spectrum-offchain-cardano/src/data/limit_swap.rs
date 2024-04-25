@@ -18,7 +18,7 @@ use crate::data::order::{Base, ClassicalOrder, OrderType, PoolNft, Quote};
 use crate::data::pool::CFMMPoolAction;
 use crate::data::pool::CFMMPoolAction::Swap;
 use crate::data::{ExecutorFeePerToken, OnChainOrderId, PoolId};
-use crate::deployment::ProtocolValidator::ConstFnPoolSwap;
+use crate::deployment::ProtocolValidator::ConstFnFeeSwitchPoolSwap;
 use crate::deployment::{
     test_address, DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator,
 };
@@ -39,7 +39,7 @@ pub type ClassicalOnChainLimitSwap = ClassicalOrder<OnChainOrderId, LimitSwap>;
 
 impl<Ctx> RequiresValidator<Ctx> for ClassicalOnChainLimitSwap
 where
-    Ctx: Has<DeployedValidator<{ ConstFnPoolSwap as u8 }>>,
+    Ctx: Has<DeployedValidator<{ ConstFnFeeSwitchPoolSwap as u8 }>>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         ctx.get().erased()
@@ -61,7 +61,7 @@ impl UniqueOrder for ClassicalOnChainLimitSwap {
 
 impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for ClassicalOnChainLimitSwap
 where
-    Ctx: Has<OutputRef> + Has<DeployedScriptInfo<{ ConstFnPoolSwap as u8 }>>,
+    Ctx: Has<OutputRef> + Has<DeployedScriptInfo<{ ConstFnFeeSwitchPoolSwap as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         if test_address(repr.address(), ctx) {

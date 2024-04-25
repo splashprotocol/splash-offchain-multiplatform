@@ -3,21 +3,15 @@
   "chainSync": {
     "startingPoint": {
       "Specific": [
-        58169558,
-        "9830dc755157ad897f1e6fb6270742a69efcf2cc3859b1399f94fcc184fe150d"
+        57083784,
+        "39319dc3edd348b4974ba41a56ca43b0d1c82019b680777c85c3c815f0bc5348"
       ]
     },
-    "replayFromPoint": {
-      "Specific": [
-        58169558,
-        "9830dc755157ad897f1e6fb6270742a69efcf2cc3859b1399f94fcc184fe150d"
-      ]
-    },
-    "disableRollbacksUntil": 58169000,
+    "disableRollbacksUntil": 56539435,
     "dbPath": "state"
   },
   "node": {
-    "path": "/Users/oskin/node-external/node.socket",
+    "path": "/root/cardano-vasil-docker/ipc/node.socket",
     "magic": 1
   },
   "txSubmissionBufferSize": 64,
@@ -29,7 +23,7 @@
   },
   "operatorKey": "xprv1lzpajzrahfy23zyt8479w6h5rj7tvj5e4sa4f3pg7xk0439l2dtdc0m3j2squs5vc2fzjljaamm6a32t364ncwjkhexnnr3kezqz8v22kwsh967asaxz7jqvjdsefvvktg4zkwphtfe60fhylj248eyetvr9x6sr",
   "operatorRewardAddress": "addr_test1qp97f7397q5aznqdwga0fg0xlfcn8lp6vy8csqek4459ewjmmfesg02r4kxltnn4vww0frsl9dz52spmayhszylrw5mstjywvz",
-  "maestroKeyPath": "bloom-cardano-agent/resources/maestro.key",
+  "maestroKeyPath": "/root/idea-projects/spectrum-offchain-multiplatform/bloom-cardano-agent/resources/maestro.key",
   "executionCap": {
     "soft": {
       "mem": 5000000,
@@ -41,3 +35,5 @@
     }
   }
 }
+
+

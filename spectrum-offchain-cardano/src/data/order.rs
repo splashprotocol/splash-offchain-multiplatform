@@ -26,10 +26,7 @@ use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::pool::try_run_order_against_pool;
 use crate::data::redeem::{ClassicalOnChainRedeem, RedeemOrderBounds};
 use crate::data::PoolId;
-use crate::deployment::ProtocolValidator::{
-    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
-    ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
-};
+use crate::deployment::ProtocolValidator::{BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnFeeSwitchPoolDeposit, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolV1, ConstFnPoolV2, ConstFnPoolDeposit, ConstFnPoolSwap, ConstFnPoolRedeem};
 use crate::deployment::{DeployedScriptInfo, DeployedValidator};
 use spectrum_cardano_lib::{NetworkId, OutputRef};
 
@@ -53,7 +50,8 @@ pub struct ClassicalOrder<Id, Ord> {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum OrderType {
     BalanceFn,
-    ConstFn,
+    ConstFnFeeSwitch,
+    ConstFn
 }
 
 impl<Id: Clone, Ord> Has<Id> for ClassicalOrder<Id, Ord> {
@@ -155,6 +153,9 @@ impl SpecializedOrder for ClassicalAMMOrder {
 impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for ClassicalAMMOrder
 where
     Ctx: Has<OutputRef>
+        + Has<DeployedScriptInfo<{ ConstFnFeeSwitchPoolSwap as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnFeeSwitchPoolDeposit as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnFeeSwitchPoolRedeem as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolSwap as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolDeposit as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolRedeem as u8 }>>
@@ -188,12 +189,15 @@ where
         + Has<OperatorRewardAddress>
         + Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
-        + Has<DeployedValidator<{ ConstFnPoolSwap as u8 }>>
+        + Has<DeployedValidator<{ ConstFnFeeSwitchPoolSwap as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolSwap as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolDeposit as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolRedeem as u8 }>>
+        + Has<DeployedValidator<{ ConstFnFeeSwitchPoolSwap as u8 }>>
+        + Has<DeployedValidator<{ ConstFnFeeSwitchPoolDeposit as u8 }>>
+        + Has<DeployedValidator<{ ConstFnFeeSwitchPoolRedeem as u8 }>>
         // comes from common execution for deposit and redeem for balance pool
         + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>>
