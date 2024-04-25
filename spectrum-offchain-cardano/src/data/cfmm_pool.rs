@@ -388,8 +388,14 @@ where
             let value = repr.value();
             let pd = repr.datum().clone()?.into_pd()?;
             let marginal_cost = match pool_ver {
-                ConstFnPoolVer::V1 => ctx.select::<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>().marginal_cost,
-                ConstFnPoolVer::V2 => ctx.select::<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>().marginal_cost,
+                ConstFnPoolVer::V1 => {
+                    ctx.select::<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>()
+                        .marginal_cost
+                }
+                ConstFnPoolVer::V2 => {
+                    ctx.select::<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>()
+                        .marginal_cost
+                }
                 ConstFnPoolVer::FeeSwitch => {
                     ctx.select::<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>()
                         .marginal_cost

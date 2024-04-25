@@ -185,7 +185,7 @@ impl<const TYP: u8> DeployedValidator<TYP> {
             reference_utxo: self.reference_utxo,
             hash: self.hash,
             ex_budget: self.cost,
-            marginal_cost: self.marginal_cost
+            marginal_cost: self.marginal_cost,
         }
     }
 }
