@@ -27,7 +27,7 @@ use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
-use crate::constants::{FEE_DEN, MAX_LQ_CAP};
+use crate::constants::{FEE_DEN, LEGACY_FEE_NUM_MULTIPLIER, MAX_LQ_CAP};
 
 use crate::data::deposit::ClassicalOnChainDeposit;
 
@@ -419,8 +419,8 @@ where
                         asset_lq: conf.asset_lq,
                         // legacy lp fee den = 1000
                         // new lp fee den = 100000
-                        lp_fee_x: Ratio::new_raw(conf.lp_fee_num * 100, FEE_DEN),
-                        lp_fee_y: Ratio::new_raw(conf.lp_fee_num * 100, FEE_DEN),
+                        lp_fee_x: Ratio::new_raw(conf.lp_fee_num * LEGACY_FEE_NUM_MULTIPLIER, FEE_DEN),
+                        lp_fee_y: Ratio::new_raw(conf.lp_fee_num * LEGACY_FEE_NUM_MULTIPLIER, FEE_DEN),
                         treasury_fee: Ratio::new_raw(0, 1),
                         treasury_x: TaggedAmount::new(0),
                         treasury_y: TaggedAmount::new(0),
