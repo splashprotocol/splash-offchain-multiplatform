@@ -417,8 +417,10 @@ where
                         asset_x: conf.asset_x,
                         asset_y: conf.asset_y,
                         asset_lq: conf.asset_lq,
-                        lp_fee_x: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
-                        lp_fee_y: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
+                        // legacy lp fee den = 1000
+                        // new lp fee den = 100000
+                        lp_fee_x: Ratio::new_raw(conf.lp_fee_num * 100, FEE_DEN),
+                        lp_fee_y: Ratio::new_raw(conf.lp_fee_num * 100, FEE_DEN),
                         treasury_fee: Ratio::new_raw(0, 1),
                         treasury_x: TaggedAmount::new(0),
                         treasury_y: TaggedAmount::new(0),
