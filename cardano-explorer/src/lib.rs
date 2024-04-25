@@ -57,7 +57,7 @@ pub struct Maestro(maestro::Maestro);
 
 impl Maestro {
     pub async fn new<P: AsRef<Path>>(path: P, network: Network) -> Result<Self, Error> {
-        let token = fs::read_to_string(path).await?;
+        let token = fs::read_to_string(path).await?.replace("\n", "");
         Ok(Self(maestro::Maestro::new(token, network.into())))
     }
 }
