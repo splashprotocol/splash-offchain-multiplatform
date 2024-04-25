@@ -2,12 +2,14 @@ use std::sync::{Arc, Once};
 
 use clap::Parser;
 use cml_chain::transaction::Transaction;
+use cml_crypto::blake2b256;
 use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
 use futures::channel::mpsc;
 use futures::stream::select_all;
 use futures::{stream_select, Stream, StreamExt};
-use log::info;
+use log::{info, trace};
+use tokio::fs;
 use tokio::sync::{broadcast, Mutex};
 use tracing_subscriber::fmt::Subscriber;
 
@@ -84,6 +86,9 @@ async fn main() {
 
     info!("Starting Off-Chain Agent ..");
 
+    let token = fs::read_to_string(config.maestro_key_path).await.expect("Cannot load maestro token");
+    trace!("Maestro token hash is {}", hex::encode(blake2b256(token.as_bytes())));
+    
     let explorer = Maestro::new(config.maestro_key_path, config.network_id.into())
         .await
         .expect("Maestro instantiation failed");

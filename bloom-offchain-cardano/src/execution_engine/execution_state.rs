@@ -184,7 +184,12 @@ impl TxBlueprint {
                 .unwrap();
             txb.add_reference_input(wit.reference_utxo);
             txb.add_withdrawal(withdrawal_result);
-            trace!("Witness: Base budget: {:?}, scaling factor: {}", wit.ex_budget, scaling_factor);
+            trace!(
+                "Witness: Base cost: {:?}, marginal cost {:?}, scaling factor: {}",
+                wit.ex_budget,
+                wit.marginal_cost,
+                scaling_factor
+            );
             txb.set_exunits(
                 RedeemerWitnessKey::new(RedeemerTag::Reward, 0),
                 (wit.ex_budget + wit.marginal_cost.scale(scaling_factor)).into(),
