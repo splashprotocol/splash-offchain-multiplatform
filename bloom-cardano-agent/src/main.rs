@@ -117,8 +117,7 @@ async fn main() {
     // prepare upstreams
     let tx_submission_stream = tx_submission_agent_stream(tx_submission_agent);
 
-    let (operator_sk, operator_pkh, _operator_addr) =
-        operator_creds(config.batcher_private_key, config.node.magic);
+    let (operator_sk, operator_pkh, operator_cred) = operator_creds(config.operator_key);
 
     let collateral = pull_collateral(operator_pkh, &explorer)
         .await
@@ -163,7 +162,7 @@ async fn main() {
         config.cardano_finalization_delay,
     )));
     let handler_context = HandlerContextProto {
-        executor_cred: config.executor_cred,
+        executor_cred: operator_cred,
         scripts: ProtocolScriptHashes::from(&protocol_deployment),
         bounds,
     };
@@ -192,7 +191,7 @@ async fn main() {
         time: 0.into(),
         deployment: protocol_deployment,
         execution_cap: config.execution_cap.into(),
-        reward_addr: config.reward_address,
+        reward_addr: config.operator_reward_address,
         backlog_capacity: BacklogCapacity::from(config.backlog_capacity),
         collateral,
         network_id: config.network_id,
