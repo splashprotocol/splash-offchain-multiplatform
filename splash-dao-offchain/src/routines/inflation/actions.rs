@@ -13,9 +13,8 @@ use cml_chain::plutus::RedeemerTag;
 use cml_chain::transaction::{TransactionInput, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::OrderedHashMap;
-use cml_crypto::{blake2b256, RawBytesEncoding};
+use cml_crypto::blake2b256;
 use spectrum_offchain_cardano::deployment::DeployedScriptHash;
-use uplc_pallas_traverse::ComputeHash;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use spectrum_cardano_lib::collateral::Collateral;
@@ -25,7 +24,7 @@ use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::{AssetName, OutputRef};
 use spectrum_offchain::data::unique_entity::{Predicted, Traced};
-use spectrum_offchain::data::{EntitySnapshot, Has, Stable};
+use spectrum_offchain::data::Has;
 use spectrum_offchain::ledger::IntoLedger;
 
 use crate::assets::SPLASH_AC;
@@ -221,10 +220,7 @@ where
         tx_builder.add_input(wp_factory_input).unwrap();
 
         let prev_factory_version = *factory.version();
-        let (next_factory, fresh_wpoll) =
-            factory
-                .unwrap()
-                .next_weighting_poll(farm_auth_policy, emission_rate, wpoll_auth_policy);
+        let (next_factory, fresh_wpoll) = factory.unwrap().next_weighting_poll(emission_rate);
         let mut factory_out = factory_in.clone();
         if let Some(data_mut) = factory_out.data_mut() {
             unsafe_update_factory_state(data_mut, next_factory.last_poll_epoch);
@@ -518,10 +514,11 @@ where
         // Compute the policy for `mint_weighting_power`, to allow us to add the weighting power to WeightingPoll's
         // UTxO.
         let mint_weighting_power_policy = compute_mint_weighting_power_policy_id(
-            weighting_poll.get().epoch as u64,
+            self.ctx.select::<GenesisEpochStartTime>().0,
             wpoll_auth_policy,
             voting_escrow.get().gt_policy,
         );
+        let weighting_power_asset_name = compute_epoch_asset_name(weighting_poll.get().epoch);
         let current_posix_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
         let mut wpoll_out = weighting_poll_in.clone();
@@ -532,7 +529,7 @@ where
         wpoll_out.add_asset(
             spectrum_cardano_lib::AssetClass::Token((
                 mint_weighting_power_policy,
-                AssetName::try_from(vec![constants::GT_NAME]).unwrap(),
+                AssetName::from(weighting_power_asset_name.clone()),
             )),
             weighting_power,
         );
@@ -587,9 +584,9 @@ where
         );
 
         let OperatorCreds(_, operator_pkh, _) = self.ctx.select::<OperatorCreds>();
-        let asset = compute_epoch_asset_name(weighting_poll.get().epoch);
-        let weighting_power_minting_policy = SingleMintBuilder::new_single_asset(asset.clone(), 1)
-            .plutus_script(mint_weighting_power_script, vec![operator_pkh]);
+        let weighting_power_minting_policy =
+            SingleMintBuilder::new_single_asset(weighting_power_asset_name, weighting_power as i64)
+                .plutus_script(mint_weighting_power_script, vec![operator_pkh]);
         tx_builder.add_reference_input(weighting_power_ref_script);
         tx_builder.add_mint(weighting_power_minting_policy).unwrap();
         tx_builder.set_exunits(
@@ -873,7 +870,7 @@ where
     }
 }
 
-fn compute_epoch_asset_name(epoch: u32) -> cml_chain::assets::AssetName {
+pub fn compute_epoch_asset_name(epoch: u32) -> cml_chain::assets::AssetName {
     let mut buffer = [0u8; 128];
     minicbor::encode(epoch, buffer.as_mut()).unwrap();
     let token_name = blake2b256(buffer.as_ref());

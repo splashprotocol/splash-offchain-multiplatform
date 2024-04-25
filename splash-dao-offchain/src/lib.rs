@@ -14,3 +14,6 @@ pub mod time;
 
 #[derive(Copy, Clone, Eq, PartialEq, From, Into, Debug)]
 pub struct GenesisEpochStartTime(NetworkTime);
+
+#[derive(Copy, Clone, Eq, PartialEq, From, Into, Debug)]
+pub struct CurrentEpoch(u32);

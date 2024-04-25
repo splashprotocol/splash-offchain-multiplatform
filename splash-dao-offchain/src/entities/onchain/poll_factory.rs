@@ -25,8 +25,6 @@ use crate::entities::Snapshot;
 use crate::protocol_config::WPAuthPolicy;
 use crate::time::ProtocolEpoch;
 
-use super::weighting_poll::WeightingPollStableId;
-
 pub type PollFactorySnapshot = Snapshot<PollFactory, OutputRef>;
 
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Debug, derive_more::Display)]
@@ -48,19 +46,12 @@ impl PollFactory {
     }
     pub fn next_weighting_poll(
         mut self,
-        farm_auth_policy: PolicyId,
         emission_rate: TaggedAmount<Splash>,
-        wp_auth_policy: PolicyId,
     ) -> (PollFactory, WeightingPoll) {
         let poll_epoch = self.last_poll_epoch + 1;
-        let stable_id = WeightingPollStableId {
-            auth_policy: wp_auth_policy,
-            farm_auth_policy,
-        };
         let next_poll = WeightingPoll {
             epoch: poll_epoch,
             distribution: self.active_farms.iter().map(|farm| (*farm, 0u64)).collect(),
-            stable_id,
             emission_rate,
             weighting_power: None,
         };

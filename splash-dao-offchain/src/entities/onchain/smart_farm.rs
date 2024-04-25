@@ -11,6 +11,7 @@ use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
 };
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
+use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::{AssetName, OutputRef};
 use spectrum_offchain::data::{Has, HasIdentifier, Identifier, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
@@ -34,6 +35,15 @@ impl Identifier for FarmId {
 impl IntoPlutusData for FarmId {
     fn into_pd(self) -> cml_chain::plutus::PlutusData {
         cml_chain::plutus::PlutusData::new_bytes(cml_chain::assets::AssetName::from(self.0).inner)
+    }
+}
+
+impl TryFromPData for FarmId {
+    fn try_from_pd(data: PlutusData) -> Option<Self> {
+        if let PlutusData::Bytes { bytes, .. } = data {
+            return Some(FarmId(AssetName::try_from(bytes).ok()?));
+        }
+        None
     }
 }
 
