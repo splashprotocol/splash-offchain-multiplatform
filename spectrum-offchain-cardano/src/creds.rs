@@ -23,5 +23,4 @@ pub fn operator_creds(operator_sk_raw: &str) -> (PrivateKey, PaymentCredential, 
         operator_pkh.to_bech32("addr_vkh").unwrap().into(),
         operator_pkh.into(),
     )
-
 }
