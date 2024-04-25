@@ -85,9 +85,6 @@ async fn main() {
     log4rs::init_file(args.log4rs_path, Default::default()).unwrap();
 
     info!("Starting Off-Chain Agent ..");
-
-    let token = fs::read_to_string(config.maestro_key_path).await.expect("Cannot load maestro token");
-    trace!("Maestro token is {}, hash is {}", token, hex::encode(blake2b256(token.as_bytes())));
     
     let explorer = Maestro::new(config.maestro_key_path, config.network_id.into())
         .await
