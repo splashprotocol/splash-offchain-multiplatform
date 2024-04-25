@@ -502,8 +502,10 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for ConstFnPool {
         ma.set(policy_lq, name_lq.into(), MAX_LQ_CAP - self.liquidity.untag());
         ma.set(nft_lq, name_nft.into(), 1);
 
-        if let Some(DatumOption::Datum { datum, .. }) = &mut immut_pool.datum_option {
-            unsafe_update_pd(datum, self.treasury_x.untag(), self.treasury_y.untag());
+        if self.ver == ConstFnPoolVer::FeeSwitch {
+            if let Some(DatumOption::Datum { datum, .. }) = &mut immut_pool.datum_option {
+                unsafe_update_pd(datum, self.treasury_x.untag(), self.treasury_y.untag());
+            }
         }
 
         TransactionOutput::new_conway_format_tx_out(ConwayFormatTxOut {
