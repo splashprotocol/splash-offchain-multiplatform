@@ -16,9 +16,8 @@ pub struct AppConfig<'a> {
     pub chain_sync: ChainSyncConfig<'a>,
     pub node: NodeConfig<'a>,
     pub tx_submission_buffer_size: usize,
-    pub batcher_private_key: &'a str, //todo: store encrypted
-    pub reward_address: OperatorRewardAddress,
-    pub executor_cred: OperatorCred,
+    pub operator_key: &'a str, //todo: store encrypted
+    pub operator_reward_address: OperatorRewardAddress,
     pub cardano_finalization_delay: Duration,
     pub backlog_capacity: u32,
     pub network_id: NetworkId,
