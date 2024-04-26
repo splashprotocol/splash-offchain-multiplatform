@@ -693,15 +693,15 @@ mod tests {
                     script_hash: ScriptHash::from([0u8; 28]),
                     marginal_cost: ExUnits::empty(),
                 },
-                const_fn_pool_swap: DeployedScriptInfo {
+                const_fn_fee_switch_pool_swap: DeployedScriptInfo {
                     script_hash: ScriptHash::from([0u8; 28]),
                     marginal_cost: ExUnits::empty(),
                 },
-                const_fn_pool_deposit: DeployedScriptInfo {
+                const_fn_fee_switch_pool_deposit: DeployedScriptInfo {
                     script_hash: ScriptHash::from([0u8; 28]),
                     marginal_cost: ExUnits::empty(),
                 },
-                const_fn_pool_redeem: DeployedScriptInfo {
+                const_fn_fee_switch_pool_redeem: DeployedScriptInfo {
                     script_hash: ScriptHash::from([0u8; 28]),
                     marginal_cost: ExUnits::empty(),
                 },
