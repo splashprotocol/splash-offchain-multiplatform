@@ -11,10 +11,10 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::data::Has;
 use spectrum_offchain_cardano::data::balance_pool::{BalancePool, BalancePoolRedeemer};
+use spectrum_offchain_cardano::data::cfmm_pool::ConstFnPoolVer::FeeSwitch;
 use spectrum_offchain_cardano::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
 use spectrum_offchain_cardano::data::pool::{AnyPool, AssetDeltas, CFMMPoolAction};
 use spectrum_offchain_cardano::data::{balance_pool, cfmm_pool};
-use spectrum_offchain_cardano::data::cfmm_pool::ConstFnPoolVer::FeeSwitch;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolV1, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolV1, ConstFnPoolV2,
     LimitOrderV1, LimitOrderWitnessV1,
@@ -242,7 +242,11 @@ where
 
         if transition.ver == FeeSwitch {
             if let Some(data) = produced_out.data_mut() {
-                cfmm_pool::unsafe_update_pd(data, transition.treasury_x.untag(), transition.treasury_y.untag());
+                cfmm_pool::unsafe_update_pd(
+                    data,
+                    transition.treasury_x.untag(),
+                    transition.treasury_y.untag(),
+                );
             }
         }
 

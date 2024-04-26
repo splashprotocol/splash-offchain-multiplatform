@@ -85,7 +85,7 @@ async fn main() {
     log4rs::init_file(args.log4rs_path, Default::default()).unwrap();
 
     info!("Starting Off-Chain Agent ..");
-    
+
     let explorer = Maestro::new(config.maestro_key_path, config.network_id.into())
         .await
         .expect("Maestro instantiation failed");

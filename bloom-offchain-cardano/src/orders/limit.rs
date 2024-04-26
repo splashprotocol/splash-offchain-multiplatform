@@ -320,7 +320,7 @@ where
             {
                 let bounds = ctx.select::<LimitOrderBounds>();
                 let valid_configuration = conf.cost_per_ex_step >= bounds.min_cost_per_ex_step
-                    && execution_budget > conf.cost_per_ex_step
+                    && execution_budget >= conf.cost_per_ex_step
                     && min_output >= min_marginal_output;
                 if valid_configuration {
                     // Fresh beacon must be derived from one of consumed utxos.

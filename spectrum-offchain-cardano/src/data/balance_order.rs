@@ -7,8 +7,9 @@ use crate::data::order::ClassicalAMMOrder;
 use crate::data::pool::try_run_order_against_pool;
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::deployment::ProtocolValidator::{
-    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnFeeSwitchPoolDeposit, ConstFnFeeSwitchPoolRedeem,
-    ConstFnFeeSwitchPoolSwap, ConstFnPoolV1, ConstFnPoolV2, ConstFnPoolSwap, ConstFnPoolDeposit, ConstFnPoolRedeem
+    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnFeeSwitchPoolDeposit,
+    ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolRedeem,
+    ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
 };
 use crate::deployment::{DeployedScriptInfo, DeployedValidator};
 use bloom_offchain::execution_engine::bundled::Bundled;

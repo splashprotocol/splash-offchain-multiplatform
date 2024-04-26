@@ -15,7 +15,11 @@ use spectrum_offchain_cardano::data::order::{ClassicalAMMOrder, RunClassicalAMMO
 use spectrum_offchain_cardano::data::pool::AnyPool;
 use spectrum_offchain_cardano::data::pool::AnyPool::{BalancedCFMM, PureCFMM};
 use spectrum_offchain_cardano::deployment::DeployedValidator;
-use spectrum_offchain_cardano::deployment::ProtocolValidator::{BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnFeeSwitchPoolDeposit, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolV1, ConstFnPoolV2, ConstFnPoolSwap, ConstFnPoolDeposit, ConstFnPoolRedeem};
+use spectrum_offchain_cardano::deployment::ProtocolValidator::{
+    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnFeeSwitchPoolDeposit,
+    ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
+    ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
+};
 
 /// Magnet for local instances.
 #[repr(transparent)]

@@ -8,7 +8,12 @@ use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::backlog::BacklogCapacity;
 use spectrum_offchain::data::Has;
 use spectrum_offchain_cardano::creds::OperatorRewardAddress;
-use spectrum_offchain_cardano::deployment::ProtocolValidator::{BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnFeeSwitchPoolDeposit, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolV1, ConstFnPoolV2, LimitOrderV1, LimitOrderWitnessV1, ConstFnPoolSwap, ConstFnPoolDeposit, ConstFnPoolRedeem};
+use spectrum_offchain_cardano::deployment::ProtocolValidator::{
+    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnFeeSwitchPoolDeposit,
+    ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
+    ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
+    LimitOrderV1, LimitOrderWitnessV1,
+};
 use spectrum_offchain_cardano::deployment::{DeployedValidator, ProtocolDeployment};
 
 #[derive(Debug, Clone)]

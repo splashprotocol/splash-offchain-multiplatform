@@ -15,7 +15,9 @@ use crate::data::order::{ClassicalOrder, OrderType, PoolNft};
 use crate::data::pool::CFMMPoolAction::Redeem as RedeemAction;
 use crate::data::pool::{CFMMPoolAction, Lq, Rx, Ry};
 use crate::data::{OnChainOrderId, PoolId};
-use crate::deployment::ProtocolValidator::{BalanceFnPoolRedeem, ConstFnFeeSwitchPoolRedeem, ConstFnPoolRedeem};
+use crate::deployment::ProtocolValidator::{
+    BalanceFnPoolRedeem, ConstFnFeeSwitchPoolRedeem, ConstFnPoolRedeem,
+};
 use crate::deployment::{
     test_address, DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator,
 };
@@ -98,7 +100,8 @@ where
         + Has<RedeemOrderBounds>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
-        let is_const_fee_switch_pool_deposit = test_address::<{ ConstFnFeeSwitchPoolRedeem as u8 }, Ctx>(repr.address(), ctx);
+        let is_const_fee_switch_pool_deposit =
+            test_address::<{ ConstFnFeeSwitchPoolRedeem as u8 }, Ctx>(repr.address(), ctx);
         let is_const_pool_redeem = test_address::<{ ConstFnPoolRedeem as u8 }, Ctx>(repr.address(), ctx);
         let is_balance_pool_redeem = test_address::<{ BalanceFnPoolRedeem as u8 }, Ctx>(repr.address(), ctx);
         if (is_const_fee_switch_pool_deposit || is_balance_pool_redeem || is_const_pool_redeem) {
