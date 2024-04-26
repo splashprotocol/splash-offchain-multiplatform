@@ -272,9 +272,12 @@ pub struct ProtocolScriptHashes {
     pub const_fn_pool_swap: DeployedScriptInfo<{ ProtocolValidator::ConstFnPoolSwap as u8 }>,
     pub const_fn_pool_deposit: DeployedScriptInfo<{ ProtocolValidator::ConstFnPoolDeposit as u8 }>,
     pub const_fn_pool_redeem: DeployedScriptInfo<{ ProtocolValidator::ConstFnPoolRedeem as u8 }>,
-    pub const_fn_fee_switch_pool_swap: DeployedScriptInfo<{ ProtocolValidator::ConstFnFeeSwitchPoolSwap as u8 }>,
-    pub const_fn_fee_switch_pool_deposit: DeployedScriptInfo<{ ProtocolValidator::ConstFnFeeSwitchPoolDeposit as u8 }>,
-    pub const_fn_fee_switch_pool_redeem: DeployedScriptInfo<{ ProtocolValidator::ConstFnFeeSwitchPoolRedeem as u8 }>,
+    pub const_fn_fee_switch_pool_swap:
+        DeployedScriptInfo<{ ProtocolValidator::ConstFnFeeSwitchPoolSwap as u8 }>,
+    pub const_fn_fee_switch_pool_deposit:
+        DeployedScriptInfo<{ ProtocolValidator::ConstFnFeeSwitchPoolDeposit as u8 }>,
+    pub const_fn_fee_switch_pool_redeem:
+        DeployedScriptInfo<{ ProtocolValidator::ConstFnFeeSwitchPoolRedeem as u8 }>,
     pub balance_fn_pool_v1: DeployedScriptInfo<{ ProtocolValidator::BalanceFnPoolV1 as u8 }>,
     pub balance_fn_pool_deposit: DeployedScriptInfo<{ ProtocolValidator::BalanceFnPoolDeposit as u8 }>,
     pub balance_fn_pool_redeem: DeployedScriptInfo<{ ProtocolValidator::BalanceFnPoolRedeem as u8 }>,
@@ -314,9 +317,12 @@ pub struct ProtocolDeployment {
     pub const_fn_pool_swap: DeployedValidator<{ ProtocolValidator::ConstFnPoolSwap as u8 }>,
     pub const_fn_pool_deposit: DeployedValidator<{ ProtocolValidator::ConstFnPoolDeposit as u8 }>,
     pub const_fn_pool_redeem: DeployedValidator<{ ProtocolValidator::ConstFnPoolRedeem as u8 }>,
-    pub const_fn_fee_switch_pool_swap: DeployedValidator<{ ProtocolValidator::ConstFnFeeSwitchPoolSwap as u8 }>,
-    pub const_fn_fee_switch_pool_deposit: DeployedValidator<{ ProtocolValidator::ConstFnFeeSwitchPoolDeposit as u8 }>,
-    pub const_fn_fee_switch_pool_redeem: DeployedValidator<{ ProtocolValidator::ConstFnFeeSwitchPoolRedeem as u8 }>,
+    pub const_fn_fee_switch_pool_swap:
+        DeployedValidator<{ ProtocolValidator::ConstFnFeeSwitchPoolSwap as u8 }>,
+    pub const_fn_fee_switch_pool_deposit:
+        DeployedValidator<{ ProtocolValidator::ConstFnFeeSwitchPoolDeposit as u8 }>,
+    pub const_fn_fee_switch_pool_redeem:
+        DeployedValidator<{ ProtocolValidator::ConstFnFeeSwitchPoolRedeem as u8 }>,
     pub balance_fn_pool_v1: DeployedValidator<{ ProtocolValidator::BalanceFnPoolV1 as u8 }>,
     pub balance_fn_pool_deposit: DeployedValidator<{ ProtocolValidator::BalanceFnPoolDeposit as u8 }>,
     pub balance_fn_pool_redeem: DeployedValidator<{ ProtocolValidator::BalanceFnPoolRedeem as u8 }>,
@@ -341,13 +347,25 @@ impl ProtocolDeployment {
             )
             .await,
             const_fn_pool_swap: DeployedValidator::unsafe_pull(validators.const_fn_pool_swap, explorer).await,
-            const_fn_pool_deposit: DeployedValidator::unsafe_pull(validators.const_fn_pool_deposit, explorer).await,
-            const_fn_pool_redeem: DeployedValidator::unsafe_pull(validators.const_fn_pool_redeem, explorer).await,
-            const_fn_fee_switch_pool_swap: DeployedValidator::unsafe_pull(validators.const_fn_fee_switch_pool_swap, explorer).await,
-            const_fn_fee_switch_pool_deposit: DeployedValidator::unsafe_pull(validators.const_fn_fee_switch_pool_deposit, explorer)
+            const_fn_pool_deposit: DeployedValidator::unsafe_pull(validators.const_fn_pool_deposit, explorer)
                 .await,
-            const_fn_fee_switch_pool_redeem: DeployedValidator::unsafe_pull(validators.const_fn_fee_switch_pool_redeem, explorer)
+            const_fn_pool_redeem: DeployedValidator::unsafe_pull(validators.const_fn_pool_redeem, explorer)
                 .await,
+            const_fn_fee_switch_pool_swap: DeployedValidator::unsafe_pull(
+                validators.const_fn_fee_switch_pool_swap,
+                explorer,
+            )
+            .await,
+            const_fn_fee_switch_pool_deposit: DeployedValidator::unsafe_pull(
+                validators.const_fn_fee_switch_pool_deposit,
+                explorer,
+            )
+            .await,
+            const_fn_fee_switch_pool_redeem: DeployedValidator::unsafe_pull(
+                validators.const_fn_fee_switch_pool_redeem,
+                explorer,
+            )
+            .await,
             balance_fn_pool_v1: DeployedValidator::unsafe_pull(validators.balance_fn_pool_v1, explorer).await,
             balance_fn_pool_deposit: DeployedValidator::unsafe_pull(
                 validators.balance_fn_pool_deposit,
