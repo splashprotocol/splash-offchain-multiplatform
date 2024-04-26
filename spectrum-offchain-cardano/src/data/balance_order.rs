@@ -7,8 +7,8 @@ use crate::data::order::ClassicalAMMOrder;
 use crate::data::pool::try_run_order_against_pool;
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::deployment::ProtocolValidator::{
-    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnPoolDeposit, ConstFnPoolRedeem,
-    ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
+    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnFeeSwitchPoolDeposit, ConstFnFeeSwitchPoolRedeem,
+    ConstFnFeeSwitchPoolSwap, ConstFnPoolV1, ConstFnPoolV2, ConstFnPoolSwap, ConstFnPoolDeposit, ConstFnPoolRedeem
 };
 use crate::deployment::{DeployedScriptInfo, DeployedValidator};
 use bloom_offchain::execution_engine::bundled::Bundled;
@@ -44,7 +44,10 @@ where
         + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolSwap as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolDeposit as u8 }>>
-        + Has<DeployedValidator<{ ConstFnPoolRedeem as u8 }>>,
+        + Has<DeployedValidator<{ ConstFnPoolRedeem as u8 }>>
+        + Has<DeployedValidator<{ ConstFnFeeSwitchPoolSwap as u8 }>>
+        + Has<DeployedValidator<{ ConstFnFeeSwitchPoolDeposit as u8 }>>
+        + Has<DeployedValidator<{ ConstFnFeeSwitchPoolRedeem as u8 }>>,
 {
     fn try_run(
         self,

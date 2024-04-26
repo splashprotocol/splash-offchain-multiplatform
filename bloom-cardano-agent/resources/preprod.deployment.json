@@ -106,6 +106,39 @@
       "steps": 200000000
     }
   },
+  "constFnFeeSwitchPoolSwap": {
+    "hash": "2b05ad9840ce60083b4e5786968e1e17f8459e149d9afac4d44dff17",
+    "referenceUtxo": {
+      "txHash": "45c4725eddc643859874b0c08ce29985ae382fec539a544d3dc9b7814192d2ce",
+      "outputIndex": 0
+    },
+    "cost": {
+      "mem": 500000,
+      "steps": 200000000
+    }
+  },
+  "constFnFeeSwitchPoolDeposit": {
+    "hash": "680f52841c06f32cecdcdeff2c20ce6b70c2a5249b94d1a2b4eff294",
+    "referenceUtxo": {
+      "txHash": "6eebdea4d351d198bc93452afba5b9cb4420617e6c94339f5b85f827c0f74479",
+      "outputIndex": 0
+    },
+    "cost": {
+      "mem": 500000,
+      "steps": 200000000
+    }
+  },
+  "constFnFeeSwitchPoolRedeem": {
+    "hash": "87f504b07add9e1d74ae102f53ab7f9ff2456dee897a43d8e27b348b",
+    "referenceUtxo": {
+      "txHash": "6eebdea4d351d198bc93452afba5b9cb4420617e6c94339f5b85f827c0f74479",
+      "outputIndex": 2
+    },
+    "cost": {
+      "mem": 500000,
+      "steps": 200000000
+    }
+  },
   "balanceFnPoolV1": {
     "hash": "1b810d1426ceb8a7a61d78899fe01a426ac770deb6daad335e2c59eb",
     "referenceUtxo": {

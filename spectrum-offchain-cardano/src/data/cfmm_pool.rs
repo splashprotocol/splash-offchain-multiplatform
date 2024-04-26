@@ -27,7 +27,7 @@ use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
-use crate::constants::{FEE_DEN, MAX_LQ_CAP};
+use crate::constants::{FEE_DEN, LEGACY_FEE_NUM_MULTIPLIER, MAX_LQ_CAP};
 
 use crate::data::deposit::ClassicalOnChainDeposit;
 
@@ -417,8 +417,10 @@ where
                         asset_x: conf.asset_x,
                         asset_y: conf.asset_y,
                         asset_lq: conf.asset_lq,
-                        lp_fee_x: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
-                        lp_fee_y: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
+                        // legacy lp fee den = 1000
+                        // new lp fee den = 100000
+                        lp_fee_x: Ratio::new_raw(conf.lp_fee_num * LEGACY_FEE_NUM_MULTIPLIER, FEE_DEN),
+                        lp_fee_y: Ratio::new_raw(conf.lp_fee_num * LEGACY_FEE_NUM_MULTIPLIER, FEE_DEN),
                         treasury_fee: Ratio::new_raw(0, 1),
                         treasury_x: TaggedAmount::new(0),
                         treasury_y: TaggedAmount::new(0),
@@ -500,8 +502,10 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for ConstFnPool {
         ma.set(policy_lq, name_lq.into(), MAX_LQ_CAP - self.liquidity.untag());
         ma.set(nft_lq, name_nft.into(), 1);
 
-        if let Some(DatumOption::Datum { datum, .. }) = &mut immut_pool.datum_option {
-            unsafe_update_pd(datum, self.treasury_x.untag(), self.treasury_y.untag());
+        if self.ver == ConstFnPoolVer::FeeSwitch {
+            if let Some(DatumOption::Datum { datum, .. }) = &mut immut_pool.datum_option {
+                unsafe_update_pd(datum, self.treasury_x.untag(), self.treasury_y.untag());
+            }
         }
 
         TransactionOutput::new_conway_format_tx_out(ConwayFormatTxOut {

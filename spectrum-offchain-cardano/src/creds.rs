@@ -1,5 +1,6 @@
 use cml_chain::address::{Address, EnterpriseAddress};
 use cml_chain::certs::StakeCredential;
+use cml_chain::genesis::network_info::NetworkInfo;
 use cml_crypto::{Bip32PrivateKey, Ed25519KeyHash, PrivateKey};
 use derive_more::{From, Into};
 
