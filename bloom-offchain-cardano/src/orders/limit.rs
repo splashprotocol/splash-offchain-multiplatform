@@ -309,6 +309,7 @@ where
             };
             let execution_budget = total_ada_input
                 .checked_sub(reserved_lovelace)
+                .and_then(|lov| lov.checked_sub(conf.fee))
                 .and_then(|lov| lov.checked_sub(tradable_lovelace))?;
             let min_output = conf.tradable_input as u128 * conf.base_price.numer() / conf.base_price.denom();
             let min_marginal_output = conf.min_marginal_output as u128;
@@ -474,5 +475,5 @@ mod tests {
         dbg!(conf);
     }
 
-    const DATUM: &str = "d8799f4100581c6386211b2897ed9515fcd840a936d6069d47a35add1ec1cf861da6ccd8799f4040ff1a002dc6c01a00061a801a00061a80d8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737442ffd8799f0101ff1a0007a120d8799fd8799f581c1e5b525041f0d70ad830f1d7dbd2ed7012c1d89788b4385d7bdd0c37ffd8799fd8799fd8799f581c6b6723106d7725d57913612286514abb81148d344b1675df297ee224ffffffff581c1e5b525041f0d70ad830f1d7dbd2ed7012c1d89788b4385d7bdd0c3780ff";
+    const DATUM: &str = "d8798c4100581c486ea431f127bc6a9b51fad64e9aa71e93e4e931deab413427dbab10d8798240401a0009b0781a0007a12019c350d87982581c2adf188218a66847024664f4f63939577627a56c090f679fe366c5ee46535441424c45d87982010a1a0007a120d87982d87981581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b25d87981d87981d87981581c7846f6bb07f5b2825885e4502679e699b4e60a0c4609a46bc35454cd581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b2580";
 }
