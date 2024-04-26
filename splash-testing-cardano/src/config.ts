@@ -26,12 +26,26 @@ async function getConfigTemplate<T extends object>(): Promise<Config<T>> {
   }
 }
 
+const stringifyBigIntReviewer = (_: any, value: any) =>
+  typeof value === 'bigint'
+    ? { value: value.toString(), _bigint: true }
+    : value;
+
 export async function generateConfigJson<T extends object>(
   validators: T,
 ) {
+
+  const prevConfig = await getConfig();
+
   const newConfig = await getConfigTemplate();
 
-  newConfig.validators = validators;
+  newConfig.validators = { ...prevConfig.validators, ...validators  };
+
+  // console.log(`${JSON.stringify(validators, stringifyBigIntReviewer)}`)
+
+  // console.log(`${JSON.stringify(prevConfig.validators, stringifyBigIntReviewer)}`)
+
+  // newConfig.validators = validators ++ prevConfig.validators!;
 
   await Deno.writeTextFile(CONFIG_PATH, JSON.stringify(newConfig, strigifyAll, 2));
 }

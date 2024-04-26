@@ -12,11 +12,11 @@ export const stringToHex = (str: string): string =>
 
 
 // Allowed for editing
-const TokenB   = "testC"
-const TokenBCS = "4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26"
+const TokenB   = "fomoToken"
+const TokenBCS = "5ac3d4bdca238105a040a565e5d7e734b7c9e1630aec7650e809e34a"
 
-const startLovelaceValue = 5000000;
-const startTokenB        = 5000000*4;
+const startLovelaceValue = 100000000;
+const startTokenB        = 100000000*4;
 
 const adaWeight = 1;
 const weigtDen = 5;
@@ -370,4 +370,4 @@ async function getDAO<T>(url: URL, nftCS: string, nftTN: string): Promise<T> {
           })
 }
   
-//main();
+main();
