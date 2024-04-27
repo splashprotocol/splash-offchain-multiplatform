@@ -36,6 +36,8 @@ use crate::data::pool::AnyPool::{BalancedCFMM, PureCFMM};
 use crate::data::pool::ApplyOrderError::{LowBatcherFeeErr, SlippageErr};
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, Token};
+use spectrum_cardano_lib::transaction::TransactionOutputExtension;
+use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_offchain::data::unique_entity::Predicted;
 use spectrum_offchain::data::{Has, Stable, Tradable};
 use spectrum_offchain::executor::RunOrderError;
@@ -175,6 +177,12 @@ impl CFMMPoolAction {
     }
 }
 
+#[derive(Copy, Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PoolBounds {
+    pub min_lovelace: u64,
+}
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum AnyPool {
     PureCFMM(ConstFnPool),
@@ -236,12 +244,18 @@ where
         + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
-        + Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>,
+        + Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>
+        + Has<PoolBounds>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
-        let cfmm_pool = ConstFnPool::try_from_ledger(repr, ctx).map(PureCFMM);
-        let balance_pool = BalancePool::try_from_ledger(repr, ctx).map(BalancedCFMM);
-        cfmm_pool.or(balance_pool)
+        let bounds = ctx.select::<PoolBounds>();
+        if repr.value().amount_of(AssetClass::Native).unwrap_or(0) >= bounds.min_lovelace {
+            let cfmm_pool = ConstFnPool::try_from_ledger(repr, ctx).map(PureCFMM);
+            let balance_pool = BalancePool::try_from_ledger(repr, ctx).map(BalancedCFMM);
+            cfmm_pool.or(balance_pool)
+        } else {
+            None
+        }
     }
 }
 
