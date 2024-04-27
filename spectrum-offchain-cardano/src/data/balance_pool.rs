@@ -619,7 +619,7 @@ impl BalancePoolRedeemer {
 
 pub fn round_big_number(orig_value: BigNumber, precision: usize) -> BigInteger {
     let int_part = orig_value.to_string().split(".").nth(0).unwrap().len();
-    if (precision == 0) {
+    if precision == 0 {
         BigInteger::from_str(
             orig_value.to_string().replace(".", "")[..(int_part)]
                 .to_string()
@@ -827,17 +827,17 @@ impl ApplyOrder<ClassicalOnChainDeposit> for BalancePool {
         .as_u128()
         .unwrap();
 
-        let additional = if (invariant_num % invariant_denum == 0) {
+        let additional = if invariant_num % invariant_denum == 0 {
             0
         } else {
             1
         };
 
-        let new_invariant = (invariant_num / invariant_denum + additional);
-        let new_invariant_length = (format!("{}", new_invariant)).len();
+        let new_invariant = invariant_num / invariant_denum + additional;
+        let new_invariant_length = format!("{}", new_invariant).len();
 
         self.liquidity = self.liquidity + unlocked_lq;
-        self.invariant = new_invariant as u128;
+        self.invariant = new_invariant;
         self.invariant_length = new_invariant_length as u64;
 
         let deposit_output = DepositOutput {
@@ -865,22 +865,18 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
     ) -> Result<(Self, RedeemOutput), ApplyOrderError<ClassicalOnChainRedeem>> {
         let (x_amount, y_amount) = self.clone().shares_amount(order.token_lq_amount);
 
-        let new_x_value_multiply_invariant =
-            ((self.reserves_x.untag() - x_amount.untag() - self.treasury_x.untag()) as u128) * self.invariant;
         let prev_x_value = (self.reserves_x.untag() - self.treasury_x.untag()) as u128;
+        let new_x_value = prev_x_value - (x_amount.untag() as u128);
 
-        let additional = if new_x_value_multiply_invariant % prev_x_value == 0
-        {
+        let new_x_value_multiply_invariant = new_x_value * self.invariant;
+
+        let additional = if new_x_value_multiply_invariant % prev_x_value == 0 {
             0
         } else {
             1
         };
 
-        let new_invariant = ((((self.reserves_x.untag() - x_amount.untag() - self.treasury_x.untag())
-            as u128)
-            * self.invariant as u128)
-            / ((self.reserves_x.untag() - self.treasury_x.untag()) as u128))
-            + additional;
+        let new_invariant = (new_x_value_multiply_invariant / prev_x_value) + additional;
 
         let new_invariant_length = (format!("{}", new_invariant)).len();
 
