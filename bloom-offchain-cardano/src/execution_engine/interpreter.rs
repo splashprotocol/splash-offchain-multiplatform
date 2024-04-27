@@ -131,6 +131,7 @@ where
 
     let estimated_fee = tx_builder.min_fee(true).unwrap();
     let fee_mismatch = reserved_fee as i64 - estimated_fee as i64;
+    trace!("Est. fee {}, reserved fee: {}, mismatch {}", estimated_fee, reserved_fee, fee_mismatch);
     if fee_mismatch != 0 {
         let fee_rescale_factor = Ratio::new(estimated_fee, reserved_fee);
         let corrected_recipe = balance_fee(fee_mismatch, fee_rescale_factor, instructions);
