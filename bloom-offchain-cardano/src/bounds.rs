@@ -10,5 +10,5 @@ pub struct Bounds {
     pub limit_order: LimitOrderBounds,
     pub deposit_order: DepositOrderBounds,
     pub redeem_order: RedeemOrderBounds,
-    pub pool: PoolBounds
+    pub pool: PoolBounds,
 }

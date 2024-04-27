@@ -206,7 +206,7 @@ impl BalancePool {
         );
         let g_len = BigInteger::from(BigNumber::from_str(&new_g.to_string()).unwrap().to_string().len());
 
-        let new_t_pow_denum_len = BigInteger::from(
+        let new_t_pow_denom_len = BigInteger::from(
             BigNumber::from_str(&new_t.to_string())
                 .unwrap()
                 .pow(&BigNumber::from(WEIGHT_FEE_DEN))
@@ -250,7 +250,7 @@ impl BalancePool {
             [
                 new_balance_len,
                 g_len,
-                new_t_pow_denum_len,
+                new_t_pow_denom_len,
                 new_t_pow_weight_len,
                 g_equation_left_side_len,
                 right_side_len,
@@ -277,10 +277,10 @@ impl BalancePool {
         };
         let new_token_value =
             BigNumber::from(asset_reserves).sub(BigNumber::from(quote_asset_out.untag() as f64));
-        // g = newTokenValue ^ (tokenWeight / commonWeightDenum)
+        // g = newTokenValue ^ (tokenWeight / commonWeightDenom)
         let new_g_raw =
             new_token_value.pow(&BigNumber::from(asset_weight).div(BigNumber::from(WEIGHT_FEE_DEN)));
-        // t = newTokenValue ^ (1 / commonWeightDenum)
+        // t = newTokenValue ^ (1 / commonWeightDenom)
         let new_t_raw = new_token_value.pow(&BigNumber::from(1).div(BigNumber::from(WEIGHT_FEE_DEN)));
         // we should round raw value to max precision + additional round
 
@@ -817,7 +817,7 @@ impl ApplyOrder<ClassicalOnChainDeposit> for BalancePool {
         )
         .as_u128()
         .unwrap();
-        let invariant_denum = round_big_number(
+        let invariant_denom = round_big_number(
             BigNumber::from(self.reserves_x.untag() as f64)
                 .sub(BigNumber::from(self.treasury_x.untag() as f64))
                 .sub(BigNumber::from(net_x as f64))
@@ -827,13 +827,13 @@ impl ApplyOrder<ClassicalOnChainDeposit> for BalancePool {
         .as_u128()
         .unwrap();
 
-        let additional = if invariant_num % invariant_denum == 0 {
+        let additional = if invariant_num % invariant_denom == 0 {
             0
         } else {
             1
         };
 
-        let new_invariant = invariant_num / invariant_denum + additional;
+        let new_invariant = invariant_num / invariant_denom + additional;
         let new_invariant_length = format!("{}", new_invariant).len();
 
         self.liquidity = self.liquidity + unlocked_lq;
@@ -878,7 +878,7 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
 
         let new_invariant = (new_x_value_multiply_invariant / prev_x_value) + additional;
 
-        let new_invariant_length = (format!("{}", new_invariant)).len();
+        let new_invariant_length = format!("{}", new_invariant).len();
 
         self.invariant = new_invariant;
         self.invariant_length = new_invariant_length as u64;
