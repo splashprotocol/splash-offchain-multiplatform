@@ -57,6 +57,7 @@ where
             >,
         >,
     ) {
+        trace!("Running recipe: {:?}", instructions);
         let (mut tx_builder, effects, ctx) = execute_recipe(ctx, instructions);
         let execution_fee_address = ctx.select::<OperatorRewardAddress>().into();
         // Build tx, change is execution fee.
