@@ -8,7 +8,7 @@
   "redeemOrder": {
     "minCollateralAda": 1500000
   },
-  "poolBounds": {
+  "pool": {
     "minLovelace": 1000000000
   }
 }
