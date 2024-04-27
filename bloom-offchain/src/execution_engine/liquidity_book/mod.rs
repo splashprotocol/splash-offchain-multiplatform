@@ -316,9 +316,9 @@ fn settle_price<Fr: Fragment>(ask: &Fr, bid: &Fr, index_price: Option<AbsolutePr
     let fee_ask = ask.fee() as i128;
     let fee_bid = bid.fee() as i128;
     let bias_percent = if fee_ask < fee_bid {
-        -fee_ask * 100 / fee_bid
+        (-fee_ask * 100).checked_div(fee_bid).unwrap_or(0)
     } else {
-        fee_bid * 100 / fee_ask
+        (fee_bid * 100).checked_div(fee_ask).unwrap_or(0)
     };
     let max_deviation = pivotal_price * Ratio::new(MAX_BIAS_PERCENT, 100);
     let deviation = to_signed(max_deviation) * Ratio::new(bias_percent, 100);
