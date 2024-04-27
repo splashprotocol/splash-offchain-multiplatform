@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -89,7 +89,7 @@ where
         + TryFromLedger<BabbageTransactionOutput, HandlerContext>
         + Clone
         + Debug,
-    Order::TOrderId: From<OutputRef>,
+    Order::TOrderId: From<OutputRef> + Display,
     OrderIndex: crate::event_sink::order_index::OrderIndex<Order>,
     PoolIndex: TradableEntityIndex<Pool>,
 {
@@ -171,7 +171,7 @@ where
         + TryFromLedger<BabbageTransactionOutput, HandlerContext>
         + Clone
         + Debug,
-    Order::TOrderId: From<OutputRef>,
+    Order::TOrderId: From<OutputRef> + Display,
     OrderIndex: crate::event_sink::order_index::OrderIndex<Order>,
     PoolIndex: TradableEntityIndex<Pool>,
 {
@@ -224,7 +224,7 @@ async fn extract_atomic_transitions<Order, Index>(
 ) -> Result<Vec<Either<Order, Order>>, ProcessingTransaction>
 where
     Order: SpecializedOrder + TryFromLedger<BabbageTransactionOutput, HandlerContext> + Clone,
-    Order::TOrderId: From<OutputRef>,
+    Order::TOrderId: From<OutputRef> + Display,
     Index: OrderIndex<Order>,
 {
     let num_outputs = tx.body.outputs.len();
