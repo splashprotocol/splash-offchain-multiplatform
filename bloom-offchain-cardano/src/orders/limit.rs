@@ -328,7 +328,6 @@ where
                     let valid_fresh_beacon = ctx
                         .select::<ConsumedInputs>()
                         .find(|o| beacon_from_oref(*o) == conf.beacon);
-                    info!(target: "offchain", "Obtained Limit Order from confirmed UTXO. Beacon: {}", conf.beacon);
                     let script_info = ctx.select::<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>();
                     return Some(LimitOrder {
                         beacon: conf.beacon,

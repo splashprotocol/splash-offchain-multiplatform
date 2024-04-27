@@ -133,7 +133,7 @@ where
             }
         };
         let witness = context.select::<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>();
-        state.add_fee(fee_used);
+        state.add_fee(budget_used + fee_used);
         state
             .tx_blueprint
             .add_witness(witness.erased(), PlutusData::new_list(vec![]));
