@@ -252,7 +252,7 @@ where
             }
         }
 
-        let mut updated_output = produced_out.clone();
+        let updated_output = produced_out.clone();
 
         let result = Bundled(transition, updated_output.clone());
 
