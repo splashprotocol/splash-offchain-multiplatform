@@ -231,31 +231,30 @@ where
     if num_outputs == 0 {
         return Err((tx_hash, tx));
     }
-    let mut consumed_entities = HashMap::<Order::TOrderId, Order>::new();
+    let mut consumed_orders = HashMap::<Order::TOrderId, Order>::new();
     let mut consumed_utxos = Vec::new();
     for i in &tx.body.inputs {
         let oref = OutputRef::from((i.transaction_id, i.index));
         consumed_utxos.push(oref);
         let state_id = Order::TOrderId::from(oref);
         let mut index = index.lock().await;
-        if index.exists(&state_id) {
-            if let Some(order) = index.get(&state_id) {
-                let entity_id = order.get_self_ref();
-                consumed_entities.insert(entity_id, order);
-            }
+        if let Some(order) = index.get(&state_id) {
+            let order_id = order.get_self_ref();
+            trace!("Order {} eliminated", order_id);
+            consumed_orders.insert(order_id, order);
         }
     }
-    let mut produced_entities = HashMap::<Order::TOrderId, Order>::new();
+    let mut produced_orders = HashMap::<Order::TOrderId, Order>::new();
     let consumed_utxos = ConsumedInputs::new(consumed_utxos.into_iter());
     let mut ix = num_outputs - 1;
     let mut non_processed_outputs = VecDeque::new();
     while let Some(o) = tx.body.outputs.pop() {
         let o_ref = OutputRef::new(tx_hash, ix as u64);
         match Order::try_from_ledger(&o, &HandlerContext::new(o_ref, consumed_utxos, context)) {
-            Some(entity) => {
-                trace!(target: "offchain", "extract_atomic_transitions: entity found");
-                let entity_id = entity.get_self_ref();
-                produced_entities.insert(entity_id, entity);
+            Some(order) => {
+                let order_id = order.get_self_ref();
+                trace!("Order {} created", order_id);
+                produced_orders.insert(order_id, order);
             }
             None => {
                 non_processed_outputs.push_front(o);
@@ -270,14 +269,14 @@ where
 
     // Gather IDs of all recognized entities.
     let mut keys = HashSet::new();
-    for k in consumed_entities.keys().chain(produced_entities.keys()) {
+    for k in consumed_orders.keys().chain(produced_orders.keys()) {
         keys.insert(*k);
     }
 
     // Match consumed versions with produced ones.
     let mut transitions = vec![];
     for k in keys.into_iter() {
-        match (consumed_entities.remove(&k), produced_entities.remove(&k)) {
+        match (consumed_orders.remove(&k), produced_orders.remove(&k)) {
             (Some(consumed), _) => transitions.push(Either::Left(consumed)),
             (_, Some(produced)) => transitions.push(Either::Right(produced)),
             _ => {}
@@ -314,6 +313,7 @@ where
         if index.exists(&state_id) {
             if let Some(entity) = index.get_state(&state_id) {
                 let entity_id = entity.stable_id();
+                trace!("Entity {} consumed", entity_id);
                 consumed_entities.insert(entity_id, entity);
             }
         }
@@ -327,8 +327,8 @@ where
         let o_ref = OutputRef::new(tx_hash, ix as u64);
         match Entity::try_from_ledger(&o, &HandlerContext::new(o_ref, consumed_utxos, context)) {
             Some(entity) => {
-                trace!(target: "offchain", "extract_persistent_transitions: entity found");
                 let entity_id = entity.stable_id();
+                trace!("Entity {} created", entity_id);
                 produced_entities.insert(entity_id, entity);
             }
             None => {

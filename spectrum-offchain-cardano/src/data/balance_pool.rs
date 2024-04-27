@@ -305,7 +305,7 @@ impl BalancePool {
                 .len(),
         );
 
-        let g_in_weight_degree_multiplicator = if (asset_weight == 1_f64) {
+        let g_in_weight_degree_multiplicator = if asset_weight == 1_f64 {
             BigNumber::from(1_f64)
         } else {
             BigNumber::from(WEIGHT_FEE_DEN) - BigNumber::from(asset_weight)
@@ -644,9 +644,9 @@ impl AMMOps for BalancePool {
     ) -> TaggedAmount<Quote> {
         balance_cfmm_output_amount(
             self.asset_x,
-            (self.reserves_x - self.treasury_x),
+            self.reserves_x - self.treasury_x,
             self.weight_x,
-            (self.reserves_y - self.treasury_y),
+            self.reserves_y - self.treasury_y,
             self.weight_y,
             base_asset,
             base_amount,
@@ -663,7 +663,7 @@ impl AMMOps for BalancePool {
     ) -> (TaggedAmount<Lq>, TaggedAmount<Rx>, TaggedAmount<Ry>) {
         // Balance pool reward lp calculation is the same as for cfmm pool,
         // but we should "recalculate" change_x, change_y based on unlocked_lq
-        let (unlocked_lq, change_x, change_y) = classic_cfmm_reward_lp(
+        let (unlocked_lq, _change_x, _change_y) = classic_cfmm_reward_lp(
             self.reserves_x - self.treasury_x,
             self.reserves_y - self.treasury_y,
             self.liquidity,
