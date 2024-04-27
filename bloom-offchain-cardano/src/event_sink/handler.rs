@@ -227,6 +227,7 @@ where
     Order::TOrderId: From<OutputRef> + Display,
     Index: OrderIndex<Order>,
 {
+    trace!("+- Scanning Tx {} for atomic orders", tx_hash);
     let num_outputs = tx.body.outputs.len();
     if num_outputs == 0 {
         return Err((tx_hash, tx));
@@ -299,6 +300,7 @@ where
     Entity::Version: From<OutputRef>,
     Index: TradableEntityIndex<Entity>,
 {
+    trace!("+- Scanning Tx {} for persistent entities", tx_hash);
     let num_outputs = tx.body.outputs.len();
     if num_outputs == 0 {
         return Err((tx_hash, tx));
@@ -319,7 +321,6 @@ where
         }
     }
     let mut produced_entities = HashMap::<Entity::StableId, Entity>::new();
-    trace!(target: "offchain", "+- Scanning Tx {}", tx_hash);
     let mut ix = num_outputs - 1;
     let mut non_processed_outputs = VecDeque::new();
     let consumed_utxos = ConsumedInputs::new(consumed_utxos.into_iter());
