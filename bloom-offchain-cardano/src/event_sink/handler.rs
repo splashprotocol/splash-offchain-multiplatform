@@ -106,7 +106,7 @@ where
                 )
                 .await
                 {
-                    Ok(transitions) => {
+                    Ok((transitions, tx)) => {
                         trace!(target: "offchain", "[{}] entities parsed from applied tx", transitions.len());
                         let pool_index = self.general_handler.index.lock().await;
                         let mut index = self.order_index.lock().await;
@@ -119,7 +119,7 @@ where
                                 topic.flush().await.expect("Failed to commit message");
                             }
                         }
-                        None
+                        Some(LedgerTxEvent::TxApplied { tx, slot })
                     }
                     Err(tx) => Some(LedgerTxEvent::TxApplied { tx, slot }),
                 }
@@ -132,7 +132,7 @@ where
                 )
                 .await
                 {
-                    Ok(transitions) => {
+                    Ok((transitions, tx)) => {
                         trace!("[{}] entities parsed from unapplied tx", transitions.len());
                         let mut index = self.order_index.lock().await;
                         let pool_index = self.general_handler.index.lock().await;
@@ -149,7 +149,7 @@ where
                                 topic.flush().await.expect("Failed to commit message");
                             }
                         }
-                        None
+                        Some(LedgerTxEvent::TxUnapplied(tx))
                     }
                     Err(tx) => Some(LedgerTxEvent::TxUnapplied(tx)),
                 }
@@ -188,7 +188,7 @@ where
                 )
                 .await
                 {
-                    Ok(transitions) => {
+                    Ok((transitions, tx)) => {
                         trace!(target: "offchain", "[{}] entities parsed from applied tx", transitions.len());
                         let pool_index = self.general_handler.index.lock().await;
                         let mut index = self.order_index.lock().await;
@@ -201,7 +201,7 @@ where
                                 topic.flush().await.expect("Failed to commit message");
                             }
                         }
-                        None
+                        Some(MempoolUpdate::TxAccepted(tx))
                     }
                     Err(tx) => Some(MempoolUpdate::TxAccepted(tx)),
                 }
@@ -221,7 +221,7 @@ async fn extract_atomic_transitions<Order, Index>(
     index: Arc<Mutex<Index>>,
     context: HandlerContextProto,
     (tx_hash, mut tx): ProcessingTransaction,
-) -> Result<Vec<Either<Order, Order>>, ProcessingTransaction>
+) -> Result<(Vec<Either<Order, Order>>, ProcessingTransaction), ProcessingTransaction>
 where
     Order: SpecializedOrder + TryFromLedger<BabbageTransactionOutput, HandlerContext> + Clone,
     Order::TOrderId: From<OutputRef> + Display,
@@ -287,14 +287,14 @@ where
     if transitions.is_empty() {
         return Err((tx_hash, tx));
     }
-    Ok(transitions)
+    Ok((transitions, (tx_hash, tx)))
 }
 
 async fn extract_persistent_transitions<Entity, Index>(
     index: Arc<Mutex<Index>>,
     context: HandlerContextProto,
     (tx_hash, mut tx): ProcessingTransaction,
-) -> Result<Vec<Ior<Entity, Entity>>, ProcessingTransaction>
+) -> Result<(Vec<Ior<Entity, Entity>>, ProcessingTransaction), ProcessingTransaction>
 where
     Entity: EntitySnapshot + Tradable + TryFromLedger<BabbageTransactionOutput, HandlerContext> + Clone,
     Entity::Version: From<OutputRef>,
@@ -360,7 +360,7 @@ where
     if transitions.is_empty() {
         return Err((tx_hash, tx));
     }
-    Ok(transitions)
+    Ok((transitions, (tx_hash, tx)))
 }
 
 fn pair_id_of<T: Tradable>(xa: &Ior<T, T>) -> T::PairId {
@@ -393,7 +393,7 @@ where
         match ev {
             LedgerTxEvent::TxApplied { tx, slot } => {
                 match extract_persistent_transitions(Arc::clone(&self.index), self.context, tx).await {
-                    Ok(transitions) => {
+                    Ok((transitions, tx)) => {
                         trace!(target: "offchain", "[{}] entities parsed from applied tx", transitions.len());
                         let mut index = self.index.lock().await;
                         index.run_eviction();
@@ -407,14 +407,14 @@ where
                                 .expect("Channel is closed");
                             topic.flush().await.expect("Failed to commit message");
                         }
-                        None
+                        Some(LedgerTxEvent::TxApplied { tx, slot })
                     }
                     Err(tx) => Some(LedgerTxEvent::TxApplied { tx, slot }),
                 }
             }
             LedgerTxEvent::TxUnapplied(tx) => {
                 match extract_persistent_transitions(Arc::clone(&self.index), self.context, tx).await {
-                    Ok(transitions) => {
+                    Ok((transitions, tx)) => {
                         trace!("[{}] entities parsed from unapplied tx", transitions.len());
                         let mut index = self.index.lock().await;
                         index.run_eviction();
@@ -434,7 +434,7 @@ where
                                 .expect("Channel is closed");
                             topic.flush().await.expect("Failed to commit message");
                         }
-                        None
+                        Some(LedgerTxEvent::TxUnapplied(tx))
                     }
                     Err(tx) => Some(LedgerTxEvent::TxUnapplied(tx)),
                 }
@@ -465,7 +465,7 @@ where
         match ev {
             MempoolUpdate::TxAccepted(tx) => {
                 match extract_persistent_transitions(Arc::clone(&self.index), self.context, tx).await {
-                    Ok(transitions) => {
+                    Ok((transitions, tx)) => {
                         trace!("[{}] entities parsed from applied tx", transitions.len());
                         let mut index = self.index.lock().await;
                         index.run_eviction();
@@ -482,7 +482,7 @@ where
                                 .expect("Channel is closed");
                             topic.flush().await.expect("Failed to commit message");
                         }
-                        None
+                        Some(MempoolUpdate::TxAccepted(tx))
                     }
                     Err(tx) => Some(MempoolUpdate::TxAccepted(tx)),
                 }
