@@ -1,5 +1,6 @@
 use cml_chain::plutus::PlutusData;
 use cml_chain::transaction::TransactionOutput;
+use cml_crypto::Ed25519KeyHash;
 use log::trace;
 
 use bloom_offchain::execution_engine::batch_exec::BatchExec;
@@ -11,6 +12,7 @@ use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::data::Has;
+use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::balance_pool::{BalancePool, BalancePoolRedeemer};
 use spectrum_offchain_cardano::data::cfmm_pool::ConstFnPoolVer::FeeSwitch;
 use spectrum_offchain_cardano::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
@@ -43,6 +45,7 @@ impl<Ctx> BatchExec<ExecutionState, OrderResult<AnyOrder>, Ctx>
     for Magnet<LinkedFill<AnyOrder, FinalizedTxOut>>
 where
     Ctx: Has<NetworkId>
+        + Has<OperatorCred>
         + Has<DeployedValidator<{ LimitOrderV1 as u8 }>>
         + Has<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>,
 {
@@ -79,6 +82,7 @@ impl<Ctx> BatchExec<ExecutionState, OrderResult<LimitOrder>, Ctx>
     for Magnet<LinkedFill<LimitOrder, FinalizedTxOut>>
 where
     Ctx: Has<NetworkId>
+        + Has<OperatorCred>
         + Has<DeployedValidator<{ LimitOrderV1 as u8 }>>
         + Has<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>,
 {
@@ -91,7 +95,11 @@ where
             budget_used,
             fee_used,
         }) = self;
-        trace!("Exec(Order): budget_used: {}, fee_used: {}", budget_used, fee_used);
+        trace!(
+            "Exec(Order): budget_used: {}, fee_used: {}",
+            budget_used,
+            fee_used
+        );
         let DeployedValidatorErased {
             reference_utxo,
             hash,
@@ -108,6 +116,11 @@ where
                 cost: ex_budget,
             },
             redeemer: ready_redeemer(limit::EXEC_REDEEMER),
+            required_signers: if ord.requires_executor_sig {
+                vec![Ed25519KeyHash::from(context.select::<OperatorCred>())]
+            } else {
+                vec![]
+            },
         };
         let mut candidate = consumed_out.clone();
         // Subtract budget + fee used to facilitate execution.
@@ -240,6 +253,7 @@ where
                 }
                 .to_plutus_data()
             }),
+            required_signers: vec![],
         };
 
         if transition.ver == FeeSwitch {
@@ -305,6 +319,7 @@ where
                 }
                 .to_plutus_data()
             }),
+            required_signers: vec![],
         };
 
         if let Some(data) = produced_out.data_mut() {
