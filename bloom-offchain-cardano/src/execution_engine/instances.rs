@@ -1,5 +1,6 @@
 use cml_chain::plutus::PlutusData;
 use cml_chain::transaction::TransactionOutput;
+use log::trace;
 
 use bloom_offchain::execution_engine::batch_exec::BatchExec;
 use bloom_offchain::execution_engine::bundled::Bundled;
@@ -90,6 +91,7 @@ where
             budget_used,
             fee_used,
         }) = self;
+        trace!("Exec(Order): budget_used: {}, fee_used: {}", budget_used, fee_used);
         let DeployedValidatorErased {
             reference_utxo,
             hash,
@@ -133,7 +135,7 @@ where
             }
         };
         let witness = context.select::<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>();
-        state.add_fee(budget_used + fee_used);
+        state.add_fee(budget_used);
         state
             .tx_blueprint
             .add_witness(witness.erased(), PlutusData::new_list(vec![]));
