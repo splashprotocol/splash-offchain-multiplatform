@@ -865,11 +865,11 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
     ) -> Result<(Self, RedeemOutput), ApplyOrderError<ClassicalOnChainRedeem>> {
         let (x_amount, y_amount) = self.clone().shares_amount(order.token_lq_amount);
 
-        let additional = if ((((self.reserves_x.untag() - x_amount.untag() - self.treasury_x.untag())
-            as u128)
-            * self.invariant as u128)
-            % ((self.reserves_x.untag() - self.treasury_x.untag()) as u128)
-            == 0)
+        let new_x_value_multiply_invariant =
+            ((self.reserves_x.untag() - x_amount.untag() - self.treasury_x.untag()) as u128) * self.invariant;
+        let prev_x_value = (self.reserves_x.untag() - self.treasury_x.untag()) as u128;
+
+        let additional = if new_x_value_multiply_invariant % prev_x_value == 0
         {
             0
         } else {
