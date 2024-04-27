@@ -217,7 +217,7 @@ mod tests {
                 next_fr: StateTrans::EOL,
                 removed_input: 0,
                 added_output: 0,
-                budget_used: 1_000,
+                budget_used: 250000,
                 fee_used: 0,
             }),
             LinkedTerminalInstruction::Swap(LinkedSwap {
@@ -232,12 +232,12 @@ mod tests {
                 next_fr: StateTrans::EOL,
                 removed_input: 0,
                 added_output: 0,
-                budget_used: 2_000,
+                budget_used: 250000,
                 fee_used: 0,
             }),
         ];
-        let reserved_fee = 3_000;
-        let estimated_fee = 2_000;
+        let reserved_fee = 500000;
+        let estimated_fee = 456325;
         let rescale_factor = Ratio::new(estimated_fee, reserved_fee);
         let fee_mismatch = reserved_fee as i64 - estimated_fee as i64;
         let balanced_instructions = balance_fee(fee_mismatch, rescale_factor, instructions);
