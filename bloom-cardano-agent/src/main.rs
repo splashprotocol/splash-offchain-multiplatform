@@ -1,15 +1,13 @@
-use std::sync::{Arc, Once};
+use std::sync::Arc;
 
 use clap::Parser;
 use cml_chain::transaction::Transaction;
-use cml_crypto::blake2b256;
 use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
 use futures::channel::mpsc;
 use futures::stream::select_all;
 use futures::{stream_select, Stream, StreamExt};
-use log::{info, trace};
-use tokio::fs;
+use log::info;
 use tokio::sync::{broadcast, Mutex};
 use tracing_subscriber::fmt::Subscriber;
 
@@ -17,7 +15,7 @@ use bloom_cardano_agent::config::AppConfig;
 use bloom_cardano_agent::context::ExecutionContext;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_part_stream;
-use bloom_offchain::execution_engine::liquidity_book::{ExecutionCap, TLB};
+use bloom_offchain::execution_engine::liquidity_book::TLB;
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
 use bloom_offchain::execution_engine::storage::kv_store::InMemoryKvStore;
 use bloom_offchain::execution_engine::storage::{InMemoryStateIndex, StateIndexTracing};
@@ -195,6 +193,7 @@ async fn main() {
         backlog_capacity: BacklogCapacity::from(config.backlog_capacity),
         collateral,
         network_id: config.network_id,
+        operator_cred,
     };
     let multi_book = MultiPair::new::<TLB<AnyOrder, AnyPool, ExUnits>>(context.clone(), "Book");
     let multi_backlog = MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(

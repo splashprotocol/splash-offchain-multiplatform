@@ -11,7 +11,8 @@ use cml_chain::builders::withdrawal_builder::SingleWithdrawalBuilder;
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
 use cml_chain::certs::Credential;
 use cml_chain::plutus::{PlutusData, RedeemerTag};
-use cml_chain::transaction::{TransactionInput, TransactionOutput};
+use cml_chain::transaction::{RequiredSigners, TransactionInput, TransactionOutput};
+use cml_crypto::Ed25519KeyHash;
 use log::trace;
 
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
@@ -48,6 +49,7 @@ pub struct ScriptInputBlueprint {
     pub utxo: TransactionOutput,
     pub script: ScriptWitness,
     pub redeemer: DelayedRedeemer,
+    pub required_signers: RequiredSigners,
 }
 
 pub fn ready_redeemer(r: PlutusData) -> DelayedRedeemer {
@@ -153,6 +155,7 @@ impl TxBlueprint {
                     utxo,
                     script,
                     redeemer,
+                    required_signers,
                 },
                 output,
             ),
@@ -163,7 +166,7 @@ impl TxBlueprint {
                 redeemer.compute(&inputs_ordering),
             );
             let input = SingleInputBuilder::new(reference.into(), utxo)
-                .plutus_script_inline_datum(cml_script, Vec::new())
+                .plutus_script_inline_datum(cml_script, required_signers)
                 .unwrap();
             let output = SingleOutputBuilderResult::new(output);
             txb.add_input(input).expect("add_input ok");

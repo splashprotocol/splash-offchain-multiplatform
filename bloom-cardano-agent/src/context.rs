@@ -7,7 +7,7 @@ use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::backlog::BacklogCapacity;
 use spectrum_offchain::data::Has;
-use spectrum_offchain_cardano::creds::OperatorRewardAddress;
+use spectrum_offchain_cardano::creds::{OperatorCred, OperatorRewardAddress};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnFeeSwitchPoolDeposit,
     ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
@@ -25,11 +25,18 @@ pub struct ExecutionContext {
     pub reward_addr: OperatorRewardAddress,
     pub backlog_capacity: BacklogCapacity,
     pub network_id: NetworkId,
+    pub operator_cred: OperatorCred,
 }
 
 impl Has<NetworkId> for ExecutionContext {
     fn select<U: IsEqual<NetworkId>>(&self) -> NetworkId {
         self.network_id
+    }
+}
+
+impl Has<OperatorCred> for ExecutionContext {
+    fn select<U: IsEqual<OperatorCred>>(&self) -> OperatorCred {
+        self.operator_cred
     }
 }
 
