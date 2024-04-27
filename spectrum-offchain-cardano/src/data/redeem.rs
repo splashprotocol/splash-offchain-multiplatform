@@ -104,8 +104,8 @@ where
             test_address::<{ ConstFnFeeSwitchPoolRedeem as u8 }, Ctx>(repr.address(), ctx);
         let is_const_pool_redeem = test_address::<{ ConstFnPoolRedeem as u8 }, Ctx>(repr.address(), ctx);
         let is_balance_pool_redeem = test_address::<{ BalanceFnPoolRedeem as u8 }, Ctx>(repr.address(), ctx);
-        if (is_const_fee_switch_pool_deposit || is_balance_pool_redeem || is_const_pool_redeem) {
-            let order_type = if (is_const_fee_switch_pool_deposit) {
+        if is_const_fee_switch_pool_deposit || is_balance_pool_redeem || is_const_pool_redeem {
+            let order_type = if is_const_fee_switch_pool_deposit {
                 OrderType::ConstFnFeeSwitch
             } else if is_balance_pool_redeem {
                 OrderType::BalanceFn
@@ -114,8 +114,8 @@ where
             };
             let value = repr.value().clone();
             let conf = OnChainRedeemConfig::try_from_pd(repr.datum().clone()?.into_pd()?)?;
-            let token_lq_amount = TaggedAmount::new(value.amount_of(conf.token_lq.untag()).unwrap_or(0));
-            let collateral_ada = value.amount_of(AssetClass::Native).unwrap_or(0) - conf.ex_fee;
+            let token_lq_amount = TaggedAmount::new(value.amount_of(conf.token_lq.untag())?);
+            let collateral_ada = value.amount_of(AssetClass::Native)? - conf.ex_fee;
             let redeem = Redeem {
                 pool_nft: PoolId::try_from(conf.pool_nft).ok()?,
                 token_x: conf.token_x,
