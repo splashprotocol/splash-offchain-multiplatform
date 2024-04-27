@@ -146,12 +146,12 @@ fn balance_fee<Fr, Pl, Bearer>(
     mut instructions: Vec<LinkedTerminalInstruction<Fr, Pl, Bearer>>,
 ) -> Vec<LinkedTerminalInstruction<Fr, Pl, Bearer>> {
     for i in &mut instructions {
-        let delta = i.scale_fee(rescale_factor);
+        let delta = i.scale_budget(rescale_factor);
         fee_mismatch += delta;
     }
     for i in &mut instructions {
         if fee_mismatch != 0 {
-            let delta = i.correct_fee(-fee_mismatch);
+            let delta = i.correct_budget(-fee_mismatch);
             fee_mismatch += delta;
         } else {
             break;
@@ -216,8 +216,8 @@ mod tests {
                 next_fr: StateTrans::EOL,
                 removed_input: 0,
                 added_output: 0,
-                budget_used: 0,
-                fee_used: 1_000,
+                budget_used: 1_000,
+                fee_used: 0,
             }),
             LinkedTerminalInstruction::Swap(LinkedSwap {
                 target: Bundled((), ()),
@@ -231,8 +231,8 @@ mod tests {
                 next_fr: StateTrans::EOL,
                 removed_input: 0,
                 added_output: 0,
-                budget_used: 0,
-                fee_used: 2_000,
+                budget_used: 2_000,
+                fee_used: 0,
             }),
         ];
         let reserved_fee = 3_000;
@@ -244,7 +244,7 @@ mod tests {
             balanced_instructions
                 .iter()
                 .map(|i| match i {
-                    LinkedTerminalInstruction::Fill(f) => f.fee_used,
+                    LinkedTerminalInstruction::Fill(f) => f.budget_used,
                     LinkedTerminalInstruction::Swap(_) => 0,
                 })
                 .sum::<u64>(),
@@ -260,8 +260,8 @@ mod tests {
                 next_fr: StateTrans::EOL,
                 removed_input: 0,
                 added_output: 0,
-                budget_used: 0,
-                fee_used: 1_000,
+                budget_used: 1_000,
+                fee_used: 0,
             }),
             LinkedTerminalInstruction::Swap(LinkedSwap {
                 target: Bundled((), ()),
@@ -275,8 +275,8 @@ mod tests {
                 next_fr: StateTrans::EOL,
                 removed_input: 0,
                 added_output: 0,
-                budget_used: 0,
-                fee_used: 2_000,
+                budget_used: 2_000,
+                fee_used: 0,
             }),
         ];
         let reserved_fee = 3_000;
@@ -288,7 +288,7 @@ mod tests {
             balanced_instructions
                 .iter()
                 .map(|i| match i {
-                    LinkedTerminalInstruction::Fill(f) => f.fee_used,
+                    LinkedTerminalInstruction::Fill(f) => f.budget_used,
                     LinkedTerminalInstruction::Swap(_) => 0,
                 })
                 .sum::<u64>(),
