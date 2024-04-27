@@ -3,7 +3,7 @@ use async_trait::async_trait;
 #[async_trait(?Send)]
 pub trait EventHandler<TEvent> {
     /// Tries to handle the given event if applicable.
-    /// Returns `Some(TEvent)` back otherwise.
+    /// Returns `Some(TEvent)` if further processing is needed.
     async fn try_handle(&mut self, ev: TEvent) -> Option<TEvent>;
 }
 
