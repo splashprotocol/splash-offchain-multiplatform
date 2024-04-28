@@ -28,7 +28,7 @@ use crate::time::ProtocolEpoch;
 pub type PollFactorySnapshot = Snapshot<PollFactory, OutputRef>;
 
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Debug, derive_more::Display)]
-pub struct PollFactoryId(ScriptHash);
+pub struct PollFactoryId(pub ScriptHash);
 
 impl Identifier for PollFactoryId {
     type For = PollFactorySnapshot;

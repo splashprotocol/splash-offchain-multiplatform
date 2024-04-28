@@ -1,4 +1,5 @@
 import {
+  M,
   PolicyId,
   Script,
   UTxO,
@@ -15,6 +16,10 @@ import {
 export type BuiltValidator = {
   script: Script;
   hash: string;
+  exBudget: {
+    mem: bigint;
+    steps: bigint;
+  };
 };
 
 export type BuiltPolicy = {
@@ -32,7 +37,8 @@ export type ScriptNames =
   | "veFactory"
   | "govProxy"
   | "permManager"
-  | "mintWPAuthToken";
+  | "mintWPAuthToken"
+  | "weightingPower";
 
 export type NFTNames =
   | "factory_auth"
@@ -66,7 +72,6 @@ export type WPFactoryState = {
 };
 
 export type DaoInput = {
-  numGTTokens: bigint;
   inflation: IInflationInflation["epoch"];
   votingEscrow: IVotingEscrowVotingEscrow["state"];
   farmFactory: ISmartFarmFarmFactory["state"];

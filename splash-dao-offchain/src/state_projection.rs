@@ -7,6 +7,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use spectrum_offchain::data::unique_entity::{AnyMod, Confirmed, Predicted, Traced};
 use spectrum_offchain::data::{EntitySnapshot, HasIdentifier};
+use spectrum_offchain::rocks::RocksConfig;
 
 /// Projection of [T] state relative to the ledger.
 #[async_trait::async_trait]
@@ -35,6 +36,14 @@ const STATE_PREFIX: &str = "s:";
 
 pub struct StateProjectionRocksDB {
     pub db: Arc<rocksdb::OptimisticTransactionDB>,
+}
+
+impl StateProjectionRocksDB {
+    pub fn new(conf: RocksConfig) -> Self {
+        Self {
+            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(conf.db_path).unwrap()),
+        }
+    }
 }
 
 #[async_trait::async_trait]

@@ -5,6 +5,7 @@ use cml_core::Slot;
 use cardano_chain_sync::client::Point;
 use cardano_explorer::data::ExplorerConfig;
 use spectrum_cardano_lib::NetworkId;
+use spectrum_offchain::rocks::RocksConfig;
 use spectrum_offchain_cardano::creds::{OperatorCred, OperatorRewardAddress};
 
 #[derive(serde::Deserialize)]
@@ -21,6 +22,13 @@ pub struct AppConfig<'a> {
     pub cardano_finalization_delay: Duration,
     pub backlog_capacity: u32,
     pub network_id: NetworkId,
+    pub order_backlog_config: RocksConfig,
+    pub inflation_box_persistence_config: RocksConfig,
+    pub poll_factory_persistence_config: RocksConfig,
+    pub weighting_poll_persistence_config: RocksConfig,
+    pub voting_escrow_persistence_config: RocksConfig,
+    pub smart_farm_persistence_config: RocksConfig,
+    pub perm_manager_persistence_config: RocksConfig,
 }
 
 #[derive(serde::Deserialize)]

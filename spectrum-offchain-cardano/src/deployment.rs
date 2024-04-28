@@ -16,7 +16,7 @@ use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::Has;
 
 #[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "PascalCase")]
 pub enum ScriptType {
     PlutusV1,
     PlutusV2,

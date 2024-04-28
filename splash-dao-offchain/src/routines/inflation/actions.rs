@@ -671,7 +671,7 @@ where
         let splash_policy = self.ctx.select::<SplashPolicy>().0;
         let factory_auth_policy = self.ctx.select::<FactoryAuthPolicy>().0;
         let wpoll_auth_ref_script = self.ctx.select::<WPAuthRefScriptOutput>().0;
-        let farm_auth_ref_script = self.ctx.select::<FarmAuthRefScriptOutput>().0;
+        let smart_farm_ref_script = self.ctx.select::<FarmAuthRefScriptOutput>().0;
         let edao_msig_policy = self.ctx.select::<EDaoMSigAuthPolicy>().0;
         let perm_manager_auth_policy = self.ctx.select::<PermManagerAuthPolicy>().0;
         let perm_manager_box_ref_script = self.ctx.select::<PermManagerBoxRefScriptOutput>().0;
@@ -769,7 +769,7 @@ where
                     )
                     .plutus_script_inline_datum(smart_farm_script, vec![])
                     .unwrap();
-                    tx_builder.add_reference_input(farm_auth_ref_script.clone());
+                    tx_builder.add_reference_input(smart_farm_ref_script.clone());
                     tx_builder.add_input(smart_farm_input).unwrap();
                     tx_builder.set_exunits(
                         RedeemerWitnessKey::new(RedeemerTag::Spend, i as u64),

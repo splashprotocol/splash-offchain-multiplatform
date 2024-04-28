@@ -3,7 +3,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use cml_chain::transaction::Transaction;
-use spectrum_cardano_lib::OutputRef;
+use spectrum_cardano_lib::{AssetName, OutputRef};
 use spectrum_offchain::backlog::ResilientBacklog;
 use spectrum_offchain::data::unique_entity::{AnyMod, Confirmed, Traced};
 use spectrum_offchain::network::Network;
@@ -14,7 +14,7 @@ use spectrum_offchain_cardano::tx_submission::TxRejected;
 use crate::entities::offchain::voting_order::VotingOrder;
 use crate::entities::onchain::inflation_box::{InflationBoxId, InflationBoxSnapshot};
 use crate::entities::onchain::permission_manager::{PermManager, PermManagerId, PermManagerSnapshot};
-use crate::entities::onchain::poll_factory::{PollFactory, PollFactorySnapshot};
+use crate::entities::onchain::poll_factory::{PollFactory, PollFactoryId, PollFactorySnapshot};
 use crate::entities::onchain::smart_farm::{FarmId, SmartFarm, SmartFarmSnapshot};
 use crate::entities::onchain::voting_escrow::{VotingEscrow, VotingEscrowId, VotingEscrowSnapshot};
 use crate::entities::onchain::weighting_poll::{
@@ -102,14 +102,16 @@ impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
     where
         IB: StateProjectionRead<InflationBoxSnapshot, Bearer>,
     {
-        self.inflation_box.read(self.conf.inflation_box_id).await
+        self.inflation_box.read(InflationBoxId {}).await
     }
 
     async fn poll_factory(&self) -> Option<AnyMod<Bundled<PollFactorySnapshot, Bearer>>>
     where
         PF: StateProjectionRead<PollFactorySnapshot, Bearer>,
     {
-        self.poll_factory.read(self.conf.poll_factory_id).await
+        self.poll_factory
+            .read(PollFactoryId(self.conf.deployed_validators.wp_factory.hash))
+            .await
     }
 
     async fn weighting_poll(
@@ -126,7 +128,11 @@ impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
     where
         PM: StateProjectionRead<PermManagerSnapshot, Bearer>,
     {
-        self.perm_manager.read(self.conf.perm_manager_box_id).await
+        let token = (
+            self.conf.tokens.perm_manager_auth_policy,
+            AssetName::from(self.conf.tokens.perm_manager_auth_name.clone()),
+        );
+        self.perm_manager.read(PermManagerId(token)).await
     }
 
     async fn next_order(

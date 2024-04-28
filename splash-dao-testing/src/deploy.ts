@@ -36,7 +36,7 @@ const NFT_JSON_FILENAME = "nfts.json";
 const BUILT_VALIDATORS_JSON_FILENAME = "validators.json";
 const DEPLOYED_VALIDATORS_JSON_FILENAME = "deployedValidators.json";
 const PREPROD_DEPLOYMENT_JSON_FILENAME = "preprod.deployment.json";
-const TX_CONFIRMATION_WAIT_TIME = 90000;
+const TX_CONFIRMATION_WAIT_TIME = 120000;
 
 async function main() {
   const lucid = await getLucid();
@@ -45,7 +45,7 @@ async function main() {
   // SPECIFY SETTINGS HERE -------------------------------------------------------------------------
 
   // To differentiate different deployments for testing
-  const postfix = "_10";
+  const postfix = "_15";
   const acceptedAssets = new Map();
   acceptedAssets.set({
     policy: "40079b8ba147fb87a00da10deff7ddd13d64daf48802bb3f82530c3e",
@@ -53,12 +53,11 @@ async function main() {
   }, { num: 100n, den: 1000n });
 
   const daoInput: DaoInput = {
-    numGTTokens: 10000n,
     inflation: 1n,
     votingEscrow: {
       lockedUntil: { Def: [1n] },
       owner: { PubKey: [pubKey] },
-      maxExFee: 1n,
+      maxExFee: 100000n,
       version: 1n,
       lastWpEpoch: 1n,
       lastGpDeadline: 1n,
@@ -76,7 +75,7 @@ async function main() {
 
   //------------------------------------------------------------------------------------------------
 
-  await mintNFTs(lucid, postfix, daoInput.numGTTokens);
+  await mintNFTs(lucid, postfix);
 
   const nftDetails = JSON.parse(
     await Deno.readTextFile(NFT_JSON_FILENAME),
@@ -128,39 +127,31 @@ async function createMultipleMintingUtxOs(
   console.log("Creating UTxOs. tx hash: " + txHash);
   await lucid.awaitTx(txHash);
   await sleep(TX_CONFIRMATION_WAIT_TIME);
+  console.log("created multiple UTxOs.");
   return txHash;
 }
 
 async function mintNFTs(
   lucid: Lucid,
   namePostfix: string,
-  gtTokenQuantity: bigint,
 ) {
   const myAddr = await lucid.wallet.address();
 
-  //const multipleUTxOTxId = await createMultipleMintingUtxOs(
-  //  lucid,
-  //  myAddr,
-  //  20000000n,
-  //  3000000n,
-  //);
-
-  //console.log("Waiting for multiple UTxOs to be confirmed");
-  //await lucid.awaitTx(multipleUTxOTxId);
-  //await sleep(TX_CONFIRMATION_WAIT_TIME);
-
-  //console.log("created multiple UTxOs.");
+  const multipleUTxOTxId = await createMultipleMintingUtxOs(
+    lucid,
+    myAddr,
+    20000000n,
+    3000000n,
+  );
 
   const utxos = (await lucid.utxosAt(myAddr)).filter((utxo) =>
-    utxo.txHash ===
-      "685b67e12eb7b9761f79af22d90a3cdbcbda15656416f35670c63da69d399ac0"
+    utxo.txHash === multipleUTxOTxId
   );
 
   const nftDetails = buildNFTDetails(
     lucid,
-    "685b67e12eb7b9761f79af22d90a3cdbcbda15656416f35670c63da69d399ac0",
+    multipleUTxOTxId,
     namePostfix,
-    gtTokenQuantity,
   );
   let txBuilder = lucid.newTx().collectFrom(utxos);
 
@@ -196,7 +187,6 @@ function buildNFTDetails(
   lucid: Lucid,
   multipleUTxOTxId: string,
   namePostfix: string,
-  gtTokenQuantity: bigint,
 ): NFTDetails {
   const toMint: [Script, string][] = [];
   // 5 NFTs
@@ -237,7 +227,7 @@ function buildNFTDetails(
     perm_auth: toBuiltPolicy(toMint[2], "perm_auth", 1n),
     proposal_auth: toBuiltPolicy(toMint[3], "proposal_auth", 1n),
     edao_msig: toBuiltPolicy(toMint[4], "edao_msig", 1n),
-    gt: toBuiltPolicy(toMint[5], "gt", gtTokenQuantity),
+    gt: toBuiltPolicy(toMint[5], "gt", 45000000000000000n),
   };
 }
 
@@ -329,6 +319,11 @@ async function deployValidators(
     proposalAuthPolicy,
     gtPolicy,
   );
+
+  const weightingPowerScriptHash = lucid.utils.validatorToScriptHash(
+    weightingPowerScript,
+  );
+
   const weightingPowerPolicy = lucid.utils.mintingPolicyToId(
     weightingPowerScript,
   );
@@ -356,39 +351,79 @@ async function deployValidators(
     inflation: {
       script: inflationScript,
       hash: inflationScriptHash,
+      exBudget: {
+        mem: 500000n,
+        steps: 200000000n,
+      },
     },
     votingEscrow: {
       script: votingEscrowScript,
       hash: veScriptHash,
+      exBudget: {
+        mem: 500000n,
+        steps: 200000000n,
+      },
     },
     farmFactory: {
       script: farmFactoryScript,
       hash: farmFactoryScriptHash,
+      exBudget: {
+        mem: 500000n,
+        steps: 200000000n,
+      },
     },
     wpFactory: {
       script: wpFactoryScript,
       hash: wpFactoryScriptHash,
+      exBudget: {
+        mem: 500000n,
+        steps: 200000000n,
+      },
     },
     veFactory: {
       script: veFactoryScript,
       hash: veFactoryScriptHash,
+      exBudget: {
+        mem: 500000n,
+        steps: 200000000n,
+      },
     },
     govProxy: {
       script: govProxyScript,
       hash: govProxyScriptHash,
+      exBudget: {
+        mem: 500000n,
+        steps: 200000000n,
+      },
     },
     permManager: {
       script: permManagerScript,
       hash: permManagerScriptHash,
+      exBudget: {
+        mem: 500000n,
+        steps: 200000000n,
+      },
     },
     mintWPAuthToken: {
       script: wpAuthScript,
       hash: wpAuthPolicy,
+      exBudget: {
+        mem: 500000n,
+        steps: 200000000n,
+      },
+    },
+    weightingPower: {
+      script: weightingPowerScript,
+      hash: weightingPowerScriptHash,
+      exBudget: {
+        mem: 500000n,
+        steps: 200000000n,
+      },
     },
   };
 
   // Write the object to a JSON file
-  await Deno.writeTextFile("validators.json", JSON.stringify(builtValidators));
+  await Deno.writeTextFile("validators.json", toJson(builtValidators));
 
   const ns: Script = lucid.utils.nativeScriptFromJson({
     type: "before",
@@ -447,6 +482,11 @@ async function deployValidators(
       { scriptRef: builtValidators.mintWPAuthToken.script },
       {},
     )
+    .payToAddressWithData(
+      lockScript,
+      { scriptRef: builtValidators.weightingPower.script },
+      {},
+    )
     .complete();
   const signedTx = await tx.sign().complete();
   const txHash1 = await signedTx.submit();
@@ -475,7 +515,7 @@ async function createEntities(
       { hash, type: "Script" },
     );
 
-  const qty = 1000000n;
+  const qty = 10000000n;
 
   const tx = await lucid.newTx()
     .readFrom([
@@ -543,7 +583,7 @@ async function getDeployedValidators(
 ) {
   try {
     const builtValidatorsKeys = Object.keys(builtValidators) as ScriptNames[];
-    const left = builtValidatorsKeys.slice(4).map((_, index) => ({
+    const left = builtValidatorsKeys.slice(0, 4).map((_, index) => ({
       txHash: deployedValidatorsTxId[0],
       outputIndex: index,
     }));

@@ -1,20 +1,34 @@
-use std::sync::{Arc, Once};
+use std::{
+    sync::{Arc, Once},
+    time::UNIX_EPOCH,
+};
 
+use async_trait::async_trait;
+use bounded_integer::BoundedU8;
 use cardano_chain_sync::{
     cache::LedgerCacheRocksDB, chain_sync_stream, client::ChainSyncClient, event_source::ledger_transactions,
 };
 use cardano_explorer::client::Explorer;
 use cardano_submit_api::client::LocalTxSubmissionClient;
+use chrono::Duration;
 use clap::Parser;
 use cml_chain::transaction::Transaction;
 use config::AppConfig;
 use spectrum_cardano_lib::constants::BABBAGE_ERA_ID;
+use spectrum_offchain::{
+    backlog::{persistence::BacklogStoreRocksDB, BacklogConfig, PersistentPriorityBacklog},
+    rocks::RocksConfig,
+};
 use spectrum_offchain_cardano::{
     collaterals::{Collaterals, CollateralsViaExplorer},
     creds::operator_creds,
     tx_submission::{tx_submission_agent_stream, TxSubmissionAgent},
 };
-use splash_dao_offchain::deployment::{DeployedValidators, ProtocolDeployment};
+use splash_dao_offchain::{
+    deployment::{DeployedValidators, ProtocolDeployment},
+    entities::offchain::voting_order::VotingOrder,
+    time::{NetworkTime, NetworkTimeProvider},
+};
 use tokio::sync::Mutex;
 use tracing::info;
 use tracing_subscriber::fmt::Subscriber;
@@ -78,6 +92,19 @@ async fn main() {
         .expect("Couldn't retrieve collateral");
 }
 
+async fn setup_order_backlog(
+    store_conf: RocksConfig,
+) -> PersistentPriorityBacklog<VotingOrder, BacklogStoreRocksDB> {
+    let store = BacklogStoreRocksDB::new(store_conf);
+    let backlog_config = BacklogConfig {
+        order_lifespan: Duration::try_hours(1).unwrap(),
+        order_exec_time: Duration::try_minutes(5).unwrap(),
+        retry_suspended_prob: BoundedU8::new(60).unwrap(),
+    };
+
+    PersistentPriorityBacklog::new::<VotingOrder>(store, backlog_config).await
+}
+
 #[derive(Parser)]
 #[command(name = "splash-dao-agent")]
 #[command(author = "Spectrum Labs")]
@@ -93,4 +120,16 @@ struct AppArgs {
     /// Path to the log4rs YAML configuration file.
     #[arg(long, short)]
     log4rs_path: String,
+}
+
+struct NetworkTimeSource;
+
+#[async_trait]
+impl NetworkTimeProvider for NetworkTimeSource {
+    async fn network_time(&self) -> NetworkTime {
+        std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+    }
 }

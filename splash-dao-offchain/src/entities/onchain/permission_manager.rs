@@ -26,7 +26,7 @@ use crate::{
 };
 
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, From, Serialize)]
-pub struct PermManagerId(Token);
+pub struct PermManagerId(pub Token);
 
 impl Identifier for PermManagerId {
     type For = PermManagerSnapshot;

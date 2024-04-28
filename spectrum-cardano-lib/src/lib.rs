@@ -29,7 +29,9 @@ pub mod types;
 pub mod value;
 
 /// Asset name bytes padded to 32-byte fixed array and tupled with the len of the original asset name.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, derive_more::From)]
+#[derive(
+    Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize, derive_more::From,
+)]
 pub struct AssetName(u8, [u8; 32]);
 
 impl AssetName {
