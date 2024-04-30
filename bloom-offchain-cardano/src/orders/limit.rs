@@ -5,7 +5,6 @@ use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::PolicyId;
 use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
 use cml_multi_era::babbage::BabbageTransactionOutput;
-use log::info;
 
 use bloom_offchain::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use bloom_offchain::execution_engine::liquidity_book::side::SideM;
@@ -363,9 +362,12 @@ pub struct LimitOrderBounds {
 #[cfg(test)]
 mod tests {
     use cml_chain::plutus::PlutusData;
+    use cml_chain::utils::BigInteger;
     use cml_core::serialization::Deserialize;
     use cml_crypto::{Ed25519KeyHash, TransactionHash};
     use cml_multi_era::babbage::BabbageTransactionOutput;
+    use num_bigint::Sign;
+    use pallas_primitives::alonzo::PlutusData::BigInt;
     use type_equalities::IsEqual;
 
     use bloom_offchain::execution_engine::liquidity_book::fragment::Fragment;
@@ -474,5 +476,5 @@ mod tests {
         dbg!(conf);
     }
 
-    const DATUM: &str = "d8798c4100581c486ea431f127bc6a9b51fad64e9aa71e93e4e931deab413427dbab10d8798240401a0009b0781a0007a12019c350d87982581c2adf188218a66847024664f4f63939577627a56c090f679fe366c5ee46535441424c45d87982010a1a0007a120d87982d87981581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b25d87981d87981d87981581c7846f6bb07f5b2825885e4502679e699b4e60a0c4609a46bc35454cd581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b2580";
+    const DATUM: &str = "d8798c4100581cc998f08243360571213bcd847b100ab1acc948cdeeafdf7d90c9c678d8798240401a001e84801a000f424009d87982581cace2ea0fe142a3687acf86f55bcded860a920864163ee0d3dda8b6024552414b4552d879821b00232be5271fe999c2493635c9adc5dea0000000d87982d87981581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b25d87981d87981d87981581c7846f6bb07f5b2825885e4502679e699b4e60a0c4609a46bc35454cd581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b2581581c17979109209d255917b8563d1e50a5be8123d5e283fbc6fbb04550c6";
 }
