@@ -4,10 +4,10 @@ use std::marker::PhantomData;
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::str::FromStr;
 
+use cml_chain::{PolicyId, Value};
 use cml_chain::assets::MultiAsset;
 use cml_chain::plutus::PlutusData;
 use cml_chain::transaction::TransactionInput;
-use cml_chain::{PolicyId, Value};
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
 use derive_more::{From, Into};
@@ -51,7 +51,12 @@ impl AssetName {
 
 impl Display for AssetName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(format!("{}", std::str::from_utf8(&self.1).unwrap()).as_str())
+        if let Ok(str) = std::str::from_utf8(&self.1) {
+            f.write_str(str)
+        } else {
+            let as_hex = hex::encode(self.1);
+            f.write_str(as_hex.as_str())
+        }
     }
 }
 
@@ -103,6 +108,7 @@ impl TryFrom<Vec<u8>> for AssetName {
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Deserialize)]
 #[serde(try_from = "String")]
 pub struct OutputRef(TransactionHash, u64);
+
 impl OutputRef {
     pub fn new(hash: TransactionHash, index: u64) -> Self {
         Self(hash, index)
@@ -229,14 +235,14 @@ impl TryFromPData for AssetClass {
 #[repr(transparent)]
 #[derive(Derivative)]
 #[derivative(
-    Debug(bound = ""),
-    Copy(bound = ""),
-    Clone(bound = ""),
-    Eq(bound = ""),
-    PartialEq(bound = ""),
-    Ord(bound = ""),
-    PartialOrd(bound = ""),
-    Hash(bound = "")
+Debug(bound = ""),
+Copy(bound = ""),
+Clone(bound = ""),
+Eq(bound = ""),
+PartialEq(bound = ""),
+Ord(bound = ""),
+PartialOrd(bound = ""),
+Hash(bound = "")
 )]
 pub struct TaggedAssetClass<T>(AssetClass, PhantomData<T>);
 
