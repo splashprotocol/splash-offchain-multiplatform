@@ -1,12 +1,12 @@
-use std::ops::{Add, Div, Mul};
+use std::ops::{Add, Div, Mul, Sub};
+use std::str::FromStr;
 
 use bignumber::BigNumber;
+use cml_chain::utils::BigInteger;
 use num_rational::Ratio;
-
+use primitive_types::U512;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 
-use crate::constants::WEIGHT_FEE_DEN;
-use crate::data::balance_pool::round_big_number;
 use crate::data::order::{Base, Quote};
 
 pub fn balance_cfmm_output_amount<X, Y>(
@@ -19,9 +19,9 @@ pub fn balance_cfmm_output_amount<X, Y>(
     base_amount: TaggedAmount<Base>,
     pool_fee_x: Ratio<u64>,
     pool_fee_y: Ratio<u64>,
-    invariant: u128,
+    invariant: U512,
 ) -> TaggedAmount<Quote> {
-    let (base_reserves, base_weight, _quote_reserves, quote_weight, pool_fee) =
+    let (base_reserves, base_weight, quote_reserves, quote_weight, pool_fee) =
         if asset_x.untag() == base_asset.untag() {
             (
                 reserves_x.untag() as f64,
@@ -39,22 +39,86 @@ pub fn balance_cfmm_output_amount<X, Y>(
                 pool_fee_y,
             )
         };
-    // (base_reserves + base_amount * (poolFee / feeDen)) ^ (base_weight / weight_den)
-    let base_new_part = (
-        // (base_reserves + base_amount * (poolFeeNum - treasuryFeeNum) / feeDen)
-        BigNumber::from(base_reserves).add(
+    let base_new_part =
+        calculate_base_part_with_fee(base_reserves, base_weight, base_amount.untag() as f64, pool_fee);
+    // (quote_reserves - quote_amount) ^ quote_weight = invariant / base_new_part
+    let quote_new_part = BigNumber::from(invariant).div(base_new_part.clone());
+    let delta_y = quote_new_part
+        .clone()
+        .pow(&BigNumber::from(1).div(BigNumber::from(quote_weight)));
+    let delta_y_rounded = to_big_integer(delta_y.clone());
+    // quote_amount = quote_reserves - quote_new_part ^ (1 / quote_weight)
+    let mut pre_output_amount = quote_reserves - delta_y_rounded.as_u64().unwrap();
+    // we should find the most approximate value to previous invariant
+    while (calculate_new_invariant_bn(
+        base_reserves,
+        base_weight,
+        base_amount.untag() as f64,
+        quote_reserves as f64,
+        quote_weight,
+        pre_output_amount as f64,
+        pool_fee,
+    ) <= invariant)
+    {
+        pre_output_amount -= 1
+    }
+    TaggedAmount::new(pre_output_amount)
+}
+fn calculate_new_invariant_bn(
+    base_reserves: f64,
+    base_weight: f64,
+    base_amount: f64,
+    quote_reserves: f64,
+    quote_weight: f64,
+    quote_output: f64,
+    pool_fee: Ratio<u64>,
+) -> U512 {
+    let additional_part = ((base_amount as u64) * *pool_fee.numer()) / pool_fee.denom();
+
+    let base_new_part = BigNumber::from(base_reserves)
+        .add(BigNumber::from(additional_part as f64))
+        .pow(&BigNumber::from(base_weight));
+
+    let quote_part = BigNumber::from(quote_reserves)
+        .sub(BigNumber::from(quote_output))
+        .pow(&BigNumber::from(quote_weight));
+
+    U512::from_str_radix(
+        remove_decimals(base_new_part.mul(quote_part))
+            .to_string()
+            .as_str(),
+        10,
+    )
+    .unwrap()
+}
+
+// (base_reserves + base_amount * (poolFee / feeDen)) ^ base_weight
+fn calculate_base_part_with_fee(
+    base_reserves: f64,
+    base_weight: f64,
+    base_amount: f64,
+    pool_fee: Ratio<u64>,
+) -> BigNumber {
+    BigNumber::from(base_reserves)
+        .add(
             // base_amount * (poolFeeNum - treasuryFeeNum) / feeDen)
-            BigNumber::from(base_amount.untag() as f64).mul(
+            BigNumber::from(base_amount).mul(
                 BigNumber::from(*pool_fee.numer() as f64).div((BigNumber::from(*pool_fee.denom() as f64))),
             ),
         )
+        .pow(&BigNumber::from(base_weight))
+}
+
+fn to_big_integer(orig_value: BigNumber) -> BigInteger {
+    BigInteger::from_str(remove_decimals(orig_value).to_string().as_str()).unwrap()
+}
+
+fn remove_decimals(orig_value: BigNumber) -> BigNumber {
+    let int_part = orig_value.to_string().split(".").nth(0).unwrap().len();
+    BigNumber::from_str(
+        orig_value.to_string().replace(".", "")[..(int_part)]
+            .to_string()
+            .as_str(),
     )
-    .pow(&BigNumber::from(base_weight).div(BigNumber::from(WEIGHT_FEE_DEN)));
-    // (quote_reserves - quote_amount) ^ (quote_weight / weight_den) = invariant / base_new_part
-    let quote_new_part = BigNumber::from(invariant as f64).div(base_new_part);
-    // quote_amount = quote_reserves - quote_new_part ^ (weight_den / quote_weight)
-    let delta_y = quote_new_part.pow(&BigNumber::from(WEIGHT_FEE_DEN).div(BigNumber::from(quote_weight)));
-    let delta_y_rounded = round_big_number(delta_y.clone(), 0);
-    let output_amount = _quote_reserves - delta_y_rounded.as_u64().unwrap();
-    TaggedAmount::new(output_amount)
+    .unwrap()
 }
