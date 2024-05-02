@@ -1,5 +1,6 @@
 use std::fmt::Debug;
-use std::ops::Mul;
+use std::ops::{Add, Div, Mul, Sub};
+use std::str::FromStr;
 
 use bignumber::BigNumber;
 use cml_chain::address::Address;
@@ -12,6 +13,7 @@ use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_core::serialization::LenEncoding::{Canonical, Indefinite};
 use cml_multi_era::babbage::BabbageTransactionOutput;
+use log::info;
 use num_integer::Roots;
 use num_rational::Ratio;
 use primitive_types::U512;
@@ -29,7 +31,7 @@ use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
-use crate::constants::{ADA_WEIGHT, FEE_DEN, MAX_LQ_CAP, TOKEN_WEIGHT, WEIGHT_FEE_DEN};
+use crate::constants::{ADDITIONAL_ROUND_PRECISION, FEE_DEN, MAX_LQ_CAP, WEIGHT_FEE_DEN};
 use crate::data::cfmm_pool::AMMOps;
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::operation_output::{DepositOutput, RedeemOutput};
@@ -49,12 +51,15 @@ use crate::pool_math::cfmm_math::{classic_cfmm_reward_lp, classic_cfmm_shares_am
 pub struct BalancePoolConfig {
     pub pool_nft: TaggedAssetClass<PoolNft>,
     pub asset_x: TaggedAssetClass<Rx>,
+    pub asset_x_weight: u64,
     pub asset_y: TaggedAssetClass<Ry>,
+    pub asset_y_weight: u64,
     pub asset_lq: TaggedAssetClass<Lq>,
     pub lp_fee_num: u64,
     pub treasury_fee_num: u64,
     pub treasury_x: u64,
     pub treasury_y: u64,
+    pub invariant: U512,
 }
 
 impl TryFromPData for BalancePoolConfig {
@@ -63,12 +68,15 @@ impl TryFromPData for BalancePoolConfig {
         Some(Self {
             pool_nft: TaggedAssetClass::try_from_pd(cpd.take_field(0)?)?,
             asset_x: TaggedAssetClass::try_from_pd(cpd.take_field(1)?)?,
-            asset_y: TaggedAssetClass::try_from_pd(cpd.take_field(2)?)?,
-            asset_lq: TaggedAssetClass::try_from_pd(cpd.take_field(3)?)?,
-            lp_fee_num: cpd.take_field(4)?.into_u64()?,
-            treasury_fee_num: cpd.take_field(5)?.into_u64()?,
-            treasury_x: cpd.take_field(6)?.into_u64()?,
-            treasury_y: cpd.take_field(7)?.into_u64()?,
+            asset_x_weight: cpd.take_field(2)?.into_u64()?,
+            asset_y: TaggedAssetClass::try_from_pd(cpd.take_field(3)?)?,
+            asset_y_weight: cpd.take_field(4)?.into_u64()?,
+            asset_lq: TaggedAssetClass::try_from_pd(cpd.take_field(5)?)?,
+            lp_fee_num: cpd.take_field(6)?.into_u64()?,
+            treasury_fee_num: cpd.take_field(7)?.into_u64()?,
+            treasury_x: cpd.take_field(8)?.into_u64()?,
+            treasury_y: cpd.take_field(9)?.into_u64()?,
+            invariant: cpd.take_field(12)?.into_u512()?,
         })
     }
 }
@@ -116,6 +124,7 @@ pub struct BalancePool {
     pub treasury_fee: Ratio<u64>,
     pub treasury_x: TaggedAmount<Rx>,
     pub treasury_y: TaggedAmount<Ry>,
+    pub invariant: U512,
     pub ver: BalancePoolVer,
     /// How many execution units pool invokation costs.
     pub marginal_cost: ExUnits,
@@ -186,7 +195,7 @@ impl BalancePool {
     }
 
     // [gx, tx, gy, ty]
-    fn create_redeemer(pool_action: CFMMPoolAction, pool_idx: u64) -> PlutusData {
+    fn create_redeemer(cfmmpool_action: CFMMPoolAction, pool_idx: u64) -> PlutusData {
         /*
           Original structure of pool redeemer
             [ "action" ':= BalancePoolAction
@@ -194,7 +203,7 @@ impl BalancePool {
             ]
         */
 
-        let action_plutus_data = pool_action.to_plutus_data();
+        let action_plutus_data = cfmmpool_action.to_plutus_data();
         let self_ix_pd = PlutusData::Integer(BigInteger::from(pool_idx));
 
         PlutusData::ConstrPlutusData(ConstrPlutusData {
@@ -224,9 +233,9 @@ where
             return Some(BalancePool {
                 id: PoolId::try_from(conf.pool_nft).ok()?,
                 reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
-                weight_x: ADA_WEIGHT,
+                weight_x: conf.asset_x_weight,
                 reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
-                weight_y: TOKEN_WEIGHT,
+                weight_y: conf.asset_y_weight,
                 liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
                 asset_x: conf.asset_x,
                 asset_y: conf.asset_y,
@@ -236,6 +245,7 @@ where
                 treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
                 treasury_x: TaggedAmount::new(conf.treasury_x),
                 treasury_y: TaggedAmount::new(conf.treasury_y),
+                invariant: conf.invariant,
                 ver: pool_ver,
                 marginal_cost: ctx.get().marginal_cost,
             });
@@ -268,7 +278,12 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for BalancePool {
         ma.set(nft_lq, name_nft.into(), 1);
 
         if let Some(DatumOption::Datum { datum, .. }) = &mut immut_pool.datum_option {
-            unsafe_update_datum(datum, self.treasury_x.untag(), self.treasury_y.untag());
+            unsafe_update_datum(
+                datum,
+                self.treasury_x.untag(),
+                self.treasury_y.untag(),
+                self.invariant,
+            );
         }
 
         TransactionOutput::new_conway_format_tx_out(ConwayFormatTxOut {
@@ -281,10 +296,11 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for BalancePool {
     }
 }
 
-pub fn unsafe_update_datum(data: &mut PlutusData, treasury_x: u64, treasury_y: u64) {
+pub fn unsafe_update_datum(data: &mut PlutusData, treasury_x: u64, treasury_y: u64, invariant: U512) {
     let cpd = data.get_constr_pd_mut().unwrap();
-    cpd.set_field(6, treasury_x.into_pd());
-    cpd.set_field(7, treasury_y.into_pd());
+    cpd.set_field(8, treasury_x.into_pd());
+    cpd.set_field(9, treasury_y.into_pd());
+    cpd.set_field(12, invariant.into_pd());
 }
 
 impl Stable for BalancePool {
@@ -339,6 +355,7 @@ impl AMMOps for BalancePool {
             base_amount,
             self.lp_fee_x - self.treasury_fee,
             self.lp_fee_y - self.treasury_fee,
+            self.invariant,
         )
     }
 
@@ -468,6 +485,18 @@ impl Pool for BalancePool {
             Side::Bid(input) => {
                 // A user bid means that they wish to buy the base asset for the quote asset, hence
                 // pool reserves of base decreases while reserves of quote increase.
+                self.invariant = BalancePool::calculate_swap_invariant(
+                    *quote_reserves,
+                    input,
+                    quote_fee,
+                    quote_treasury,
+                    quote_weight,
+                    *base_reserves,
+                    output,
+                    base_treasury,
+                    base_weight,
+                    self.treasury_fee,
+                );
                 *quote_reserves += input;
                 *base_reserves -= output;
                 self.treasury_y = TaggedAmount::new(
@@ -477,6 +506,18 @@ impl Pool for BalancePool {
             }
             Side::Ask(input) => {
                 // User ask is the opposite; sell the base asset for the quote asset.
+                self.invariant = BalancePool::calculate_swap_invariant(
+                    *base_reserves,
+                    input,
+                    base_fee,
+                    base_treasury,
+                    base_weight,
+                    *quote_reserves,
+                    output,
+                    quote_treasury,
+                    quote_weight,
+                    self.treasury_fee,
+                );
                 *base_reserves += input;
                 *quote_reserves -= output;
                 self.treasury_x = TaggedAmount::new(
@@ -495,12 +536,6 @@ impl Pool for BalancePool {
 
     fn marginal_cost_hint(&self) -> Self::U {
         self.marginal_cost
-    }
-
-    fn swaps_allowed(&self) -> bool {
-        // balance pools do not support lq bound, so
-        // swaps allowed all time
-        true
     }
 }
 
@@ -529,6 +564,7 @@ impl ApplyOrder<ClassicalOnChainDeposit> for BalancePool {
         self.reserves_y = self.reserves_y + TaggedAmount::new(net_y) - change_y;
 
         self.liquidity = self.liquidity + unlocked_lq;
+        self.invariant = self.calculate_deposit_redeem_invariant();
 
         let deposit_output = DepositOutput {
             token_x_asset: order.token_x,
@@ -558,6 +594,7 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
         self.reserves_x = self.reserves_x - x_amount;
         self.reserves_y = self.reserves_y - y_amount;
         self.liquidity = self.liquidity - order.token_lq_amount;
+        self.invariant = self.calculate_deposit_redeem_invariant();
 
         let redeem_output = RedeemOutput {
             token_x_asset: order.token_x,
@@ -573,31 +610,25 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
     }
 }
 
-#[cfg(test)]
 mod tests {
-    use bloom_offchain::execution_engine::bundled::Bundled;
     use bloom_offchain::execution_engine::liquidity_book::pool::Pool;
     use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use cml_chain::plutus::PlutusData;
+    use cml_chain::utils::BigInteger;
     use cml_chain::Deserialize;
     use cml_core::serialization::Serialize;
-    use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
+    use cml_crypto::ScriptHash;
     use num_rational::Ratio;
     use primitive_types::U512;
     use spectrum_cardano_lib::ex_units::ExUnits;
-    use spectrum_cardano_lib::output::FinalizedTxOut;
-    use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
-    use std::ops::Sub;
+    use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
+    use std::str::FromStr;
 
     use spectrum_cardano_lib::types::TryFromPData;
 
-    use crate::data::balance_order::RunBalanceAMMOrderOverPool;
     use crate::data::balance_pool::{BalancePool, BalancePoolConfig, BalancePoolRedeemer, BalancePoolVer};
-    use crate::data::order::ClassicalOrder;
-    use crate::data::order::OrderType::BalanceFn;
-    use crate::data::pool::{ApplyOrder, CFMMPoolAction, Lq, Rx, Ry};
-    use crate::data::redeem::{ClassicalOnChainRedeem, Redeem};
-    use crate::data::{OnChainOrderId, PoolId};
+    use crate::data::pool::CFMMPoolAction;
+    use crate::data::PoolId;
 
     const DATUM_SAMPLE: &str = "d8799fd8799f581c5df8fe3f9f0e10855f930e0ea6c227e3bba0aba54d39f9d55b95e21c436e6674ffd8799f4040ff01d8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737443ff04d8799f581c0df79145b95580c14ef4baf8d022d7f0cbb08f3bed43bf97a2ddd8cb426c71ff1a000186820a00009fd8799fd87a9f581cb046b660db0eaf9be4f4300180ccf277e4209dada77c48fbd37ba81dffffff581c8d4be10d934b60a22f267699ea3f7ebdade1f8e535d1bd0ef7ce18b61a0501bced08ff";
 
@@ -624,9 +655,9 @@ mod tests {
                     ],
                 )),
             )),
-            reserves_x: TaggedAmount::new(2115301811439),
+            reserves_x: TaggedAmount::new(532532215854),
             weight_x: 1,
-            reserves_y: TaggedAmount::new(27887555508598),
+            reserves_y: TaggedAmount::new(1259439022658520),
             weight_y: 4,
             liquidity: TaggedAmount::new(0),
             asset_x: TaggedAssetClass::new(AssetClass::Native),
@@ -656,20 +687,31 @@ mod tests {
                     ],
                 )),
             ))),
-            lp_fee_x: Ratio::new_raw(99000, 100000),
-            lp_fee_y: Ratio::new_raw(99000, 100000),
-            treasury_fee: Ratio::new_raw(100, 100000),
-            treasury_x: TaggedAmount::new(1143236614),
-            treasury_y: TaggedAmount::new(3057757049),
+            lp_fee_x: Ratio::new_raw(99700, 100000),
+            lp_fee_y: Ratio::new_raw(99700, 100000),
+            treasury_fee: Ratio::new_raw(10, 100000),
+            treasury_x: TaggedAmount::new(0),
+            treasury_y: TaggedAmount::new(0),
+            invariant: U512::from_str_radix(
+                "1339844714937320787364225391110117223277573448985983557551836304624640000",
+                10,
+            )
+            .unwrap(),
             ver: BalancePoolVer::V1,
             marginal_cost: ExUnits {
                 mem: 120000000,
                 steps: 100000000000,
             },
         };
-        let result = pool.swap(Side::Ask(200000000));
-
-        assert_eq!(result.0, 652178037)
+        let result = pool.swap(Side::Ask(363613802862));
+        assert_eq!(
+            result.1.invariant,
+            U512::from_str_radix(
+                "1339844714937321192420951820043194551271404058270695550420540827715082352",
+                10
+            )
+            .unwrap()
+        )
     }
 
     #[test]
@@ -725,6 +767,7 @@ mod tests {
             treasury_fee: Ratio::new_raw(10, 100000),
             treasury_x: TaggedAmount::new(10000),
             treasury_y: TaggedAmount::new(0),
+            invariant: U512::from(99999999),
             ver: BalancePoolVer::V1,
             marginal_cost: ExUnits {
                 mem: 120000000,
@@ -732,7 +775,7 @@ mod tests {
             },
         };
 
-        let (_result, new_pool) = pool.clone().swap(Side::Ask(363613802862));
+        let (result, new_pool) = pool.clone().swap(Side::Ask(363613802862));
 
         let test_swap_redeemer = BalancePoolRedeemer {
             pool_input_index: 0,
@@ -750,64 +793,58 @@ mod tests {
 
     #[test]
     fn deposit_redeemer_test() {
-        let pool_id = PoolId::from((
-            ScriptHash::from([
-                162, 206, 112, 95, 150, 240, 52, 167, 61, 102, 158, 92, 11, 47, 25, 41, 48, 224, 188, 211,
-                138, 203, 127, 107, 246, 89, 115, 157,
-            ]),
-            AssetName::from((
-                3,
-                [
-                    110, 102, 116, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0,
-                ],
-            )),
-        ));
-
-        let token_x = TaggedAssetClass::new(AssetClass::Native);
-        let token_y = TaggedAssetClass::new(AssetClass::Token((
-            ScriptHash::from([
-                75, 52, 89, 253, 24, 161, 219, 171, 226, 7, 205, 25, 201, 149, 26, 159, 172, 159, 92, 15,
-                156, 56, 78, 61, 151, 239, 186, 38,
-            ]),
-            AssetName::from((
-                5,
-                [
-                    116, 101, 115, 116, 67, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0,
-                ],
-            )),
-        )));
-
-        let token_lq = TaggedAssetClass::new(AssetClass::Token((
-            ScriptHash::from([
-                114, 191, 27, 172, 195, 20, 1, 41, 111, 158, 228, 210, 254, 123, 132, 165, 36, 56, 38, 251,
-                3, 233, 206, 25, 51, 218, 254, 192,
-            ]),
-            AssetName::from((
-                2,
-                [
-                    108, 113, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0,
-                ],
-            )),
-        )));
-
         let pool = BalancePool {
-            id: pool_id,
-            reserves_x: TaggedAmount::new(29655901),
+            id: PoolId::from((
+                ScriptHash::from([
+                    162, 206, 112, 95, 150, 240, 52, 167, 61, 102, 158, 92, 11, 47, 25, 41, 48, 224, 188,
+                    211, 138, 203, 127, 107, 246, 89, 115, 157,
+                ]),
+                AssetName::from((
+                    3,
+                    [
+                        110, 102, 116, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0,
+                    ],
+                )),
+            )),
+            reserves_x: TaggedAmount::new(100000000),
             weight_x: 1,
-            reserves_y: TaggedAmount::new(53144),
+            reserves_y: TaggedAmount::new(100000000),
             weight_y: 4,
-            liquidity: TaggedAmount::new(9223372036854587823),
-            asset_x: token_x,
-            asset_y: token_y,
-            asset_lq: token_lq,
-            lp_fee_x: Ratio::new_raw(99000, 100000),
-            lp_fee_y: Ratio::new_raw(99000, 100000),
-            treasury_fee: Ratio::new_raw(100, 100000),
-            treasury_x: TaggedAmount::new(13000),
-            treasury_y: TaggedAmount::new(94),
+            liquidity: TaggedAmount::new(9223372036754775808),
+            asset_x: TaggedAssetClass::new(AssetClass::Native),
+            asset_y: TaggedAssetClass::new(AssetClass::Token((
+                ScriptHash::from([
+                    75, 52, 89, 253, 24, 161, 219, 171, 226, 7, 205, 25, 201, 149, 26, 159, 172, 159, 92, 15,
+                    156, 56, 78, 61, 151, 239, 186, 38,
+                ]),
+                AssetName::from((
+                    5,
+                    [
+                        116, 101, 115, 116, 67, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0,
+                    ],
+                )),
+            ))),
+            asset_lq: TaggedAssetClass::new(AssetClass::Token((
+                ScriptHash::from([
+                    114, 191, 27, 172, 195, 20, 1, 41, 111, 158, 228, 210, 254, 123, 132, 165, 36, 56, 38,
+                    251, 3, 233, 206, 25, 51, 218, 254, 192,
+                ]),
+                AssetName::from((
+                    2,
+                    [
+                        108, 113, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0,
+                    ],
+                )),
+            ))),
+            lp_fee_x: Ratio::new_raw(99970, 100000),
+            lp_fee_y: Ratio::new_raw(99970, 100000),
+            treasury_fee: Ratio::new_raw(10, 100000),
+            treasury_x: TaggedAmount::new(0),
+            treasury_y: TaggedAmount::new(0),
+            invariant: U512::from(99999999),
             ver: BalancePoolVer::V1,
             marginal_cost: ExUnits {
                 mem: 120000000,
@@ -815,30 +852,23 @@ mod tests {
             },
         };
 
-        const TX: &str = "6c038a69587061acd5611507e68b1fd3a7e7d189367b7853f3bb5079a118b880";
-        const IX: u64 = 1;
+        let mut new_pool = pool.clone();
 
-        let test_order: ClassicalOnChainRedeem = ClassicalOrder {
-            id: OnChainOrderId(OutputRef::new(TransactionHash::from_hex(TX).unwrap(), IX)),
-            pool_id: pool_id,
-            order: Redeem {
-                pool_nft: pool_id,
-                token_x: token_x,
-                token_y: token_y,
-                token_lq: token_lq,
-                token_lq_amount: TaggedAmount::new(1900727),
-                ex_fee: 1500000,
-                reward_pkh: Ed25519KeyHash::from([0u8; 28]),
-                reward_stake_pkh: None,
-                collateral_ada: 3000000,
-                order_type: BalanceFn,
-            },
-        };
+        new_pool.reserves_x = TaggedAmount::new(108000000);
+        new_pool.reserves_y = TaggedAmount::new(108000000);
+        new_pool.liquidity = TaggedAmount::new(9223372036746775809);
 
-        let test = pool.apply_order(test_order);
+        let test_deposit_redeemer = BalancePoolRedeemer {
+            pool_input_index: 0,
+            action: CFMMPoolAction::Deposit,
+            new_pool_state: new_pool,
+            prev_pool_state: pool,
+        }
+        .to_plutus_data();
 
-        let res = test.map(|res| println!("{:?}", res.0));
-
-        assert_eq!(1, 1)
+        assert_eq!(
+            hex::encode(test_deposit_redeemer.to_canonical_cbor_bytes()),
+            "d87985000082000082000080"
+        )
     }
 }
