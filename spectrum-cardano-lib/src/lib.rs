@@ -4,10 +4,10 @@ use std::marker::PhantomData;
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::str::FromStr;
 
-use cml_chain::{PolicyId, Value};
 use cml_chain::assets::MultiAsset;
 use cml_chain::plutus::PlutusData;
 use cml_chain::transaction::TransactionInput;
+use cml_chain::{PolicyId, Value};
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
 use derive_more::{From, Into};
@@ -235,14 +235,14 @@ impl TryFromPData for AssetClass {
 #[repr(transparent)]
 #[derive(Derivative)]
 #[derivative(
-Debug(bound = ""),
-Copy(bound = ""),
-Clone(bound = ""),
-Eq(bound = ""),
-PartialEq(bound = ""),
-Ord(bound = ""),
-PartialOrd(bound = ""),
-Hash(bound = "")
+    Debug(bound = ""),
+    Copy(bound = ""),
+    Clone(bound = ""),
+    Eq(bound = ""),
+    PartialEq(bound = ""),
+    Ord(bound = ""),
+    PartialOrd(bound = ""),
+    Hash(bound = "")
 )]
 pub struct TaggedAssetClass<T>(AssetClass, PhantomData<T>);
 

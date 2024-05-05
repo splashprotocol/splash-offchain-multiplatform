@@ -321,9 +321,9 @@ where
     }
 
     /// Pick best fragment from either side
-    pub fn pick_best_fr_either(&mut self) -> Option<Fr> {
+    pub fn pick_best_fr_either(&mut self, index_price: Option<AbsolutePrice>) -> Option<Fr> {
         trace!(target: "state", "pick_best_fr_either");
-        self.pick_active_fr(pick_best_fr_either)
+        self.pick_active_fr(|fragments| pick_best_fr_either(fragments, index_price))
     }
 
     /// Pick best fragment from the specified side if it matches the specified condition.
@@ -430,6 +430,14 @@ where
     Fr: Fragment + Ord + Copy,
     Pl: Pool + Stable + Copy,
 {
+    pub fn best_pool_price(&self) -> Option<AbsolutePrice> {
+        self.pools()
+            .pools
+            .values()
+            .max_by_key(|p| p.quality())
+            .map(|p| p.static_price())
+    }
+
     pub fn try_select_pool(&self, trade_hint: Side<u64>) -> Option<(AbsolutePrice, Pl::StableId)> {
         let pools = self
             .pools()
@@ -496,7 +504,10 @@ where
     }
 }
 
-fn pick_best_fr_either<Fr, U>(active_frontier: &mut Fragments<Fr>) -> Option<Fr>
+fn pick_best_fr_either<Fr, U>(
+    active_frontier: &mut Fragments<Fr>,
+    index_price: Option<AbsolutePrice>,
+) -> Option<Fr>
 where
     Fr: Fragment<U = U> + Ord + Copy,
     U: PartialOrd,
@@ -505,29 +516,33 @@ where
     let best_bid = active_frontier.bids.pop_first();
     let best_ask = active_frontier.asks.pop_first();
     match (best_bid, best_ask) {
-        (Some(bid), Some(ask)) if bid.weight() >= ask.weight() => {
-            active_frontier.asks.insert(ask);
-            trace!(
-                "All BIDs: {}",
-                active_frontier
-                    .bids
-                    .iter()
-                    .map(|i| i.price().to_string())
-                    .fold("".to_string(), |acc, x| acc.add(format!("{}, ", x).as_str()))
-            );
-            Some(bid)
-        }
         (Some(bid), Some(ask)) => {
-            active_frontier.bids.insert(bid);
-            trace!(
-                "All ASKs: {}",
-                active_frontier
-                    .asks
-                    .iter()
-                    .map(|i| i.price().to_string())
-                    .fold("".to_string(), |x, axx| x.add(format!("{}, ", axx).as_str()))
-            );
-            Some(ask)
+            let bid_is_underpriced = index_price.map(|ip| bid.price() < ip).unwrap_or(false);
+            let ask_is_overpriced = index_price.map(|ip| ask.price() > ip).unwrap_or(false);
+            let bid_is_heavier = bid.weight() >= ask.weight();
+            if (bid_is_heavier && !bid_is_underpriced) || ask_is_overpriced {
+                active_frontier.asks.insert(ask);
+                trace!(
+                    "All BIDs: {}",
+                    active_frontier
+                        .bids
+                        .iter()
+                        .map(|i| i.price().to_string())
+                        .fold("".to_string(), |acc, x| acc.add(format!("{}, ", x).as_str()))
+                );
+                Some(bid)
+            } else {
+                active_frontier.bids.insert(bid);
+                trace!(
+                    "All ASKs: {}",
+                    active_frontier
+                        .asks
+                        .iter()
+                        .map(|i| i.price().to_string())
+                        .fold("".to_string(), |x, axx| x.add(format!("{}, ", axx).as_str()))
+                );
+                Some(ask)
+            }
         }
         (Some(any), None) | (None, Some(any)) => {
             trace!(
@@ -676,7 +691,7 @@ where
                 trace!(
                     "All ASKs after addition: {}",
                     self.active
-                        .bids
+                        .asks
                         .iter()
                         .map(|i| i.price().to_string())
                         .fold("".to_string(), |acc, x| acc.add(format!("{}, ", x).as_str()))
@@ -771,7 +786,7 @@ pub mod tests {
         let ord = SimpleOrderPF::default_with_bounds(TimeBounds::After(time_now + 100));
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.fragments.add_fragment(ord);
-        assert_eq!(TLBState::Idle(s0).pick_best_fr_either(), None);
+        assert_eq!(TLBState::Idle(s0).pick_best_fr_either(None), None);
     }
 
     #[test]
@@ -781,8 +796,8 @@ pub mod tests {
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.fragments.add_fragment(ord);
         let mut s0_wrapped = TLBState::Idle(s0);
-        assert_eq!(s0_wrapped.pick_best_fr_either(), Some(ord));
-        assert_eq!(s0_wrapped.pick_best_fr_either(), None);
+        assert_eq!(s0_wrapped.pick_best_fr_either(None), Some(ord));
+        assert_eq!(s0_wrapped.pick_best_fr_either(None), None);
     }
 
     #[test]
@@ -792,9 +807,9 @@ pub mod tests {
         let ord = SimpleOrderPF::default_with_bounds(TimeBounds::After(time_now + delta));
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.fragments.add_fragment(ord);
-        assert_eq!(TLBState::Idle(s0.clone()).pick_best_fr_either(), None);
+        assert_eq!(TLBState::Idle(s0.clone()).pick_best_fr_either(None), None);
         s0.fragments.advance_clocks(time_now + delta);
-        assert_eq!(TLBState::Idle(s0).pick_best_fr_either(), Some(ord));
+        assert_eq!(TLBState::Idle(s0).pick_best_fr_either(None), Some(ord));
     }
 
     #[test]
@@ -804,9 +819,33 @@ pub mod tests {
         let ord = SimpleOrderPF::default_with_bounds(TimeBounds::Until(time_now + delta));
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.fragments.add_fragment(ord);
-        assert_eq!(TLBState::Idle(s0.clone()).pick_best_fr_either(), Some(ord));
+        assert_eq!(TLBState::Idle(s0.clone()).pick_best_fr_either(None), Some(ord));
         s0.fragments.advance_clocks(time_now + delta + 1);
-        assert_eq!(TLBState::Idle(s0).pick_best_fr_either(), None);
+        assert_eq!(TLBState::Idle(s0).pick_best_fr_either(None), None);
+    }
+
+    #[test]
+    fn choose_best_fragment_bid_is_underpriced() {
+        let time_now = 1000u64;
+        let index_price = AbsolutePrice::new(1, 35);
+        let ask = SimpleOrderPF::new(SideM::Ask, 1000, index_price, 100);
+        let bid = SimpleOrderPF::new(SideM::Bid, 1000, AbsolutePrice::new(1, 40), 200);
+        let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
+        s0.fragments.add_fragment(ask);
+        s0.fragments.add_fragment(bid);
+        assert_eq!(TLBState::Idle(s0).pick_best_fr_either(Some(index_price)), Some(ask));
+    }
+
+    #[test]
+    fn choose_best_fragment_ask_is_overpriced() {
+        let time_now = 1000u64;
+        let index_price = AbsolutePrice::new(1, 35);
+        let ask = SimpleOrderPF::new(SideM::Ask, 1000, AbsolutePrice::new(1, 30), 100);
+        let bid = SimpleOrderPF::new(SideM::Bid, 1000, index_price, 200);
+        let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
+        s0.fragments.add_fragment(ask);
+        s0.fragments.add_fragment(bid);
+        assert_eq!(TLBState::Idle(s0).pick_best_fr_either(Some(index_price)), Some(bid));
     }
 
     #[test]
@@ -904,7 +943,7 @@ pub mod tests {
         // One new fragment added into the preview.
         state.pre_add_fragment(o3);
         // One old fragment removed from the preview.
-        assert!(matches!(state.pick_best_fr_either(), Some(_)));
+        assert!(matches!(state.pick_best_fr_either(None), Some(_)));
         match state {
             TLBState::Preview(mut s1) => {
                 let s2 = s1.rollback();
@@ -927,7 +966,7 @@ pub mod tests {
         let s0_copy = s0.clone();
         let mut state = TLBState::Idle(s0);
         // One old fragment removed from the preview.
-        assert!(matches!(state.pick_best_fr_either(), Some(_)));
+        assert!(matches!(state.pick_best_fr_either(None), Some(_)));
         match state {
             TLBState::PartialPreview(mut s1) => {
                 let s2 = s1.rollback();

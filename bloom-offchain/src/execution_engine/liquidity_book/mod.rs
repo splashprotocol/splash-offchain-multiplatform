@@ -117,7 +117,8 @@ where
         let mut pools_used = HashSet::new();
         let mut execution_units_left = self.execution_cap.hard;
         while execution_units_left > self.execution_cap.safe_threshold() {
-            if let Some(best_fr) = self.state.pick_best_fr_either() {
+            let reference_static_price = self.state.best_pool_price();
+            if let Some(best_fr) = self.state.pick_best_fr_either(reference_static_price) {
                 trace!("Best fragment: {}", best_fr);
                 recipe.set_remainder(PartialFill::empty(best_fr));
                 loop {
