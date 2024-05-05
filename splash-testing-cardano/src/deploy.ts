@@ -36,26 +36,26 @@ export class Deployment {
     const feeSwitchPoolRedeem = new FeeswitchredeemContract();
     const feeSwitchPoolRedeemScriptHash = this.lucid.utils.validatorToScriptHash(feeSwitchPoolRedeem);
     return {
-      limitOrder: {
-        script: orderScript,
-        hash: orderScriptHash,
-      },
-      limitOrderWitness: {
-        script: witnessScript,
-        hash: witnessScriptHash,
-      },
+      // limitOrder: {
+      //   script: orderScript,
+      //   hash: orderScriptHash,
+      // },
+      // limitOrderWitness: {
+      //   script: witnessScript,
+      //   hash: witnessScriptHash,
+      // },
       balancePool: {
         script: balancePoolScript,
         hash: balancePoolScriptHash,
       },
-      // balanceDeposit: {
-      //   script: balancePoolDeposit,
-      //   hash: balanceDepositScriptHash,
-      // },
-      // balanceRedeem: { // 2
-      //   script: balancePoolRedeem,
-      //   hash: balanceRedeemScriptHash,
-      // },
+      balanceDeposit: {
+        script: balancePoolDeposit,
+        hash: balanceDepositScriptHash,
+      },
+      balanceRedeem: { // 2
+        script: balancePoolRedeem,
+        hash: balanceRedeemScriptHash,
+      },
       // feeSwitchPool: {
       //   script: feeSwitchPool,
       //   hash: feeSwitchPoolScriptHash,
@@ -77,10 +77,10 @@ export class Deployment {
       slot: 0,
     });
     const lockScript = this.lucid.utils.validatorToAddress(ns);
-    const witnessRewardAddress = this.lucid.utils.credentialToRewardAddress({
-      type: "Script",
-      hash: builtValidators.limitOrderWitness.hash
-    });
+    // const witnessRewardAddress = this.lucid.utils.credentialToRewardAddress({
+    //   type: "Script",
+    //   hash: builtValidators.limitOrderWitness.hash
+    // });
     const tx = await this.lucid
       .newTx()
       // .payToAddressWithData(
@@ -93,21 +93,21 @@ export class Deployment {
       //   { scriptRef: builtValidators.limitOrderWitness.script },
       //   {},
       // )
-      // .payToAddressWithData(
-      //   lockScript,
-      //   { scriptRef: builtValidators.balancePool.script },
-      //   {},
-      // )
-      // .payToAddressWithData(
-      //   lockScript,
-      //   { scriptRef: builtValidators.balanceDeposit.script },
-      //   {},
-      // )
-      // .payToAddressWithData(   // 2
-      //   lockScript,
-      //   { scriptRef: builtValidators.balanceRedeem.script },
-      //   {},
-      // )
+      .payToAddressWithData(
+        lockScript,
+        { scriptRef: builtValidators.balancePool.script },
+        {},
+      )
+      .payToAddressWithData(
+        lockScript,
+        { scriptRef: builtValidators.balanceDeposit.script },
+        {},
+      )
+      .payToAddressWithData(   // 2
+        lockScript,
+        { scriptRef: builtValidators.balanceRedeem.script },
+        {},
+      )
       // .payToAddressWithData(
       //   lockScript,
       //   { scriptRef: builtValidators.feeSwitchPool.script },
@@ -123,7 +123,7 @@ export class Deployment {
       //   { scriptRef: builtValidators.feeSwitchRedeem.script },
       //   {},
       // )
-      .registerStake(witnessRewardAddress)
+      //.registerStake(witnessRewardAddress)
       .complete();
 
     return tx;

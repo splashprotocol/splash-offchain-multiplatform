@@ -12,8 +12,8 @@ export const stringToHex = (str: string): string =>
 
 
 // Allowed for editing
-const TokenB   = "fomoToken"
-const TokenBCS = "5ac3d4bdca238105a040a565e5d7e734b7c9e1630aec7650e809e34a"
+const TokenB   = "testC"
+const TokenBCS = "4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26"
 
 const startLovelaceValue = 100000000;
 const startTokenB        = 100000000*4;
@@ -95,7 +95,6 @@ export type PoolConfig = {
     // treasuryAddress - is contract
     treasuryAddress: PubKeyHash,
     invariant: number,
-    invariantLength: number
 }
 
 const stringifyBigIntReviewer = (_: any, value: any) =>
@@ -155,7 +154,10 @@ async function main() {
 
     const poolConfig = await buildPoolConfig(lucid, startLovelaceValue, adaWeight, startTokenB, tokenBWeight, nftInfo.policyId, lqInfo.policyId);
 
-    const lq2pool: bigint = lqEmission - BigInt(poolConfig.invariant)
+    console.log(`poolConfig.invariant: ${poolConfig.invariant}`);
+    console.log(`Math.pow(poolConfig.invariant,  1/5): ${Math.pow(poolConfig.invariant,  1/5)}`);
+
+    const lq2pool: bigint = lqEmission - BigInt(Math.floor(Math.pow(poolConfig.invariant,  1/5)));
 
     const mintingLqAssets: Record<Unit | "lovelace", bigint> = 
         {
@@ -229,7 +231,7 @@ async function buildPoolConfig(lucid: Lucid, xQty: number, xWeight: number, yQty
 
    // const leftPart = (bigDecimal(xQty)) ** (bigDecimal(xWeight / weigtDen))
 
-    const invariant = Math.round(Math.pow(xQty, (xWeight / weigtDen)) * Math.pow(yQty, (yWeight / weigtDen)));
+    const invariant = Math.round(Math.pow(xQty, xWeight) * Math.pow(yQty, (yWeight)));
 
     console.log(`Math.pow(xQty, (xWeight / weigtDen)): ${Math.pow(xQty, (xWeight / weigtDen))}`);
     console.log(`Math.pow(yQty, (yWeight / weigtDen): ${Math.pow(yQty, (yWeight / weigtDen))}`);
@@ -241,8 +243,6 @@ async function buildPoolConfig(lucid: Lucid, xQty: number, xWeight: number, yQty
     console.log(`c: ${c.toString().slice(0, -1)}`);
     console.log(`d: ${d}`);
     console.log(`testInvariant: ${testInvariant}`);
-
-    const invariantLength = testInvariant.toString().length;
 
     const dao = await getDAOPolicy(nftCS)
 
@@ -281,8 +281,7 @@ async function buildPoolConfig(lucid: Lucid, xQty: number, xWeight: number, yQty
         }],
         // incorrect treasury address. change to script
         treasuryAddress: lucid.utils.getAddressDetails(myAddr).paymentCredential!.hash,
-        invariant: testInvariant,
-        invariantLength: invariantLength
+        invariant: invariant
     }
 }
 
@@ -301,7 +300,6 @@ function buildPoolDatum(lucid: Lucid, conf: PoolConfig): Datum {
         daoPolicy: conf.DAOPolicy,
         treasuryAddress: conf.treasuryAddress,
         invariant: BigInt(conf.invariant),
-        invariantlength: BigInt(conf.invariantLength)
     }, BalanceContract.conf)
 }
 
