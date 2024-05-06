@@ -1,9 +1,11 @@
 use std::mem;
+use std::str::FromStr;
 
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::DatumOption;
 use cml_chain::utils::BigInteger;
 use cml_core::serialization::LenEncoding;
+use primitive_types::U512;
 
 pub trait IntoPlutusData {
     fn into_pd(self) -> PlutusData;
@@ -21,6 +23,12 @@ impl IntoPlutusData for u128 {
     }
 }
 
+impl IntoPlutusData for U512 {
+    fn into_pd(self) -> PlutusData {
+        PlutusData::Integer(BigInteger::from_str(self.to_string().as_str()).unwrap())
+    }
+}
+
 impl IntoPlutusData for ConstrPlutusData {
     fn into_pd(self) -> PlutusData {
         PlutusData::ConstrPlutusData(self)
@@ -33,6 +41,7 @@ pub trait PlutusDataExtension {
     fn into_bytes(self) -> Option<Vec<u8>>;
     fn into_u64(self) -> Option<u64>;
     fn into_u128(self) -> Option<u128>;
+    fn into_u512(self) -> Option<U512>;
     fn into_vec_pd<T>(self, f: fn(PlutusData) -> Option<T>) -> Option<Vec<T>>;
     fn into_vec(self) -> Option<Vec<PlutusData>>;
 }
@@ -69,6 +78,13 @@ impl PlutusDataExtension for PlutusData {
     fn into_u128(self) -> Option<u128> {
         match self {
             PlutusData::Integer(big_int) => Some(big_int.as_u128()?),
+            _ => None,
+        }
+    }
+
+    fn into_u512(self) -> Option<U512> {
+        match self {
+            PlutusData::Integer(big_int) => U512::from_str_radix(big_int.to_string().as_str(), 10).ok(),
             _ => None,
         }
     }
