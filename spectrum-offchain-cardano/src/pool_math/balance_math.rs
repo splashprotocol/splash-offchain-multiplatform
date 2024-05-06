@@ -46,9 +46,9 @@ pub fn balance_cfmm_output_amount<X, Y>(
     let delta_y = quote_new_part
         .clone()
         .pow(&BigNumber::from(1).div(BigNumber::from(quote_weight)));
-    let delta_y_rounded = to_big_integer(delta_y.clone());
+    let delta_y_rounded = <u64>::try_from(delta_y.value.to_int().value()).unwrap();
     // quote_amount = quote_reserves - quote_new_part ^ (1 / quote_weight)
-    let mut pre_output_amount = quote_reserves - delta_y_rounded.as_u64().unwrap();
+    let mut pre_output_amount = quote_reserves - delta_y_rounded;
     // we should find the most approximate value to previous invariant
     while (calculate_new_invariant_bn(
         base_reserves,
@@ -83,13 +83,7 @@ fn calculate_new_invariant_bn(
         .sub(BigNumber::from(quote_output))
         .pow(&BigNumber::from(quote_weight));
 
-    U512::from_str_radix(
-        remove_decimals(base_new_part.mul(quote_part))
-            .to_string()
-            .as_str(),
-        10,
-    )
-    .unwrap()
+    U512::from_str_radix(base_new_part.mul(quote_part).to_string().as_str(), 10).unwrap()
 }
 
 // (base_reserves + base_amount * (poolFee / feeDen)) ^ base_weight
@@ -107,18 +101,4 @@ fn calculate_base_part_with_fee(
             ),
         )
         .pow(&BigNumber::from(base_weight))
-}
-
-fn to_big_integer(orig_value: BigNumber) -> BigInteger {
-    BigInteger::from_str(remove_decimals(orig_value).to_string().as_str()).unwrap()
-}
-
-fn remove_decimals(orig_value: BigNumber) -> BigNumber {
-    let int_part = orig_value.to_string().split(".").nth(0).unwrap().len();
-    BigNumber::from_str(
-        orig_value.to_string().replace(".", "")[..(int_part)]
-            .to_string()
-            .as_str(),
-    )
-    .unwrap()
 }
