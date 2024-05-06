@@ -146,8 +146,8 @@
       "outputIndex": 0
     },
     "cost": {
-      "mem": 1600000,
-      "steps": 1200000000
+      "mem": 500000,
+      "steps": 300000000
     }
   },
   "balanceFnPoolDeposit": {
