@@ -439,15 +439,25 @@ where
     }
 
     pub fn try_select_pool(&self, trade_hint: Side<u64>) -> Option<(AbsolutePrice, Pl::StableId)> {
+        trace!("try_select_pool::442");
         let pools = self
             .pools()
             .pools
             .values()
-            .map(|p| (p.real_price(trade_hint), p.stable_id()));
-        match trade_hint {
-            Side::Bid(_) => pools.min_by_key(|(p, _)| *p),
-            Side::Ask(_) => pools.max_by_key(|(p, _)| *p),
-        }
+            .map(|p| {
+                trace!("try_select_pool::448");
+                let pr = p.real_price(trade_hint);
+                trace!("try_select_pool::450");
+                (pr, p.stable_id())
+            })
+            .collect::<Vec<_>>();
+        trace!("try_select_pool::454");
+        let r = match trade_hint {
+            Side::Bid(_) => pools.into_iter().min_by_key(|(p, _)| *p),
+            Side::Ask(_) => pools.into_iter().max_by_key(|(p, _)| *p),
+        };
+        trace!("try_select_pool::459");
+        r
     }
 
     pub fn try_pick_pool<F>(&mut self, test: F) -> Option<Pl>

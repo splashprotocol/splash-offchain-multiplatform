@@ -12,6 +12,7 @@ use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_core::serialization::LenEncoding::{Canonical, Indefinite};
 use cml_multi_era::babbage::BabbageTransactionOutput;
+use log::trace;
 use num_integer::Roots;
 use num_rational::Ratio;
 use primitive_types::U512;
@@ -420,6 +421,7 @@ impl Pool for BalancePool {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, quote] = order_canonical(x, y);
+        trace!("BalancePool::real_price::424");
         let (base, quote) = match input {
             Side::Bid(input) => (
                 self.output_amount(TaggedAssetClass::new(quote), TaggedAmount::new(input))
@@ -432,6 +434,7 @@ impl Pool for BalancePool {
                     .untag(),
             ),
         };
+        trace!("BalancePool::real_price::437");
         AbsolutePrice::new(quote, base)
     }
 
