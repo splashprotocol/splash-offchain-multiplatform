@@ -1,5 +1,6 @@
 use std::ops::{Add, Div, Mul, Sub};
 
+use bignumber::BigNumber;
 use log::trace;
 use num_rational::Ratio;
 use primitive_types::U512;
@@ -23,46 +24,46 @@ pub fn balance_cfmm_output_amount<X, Y>(
     let (base_reserves, base_weight, quote_reserves, quote_weight, pool_fee) =
         if asset_x.untag() == base_asset.untag() {
             (
-                reserves_x.untag(),
-                x_weight,
+                reserves_x.untag() as f64,
+                x_weight as f64,
                 reserves_y.untag(),
-                y_weight,
+                y_weight as f64,
                 pool_fee_x,
             )
         } else {
             (
-                reserves_y.untag(),
-                y_weight,
+                reserves_y.untag() as f64,
+                y_weight as f64,
                 reserves_x.untag(),
-                x_weight,
+                x_weight as f64,
                 pool_fee_y,
             )
         };
     let base_new_part =
-        calculate_base_part_with_fee(base_reserves, base_weight, base_amount.untag(), pool_fee);
+        calculate_base_part_with_fee(base_reserves, base_weight, base_amount.untag() as f64, pool_fee);
     // (quote_reserves - quote_amount) ^ quote_weight = invariant / base_new_part
-    let quote_new_part = U512::from(invariant).div(base_new_part.clone());
+    let quote_new_part = BigNumber::from(invariant).div(base_new_part.clone());
     let delta_y = quote_new_part
         .clone()
-        .pow(U512::from(1).div(U512::from(quote_weight)));
-    let delta_y_rounded = <u64>::try_from(delta_y).unwrap();
+        .pow(&BigNumber::from(1).div(BigNumber::from(quote_weight)));
+    let delta_y_rounded = <u64>::try_from(delta_y.value.to_int().value()).unwrap();
     // quote_amount = quote_reserves - quote_new_part ^ (1 / quote_weight)
     let mut pre_output_amount = quote_reserves - delta_y_rounded;
     // we should find the most approximate value to previous invariant
     let mut num_loops = 0;
-    trace!("balance_cfmm_output_amount::calculate_new_invariant_bn_u({:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?})",         base_reserves,
+    trace!("balance_cfmm_output_amount::calculate_new_invariant_bn({:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?})",         base_reserves,
         base_weight,
-        base_amount.untag(),
-        quote_reserves,
+        base_amount.untag() as f64,
+        quote_reserves as f64,
         quote_weight,
-        pre_output_amount,
+        pre_output_amount as f64,
         pool_fee,);
     while calculate_new_invariant_bn_u(
-        base_reserves,
-        base_weight,
+        base_reserves as u64,
+        base_weight as u64,
         base_amount.untag(),
         quote_reserves,
-        quote_weight,
+        quote_weight as u64,
         pre_output_amount,
         pool_fee,
     ) <= invariant
@@ -96,40 +97,82 @@ fn calculate_new_invariant_bn_u(
     base_new_part.mul(quote_part)
 }
 
-// (base_reserves + base_amount * (poolFee / feeDen)) ^ base_weight
-fn calculate_base_part_with_fee(
-    base_reserves: u64,
-    base_weight: u64,
-    base_amount: u64,
+fn calculate_new_invariant_bn(
+    base_reserves: f64,
+    base_weight: f64,
+    base_amount: f64,
+    quote_reserves: f64,
+    quote_weight: f64,
+    quote_output: f64,
     pool_fee: Ratio<u64>,
 ) -> U512 {
-    U512::from(base_reserves)
+    let additional_part = ((base_amount as u64) * *pool_fee.numer()) / pool_fee.denom();
+    
+    let base_new_part = BigNumber::from(base_reserves)
+        .add(BigNumber::from(additional_part as f64))
+        .pow(&BigNumber::from(base_weight));
+
+    let quote_part = BigNumber::from(quote_reserves)
+        .sub(BigNumber::from(quote_output))
+        .pow(&BigNumber::from(quote_weight));
+
+    U512::from_str_radix(base_new_part.mul(quote_part).to_string().as_str(), 10).unwrap()
+}
+
+// (base_reserves + base_amount * (poolFee / feeDen)) ^ base_weight
+fn calculate_base_part_with_fee(
+    base_reserves: f64,
+    base_weight: f64,
+    base_amount: f64,
+    pool_fee: Ratio<u64>,
+) -> BigNumber {
+    BigNumber::from(base_reserves)
         .add(
             // base_amount * (poolFeeNum - treasuryFeeNum) / feeDen)
-            U512::from(base_amount).mul(
-                U512::from(*pool_fee.numer()).div(U512::from(*pool_fee.denom())),
+            BigNumber::from(base_amount).mul(
+                BigNumber::from(*pool_fee.numer() as f64).div((BigNumber::from(*pool_fee.denom() as f64))),
             ),
         )
-        .pow(U512::from(base_weight))
+        .pow(&BigNumber::from(base_weight))
 }
 
 #[cfg(test)]
 mod tests {
     use std::time::SystemTime;
     use num_rational::Ratio;
-    use crate::pool_math::balance_math::{ calculate_new_invariant_bn_u};
+    use primitive_types::U512;
+    use crate::pool_math::balance_math::{calculate_new_invariant_bn, calculate_new_invariant_bn_u};
+    
+    //32723123121843554304
+    //32723123121843554304
 
     #[test]
     fn bench_calculate_new_invariant_bn() {
         let a = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis();
-        let mut qo = 2539532267u64;
+        let mut qo = 926163164560f64;
         let mut loops_done = 0;
+        let mut r = U512::from(0);
         while loops_done < 684 {
-            let r = calculate_new_invariant_bn_u(143748364u64, 1u64, 1553810u64, 932884854368u64, 4u64, qo, Ratio::new(9967, 10000));
+            r = calculate_new_invariant_bn(147947582f64, 1f64, 1553810f64, 926163164561f64, 4f64, qo, Ratio::new(9967, 10000));
+            qo -= 1f64;
+            loops_done += 1;
+        }
+        let b = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis();
+        println!("{} millis elapsed, final qo: {}, r: {}", b-a, qo, r);
+    }
+
+    #[test]
+    fn bench_calculate_new_invariant_bn_u() {
+        let a = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis();
+        let mut qo = 926163164560u64;
+        let mut loops_done = 0;
+        let mut r = U512::from(0);
+        while loops_done < 684 { 
+            r = calculate_new_invariant_bn_u(147947582u64, 1u64, 1553810u64, 926163164561u64, 4u64, qo, Ratio::new(9967, 10000));
             qo -= 1u64;
             loops_done += 1;
         }
         let b = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis();
-        println!("{} millis elapsed", b-a);
+        println!("{} millis elapsed, final qo: {}, r: {}", b-a, qo, r);
     }
 }
