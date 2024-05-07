@@ -39,7 +39,7 @@ where
     fn get_prediction_predecessor<'a>(&self, id: Src::Version) -> Option<Src::Version> {
         let res = self.0.get_prediction_predecessor(id);
         trace!(
-            "get_prediction_predecessor({}) -> {}",
+            "state_index::get_prediction_predecessor({}) -> {}",
             id,
             if res.is_some() { "Some(_)" } else { "None" }
         );
@@ -49,7 +49,7 @@ where
     fn get_last_confirmed<'a>(&self, id: Src::StableId) -> Option<Confirmed<Src>> {
         let res = self.0.get_last_confirmed(id);
         trace!(
-            "get_last_confirmed({}) -> {}",
+            "state_index::get_last_confirmed({}) -> {}",
             id,
             if res.is_some() { "Some(_)" } else { "None" }
         );
@@ -59,7 +59,7 @@ where
     fn get_last_unconfirmed<'a>(&self, id: Src::StableId) -> Option<Unconfirmed<Src>> {
         let res = self.0.get_last_unconfirmed(id);
         trace!(
-            "get_last_unconfirmed({}) -> {}",
+            "state_index::get_last_unconfirmed({}) -> {}",
             id,
             if res.is_some() { "Some(_)" } else { "None" }
         );
@@ -68,7 +68,7 @@ where
 
     fn put_confirmed<'a>(&mut self, entity: Confirmed<Src>) {
         trace!(
-            "put_confirmed(Entity({}, {}))",
+            "state_index::put_confirmed(Entity({}, {}))",
             entity.0.stable_id(),
             entity.0.version()
         );
@@ -77,7 +77,7 @@ where
 
     fn put_unconfirmed<'a>(&mut self, entity: Unconfirmed<Src>) {
         trace!(
-            "put_unconfirmed(Entity({}, {}))",
+            "state_index::put_unconfirmed(Entity({}, {}))",
             entity.0.stable_id(),
             entity.0.version()
         );
@@ -87,7 +87,7 @@ where
     fn invalidate<'a>(&mut self, ver: Src::Version) -> Option<Src::StableId> {
         let res = self.0.invalidate(ver);
         trace!(
-            "invalidate({}) -> {}",
+            "state_index::invalidate({}) -> {}",
             ver,
             if res.is_some() { "Some(_)" } else { "None" }
         );
@@ -96,19 +96,19 @@ where
 
     fn eliminate<'a>(&mut self, ver: Src::Version) {
         self.0.eliminate(ver);
-        trace!("eliminate({})", ver);
+        trace!("state_index::eliminate({})", ver);
     }
 
     fn may_exist<'a>(&self, sid: Src::Version) -> bool {
         let res = self.0.may_exist(sid);
-        trace!("may_exist({}) -> {}", sid, res);
+        trace!("state_index::may_exist({}) -> {}", sid, res);
         res
     }
 
     fn get_state<'a>(&self, sid: Src::Version) -> Option<Src> {
         let res = self.0.get_state(sid);
         trace!(
-            "get_state({}) -> {}",
+            "state_index::get_state({}) -> {}",
             sid,
             if res.is_some() { "Some(_)" } else { "None" }
         );

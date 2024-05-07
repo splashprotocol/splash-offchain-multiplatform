@@ -25,6 +25,7 @@ use spectrum_offchain::tx_prover::TxProver;
 
 use crate::execution_engine::backlog::SpecializedInterpreter;
 use crate::execution_engine::bundled::Bundled;
+use crate::execution_engine::circular_filter::CircularFilter;
 use crate::execution_engine::execution_effect::ExecutionEff;
 use crate::execution_engine::focus_set::FocusSet;
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState};
@@ -49,6 +50,7 @@ pub mod resolver;
 pub mod storage;
 pub mod types;
 mod focus_set;
+mod circular_filter;
 
 /// Class of entities that evolve upon execution.
 type EvolvingEntity<CO, P, V, B> = Bundled<Either<Baked<CO, V>, Baked<P, V>>, B>;
@@ -198,6 +200,8 @@ pub struct Executor<
     pending_effects: Option<(Pair, PendingEffects<CompOrd, SpecOrd, Pool, Ver, Bearer>)>,
     /// Which pair should we process in the first place.
     focus_set: FocusSet<Pair>,
+    /// Temporarily memoize entities that came from unconfirmed updates.
+    skip_filter: CircularFilter<128, Ver>,
     pd: PhantomData<(StableId, Ver, Txc, Tx, Err)>,
 }
 
@@ -229,6 +233,7 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
             feedback,
             pending_effects: None,
             focus_set: FocusSet::new(),
+            skip_filter: CircularFilter::new(),
             pd: Default::default(),
         }
     }
@@ -362,12 +367,14 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
                         .get_last_unconfirmed(id)
                         .map(|Unconfirmed(st)| st.version() == ver)
                         .unwrap_or(false);
-                    if unconfirmed_state_exists {
+                    let seen_recently = self.skip_filter.remove(&ver);
+                    if unconfirmed_state_exists || seen_recently {
                         // No TLB update is needed.
                         return None;
                     }
                 } else {
                     trace!(target: "executor", "Observing new unconfirmed state {}", id);
+                    self.skip_filter.add(new_state.version());
                     self.index.put_unconfirmed(Unconfirmed(new_state));
                 }
                 match resolve_source_state(id, &self.index) {

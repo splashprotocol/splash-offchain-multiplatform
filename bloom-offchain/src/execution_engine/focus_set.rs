@@ -17,8 +17,7 @@ impl<T> FocusSet<T> {
 
 impl<T: Hash + Eq + Copy> FocusSet<T> {
     pub fn push_back(&mut self, a: T) {
-        if !self.filter.contains(&a) {
-            self.filter.insert(a);
+        if self.filter.insert(a) {
             self.queue.push_back(a);
         }
     }
