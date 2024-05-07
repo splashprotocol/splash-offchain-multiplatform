@@ -20,7 +20,16 @@ pub fn balance_cfmm_output_amount<X, Y>(
     pool_fee_y: Ratio<u64>,
     invariant: U512,
 ) -> TaggedAmount<Quote> {
-    trace!("balance_cfmm_output_amount::23");
+    trace!("balance_cfmm_output_amount({:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?})",     asset_x,
+    reserves_x,
+    x_weight,
+    reserves_y,
+    y_weight,
+    base_asset,
+    base_amount,
+    pool_fee_x,
+    pool_fee_y,
+    invariant);
     let (base_reserves, base_weight, quote_reserves, quote_weight, pool_fee) =
         if asset_x.untag() == base_asset.untag() {
             (
@@ -107,7 +116,7 @@ fn calculate_new_invariant_bn(
     pool_fee: Ratio<u64>,
 ) -> U512 {
     let additional_part = ((base_amount as u64) * *pool_fee.numer()) / pool_fee.denom();
-    
+
     let base_new_part = BigNumber::from(base_reserves)
         .add(BigNumber::from(additional_part as f64))
         .pow(&BigNumber::from(base_weight));
@@ -142,7 +151,7 @@ mod tests {
     use num_rational::Ratio;
     use primitive_types::U512;
     use crate::pool_math::balance_math::{calculate_new_invariant_bn, calculate_new_invariant_bn_u};
-    
+
     //32723123121843554304
     //32723123121843554304
 
@@ -167,7 +176,7 @@ mod tests {
         let mut qo = 926163164560u64;
         let mut loops_done = 0;
         let mut r = U512::from(0);
-        while loops_done < 684 { 
+        while loops_done < 684 {
             r = calculate_new_invariant_bn_u(147947582u64, 1u64, 1553810u64, 926163164561u64, 4u64, qo, Ratio::new(9967, 10000));
             qo -= 1u64;
             loops_done += 1;
