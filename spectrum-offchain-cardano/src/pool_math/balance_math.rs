@@ -1,8 +1,6 @@
 use std::ops::{Add, Div, Mul, Sub};
-use std::str::FromStr;
 
 use bignumber::BigNumber;
-use cml_chain::utils::BigInteger;
 use num_rational::Ratio;
 use primitive_types::U512;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
@@ -50,7 +48,7 @@ pub fn balance_cfmm_output_amount<X, Y>(
     // quote_amount = quote_reserves - quote_new_part ^ (1 / quote_weight)
     let mut pre_output_amount = quote_reserves - delta_y_rounded;
     // we should find the most approximate value to previous invariant
-    while (calculate_new_invariant_bn(
+    while calculate_new_invariant_bn(
         base_reserves,
         base_weight,
         base_amount.untag() as f64,
@@ -58,7 +56,7 @@ pub fn balance_cfmm_output_amount<X, Y>(
         quote_weight,
         pre_output_amount as f64,
         pool_fee,
-    ) <= invariant)
+    ) <= invariant
     {
         pre_output_amount -= 1
     }

@@ -1,6 +1,5 @@
 use std::fmt::Debug;
-use std::ops::{Add, Div, Mul, Sub};
-use std::str::FromStr;
+use std::ops::{Div, Mul, Sub};
 
 use bignumber::BigNumber;
 use cml_chain::address::Address;
@@ -13,7 +12,6 @@ use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_core::serialization::LenEncoding::{Canonical, Indefinite};
 use cml_multi_era::babbage::BabbageTransactionOutput;
-use log::info;
 use num_integer::Roots;
 use num_rational::Ratio;
 use primitive_types::U512;
@@ -31,7 +29,7 @@ use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
-use crate::constants::{ADDITIONAL_ROUND_PRECISION, FEE_DEN, MAX_LQ_CAP, WEIGHT_FEE_DEN};
+use crate::constants::{FEE_DEN, MAX_LQ_CAP, WEIGHT_FEE_DEN};
 use crate::data::cfmm_pool::AMMOps;
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::operation_output::{DepositOutput, RedeemOutput};
@@ -195,7 +193,7 @@ impl BalancePool {
     }
 
     // [gx, tx, gy, ty]
-    fn create_redeemer(cfmmpool_action: CFMMPoolAction, pool_idx: u64) -> PlutusData {
+    fn create_redeemer(pool_action: CFMMPoolAction, pool_idx: u64) -> PlutusData {
         /*
           Original structure of pool redeemer
             [ "action" ':= BalancePoolAction
@@ -203,7 +201,7 @@ impl BalancePool {
             ]
         */
 
-        let action_plutus_data = cfmmpool_action.to_plutus_data();
+        let action_plutus_data = pool_action.to_plutus_data();
         let self_ix_pd = PlutusData::Integer(BigInteger::from(pool_idx));
 
         PlutusData::ConstrPlutusData(ConstrPlutusData {
