@@ -489,9 +489,13 @@ where
         SideM::Ask => {
             trace!(target: "tlb", "fill_from_pool: ASK");
             let mut ask = lhs;
+            trace!(target: "tlb", "ask");
             let base_input = ask.remaining_input;
+            trace!(target: "tlb", "before pool swap");
             let (execution_amount, next_pool) = pool.swap(Side::Ask(base_input));
+            trace!(target: "tlb", "after pool swap");
             ask.accumulated_output += execution_amount;
+            trace!(target: "tlb", "ask.accumulated_output");
             let swap = Swap {
                 target: pool,
                 transition: next_pool,
@@ -499,10 +503,13 @@ where
                 input: base_input,
                 output: execution_amount,
             };
-            FillFromPool {
+            trace!(target: "tlb", "swap");
+            let a = FillFromPool {
                 term_fill: ask.filled_unsafe(),
                 swap,
-            }
+            };
+            trace!(target: "tlb", "FillFromPool");
+            a
         }
     }
 }

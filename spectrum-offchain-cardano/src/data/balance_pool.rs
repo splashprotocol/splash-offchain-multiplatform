@@ -609,6 +609,7 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
 }
 
 mod tests {
+    use bignumber::BigNumber;
     use bloom_offchain::execution_engine::liquidity_book::pool::Pool;
     use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use cml_chain::plutus::PlutusData;

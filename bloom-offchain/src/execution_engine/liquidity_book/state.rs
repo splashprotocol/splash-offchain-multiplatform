@@ -443,11 +443,12 @@ where
             .pools()
             .pools
             .values()
-            .map(|p| (p.real_price(trade_hint), p.stable_id()));
+            .map(|p| (p.real_price(trade_hint), p.stable_id()))
+            .collect::<Vec<_>>();
         trace!("Pools {}", pools.len());
         let a = match trade_hint {
-            Side::Bid(_) => pools.min_by_key(|(p, _)| *p),
-            Side::Ask(_) => pools.max_by_key(|(p, _)| *p),
+            Side::Bid(_) => pools.into_iter().min_by_key(|(p, _)| *p),
+            Side::Ask(_) => pools.into_iter().max_by_key(|(p, _)| *p),
         };
         trace!("after a");
         a
