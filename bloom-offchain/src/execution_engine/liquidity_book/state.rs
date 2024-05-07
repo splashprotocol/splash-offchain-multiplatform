@@ -444,6 +444,7 @@ where
             .pools
             .values()
             .map(|p| (p.real_price(trade_hint), p.stable_id()));
+        trace!("Pools {}", pools.len());
         match trade_hint {
             Side::Bid(_) => pools.min_by_key(|(p, _)| *p),
             Side::Ask(_) => pools.max_by_key(|(p, _)| *p),
