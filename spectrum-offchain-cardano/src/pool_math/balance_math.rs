@@ -49,6 +49,7 @@ pub fn balance_cfmm_output_amount<X, Y>(
     let delta_y_rounded = <u64>::try_from(delta_y.value.to_int().value()).unwrap();
     // quote_amount = quote_reserves - quote_new_part ^ (1 / quote_weight)
     let mut pre_output_amount = quote_reserves - delta_y_rounded;
+    trace!("balance_cfmm_output_amount::52");
     // we should find the most approximate value to previous invariant
     while calculate_new_invariant_bn(
         base_reserves,
@@ -60,10 +61,10 @@ pub fn balance_cfmm_output_amount<X, Y>(
         pool_fee,
     ) <= invariant
     {
-        trace!("balance_cfmm_output_amount::63");
+        trace!("balance_cfmm_output_amount::64");
         pre_output_amount -= 1
     }
-    trace!("balance_cfmm_output_amount::66");
+    trace!("balance_cfmm_output_amount::67");
     TaggedAmount::new(pre_output_amount)
 }
 fn calculate_new_invariant_bn(
