@@ -445,10 +445,12 @@ where
             .values()
             .map(|p| (p.real_price(trade_hint), p.stable_id()));
         trace!("Pools {}", pools.len());
-        match trade_hint {
+        let a = match trade_hint {
             Side::Bid(_) => pools.min_by_key(|(p, _)| *p),
             Side::Ask(_) => pools.max_by_key(|(p, _)| *p),
-        }
+        };
+        trace!("after a");
+        a
     }
 
     pub fn try_pick_pool<F>(&mut self, test: F) -> Option<Pl>
