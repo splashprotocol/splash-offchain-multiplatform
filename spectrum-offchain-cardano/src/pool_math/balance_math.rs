@@ -8,6 +8,100 @@ use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 
 use crate::data::order::{Base, Quote};
 
+pub fn balance_cfmm_output_amount_old<X, Y>(
+    asset_x: TaggedAssetClass<X>,
+    reserves_x: TaggedAmount<X>,
+    x_weight: u64,
+    reserves_y: TaggedAmount<Y>,
+    y_weight: u64,
+    base_asset: TaggedAssetClass<Base>,
+    base_amount: TaggedAmount<Base>,
+    pool_fee_x: Ratio<u64>,
+    pool_fee_y: Ratio<u64>,
+    invariant: U512,
+) -> TaggedAmount<Quote> {
+    trace!("balance_cfmm_output_amount({:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?})",     asset_x,
+    reserves_x,
+    x_weight,
+    reserves_y,
+    y_weight,
+    base_asset,
+    base_amount,
+    pool_fee_x,
+    pool_fee_y,
+    invariant);
+    let (base_reserves, base_weight, quote_reserves, quote_weight, pool_fee) =
+        if asset_x.untag() == base_asset.untag() {
+            (
+                reserves_x.untag() as f64,
+                x_weight as f64,
+                reserves_y.untag(),
+                y_weight as f64,
+                pool_fee_x,
+            )
+        } else {
+            (
+                reserves_y.untag() as f64,
+                y_weight as f64,
+                reserves_x.untag(),
+                x_weight as f64,
+                pool_fee_y,
+            )
+        };
+    let base_new_part =
+        calculate_base_part_with_fee_old(base_reserves, base_weight, base_amount.untag() as f64, pool_fee);
+    // (quote_reserves - quote_amount) ^ quote_weight = invariant / base_new_part
+    let quote_new_part = BigNumber::from(invariant).div(base_new_part.clone());
+    let delta_y = quote_new_part
+        .clone()
+        .pow(&BigNumber::from(1).div(BigNumber::from(quote_weight)));
+    let delta_y_rounded = <u64>::try_from(delta_y.value.to_int().value()).unwrap();
+    // quote_amount = quote_reserves - quote_new_part ^ (1 / quote_weight)
+    let mut pre_output_amount = quote_reserves - delta_y_rounded;
+    // we should find the most approximate value to previous invariant
+    let mut num_loops = 0;
+    trace!("balance_cfmm_output_amount::calculate_new_invariant_bn({:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?})",         base_reserves,
+        base_weight,
+        base_amount.untag() as f64,
+        quote_reserves as f64,
+        quote_weight,
+        pre_output_amount as f64,
+        pool_fee,);
+    while calculate_new_invariant_bn_u(
+        base_reserves as u64,
+        base_weight as u64,
+        base_amount.untag(),
+        quote_reserves,
+        quote_weight as u64,
+        pre_output_amount,
+        pool_fee,
+    ) <= invariant
+    {
+        num_loops += 1;
+        pre_output_amount -= 1
+    }
+    println!("balance_cfmm_output_amount loops done: {}, final pre_output_amount: {}", num_loops, pre_output_amount);
+    TaggedAmount::new(pre_output_amount)
+}
+
+fn calculate_base_part_with_fee_old(
+    base_reserves: f64,
+    base_weight: f64,
+    base_amount: f64,
+    pool_fee: Ratio<u64>,
+) -> BigNumber {
+    BigNumber::from(base_reserves)
+        .add(
+            // base_amount * (poolFeeNum - treasuryFeeNum) / feeDen)
+            BigNumber::from(base_amount).mul(
+                BigNumber::from(*pool_fee.numer() as f64).div((BigNumber::from(*pool_fee.denom() as f64))),
+            ),
+        )
+        .pow(&BigNumber::from(base_weight))
+}
+
+
+
 pub fn balance_cfmm_output_amount<X, Y>(
     asset_x: TaggedAssetClass<X>,
     reserves_x: TaggedAmount<X>,
@@ -80,7 +174,7 @@ pub fn balance_cfmm_output_amount<X, Y>(
         num_loops += 1;
         pre_output_amount -= 1
     }
-    trace!("balance_cfmm_output_amount loops done: {}, final pre_output_amount: {}", num_loops, pre_output_amount);
+    println!("balance_cfmm_output_amount loops done: {}, final pre_output_amount: {}", num_loops, pre_output_amount);
     TaggedAmount::new(pre_output_amount)
 }
 
@@ -129,7 +223,7 @@ mod tests {
     use primitive_types::U512;
     use spectrum_cardano_lib::AssetClass::Native;
     use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
-    use crate::pool_math::balance_math::{balance_cfmm_output_amount, calculate_new_invariant_bn_u};
+    use crate::pool_math::balance_math::{balance_cfmm_output_amount, balance_cfmm_output_amount_old, calculate_new_invariant_bn_u};
 
     //32723123121843554304
     //32723123121843554304
@@ -137,10 +231,11 @@ mod tests {
     #[test]
     fn bench_calculate_new_invariant_bn() {
         let a = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis();
-        let r = balance_cfmm_output_amount::<u32, u64>(TaggedAssetClass::new(Native), TaggedAmount::new(138380931), 1, TaggedAmount::new(941773308860), 4, TaggedAssetClass::new(Native), TaggedAmount::new(1553810), Ratio::new(9967, 10000) , Ratio::new(9967, 10000) , U512::from_str_radix("108851273084482366709335815120045286190142550777908960000", 10).unwrap());
+        let r_new = balance_cfmm_output_amount::<u32, u64>(TaggedAssetClass::new(Native), TaggedAmount::new(138380931), 1, TaggedAmount::new(941773308860), 4, TaggedAssetClass::new(Native), TaggedAmount::new(1553810), Ratio::new(9967, 10000), Ratio::new(9967, 10000), U512::from_str_radix("108851273084482366709335815120045286190142550777908960000", 10).unwrap());
+        let r_old = balance_cfmm_output_amount_old::<u32, u64>(TaggedAssetClass::new(Native), TaggedAmount::new(138380931), 1, TaggedAmount::new(941773308860), 4, TaggedAssetClass::new(Native), TaggedAmount::new(1553810), Ratio::new(9967, 10000), Ratio::new(9967, 10000), U512::from_str_radix("108851273084482366709335815120045286190142550777908960000", 10).unwrap());
         let b = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis();
-        println!("{} millis elapsed, final r: {:?}", b-a, r);
-        assert_eq!(r, TaggedAmount::new(2631943370));
+        println!("{} millis elapsed, final r: {:?}, legacy variant: {:?}", b-a, r_new, r_old);
+        assert_eq!(r_new, TaggedAmount::new(2631943370));
     }
 
     #[test]
