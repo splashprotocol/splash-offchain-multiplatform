@@ -1,6 +1,7 @@
 use std::ops::{Add, Div, Mul, Sub};
 
 use bignumber::BigNumber;
+use log::trace;
 use num_rational::Ratio;
 use primitive_types::U512;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
@@ -19,6 +20,7 @@ pub fn balance_cfmm_output_amount<X, Y>(
     pool_fee_y: Ratio<u64>,
     invariant: U512,
 ) -> TaggedAmount<Quote> {
+    trace!("balance_cfmm_output_amount::23");
     let (base_reserves, base_weight, quote_reserves, quote_weight, pool_fee) =
         if asset_x.untag() == base_asset.untag() {
             (
@@ -58,8 +60,10 @@ pub fn balance_cfmm_output_amount<X, Y>(
         pool_fee,
     ) <= invariant
     {
+        trace!("balance_cfmm_output_amount::63");
         pre_output_amount -= 1
     }
+    trace!("balance_cfmm_output_amount::66");
     TaggedAmount::new(pre_output_amount)
 }
 fn calculate_new_invariant_bn(
