@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -26,6 +26,7 @@ use spectrum_offchain::tx_prover::TxProver;
 use crate::execution_engine::backlog::SpecializedInterpreter;
 use crate::execution_engine::bundled::Bundled;
 use crate::execution_engine::execution_effect::ExecutionEff;
+use crate::execution_engine::focus_set::FocusSet;
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState};
 use crate::execution_engine::liquidity_book::recipe::{
     ExecutionRecipe, LinkedExecutionRecipe, LinkedFill, LinkedSwap, LinkedTerminalInstruction,
@@ -47,6 +48,7 @@ pub mod partial_fill;
 pub mod resolver;
 pub mod storage;
 pub mod types;
+mod focus_set;
 
 /// Class of entities that evolve upon execution.
 type EvolvingEntity<CO, P, V, B> = Bundled<Either<Baked<CO, V>, Baked<P, V>>, B>;
@@ -195,7 +197,7 @@ pub struct Executor<
     /// Pending effects resulted from execution of a batch trade in a certain [Pair].
     pending_effects: Option<(Pair, PendingEffects<CompOrd, SpecOrd, Pool, Ver, Bearer>)>,
     /// Which pair should we process in the first place.
-    focus_set: BTreeSet<Pair>,
+    focus_set: FocusSet<Pair>,
     pd: PhantomData<(StableId, Ver, Txc, Tx, Err)>,
 }
 
@@ -226,7 +228,7 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
             upstream,
             feedback,
             pending_effects: None,
-            focus_set: Default::default(),
+            focus_set: FocusSet::new(),
             pd: Default::default(),
         }
     }
@@ -519,11 +521,11 @@ where
                     }
                     Either::Right(atomic_entity) => self.sync_backlog(&pair, atomic_entity),
                 }
-                self.focus_set.insert(pair);
+                self.focus_set.push_back(pair);
                 continue;
             }
             // Finally attempt to execute something.
-            while let Some(focus_pair) = self.focus_set.pop_first() {
+            while let Some(focus_pair) = self.focus_set.pop_front() {
                 // Try TLB:
                 if let Some(recipe) = self.multi_book.get_mut(&focus_pair).attempt() {
                     let linked_recipe = self.link_recipe(recipe.into());
@@ -534,7 +536,7 @@ where
                         .insert((focus_pair, PendingEffects::FromLiquidityBook(effects)));
                     let tx = self.prover.prove(txc);
                     // Return pair to focus set to make sure corresponding TLB will be exhausted.
-                    self.focus_set.insert(focus_pair);
+                    self.focus_set.push_back(focus_pair);
                     return Poll::Ready(Some(tx));
                 }
                 // Try Backlog:
@@ -553,7 +555,7 @@ where
                             ));
                             let tx = self.prover.prove(txc);
                             // Return pair to focus set to make sure corresponding TLB will be exhausted.
-                            self.focus_set.insert(focus_pair);
+                            self.focus_set.push_back(focus_pair);
                             return Poll::Ready(Some(tx));
                         }
                     }

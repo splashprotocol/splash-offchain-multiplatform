@@ -849,6 +849,18 @@ pub mod tests {
     }
 
     #[test]
+    fn choose_best_fragment_both_orders_price_is_off() {
+        let time_now = 1000u64;
+        let index_price = AbsolutePrice::new(1, 35);
+        let ask = SimpleOrderPF::new(SideM::Ask, 1000, AbsolutePrice::new(1, 30), 100);
+        let bid = SimpleOrderPF::new(SideM::Bid, 1000, AbsolutePrice::new(1, 40), 200);
+        let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
+        s0.fragments.add_fragment(ask);
+        s0.fragments.add_fragment(bid);
+        assert_eq!(TLBState::Idle(s0).pick_best_fr_either(Some(index_price)), Some(bid));
+    }
+
+    #[test]
     fn settled_state_to_preview_active_fr() {
         let time_now = 1000u64;
         let delta = 100u64;
