@@ -9,6 +9,7 @@ use num_rational::Ratio;
 
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::maker::Maker;
+use std::time::SystemTime;
 
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use crate::execution_engine::liquidity_book::pool::Pool;
@@ -129,9 +130,25 @@ where
                             self.execution_cap.safe_threshold()
                         );
                         if execution_units_left > self.execution_cap.safe_threshold() {
+                            trace!(
+                                "In branch {:?}",
+                                SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap()
+                            );
                             let target_side = rem.target.side();
+                            trace!(
+                                "target_side {:?}",
+                                SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap()
+                            );
                             let target_price = target_side.wrap(rem.target.price());
+                            trace!(
+                                "target_price {:?}",
+                                SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap()
+                            );
                             let price_fragments = self.state.best_fr_price(!target_side);
+                            trace!(
+                                "price_fragments {:?}",
+                                SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap()
+                            );
                             let maybe_best_pool =
                                 self.state.try_select_pool(target_side.wrap(rem.remaining_input));
                             trace!(
