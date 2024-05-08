@@ -42,15 +42,15 @@ use crate::execution_engine::storage::StateIndex;
 pub mod backlog;
 pub mod batch_exec;
 pub mod bundled;
+mod circular_filter;
 pub mod execution_effect;
+mod focus_set;
 pub mod liquidity_book;
 pub mod multi_pair;
 pub mod partial_fill;
 pub mod resolver;
 pub mod storage;
 pub mod types;
-mod focus_set;
-mod circular_filter;
 
 /// Class of entities that evolve upon execution.
 type EvolvingEntity<CO, P, V, B> = Bundled<Either<Baked<CO, V>, Baked<P, V>>, B>;

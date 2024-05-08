@@ -1,4 +1,4 @@
-use std::fmt::{format, Debug};
+use std::fmt::{format, Debug, Display, Formatter};
 
 use cml_chain::address::Address;
 
@@ -187,6 +187,25 @@ pub struct PoolBounds {
 pub enum AnyPool {
     PureCFMM(ConstFnPool),
     BalancedCFMM(BalancePool),
+}
+
+impl Display for AnyPool {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PureCFMM(p) => f.write_str(&*format!(
+                "PureCFMM(id: {}, static_price: {}, quality: {})",
+                p.id,
+                p.static_price(),
+                p.quality()
+            )),
+            BalancedCFMM(p) => f.write_str(&*format!(
+                "BalancedCFMM(id: {}, static_price: {}, quality: {})",
+                p.id,
+                p.static_price(),
+                p.quality()
+            )),
+        }
+    }
 }
 
 pub struct AssetDeltas {

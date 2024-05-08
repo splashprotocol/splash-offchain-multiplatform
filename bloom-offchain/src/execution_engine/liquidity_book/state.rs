@@ -311,6 +311,17 @@ where
     Pl: Pool + Stable + Copy,
     U: PartialOrd,
 {
+    pub fn show_state(&self) -> String
+    where
+        Pl::StableId: Display,
+        Pl: Display,
+        Fr: Display,
+    {
+        let pools = self.pools().show_state();
+        let fragments = self.active_fragments().show_state();
+        format!("Fragments(active): {}, Pools: {}", fragments, pools)
+    }
+
     pub fn best_fr_price(&self, side: SideM) -> Option<Side<AbsolutePrice>> {
         let active_fragments = self.active_fragments();
         let side_store = match side {
@@ -439,25 +450,19 @@ where
     }
 
     pub fn try_select_pool(&self, trade_hint: Side<u64>) -> Option<(AbsolutePrice, Pl::StableId)> {
-        trace!("try_select_pool::442");
         let pools = self
             .pools()
             .pools
             .values()
             .map(|p| {
-                trace!("try_select_pool::448");
                 let pr = p.real_price(trade_hint);
-                trace!("try_select_pool::450");
                 (pr, p.stable_id())
             })
             .collect::<Vec<_>>();
-        trace!("try_select_pool::454");
-        let r = match trade_hint {
+        match trade_hint {
             Side::Bid(_) => pools.into_iter().min_by_key(|(p, _)| *p),
             Side::Ask(_) => pools.into_iter().max_by_key(|(p, _)| *p),
-        };
-        trace!("try_select_pool::459");
-        r
+        }
     }
 
     pub fn try_pick_pool<F>(&mut self, test: F) -> Option<Pl>
@@ -736,6 +741,23 @@ where
             SideM::Ask => self.asks.insert(fr),
         };
     }
+
+    pub fn show_state(&self) -> String
+    where
+        Fr: Display,
+    {
+        let asks = self
+            .asks
+            .iter()
+            .map(|v| v.to_string())
+            .fold("".to_string(), |acc, x| acc.add(format!("{}, ", x).as_str()));
+        let bids = self
+            .bids
+            .iter()
+            .map(|v| v.to_string())
+            .fold("".to_string(), |acc, x| acc.add(format!("{}, ", x).as_str()));
+        format!("asks: {}, bids: {}", asks, bids)
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -750,6 +772,17 @@ impl<Pl: Stable> Pools<Pl> {
             pools: HashMap::new(),
             quality_index: BTreeMap::new(),
         }
+    }
+
+    pub fn show_state(&self) -> String
+    where
+        Pl::StableId: Display,
+        Pl: Display,
+    {
+        self.pools
+            .iter()
+            .map(|(k, v)| format!("{} -> {}", k, v))
+            .fold("".to_string(), |acc, x| acc.add(format!("{}, ", x).as_str()))
     }
 }
 
@@ -775,8 +808,6 @@ where
 pub mod tests {
     use std::cmp::Ordering;
     use std::fmt::{Debug, Display, Formatter};
-
-    use num_rational::Ratio;
 
     use spectrum_offchain::data::Stable;
 
@@ -843,7 +874,10 @@ pub mod tests {
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.fragments.add_fragment(ask);
         s0.fragments.add_fragment(bid);
-        assert_eq!(TLBState::Idle(s0).pick_best_fr_either(Some(index_price)), Some(ask));
+        assert_eq!(
+            TLBState::Idle(s0).pick_best_fr_either(Some(index_price)),
+            Some(ask)
+        );
     }
 
     #[test]
@@ -855,7 +889,10 @@ pub mod tests {
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.fragments.add_fragment(ask);
         s0.fragments.add_fragment(bid);
-        assert_eq!(TLBState::Idle(s0).pick_best_fr_either(Some(index_price)), Some(bid));
+        assert_eq!(
+            TLBState::Idle(s0).pick_best_fr_either(Some(index_price)),
+            Some(bid)
+        );
     }
 
     #[test]
@@ -867,7 +904,10 @@ pub mod tests {
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.fragments.add_fragment(ask);
         s0.fragments.add_fragment(bid);
-        assert_eq!(TLBState::Idle(s0).pick_best_fr_either(Some(index_price)), Some(bid));
+        assert_eq!(
+            TLBState::Idle(s0).pick_best_fr_either(Some(index_price)),
+            Some(bid)
+        );
     }
 
     #[test]
@@ -1136,9 +1176,15 @@ pub mod tests {
         pub fee_num: u64,
     }
 
-    impl Debug for SimpleCFMMPool {
+    impl Display for SimpleCFMMPool {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             f.write_str(&*format!("Pool(price={})", self.static_price()))
+        }
+    }
+
+    impl Debug for SimpleCFMMPool {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            f.write_str(&*self.to_string())
         }
     }
 

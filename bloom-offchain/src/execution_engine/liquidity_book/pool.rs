@@ -1,6 +1,6 @@
 use crate::execution_engine::liquidity_book::side::Side;
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;
-use derive_more::{From, Into};
+use derive_more::{Display, From, Into};
 use std::cmp::Ordering;
 
 /// Pooled liquidity.
@@ -18,7 +18,7 @@ pub trait Pool {
     fn marginal_cost_hint(&self) -> Self::U;
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Into, From)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Into, From, Display)]
 pub struct PoolQuality(u128);
 
 impl PartialOrd for PoolQuality {
