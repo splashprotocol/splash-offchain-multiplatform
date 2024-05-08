@@ -86,10 +86,6 @@ pub fn balance_cfmm_output_amount_old<X, Y>(
         num_loops += 1;
         pre_output_amount -= 1
     }
-    println!(
-        "balance_cfmm_output_amount loops done: {}, final pre_output_amount: {}",
-        num_loops, pre_output_amount
-    );
     TaggedAmount::new(pre_output_amount)
 }
 
@@ -159,10 +155,6 @@ pub fn balance_cfmm_output_amount<X, Y>(
     let delta_y = quote_new_part.pow(&BigNumber::from(1).div(BigNumber::from(quote_weight as f64)));
     let delta_y_rounded = <u64>::try_from(delta_y.value.to_int().value()).unwrap();
     // quote_amount = quote_reserves - quote_new_part ^ (1 / quote_weight)
-    println!(
-        "quote_reserves = {}, delta_y_rounded = {}",
-        quote_reserves, delta_y_rounded
-    );
     let mut pre_output_amount = quote_reserves - delta_y_rounded;
     // we should find the most approximate value to previous invariant
     let mut num_loops = 0;
@@ -189,7 +181,7 @@ pub fn balance_cfmm_output_amount<X, Y>(
         num_loops += 1;
         pre_output_amount -= 1
     }
-    println!(
+    trace!(
         "balance_cfmm_output_amount loops done: {}, final pre_output_amount: {}",
         num_loops, pre_output_amount
     );
