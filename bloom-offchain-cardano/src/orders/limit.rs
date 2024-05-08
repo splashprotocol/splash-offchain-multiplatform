@@ -314,7 +314,7 @@ where
             let min_marginal_output = conf.min_marginal_output as u128;
             let is_permissionless = conf.permitted_executors.is_empty();
             if is_permissionless
-                || !conf
+                || conf
                     .permitted_executors
                     .contains(&ctx.select::<OperatorCred>().into())
             {
@@ -362,11 +362,9 @@ pub struct LimitOrderBounds {
 #[cfg(test)]
 mod tests {
     use cml_chain::plutus::PlutusData;
-    use cml_chain::utils::BigInteger;
     use cml_core::serialization::Deserialize;
     use cml_crypto::{Ed25519KeyHash, TransactionHash};
     use cml_multi_era::babbage::BabbageTransactionOutput;
-    use pallas_primitives::alonzo::PlutusData::BigInt;
     use type_equalities::IsEqual;
 
     use bloom_offchain::execution_engine::liquidity_book::fragment::Fragment;
