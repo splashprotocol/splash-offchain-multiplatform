@@ -1,5 +1,7 @@
+use log::trace;
+use std::cmp::max;
+
 use num_rational::Ratio;
-use std::cmp::{max, min};
 
 use crate::execution_engine::bundled::Bundled;
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
@@ -80,10 +82,21 @@ where
     }
 
     pub fn is_sufficient(&self) -> bool {
-        self.terminal.iter().all(|x| match x {
+        let terminal_fills_ok = self.terminal.iter().all(|x| match x {
             TerminalInstruction::Fill(fill) => fill.added_output >= fill.target_fr.min_marginal_output(),
             TerminalInstruction::Swap(_) => true,
-        })
+        });
+        let non_terminal_fills_ok = if let Some(fill) = &self.remainder {
+            fill.accumulated_output >= fill.target.min_marginal_output()
+        } else {
+            true
+        };
+        trace!(
+            "recipe::is_sufficient: terminal_fills_ok: {}, non_terminal_fills_ok: {}",
+            terminal_fills_ok,
+            non_terminal_fills_ok
+        );
+        terminal_fills_ok && non_terminal_fills_ok
     }
 }
 

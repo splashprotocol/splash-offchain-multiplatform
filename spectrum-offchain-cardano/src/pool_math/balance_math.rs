@@ -183,7 +183,8 @@ pub fn balance_cfmm_output_amount<X, Y>(
     }
     trace!(
         "balance_cfmm_output_amount loops done: {}, final pre_output_amount: {}",
-        num_loops, pre_output_amount
+        num_loops,
+        pre_output_amount
     );
     TaggedAmount::new(pre_output_amount)
 }
