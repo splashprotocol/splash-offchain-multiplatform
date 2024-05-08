@@ -1,6 +1,6 @@
+use circular_buffer::CircularBuffer;
 use std::collections::HashSet;
 use std::hash::Hash;
-use circular_buffer::CircularBuffer;
 
 pub struct CircularFilter<const N: usize, T> {
     buffer: CircularBuffer<N, T>,

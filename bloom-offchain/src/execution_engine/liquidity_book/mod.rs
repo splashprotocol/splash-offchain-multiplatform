@@ -109,7 +109,7 @@ where
 impl<Fr, Pl, U> TemporalLiquidityBook<Fr, Pl> for TLB<Fr, Pl, U>
 where
     Fr: Fragment<U = U> + OrderState + Copy + Ord + Display + Debug,
-    Pl: Pool<U = U> + Stable + Copy + Debug,
+    Pl: Pool<U = U> + Stable + Copy + Debug + Display,
     U: PartialOrd + SubAssign + Sub<Output = U> + Copy + Debug,
 {
     fn attempt(&mut self) -> Option<ExecutionRecipe<Fr, Pl>> {
@@ -124,7 +124,7 @@ where
                 loop {
                     if let Some(rem) = &recipe.remainder {
                         trace!(
-                            "ExUnitsLeft: {:?}, SafeTH: {:?}",
+                            "ExUnits left: {:?}, safe threshold: {:?}",
                             execution_units_left,
                             self.execution_cap.safe_threshold()
                         );
@@ -135,10 +135,11 @@ where
                             let maybe_best_pool =
                                 self.state.try_select_pool(target_side.wrap(rem.remaining_input));
                             trace!(
-                                "Continuing. P_fr: {:?}, P_pl: {:?}",
-                                price_fragments,
-                                maybe_best_pool.map(|(p, _)| p)
+                                "Attempting to matchmake. P[fragment]: {:?}, P[pool]: {:?}",
+                                price_fragments.map(|p| p.unwrap().unwrap().to_string()),
+                                maybe_best_pool.map(|(p, _)| p.unwrap().to_string())
                             );
+                            trace!("Attempting to matchmake. TLB: {:?}", self.state.show_state(),);
                             match (maybe_best_pool, price_fragments) {
                                 (price_in_pools, Some(price_in_fragments))
                                     if maybe_best_pool
@@ -149,7 +150,7 @@ where
                                         target_price.overlaps(fr.price())
                                             && fr.marginal_cost_hint() <= execution_units_left
                                     }) {
-                                        trace!("Matched with Fr: {}", opposite_fr);
+                                        trace!("Matched with fragment: {}", opposite_fr);
                                         execution_units_left -= opposite_fr.marginal_cost_hint();
                                         let make_match = |x: &Fr, y: &Fr| {
                                             let (ask, bid) = match x.side() {
@@ -196,7 +197,7 @@ where
                                     }
                                 }
                                 _ => {
-                                    trace!("Finishing matching attempt");
+                                    trace!("Finishing matchmaking attempt");
                                 }
                             }
                         }

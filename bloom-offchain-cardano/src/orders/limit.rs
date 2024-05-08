@@ -314,7 +314,7 @@ where
             let min_marginal_output = conf.min_marginal_output as u128;
             let is_permissionless = conf.permitted_executors.is_empty();
             if is_permissionless
-                || conf
+                || !conf
                     .permitted_executors
                     .contains(&ctx.select::<OperatorCred>().into())
             {
@@ -366,7 +366,6 @@ mod tests {
     use cml_core::serialization::Deserialize;
     use cml_crypto::{Ed25519KeyHash, TransactionHash};
     use cml_multi_era::babbage::BabbageTransactionOutput;
-    use num_bigint::Sign;
     use pallas_primitives::alonzo::PlutusData::BigInt;
     use type_equalities::IsEqual;
 
@@ -452,7 +451,7 @@ mod tests {
 
     #[test]
     fn try_read() {
-        let raw_deployment = std::fs::read_to_string("/Users/oskin/dev/spectrum/spectrum-offchain-multiplatform/bloom-cardano-agent/resources/preprod.deployment.json").expect("Cannot load deployment file");
+        let raw_deployment = std::fs::read_to_string("/Users/oskin/dev/spectrum/spectrum-offchain-multiplatform/bloom-cardano-agent/resources/mainnet.deployment.json").expect("Cannot load deployment file");
         let deployment: DeployedValidators =
             serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
         let scripts = ProtocolScriptHashes::from(&deployment);
@@ -467,7 +466,7 @@ mod tests {
         println!("P_abs: {}", ord.price());
     }
 
-    const ORDER_UTXO: &str = "a300583910dfaa80c9732ed3b7752ba189786723c6709e2876a024f8f4d9910fb36b6723106d7725d57913612286514abb81148d344b1675df297ee22401821a002625a0a1581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26a14574657374431a00b71b00028201d81858e2d8798c4100581c64699bc6a6fb8a1cc7870dce35d3ab73f7fed5e7c385019373b695bbd87982581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba264574657374431a00b71b001a0007a1201a0007a120d879824040d879821b00244af2e97c32301b002386f26fc100001a0007a120d87982d87981581c1e5b525041f0d70ad830f1d7dbd2ed7012c1d89788b4385d7bdd0c37d87981d87981d87981581c6b6723106d7725d57913612286514abb81148d344b1675df297ee224581c1e5b525041f0d70ad830f1d7dbd2ed7012c1d89788b4385d7bdd0c3780";
+    const ORDER_UTXO: &str = "A300583911DBE7A3D8A1D82990992A38EEA1A2EFAA68E931E252FC92CA1383809BF68864A338AE8ED81F61114D857CB6A215C8E685AA5C43BC1F879CCE011A007A1200028201D818590102D8799F4100581C11D9D33C659B740CF098E147510EECEE3EEBEEF1D5DF1097DA39A4D3D8799F4040FF1A004C4B40011B00000001D0B7A2F4D8799F581C5AC3D4BDCA238105A040A565E5D7E734B7C9E1630AEC7650E809E34A454D454C4F4EFFD8799F1B00000001D0B7A2F41A004C4B40FF00D8799FD8799F581C37DCE7298152979F0D0FF71FB2D0C759B298AC6FA7BC56B928FFC1BCFFD8799FD8799FD8799F581CF68864A338AE8ED81F61114D857CB6A215C8E685AA5C43BC1F879CCEFFFFFFFF581C37DCE7298152979F0D0FF71FB2D0C759B298AC6FA7BC56B928FFC1BC9F581C17979109209D255917B8563D1E50A5BE8123D5E283FBC6FBB04550C6FFFF";
 
     #[test]
     fn read_config() {
