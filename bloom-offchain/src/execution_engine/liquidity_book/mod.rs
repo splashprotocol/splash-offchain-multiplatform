@@ -6,6 +6,7 @@ use std::ops::{Sub, SubAssign};
 use either::Either;
 use log::trace;
 use num_rational::Ratio;
+use primitive_types::U256;
 
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::maker::Maker;
@@ -436,8 +437,8 @@ where
 
 fn linear_output(input: u64, price: Side<AbsolutePrice>) -> u64 {
     match price {
-        Bid(price) => (input as u128 * price.denom() / price.numer()) as u64,
-        Ask(price) => (input as u128 * price.numer() / price.denom()) as u64,
+        Bid(price) => (U256::from(input) * U256::from(*price.denom()) / U256::from(*price.numer())).as_u64(),
+        Ask(price) => (U256::from(input) * U256::from(*price.numer()) / U256::from(*price.denom())).as_u64(),
     }
 }
 
