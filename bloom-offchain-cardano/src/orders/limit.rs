@@ -297,58 +297,58 @@ where
         + Has<LimitOrderBounds>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
-        if test_address(repr.address(), ctx) {
-            let value = repr.value().clone();
-            let conf = Datum::try_from_pd(repr.datum()?.into_pd()?)?;
-            let total_ada_input = value.amount_of(AssetClass::Native)?;
-            let (reserved_lovelace, tradable_lovelace) = match (conf.input, conf.output) {
-                (AssetClass::Native, _) => (MIN_LOVELACE, conf.tradable_input),
-                (_, AssetClass::Native) => (0, 0),
-                _ => (MIN_LOVELACE, 0),
-            };
-            let execution_budget = total_ada_input
-                .checked_sub(reserved_lovelace)
-                .and_then(|lov| lov.checked_sub(conf.fee))
-                .and_then(|lov| lov.checked_sub(tradable_lovelace))?;
-            let min_output = conf.tradable_input as u128 * conf.base_price.numer() / conf.base_price.denom();
-            let min_marginal_output = conf.min_marginal_output as u128;
-            let is_permissionless = conf.permitted_executors.is_empty();
-            if is_permissionless
-                || conf
-                    .permitted_executors
-                    .contains(&ctx.select::<OperatorCred>().into())
-            {
-                let bounds = ctx.select::<LimitOrderBounds>();
-                let valid_configuration = conf.cost_per_ex_step >= bounds.min_cost_per_ex_step
-                    && execution_budget >= conf.cost_per_ex_step
-                    && min_output >= min_marginal_output;
-                if valid_configuration {
-                    // Fresh beacon must be derived from one of consumed utxos.
-                    let valid_fresh_beacon = ctx
-                        .select::<ConsumedInputs>()
-                        .find(|o| beacon_from_oref(*o) == conf.beacon);
-                    let script_info = ctx.select::<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>();
-                    return Some(LimitOrder {
-                        beacon: conf.beacon,
-                        input_asset: conf.input,
-                        input_amount: conf.tradable_input,
-                        output_asset: conf.output,
-                        output_amount: value.amount_of(conf.output).unwrap_or(0),
-                        base_price: conf.base_price,
-                        execution_budget,
-                        fee_asset: AssetClass::Native,
-                        fee: conf.fee,
-                        min_marginal_output: conf.min_marginal_output,
-                        max_cost_per_ex_step: conf.cost_per_ex_step,
-                        redeemer_address: conf.redeemer_address,
-                        cancellation_pkh: conf.cancellation_pkh,
-                        requires_executor_sig: !is_permissionless,
-                        virgin: valid_fresh_beacon,
-                        marginal_cost: script_info.marginal_cost,
-                    });
-                }
-            }
-        }
+        // if test_address(repr.address(), ctx) {
+        //     let value = repr.value().clone();
+        //     let conf = Datum::try_from_pd(repr.datum()?.into_pd()?)?;
+        //     let total_ada_input = value.amount_of(AssetClass::Native)?;
+        //     let (reserved_lovelace, tradable_lovelace) = match (conf.input, conf.output) {
+        //         (AssetClass::Native, _) => (MIN_LOVELACE, conf.tradable_input),
+        //         (_, AssetClass::Native) => (0, 0),
+        //         _ => (MIN_LOVELACE, 0),
+        //     };
+        //     let execution_budget = total_ada_input
+        //         .checked_sub(reserved_lovelace)
+        //         .and_then(|lov| lov.checked_sub(conf.fee))
+        //         .and_then(|lov| lov.checked_sub(tradable_lovelace))?;
+        //     let min_output = conf.tradable_input as u128 * conf.base_price.numer() / conf.base_price.denom();
+        //     let min_marginal_output = conf.min_marginal_output as u128;
+        //     let is_permissionless = conf.permitted_executors.is_empty();
+        //     if is_permissionless
+        //         || conf
+        //             .permitted_executors
+        //             .contains(&ctx.select::<OperatorCred>().into())
+        //     {
+        //         let bounds = ctx.select::<LimitOrderBounds>();
+        //         let valid_configuration = conf.cost_per_ex_step >= bounds.min_cost_per_ex_step
+        //             && execution_budget >= conf.cost_per_ex_step
+        //             && min_output >= min_marginal_output;
+        //         if valid_configuration {
+        //             // Fresh beacon must be derived from one of consumed utxos.
+        //             let valid_fresh_beacon = ctx
+        //                 .select::<ConsumedInputs>()
+        //                 .find(|o| beacon_from_oref(*o) == conf.beacon);
+        //             let script_info = ctx.select::<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>();
+        //             return Some(LimitOrder {
+        //                 beacon: conf.beacon,
+        //                 input_asset: conf.input,
+        //                 input_amount: conf.tradable_input,
+        //                 output_asset: conf.output,
+        //                 output_amount: value.amount_of(conf.output).unwrap_or(0),
+        //                 base_price: conf.base_price,
+        //                 execution_budget,
+        //                 fee_asset: AssetClass::Native,
+        //                 fee: conf.fee,
+        //                 min_marginal_output: conf.min_marginal_output,
+        //                 max_cost_per_ex_step: conf.cost_per_ex_step,
+        //                 redeemer_address: conf.redeemer_address,
+        //                 cancellation_pkh: conf.cancellation_pkh,
+        //                 requires_executor_sig: !is_permissionless,
+        //                 virgin: valid_fresh_beacon,
+        //                 marginal_cost: script_info.marginal_cost,
+        //             });
+        //         }
+        //     }
+        // }
         None
     }
 }
