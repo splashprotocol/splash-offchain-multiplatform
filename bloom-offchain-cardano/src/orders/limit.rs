@@ -311,12 +311,13 @@ where
                 .and_then(|lov| lov.checked_sub(conf.fee))
                 .and_then(|lov| lov.checked_sub(tradable_lovelace))?;
             let min_output = conf.tradable_input as u128 * conf.base_price.numer() / conf.base_price.denom();
+            let test_min_output = (conf.tradable_input + 1000000) as u128 * conf.base_price.numer() / conf.base_price.denom();
             let min_marginal_output = conf.min_marginal_output as u128;
             let is_permissionless = conf.permitted_executors.is_empty();
-            if is_permissionless
+            if (is_permissionless
                 || conf
                     .permitted_executors
-                    .contains(&ctx.select::<OperatorCred>().into())
+                    .contains(&ctx.select::<OperatorCred>().into())) && (test_min_output <= (u64::MAX as u128))
             {
                 let bounds = ctx.select::<LimitOrderBounds>();
                 let valid_configuration = conf.cost_per_ex_step >= bounds.min_cost_per_ex_step
