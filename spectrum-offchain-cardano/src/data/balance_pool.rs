@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use std::ops::{Div, Mul, Sub};
+use std::ops::Mul;
 
 use bignumber::BigNumber;
 use cml_chain::address::Address;
@@ -608,6 +608,7 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use bloom_offchain::execution_engine::liquidity_book::pool::Pool;
     use bloom_offchain::execution_engine::liquidity_book::side::Side;
@@ -771,7 +772,7 @@ mod tests {
             },
         };
 
-        let (result, new_pool) = pool.clone().swap(Side::Ask(363613802862));
+        let (_result, new_pool) = pool.clone().swap(Side::Ask(363613802862));
 
         let test_swap_redeemer = BalancePoolRedeemer {
             pool_input_index: 0,
