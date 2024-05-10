@@ -22,6 +22,7 @@ pub struct AppConfig<'a> {
     pub cardano_finalization_delay: Duration,
     pub backlog_capacity: u32,
     pub network_id: NetworkId,
+    pub maestro_key_path: &'a str,
     pub order_backlog_config: RocksConfig,
     pub inflation_box_persistence_config: RocksConfig,
     pub poll_factory_persistence_config: RocksConfig,

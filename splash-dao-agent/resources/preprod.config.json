@@ -1,0 +1,37 @@
+{
+  "chainSync": {
+    "startingPoint": {
+      "Specific": [
+        56027495,
+        "d17c06f640f311b3ad08004453983e52987a01dd2da63501c2a0f65a293458a3"
+      ]
+    },
+    "disableRollbacksUntil": 55424270,
+    "dbPath": "state"
+  },
+  "node": {
+    "path": "/home/tling/node-external/node.socket",
+    "magic": 1
+  },
+  "maestroKeyPath": "splash-dao-agent/resources/preprod.maestro.key",
+  "txSubmissionBufferSize": 64,
+  "backlogCapacity": 128,
+  "networkId": 0,
+  "executorCred": "c74ecb78de2fb0e4ec31f1c556d22ec088f2ef411299a37d1ede3b33",
+  "cardanoFinalizationDelay": {
+    "secs": 120,
+    "nanos": 0
+  },
+  "batcherPrivateKey": "xprv1lzpajzrahfy23zyt8479w6h5rj7tvj5e4sa4f3pg7xk0439l2dtdc0m3j2squs5vc2fzjljaamm6a32t364ncwjkhexnnr3kezqz8v22kwsh967asaxz7jqvjdsefvvktg4zkwphtfe60fhylj248eyetvr9x6sr",
+  "orderBacklogConfig": { "db_path": "tmp/backlog" },
+  "inflationBoxPersistenceConfig": { "db_path": "tmp/inflation" },
+  "pollFactoryPersistenceConfig": { "db_path": "tmp/poll_factory" },
+  "weightingPollPersistenceConfig": { "db_path": "tmp/weighting_poll" },
+  "votingEscrowPersistenceConfig": { "db_path": "tmp/voting_escrow" },
+  "smartFarmPersistenceConfig": { "db_path": "tmp/smart_farm" },
+  "permManagerPersistenceConfig": { "db_path": "tmp/perm_manager" },
+  "explorer": {
+    "url": "https://explorer.spectrum.fi"
+  },
+  "rewardAddress": "addr_test1qp97f7397q5aznqdwga0fg0xlfcn8lp6vy8csqek4459ewjmmfesg02r4kxltnn4vww0frsl9dz52spmayhszylrw5mstjywvz"
+}

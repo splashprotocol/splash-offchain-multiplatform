@@ -38,7 +38,8 @@ export type ScriptNames =
   | "govProxy"
   | "permManager"
   | "mintWPAuthToken"
-  | "weightingPower";
+  | "weightingPower"
+  | "smartFarm";
 
 export type NFTNames =
   | "factory_auth"

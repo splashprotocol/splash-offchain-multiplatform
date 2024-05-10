@@ -105,7 +105,7 @@ pub struct DeployedValidatorRef {
     pub script: Script,
     pub hash: ScriptHash,
     pub reference_utxo: ReferenceUTxO,
-    pub ex_budget: ExBudget,
+    // pub ex_budget: ExBudget,
 }
 
 #[derive(serde::Deserialize)]
@@ -238,10 +238,14 @@ impl<const TYP: u8> DeployedValidator<TYP> {
             }
             TransactionOutput::AlonzoFormatTxOut(_) => panic!("Must be ConwayFormatTxOut"),
         }
+        let ex_budget = ExBudget {
+            mem: 500000,
+            steps: 200000000,
+        };
         Self {
             reference_utxo: ref_output,
             hash: v.hash,
-            ex_budget: v.ex_budget,
+            ex_budget,
         }
     }
 }

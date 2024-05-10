@@ -47,6 +47,72 @@ pub struct Behaviour<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer,
 
 const DEF_DELAY: Duration = Duration::new(5, 0);
 
+impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
+    Behaviour<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>
+where
+    IB: StateProjectionRead<InflationBoxSnapshot, Bearer>
+        + StateProjectionWrite<InflationBoxSnapshot, Bearer>
+        + Send
+        + Sync,
+    PF: StateProjectionRead<PollFactorySnapshot, Bearer>
+        + StateProjectionWrite<PollFactorySnapshot, Bearer>
+        + Send
+        + Sync,
+    WP: StateProjectionRead<WeightingPollSnapshot, Bearer>
+        + StateProjectionWrite<WeightingPollSnapshot, Bearer>
+        + Send
+        + Sync,
+    VE: StateProjectionRead<VotingEscrowSnapshot, Bearer>
+        + StateProjectionWrite<VotingEscrowSnapshot, Bearer>
+        + Send
+        + Sync,
+    Backlog: ResilientBacklog<VotingOrder> + Send + Sync,
+    SF: StateProjectionRead<SmartFarmSnapshot, Bearer>
+        + StateProjectionWrite<SmartFarmSnapshot, Bearer>
+        + Send
+        + Sync,
+    PM: StateProjectionRead<PermManagerSnapshot, Bearer>
+        + StateProjectionWrite<PermManagerSnapshot, Bearer>
+        + Send
+        + Sync,
+    Time: NetworkTimeProvider + Send + Sync,
+    Actions: InflationActions<Bearer> + Send + Sync,
+    Bearer: Send + Sync,
+    Net: Network<Transaction, TxRejected> + Clone + std::marker::Sync + std::marker::Send,
+{
+    pub fn new(
+        inflation_box: IB,
+        poll_factory: PF,
+        weighting_poll: WP,
+        voting_escrow: VE,
+        smart_farm: SF,
+        perm_manager: PM,
+        backlog: Backlog,
+        ntp: Time,
+        actions: Actions,
+        conf: ProtocolConfig,
+        pd: PhantomData<Bearer>,
+        network: Net,
+        prover: OperatorProver<'a>,
+    ) -> Self {
+        Self {
+            inflation_box,
+            poll_factory,
+            weighting_poll,
+            voting_escrow,
+            smart_farm,
+            perm_manager,
+            backlog,
+            ntp,
+            actions,
+            conf,
+            pd,
+            network,
+            prover,
+        }
+    }
+}
+
 #[async_trait::async_trait]
 impl<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net> RoutineBehaviour
     for Behaviour<'a, IB, PF, WP, VE, SF, PM, Backlog, Time, Actions, Bearer, Net>

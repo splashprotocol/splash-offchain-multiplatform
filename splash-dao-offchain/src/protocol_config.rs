@@ -8,7 +8,7 @@ use spectrum_offchain::data::Has;
 use spectrum_offchain_cardano::creds::operator_creds;
 use type_equalities::IsEqual;
 
-use crate::deployment::{DeployedValidators, ProtocolDeployment};
+use crate::deployment::{DeployedValidators, MintedTokens, ProtocolDeployment};
 use crate::entities::onchain::inflation_box::InflationBoxId;
 use crate::entities::onchain::permission_manager::PermManagerId;
 use crate::entities::onchain::poll_factory::PollFactoryId;
@@ -46,6 +46,26 @@ pub struct ProtocolTokens {
     pub gt_policy: PolicyId,
     pub gt_name: AssetName,
 }
+
+//impl From<MintedTokens> for ProtocolTokens {
+//    fn from(value: MintedTokens, splash_policy: PolicyId, splash_name: AssetName) -> Self {
+//        Self {
+//            splash_policy,
+//            splash_name,
+//            wpoll_auth_policy: todo!(),
+//            farm_auth_policy: todo!(),
+//            factory_auth_policy: todo!(),
+//            ve_factory_auth_policy: todo!(),
+//            ve_factory_auth_name: todo!(),
+//            edao_msig_policy: todo!(),
+//            perm_manager_auth_policy: todo!(),
+//            perm_manager_auth_name: todo!(),
+//            gt_policy: todo!(),
+//            gt_name: todo!(),
+//        }
+//    }
+//}
+
 #[derive(Debug, Clone)]
 pub struct InflationBoxRefScriptOutput(pub TransactionUnspentOutput);
 
