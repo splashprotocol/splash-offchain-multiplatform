@@ -1,4 +1,5 @@
 import {
+  M,
   PolicyId,
   Script,
   UTxO,
@@ -15,12 +16,17 @@ import {
 export type BuiltValidator = {
   script: Script;
   hash: string;
+  exBudget: {
+    mem: bigint;
+    steps: bigint;
+  };
 };
 
 export type BuiltPolicy = {
   script: Script;
   policyId: PolicyId;
   assetName: string;
+  quantity: bigint;
 };
 
 export type ScriptNames =
@@ -31,7 +37,9 @@ export type ScriptNames =
   | "veFactory"
   | "govProxy"
   | "permManager"
-  | "mintWPAuthToken";
+  | "mintWPAuthToken"
+  | "weightingPower"
+  | "smartFarm";
 
 export type NFTNames =
   | "factory_auth"

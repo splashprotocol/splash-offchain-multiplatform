@@ -1,17 +1,34 @@
+use cml_chain::certs::Credential;
 use cml_chain::utils::BigInteger;
 use cml_chain::{
     plutus::{ConstrPlutusData, ExUnits, PlutusData},
     PolicyId,
 };
 use cml_crypto::RawBytesEncoding;
-use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, IntoPlutusData};
-use spectrum_offchain::data::{Identifier, Stable};
+use cml_multi_era::babbage::BabbageTransactionOutput;
+use serde::{Deserialize, Serialize};
+use spectrum_cardano_lib::plutus_data::{
+    ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
+};
+use spectrum_cardano_lib::transaction::TransactionOutputExtension;
+use spectrum_cardano_lib::types::TryFromPData;
+use spectrum_cardano_lib::{AssetName, OutputRef};
+use spectrum_offchain::data::{Has, HasIdentifier, Identifier, Stable};
+use spectrum_offchain::ledger::TryFromLedger;
+use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptHash};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 
-use crate::{constants::MINT_FARM_AUTH_TOKEN_SCRIPT, routines::inflation::SmartFarmSnapshot};
+use crate::constants::MINT_FARM_AUTH_TOKEN_SCRIPT;
+use crate::deployment::ProtocolValidator;
+use crate::entities::Snapshot;
+use crate::protocol_config::PermManagerAuthPolicy;
 
-#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Debug, Hash, derive_more::Display)]
-pub struct FarmId(pub u64);
+pub type SmartFarmSnapshot = Snapshot<SmartFarm, OutputRef>;
+
+#[derive(
+    Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Debug, Hash, derive_more::Display, Serialize, Deserialize,
+)]
+pub struct FarmId(pub AssetName);
 
 impl Identifier for FarmId {
     type For = SmartFarmSnapshot;
@@ -19,7 +36,16 @@ impl Identifier for FarmId {
 
 impl IntoPlutusData for FarmId {
     fn into_pd(self) -> cml_chain::plutus::PlutusData {
-        cml_chain::plutus::PlutusData::new_integer(BigInteger::from(self.0))
+        cml_chain::plutus::PlutusData::new_bytes(cml_chain::assets::AssetName::from(self.0).inner)
+    }
+}
+
+impl TryFromPData for FarmId {
+    fn try_from_pd(data: PlutusData) -> Option<Self> {
+        if let PlutusData::Bytes { bytes, .. } = data {
+            return Some(FarmId(AssetName::try_from(bytes).ok()?));
+        }
+        None
     }
 }
 
@@ -35,6 +61,14 @@ impl Stable for SmartFarm {
     }
     fn is_quasi_permanent(&self) -> bool {
         true
+    }
+}
+
+impl HasIdentifier for SmartFarmSnapshot {
+    type Id = FarmId;
+
+    fn identifier(&self) -> Self::Id {
+        self.0.farm_id
     }
 }
 
@@ -70,6 +104,32 @@ impl IntoPlutusData for Action {
                 vec![PlutusData::Integer(BigInteger::from(perm_manager_input_ix))],
             )),
         }
+    }
+}
+
+impl<C> TryFromLedger<BabbageTransactionOutput, C> for SmartFarmSnapshot
+where
+    C: Has<PermManagerAuthPolicy>
+        + Has<OutputRef>
+        + Has<DeployedScriptHash<{ ProtocolValidator::SmartFarm as u8 }>>,
+{
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+        let addr = repr.address();
+        if test_address(addr, ctx) {
+            if let Ok(auth_policy) = PolicyId::from_raw_bytes(&repr.datum()?.into_pd()?.into_bytes()?) {
+                if ctx.select::<PermManagerAuthPolicy>().0 == auth_policy {
+                    let cred = addr.payment_cred().unwrap();
+                    if let Credential::Script { hash, .. } = cred {
+                        let smart_farm = SmartFarm {
+                            farm_id: FarmId(AssetName::try_from(hash.to_raw_bytes().to_vec()).unwrap()),
+                        };
+                        let output_ref = ctx.select::<OutputRef>();
+                        return Some(Snapshot::new(smart_farm, output_ref));
+                    }
+                }
+            }
+        }
+        None
     }
 }
 

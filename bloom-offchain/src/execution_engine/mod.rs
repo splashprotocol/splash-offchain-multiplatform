@@ -13,6 +13,7 @@ use futures::{SinkExt, StreamExt};
 use log::{error, trace, warn};
 
 use liquidity_book::interpreter::RecipeInterpreter;
+use serde::{de::DeserializeOwned, Serialize};
 use spectrum_offchain::backlog::HotBacklog;
 use spectrum_offchain::combinators::Ior;
 use spectrum_offchain::data::order::{OrderUpdate, SpecializedOrder};
@@ -102,7 +103,7 @@ where
     Upstream: Stream<Item = (Pair, Event<CompOrd, SpecOrd, Pool, Bearer, Ver>)> + Unpin + 'a,
     Pair: Copy + Eq + Ord + Hash + Display + Unpin + 'a,
     StableId: Copy + Eq + Hash + Debug + Display + Unpin + 'a,
-    Ver: Copy + Eq + Hash + Display + Unpin + 'a,
+    Ver: Copy + Eq + Hash + Display + Unpin + Serialize + DeserializeOwned + 'a,
     Pool: Stable<StableId = StableId> + Copy + Debug + Unpin + 'a,
     CompOrd: Stable<StableId = StableId> + Fragment + OrderState + Copy + Debug + Unpin + 'a,
     SpecOrd: SpecializedOrder<TPoolId = StableId> + Debug + Unpin + 'a,
@@ -245,7 +246,7 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
     ) where
         Pair: Copy + Eq + Hash + Display,
         Stab: Copy + Eq + Hash + Debug + Display,
-        V: Copy + Eq + Hash + Display,
+        V: Copy + Eq + Hash + Display + Serialize + DeserializeOwned,
         B: Clone + Debug,
         Ctx: Clone,
         CO: Stable<StableId = Stab> + Clone + Debug,
@@ -299,7 +300,7 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
     where
         Pair: Copy + Eq + Hash + Display,
         Stab: Copy + Eq + Hash + Debug + Display,
-        V: Copy + Eq + Hash + Display,
+        V: Copy + Eq + Hash + Display + Serialize + DeserializeOwned,
         B: Clone + Debug,
         Ctx: Clone,
         CO: Stable<StableId = Stab> + Clone + Debug,
@@ -406,7 +407,7 @@ where
     S: Stream<Item = (Pair, Event<CO, SO, P, B, Ver>)> + Unpin,
     Pair: Copy + Eq + Ord + Hash + Display + Unpin,
     Stab: Copy + Eq + Hash + Debug + Display + Unpin,
-    Ver: Copy + Eq + Hash + Display + Unpin,
+    Ver: Copy + Eq + Hash + Display + Unpin + Serialize + DeserializeOwned,
     P: Stable<StableId = Stab> + Copy + Debug + Unpin,
     CO: Stable<StableId = Stab> + Fragment + OrderState + Copy + Debug + Unpin,
     SO: SpecializedOrder<TPoolId = Stab> + Unpin,
@@ -537,7 +538,7 @@ where
     S: Stream<Item = (Pair, Event<CO, SO, P, B, Ver>)> + Unpin,
     Pair: Copy + Eq + Ord + Hash + Display + Unpin,
     Stab: Copy + Eq + Hash + Debug + Display + Unpin,
-    Ver: Copy + Eq + Hash + Display + Unpin,
+    Ver: Copy + Eq + Hash + Display + Unpin + Serialize + DeserializeOwned,
     P: Stable<StableId = Stab> + Copy + Debug + Unpin,
     CO: Stable<StableId = Stab> + Fragment + OrderState + Copy + Debug + Unpin,
     SO: SpecializedOrder<TPoolId = Stab> + Unpin,

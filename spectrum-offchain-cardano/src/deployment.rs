@@ -16,7 +16,7 @@ use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::Has;
 
 #[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "PascalCase")]
 pub enum ScriptType {
     PlutusV1,
     PlutusV2,
@@ -105,7 +105,7 @@ pub struct DeployedValidatorRef {
     pub script: Script,
     pub hash: ScriptHash,
     pub reference_utxo: ReferenceUTxO,
-    pub ex_budget: ExBudget,
+    // pub ex_budget: ExBudget,
 }
 
 #[derive(serde::Deserialize)]
@@ -225,7 +225,7 @@ pub struct ScriptWitness {
 }
 
 impl<const TYP: u8> DeployedValidator<TYP> {
-    async fn unsafe_pull<'a>(v: DeployedValidatorRef, explorer: &Explorer<'a>) -> Self {
+    pub async fn unsafe_pull<'a>(v: DeployedValidatorRef, explorer: &Explorer<'a>) -> Self {
         let mut ref_output = explorer
             .get_utxo(v.reference_utxo.into())
             .await
@@ -238,10 +238,14 @@ impl<const TYP: u8> DeployedValidator<TYP> {
             }
             TransactionOutput::AlonzoFormatTxOut(_) => panic!("Must be ConwayFormatTxOut"),
         }
+        let ex_budget = ExBudget {
+            mem: 500000,
+            steps: 200000000,
+        };
         Self {
             reference_utxo: ref_output,
             hash: v.hash,
-            ex_budget: v.ex_budget,
+            ex_budget,
         }
     }
 }

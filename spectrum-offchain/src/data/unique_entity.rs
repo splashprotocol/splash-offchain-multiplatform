@@ -287,9 +287,9 @@ impl<T: EntitySnapshot> EntitySnapshot for Predicted<T> {
 }
 
 /// Any possible modality of `T`.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum AnyMod<T: EntitySnapshot> {
-    Confirmed(Confirmed<T>),
+    Confirmed(Traced<Confirmed<T>>),
     Unconfirmed(Unconfirmed<T>),
     Predicted(Traced<Predicted<T>>),
 }
@@ -297,7 +297,9 @@ pub enum AnyMod<T: EntitySnapshot> {
 impl<T: EntitySnapshot> AnyMod<T> {
     pub fn as_erased(&self) -> &T {
         match self {
-            AnyMod::Confirmed(Confirmed(t)) => t,
+            AnyMod::Confirmed(Traced {
+                state: Confirmed(t), ..
+            }) => t,
             AnyMod::Unconfirmed(Unconfirmed(t)) => t,
             AnyMod::Predicted(Traced {
                 state: Predicted(t), ..
@@ -306,7 +308,9 @@ impl<T: EntitySnapshot> AnyMod<T> {
     }
     pub fn erased(self) -> T {
         match self {
-            AnyMod::Confirmed(Confirmed(t)) => t,
+            AnyMod::Confirmed(Traced {
+                state: Confirmed(t), ..
+            }) => t,
             AnyMod::Unconfirmed(Unconfirmed(t)) => t,
             AnyMod::Predicted(Traced {
                 state: Predicted(t), ..
@@ -343,6 +347,25 @@ impl<T> EitherMod<T> {
 /// State `T` is confirmed to be included into blockchain.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Confirmed<T>(pub T);
+
+impl<T: Stable> Stable for Confirmed<T> {
+    type StableId = T::StableId;
+
+    fn stable_id(&self) -> Self::StableId {
+        self.0.stable_id()
+    }
+    fn is_quasi_permanent(&self) -> bool {
+        self.0.is_quasi_permanent()
+    }
+}
+
+impl<T: EntitySnapshot> EntitySnapshot for Confirmed<T> {
+    type Version = T::Version;
+
+    fn version(&self) -> Self::Version {
+        self.0.version()
+    }
+}
 
 /// State `T` was observed in mempool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
