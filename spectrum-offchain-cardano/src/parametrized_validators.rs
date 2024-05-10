@@ -4,7 +4,7 @@ use uplc::tx::apply_params_to_script;
 use uplc_pallas_codec::utils::Bytes;
 use uplc_pallas_traverse::ComputeHash;
 
-fn apply_params_validator(params_pd: uplc::PlutusData, script: &str) -> ScriptHash {
+pub fn apply_params_validator(params_pd: uplc::PlutusData, script: &str) -> ScriptHash {
     let params_bytes = uplc::plutus_data_to_bytes(&params_pd).unwrap();
     let script = PlutusV2Script::new(hex::decode(script).unwrap());
 

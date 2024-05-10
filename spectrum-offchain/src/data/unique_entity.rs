@@ -16,6 +16,12 @@ pub struct Traced<TEntity: EntitySnapshot> {
     pub prev_state_id: Option<TEntity::Version>,
 }
 
+impl<TEntity: EntitySnapshot> Traced<TEntity> {
+    pub fn new(state: TEntity, prev_state_id: Option<TEntity::Version>) -> Self {
+        Self { state, prev_state_id }
+    }
+}
+
 impl<TEntity: EntitySnapshot> Serialize for Traced<TEntity>
 where
     TEntity: Serialize,
@@ -280,6 +286,35 @@ impl<T: EntitySnapshot> EntitySnapshot for Predicted<T> {
     }
 }
 
+/// Any possible modality of `T`.
+#[derive(Clone)]
+pub enum AnyMod<T: EntitySnapshot> {
+    Confirmed(Confirmed<T>),
+    Unconfirmed(Unconfirmed<T>),
+    Predicted(Traced<Predicted<T>>),
+}
+
+impl<T: EntitySnapshot> AnyMod<T> {
+    pub fn as_erased(&self) -> &T {
+        match self {
+            AnyMod::Confirmed(Confirmed(t)) => t,
+            AnyMod::Unconfirmed(Unconfirmed(t)) => t,
+            AnyMod::Predicted(Traced {
+                state: Predicted(t), ..
+            }) => t,
+        }
+    }
+    pub fn erased(self) -> T {
+        match self {
+            AnyMod::Confirmed(Confirmed(t)) => t,
+            AnyMod::Unconfirmed(Unconfirmed(t)) => t,
+            AnyMod::Predicted(Traced {
+                state: Predicted(t), ..
+            }) => t,
+        }
+    }
+}
+
 /// State `T` in either confirmed or unconfirmed modality.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EitherMod<T> {
@@ -288,6 +323,12 @@ pub enum EitherMod<T> {
 }
 
 impl<T> EitherMod<T> {
+    pub fn erased(&self) -> &T {
+        match self {
+            EitherMod::Confirmed(Confirmed(t)) => t,
+            EitherMod::Unconfirmed(Unconfirmed(t)) => t,
+        }
+    }
     pub fn map<B, F>(self, f: F) -> EitherMod<B>
     where
         F: FnOnce(T) -> B,

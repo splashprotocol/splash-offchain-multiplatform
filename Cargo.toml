@@ -13,6 +13,7 @@ members = [
     "bloom-derivation",
     "cardano-offchain-stableswap",
     "algebra-core",
+    "splash-dao-offchain",
 ]
 
 [profile.release]
