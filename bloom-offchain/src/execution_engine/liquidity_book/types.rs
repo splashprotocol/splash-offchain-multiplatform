@@ -71,9 +71,9 @@ impl Side<AbsolutePrice> {
     /// Compare prices on the same side.
     pub fn better_than(self, that: AbsolutePrice) -> bool {
         match self {
-            // If we compare Bid prices, then we favor highest price.
+            // If we compare Bid prices, then we favor the highest price.
             Side::Bid(this) => this >= that,
-            // If we compare Ask prices, then we favor lowest price.
+            // If we compare Ask prices, then we favor the lowest price.
             Side::Ask(this) => this <= that,
         }
     }
