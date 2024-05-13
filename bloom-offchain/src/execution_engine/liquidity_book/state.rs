@@ -1046,6 +1046,7 @@ pub mod tests {
         pub side: SideM,
         pub input: u64,
         pub accumulated_output: u64,
+        pub min_marginal_output: u64,
         pub price: AbsolutePrice,
         pub fee: u64,
         pub ex_budget: u64,
@@ -1081,6 +1082,28 @@ pub mod tests {
                 side,
                 input,
                 accumulated_output: 0,
+                min_marginal_output: 0,
+                price,
+                fee,
+                ex_budget: 0,
+                cost_hint: 10,
+                bounds: TimeBounds::None,
+            }
+        }
+        pub fn make(
+            side: SideM,
+            input: u64,
+            price: AbsolutePrice,
+            fee: u64,
+            accumulated_output: u64,
+            min_marginal_output: u64,
+        ) -> Self {
+            Self {
+                source: StableId::random(),
+                side,
+                input,
+                accumulated_output,
+                min_marginal_output,
                 price,
                 fee,
                 ex_budget: 0,
@@ -1094,6 +1117,7 @@ pub mod tests {
                 side: SideM::Ask,
                 input: 1000_000_000,
                 accumulated_output: 0,
+                min_marginal_output: 0,
                 price: AbsolutePrice::new(1, 100),
                 fee: 100,
                 ex_budget: 0,
@@ -1134,7 +1158,7 @@ pub mod tests {
         }
 
         fn min_marginal_output(&self) -> OutputAsset<u64> {
-            0
+            self.min_marginal_output
         }
 
         fn fee(&self) -> crate::execution_engine::liquidity_book::types::FeeAsset<u64> {

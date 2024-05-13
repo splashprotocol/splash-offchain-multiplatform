@@ -19,7 +19,7 @@ use crate::execution_engine::liquidity_book::recipe::{
 use crate::execution_engine::liquidity_book::side::Side::{Ask, Bid};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::state::{IdleState, TLBState, VersionedState};
-use crate::execution_engine::liquidity_book::types::AbsolutePrice;
+use crate::execution_engine::liquidity_book::types::{AbsolutePrice, RelativePrice};
 use crate::execution_engine::types::Time;
 
 pub mod fragment;
@@ -365,7 +365,7 @@ where
             let mut bid = lhs;
             let ask = rhs;
             let price = matchmaker(&ask, &bid.target);
-            let demand_base = linear_output(bid.remaining_input, Bid(price));
+            let demand_base = linear_output_unsafe(bid.remaining_input, Bid(price));
             let supply_base = ask.input();
             if supply_base > demand_base {
                 let quote_input = bid.remaining_input;
@@ -376,7 +376,7 @@ where
                     fill_rt: Either::Right(PartialFill::new(ask, remaining_input, quote_input)),
                 }
             } else if supply_base < demand_base {
-                let quote_executed = linear_output(supply_base, Ask(price));
+                let quote_executed = linear_output_unsafe(supply_base, Ask(price));
                 bid.remaining_input -= quote_executed;
                 bid.accumulated_output += supply_base;
                 let (next_ask, ask_budget_used, fee_used) =
@@ -386,7 +386,7 @@ where
                     fill_rt: Either::Right(bid),
                 }
             } else {
-                let quote_executed = linear_output(supply_base, Ask(price));
+                let quote_executed = linear_output_unsafe(supply_base, Ask(price));
                 bid.accumulated_output += demand_base;
                 let (next_ask, ask_budget_used, fee_used) =
                     ask.with_applied_swap(ask.input(), quote_executed);
@@ -406,7 +406,7 @@ where
             let mut ask = lhs;
             let bid = rhs;
             let price = matchmaker(&bid, &ask.target);
-            let demand_base = linear_output(bid.input(), Bid(price));
+            let demand_base = linear_output_unsafe(bid.input(), Bid(price));
             let supply_base = ask.remaining_input;
             if supply_base > demand_base {
                 ask.remaining_input -= demand_base;
@@ -417,7 +417,7 @@ where
                     fill_rt: Either::Right(ask),
                 }
             } else if supply_base < demand_base {
-                let quote_executed = linear_output(supply_base, Ask(price));
+                let quote_executed = linear_output_unsafe(supply_base, Ask(price));
                 ask.accumulated_output += quote_executed;
                 FillFromFragment {
                     term_fill_lt: ask.filled_unsafe(),
@@ -435,7 +435,11 @@ where
     }
 }
 
-fn linear_output(input: u64, price: Side<AbsolutePrice>) -> u64 {
+pub fn linear_output_rel(input: u64, price: RelativePrice) -> Option<u64> {
+    u64::try_from(U256::from(input) * U256::from(*price.numer()) / U256::from(*price.denom())).ok()
+}
+
+fn linear_output_unsafe(input: u64, price: Side<AbsolutePrice>) -> u64 {
     match price {
         Bid(price) => (U256::from(input) * U256::from(*price.denom()) / U256::from(*price.numer())).as_u64(),
         Ask(price) => (U256::from(input) * U256::from(*price.numer()) / U256::from(*price.denom())).as_u64(),
@@ -513,6 +517,38 @@ mod tests {
     use crate::execution_engine::types::StableId;
 
     #[test]
+    fn recipe_fill_fragment_from_fragment_batch() {
+        // Assuming pair ADA/USDT @ 0.37
+        let o11 = LimitOrder::new();
+        let o1 = SimpleOrderPF::make(
+            SideM::Ask,
+            35000000,
+            AbsolutePrice::new(11989509179467966, 1000000000000000),
+            0,
+            0,
+            5994754,
+        );
+        let o2 = SimpleOrderPF::make(
+            SideM::Bid,
+            103471165,
+            AbsolutePrice::new(103471165, 6634631),
+            0,
+            0,
+            6634631,
+        );
+        let mut book = TLB::<_, SimpleCFMMPool, _>::new(
+            0,
+            ExecutionCap {
+                soft: 1000000,
+                hard: 1600000,
+            },
+        );
+        vec![o1, o2].into_iter().for_each(|o| book.add_fragment(o));
+        let recipe = book.attempt();
+        dbg!(recipe);
+    }
+
+    #[test]
     fn recipe_fill_fragment_from_fragment() {
         // Assuming pair ADA/USDT @ 0.37
         let o1 = SimpleOrderPF::new(SideM::Ask, 2000, AbsolutePrice::new(36, 100), 1000);
@@ -583,6 +619,7 @@ mod tests {
             side: SideM::Ask,
             input: 1000,
             accumulated_output: 0,
+            min_marginal_output: 0,
             price: AbsolutePrice::new(37, 100),
             fee: 1000,
             ex_budget: 0,
@@ -594,6 +631,7 @@ mod tests {
             side: SideM::Bid,
             input: 370,
             accumulated_output: 0,
+            min_marginal_output: 0,
             price: AbsolutePrice::new(37, 100),
             fee: 1000,
             ex_budget: 0,
@@ -622,6 +660,7 @@ mod tests {
             side: SideM::Ask,
             input: 1000,
             accumulated_output: 0,
+            min_marginal_output: 0,
             price: p,
             fee: 2000,
             ex_budget: 0,
@@ -633,6 +672,7 @@ mod tests {
             side: SideM::Bid,
             input: 210,
             accumulated_output: 0,
+            min_marginal_output: 0,
             price: p,
             fee: 2000,
             ex_budget: 0,
@@ -662,6 +702,7 @@ mod tests {
             side: SideM::Ask,
             input: 1000,
             accumulated_output: 0,
+            min_marginal_output: 0,
             price: AbsolutePrice::new(37, 100),
             fee: 1000,
             ex_budget: 0,
@@ -673,6 +714,7 @@ mod tests {
             side: SideM::Bid,
             input: 360,
             accumulated_output: 0,
+            min_marginal_output: 0,
             price: AbsolutePrice::new(36, 100),
             fee: 2000,
             ex_budget: 0,
@@ -699,6 +741,7 @@ mod tests {
             side: SideM::Ask,
             input: 1000,
             accumulated_output: 0,
+            min_marginal_output: 0,
             price: AbsolutePrice::new(36, 100),
             fee: 1000,
             ex_budget: 0,
@@ -735,6 +778,7 @@ mod tests {
             side: SideM::Ask,
             input: 1000,
             accumulated_output: 0,
+            min_marginal_output: 0,
             price: ask_price,
             fee: 4000,
             ex_budget: 0,
@@ -746,6 +790,7 @@ mod tests {
             side: SideM::Bid,
             input: 360,
             accumulated_output: 0,
+            min_marginal_output: 0,
             price: bid_price,
             fee: 2000,
             ex_budget: 0,
@@ -767,6 +812,7 @@ mod tests {
             side: SideM::Ask,
             input: 1000,
             accumulated_output: 0,
+            min_marginal_output: 0,
             price: ask_price,
             fee: 4000,
             ex_budget: 0,
@@ -778,6 +824,7 @@ mod tests {
             side: SideM::Bid,
             input: 360,
             accumulated_output: 0,
+            min_marginal_output: 0,
             price: bid_price,
             fee: 2000,
             ex_budget: 0,
@@ -798,6 +845,7 @@ mod tests {
             source: StableId::random(),
             side: SideM::Ask,
             input: 1000,
+            min_marginal_output: 0,
             accumulated_output: 0,
             price: ask_price,
             fee: 4000,
@@ -810,6 +858,7 @@ mod tests {
             side: SideM::Bid,
             input: 360,
             accumulated_output: 0,
+            min_marginal_output: 0,
             price: bid_price,
             fee: 2000,
             ex_budget: 0,

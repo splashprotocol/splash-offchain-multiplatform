@@ -38,6 +38,10 @@ impl AssetName {
         self.1
     }
 
+    pub fn try_from_hex(s: &str) -> Option<AssetName> {
+        hex::decode(s).ok().and_then(|xs| Self::try_from(xs).ok())
+    }
+
     pub fn utf8_unsafe(tn: String) -> Self {
         let orig_len = tn.len();
         let tn = if orig_len > 32 { &tn[0..32] } else { &*tn };
