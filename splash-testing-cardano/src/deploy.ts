@@ -1,6 +1,6 @@
 import { Lucid, Script, TxComplete } from "https://deno.land/x/lucid@0.10.7/mod.ts";
 import { BuiltValidators, DeployedValidators, ScriptNames } from "./types.ts";
-import { BalanceContract, BalancedepositContract, BalanceredeemContract, FeeswitchContract, FeeswitchdepositContract, FeeswitchredeemContract, LimitOrderBatchWitness, LimitOrderLimitOrder } from "./../plutus.ts";
+import { BalanceContract, BalancedepositContract, BalanceredeemContract, FeeswitchContract, FeeswitchdepositContract, FeeswitchredeemContract, LimitOrderBatchWitness, LimitOrderLimitOrder, SquirtContract } from "./../plutus.ts";
 import { getLucid } from "./lucid.ts";
 import { generateConfigJson } from "./config.ts";
 import { setupWallet } from "./wallet.ts";
@@ -35,6 +35,8 @@ export class Deployment {
     const feeSwitchPoolDepositScriptHash = this.lucid.utils.validatorToScriptHash(feeSwitchPoolDeposit);
     const feeSwitchPoolRedeem = new FeeswitchredeemContract();
     const feeSwitchPoolRedeemScriptHash = this.lucid.utils.validatorToScriptHash(feeSwitchPoolRedeem);
+    const daoSquirt = new SquirtContract();
+    const squirtHash = this.lucid.utils.validatorToScriptHash(daoSquirt);
     return {
       // limitOrder: {
       //   script: orderScript,
@@ -44,18 +46,18 @@ export class Deployment {
       //   script: witnessScript,
       //   hash: witnessScriptHash,
       // },
-      balancePool: {
-        script: balancePoolScript,
-        hash: balancePoolScriptHash,
-      },
-      balanceDeposit: {
-        script: balancePoolDeposit,
-        hash: balanceDepositScriptHash,
-      },
-      balanceRedeem: { // 2
-        script: balancePoolRedeem,
-        hash: balanceRedeemScriptHash,
-      },
+      // balancePool: {
+      //   script: balancePoolScript,
+      //   hash: balancePoolScriptHash,
+      // },
+      // balanceDeposit: {
+      //   script: balancePoolDeposit,
+      //   hash: balanceDepositScriptHash,
+      // },
+      // balanceRedeem: { // 2
+      //   script: balancePoolRedeem,
+      //   hash: balanceRedeemScriptHash,
+      // },
       // feeSwitchPool: {
       //   script: feeSwitchPool,
       //   hash: feeSwitchPoolScriptHash,
@@ -67,7 +69,11 @@ export class Deployment {
       // feeSwitchDeposit: {
       //   script: feeSwitchPoolDeposit,
       //   hash: feeSwitchPoolDepositScriptHash,
-      // }
+      // },
+      squirt: {
+        script: daoSquirt,
+        hash: squirtHash
+      }
     }
   }
 
@@ -79,8 +85,12 @@ export class Deployment {
     const lockScript = this.lucid.utils.validatorToAddress(ns);
     // const witnessRewardAddress = this.lucid.utils.credentialToRewardAddress({
     //   type: "Script",
-    //   hash: builtValidators.limitOrderWitness.hash
+    //   hash: builtValidators.squirt.hash
     // });
+    const squirtRewardAddress = this.lucid.utils.credentialToRewardAddress({
+      type: "Script",
+      hash: builtValidators.squirt.hash
+    });
     const tx = await this.lucid
       .newTx()
       // .payToAddressWithData(
@@ -93,21 +103,21 @@ export class Deployment {
       //   { scriptRef: builtValidators.limitOrderWitness.script },
       //   {},
       // )
-      .payToAddressWithData(
-        lockScript,
-        { scriptRef: builtValidators.balancePool.script },
-        {},
-      )
-      .payToAddressWithData(
-        lockScript,
-        { scriptRef: builtValidators.balanceDeposit.script },
-        {},
-      )
-      .payToAddressWithData(   // 2
-        lockScript,
-        { scriptRef: builtValidators.balanceRedeem.script },
-        {},
-      )
+      // .payToAddressWithData(
+      //   lockScript,
+      //   { scriptRef: builtValidators.balancePool.script },
+      //   {},
+      // )
+      // .payToAddressWithData(
+      //   lockScript,
+      //   { scriptRef: builtValidators.balanceDeposit.script },
+      //   {},
+      // )
+      // .payToAddressWithData(   // 2
+      //   lockScript,
+      //   { scriptRef: builtValidators.balanceRedeem.script },
+      //   {},
+      // )
       // .payToAddressWithData(
       //   lockScript,
       //   { scriptRef: builtValidators.feeSwitchPool.script },
@@ -123,7 +133,12 @@ export class Deployment {
       //   { scriptRef: builtValidators.feeSwitchRedeem.script },
       //   {},
       // )
-      //.registerStake(witnessRewardAddress)
+      .payToAddressWithData(
+        lockScript,
+        { scriptRef: builtValidators.squirt.script },
+        {},
+      )
+      .registerStake(squirtRewardAddress)
       .complete();
 
     return tx;

@@ -368,4 +368,4 @@ async function getDAO<T>(url: URL, nftCS: string, nftTN: string): Promise<T> {
           })
 }
   
-main();
+//main();
