@@ -1,13 +1,12 @@
 use std::time::Duration;
 
-use bloom_offchain::execution_engine::liquidity_book;
 use cml_core::Slot;
 
+use bloom_offchain::execution_engine::liquidity_book;
 use cardano_chain_sync::client::Point;
-use cardano_explorer::data::ExplorerConfig;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::NetworkId;
-use spectrum_offchain_cardano::creds::{OperatorCred, OperatorRewardAddress};
+use spectrum_offchain_cardano::creds::OperatorRewardAddress;
 
 #[derive(serde::Deserialize)]
 #[serde(bound = "'de: 'a")]
@@ -24,6 +23,8 @@ pub struct AppConfig<'a> {
     pub maestro_key_path: &'a str,
     pub execution_cap: ExecutionCap,
     pub channel_buffer_size: usize,
+    pub mempool_buffering_duration: Duration,
+    pub ledger_buffering_duration: Duration,
 }
 
 #[derive(serde::Deserialize)]

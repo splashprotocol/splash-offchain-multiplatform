@@ -39,5 +39,7 @@
       "mem": 14000000,
       "steps": 10000000000
     }
-  }
+  },
+  "mempoolBufferingDuration": "1s",
+  "ledgerBufferingDuration": "100ms"
 }
