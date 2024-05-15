@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use clap::Parser;
 use cml_chain::transaction::Transaction;
@@ -61,6 +62,7 @@ use spectrum_offchain_cardano::data::pool::AnyPool;
 use spectrum_offchain_cardano::deployment::{DeployedValidators, ProtocolDeployment, ProtocolScriptHashes};
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
+use spectrum_streaming::StreamExt as StreamExt1;
 
 mod config;
 mod context;
@@ -280,8 +282,10 @@ async fn main() {
         }
     });
 
-    let process_ledger_events_stream = process_events(ledger_stream, handlers_ledger);
-    let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool);
+    let process_ledger_events_stream =
+        process_events(ledger_stream, handlers_ledger).buffered_within(config.ledger_buffering_duration);
+    let process_mempool_events_stream =
+        process_events(mempool_stream, handlers_mempool).buffered_within(config.mempool_buffering_duration);
 
     let mut app = select_all(vec![
         boxed(process_ledger_events_stream),
