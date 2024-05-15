@@ -1,7 +1,7 @@
 use futures::Stream;
-use futures_core::ready;
 use futures_timer::Delay;
 use pin_project_lite::pin_project;
+use std::collections::VecDeque;
 use std::future::Future;
 use std::mem;
 use std::pin::Pin;
@@ -17,6 +17,7 @@ pin_project! {
         #[pin]
         timer: Delay,
         duration: Duration,
+        buffer: VecDeque<S::Item>,
     }
 }
 
@@ -26,26 +27,28 @@ impl<S: Stream> BufferedWithin<S> {
             stream,
             timer: Delay::new(duration),
             duration,
+            buffer: VecDeque::new(),
         }
     }
 }
 
 impl<S: Stream> Stream for BufferedWithin<S> {
     type Item = S::Item;
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         let mut this = self.as_mut().project();
-        let d = this.timer.as_mut();
-        if d.poll(cx).is_ready() {
-            // Start polling upstream only once the buffering time has elapsed.
-            match ready!(this.stream.as_mut().poll_next(cx)) {
+        if let Poll::Ready(Some(item)) = this.stream.as_mut().poll_next(cx) {
+            this.buffer.push_back(item);
+        }
+        if this.timer.as_mut().poll(cx).is_ready() {
+            if let Some(buffered_item) = this.buffer.pop_front() {
+                // Keep returning accumulated items util buffer is exhausted.
+                return Poll::Ready(Some(buffered_item));
+            } else {
                 // If no accumulated items left in the upstream reset the timer.
-                None => {
-                    let _ = mem::replace(&mut *this.timer, Delay::new(*this.duration));
-                }
-                // Otherwise keep returning accumulated items.
-                ready_item => return Poll::Ready(ready_item),
+                let _ = mem::replace(&mut *this.timer, Delay::new(*this.duration));
             }
         }
+
         Poll::Pending
     }
 }
