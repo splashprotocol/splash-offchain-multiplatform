@@ -8,7 +8,7 @@ rust-version = "1.75.0"
 
 [dependencies]
 spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain" }
-algebra-core = { version = "1.0.0", path = "../algebra-core" }
+algebra-core = { version = "0.1.0", path = "../algebra-core" }
 futures = "0.3.25"
 tokio = { version = "1.22.0", features = ["full"] }
 log = "0.4.17"

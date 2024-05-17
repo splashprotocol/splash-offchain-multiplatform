@@ -218,12 +218,6 @@ impl PartialEq for DeployedValidatorErased {
 
 impl Eq for DeployedValidatorErased {}
 
-#[derive(Debug, Clone)]
-pub struct ScriptWitness {
-    pub hash: ScriptHash,
-    pub cost: ExUnits,
-}
-
 impl<const TYP: u8> DeployedValidator<TYP> {
     async fn unsafe_pull<Net: CardanoNetwork>(v: DeployedValidatorRef, explorer: &Net) -> Self {
         let ref_output = explorer

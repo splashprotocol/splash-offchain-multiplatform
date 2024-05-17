@@ -7,7 +7,7 @@ rust-version = "1.75.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-algebra-core = { version = "1.0.0", path = "../algebra-core" }
+algebra-core = { version = "0.1.0", path = "../algebra-core" }
 base16 = "0.2"
 cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/fix-bigint-conversion" }
 cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/fix-bigint-conversion" }
