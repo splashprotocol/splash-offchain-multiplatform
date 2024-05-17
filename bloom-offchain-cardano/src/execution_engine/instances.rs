@@ -22,12 +22,11 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolV1, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolV1, ConstFnPoolV2,
     LimitOrderV1, LimitOrderWitnessV1,
 };
-use spectrum_offchain_cardano::deployment::{
-    DeployedValidator, DeployedValidatorErased, RequiresValidator, ScriptWitness,
-};
+use spectrum_offchain_cardano::deployment::{DeployedValidator, DeployedValidatorErased, RequiresValidator};
+use spectrum_offchain_cardano::script::{delayed_cost, delayed_redeemer, ready_cost, ready_redeemer, ScriptWitness};
 
 use crate::execution_engine::execution_state::{
-    delayed_redeemer, ready_redeemer, ExecutionState, ScriptInputBlueprint,
+    ExecutionState, ScriptInputBlueprint,
 };
 use crate::orders::limit::LimitOrder;
 use crate::orders::{limit, AnyOrder};
@@ -113,7 +112,7 @@ where
             utxo: consumed_out.clone(),
             script: ScriptWitness {
                 hash,
-                cost: ex_budget,
+                cost: ready_cost(ex_budget),
             },
             redeemer: ready_redeemer(limit::EXEC_REDEEMER),
             required_signers: if ord.requires_executor_sig {
@@ -237,14 +236,14 @@ where
             reference_utxo,
             hash,
             ex_budget,
-            ..
+            marginal_cost,
         } = pool.get_validator(&context);
         let input = ScriptInputBlueprint {
             reference: in_ref,
             utxo: consumed_out,
             script: ScriptWitness {
                 hash,
-                cost: ex_budget,
+                cost: delayed_cost(move |ctx| ex_budget + marginal_cost.scale(ctx.self_index as u64)),
             },
             redeemer: delayed_redeemer(move |ordering| {
                 CFMMPoolRedeemer {
@@ -301,14 +300,14 @@ where
             reference_utxo,
             hash,
             ex_budget,
-            ..
+            marginal_cost,
         } = pool.get_validator(&context);
         let input = ScriptInputBlueprint {
             reference: in_ref,
             utxo: consumed_out,
             script: ScriptWitness {
                 hash,
-                cost: ex_budget,
+                cost: delayed_cost(move |ctx| ex_budget + marginal_cost.scale(ctx.self_index as u64)),
             },
             redeemer: delayed_redeemer(move |ordering| {
                 BalancePoolRedeemer {

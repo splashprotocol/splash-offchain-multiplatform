@@ -17,32 +17,10 @@ use log::trace;
 
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::{NetworkId, OutputRef};
-use spectrum_offchain_cardano::deployment::{DeployedValidatorErased, ScriptWitness};
-
-pub struct TxInputsOrdering(HashMap<OutputRef, usize>);
-
-impl TxInputsOrdering {
-    pub fn index_of(&self, input: &OutputRef) -> usize {
-        *self
-            .0
-            .get(input)
-            .expect("Input must be present in final transaction")
-    }
-}
-
-pub enum DelayedRedeemer {
-    Ready(PlutusData),
-    Delayed(Box<dyn FnOnce(&TxInputsOrdering) -> PlutusData>),
-}
-
-impl DelayedRedeemer {
-    pub fn compute(self, inputs_ordering: &TxInputsOrdering) -> PlutusData {
-        match self {
-            DelayedRedeemer::Ready(pd) => pd,
-            DelayedRedeemer::Delayed(closure) => closure(inputs_ordering),
-        }
-    }
-}
+use spectrum_offchain_cardano::deployment::DeployedValidatorErased;
+use spectrum_offchain_cardano::script::{
+    DelayedRedeemer, DelayedScriptCost, ScriptContextPreview, ScriptWitness, TxInputsOrdering,
+};
 
 pub struct ScriptInputBlueprint {
     pub reference: OutputRef,
@@ -50,14 +28,6 @@ pub struct ScriptInputBlueprint {
     pub script: ScriptWitness,
     pub redeemer: DelayedRedeemer,
     pub required_signers: RequiredSigners,
-}
-
-pub fn ready_redeemer(r: PlutusData) -> DelayedRedeemer {
-    DelayedRedeemer::Ready(r)
-}
-
-pub fn delayed_redeemer(f: impl FnOnce(&TxInputsOrdering) -> PlutusData + 'static) -> DelayedRedeemer {
-    DelayedRedeemer::Delayed(Box::new(f))
 }
 
 pub type ScalingFactor = u64;
@@ -141,7 +111,7 @@ impl TxBlueprint {
         } = self;
         script_io.sort_by(|(left_in, _), (right_in, _)| left_in.reference.cmp(&right_in.reference));
         let enumerated_io = script_io.into_iter().enumerate().collect::<Vec<_>>();
-        let inputs_ordering = TxInputsOrdering(HashMap::from_iter(
+        let inputs_ordering = TxInputsOrdering::new(HashMap::from_iter(
             enumerated_io.iter().map(|(ix, (i, _))| (i.reference, *ix)),
         ));
         for (ref_in, ref_utxo) in reference_inputs {
@@ -172,9 +142,10 @@ impl TxBlueprint {
             txb.add_input(input).expect("add_input ok");
             txb.add_output(output.clone())
                 .expect(format!("add_output ok {:?}", output).as_str());
+            let ctx = ScriptContextPreview { self_index: ix };
             txb.set_exunits(
                 RedeemerWitnessKey::new(RedeemerTag::Spend, ix as u64),
-                script.cost.into(),
+                script.cost.compute(&ctx).into(),
             );
         }
         // Project common witness scripts.
@@ -193,10 +164,8 @@ impl TxBlueprint {
                 wit.marginal_cost,
                 scaling_factor
             );
-            txb.set_exunits(
-                RedeemerWitnessKey::new(RedeemerTag::Reward, 0),
-                (wit.ex_budget + wit.marginal_cost.scale(scaling_factor)).into(),
-            );
+            let ex_units = wit.ex_budget + wit.marginal_cost.scale(scaling_factor);
+            txb.set_exunits(RedeemerWitnessKey::new(RedeemerTag::Reward, 0), ex_units.into());
         }
         txb
     }
