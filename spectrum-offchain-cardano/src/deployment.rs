@@ -3,7 +3,6 @@ use cml_chain::address::Address;
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::certs::StakeCredential;
 use cml_chain::plutus::{PlutusV1Script, PlutusV2Script, PlutusV3Script};
-use cml_chain::transaction::TransactionOutput;
 use cml_core::serialization::Deserialize;
 use cml_core::DeserializeError;
 use cml_crypto::{ScriptHash, TransactionHash};
@@ -12,7 +11,7 @@ use hex::FromHexError;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
-use uplc::machine::cost_model::ExBudget;
+use algebra_core::monoid::Monoid;
 
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::Has;
@@ -168,7 +167,7 @@ impl<const TYP: u8> From<&DeployedValidatorRef> for DeployedScriptInfo<TYP> {
     fn from(value: &DeployedValidatorRef) -> Self {
         Self {
             script_hash: value.hash,
-            marginal_cost: value.marginal_cost.unwrap_or(value.cost),
+            marginal_cost: value.marginal_cost.unwrap_or(ExUnits::empty()),
         }
     }
 }
@@ -228,7 +227,7 @@ impl<const TYP: u8> DeployedValidator<TYP> {
             reference_utxo: ref_output,
             hash: v.hash,
             cost: v.cost,
-            marginal_cost: v.marginal_cost.unwrap_or(v.cost),
+            marginal_cost: v.marginal_cost.unwrap_or(ExUnits::empty()),
         }
     }
 }
