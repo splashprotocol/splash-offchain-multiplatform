@@ -519,7 +519,6 @@ mod tests {
     #[test]
     fn recipe_fill_fragment_from_fragment_batch() {
         // Assuming pair ADA/USDT @ 0.37
-        let o11 = LimitOrder::new();
         let o1 = SimpleOrderPF::make(
             SideM::Ask,
             35000000,

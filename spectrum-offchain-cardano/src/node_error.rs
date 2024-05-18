@@ -50,7 +50,7 @@ pub fn transcribe_bad_inputs_error(error_response: Vec<u8>) -> HashSet<OutputRef
                             acc.push(oref);
                             go(prefix, acc, Box::new(rem))
                         }
-                        _ => acc
+                        _ => acc,
                     }
                 } else {
                     go(prefix, acc, rem)
