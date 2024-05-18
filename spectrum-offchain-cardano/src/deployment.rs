@@ -1,3 +1,4 @@
+use algebra_core::monoid::Monoid;
 use cardano_explorer::CardanoNetwork;
 use cml_chain::address::Address;
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
@@ -11,7 +12,6 @@ use hex::FromHexError;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
-use algebra_core::monoid::Monoid;
 
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::Has;

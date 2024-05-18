@@ -326,7 +326,7 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
         for bearer in bearers {
             if let Some(stable_id) = self.index.invalidate(bearer) {
                 trace!("Invalidating bearer of {}", stable_id);
-                let maybe_transition = match resolve_source_state(stable_id, &self.index) {
+                let maybe_transition = match resolve_source_state(&stable_id, &self.index) {
                     None => self
                         .cache
                         .remove(stable_id)
@@ -361,23 +361,18 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
                 if is_confirmed {
                     trace!(target: "executor", "Observing new confirmed state {}", id);
                     let ver = new_state.version();
-                    self.index.put_confirmed(Confirmed(new_state));
-                    let unconfirmed_state_exists = self
-                        .index
-                        .get_last_unconfirmed(id)
-                        .map(|Unconfirmed(st)| st.version() == ver)
-                        .unwrap_or(false);
+                    let state_exists = self.index.put(new_state);
                     let seen_recently = self.skip_filter.remove(&ver);
-                    if unconfirmed_state_exists || seen_recently {
+                    if state_exists || seen_recently {
                         // No TLB update is needed.
                         return None;
                     }
                 } else {
                     trace!(target: "executor", "Observing new unconfirmed state {}", id);
                     self.skip_filter.add(new_state.version());
-                    self.index.put_unconfirmed(Unconfirmed(new_state));
+                    self.index.put(new_state);
                 }
-                match resolve_source_state(id, &self.index) {
+                match resolve_source_state(&id, &self.index) {
                     Some(latest_state) => self.cache(latest_state),
                     None => unreachable!(),
                 }
