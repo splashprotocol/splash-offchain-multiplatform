@@ -472,9 +472,13 @@ where
                                 self.multi_book.get_mut(&pair).on_recipe_succeeded();
                             }
                             PendingEffects::FromBacklog(new_pool, _) => {
-                                self.update_state(EitherMod::Unconfirmed(Unconfirmed(
+                                let trans = EitherMod::Unconfirmed(Unconfirmed(
                                     StateUpdate::Transition(Ior::Right(new_pool.map(Either::Right))),
-                                )));
+                                ));
+                                if let Some(upd) = self.update_state(trans) {
+                                    // Backlog altered state of the pool, so we sync TLB.
+                                    self.sync_book(&pair, upd)
+                                }
                             }
                         },
                         Err(err) => {

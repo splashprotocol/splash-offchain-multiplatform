@@ -154,3 +154,49 @@ where
         self.store.get(&sid).map(|e| e.clone())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use spectrum_offchain::data::{EntitySnapshot, Stable};
+    use crate::execution_engine::storage::{InMemoryStateIndex, StateIndex};
+
+    #[derive(Copy, Clone, Eq, PartialEq, Debug)]
+    struct Entity {
+        sid: usize,
+        ver: usize,
+    }
+    
+    impl Stable for Entity {
+        type StableId = usize;
+        fn stable_id(&self) -> Self::StableId {
+            self.sid
+        }
+        fn is_quasi_permanent(&self) -> bool {
+            true
+        }
+    }
+    
+    impl EntitySnapshot for Entity {
+        type Version = usize;
+
+        fn version(&self) -> Self::Version {
+            self.ver
+        }
+    }
+    
+    #[test]
+    fn chain_versions_invalidate() {
+        let mut index = InMemoryStateIndex::new();
+        let e0 = Entity { sid: 0, ver: 0 };
+        let e1 = Entity { sid: 0, ver: 1 };
+        let e2 = Entity { sid: 0, ver: 2 };
+        let e3 = Entity { sid: 0, ver: 3 };
+        let e4 = Entity { sid: 0, ver: 4 };
+        let s0 = Entity { sid: 1, ver: 5 };
+        vec![e0, e1, e2, e3, e4, s0].into_iter().for_each(|e| { index.put(e); });
+        assert_eq!(index.get(&e0.sid), Some(e4));
+        index.invalidate(e3.ver);
+        assert_eq!(index.get(&e0.sid), Some(e2));
+        assert_eq!(index.get(&s0.sid), Some(s0));
+    }
+}
