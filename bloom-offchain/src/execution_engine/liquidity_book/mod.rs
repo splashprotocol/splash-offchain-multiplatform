@@ -141,6 +141,11 @@ where
                                 maybe_best_pool.map(|(p, _)| p.unwrap().to_string())
                             );
                             trace!("Attempting to matchmake. TLB: {:?}", self.state.show_state(),);
+                            // todo: dirty hack.
+                            if maybe_best_pool.is_none() {
+                                self.on_recipe_failed();
+                                return None;
+                            }
                             price_fragments.map(|fragmets| {
                                 trace!("if maybe_best_pool
                                         .map(|(p, _)| price_in_fragments.better_than(p))
@@ -340,7 +345,6 @@ fn settle_price<Fr: Fragment>(ask: &Fr, bid: &Fr, index_price: Option<AbsolutePr
     let pivotal_price = if let Some(index_price) = index_price {
         truncated(index_price.unwrap(), price_ask_rat, price_bid_rat)
     } else {
-        panic!("Index price is absent!");
         price_ask_rat + d / 2
     };
     let fee_ask = ask.fee() as i128;
