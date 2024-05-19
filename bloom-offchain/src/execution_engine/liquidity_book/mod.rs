@@ -153,6 +153,11 @@ where
                                     )
                                         .unwrap_or(true));
                             });
+                            maybe_best_pool.map(|(price_in_pool, pool_id)| {
+                                trace!("target_price: {:?}", target_price);
+                                trace!("price_in_pool: {:?}", price_in_pool);
+                                trace!("target_price.overlaps(price_in_pool): {:?}", target_price.overlaps(price_in_pool));
+                            });
                             match (maybe_best_pool, price_fragments) {
                                 (price_in_pools, Some(price_in_fragments))
                                     if maybe_best_pool
