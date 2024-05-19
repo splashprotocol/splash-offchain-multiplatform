@@ -141,6 +141,18 @@ where
                                 maybe_best_pool.map(|(p, _)| p.unwrap().to_string())
                             );
                             trace!("Attempting to matchmake. TLB: {:?}", self.state.show_state(),);
+                            price_fragments.map(|fragmets| {
+                                trace!("if maybe_best_pool
+                                        .map(|(p, _)| price_in_fragments.better_than(p))
+                                        .unwrap_or(true): {:?}", maybe_best_pool
+                                        .map(|(p, _)| {
+                                        trace!("fragmets: {:?}", fragmets);
+                                        trace!("p: {:?}", p);
+                                        trace!("fragmets.better_than(p): {:?}", fragmets.better_than(p));
+                                        fragmets.better_than(p)}
+                                    )
+                                        .unwrap_or(true));
+                            });
                             match (maybe_best_pool, price_fragments) {
                                 (price_in_pools, Some(price_in_fragments))
                                     if maybe_best_pool
