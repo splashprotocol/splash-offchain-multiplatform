@@ -490,22 +490,23 @@ where
                                     }
                                     PendingEffects::FromBacklog(_, Bundled(order, br)) => {
                                         let order_ref = order.get_self_ref();
+                                        let backlog = self.multi_backlog.get_mut(&pair);
                                         if missing_bearers.contains(&order_ref) {
-                                            self.multi_backlog.get_mut(&pair).remove(order_ref);
+                                            backlog.remove(order_ref);
                                         } else {
-                                            self.multi_backlog.get_mut(&pair).recharge(Bundled(order, br));
+                                            backlog.recharge(Bundled(order, br));
                                         }
                                     }
                                 }
                                 self.invalidate_bearers(&pair, missing_bearers.clone());
                             } else {
-                                warn!("Unknown Tx submission error!");
+                                warn!("Unknown Tx submission error while processing operation in {}!", pair);
                                 match pending_effects {
                                     PendingEffects::FromLiquidityBook(_) => {
-                                        self.multi_book.get_mut(&pair).on_recipe_failed();
+                                        self.multi_book.remove(&pair);
                                     }
-                                    PendingEffects::FromBacklog(_, order) => {
-                                        self.multi_backlog.get_mut(&pair).recharge(order);
+                                    PendingEffects::FromBacklog(_, _) => {
+                                        self.multi_backlog.remove(&pair);
                                     }
                                 }
                             }
