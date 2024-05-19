@@ -147,6 +147,15 @@ where
                                         .map(|(p, _)| price_in_fragments.better_than(p))
                                         .unwrap_or(true) =>
                                 {
+                                    trace!("{:?}", self.state.try_pick_fr(!target_side, |fr| {
+                                        trace!("target_price: {:?}", target_price);
+                                        trace!("fr.price(): {:?}", fr.price());
+                                        trace!("target_price.overlaps(fr.price()): {:?}", target_price.overlaps(fr.price()));
+                                        trace!("fr.marginal_cost_hint(): {:?}", fr.marginal_cost_hint());
+                                        trace!("fr.marginal_cost_hint() <= execution_units_left: {:?}", fr.marginal_cost_hint() <= execution_units_left);
+                                        target_price.overlaps(fr.price())
+                                            && fr.marginal_cost_hint() <= execution_units_left
+                                    }));
                                     if let Some(opposite_fr) = self.state.try_pick_fr(!target_side, |fr| {
                                         target_price.overlaps(fr.price())
                                             && fr.marginal_cost_hint() <= execution_units_left
