@@ -1,4 +1,4 @@
-use log::trace;
+use log::{info, trace};
 use std::cmp::max;
 
 use num_rational::Ratio;
@@ -78,6 +78,9 @@ where
 
     pub fn is_complete(&self) -> bool {
         let terminal_fragments = self.terminal.len();
+        info!("terminal_fragments: {:?}", terminal_fragments);
+        info!("self.remainder.is_some(): {:?}", self.remainder.is_some());
+
         terminal_fragments >= 2 || (terminal_fragments > 0 && self.remainder.is_some())
     }
 

@@ -615,17 +615,23 @@ mod tests {
     use cml_chain::plutus::PlutusData;
     use cml_chain::Deserialize;
     use cml_core::serialization::Serialize;
-    use cml_crypto::ScriptHash;
+    use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
     use num_rational::Ratio;
     use primitive_types::U512;
+    use bloom_offchain::execution_engine::bundled::Bundled;
     use spectrum_cardano_lib::ex_units::ExUnits;
-    use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
+    use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
+    use spectrum_cardano_lib::output::FinalizedTxOut;
 
     use spectrum_cardano_lib::types::TryFromPData;
 
     use crate::data::balance_pool::{BalancePool, BalancePoolConfig, BalancePoolRedeemer, BalancePoolVer};
-    use crate::data::pool::CFMMPoolAction;
-    use crate::data::PoolId;
+    use crate::data::order::ClassicalOrder;
+    use crate::data::pool::{ApplyOrder, CFMMPoolAction, Lq, Rx, Ry};
+    use crate::data::{OnChainOrderId, PoolId};
+    use crate::data::balance_order::RunBalanceAMMOrderOverPool;
+    use crate::data::order::OrderType::BalanceFn;
+    use crate::data::redeem::{ClassicalOnChainRedeem, Redeem};
 
     const DATUM_SAMPLE: &str = "d8799fd8799f581c5df8fe3f9f0e10855f930e0ea6c227e3bba0aba54d39f9d55b95e21c436e6674ffd8799f4040ff01d8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737443ff04d8799f581c0df79145b95580c14ef4baf8d022d7f0cbb08f3bed43bf97a2ddd8cb426c71ff1a000186820a00009fd8799fd87a9f581cb046b660db0eaf9be4f4300180ccf277e4209dada77c48fbd37ba81dffffff581c8d4be10d934b60a22f267699ea3f7ebdade1f8e535d1bd0ef7ce18b61a0501bced08ff";
 
@@ -790,58 +796,66 @@ mod tests {
 
     #[test]
     fn deposit_redeemer_test() {
-        let pool = BalancePool {
-            id: PoolId::from((
-                ScriptHash::from([
-                    162, 206, 112, 95, 150, 240, 52, 167, 61, 102, 158, 92, 11, 47, 25, 41, 48, 224, 188,
-                    211, 138, 203, 127, 107, 246, 89, 115, 157,
-                ]),
-                AssetName::from((
-                    3,
-                    [
-                        110, 102, 116, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0,
-                    ],
-                )),
+
+        let pool_id = PoolId::from((
+            ScriptHash::from([
+                162, 206, 112, 95, 150, 240, 52, 167, 61, 102, 158, 92, 11, 47, 25, 41, 48, 224, 188,
+                211, 138, 203, 127, 107, 246, 89, 115, 157,
+            ]),
+            AssetName::from((
+                3,
+                [
+                    110, 102, 116, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0,
+                ],
             )),
-            reserves_x: TaggedAmount::new(100000000),
+        ));
+
+        let token_x = TaggedAssetClass::new(AssetClass::Native);
+        let token_y = TaggedAssetClass::new(AssetClass::Token((
+            ScriptHash::from([
+                75, 52, 89, 253, 24, 161, 219, 171, 226, 7, 205, 25, 201, 149, 26, 159, 172, 159, 92, 15,
+                156, 56, 78, 61, 151, 239, 186, 38,
+            ]),
+            AssetName::from((
+                5,
+                [
+                    116, 101, 115, 116, 67, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0,
+                ],
+            )),
+        )));
+
+        let token_lq = TaggedAssetClass::new(AssetClass::Token((
+            ScriptHash::from([
+                114, 191, 27, 172, 195, 20, 1, 41, 111, 158, 228, 210, 254, 123, 132, 165, 36, 56, 38,
+                251, 3, 233, 206, 25, 51, 218, 254, 192,
+            ]),
+            AssetName::from((
+                2,
+                [
+                    108, 113, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0,
+                ],
+            )),
+        )));
+
+        let pool = BalancePool {
+            id: pool_id,
+            reserves_x: TaggedAmount::new(29655901),
             weight_x: 1,
-            reserves_y: TaggedAmount::new(100000000),
+            reserves_y: TaggedAmount::new(53144),
             weight_y: 4,
-            liquidity: TaggedAmount::new(9223372036754775808),
-            asset_x: TaggedAssetClass::new(AssetClass::Native),
-            asset_y: TaggedAssetClass::new(AssetClass::Token((
-                ScriptHash::from([
-                    75, 52, 89, 253, 24, 161, 219, 171, 226, 7, 205, 25, 201, 149, 26, 159, 172, 159, 92, 15,
-                    156, 56, 78, 61, 151, 239, 186, 38,
-                ]),
-                AssetName::from((
-                    5,
-                    [
-                        116, 101, 115, 116, 67, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0,
-                    ],
-                )),
-            ))),
-            asset_lq: TaggedAssetClass::new(AssetClass::Token((
-                ScriptHash::from([
-                    114, 191, 27, 172, 195, 20, 1, 41, 111, 158, 228, 210, 254, 123, 132, 165, 36, 56, 38,
-                    251, 3, 233, 206, 25, 51, 218, 254, 192,
-                ]),
-                AssetName::from((
-                    2,
-                    [
-                        108, 113, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0,
-                    ],
-                )),
-            ))),
-            lp_fee_x: Ratio::new_raw(99970, 100000),
-            lp_fee_y: Ratio::new_raw(99970, 100000),
-            treasury_fee: Ratio::new_raw(10, 100000),
-            treasury_x: TaggedAmount::new(0),
-            treasury_y: TaggedAmount::new(0),
-            invariant: U512::from(99999999),
+            liquidity: TaggedAmount::new(9223372036854587823),
+            asset_x: token_x,
+            asset_y: token_y,
+            asset_lq: token_lq,
+            lp_fee_x: Ratio::new_raw(99000, 100000),
+            lp_fee_y: Ratio::new_raw(99000, 100000),
+            treasury_fee: Ratio::new_raw(100, 100000),
+            treasury_x: TaggedAmount::new(13000),
+            treasury_y: TaggedAmount::new(94),
+            invariant: U512::from_str_radix("234780626149172179631250000", 10).unwrap(),
             ver: BalancePoolVer::V1,
             marginal_cost: ExUnits {
                 mem: 120000000,
@@ -849,23 +863,34 @@ mod tests {
             },
         };
 
-        let mut new_pool = pool.clone();
+        const TX: &str = "6c038a69587061acd5611507e68b1fd3a7e7d189367b7853f3bb5079a118b880";
+        const IX: u64 = 1;
 
-        new_pool.reserves_x = TaggedAmount::new(108000000);
-        new_pool.reserves_y = TaggedAmount::new(108000000);
-        new_pool.liquidity = TaggedAmount::new(9223372036746775809);
+        let test_order: ClassicalOnChainRedeem = ClassicalOrder {
+            id: OnChainOrderId(OutputRef::new(TransactionHash::from_hex(TX).unwrap(), IX)),
+            pool_id: pool_id,
+            order: Redeem {
+                pool_nft: pool_id,
+                token_x: token_x,
+                token_y: token_y,
+                token_lq: token_lq,
+                token_lq_amount: TaggedAmount::new(1900727),
+                ex_fee: 1500000,
+                reward_pkh: Ed25519KeyHash::from([0u8; 28]),
+                reward_stake_pkh: None,
+                collateral_ada: 3000000,
+                order_type: BalanceFn
+            }
+        };
 
-        let test_deposit_redeemer = BalancePoolRedeemer {
-            pool_input_index: 0,
-            action: CFMMPoolAction::Deposit,
-            new_pool_state: new_pool,
-            prev_pool_state: pool,
-        }
-        .to_plutus_data();
+        let test = pool.apply_order(test_order);
+
+        let res = test.map(|res| {
+            println!("{:?}", res.0)
+        });
 
         assert_eq!(
-            hex::encode(test_deposit_redeemer.to_canonical_cbor_bytes()),
-            "d87985000082000082000080"
+            1, 1
         )
     }
 }
