@@ -18,10 +18,9 @@ pub fn balance_cfmm_output_amount_old<X, Y>(
     base_amount: TaggedAmount<Base>,
     pool_fee_x: Ratio<u64>,
     pool_fee_y: Ratio<u64>,
-    invariant: U512,
 ) -> TaggedAmount<Quote> {
     trace!(
-        "balance_cfmm_output_amount({:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?})",
+        "balance_cfmm_output_amount({:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?})",
         asset_x,
         reserves_x,
         x_weight,
@@ -31,7 +30,6 @@ pub fn balance_cfmm_output_amount_old<X, Y>(
         base_amount,
         pool_fee_x,
         pool_fee_y,
-        invariant
     );
     let (base_reserves, base_weight, quote_reserves, quote_weight, pool_fee) =
         if asset_x.untag() == base_asset.untag() {
@@ -51,6 +49,9 @@ pub fn balance_cfmm_output_amount_old<X, Y>(
                 pool_fee_y,
             )
         };
+    let invariant = U512::from(base_reserves as u64)
+        .pow(U512::from(base_weight as u64))
+        .mul(U512::from(quote_reserves).pow(U512::from(quote_weight as u64)));
     let base_new_part =
         calculate_base_part_with_fee_old(base_reserves, base_weight, base_amount.untag() as f64, pool_fee);
     // (quote_reserves - quote_amount) ^ quote_weight = invariant / base_new_part
@@ -115,10 +116,9 @@ pub fn balance_cfmm_output_amount<X, Y>(
     base_amount: TaggedAmount<Base>,
     pool_fee_x: Ratio<u64>,
     pool_fee_y: Ratio<u64>,
-    invariant: U512,
 ) -> TaggedAmount<Quote> {
     trace!(
-        "balance_cfmm_output_amount({:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?})",
+        "balance_cfmm_output_amount({:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?})",
         asset_x,
         reserves_x,
         x_weight,
@@ -127,8 +127,7 @@ pub fn balance_cfmm_output_amount<X, Y>(
         base_asset,
         base_amount,
         pool_fee_x,
-        pool_fee_y,
-        invariant
+        pool_fee_y
     );
     let (base_reserves, base_weight, quote_reserves, quote_weight, pool_fee) =
         if asset_x.untag() == base_asset.untag() {
@@ -148,6 +147,9 @@ pub fn balance_cfmm_output_amount<X, Y>(
                 pool_fee_y,
             )
         };
+    let invariant = U512::from(base_reserves)
+        .pow(U512::from(base_weight))
+        .mul(U512::from(quote_reserves).pow(U512::from(quote_weight)));
     let base_new_part =
         calculate_base_part_with_fee(base_reserves, base_weight, base_amount.untag(), pool_fee);
     // (quote_reserves - quote_amount) ^ quote_weight = invariant / base_new_part
@@ -254,7 +256,6 @@ mod tests {
             TaggedAmount::new(1553810),
             Ratio::new(9967, 10000),
             Ratio::new(9967, 10000),
-            U512::from_str_radix("108851273084482366709335815120045286190142550777908960000", 10).unwrap(),
         );
         let r_old = balance_cfmm_output_amount_old::<u32, u64>(
             TaggedAssetClass::new(Native),
@@ -266,7 +267,6 @@ mod tests {
             TaggedAmount::new(1553810),
             Ratio::new(9967, 10000),
             Ratio::new(9967, 10000),
-            U512::from_str_radix("108851273084482366709335815120045286190142550777908960000", 10).unwrap(),
         );
         let b = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
