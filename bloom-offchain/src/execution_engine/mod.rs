@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashSet, VecDeque};
+use std::collections::HashSet;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -15,6 +15,7 @@ use tokio::sync::broadcast;
 
 use liquidity_book::interpreter::RecipeInterpreter;
 use spectrum_offchain::backlog::HotBacklog;
+use spectrum_offchain::circular_filter::CircularFilter;
 use spectrum_offchain::combinators::Ior;
 use spectrum_offchain::data::order::{OrderUpdate, SpecializedOrder};
 use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
@@ -25,7 +26,6 @@ use spectrum_offchain::tx_prover::TxProver;
 
 use crate::execution_engine::backlog::SpecializedInterpreter;
 use crate::execution_engine::bundled::Bundled;
-use crate::execution_engine::circular_filter::CircularFilter;
 use crate::execution_engine::execution_effect::ExecutionEff;
 use crate::execution_engine::focus_set::FocusSet;
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState};
@@ -42,7 +42,6 @@ use crate::execution_engine::storage::StateIndex;
 pub mod backlog;
 pub mod batch_exec;
 pub mod bundled;
-mod circular_filter;
 pub mod execution_effect;
 mod focus_set;
 pub mod liquidity_book;
@@ -245,11 +244,10 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
         Log: HotBacklog<Bundled<SO, B>> + Maker<Ctx>,
         Ctx: Clone,
     {
+        let backlog_pair = self.multi_backlog.get_mut(pair);
         match update {
-            OrderUpdate::Created(new_order) => self.multi_backlog.get_mut(pair).put(new_order),
-            OrderUpdate::Eliminated(elim_order) => {
-                self.multi_backlog.get_mut(pair).remove(elim_order.get_self_ref())
-            }
+            OrderUpdate::Created(new_order) => backlog_pair.put(new_order),
+            OrderUpdate::Eliminated(elim_order) => backlog_pair.remove(elim_order.get_self_ref()),
         }
     }
 
@@ -364,6 +362,7 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
                     let state_exists = self.index.put(new_state);
                     let seen_recently = self.skip_filter.remove(&ver);
                     if state_exists || seen_recently {
+                        trace!(target: "executor", "Skipping update {}", id);
                         // No TLB update is needed.
                         return None;
                     }
@@ -471,14 +470,15 @@ where
                                 }
                                 self.multi_book.get_mut(&pair).on_recipe_succeeded();
                             }
-                            PendingEffects::FromBacklog(new_pool, _) => {
-                                let trans = EitherMod::Unconfirmed(Unconfirmed(
-                                    StateUpdate::Transition(Ior::Right(new_pool.map(Either::Right))),
-                                ));
+                            PendingEffects::FromBacklog(new_pool, order) => {
+                                let trans = EitherMod::Unconfirmed(Unconfirmed(StateUpdate::Transition(
+                                    Ior::Right(new_pool.map(Either::Right)),
+                                )));
                                 if let Some(upd) = self.update_state(trans) {
                                     // Backlog altered state of the pool, so we sync TLB.
                                     self.sync_book(&pair, upd)
                                 }
+                                self.multi_backlog.get_mut(&pair).check_later(order);
                             }
                         },
                         Err(err) => {
@@ -500,7 +500,10 @@ where
                                 }
                                 self.invalidate_bearers(&pair, missing_bearers.clone());
                             } else {
-                                warn!("Unknown Tx submission error while processing operation in {}!", pair);
+                                warn!(
+                                    "Unknown Tx submission error while processing operation in {}!",
+                                    pair
+                                );
                                 match pending_effects {
                                     PendingEffects::FromLiquidityBook(_) => {
                                         self.multi_book.remove(&pair);
