@@ -2,6 +2,7 @@ use circular_buffer::CircularBuffer;
 use std::collections::HashSet;
 use std::hash::Hash;
 
+#[derive(Clone)]
 pub struct CircularFilter<const N: usize, T> {
     buffer: CircularBuffer<N, T>,
     filter: HashSet<T>,
