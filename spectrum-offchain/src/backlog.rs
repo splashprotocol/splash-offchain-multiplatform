@@ -17,6 +17,7 @@ use type_equalities::IsEqual;
 
 use crate::backlog::data::{BacklogOrder, OrderWeight, Weighted};
 use crate::backlog::persistence::BacklogStore;
+use crate::circular_filter::CircularFilter;
 use crate::data::order::{PendingOrder, ProgressingOrder, SpecializedOrder, SuspendedOrder, UniqueOrder};
 use crate::data::Has;
 use crate::maker::Maker;
@@ -48,15 +49,19 @@ where
     fn recharge<'a>(&mut self, ord: TOrd)
     where
         TOrd: 'a;
+    /// Check order later.
+    fn check_later<'a>(&mut self, ord: TOrd)
+    where
+        TOrd: 'a;
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Into, From)]
 pub struct BacklogCapacity(u32);
 
-#[derive(Clone, Debug)]
 pub struct HotPriorityBacklog<TOrd: UniqueOrder> {
     queue: PriorityQueue<TOrd::TOrderId, OrderWeight>,
     store: HashMap<TOrd::TOrderId, TOrd>,
+    pending_orders: CircularFilter<128, TOrd>,
     capacity: u32,
 }
 
@@ -65,6 +70,7 @@ impl<TOrd: UniqueOrder> HotPriorityBacklog<TOrd> {
         Self {
             queue: PriorityQueue::new(),
             store: HashMap::new(),
+            pending_orders: CircularFilter::new(),
             capacity: capacity.into(),
         }
     }
@@ -134,6 +140,15 @@ where
             self.queue.push(key, wt);
             self.store.insert(key, ord);
             self.capacity -= 1;
+        }
+    }
+
+    fn check_later<'a>(&mut self, ord: TOrd)
+    where
+        TOrd: 'a,
+    {
+        if let Some(revived_order) = self.pending_orders.add(ord) {
+            self.recharge(revived_order);
         }
     }
 }

@@ -37,7 +37,7 @@ where
             self.get_mut(pair)
         }
     }
-    
+
     pub fn remove(&mut self, pair: &PairId) {
         self.0.remove(pair);
     }

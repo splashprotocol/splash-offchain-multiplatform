@@ -16,16 +16,20 @@ impl<const N: usize, T> CircularFilter<N, T> {
     }
 }
 
-impl<const N: usize, T: Hash + Eq + Copy> CircularFilter<N, T> {
-    pub fn add(&mut self, a: T) {
-        if self.filter.insert(a) {
+impl<const N: usize, T: Hash + Eq + Clone> CircularFilter<N, T> {
+    /// Adds new element to filter.
+    /// Returns evicted element is filter is full.
+    pub fn add(&mut self, a: T) -> Option<T> {
+        if self.filter.insert(a.clone()) {
             if let Err(a) = self.buffer.try_push_back(a) {
-                if let Some(element_to_evict) = self.buffer.front() {
-                    self.filter.remove(element_to_evict);
+                if let Some(evicted_element) = self.buffer.pop_front() {
+                    self.filter.remove(&evicted_element);
                     self.buffer.push_back(a);
+                    return Some(evicted_element);
                 }
             }
         }
+        None
     }
 
     pub fn remove(&mut self, a: &T) -> bool {
@@ -40,7 +44,7 @@ impl<const N: usize, T: Hash + Eq + Copy> CircularFilter<N, T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::execution_engine::circular_filter::CircularFilter;
+    use crate::circular_filter::CircularFilter;
 
     #[test]
     fn add_check_rotate() {

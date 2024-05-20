@@ -36,6 +36,7 @@ nonempty = "0.8.1"
 num-rational = { version = "0.4.1", features = ["serde"] }
 either = "1.9.0"
 hex = "0.4.3"
+circular-buffer = "0.1.7"
 
 [dev-dependencies]
 rocksdb = "0.21.*"

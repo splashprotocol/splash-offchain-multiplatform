@@ -34,7 +34,7 @@ where
     fn get<'a>(&self, id: &Src::StableId) -> Option<Src> {
         let res = self.0.get(id);
         trace!(
-            "state_index::get_last_confirmed({}) -> {}",
+            "state_index::get({}) -> {}",
             id,
             if res.is_some() { "Some(_)" } else { "None" }
         );
@@ -129,7 +129,10 @@ where
                 loop {
                     match versions.pop_back() {
                         // Roll back all versions after `ver` (including).
-                        Some(rolled_back_ver) if rolled_back_ver != ver => continue,
+                        Some(rolled_back_ver) if rolled_back_ver != ver => {
+                            self.store.remove(&rolled_back_ver);
+                            continue;
+                        }
                         _ => break,
                     }
                 }
@@ -157,15 +160,15 @@ where
 
 #[cfg(test)]
 mod tests {
-    use spectrum_offchain::data::{EntitySnapshot, Stable};
     use crate::execution_engine::storage::{InMemoryStateIndex, StateIndex};
+    use spectrum_offchain::data::{EntitySnapshot, Stable};
 
     #[derive(Copy, Clone, Eq, PartialEq, Debug)]
     struct Entity {
         sid: usize,
         ver: usize,
     }
-    
+
     impl Stable for Entity {
         type StableId = usize;
         fn stable_id(&self) -> Self::StableId {
@@ -175,7 +178,7 @@ mod tests {
             true
         }
     }
-    
+
     impl EntitySnapshot for Entity {
         type Version = usize;
 
@@ -183,7 +186,7 @@ mod tests {
             self.ver
         }
     }
-    
+
     #[test]
     fn chain_versions_invalidate() {
         let mut index = InMemoryStateIndex::new();
@@ -193,7 +196,9 @@ mod tests {
         let e3 = Entity { sid: 0, ver: 3 };
         let e4 = Entity { sid: 0, ver: 4 };
         let s0 = Entity { sid: 1, ver: 5 };
-        vec![e0, e1, e2, e3, e4, s0].into_iter().for_each(|e| { index.put(e); });
+        vec![e0, e1, e2, e3, e4, s0].into_iter().for_each(|e| {
+            index.put(e);
+        });
         assert_eq!(index.get(&e0.sid), Some(e4));
         index.invalidate(e3.ver);
         assert_eq!(index.get(&e0.sid), Some(e2));
