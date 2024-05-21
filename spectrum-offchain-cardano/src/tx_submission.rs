@@ -5,7 +5,7 @@ use async_stream::stream;
 use cml_core::serialization::Serialize;
 use futures::channel::{mpsc, oneshot};
 use futures::{SinkExt, Stream, StreamExt};
-use log::trace;
+use log::{info, trace};
 use pallas_network::miniprotocols::localtxsubmission;
 
 use cardano_submit_api::client::{Error, LocalTxSubmissionClient};
@@ -53,6 +53,7 @@ impl From<SubmissionResult> for Result<(), TxRejected> {
             SubmissionResult::TxRejectedResult {
                 rejected_bytes: Some(error),
             } => {
+                info!("error: {}", hex::encode(error.clone()));
                 let missing_inputs = transcribe_bad_inputs_error(error);
                 Err(if !missing_inputs.is_empty() {
                     TxRejected::MissingInputs(missing_inputs)
