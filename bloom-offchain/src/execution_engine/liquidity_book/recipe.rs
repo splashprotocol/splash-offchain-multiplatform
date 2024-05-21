@@ -89,11 +89,11 @@ where
             TerminalInstruction::Fill(fill) => fill.added_output >= fill.target_fr.min_marginal_output(),
             TerminalInstruction::Swap(_) => true,
         });
-        let non_terminal_fills_ok = if let Some(fill) = &self.remainder {
-            fill.accumulated_output >= fill.target.min_marginal_output()
-        } else {
-            true
-        };
+        let non_terminal_fills_ok = self
+            .remainder
+            .as_ref()
+            .map(|fill| fill.accumulated_output >= fill.target.min_marginal_output())
+            .unwrap_or(true);
         trace!(
             "recipe::is_sufficient: terminal_fills_ok: {}, non_terminal_fills_ok: {}",
             terminal_fills_ok,

@@ -506,10 +506,10 @@ where
                                 );
                                 match pending_effects {
                                     PendingEffects::FromLiquidityBook(_) => {
-                                        self.multi_book.remove(&pair);
+                                        self.multi_book.get_mut(&pair).on_recipe_failed();
                                     }
-                                    PendingEffects::FromBacklog(_, _) => {
-                                        self.multi_backlog.remove(&pair);
+                                    PendingEffects::FromBacklog(_, order) => {
+                                        self.multi_backlog.get_mut(&pair).recharge(order);
                                     }
                                 }
                             }
