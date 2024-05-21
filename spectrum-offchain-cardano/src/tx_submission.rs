@@ -61,7 +61,10 @@ impl From<SubmissionResult> for Result<(), TxRejected> {
                     TxRejected::Unknown
                 })
             }
-            _ => Err(TxRejected::Unknown),
+            _ =>{
+                info!("error with empty bytes");
+                Err(TxRejected::Unknown)
+            }
         }
     }
 }
@@ -81,6 +84,7 @@ where
                 Err(Error::TxSubmissionProtocol(err)) => {
                     match err {
                         localtxsubmission::Error::TxRejected(bytes) => {
+
                             on_resp.send(SubmissionResult::TxRejectedResult{rejected_bytes: Some(bytes.0)}).expect("Responder was dropped")
                         },
                         _ => {
