@@ -2,7 +2,7 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-use log::{trace};
+use log::trace;
 
 use spectrum_offchain::circular_filter::CircularFilter;
 use spectrum_offchain::data::unique_entity::{Confirmed, Unconfirmed};

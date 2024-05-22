@@ -36,17 +36,10 @@ pub enum Side<T> {
 }
 
 impl<T: Display> Display for Side<T> {
-
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Side::Bid(bid) => f.write_str(&*format!(
-                "Bid({})",
-                bid
-            )),
-            Side::Ask(ask) => f.write_str(&*format!(
-                "Ask({})",
-                ask
-            ))
+            Side::Bid(bid) => f.write_str(&*format!("Bid({})", bid)),
+            Side::Ask(ask) => f.write_str(&*format!("Ask({})", ask)),
         }
     }
 }
