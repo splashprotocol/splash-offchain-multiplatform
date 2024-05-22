@@ -170,7 +170,8 @@ where
 
                             //
 
-                            alert_client.send_alert(to_slack.as_str().clone());
+                            let submit_res = alert_client.send_alert(to_slack.as_str().clone()).unwrap_or("Failure".to_string());
+                            trace!("Alert submitting result: {}", submit_res);
                             trace!("Attempting to matchmake. TLB: {:?}", self.state.show_state());
                             // todo: dirty hack.
                             if maybe_best_pool.is_none() {
