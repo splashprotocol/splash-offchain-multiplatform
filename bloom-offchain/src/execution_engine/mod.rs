@@ -204,8 +204,27 @@ pub struct Executor<
     pd: PhantomData<(StableId, Ver, Txc, Tx, Err)>,
 }
 
-impl<S, Pair, Stab, V, CO: Display, SO, P: Display, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err>
-    Executor<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err>
+impl<
+        S,
+        Pair,
+        Stab,
+        V,
+        CO: Display,
+        SO,
+        P: Display,
+        B,
+        Txc,
+        Tx,
+        Ctx,
+        Ix,
+        Cache,
+        Book,
+        Log,
+        RecIr,
+        SpecIr,
+        Prov,
+        Err,
+    > Executor<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err>
 {
     fn new(
         index: Ix,

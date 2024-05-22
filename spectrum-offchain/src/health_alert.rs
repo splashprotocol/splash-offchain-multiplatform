@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use isahc::{AsyncBody, AsyncReadResponseExt, Body, HttpClient, Request, Response};
 use isahc::http::Uri;
+use isahc::{AsyncBody, AsyncReadResponseExt, Body, HttpClient, Request, Response};
 
 pub trait SlackHealthAlert {
     fn send_alert(&self, string: &str) -> Result<String, String>;
@@ -21,7 +21,7 @@ impl HealthAlertClient {
 impl SlackHealthAlert for HealthAlertClient {
     fn send_alert(&self, string: &str) -> Result<String, String> {
         let cleaned_string = string.replace("\0", "");
-        
+
         let body = format!(r#"{{"text": "{}"}}"#, cleaned_string);
 
         let request = Request::post(&self.base_url)
@@ -29,11 +29,10 @@ impl SlackHealthAlert for HealthAlertClient {
             .body(body)
             .map_err(|_| "failed to build request".to_string())?;
 
-        let mut response: Result<Response<Body>, String> = self.client.send(request)
-            .map_err(|x| {
-                println!("error: {:?}", x.to_string());
-                "failed to send slack alert".to_string()
-            });
+        let mut response: Result<Response<Body>, String> = self.client.send(request).map_err(|x| {
+            println!("error: {:?}", x.to_string());
+            "failed to send slack alert".to_string()
+        });
 
         return match response {
             Ok(response) => {
@@ -43,7 +42,7 @@ impl SlackHealthAlert for HealthAlertClient {
                     Err("expected 200 from slack query".into())
                 }
             }
-            Err(_) => Err("error sending to slack".into())
-        }
+            Err(_) => Err("error sending to slack".into()),
+        };
     }
 }

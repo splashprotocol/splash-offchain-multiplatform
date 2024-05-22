@@ -24,7 +24,7 @@ pub struct AppConfig<'a> {
     pub execution_cap: ExecutionCap,
     pub channel_buffer_size: usize,
     pub mempool_buffering_duration: Duration,
-    pub ledger_buffering_duration: Duration
+    pub ledger_buffering_duration: Duration,
 }
 
 #[derive(serde::Deserialize)]

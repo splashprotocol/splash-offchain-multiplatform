@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use isahc::{AsyncBody, AsyncReadResponseExt, HttpClient, Request, Response};
 use isahc::http::Uri;
+use isahc::{AsyncBody, AsyncReadResponseExt, HttpClient, Request, Response};
 
 #[async_trait]
 pub trait SlackHealthAlert {
@@ -29,11 +29,10 @@ impl SlackHealthAlert for HealthAlertClient {
             .body(body)
             .map_err(|_| "failed to build request".to_string())?;
 
-        let mut response: Response<AsyncBody> = self.client.send_async(request).await
-            .map_err(|x| {
-                println!("error: {:?}", x.to_string());
-                "failed to send slack alert".to_string()
-            })?;
+        let mut response: Response<AsyncBody> = self.client.send_async(request).await.map_err(|x| {
+            println!("error: {:?}", x.to_string());
+            "failed to send slack alert".to_string()
+        })?;
 
         if response.status().is_success() {
             Ok(())

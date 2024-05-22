@@ -49,7 +49,6 @@ pub struct IntermediateRecipe<Fr, Pl> {
 
 impl<Fr: Display, Pl: Display> Display for IntermediateRecipe<Fr, Pl> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-
         let mut terminal_instructions = String::new();
 
         self.terminal.iter().for_each(|terminal| {
@@ -61,15 +60,13 @@ impl<Fr: Display, Pl: Display> Display for IntermediateRecipe<Fr, Pl> {
 
         match &self.remainder {
             None => remainder.push_str("None"),
-            Some(partial_fill) => remainder.push_str(&partial_fill.to_string())
+            Some(partial_fill) => remainder.push_str(&partial_fill.to_string()),
         }
 
-        f.write_str(
-            &*format!(
-                "IntermediateRecipe(terminal={}, remainder={})",
-                terminal_instructions, remainder
-            )
-        )
+        f.write_str(&*format!(
+            "IntermediateRecipe(terminal={}, remainder={})",
+            terminal_instructions, remainder
+        ))
     }
 }
 
@@ -116,16 +113,22 @@ where
     pub fn is_sufficient(&self) -> bool {
         let terminal_fills_ok = self.terminal.iter().all(|x| match x {
             TerminalInstruction::Fill(fill) => {
-                trace!("[terminal_fills_ok]. Checking is_sufficient for {}", fill.to_string());
+                trace!(
+                    "[terminal_fills_ok]. Checking is_sufficient for {}",
+                    fill.to_string()
+                );
                 fill.added_output >= fill.target_fr.min_marginal_output()
-            },
+            }
             TerminalInstruction::Swap(_) => true,
         });
         let non_terminal_fills_ok = self
             .remainder
             .as_ref()
             .map(|fill| {
-                trace!("[non_terminal_fills_ok]. Checking is_sufficient for {}", fill.to_string());
+                trace!(
+                    "[non_terminal_fills_ok]. Checking is_sufficient for {}",
+                    fill.to_string()
+                );
                 fill.accumulated_output >= fill.target.min_marginal_output()
             })
             .unwrap_or(true);
@@ -182,12 +185,9 @@ impl<Fr: Display, Pl: Display> Display for TerminalInstruction<Fr, Pl> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let formatted_entity = match self {
             TerminalInstruction::Fill(fill) => format!("{}", fill),
-            TerminalInstruction::Swap(swap) => format!("{}", swap)
+            TerminalInstruction::Swap(swap) => format!("{}", swap),
         };
-        f.write_str(&*format!(
-            "TerminalInstruction({})",
-            formatted_entity
-        ))
+        f.write_str(&*format!("TerminalInstruction({})", formatted_entity))
     }
 }
 
@@ -233,7 +233,12 @@ impl<Fr: Display> Display for Fill<Fr> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(&*format!(
             "Fill(target_fr={}, next_fr={}, removed_input={}, added_output={}, budget_used={}, fee_used={})",
-            self.target_fr, self.next_fr, self.removed_input, self.added_output, self.budget_used, self.fee_used
+            self.target_fr,
+            self.next_fr,
+            self.removed_input,
+            self.added_output,
+            self.budget_used,
+            self.fee_used
         ))
     }
 }
@@ -264,7 +269,7 @@ pub struct PartialFill<Fr> {
     pub accumulated_output: u64,
 }
 
-impl<Fr: Display> Display for PartialFill<Fr>  {
+impl<Fr: Display> Display for PartialFill<Fr> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(&*format!(
             "PartialFill(target={}, remaining_input={}, accumulated_output={})",
