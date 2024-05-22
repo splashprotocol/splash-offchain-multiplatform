@@ -10,6 +10,8 @@ use futures::channel::mpsc;
 use futures::stream::FusedStream;
 use futures::{FutureExt, Stream};
 use futures::{SinkExt, StreamExt};
+use isahc::http::Uri;
+use isahc::HttpClient;
 use log::{info, trace, warn};
 use tokio::sync::broadcast;
 
@@ -20,6 +22,7 @@ use spectrum_offchain::combinators::Ior;
 use spectrum_offchain::data::order::{OrderUpdate, SpecializedOrder};
 use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
 use spectrum_offchain::data::{Baked, EntitySnapshot, Stable};
+use spectrum_offchain::health_alert::{HealthAlertClient, SlackHealthAlert};
 use spectrum_offchain::maker::Maker;
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_prover::TxProver;
@@ -34,6 +37,7 @@ use crate::execution_engine::liquidity_book::recipe::{
     TerminalInstruction,
 };
 use crate::execution_engine::liquidity_book::{ExternalTLBEvents, TLBFeedback, TemporalLiquidityBook};
+use crate::execution_engine::liquidity_book::side::SideM;
 use crate::execution_engine::multi_pair::MultiPair;
 use crate::execution_engine::resolver::resolve_source_state;
 use crate::execution_engine::storage::kv_store::KvStore;
@@ -101,6 +105,7 @@ pub fn execution_part_stream<
     upstream: Upstream,
     network: Net,
     mut tip_reached_signal: broadcast::Receiver<bool>,
+    alert_client: HealthAlertClient
 ) -> impl Stream<Item = ()> + 'a
 where
     Upstream: Stream<Item = (Pair, Event<CompOrd, SpecOrd, Pool, Bearer, Ver>)> + Unpin + 'a,
@@ -148,6 +153,7 @@ where
         prover,
         upstream,
         feedback_in,
+        alert_client
     );
     let wait_signal = async move {
         let _ = tip_reached_signal.recv().await;
@@ -209,6 +215,7 @@ pub struct Executor<
     /// Temporarily memoize entities that came from unconfirmed updates.
     skip_filter: CircularFilter<128, Ver>,
     pd: PhantomData<(StableId, Ver, Txc, Tx, Err)>,
+    alert_client: HealthAlertClient
 }
 
 impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err>
@@ -225,6 +232,7 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
         prover: Prov,
         upstream: S,
         feedback: mpsc::Receiver<Result<(), Err>>,
+        alert_client: HealthAlertClient
     ) -> Self {
         Self {
             index,
@@ -241,6 +249,7 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
             focus_set: FocusSet::new(),
             skip_filter: CircularFilter::new(),
             pd: Default::default(),
+            alert_client: alert_client
         }
     }
 
@@ -489,6 +498,13 @@ where
                             }
                         },
                         Err(err) => {
+                            //todo: remove
+                            let submit_res = self.alert_client
+                                .send_alert("Tx submition error")
+                                .unwrap_or("Failure".to_string());
+
+                            trace!("Alert submitting result: {}", submit_res);
+
                             warn!("TX failed {:?}", err);
                             if let Ok(missing_bearers) = err.try_into() {
                                 match pending_effects {
