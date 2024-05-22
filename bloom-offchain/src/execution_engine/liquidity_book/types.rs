@@ -27,7 +27,7 @@ pub struct AbsolutePrice(Ratio<u128>);
 
 impl Display for AbsolutePrice {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let price = U512::from(self.0.numer()).div(U512::from(self.0.denom()));
+        let price = U512::from(*self.0.numer()).div(U512::from(*self.0.denom()));
         f.write_str(&*format!(
             "Price(finalValue={}, ratio={})",
             price, self.0
