@@ -79,7 +79,7 @@ pub fn execution_part_stream<
     Txc,
     Tx,
     Ctx,
-    U,
+    ExUnits,
     Index,
     Cache,
     Book,
@@ -108,7 +108,14 @@ where
     StableId: Copy + Eq + Hash + Debug + Display + Unpin + 'a,
     Ver: Copy + Eq + Hash + Display + Unpin + 'a,
     Pool: Stable<StableId = StableId> + Copy + Debug + Unpin + Display + 'a,
-    CompOrd: Stable<StableId = StableId> + Fragment<U = U> + OrderState + Copy + Debug + Unpin + Display + 'a,
+    CompOrd: Stable<StableId = StableId>
+        + Fragment<U = ExUnits>
+        + OrderState
+        + Copy
+        + Debug
+        + Unpin
+        + Display
+        + 'a,
     SpecOrd: SpecializedOrder<TPoolId = StableId, TOrderId = Ver> + Debug + Unpin + 'a,
     Bearer: Clone + Unpin + Debug + 'a,
     Txc: Unpin + 'a,
@@ -204,27 +211,8 @@ pub struct Executor<
     pd: PhantomData<(StableId, Ver, Txc, Tx, Err)>,
 }
 
-impl<
-        S,
-        Pair,
-        Stab,
-        V,
-        CO: Display,
-        SO,
-        P: Display,
-        B,
-        Txc,
-        Tx,
-        Ctx,
-        Ix,
-        Cache,
-        Book,
-        Log,
-        RecIr,
-        SpecIr,
-        Prov,
-        Err,
-    > Executor<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err>
+impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err>
+    Executor<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err>
 {
     fn new(
         index: Ix,

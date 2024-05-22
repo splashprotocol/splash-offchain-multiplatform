@@ -17,10 +17,11 @@ pub struct LinkedExecutionRecipe<Fr, Pl, Src>(pub Vec<LinkedTerminalInstruction<
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ExecutionRecipe<Fr, Pl>(Vec<TerminalInstruction<Fr, Pl>>);
 
-impl<Fr: Display, Pl: Display> ExecutionRecipe<Fr, Pl> {
+impl<Fr, Pl> ExecutionRecipe<Fr, Pl> {
     pub fn try_from(rec: IntermediateRecipe<Fr, Pl>) -> Option<Self>
     where
-        Fr: Fragment + OrderState + Copy,
+        Fr: Fragment + OrderState + Copy + Display,
+        Pl: Display,
     {
         trace!("Going to create ExecutionRecipe from IntermediateRecipe {}", rec);
         if rec.is_complete() && rec.is_sufficient() {
