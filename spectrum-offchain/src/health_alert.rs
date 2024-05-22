@@ -19,7 +19,7 @@ impl HealthAlertClient {
 }
 
 impl SlackHealthAlert for HealthAlertClient {
-    fn send_alert(&self, string: &str) -> Result<(), String> {
+    fn send_alert(&self, string: &str) -> Result<String, String> {
         let body = format!(r#"{{"text": "{}"}}"#, string);
 
         let request = Request::post(&self.base_url)
@@ -36,7 +36,7 @@ impl SlackHealthAlert for HealthAlertClient {
         return match response {
             Ok(response) => {
                 if response.status().is_success() {
-                    Ok(())
+                    Ok("Success".to_string())
                 } else {
                     Err("expected 200 from slack query".into())
                 }
