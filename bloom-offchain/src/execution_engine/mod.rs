@@ -10,7 +10,7 @@ use futures::channel::mpsc;
 use futures::stream::FusedStream;
 use futures::{FutureExt, Stream};
 use futures::{SinkExt, StreamExt};
-use log::{trace, warn};
+use log::{info, trace, warn};
 use tokio::sync::broadcast;
 
 use liquidity_book::interpreter::RecipeInterpreter;
@@ -107,8 +107,8 @@ where
     Pair: Copy + Eq + Ord + Hash + Display + Unpin + 'a,
     StableId: Copy + Eq + Hash + Debug + Display + Unpin + 'a,
     Ver: Copy + Eq + Hash + Display + Unpin + 'a,
-    Pool: Stable<StableId = StableId> + Copy + Debug + Unpin + 'a,
-    CompOrd: Stable<StableId = StableId> + Fragment<U = U> + OrderState + Copy + Debug + Unpin + 'a,
+    Pool: Stable<StableId = StableId> + Copy + Debug + Unpin + Display + 'a,
+    CompOrd: Stable<StableId = StableId> + Fragment<U = U> + OrderState + Copy + Debug + Unpin + Display + 'a,
     SpecOrd: SpecializedOrder<TPoolId = StableId, TOrderId = Ver> + Debug + Unpin + 'a,
     Bearer: Clone + Unpin + Debug + 'a,
     Txc: Unpin + 'a,
@@ -204,7 +204,7 @@ pub struct Executor<
     pd: PhantomData<(StableId, Ver, Txc, Tx, Err)>,
 }
 
-impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err>
+impl<S, Pair, Stab, V, CO: Display, SO, P: Display, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err>
     Executor<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err>
 {
     fn new(
@@ -315,7 +315,7 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
         V: Copy + Eq + Hash + Display,
         B: Clone + Debug,
         Ctx: Clone,
-        CO: Stable<StableId = Stab> + Clone + Debug,
+        CO: Stable<StableId = Stab> + Clone + Debug + Display,
         P: Stable<StableId = Stab> + Clone + Debug,
         Ix: StateIndex<EvolvingEntity<CO, P, V, B>>,
         Cache: KvStore<Stab, EvolvingEntity<CO, P, V, B>>,
@@ -428,8 +428,8 @@ where
     Pair: Copy + Eq + Ord + Hash + Display + Unpin,
     Stab: Copy + Eq + Hash + Debug + Display + Unpin,
     Ver: Copy + Eq + Hash + Display + Unpin,
-    P: Stable<StableId = Stab> + Copy + Debug + Unpin,
-    CO: Stable<StableId = Stab> + Fragment<U = U> + OrderState + Copy + Debug + Unpin,
+    P: Stable<StableId = Stab> + Copy + Debug + Unpin + Display,
+    CO: Stable<StableId = Stab> + Fragment<U = U> + OrderState + Copy + Debug + Unpin + Display,
     SO: SpecializedOrder<TPoolId = Stab, TOrderId = Ver> + Unpin,
     B: Clone + Debug + Unpin,
     Txc: Unpin,
@@ -584,8 +584,8 @@ where
     Pair: Copy + Eq + Ord + Hash + Display + Unpin,
     Stab: Copy + Eq + Hash + Debug + Display + Unpin,
     Ver: Copy + Eq + Hash + Display + Unpin,
-    P: Stable<StableId = Stab> + Copy + Debug + Unpin,
-    CO: Stable<StableId = Stab> + Fragment<U = U> + OrderState + Copy + Debug + Unpin,
+    P: Stable<StableId = Stab> + Copy + Debug + Unpin + Display,
+    CO: Stable<StableId = Stab> + Fragment<U = U> + OrderState + Copy + Debug + Unpin + Display,
     SO: SpecializedOrder<TPoolId = Stab, TOrderId = Ver> + Unpin,
     B: Clone + Debug + Unpin,
     Txc: Unpin,
