@@ -160,20 +160,18 @@ where
                                     .unwrap_or("empty".to_string())
                             );
                             trace!("to slack {:?}", to_slack);
-                            tokio::task::block_in_place(|| {
-                                tokio::runtime::Handle::current().block_on(async move {
-                                    let client = HttpClient::builder().build().unwrap();
+                            tokio::runtime::Handle::current().block_on(async move {
+                                let client = HttpClient::builder().build().unwrap();
 
-                                    let uri = Uri::from_static(
-                                        "https://hooks.slack.com/services/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",
-                                    );
+                                let uri = Uri::from_static(
+                                    "https://hooks.slack.com/services/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",
+                                );
 
-                                    let alert_client = HealthAlertClient::new(client, uri);
+                                let alert_client = HealthAlertClient::new(client, uri);
 
-                                    //
+                                //
 
-                                    alert_client.send_alert(to_slack.as_str().clone()).await.unwrap_or(())
-                                })
+                                alert_client.send_alert(to_slack.as_str().clone()).await.unwrap_or(())
                             });
                             trace!("Attempting to matchmake. TLB: {:?}", self.state.show_state());
                             // todo: dirty hack.
