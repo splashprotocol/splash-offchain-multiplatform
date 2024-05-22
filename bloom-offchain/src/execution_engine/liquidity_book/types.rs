@@ -32,7 +32,7 @@ impl Display for AbsolutePrice {
         let price = BigNumber::from_str(self.0.numer().to_string().as_str()).unwrap().div(BigNumber::from_str(self.0.denom().to_string().as_str()).unwrap());
         f.write_str(&*format!(
             "Price(finalValue={}, ratio={})",
-            price.to_string(), self.0
+            price.to_precision(5).to_string(), self.0
         ))
     }
 }
