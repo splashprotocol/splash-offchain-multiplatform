@@ -20,7 +20,11 @@ impl HealthAlertClient {
 
 impl SlackHealthAlert for HealthAlertClient {
     fn send_alert(&self, string: &str) -> Result<String, String> {
-        let body = format!(r#"{{"text": "{}"}}"#, string);
+        let cleaned_string = string.replace("\0", "");
+
+        println!("escaped_string: {:?}", cleaned_string);
+
+        let body = format!(r#"{{"text": "{}"}}"#, cleaned_string);
 
         let request = Request::post(&self.base_url)
             .header("Content-Type", "application/json")
