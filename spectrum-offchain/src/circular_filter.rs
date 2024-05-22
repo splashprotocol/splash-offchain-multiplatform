@@ -15,6 +15,16 @@ impl<const N: usize, T> CircularFilter<N, T> {
             filter: HashSet::new(),
         }
     }
+
+    pub fn one(x: T) -> Self
+    where
+        T: Copy + Hash + Eq,
+    {
+        Self {
+            buffer: CircularBuffer::from([x]),
+            filter: HashSet::from([x]),
+        }
+    }
 }
 
 impl<const N: usize, T: Hash + Eq + Clone> CircularFilter<N, T> {
@@ -37,8 +47,19 @@ impl<const N: usize, T: Hash + Eq + Clone> CircularFilter<N, T> {
         self.filter.remove(a)
     }
 
-    #[cfg(test)]
-    fn contains(&self, a: &T) -> bool {
+    pub fn back(&self) -> Option<&T> {
+        self.buffer.back()
+    }
+
+    pub fn pop_back(&mut self) -> Option<T> {
+        if let Some(x) = self.buffer.pop_back() {
+            self.filter.remove(&x);
+            return Some(x);
+        }
+        None
+    }
+
+    pub fn contains(&self, a: &T) -> bool {
         self.filter.contains(a)
     }
 }

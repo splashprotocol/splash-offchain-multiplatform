@@ -734,7 +734,7 @@ mod tests {
             new_pool_state: new_pool,
             prev_pool_state: pool,
         }
-            .to_plutus_data();
+        .to_plutus_data();
 
         assert_eq!(
             hex::encode(test_swap_redeemer.to_canonical_cbor_bytes()),

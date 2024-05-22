@@ -31,7 +31,7 @@ impl Display for AbsolutePrice {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let price = BigNumber::from_str(self.0.numer().to_string().as_str()).unwrap().div(BigNumber::from_str(self.0.denom().to_string().as_str()).unwrap());
         f.write_str(&*format!(
-            "Price(finalValue={}, ratio={})",
+            "AbsPrice(decimal={}, ratio={})",
             price.to_precision(5).to_string(), self.0
         ))
     }
