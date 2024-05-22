@@ -1,8 +1,10 @@
 use std::fmt::{Display, Formatter};
 use std::ops::Div;
+use std::str::FromStr;
 use derive_more::{Display, Div, From, Into, Mul};
 use num_rational::Ratio;
 use primitive_types::U512;
+use bignumber::BigNumber;
 
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 
@@ -27,10 +29,10 @@ pub struct AbsolutePrice(Ratio<u128>);
 
 impl Display for AbsolutePrice {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let price = U512::from(*self.0.numer()).div(U512::from(*self.0.denom()));
+        let price = BigNumber::from_str(self.0.numer().to_string().as_str()).unwrap().div(BigNumber::from_str(self.0.denom().to_string().as_str()).unwrap());
         f.write_str(&*format!(
             "Price(finalValue={}, ratio={})",
-            price, self.0
+            price.to_string(), self.0
         ))
     }
 }
