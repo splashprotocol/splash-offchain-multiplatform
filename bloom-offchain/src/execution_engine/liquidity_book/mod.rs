@@ -24,6 +24,7 @@ use crate::execution_engine::liquidity_book::state::{IdleState, TLBState, Versio
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, RelativePrice};
 use crate::execution_engine::types::Time;
 use isahc::HttpClient;
+use tokio::runtime::Runtime;
 
 pub mod fragment;
 pub mod interpreter;
@@ -121,6 +122,8 @@ where
 
         let client = HttpClient::builder().build().unwrap();
 
+        let rt = Runtime::new().unwrap();
+
         let uri = Uri::from_static(
             "https://hooks.slack.com/services/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",
         );
@@ -159,7 +162,7 @@ where
                                     .map(|(p, _)| p.to_string())
                                     .unwrap_or("empty".to_string())
                             );
-                            alert_client.send_alert(format!(
+                            let to_slack = format!(
                                 "Best order: {}. Best counterproposal: {}. Best pool proposal: {}.",
                                 best_fr,
                                 price_fragments
@@ -168,8 +171,12 @@ where
                                 maybe_best_pool
                                     .map(|(p, _)| p.to_string())
                                     .unwrap_or("empty".to_string())
-                            ).as_str());
-                            trace!("Attempting to matchmake. TLB: {:?}", self.state.show_state(),);
+                            );
+                            trace!("to slack {:?}", to_slack);
+                            rt.spawn(async {
+                                alert_client.send_alert(to_slack.as_str()).await.unwrap_or(())
+                            });
+                            trace!("Attempting to matchmake. TLB: {:?}", self.state.show_state());
                             // todo: dirty hack.
                             if maybe_best_pool.is_none() {
                                 self.on_recipe_failed();
