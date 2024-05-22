@@ -149,15 +149,24 @@ where
                                     .unwrap_or("empty".to_string())
                             );
                             // dirty. Urgent necessary
+                            let contr_price = price_fragments
+                                .map(|p| p.to_string())
+                                .unwrap_or("empty".to_string());
+
+                            let (best_bid, lowest_ask) =
+                                match rem.target.side() {
+                                    SideM::Bid => (best_fr.price().to_string(), contr_price.clone()),
+                                    SideM::Ask => (contr_price.clone(), best_fr.price().to_string())
+                                };
+
                             let to_slack = format!(
-                                "Best order: {}. Best counterproposal: {}. Best pool proposal: {}.",
-                                best_fr.clone(),
-                                price_fragments
-                                    .map(|p| p.to_string())
-                                    .unwrap_or("empty".to_string()),
+                                "Best fr: {}, Highest Bid: {}. Pool Ratio: {}. Lowest Ask: {}.",
+                                best_fr,
+                                best_bid.clone(),
                                 maybe_best_pool
                                     .map(|(p, _)| p.to_string())
-                                    .unwrap_or("empty".to_string())
+                                    .unwrap_or("empty".to_string()),
+                                lowest_ask
                             );
                             trace!("to slack {:?}", to_slack);
                             let client = HttpClient::builder().build().unwrap();
