@@ -136,9 +136,9 @@ where
                             let maybe_best_pool =
                                 self.state.try_select_pool(target_side.wrap(rem.remaining_input));
                             trace!(
-                                "Attempting to matchmake. P[fragment]: {:?}, P[pool]: {:?}",
-                                price_fragments.map(|p| p.unwrap().unwrap().to_string()),
-                                maybe_best_pool.map(|(p, _)| p.unwrap().to_string())
+                                "Attempting to matchmake. P[fragment]: {}, P[pool]: {}",
+                                price_fragments.map(|p| p.unwrap().unwrap().to_string()).unwrap_or("empty".to_string()),
+                                maybe_best_pool.map(|(p, _)| p.unwrap().to_string()).unwrap_or("empty".to_string())
                             );
                             trace!("Attempting to matchmake. TLB: {:?}", self.state.show_state(),);
                             // todo: dirty hack.
