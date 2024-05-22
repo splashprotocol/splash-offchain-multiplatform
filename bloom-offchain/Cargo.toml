@@ -12,6 +12,7 @@ algebra-core = { version = "0.1.0", path = "../algebra-core" }
 futures = "0.3.25"
 tokio = { version = "1.22.0", features = ["full"] }
 log = "0.4.17"
+bignumber = "0.1.1"
 log4rs = "1.2.0"
 rand = { version = "0.8.5", features = ["small_rng"] }
 rand_chacha = "0.3.1"
