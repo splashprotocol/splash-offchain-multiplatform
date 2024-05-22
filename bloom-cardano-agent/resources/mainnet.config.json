@@ -30,7 +30,6 @@
   "operatorKey": "",
   "operatorRewardAddress": "",
   "maestroKeyPath": "bloom-cardano-agent/resources/maestro.key",
-  "slack_webhook": "",
   "executionCap": {
     "soft": {
       "mem": 5000000,

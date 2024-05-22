@@ -13,3 +13,4 @@ pub mod partitioning;
 pub(crate) mod rocks;
 pub mod streaming;
 pub mod tx_prover;
+pub mod health_alert;
