@@ -4,11 +4,13 @@ use std::mem;
 use std::ops::{Sub, SubAssign};
 
 use either::Either;
+use isahc::http::Uri;
 use log::trace;
 use num_rational::Ratio;
 use primitive_types::U256;
 
 use spectrum_offchain::data::{Has, Stable};
+use spectrum_offchain::health_alert::{HealthAlertClient, SlackHealthAlert};
 use spectrum_offchain::maker::Maker;
 
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
@@ -21,6 +23,7 @@ use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::state::{IdleState, TLBState, VersionedState};
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, RelativePrice};
 use crate::execution_engine::types::Time;
+use isahc::HttpClient;
 
 pub mod fragment;
 pub mod interpreter;
@@ -114,6 +117,18 @@ where
     U: PartialOrd + SubAssign + Sub<Output = U> + Copy + Debug,
 {
     fn attempt(&mut self) -> Option<ExecutionRecipe<Fr, Pl>> {
+        // dirty. Urgent necessary
+
+        let client = HttpClient::builder().build().unwrap();
+
+        let uri = Uri::from_static(
+            "https://hooks.slack.com/services/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",
+        );
+
+        let alert_client = HealthAlertClient::new(client, uri);
+
+        //
+
         let mut recipe: IntermediateRecipe<Fr, Pl> = IntermediateRecipe::empty();
         let mut pools_used = HashSet::new();
         let mut execution_units_left = self.execution_cap.hard;
@@ -137,9 +152,23 @@ where
                                 self.state.try_select_pool(target_side.wrap(rem.remaining_input));
                             trace!(
                                 "Attempting to matchmake. P[fragment]: {}, P[pool]: {}",
-                                price_fragments.map(|p| p.to_string()).unwrap_or("empty".to_string()),
-                                maybe_best_pool.map(|(p, _)| p.to_string()).unwrap_or("empty".to_string())
+                                price_fragments
+                                    .map(|p| p.to_string())
+                                    .unwrap_or("empty".to_string()),
+                                maybe_best_pool
+                                    .map(|(p, _)| p.to_string())
+                                    .unwrap_or("empty".to_string())
                             );
+                            alert_client.send_alert(format!(
+                                "Best order: {}. Best counterproposal: {}. Best pool proposal: {}.",
+                                best_fr,
+                                price_fragments
+                                    .map(|p| p.to_string())
+                                    .unwrap_or("empty".to_string()),
+                                maybe_best_pool
+                                    .map(|(p, _)| p.to_string())
+                                    .unwrap_or("empty".to_string())
+                            ).as_str());
                             trace!("Attempting to matchmake. TLB: {:?}", self.state.show_state(),);
                             // todo: dirty hack.
                             if maybe_best_pool.is_none() {

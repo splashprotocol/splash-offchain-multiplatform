@@ -78,16 +78,6 @@ async fn main() {
     let raw_config = std::fs::read_to_string(args.config_path).expect("Cannot load configuration file");
     let config: AppConfig = serde_json::from_str(&raw_config).expect("Invalid configuration file");
 
-    let client = HttpClient::builder()
-        .build()
-        .unwrap();
-
-    let uri = Uri::from_static(config.slack_webhook);
-
-    let alert_client = HealthAlertClient::new(client, uri);
-
-    alert_client.send_alert("this alert is from code").await.unwrap();
-
     let raw_deployment = std::fs::read_to_string(args.deployment_path).expect("Cannot load deployment file");
     let deployment: DeployedValidators =
         serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
