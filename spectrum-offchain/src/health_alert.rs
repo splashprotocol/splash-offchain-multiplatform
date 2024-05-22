@@ -3,7 +3,7 @@ use isahc::{AsyncBody, AsyncReadResponseExt, Body, HttpClient, Request, Response
 use isahc::http::Uri;
 
 pub trait SlackHealthAlert {
-    fn send_alert(&self, string: &str) -> Result<(), String>;
+    fn send_alert(&self, string: &str) -> Result<String, String>;
 }
 
 #[derive(Debug, Clone)]
