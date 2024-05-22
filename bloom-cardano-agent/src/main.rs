@@ -8,12 +8,15 @@ use either::Either;
 use futures::channel::mpsc;
 use futures::stream::select_all;
 use futures::{stream_select, Stream, StreamExt};
+use isahc::http::Uri;
+use isahc::HttpClient;
 use log::info;
 use tokio::sync::{broadcast, Mutex};
 use tracing_subscriber::fmt::Subscriber;
 
 use bloom_cardano_agent::config::AppConfig;
 use bloom_cardano_agent::context::ExecutionContext;
+use bloom_cardano_agent::health_alert::{HealthAlertClient, SlackHealthAlert};
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_part_stream;
 use bloom_offchain::execution_engine::liquidity_book::TLB;
@@ -75,6 +78,16 @@ async fn main() {
     let raw_config = std::fs::read_to_string(args.config_path).expect("Cannot load configuration file");
     let config: AppConfig = serde_json::from_str(&raw_config).expect("Invalid configuration file");
 
+    let client = HttpClient::builder()
+        .build()
+        .unwrap();
+
+    let uri = Uri::from_static(config.slack_webhook);
+
+    let alert_client = HealthAlertClient::new(client, uri);
+
+    alert_client.send_alert("this alert is from code").await.unwrap();
+
     let raw_deployment = std::fs::read_to_string(args.deployment_path).expect("Cannot load deployment file");
     let deployment: DeployedValidators =
         serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
@@ -99,8 +112,8 @@ async fn main() {
         config.node.magic,
         config.chain_sync.starting_point,
     )
-    .await
-    .expect("ChainSync initialization failed");
+        .await
+        .expect("ChainSync initialization failed");
 
     // n2c clients:
     let mempool_sync =
@@ -266,16 +279,16 @@ async fn main() {
         config.chain_sync.disable_rollbacks_until,
         config.chain_sync.replay_from_point,
     ))
-    .await
-    .map(|ev| match ev {
-        LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
-            tx: (hash_transaction_canonical(&tx.body), tx),
-            slot,
-        },
-        LedgerTxEvent::TxUnapplied(tx) => {
-            LedgerTxEvent::TxUnapplied((hash_transaction_canonical(&tx.body), tx))
-        }
-    });
+        .await
+        .map(|ev| match ev {
+            LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
+                tx: (hash_transaction_canonical(&tx.body), tx),
+                slot,
+            },
+            LedgerTxEvent::TxUnapplied(tx) => {
+                LedgerTxEvent::TxUnapplied((hash_transaction_canonical(&tx.body), tx))
+            }
+        });
     let mempool_stream = mempool_stream(&mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
         MempoolUpdate::TxAccepted(tx) => {
             MempoolUpdate::TxAccepted((hash_transaction_canonical(&tx.body), tx))
@@ -303,10 +316,10 @@ async fn main() {
 }
 
 fn merge_upstreams(
-    xs: impl Stream<Item = (PairId, EitherMod<StateUpdate<EvolvingCardanoEntity>>)> + Unpin,
-    ys: impl Stream<Item = (PairId, OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>)> + Unpin,
+    xs: impl Stream<Item=(PairId, EitherMod<StateUpdate<EvolvingCardanoEntity>>)> + Unpin,
+    ys: impl Stream<Item=(PairId, OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>)> + Unpin,
 ) -> impl Stream<
-    Item = (
+    Item=(
         PairId,
         Either<
             EitherMod<
