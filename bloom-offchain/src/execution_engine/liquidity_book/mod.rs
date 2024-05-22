@@ -148,41 +148,6 @@ where
                                     .map(|(p, _)| p.to_string())
                                     .unwrap_or("empty".to_string())
                             );
-                            // dirty. Urgent necessary
-                            let contr_price = price_fragments
-                                .map(|p| p.to_string())
-                                .unwrap_or("empty".to_string());
-
-                            let (best_bid, lowest_ask) =
-                                match rem.target.side() {
-                                    SideM::Bid => (best_fr.price().to_string(), contr_price.clone()),
-                                    SideM::Ask => (contr_price.clone(), best_fr.price().to_string())
-                                };
-
-                            let to_slack = format!(
-                                "Best fr: {}, Highest Bid: {}. Pool Ratio: {}. Lowest Ask: {}.",
-                                best_fr,
-                                best_bid.clone(),
-                                maybe_best_pool
-                                    .map(|(p, _)| p.to_string())
-                                    .unwrap_or("empty".to_string()),
-                                lowest_ask
-                            );
-                            trace!("to slack {:?}", to_slack);
-                            let client = HttpClient::builder().build().unwrap();
-
-                            let uri = Uri::from_static(
-                                "https://hooks.slack.com/services/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",
-                            );
-
-                            let alert_client = HealthAlertClient::new(client, uri);
-
-                            //
-
-                            let submit_res = alert_client
-                                .send_alert(to_slack.as_str().clone())
-                                .unwrap_or("Failure".to_string());
-                            trace!("Alert submitting result: {}", submit_res);
                             trace!("Attempting to matchmake. TLB: {:?}", self.state.show_state());
                             // todo: dirty hack.
                             if maybe_best_pool.is_none() {

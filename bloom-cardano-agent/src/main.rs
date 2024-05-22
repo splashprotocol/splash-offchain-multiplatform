@@ -16,7 +16,6 @@ use tracing_subscriber::fmt::Subscriber;
 
 use bloom_cardano_agent::config::AppConfig;
 use bloom_cardano_agent::context::ExecutionContext;
-use bloom_cardano_agent::health_alert::{HealthAlertClient, SlackHealthAlert};
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_part_stream;
 use bloom_offchain::execution_engine::liquidity_book::TLB;
@@ -66,6 +65,7 @@ use spectrum_offchain_cardano::deployment::{DeployedValidators, ProtocolDeployme
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
 use spectrum_streaming::StreamExt as StreamExt1;
+use spectrum_offchain::health_alert::HealthAlertClient;
 
 mod config;
 mod context;
@@ -208,6 +208,14 @@ async fn main() {
     let state_index = StateIndexTracing(InMemoryStateIndex::new());
     let state_cache = InMemoryKvStore::new();
 
+    let client = HttpClient::builder().build().unwrap();
+
+    let uri = Uri::from_static(
+        "https://hooks.slack.com/services/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",
+    );
+
+    let alert_client = HealthAlertClient::new(client, uri);
+
     let (signal_tip_reached_snd, signal_tip_reached_recv) = broadcast::channel(1);
 
     let execution_stream_p1 = execution_part_stream(
@@ -222,6 +230,7 @@ async fn main() {
         merge_upstreams(pair_upd_recv_p1, spec_upd_recv_p1),
         tx_submission_channel.clone(),
         signal_tip_reached_snd.subscribe(),
+        alert_client.clone()
     );
     let execution_stream_p2 = execution_part_stream(
         state_index.clone(),
@@ -235,6 +244,7 @@ async fn main() {
         merge_upstreams(pair_upd_recv_p2, spec_upd_recv_p2),
         tx_submission_channel.clone(),
         signal_tip_reached_snd.subscribe(),
+        alert_client.clone()
     );
     let execution_stream_p3 = execution_part_stream(
         state_index.clone(),
@@ -248,6 +258,7 @@ async fn main() {
         merge_upstreams(pair_upd_recv_p3, spec_upd_recv_p3),
         tx_submission_channel.clone(),
         signal_tip_reached_snd.subscribe(),
+        alert_client.clone()
     );
     let execution_stream_p4 = execution_part_stream(
         state_index,
@@ -261,6 +272,7 @@ async fn main() {
         merge_upstreams(pair_upd_recv_p4, spec_upd_recv_p4),
         tx_submission_channel,
         signal_tip_reached_snd.subscribe(),
+        alert_client
     );
 
     let ledger_stream = Box::pin(ledger_transactions(
