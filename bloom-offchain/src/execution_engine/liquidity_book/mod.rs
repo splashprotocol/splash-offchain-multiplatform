@@ -121,7 +121,6 @@ where
         let mut recipe: IntermediateRecipe<Fr, Pl> = IntermediateRecipe::empty();
         let mut pools_used = HashSet::new();
         let mut execution_units_left = self.execution_cap.hard;
-        let rt = Runtime::new().unwrap();
         while execution_units_left > self.execution_cap.safe_threshold() {
             let reference_static_price = self.state.best_pool_price();
             if let Some(best_fr) = self.state.pick_best_fr_either(reference_static_price) {
@@ -161,19 +160,20 @@ where
                                     .unwrap_or("empty".to_string())
                             );
                             trace!("to slack {:?}", to_slack);
-                            rt.spawn(async move {
+                            tokio::task::block_in_place(|| {
+                                tokio::runtime::Handle::current().block_on(async move {
+                                    let client = HttpClient::builder().build().unwrap();
 
-                                let client = HttpClient::builder().build().unwrap();
+                                    let uri = Uri::from_static(
+                                        "https://hooks.slack.com/services/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",
+                                    );
 
-                                let uri = Uri::from_static(
-                                    "https://hooks.slack.com/services/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",
-                                );
+                                    let alert_client = HealthAlertClient::new(client, uri);
 
-                                let alert_client = HealthAlertClient::new(client, uri);
+                                    //
 
-                                //
-
-                                alert_client.send_alert(to_slack.as_str().clone()).await.unwrap_or(())
+                                    alert_client.send_alert(to_slack.as_str().clone()).await.unwrap_or(())
+                                })
                             });
                             trace!("Attempting to matchmake. TLB: {:?}", self.state.show_state());
                             // todo: dirty hack.
