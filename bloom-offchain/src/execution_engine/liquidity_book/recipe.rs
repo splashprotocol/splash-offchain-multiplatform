@@ -266,7 +266,10 @@ pub struct PartialFill<Fr> {
 
 impl<Fr: Display> Display for PartialFill<Fr>  {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        f.write_str(&*format!(
+            "PartialFill(target={}, remaining_input={}, accumulated_output={})",
+            self.target, self.remaining_input, self.accumulated_output
+        ))
     }
 }
 
