@@ -25,6 +25,7 @@ pub struct AppConfig<'a> {
     pub channel_buffer_size: usize,
     pub mempool_buffering_duration: Duration,
     pub ledger_buffering_duration: Duration,
+    pub slack_webhook: &'a str,
 }
 
 #[derive(serde::Deserialize)]
