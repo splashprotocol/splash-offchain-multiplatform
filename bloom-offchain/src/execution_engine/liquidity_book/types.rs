@@ -1,5 +1,8 @@
+use std::fmt::{Display, Formatter};
+use std::ops::Div;
 use derive_more::{Display, Div, From, Into, Mul};
 use num_rational::Ratio;
+use primitive_types::U512;
 
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 
@@ -19,8 +22,18 @@ pub type ExFeeUsed = FeeAsset<u64>;
 
 /// Price of base asset denominated in units of quote asset.
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Div, Mul, Display, From, Into)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Div, Mul, From, Into)]
 pub struct AbsolutePrice(Ratio<u128>);
+
+impl Display for AbsolutePrice {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let price = U512::from(self.0.numer()).div(U512::from(self.0.denom()));
+        f.write_str(&*format!(
+            "Price(finalValue={}, ratio={})",
+            price, self.0
+        ))
+    }
+}
 
 impl AbsolutePrice {
     #[inline]

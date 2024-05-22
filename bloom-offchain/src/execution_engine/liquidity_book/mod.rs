@@ -146,53 +146,12 @@ where
                                 self.on_recipe_failed();
                                 return None;
                             }
-                            // price_fragments.map(|fragmets| {
-                            //     trace!(
-                            //         "if maybe_best_pool
-                            //             .map(|(p, _)| price_in_fragments.better_than(p))
-                            //             .unwrap_or(true): {:?}",
-                            //         maybe_best_pool
-                            //             .map(|(p, _)| {
-                            //                 trace!("fragmets: {:?}", fragmets);
-                            //                 trace!("p: {:?}", p);
-                            //                 trace!("fragmets.better_than(p): {:?}", fragmets.better_than(p));
-                            //                 fragmets.better_than(p)
-                            //             })
-                            //             .unwrap_or(true)
-                            //     );
-                            // });
-                            // maybe_best_pool.map(|(price_in_pool, pool_id)| {
-                            //     trace!("target_price: {:?}", target_price);
-                            //     trace!("price_in_pool: {:?}", price_in_pool);
-                            //     trace!(
-                            //         "target_price.overlaps(price_in_pool): {:?}",
-                            //         target_price.overlaps(price_in_pool)
-                            //     );
-                            // });
                             match (maybe_best_pool, price_fragments) {
                                 (price_in_pools, Some(price_in_fragments))
                                     if maybe_best_pool
                                         .map(|(p, _)| price_in_fragments.better_than(p))
                                         .unwrap_or(true) =>
                                 {
-                                    // trace!(
-                                    //     "{:?}",
-                                    //     self.state.try_pick_fr(!target_side, |fr| {
-                                    //         trace!("target_price: {:?}", target_price);
-                                    //         trace!("fr.price(): {:?}", fr.price());
-                                    //         trace!(
-                                    //             "target_price.overlaps(fr.price()): {:?}",
-                                    //             target_price.overlaps(fr.price())
-                                    //         );
-                                    //         trace!("fr.marginal_cost_hint(): {:?}", fr.marginal_cost_hint());
-                                    //         trace!(
-                                    //             "fr.marginal_cost_hint() <= execution_units_left: {:?}",
-                                    //             fr.marginal_cost_hint() <= execution_units_left
-                                    //         );
-                                    //         target_price.overlaps(fr.price())
-                                    //             && fr.marginal_cost_hint() <= execution_units_left
-                                    //     })
-                                    // );
                                     if let Some(opposite_fr) = self.state.try_pick_fr(!target_side, |fr| {
                                         target_price.overlaps(fr.price())
                                             && fr.marginal_cost_hint() <= execution_units_left
