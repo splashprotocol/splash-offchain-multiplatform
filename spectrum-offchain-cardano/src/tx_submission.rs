@@ -61,7 +61,7 @@ impl From<SubmissionResult> for Result<(), TxRejected> {
                     TxRejected::Unknown
                 })
             }
-            _ =>{
+            _ => {
                 info!("error with empty bytes");
                 Err(TxRejected::Unknown)
             }

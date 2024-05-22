@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -244,10 +244,11 @@ impl<S, Pair, Stab, V, CO: Display, SO, P: Display, B, Txc, Tx, Ctx, Ix, Cache, 
         Log: HotBacklog<Bundled<SO, B>> + Maker<Ctx>,
         Ctx: Clone,
     {
-        let backlog_pair = self.multi_backlog.get_mut(pair);
         match update {
-            OrderUpdate::Created(new_order) => backlog_pair.put(new_order),
-            OrderUpdate::Eliminated(elim_order) => backlog_pair.remove(elim_order.get_self_ref()),
+            OrderUpdate::Created(new_order) => self.multi_backlog.get_mut(pair).put(new_order),
+            OrderUpdate::Eliminated(elim_order) => {
+                self.multi_backlog.get_mut(pair).remove(elim_order.get_self_ref())
+            }
         }
     }
 
@@ -308,7 +309,7 @@ impl<S, Pair, Stab, V, CO: Display, SO, P: Display, B, Txc, Tx, Ctx, Ix, Cache, 
         }
     }
 
-    fn invalidate_bearers(&mut self, pair: &Pair, bearers: HashSet<V>)
+    fn invalidate_versions(&mut self, pair: &Pair, versions: HashSet<V>)
     where
         Pair: Copy + Eq + Hash + Display,
         Stab: Copy + Eq + Hash + Debug + Display,
@@ -321,10 +322,10 @@ impl<S, Pair, Stab, V, CO: Display, SO, P: Display, B, Txc, Tx, Ctx, Ix, Cache, 
         Cache: KvStore<Stab, EvolvingEntity<CO, P, V, B>>,
         Book: ExternalTLBEvents<CO, P> + Maker<Ctx>,
     {
-        for bearer in bearers {
-            if let Some(stable_id) = self.index.invalidate(bearer) {
-                trace!("Invalidating bearer of {}", stable_id);
-                let maybe_transition = match resolve_source_state(&stable_id, &self.index) {
+        for ver in versions {
+            if let Some(stable_id) = self.index.invalidate_version(ver) {
+                trace!("Invalidating snapshot of {}", stable_id);
+                let maybe_transition = match resolve_source_state(stable_id, &self.index) {
                     None => self
                         .cache
                         .remove(stable_id)
@@ -359,31 +360,35 @@ impl<S, Pair, Stab, V, CO: Display, SO, P: Display, B, Txc, Tx, Ctx, Ix, Cache, 
                 if is_confirmed {
                     trace!(target: "executor", "Observing new confirmed state {}", id);
                     let ver = new_state.version();
-                    let state_exists = self.index.put(new_state);
+                    self.index.put_confirmed(Confirmed(new_state));
+                    let unconfirmed_state_exists = self
+                        .index
+                        .get_last_unconfirmed(id)
+                        .map(|Unconfirmed(st)| st.version() == ver)
+                        .unwrap_or(false);
                     let seen_recently = self.skip_filter.remove(&ver);
-                    if state_exists || seen_recently {
-                        trace!(target: "executor", "Skipping update {}", id);
+                    if unconfirmed_state_exists || seen_recently {
                         // No TLB update is needed.
                         return None;
                     }
                 } else {
                     trace!(target: "executor", "Observing new unconfirmed state {}", id);
                     self.skip_filter.add(new_state.version());
-                    self.index.put(new_state);
+                    self.index.put_unconfirmed(Unconfirmed(new_state));
                 }
-                match resolve_source_state(&id, &self.index) {
+                match resolve_source_state(id, &self.index) {
                     Some(latest_state) => self.cache(latest_state),
                     None => unreachable!(),
                 }
             }
             StateUpdate::Transition(Ior::Left(st)) => {
-                self.index.eliminate(st.version());
+                self.index.eliminate(st.stable_id());
                 Some(Ior::Left(st.0))
             }
             StateUpdate::TransitionRollback(Ior::Left(st)) => {
                 let id = st.stable_id();
                 trace!("Rolling back state {}", id);
-                self.index.invalidate(st.version());
+                self.index.rollback_inclusive(st.version());
                 Some(Ior::Left(st.0))
             }
         }
@@ -470,15 +475,10 @@ where
                                 }
                                 self.multi_book.get_mut(&pair).on_recipe_succeeded();
                             }
-                            PendingEffects::FromBacklog(new_pool, order) => {
-                                let trans = EitherMod::Unconfirmed(Unconfirmed(StateUpdate::Transition(
-                                    Ior::Right(new_pool.map(Either::Right)),
+                            PendingEffects::FromBacklog(new_pool, _) => {
+                                self.update_state(EitherMod::Unconfirmed(Unconfirmed(
+                                    StateUpdate::Transition(Ior::Right(new_pool.map(Either::Right))),
                                 )));
-                                if let Some(upd) = self.update_state(trans) {
-                                    // Backlog altered state of the pool, so we sync TLB.
-                                    self.sync_book(&pair, upd)
-                                }
-                                self.multi_backlog.get_mut(&pair).check_later(order);
                             }
                         },
                         Err(err) => {
@@ -490,20 +490,16 @@ where
                                     }
                                     PendingEffects::FromBacklog(_, Bundled(order, br)) => {
                                         let order_ref = order.get_self_ref();
-                                        let backlog = self.multi_backlog.get_mut(&pair);
                                         if missing_bearers.contains(&order_ref) {
-                                            backlog.remove(order_ref);
+                                            self.multi_backlog.get_mut(&pair).remove(order_ref);
                                         } else {
-                                            backlog.recharge(Bundled(order, br));
+                                            self.multi_backlog.get_mut(&pair).recharge(Bundled(order, br));
                                         }
                                     }
                                 }
-                                self.invalidate_bearers(&pair, missing_bearers.clone());
+                                self.invalidate_versions(&pair, missing_bearers.clone());
                             } else {
-                                warn!(
-                                    "Unknown Tx submission error while processing operation in {}!",
-                                    pair
-                                );
+                                warn!("Unknown Tx submission error!");
                                 match pending_effects {
                                     PendingEffects::FromLiquidityBook(_) => {
                                         self.multi_book.get_mut(&pair).on_recipe_failed();
