@@ -594,8 +594,14 @@ where
         SideM::Bid => &mut active_frontier.bids,
         SideM::Ask => &mut active_frontier.asks,
     };
-    side.pop_first()
-        .and_then(|best_bid| if test(&best_bid) { Some(best_bid) } else { None })
+    if let Some(best_fr) = side.pop_first() {
+        if test(&best_fr) {
+            return Some(best_fr);
+        } else {
+            side.insert(best_fr);
+        }
+    }
+    None
 }
 
 /// Liquidity fragments spread across time axis.
