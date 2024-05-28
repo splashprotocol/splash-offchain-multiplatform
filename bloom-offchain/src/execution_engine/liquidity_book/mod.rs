@@ -124,11 +124,12 @@ where
         while execution_units_left > self.execution_cap.safe_threshold() {
             let reference_static_price = self.state.best_pool_price();
             if let Some(best_fr) = self.state.pick_best_fr_either(reference_static_price) {
-                trace!("Best fragment: {}", best_fr);
+                println!("Best fragment: {}", best_fr);
                 recipe.set_remainder(PartialFill::empty(best_fr));
                 loop {
+                    println!("Remainder: {:?}", recipe.remainder.clone());
                     if let Some(rem) = &recipe.remainder {
-                        trace!(
+                        println!(
                             "ExUnits left: {:?}, safe threshold: {:?}",
                             execution_units_left,
                             self.execution_cap.safe_threshold()
@@ -139,7 +140,7 @@ where
                             let price_fragments = self.state.best_fr_price(!target_side);
                             let maybe_best_pool =
                                 self.state.try_select_pool(target_side.wrap(rem.remaining_input));
-                            trace!(
+                            println!(
                                 "Attempting to matchmake. P[fragment]: {}, P[pool]: {}",
                                 price_fragments
                                     .map(|p| p.to_string())
@@ -148,7 +149,7 @@ where
                                     .map(|(p, _)| p.to_string())
                                     .unwrap_or("empty".to_string())
                             );
-                            trace!("Attempting to matchmake. TLB: {:?}", self.state.show_state());
+                            println!("Attempting to matchmake. TLB: {:?}", self.state.show_state());
                             // todo: dirty hack.
                             if maybe_best_pool.is_none() {
                                 self.on_recipe_failed();
@@ -164,7 +165,7 @@ where
                                         target_price.overlaps(fr.price())
                                             && fr.marginal_cost_hint() <= execution_units_left
                                     }) {
-                                        trace!("Matched with fragment: {}", opposite_fr);
+                                        println!("Matched with fragment: {}", opposite_fr);
                                         execution_units_left -= opposite_fr.marginal_cost_hint();
                                         let make_match = |x: &Fr, y: &Fr| {
                                             let (ask, bid) = match x.side() {
@@ -198,7 +199,7 @@ where
                                 (Some((price_in_pool, pool_id)), _)
                                     if target_price.overlaps(price_in_pool) =>
                                 {
-                                    trace!("Matched with AMM pool {}", pool_id);
+                                    println!("Matched with AMM pool {}", pool_id);
                                     if let Some(pool) = self.state.take_pool(&pool_id) {
                                         if !pools_used.insert(&pool_id) {
                                             execution_units_left -= pool.marginal_cost_hint();
@@ -211,7 +212,7 @@ where
                                     }
                                 }
                                 _ => {
-                                    trace!("Finishing matchmaking attempt");
+                                    println!("Finishing matchmaking attempt");
                                 }
                             }
                         }
@@ -224,6 +225,7 @@ where
         if let Some(ex_recipe) = ExecutionRecipe::try_from(recipe) {
             return Some(ex_recipe);
         }
+        println!("failed!");
         self.on_recipe_failed();
         None
     }
@@ -254,12 +256,12 @@ where
     }
 
     fn add_fragment(&mut self, fr: Fr) {
-        trace!(target: "tlb", "TLB::add_fragment({})", fr);
+        println!("TLB::add_fragment({})", fr);
         requiring_settled_state(self, |st| st.add_fragment(fr))
     }
 
     fn remove_fragment(&mut self, fr: Fr) {
-        trace!(target: "tlb", "TLB::remove_fragment({})", fr);
+        println!("TLB::remove_fragment({})", fr);
         requiring_settled_state(self, |st| st.remove_fragment(fr))
     }
 
@@ -281,12 +283,12 @@ where
         match &mut self.state {
             TLBState::Idle(_) => {}
             TLBState::PartialPreview(st) => {
-                trace!(target: "tlb", "TLBState::PartialPreview: recipe succeeded");
+                println!("TLBState::PartialPreview: recipe succeeded");
                 let new_st = st.commit();
                 mem::swap(&mut self.state, &mut TLBState::Idle(new_st));
             }
             TLBState::Preview(st) => {
-                trace!(target: "tlb", "TLBState::Preview: recipe succeeded");
+                println!("TLBState::Preview: recipe succeeded");
                 let new_st = st.commit();
                 mem::swap(&mut self.state, &mut TLBState::Idle(new_st));
             }
@@ -297,12 +299,12 @@ where
         match &mut self.state {
             TLBState::Idle(_) => {}
             TLBState::PartialPreview(st) => {
-                trace!(target: "tlb", "TLBState::PartialPreview: recipe failed");
+                println!("TLBState::PartialPreview: recipe failed");
                 let new_st = st.rollback();
                 mem::swap(&mut self.state, &mut TLBState::Idle(new_st));
             }
             TLBState::Preview(st) => {
-                trace!(target: "tlb", "TLBState::Preview: recipe failed");
+                println!("TLBState::Preview: recipe failed");
                 let new_st = st.rollback();
                 mem::swap(&mut self.state, &mut TLBState::Idle(new_st));
             }
@@ -471,7 +473,7 @@ where
 {
     match lhs.target.side() {
         SideM::Bid => {
-            trace!(target: "tlb", "fill_from_pool: BID");
+            println!("fill_from_pool: BID");
             let mut bid = lhs;
             let quote_input = bid.remaining_input;
             let (execution_amount, next_pool) = pool.swap(Side::Bid(quote_input));
@@ -489,7 +491,7 @@ where
             }
         }
         SideM::Ask => {
-            trace!(target: "tlb", "fill_from_pool: ASK");
+            println!("fill_from_pool: ASK");
             let mut ask = lhs;
             let base_input = ask.remaining_input;
             let (execution_amount, next_pool) = pool.swap(Side::Ask(base_input));
@@ -512,6 +514,7 @@ where
 #[cfg(test)]
 mod tests {
     use either::Either;
+    use num_rational::Ratio;
 
     use crate::execution_engine::liquidity_book::fragment::StateTrans;
     use crate::execution_engine::liquidity_book::pool::Pool;
@@ -520,7 +523,7 @@ mod tests {
     };
     use crate::execution_engine::liquidity_book::side::SideM::Bid;
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
-    use crate::execution_engine::liquidity_book::state::tests::{SimpleCFMMPool, SimpleOrderPF};
+    use crate::execution_engine::liquidity_book::state::tests::{SimpleCFMMPool, SimpleOrderPF, SimpleWeightPool};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::AbsolutePrice;
     use crate::execution_engine::liquidity_book::{
@@ -562,14 +565,20 @@ mod tests {
 
     #[test]
     fn recipe_fill_fragment_from_fragment() {
+
         // Assuming pair ADA/USDT @ 0.37
-        let o1 = SimpleOrderPF::new(SideM::Ask, 2000, AbsolutePrice::new(36, 100), 1000);
-        let o2 = SimpleOrderPF::new(SideM::Bid, 370, AbsolutePrice::new(37, 100), 990);
-        let p1 = SimpleCFMMPool {
+        let o1 = SimpleOrderPF::new(SideM::Ask, 250000000, AbsolutePrice::new(3436242496320214, 1000000000000000), 0);
+        let o2 = SimpleOrderPF::new(SideM::Bid, 5000000000, AbsolutePrice::new(5000000000, 1193042857), 0);
+        let p1 = SimpleWeightPool {
             pool_id: StableId::random(),
-            reserves_base: 1000000000000000,
-            reserves_quote: 370000000000000,
-            fee_num: 997,
+            reserves_base: 1884957846898,
+            reserves_quote: 30208146233116,
+            weight_base: 1,
+            weight_quote: 4,
+            treasury_base: 693804140,
+            treasury_quote: 3429742970,
+            fee_num: 99000,
+            treasury_fee_num: 100
         };
         let mut book = TLB::new(
             0,
@@ -594,32 +603,10 @@ mod tests {
             .unwrap();
         let expected_recipe = IntermediateRecipe {
             terminal: vec![
-                TerminalInstruction::Fill(Fill {
-                    target_fr: o2,
-                    next_fr: StateTrans::EOL,
-                    removed_input: o2.input,
-                    added_output: 1000,
-                    budget_used: 990000,
-                    fee_used: 990,
-                }),
-                TerminalInstruction::Swap(Swap {
-                    target: p1,
-                    transition: p2,
-                    side: SideM::Ask,
-                    input: 1000,
-                    output: 368,
-                }),
-                TerminalInstruction::Fill(Fill {
-                    target_fr: o1,
-                    next_fr: StateTrans::EOL,
-                    removed_input: o1.input,
-                    added_output: 738,
-                    budget_used: 738000,
-                    fee_used: 1000,
-                }),
             ],
             remainder: None,
         };
+        println!("{:?}", recipe.clone());
         assert_eq!(recipe, ExecutionRecipe::try_from(expected_recipe));
     }
 
@@ -643,7 +630,7 @@ mod tests {
             side: SideM::Bid,
             input: 370,
             accumulated_output: 0,
-            min_marginal_output: 0,
+            min_marginal_output: 1,
             price: AbsolutePrice::new(37, 100),
             fee: 1000,
             ex_budget: 0,
@@ -687,6 +674,49 @@ mod tests {
             min_marginal_output: 0,
             price: p,
             fee: 2000,
+            ex_budget: 0,
+            cost_hint: 100,
+            bounds: TimeBounds::None,
+        };
+        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(p));
+        let FillFromFragment {
+            term_fill_lt,
+            fill_rt: term_fill_rt,
+        } = fill_from_fragment(PartialFill::empty(fr1), fr2, make_match);
+        assert_eq!(
+            term_fill_lt.added_output,
+            ((fr2.input as u128) * fr1.price.denom() / fr1.price.numer()) as u64
+        );
+        match term_fill_rt {
+            Either::Right(fill_rt) => assert_eq!(fill_rt.accumulated_output, fr2.input),
+            Either::Left(_) => panic!(),
+        }
+    }
+
+    #[test]
+    fn ask_bid_pool_fill() {
+        // Assuming pair ADA/USDT @ 0.37
+        let p = AbsolutePrice::new(37, 100);
+        let fr1 = SimpleOrderPF {
+            source: StableId::random(),
+            side: SideM::Ask,
+            input: 250000000,
+            accumulated_output: 0,
+            min_marginal_output: 859060624,
+            price: AbsolutePrice::new(3436242496320214, 1000000000000000),
+            fee: 0,
+            ex_budget: 0,
+            cost_hint: 100,
+            bounds: TimeBounds::None,
+        };
+        let fr2 = SimpleOrderPF {
+            source: StableId::random(),
+            side: SideM::Bid,
+            input: 5000000000,
+            accumulated_output: 0,
+            min_marginal_output: 0,
+            price: AbsolutePrice::new(5000000000, 1193042857),
+            fee: 0,
             ex_budget: 0,
             cost_hint: 100,
             bounds: TimeBounds::None,

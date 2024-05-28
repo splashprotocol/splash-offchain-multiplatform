@@ -592,6 +592,7 @@ mod tests {
     use crate::data::pool::{ApplyOrder, CFMMPoolAction, Lq, Rx, Ry};
     use crate::data::redeem::{ClassicalOnChainRedeem, Redeem};
     use crate::data::{OnChainOrderId, PoolId};
+    use crate::data::cfmm_pool::AMMOps;
 
     const DATUM_SAMPLE: &str = "d8799fd8799f581c5df8fe3f9f0e10855f930e0ea6c227e3bba0aba54d39f9d55b95e21c436e6674ffd8799f4040ff01d8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737443ff04d8799f581c0df79145b95580c14ef4baf8d022d7f0cbb08f3bed43bf97a2ddd8cb426c71ff1a000186820a00009fd8799fd87a9f581cb046b660db0eaf9be4f4300180ccf277e4209dada77c48fbd37ba81dffffff581c8d4be10d934b60a22f267699ea3f7ebdade1f8e535d1bd0ef7ce18b61a0501bced08ff";
 
@@ -618,9 +619,9 @@ mod tests {
                     ],
                 )),
             )),
-            reserves_x: TaggedAmount::new(2115301811439),
+            reserves_x: TaggedAmount::new(1884957846898),
             weight_x: 1,
-            reserves_y: TaggedAmount::new(27887555508598),
+            reserves_y: TaggedAmount::new(30208146233116),
             weight_y: 4,
             liquidity: TaggedAmount::new(0),
             asset_x: TaggedAssetClass::new(AssetClass::Native),
@@ -653,17 +654,18 @@ mod tests {
             lp_fee_x: Ratio::new_raw(99000, 100000),
             lp_fee_y: Ratio::new_raw(99000, 100000),
             treasury_fee: Ratio::new_raw(100, 100000),
-            treasury_x: TaggedAmount::new(1143236614),
-            treasury_y: TaggedAmount::new(3057757049),
+            treasury_x: TaggedAmount::new(693804140),
+            treasury_y: TaggedAmount::new(3429742970),
             ver: BalancePoolVer::V1,
             marginal_cost: ExUnits {
                 mem: 120000000,
                 steps: 100000000000,
             },
         };
-        let result = pool.swap(Side::Ask(200000000));
+        let result = pool.output_amount(TaggedAssetClass::new(pool.asset_y.untag()), TaggedAmount::new(5000000000));
 
-        assert_eq!(result.0, 652178037)
+        println!("result123 {:?}", result);
+        assert_eq!(1, 2)
     }
 
     #[test]

@@ -23,7 +23,7 @@ impl<Fr, Pl> ExecutionRecipe<Fr, Pl> {
         Fr: Fragment + OrderState + Copy + Display,
         Pl: Display,
     {
-        trace!("Going to create ExecutionRecipe from IntermediateRecipe {}", rec);
+        println!("Going to create ExecutionRecipe from IntermediateRecipe {}", rec);
         if rec.is_complete() && rec.is_sufficient() {
             let IntermediateRecipe {
                 mut terminal,
@@ -104,9 +104,9 @@ where
 
     pub fn is_complete(&self) -> bool {
         let terminal_fragments = self.terminal.len();
-        trace!("[is_complete] Check is_complete for {}", self.to_string());
-        info!("terminal_fragments: {:?}", terminal_fragments);
-        info!("self.remainder.is_some(): {:?}", self.remainder.is_some());
+        println!("[is_complete] Check is_complete for {}", self.to_string());
+        println!("terminal_fragments: {:?}", terminal_fragments);
+        println!("self.remainder.is_some(): {:?}", self.remainder.is_some());
 
         terminal_fragments >= 2 || (terminal_fragments > 0 && self.remainder.is_some())
     }
@@ -114,7 +114,7 @@ where
     pub fn is_sufficient(&self) -> bool {
         let terminal_fills_ok = self.terminal.iter().all(|x| match x {
             TerminalInstruction::Fill(fill) => {
-                trace!(
+                println!(
                     "[terminal_fills_ok]. Checking is_sufficient for {}",
                     fill.to_string()
                 );
@@ -126,14 +126,14 @@ where
             .remainder
             .as_ref()
             .map(|fill| {
-                trace!(
+                println!(
                     "[non_terminal_fills_ok]. Checking is_sufficient for {}",
                     fill.to_string()
                 );
                 fill.accumulated_output >= fill.target.min_marginal_output()
             })
             .unwrap_or(true);
-        trace!(
+        println!(
             "recipe::is_sufficient: terminal_fills_ok: {}, non_terminal_fills_ok: {}",
             terminal_fills_ok,
             non_terminal_fills_ok

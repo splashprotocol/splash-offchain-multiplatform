@@ -38,9 +38,9 @@ impl<Fr, Pl: Stable> IdleState<Fr, Pl> {
 }
 
 impl<Fr, Pl> IdleState<Fr, Pl>
-where
-    Fr: Fragment + OrderState + Ord + Copy,
-    Pl: Pool + Stable + Copy,
+    where
+        Fr: Fragment + OrderState + Ord + Copy,
+        Pl: Pool + Stable + Copy,
 {
     pub fn advance_clocks(&mut self, new_time: u64) {
         self.fragments.advance_clocks(new_time)
@@ -87,8 +87,8 @@ impl<Fr, Pl: Stable> PartialPreviewState<Fr, Pl> {
 }
 
 impl<Fr, Pl: Stable> VersionedState<Fr, Pl> for PartialPreviewState<Fr, Pl>
-where
-    Fr: Fragment + Ord,
+    where
+        Fr: Fragment + Ord,
 {
     fn commit(&mut self) -> IdleState<Fr, Pl> {
         trace!(target: "state", "PartialPreviewState::commit");
@@ -143,9 +143,9 @@ impl<Fr, Pl: Stable> PreviewState<Fr, Pl> {
 }
 
 impl<Fr, Pl> VersionedState<Fr, Pl> for PreviewState<Fr, Pl>
-where
-    Fr: Fragment + Ord,
-    Pl: Stable,
+    where
+        Fr: Fragment + Ord,
+        Pl: Stable,
 {
     fn commit(&mut self) -> IdleState<Fr, Pl> {
         trace!(target: "state", "PreviewState::commit");
@@ -227,7 +227,7 @@ impl<Fr, Pl: Stable> Display for TLBState<Fr, Pl> {
                     inner.active_fragments_preview.bids.len()
                 ),
             }
-            .as_str(),
+                .as_str(),
         )
     }
 }
@@ -239,8 +239,8 @@ impl<Fr, Pl: Stable> TLBState<Fr, Pl> {
 }
 
 impl<Fr, Pl: Stable> TLBState<Fr, Pl>
-where
-    Fr: Fragment + Ord + Copy,
+    where
+        Fr: Fragment + Ord + Copy,
 {
     fn active_fragments(&self) -> &Fragments<Fr> {
         match self {
@@ -252,9 +252,9 @@ where
 }
 
 impl<Fr, Pl> TLBState<Fr, Pl>
-where
-    Fr: Fragment + Ord + Copy,
-    Pl: Stable + Copy,
+    where
+        Fr: Fragment + Ord + Copy,
+        Pl: Stable + Copy,
 {
     fn move_into_partial_preview(&mut self, target: &mut PartialPreviewState<Fr, Pl>) {
         match self {
@@ -306,16 +306,16 @@ where
 }
 
 impl<Fr, Pl, U> TLBState<Fr, Pl>
-where
-    Fr: Fragment<U = U> + Ord + Copy + Debug,
-    Pl: Pool + Stable + Copy,
-    U: PartialOrd,
+    where
+        Fr: Fragment<U=U> + Ord + Copy + Debug,
+        Pl: Pool + Stable + Copy,
+        U: PartialOrd,
 {
     pub fn show_state(&self) -> String
-    where
-        Pl::StableId: Display,
-        Pl: Display,
-        Fr: Display,
+        where
+            Pl::StableId: Display,
+            Pl: Display,
+            Fr: Display,
     {
         let pools = self.pools().show_state();
         let fragments = self.active_fragments().show_state();
@@ -339,8 +339,8 @@ where
 
     /// Pick best fragment from the specified side if it matches the specified condition.
     pub fn try_pick_fr<F>(&mut self, side: SideM, test: F) -> Option<Fr>
-    where
-        F: FnOnce(&Fr) -> bool,
+        where
+            F: FnOnce(&Fr) -> bool,
     {
         trace!(target: "state", "try_pick_fr");
         self.pick_active_fr(|af| try_pick_fr(af, side, test))
@@ -387,8 +387,8 @@ where
 
     /// Pick active fragment ensuring TLB is in proper state.
     fn pick_active_fr<F>(&mut self, f: F) -> Option<Fr>
-    where
-        F: FnOnce(&mut Fragments<Fr>) -> Option<Fr>,
+        where
+            F: FnOnce(&mut Fragments<Fr>) -> Option<Fr>,
     {
         let mut needs_transition = false;
         let res = match self {
@@ -437,9 +437,9 @@ where
 }
 
 impl<Fr, Pl> TLBState<Fr, Pl>
-where
-    Fr: Fragment + Ord + Copy,
-    Pl: Pool + Stable + Copy,
+    where
+        Fr: Fragment + Ord + Copy,
+        Pl: Pool + Stable + Copy,
 {
     pub fn best_pool_price(&self) -> Option<AbsolutePrice> {
         self.pools()
@@ -466,8 +466,8 @@ where
     }
 
     pub fn try_pick_pool<F>(&mut self, test: F) -> Option<Pl>
-    where
-        F: Fn(&Pl) -> bool,
+        where
+            F: Fn(&Pl) -> bool,
     {
         self.pick_pool(|pools| {
             for id in pools.quality_index.values() {
@@ -486,8 +486,8 @@ where
 
     /// Pick pool ensuring TLB is in proper state.
     fn pick_pool<F>(&mut self, f: F) -> Option<Pl>
-    where
-        F: FnOnce(&mut Pools<Pl>) -> Option<Pl>,
+        where
+            F: FnOnce(&mut Pools<Pl>) -> Option<Pl>,
     {
         match self {
             // Transit into PartialPreview if state is untouched yet
@@ -523,9 +523,9 @@ fn pick_best_fr_either<Fr, U>(
     active_frontier: &mut Fragments<Fr>,
     index_price: Option<AbsolutePrice>,
 ) -> Option<Fr>
-where
-    Fr: Fragment<U = U> + Ord + Copy,
-    U: PartialOrd,
+    where
+        Fr: Fragment<U=U> + Ord + Copy,
+        U: PartialOrd,
 {
     trace!("Picking best fragment");
     let best_bid = active_frontier.bids.pop_first();
@@ -586,16 +586,21 @@ where
 }
 
 fn try_pick_fr<Fr, F>(active_frontier: &mut Fragments<Fr>, side: SideM, test: F) -> Option<Fr>
-where
-    Fr: Fragment + Copy + Ord,
-    F: FnOnce(&Fr) -> bool,
+    where
+        Fr: Fragment + Copy + Ord,
+        F: FnOnce(&Fr) -> bool,
 {
     let side = match side {
         SideM::Bid => &mut active_frontier.bids,
         SideM::Ask => &mut active_frontier.asks,
     };
     side.pop_first()
-        .and_then(|best_bid| if test(&best_bid) { Some(best_bid) } else { None })
+        .and_then(|best_bid| if test(&best_bid) {
+            Some(best_bid)
+        } else {
+            side.insert(best_bid);
+            None
+        })
 }
 
 /// Liquidity fragments spread across time axis.
@@ -617,8 +622,8 @@ impl<Fr> Chronology<Fr> {
 }
 
 impl<Fr> Chronology<Fr>
-where
-    Fr: Fragment + OrderState + Ord + Copy,
+    where
+        Fr: Fragment + OrderState + Ord + Copy,
 {
     fn advance_clocks(&mut self, new_time: u64) {
         let new_slot = self
@@ -732,8 +737,8 @@ impl<Fr> Fragments<Fr> {
 }
 
 impl<Fr> Fragments<Fr>
-where
-    Fr: Fragment + Ord,
+    where
+        Fr: Fragment + Ord,
 {
     pub fn insert(&mut self, fr: Fr) {
         match fr.side() {
@@ -743,8 +748,8 @@ where
     }
 
     pub fn show_state(&self) -> String
-    where
-        Fr: Display,
+        where
+            Fr: Display,
     {
         let asks = self
             .asks
@@ -775,9 +780,9 @@ impl<Pl: Stable> Pools<Pl> {
     }
 
     pub fn show_state(&self) -> String
-    where
-        Pl::StableId: Display,
-        Pl: Display,
+        where
+            Pl::StableId: Display,
+            Pl: Display,
     {
         self.pools
             .iter()
@@ -787,8 +792,8 @@ impl<Pl: Stable> Pools<Pl> {
 }
 
 impl<Pl> Pools<Pl>
-where
-    Pl: Pool + Stable + Copy,
+    where
+        Pl: Pool + Stable + Copy,
 {
     pub fn update_pool(&mut self, pool: Pl) {
         if let Some(old_pool) = self.pools.insert(pool.stable_id(), pool) {
@@ -808,6 +813,11 @@ where
 pub mod tests {
     use std::cmp::Ordering;
     use std::fmt::{Debug, Display, Formatter};
+    use std::ops::{Add, Div, Mul, Sub};
+    use bignumber::BigNumber;
+    use log::trace;
+    use num_rational::Ratio;
+    use primitive_types::U512;
 
     use spectrum_offchain::data::Stable;
 
@@ -1248,7 +1258,7 @@ pub mod tests {
                     let base_output =
                         ((self.reserves_base as u128) * (quote_input as u128) * (self.fee_num as u128)
                             / ((self.reserves_quote as u128) * 1000u128
-                                + (quote_input as u128) * (self.fee_num as u128)))
+                            + (quote_input as u128) * (self.fee_num as u128)))
                             as u64;
                     self.reserves_quote += quote_input;
                     self.reserves_base -= base_output;
@@ -1258,11 +1268,168 @@ pub mod tests {
                     let quote_output =
                         ((self.reserves_quote as u128) * (base_input as u128) * (self.fee_num as u128)
                             / ((self.reserves_base as u128) * 1000u128
-                                + (base_input as u128) * (self.fee_num as u128)))
+                            + (base_input as u128) * (self.fee_num as u128)))
                             as u64;
                     self.reserves_base += base_input;
                     self.reserves_quote -= quote_output;
                     (quote_output, self)
+                }
+            }
+        }
+
+        fn quality(&self) -> PoolQuality {
+            PoolQuality::from(self.reserves_quote + self.reserves_base)
+        }
+
+        fn marginal_cost_hint(&self) -> Self::U {
+            10
+        }
+    }
+
+    #[derive(Copy, Clone, PartialEq, Eq, Hash)]
+    pub struct SimpleWeightPool {
+        pub pool_id: StableId,
+        pub reserves_base: u64,
+        pub reserves_quote: u64,
+        pub weight_base: u64,
+        pub weight_quote: u64,
+        pub treasury_base: u64,
+        pub treasury_quote: u64,
+        pub fee_num: u64,
+        pub treasury_fee_num: u64
+    }
+
+    impl SimpleWeightPool {
+        pub fn calculate_base_part_with_fee(
+            self,
+            base_amount: u64,
+            base_reserves: u64,
+            base_weight: u64,
+        ) -> U512 {
+            U512::from(base_reserves)
+                .add(
+                    U512::from(base_amount)
+                        .mul(U512::from(self.fee_num - self.treasury_fee_num))
+                        .div(U512::from(100000)),
+                )
+                .pow(U512::from(base_weight))
+        }
+        pub fn calculate_new_invariant(self, base_reserves: u64, base_weight: u64, base_amount: u64, quote_reserves: u64, quote_weight: u64, quote_output: u64) -> U512 {
+            let additional_part = base_amount * (self.fee_num - self.treasury_fee_num) / 100000;
+
+            let base_new_part = U512::from(base_reserves)
+                .add(U512::from(additional_part))
+                .pow(U512::from(base_weight));
+
+            let quote_part = U512::from(quote_reserves)
+                .sub(U512::from(quote_output))
+                .pow(U512::from(quote_weight));
+
+            base_new_part.mul(quote_part)
+        }
+
+        pub fn balance_cfmm_output_amount(
+            self,
+            input: Side<u64>,
+        ) -> u64 {
+            let (base_reserves, base_weight, quote_reserves, quote_weight, base_amount) =
+                match input {
+                    Side::Bid(input) =>
+                        (self.reserves_quote - self.treasury_quote, self.weight_quote, self.reserves_base - self.treasury_base, self.weight_base, input),
+                    Side::Ask(input) =>
+                        (self.reserves_base - self.treasury_base, self.weight_base, self.reserves_quote - self.treasury_quote, self.weight_quote, input)
+                };
+
+            let invariant = U512::from(base_reserves)
+                .pow(U512::from(base_weight))
+                .mul(U512::from(quote_reserves).pow(U512::from(quote_weight)));
+            let base_new_part =
+                self.calculate_base_part_with_fee(base_amount, base_reserves, base_weight);
+            // (quote_reserves - quote_amount) ^ quote_weight = invariant / base_new_part
+            let quote_new_part = BigNumber::from(invariant).div(BigNumber::from(base_new_part));
+            let delta_y = quote_new_part.pow(&BigNumber::from(1).div(BigNumber::from(quote_weight as f64)));
+            let delta_y_rounded = <u64>::try_from(delta_y.value.to_int().value()).unwrap();
+            // quote_amount = quote_reserves - quote_new_part ^ (1 / quote_weight)
+            let mut pre_output_amount = quote_reserves - delta_y_rounded;
+            // we should find the most approximate value to previous invariant
+            let mut num_loops = 0;
+            while self.calculate_new_invariant(
+                base_reserves,
+                base_weight,
+                base_amount,
+                quote_reserves,
+                quote_weight,
+                pre_output_amount,
+            ) < invariant
+            {
+                num_loops += 1;
+                pre_output_amount -= 1
+            }
+            pre_output_amount
+        }
+    }
+
+    impl Display for SimpleWeightPool {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            f.write_str(&*format!("SimpleWeightPool(price={}, reserves_x={}, reserves_y={})", self.static_price(), self.reserves_base, self.reserves_quote))
+        }
+    }
+
+    impl Debug for SimpleWeightPool {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            f.write_str(&*self.to_string())
+        }
+    }
+
+    impl Stable for SimpleWeightPool {
+        type StableId = StableId;
+        fn stable_id(&self) -> Self::StableId {
+            self.pool_id
+        }
+        fn is_quasi_permanent(&self) -> bool {
+            true
+        }
+    }
+
+    impl Pool for SimpleWeightPool {
+        type U = u64;
+
+        fn static_price(&self) -> AbsolutePrice {
+            AbsolutePrice::new(
+                (self.reserves_quote * 5) / self.weight_quote,
+                (self.reserves_base * 5) / self.weight_base,
+            )
+        }
+
+        fn real_price(&self, input: Side<u64>) -> AbsolutePrice {
+            let output = self.balance_cfmm_output_amount(input.clone());
+            let (base, quote) = match input {
+                Side::Bid(input) => (
+                    output,
+                    input,
+                ),
+                Side::Ask(input) => (
+                    input,
+                    output,
+                ),
+            };
+            AbsolutePrice::new(quote, base)
+        }
+
+        fn swap(mut self, input: Side<u64>) -> (u64, Self) {
+            let output = self.balance_cfmm_output_amount(input);
+            match input {
+                Side::Bid(quote_input) => {
+                    self.reserves_quote += quote_input;
+                    self.treasury_quote = (quote_input * self.treasury_fee_num) / 10000;
+                    self.reserves_base -= output;
+                    (output, self)
+                }
+                Side::Ask(base_input) => {
+                    self.reserves_base += base_input;
+                    self.treasury_base = (base_input * self.treasury_fee_num) / 10000;
+                    self.reserves_quote -= output;
+                    (output, self)
                 }
             }
         }
