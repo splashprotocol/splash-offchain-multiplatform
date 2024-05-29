@@ -582,6 +582,8 @@ mod tests {
     use spectrum_cardano_lib::output::FinalizedTxOut;
     use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
     use std::ops::Sub;
+    use bloom_offchain::execution_engine::liquidity_book::side::Side::Ask;
+    use bloom_offchain::execution_engine::liquidity_book::side::Side::Bid;
 
     use spectrum_cardano_lib::types::TryFromPData;
 
@@ -662,7 +664,8 @@ mod tests {
                 steps: 100000000000,
             },
         };
-        let result = pool.output_amount(TaggedAssetClass::new(pool.asset_y.untag()), TaggedAmount::new(5000000000));
+
+        let result = pool.swap(Bid(3986568359));
 
         println!("result123 {:?}", result);
         assert_eq!(1, 2)

@@ -1371,7 +1371,7 @@ pub mod tests {
 
     impl Display for SimpleWeightPool {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            f.write_str(&*format!("SimpleWeightPool(price={}, reserves_x={}, reserves_y={})", self.static_price(), self.reserves_base, self.reserves_quote))
+            f.write_str(&*format!("SimpleWeightPool(price={}, reserves_x={}, reserves_y={}, treasury_x={}, treasury_y={})", self.static_price(), self.reserves_base, self.reserves_quote, self.treasury_base, self.treasury_quote))
         }
     }
 
@@ -1421,13 +1421,17 @@ pub mod tests {
             match input {
                 Side::Bid(quote_input) => {
                     self.reserves_quote += quote_input;
-                    self.treasury_quote = (quote_input * self.treasury_fee_num) / 10000;
+                    println!("Prev quote treasury: {}", self.treasury_quote);
+                    println!("quote_input: {}", quote_input);
+                    println!("Going to add to quote treasury: {}", ((quote_input * self.treasury_fee_num) / 100000));
+                    self.treasury_quote += (quote_input * self.treasury_fee_num) / 100000;
+                    println!("New quote: {}", self.treasury_quote);
                     self.reserves_base -= output;
                     (output, self)
                 }
                 Side::Ask(base_input) => {
                     self.reserves_base += base_input;
-                    self.treasury_base = (base_input * self.treasury_fee_num) / 10000;
+                    self.treasury_base += (base_input * self.treasury_fee_num) / 100000;
                     self.reserves_quote -= output;
                     (output, self)
                 }
