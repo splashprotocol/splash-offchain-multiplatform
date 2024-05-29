@@ -1,4 +1,5 @@
 use num_rational::Ratio;
+use std::fmt::{Display, Formatter};
 
 use crate::execution_engine::liquidity_book::side::SideM;
 use crate::execution_engine::liquidity_book::time::TimeBounds;
@@ -22,6 +23,15 @@ pub enum StateTrans<T> {
     Active(T),
     /// Order is exhausted.
     EOL,
+}
+
+impl<T: Display> Display for StateTrans<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StateTrans::Active(t) => f.write_str(&*format!("Active({})", t.to_string())),
+            StateTrans::EOL => f.write_str(&*format!("EOL")),
+        }
+    }
 }
 
 impl<T> StateTrans<T> {

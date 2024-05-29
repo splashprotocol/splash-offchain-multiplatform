@@ -9,5 +9,6 @@ mod node_error;
 pub mod parametrized_validators;
 pub mod pool_math;
 pub mod prover;
+pub mod script;
 pub mod tx_submission;
 pub mod utxo;

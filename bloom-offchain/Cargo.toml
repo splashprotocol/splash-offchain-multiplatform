@@ -8,10 +8,12 @@ rust-version = "1.75.0"
 
 [dependencies]
 spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain" }
-algebra-core = { version = "1.0.0", path = "../algebra-core" }
+algebra-core = { version = "0.1.0", path = "../algebra-core" }
+isahc = { version = "1.7.2", features = ["json"] }
 futures = "0.3.25"
 tokio = { version = "1.22.0", features = ["full"] }
 log = "0.4.17"
+bignumber = "0.1.1"
 log4rs = "1.2.0"
 rand = { version = "0.8.5", features = ["small_rng"] }
 rand_chacha = "0.3.1"
@@ -40,3 +42,4 @@ clap = { version = "4.0", features = ["derive"] }
 serde_yaml = "0.9.25"
 either = "1.9.0"
 circular-buffer = "0.1.7"
+primitive-types = "0.12.2"

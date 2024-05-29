@@ -1,5 +1,10 @@
+use bignumber::BigNumber;
 use derive_more::{Display, Div, From, Into, Mul};
 use num_rational::Ratio;
+use primitive_types::U512;
+use std::fmt::{Display, Formatter};
+use std::ops::Div;
+use std::str::FromStr;
 
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 
@@ -19,8 +24,21 @@ pub type ExFeeUsed = FeeAsset<u64>;
 
 /// Price of base asset denominated in units of quote asset.
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Div, Mul, Display, From, Into)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Div, Mul, From, Into)]
 pub struct AbsolutePrice(Ratio<u128>);
+
+impl Display for AbsolutePrice {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let price = BigNumber::from_str(self.0.numer().to_string().as_str())
+            .unwrap()
+            .div(BigNumber::from_str(self.0.denom().to_string().as_str()).unwrap());
+        f.write_str(&*format!(
+            "AbsPrice(decimal={}, ratio={})",
+            price.to_precision(5).to_string(),
+            self.0
+        ))
+    }
+}
 
 impl AbsolutePrice {
     #[inline]
@@ -71,9 +89,9 @@ impl Side<AbsolutePrice> {
     /// Compare prices on the same side.
     pub fn better_than(self, that: AbsolutePrice) -> bool {
         match self {
-            // If we compare Bid prices, then we favor highest price.
+            // If we compare Bid prices, then we favor the highest price.
             Side::Bid(this) => this >= that,
-            // If we compare Ask prices, then we favor lowest price.
+            // If we compare Ask prices, then we favor the lowest price.
             Side::Ask(this) => this <= that,
         }
     }

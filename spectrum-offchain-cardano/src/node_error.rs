@@ -42,11 +42,16 @@ pub fn transcribe_bad_inputs_error(error_response: Vec<u8>) -> HashSet<OutputRef
                         }
                     }
                     let (segment, rem) = read_segment(vec![], rem);
-                    let tx_id = TransactionHash::from_raw_bytes(&segment[0..TX_ID_LEN]).unwrap();
-                    let tx_ix = segment[TX_ID_LEN] as u64;
-                    let oref = OutputRef::new(tx_id, tx_ix);
-                    acc.push(oref);
-                    go(prefix, acc, Box::new(rem))
+                    match (segment.get(0..TX_ID_LEN), segment.get(TX_ID_LEN)) {
+                        (Some(tx_hash), Some(ix)) => {
+                            let tx_id = TransactionHash::from_raw_bytes(tx_hash).unwrap();
+                            let tx_ix = *ix as u64;
+                            let oref = OutputRef::new(tx_id, tx_ix);
+                            acc.push(oref);
+                            go(prefix, acc, Box::new(rem))
+                        }
+                        _ => acc,
+                    }
                 } else {
                     go(prefix, acc, rem)
                 }

@@ -1,5 +1,8 @@
+use log::{info, trace};
+use std::cmp::max;
+use std::fmt::{Debug, Display, Formatter};
+
 use num_rational::Ratio;
-use std::cmp::{max, min};
 
 use crate::execution_engine::bundled::Bundled;
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
@@ -17,8 +20,10 @@ pub struct ExecutionRecipe<Fr, Pl>(Vec<TerminalInstruction<Fr, Pl>>);
 impl<Fr, Pl> ExecutionRecipe<Fr, Pl> {
     pub fn try_from(rec: IntermediateRecipe<Fr, Pl>) -> Option<Self>
     where
-        Fr: Fragment + OrderState + Copy,
+        Fr: Fragment + OrderState + Copy + Display,
+        Pl: Display,
     {
+        trace!("Going to create ExecutionRecipe from IntermediateRecipe {}", rec);
         if rec.is_complete() && rec.is_sufficient() {
             let IntermediateRecipe {
                 mut terminal,
@@ -43,7 +48,30 @@ pub struct IntermediateRecipe<Fr, Pl> {
     pub remainder: Option<PartialFill<Fr>>,
 }
 
-impl<Fr, Pl> IntermediateRecipe<Fr, Pl>
+impl<Fr: Display, Pl: Display> Display for IntermediateRecipe<Fr, Pl> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut terminal_instructions = String::new();
+
+        self.terminal.iter().for_each(|terminal| {
+            terminal_instructions.push_str(&terminal.to_string());
+            terminal_instructions.push_str(", ");
+        });
+
+        let mut remainder = String::new();
+
+        match &self.remainder {
+            None => remainder.push_str("None"),
+            Some(partial_fill) => remainder.push_str(&partial_fill.to_string()),
+        }
+
+        f.write_str(&*format!(
+            "IntermediateRecipe(terminal={}, remainder={})",
+            terminal_instructions, remainder
+        ))
+    }
+}
+
+impl<Fr: Display, Pl: Display> IntermediateRecipe<Fr, Pl>
 where
     Fr: Fragment,
 {
@@ -76,14 +104,41 @@ where
 
     pub fn is_complete(&self) -> bool {
         let terminal_fragments = self.terminal.len();
+        trace!("[is_complete] Check is_complete for {}", self.to_string());
+        info!("terminal_fragments: {:?}", terminal_fragments);
+        info!("self.remainder.is_some(): {:?}", self.remainder.is_some());
+
         terminal_fragments >= 2 || (terminal_fragments > 0 && self.remainder.is_some())
     }
 
     pub fn is_sufficient(&self) -> bool {
-        self.terminal.iter().all(|x| match x {
-            TerminalInstruction::Fill(fill) => fill.added_output >= fill.target_fr.min_marginal_output(),
+        let terminal_fills_ok = self.terminal.iter().all(|x| match x {
+            TerminalInstruction::Fill(fill) => {
+                trace!(
+                    "[terminal_fills_ok]. Checking is_sufficient for {}",
+                    fill.to_string()
+                );
+                fill.added_output >= fill.target_fr.min_marginal_output()
+            }
             TerminalInstruction::Swap(_) => true,
-        })
+        });
+        let non_terminal_fills_ok = self
+            .remainder
+            .as_ref()
+            .map(|fill| {
+                trace!(
+                    "[non_terminal_fills_ok]. Checking is_sufficient for {}",
+                    fill.to_string()
+                );
+                fill.accumulated_output >= fill.target.min_marginal_output()
+            })
+            .unwrap_or(true);
+        trace!(
+            "recipe::is_sufficient: terminal_fills_ok: {}, non_terminal_fills_ok: {}",
+            terminal_fills_ok,
+            non_terminal_fills_ok
+        );
+        terminal_fills_ok && non_terminal_fills_ok
     }
 }
 
@@ -127,6 +182,16 @@ pub enum TerminalInstruction<Fr, Pl> {
     Swap(Swap<Pl>),
 }
 
+impl<Fr: Display, Pl: Display> Display for TerminalInstruction<Fr, Pl> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let formatted_entity = match self {
+            TerminalInstruction::Fill(fill) => format!("{}", fill),
+            TerminalInstruction::Swap(swap) => format!("{}", swap),
+        };
+        f.write_str(&*format!("TerminalInstruction({})", formatted_entity))
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct LinkedFill<Fr, Src> {
     pub target_fr: Bundled<Fr, Src>,
@@ -165,6 +230,20 @@ pub struct Fill<Fr> {
     pub fee_used: FeeAsset<u64>,
 }
 
+impl<Fr: Display> Display for Fill<Fr> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&*format!(
+            "Fill(target_fr={}, next_fr={}, removed_input={}, added_output={}, budget_used={}, fee_used={})",
+            self.target_fr,
+            self.next_fr,
+            self.removed_input,
+            self.added_output,
+            self.budget_used,
+            self.fee_used
+        ))
+    }
+}
+
 impl<Fr: Fragment> Fill<Fr> {
     pub fn new(
         target: Fr,
@@ -189,6 +268,15 @@ pub struct PartialFill<Fr> {
     pub target: Fr,
     pub remaining_input: u64,
     pub accumulated_output: u64,
+}
+
+impl<Fr: Display> Display for PartialFill<Fr> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&*format!(
+            "PartialFill(target={}, remaining_input={}, accumulated_output={})",
+            self.target, self.remaining_input, self.accumulated_output
+        ))
+    }
 }
 
 impl<Fr> PartialFill<Fr>
@@ -280,4 +368,13 @@ pub struct Swap<Pl> {
     pub side: SideM,
     pub input: u64,
     pub output: u64,
+}
+
+impl<Pl: Display> Display for Swap<Pl> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&*format!(
+            "Swap(target={}, transition={}, side={}, input={}, output={})",
+            self.target, self.transition, self.side, self.input, self.output
+        ))
+    }
 }

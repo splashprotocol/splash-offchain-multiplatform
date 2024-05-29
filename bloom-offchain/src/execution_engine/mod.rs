@@ -10,22 +10,25 @@ use futures::channel::mpsc;
 use futures::stream::FusedStream;
 use futures::{FutureExt, Stream};
 use futures::{SinkExt, StreamExt};
-use log::{trace, warn};
+use isahc::http::Uri;
+use isahc::HttpClient;
+use log::{info, trace, warn};
 use tokio::sync::broadcast;
 
 use liquidity_book::interpreter::RecipeInterpreter;
 use spectrum_offchain::backlog::HotBacklog;
+use spectrum_offchain::circular_filter::CircularFilter;
 use spectrum_offchain::combinators::Ior;
 use spectrum_offchain::data::order::{OrderUpdate, SpecializedOrder};
 use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
 use spectrum_offchain::data::{Baked, EntitySnapshot, Stable};
+use spectrum_offchain::health_alert::{HealthAlertClient, SlackHealthAlert};
 use spectrum_offchain::maker::Maker;
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_prover::TxProver;
 
 use crate::execution_engine::backlog::SpecializedInterpreter;
 use crate::execution_engine::bundled::Bundled;
-use crate::execution_engine::circular_filter::CircularFilter;
 use crate::execution_engine::execution_effect::ExecutionEff;
 use crate::execution_engine::focus_set::FocusSet;
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState};
@@ -33,6 +36,7 @@ use crate::execution_engine::liquidity_book::recipe::{
     ExecutionRecipe, LinkedExecutionRecipe, LinkedFill, LinkedSwap, LinkedTerminalInstruction,
     TerminalInstruction,
 };
+use crate::execution_engine::liquidity_book::side::SideM;
 use crate::execution_engine::liquidity_book::{ExternalTLBEvents, TLBFeedback, TemporalLiquidityBook};
 use crate::execution_engine::multi_pair::MultiPair;
 use crate::execution_engine::resolver::resolve_source_state;
@@ -43,14 +47,13 @@ pub mod backlog;
 pub mod batch_exec;
 pub mod bundled;
 pub mod execution_effect;
+mod focus_set;
 pub mod liquidity_book;
 pub mod multi_pair;
 pub mod partial_fill;
 pub mod resolver;
 pub mod storage;
 pub mod types;
-mod focus_set;
-mod circular_filter;
 
 /// Class of entities that evolve upon execution.
 type EvolvingEntity<CO, P, V, B> = Bundled<Either<Baked<CO, V>, Baked<P, V>>, B>;
@@ -80,7 +83,7 @@ pub fn execution_part_stream<
     Txc,
     Tx,
     Ctx,
-    U,
+    ExUnits,
     Index,
     Cache,
     Book,
@@ -102,14 +105,22 @@ pub fn execution_part_stream<
     upstream: Upstream,
     network: Net,
     mut tip_reached_signal: broadcast::Receiver<bool>,
+    alert_client: HealthAlertClient,
 ) -> impl Stream<Item = ()> + 'a
 where
     Upstream: Stream<Item = (Pair, Event<CompOrd, SpecOrd, Pool, Bearer, Ver>)> + Unpin + 'a,
     Pair: Copy + Eq + Ord + Hash + Display + Unpin + 'a,
     StableId: Copy + Eq + Hash + Debug + Display + Unpin + 'a,
     Ver: Copy + Eq + Hash + Display + Unpin + 'a,
-    Pool: Stable<StableId = StableId> + Copy + Debug + Unpin + 'a,
-    CompOrd: Stable<StableId = StableId> + Fragment<U = U> + OrderState + Copy + Debug + Unpin + 'a,
+    Pool: Stable<StableId = StableId> + Copy + Debug + Unpin + Display + 'a,
+    CompOrd: Stable<StableId = StableId>
+        + Fragment<U = ExUnits>
+        + OrderState
+        + Copy
+        + Debug
+        + Unpin
+        + Display
+        + 'a,
     SpecOrd: SpecializedOrder<TPoolId = StableId, TOrderId = Ver> + Debug + Unpin + 'a,
     Bearer: Clone + Unpin + Debug + 'a,
     Txc: Unpin + 'a,
@@ -142,6 +153,7 @@ where
         prover,
         upstream,
         feedback_in,
+        alert_client,
     );
     let wait_signal = async move {
         let _ = tip_reached_signal.recv().await;
@@ -203,6 +215,7 @@ pub struct Executor<
     /// Temporarily memoize entities that came from unconfirmed updates.
     skip_filter: CircularFilter<128, Ver>,
     pd: PhantomData<(StableId, Ver, Txc, Tx, Err)>,
+    alert_client: HealthAlertClient,
 }
 
 impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err>
@@ -219,6 +232,7 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
         prover: Prov,
         upstream: S,
         feedback: mpsc::Receiver<Result<(), Err>>,
+        alert_client: HealthAlertClient,
     ) -> Self {
         Self {
             index,
@@ -235,6 +249,7 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
             focus_set: FocusSet::new(),
             skip_filter: CircularFilter::new(),
             pd: Default::default(),
+            alert_client: alert_client,
         }
     }
 
@@ -310,22 +325,22 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
         }
     }
 
-    fn invalidate_bearers(&mut self, pair: &Pair, bearers: HashSet<V>)
+    fn invalidate_versions(&mut self, pair: &Pair, versions: HashSet<V>)
     where
         Pair: Copy + Eq + Hash + Display,
         Stab: Copy + Eq + Hash + Debug + Display,
         V: Copy + Eq + Hash + Display,
         B: Clone + Debug,
         Ctx: Clone,
-        CO: Stable<StableId = Stab> + Clone + Debug,
+        CO: Stable<StableId = Stab> + Clone + Debug + Display,
         P: Stable<StableId = Stab> + Clone + Debug,
         Ix: StateIndex<EvolvingEntity<CO, P, V, B>>,
         Cache: KvStore<Stab, EvolvingEntity<CO, P, V, B>>,
         Book: ExternalTLBEvents<CO, P> + Maker<Ctx>,
     {
-        for bearer in bearers {
-            if let Some(stable_id) = self.index.invalidate(bearer) {
-                trace!("Invalidating bearer of {}", stable_id);
+        for ver in versions {
+            if let Some(stable_id) = self.index.invalidate_version(ver) {
+                trace!("Invalidating snapshot of {}", stable_id);
                 let maybe_transition = match resolve_source_state(stable_id, &self.index) {
                     None => self
                         .cache
@@ -383,13 +398,13 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
                 }
             }
             StateUpdate::Transition(Ior::Left(st)) => {
-                self.index.eliminate(st.version());
+                self.index.eliminate(st.stable_id());
                 Some(Ior::Left(st.0))
             }
             StateUpdate::TransitionRollback(Ior::Left(st)) => {
                 let id = st.stable_id();
                 trace!("Rolling back state {}", id);
-                self.index.invalidate(st.version());
+                self.index.rollback_inclusive(st.version());
                 Some(Ior::Left(st.0))
             }
         }
@@ -434,8 +449,8 @@ where
     Pair: Copy + Eq + Ord + Hash + Display + Unpin,
     Stab: Copy + Eq + Hash + Debug + Display + Unpin,
     Ver: Copy + Eq + Hash + Display + Unpin,
-    P: Stable<StableId = Stab> + Copy + Debug + Unpin,
-    CO: Stable<StableId = Stab> + Fragment<U = U> + OrderState + Copy + Debug + Unpin,
+    P: Stable<StableId = Stab> + Copy + Debug + Unpin + Display,
+    CO: Stable<StableId = Stab> + Fragment<U = U> + OrderState + Copy + Debug + Unpin + Display,
     SO: SpecializedOrder<TPoolId = Stab, TOrderId = Ver> + Unpin,
     B: Clone + Debug + Unpin,
     Txc: Unpin,
@@ -483,6 +498,14 @@ where
                             }
                         },
                         Err(err) => {
+                            //todo: remove
+                            let submit_res = self
+                                .alert_client
+                                .send_alert("Tx submition error")
+                                .unwrap_or("Failure".to_string());
+
+                            trace!("Alert submitting result: {}", submit_res);
+
                             warn!("TX failed {:?}", err);
                             if let Ok(missing_bearers) = err.try_into() {
                                 match pending_effects {
@@ -498,7 +521,7 @@ where
                                         }
                                     }
                                 }
-                                self.invalidate_bearers(&pair, missing_bearers.clone());
+                                self.invalidate_versions(&pair, missing_bearers.clone());
                             } else {
                                 warn!("Unknown Tx submission error!");
                                 match pending_effects {
@@ -581,8 +604,8 @@ where
     Pair: Copy + Eq + Ord + Hash + Display + Unpin,
     Stab: Copy + Eq + Hash + Debug + Display + Unpin,
     Ver: Copy + Eq + Hash + Display + Unpin,
-    P: Stable<StableId = Stab> + Copy + Debug + Unpin,
-    CO: Stable<StableId = Stab> + Fragment<U = U> + OrderState + Copy + Debug + Unpin,
+    P: Stable<StableId = Stab> + Copy + Debug + Unpin + Display,
+    CO: Stable<StableId = Stab> + Fragment<U = U> + OrderState + Copy + Debug + Unpin + Display,
     SO: SpecializedOrder<TPoolId = Stab, TOrderId = Ver> + Unpin,
     B: Clone + Debug + Unpin,
     Txc: Unpin,

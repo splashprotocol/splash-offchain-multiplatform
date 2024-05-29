@@ -38,6 +38,10 @@ impl AssetName {
         self.1
     }
 
+    pub fn try_from_hex(s: &str) -> Option<AssetName> {
+        hex::decode(s).ok().and_then(|xs| Self::try_from(xs).ok())
+    }
+
     pub fn utf8_unsafe(tn: String) -> Self {
         let orig_len = tn.len();
         let tn = if orig_len > 32 { &tn[0..32] } else { &*tn };
@@ -51,10 +55,11 @@ impl AssetName {
 
 impl Display for AssetName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if let Ok(str) = std::str::from_utf8(&self.1) {
+        let slice = &self.1[0..self.0 as usize];
+        if let Ok(str) = std::str::from_utf8(slice) {
             f.write_str(str)
         } else {
-            let as_hex = hex::encode(self.1);
+            let as_hex = hex::encode(slice);
             f.write_str(as_hex.as_str())
         }
     }

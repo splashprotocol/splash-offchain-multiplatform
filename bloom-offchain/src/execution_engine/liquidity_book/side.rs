@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter};
 use std::ops::Not;
 
 use derive_more::Display;
@@ -32,6 +33,15 @@ impl Not for SideM {
 pub enum Side<T> {
     Bid(T),
     Ask(T),
+}
+
+impl<T: Display> Display for Side<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Side::Bid(bid) => f.write_str(&*format!("Bid({})", bid)),
+            Side::Ask(ask) => f.write_str(&*format!("Ask({})", ask)),
+        }
+    }
 }
 
 impl<T> Side<T> {

@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use clap::Parser;
 use cml_chain::transaction::Transaction;
@@ -7,6 +8,8 @@ use either::Either;
 use futures::channel::mpsc;
 use futures::stream::select_all;
 use futures::{stream_select, Stream, StreamExt};
+use isahc::http::Uri;
+use isahc::HttpClient;
 use log::info;
 use tokio::sync::{broadcast, Mutex};
 use tracing_subscriber::fmt::Subscriber;
@@ -51,6 +54,7 @@ use spectrum_offchain::data::unique_entity::{EitherMod, StateUpdate};
 use spectrum_offchain::data::Baked;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::event_sink::process_events;
+use spectrum_offchain::health_alert::HealthAlertClient;
 use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::streaming::boxed;
 use spectrum_offchain_cardano::collateral::pull_collateral;
@@ -61,6 +65,7 @@ use spectrum_offchain_cardano::data::pool::AnyPool;
 use spectrum_offchain_cardano::deployment::{DeployedValidators, ProtocolDeployment, ProtocolScriptHashes};
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
+use spectrum_streaming::StreamExt as StreamExt1;
 
 mod config;
 mod context;
@@ -203,6 +208,13 @@ async fn main() {
     let state_index = StateIndexTracing(InMemoryStateIndex::new());
     let state_cache = InMemoryKvStore::new();
 
+    let client = HttpClient::builder().build().unwrap();
+
+    let uri =
+        Uri::from_static("https://hooks.slack.com/services/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");
+
+    let alert_client = HealthAlertClient::new(client, uri);
+
     let (signal_tip_reached_snd, signal_tip_reached_recv) = broadcast::channel(1);
 
     let execution_stream_p1 = execution_part_stream(
@@ -217,6 +229,7 @@ async fn main() {
         merge_upstreams(pair_upd_recv_p1, spec_upd_recv_p1),
         tx_submission_channel.clone(),
         signal_tip_reached_snd.subscribe(),
+        alert_client.clone(),
     );
     let execution_stream_p2 = execution_part_stream(
         state_index.clone(),
@@ -230,6 +243,7 @@ async fn main() {
         merge_upstreams(pair_upd_recv_p2, spec_upd_recv_p2),
         tx_submission_channel.clone(),
         signal_tip_reached_snd.subscribe(),
+        alert_client.clone(),
     );
     let execution_stream_p3 = execution_part_stream(
         state_index.clone(),
@@ -243,6 +257,7 @@ async fn main() {
         merge_upstreams(pair_upd_recv_p3, spec_upd_recv_p3),
         tx_submission_channel.clone(),
         signal_tip_reached_snd.subscribe(),
+        alert_client.clone(),
     );
     let execution_stream_p4 = execution_part_stream(
         state_index,
@@ -256,6 +271,7 @@ async fn main() {
         merge_upstreams(pair_upd_recv_p4, spec_upd_recv_p4),
         tx_submission_channel,
         signal_tip_reached_snd.subscribe(),
+        alert_client,
     );
 
     let ledger_stream = Box::pin(ledger_transactions(
@@ -280,8 +296,10 @@ async fn main() {
         }
     });
 
-    let process_ledger_events_stream = process_events(ledger_stream, handlers_ledger);
-    let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool);
+    let process_ledger_events_stream =
+        process_events(ledger_stream, handlers_ledger).buffered_within(config.ledger_buffering_duration);
+    let process_mempool_events_stream =
+        process_events(mempool_stream, handlers_mempool).buffered_within(config.mempool_buffering_duration);
 
     let mut app = select_all(vec![
         boxed(process_ledger_events_stream),
