@@ -86,7 +86,7 @@ impl<Fr, Pl: Stable> PartialPreviewState<Fr, Pl> {
 
 impl<Fr, Pl: Stable> PartialPreviewState<Fr, Pl>
 where
-    Fr: Fragment + Ord + Hash,
+    Fr: Fragment + Ord,
 {
     fn commit(&mut self) -> IdleState<Fr, Pl> {
         trace!(target: "state", "PartialPreviewState::commit");
@@ -167,7 +167,7 @@ impl<Fr, Pl: Stable> PreviewState<Fr, Pl> {
 
 impl<Fr, Pl> PreviewState<Fr, Pl>
 where
-    Fr: Fragment + Ord + Hash,
+    Fr: Fragment + Ord,
     Pl: Stable,
 {
     fn commit(&mut self) -> IdleState<Fr, Pl> {
@@ -298,7 +298,7 @@ where
 
 impl<Fr, Pl> TLBState<Fr, Pl>
 where
-    Fr: Fragment + Ord + Hash + Copy,
+    Fr: Fragment + Ord + Copy,
     Pl: Stable + Copy,
 {
     pub fn commit(&mut self) {
@@ -384,7 +384,7 @@ where
 
 impl<Fr, Pl, U> TLBState<Fr, Pl>
 where
-    Fr: Fragment<U = U> + Ord + Hash + Copy + Debug,
+    Fr: Fragment<U = U> + Ord + Copy + Debug,
     Pl: Pool + Stable + Copy,
     U: PartialOrd,
 {
@@ -515,7 +515,7 @@ where
 
 impl<Fr, Pl> TLBState<Fr, Pl>
 where
-    Fr: Fragment + Ord + Hash + Copy,
+    Fr: Fragment + Ord + Copy,
     Pl: Pool + Stable + Copy,
 {
     pub fn best_pool_price(&self) -> Option<AbsolutePrice> {

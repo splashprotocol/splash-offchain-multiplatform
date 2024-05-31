@@ -99,7 +99,7 @@ impl<Fr, Pl: Stable, U> TLB<Fr, Pl, U> {
 
 impl<Fr, Pl, U> TLB<Fr, Pl, U>
 where
-    Fr: Fragment<U = U> + OrderState + Ord + Hash + Copy + Debug,
+    Fr: Fragment<U = U> + OrderState + Ord + Copy + Debug,
     Pl: Pool + Stable + Copy,
     U: PartialOrd,
 {
@@ -112,7 +112,7 @@ where
 
 impl<Fr, Pl, U> TemporalLiquidityBook<Fr, Pl> for TLB<Fr, Pl, U>
 where
-    Fr: Fragment<U = U> + OrderState + Copy + Ord + Hash + Display + Debug,
+    Fr: Fragment<U = U> + OrderState + Copy + Ord + Display + Debug,
     Pl: Pool<U = U> + Stable + Copy + Debug + Display,
     U: PartialOrd + SubAssign + Sub<Output = U> + Copy + Debug,
 {
@@ -283,7 +283,7 @@ where
 
 impl<Fr, Pl, U> TLBFeedback<Fr, Pl> for TLB<Fr, Pl, U>
 where
-    Fr: Fragment + OrderState + Ord + Copy + Hash,
+    Fr: Fragment + OrderState + Ord + Copy,
     Pl: Pool + Stable + Copy,
 {
     fn on_recipe_succeeded(&mut self) {
