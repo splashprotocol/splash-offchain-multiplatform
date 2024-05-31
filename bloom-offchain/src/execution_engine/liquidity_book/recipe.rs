@@ -1,7 +1,7 @@
-use log::{info, trace};
 use std::cmp::max;
 use std::fmt::{Debug, Display, Formatter};
 
+use log::{info, trace};
 use num_rational::Ratio;
 
 use crate::execution_engine::bundled::Bundled;
@@ -18,25 +18,30 @@ pub struct LinkedExecutionRecipe<Fr, Pl, Src>(pub Vec<LinkedTerminalInstruction<
 pub struct ExecutionRecipe<Fr, Pl>(Vec<TerminalInstruction<Fr, Pl>>);
 
 impl<Fr, Pl> ExecutionRecipe<Fr, Pl> {
-    pub fn try_from(rec: IntermediateRecipe<Fr, Pl>) -> Option<Self>
+    pub fn try_from(rec: IntermediateRecipe<Fr, Pl>) -> Result<Self, Option<Vec<Fr>>>
     where
         Fr: Fragment + OrderState + Copy + Display,
         Pl: Display,
     {
-        trace!("Going to create ExecutionRecipe from IntermediateRecipe {}", rec);
-        if rec.is_complete() && rec.is_sufficient() {
-            let IntermediateRecipe {
-                mut terminal,
-                remainder,
-            } = rec;
-            if let Some(rem) = remainder {
-                terminal.push(TerminalInstruction::Fill(rem.into()));
+        if rec.is_complete() {
+            let unsatisfied_fragments = rec.unsatisfied_fragments();
+            if unsatisfied_fragments.is_empty() {
+                let IntermediateRecipe {
+                    mut terminal,
+                    remainder,
+                } = rec;
+                if let Some(rem) = remainder {
+                    terminal.push(TerminalInstruction::Fill(rem.into()));
+                }
+                Ok(Self(terminal))
+            } else {
+                Err(Some(unsatisfied_fragments))
             }
-            Some(Self(terminal))
         } else {
-            None
+            Err(None)
         }
     }
+
     pub fn instructions(self) -> Vec<TerminalInstruction<Fr, Pl>> {
         self.0
     }
@@ -73,7 +78,7 @@ impl<Fr: Display, Pl: Display> Display for IntermediateRecipe<Fr, Pl> {
 
 impl<Fr: Display, Pl: Display> IntermediateRecipe<Fr, Pl>
 where
-    Fr: Fragment,
+    Fr: Fragment + Copy,
 {
     pub fn new(fr: Fr) -> Self {
         Self {
@@ -111,34 +116,19 @@ where
         terminal_fragments >= 2 || (terminal_fragments > 0 && self.remainder.is_some())
     }
 
-    pub fn is_sufficient(&self) -> bool {
-        let terminal_fills_ok = self.terminal.iter().all(|x| match x {
-            TerminalInstruction::Fill(fill) => {
-                trace!(
-                    "[terminal_fills_ok]. Checking is_sufficient for {}",
-                    fill.to_string()
-                );
-                fill.added_output >= fill.target_fr.min_marginal_output()
+    pub fn unsatisfied_fragments(&self) -> Vec<Fr> {
+        let not_ok_terminal_fills = self.terminal.iter().filter_map(|x| match x {
+            TerminalInstruction::Fill(fill) if fill.added_output < fill.target_fr.min_marginal_output() => {
+                Some(fill.target_fr)
             }
-            TerminalInstruction::Swap(_) => true,
+            _ => None,
         });
-        let non_terminal_fills_ok = self
+        let not_ok_non_terminal_fills = self
             .remainder
             .as_ref()
-            .map(|fill| {
-                trace!(
-                    "[non_terminal_fills_ok]. Checking is_sufficient for {}",
-                    fill.to_string()
-                );
-                fill.accumulated_output >= fill.target.min_marginal_output()
-            })
-            .unwrap_or(true);
-        trace!(
-            "recipe::is_sufficient: terminal_fills_ok: {}, non_terminal_fills_ok: {}",
-            terminal_fills_ok,
-            non_terminal_fills_ok
-        );
-        terminal_fills_ok && non_terminal_fills_ok
+            .filter(|fill| fill.accumulated_output < fill.target.min_marginal_output())
+            .map(|fill| fill.target);
+        not_ok_terminal_fills.chain(not_ok_non_terminal_fills).collect()
     }
 }
 

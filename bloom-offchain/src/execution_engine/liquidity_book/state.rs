@@ -1,6 +1,7 @@
 use std::collections::hash_map::Entry;
-use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
+use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::{Debug, Display, Formatter};
+use std::hash::Hash;
 use std::mem;
 use std::ops::Add;
 
@@ -11,14 +12,15 @@ use spectrum_offchain::data::Stable;
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use crate::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
+use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 use crate::execution_engine::liquidity_book::weight::Weighted;
 
-pub trait VersionedState<Fr, Pl: Stable> {
+pub(crate) trait VersionedState<Fr, Pl: Stable> {
     /// Commit preview changes.
     fn commit(&mut self) -> IdleState<Fr, Pl>;
     /// Discard preview changes.
-    fn rollback(&mut self) -> IdleState<Fr, Pl>;
+    fn rollback(&mut self, stashing_opt: StashingOption<Fr>) -> IdleState<Fr, Pl>;
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -71,6 +73,7 @@ where
 pub struct PartialPreviewState<Fr, Pl: Stable> {
     fragments_preview: Chronology<Fr>,
     consumed_active_fragments: Vec<Fr>,
+    stashed_active_fragments: Vec<Fr>,
     pools_intact: Pools<Pl>,
     pools_preview: Pools<Pl>,
 }
@@ -80,6 +83,7 @@ impl<Fr, Pl: Stable> PartialPreviewState<Fr, Pl> {
         Self {
             fragments_preview: Chronology::new(time_now),
             consumed_active_fragments: vec![],
+            stashed_active_fragments: vec![],
             pools_intact: Pools::new(),
             pools_preview: Pools::new(),
         }
@@ -88,7 +92,7 @@ impl<Fr, Pl: Stable> PartialPreviewState<Fr, Pl> {
 
 impl<Fr, Pl: Stable> VersionedState<Fr, Pl> for PartialPreviewState<Fr, Pl>
 where
-    Fr: Fragment + Ord,
+    Fr: Fragment + Ord + Hash,
 {
     fn commit(&mut self) -> IdleState<Fr, Pl> {
         trace!(target: "state", "PartialPreviewState::commit");
@@ -98,11 +102,30 @@ where
         fresh_settled_st
     }
 
-    fn rollback(&mut self) -> IdleState<Fr, Pl> {
+    fn rollback(&mut self, stashing_opt: StashingOption<Fr>) -> IdleState<Fr, Pl> {
         trace!(target: "state", "PartialPreviewState::rollback");
         // Return consumed fragments to reconstruct initial state.
+        let mut stashed_this_time = HashSet::new();
+        match stashing_opt {
+            StashingOption::Stash(mut to_stash) => {
+                self.stashed_active_fragments.append(&mut to_stash);
+                for fr in to_stash {
+                    stashed_this_time.insert(fr);
+                }
+            }
+            StashingOption::Unstash => {
+                let stashed_fragments = mem::take(&mut self.stashed_active_fragments);
+                for fr in stashed_fragments {
+                    self.fragments_preview.active.insert(fr);
+                }
+            }
+        }
         while let Some(fr) = self.consumed_active_fragments.pop() {
-            self.fragments_preview.active.insert(fr);
+            if stashed_this_time.contains(&fr) {
+                self.stashed_active_fragments.push(fr);
+            } else {
+                self.fragments_preview.active.insert(fr);
+            }
         }
         let mut fresh_idle_st = IdleState::new(0);
         // Move reconstructed initial fragments into idle state.
@@ -122,6 +145,7 @@ pub struct PreviewState<Fr, Pl: Stable> {
     fragments_intact: Chronology<Fr>,
     /// Active fragments with changes pre-applied.
     active_fragments_preview: Fragments<Fr>,
+    stashed_active_fragments: Vec<Fr>,
     /// Set of new inactive fragments.
     inactive_fragments_changeset: Vec<(u64, Fr)>,
     /// Pools before changes.
@@ -136,6 +160,7 @@ impl<Fr, Pl: Stable> PreviewState<Fr, Pl> {
             fragments_intact: Chronology::new(time_now),
             active_fragments_preview: Fragments::new(),
             inactive_fragments_changeset: vec![],
+            stashed_active_fragments: vec![],
             pools_intact: Pools::new(),
             pools_preview: Pools::new(),
         }
@@ -144,7 +169,7 @@ impl<Fr, Pl: Stable> PreviewState<Fr, Pl> {
 
 impl<Fr, Pl> VersionedState<Fr, Pl> for PreviewState<Fr, Pl>
 where
-    Fr: Fragment + Ord,
+    Fr: Fragment + Ord + Hash,
     Pl: Stable,
 {
     fn commit(&mut self) -> IdleState<Fr, Pl> {
@@ -175,8 +200,22 @@ where
         fresh_settled_st
     }
 
-    fn rollback(&mut self) -> IdleState<Fr, Pl> {
+    fn rollback(&mut self, stashing_opt: StashingOption<Fr>) -> IdleState<Fr, Pl> {
         trace!(target: "state", "PreviewState::rollback");
+        match stashing_opt {
+            StashingOption::Stash(mut to_stash) => {
+                self.stashed_active_fragments.append(&mut to_stash);
+                for fr in to_stash {
+                    self.fragments_intact.active.remove(&fr);
+                }
+            }
+            StashingOption::Unstash => {
+                let stashed_fragments = mem::take(&mut self.stashed_active_fragments);
+                for fr in stashed_fragments {
+                    self.fragments_intact.active.insert(fr);
+                }
+            }
+        }
         let mut fresh_settled_st = IdleState::new(self.fragments_intact.time_now);
         mem::swap(&mut fresh_settled_st.fragments, &mut self.fragments_intact);
         mem::swap(&mut fresh_settled_st.pools, &mut self.pools_intact);
@@ -748,6 +787,13 @@ where
         };
     }
 
+    pub fn remove(&mut self, fr: &Fr) {
+        match fr.side() {
+            SideM::Bid => self.bids.remove(fr),
+            SideM::Ask => self.asks.remove(fr),
+        };
+    }
+
     pub fn show_state(&self) -> String
     where
         Fr: Display,
@@ -820,7 +866,9 @@ pub mod tests {
     use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
     use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
-    use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, TLBState, VersionedState};
+    use crate::execution_engine::liquidity_book::state::{
+        IdleState, PoolQuality, StashingOption, TLBState, VersionedState,
+    };
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::{
         AbsolutePrice, ExBudgetUsed, ExCostUnits, ExFeeUsed, OutputAsset,
@@ -1014,7 +1062,7 @@ pub mod tests {
         assert!(matches!(state.pick_best_fr_either(None), Some(_)));
         match state {
             TLBState::Preview(mut s1) => {
-                let s2 = s1.rollback();
+                let s2 = s1.rollback(StashingOption::Unstash);
                 assert_eq!(s2.fragments, s0_copy.fragments);
                 assert_eq!(s2.pools, s0_copy.pools);
             }
@@ -1037,7 +1085,7 @@ pub mod tests {
         assert!(matches!(state.pick_best_fr_either(None), Some(_)));
         match state {
             TLBState::PartialPreview(mut s1) => {
-                let s2 = s1.rollback();
+                let s2 = s1.rollback(StashingOption::Unstash);
                 assert_eq!(s2.fragments, s0_copy.fragments);
                 assert_eq!(s2.pools, s0_copy.pools);
             }
