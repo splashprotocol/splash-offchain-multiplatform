@@ -20,7 +20,7 @@ use crate::execution_engine::liquidity_book::recipe::{
 use crate::execution_engine::liquidity_book::side::Side::{Ask, Bid};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
-use crate::execution_engine::liquidity_book::state::{IdleState, TLBState, VersionedState};
+use crate::execution_engine::liquidity_book::state::{IdleState, TLBState};
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, RelativePrice};
 use crate::execution_engine::types::Time;
 
@@ -99,7 +99,7 @@ impl<Fr, Pl: Stable, U> TLB<Fr, Pl, U> {
 
 impl<Fr, Pl, U> TLB<Fr, Pl, U>
 where
-    Fr: Fragment<U = U> + OrderState + Ord + Copy + Debug,
+    Fr: Fragment<U = U> + OrderState + Ord + Hash + Copy + Debug,
     Pl: Pool + Stable + Copy,
     U: PartialOrd,
 {
@@ -287,35 +287,11 @@ where
     Pl: Pool + Stable + Copy,
 {
     fn on_recipe_succeeded(&mut self) {
-        match &mut self.state {
-            TLBState::PartialPreview(st) => {
-                trace!(target: "tlb", "TLBState::PartialPreview: recipe succeeded");
-                let new_st = st.commit();
-                mem::swap(&mut self.state, &mut TLBState::Idle(new_st));
-            }
-            TLBState::Preview(st) => {
-                trace!(target: "tlb", "TLBState::Preview: recipe succeeded");
-                let new_st = st.commit();
-                mem::swap(&mut self.state, &mut TLBState::Idle(new_st));
-            }
-            TLBState::Idle(_) => {}
-        }
+        self.state.commit();
     }
 
     fn on_recipe_failed(&mut self, stashing_opt: StashingOption<Fr>) {
-        match &mut self.state {
-            TLBState::PartialPreview(st) => {
-                trace!(target: "tlb", "TLBState::PartialPreview: recipe failed");
-                let new_st = st.rollback(stashing_opt);
-                mem::swap(&mut self.state, &mut TLBState::Idle(new_st));
-            }
-            TLBState::Preview(st) => {
-                trace!(target: "tlb", "TLBState::Preview: recipe failed");
-                let new_st = st.rollback(stashing_opt);
-                mem::swap(&mut self.state, &mut TLBState::Idle(new_st));
-            }
-            TLBState::Idle(_) => {}
-        }
+        self.state.rollback(stashing_opt);
     }
 }
 
