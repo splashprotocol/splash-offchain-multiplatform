@@ -1,16 +1,15 @@
 use std::collections::HashSet;
 use std::fmt::{Debug, Display};
+use std::hash::Hash;
 use std::mem;
 use std::ops::{Sub, SubAssign};
 
 use either::Either;
-use isahc::http::Uri;
 use log::trace;
 use num_rational::Ratio;
 use primitive_types::U256;
 
 use spectrum_offchain::data::{Has, Stable};
-use spectrum_offchain::health_alert::{HealthAlertClient, SlackHealthAlert};
 use spectrum_offchain::maker::Maker;
 
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
@@ -20,17 +19,17 @@ use crate::execution_engine::liquidity_book::recipe::{
 };
 use crate::execution_engine::liquidity_book::side::Side::{Ask, Bid};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
-use crate::execution_engine::liquidity_book::state::{IdleState, TLBState, VersionedState};
+use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
+use crate::execution_engine::liquidity_book::state::{IdleState, TLBState};
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, RelativePrice};
 use crate::execution_engine::types::Time;
-use isahc::HttpClient;
-use tokio::runtime::Runtime;
 
 pub mod fragment;
 pub mod interpreter;
 pub mod pool;
 pub mod recipe;
 pub mod side;
+pub mod stashing_option;
 mod state;
 pub mod time;
 pub mod types;
@@ -58,7 +57,7 @@ pub trait ExternalTLBEvents<Fr, Pl> {
 /// TLB API for feedback events affecting its state.
 pub trait TLBFeedback<Fr, Pl> {
     fn on_recipe_succeeded(&mut self);
-    fn on_recipe_failed(&mut self);
+    fn on_recipe_failed(&mut self, stashing_opt: StashingOption<Fr>);
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -118,114 +117,124 @@ where
     U: PartialOrd + SubAssign + Sub<Output = U> + Copy + Debug,
 {
     fn attempt(&mut self) -> Option<ExecutionRecipe<Fr, Pl>> {
-        let mut recipe: IntermediateRecipe<Fr, Pl> = IntermediateRecipe::empty();
-        let mut pools_used = HashSet::new();
-        let mut execution_units_left = self.execution_cap.hard;
-        while execution_units_left > self.execution_cap.safe_threshold() {
-            let reference_static_price = self.state.best_pool_price();
-            if let Some(best_fr) = self.state.pick_best_fr_either(reference_static_price) {
-                trace!("Best fragment: {}", best_fr);
-                recipe.set_remainder(PartialFill::empty(best_fr));
-                loop {
-                    if let Some(rem) = &recipe.remainder {
-                        trace!(
-                            "ExUnits left: {:?}, safe threshold: {:?}",
-                            execution_units_left,
-                            self.execution_cap.safe_threshold()
-                        );
-                        if execution_units_left > self.execution_cap.safe_threshold() {
-                            let target_side = rem.target.side();
-                            let target_price = target_side.wrap(rem.target.price());
-                            let price_fragments = self.state.best_fr_price(!target_side);
-                            let maybe_best_pool =
-                                self.state.try_select_pool(target_side.wrap(rem.remaining_input));
+        loop {
+            let mut recipe: IntermediateRecipe<Fr, Pl> = IntermediateRecipe::empty();
+            let mut pools_used = HashSet::new();
+            let mut execution_units_left = self.execution_cap.hard;
+            while execution_units_left > self.execution_cap.safe_threshold() {
+                let reference_static_price = self.state.best_pool_price();
+                if let Some(best_fr) = self.state.pick_best_fr_either(reference_static_price) {
+                    trace!("Best fragment: {}", best_fr);
+                    recipe.set_remainder(PartialFill::empty(best_fr));
+                    loop {
+                        if let Some(rem) = &recipe.remainder {
                             trace!(
-                                "Attempting to matchmake. P[fragment]: {}, P[pool]: {}",
-                                price_fragments
-                                    .map(|p| p.to_string())
-                                    .unwrap_or("empty".to_string()),
-                                maybe_best_pool
-                                    .map(|(p, _)| p.to_string())
-                                    .unwrap_or("empty".to_string())
+                                "ExUnits left: {:?}, safe threshold: {:?}",
+                                execution_units_left,
+                                self.execution_cap.safe_threshold()
                             );
-                            trace!("Attempting to matchmake. TLB: {:?}", self.state.show_state());
-                            // todo: dirty hack.
-                            if maybe_best_pool.is_none() {
-                                self.on_recipe_failed();
-                                return None;
-                            }
-                            match (maybe_best_pool, price_fragments) {
-                                (price_in_pools, Some(price_in_fragments))
-                                    if maybe_best_pool
-                                        .map(|(p, _)| price_in_fragments.better_than(p))
-                                        .unwrap_or(true) =>
-                                {
-                                    if let Some(opposite_fr) = self.state.try_pick_fr(!target_side, |fr| {
-                                        target_price.overlaps(fr.price())
-                                            && fr.marginal_cost_hint() <= execution_units_left
-                                    }) {
-                                        trace!("Matched with fragment: {}", opposite_fr);
-                                        execution_units_left -= opposite_fr.marginal_cost_hint();
-                                        let make_match = |x: &Fr, y: &Fr| {
-                                            let (ask, bid) = match x.side() {
-                                                SideM::Bid => (y, x),
-                                                SideM::Ask => (x, y),
+                            if execution_units_left > self.execution_cap.safe_threshold() {
+                                let target_side = rem.target.side();
+                                let target_price = target_side.wrap(rem.target.price());
+                                let price_fragments = self.state.best_fr_price(!target_side);
+                                let maybe_best_pool =
+                                    self.state.try_select_pool(target_side.wrap(rem.remaining_input));
+                                trace!(
+                                    "Attempting to matchmake. P[fragment]: {}, P[pool]: {}",
+                                    price_fragments
+                                        .map(|p| p.to_string())
+                                        .unwrap_or("empty".to_string()),
+                                    maybe_best_pool
+                                        .map(|(p, _)| p.to_string())
+                                        .unwrap_or("empty".to_string())
+                                );
+                                trace!("Attempting to matchmake. TLB: {:?}", self.state.show_state());
+                                // todo: temporarily disables matchmaking in the absence of a pool.
+                                if maybe_best_pool.is_none() {
+                                    self.on_recipe_failed(StashingOption::Unstash);
+                                    return None;
+                                }
+                                match (maybe_best_pool, price_fragments) {
+                                    (price_in_pools, Some(price_in_fragments))
+                                        if maybe_best_pool
+                                            .map(|(p, _)| price_in_fragments.better_than(p))
+                                            .unwrap_or(true) =>
+                                    {
+                                        if let Some(opposite_fr) =
+                                            self.state.try_pick_fr(!target_side, |fr| {
+                                                target_price.overlaps(fr.price())
+                                                    && fr.marginal_cost_hint() <= execution_units_left
+                                            })
+                                        {
+                                            trace!("Matched with fragment: {}", opposite_fr);
+                                            execution_units_left -= opposite_fr.marginal_cost_hint();
+                                            let make_match = |x: &Fr, y: &Fr| {
+                                                let (ask, bid) = match x.side() {
+                                                    SideM::Bid => (y, x),
+                                                    SideM::Ask => (x, y),
+                                                };
+                                                settle_price(ask, bid, price_in_pools.map(|(p, _)| p))
                                             };
-                                            settle_price(ask, bid, price_in_pools.map(|(p, _)| p))
-                                        };
-                                        match fill_from_fragment(*rem, opposite_fr, make_match) {
-                                            FillFromFragment {
-                                                term_fill_lt,
-                                                fill_rt: Either::Left(term_fill_rt),
-                                            } => {
-                                                recipe.push(TerminalInstruction::Fill(term_fill_lt));
-                                                recipe.terminate(TerminalInstruction::Fill(term_fill_rt));
-                                                self.on_transition(term_fill_lt.next_fr);
-                                                self.on_transition(term_fill_rt.next_fr);
-                                            }
-                                            FillFromFragment {
-                                                term_fill_lt,
-                                                fill_rt: Either::Right(partial),
-                                            } => {
-                                                recipe.push(TerminalInstruction::Fill(term_fill_lt));
-                                                recipe.set_remainder(partial);
-                                                self.on_transition(term_fill_lt.next_fr);
-                                                continue;
+                                            match fill_from_fragment(*rem, opposite_fr, make_match) {
+                                                FillFromFragment {
+                                                    term_fill_lt,
+                                                    fill_rt: Either::Left(term_fill_rt),
+                                                } => {
+                                                    recipe.push(TerminalInstruction::Fill(term_fill_lt));
+                                                    recipe.terminate(TerminalInstruction::Fill(term_fill_rt));
+                                                    self.on_transition(term_fill_lt.next_fr);
+                                                    self.on_transition(term_fill_rt.next_fr);
+                                                }
+                                                FillFromFragment {
+                                                    term_fill_lt,
+                                                    fill_rt: Either::Right(partial),
+                                                } => {
+                                                    recipe.push(TerminalInstruction::Fill(term_fill_lt));
+                                                    recipe.set_remainder(partial);
+                                                    self.on_transition(term_fill_lt.next_fr);
+                                                    continue;
+                                                }
                                             }
                                         }
                                     }
-                                }
-                                (Some((price_in_pool, pool_id)), _)
-                                    if target_price.overlaps(price_in_pool) =>
-                                {
-                                    trace!("Matched with AMM pool {}", pool_id);
-                                    if let Some(pool) = self.state.take_pool(&pool_id) {
-                                        if !pools_used.insert(&pool_id) {
-                                            execution_units_left -= pool.marginal_cost_hint();
+                                    (Some((price_in_pool, pool_id)), _)
+                                        if target_price.overlaps(price_in_pool) =>
+                                    {
+                                        trace!("Matched with AMM pool {}", pool_id);
+                                        if let Some(pool) = self.state.take_pool(&pool_id) {
+                                            if !pools_used.insert(&pool_id) {
+                                                execution_units_left -= pool.marginal_cost_hint();
+                                            }
+                                            let FillFromPool { term_fill, swap } = fill_from_pool(*rem, pool);
+                                            recipe.push(TerminalInstruction::Swap(swap));
+                                            recipe.terminate(TerminalInstruction::Fill(term_fill));
+                                            self.on_transition(term_fill.next_fr);
+                                            self.state.pre_add_pool(swap.transition);
                                         }
-                                        let FillFromPool { term_fill, swap } = fill_from_pool(*rem, pool);
-                                        recipe.push(TerminalInstruction::Swap(swap));
-                                        recipe.terminate(TerminalInstruction::Fill(term_fill));
-                                        self.on_transition(term_fill.next_fr);
-                                        self.state.pre_add_pool(swap.transition);
                                     }
-                                }
-                                _ => {
-                                    trace!("Finishing matchmaking attempt");
+                                    _ => {
+                                        trace!("Finishing matchmaking attempt");
+                                    }
                                 }
                             }
                         }
+                        break;
                     }
-                    break;
+                }
+                break;
+            }
+            match ExecutionRecipe::try_from(recipe) {
+                Ok(ex_recipe) => return Some(ex_recipe),
+                Err(None) => {
+                    self.on_recipe_failed(StashingOption::Unstash);
+                    return None;
+                }
+                Err(Some(unsatisfied_fragments)) => {
+                    self.on_recipe_failed(StashingOption::Stash(unsatisfied_fragments));
+                    continue;
                 }
             }
-            break;
         }
-        if let Some(ex_recipe) = ExecutionRecipe::try_from(recipe) {
-            return Some(ex_recipe);
-        }
-        self.on_recipe_failed();
-        None
     }
 }
 
@@ -278,35 +287,11 @@ where
     Pl: Pool + Stable + Copy,
 {
     fn on_recipe_succeeded(&mut self) {
-        match &mut self.state {
-            TLBState::Idle(_) => {}
-            TLBState::PartialPreview(st) => {
-                trace!(target: "tlb", "TLBState::PartialPreview: recipe succeeded");
-                let new_st = st.commit();
-                mem::swap(&mut self.state, &mut TLBState::Idle(new_st));
-            }
-            TLBState::Preview(st) => {
-                trace!(target: "tlb", "TLBState::Preview: recipe succeeded");
-                let new_st = st.commit();
-                mem::swap(&mut self.state, &mut TLBState::Idle(new_st));
-            }
-        }
+        self.state.commit();
     }
 
-    fn on_recipe_failed(&mut self) {
-        match &mut self.state {
-            TLBState::Idle(_) => {}
-            TLBState::PartialPreview(st) => {
-                trace!(target: "tlb", "TLBState::PartialPreview: recipe failed");
-                let new_st = st.rollback();
-                mem::swap(&mut self.state, &mut TLBState::Idle(new_st));
-            }
-            TLBState::Preview(st) => {
-                trace!(target: "tlb", "TLBState::Preview: recipe failed");
-                let new_st = st.rollback();
-                mem::swap(&mut self.state, &mut TLBState::Idle(new_st));
-            }
-        }
+    fn on_recipe_failed(&mut self, stashing_opt: StashingOption<Fr>) {
+        self.state.rollback(stashing_opt);
     }
 }
 
@@ -620,7 +605,7 @@ mod tests {
             ],
             remainder: None,
         };
-        assert_eq!(recipe, ExecutionRecipe::try_from(expected_recipe));
+        assert_eq!(recipe, ExecutionRecipe::try_from(expected_recipe).ok());
     }
 
     #[test]

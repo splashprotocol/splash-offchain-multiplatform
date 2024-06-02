@@ -42,6 +42,7 @@ use crate::execution_engine::multi_pair::MultiPair;
 use crate::execution_engine::resolver::resolve_source_state;
 use crate::execution_engine::storage::kv_store::KvStore;
 use crate::execution_engine::storage::StateIndex;
+use liquidity_book::stashing_option::StashingOption;
 
 pub mod backlog;
 pub mod batch_exec;
@@ -510,7 +511,9 @@ where
                             if let Ok(missing_bearers) = err.try_into() {
                                 match pending_effects {
                                     PendingEffects::FromLiquidityBook(_) => {
-                                        self.multi_book.get_mut(&pair).on_recipe_failed();
+                                        self.multi_book
+                                            .get_mut(&pair)
+                                            .on_recipe_failed(StashingOption::Unstash);
                                     }
                                     PendingEffects::FromBacklog(_, Bundled(order, br)) => {
                                         let order_ref = order.get_self_ref();
@@ -526,7 +529,9 @@ where
                                 warn!("Unknown Tx submission error!");
                                 match pending_effects {
                                     PendingEffects::FromLiquidityBook(_) => {
-                                        self.multi_book.get_mut(&pair).on_recipe_failed();
+                                        self.multi_book
+                                            .get_mut(&pair)
+                                            .on_recipe_failed(StashingOption::Unstash);
                                     }
                                     PendingEffects::FromBacklog(_, order) => {
                                         self.multi_backlog.get_mut(&pair).recharge(order);

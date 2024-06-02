@@ -1,8 +1,10 @@
 use std::collections::hash_map::Entry;
-use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
+use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::{Debug, Display, Formatter};
+use std::hash::Hash;
 use std::mem;
 use std::ops::Add;
+use either::{Either, Left, Right};
 
 use log::trace;
 
@@ -11,15 +13,9 @@ use spectrum_offchain::data::Stable;
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use crate::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
+use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 use crate::execution_engine::liquidity_book::weight::Weighted;
-
-pub trait VersionedState<Fr, Pl: Stable> {
-    /// Commit preview changes.
-    fn commit(&mut self) -> IdleState<Fr, Pl>;
-    /// Discard preview changes.
-    fn rollback(&mut self) -> IdleState<Fr, Pl>;
-}
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 /// State with no uncommitted changes.
@@ -71,6 +67,7 @@ where
 pub struct PartialPreviewState<Fr, Pl: Stable> {
     fragments_preview: Chronology<Fr>,
     consumed_active_fragments: Vec<Fr>,
+    stashed_active_fragments: Vec<Fr>,
     pools_intact: Pools<Pl>,
     pools_preview: Pools<Pl>,
 }
@@ -80,13 +77,14 @@ impl<Fr, Pl: Stable> PartialPreviewState<Fr, Pl> {
         Self {
             fragments_preview: Chronology::new(time_now),
             consumed_active_fragments: vec![],
+            stashed_active_fragments: vec![],
             pools_intact: Pools::new(),
             pools_preview: Pools::new(),
         }
     }
 }
 
-impl<Fr, Pl: Stable> VersionedState<Fr, Pl> for PartialPreviewState<Fr, Pl>
+impl<Fr, Pl: Stable> PartialPreviewState<Fr, Pl>
 where
     Fr: Fragment + Ord,
 {
@@ -98,17 +96,40 @@ where
         fresh_settled_st
     }
 
-    fn rollback(&mut self) -> IdleState<Fr, Pl> {
+    fn rollback(&mut self, stashing_opt: StashingOption<Fr>) -> Either<IdleState<Fr, Pl>, PartialPreviewState<Fr, Pl>> {
         trace!(target: "state", "PartialPreviewState::rollback");
         // Return consumed fragments to reconstruct initial state.
         while let Some(fr) = self.consumed_active_fragments.pop() {
             self.fragments_preview.active.insert(fr);
         }
-        let mut fresh_idle_st = IdleState::new(0);
-        // Move reconstructed initial fragments into idle state.
-        mem::swap(&mut self.fragments_preview, &mut fresh_idle_st.fragments);
-        mem::swap(&mut self.pools_intact, &mut fresh_idle_st.pools);
-        fresh_idle_st
+        match stashing_opt {
+            StashingOption::Stash(mut to_stash) => {
+                for fr in &to_stash {
+                    self.fragments_preview.active.remove(fr);
+                }
+                self.stashed_active_fragments.append(&mut to_stash);
+            }
+            StashingOption::Unstash => {
+                let stashed_fragments = mem::take(&mut self.stashed_active_fragments);
+                for fr in stashed_fragments {
+                    self.fragments_preview.active.insert(fr);
+                }
+            }
+        }
+        if self.stashed_active_fragments.is_empty() {
+            let mut fresh_idle_st = IdleState::new(0);
+            // Move reconstructed initial fragments into idle state.
+            mem::swap(&mut self.fragments_preview, &mut fresh_idle_st.fragments);
+            mem::swap(&mut self.pools_intact, &mut fresh_idle_st.pools);
+            Left(fresh_idle_st)
+        } else {
+            let mut fresh_preview_st = PartialPreviewState::new(self.fragments_preview.time_now);
+            // Move reconstructed initial fragments into idle state.
+            mem::swap(&mut self.fragments_preview, &mut fresh_preview_st.fragments_preview);
+            mem::swap(&mut self.stashed_active_fragments, &mut fresh_preview_st.stashed_active_fragments);
+            mem::swap(&mut self.pools_intact, &mut fresh_preview_st.pools_intact);
+            Right(fresh_preview_st)
+        }
     }
 }
 
@@ -122,6 +143,7 @@ pub struct PreviewState<Fr, Pl: Stable> {
     fragments_intact: Chronology<Fr>,
     /// Active fragments with changes pre-applied.
     active_fragments_preview: Fragments<Fr>,
+    stashed_active_fragments: Vec<Fr>,
     /// Set of new inactive fragments.
     inactive_fragments_changeset: Vec<(u64, Fr)>,
     /// Pools before changes.
@@ -136,13 +158,14 @@ impl<Fr, Pl: Stable> PreviewState<Fr, Pl> {
             fragments_intact: Chronology::new(time_now),
             active_fragments_preview: Fragments::new(),
             inactive_fragments_changeset: vec![],
+            stashed_active_fragments: vec![],
             pools_intact: Pools::new(),
             pools_preview: Pools::new(),
         }
     }
 }
 
-impl<Fr, Pl> VersionedState<Fr, Pl> for PreviewState<Fr, Pl>
+impl<Fr, Pl> PreviewState<Fr, Pl>
 where
     Fr: Fragment + Ord,
     Pl: Stable,
@@ -175,12 +198,34 @@ where
         fresh_settled_st
     }
 
-    fn rollback(&mut self) -> IdleState<Fr, Pl> {
+    fn rollback(&mut self, stashing_opt: StashingOption<Fr>) -> Either<IdleState<Fr, Pl>, PartialPreviewState<Fr, Pl>> {
         trace!(target: "state", "PreviewState::rollback");
-        let mut fresh_settled_st = IdleState::new(self.fragments_intact.time_now);
-        mem::swap(&mut fresh_settled_st.fragments, &mut self.fragments_intact);
-        mem::swap(&mut fresh_settled_st.pools, &mut self.pools_intact);
-        fresh_settled_st
+        match stashing_opt {
+            StashingOption::Stash(mut to_stash) => {
+                for fr in &to_stash {
+                    self.fragments_intact.active.remove(&fr);
+                }
+                self.stashed_active_fragments.append(&mut to_stash);
+            }
+            StashingOption::Unstash => {
+                let stashed_fragments = mem::take(&mut self.stashed_active_fragments);
+                for fr in stashed_fragments {
+                    self.fragments_intact.active.insert(fr);
+                }
+            }
+        }
+        if self.stashed_active_fragments.is_empty() {
+            let mut fresh_settled_st = IdleState::new(self.fragments_intact.time_now);
+            mem::swap(&mut fresh_settled_st.fragments, &mut self.fragments_intact);
+            mem::swap(&mut fresh_settled_st.pools, &mut self.pools_intact);
+            Left(fresh_settled_st)
+        } else {
+            let mut fresh_settled_st = PartialPreviewState::new(self.fragments_intact.time_now);
+            mem::swap(&mut fresh_settled_st.fragments_preview, &mut self.fragments_intact);
+            mem::swap(&mut fresh_settled_st.stashed_active_fragments, &mut self.stashed_active_fragments);
+            mem::swap(&mut fresh_settled_st.pools_intact, &mut self.pools_intact);
+            Right(fresh_settled_st)
+        }
     }
 }
 
@@ -256,6 +301,38 @@ where
     Fr: Fragment + Ord + Copy,
     Pl: Stable + Copy,
 {
+    pub fn commit(&mut self) {
+        match self {
+            TLBState::PartialPreview(st) => {
+                trace!(target: "tlb", "TLBState::PartialPreview: recipe succeeded");
+                let new_st = st.commit();
+                mem::swap(self, &mut TLBState::Idle(new_st));
+            }
+            TLBState::Preview(st) => {
+                trace!(target: "tlb", "TLBState::Preview: recipe succeeded");
+                let new_st = st.commit();
+                mem::swap(self, &mut TLBState::Idle(new_st));
+            }
+            TLBState::Idle(_) => {}
+        }
+    }
+
+    pub fn rollback(&mut self, stashing_opt: StashingOption<Fr>) {
+        match self {
+            TLBState::PartialPreview(st) => {
+                trace!(target: "tlb", "TLBState::PartialPreview: recipe failed");
+                let mut new_st = st.rollback(stashing_opt).either(TLBState::Idle, TLBState::PartialPreview);
+                mem::swap(self, &mut new_st);
+            }
+            TLBState::Preview(st) => {
+                trace!(target: "tlb", "TLBState::Preview: recipe failed");
+                let mut new_st = st.rollback(stashing_opt).either(TLBState::Idle, TLBState::PartialPreview);
+                mem::swap(self, &mut new_st);
+            }
+            TLBState::Idle(_) => {}
+        }
+    }
+
     fn move_into_partial_preview(&mut self, target: &mut PartialPreviewState<Fr, Pl>) {
         match self {
             // Transit into PartialPreview if state is untouched yet
@@ -748,6 +825,13 @@ where
         };
     }
 
+    pub fn remove(&mut self, fr: &Fr) {
+        match fr.side() {
+            SideM::Bid => self.bids.remove(fr),
+            SideM::Ask => self.asks.remove(fr),
+        };
+    }
+
     pub fn show_state(&self) -> String
     where
         Fr: Display,
@@ -814,13 +898,14 @@ where
 pub mod tests {
     use std::cmp::Ordering;
     use std::fmt::{Debug, Display, Formatter};
+    use either::Left;
 
     use spectrum_offchain::data::Stable;
 
     use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
     use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
-    use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, TLBState, VersionedState};
+    use crate::execution_engine::liquidity_book::state::{Fragments, IdleState, PoolQuality, StashingOption, TLBState};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::{
         AbsolutePrice, ExBudgetUsed, ExCostUnits, ExFeeUsed, OutputAsset,
@@ -1014,9 +1099,12 @@ pub mod tests {
         assert!(matches!(state.pick_best_fr_either(None), Some(_)));
         match state {
             TLBState::Preview(mut s1) => {
-                let s2 = s1.rollback();
-                assert_eq!(s2.fragments, s0_copy.fragments);
-                assert_eq!(s2.pools, s0_copy.pools);
+                if let Left(s2) = s1.rollback(StashingOption::Unstash) {
+                    assert_eq!(s2.fragments, s0_copy.fragments);
+                    assert_eq!(s2.pools, s0_copy.pools);
+                } else {
+                    panic!()
+                }
             }
             _ => panic!(),
         }
@@ -1037,12 +1125,30 @@ pub mod tests {
         assert!(matches!(state.pick_best_fr_either(None), Some(_)));
         match state {
             TLBState::PartialPreview(mut s1) => {
-                let s2 = s1.rollback();
-                assert_eq!(s2.fragments, s0_copy.fragments);
-                assert_eq!(s2.pools, s0_copy.pools);
+                if let Left(s2) = s1.rollback(StashingOption::Unstash) {
+                    assert_eq!(s2.fragments, s0_copy.fragments);
+                    assert_eq!(s2.pools, s0_copy.pools);
+                } else {
+                    panic!()
+                }
             }
             _ => panic!(),
         }
+    }
+
+    #[test]
+    fn stash_unstash() {
+        let time_now = 1000u64;
+        let o2 = SimpleOrderPF::default_with_bounds(TimeBounds::None);
+        let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
+        s0.fragments.add_fragment(o2);
+        let mut state = TLBState::Idle(s0);
+        state.commit();
+        assert_eq!(state.pick_best_fr_either(None), Some(o2));
+        state.rollback(StashingOption::Stash(vec![o2]));
+        assert_eq!(state.pick_best_fr_either(None), None);
+        state.rollback(StashingOption::Unstash);
+        assert_eq!(state.pick_best_fr_either(None), Some(o2));
     }
 
     /// Order that supports partial filling.
