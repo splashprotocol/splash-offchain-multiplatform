@@ -47,5 +47,9 @@
   "ledgerBufferingDuration": {
     "secs": 0,
     "nanos": 50000
+  },
+  "partitioning": {
+    "numPartitionsTotal": 1,
+    "ownPartitionIndex": 0
   }
 }

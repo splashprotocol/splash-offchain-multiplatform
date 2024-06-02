@@ -1,10 +1,10 @@
+use either::{Either, Left, Right};
 use std::collections::hash_map::Entry;
 use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::mem;
 use std::ops::Add;
-use either::{Either, Left, Right};
 
 use log::trace;
 
@@ -96,7 +96,10 @@ where
         fresh_settled_st
     }
 
-    fn rollback(&mut self, stashing_opt: StashingOption<Fr>) -> Either<IdleState<Fr, Pl>, PartialPreviewState<Fr, Pl>> {
+    fn rollback(
+        &mut self,
+        stashing_opt: StashingOption<Fr>,
+    ) -> Either<IdleState<Fr, Pl>, PartialPreviewState<Fr, Pl>> {
         trace!(target: "state", "PartialPreviewState::rollback");
         // Return consumed fragments to reconstruct initial state.
         while let Some(fr) = self.consumed_active_fragments.pop() {
@@ -125,8 +128,14 @@ where
         } else {
             let mut fresh_preview_st = PartialPreviewState::new(self.fragments_preview.time_now);
             // Move reconstructed initial fragments into idle state.
-            mem::swap(&mut self.fragments_preview, &mut fresh_preview_st.fragments_preview);
-            mem::swap(&mut self.stashed_active_fragments, &mut fresh_preview_st.stashed_active_fragments);
+            mem::swap(
+                &mut self.fragments_preview,
+                &mut fresh_preview_st.fragments_preview,
+            );
+            mem::swap(
+                &mut self.stashed_active_fragments,
+                &mut fresh_preview_st.stashed_active_fragments,
+            );
             mem::swap(&mut self.pools_intact, &mut fresh_preview_st.pools_intact);
             Right(fresh_preview_st)
         }
@@ -198,7 +207,10 @@ where
         fresh_settled_st
     }
 
-    fn rollback(&mut self, stashing_opt: StashingOption<Fr>) -> Either<IdleState<Fr, Pl>, PartialPreviewState<Fr, Pl>> {
+    fn rollback(
+        &mut self,
+        stashing_opt: StashingOption<Fr>,
+    ) -> Either<IdleState<Fr, Pl>, PartialPreviewState<Fr, Pl>> {
         trace!(target: "state", "PreviewState::rollback");
         match stashing_opt {
             StashingOption::Stash(mut to_stash) => {
@@ -221,8 +233,14 @@ where
             Left(fresh_settled_st)
         } else {
             let mut fresh_settled_st = PartialPreviewState::new(self.fragments_intact.time_now);
-            mem::swap(&mut fresh_settled_st.fragments_preview, &mut self.fragments_intact);
-            mem::swap(&mut fresh_settled_st.stashed_active_fragments, &mut self.stashed_active_fragments);
+            mem::swap(
+                &mut fresh_settled_st.fragments_preview,
+                &mut self.fragments_intact,
+            );
+            mem::swap(
+                &mut fresh_settled_st.stashed_active_fragments,
+                &mut self.stashed_active_fragments,
+            );
             mem::swap(&mut fresh_settled_st.pools_intact, &mut self.pools_intact);
             Right(fresh_settled_st)
         }
@@ -321,12 +339,16 @@ where
         match self {
             TLBState::PartialPreview(st) => {
                 trace!(target: "tlb", "TLBState::PartialPreview: recipe failed");
-                let mut new_st = st.rollback(stashing_opt).either(TLBState::Idle, TLBState::PartialPreview);
+                let mut new_st = st
+                    .rollback(stashing_opt)
+                    .either(TLBState::Idle, TLBState::PartialPreview);
                 mem::swap(self, &mut new_st);
             }
             TLBState::Preview(st) => {
                 trace!(target: "tlb", "TLBState::Preview: recipe failed");
-                let mut new_st = st.rollback(stashing_opt).either(TLBState::Idle, TLBState::PartialPreview);
+                let mut new_st = st
+                    .rollback(stashing_opt)
+                    .either(TLBState::Idle, TLBState::PartialPreview);
                 mem::swap(self, &mut new_st);
             }
             TLBState::Idle(_) => {}
@@ -896,16 +918,18 @@ where
 
 #[cfg(test)]
 pub mod tests {
+    use either::Left;
     use std::cmp::Ordering;
     use std::fmt::{Debug, Display, Formatter};
-    use either::Left;
 
     use spectrum_offchain::data::Stable;
 
     use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
     use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
-    use crate::execution_engine::liquidity_book::state::{Fragments, IdleState, PoolQuality, StashingOption, TLBState};
+    use crate::execution_engine::liquidity_book::state::{
+        Fragments, IdleState, PoolQuality, StashingOption, TLBState,
+    };
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::{
         AbsolutePrice, ExBudgetUsed, ExCostUnits, ExFeeUsed, OutputAsset,
