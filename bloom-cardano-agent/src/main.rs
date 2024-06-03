@@ -167,6 +167,7 @@ async fn main() {
     let handler_context = HandlerContextProto {
         executor_cred: operator_cred,
         scripts: ProtocolScriptHashes::from(&protocol_deployment),
+        partitioning: config.partitioning,
         bounds,
     };
     let general_upd_handler = PairUpdateHandler::new(

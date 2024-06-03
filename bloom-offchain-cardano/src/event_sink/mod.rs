@@ -26,6 +26,7 @@ use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
 use crate::orders::limit::LimitOrderBounds;
 use crate::orders::AnyOrder;
+use crate::orders::partitioning::Partitioning;
 
 pub mod context;
 pub mod entity_index;
@@ -119,7 +120,8 @@ where
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
         + Has<LimitOrderBounds>
         + Has<DepositOrderBounds>
-        + Has<PoolBounds>,
+        + Has<PoolBounds>
+        + Has<Partitioning>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         <Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>>::try_from_ledger(repr, ctx).map(
