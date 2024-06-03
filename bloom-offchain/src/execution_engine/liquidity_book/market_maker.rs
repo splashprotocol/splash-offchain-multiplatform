@@ -29,6 +29,9 @@ pub trait MarketMaker {
     fn quality(&self) -> PoolQuality;
     /// How much (approximately) execution of this fragment will cost.
     fn marginal_cost_hint(&self) -> Self::U;
+
+    fn available_liquidity(&self, max_price_impact: Side<Ratio<u128>>) -> (u128, u128);
+
     // Is this maker active at the moment or not.
     fn is_active(&self) -> bool;
 }
