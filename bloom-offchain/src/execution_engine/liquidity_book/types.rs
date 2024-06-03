@@ -7,6 +7,7 @@ use std::ops::Div;
 use std::str::FromStr;
 
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
+use crate::execution_engine::liquidity_book::side::Side::{Ask, Bid};
 
 pub type Lovelace = u64;
 
@@ -93,6 +94,21 @@ impl Side<AbsolutePrice> {
             Side::Bid(this) => this >= that,
             // If we compare Ask prices, then we favor the lowest price.
             Side::Ask(this) => this <= that,
+        }
+    }
+
+    // DRAFT
+    pub fn get_better_price_by_one_unit(self) -> Side<AbsolutePrice> {
+
+        let unwrapped_price = self.unwrap();
+        let updated_price_value =
+            AbsolutePrice(unwrapped_price.unwrap() - Ratio::new_raw(1, *unwrapped_price.denom()));
+
+        match self {
+            // If we compare Bid prices, then we favor the highest price.
+            Side::Bid(this) => Bid(updated_price_value),
+            // If we compare Ask prices, then we favor the lowest price.
+            Side::Ask(this) => Ask(updated_price_value)
         }
     }
 }
