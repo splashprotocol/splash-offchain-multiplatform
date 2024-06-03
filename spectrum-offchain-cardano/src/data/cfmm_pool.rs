@@ -58,7 +58,7 @@ pub struct LegacyCFMMPoolConfig {
     pub asset_y: TaggedAssetClass<Ry>,
     pub asset_lq: TaggedAssetClass<Lq>,
     pub lp_fee_num: u64,
-    pub lq_lower_bound: TaggedAmount<Lq>,
+    pub lq_lower_bound: TaggedAmount<Rx>,
 }
 
 impl TryFromPData for LegacyCFMMPoolConfig {
@@ -146,7 +146,7 @@ pub struct ConstFnPool {
     pub treasury_fee: Ratio<u64>,
     pub treasury_x: TaggedAmount<Rx>,
     pub treasury_y: TaggedAmount<Ry>,
-    pub lq_lower_bound: TaggedAmount<Lq>,
+    pub lq_lower_bound: TaggedAmount<Rx>,
     pub ver: ConstFnPoolVer,
     pub marginal_cost: ExUnits,
 }
@@ -357,6 +357,10 @@ impl Pool for ConstFnPool {
 
     fn marginal_cost_hint(&self) -> Self::U {
         self.marginal_cost
+    }
+
+    fn swaps_allowed(&self) -> bool {
+        (self.reserves_x.untag() * 2) >= self.lq_lower_bound.untag()
     }
 }
 
