@@ -496,6 +496,12 @@ impl Pool for BalancePool {
     fn marginal_cost_hint(&self) -> Self::U {
         self.marginal_cost
     }
+
+    fn swaps_allowed(&self) -> bool {
+        // balance pools do not support lq bound, so
+        // swaps allowed all time
+        true
+    }
 }
 
 impl ApplyOrder<ClassicalOnChainDeposit> for BalancePool {

@@ -17,7 +17,7 @@ pub struct FeeSwitchPoolConfig {
     pub treasury_fee_num: u64,
     pub treasury_x: u64,
     pub treasury_y: u64,
-    pub lq_lower_bound: TaggedAmount<Lq>,
+    pub lq_lower_bound: TaggedAmount<Rx>,
 }
 
 impl TryFromPData for FeeSwitchPoolConfig {

@@ -255,6 +255,13 @@ impl Pool for AnyPool {
             BalancedCFMM(p) => p.marginal_cost_hint(),
         }
     }
+
+    fn swaps_allowed(&self) -> bool {
+        match self {
+            PureCFMM(p) => p.swaps_allowed(),
+            BalancedCFMM(p) => p.swaps_allowed(),
+        }
+    }
 }
 
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for AnyPool
