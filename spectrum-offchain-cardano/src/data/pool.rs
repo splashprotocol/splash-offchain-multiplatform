@@ -18,6 +18,7 @@ use cml_chain::{Coin, PolicyId};
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
 use tracing_subscriber::filter::combinator::Or;
+use num_rational::Ratio;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality, StaticPrice};
@@ -282,6 +283,13 @@ impl Pool for AnyPool {
         match self {
             PureCFMM(p) => p.marginal_cost_hint(),
             BalancedCFMM(p) => p.marginal_cost_hint(),
+        }
+    }
+
+    fn available_liquidity(&self, target_price: Side<AbsolutePrice>) -> (u128, u128) {
+        match self {
+            PureCFMM(p) => p.available_liquidity(target_price),
+            BalancedCFMM(p) => p.available_liquidity(target_price),
         }
     }
 
