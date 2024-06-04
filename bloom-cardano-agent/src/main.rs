@@ -214,7 +214,7 @@ async fn main() {
     let uri =
         Uri::from_static("https://hooks.slack.com/services/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");
 
-    let alert_client = HealthAlertClient::new(client, uri);
+    let alert_client = HealthAlertClient::new(client, uri, config.partitioning.own_partition_index);
 
     let (signal_tip_reached_snd, signal_tip_reached_recv) = broadcast::channel(1);
 

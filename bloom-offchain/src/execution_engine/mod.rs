@@ -140,7 +140,7 @@ where
     SpecInterpreter: SpecializedInterpreter<Pool, SpecOrd, Ver, Txc, Bearer, Ctx> + Unpin + 'a,
     Prover: TxProver<Txc, Tx> + Unpin + 'a,
     Net: Network<Tx, Err> + Clone + 'a,
-    Err: TryInto<HashSet<Ver>> + Unpin + Debug + 'a,
+    Err: TryInto<HashSet<Ver>> + Unpin + Debug + Display + 'a,
 {
     let (feedback_out, feedback_in) = mpsc::channel(100);
     let executor = Executor::new(
@@ -464,7 +464,7 @@ where
     RecIr: RecipeInterpreter<CO, P, C, Ver, B, Txc> + Unpin,
     SpecIr: SpecializedInterpreter<P, SO, Ver, Txc, B, C> + Unpin,
     Prov: TxProver<Txc, Tx> + Unpin,
-    Err: TryInto<HashSet<Ver>> + Unpin + Debug,
+    Err: TryInto<HashSet<Ver>> + Unpin + Debug + Display,
 {
     type Item = Tx;
 
@@ -502,7 +502,7 @@ where
                             //todo: remove
                             let submit_res = self
                                 .alert_client
-                                .send_alert("Tx submition error")
+                                .send_alert(format!("Tx submition error: {}", err).as_str())
                                 .unwrap_or("Failure".to_string());
 
                             trace!("Alert submitting result: {}", submit_res);
@@ -623,7 +623,7 @@ where
     RecIr: RecipeInterpreter<CO, P, C, Ver, B, Txc> + Unpin,
     SpecIr: SpecializedInterpreter<P, SO, Ver, Txc, B, C> + Unpin,
     Prov: TxProver<Txc, Tx> + Unpin,
-    Err: TryInto<HashSet<Ver>> + Unpin + Debug,
+    Err: TryInto<HashSet<Ver>> + Unpin + Debug + Display,
 {
     fn is_terminated(&self) -> bool {
         false
