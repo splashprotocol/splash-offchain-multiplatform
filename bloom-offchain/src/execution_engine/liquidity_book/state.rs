@@ -87,6 +87,7 @@ impl<Fr, Pl: Stable> PartialPreviewState<Fr, Pl> {
 impl<Fr, Pl: Stable> PartialPreviewState<Fr, Pl>
 where
     Fr: Fragment + Ord,
+    Pl: Copy,
 {
     fn commit(&mut self) -> IdleState<Fr, Pl> {
         trace!(target: "state", "PartialPreviewState::commit");
@@ -113,19 +114,18 @@ where
                 self.stashed_active_fragments.append(&mut to_stash);
             }
             StashingOption::Unstash => {
-                let stashed_fragments = mem::take(&mut self.stashed_active_fragments);
-                for fr in stashed_fragments {
-                    self.fragments_preview.active.insert(fr);
-                }
+                self.unstash();
             }
         }
         if self.stashed_active_fragments.is_empty() {
+            trace!("PartialPreviewState => IdleState");
             let mut fresh_idle_st = IdleState::new(0);
             // Move reconstructed initial fragments into idle state.
             mem::swap(&mut self.fragments_preview, &mut fresh_idle_st.fragments);
             mem::swap(&mut self.pools_intact, &mut fresh_idle_st.pools);
             Left(fresh_idle_st)
         } else {
+            trace!("PartialPreviewState => PartialPreviewState[With Stash]");
             let mut fresh_preview_st = PartialPreviewState::new(self.fragments_preview.time_now);
             // Move reconstructed initial fragments into idle state.
             mem::swap(
@@ -137,7 +137,15 @@ where
                 &mut fresh_preview_st.stashed_active_fragments,
             );
             mem::swap(&mut self.pools_intact, &mut fresh_preview_st.pools_intact);
+            fresh_preview_st.pools_preview = fresh_preview_st.pools_intact.clone();
             Right(fresh_preview_st)
+        }
+    }
+
+    fn unstash(&mut self) {
+        let stashed_fragments = mem::take(&mut self.stashed_active_fragments);
+        for fr in stashed_fragments {
+            self.fragments_preview.active.insert(fr);
         }
     }
 }
@@ -177,12 +185,10 @@ impl<Fr, Pl: Stable> PreviewState<Fr, Pl> {
 impl<Fr, Pl> PreviewState<Fr, Pl>
 where
     Fr: Fragment + Ord,
-    Pl: Stable,
+    Pl: Stable + Copy,
 {
     fn commit(&mut self) -> IdleState<Fr, Pl> {
         trace!(target: "state", "PreviewState::commit");
-        // Commit pools preview if available.
-        mem::swap(&mut self.pools_intact, &mut self.pools_preview);
         // Commit active fragments preview if available.
         mem::swap(
             &mut self.fragments_intact.active,
@@ -202,16 +208,24 @@ where
             }
         }
         let mut fresh_settled_st = IdleState::new(self.fragments_intact.time_now);
+        self.unstash();
         mem::swap(&mut fresh_settled_st.fragments, &mut self.fragments_intact);
-        mem::swap(&mut fresh_settled_st.pools, &mut self.pools_intact);
+        // Commit pools preview if available.
+        mem::swap(&mut fresh_settled_st.pools, &mut self.pools_preview);
         fresh_settled_st
+    }
+
+    fn unstash(&mut self) {
+        let stashed_fragments = mem::take(&mut self.stashed_active_fragments);
+        for fr in stashed_fragments {
+            self.fragments_intact.active.insert(fr);
+        }
     }
 
     fn rollback(
         &mut self,
         stashing_opt: StashingOption<Fr>,
     ) -> Either<IdleState<Fr, Pl>, PartialPreviewState<Fr, Pl>> {
-        trace!(target: "state", "PreviewState::rollback");
         match stashing_opt {
             StashingOption::Stash(mut to_stash) => {
                 for fr in &to_stash {
@@ -220,29 +234,29 @@ where
                 self.stashed_active_fragments.append(&mut to_stash);
             }
             StashingOption::Unstash => {
-                let stashed_fragments = mem::take(&mut self.stashed_active_fragments);
-                for fr in stashed_fragments {
-                    self.fragments_intact.active.insert(fr);
-                }
+                self.unstash();
             }
         }
         if self.stashed_active_fragments.is_empty() {
+            trace!("PreviewState => IdleState");
             let mut fresh_settled_st = IdleState::new(self.fragments_intact.time_now);
             mem::swap(&mut fresh_settled_st.fragments, &mut self.fragments_intact);
             mem::swap(&mut fresh_settled_st.pools, &mut self.pools_intact);
             Left(fresh_settled_st)
         } else {
-            let mut fresh_settled_st = PartialPreviewState::new(self.fragments_intact.time_now);
+            trace!("PreviewState => PartialPreviewState[With Stash]");
+            let mut fresh_preview_st = PartialPreviewState::new(self.fragments_intact.time_now);
             mem::swap(
-                &mut fresh_settled_st.fragments_preview,
+                &mut fresh_preview_st.fragments_preview,
                 &mut self.fragments_intact,
             );
             mem::swap(
-                &mut fresh_settled_st.stashed_active_fragments,
+                &mut fresh_preview_st.stashed_active_fragments,
                 &mut self.stashed_active_fragments,
             );
-            mem::swap(&mut fresh_settled_st.pools_intact, &mut self.pools_intact);
-            Right(fresh_settled_st)
+            mem::swap(&mut fresh_preview_st.pools_intact, &mut self.pools_intact);
+            fresh_preview_st.pools_preview = fresh_preview_st.pools_intact.clone();
+            Right(fresh_preview_st)
         }
     }
 }
@@ -364,7 +378,7 @@ where
                 mem::swap(&mut target.fragments_preview, &mut st.fragments);
                 mem::swap(&mut target.pools_intact, &mut st.pools);
                 // Initialize pools preview with a copy of untouched pools.
-                mem::swap(&mut target.pools_preview, &mut target.pools_intact.clone());
+                target.pools_preview = target.pools_intact.clone();
             }
             TLBState::PartialPreview(_) | TLBState::Preview(_) => {
                 trace!(target: "state", "TLBState::move_into_partial_preview: NO-OP");
@@ -382,8 +396,7 @@ where
                 // Move active fragments/pools to use as a preview.
                 let mut active_fragments = target.fragments_intact.active.clone();
                 mem::swap(&mut target.active_fragments_preview, &mut active_fragments);
-                let mut pools = target.pools_intact.clone();
-                mem::swap(&mut target.pools_preview, &mut pools);
+                target.pools_preview = target.pools_intact.clone();
             }
             TLBState::PartialPreview(st) => {
                 trace!(target: "state", "TLBState::move_into_preview from PARTIAL_PREVIEW");
@@ -1165,15 +1178,24 @@ pub mod tests {
     fn stash_unstash() {
         let time_now = 1000u64;
         let o2 = SimpleOrderPF::default_with_bounds(TimeBounds::None);
+        let p0 = SimpleCFMMPool {
+            pool_id: StableId::random(),
+            reserves_base: 0,
+            reserves_quote: 0,
+            fee_num: 0,
+        };
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.fragments.add_fragment(o2);
+        s0.pools.update_pool(p0);
         let mut state = TLBState::Idle(s0);
         state.commit();
         assert_eq!(state.pick_best_fr_either(None), Some(o2));
         state.rollback(StashingOption::Stash(vec![o2]));
+        assert_eq!(state.pools().pools.get(&p0.pool_id).copied(), Some(p0));
         assert_eq!(state.pick_best_fr_either(None), None);
         state.rollback(StashingOption::Unstash);
         assert_eq!(state.pick_best_fr_either(None), Some(o2));
+        assert_eq!(state.pools().pools.get(&p0.pool_id).copied(), Some(p0));
     }
 
     /// Order that supports partial filling.
