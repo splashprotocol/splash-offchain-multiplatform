@@ -12,6 +12,7 @@ use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_integer::Roots;
 use num_rational::Ratio;
 use type_equalities::IsEqual;
+use bloom_offchain::execution_engine::liquidity_book::liquidity_bin::Bin;
 
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
@@ -48,9 +49,7 @@ use crate::deployment::ProtocolValidator::{
 };
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::fees::FeeExtension;
-use crate::pool_math::cfmm_math::{
-    classic_cfmm_output_amount, classic_cfmm_reward_lp, classic_cfmm_shares_amount,
-};
+use crate::pool_math::cfmm_math::{classic_cfmm_output_amount, classic_cfmm_reward_lp, classic_cfmm_shares_amount, fuse};
 
 pub struct LegacyCFMMPoolConfig {
     pub pool_nft: TaggedAssetClass<PoolNft>,
@@ -279,6 +278,43 @@ where
 
 impl Pool for ConstFnPool {
     type U = ExUnits;
+
+    fn take(mut self, input: Side<u64>) -> (Bin, Self) {
+        let (output, new_pool) = self.swap(input);
+        let bin = match input {
+            Side::Bid(bid_input) => Bin {
+                amount: Side::Ask(output),
+                order_input: bid_input,
+                price: AbsolutePrice::new(bid_input, output),
+            },
+            Side::Ask(ask_input) => Bin {
+                amount: Side::Bid(output),
+                order_input: ask_input,
+                price: AbsolutePrice::new(output, ask_input),
+            }
+        };
+        (bin, new_pool)
+    }
+
+    fn fuse(mut self, bin: Bin) -> Self {
+        let (x, treasury_x, y, treasury_y) = fuse(
+            bin,
+            self.asset_x,
+            self.reserves_x,
+            self.asset_y,
+            self.reserves_y,
+            self.treasury_x,
+            self.treasury_y,
+            self.treasury_fee
+        );
+
+        self.reserves_x = x;
+        self.treasury_x = treasury_x;
+        self.reserves_y = y;
+        self.treasury_y = treasury_y;
+
+        self
+    }
 
     fn static_price(&self) -> AbsolutePrice {
         let x = self.asset_x.untag();
@@ -669,9 +705,17 @@ mod tests {
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
 
-    #[test]
-    fn treasury_x_test() {
-        let pool = ConstFnPool {
+    fn gen_ada_token_pool(
+        reserves_x: u64,
+        reserves_y: u64,
+        liquidity: u64,
+        lp_fee_x: u64,
+        lp_fee_y: u64,
+        treasury_fee: u64,
+        treasury_x: u64,
+        treasury_y: u64,
+    ) -> ConstFnPool {
+        return ConstFnPool {
             id: PoolId::from((
                 ScriptHash::from([
                     162, 206, 112, 95, 150, 240, 52, 167, 61, 102, 158, 92, 11, 47, 25, 41, 48, 224, 188,
@@ -685,9 +729,9 @@ mod tests {
                     ],
                 )),
             )),
-            reserves_x: TaggedAmount::new(1632109645),
-            reserves_y: TaggedAmount::new(1472074052),
-            liquidity: TaggedAmount::new(0),
+            reserves_x: TaggedAmount::new(reserves_x),
+            reserves_y: TaggedAmount::new(reserves_y),
+            liquidity: TaggedAmount::new(liquidity),
             asset_x: TaggedAssetClass::new(AssetClass::Native),
             asset_y: TaggedAssetClass::new(AssetClass::Token((
                 ScriptHash::from([
@@ -715,20 +759,54 @@ mod tests {
                     ],
                 )),
             ))),
-            lp_fee_x: Ratio::new_raw(99970, 100000),
-            lp_fee_y: Ratio::new_raw(99970, 100000),
-            treasury_fee: Ratio::new_raw(10, 100000),
-            treasury_x: TaggedAmount::new(11500),
-            treasury_y: TaggedAmount::new(2909),
+            lp_fee_x: Ratio::new_raw(lp_fee_x, 100000),
+            lp_fee_y: Ratio::new_raw(lp_fee_y, 100000),
+            treasury_fee: Ratio::new_raw(treasury_fee, 100000),
+            treasury_x: TaggedAmount::new(treasury_x),
+            treasury_y: TaggedAmount::new(treasury_y),
             lq_lower_bound: TaggedAmount::new(0),
             ver: ConstFnPoolVer::FeeSwitch,
             marginal_cost: ExUnits { mem: 100, steps: 100 },
         };
+    }
+
+    #[test]
+    fn treasury_x_test() {
+        let pool = gen_ada_token_pool(
+            1632109645,
+            1472074052,
+            0,
+            99970,
+            99970,
+            10,
+            11500,
+            2909,
+        );
 
         let (_, new_pool) = pool.clone().swap(Side::Ask(900000000));
 
         let correct_x_treasury = 101500;
 
         assert_eq!(new_pool.treasury_x.untag(), correct_x_treasury)
+    }
+
+    #[test]
+    fn take_fuse_round_test() {
+        let pool = gen_ada_token_pool(
+            1632109645,
+            1472074052,
+            0,
+            99970,
+            99970,
+            10,
+            11500,
+            2909,
+        );
+
+        let (bin, new_pool) = pool.take(Side::Ask(900000000));
+
+        let updated_pool = new_pool.fuse(bin);
+
+        assert_eq!(updated_pool, pool)
     }
 }

@@ -939,6 +939,7 @@ pub mod tests {
     use spectrum_offchain::data::Stable;
 
     use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
+    use crate::execution_engine::liquidity_book::liquidity_bin::Bin;
     use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
     use crate::execution_engine::liquidity_book::state::{
@@ -1383,6 +1384,33 @@ pub mod tests {
 
     impl Pool for SimpleCFMMPool {
         type U = u64;
+
+        fn take(mut self, input: Side<u64>) -> (Bin, Self) {
+            let (output, new_pool) = self.swap(input);
+            let bin = match input {
+                Side::Bid(input) => Bin {
+                    amount: Side::Ask(output),
+                    price: AbsolutePrice::new(output, input),
+                },
+                Side::Ask(input) => Bin {
+                    amount: Side::Bid(output),
+                    price: AbsolutePrice::new(input, output),
+                }
+            };
+            (bin, new_pool)
+        }
+
+        fn fuse(mut self, bin: Bin) -> Self {
+            match bin.amount {
+                Side::Bid(quote) => {
+                    self.reserves_quote += quote;
+                }
+                Side::Ask(add_to_base) => {
+                    self.reserves_base += add_to_base;
+                }
+            }
+            self
+        }
 
         fn static_price(&self) -> AbsolutePrice {
             AbsolutePrice::new(self.reserves_quote, self.reserves_base)

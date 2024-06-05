@@ -27,7 +27,6 @@ use crate::execution_engine::types::Time;
 mod core;
 pub mod fragment;
 pub mod interpreter;
-mod liquidity_bin;
 mod parallel;
 pub mod pool;
 pub mod recipe;
@@ -37,6 +36,7 @@ mod state;
 pub mod time;
 pub mod types;
 pub mod weight;
+pub mod liquidity_bin;
 
 /// TLB is a Universal Liquidity Aggregator (ULA), it is able to aggregate every piece of composable
 /// liquidity available in the market.
