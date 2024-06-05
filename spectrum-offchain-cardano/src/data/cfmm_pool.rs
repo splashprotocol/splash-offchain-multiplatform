@@ -370,7 +370,7 @@ impl Pool for ConstFnPool {
         self.marginal_cost
     }
 
-    fn swaps_allowed(&self) -> bool {
+    fn is_active(&self) -> bool {
         let lq_bound = (self.reserves_x.untag() * 2) >= self.lq_lower_bound.untag();
         let bot_bound = if self.asset_x.is_native() {
             self.reserves_x.untag() >= self.min_pool_lovelace

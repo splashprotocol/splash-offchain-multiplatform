@@ -33,6 +33,7 @@ mod state;
 pub mod time;
 pub mod types;
 pub mod weight;
+mod liquidity_bin;
 
 /// TLB is a Universal Liquidity Aggregator (ULA), it is able to aggregate every piece of composable
 /// liquidity available in the market.
@@ -441,7 +442,7 @@ where
     }
 }
 
-pub fn linear_output_rel(input: u64, price: RelativePrice) -> Option<u64> {
+pub fn linear_output_relative(input: u64, price: RelativePrice) -> Option<u64> {
     u64::try_from(U256::from(input) * U256::from(*price.numer()) / U256::from(*price.denom())).ok()
 }
 
