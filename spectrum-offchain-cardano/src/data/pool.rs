@@ -256,10 +256,10 @@ impl Pool for AnyPool {
         }
     }
 
-    fn swaps_allowed(&self) -> bool {
+    fn is_active(&self) -> bool {
         match self {
-            PureCFMM(p) => p.swaps_allowed(),
-            BalancedCFMM(p) => p.swaps_allowed(),
+            PureCFMM(p) => p.is_active(),
+            BalancedCFMM(p) => p.is_active(),
         }
     }
 }

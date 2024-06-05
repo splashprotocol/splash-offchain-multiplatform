@@ -10,9 +10,7 @@ use futures::channel::mpsc;
 use futures::stream::FusedStream;
 use futures::{FutureExt, Stream};
 use futures::{SinkExt, StreamExt};
-use isahc::http::Uri;
-use isahc::HttpClient;
-use log::{info, trace, warn};
+use log::{trace, warn};
 use tokio::sync::broadcast;
 
 use liquidity_book::interpreter::RecipeInterpreter;
@@ -36,7 +34,6 @@ use crate::execution_engine::liquidity_book::recipe::{
     ExecutionRecipe, LinkedExecutionRecipe, LinkedFill, LinkedSwap, LinkedTerminalInstruction,
     TerminalInstruction,
 };
-use crate::execution_engine::liquidity_book::side::SideM;
 use crate::execution_engine::liquidity_book::{ExternalTLBEvents, TLBFeedback, TemporalLiquidityBook};
 use crate::execution_engine::multi_pair::MultiPair;
 use crate::execution_engine::resolver::resolve_source_state;

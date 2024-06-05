@@ -7,7 +7,7 @@ use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
 use bloom_offchain::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-use bloom_offchain::execution_engine::liquidity_book::linear_output_rel;
+use bloom_offchain::execution_engine::liquidity_book::linear_output_relative;
 use bloom_offchain::execution_engine::liquidity_book::side::SideM;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
 use bloom_offchain::execution_engine::liquidity_book::types::{
@@ -312,7 +312,7 @@ where
                 .and_then(|lov| lov.checked_sub(conf.fee))
                 .and_then(|lov| lov.checked_sub(tradable_lovelace))?;
             let max_execution_steps_available = execution_budget / conf.cost_per_ex_step;
-            if let Some(base_output) = linear_output_rel(conf.tradable_input, conf.base_price) {
+            if let Some(base_output) = linear_output_relative(conf.tradable_input, conf.base_price) {
                 let min_marginal_output = conf.min_marginal_output;
                 let max_execution_steps_possible = base_output / min_marginal_output;
                 let sufficient_execution_budget =

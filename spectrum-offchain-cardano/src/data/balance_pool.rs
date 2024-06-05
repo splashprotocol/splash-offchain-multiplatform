@@ -497,7 +497,7 @@ impl Pool for BalancePool {
         self.marginal_cost
     }
 
-    fn swaps_allowed(&self) -> bool {
+    fn is_active(&self) -> bool {
         // balance pools do not support lq bound, so
         // swaps allowed all time
         true

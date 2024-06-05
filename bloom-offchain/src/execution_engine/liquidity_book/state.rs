@@ -566,7 +566,7 @@ where
             .pools()
             .pools
             .values()
-            .filter(|pool| pool.swaps_allowed())
+            .filter(|pool| pool.is_active())
             .map(|p| {
                 let pr = p.real_price(trade_hint);
                 (pr, p.stable_id())
@@ -1434,7 +1434,7 @@ pub mod tests {
             10
         }
 
-        fn swaps_allowed(&self) -> bool {
+        fn is_active(&self) -> bool {
             // SimpleCFMMPool used only for tests
             true
         }
