@@ -3,6 +3,7 @@ use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 use derive_more::{Display, Div, From, Into, Mul};
 use num_rational::Ratio;
 use std::cmp::Ordering;
+use crate::execution_engine::liquidity_book::liquidity_bin::Bin;
 
 /// Price of a theoretical 0-swap in pool.
 #[repr(transparent)]
@@ -18,6 +19,10 @@ impl StaticPrice {
 /// Pooled liquidity.
 pub trait Pool {
     type U;
+    // Take liquidity corresponding to specified `input` from maker.
+    fn take(self, input: Side<u64>) -> (Bin, Self);
+    // Fuse maker with the given liquidity `bin`. Inverse of `take`.
+    fn fuse(self, bin: Bin) -> Self;
     /// Static price (regardless swap vol) in this pool.
     fn static_price(&self) -> StaticPrice;
     /// Real price of swap.
@@ -28,9 +33,8 @@ pub trait Pool {
     fn quality(&self) -> PoolQuality;
     /// How much (approximately) execution of this fragment will cost.
     fn marginal_cost_hint(&self) -> Self::U;
-    // Determine is swaps allowed for current pool, based on lq_bound.
-    // Used for correct support of legacy v1/v2 and fee switch pools
-    fn swaps_allowed(&self) -> bool;
+    // Is this maker active at the moment or not.
+    fn is_active(&self) -> bool;
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Into, From, Display)]

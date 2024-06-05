@@ -484,7 +484,7 @@ impl Pool for BalancePool {
         self.marginal_cost
     }
 
-    fn swaps_allowed(&self) -> bool {
+    fn is_active(&self) -> bool {
         if self.asset_x.is_native() {
             self.reserves_x.untag() >= self.min_pool_lovelace
         } else {
