@@ -323,6 +323,14 @@ pub enum EitherMod<T> {
 }
 
 impl<T> EitherMod<T> {
+    pub fn confirmed(t: T) -> Self {
+        Self::Confirmed(Confirmed(t))
+    }
+
+    pub fn unconfirmed(t: T) -> Self {
+        Self::Unconfirmed(Unconfirmed(t))
+    }
+
     pub fn erased(&self) -> &T {
         match self {
             EitherMod::Confirmed(Confirmed(t)) => t,

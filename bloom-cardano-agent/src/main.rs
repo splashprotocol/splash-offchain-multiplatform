@@ -141,19 +141,19 @@ async fn main() {
 
     let (spec_upd_snd_p1, spec_upd_recv_p1) = mpsc::channel::<(
         PairId,
-        OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>,
+        EitherMod<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
     )>(config.channel_buffer_size);
     let (spec_upd_snd_p2, spec_upd_recv_p2) = mpsc::channel::<(
         PairId,
-        OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>,
+        EitherMod<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
     )>(config.channel_buffer_size);
     let (spec_upd_snd_p3, spec_upd_recv_p3) = mpsc::channel::<(
         PairId,
-        OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>,
+        EitherMod<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
     )>(config.channel_buffer_size);
     let (spec_upd_snd_p4, spec_upd_recv_p4) = mpsc::channel::<(
         PairId,
-        OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>,
+        EitherMod<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
     )>(config.channel_buffer_size);
 
     let partitioned_spec_upd_snd =
@@ -331,7 +331,12 @@ async fn main() {
 
 fn merge_upstreams(
     xs: impl Stream<Item = (PairId, EitherMod<StateUpdate<EvolvingCardanoEntity>>)> + Unpin,
-    ys: impl Stream<Item = (PairId, OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>)> + Unpin,
+    ys: impl Stream<
+            Item = (
+                PairId,
+                EitherMod<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
+            ),
+        > + Unpin,
 ) -> impl Stream<
     Item = (
         PairId,
@@ -341,7 +346,7 @@ fn merge_upstreams(
                     Bundled<Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>, FinalizedTxOut>,
                 >,
             >,
-            OrderUpdate<Bundled<ClassicalAMMOrder, FinalizedTxOut>, ClassicalAMMOrder>,
+            EitherMod<OrderUpdate<Bundled<ClassicalAMMOrder, FinalizedTxOut>, ClassicalAMMOrder>>,
         >,
     ),
 > {
@@ -349,10 +354,10 @@ fn merge_upstreams(
         xs.map(|(p, m)| (p, Either::Left(m.map(|s| s.map(|EvolvingCardanoEntity(e)| e))))),
         ys.map(|(p, m)| (
             p,
-            Either::Right(match m {
+            Either::Right(m.map(|upd| match upd {
                 OrderUpdate::Created(AtomicCardanoEntity(i)) => OrderUpdate::Created(i),
                 OrderUpdate::Eliminated(AtomicCardanoEntity(Bundled(i, _))) => OrderUpdate::Eliminated(i),
-            })
+            }))
         ))
     )
 }
