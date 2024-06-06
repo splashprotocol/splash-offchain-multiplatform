@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::time::Duration;
 
 use clap::Parser;
 use cml_chain::transaction::Transaction;
@@ -14,6 +13,7 @@ use log::info;
 use tokio::sync::{broadcast, Mutex};
 use tracing_subscriber::fmt::Subscriber;
 
+use crate::partitioning::select_partition;
 use bloom_cardano_agent::config::AppConfig;
 use bloom_cardano_agent::context::ExecutionContext;
 use bloom_offchain::execution_engine::bundled::Bundled;
@@ -69,6 +69,7 @@ use spectrum_streaming::StreamExt as StreamExt1;
 
 mod config;
 mod context;
+mod partitioning;
 
 #[tokio::main]
 async fn main() {
@@ -167,7 +168,6 @@ async fn main() {
     let handler_context = HandlerContextProto {
         executor_cred: operator_cred,
         scripts: ProtocolScriptHashes::from(&protocol_deployment),
-        partitioning: config.partitioning,
         bounds,
     };
     let general_upd_handler = PairUpdateHandler::new(
@@ -227,7 +227,10 @@ async fn main() {
         recipe_interpreter,
         spec_interpreter,
         prover,
-        merge_upstreams(pair_upd_recv_p1, spec_upd_recv_p1),
+        select_partition(
+            merge_upstreams(pair_upd_recv_p1, spec_upd_recv_p1),
+            config.partitioning,
+        ),
         tx_submission_channel.clone(),
         signal_tip_reached_snd.subscribe(),
         alert_client.clone(),
@@ -241,7 +244,10 @@ async fn main() {
         recipe_interpreter,
         spec_interpreter,
         prover,
-        merge_upstreams(pair_upd_recv_p2, spec_upd_recv_p2),
+        select_partition(
+            merge_upstreams(pair_upd_recv_p2, spec_upd_recv_p2),
+            config.partitioning,
+        ),
         tx_submission_channel.clone(),
         signal_tip_reached_snd.subscribe(),
         alert_client.clone(),
@@ -255,7 +261,10 @@ async fn main() {
         recipe_interpreter,
         spec_interpreter,
         prover,
-        merge_upstreams(pair_upd_recv_p3, spec_upd_recv_p3),
+        select_partition(
+            merge_upstreams(pair_upd_recv_p3, spec_upd_recv_p3),
+            config.partitioning,
+        ),
         tx_submission_channel.clone(),
         signal_tip_reached_snd.subscribe(),
         alert_client.clone(),
@@ -269,7 +278,10 @@ async fn main() {
         recipe_interpreter,
         spec_interpreter,
         prover,
-        merge_upstreams(pair_upd_recv_p4, spec_upd_recv_p4),
+        select_partition(
+            merge_upstreams(pair_upd_recv_p4, spec_upd_recv_p4),
+            config.partitioning,
+        ),
         tx_submission_channel,
         signal_tip_reached_snd.subscribe(),
         alert_client,
