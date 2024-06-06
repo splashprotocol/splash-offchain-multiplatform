@@ -104,7 +104,7 @@ where
             test_address::<{ ConstFnFeeSwitchPoolRedeem as u8 }, Ctx>(repr.address(), ctx);
         let is_const_pool_redeem = test_address::<{ ConstFnPoolRedeem as u8 }, Ctx>(repr.address(), ctx);
         let is_balance_pool_redeem = test_address::<{ BalanceFnPoolRedeem as u8 }, Ctx>(repr.address(), ctx);
-        if is_const_fee_switch_pool_deposit || is_balance_pool_redeem || is_const_pool_redeem {
+        if is_const_pool_redeem {
             let order_type = if is_const_fee_switch_pool_deposit {
                 OrderType::ConstFnFeeSwitch
             } else if is_balance_pool_redeem {

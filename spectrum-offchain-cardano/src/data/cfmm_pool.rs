@@ -388,97 +388,97 @@ where
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
-        if let Some(pool_ver) = ConstFnPoolVer::try_from_address(repr.address(), ctx) {
-            let value = repr.value();
-            let pd = repr.datum().clone()?.into_pd()?;
-            let marginal_cost = match pool_ver {
-                ConstFnPoolVer::V1 => {
-                    ctx.select::<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>()
-                        .marginal_cost
-                }
-                ConstFnPoolVer::V2 => {
-                    ctx.select::<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>()
-                        .marginal_cost
-                }
-                ConstFnPoolVer::FeeSwitch => {
-                    ctx.select::<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>()
-                        .marginal_cost
-                }
-                ConstFnPoolVer::FeeSwitchBiDirFee => {
-                    ctx.select::<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>()
-                        .marginal_cost
-                }
-            };
-            return match pool_ver {
-                ConstFnPoolVer::V1 | ConstFnPoolVer::V2 => {
-                    let conf = LegacyCFMMPoolConfig::try_from_pd(pd.clone())?;
-                    let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
-                    Some(ConstFnPool {
-                        id: PoolId::try_from(conf.pool_nft).ok()?,
-                        reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
-                        reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
-                        liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
-                        asset_x: conf.asset_x,
-                        asset_y: conf.asset_y,
-                        asset_lq: conf.asset_lq,
-                        // legacy lp fee den = 1000
-                        // new lp fee den = 100000
-                        lp_fee_x: Ratio::new_raw(conf.lp_fee_num * LEGACY_FEE_NUM_MULTIPLIER, FEE_DEN),
-                        lp_fee_y: Ratio::new_raw(conf.lp_fee_num * LEGACY_FEE_NUM_MULTIPLIER, FEE_DEN),
-                        treasury_fee: Ratio::new_raw(0, 1),
-                        treasury_x: TaggedAmount::new(0),
-                        treasury_y: TaggedAmount::new(0),
-                        lq_lower_bound: conf.lq_lower_bound,
-                        ver: pool_ver,
-                        marginal_cost,
-                    })
-                }
-                ConstFnPoolVer::FeeSwitch => {
-                    let conf = FeeSwitchPoolConfig::try_from_pd(pd.clone())?;
-                    let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
-                    Some(ConstFnPool {
-                        id: PoolId::try_from(conf.pool_nft).ok()?,
-                        reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
-                        reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
-                        liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
-                        asset_x: conf.asset_x,
-                        asset_y: conf.asset_y,
-                        asset_lq: conf.asset_lq,
-                        lp_fee_x: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
-                        lp_fee_y: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
-                        treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
-                        treasury_x: TaggedAmount::new(conf.treasury_x),
-                        treasury_y: TaggedAmount::new(conf.treasury_y),
-                        lq_lower_bound: conf.lq_lower_bound,
-                        ver: pool_ver,
-                        marginal_cost,
-                    })
-                }
-                ConstFnPoolVer::FeeSwitchBiDirFee => {
-                    let conf = FeeSwitchBidirectionalPoolConfig::try_from_pd(pd.clone())?;
-                    let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
-                    Some(ConstFnPool {
-                        id: PoolId::try_from(conf.pool_nft).ok()?,
-                        reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?)
-                            - TaggedAmount::new(conf.treasury_x),
-                        reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?)
-                            - TaggedAmount::new(conf.treasury_y),
-                        liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
-                        asset_x: conf.asset_x,
-                        asset_y: conf.asset_y,
-                        asset_lq: conf.asset_lq,
-                        lp_fee_x: Ratio::new_raw(conf.lp_fee_num_x, FEE_DEN),
-                        lp_fee_y: Ratio::new_raw(conf.lp_fee_num_y, FEE_DEN),
-                        treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
-                        treasury_x: TaggedAmount::new(conf.treasury_x),
-                        treasury_y: TaggedAmount::new(conf.treasury_y),
-                        lq_lower_bound: conf.lq_lower_bound,
-                        ver: pool_ver,
-                        marginal_cost,
-                    })
-                }
-            };
-        };
+        // if let Some(pool_ver) = ConstFnPoolVer::try_from_address(repr.address(), ctx) {
+        //     let value = repr.value();
+        //     let pd = repr.datum().clone()?.into_pd()?;
+        //     let marginal_cost = match pool_ver {
+        //         ConstFnPoolVer::V1 => {
+        //             ctx.select::<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>()
+        //                 .marginal_cost
+        //         }
+        //         ConstFnPoolVer::V2 => {
+        //             ctx.select::<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>()
+        //                 .marginal_cost
+        //         }
+        //         ConstFnPoolVer::FeeSwitch => {
+        //             ctx.select::<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>()
+        //                 .marginal_cost
+        //         }
+        //         ConstFnPoolVer::FeeSwitchBiDirFee => {
+        //             ctx.select::<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>()
+        //                 .marginal_cost
+        //         }
+        //     };
+        //     return match pool_ver {
+        //         ConstFnPoolVer::V1 | ConstFnPoolVer::V2 => {
+        //             let conf = LegacyCFMMPoolConfig::try_from_pd(pd.clone())?;
+        //             let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
+        //             Some(ConstFnPool {
+        //                 id: PoolId::try_from(conf.pool_nft).ok()?,
+        //                 reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
+        //                 reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
+        //                 liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
+        //                 asset_x: conf.asset_x,
+        //                 asset_y: conf.asset_y,
+        //                 asset_lq: conf.asset_lq,
+        //                 // legacy lp fee den = 1000
+        //                 // new lp fee den = 100000
+        //                 lp_fee_x: Ratio::new_raw(conf.lp_fee_num * LEGACY_FEE_NUM_MULTIPLIER, FEE_DEN),
+        //                 lp_fee_y: Ratio::new_raw(conf.lp_fee_num * LEGACY_FEE_NUM_MULTIPLIER, FEE_DEN),
+        //                 treasury_fee: Ratio::new_raw(0, 1),
+        //                 treasury_x: TaggedAmount::new(0),
+        //                 treasury_y: TaggedAmount::new(0),
+        //                 lq_lower_bound: conf.lq_lower_bound,
+        //                 ver: pool_ver,
+        //                 marginal_cost,
+        //             })
+        //         }
+        //         ConstFnPoolVer::FeeSwitch => {
+        //             let conf = FeeSwitchPoolConfig::try_from_pd(pd.clone())?;
+        //             let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
+        //             Some(ConstFnPool {
+        //                 id: PoolId::try_from(conf.pool_nft).ok()?,
+        //                 reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
+        //                 reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
+        //                 liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
+        //                 asset_x: conf.asset_x,
+        //                 asset_y: conf.asset_y,
+        //                 asset_lq: conf.asset_lq,
+        //                 lp_fee_x: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
+        //                 lp_fee_y: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
+        //                 treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
+        //                 treasury_x: TaggedAmount::new(conf.treasury_x),
+        //                 treasury_y: TaggedAmount::new(conf.treasury_y),
+        //                 lq_lower_bound: conf.lq_lower_bound,
+        //                 ver: pool_ver,
+        //                 marginal_cost,
+        //             })
+        //         }
+        //         ConstFnPoolVer::FeeSwitchBiDirFee => {
+        //             let conf = FeeSwitchBidirectionalPoolConfig::try_from_pd(pd.clone())?;
+        //             let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
+        //             Some(ConstFnPool {
+        //                 id: PoolId::try_from(conf.pool_nft).ok()?,
+        //                 reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?)
+        //                     - TaggedAmount::new(conf.treasury_x),
+        //                 reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?)
+        //                     - TaggedAmount::new(conf.treasury_y),
+        //                 liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
+        //                 asset_x: conf.asset_x,
+        //                 asset_y: conf.asset_y,
+        //                 asset_lq: conf.asset_lq,
+        //                 lp_fee_x: Ratio::new_raw(conf.lp_fee_num_x, FEE_DEN),
+        //                 lp_fee_y: Ratio::new_raw(conf.lp_fee_num_y, FEE_DEN),
+        //                 treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
+        //                 treasury_x: TaggedAmount::new(conf.treasury_x),
+        //                 treasury_y: TaggedAmount::new(conf.treasury_y),
+        //                 lq_lower_bound: conf.lq_lower_bound,
+        //                 ver: pool_ver,
+        //                 marginal_cost,
+        //             })
+        //         }
+        //     };
+        // };
         None
     }
 }

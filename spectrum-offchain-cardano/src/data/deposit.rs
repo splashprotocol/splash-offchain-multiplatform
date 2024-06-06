@@ -91,47 +91,47 @@ where
         + Has<DepositOrderBounds>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
-        let is_const_fee_switch_pool_deposit =
-            test_address::<{ ConstFnFeeSwitchPoolDeposit as u8 }, Ctx>(repr.address(), ctx);
-        let is_const_fn_pool_deposit = test_address::<{ ConstFnPoolDeposit as u8 }, Ctx>(repr.address(), ctx);
-        let is_balance_fn_pool_deposit =
-            test_address::<{ BalanceFnPoolDeposit as u8 }, Ctx>(repr.address(), ctx);
-        if (is_const_fee_switch_pool_deposit || is_balance_fn_pool_deposit || is_const_fn_pool_deposit) {
-            let order_type = if (is_const_fee_switch_pool_deposit) {
-                OrderType::ConstFnFeeSwitch
-            } else if is_balance_fn_pool_deposit {
-                OrderType::BalanceFn
-            } else {
-                OrderType::ConstFn
-            };
-            let value = repr.value().clone();
-            let conf = OnChainDepositConfig::try_from_pd(repr.clone().into_datum()?.into_pd()?)?;
-            let token_x_amount = TaggedAmount::new(value.amount_of(conf.token_x.untag()).unwrap_or(0));
-            let token_y_amount = TaggedAmount::new(value.amount_of(conf.token_y.untag()).unwrap_or(0));
-            let deposit = Deposit {
-                pool_nft: PoolId::try_from(conf.pool_nft).ok()?,
-                token_x: conf.token_x,
-                token_x_amount,
-                token_y: conf.token_y,
-                token_y_amount,
-                token_lq: conf.token_lq,
-                ex_fee: conf.ex_fee,
-                reward_pkh: conf.reward_pkh,
-                reward_stake_pkh: conf.reward_stake_pkh,
-                collateral_ada: conf.collateral_ada,
-                order_type,
-            };
-
-            let bounds = ctx.select::<DepositOrderBounds>();
-
-            if conf.collateral_ada >= bounds.min_collateral_ada {
-                return Some(ClassicalOrder {
-                    id: OnChainOrderId::from(ctx.select::<OutputRef>()),
-                    pool_id: PoolId::try_from(conf.pool_nft).ok()?,
-                    order: deposit,
-                });
-            }
-        };
+        // let is_const_fee_switch_pool_deposit =
+        //     test_address::<{ ConstFnFeeSwitchPoolDeposit as u8 }, Ctx>(repr.address(), ctx);
+        // let is_const_fn_pool_deposit = test_address::<{ ConstFnPoolDeposit as u8 }, Ctx>(repr.address(), ctx);
+        // let is_balance_fn_pool_deposit =
+        //     test_address::<{ BalanceFnPoolDeposit as u8 }, Ctx>(repr.address(), ctx);
+        // if (is_const_fee_switch_pool_deposit || is_balance_fn_pool_deposit || is_const_fn_pool_deposit) {
+        //     let order_type = if (is_const_fee_switch_pool_deposit) {
+        //         OrderType::ConstFnFeeSwitch
+        //     } else if is_balance_fn_pool_deposit {
+        //         OrderType::BalanceFn
+        //     } else {
+        //         OrderType::ConstFn
+        //     };
+        //     let value = repr.value().clone();
+        //     let conf = OnChainDepositConfig::try_from_pd(repr.clone().into_datum()?.into_pd()?)?;
+        //     let token_x_amount = TaggedAmount::new(value.amount_of(conf.token_x.untag()).unwrap_or(0));
+        //     let token_y_amount = TaggedAmount::new(value.amount_of(conf.token_y.untag()).unwrap_or(0));
+        //     let deposit = Deposit {
+        //         pool_nft: PoolId::try_from(conf.pool_nft).ok()?,
+        //         token_x: conf.token_x,
+        //         token_x_amount,
+        //         token_y: conf.token_y,
+        //         token_y_amount,
+        //         token_lq: conf.token_lq,
+        //         ex_fee: conf.ex_fee,
+        //         reward_pkh: conf.reward_pkh,
+        //         reward_stake_pkh: conf.reward_stake_pkh,
+        //         collateral_ada: conf.collateral_ada,
+        //         order_type,
+        //     };
+        //
+        //     let bounds = ctx.select::<DepositOrderBounds>();
+        //
+        //     if conf.collateral_ada >= bounds.min_collateral_ada {
+        //         return Some(ClassicalOrder {
+        //             id: OnChainOrderId::from(ctx.select::<OutputRef>()),
+        //             pool_id: PoolId::try_from(conf.pool_nft).ok()?,
+        //             order: deposit,
+        //         });
+        //     }
+        // };
         None
     }
 }

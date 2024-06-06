@@ -234,66 +234,70 @@ where
     Index: OrderIndex<Order>,
 {
     trace!("+- Scanning Tx {} for atomic orders", tx_hash);
-    let num_outputs = tx.body.outputs.len();
-    if num_outputs == 0 {
-        return Err((tx_hash, tx));
-    }
-    let mut consumed_orders = HashMap::<Order::TOrderId, Order>::new();
-    let mut consumed_utxos = Vec::new();
-    for i in &tx.body.inputs {
-        let oref = OutputRef::from((i.transaction_id, i.index));
-        consumed_utxos.push(oref);
-        let state_id = Order::TOrderId::from(oref);
-        let mut index = index.lock().await;
-        if let Some(order) = index.get(&state_id) {
-            let order_id = order.get_self_ref();
-            trace!("Order {} eliminated", order_id);
-            consumed_orders.insert(order_id, order);
+    if (format!("{}", tx_hash) == "2410be56a1d25de73efb7a9481413732af3dc70c011f4998b7f02615dac81011" || format!("{}", tx_hash) == "f054256947474710bbee2fd820af006c7489177e24436cf91cdbd918214b23f1") {
+        let num_outputs = tx.body.outputs.len();
+        if num_outputs == 0 {
+            return Err((tx_hash, tx));
         }
-    }
-    let mut produced_orders = HashMap::<Order::TOrderId, Order>::new();
-    let consumed_utxos = ConsumedInputs::new(consumed_utxos.into_iter());
-    let mut ix = num_outputs - 1;
-    let mut non_processed_outputs = VecDeque::new();
-    while let Some(o) = tx.body.outputs.pop() {
-        let o_ref = OutputRef::new(tx_hash, ix as u64);
-        match Order::try_from_ledger(&o, &HandlerContext::new(o_ref, consumed_utxos, context)) {
-            Some(order) => {
+        let mut consumed_orders = HashMap::<Order::TOrderId, Order>::new();
+        let mut consumed_utxos = Vec::new();
+        for i in &tx.body.inputs {
+            let oref = OutputRef::from((i.transaction_id, i.index));
+            consumed_utxos.push(oref);
+            let state_id = Order::TOrderId::from(oref);
+            let mut index = index.lock().await;
+            if let Some(order) = index.get(&state_id) {
                 let order_id = order.get_self_ref();
-                trace!("Order {} created", order_id);
-                produced_orders.insert(order_id, order);
-            }
-            None => {
-                non_processed_outputs.push_front(o);
+                trace!("Order {} eliminated", order_id);
+                consumed_orders.insert(order_id, order);
             }
         }
-        if let Some(next_ix) = ix.checked_sub(1) {
-            ix = next_ix;
+        let mut produced_orders = HashMap::<Order::TOrderId, Order>::new();
+        let consumed_utxos = ConsumedInputs::new(consumed_utxos.into_iter());
+        let mut ix = num_outputs - 1;
+        let mut non_processed_outputs = VecDeque::new();
+        while let Some(o) = tx.body.outputs.pop() {
+            let o_ref = OutputRef::new(tx_hash, ix as u64);
+            match Order::try_from_ledger(&o, &HandlerContext::new(o_ref, consumed_utxos, context)) {
+                Some(order) => {
+                    let order_id = order.get_self_ref();
+                    trace!("Order {} created", order_id);
+                    produced_orders.insert(order_id, order);
+                }
+                None => {
+                    non_processed_outputs.push_front(o);
+                }
+            }
+            if let Some(next_ix) = ix.checked_sub(1) {
+                ix = next_ix;
+            }
         }
-    }
-    // Preserve non-processed outputs in original ordering.
-    tx.body.outputs = non_processed_outputs.into();
+        // Preserve non-processed outputs in original ordering.
+        tx.body.outputs = non_processed_outputs.into();
 
-    // Gather IDs of all recognized entities.
-    let mut keys = HashSet::new();
-    for k in consumed_orders.keys().chain(produced_orders.keys()) {
-        keys.insert(*k);
-    }
+        // Gather IDs of all recognized entities.
+        let mut keys = HashSet::new();
+        for k in consumed_orders.keys().chain(produced_orders.keys()) {
+            keys.insert(*k);
+        }
 
-    // Match consumed versions with produced ones.
-    let mut transitions = vec![];
-    for k in keys.into_iter() {
-        match (consumed_orders.remove(&k), produced_orders.remove(&k)) {
-            (Some(consumed), _) => transitions.push(Either::Left(consumed)),
-            (_, Some(produced)) => transitions.push(Either::Right(produced)),
-            _ => {}
-        };
-    }
+        // Match consumed versions with produced ones.
+        let mut transitions = vec![];
+        for k in keys.into_iter() {
+            match (consumed_orders.remove(&k), produced_orders.remove(&k)) {
+                (Some(consumed), _) => transitions.push(Either::Left(consumed)),
+                (_, Some(produced)) => transitions.push(Either::Right(produced)),
+                _ => {}
+            };
+        }
 
-    if transitions.is_empty() {
-        return Err((tx_hash, tx));
+        if transitions.is_empty() {
+            return Err((tx_hash, tx));
+        }
+        Ok((transitions, (tx_hash, tx)))
+    } else {
+        return Err((tx_hash, tx))
     }
-    Ok((transitions, (tx_hash, tx)))
 }
 
 async fn extract_persistent_transitions<Entity, Index>(

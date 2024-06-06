@@ -64,41 +64,41 @@ where
     Ctx: Has<OutputRef> + Has<DeployedScriptInfo<{ ConstFnFeeSwitchPoolSwap as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
-        if test_address(repr.address(), ctx) {
-            let value = repr.value().clone();
-            let conf = OnChainLimitSwapConfig::try_from_pd(repr.datum()?.into_pd()?)?;
-            let real_base_input = value.amount_of(conf.base.untag()).unwrap_or(0);
-            let (min_base, ada_deposit) = if conf.base.is_native() {
-                let min = conf.base_amount.untag()
-                    + ((conf.min_quote_amount.untag() as u128) * conf.ex_fee_per_token_num
-                        / conf.ex_fee_per_token_denom) as u64;
-                let ada = real_base_input - conf.base_amount.untag();
-                (min, ada)
-            } else {
-                (conf.base_amount.untag(), value.coin)
-            };
-            if real_base_input < min_base || ada_deposit < MIN_SAFE_ADA_VALUE {
-                return None;
-            }
-            let swap = LimitSwap {
-                base_asset: conf.base,
-                base_amount: conf.base_amount,
-                quote_asset: conf.quote,
-                min_expected_quote_amount: conf.min_quote_amount,
-                ada_deposit,
-                fee: ExecutorFeePerToken::new(
-                    Ratio::new(conf.ex_fee_per_token_num, conf.ex_fee_per_token_denom),
-                    AssetClass::Native,
-                ),
-                redeemer_pkh: conf.redeemer_pkh,
-                redeemer_stake_pkh: conf.redeemer_stake_pkh,
-            };
-            return Some(ClassicalOrder {
-                id: OnChainOrderId::from(ctx.select::<OutputRef>()),
-                pool_id: PoolId::try_from(conf.pool_nft).ok()?,
-                order: swap,
-            });
-        }
+        // if test_address(repr.address(), ctx) {
+        //     let value = repr.value().clone();
+        //     let conf = OnChainLimitSwapConfig::try_from_pd(repr.datum()?.into_pd()?)?;
+        //     let real_base_input = value.amount_of(conf.base.untag()).unwrap_or(0);
+        //     let (min_base, ada_deposit) = if conf.base.is_native() {
+        //         let min = conf.base_amount.untag()
+        //             + ((conf.min_quote_amount.untag() as u128) * conf.ex_fee_per_token_num
+        //                 / conf.ex_fee_per_token_denom) as u64;
+        //         let ada = real_base_input - conf.base_amount.untag();
+        //         (min, ada)
+        //     } else {
+        //         (conf.base_amount.untag(), value.coin)
+        //     };
+        //     if real_base_input < min_base || ada_deposit < MIN_SAFE_ADA_VALUE {
+        //         return None;
+        //     }
+        //     let swap = LimitSwap {
+        //         base_asset: conf.base,
+        //         base_amount: conf.base_amount,
+        //         quote_asset: conf.quote,
+        //         min_expected_quote_amount: conf.min_quote_amount,
+        //         ada_deposit,
+        //         fee: ExecutorFeePerToken::new(
+        //             Ratio::new(conf.ex_fee_per_token_num, conf.ex_fee_per_token_denom),
+        //             AssetClass::Native,
+        //         ),
+        //         redeemer_pkh: conf.redeemer_pkh,
+        //         redeemer_stake_pkh: conf.redeemer_stake_pkh,
+        //     };
+        //     return Some(ClassicalOrder {
+        //         id: OnChainOrderId::from(ctx.select::<OutputRef>()),
+        //         pool_id: PoolId::try_from(conf.pool_nft).ok()?,
+        //         order: swap,
+        //     });
+        // }
         None
     }
 }
