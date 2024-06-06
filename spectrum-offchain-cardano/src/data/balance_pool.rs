@@ -35,9 +35,8 @@ use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::operation_output::{DepositOutput, RedeemOutput};
 use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
 use crate::data::pair::order_canonical;
-use crate::data::pool::{
-    ApplyOrder, ApplyOrderError, AssetDeltas, CFMMPoolAction, ImmutablePoolUtxo, Lq, Rx, Ry,
-};
+use crate::data::pool::{ApplyOrder, ApplyOrderError, AssetDeltas, CFMMPoolAction, ImmutablePoolUtxo, LowLiquidityInPool, Lq, Rx, Ry};
+use crate::data::pool::ApplyOrderError::InsufficientLiquidityInPool;
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::BalanceFnPoolV1;
@@ -551,22 +550,32 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
 
     fn apply_order(
         mut self,
-        ClassicalOrder { order, .. }: ClassicalOnChainRedeem,
+        wrapped_order: ClassicalOnChainRedeem,
     ) -> Result<(Self, RedeemOutput), ApplyOrderError<ClassicalOnChainRedeem>> {
-        let (x_amount, y_amount) = self.clone().shares_amount(order.token_lq_amount);
+        let (x_amount, y_amount) = self.clone().shares_amount(wrapped_order.order.token_lq_amount);
+
+        if self.reserves_y <= y_amount || self.reserves_x <= x_amount {
+            return Err(InsufficientLiquidityInPool(
+                LowLiquidityInPool {
+                    order: wrapped_order,
+                    reserves_x: self.reserves_x.untag(),
+                    reserves_y: self.reserves_y.untag()
+                }
+            ))
+        }
 
         self.reserves_x = self.reserves_x - x_amount;
         self.reserves_y = self.reserves_y - y_amount;
-        self.liquidity = self.liquidity - order.token_lq_amount;
+        self.liquidity = self.liquidity - wrapped_order.order.token_lq_amount;
 
         let redeem_output = RedeemOutput {
-            token_x_asset: order.token_x,
+            token_x_asset: wrapped_order.order.token_x,
             token_x_amount: x_amount,
-            token_y_asset: order.token_y,
+            token_y_asset: wrapped_order.order.token_y,
             token_y_amount: y_amount,
-            ada_residue: order.collateral_ada,
-            redeemer_pkh: order.reward_pkh,
-            redeemer_stake_pkh: order.reward_stake_pkh,
+            ada_residue: wrapped_order.order.collateral_ada,
+            redeemer_pkh: wrapped_order.order.reward_pkh,
+            redeemer_stake_pkh: wrapped_order.order.reward_stake_pkh,
         };
 
         Ok((self, redeem_output))

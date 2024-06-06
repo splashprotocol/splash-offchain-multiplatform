@@ -33,7 +33,7 @@ use crate::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
 use crate::data::order::{ClassicalOrderAction, ClassicalOrderRedeemer, Quote};
 use crate::data::pair::PairId;
 use crate::data::pool::AnyPool::{BalancedCFMM, PureCFMM};
-use crate::data::pool::ApplyOrderError::{LowBatcherFeeErr, SlippageErr};
+use crate::data::pool::ApplyOrderError::{InsufficientLiquidityInPool, LowBatcherFeeErr, SlippageErr};
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::value::ValueExtension;
@@ -58,6 +58,7 @@ pub struct Lq;
 pub enum ApplyOrderError<Order> {
     SlippageErr(Slippage<Order>),
     LowBatcherFeeErr(LowerBatcherFee<Order>),
+    InsufficientLiquidityInPool(LowLiquidityInPool<Order>),
 }
 
 impl<Order> ApplyOrderError<Order> {
@@ -68,6 +69,7 @@ impl<Order> ApplyOrderError<Order> {
         match self {
             SlippageErr(slippage) => SlippageErr(slippage.map(f)),
             LowBatcherFeeErr(low_batcher_fee) => LowBatcherFeeErr(low_batcher_fee.map(f)),
+            InsufficientLiquidityInPool(low_liquidity_in_pool) => InsufficientLiquidityInPool(low_liquidity_in_pool.map(f))
         }
     }
 
@@ -97,6 +99,7 @@ impl<Order> From<ApplyOrderError<Order>> for RunOrderError<Order> {
         match value {
             SlippageErr(slippage) => slippage.into(),
             LowBatcherFeeErr(low_batcher_fee) => low_batcher_fee.into(),
+            InsufficientLiquidityInPool(low_liquidity_in_pool) => low_liquidity_in_pool.into()
         }
     }
 }
@@ -153,6 +156,38 @@ impl<Order> From<LowerBatcherFee<Order>> for RunOrderError<Order> {
             format!(
                 "Lower batcher fee. Batcher fee {}. Ada deposit {}",
                 value.batcher_fee, value.ada_deposit
+            ),
+            value.order,
+        )
+    }
+}
+
+#[derive(Debug)]
+pub struct LowLiquidityInPool<Order> {
+    pub order: Order,
+    pub reserves_x: u64,
+    pub reserves_y: u64,
+}
+
+impl<T> LowLiquidityInPool<T> {
+    pub fn map<F, T1>(self, f: F) -> LowLiquidityInPool<T1>
+        where
+            F: FnOnce(T) -> T1,
+    {
+        LowLiquidityInPool {
+            order: f(self.order),
+            reserves_x: self.reserves_x,
+            reserves_y: self.reserves_y,
+        }
+    }
+}
+
+impl<Order> From<LowLiquidityInPool<Order>> for RunOrderError<Order> {
+    fn from(value: LowLiquidityInPool<Order>) -> Self {
+        RunOrderError::NonFatal(
+            format!(
+                "LowLiquidityInPool. Reserves x {}. Reserves y {}",
+                value.reserves_x, value.reserves_y
             ),
             value.order,
         )
