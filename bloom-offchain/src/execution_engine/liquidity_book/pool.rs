@@ -1,8 +1,8 @@
+use crate::execution_engine::liquidity_book::liquidity_bin::Bin;
 use crate::execution_engine::liquidity_book::side::Side;
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 use derive_more::{Display, From, Into};
 use std::cmp::Ordering;
-use crate::execution_engine::liquidity_book::liquidity_bin::Bin;
 
 /// Pooled liquidity.
 pub trait Pool {
