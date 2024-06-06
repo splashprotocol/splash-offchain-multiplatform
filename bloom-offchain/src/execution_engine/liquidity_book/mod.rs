@@ -14,7 +14,7 @@ use spectrum_offchain::maker::Maker;
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use crate::execution_engine::liquidity_book::pool::{Pool, StaticPrice};
 use crate::execution_engine::liquidity_book::recipe::{
-    ExecutionRecipe, Fill, IntermediateRecipe, PartialFill, Swap, TerminalInstruction,
+    ExecutionRecipe, Fill, IntermediateRecipe, PartialFill, Take, TerminalInstruction,
 };
 use crate::execution_engine::liquidity_book::side::Side::{Ask, Bid};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
@@ -23,8 +23,10 @@ use crate::execution_engine::liquidity_book::state::{IdleState, TLBState};
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, RelativePrice};
 use crate::execution_engine::types::Time;
 
+mod core;
 pub mod fragment;
 pub mod interpreter;
+mod liquidity_bin;
 pub mod pool;
 pub mod recipe;
 pub mod side;
@@ -33,7 +35,6 @@ mod state;
 pub mod time;
 pub mod types;
 pub mod weight;
-mod liquidity_bin;
 
 /// TLB is a Universal Liquidity Aggregator (ULA), it is able to aggregate every piece of composable
 /// liquidity available in the market.
@@ -456,7 +457,7 @@ fn linear_output_unsafe(input: u64, price: Side<AbsolutePrice>) -> u64 {
 
 struct FillFromPool<Fr, Pl> {
     term_fill: Fill<Fr>,
-    swap: Swap<Pl>,
+    swap: Take<Pl>,
 }
 
 fn fill_from_pool<Fr, Pl>(lhs: PartialFill<Fr>, pool: Pl) -> FillFromPool<Fr, Pl>
@@ -471,7 +472,7 @@ where
             let quote_input = bid.remaining_input;
             let (execution_amount, next_pool) = pool.swap(Side::Bid(quote_input));
             bid.accumulated_output += execution_amount;
-            let swap = Swap {
+            let swap = Take {
                 target: pool,
                 transition: next_pool,
                 side: SideM::Bid,
@@ -489,7 +490,7 @@ where
             let base_input = ask.remaining_input;
             let (execution_amount, next_pool) = pool.swap(Side::Ask(base_input));
             ask.accumulated_output += execution_amount;
-            let swap = Swap {
+            let swap = Take {
                 target: pool,
                 transition: next_pool,
                 side: SideM::Ask,
@@ -511,7 +512,7 @@ mod tests {
     use crate::execution_engine::liquidity_book::fragment::StateTrans;
     use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::recipe::{
-        ExecutionRecipe, Fill, IntermediateRecipe, PartialFill, Swap, TerminalInstruction,
+        ExecutionRecipe, Fill, IntermediateRecipe, PartialFill, Take, TerminalInstruction,
     };
     use crate::execution_engine::liquidity_book::side::SideM::Bid;
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
@@ -597,7 +598,7 @@ mod tests {
                     budget_used: 990000,
                     fee_used: 990,
                 }),
-                TerminalInstruction::Swap(Swap {
+                TerminalInstruction::Swap(Take {
                     target: p1,
                     transition: p2,
                     side: SideM::Ask,
