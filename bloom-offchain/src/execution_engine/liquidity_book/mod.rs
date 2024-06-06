@@ -96,7 +96,7 @@ impl<Fr, Pl: Stable, U> TLB<Fr, Pl, U> {
         Self {
             state: TLBState::new(time),
             execution_cap: conf,
-            attempt_side: INIT_SIDE
+            attempt_side: INIT_SIDE,
         }
     }
 }
@@ -229,9 +229,7 @@ where
                 break;
             }
             match ExecutionRecipe::try_from(recipe) {
-                Ok(ex_recipe) => {
-                    return Some(ex_recipe)
-                },
+                Ok(ex_recipe) => return Some(ex_recipe),
                 Err(None) => {
                     self.on_recipe_failed(StashingOption::Unstash);
                     if mem::replace(&mut both_sides_tried, true) {
