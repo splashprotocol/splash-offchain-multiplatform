@@ -76,6 +76,7 @@ impl<U: Sub<Output = U> + Copy> ExecutionCap<U> {
 pub struct TLB<Fr, Pl: Stable, U> {
     state: TLBState<Fr, Pl>,
     execution_cap: ExecutionCap<U>,
+    attempt_side: SideM,
 }
 
 impl<Fr, Pl, Ctx, U> Maker<Ctx> for TLB<Fr, Pl, U>
@@ -88,11 +89,14 @@ where
     }
 }
 
+const INIT_SIDE: SideM = SideM::Ask;
+
 impl<Fr, Pl: Stable, U> TLB<Fr, Pl, U> {
     pub fn new(time: u64, conf: ExecutionCap<U>) -> Self {
         Self {
             state: TLBState::new(time),
             execution_cap: conf,
+            attempt_side: INIT_SIDE
         }
     }
 }
@@ -121,9 +125,9 @@ where
             let mut recipe: IntermediateRecipe<Fr, Pl> = IntermediateRecipe::empty();
             let mut pools_used = HashSet::new();
             let mut execution_units_left = self.execution_cap.hard;
+            let mut both_sides_tried = false;
             while execution_units_left > self.execution_cap.safe_threshold() {
-                let reference_static_price = self.state.best_pool_price();
-                if let Some(best_fr) = self.state.pick_best_fr_either(reference_static_price) {
+                if let Some(best_fr) = self.state.try_pick_fr(self.attempt_side, |_| true) {
                     trace!("Best fragment: {}", best_fr);
                     recipe.set_remainder(PartialFill::empty(best_fr));
                     loop {
@@ -202,7 +206,7 @@ where
                                     {
                                         trace!("Matched with AMM pool {}", pool_id);
                                         if let Some(pool) = self.state.take_pool(&pool_id) {
-                                            if !pools_used.insert(&pool_id) {
+                                            if !pools_used.insert(pool_id) {
                                                 execution_units_left -= pool.marginal_cost_hint();
                                             }
                                             let FillFromPool { term_fill, swap } = fill_from_pool(*rem, pool);
@@ -221,19 +225,26 @@ where
                         break;
                     }
                 }
+                self.attempt_side = !self.attempt_side;
                 break;
             }
             match ExecutionRecipe::try_from(recipe) {
-                Ok(ex_recipe) => return Some(ex_recipe),
+                Ok(ex_recipe) => {
+                    return Some(ex_recipe)
+                },
                 Err(None) => {
                     self.on_recipe_failed(StashingOption::Unstash);
-                    return None;
+                    if mem::replace(&mut both_sides_tried, true) {
+                        trace!("Trying to matchmake on the other side: {}", self.attempt_side);
+                        continue;
+                    }
                 }
                 Err(Some(unsatisfied_fragments)) => {
                     self.on_recipe_failed(StashingOption::Stash(unsatisfied_fragments));
                     continue;
                 }
             }
+            return None;
         }
     }
 }
