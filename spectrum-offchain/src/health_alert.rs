@@ -10,12 +10,16 @@ pub trait SlackHealthAlert {
 pub struct HealthAlertClient {
     pub client: HttpClient,
     pub base_url: Uri,
-    pub own_partition_index: u64
+    pub own_partition_index: u64,
 }
 
 impl HealthAlertClient {
     pub fn new(client: HttpClient, base_url: Uri, own_partition_index: u64) -> Self {
-        Self { client, base_url, own_partition_index}
+        Self {
+            client,
+            base_url,
+            own_partition_index,
+        }
     }
 }
 
@@ -23,7 +27,10 @@ impl SlackHealthAlert for HealthAlertClient {
     fn send_alert(&self, string: &str) -> Result<String, String> {
         let cleaned_string = string.replace("\0", "");
 
-        let body = format!(r#"{{"text": "Bot idx {}. {}"}}"#, self.own_partition_index, cleaned_string);
+        let body = format!(
+            r#"{{"text": "Bot idx {}. {}"}}"#,
+            self.own_partition_index, cleaned_string
+        );
 
         let request = Request::post(&self.base_url)
             .header("Content-Type", "application/json")

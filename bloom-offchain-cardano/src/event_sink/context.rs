@@ -6,25 +6,23 @@ use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::deposit::DepositOrderBounds;
 use spectrum_offchain_cardano::data::pool::PoolBounds;
 use spectrum_offchain_cardano::data::redeem::RedeemOrderBounds;
-use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHashes};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnFeeSwitchPoolDeposit,
     ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
     ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
     LimitOrderV1, LimitOrderWitnessV1,
 };
+use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHashes};
 use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
 use crate::bounds::Bounds;
 use crate::orders::limit::LimitOrderBounds;
-use crate::orders::partitioning::Partitioning;
 
 #[derive(Copy, Clone, Debug)]
 pub struct HandlerContextProto {
     pub executor_cred: OperatorCred,
     pub scripts: ProtocolScriptHashes,
     pub bounds: Bounds,
-    pub partitioning: Partitioning,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -34,18 +32,11 @@ pub struct HandlerContext {
     pub executor_cred: OperatorCred,
     pub scripts: ProtocolScriptHashes,
     pub bounds: Bounds,
-    pub partitioning: Partitioning,
 }
 
 impl Has<LimitOrderBounds> for HandlerContext {
     fn select<U: IsEqual<LimitOrderBounds>>(&self) -> LimitOrderBounds {
         self.bounds.limit_order
-    }
-}
-
-impl Has<Partitioning> for HandlerContext {
-    fn select<U: IsEqual<Partitioning>>(&self) -> Partitioning {
-        self.partitioning
     }
 }
 
@@ -205,7 +196,6 @@ impl HandlerContext {
             executor_cred: prototype.executor_cred,
             scripts: prototype.scripts,
             bounds: prototype.bounds,
-            partitioning: prototype.partitioning,
         }
     }
 }
