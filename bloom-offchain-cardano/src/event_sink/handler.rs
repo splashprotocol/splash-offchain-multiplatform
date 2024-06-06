@@ -82,7 +82,7 @@ impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex>
     for SpecializedHandler<PairUpdateHandler<N, PairId, Topic, Order, PoolIndex>, OrderIndex, Pool>
 where
     PairId: Copy + Hash,
-    Topic: Sink<(PairId, OrderUpdate<Order, Order>)> + Unpin,
+    Topic: Sink<(PairId, EitherMod<OrderUpdate<Order, Order>>)> + Unpin,
     Topic::Error: Debug,
     Pool: EntitySnapshot + Tradable<PairId = PairId>,
     Order: SpecializedOrder<TPoolId = Pool::StableId>
@@ -115,7 +115,10 @@ where
                             if let Some(pair) = pool_index.pair_of(&pool_ref_of(&tr)) {
                                 index_atomic_transition(&mut index, &tr);
                                 let topic = self.general_handler.topic.get_mut(pair);
-                                topic.feed((pair, tr.into())).await.expect("Channel is closed");
+                                topic
+                                    .feed((pair, EitherMod::confirmed(tr.into())))
+                                    .await
+                                    .expect("Channel is closed");
                                 topic.flush().await.expect("Failed to commit message");
                             }
                         }
@@ -143,7 +146,7 @@ where
                                 index_atomic_transition(&mut index, &inverse_tr);
                                 let topic = self.general_handler.topic.get_mut(pair);
                                 topic
-                                    .feed((pair, inverse_tr.into()))
+                                    .feed((pair, EitherMod::confirmed(inverse_tr.into())))
                                     .await
                                     .expect("Channel is closed");
                                 topic.flush().await.expect("Failed to commit message");
@@ -164,7 +167,7 @@ impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex>
     for SpecializedHandler<PairUpdateHandler<N, PairId, Topic, Order, PoolIndex>, OrderIndex, Pool>
 where
     PairId: Copy + Hash,
-    Topic: Sink<(PairId, OrderUpdate<Order, Order>)> + Unpin,
+    Topic: Sink<(PairId, EitherMod<OrderUpdate<Order, Order>>)> + Unpin,
     Topic::Error: Debug,
     Pool: EntitySnapshot + Tradable<PairId = PairId>,
     Order: SpecializedOrder<TPoolId = Pool::StableId>
@@ -197,7 +200,10 @@ where
                             if let Some(pair) = pool_index.pair_of(&pool_ref_of(&tr)) {
                                 index_atomic_transition(&mut index, &tr);
                                 let topic = self.general_handler.topic.get_mut(pair);
-                                topic.feed((pair, tr.into())).await.expect("Channel is closed");
+                                topic
+                                    .feed((pair, EitherMod::unconfirmed(tr.into())))
+                                    .await
+                                    .expect("Channel is closed");
                                 topic.flush().await.expect("Failed to commit message");
                             }
                         }

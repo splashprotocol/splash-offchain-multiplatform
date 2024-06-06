@@ -19,7 +19,7 @@ use liquidity_book::interpreter::RecipeInterpreter;
 use spectrum_offchain::backlog::HotBacklog;
 use spectrum_offchain::circular_filter::CircularFilter;
 use spectrum_offchain::combinators::Ior;
-use spectrum_offchain::data::order::{OrderUpdate, SpecializedOrder};
+use spectrum_offchain::data::order::{OrderUpdate, SpecializedOrder, UniqueOrder};
 use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
 use spectrum_offchain::data::{Baked, EntitySnapshot, Stable};
 use spectrum_offchain::health_alert::{HealthAlertClient, SlackHealthAlert};
@@ -60,7 +60,7 @@ pub mod types;
 type EvolvingEntity<CO, P, V, B> = Bundled<Either<Baked<CO, V>, Baked<P, V>>, B>;
 
 pub type Event<CO, SO, P, B, V> =
-    Either<EitherMod<StateUpdate<EvolvingEntity<CO, P, V, B>>>, OrderUpdate<Bundled<SO, B>, SO>>;
+    Either<EitherMod<StateUpdate<EvolvingEntity<CO, P, V, B>>>, EitherMod<OrderUpdate<Bundled<SO, B>, SO>>>;
 
 pub enum PendingEffects<CompOrd, SpecOrd, Pool, Ver, Bearer> {
     FromLiquidityBook(
@@ -250,19 +250,33 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
             focus_set: FocusSet::new(),
             skip_filter: CircularFilter::new(),
             pd: Default::default(),
-            alert_client: alert_client,
+            alert_client,
         }
     }
 
-    fn sync_backlog(&mut self, pair: &Pair, update: OrderUpdate<Bundled<SO, B>, SO>)
+    fn sync_backlog(&mut self, pair: &Pair, update: EitherMod<OrderUpdate<Bundled<SO, B>, SO>>)
     where
         Pair: Copy + Eq + Hash + Display,
-        SO: SpecializedOrder,
+        V: Copy + Eq + Hash + Display,
+        SO: SpecializedOrder<TOrderId = V>,
         Log: HotBacklog<Bundled<SO, B>> + Maker<Ctx>,
         Ctx: Clone,
     {
-        match update {
-            OrderUpdate::Created(new_order) => self.multi_backlog.get_mut(pair).put(new_order),
+        let is_confirmed = matches!(update, EitherMod::Confirmed(_));
+        let (EitherMod::Confirmed(Confirmed(upd)) | EitherMod::Unconfirmed(Unconfirmed(upd))) = update;
+        match upd {
+            OrderUpdate::Created(new_order) => {
+                let ver = SpecializedOrder::get_self_ref(&new_order);
+                if is_confirmed {
+                    let seen_recently = self.skip_filter.remove(&ver);
+                    if !seen_recently {
+                        self.multi_backlog.get_mut(pair).put(new_order)
+                    }
+                } else {
+                    self.skip_filter.add(ver);
+                    self.multi_backlog.get_mut(pair).put(new_order)
+                }
+            }
             OrderUpdate::Eliminated(elim_order) => {
                 self.multi_backlog.get_mut(pair).remove(elim_order.get_self_ref())
             }
