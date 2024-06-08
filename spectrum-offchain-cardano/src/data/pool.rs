@@ -276,9 +276,9 @@ where
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         let bounds = ctx.select::<PoolBounds>();
         if repr.value().amount_of(AssetClass::Native).unwrap_or(0) >= bounds.min_lovelace {
-            let cfmm_pool = ConstFnPool::try_from_ledger(repr, ctx).map(PureCFMM);
+            //let cfmm_pool = ConstFnPool::try_from_ledger(repr, ctx).map(PureCFMM);
             let balance_pool = BalancePool::try_from_ledger(repr, ctx).map(BalancedCFMM);
-            cfmm_pool.or(balance_pool)
+            balance_pool
         } else {
             None
         }

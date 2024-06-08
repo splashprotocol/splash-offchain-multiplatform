@@ -10,8 +10,10 @@ use cml_chain::plutus::utils::ConstrPlutusDataEncoding;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
 use cml_chain::utils::BigInteger;
-use cml_chain::Value;
+use cml_chain::{PolicyId, Value};
 use cml_core::serialization::LenEncoding::{Canonical, Indefinite};
+use cml_core::serialization::Serialize;
+use cml_crypto::ScriptHash;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
 use num_integer::Roots;
@@ -27,7 +29,7 @@ use spectrum_cardano_lib::plutus_data::{IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
+use spectrum_cardano_lib::{AssetClass, TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
@@ -225,6 +227,7 @@ where
     Ctx: Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
+        info!("balance pool: {}", BalancePoolVer::try_from_address(repr.address(), ctx).is_some());
         if let Some(pool_ver) = BalancePoolVer::try_from_address(repr.address(), ctx) {
             let value = repr.value();
             let pd = repr.datum().clone()?.into_pd()?;
@@ -536,6 +539,10 @@ impl Pool for BalancePool {
 
     fn marginal_cost_hint(&self) -> Self::U {
         self.marginal_cost
+    }
+
+    fn swaps_allowed(&self) -> bool {
+        true
     }
 }
 

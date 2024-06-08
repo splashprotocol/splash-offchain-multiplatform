@@ -326,6 +326,7 @@ where
                 data,
                 transition.treasury_x.untag(),
                 transition.treasury_y.untag(),
+                transition.invariant
             );
         }
 

@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use clap::Parser;
 use cml_chain::transaction::Transaction;
-use cml_multi_era::babbage::BabbageTransaction;
+use cml_core::serialization::Deserialize;
+use cml_multi_era::babbage::{BabbageTransaction, BabbageTransactionOutput};
 use either::Either;
 use futures::channel::mpsc;
 use futures::stream::select_all;
@@ -12,6 +13,7 @@ use isahc::HttpClient;
 use log::info;
 use tokio::sync::{broadcast, Mutex};
 use tracing_subscriber::fmt::Subscriber;
+use tracing_subscriber::fmt::writer::EitherWriter::B;
 
 use crate::partitioning::select_partition;
 use bloom_cardano_agent::config::AppConfig;

@@ -1,6 +1,8 @@
 use cml_chain::plutus::PlutusData;
-use cml_crypto::Ed25519KeyHash;
+use cml_core::serialization::Serialize;
+use cml_crypto::{Ed25519KeyHash, ScriptHash};
 use cml_multi_era::babbage::BabbageTransactionOutput;
+use log::info;
 
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
@@ -102,9 +104,10 @@ where
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         let is_const_fee_switch_pool_deposit =
             test_address::<{ ConstFnFeeSwitchPoolRedeem as u8 }, Ctx>(repr.address(), ctx);
-        let is_const_pool_redeem = test_address::<{ ConstFnPoolRedeem as u8 }, Ctx>(repr.address(), ctx);
         let is_balance_pool_redeem = test_address::<{ BalanceFnPoolRedeem as u8 }, Ctx>(repr.address(), ctx);
-        if is_const_pool_redeem {
+        info!("is_const_fee_switch_pool_deposit: {}", is_const_fee_switch_pool_deposit);
+        info!("is_balance_pool_redeem: {}", is_balance_pool_redeem);
+        if is_balance_pool_redeem {
             let order_type = if is_const_fee_switch_pool_deposit {
                 OrderType::ConstFnFeeSwitch
             } else if is_balance_pool_redeem {
