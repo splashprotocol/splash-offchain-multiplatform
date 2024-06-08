@@ -76,22 +76,22 @@ impl<H, OrderIndex, Pool> SpecializedHandler<H, OrderIndex, Pool> {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait(? Send)]
 impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex>
-    EventHandler<LedgerTxEvent<ProcessingTransaction>>
-    for SpecializedHandler<PairUpdateHandler<N, PairId, Topic, Order, PoolIndex>, OrderIndex, Pool>
-where
-    PairId: Copy + Hash,
-    Topic: Sink<(PairId, EitherMod<OrderUpdate<Order, Order>>)> + Unpin,
-    Topic::Error: Debug,
-    Pool: EntitySnapshot + Tradable<PairId = PairId>,
-    Order: SpecializedOrder<TPoolId = Pool::StableId>
+EventHandler<LedgerTxEvent<ProcessingTransaction>>
+for SpecializedHandler<PairUpdateHandler<N, PairId, Topic, Order, PoolIndex>, OrderIndex, Pool>
+    where
+        PairId: Copy + Hash,
+        Topic: Sink<(PairId, EitherMod<OrderUpdate<Order, Order>>)> + Unpin,
+        Topic::Error: Debug,
+        Pool: EntitySnapshot + Tradable<PairId=PairId>,
+        Order: SpecializedOrder<TPoolId=Pool::StableId>
         + TryFromLedger<BabbageTransactionOutput, HandlerContext>
         + Clone
         + Debug,
-    Order::TOrderId: From<OutputRef> + Display,
-    OrderIndex: crate::event_sink::order_index::OrderIndex<Order>,
-    PoolIndex: TradableEntityIndex<Pool>,
+        Order::TOrderId: From<OutputRef> + Display,
+        OrderIndex: crate::event_sink::order_index::OrderIndex<Order>,
+        PoolIndex: TradableEntityIndex<Pool>,
 {
     async fn try_handle(
         &mut self,
@@ -104,7 +104,7 @@ where
                     self.general_handler.context,
                     tx,
                 )
-                .await
+                    .await
                 {
                     Ok((transitions, tx)) => {
                         trace!(target: "offchain", "[{}] entities parsed from applied tx", transitions.len());
@@ -133,7 +133,7 @@ where
                     self.general_handler.context,
                     tx,
                 )
-                .await
+                    .await
                 {
                     Ok((transitions, tx)) => {
                         trace!("[{}] entities parsed from unapplied tx", transitions.len());
@@ -161,22 +161,22 @@ where
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait(? Send)]
 impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex>
-    EventHandler<MempoolUpdate<ProcessingTransaction>>
-    for SpecializedHandler<PairUpdateHandler<N, PairId, Topic, Order, PoolIndex>, OrderIndex, Pool>
-where
-    PairId: Copy + Hash,
-    Topic: Sink<(PairId, EitherMod<OrderUpdate<Order, Order>>)> + Unpin,
-    Topic::Error: Debug,
-    Pool: EntitySnapshot + Tradable<PairId = PairId>,
-    Order: SpecializedOrder<TPoolId = Pool::StableId>
+EventHandler<MempoolUpdate<ProcessingTransaction>>
+for SpecializedHandler<PairUpdateHandler<N, PairId, Topic, Order, PoolIndex>, OrderIndex, Pool>
+    where
+        PairId: Copy + Hash,
+        Topic: Sink<(PairId, EitherMod<OrderUpdate<Order, Order>>)> + Unpin,
+        Topic::Error: Debug,
+        Pool: EntitySnapshot + Tradable<PairId=PairId>,
+        Order: SpecializedOrder<TPoolId=Pool::StableId>
         + TryFromLedger<BabbageTransactionOutput, HandlerContext>
         + Clone
         + Debug,
-    Order::TOrderId: From<OutputRef> + Display,
-    OrderIndex: crate::event_sink::order_index::OrderIndex<Order>,
-    PoolIndex: TradableEntityIndex<Pool>,
+        Order::TOrderId: From<OutputRef> + Display,
+        OrderIndex: crate::event_sink::order_index::OrderIndex<Order>,
+        PoolIndex: TradableEntityIndex<Pool>,
 {
     async fn try_handle(
         &mut self,
@@ -189,7 +189,7 @@ where
                     self.general_handler.context,
                     tx,
                 )
-                .await
+                    .await
                 {
                     Ok((transitions, tx)) => {
                         trace!(target: "offchain", "[{}] entities parsed from applied tx", transitions.len());
@@ -228,76 +228,71 @@ async fn extract_atomic_transitions<Order, Index>(
     context: HandlerContextProto,
     (tx_hash, mut tx): ProcessingTransaction,
 ) -> Result<(Vec<Either<Order, Order>>, ProcessingTransaction), ProcessingTransaction>
-where
-    Order: SpecializedOrder + TryFromLedger<BabbageTransactionOutput, HandlerContext> + Clone,
-    Order::TOrderId: From<OutputRef> + Display,
-    Index: OrderIndex<Order>,
+    where
+        Order: SpecializedOrder + TryFromLedger<BabbageTransactionOutput, HandlerContext> + Clone,
+        Order::TOrderId: From<OutputRef> + Display,
+        Index: OrderIndex<Order>,
 {
-    trace!("+- Scanning Tx {} for atomic orders", tx_hash);
-    if (format!("{}", tx_hash) == "2410be56a1d25de73efb7a9481413732af3dc70c011f4998b7f02615dac81011" || format!("{}", tx_hash) == "f054256947474710bbee2fd820af006c7489177e24436cf91cdbd918214b23f1") {
-        let num_outputs = tx.body.outputs.len();
-        if num_outputs == 0 {
-            return Err((tx_hash, tx));
-        }
-        let mut consumed_orders = HashMap::<Order::TOrderId, Order>::new();
-        let mut consumed_utxos = Vec::new();
-        for i in &tx.body.inputs {
-            let oref = OutputRef::from((i.transaction_id, i.index));
-            consumed_utxos.push(oref);
-            let state_id = Order::TOrderId::from(oref);
-            let mut index = index.lock().await;
-            if let Some(order) = index.get(&state_id) {
-                let order_id = order.get_self_ref();
-                trace!("Order {} eliminated", order_id);
-                consumed_orders.insert(order_id, order);
-            }
-        }
-        let mut produced_orders = HashMap::<Order::TOrderId, Order>::new();
-        let consumed_utxos = ConsumedInputs::new(consumed_utxos.into_iter());
-        let mut ix = num_outputs - 1;
-        let mut non_processed_outputs = VecDeque::new();
-        while let Some(o) = tx.body.outputs.pop() {
-            let o_ref = OutputRef::new(tx_hash, ix as u64);
-            match Order::try_from_ledger(&o, &HandlerContext::new(o_ref, consumed_utxos, context)) {
-                Some(order) => {
-                    let order_id = order.get_self_ref();
-                    trace!("Order {} created", order_id);
-                    produced_orders.insert(order_id, order);
-                }
-                None => {
-                    non_processed_outputs.push_front(o);
-                }
-            }
-            if let Some(next_ix) = ix.checked_sub(1) {
-                ix = next_ix;
-            }
-        }
-        // Preserve non-processed outputs in original ordering.
-        tx.body.outputs = non_processed_outputs.into();
-
-        // Gather IDs of all recognized entities.
-        let mut keys = HashSet::new();
-        for k in consumed_orders.keys().chain(produced_orders.keys()) {
-            keys.insert(*k);
-        }
-
-        // Match consumed versions with produced ones.
-        let mut transitions = vec![];
-        for k in keys.into_iter() {
-            match (consumed_orders.remove(&k), produced_orders.remove(&k)) {
-                (Some(consumed), _) => transitions.push(Either::Left(consumed)),
-                (_, Some(produced)) => transitions.push(Either::Right(produced)),
-                _ => {}
-            };
-        }
-
-        if transitions.is_empty() {
-            return Err((tx_hash, tx));
-        }
-        Ok((transitions, (tx_hash, tx)))
-    } else {
-        return Err((tx_hash, tx))
+    let num_outputs = tx.body.outputs.len();
+    if num_outputs == 0 {
+        return Err((tx_hash, tx));
     }
+    let mut consumed_orders = HashMap::<Order::TOrderId, Order>::new();
+    let mut consumed_utxos = Vec::new();
+    for i in &tx.body.inputs {
+        let oref = OutputRef::from((i.transaction_id, i.index));
+        consumed_utxos.push(oref);
+        let state_id = Order::TOrderId::from(oref);
+        let mut index = index.lock().await;
+        if let Some(order) = index.get(&state_id) {
+            let order_id = order.get_self_ref();
+            trace!("Order {} eliminated", order_id);
+            consumed_orders.insert(order_id, order);
+        }
+    }
+    let mut produced_orders = HashMap::<Order::TOrderId, Order>::new();
+    let consumed_utxos = ConsumedInputs::new(consumed_utxos.into_iter());
+    let mut ix = num_outputs - 1;
+    let mut non_processed_outputs = VecDeque::new();
+    while let Some(o) = tx.body.outputs.pop() {
+        let o_ref = OutputRef::new(tx_hash, ix as u64);
+        match Order::try_from_ledger(&o, &HandlerContext::new(o_ref, consumed_utxos, context)) {
+            Some(order) => {
+                let order_id = order.get_self_ref();
+                trace!("Order {} created", order_id);
+                produced_orders.insert(order_id, order);
+            }
+            None => {
+                non_processed_outputs.push_front(o);
+            }
+        }
+        if let Some(next_ix) = ix.checked_sub(1) {
+            ix = next_ix;
+        }
+    }
+    // Preserve non-processed outputs in original ordering.
+    tx.body.outputs = non_processed_outputs.into();
+
+    // Gather IDs of all recognized entities.
+    let mut keys = HashSet::new();
+    for k in consumed_orders.keys().chain(produced_orders.keys()) {
+        keys.insert(*k);
+    }
+
+    // Match consumed versions with produced ones.
+    let mut transitions = vec![];
+    for k in keys.into_iter() {
+        match (consumed_orders.remove(&k), produced_orders.remove(&k)) {
+            (Some(consumed), _) => transitions.push(Either::Left(consumed)),
+            (_, Some(produced)) => transitions.push(Either::Right(produced)),
+            _ => {}
+        };
+    }
+
+    if transitions.is_empty() {
+        return Err((tx_hash, tx));
+    }
+    Ok((transitions, (tx_hash, tx)))
 }
 
 async fn extract_persistent_transitions<Entity, Index>(
@@ -305,10 +300,10 @@ async fn extract_persistent_transitions<Entity, Index>(
     context: HandlerContextProto,
     (tx_hash, mut tx): ProcessingTransaction,
 ) -> Result<(Vec<Ior<Entity, Entity>>, ProcessingTransaction), ProcessingTransaction>
-where
-    Entity: EntitySnapshot + Tradable + TryFromLedger<BabbageTransactionOutput, HandlerContext> + Clone,
-    Entity::Version: From<OutputRef>,
-    Index: TradableEntityIndex<Entity>,
+    where
+        Entity: EntitySnapshot + Tradable + TryFromLedger<BabbageTransactionOutput, HandlerContext> + Clone,
+        Entity::Version: From<OutputRef>,
+        Index: TradableEntityIndex<Entity>,
 {
     trace!("+- Scanning Tx {} for persistent entities", tx_hash);
     let num_outputs = tx.body.outputs.len();
@@ -381,20 +376,20 @@ fn pair_id_of<T: Tradable>(xa: &Ior<T, T>) -> T::PairId {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait(? Send)]
 impl<const N: usize, PairId, Topic, Entity, Index> EventHandler<LedgerTxEvent<ProcessingTransaction>>
-    for PairUpdateHandler<N, PairId, Topic, Entity, Index>
-where
-    PairId: Copy + Hash,
-    Topic: Sink<(PairId, EitherMod<StateUpdate<Entity>>)> + Unpin,
-    Topic::Error: Debug,
-    Entity: EntitySnapshot
-        + Tradable<PairId = PairId>
+for PairUpdateHandler<N, PairId, Topic, Entity, Index>
+    where
+        PairId: Copy + Hash,
+        Topic: Sink<(PairId, EitherMod<StateUpdate<Entity>>)> + Unpin,
+        Topic::Error: Debug,
+        Entity: EntitySnapshot
+        + Tradable<PairId=PairId>
         + TryFromLedger<BabbageTransactionOutput, HandlerContext>
         + Clone
         + Debug,
-    Entity::Version: From<OutputRef>,
-    Index: TradableEntityIndex<Entity>,
+        Entity::Version: From<OutputRef>,
+        Index: TradableEntityIndex<Entity>,
 {
     async fn try_handle(
         &mut self,
@@ -453,20 +448,20 @@ where
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait(? Send)]
 impl<const N: usize, PairId, Topic, Entity, Index> EventHandler<MempoolUpdate<ProcessingTransaction>>
-    for PairUpdateHandler<N, PairId, Topic, Entity, Index>
-where
-    PairId: Copy + Hash,
-    Topic: Sink<(PairId, EitherMod<StateUpdate<Entity>>)> + Unpin,
-    Topic::Error: Debug,
-    Entity: EntitySnapshot
-        + Tradable<PairId = PairId>
+for PairUpdateHandler<N, PairId, Topic, Entity, Index>
+    where
+        PairId: Copy + Hash,
+        Topic: Sink<(PairId, EitherMod<StateUpdate<Entity>>)> + Unpin,
+        Topic::Error: Debug,
+        Entity: EntitySnapshot
+        + Tradable<PairId=PairId>
         + TryFromLedger<BabbageTransactionOutput, HandlerContext>
         + Clone
         + Debug,
-    Entity::Version: From<OutputRef>,
-    Index: TradableEntityIndex<Entity>,
+        Entity::Version: From<OutputRef>,
+        Index: TradableEntityIndex<Entity>,
 {
     async fn try_handle(
         &mut self,
@@ -502,9 +497,9 @@ where
 }
 
 fn index_atomic_transition<Index, T>(index: &mut MutexGuard<Index>, tr: &Either<T, T>)
-where
-    T: SpecializedOrder + Clone,
-    Index: OrderIndex<T>,
+    where
+        T: SpecializedOrder + Clone,
+        Index: OrderIndex<T>,
 {
     match &tr {
         Either::Left(consumed) => {
@@ -517,9 +512,9 @@ where
 }
 
 fn index_transition<Index, T>(index: &mut MutexGuard<Index>, tr: &Ior<T, T>)
-where
-    T: EntitySnapshot + Tradable + Clone,
-    Index: TradableEntityIndex<T>,
+    where
+        T: EntitySnapshot + Tradable + Clone,
+        Index: TradableEntityIndex<T>,
 {
     match &tr {
         Ior::Left(consumed) => {
@@ -611,8 +606,8 @@ mod tests {
     }
 
     impl<C> TryFromLedger<BabbageTransactionOutput, C> for TrivialEntity
-    where
-        C: Has<OutputRef>,
+        where
+            C: Has<OutputRef>,
     {
         fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
             Some(TrivialEntity(ctx.select::<OutputRef>(), repr.value().coin))
@@ -753,12 +748,12 @@ mod tests {
                 slot: 0,
             },
         )
-        .await;
+            .await;
         let (_, EitherMod::Confirmed(Confirmed(StateUpdate::Transition(Ior::Right(e1))))) =
             recv.next().await.expect("Must result in new event")
-        else {
-            panic!("Must be a transition")
-        };
+            else {
+                panic!("Must be a transition")
+            };
         EventHandler::<LedgerTxEvent<ProcessingTransaction>>::try_handle(
             &mut handler,
             LedgerTxEvent::TxApplied {
@@ -766,28 +761,28 @@ mod tests {
                 slot: 1,
             },
         )
-        .await;
+            .await;
         let (_, EitherMod::Confirmed(Confirmed(StateUpdate::Transition(Ior::Both(e1_reversed, e2))))) =
             recv.next().await.expect("Must result in new event")
-        else {
-            panic!("Must be a transition")
-        };
+            else {
+                panic!("Must be a transition")
+            };
         assert_eq!(e1_reversed, e1);
         EventHandler::<LedgerTxEvent<ProcessingTransaction>>::try_handle(
             &mut handler,
             LedgerTxEvent::TxUnapplied((tx_2_hash, tx_2)),
         )
-        .await;
+            .await;
         let (
             _,
             EitherMod::Confirmed(Confirmed(StateUpdate::TransitionRollback(Ior::Both(
-                e2_reversed,
-                e1_revived,
-            )))),
+                                                                               e2_reversed,
+                                                                               e1_revived,
+                                                                           )))),
         ) = recv.next().await.expect("Must result in new event")
-        else {
-            panic!("Must be a transition")
-        };
+            else {
+                panic!("Must be a transition")
+            };
         assert_eq!(e2_reversed, e2);
         assert_eq!(e1_revived, e1);
     }
