@@ -49,13 +49,6 @@ impl<Fr, Pl> ExecutionRecipe<Fr, Pl> {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct IntermediateRecipe2<Taker, Maker> {
-    pub terminated_makes: Vec<Fill<Taker>>,
-    pub takes: HashMap<usize, Take<Maker>>,
-    pub remainder: Option<PartialFill<Taker>>,
-}
-
-#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct IntermediateRecipe<Fr, Pl> {
     pub terminal: Vec<TerminalInstruction<Fr, Pl>>,
     pub remainder: Option<PartialFill<Fr>>,
