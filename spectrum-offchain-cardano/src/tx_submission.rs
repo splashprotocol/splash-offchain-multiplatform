@@ -5,7 +5,7 @@ use async_stream::stream;
 use cml_core::serialization::Serialize;
 use futures::channel::{mpsc, oneshot};
 use futures::{SinkExt, Stream, StreamExt};
-use log::{info, trace};
+use log::trace;
 use pallas_network::miniprotocols::localtxsubmission;
 use pallas_network::miniprotocols::localtxsubmission::RejectReason;
 
@@ -51,20 +51,13 @@ impl From<SubmissionResult> for Result<(), TxRejected> {
     fn from(value: SubmissionResult) -> Self {
         match value {
             SubmissionResult::Ok => Ok(()),
-            SubmissionResult::TxRejectedResult {
-                rejected_bytes: error,
-            } => {
-                info!("error: {}", hex::encode(error.clone()));
-                let missing_inputs = transcribe_bad_inputs_error(error);
+            SubmissionResult::TxRejectedResult { rejected_bytes } => {
+                let missing_inputs = transcribe_bad_inputs_error(rejected_bytes);
                 Err(if !missing_inputs.is_empty() {
                     TxRejected::MissingInputs(missing_inputs)
                 } else {
                     TxRejected::Unknown
                 })
-            }
-            _ => {
-                info!("error with empty bytes");
-                Err(TxRejected::Unknown)
             }
         }
     }
