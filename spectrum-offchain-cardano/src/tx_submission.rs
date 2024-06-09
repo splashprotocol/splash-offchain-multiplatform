@@ -63,6 +63,8 @@ impl From<SubmissionResult> for Result<(), TxRejected> {
     }
 }
 
+const MAX_SUBMIT_ATTEMPTS: usize = 3;
+
 pub fn tx_submission_agent_stream<const ERA: u16, Tx>(
     mut agent: TxSubmissionAgent<ERA, Tx>,
 ) -> impl Stream<Item = ()>
@@ -72,6 +74,7 @@ where
     stream! {
         loop {
             let SubmitTx(tx, on_resp) = agent.mailbox.select_next_some().await;
+            let mut attempts_done = 0;
             loop {
                 match agent.client.submit_tx(tx.clone()).await {
                     Ok(_) => on_resp.send(SubmissionResult::Ok).expect("Responder was dropped"),
@@ -84,7 +87,10 @@ where
                             },
                             retryable_err => {
                                 trace!("TxSubmissionProtocol responded with error: {}", retryable_err);
-                                continue
+                                if attempts_done < MAX_SUBMIT_ATTEMPTS {
+                                    attempts_done += 1;
+                                    continue
+                                }
                             },
                         };
                     },
