@@ -28,6 +28,7 @@ mod core;
 pub mod fragment;
 pub mod interpreter;
 mod liquidity_bin;
+mod parallel;
 pub mod pool;
 pub mod recipe;
 pub mod side;
