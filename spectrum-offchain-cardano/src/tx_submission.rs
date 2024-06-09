@@ -52,7 +52,7 @@ impl From<SubmissionResult> for Result<(), TxRejected> {
         match value {
             SubmissionResult::Ok => Ok(()),
             SubmissionResult::TxRejectedResult {
-                rejected_bytes: Some(error),
+                rejected_bytes: error,
             } => {
                 info!("error: {}", hex::encode(error.clone()));
                 let missing_inputs = transcribe_bad_inputs_error(error);
