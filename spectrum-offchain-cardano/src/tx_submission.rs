@@ -91,6 +91,8 @@ where
                                     attempts_done += 1;
                                     continue
                                 }
+                                //todo: remove this when client issue solved
+                                on_resp.send(SubmissionResult::TxRejectedResult{rejected_bytes: vec![]}).expect("Responder was dropped")
                             },
                         };
                     },
