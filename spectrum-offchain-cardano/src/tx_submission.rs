@@ -7,6 +7,7 @@ use futures::channel::{mpsc, oneshot};
 use futures::{SinkExt, Stream, StreamExt};
 use log::{info, trace};
 use pallas_network::miniprotocols::localtxsubmission;
+use pallas_network::miniprotocols::localtxsubmission::RejectReason;
 
 use cardano_submit_api::client::{Error, LocalTxSubmissionClient};
 use spectrum_cardano_lib::OutputRef;
@@ -43,7 +44,7 @@ pub struct SubmitTx<Tx>(Tx, oneshot::Sender<SubmissionResult>);
 #[derive(Debug, Clone)]
 pub enum SubmissionResult {
     Ok,
-    TxRejectedResult { rejected_bytes: Option<Vec<u8>> },
+    TxRejectedResult { rejected_bytes: Vec<u8> },
 }
 
 impl From<SubmissionResult> for Result<(), TxRejected> {
@@ -73,26 +74,30 @@ pub fn tx_submission_agent_stream<const ERA: u16, Tx>(
     mut agent: TxSubmissionAgent<ERA, Tx>,
 ) -> impl Stream<Item = ()>
 where
-    Tx: Serialize,
+    Tx: Serialize + Clone,
 {
     stream! {
         loop {
             let SubmitTx(tx, on_resp) = agent.mailbox.select_next_some().await;
-            trace!("Submitting TX: {}", hex::encode(tx.to_cbor_bytes()));
-            match agent.client.submit_tx(tx).await {
-                Ok(_) => on_resp.send(SubmissionResult::Ok).expect("Responder was dropped"),
-                Err(Error::TxSubmissionProtocol(err)) => {
-                    match err {
-                        localtxsubmission::Error::TxRejected(bytes) => {
-
-                            on_resp.send(SubmissionResult::TxRejectedResult{rejected_bytes: Some(bytes.0)}).expect("Responder was dropped")
-                        },
-                        _ => {
-                            on_resp.send(SubmissionResult::TxRejectedResult{rejected_bytes: None}).expect("Responder was dropped")
-                        }
-                    };
-                },
-                Err(_) => panic!("Cannot submit"),
+            loop {
+                match agent.client.submit_tx(tx.clone()).await {
+                    Ok(_) => on_resp.send(SubmissionResult::Ok).expect("Responder was dropped"),
+                    Err(Error::TxSubmissionProtocol(err)) => {
+                        trace!("Failed to submit TX: {}", hex::encode(tx.to_cbor_bytes()));
+                        match err {
+                            localtxsubmission::Error::TxRejected(RejectReason(rejected_bytes)) => {
+                                trace!("TxRejected: Node responded with error: {}", hex::encode(&rejected_bytes));
+                                on_resp.send(SubmissionResult::TxRejectedResult{rejected_bytes}).expect("Responder was dropped")
+                            },
+                            retryable_err => {
+                                trace!("TxSubmissionProtocol responded with error: {}", retryable_err);
+                                continue
+                            },
+                        };
+                    },
+                    Err(err) => panic!("Cannot submit TX due to {}", err),
+                }
+                break;
             }
         }
     }

@@ -29,6 +29,7 @@ pub fn side_of(input: AssetClass, output: AssetClass) -> SideM {
 pub fn order_canonical(x: AssetClass, y: AssetClass) -> [AssetClass; 2] {
     let mut bf = [x, y];
     bf.sort();
+    bf.reverse();
     bf
 }
 
