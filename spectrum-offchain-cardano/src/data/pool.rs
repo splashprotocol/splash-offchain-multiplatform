@@ -14,6 +14,7 @@ use cml_chain::transaction::{DatumOption, ScriptRef, TransactionOutput};
 use cml_chain::utils::BigInteger;
 
 use cml_chain::{Coin, PolicyId};
+use cml_core::serialization::Serialize;
 
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
@@ -34,7 +35,7 @@ use crate::data::balance_pool::{BalancePool, BalancePoolRedeemer};
 use crate::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
 use crate::data::order::{ClassicalOrderAction, ClassicalOrderRedeemer, Quote};
 use crate::data::pair::PairId;
-use crate::data::pool::AnyPool::{BalancedCFMM, PureCFMM};
+use crate::data::pool::AnyPool::{BalancedCFMM, PureCFMM, StableCFMM};
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::value::ValueExtension;
@@ -44,9 +45,11 @@ use spectrum_offchain::data::{Has, Stable, Tradable};
 use spectrum_offchain::executor::RunOrderError;
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
+use crate::data::stable_pool_t2t::{StablePoolRedeemer, StablePoolT2T as StablePoolT2TData};
 use crate::data::OnChainOrderId;
 use crate::deployment::ProtocolValidator::{
     BalanceFnPoolV1, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolV1, ConstFnPoolV2,
+    StableFnPoolT2T,
 };
 use crate::deployment::{DeployedScriptInfo, RequiresValidator};
 
@@ -217,6 +220,7 @@ pub struct PoolBounds {
 pub enum AnyPool {
     PureCFMM(ConstFnPool),
     BalancedCFMM(BalancePool),
+    StableCFMM(StablePoolT2TData),
 }
 
 impl Display for AnyPool {
@@ -230,6 +234,12 @@ impl Display for AnyPool {
             )),
             BalancedCFMM(p) => f.write_str(&*format!(
                 "BalancedCFMM(id: {}, static_price: {}, quality: {})",
+                p.id,
+                p.static_price(),
+                p.quality()
+            )),
+            StableCFMM(p) => f.write_str(&*format!(
+                "StableCFMM(id: {}, static_price: {}, quality: {})",
                 p.id,
                 p.static_price(),
                 p.quality()
@@ -249,6 +259,7 @@ impl MarketMaker for AnyPool {
         match self {
             PureCFMM(p) => p.static_price(),
             BalancedCFMM(p) => p.static_price(),
+            StableCFMM(p) => p.static_price(),
         }
     }
 
@@ -256,6 +267,7 @@ impl MarketMaker for AnyPool {
         match self {
             PureCFMM(p) => p.real_price(input),
             BalancedCFMM(p) => p.real_price(input),
+            StableCFMM(p) => p.real_price(input),
         }
     }
 
@@ -269,6 +281,10 @@ impl MarketMaker for AnyPool {
                 let (swap_res, new_pool) = p.swap(input);
                 (swap_res, BalancedCFMM(new_pool))
             }
+            StableCFMM(p) => {
+                let (swap_res, new_pool) = p.swap(input);
+                (swap_res, StableCFMM(new_pool))
+            }
         }
     }
 
@@ -276,6 +292,7 @@ impl MarketMaker for AnyPool {
         match self {
             PureCFMM(p) => p.quality(),
             BalancedCFMM(p) => p.quality(),
+            StableCFMM(p) => p.quality(),
         }
     }
 
@@ -283,6 +300,7 @@ impl MarketMaker for AnyPool {
         match self {
             PureCFMM(p) => p.marginal_cost_hint(),
             BalancedCFMM(p) => p.marginal_cost_hint(),
+            StableCFMM(p) => p.marginal_cost_hint(),
         }
     }
 
@@ -290,6 +308,7 @@ impl MarketMaker for AnyPool {
         match self {
             PureCFMM(p) => p.available_liquidity(max_price_impact),
             BalancedCFMM(p) => p.available_liquidity(max_price_impact),
+            StableCFMM(p) => p.available_liquidity(max_price_impact),
         }
     }
 
@@ -297,6 +316,7 @@ impl MarketMaker for AnyPool {
         match self {
             PureCFMM(p) => p.is_active(),
             BalancedCFMM(p) => p.is_active(),
+            StableCFMM(p) => p.is_active(),
         }
     }
 }
@@ -308,12 +328,14 @@ where
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
         + Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>
+        + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
         + Has<PoolBounds>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         ConstFnPool::try_from_ledger(repr, ctx)
             .map(PureCFMM)
             .or_else(|| BalancePool::try_from_ledger(repr, ctx).map(BalancedCFMM))
+            .or_else(|| StablePoolT2TData::try_from_ledger(repr, ctx).map(StableCFMM))
     }
 }
 
@@ -323,6 +345,7 @@ impl Stable for AnyPool {
         match self {
             PureCFMM(p) => Token::from(p.id).0,
             BalancedCFMM(p) => Token::from(p.id).0,
+            StableCFMM(p) => Token::from(p.id).0,
         }
     }
     fn is_quasi_permanent(&self) -> bool {
@@ -336,6 +359,7 @@ impl Tradable for AnyPool {
         match self {
             PureCFMM(p) => PairId::canonical(p.asset_x.untag(), p.asset_y.untag()),
             BalancedCFMM(p) => PairId::canonical(p.asset_x.untag(), p.asset_y.untag()),
+            StableCFMM(p) => PairId::canonical(p.asset_x.untag(), p.asset_y.untag()),
         }
     }
 }
@@ -377,6 +401,20 @@ impl RequiresRedeemer<CFMMPoolAction> for BalancePool {
     fn redeemer(self, prev_state: Self, pool_input_index: u64, action: CFMMPoolAction) -> PlutusData {
         BalancePoolRedeemer {
             pool_input_index,
+            action,
+            new_pool_state: self,
+            prev_pool_state: prev_state,
+        }
+        .to_plutus_data()
+    }
+}
+
+impl RequiresRedeemer<CFMMPoolAction> for StablePoolT2TData {
+    // used for deposit/redeem operations. Pool output index is 0
+    fn redeemer(self, prev_state: Self, pool_input_index: u64, action: CFMMPoolAction) -> PlutusData {
+        StablePoolRedeemer {
+            pool_input_index,
+            pool_output_index: 0,
             action,
             new_pool_state: self,
             prev_pool_state: prev_state,

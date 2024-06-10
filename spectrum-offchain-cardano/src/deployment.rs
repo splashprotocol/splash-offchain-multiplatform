@@ -110,6 +110,9 @@ pub struct DeployedValidators {
     pub balance_fn_pool_v1: DeployedValidatorRef,
     pub balance_fn_pool_deposit: DeployedValidatorRef,
     pub balance_fn_pool_redeem: DeployedValidatorRef,
+    pub stable_fn_pool_t2t: DeployedValidatorRef,
+    pub stable_fn_pool_t2t_deposit: DeployedValidatorRef,
+    pub stable_fn_pool_t2t_redeem: DeployedValidatorRef,
 }
 
 impl From<&DeployedValidators> for ProtocolScriptHashes {
@@ -130,6 +133,9 @@ impl From<&DeployedValidators> for ProtocolScriptHashes {
             balance_fn_pool_v1: From::from(&deployment.balance_fn_pool_v1),
             balance_fn_pool_deposit: From::from(&deployment.balance_fn_pool_deposit),
             balance_fn_pool_redeem: From::from(&deployment.balance_fn_pool_redeem),
+            stable_fn_pool_t2t: From::from(&deployment.stable_fn_pool_t2t),
+            stable_fn_pool_t2t_deposit: From::from(&deployment.stable_fn_pool_t2t_deposit),
+            stable_fn_pool_t2t_redeem: From::from(&deployment.stable_fn_pool_t2t_redeem),
         }
     }
 }
@@ -203,6 +209,18 @@ pub struct DeployedValidatorErased {
     pub marginal_cost: ExUnits,
 }
 
+impl Display for DeployedValidatorErased {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            format!(
+                "DeployedValidatorErased([reference_utxo: {}#{}, hash {})",
+                self.reference_utxo.input.transaction_id, self.reference_utxo.input.index, self.hash
+            )
+            .as_str(),
+        )
+    }
+}
+
 impl Hash for DeployedValidatorErased {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.hash.hash(state)
@@ -251,6 +269,9 @@ pub enum ProtocolValidator {
     BalanceFnPoolSwap,
     BalanceFnPoolDeposit,
     BalanceFnPoolRedeem,
+    StableFnPoolT2T,
+    StableFnPoolT2TDeposit,
+    StableFnPoolT2TRedeem,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -274,6 +295,9 @@ pub struct ProtocolScriptHashes {
     pub balance_fn_pool_v1: DeployedScriptInfo<{ ProtocolValidator::BalanceFnPoolV1 as u8 }>,
     pub balance_fn_pool_deposit: DeployedScriptInfo<{ ProtocolValidator::BalanceFnPoolDeposit as u8 }>,
     pub balance_fn_pool_redeem: DeployedScriptInfo<{ ProtocolValidator::BalanceFnPoolRedeem as u8 }>,
+    pub stable_fn_pool_t2t: DeployedScriptInfo<{ ProtocolValidator::StableFnPoolT2T as u8 }>,
+    pub stable_fn_pool_t2t_deposit: DeployedScriptInfo<{ ProtocolValidator::StableFnPoolT2TDeposit as u8 }>,
+    pub stable_fn_pool_t2t_redeem: DeployedScriptInfo<{ ProtocolValidator::StableFnPoolT2TRedeem as u8 }>,
 }
 
 impl From<&ProtocolDeployment> for ProtocolScriptHashes {
@@ -294,6 +318,9 @@ impl From<&ProtocolDeployment> for ProtocolScriptHashes {
             balance_fn_pool_v1: From::from(&deployment.balance_fn_pool_v1),
             balance_fn_pool_deposit: From::from(&deployment.balance_fn_pool_deposit),
             balance_fn_pool_redeem: From::from(&deployment.balance_fn_pool_redeem),
+            stable_fn_pool_t2t: From::from(&deployment.stable_fn_pool_t2t),
+            stable_fn_pool_t2t_deposit: From::from(&deployment.stable_fn_pool_t2t_deposit),
+            stable_fn_pool_t2t_redeem: From::from(&deployment.stable_fn_pool_t2t_redeem),
         }
     }
 }
@@ -319,6 +346,9 @@ pub struct ProtocolDeployment {
     pub balance_fn_pool_v1: DeployedValidator<{ ProtocolValidator::BalanceFnPoolV1 as u8 }>,
     pub balance_fn_pool_deposit: DeployedValidator<{ ProtocolValidator::BalanceFnPoolDeposit as u8 }>,
     pub balance_fn_pool_redeem: DeployedValidator<{ ProtocolValidator::BalanceFnPoolRedeem as u8 }>,
+    pub stable_fn_pool_t2t: DeployedValidator<{ ProtocolValidator::StableFnPoolT2T as u8 }>,
+    pub stable_fn_pool_t2t_deposit: DeployedValidator<{ ProtocolValidator::StableFnPoolT2TDeposit as u8 }>,
+    pub stable_fn_pool_t2t_redeem: DeployedValidator<{ ProtocolValidator::StableFnPoolT2TRedeem as u8 }>,
 }
 
 impl ProtocolDeployment {
@@ -367,6 +397,17 @@ impl ProtocolDeployment {
             .await,
             balance_fn_pool_redeem: DeployedValidator::unsafe_pull(
                 validators.balance_fn_pool_redeem,
+                explorer,
+            )
+            .await,
+            stable_fn_pool_t2t: DeployedValidator::unsafe_pull(validators.stable_fn_pool_t2t, explorer).await,
+            stable_fn_pool_t2t_deposit: DeployedValidator::unsafe_pull(
+                validators.stable_fn_pool_t2t_deposit,
+                explorer,
+            )
+            .await,
+            stable_fn_pool_t2t_redeem: DeployedValidator::unsafe_pull(
+                validators.stable_fn_pool_t2t_redeem,
                 explorer,
             )
             .await,

@@ -10,7 +10,7 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnFeeSwitchPoolDeposit,
     ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
     ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
-    LimitOrderV1, LimitOrderWitnessV1,
+    LimitOrderV1, LimitOrderWitnessV1, StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHashes};
 use spectrum_offchain_cardano::utxo::ConsumedInputs;
@@ -181,6 +181,30 @@ impl Has<DeployedScriptInfo<{ LimitOrderWitnessV1 as u8 }>> for HandlerContext {
         &self,
     ) -> DeployedScriptInfo<{ LimitOrderWitnessV1 as u8 }> {
         self.scripts.limit_order_witness.clone()
+    }
+}
+
+impl Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>> for HandlerContext {
+    fn select<U: IsEqual<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ StableFnPoolT2T as u8 }> {
+        self.scripts.stable_fn_pool_t2t.clone()
+    }
+}
+
+impl Has<DeployedScriptInfo<{ StableFnPoolT2TDeposit as u8 }>> for HandlerContext {
+    fn select<U: IsEqual<DeployedScriptInfo<{ StableFnPoolT2TDeposit as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ StableFnPoolT2TDeposit as u8 }> {
+        self.scripts.stable_fn_pool_t2t_deposit.clone()
+    }
+}
+
+impl Has<DeployedScriptInfo<{ StableFnPoolT2TRedeem as u8 }>> for HandlerContext {
+    fn select<U: IsEqual<DeployedScriptInfo<{ StableFnPoolT2TRedeem as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ StableFnPoolT2TRedeem as u8 }> {
+        self.scripts.stable_fn_pool_t2t_redeem.clone()
     }
 }
 

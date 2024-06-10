@@ -6,6 +6,7 @@ use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::utils::BigInteger;
 use cml_crypto::ScriptHash;
 use cml_multi_era::babbage::BabbageTransactionOutput;
+use futures::future::Either::Right;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use spectrum_cardano_lib::collateral::Collateral;
@@ -30,9 +31,11 @@ use crate::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnFeeSwitchPoolDeposit,
     ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
     ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
+    StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use crate::deployment::{DeployedScriptInfo, DeployedValidator};
 use spectrum_cardano_lib::{NetworkId, OutputRef};
+use spectrum_offchain::executor::RunOrderError::Fatal;
 
 pub struct Input;
 
@@ -56,6 +59,7 @@ pub enum OrderType {
     BalanceFn,
     ConstFnFeeSwitch,
     ConstFn,
+    StableFn,
 }
 
 impl<Id: Clone, Ord> Has<Id> for ClassicalOrder<Id, Ord> {
@@ -165,6 +169,8 @@ where
         + Has<DeployedScriptInfo<{ ConstFnPoolRedeem as u8 }>>
         + Has<DeployedScriptInfo<{ BalanceFnPoolDeposit as u8 }>>
         + Has<DeployedScriptInfo<{ BalanceFnPoolRedeem as u8 }>>
+        + Has<DeployedScriptInfo<{ StableFnPoolT2TDeposit as u8 }>>
+        + Has<DeployedScriptInfo<{ StableFnPoolT2TRedeem as u8 }>>
         + Has<DepositOrderBounds>
         + Has<RedeemOrderBounds>,
 {
@@ -205,7 +211,10 @@ where
         // comes from common execution for deposit and redeem for balance pool
         + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>>
-        + Has<DeployedValidator<{ BalanceFnPoolRedeem as u8 }>>,
+        + Has<DeployedValidator<{ BalanceFnPoolRedeem as u8 }>>
+        + Has<DeployedValidator<{ StableFnPoolT2T as u8 }>>
+        + Has<DeployedValidator<{ StableFnPoolT2TDeposit as u8 }>>
+        + Has<DeployedValidator<{ StableFnPoolT2TRedeem as u8 }>>,
 {
     fn try_run(
         self,

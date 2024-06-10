@@ -20,7 +20,7 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnFeeSwitchPoolDeposit,
     ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
     ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
-    LimitOrderV1,
+    LimitOrderV1, StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
@@ -63,6 +63,8 @@ where
         + Has<DeployedScriptInfo<{ ConstFnFeeSwitchPoolRedeem as u8 }>>
         + Has<DeployedScriptInfo<{ BalanceFnPoolDeposit as u8 }>>
         + Has<DeployedScriptInfo<{ BalanceFnPoolRedeem as u8 }>>
+        + Has<DeployedScriptInfo<{ StableFnPoolT2TDeposit as u8 }>>
+        + Has<DeployedScriptInfo<{ StableFnPoolT2TRedeem as u8 }>>
         + Has<DepositOrderBounds>
         + Has<RedeemOrderBounds>,
 {
@@ -118,6 +120,7 @@ where
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
         + Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
+        + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
         + Has<LimitOrderBounds>
         + Has<DepositOrderBounds>
         + Has<PoolBounds>,

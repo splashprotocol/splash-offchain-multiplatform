@@ -965,6 +965,7 @@ pub mod tests {
     use std::fmt::{Debug, Display, Formatter};
 
     use either::Left;
+    use num_rational::Ratio;
 
     use spectrum_offchain::data::Stable;
 
@@ -1351,6 +1352,10 @@ pub mod tests {
         fn fee(&self) -> crate::execution_engine::liquidity_book::types::FeeAsset<u64> {
             self.fee
         }
+
+        fn output(&self) -> OutputAsset<u64> {
+            todo!()
+        }
     }
 
     impl OrderState for SimpleOrderPF {
@@ -1362,7 +1367,7 @@ pub mod tests {
             }
         }
 
-        fn apply_swap(
+        fn with_applied_swap(
             mut self,
             removed_input: u64,
             added_output: u64,
@@ -1460,6 +1465,10 @@ pub mod tests {
 
         fn marginal_cost_hint(&self) -> Self::U {
             10
+        }
+
+        fn available_liquidity(&self, max_price_impact: Side<Ratio<u128>>) -> (u128, u128) {
+            unreachable!()
         }
 
         fn is_active(&self) -> bool {

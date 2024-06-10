@@ -16,7 +16,7 @@ use crate::data::pool::CFMMPoolAction::Deposit as DepositAction;
 use crate::data::pool::{CFMMPoolAction, Lq, Rx, Ry};
 use crate::data::{OnChainOrderId, PoolId};
 use crate::deployment::ProtocolValidator::{
-    BalanceFnPoolDeposit, ConstFnFeeSwitchPoolDeposit, ConstFnPoolDeposit,
+    BalanceFnPoolDeposit, ConstFnFeeSwitchPoolDeposit, ConstFnPoolDeposit, StableFnPoolT2TDeposit,
 };
 use crate::deployment::{
     test_address, DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator,
@@ -49,7 +49,8 @@ impl<Ctx> RequiresValidator<Ctx> for ClassicalOnChainDeposit
 where
     Ctx: Has<DeployedValidator<{ ConstFnFeeSwitchPoolDeposit as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolDeposit as u8 }>>
-        + Has<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>>,
+        + Has<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>>
+        + Has<DeployedValidator<{ StableFnPoolT2TDeposit as u8 }>>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self.order.order_type {
@@ -63,6 +64,10 @@ where
             }
             OrderType::ConstFn => {
                 let validator: DeployedValidator<{ ConstFnPoolDeposit as u8 }> = ctx.get();
+                validator.erased()
+            }
+            OrderType::StableFn => {
+                let validator: DeployedValidator<{ StableFnPoolT2TDeposit as u8 }> = ctx.get();
                 validator.erased()
             }
         }
@@ -88,6 +93,7 @@ where
         + Has<DeployedScriptInfo<{ ConstFnFeeSwitchPoolDeposit as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolDeposit as u8 }>>
         + Has<DeployedScriptInfo<{ BalanceFnPoolDeposit as u8 }>>
+        + Has<DeployedScriptInfo<{ StableFnPoolT2TDeposit as u8 }>>
         + Has<DepositOrderBounds>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
@@ -96,13 +102,21 @@ where
         let is_const_fn_pool_deposit = test_address::<{ ConstFnPoolDeposit as u8 }, Ctx>(repr.address(), ctx);
         let is_balance_fn_pool_deposit =
             test_address::<{ BalanceFnPoolDeposit as u8 }, Ctx>(repr.address(), ctx);
-        if (is_const_fee_switch_pool_deposit || is_balance_fn_pool_deposit || is_const_fn_pool_deposit) {
+        let is_stable_fn_pool_deposit =
+            test_address::<{ StableFnPoolT2TDeposit as u8 }, Ctx>(repr.address(), ctx);
+        if (is_const_fee_switch_pool_deposit
+            || is_balance_fn_pool_deposit
+            || is_const_fn_pool_deposit
+            || is_stable_fn_pool_deposit)
+        {
             let order_type = if (is_const_fee_switch_pool_deposit) {
                 OrderType::ConstFnFeeSwitch
             } else if is_balance_fn_pool_deposit {
                 OrderType::BalanceFn
-            } else {
+            } else if is_const_fn_pool_deposit {
                 OrderType::ConstFn
+            } else {
+                OrderType::StableFn
             };
             let value = repr.value().clone();
             let conf = OnChainDepositConfig::try_from_pd(repr.clone().into_datum()?.into_pd()?)?;

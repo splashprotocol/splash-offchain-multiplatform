@@ -832,11 +832,11 @@ mod tests {
                     ],
                 )),
             ))),
-            lp_fee_x: Ratio::new_raw(lp_fee_x, 100000),
-            lp_fee_y: Ratio::new_raw(lp_fee_y, 100000),
-            treasury_fee: Ratio::new_raw(treasury_fee, 100000),
-            treasury_x: TaggedAmount::new(treasury_x),
-            treasury_y: TaggedAmount::new(treasury_y),
+            lp_fee_x: Ratio::new_raw(98200, 100000),
+            lp_fee_y: Ratio::new_raw(98200, 100000),
+            treasury_fee: Ratio::new_raw(180, 100000),
+            treasury_x: TaggedAmount::new(14752294),
+            treasury_y: TaggedAmount::new(2050),
             lq_lower_bound: TaggedAmount::new(0),
             ver: ConstFnPoolVer::FeeSwitch,
             marginal_cost: ExUnits { mem: 100, steps: 100 },
@@ -848,7 +848,7 @@ mod tests {
     fn treasury_x_test() {
         let pool = gen_ada_token_pool(1632109645, 1472074052, 0, 99970, 99970, 10, 11500, 2909);
 
-        let (_, new_pool) = pool.clone().swap(Side::Ask(900000000));
+        let (_, new_pool) = pool.clone().swap(Side::Bid(263197));
 
         let correct_x_treasury = 101500;
 

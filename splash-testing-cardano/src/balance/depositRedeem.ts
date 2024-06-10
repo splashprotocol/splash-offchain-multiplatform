@@ -4,7 +4,7 @@ import { Asset, BuiltValidator, BuiltValidators } from "../types.ts";
 import { setupWallet } from "../wallet.ts";
 import { PubKeyHash } from "../types.ts";
 import { Data, Datum, Lucid, TxComplete } from "https://deno.land/x/lucid@0.10.7/mod.ts";
-import { BalancedepositContract, BalanceredeemContract } from "../../plutus.ts";
+import { StabledepositContract, StableredeemContract } from "../../plutus.ts";
 import { asUnit } from "../types.ts";
 
 export type DepositConf = {
@@ -28,7 +28,7 @@ function buildDepositDatum(conf: DepositConf): Datum {
     rewardPkh: conf.rewardPkh,
     stakePkh: conf.stakePkh,
     collateralAda: conf.collateralAda,
-  }, BalancedepositContract.conf);
+  }, StabledepositContract.conf);
 }
 
 export type RedeemConf = {
@@ -50,10 +50,10 @@ function buildRedeemDatum(conf: RedeemConf): Datum {
     exFee: conf.exFee,
     rewardPkh: conf.rewardPkh,
     stakePkh: conf.stakePkh,
-  }, BalanceredeemContract.conf);
+  }, StableredeemContract.conf);
 }
 
-function deposit(lucid: Lucid, validator: BuiltValidator, conf: DepositConf): Promise<TxComplete> {
+export function deposit(lucid: Lucid, validator: BuiltValidator, conf: DepositConf): Promise<TxComplete> {
   const orderAddress = lucid.utils.credentialToAddress(
     { hash: validator.hash, type: 'Script' },
   );
@@ -65,7 +65,7 @@ function deposit(lucid: Lucid, validator: BuiltValidator, conf: DepositConf): Pr
   return tx.complete();
 }
 
-function redeem(lucid: Lucid, validator: BuiltValidator, conf: RedeemConf): Promise<TxComplete> {
+export function redeem(lucid: Lucid, validator: BuiltValidator, conf: RedeemConf): Promise<TxComplete> {
   const orderAddress = lucid.utils.credentialToAddress(
     { hash: validator.hash, type: 'Script' },
   );

@@ -1,6 +1,7 @@
 use crate::data::order::{Base, Quote};
 use crate::data::pool::{Lq, Rx, Ry};
 
+use log::info;
 use num_rational::Ratio;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use std::cmp::min;
@@ -54,7 +55,7 @@ pub fn classic_cfmm_reward_lp(
             )
         }
     };
-    let unlocked_lq = min(min_by_x, min_by_y) as u64;
+    let unlocked_lq: u64 = min(min_by_x, min_by_y) as u64;
     Some((
         TaggedAmount::new(unlocked_lq),
         TaggedAmount::new(change_by_x),
