@@ -23,7 +23,7 @@ use spectrum_cardano_lib::plutus_data::IntoPlutusData;
 use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::{AssetName, OutputRef};
-use spectrum_offchain::data::unique_entity::{Predicted, Traced};
+use spectrum_offchain::data::event::{Predicted, Traced};
 use spectrum_offchain::data::{EntitySnapshot, Has, Stable};
 use spectrum_offchain::ledger::IntoLedger;
 

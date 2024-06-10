@@ -17,8 +17,8 @@ use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_mempool_sync::data::MempoolUpdate;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::combinators::Ior;
+use spectrum_offchain::data::event::{Channel, Confirmed, StateUpdate, Unconfirmed};
 use spectrum_offchain::data::order::{OrderUpdate, SpecializedOrder};
-use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
 use spectrum_offchain::data::EntitySnapshot;
 use spectrum_offchain::data::Tradable;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
@@ -82,7 +82,7 @@ impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex>
     for SpecializedHandler<PairUpdateHandler<N, PairId, Topic, Order, PoolIndex>, OrderIndex, Pool>
 where
     PairId: Copy + Hash,
-    Topic: Sink<(PairId, EitherMod<OrderUpdate<Order, Order>>)> + Unpin,
+    Topic: Sink<(PairId, Channel<OrderUpdate<Order, Order>>)> + Unpin,
     Topic::Error: Debug,
     Pool: EntitySnapshot + Tradable<PairId = PairId>,
     Order: SpecializedOrder<TPoolId = Pool::StableId>
@@ -116,7 +116,7 @@ where
                                 index_atomic_transition(&mut index, &tr);
                                 let topic = self.general_handler.topic.get_mut(pair);
                                 topic
-                                    .feed((pair, EitherMod::confirmed(tr.into())))
+                                    .feed((pair, Channel::ledger(tr.into())))
                                     .await
                                     .expect("Channel is closed");
                                 topic.flush().await.expect("Failed to commit message");
@@ -146,7 +146,7 @@ where
                                 index_atomic_transition(&mut index, &inverse_tr);
                                 let topic = self.general_handler.topic.get_mut(pair);
                                 topic
-                                    .feed((pair, EitherMod::confirmed(inverse_tr.into())))
+                                    .feed((pair, Channel::ledger(inverse_tr.into())))
                                     .await
                                     .expect("Channel is closed");
                                 topic.flush().await.expect("Failed to commit message");
@@ -167,7 +167,7 @@ impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex>
     for SpecializedHandler<PairUpdateHandler<N, PairId, Topic, Order, PoolIndex>, OrderIndex, Pool>
 where
     PairId: Copy + Hash,
-    Topic: Sink<(PairId, EitherMod<OrderUpdate<Order, Order>>)> + Unpin,
+    Topic: Sink<(PairId, Channel<OrderUpdate<Order, Order>>)> + Unpin,
     Topic::Error: Debug,
     Pool: EntitySnapshot + Tradable<PairId = PairId>,
     Order: SpecializedOrder<TPoolId = Pool::StableId>
@@ -201,7 +201,7 @@ where
                                 index_atomic_transition(&mut index, &tr);
                                 let topic = self.general_handler.topic.get_mut(pair);
                                 topic
-                                    .feed((pair, EitherMod::unconfirmed(tr.into())))
+                                    .feed((pair, Channel::mempool(tr.into())))
                                     .await
                                     .expect("Channel is closed");
                                 topic.flush().await.expect("Failed to commit message");
@@ -382,7 +382,7 @@ impl<const N: usize, PairId, Topic, Entity, Index> EventHandler<LedgerTxEvent<Pr
     for PairUpdateHandler<N, PairId, Topic, Entity, Index>
 where
     PairId: Copy + Hash,
-    Topic: Sink<(PairId, EitherMod<StateUpdate<Entity>>)> + Unpin,
+    Topic: Sink<(PairId, Channel<StateUpdate<Entity>>)> + Unpin,
     Topic::Error: Debug,
     Entity: EntitySnapshot
         + Tradable<PairId = PairId>
@@ -408,7 +408,7 @@ where
                             let pair = pair_id_of(&tr);
                             let topic = self.topic.get_mut(pair);
                             topic
-                                .feed((pair, EitherMod::Confirmed(Confirmed(StateUpdate::Transition(tr)))))
+                                .feed((pair, Channel::Ledger(Confirmed(StateUpdate::Transition(tr)))))
                                 .await
                                 .expect("Channel is closed");
                             topic.flush().await.expect("Failed to commit message");
@@ -432,9 +432,7 @@ where
                             topic
                                 .feed((
                                     pair,
-                                    EitherMod::Confirmed(Confirmed(StateUpdate::TransitionRollback(
-                                        inverse_tr,
-                                    ))),
+                                    Channel::Ledger(Confirmed(StateUpdate::TransitionRollback(inverse_tr))),
                                 ))
                                 .await
                                 .expect("Channel is closed");
@@ -454,7 +452,7 @@ impl<const N: usize, PairId, Topic, Entity, Index> EventHandler<MempoolUpdate<Pr
     for PairUpdateHandler<N, PairId, Topic, Entity, Index>
 where
     PairId: Copy + Hash,
-    Topic: Sink<(PairId, EitherMod<StateUpdate<Entity>>)> + Unpin,
+    Topic: Sink<(PairId, Channel<StateUpdate<Entity>>)> + Unpin,
     Topic::Error: Debug,
     Entity: EntitySnapshot
         + Tradable<PairId = PairId>
@@ -480,10 +478,7 @@ where
                             let pair = pair_id_of(&tr);
                             let topic = self.topic.get_mut(pair);
                             topic
-                                .feed((
-                                    pair,
-                                    EitherMod::Unconfirmed(Unconfirmed(StateUpdate::Transition(tr))),
-                                ))
+                                .feed((pair, Channel::Mempool(Unconfirmed(StateUpdate::Transition(tr)))))
                                 .await
                                 .expect("Channel is closed");
                             topic.flush().await.expect("Failed to commit message");
@@ -558,7 +553,7 @@ mod tests {
     use spectrum_cardano_lib::transaction::TransactionOutputExtension;
     use spectrum_cardano_lib::OutputRef;
     use spectrum_offchain::combinators::Ior;
-    use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate};
+    use spectrum_offchain::data::event::{Channel, Confirmed, StateUpdate};
     use spectrum_offchain::data::{EntitySnapshot, Has, Stable, Tradable};
     use spectrum_offchain::event_sink::event_handler::EventHandler;
     use spectrum_offchain::ledger::TryFromLedger;
@@ -661,7 +656,7 @@ mod tests {
         let index = Arc::new(Mutex::new(
             InMemoryEntityIndex::new(entity_eviction_delay).with_tracing(),
         ));
-        let (snd, mut recv) = mpsc::channel::<(u8, EitherMod<StateUpdate<TrivialEntity>>)>(100);
+        let (snd, mut recv) = mpsc::channel::<(u8, Channel<StateUpdate<TrivialEntity>>)>(100);
         let ex_cred = OperatorCred(Ed25519KeyHash::from([0u8; 28]));
         let context = HandlerContextProto {
             bounds: Bounds {
@@ -750,7 +745,7 @@ mod tests {
             },
         )
         .await;
-        let (_, EitherMod::Confirmed(Confirmed(StateUpdate::Transition(Ior::Right(e1))))) =
+        let (_, Channel::Ledger(Confirmed(StateUpdate::Transition(Ior::Right(e1))))) =
             recv.next().await.expect("Must result in new event")
         else {
             panic!("Must be a transition")
@@ -763,7 +758,7 @@ mod tests {
             },
         )
         .await;
-        let (_, EitherMod::Confirmed(Confirmed(StateUpdate::Transition(Ior::Both(e1_reversed, e2))))) =
+        let (_, Channel::Ledger(Confirmed(StateUpdate::Transition(Ior::Both(e1_reversed, e2))))) =
             recv.next().await.expect("Must result in new event")
         else {
             panic!("Must be a transition")
@@ -776,10 +771,7 @@ mod tests {
         .await;
         let (
             _,
-            EitherMod::Confirmed(Confirmed(StateUpdate::TransitionRollback(Ior::Both(
-                e2_reversed,
-                e1_revived,
-            )))),
+            Channel::Ledger(Confirmed(StateUpdate::TransitionRollback(Ior::Both(e2_reversed, e1_revived)))),
         ) = recv.next().await.expect("Must result in new event")
         else {
             panic!("Must be a transition")

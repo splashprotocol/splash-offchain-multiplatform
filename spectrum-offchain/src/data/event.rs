@@ -252,7 +252,120 @@ where
     }
 }
 
-/// Entity contexts:
+/// Any possible modality of `T`.
+#[derive(Clone)]
+pub enum AnyMod<T: EntitySnapshot> {
+    Confirmed(Confirmed<T>),
+    Unconfirmed(Unconfirmed<T>),
+    Predicted(Traced<Predicted<T>>),
+}
+
+impl<T: EntitySnapshot> AnyMod<T> {
+    pub fn as_erased(&self) -> &T {
+        match self {
+            AnyMod::Confirmed(Confirmed(t)) => t,
+            AnyMod::Unconfirmed(Unconfirmed(t)) => t,
+            AnyMod::Predicted(Traced {
+                state: Predicted(t), ..
+            }) => t,
+        }
+    }
+    pub fn erased(self) -> T {
+        match self {
+            AnyMod::Confirmed(Confirmed(t)) => t,
+            AnyMod::Unconfirmed(Unconfirmed(t)) => t,
+            AnyMod::Predicted(Traced {
+                state: Predicted(t), ..
+            }) => t,
+        }
+    }
+}
+
+/// Channel from which [T] was obtained.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Channel<T> {
+    Ledger(Confirmed<T>),
+    Mempool(Unconfirmed<T>),
+    TxSubmit(Predicted<T>),
+}
+
+impl<T> Channel<T> {
+    pub fn ledger(t: T) -> Self {
+        Self::Ledger(Confirmed(t))
+    }
+
+    pub fn mempool(t: T) -> Self {
+        Self::Mempool(Unconfirmed(t))
+    }
+
+    pub fn tx_submit(t: T) -> Self {
+        Self::TxSubmit(Predicted(t))
+    }
+
+    pub fn erased(&self) -> &T {
+        match self {
+            Channel::Ledger(Confirmed(t)) => t,
+            Channel::Mempool(Unconfirmed(t)) => t,
+            Channel::TxSubmit(Predicted(t)) => t,
+        }
+    }
+    pub fn map<B, F>(self, f: F) -> Channel<B>
+    where
+        F: FnOnce(T) -> B,
+    {
+        match self {
+            Channel::Ledger(Confirmed(x)) => Channel::Ledger(Confirmed(f(x))),
+            Channel::Mempool(Unconfirmed(x)) => Channel::Mempool(Unconfirmed(f(x))),
+            Channel::TxSubmit(Predicted(x)) => Channel::TxSubmit(Predicted(f(x))),
+        }
+    }
+}
+
+/// State `T` is confirmed to be included into blockchain.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Confirmed<T>(pub T);
+
+impl<T: Stable> Stable for Confirmed<T> {
+    type StableId = T::StableId;
+
+    fn stable_id(&self) -> Self::StableId {
+        self.0.stable_id()
+    }
+    fn is_quasi_permanent(&self) -> bool {
+        self.0.is_quasi_permanent()
+    }
+}
+
+impl<T: EntitySnapshot> EntitySnapshot for Confirmed<T> {
+    type Version = T::Version;
+
+    fn version(&self) -> Self::Version {
+        self.0.version()
+    }
+}
+
+/// State `T` was observed in mempool.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Unconfirmed<T>(pub T);
+
+impl<T: Stable> Stable for Unconfirmed<T> {
+    type StableId = T::StableId;
+
+    fn stable_id(&self) -> Self::StableId {
+        self.0.stable_id()
+    }
+    fn is_quasi_permanent(&self) -> bool {
+        self.0.is_quasi_permanent()
+    }
+}
+
+impl<T: EntitySnapshot> EntitySnapshot for Unconfirmed<T> {
+    type Version = T::Version;
+
+    fn version(&self) -> Self::Version {
+        self.0.version()
+    }
+}
 
 /// State `T` is predicted, but not confirmed to be included into blockchain or mempool yet.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -285,76 +398,6 @@ impl<T: EntitySnapshot> EntitySnapshot for Predicted<T> {
         self.0.version()
     }
 }
-
-/// Any possible modality of `T`.
-#[derive(Clone)]
-pub enum AnyMod<T: EntitySnapshot> {
-    Confirmed(Confirmed<T>),
-    Unconfirmed(Unconfirmed<T>),
-    Predicted(Traced<Predicted<T>>),
-}
-
-impl<T: EntitySnapshot> AnyMod<T> {
-    pub fn as_erased(&self) -> &T {
-        match self {
-            AnyMod::Confirmed(Confirmed(t)) => t,
-            AnyMod::Unconfirmed(Unconfirmed(t)) => t,
-            AnyMod::Predicted(Traced {
-                state: Predicted(t), ..
-            }) => t,
-        }
-    }
-    pub fn erased(self) -> T {
-        match self {
-            AnyMod::Confirmed(Confirmed(t)) => t,
-            AnyMod::Unconfirmed(Unconfirmed(t)) => t,
-            AnyMod::Predicted(Traced {
-                state: Predicted(t), ..
-            }) => t,
-        }
-    }
-}
-
-/// State `T` in either confirmed or unconfirmed modality.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum EitherMod<T> {
-    Confirmed(Confirmed<T>),
-    Unconfirmed(Unconfirmed<T>),
-}
-
-impl<T> EitherMod<T> {
-    pub fn confirmed(t: T) -> Self {
-        Self::Confirmed(Confirmed(t))
-    }
-
-    pub fn unconfirmed(t: T) -> Self {
-        Self::Unconfirmed(Unconfirmed(t))
-    }
-
-    pub fn erased(&self) -> &T {
-        match self {
-            EitherMod::Confirmed(Confirmed(t)) => t,
-            EitherMod::Unconfirmed(Unconfirmed(t)) => t,
-        }
-    }
-    pub fn map<B, F>(self, f: F) -> EitherMod<B>
-    where
-        F: FnOnce(T) -> B,
-    {
-        match self {
-            EitherMod::Confirmed(Confirmed(x)) => EitherMod::Confirmed(Confirmed(f(x))),
-            EitherMod::Unconfirmed(Unconfirmed(x)) => EitherMod::Unconfirmed(Unconfirmed(f(x))),
-        }
-    }
-}
-
-/// State `T` is confirmed to be included into blockchain.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Confirmed<T>(pub T);
-
-/// State `T` was observed in mempool.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Unconfirmed<T>(pub T);
 
 /// How states apply to the sequence of states of an entity:
 

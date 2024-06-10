@@ -38,7 +38,7 @@ use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, Token};
-use spectrum_offchain::data::unique_entity::Predicted;
+use spectrum_offchain::data::event::Predicted;
 use spectrum_offchain::data::{Has, Stable, Tradable};
 use spectrum_offchain::executor::RunOrderError;
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};

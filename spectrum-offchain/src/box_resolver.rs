@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::box_resolver::persistence::EntityRepo;
-use crate::data::unique_entity::{Confirmed, Predicted, Traced, Unconfirmed};
+use crate::data::event::{Confirmed, Predicted, Traced, Unconfirmed};
 use crate::data::EntitySnapshot;
 
 pub mod blacklist;
@@ -77,7 +77,7 @@ mod tests {
     use crate::box_resolver::persistence::tests::*;
     use crate::box_resolver::persistence::EntityRepo;
     use crate::box_resolver::resolve_entity_state;
-    use crate::data::unique_entity::Confirmed;
+    use crate::data::event::Confirmed;
     use crate::data::Stable;
 
     #[tokio::test]

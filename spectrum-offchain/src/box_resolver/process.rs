@@ -7,7 +7,7 @@ use tokio::sync::Mutex;
 
 use crate::box_resolver::persistence::EntityRepo;
 use crate::combinators::Ior;
-use crate::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
+use crate::data::event::{Channel, Confirmed, Predicted, StateUpdate, Unconfirmed};
 use crate::data::EntitySnapshot;
 use crate::partitioning::Partitioned;
 
@@ -16,7 +16,7 @@ pub fn pool_tracking_stream<'a, const N: usize, S, Repo, Pool>(
     pools: Partitioned<N, Pool::StableId, Arc<Mutex<Repo>>>,
 ) -> impl Stream<Item = ()> + 'a
 where
-    S: Stream<Item = EitherMod<StateUpdate<Pool>>> + 'a,
+    S: Stream<Item = Channel<StateUpdate<Pool>>> + 'a,
     Pool: EntitySnapshot + 'a,
     Pool::StableId: Display,
     Repo: EntityRepo<Pool> + 'a,
@@ -25,9 +25,10 @@ where
     upstream.then(move |upd_in_mode| {
         let pools = Arc::clone(&pools);
         async move {
-            let is_confirmed = matches!(upd_in_mode, EitherMod::Confirmed(_));
-            let (EitherMod::Confirmed(Confirmed(upd)) | EitherMod::Unconfirmed(Unconfirmed(upd))) =
-                upd_in_mode;
+            let is_confirmed = matches!(upd_in_mode, Channel::Ledger(_));
+            let (Channel::Ledger(Confirmed(upd))
+            | Channel::Mempool(Unconfirmed(upd))
+            | Channel::TxSubmit(Predicted(upd))) = upd_in_mode;
             match upd {
                 StateUpdate::Transition(Ior::Right(new_state))
                 | StateUpdate::Transition(Ior::Both(_, new_state))

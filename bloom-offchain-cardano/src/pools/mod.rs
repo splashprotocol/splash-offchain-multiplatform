@@ -4,7 +4,7 @@ use cml_chain::builders::tx_builder::SignedTxBuilder;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::NetworkId;
-use spectrum_offchain::data::unique_entity::Predicted;
+use spectrum_offchain::data::event::Predicted;
 use spectrum_offchain::data::Has;
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain_cardano::creds::OperatorRewardAddress;

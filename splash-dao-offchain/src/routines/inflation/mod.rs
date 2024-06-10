@@ -5,7 +5,7 @@ use bloom_offchain::execution_engine::bundled::Bundled;
 use cml_chain::transaction::Transaction;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::backlog::ResilientBacklog;
-use spectrum_offchain::data::unique_entity::{AnyMod, Confirmed};
+use spectrum_offchain::data::event::{AnyMod, Confirmed};
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_prover::TxProver;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
@@ -352,7 +352,7 @@ mod tests {
     use tokio::sync::Mutex;
 
     use bloom_offchain::execution_engine::bundled::Bundled;
-    use spectrum_offchain::data::unique_entity::{AnyMod, Predicted, Traced};
+    use spectrum_offchain::data::event::{AnyMod, Predicted, Traced};
     use spectrum_offchain::data::{EntitySnapshot, Identifier};
 
     use crate::state_projection::{StateProjectionRead, StateProjectionWrite};

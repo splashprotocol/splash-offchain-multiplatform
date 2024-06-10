@@ -1,5 +1,5 @@
 use bloom_offchain::execution_engine::bundled::Bundled;
-use spectrum_offchain::data::unique_entity::{AnyMod, Predicted, Traced};
+use spectrum_offchain::data::event::{AnyMod, Predicted, Traced};
 use spectrum_offchain::data::{EntitySnapshot, Identifier};
 
 /// Projection of [T] state relative to the ledger.

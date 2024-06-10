@@ -1,4 +1,4 @@
-use spectrum_offchain::data::unique_entity::{Confirmed, Predicted, Unconfirmed};
+use spectrum_offchain::data::event::{Confirmed, Predicted, Unconfirmed};
 use spectrum_offchain::data::EntitySnapshot;
 
 use crate::execution_engine::storage::StateIndex;
@@ -11,7 +11,8 @@ where
     Src::StableId: Copy,
 {
     index
-        .get_last_unconfirmed(id)
-        .map(|Unconfirmed(u)| u)
+        .get_last_predicted(id)
+        .map(|Predicted(u)| u)
+        .or_else(|| index.get_last_unconfirmed(id).map(|Unconfirmed(u)| u))
         .or_else(|| index.get_last_confirmed(id).map(|Confirmed(u)| u))
 }

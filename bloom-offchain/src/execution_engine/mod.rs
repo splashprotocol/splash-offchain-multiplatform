@@ -19,8 +19,8 @@ use liquidity_book::interpreter::RecipeInterpreter;
 use spectrum_offchain::backlog::HotBacklog;
 use spectrum_offchain::circular_filter::CircularFilter;
 use spectrum_offchain::combinators::Ior;
+use spectrum_offchain::data::event::{Channel, Confirmed, Predicted, StateUpdate, Unconfirmed};
 use spectrum_offchain::data::order::{OrderUpdate, SpecializedOrder, UniqueOrder};
-use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
 use spectrum_offchain::data::{Baked, EntitySnapshot, Stable};
 use spectrum_offchain::health_alert::{HealthAlertClient, SlackHealthAlert};
 use spectrum_offchain::maker::Maker;
@@ -60,7 +60,7 @@ pub mod types;
 type EvolvingEntity<CO, P, V, B> = Bundled<Either<Baked<CO, V>, Baked<P, V>>, B>;
 
 pub type Event<CO, SO, P, B, V> =
-    Either<EitherMod<StateUpdate<EvolvingEntity<CO, P, V, B>>>, EitherMod<OrderUpdate<Bundled<SO, B>, SO>>>;
+    Either<Channel<StateUpdate<EvolvingEntity<CO, P, V, B>>>, Channel<OrderUpdate<Bundled<SO, B>, SO>>>;
 
 pub enum PendingEffects<CompOrd, SpecOrd, Pool, Ver, Bearer> {
     FromLiquidityBook(
@@ -254,7 +254,7 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
         }
     }
 
-    fn sync_backlog(&mut self, pair: &Pair, update: EitherMod<OrderUpdate<Bundled<SO, B>, SO>>)
+    fn sync_backlog(&mut self, pair: &Pair, update: Channel<OrderUpdate<Bundled<SO, B>, SO>>)
     where
         Pair: Copy + Eq + Hash + Display,
         V: Copy + Eq + Hash + Display,
@@ -262,8 +262,10 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
         Log: HotBacklog<Bundled<SO, B>> + Maker<Ctx>,
         Ctx: Clone,
     {
-        let is_confirmed = matches!(update, EitherMod::Confirmed(_));
-        let (EitherMod::Confirmed(Confirmed(upd)) | EitherMod::Unconfirmed(Unconfirmed(upd))) = update;
+        let is_confirmed = matches!(update, Channel::Ledger(_));
+        let (Channel::Ledger(Confirmed(upd))
+        | Channel::Mempool(Unconfirmed(upd))
+        | Channel::TxSubmit(Predicted(upd))) = update;
         match upd {
             OrderUpdate::Created(new_order) => {
                 let ver = SpecializedOrder::get_self_ref(&new_order);
@@ -371,7 +373,7 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
         }
     }
 
-    fn update_state<T>(&mut self, update: EitherMod<StateUpdate<Bundled<T, B>>>) -> Option<Ior<T, T>>
+    fn update_state<T>(&mut self, update: Channel<StateUpdate<Bundled<T, B>>>) -> Option<Ior<T, T>>
     where
         Stab: Copy + Eq + Hash + Display,
         V: Copy + Eq + Hash + Display,
@@ -380,8 +382,10 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
         Ix: StateIndex<Bundled<T, B>>,
         Cache: KvStore<Stab, Bundled<T, B>>,
     {
-        let is_confirmed = matches!(update, EitherMod::Confirmed(_));
-        let (EitherMod::Confirmed(Confirmed(upd)) | EitherMod::Unconfirmed(Unconfirmed(upd))) = update;
+        let is_confirmed = matches!(update, Channel::Ledger(_));
+        let (Channel::Ledger(Confirmed(upd))
+        | Channel::Mempool(Unconfirmed(upd))
+        | Channel::TxSubmit(Predicted(upd))) = update;
         match upd {
             StateUpdate::Transition(Ior::Right(new_state))
             | StateUpdate::Transition(Ior::Both(_, new_state))
@@ -412,14 +416,8 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
                     None => unreachable!(),
                 }
             }
-            StateUpdate::Transition(Ior::Left(st)) => {
+            StateUpdate::Transition(Ior::Left(st)) | StateUpdate::TransitionRollback(Ior::Left(st)) => {
                 self.index.eliminate(st.stable_id());
-                Some(Ior::Left(st.0))
-            }
-            StateUpdate::TransitionRollback(Ior::Left(st)) => {
-                let id = st.stable_id();
-                trace!("Rolling back state {}", id);
-                self.index.rollback_inclusive(st.version());
                 Some(Ior::Left(st.0))
             }
         }
@@ -493,12 +491,12 @@ where
                                 while let Some(effect) = pending_effects.pop() {
                                     match effect {
                                         ExecutionEff::Updated(upd) => {
-                                            self.update_state(EitherMod::Unconfirmed(Unconfirmed(
+                                            self.update_state(Channel::Mempool(Unconfirmed(
                                                 StateUpdate::Transition(Ior::Right(upd)),
                                             )));
                                         }
                                         ExecutionEff::Eliminated(elim) => {
-                                            self.update_state(EitherMod::Unconfirmed(Unconfirmed(
+                                            self.update_state(Channel::Mempool(Unconfirmed(
                                                 StateUpdate::Transition(Ior::Left(elim.map(Either::Left))),
                                             )));
                                         }
@@ -507,9 +505,9 @@ where
                                 self.multi_book.get_mut(&pair).on_recipe_succeeded();
                             }
                             PendingEffects::FromBacklog(new_pool, _) => {
-                                self.update_state(EitherMod::Unconfirmed(Unconfirmed(
-                                    StateUpdate::Transition(Ior::Right(new_pool.map(Either::Right))),
-                                )));
+                                self.update_state(Channel::Mempool(Unconfirmed(StateUpdate::Transition(
+                                    Ior::Right(new_pool.map(Either::Right)),
+                                ))));
                             }
                         },
                         Err(err) => {

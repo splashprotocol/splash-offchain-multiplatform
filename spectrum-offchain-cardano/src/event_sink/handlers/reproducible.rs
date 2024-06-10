@@ -15,7 +15,7 @@ use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::box_resolver::persistence::EntityRepo;
 use spectrum_offchain::combinators::Ior;
-use spectrum_offchain::data::unique_entity::{Confirmed, EitherMod, StateUpdate, Unconfirmed};
+use spectrum_offchain::data::event::{Channel, Confirmed, StateUpdate, Unconfirmed};
 use spectrum_offchain::data::EntitySnapshot;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
@@ -90,7 +90,7 @@ where
 impl<TSink, TEntity, TRepo> EventHandler<LedgerTxEvent<BabbageTransaction>>
     for ConfirmedUpdateHandler<TSink, TEntity, TRepo>
 where
-    TSink: Sink<EitherMod<StateUpdate<TEntity>>> + Unpin,
+    TSink: Sink<Channel<StateUpdate<TEntity>>> + Unpin,
     TEntity: EntitySnapshot + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone + Debug,
     TEntity::StableId: Clone,
     TEntity::Version: From<OutputRef> + Copy,
@@ -108,7 +108,7 @@ where
                 for tr in transitions {
                     let _ = self
                         .topic
-                        .feed(EitherMod::Confirmed(Confirmed(StateUpdate::Transition(tr))))
+                        .feed(Channel::Ledger(Confirmed(StateUpdate::Transition(tr))))
                         .await;
                 }
                 if is_success {
@@ -125,7 +125,7 @@ where
                 for tr in transitions {
                     let _ = self
                         .topic
-                        .feed(EitherMod::Confirmed(Confirmed(StateUpdate::TransitionRollback(
+                        .feed(Channel::Ledger(Confirmed(StateUpdate::TransitionRollback(
                             tr.swap(),
                         ))))
                         .await;
@@ -169,7 +169,7 @@ where
 impl<TSink, TEntity, TRepo> EventHandler<MempoolUpdate<BabbageTransaction>>
     for UnconfirmedUpdateHandler<TSink, TEntity, TRepo>
 where
-    TSink: Sink<EitherMod<StateUpdate<TEntity>>> + Unpin,
+    TSink: Sink<Channel<StateUpdate<TEntity>>> + Unpin,
     TEntity: EntitySnapshot + TryFromLedger<BabbageTransactionOutput, OutputRef> + Clone + Debug,
     TEntity::StableId: Clone,
     TEntity::Version: From<OutputRef> + Copy,
@@ -186,7 +186,7 @@ where
                 for tr in transitions {
                     let _ = self
                         .topic
-                        .feed(EitherMod::Unconfirmed(Unconfirmed(StateUpdate::Transition(tr))))
+                        .feed(Channel::Mempool(Unconfirmed(StateUpdate::Transition(tr))))
                         .await;
                 }
                 if is_success {

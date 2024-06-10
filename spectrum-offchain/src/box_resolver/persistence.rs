@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use log::trace;
 
 use crate::box_resolver::{Predicted, Traced};
-use crate::data::unique_entity::{Confirmed, Unconfirmed};
+use crate::data::event::{Confirmed, Unconfirmed};
 use crate::data::{EntitySnapshot, Stable};
 
 pub mod inmemory;
@@ -208,7 +208,7 @@ pub(crate) mod tests {
     use crate::{
         box_resolver::persistence::EntityRepo,
         data::{
-            unique_entity::{Confirmed, Predicted, Traced, Unconfirmed},
+            event::{Confirmed, Predicted, Traced, Unconfirmed},
             EntitySnapshot,
         },
     };
