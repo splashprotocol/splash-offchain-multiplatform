@@ -133,10 +133,7 @@ where
             trace!("PartialPreviewState => PartialPreviewState[With Stash]");
             let mut fresh_preview_st = PartialPreviewState::new(self.takers_preview.time_now);
             // Move reconstructed initial fragments into idle state.
-            mem::swap(
-                &mut self.takers_preview,
-                &mut fresh_preview_st.takers_preview,
-            );
+            mem::swap(&mut self.takers_preview, &mut fresh_preview_st.takers_preview);
             mem::swap(
                 &mut self.stashed_active_takers,
                 &mut fresh_preview_st.stashed_active_takers,
@@ -195,10 +192,7 @@ where
     fn commit(&mut self) -> IdleState<Fr, Pl> {
         trace!(target: "state", "PreviewState::commit");
         // Commit active fragments preview if available.
-        mem::swap(
-            &mut self.takers_intact.active,
-            &mut self.active_takers_preview,
-        );
+        mem::swap(&mut self.takers_intact.active, &mut self.active_takers_preview);
         // Commit inactive fragments.
         while let Some((time, t)) = self.inactive_takers_changeset.pop() {
             match self.takers_intact.inactive.entry(time) {
@@ -251,10 +245,7 @@ where
         } else {
             trace!("PreviewState => PartialPreviewState[With Stash]");
             let mut fresh_preview_st = PartialPreviewState::new(self.takers_intact.time_now);
-            mem::swap(
-                &mut fresh_preview_st.takers_preview,
-                &mut self.takers_intact,
-            );
+            mem::swap(&mut fresh_preview_st.takers_preview, &mut self.takers_intact);
             mem::swap(
                 &mut fresh_preview_st.stashed_active_takers,
                 &mut self.stashed_active_takers,
@@ -693,9 +684,7 @@ where
                 Some(ask)
             }
         }
-        (Some(any), None) | (None, Some(any)) => {
-            Some(any)
-        }
+        (Some(any), None) | (None, Some(any)) => Some(any),
         _ => {
             trace!(target: "state", "No best fragment");
             None

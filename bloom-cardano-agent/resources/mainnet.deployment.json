@@ -187,5 +187,38 @@
       "mem": 500000,
       "steps": 200000000
     }
+  },
+  "stableFnPoolT2t": {
+    "hash": "5d3df99fcfbbf282bd76a3d76a2e30bdd22e61c56f1462447938933b",
+    "referenceUtxo": {
+      "txHash": "43da5e009b4c7d8594c5dc51d3901b89da9d64d208b7b2fa8980a90c42601132",
+      "outputIndex": 0
+    },
+    "cost": {
+      "mem": 650000,
+      "steps": 251947893
+    }
+  },
+  "stableFnPoolT2tDeposit": {
+    "hash": "3771abe5d236a51ace13c738885e29845fd5ef9ee90ed0efb420d275",
+    "referenceUtxo": {
+      "txHash": "8bc97ddb173b23dca5f13394c1fea23b2e657d3edc31316e48287e889857afc6",
+      "outputIndex": 0
+    },
+    "cost": {
+      "mem": 500000,
+      "steps": 200000000
+    }
+  },
+  "stableFnPoolT2tRedeem": {
+    "hash": "4e7acc95834f1b86c54e9b9e38f3c1f72f848a52eb994da50d5f825f",
+    "referenceUtxo": {
+      "txHash": "8bc97ddb173b23dca5f13394c1fea23b2e657d3edc31316e48287e889857afc6",
+      "outputIndex": 1
+    },
+    "cost": {
+      "mem": 500000,
+      "steps": 200000000
+    }
   }
 }
