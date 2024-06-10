@@ -23,8 +23,7 @@ pub trait StateIndex<T: EntitySnapshot> {
     fn put_predicted(&mut self, entity: Predicted<T>);
     fn invalidate_version(&mut self, ver: T::Version) -> Option<T::StableId>;
     fn eliminate<'a>(&mut self, sid: T::StableId);
-    /// False-positive analog of `exists()`.
-    fn may_exist<'a>(&self, sid: T::Version) -> bool;
+    fn exists<'a>(&self, sid: &T::Version) -> bool;
     fn get_state<'a>(&self, sid: T::Version) -> Option<T>;
 }
 
@@ -109,8 +108,8 @@ impl<In, T> StateIndex<T> for StateIndexTracing<In>
         trace!("state_index::eliminate({})", ver);
     }
 
-    fn may_exist<'a>(&self, sid: T::Version) -> bool {
-        let res = self.0.may_exist(sid);
+    fn exists<'a>(&self, sid: &T::Version) -> bool {
+        let res = self.0.exists(sid);
         trace!("state_index::may_exist({}) -> {}", sid, res);
         res
     }
@@ -233,8 +232,8 @@ impl<T> StateIndex<T> for InMemoryStateIndex<T>
         }
     }
 
-    fn may_exist(&self, sid: T::Version) -> bool {
-        self.store.contains_key(&sid)
+    fn exists(&self, sid: &T::Version) -> bool {
+        self.store.contains_key(sid)
     }
 
     fn get_state(&self, sid: T::Version) -> Option<T> {

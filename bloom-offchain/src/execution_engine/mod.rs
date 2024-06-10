@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -10,8 +10,6 @@ use futures::channel::mpsc;
 use futures::stream::FusedStream;
 use futures::{FutureExt, Stream};
 use futures::{SinkExt, StreamExt};
-use isahc::http::Uri;
-use isahc::HttpClient;
 use log::{info, trace, warn};
 use tokio::sync::broadcast;
 
@@ -20,7 +18,7 @@ use spectrum_offchain::backlog::HotBacklog;
 use spectrum_offchain::circular_filter::CircularFilter;
 use spectrum_offchain::combinators::Ior;
 use spectrum_offchain::data::event::{Channel, Confirmed, Predicted, StateUpdate, Unconfirmed};
-use spectrum_offchain::data::order::{OrderUpdate, SpecializedOrder, UniqueOrder};
+use spectrum_offchain::data::order::{OrderUpdate, SpecializedOrder};
 use spectrum_offchain::data::{Baked, EntitySnapshot, Stable};
 use spectrum_offchain::health_alert::{HealthAlertClient, SlackHealthAlert};
 use spectrum_offchain::maker::Maker;
@@ -36,7 +34,6 @@ use crate::execution_engine::liquidity_book::recipe::{
     ExecutionRecipe, LinkedExecutionRecipe, LinkedFill, LinkedSwap, LinkedTerminalInstruction,
     TerminalInstruction,
 };
-use crate::execution_engine::liquidity_book::side::SideM;
 use crate::execution_engine::liquidity_book::{ExternalTLBEvents, TLBFeedback, TemporalLiquidityBook};
 use crate::execution_engine::multi_pair::MultiPair;
 use crate::execution_engine::resolver::resolve_source_state;
@@ -382,7 +379,8 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
         Ix: StateIndex<Bundled<T, B>>,
         Cache: KvStore<Stab, Bundled<T, B>>,
     {
-        let is_confirmed = matches!(update, Channel::Ledger(_));
+        let from_ledger = matches!(update, Channel::Ledger(_));
+        let from_mempool = matches!(update, Channel::Mempool(_));
         let (Channel::Ledger(Confirmed(upd))
         | Channel::Mempool(Unconfirmed(upd))
         | Channel::TxSubmit(Predicted(upd))) = update;
@@ -392,24 +390,25 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
             | StateUpdate::TransitionRollback(Ior::Right(new_state))
             | StateUpdate::TransitionRollback(Ior::Both(_, new_state)) => {
                 let id = new_state.stable_id();
-                if is_confirmed {
+                if from_ledger {
                     trace!(target: "executor", "Observing new confirmed state {}", id);
                     let ver = new_state.version();
                     self.index.put_confirmed(Confirmed(new_state));
-                    let unconfirmed_state_exists = self
-                        .index
-                        .get_last_unconfirmed(id)
-                        .map(|Unconfirmed(st)| st.version() == ver)
-                        .unwrap_or(false);
+                    let state_exists = self.index.exists(&ver);
                     let seen_recently = self.skip_filter.remove(&ver);
-                    if unconfirmed_state_exists || seen_recently {
+                    if state_exists || seen_recently {
                         // No TLB update is needed.
                         return None;
                     }
                 } else {
-                    trace!(target: "executor", "Observing new unconfirmed state {}", id);
                     self.skip_filter.add(new_state.version());
-                    self.index.put_unconfirmed(Unconfirmed(new_state));
+                    if from_mempool {
+                        trace!(target: "executor", "Observing new unconfirmed state {}", id);
+                        self.index.put_unconfirmed(Unconfirmed(new_state));
+                    } else {
+                        trace!(target: "executor", "Observing new predicted state {}", id);
+                        self.index.put_predicted(Predicted(new_state));
+                    }
                 }
                 match resolve_source_state(id, &self.index) {
                     Some(latest_state) => self.cache(latest_state),
@@ -491,30 +490,30 @@ where
                                 while let Some(effect) = pending_effects.pop() {
                                     match effect {
                                         ExecutionEff::Updated(upd) => {
-                                            self.update_state(Channel::Mempool(Unconfirmed(
+                                            self.update_state(Channel::tx_submit(
                                                 StateUpdate::Transition(Ior::Right(upd)),
-                                            )));
+                                            ));
                                         }
                                         ExecutionEff::Eliminated(elim) => {
-                                            self.update_state(Channel::Mempool(Unconfirmed(
+                                            self.update_state(Channel::tx_submit(
                                                 StateUpdate::Transition(Ior::Left(elim.map(Either::Left))),
-                                            )));
+                                            ));
                                         }
                                     }
                                 }
                                 self.multi_book.get_mut(&pair).on_recipe_succeeded();
                             }
                             PendingEffects::FromBacklog(new_pool, _) => {
-                                self.update_state(Channel::Mempool(Unconfirmed(StateUpdate::Transition(
+                                self.update_state(Channel::tx_submit(StateUpdate::Transition(
                                     Ior::Right(new_pool.map(Either::Right)),
-                                ))));
+                                )));
                             }
                         },
                         Err(err) => {
                             //todo: remove
                             let submit_res = self
                                 .alert_client
-                                .send_alert(format!("Tx submition error: {}", err).as_str())
+                                .send_alert(format!("Tx submission error: {}", err).as_str())
                                 .unwrap_or("Failure".to_string());
 
                             trace!("Alert submitting result: {}", submit_res);
