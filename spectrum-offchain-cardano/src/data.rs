@@ -26,6 +26,8 @@ pub mod cfmm_pool;
 pub mod fee_switch_bidirectional_fee;
 pub mod fee_switch_pool;
 pub mod pair;
+mod stable_pool_t2t;
+mod stable_order;
 
 #[repr(transparent)]
 #[derive(

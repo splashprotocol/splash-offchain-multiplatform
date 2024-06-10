@@ -15,9 +15,7 @@ use crate::data::order::{ClassicalOrder, OrderType, PoolNft};
 use crate::data::pool::CFMMPoolAction::Deposit as DepositAction;
 use crate::data::pool::{CFMMPoolAction, Lq, Rx, Ry};
 use crate::data::{OnChainOrderId, PoolId};
-use crate::deployment::ProtocolValidator::{
-    BalanceFnPoolDeposit, ConstFnFeeSwitchPoolDeposit, ConstFnPoolDeposit,
-};
+use crate::deployment::ProtocolValidator::{BalanceFnPoolDeposit, ConstFnFeeSwitchPoolDeposit, ConstFnPoolDeposit, StableFnPoolT2TDeposit};
 use crate::deployment::{
     test_address, DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator,
 };
@@ -49,7 +47,8 @@ impl<Ctx> RequiresValidator<Ctx> for ClassicalOnChainDeposit
 where
     Ctx: Has<DeployedValidator<{ ConstFnFeeSwitchPoolDeposit as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolDeposit as u8 }>>
-        + Has<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>>,
+        + Has<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>>
+        + Has<DeployedValidator<{ StableFnPoolT2TDeposit as u8 }>>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self.order.order_type {
@@ -63,6 +62,10 @@ where
             }
             OrderType::ConstFn => {
                 let validator: DeployedValidator<{ ConstFnPoolDeposit as u8 }> = ctx.get();
+                validator.erased()
+            }
+            OrderType::StableFn => {
+                let validator: DeployedValidator<{ StableFnPoolT2TDeposit as u8 }> = ctx.get();
                 validator.erased()
             }
         }
