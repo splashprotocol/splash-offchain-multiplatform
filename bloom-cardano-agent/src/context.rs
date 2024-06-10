@@ -8,12 +8,7 @@ use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::backlog::BacklogCapacity;
 use spectrum_offchain::data::Has;
 use spectrum_offchain_cardano::creds::{OperatorCred, OperatorRewardAddress};
-use spectrum_offchain_cardano::deployment::ProtocolValidator::{
-    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnFeeSwitchPoolDeposit,
-    ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
-    ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
-    LimitOrderV1, LimitOrderWitnessV1,
-};
+use spectrum_offchain_cardano::deployment::ProtocolValidator::{BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnFeeSwitchPoolDeposit, ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2, LimitOrderV1, LimitOrderWitnessV1, StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem};
 use spectrum_offchain_cardano::deployment::{DeployedValidator, ProtocolDeployment};
 
 #[derive(Debug, Clone)]
@@ -171,6 +166,30 @@ impl Has<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>> for ExecutionContext
         &self,
     ) -> DeployedValidator<{ BalanceFnPoolDeposit as u8 }> {
         self.deployment.balance_fn_pool_deposit.clone()
+    }
+}
+
+impl Has<DeployedValidator<{ StableFnPoolT2T as u8 }>> for ExecutionContext {
+    fn select<U: IsEqual<DeployedValidator<{ StableFnPoolT2T as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ StableFnPoolT2T as u8 }> {
+        self.deployment.stable_fn_pool_t2t.clone()
+    }
+}
+
+impl Has<DeployedValidator<{ StableFnPoolT2TDeposit as u8 }>> for ExecutionContext {
+    fn select<U: IsEqual<DeployedValidator<{ StableFnPoolT2TDeposit as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ StableFnPoolT2TDeposit as u8 }> {
+        self.deployment.stable_fn_pool_t2t_deposit.clone()
+    }
+}
+
+impl Has<DeployedValidator<{ StableFnPoolT2TRedeem as u8 }>> for ExecutionContext {
+    fn select<U: IsEqual<DeployedValidator<{ StableFnPoolT2TRedeem as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ StableFnPoolT2TRedeem as u8 }> {
+        self.deployment.stable_fn_pool_t2t_redeem.clone()
     }
 }
 

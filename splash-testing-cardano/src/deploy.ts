@@ -1,6 +1,6 @@
 import { Lucid, Script, TxComplete } from "https://deno.land/x/lucid@0.10.7/mod.ts";
 import { BuiltValidators, DeployedValidators, ScriptNames } from "./types.ts";
-import { LimitOrderBatchWitness, LimitOrderLimitOrder } from "./../plutus.ts";
+import { LimitOrderBatchWitness, LimitOrderLimitOrder, PoolT2tExactValidateStablePoolTransitionT2tExact } from "./../plutus.ts";
 import { getLucid } from "./lucid.ts";
 import { generateConfigJson } from "./config.ts";
 import { setupWallet } from "./wallet.ts";
@@ -23,6 +23,8 @@ export class Deployment {
       ],
     });
     const orderScriptHash = this.lucid.utils.validatorToScriptHash(orderScript);
+    const stablePoolT2T = new PoolT2tExactValidateStablePoolTransitionT2tExact(witnessScriptHash)
+    const stablePoolT2TScriptHash = this.lucid.utils.validatorToScriptHash(stablePoolT2T);
     return {
       limitOrder: {
         script: orderScript,
@@ -32,6 +34,10 @@ export class Deployment {
         script: witnessScript,
         hash: witnessScriptHash,
       },
+      stablePoolT2T: {
+        script: stablePoolT2T,
+        hash: stablePoolT2TScriptHash,
+      }
     }
   }
 
@@ -57,7 +63,12 @@ export class Deployment {
         { scriptRef: builtValidators.limitOrderWitness.script },
         {},
       )
-      .registerStake(witnessRewardAddress)
+      .payToAddressWithData(
+        lockScript,
+        { scriptRef: builtValidators.stablePoolT2T.script },
+        {},
+      )
+      //.registerStake(witnessRewardAddress)
       .complete();
 
     return tx;
