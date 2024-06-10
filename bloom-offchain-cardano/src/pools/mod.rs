@@ -13,13 +13,10 @@ use spectrum_offchain_cardano::data::balance_order::RunBalanceAMMOrderOverPool;
 use spectrum_offchain_cardano::data::order::{ClassicalAMMOrder, RunClassicalAMMOrderOverPool};
 
 use spectrum_offchain_cardano::data::pool::AnyPool;
-use spectrum_offchain_cardano::data::pool::AnyPool::{BalancedCFMM, PureCFMM};
+use spectrum_offchain_cardano::data::pool::AnyPool::{BalancedCFMM, PureCFMM, StableCFMM};
+use spectrum_offchain_cardano::data::stable_order::RunStableAMMOrderOverPool;
 use spectrum_offchain_cardano::deployment::DeployedValidator;
-use spectrum_offchain_cardano::deployment::ProtocolValidator::{
-    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnFeeSwitchPoolDeposit,
-    ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
-    ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
-};
+use spectrum_offchain_cardano::deployment::ProtocolValidator::{BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnFeeSwitchPoolDeposit, ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2, StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem};
 
 /// Magnet for local instances.
 #[repr(transparent)]
@@ -44,7 +41,10 @@ where
         + Has<DeployedValidator<{ ConstFnFeeSwitchPoolRedeem as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>>
-        + Has<DeployedValidator<{ BalanceFnPoolRedeem as u8 }>>,
+        + Has<DeployedValidator<{ BalanceFnPoolRedeem as u8 }>>
+        + Has<DeployedValidator<{ StableFnPoolT2T as u8 }>>
+        + Has<DeployedValidator<{ StableFnPoolT2TDeposit as u8 }>>
+        + Has<DeployedValidator<{ StableFnPoolT2TRedeem as u8 }>>,
 {
     fn try_run(
         self,
@@ -60,6 +60,9 @@ where
             BalancedCFMM(balance_pool) => RunBalanceAMMOrderOverPool(Bundled(balance_pool, bearer))
                 .try_run(order, ctx)
                 .map(|(txb, Predicted(bundle))| (txb, Predicted(PoolMagnet(bundle.0.map(BalancedCFMM))))),
+            StableCFMM(stable_pool) => RunStableAMMOrderOverPool(Bundled(stable_pool, bearer))
+                .try_run(order, ctx)
+                .map(|(txb, Predicted(bundle))| (txb, Predicted(PoolMagnet(bundle.0.map(StableCFMM))))),
         }
     }
 }

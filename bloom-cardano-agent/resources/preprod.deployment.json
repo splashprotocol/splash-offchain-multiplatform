@@ -1,8 +1,8 @@
 {
   "limitOrderWitness": {
-    "hash": "221ad845313837904c15a0f0107dd0cbe8bdf4a41701866dabe996e4",
+    "hash": "2be9e0e775b72db02ab618a03ccbe70c357a47bcd8437323e7e0f51a",
     "referenceUtxo": {
-      "txHash": "72d665ecf4b724d85b8b62aaee800ef13b21b436b4632e4fff0ac0b645977ae6",
+      "txHash": "b6066b415f3ed4fb3d22965a89bceee9e113058daa8cea5203aec13a37205349",
       "outputIndex": 1
     },
     "cost": {
@@ -15,9 +15,9 @@
     }
   },
   "limitOrder": {
-    "hash": "dbe7a3d8a1d82990992a38eea1a2efaa68e931e252fc92ca1383809b",
+    "hash": "dfaa80c9732ed3b7752ba189786723c6709e2876a024f8f4d9910fb3",
     "referenceUtxo": {
-      "txHash": "72d665ecf4b724d85b8b62aaee800ef13b21b436b4632e4fff0ac0b645977ae6",
+      "txHash": "b6066b415f3ed4fb3d22965a89bceee9e113058daa8cea5203aec13a37205349",
       "outputIndex": 0
     },
     "cost": {
@@ -166,6 +166,39 @@
     "referenceUtxo": {
       "txHash": "423a1af31b99483349ed4763a83e185959de6ff712e2d0b51ae99b15f8f2e13d",
       "outputIndex": 2
+    },
+    "cost": {
+      "mem": 500000,
+      "steps": 200000000
+    }
+  },
+  "stableFnPoolT2t": {
+    "hash": "b37e1190853f6ccf68cdccf1f5776cb5cf36419a3b020a2eedea74f8",
+    "referenceUtxo": {
+      "txHash": "b6066b415f3ed4fb3d22965a89bceee9e113058daa8cea5203aec13a37205349",
+      "outputIndex": 2
+    },
+    "cost": {
+      "mem": 650000,
+      "steps": 251947893
+    }
+  },
+  "stableFnPoolT2tDeposit": {
+    "hash": "b76e922d5030b09a2a10813b8d5969c6005db1ae4c720222d02d5545",
+    "referenceUtxo": {
+      "txHash": "b6066b415f3ed4fb3d22965a89bceee9e113058daa8cea5203aec13a37205349",
+      "outputIndex": 4
+    },
+    "cost": {
+      "mem": 500000,
+      "steps": 200000000
+    }
+  },
+  "stableFnPoolT2tRedeem": {
+    "hash": "5edd0cd5bfbf649b09144cb94a5732f730d0742285c22bc2672af2c7",
+    "referenceUtxo": {
+      "txHash": "b6066b415f3ed4fb3d22965a89bceee9e113058daa8cea5203aec13a37205349",
+      "outputIndex": 3
     },
     "cost": {
       "mem": 500000,
