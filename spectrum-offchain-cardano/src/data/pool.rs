@@ -19,6 +19,7 @@ use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
+use bloom_offchain::execution_engine::liquidity_book::liquidity_bin::Bin;
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
@@ -215,6 +216,27 @@ pub struct AssetDeltas {
 
 impl Pool for AnyPool {
     type U = ExUnits;
+
+    fn take(self, input: Side<u64>) -> (Bin, Self) {
+        match self {
+            PureCFMM(p) => {
+                let (bin, new_pool) = p.take(input);
+                (bin, PureCFMM(new_pool))
+            },
+            BalancedCFMM(p) => {
+                let (bin, new_pool) = p.take(input);
+                (bin, BalancedCFMM(new_pool))
+            },
+        }
+    }
+
+    fn fuse(self, bin: Bin) -> Self {
+        match self {
+            PureCFMM(p) => PureCFMM(p.fuse(bin)),
+            BalancedCFMM(p) => BalancedCFMM(p.fuse(bin)),
+        }
+    }
+
     fn static_price(&self) -> AbsolutePrice {
         match self {
             PureCFMM(p) => p.static_price(),
