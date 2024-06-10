@@ -1,3 +1,4 @@
+use cml_chain::assets::PositiveCoin;
 use cml_chain::Value;
 use cml_core::ordered_hash_map::OrderedHashMap;
 use linked_hash_map::Entry;

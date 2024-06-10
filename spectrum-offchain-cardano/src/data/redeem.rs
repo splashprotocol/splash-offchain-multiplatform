@@ -16,7 +16,7 @@ use crate::data::pool::CFMMPoolAction::Redeem as RedeemAction;
 use crate::data::pool::{CFMMPoolAction, Lq, Rx, Ry};
 use crate::data::{OnChainOrderId, PoolId};
 use crate::deployment::ProtocolValidator::{
-    BalanceFnPoolRedeem, ConstFnFeeSwitchPoolRedeem, ConstFnPoolRedeem,
+    BalanceFnPoolRedeem, ConstFnFeeSwitchPoolRedeem, ConstFnPoolRedeem, StableFnPoolT2TRedeem,
 };
 use crate::deployment::{
     test_address, DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator,
@@ -48,7 +48,8 @@ impl<Ctx> RequiresValidator<Ctx> for ClassicalOnChainRedeem
 where
     Ctx: Has<DeployedValidator<{ ConstFnFeeSwitchPoolRedeem as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolRedeem as u8 }>>
-        + Has<DeployedValidator<{ BalanceFnPoolRedeem as u8 }>>,
+        + Has<DeployedValidator<{ BalanceFnPoolRedeem as u8 }>>
+        + Has<DeployedValidator<{ StableFnPoolT2TRedeem as u8 }>>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self.order.order_type {
@@ -62,6 +63,10 @@ where
             }
             OrderType::ConstFn => {
                 let validator: DeployedValidator<{ ConstFnPoolRedeem as u8 }> = ctx.get();
+                validator.erased()
+            }
+            OrderType::StableFn => {
+                let validator: DeployedValidator<{ StableFnPoolT2TRedeem as u8 }> = ctx.get();
                 validator.erased()
             }
         }
@@ -97,6 +102,7 @@ where
         + Has<DeployedScriptInfo<{ ConstFnFeeSwitchPoolRedeem as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolRedeem as u8 }>>
         + Has<DeployedScriptInfo<{ BalanceFnPoolRedeem as u8 }>>
+        + Has<DeployedScriptInfo<{ StableFnPoolT2TRedeem as u8 }>>
         + Has<RedeemOrderBounds>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
@@ -104,13 +110,20 @@ where
             test_address::<{ ConstFnFeeSwitchPoolRedeem as u8 }, Ctx>(repr.address(), ctx);
         let is_const_pool_redeem = test_address::<{ ConstFnPoolRedeem as u8 }, Ctx>(repr.address(), ctx);
         let is_balance_pool_redeem = test_address::<{ BalanceFnPoolRedeem as u8 }, Ctx>(repr.address(), ctx);
-        if is_const_fee_switch_pool_deposit || is_balance_pool_redeem || is_const_pool_redeem {
+        let is_stable_pool_redeem = test_address::<{ StableFnPoolT2TRedeem as u8 }, Ctx>(repr.address(), ctx);
+        if is_const_fee_switch_pool_deposit
+            || is_balance_pool_redeem
+            || is_const_pool_redeem
+            || is_stable_pool_redeem
+        {
             let order_type = if is_const_fee_switch_pool_deposit {
                 OrderType::ConstFnFeeSwitch
             } else if is_balance_pool_redeem {
                 OrderType::BalanceFn
-            } else {
+            } else if is_const_pool_redeem {
                 OrderType::ConstFn
+            } else {
+                OrderType::StableFn
             };
             let value = repr.value().clone();
             let conf = OnChainRedeemConfig::try_from_pd(repr.datum().clone()?.into_pd()?)?;

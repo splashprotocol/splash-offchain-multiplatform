@@ -745,8 +745,8 @@ mod tests {
                     ],
                 )),
             )),
-            reserves_x: TaggedAmount::new(1632109645),
-            reserves_y: TaggedAmount::new(1472074052),
+            reserves_x: TaggedAmount::new(10869928507),
+            reserves_y: TaggedAmount::new(1355418),
             liquidity: TaggedAmount::new(0),
             asset_x: TaggedAssetClass::new(AssetClass::Native),
             asset_y: TaggedAssetClass::new(AssetClass::Token((
@@ -775,18 +775,20 @@ mod tests {
                     ],
                 )),
             ))),
-            lp_fee_x: Ratio::new_raw(99970, 100000),
-            lp_fee_y: Ratio::new_raw(99970, 100000),
-            treasury_fee: Ratio::new_raw(10, 100000),
-            treasury_x: TaggedAmount::new(11500),
-            treasury_y: TaggedAmount::new(2909),
+            lp_fee_x: Ratio::new_raw(98200, 100000),
+            lp_fee_y: Ratio::new_raw(98200, 100000),
+            treasury_fee: Ratio::new_raw(180, 100000),
+            treasury_x: TaggedAmount::new(14752294),
+            treasury_y: TaggedAmount::new(2050),
             lq_lower_bound: TaggedAmount::new(0),
             ver: ConstFnPoolVer::FeeSwitch,
             marginal_cost: ExUnits { mem: 100, steps: 100 },
             min_pool_lovelace: 10000000,
         };
 
-        let (_, new_pool) = pool.clone().swap(Side::Ask(900000000));
+        let (out, new_pool) = pool.clone().swap(Side::Bid(263197));
+
+        println!("out {}", out);
 
         let correct_x_treasury = 101500;
 

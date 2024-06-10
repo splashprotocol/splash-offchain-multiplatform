@@ -46,11 +46,11 @@ type ParseBlueprint = {
 };
 
 const plutusJson: ParseBlueprint = JSON.parse(
-  await Deno.readTextFile('plutus.json'),
+    await Deno.readTextFile('plutus.json'),
 );
 
 const plutusVersion = `Plutus${
-  plutusJson.preamble.plutusVersion.toUpperCase()}`;
+    plutusJson.preamble.plutusVersion.toUpperCase()}`;
 
 const { definitions } = plutusJson;
 
@@ -58,9 +58,9 @@ const denoVersion = "0.10.7"
 
 const imports = `// deno-lint-ignore-file
 import { applyParamsToScript, Data, Validator } from "${
-  flags.npm
-    ? 'lucid-cardano'
-    : `https://deno.land/x/lucid@${denoVersion}/mod.ts`
+    flags.npm
+        ? 'lucid-cardano'
+        : `https://deno.land/x/lucid@${denoVersion}/mod.ts`
 }"`;
 
 const validators = plutusJson.validators.map((validator) => {
@@ -86,27 +86,27 @@ const validators = plutusJson.validators.map((validator) => {
     items: params.map((param) => resolveSchema(param.schema, definitions)),
   };
   const paramsArgs = params.map((
-    param,
-    index,
+      param,
+      index,
   ) => [snakeToCamel(param.title), schemaToType(paramsSchema.items[index])]);
 
   const script = validator.compiledCode;
 
   return `export interface I${name} {
     new (${paramsArgs.map((param) => param.join(':')).join(',')}): Validator;${
-  datum ? `\n${datumTitle}: ${schemaToType(datumSchema)};` : ''
-}
+      datum ? `\n${datumTitle}: ${schemaToType(datumSchema)};` : ''
+  }
     ${redeemerTitle}: ${schemaToType(redeemerSchema)};
   };
 
   export const ${name} = Object.assign(
     function (${paramsArgs.map((param) => param.join(':')).join(',')}) {${
-  (paramsArgs.length > 0 && !plutarchScript)
-    ? `return { type: "${plutusVersion}", script: applyParamsToScript("${script}", [${
-      paramsArgs.map((param) => param[0]).join(',')
-    }], ${JSON.stringify(paramsSchema)}) };`
-    : `return {type: "${plutusVersion}", script: "${script}"};`
-}},
+      (paramsArgs.length > 0 && !plutarchScript)
+          ? `return { type: "${plutusVersion}", script: applyParamsToScript("${script}", [${
+              paramsArgs.map((param) => param[0]).join(',')
+          }], ${JSON.stringify(paramsSchema)}) };`
+          : `return {type: "${plutusVersion}", script: "${script}"};`
+  }},
     ${datum ? `{${datumTitle}: ${JSON.stringify(datumSchema)}},` : ''}
     {${redeemerTitle}: ${JSON.stringify(redeemerSchema)}},
   ) as unknown as I${name};`;
@@ -120,9 +120,9 @@ await new Deno.Command(Deno.execPath(), {
   stderr: 'piped',
 }).output();
 console.log(
-  '%cGenerated %cplutus.ts',
-  'color: green; font-weight: bold',
-  'font-weight: bold',
+    '%cGenerated %cplutus.ts',
+    'color: green; font-weight: bold',
+    'font-weight: bold',
 );
 
 function resolveSchema(schema: any, definitions: any): any {
@@ -178,7 +178,7 @@ function schemaToType(schema: any): string {
         return 'undefined';
       }
       return `{${
-        schema.fields.map((field: any) => `${field.title || 'wrapper'}:${schemaToType(field)}`).join(';')
+          schema.fields.map((field: any) => `${field.title || 'wrapper'}:${schemaToType(field)}`).join(';')
       }}`;
     }
     case 'enum': {
@@ -193,28 +193,28 @@ function schemaToType(schema: any): string {
         return `${schemaToType(schema.anyOf[0].fields[0])} | null`;
       }
       return schema.anyOf.map((entry: any) => (entry.fields.length === 0
-        ? `"${entry.title}"`
-        : `{${entry.title}: ${
-          entry.fields[0].title
-            ? `{${
-              entry.fields.map((field: any) => [field.title, schemaToType(field)].join(':')).join(',')
-            }}}`
-            : `[${
-              entry.fields.map((field: any) => schemaToType(field)).join(',')
-            }]}`
-        }`)).join(' | ');
+          ? `"${entry.title}"`
+          : `{${entry.title}: ${
+              entry.fields[0].title
+                  ? `{${
+                      entry.fields.map((field: any) => [field.title, schemaToType(field)].join(':')).join(',')
+                  }}}`
+                  : `[${
+                      entry.fields.map((field: any) => schemaToType(field)).join(',')
+                  }]}`
+          }`)).join(' | ');
     }
     case 'list': {
       if (schema.items instanceof Array) {
         return `[${
-          schema.items.map((item: any) => schemaToType(item)).join(',')
+            schema.items.map((item: any) => schemaToType(item)).join(',')
         }]`;
       }
       return `Array<${schemaToType(schema.items)}>`;
     }
     case 'map': {
       return `Map<${schemaToType(schema.keys)}, ${
-        schemaToType(schema.values)
+          schemaToType(schema.values)
       }>`;
     }
     case undefined: {
@@ -242,11 +242,11 @@ function snakeToCamel(s: string): string {
   const withUnderscore = s.charAt(0) === '_' ? s.charAt(0) : '';
   return withUnderscore
       + (withUnderscore ? s.slice(1) : s).toLowerCase().replace(
-        /([-_][a-z])/g,
-        (group) => group
-          .toUpperCase()
-          .replace('-', '')
-          .replace('_', ''),
+          /([-_][a-z])/g,
+          (group) => group
+              .toUpperCase()
+              .replace('-', '')
+              .replace('_', ''),
       );
 }
 

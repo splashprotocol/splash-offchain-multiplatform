@@ -376,6 +376,7 @@ mod tests {
     use cml_chain::plutus::PlutusData;
     use cml_chain::transaction::DatumOption;
     use cml_chain::{PolicyId, Value};
+    use cml_chain::utils::BigInteger;
     use cml_core::serialization::Deserialize;
     use cml_crypto::{Ed25519KeyHash, TransactionHash};
     use cml_multi_era::babbage::{BabbageFormatTxOut, BabbageTransactionOutput};
@@ -436,6 +437,7 @@ mod tests {
 
     #[test]
     fn beacon_derivation_eqv() {
+
         let oref = OutputRef::new(TransactionHash::from_hex(TX).unwrap(), IX);
         assert_eq!(
             beacon_from_oref(oref).to_hex(),

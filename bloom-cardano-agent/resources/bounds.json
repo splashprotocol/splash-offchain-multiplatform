@@ -1,0 +1,14 @@
+{
+  "limitOrder": {
+    "minCostPerExStep": 500000
+  },
+  "depositOrder": {
+    "minCollateralAda": 1500000
+  },
+  "redeemOrder": {
+    "minCollateralAda": 1500000
+  },
+  "pool": {
+    "minLovelace": 1000000
+  }
+}

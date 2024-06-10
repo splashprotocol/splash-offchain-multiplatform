@@ -4,6 +4,7 @@ use crate::data::pool::{Lq, Rx, Ry};
 use num_rational::Ratio;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use std::cmp::min;
+use log::info;
 
 pub fn classic_cfmm_output_amount<X, Y>(
     asset_x: TaggedAssetClass<X>,
@@ -54,7 +55,7 @@ pub fn classic_cfmm_reward_lp(
             )
         }
     };
-    let unlocked_lq = min(min_by_x, min_by_y) as u64;
+    let unlocked_lq: u64 = min(min_by_x, min_by_y) as u64;
     Some((
         TaggedAmount::new(unlocked_lq),
         TaggedAmount::new(change_by_x),
@@ -72,6 +73,14 @@ pub fn classic_cfmm_shares_amount(
         ((burned_lq.untag() as u128) * (reserves_x.untag() as u128)).checked_div(liquidity.untag() as u128)?;
     let y_amount =
         ((burned_lq.untag() as u128) * (reserves_y.untag() as u128)).checked_div(liquidity.untag() as u128)?;
+
+    info!("reserves_y: {}", reserves_y.untag());
+    info!("reserves_x: {}", reserves_x.untag());
+    info!("reserves_y: {}", reserves_y.untag());
+    info!("liquidity: {}", liquidity.untag());
+    info!("burned_lq: {}", burned_lq.untag());
+    info!("x_amount: {}", x_amount);
+    info!("y_amount: {}", y_amount);
 
     Some((
         TaggedAmount::new(x_amount as u64),

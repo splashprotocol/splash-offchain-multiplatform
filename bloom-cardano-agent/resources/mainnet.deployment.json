@@ -187,5 +187,38 @@
       "mem": 500000,
       "steps": 200000000
     }
+  },
+  "stableFnPoolT2t": {
+    "hash": "",
+    "referenceUtxo": {
+      "txHash": "",
+      "outputIndex": 1
+    },
+    "cost": {
+      "mem": 500000,
+      "steps": 200000000
+    }
+  },
+  "stableFnPoolT2tDeposit": {
+    "hash": "",
+    "referenceUtxo": {
+      "txHash": "",
+      "outputIndex": 1
+    },
+    "cost": {
+      "mem": 500000,
+      "steps": 200000000
+    }
+  },
+  "stableFnPoolT2tRedeem": {
+    "hash": "",
+    "referenceUtxo": {
+      "txHash": "",
+      "outputIndex": 1
+    },
+    "cost": {
+      "mem": 500000,
+      "steps": 200000000
+    }
   }
 }

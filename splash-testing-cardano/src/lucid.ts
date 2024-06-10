@@ -1,9 +1,9 @@
 import { Blockfrost, Lucid } from 'https://deno.land/x/lucid@0.10.7/mod.ts';
 
 export async function getLucid() {
-  const token = await Deno.readTextFile('./token.txt');
+  //const token = await Deno.readTextFile('./token.txt');
   return Lucid.new(
-    new Blockfrost('https://cardano-mainnet.blockfrost.io/api/v0', token),
-    'Mainnet',
+    new Blockfrost('https://cardano-preprod.blockfrost.io/api/v0', "preprodkHxq1XNqFeHljc63OthTsJ6PjXBPPWR2"),
+    'Preprod',
   );
 }
