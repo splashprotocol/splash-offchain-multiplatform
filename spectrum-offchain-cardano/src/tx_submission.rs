@@ -62,16 +62,14 @@ pub struct SubmitTx<Tx>(Tx, oneshot::Sender<SubmissionResult>);
 #[derive(Debug, Clone)]
 pub enum SubmissionResult {
     Ok,
-    TxRejectedResult { rejected_bytes: Vec<u8> },
-    Unknown,
+    TxRejected { rejected_bytes: Vec<u8> },
 }
 
 impl From<SubmissionResult> for Result<(), TxRejected> {
     fn from(value: SubmissionResult) -> Self {
         match value {
             SubmissionResult::Ok => Ok(()),
-            SubmissionResult::Unknown => Err(TxRejected::Unknown),
-            SubmissionResult::TxRejectedResult { rejected_bytes } => {
+            SubmissionResult::TxRejected { rejected_bytes } => {
                 let missing_inputs = transcribe_bad_inputs_error(rejected_bytes);
                 Err(if !missing_inputs.is_empty() {
                     TxRejected::MissingInputs(missing_inputs)
@@ -103,7 +101,7 @@ where
                         match err {
                             localtxsubmission::Error::TxRejected(RejectReason(rejected_bytes)) => {
                                 trace!("TxRejected: Node responded with error: {}", hex::encode(&rejected_bytes));
-                                on_resp.send(SubmissionResult::TxRejectedResult{rejected_bytes}).expect("Responder was dropped")
+                                on_resp.send(SubmissionResult::TxRejected{rejected_bytes}).expect("Responder was dropped")
                             },
                             retryable_err => {
                                 trace!("TxSubmissionProtocol responded with error: {}", retryable_err);
