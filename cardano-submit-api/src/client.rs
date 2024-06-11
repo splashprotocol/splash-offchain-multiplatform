@@ -57,8 +57,7 @@ impl<const ERA: u16, Tx> LocalTxSubmissionClient<ERA, Tx> {
         self.tx_submission
             .submit_tx(EraTx(ERA, tx_bytes))
             .await
-            .map_err(Error::TxSubmissionProtocol)?;
-        Ok(())
+            .map_err(Error::TxSubmissionProtocol)
     }
 
     pub async fn close(self) {

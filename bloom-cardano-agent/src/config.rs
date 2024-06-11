@@ -8,6 +8,7 @@ use cardano_chain_sync::client::Point;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain_cardano::creds::OperatorRewardAddress;
+use spectrum_offchain_cardano::node::NodeConfig;
 
 #[derive(serde::Deserialize)]
 #[serde(bound = "'de: 'a")]
@@ -27,13 +28,6 @@ pub struct AppConfig<'a> {
     pub mempool_buffering_duration: Duration,
     pub ledger_buffering_duration: Duration,
     pub partitioning: Partitioning,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NodeConfig<'a> {
-    pub path: &'a str,
-    pub magic: u64,
 }
 
 #[derive(serde::Deserialize)]

@@ -490,23 +490,23 @@ where
                                 while let Some(effect) = pending_effects.pop() {
                                     match effect {
                                         ExecutionEff::Updated(upd) => {
-                                            self.update_state(Channel::tx_submit(
-                                                StateUpdate::Transition(Ior::Right(upd)),
-                                            ));
+                                            self.update_state(Channel::tx_submit(StateUpdate::Transition(
+                                                Ior::Right(upd),
+                                            )));
                                         }
                                         ExecutionEff::Eliminated(elim) => {
-                                            self.update_state(Channel::tx_submit(
-                                                StateUpdate::Transition(Ior::Left(elim.map(Either::Left))),
-                                            ));
+                                            self.update_state(Channel::tx_submit(StateUpdate::Transition(
+                                                Ior::Left(elim.map(Either::Left)),
+                                            )));
                                         }
                                     }
                                 }
                                 self.multi_book.get_mut(&pair).on_recipe_succeeded();
                             }
                             PendingEffects::FromBacklog(new_pool, _) => {
-                                self.update_state(Channel::tx_submit(StateUpdate::Transition(
-                                    Ior::Right(new_pool.map(Either::Right)),
-                                )));
+                                self.update_state(Channel::tx_submit(StateUpdate::Transition(Ior::Right(
+                                    new_pool.map(Either::Right),
+                                ))));
                             }
                         },
                         Err(err) => {

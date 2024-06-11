@@ -13,26 +13,44 @@ use cardano_submit_api::client::{Error, LocalTxSubmissionClient};
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::network::Network;
 
+use crate::node::NodeConfig;
 use crate::node_error::transcribe_bad_inputs_error;
 
-pub struct TxSubmissionAgent<const ERA: u16, Tx> {
+pub struct TxSubmissionAgent<'a, const ERA: u16, Tx> {
     client: LocalTxSubmissionClient<ERA, Tx>,
     mailbox: mpsc::Receiver<SubmitTx<Tx>>,
+    node_config: NodeConfig<'a>,
 }
 
-impl<const ERA: u16, Tx> TxSubmissionAgent<ERA, Tx> {
-    pub fn new(
-        client: LocalTxSubmissionClient<ERA, Tx>,
+impl<'a, const ERA: u16, Tx> TxSubmissionAgent<'a, ERA, Tx> {
+    pub async fn new(
+        node_config: NodeConfig<'a>,
         buffer_size: usize,
-    ) -> (Self, TxSubmissionChannel<ERA, Tx>) {
+    ) -> Result<(Self, TxSubmissionChannel<ERA, Tx>), Error> {
+        let tx_submission_client = LocalTxSubmissionClient::init(node_config.path, node_config.magic).await?;
         let (snd, recv) = mpsc::channel(buffer_size);
-        (
-            Self {
-                client,
-                mailbox: recv,
-            },
-            TxSubmissionChannel(snd),
-        )
+        let agent = Self {
+            client: tx_submission_client,
+            mailbox: recv,
+            node_config,
+        };
+        Ok((agent, TxSubmissionChannel(snd)))
+    }
+
+    pub async fn restarted(self) -> Result<Self, Error> {
+        let TxSubmissionAgent {
+            client,
+            mailbox,
+            node_config,
+        } = self;
+        client.close().await;
+        let new_tx_submission_client =
+            LocalTxSubmissionClient::init(node_config.path, node_config.magic).await?;
+        Ok(Self {
+            client: new_tx_submission_client,
+            mailbox,
+            node_config,
+        })
     }
 }
 
@@ -44,14 +62,14 @@ pub struct SubmitTx<Tx>(Tx, oneshot::Sender<SubmissionResult>);
 #[derive(Debug, Clone)]
 pub enum SubmissionResult {
     Ok,
-    TxRejectedResult { rejected_bytes: Vec<u8> },
+    TxRejected { rejected_bytes: Vec<u8> },
 }
 
 impl From<SubmissionResult> for Result<(), TxRejected> {
     fn from(value: SubmissionResult) -> Self {
         match value {
             SubmissionResult::Ok => Ok(()),
-            SubmissionResult::TxRejectedResult { rejected_bytes } => {
+            SubmissionResult::TxRejected { rejected_bytes } => {
                 let missing_inputs = transcribe_bad_inputs_error(rejected_bytes);
                 Err(if !missing_inputs.is_empty() {
                     TxRejected::MissingInputs(missing_inputs)
@@ -65,11 +83,11 @@ impl From<SubmissionResult> for Result<(), TxRejected> {
 
 const MAX_SUBMIT_ATTEMPTS: usize = 3;
 
-pub fn tx_submission_agent_stream<const ERA: u16, Tx>(
-    mut agent: TxSubmissionAgent<ERA, Tx>,
-) -> impl Stream<Item = ()>
+pub fn tx_submission_agent_stream<'a, const ERA: u16, Tx>(
+    mut agent: TxSubmissionAgent<'a, ERA, Tx>,
+) -> impl Stream<Item = ()> + 'a
 where
-    Tx: Serialize + Clone,
+    Tx: Serialize + Clone + 'a,
 {
     stream! {
         loop {
@@ -83,7 +101,7 @@ where
                         match err {
                             localtxsubmission::Error::TxRejected(RejectReason(rejected_bytes)) => {
                                 trace!("TxRejected: Node responded with error: {}", hex::encode(&rejected_bytes));
-                                on_resp.send(SubmissionResult::TxRejectedResult{rejected_bytes}).expect("Responder was dropped")
+                                on_resp.send(SubmissionResult::TxRejected{rejected_bytes}).expect("Responder was dropped")
                             },
                             retryable_err => {
                                 trace!("TxSubmissionProtocol responded with error: {}", retryable_err);
@@ -91,8 +109,8 @@ where
                                     attempts_done += 1;
                                     continue
                                 }
-                                //todo: remove this when client issue solved
-                                on_resp.send(SubmissionResult::TxRejectedResult{rejected_bytes: vec![]}).expect("Responder was dropped")
+                                trace!("Restarting TxSubmissionProtocol");
+                                agent = agent.restarted().await.expect("Failed to restart TxSubmissionProtocol");
                             },
                         };
                     },
