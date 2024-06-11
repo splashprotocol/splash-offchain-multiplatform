@@ -49,8 +49,8 @@ use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::backlog::{BacklogCapacity, HotPriorityBacklog};
+use spectrum_offchain::data::event::{Channel, StateUpdate};
 use spectrum_offchain::data::order::OrderUpdate;
-use spectrum_offchain::data::unique_entity::{EitherMod, StateUpdate};
 use spectrum_offchain::data::Baked;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::event_sink::process_events;
@@ -128,32 +128,32 @@ async fn main() {
         .expect("Couldn't retrieve collateral");
 
     let (pair_upd_snd_p1, pair_upd_recv_p1) =
-        mpsc::channel::<(PairId, EitherMod<StateUpdate<EvolvingCardanoEntity>>)>(config.channel_buffer_size);
+        mpsc::channel::<(PairId, Channel<StateUpdate<EvolvingCardanoEntity>>)>(config.channel_buffer_size);
     let (pair_upd_snd_p2, pair_upd_recv_p2) =
-        mpsc::channel::<(PairId, EitherMod<StateUpdate<EvolvingCardanoEntity>>)>(config.channel_buffer_size);
+        mpsc::channel::<(PairId, Channel<StateUpdate<EvolvingCardanoEntity>>)>(config.channel_buffer_size);
     let (pair_upd_snd_p3, pair_upd_recv_p3) =
-        mpsc::channel::<(PairId, EitherMod<StateUpdate<EvolvingCardanoEntity>>)>(config.channel_buffer_size);
+        mpsc::channel::<(PairId, Channel<StateUpdate<EvolvingCardanoEntity>>)>(config.channel_buffer_size);
     let (pair_upd_snd_p4, pair_upd_recv_p4) =
-        mpsc::channel::<(PairId, EitherMod<StateUpdate<EvolvingCardanoEntity>>)>(config.channel_buffer_size);
+        mpsc::channel::<(PairId, Channel<StateUpdate<EvolvingCardanoEntity>>)>(config.channel_buffer_size);
 
     let partitioned_pair_upd_snd =
         Partitioned::new([pair_upd_snd_p1, pair_upd_snd_p2, pair_upd_snd_p3, pair_upd_snd_p4]);
 
     let (spec_upd_snd_p1, spec_upd_recv_p1) = mpsc::channel::<(
         PairId,
-        EitherMod<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
+        Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
     )>(config.channel_buffer_size);
     let (spec_upd_snd_p2, spec_upd_recv_p2) = mpsc::channel::<(
         PairId,
-        EitherMod<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
+        Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
     )>(config.channel_buffer_size);
     let (spec_upd_snd_p3, spec_upd_recv_p3) = mpsc::channel::<(
         PairId,
-        EitherMod<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
+        Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
     )>(config.channel_buffer_size);
     let (spec_upd_snd_p4, spec_upd_recv_p4) = mpsc::channel::<(
         PairId,
-        EitherMod<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
+        Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
     )>(config.channel_buffer_size);
 
     let partitioned_spec_upd_snd =
@@ -330,23 +330,23 @@ async fn main() {
 }
 
 fn merge_upstreams(
-    xs: impl Stream<Item = (PairId, EitherMod<StateUpdate<EvolvingCardanoEntity>>)> + Unpin,
+    xs: impl Stream<Item = (PairId, Channel<StateUpdate<EvolvingCardanoEntity>>)> + Unpin,
     ys: impl Stream<
             Item = (
                 PairId,
-                EitherMod<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
+                Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
             ),
         > + Unpin,
 ) -> impl Stream<
     Item = (
         PairId,
         Either<
-            EitherMod<
+            Channel<
                 StateUpdate<
                     Bundled<Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>, FinalizedTxOut>,
                 >,
             >,
-            EitherMod<OrderUpdate<Bundled<ClassicalAMMOrder, FinalizedTxOut>, ClassicalAMMOrder>>,
+            Channel<OrderUpdate<Bundled<ClassicalAMMOrder, FinalizedTxOut>, ClassicalAMMOrder>>,
         >,
     ),
 > {

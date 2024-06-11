@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
 use crate::box_resolver::persistence::EntityRepo;
-use crate::data::unique_entity::{Confirmed, Predicted, Traced, Unconfirmed};
+use crate::data::event::{Confirmed, Predicted, Traced, Unconfirmed};
 use crate::data::{EntitySnapshot, Stable};
 
 #[derive(Debug)]

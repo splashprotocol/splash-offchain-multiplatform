@@ -10,7 +10,7 @@ use serde::Serialize;
 use crate::binary::prefixed_key;
 use crate::box_resolver::persistence::EntityRepo;
 use crate::box_resolver::{Predicted, Traced};
-use crate::data::unique_entity::{Confirmed, Unconfirmed};
+use crate::data::event::{Confirmed, Unconfirmed};
 use crate::data::{EntitySnapshot, Stable};
 use crate::rocks::RocksConfig;
 

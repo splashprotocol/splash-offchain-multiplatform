@@ -6,8 +6,8 @@ use type_equalities::IsEqual;
 
 use crate::ledger::TryFromLedger;
 
+pub mod event;
 pub mod order;
-pub mod unique_entity;
 
 /// Indicates presence of type [T] in implementor's type.
 /// Enables data polymorphism.
