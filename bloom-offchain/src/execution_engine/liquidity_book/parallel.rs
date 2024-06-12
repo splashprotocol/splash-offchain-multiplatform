@@ -8,8 +8,7 @@ use spectrum_offchain::data::Stable;
 
 use crate::execution_engine::liquidity_book::core::{MatchmakingAttempt, MatchmakingRecipe, TakeInProgress};
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState};
-use crate::execution_engine::liquidity_book::pool::Pool;
-use crate::execution_engine::liquidity_book::recipe::ExecutionRecipe;
+use crate::execution_engine::liquidity_book::market_maker::MarketMaker;
 use crate::execution_engine::liquidity_book::side::SideM;
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
 use crate::execution_engine::liquidity_book::state::TLBState;
@@ -35,7 +34,7 @@ pub struct TLB<Taker, Maker: Stable, U> {
 impl<Taker, Maker, U> TLBFeedback<Taker, Maker> for TLB<Taker, Maker, U>
 where
     Taker: Fragment + OrderState + Ord + Copy,
-    Maker: Pool + Stable + Copy,
+    Maker: MarketMaker + Stable + Copy,
 {
     fn on_recipe_succeeded(&mut self) {
         self.state.commit();
@@ -49,7 +48,7 @@ where
 impl<Taker, Maker, U> TemporalLiquidityBook<Taker, Maker> for TLB<Taker, Maker, U>
 where
     Taker: Stable + Fragment<U = U> + OrderState + Ord + Copy + Debug,
-    Maker: Stable + Pool<U = U> + Copy + Debug,
+    Maker: Stable + MarketMaker<U = U> + Copy + Debug,
     U: Monoid + PartialOrd + Copy,
 {
     fn attempt(&mut self) -> Option<MatchmakingRecipe<Taker, Maker>> {
@@ -61,8 +60,13 @@ where
                     batch.set_remainder(TakeInProgress::new(best_taker));
                     loop {
                         if let Some(rem) = batch.remainder() {
-                            
+                            if batch.execution_units_consumed() < self.execution_cap.soft {
+                                // 1. Take a chunk of remaining input from remainder
+                                // 2. Take liquidity from best counter-offer (takers/makers)
+                                
+                            }
                         }
+                        break;
                     }
                 }
                 self.attempt_side = !self.attempt_side;

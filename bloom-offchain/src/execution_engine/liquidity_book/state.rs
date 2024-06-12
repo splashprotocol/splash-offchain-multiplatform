@@ -11,7 +11,7 @@ use log::trace;
 use spectrum_offchain::data::Stable;
 
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-use crate::execution_engine::liquidity_book::pool::{Pool, PoolQuality, StaticPrice};
+use crate::execution_engine::liquidity_book::market_maker::{MarketMaker, PoolQuality, StaticPrice};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;
@@ -36,7 +36,7 @@ impl<Fr, Pl: Stable> IdleState<Fr, Pl> {
 impl<Fr, Pl> IdleState<Fr, Pl>
 where
     Fr: Fragment + OrderState + Ord + Copy,
-    Pl: Pool + Stable + Copy,
+    Pl: MarketMaker + Stable + Copy,
 {
     pub fn advance_clocks(&mut self, new_time: u64) {
         self.fragments.advance_clocks(new_time)
@@ -420,7 +420,7 @@ where
 impl<Fr, Pl, U> TLBState<Fr, Pl>
 where
     Fr: Fragment<U = U> + Ord + Copy + Debug,
-    Pl: Pool + Stable + Copy,
+    Pl: MarketMaker + Stable + Copy,
     U: PartialOrd,
 {
     pub fn show_state(&self) -> String
@@ -551,7 +551,7 @@ where
 impl<Fr, Pl> TLBState<Fr, Pl>
 where
     Fr: Fragment + Ord + Copy,
-    Pl: Pool + Stable + Copy,
+    Pl: MarketMaker + Stable + Copy,
 {
     pub fn try_select_pool(
         &self,
@@ -910,7 +910,7 @@ impl<Pl: Stable> Pools<Pl> {
 
 impl<Pl> Pools<Pl>
 where
-    Pl: Pool + Stable + Copy,
+    Pl: MarketMaker + Stable + Copy,
 {
     pub fn update_pool(&mut self, pool: Pl) {
         if let Some(old_pool) = self.pools.insert(pool.stable_id(), pool) {
@@ -935,7 +935,7 @@ pub mod tests {
     use spectrum_offchain::data::Stable;
 
     use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-    use crate::execution_engine::liquidity_book::pool::{Pool, StaticPrice};
+    use crate::execution_engine::liquidity_book::market_maker::{MarketMaker, StaticPrice};
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
     use crate::execution_engine::liquidity_book::state::{
         Fragments, IdleState, PoolQuality, StashingOption, TLBState,
@@ -1377,7 +1377,7 @@ pub mod tests {
         }
     }
 
-    impl Pool for SimpleCFMMPool {
+    impl MarketMaker for SimpleCFMMPool {
         type U = u64;
 
         fn static_price(&self) -> StaticPrice {

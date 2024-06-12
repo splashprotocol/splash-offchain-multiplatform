@@ -20,7 +20,7 @@ use log::info;
 use tracing_subscriber::filter::combinator::Or;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
-use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality, StaticPrice};
+use bloom_offchain::execution_engine::liquidity_book::market_maker::{MarketMaker, PoolQuality, StaticPrice};
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::collateral::Collateral;
@@ -242,7 +242,7 @@ pub struct AssetDeltas {
     pub asset_to_add_to: AssetClass,
 }
 
-impl Pool for AnyPool {
+impl MarketMaker for AnyPool {
     type U = ExUnits;
     fn static_price(&self) -> StaticPrice {
         match self {
@@ -521,7 +521,7 @@ pub mod tests {
     use cml_crypto::TransactionHash;
     use rand::Rng;
 
-    use bloom_offchain::execution_engine::liquidity_book::{pool::Pool, side::Side};
+    use bloom_offchain::execution_engine::liquidity_book::{market_maker::MarketMaker, side::Side};
     use spectrum_cardano_lib::OutputRef;
     use spectrum_offchain::ledger::TryFromLedger;
 
