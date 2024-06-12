@@ -435,33 +435,21 @@ impl Pool for BalancePool {
         let (
             base_reserves,
             base_treasury,
-            base_fee,
-            base_weight,
             quote_reserves,
             quote_treasury,
-            quote_fee,
-            quote_weight,
         ) = if x == base {
             (
                 self.reserves_x.as_mut(),
-                self.treasury_x.untag(),
-                self.lp_fee_x,
-                self.weight_x,
+                self.treasury_x.as_mut(),
                 self.reserves_y.as_mut(),
-                self.treasury_y.untag(),
-                self.lp_fee_y,
-                self.weight_y,
+                self.treasury_y.as_mut(),
             )
         } else {
             (
                 self.reserves_y.as_mut(),
-                self.treasury_y.untag(),
-                self.lp_fee_y,
-                self.weight_y,
+                self.treasury_y.as_mut(),
                 self.reserves_x.as_mut(),
-                self.treasury_x.untag(),
-                self.lp_fee_x,
-                self.weight_x,
+                self.treasury_x.as_mut(),
             )
         };
         match input {
@@ -470,18 +458,14 @@ impl Pool for BalancePool {
                 // pool reserves of base decreases while reserves of quote increase.
                 *quote_reserves += input;
                 *base_reserves -= output;
-                self.treasury_y = TaggedAmount::new(
-                    self.treasury_y.untag() + (input * self.treasury_fee.numer() / self.treasury_fee.denom()),
-                );
+                *quote_treasury += (input * self.treasury_fee.numer() / self.treasury_fee.denom());
                 (output, self)
             }
             Side::Ask(input) => {
                 // User ask is the opposite; sell the base asset for the quote asset.
                 *base_reserves += input;
                 *quote_reserves -= output;
-                self.treasury_x = TaggedAmount::new(
-                    self.treasury_x.untag() + (input * self.treasury_fee.numer() / self.treasury_fee.denom()),
-                );
+                *base_treasury += (input * self.treasury_fee.numer() / self.treasury_fee.denom());
                 (output, self)
             }
         }
