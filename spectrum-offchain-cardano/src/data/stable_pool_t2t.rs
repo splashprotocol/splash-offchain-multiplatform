@@ -1,35 +1,33 @@
 use std::fmt::Debug;
-use std::ops::Mul;
 
-use bignumber::BigNumber;
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
-use cml_chain::plutus::utils::ConstrPlutusDataEncoding;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
+use cml_chain::plutus::utils::ConstrPlutusDataEncoding;
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_core::serialization::LenEncoding::{Canonical, Indefinite};
 use cml_multi_era::babbage::BabbageTransactionOutput;
-use num_integer::Roots;
 use num_rational::Ratio;
+use num_traits::{Pow, ToPrimitive};
 use primitive_types::U512;
 
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
 use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension};
 use spectrum_cardano_lib::plutus_data::{IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
-use crate::constants::{ADA_WEIGHT, FEE_DEN, MAX_LQ_CAP, TOKEN_WEIGHT, WEIGHT_FEE_DEN};
+use crate::constants::{FEE_DEN, MAX_LQ_CAP};
 use crate::data::cfmm_pool::AMMOps;
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::operation_output::{DepositOutput, RedeemOutput};
@@ -38,12 +36,13 @@ use crate::data::pair::order_canonical;
 use crate::data::pool::{
     ApplyOrder, ApplyOrderError, AssetDeltas, CFMMPoolAction, ImmutablePoolUtxo, Lq, Rx, Ry,
 };
-use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
-use crate::deployment::ProtocolValidator::BalanceFnPoolV1;
+use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
-use crate::pool_math::balance_math::balance_cfmm_output_amount;
-use crate::pool_math::cfmm_math::{classic_cfmm_reward_lp, classic_cfmm_shares_amount};
+use crate::deployment::ProtocolValidator::BalanceFnPoolV1;
+use crate::pool_math::stable_pool_t2t_exact_math::{calc_stable_swap, calculate_invariant};
+
+const N_TRADABLE_ASSETS: u64 = 2;
 
 #[derive(Debug)]
 pub struct StablePoolT2TConfig {
@@ -115,8 +114,8 @@ pub enum StablePoolT2TVer {
 
 impl StablePoolT2TVer {
     pub fn try_from_address<Ctx>(pool_addr: &Address, ctx: &Ctx) -> Option<StablePoolT2TVer>
-        where
-            Ctx: Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>,
+    where
+        Ctx: Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>,
     {
         let maybe_hash = pool_addr.payment_cred().and_then(|c| match c {
             StakeCredential::PubKey { .. } => None,
@@ -225,8 +224,8 @@ impl StablePoolT2T {
 }
 
 impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for StablePoolT2T
-    where
-        Ctx: Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>,
+where
+    Ctx: Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         if let Some(pool_ver) = StablePoolT2TVer::try_from_address(repr.address(), ctx) {
@@ -312,8 +311,8 @@ impl Stable for StablePoolT2T {
 }
 
 impl<Ctx> RequiresValidator<Ctx> for StablePoolT2T
-    where
-        Ctx: Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>,
+where
+    Ctx: Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self.ver {
@@ -343,8 +342,16 @@ impl AMMOps for StablePoolT2T {
         base_asset: TaggedAssetClass<Base>,
         base_amount: TaggedAmount<Base>,
     ) -> TaggedAmount<Quote> {
-        // todo: swap here
-        unimplemented!()
+        calc_stable_swap(
+            self.asset_x,
+            self.reserves_x - self.treasury_x,
+            self.multiplier_x,
+            self.reserves_y - self.treasury_y,
+            self.multiplier_y,
+            base_asset,
+            base_amount,
+            self.an2n,
+        )
     }
 
     fn reward_lp(
@@ -374,21 +381,62 @@ impl AMMOps for StablePoolT2T {
 impl Pool for StablePoolT2T {
     type U = ExUnits;
     fn static_price(&self) -> AbsolutePrice {
-        // todo: spo price
-        unimplemented!()
+        let x = self.asset_x.untag();
+        let y = self.asset_y.untag();
+
+        let x_calc = (self.reserves_x.untag() - self.treasury_x.untag()) * self.multiplier_x;
+        let y_calc = (self.reserves_y.untag() - self.treasury_y.untag()) * self.multiplier_y;
+
+        let nn = N_TRADABLE_ASSETS.pow(N_TRADABLE_ASSETS as u32);
+        let ann = self.an2n / nn;
+        let d = calculate_invariant(&U512::from(x_calc), &U512::from(y_calc), &U512::from(self.an2n));
+
+        let dn1 = vec![d; usize::try_from(N_TRADABLE_ASSETS + 1).unwrap()]
+            .iter()
+            .copied()
+            .reduce(|a, b| a * b)
+            .unwrap();
+        let price_num = ann + (dn1 / U512::from(nn * x_calc.pow(2) * y_calc)).as_u64();
+        let price_denom = self.treasury_fee.denom().to_u64().unwrap()
+            * (ann + (dn1 / U512::from(nn * y_calc.pow(2) * x_calc)).as_u64());
+
+        let [base, _] = order_canonical(x, y);
+        if x == base {
+            let reversed_total_fee_num_x =
+                self.treasury_fee.denom() - self.lp_fee_x.numer() - self.treasury_fee.numer();
+
+            AbsolutePrice::new(price_num * reversed_total_fee_num_x, price_denom)
+        } else {
+            let reversed_total_fee_num_y =
+                self.treasury_fee.denom() - self.lp_fee_y.numer() - self.treasury_fee.numer();
+            AbsolutePrice::new(price_denom, reversed_total_fee_num_y * price_num)
+        }
     }
 
     fn real_price(&self, input: Side<u64>) -> AbsolutePrice {
-        //todo: real price
-        //AbsolutePrice::new(quote, base)
-        unimplemented!()
+        let x = self.asset_x.untag();
+        let y = self.asset_y.untag();
+        let [base, quote] = order_canonical(x, y);
+        let (base, quote) = match input {
+            Side::Bid(input) => (
+                self.output_amount(TaggedAssetClass::new(quote), TaggedAmount::new(input))
+                    .untag(),
+                input,
+            ),
+            Side::Ask(input) => (
+                input,
+                self.output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
+                    .untag(),
+            ),
+        };
+        AbsolutePrice::new(quote, base)
     }
 
     fn swap(mut self, input: Side<u64>) -> (u64, Self) {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, quote] = order_canonical(x, y);
-        let output = match input {
+        let pure_output = match input {
             Side::Bid(input) => self
                 .output_amount(TaggedAssetClass::new(quote), TaggedAmount::new(input))
                 .untag(),
@@ -396,40 +444,28 @@ impl Pool for StablePoolT2T {
                 .output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
                 .untag(),
         };
-        let (
-            base_reserves,
-            base_treasury,
-            quote_reserves,
-            quote_treasury,
-        ) = if x == base {
-            (
-                self.reserves_x.as_mut(),
-                self.treasury_x.as_mut(),
-                self.reserves_y.as_mut(),
-                self.treasury_y.as_mut(),
-            )
+        let (base_reserves, lp_fee, quote_reserves) = if x == base {
+            (self.reserves_x.as_mut(), self.lp_fee_y, self.reserves_y.as_mut())
         } else {
-            (
-                self.reserves_y.as_mut(),
-                self.treasury_y.as_mut(),
-                self.reserves_x.as_mut(),
-                self.treasury_x.as_mut(),
-            )
+            (self.reserves_y.as_mut(), self.lp_fee_x, self.reserves_x.as_mut())
         };
+        let lp_fees = pure_output * lp_fee.numer() / lp_fee.denom();
+        let treasury_fee = pure_output * self.treasury_fee.numer() / self.treasury_fee.denom();
+        let output = pure_output - treasury_fee - lp_fees;
         match input {
             Side::Bid(input) => {
                 // A user bid means that they wish to buy the base asset for the quote asset, hence
                 // pool reserves of base decreases while reserves of quote increase.
                 *quote_reserves += input;
                 *base_reserves -= output;
-                *quote_treasury += (input * self.treasury_fee.numer()) / self.treasury_fee.denom();
+                self.treasury_y = TaggedAmount::new(self.treasury_y.untag() + treasury_fee);
                 (output, self)
             }
             Side::Ask(input) => {
                 // User ask is the opposite; sell the base asset for the quote asset.
                 *base_reserves += input;
                 *quote_reserves -= output;
-                *base_treasury += (input * self.treasury_fee.numer()) / self.treasury_fee.denom();
+                self.treasury_x = TaggedAmount::new(self.treasury_x.untag() + treasury_fee);
                 (output, self)
             }
         }
