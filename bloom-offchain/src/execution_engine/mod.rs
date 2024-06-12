@@ -393,9 +393,9 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
                 if from_ledger {
                     trace!(target: "executor", "Observing new confirmed state {}", id);
                     let ver = new_state.version();
-                    self.index.put_confirmed(Confirmed(new_state));
                     let state_exists = self.index.exists(&ver);
                     let seen_recently = self.skip_filter.remove(&ver);
+                    self.index.put_confirmed(Confirmed(new_state));
                     if state_exists || seen_recently {
                         // No TLB update is needed.
                         return None;
