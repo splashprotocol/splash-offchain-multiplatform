@@ -14,7 +14,7 @@ use num_rational::Ratio;
 use num_traits::{CheckedAdd, CheckedSub};
 use type_equalities::IsEqual;
 
-use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality, StaticPrice};
+use bloom_offchain::execution_engine::liquidity_book::market_maker::{MarketMaker, PoolQuality, StaticPrice};
 use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::ex_units::ExUnits;
@@ -282,7 +282,7 @@ where
     }
 }
 
-impl Pool for ConstFnPool {
+impl MarketMaker for ConstFnPool {
     type U = ExUnits;
 
     fn static_price(&self) -> StaticPrice {
@@ -722,7 +722,7 @@ mod tests {
     use crate::data::cfmm_pool::{ConstFnPool, ConstFnPoolVer};
     use crate::data::pool::CFMMPoolAction;
     use crate::data::PoolId;
-    use bloom_offchain::execution_engine::liquidity_book::pool::Pool;
+    use bloom_offchain::execution_engine::liquidity_book::market_maker::MarketMaker;
     use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use cml_crypto::ScriptHash;
     use num_rational::Ratio;

@@ -17,7 +17,7 @@ use num_rational::Ratio;
 use num_traits::{CheckedAdd, CheckedSub};
 use primitive_types::U512;
 
-use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality, StaticPrice};
+use bloom_offchain::execution_engine::liquidity_book::market_maker::{MarketMaker, PoolQuality, StaticPrice};
 use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::ex_units::ExUnits;
@@ -388,7 +388,7 @@ impl AMMOps for BalancePool {
     }
 }
 
-impl Pool for BalancePool {
+impl MarketMaker for BalancePool {
     type U = ExUnits;
     fn static_price(&self) -> StaticPrice {
         let x = self.asset_x.untag();
@@ -602,6 +602,8 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
 
 #[cfg(test)]
 mod tests {
+    use bloom_offchain::execution_engine::liquidity_book::market_maker::MarketMaker;
+    use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use cml_chain::plutus::PlutusData;
     use cml_chain::Deserialize;
     use cml_core::serialization::Serialize;
@@ -609,8 +611,6 @@ mod tests {
     use num_rational::Ratio;
 
     use crate::constants::MAX_LQ_CAP;
-    use bloom_offchain::execution_engine::liquidity_book::pool::Pool;
-    use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};

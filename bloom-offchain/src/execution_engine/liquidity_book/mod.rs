@@ -12,7 +12,7 @@ use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::maker::Maker;
 
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-use crate::execution_engine::liquidity_book::pool::{Pool, StaticPrice};
+use crate::execution_engine::liquidity_book::market_maker::{Pool, StaticPrice, MarketMaker};
 use crate::execution_engine::liquidity_book::recipe::{
     ExecutionRecipe, Fill, IntermediateRecipe, PartialFill, Take, TerminalInstruction,
 };
@@ -28,7 +28,7 @@ pub mod fragment;
 pub mod interpreter;
 mod liquidity_bin;
 mod parallel;
-pub mod pool;
+pub mod market_maker;
 pub mod recipe;
 pub mod side;
 pub mod stashing_option;
@@ -106,7 +106,7 @@ impl<Fr, Pl: Stable, U> TLB<Fr, Pl, U> {
 impl<Fr, Pl, U> TLB<Fr, Pl, U>
 where
     Fr: Fragment<U = U> + OrderState + Ord + Copy + Debug,
-    Pl: Pool + Stable + Copy,
+    Pl: MarketMaker + Stable + Copy,
     U: PartialOrd,
 {
     fn on_transition(&mut self, tx: StateTrans<Fr>) {
@@ -119,7 +119,7 @@ where
 impl<Fr, Pl, U> TemporalLiquidityBook<Fr, Pl> for TLB<Fr, Pl, U>
 where
     Fr: Fragment<U = U> + OrderState + Copy + Ord + Display + Debug,
-    Pl: Pool<U = U> + Stable + Copy + Debug + Display,
+    Pl: MarketMaker<U = U> + Stable + Copy + Debug + Display,
     U: PartialOrd + SubAssign + Sub<Output = U> + Copy + Debug,
 {
     fn attempt(&mut self) -> Option<ExecutionRecipe<Fr, Pl>> {
@@ -267,7 +267,7 @@ where
 impl<Fr, Pl, U> ExternalTLBEvents<Fr, Pl> for TLB<Fr, Pl, U>
 where
     Fr: Fragment + OrderState + Ord + Copy + Display,
-    Pl: Pool + Stable + Copy,
+    Pl: MarketMaker + Stable + Copy,
 {
     fn advance_clocks(&mut self, new_time: u64) {
         requiring_settled_state(self, |st| st.advance_clocks(new_time))
@@ -295,7 +295,7 @@ where
 impl<Fr, Pl, U> TLBFeedback<Fr, Pl> for TLB<Fr, Pl, U>
 where
     Fr: Fragment + OrderState + Ord + Copy,
-    Pl: Pool + Stable + Copy,
+    Pl: MarketMaker + Stable + Copy,
 {
     fn on_recipe_succeeded(&mut self) {
         self.state.commit();
@@ -463,7 +463,7 @@ struct FillFromPool<Fr, Pl> {
 fn fill_from_pool<Fr, Pl>(lhs: PartialFill<Fr>, pool: Pl) -> FillFromPool<Fr, Pl>
 where
     Fr: Fragment + OrderState + Copy,
-    Pl: Pool + Copy,
+    Pl: MarketMaker + Copy,
 {
     match lhs.target.side() {
         SideM::Bid => {
@@ -510,7 +510,7 @@ mod tests {
     use either::Either;
 
     use crate::execution_engine::liquidity_book::fragment::StateTrans;
-    use crate::execution_engine::liquidity_book::pool::Pool;
+    use crate::execution_engine::liquidity_book::market_maker::MarketMaker;
     use crate::execution_engine::liquidity_book::recipe::{
         ExecutionRecipe, Fill, IntermediateRecipe, PartialFill, Take, TerminalInstruction,
     };
