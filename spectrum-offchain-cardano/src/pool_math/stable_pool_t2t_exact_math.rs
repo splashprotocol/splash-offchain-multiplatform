@@ -169,12 +169,39 @@ pub fn check_exact_invariant(
         && dn1 + alpha_after_shifted * d >= beta_after_shifted
 }
 
-pub fn calculate_context_values_list(
-    prev_state: StablePoolT2T,
-    new_state: StablePoolT2T
-) -> U512 {
-    //todo: implement here
-    unimplemented!()
+pub fn calculate_context_values_list(prev_state: StablePoolT2T, new_state: StablePoolT2T) -> U512 {
+    let an2n_calc = U512::from(prev_state.an2n);
+    let x_mult = U512::from(prev_state.multiplier_x);
+    let y_mult = U512::from(prev_state.multiplier_y);
+
+    let tradable_reserves_x0 = U512::from(prev_state.reserves_x - prev_state.treasury_x);
+    let tradable_reserves_y0 = U512::from(prev_state.reserves_y - prev_state.treasury_y);
+
+    let tradable_reserves_x1 = U512::from(new_state.reserves_x - new_state.treasury_x);
+    let tradable_reserves_y1 = U512::from(new_state.reserves_y - new_state.treasury_y);
+
+    let (base_calc, quote, quote_delta, quote_mult, quote_lp_fee) =
+        if tradable_reserves_x1 > tradable_reserves_x0 {
+            (
+                tradable_reserves_x1 * x_mult,
+                tradable_reserves_y1,
+                tradable_reserves_y0 - tradable_reserves_y1,
+                y_mult,
+                U512::from(prev_state.lp_fee_y),
+            )
+        } else {
+            (
+                tradable_reserves_y1 * y_mult,
+                tradable_reserves_x1,
+                tradable_reserves_x0 - tradable_reserves_x1,
+                x_mult,
+                U512::from(prev_state.lp_fee_x),
+            )
+        };
+    let denom = U512::from(100000); // normal denom parsing todo!()
+    let quote_no_lp_fees = quote - quote_delta * quote_lp_fee / (denom - quote_lp_fee) - U512::from(1);
+    let quote_calc = quote_no_lp_fees * quote_mult;
+    calculate_invariant(&base_calc, &quote_calc, &an2n_calc)
 }
 
 pub fn calculate_invariant(x_calc: &U512, y_calc: &U512, an2n: &U512) -> U512 {
@@ -220,8 +247,8 @@ pub fn calculate_invariant(x_calc: &U512, y_calc: &U512, an2n: &U512) -> U512 {
 mod test {
     use num_rational::Ratio;
 
-    use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
     use spectrum_cardano_lib::AssetClass::Native;
+    use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 
     use crate::data::order::{Base, Quote};
     use crate::pool_math::stable_pool_t2t_exact_math::calc_stable_swap;
