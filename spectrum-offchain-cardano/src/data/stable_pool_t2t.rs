@@ -39,7 +39,8 @@ use crate::data::pool::{
 use crate::data::PoolId;
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
-use crate::deployment::ProtocolValidator::BalanceFnPoolV1;
+use crate::deployment::ProtocolValidator::StableFnPoolT2T;
+use crate::pool_math::cfmm_math::{classic_cfmm_reward_lp, classic_cfmm_shares_amount};
 use crate::pool_math::stable_pool_t2t_exact_math::{calc_stable_swap, calculate_invariant};
 
 const N_TRADABLE_ASSETS: u64 = 2;
@@ -115,7 +116,7 @@ pub enum StablePoolT2TVer {
 impl StablePoolT2TVer {
     pub fn try_from_address<Ctx>(pool_addr: &Address, ctx: &Ctx) -> Option<StablePoolT2TVer>
     where
-        Ctx: Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>,
+        Ctx: Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>,
     {
         let maybe_hash = pool_addr.payment_cred().and_then(|c| match c {
             StakeCredential::PubKey { .. } => None,
@@ -123,7 +124,7 @@ impl StablePoolT2TVer {
         });
         if let Some(this_hash) = maybe_hash {
             if ctx
-                .select::<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>()
+                .select::<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>()
                 .script_hash
                 == *this_hash
             {
@@ -206,12 +207,24 @@ impl StablePoolT2T {
             }
         */
 
-        let action_plutus_data = pool_action.to_plutus_data();
         let self_ix_pd = PlutusData::Integer(BigInteger::from(pool_in_idx));
+        let self_out_pd = PlutusData::Integer(BigInteger::from(pool_out_idx));
+
+        let context_values_list = PlutusData::ConstrPlutusData(ConstrPlutusData {
+            alternative: 0,
+            fields: Vec::from([]),
+            encodings: Some(ConstrPlutusDataEncoding {
+                len_encoding: Canonical,
+                tag_encoding: Some(cbor_event::Sz::One),
+                alternative_encoding: None,
+                fields_encoding: Indefinite,
+                prefer_compact: true,
+            }),
+        });
 
         PlutusData::ConstrPlutusData(ConstrPlutusData {
             alternative: 0,
-            fields: Vec::from([action_plutus_data, self_ix_pd]),
+            fields: Vec::from([self_ix_pd, self_out_pd, context_values_list]),
             encodings: Some(ConstrPlutusDataEncoding {
                 len_encoding: Canonical,
                 tag_encoding: Some(cbor_event::Sz::One),
@@ -225,7 +238,7 @@ impl StablePoolT2T {
 
 impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for StablePoolT2T
 where
-    Ctx: Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>,
+    Ctx: Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         if let Some(pool_ver) = StablePoolT2TVer::try_from_address(repr.address(), ctx) {
@@ -312,12 +325,12 @@ impl Stable for StablePoolT2T {
 
 impl<Ctx> RequiresValidator<Ctx> for StablePoolT2T
 where
-    Ctx: Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>,
+    Ctx: Has<DeployedValidator<{ StableFnPoolT2T as u8 }>>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self.ver {
             _ => ctx
-                .select::<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>()
+                .select::<DeployedValidator<{ StableFnPoolT2T as u8 }>>()
                 .erased(),
         }
     }
@@ -577,20 +590,20 @@ mod tests {
 
     use spectrum_cardano_lib::types::TryFromPData;
 
-    use crate::data::balance_order::RunBalanceAMMOrderOverPool;
     use crate::data::balance_pool::{BalancePool, BalancePoolConfig, BalancePoolRedeemer, BalancePoolVer};
     use crate::data::order::ClassicalOrder;
     use crate::data::order::OrderType::BalanceFn;
     use crate::data::pool::{ApplyOrder, CFMMPoolAction, Lq, Rx, Ry};
     use crate::data::redeem::{ClassicalOnChainRedeem, Redeem};
     use crate::data::{OnChainOrderId, PoolId};
+    use crate::data::stable_pool_t2t::StablePoolT2TConfig;
 
-    const DATUM_SAMPLE: &str = "d8799fd8799f581c5df8fe3f9f0e10855f930e0ea6c227e3bba0aba54d39f9d55b95e21c436e6674ffd8799f4040ff01d8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737443ff04d8799f581c0df79145b95580c14ef4baf8d022d7f0cbb08f3bed43bf97a2ddd8cb426c71ff1a000186820a00009fd8799fd87a9f581cb046b660db0eaf9be4f4300180ccf277e4209dada77c48fbd37ba81dffffff581c8d4be10d934b60a22f267699ea3f7ebdade1f8e535d1bd0ef7ce18b61a0501bced08ff";
+    const DATUM_SAMPLE: &str = "d8799fd8799f581c7dbe6f0c7849e2dae806cd4681910bfe1bbc0d5fd4e370e8e2f7bd4a436e6674ff190c80d8799f4040ffd8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737443ff0000d8799f581c6abe65f6adc8301ff4dbfcfcec1a187075639d21f85cae3c1cf2a060426c71ffd87980d879801a000186820a581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba260000ff";
 
     #[test]
-    fn parse_balance_pool_datum() {
+    fn parse_stable_pool_t2t_datum() {
         let pd = PlutusData::from_cbor_bytes(&*hex::decode(DATUM_SAMPLE).unwrap()).unwrap();
-        let maybe_conf = BalancePoolConfig::try_from_pd(pd);
+        let maybe_conf = StablePoolT2TConfig::try_from_pd(pd);
         assert!(maybe_conf.is_some())
     }
 
