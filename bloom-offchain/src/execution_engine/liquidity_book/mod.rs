@@ -12,7 +12,7 @@ use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::maker::Maker;
 
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-use crate::execution_engine::liquidity_book::market_maker::{Pool, StaticPrice, MarketMaker};
+use crate::execution_engine::liquidity_book::market_maker::{StaticPrice, MarketMaker};
 use crate::execution_engine::liquidity_book::recipe::{
     ExecutionRecipe, Fill, IntermediateRecipe, PartialFill, Take, TerminalInstruction,
 };
@@ -26,7 +26,6 @@ use crate::execution_engine::types::Time;
 mod core;
 pub mod fragment;
 pub mod interpreter;
-mod liquidity_bin;
 mod parallel;
 pub mod market_maker;
 pub mod recipe;
