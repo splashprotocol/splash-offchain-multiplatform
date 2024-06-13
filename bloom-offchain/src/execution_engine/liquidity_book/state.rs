@@ -553,7 +553,10 @@ where
     Fr: Fragment + Ord + Copy,
     Pl: Pool + Stable + Copy,
 {
-    pub fn try_select_pool(&self, trade_hint: Side<u64>) -> Option<(AbsolutePrice, StaticPrice, Pl::StableId)> {
+    pub fn try_select_pool(
+        &self,
+        trade_hint: Side<u64>,
+    ) -> Option<(AbsolutePrice, StaticPrice, Pl::StableId)> {
         let pools = self
             .pools()
             .pools

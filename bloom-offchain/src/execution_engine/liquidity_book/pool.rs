@@ -1,8 +1,8 @@
 use crate::execution_engine::liquidity_book::side::Side;
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 use derive_more::{Display, Div, From, Into, Mul};
-use std::cmp::Ordering;
 use num_rational::Ratio;
+use std::cmp::Ordering;
 
 /// Price of a theoretical 0-swap in pool.
 #[repr(transparent)]

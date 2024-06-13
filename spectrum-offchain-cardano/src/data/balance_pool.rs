@@ -392,12 +392,14 @@ impl Pool for BalancePool {
             AbsolutePrice::new(
                 (self.reserves_y.untag() * WEIGHT_FEE_DEN) / self.weight_y,
                 (self.reserves_x.untag() * WEIGHT_FEE_DEN) / self.weight_x,
-            ).into()
+            )
+            .into()
         } else {
             AbsolutePrice::new(
                 (self.reserves_x.untag() * WEIGHT_FEE_DEN) / self.weight_x,
                 (self.reserves_y.untag() * WEIGHT_FEE_DEN) / self.weight_y,
-            ).into()
+            )
+            .into()
         }
     }
 
@@ -432,12 +434,7 @@ impl Pool for BalancePool {
                 .output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
                 .untag(),
         };
-        let (
-            base_reserves,
-            base_treasury,
-            quote_reserves,
-            quote_treasury,
-        ) = if x == base {
+        let (base_reserves, base_treasury, quote_reserves, quote_treasury) = if x == base {
             (
                 self.reserves_x.as_mut(),
                 self.treasury_x.as_mut(),

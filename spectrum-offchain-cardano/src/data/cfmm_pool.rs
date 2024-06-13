@@ -323,9 +323,19 @@ impl Pool for ConstFnPool {
                 .untag(),
         };
         let (base_reserves, base_treasury, quote_reserves, quote_treasury) = if x == base {
-            (self.reserves_x.as_mut(), self.treasury_x.as_mut(), self.reserves_y.as_mut(), self.treasury_y.as_mut())
+            (
+                self.reserves_x.as_mut(),
+                self.treasury_x.as_mut(),
+                self.reserves_y.as_mut(),
+                self.treasury_y.as_mut(),
+            )
         } else {
-            (self.reserves_y.as_mut(), self.treasury_y.as_mut(), self.reserves_x.as_mut(), self.treasury_x.as_mut())
+            (
+                self.reserves_y.as_mut(),
+                self.treasury_y.as_mut(),
+                self.reserves_x.as_mut(),
+                self.treasury_x.as_mut(),
+            )
         };
         match input {
             Side::Bid(input) => {
