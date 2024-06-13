@@ -1,6 +1,7 @@
-use async_trait::async_trait;
+use std::fmt::{Display, Formatter};
+
 use isahc::http::Uri;
-use isahc::{AsyncBody, AsyncReadResponseExt, Body, HttpClient, Request, Response};
+use isahc::{Body, HttpClient, Request, Response};
 
 pub trait SlackHealthAlert {
     fn send_alert(&self, string: &str) -> Result<String, String>;
@@ -10,15 +11,15 @@ pub trait SlackHealthAlert {
 pub struct HealthAlertClient {
     pub client: HttpClient,
     pub base_url: Uri,
-    pub own_partition_index: u64,
+    pub assigned_partitions: Vec<u64>,
 }
 
 impl HealthAlertClient {
-    pub fn new(client: HttpClient, base_url: Uri, own_partition_index: u64) -> Self {
+    pub fn new(client: HttpClient, base_url: Uri, assigned_partitions: Vec<u64>) -> Self {
         Self {
             client,
             base_url,
-            own_partition_index,
+            assigned_partitions,
         }
     }
 }
@@ -28,8 +29,9 @@ impl SlackHealthAlert for HealthAlertClient {
         let cleaned_string = string.replace("\0", "");
 
         let body = format!(
-            r#"{{"text": "Bot idx {}. {}"}}"#,
-            self.own_partition_index, cleaned_string
+            r#"{{"text": "Bot partitions {}. {}"}}"#,
+            AsEnumList(&self.assigned_partitions),
+            cleaned_string
         );
 
         let request = Request::post(&self.base_url)
@@ -37,7 +39,7 @@ impl SlackHealthAlert for HealthAlertClient {
             .body(body)
             .map_err(|_| "failed to build request".to_string())?;
 
-        let mut response: Result<Response<Body>, String> = self.client.send(request).map_err(|x| {
+        let response: Result<Response<Body>, String> = self.client.send(request).map_err(|x| {
             println!("error: {:?}", x.to_string());
             "failed to send slack alert".to_string()
         });
@@ -52,5 +54,16 @@ impl SlackHealthAlert for HealthAlertClient {
             }
             Err(_) => Err("error sending to slack".into()),
         };
+    }
+}
+
+struct AsEnumList<'a, T>(&'a Vec<T>);
+
+impl<'a, T: Display> Display for AsEnumList<'a, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        for x in self.0 {
+            f.write_str(format!("{}, ", x).as_str())?;
+        }
+        Ok(())
     }
 }

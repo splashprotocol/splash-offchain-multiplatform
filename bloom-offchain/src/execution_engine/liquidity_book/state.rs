@@ -336,12 +336,12 @@ where
     pub fn commit(&mut self) {
         match self {
             TLBState::PartialPreview(st) => {
-                trace!(target: "tlb", "TLBState::PartialPreview: recipe succeeded");
+                trace!(target: "tlb", "TLBState::PartialPreview: commit");
                 let new_st = st.commit();
                 mem::swap(self, &mut TLBState::Idle(new_st));
             }
             TLBState::Preview(st) => {
-                trace!(target: "tlb", "TLBState::Preview: recipe succeeded");
+                trace!(target: "tlb", "TLBState::Preview: commit");
                 let new_st = st.commit();
                 mem::swap(self, &mut TLBState::Idle(new_st));
             }
@@ -352,14 +352,14 @@ where
     pub fn rollback(&mut self, stashing_opt: StashingOption<Fr>) {
         match self {
             TLBState::PartialPreview(st) => {
-                trace!(target: "tlb", "TLBState::PartialPreview: recipe failed");
+                trace!(target: "tlb", "TLBState::PartialPreview: rollback");
                 let mut new_st = st
                     .rollback(stashing_opt)
                     .either(TLBState::Idle, TLBState::PartialPreview);
                 mem::swap(self, &mut new_st);
             }
             TLBState::Preview(st) => {
-                trace!(target: "tlb", "TLBState::Preview: recipe failed");
+                trace!(target: "tlb", "TLBState::Preview: rollback");
                 let mut new_st = st
                     .rollback(stashing_opt)
                     .either(TLBState::Idle, TLBState::PartialPreview);

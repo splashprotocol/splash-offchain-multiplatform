@@ -215,7 +215,7 @@ async fn main() {
     let uri =
         Uri::from_static("https://hooks.slack.com/services/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");
 
-    let alert_client = HealthAlertClient::new(client, uri, config.partitioning.own_partition_index);
+    let alert_client = HealthAlertClient::new(client, uri, config.partitioning.assigned_partitions.clone());
 
     let (signal_tip_reached_snd, signal_tip_reached_recv) = broadcast::channel(1);
 
@@ -230,7 +230,7 @@ async fn main() {
         prover,
         select_partition(
             merge_upstreams(pair_upd_recv_p1, spec_upd_recv_p1),
-            config.partitioning,
+            config.partitioning.clone(),
         ),
         tx_submission_channel.clone(),
         signal_tip_reached_snd.subscribe(),
@@ -247,7 +247,7 @@ async fn main() {
         prover,
         select_partition(
             merge_upstreams(pair_upd_recv_p2, spec_upd_recv_p2),
-            config.partitioning,
+            config.partitioning.clone(),
         ),
         tx_submission_channel.clone(),
         signal_tip_reached_snd.subscribe(),
@@ -264,7 +264,7 @@ async fn main() {
         prover,
         select_partition(
             merge_upstreams(pair_upd_recv_p3, spec_upd_recv_p3),
-            config.partitioning,
+            config.partitioning.clone(),
         ),
         tx_submission_channel.clone(),
         signal_tip_reached_snd.subscribe(),
