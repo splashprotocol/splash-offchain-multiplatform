@@ -13,7 +13,7 @@ use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::maker::Maker;
 
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-use crate::execution_engine::liquidity_book::pool::Pool;
+use crate::execution_engine::liquidity_book::pool::{Pool, StaticPrice};
 use crate::execution_engine::liquidity_book::recipe::{
     ExecutionRecipe, Fill, IntermediateRecipe, PartialFill, Swap, TerminalInstruction,
 };
@@ -149,7 +149,7 @@ where
                                         .map(|p| p.to_string())
                                         .unwrap_or("empty".to_string()),
                                     maybe_best_pool
-                                        .map(|(p, _)| p.to_string())
+                                        .map(|(rp, _, _)| rp.to_string())
                                         .unwrap_or("empty".to_string())
                                 );
                                 trace!("Attempting to matchmake. TLB: {:?}", self.state.show_state());
@@ -161,7 +161,7 @@ where
                                 match (maybe_best_pool, price_fragments) {
                                     (price_in_pools, Some(price_in_fragments))
                                         if maybe_best_pool
-                                            .map(|(p, _)| price_in_fragments.better_than(p))
+                                            .map(|(rp, _, _)| price_in_fragments.better_than(rp))
                                             .unwrap_or(true) =>
                                     {
                                         if let Some(opposite_fr) =
@@ -177,7 +177,7 @@ where
                                                     SideM::Bid => (y, x),
                                                     SideM::Ask => (x, y),
                                                 };
-                                                settle_price(ask, bid, price_in_pools.map(|(p, _)| p))
+                                                settle_price(ask, bid, price_in_pools.map(|(_, sp, _)| sp))
                                             };
                                             match fill_from_fragment(*rem, opposite_fr, make_match) {
                                                 FillFromFragment {
@@ -201,8 +201,8 @@ where
                                             }
                                         }
                                     }
-                                    (Some((price_in_pool, pool_id)), _)
-                                        if target_price.overlaps(price_in_pool) =>
+                                    (Some((real_price_in_pool, _, pool_id)), _)
+                                        if target_price.overlaps(real_price_in_pool) =>
                                     {
                                         trace!("Matched with AMM pool {}", pool_id);
                                         if let Some(pool) = self.state.take_pool(&pool_id) {
@@ -308,11 +308,11 @@ const MAX_BIAS_PERCENT: u128 = 3;
 
 //                 P_settled
 //                     |
-// p: >.... P_x ......(.)...... P_i .... P_y.... >
-//           |         |         |        |
-//          ask      bias<=3%..pivot     bid
+// p: >.... P_x ......(.)...... P_index .... P_y.... >
+//           |         |           |          |
+//          ask      bias<=3%....pivot       bid
 /// Settle execution price for two interleaving fragments.
-fn settle_price<Fr: Fragment>(ask: &Fr, bid: &Fr, index_price: Option<AbsolutePrice>) -> AbsolutePrice {
+fn settle_price<Fr: Fragment>(ask: &Fr, bid: &Fr, index_price: Option<StaticPrice>) -> AbsolutePrice {
     let price_ask = ask.price();
     let price_bid = bid.price();
     let price_ask_rat = price_ask.unwrap();
@@ -644,8 +644,9 @@ mod tests {
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
-        let make_match =
-            |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(AbsolutePrice::new(37, 100)));
+        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| {
+            settle_price(x, y, Some(AbsolutePrice::new(37, 100).into()))
+        };
         let FillFromFragment {
             term_fill_lt,
             fill_rt: term_fill_rt,
@@ -685,7 +686,7 @@ mod tests {
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
-        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(p));
+        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(p.into()));
         let FillFromFragment {
             term_fill_lt,
             fill_rt: term_fill_rt,
@@ -727,8 +728,9 @@ mod tests {
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
-        let make_match =
-            |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(AbsolutePrice::new(37, 100)));
+        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| {
+            settle_price(x, y, Some(AbsolutePrice::new(37, 100).into()))
+        };
         let FillFromFragment {
             term_fill_lt,
             fill_rt: term_fill_rt,
@@ -803,7 +805,7 @@ mod tests {
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
-        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(index_price));
+        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(index_price.into()));
         let final_price = make_match(&ask_fr, &bid_fr);
         assert!(final_price.unwrap() - ask_price.unwrap() > bid_price.unwrap() - final_price.unwrap());
     }
@@ -837,7 +839,7 @@ mod tests {
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
-        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(index_price));
+        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(index_price.into()));
         let final_price = make_match(&ask_fr, &bid_fr);
         assert!(final_price.unwrap() - ask_price.unwrap() > bid_price.unwrap() - final_price.unwrap());
     }
@@ -871,7 +873,7 @@ mod tests {
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
-        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(index_price));
+        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(index_price.into()));
         let final_price = make_match(&ask_fr, &bid_fr);
         assert_eq!(final_price, bid_price)
     }

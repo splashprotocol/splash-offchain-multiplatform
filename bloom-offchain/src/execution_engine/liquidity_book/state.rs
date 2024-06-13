@@ -11,7 +11,7 @@ use log::trace;
 use spectrum_offchain::data::Stable;
 
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-use crate::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
+use crate::execution_engine::liquidity_book::pool::{Pool, PoolQuality, StaticPrice};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;
@@ -553,28 +553,24 @@ where
     Fr: Fragment + Ord + Copy,
     Pl: Pool + Stable + Copy,
 {
-    pub fn best_pool_price(&self) -> Option<AbsolutePrice> {
-        self.pools()
-            .pools
-            .values()
-            .max_by_key(|p| p.quality())
-            .map(|p| p.static_price())
-    }
-
-    pub fn try_select_pool(&self, trade_hint: Side<u64>) -> Option<(AbsolutePrice, Pl::StableId)> {
+    pub fn try_select_pool(
+        &self,
+        trade_hint: Side<u64>,
+    ) -> Option<(AbsolutePrice, StaticPrice, Pl::StableId)> {
         let pools = self
             .pools()
             .pools
             .values()
             .filter(|pool| pool.swaps_allowed())
             .map(|p| {
-                let pr = p.real_price(trade_hint);
-                (pr, p.stable_id())
+                let real_p = p.real_price(trade_hint);
+                let static_p = p.static_price();
+                (real_p, static_p, p.stable_id())
             })
             .collect::<Vec<_>>();
         match trade_hint {
-            Side::Bid(_) => pools.into_iter().min_by_key(|(p, _)| *p),
-            Side::Ask(_) => pools.into_iter().max_by_key(|(p, _)| *p),
+            Side::Bid(_) => pools.into_iter().min_by_key(|(rp, _, _)| *rp),
+            Side::Ask(_) => pools.into_iter().max_by_key(|(rp, _, _)| *rp),
         }
     }
 
@@ -791,7 +787,7 @@ where
                 trace!(
                     "All ASKs after removal: {}",
                     self.active
-                        .bids
+                        .asks
                         .iter()
                         .map(|i| i.price().to_string())
                         .fold("".to_string(), |acc, x| acc.add(format!("{}, ", x).as_str()))
@@ -939,7 +935,7 @@ pub mod tests {
     use spectrum_offchain::data::Stable;
 
     use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-    use crate::execution_engine::liquidity_book::pool::Pool;
+    use crate::execution_engine::liquidity_book::pool::{Pool, StaticPrice};
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
     use crate::execution_engine::liquidity_book::state::{
         Fragments, IdleState, PoolQuality, StashingOption, TLBState,
@@ -1384,8 +1380,8 @@ pub mod tests {
     impl Pool for SimpleCFMMPool {
         type U = u64;
 
-        fn static_price(&self) -> AbsolutePrice {
-            AbsolutePrice::new(self.reserves_quote, self.reserves_base)
+        fn static_price(&self) -> StaticPrice {
+            AbsolutePrice::new(self.reserves_quote, self.reserves_base).into()
         }
 
         fn real_price(&self, input: Side<u64>) -> AbsolutePrice {

@@ -16,7 +16,7 @@ use num_integer::Roots;
 use num_rational::Ratio;
 use primitive_types::U512;
 
-use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
+use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality, StaticPrice};
 use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::ex_units::ExUnits;
@@ -384,7 +384,7 @@ impl AMMOps for BalancePool {
 
 impl Pool for BalancePool {
     type U = ExUnits;
-    fn static_price(&self) -> AbsolutePrice {
+    fn static_price(&self) -> StaticPrice {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, _] = order_canonical(x, y);
@@ -393,11 +393,13 @@ impl Pool for BalancePool {
                 (self.reserves_y.untag() * WEIGHT_FEE_DEN) / self.weight_y,
                 (self.reserves_x.untag() * WEIGHT_FEE_DEN) / self.weight_x,
             )
+            .into()
         } else {
             AbsolutePrice::new(
                 (self.reserves_x.untag() * WEIGHT_FEE_DEN) / self.weight_x,
                 (self.reserves_y.untag() * WEIGHT_FEE_DEN) / self.weight_y,
             )
+            .into()
         }
     }
 
@@ -432,12 +434,7 @@ impl Pool for BalancePool {
                 .output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
                 .untag(),
         };
-        let (
-            base_reserves,
-            base_treasury,
-            quote_reserves,
-            quote_treasury,
-        ) = if x == base {
+        let (base_reserves, base_treasury, quote_reserves, quote_treasury) = if x == base {
             (
                 self.reserves_x.as_mut(),
                 self.treasury_x.as_mut(),
