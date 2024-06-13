@@ -1,13 +1,25 @@
 use crate::execution_engine::liquidity_book::side::Side;
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;
-use derive_more::{Display, From, Into};
+use derive_more::{Display, Div, From, Into, Mul};
 use std::cmp::Ordering;
+use num_rational::Ratio;
+
+/// Price of a theoretical 0-swap in pool.
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Div, Mul, From, Into, Display)]
+pub struct StaticPrice(AbsolutePrice);
+
+impl StaticPrice {
+    pub fn unwrap(self) -> Ratio<u128> {
+        self.0.unwrap()
+    }
+}
 
 /// Pooled liquidity.
 pub trait Pool {
     type U;
     /// Static price (regardless swap vol) in this pool.
-    fn static_price(&self) -> AbsolutePrice;
+    fn static_price(&self) -> StaticPrice;
     /// Real price of swap.
     fn real_price(&self, input: Side<u64>) -> AbsolutePrice;
     /// Output of a swap.

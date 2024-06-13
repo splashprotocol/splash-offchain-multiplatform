@@ -13,12 +13,12 @@ use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::maker::Maker;
 
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-use crate::execution_engine::liquidity_book::pool::Pool;
+use crate::execution_engine::liquidity_book::pool::{Pool, StaticPrice};
 use crate::execution_engine::liquidity_book::recipe::{
     ExecutionRecipe, Fill, IntermediateRecipe, PartialFill, Swap, TerminalInstruction,
 };
-use crate::execution_engine::liquidity_book::side::Side::{Ask, Bid};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
+use crate::execution_engine::liquidity_book::side::Side::{Ask, Bid};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
 use crate::execution_engine::liquidity_book::state::{IdleState, TLBState};
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, RelativePrice};
@@ -66,7 +66,7 @@ pub struct ExecutionCap<U> {
     pub hard: U,
 }
 
-impl<U: Sub<Output = U> + Copy> ExecutionCap<U> {
+impl<U: Sub<Output=U> + Copy> ExecutionCap<U> {
     fn safe_threshold(&self) -> U {
         self.hard - self.soft
     }
@@ -80,9 +80,9 @@ pub struct TLB<Fr, Pl: Stable, U> {
 }
 
 impl<Fr, Pl, Ctx, U> Maker<Ctx> for TLB<Fr, Pl, U>
-where
-    Pl: Stable,
-    Ctx: Has<Time> + Has<ExecutionCap<U>>,
+    where
+        Pl: Stable,
+        Ctx: Has<Time> + Has<ExecutionCap<U>>,
 {
     fn make(ctx: &Ctx) -> Self {
         Self::new(ctx.select::<Time>().into(), ctx.select::<ExecutionCap<U>>())
@@ -102,10 +102,10 @@ impl<Fr, Pl: Stable, U> TLB<Fr, Pl, U> {
 }
 
 impl<Fr, Pl, U> TLB<Fr, Pl, U>
-where
-    Fr: Fragment<U = U> + OrderState + Ord + Copy + Debug,
-    Pl: Pool + Stable + Copy,
-    U: PartialOrd,
+    where
+        Fr: Fragment<U=U> + OrderState + Ord + Copy + Debug,
+        Pl: Pool + Stable + Copy,
+        U: PartialOrd,
 {
     fn on_transition(&mut self, tx: StateTrans<Fr>) {
         if let StateTrans::Active(fr) = tx {
@@ -115,10 +115,10 @@ where
 }
 
 impl<Fr, Pl, U> TemporalLiquidityBook<Fr, Pl> for TLB<Fr, Pl, U>
-where
-    Fr: Fragment<U = U> + OrderState + Copy + Ord + Display + Debug,
-    Pl: Pool<U = U> + Stable + Copy + Debug + Display,
-    U: PartialOrd + SubAssign + Sub<Output = U> + Copy + Debug,
+    where
+        Fr: Fragment<U=U> + OrderState + Copy + Ord + Display + Debug,
+        Pl: Pool<U=U> + Stable + Copy + Debug + Display,
+        U: PartialOrd + SubAssign + Sub<Output=U> + Copy + Debug,
 {
     fn attempt(&mut self) -> Option<ExecutionRecipe<Fr, Pl>> {
         loop {
@@ -149,7 +149,7 @@ where
                                         .map(|p| p.to_string())
                                         .unwrap_or("empty".to_string()),
                                     maybe_best_pool
-                                        .map(|(p, _)| p.to_string())
+                                        .map(|(rp, _, _)| rp.to_string())
                                         .unwrap_or("empty".to_string())
                                 );
                                 trace!("Attempting to matchmake. TLB: {:?}", self.state.show_state());
@@ -160,62 +160,62 @@ where
                                 }
                                 match (maybe_best_pool, price_fragments) {
                                     (price_in_pools, Some(price_in_fragments))
-                                        if maybe_best_pool
-                                            .map(|(p, _)| price_in_fragments.better_than(p))
-                                            .unwrap_or(true) =>
-                                    {
-                                        if let Some(opposite_fr) =
-                                            self.state.try_pick_fr(!target_side, |fr| {
-                                                target_price.overlaps(fr.price())
-                                                    && fr.marginal_cost_hint() <= execution_units_left
-                                            })
+                                    if maybe_best_pool
+                                        .map(|(rp, _, _)| price_in_fragments.better_than(rp))
+                                        .unwrap_or(true) =>
                                         {
-                                            trace!("Matched with fragment: {}", opposite_fr);
-                                            execution_units_left -= opposite_fr.marginal_cost_hint();
-                                            let make_match = |x: &Fr, y: &Fr| {
-                                                let (ask, bid) = match x.side() {
-                                                    SideM::Bid => (y, x),
-                                                    SideM::Ask => (x, y),
+                                            if let Some(opposite_fr) =
+                                                self.state.try_pick_fr(!target_side, |fr| {
+                                                    target_price.overlaps(fr.price())
+                                                        && fr.marginal_cost_hint() <= execution_units_left
+                                                })
+                                            {
+                                                trace!("Matched with fragment: {}", opposite_fr);
+                                                execution_units_left -= opposite_fr.marginal_cost_hint();
+                                                let make_match = |x: &Fr, y: &Fr| {
+                                                    let (ask, bid) = match x.side() {
+                                                        SideM::Bid => (y, x),
+                                                        SideM::Ask => (x, y),
+                                                    };
+                                                    settle_price(ask, bid, price_in_pools.map(|(_, sp, _)| sp))
                                                 };
-                                                settle_price(ask, bid, price_in_pools.map(|(p, _)| p))
-                                            };
-                                            match fill_from_fragment(*rem, opposite_fr, make_match) {
-                                                FillFromFragment {
-                                                    term_fill_lt,
-                                                    fill_rt: Either::Left(term_fill_rt),
-                                                } => {
-                                                    recipe.push(TerminalInstruction::Fill(term_fill_lt));
-                                                    recipe.terminate(TerminalInstruction::Fill(term_fill_rt));
-                                                    self.on_transition(term_fill_lt.next_fr);
-                                                    self.on_transition(term_fill_rt.next_fr);
-                                                }
-                                                FillFromFragment {
-                                                    term_fill_lt,
-                                                    fill_rt: Either::Right(partial),
-                                                } => {
-                                                    recipe.push(TerminalInstruction::Fill(term_fill_lt));
-                                                    recipe.set_remainder(partial);
-                                                    self.on_transition(term_fill_lt.next_fr);
-                                                    continue;
+                                                match fill_from_fragment(*rem, opposite_fr, make_match) {
+                                                    FillFromFragment {
+                                                        term_fill_lt,
+                                                        fill_rt: Either::Left(term_fill_rt),
+                                                    } => {
+                                                        recipe.push(TerminalInstruction::Fill(term_fill_lt));
+                                                        recipe.terminate(TerminalInstruction::Fill(term_fill_rt));
+                                                        self.on_transition(term_fill_lt.next_fr);
+                                                        self.on_transition(term_fill_rt.next_fr);
+                                                    }
+                                                    FillFromFragment {
+                                                        term_fill_lt,
+                                                        fill_rt: Either::Right(partial),
+                                                    } => {
+                                                        recipe.push(TerminalInstruction::Fill(term_fill_lt));
+                                                        recipe.set_remainder(partial);
+                                                        self.on_transition(term_fill_lt.next_fr);
+                                                        continue;
+                                                    }
                                                 }
                                             }
                                         }
-                                    }
-                                    (Some((price_in_pool, pool_id)), _)
-                                        if target_price.overlaps(price_in_pool) =>
-                                    {
-                                        trace!("Matched with AMM pool {}", pool_id);
-                                        if let Some(pool) = self.state.take_pool(&pool_id) {
-                                            if !pools_used.insert(pool_id) {
-                                                execution_units_left -= pool.marginal_cost_hint();
+                                    (Some((real_price_in_pool, _, pool_id)), _)
+                                    if target_price.overlaps(real_price_in_pool) =>
+                                        {
+                                            trace!("Matched with AMM pool {}", pool_id);
+                                            if let Some(pool) = self.state.take_pool(&pool_id) {
+                                                if !pools_used.insert(pool_id) {
+                                                    execution_units_left -= pool.marginal_cost_hint();
+                                                }
+                                                let FillFromPool { term_fill, swap } = fill_from_pool(*rem, pool);
+                                                recipe.push(TerminalInstruction::Swap(swap));
+                                                recipe.terminate(TerminalInstruction::Fill(term_fill));
+                                                self.on_transition(term_fill.next_fr);
+                                                self.state.pre_add_pool(swap.transition);
                                             }
-                                            let FillFromPool { term_fill, swap } = fill_from_pool(*rem, pool);
-                                            recipe.push(TerminalInstruction::Swap(swap));
-                                            recipe.terminate(TerminalInstruction::Fill(term_fill));
-                                            self.on_transition(term_fill.next_fr);
-                                            self.state.pre_add_pool(swap.transition);
                                         }
-                                    }
                                     _ => {
                                         trace!("Finishing matchmaking attempt");
                                     }
@@ -248,9 +248,9 @@ where
 }
 
 fn requiring_settled_state<Fr, Pl, U, F>(book: &mut TLB<Fr, Pl, U>, f: F)
-where
-    Pl: Stable,
-    F: Fn(&mut IdleState<Fr, Pl>),
+    where
+        Pl: Stable,
+        F: Fn(&mut IdleState<Fr, Pl>),
 {
     match book.state {
         TLBState::Idle(ref mut st) => f(st),
@@ -263,9 +263,9 @@ where
 }
 
 impl<Fr, Pl, U> ExternalTLBEvents<Fr, Pl> for TLB<Fr, Pl, U>
-where
-    Fr: Fragment + OrderState + Ord + Copy + Display,
-    Pl: Pool + Stable + Copy,
+    where
+        Fr: Fragment + OrderState + Ord + Copy + Display,
+        Pl: Pool + Stable + Copy,
 {
     fn advance_clocks(&mut self, new_time: u64) {
         requiring_settled_state(self, |st| st.advance_clocks(new_time))
@@ -291,9 +291,9 @@ where
 }
 
 impl<Fr, Pl, U> TLBFeedback<Fr, Pl> for TLB<Fr, Pl, U>
-where
-    Fr: Fragment + OrderState + Ord + Copy,
-    Pl: Pool + Stable + Copy,
+    where
+        Fr: Fragment + OrderState + Ord + Copy,
+        Pl: Pool + Stable + Copy,
 {
     fn on_recipe_succeeded(&mut self) {
         self.state.commit();
@@ -308,11 +308,11 @@ const MAX_BIAS_PERCENT: u128 = 3;
 
 //                 P_settled
 //                     |
-// p: >.... P_x ......(.)...... P_i .... P_y.... >
-//           |         |         |        |
-//          ask      bias<=3%..pivot     bid
+// p: >.... P_x ......(.)...... P_index .... P_y.... >
+//           |         |           |          |
+//          ask      bias<=3%....pivot       bid
 /// Settle execution price for two interleaving fragments.
-fn settle_price<Fr: Fragment>(ask: &Fr, bid: &Fr, index_price: Option<AbsolutePrice>) -> AbsolutePrice {
+fn settle_price<Fr: Fragment>(ask: &Fr, bid: &Fr, index_price: Option<StaticPrice>) -> AbsolutePrice {
     let price_ask = ask.price();
     let price_bid = bid.price();
     let price_ask_rat = price_ask.unwrap();
@@ -362,10 +362,10 @@ struct FillFromFragment<Fr> {
 }
 
 fn fill_from_fragment<Fr, U, F>(lhs: PartialFill<Fr>, rhs: Fr, matchmaker: F) -> FillFromFragment<Fr>
-where
-    Fr: Fragment<U = U> + OrderState + Copy,
-    U: PartialOrd,
-    F: FnOnce(&Fr, &Fr) -> AbsolutePrice,
+    where
+        Fr: Fragment<U=U> + OrderState + Copy,
+        U: PartialOrd,
+        F: FnOnce(&Fr, &Fr) -> AbsolutePrice,
 {
     match lhs.target.side() {
         SideM::Bid => {
@@ -459,9 +459,9 @@ struct FillFromPool<Fr, Pl> {
 }
 
 fn fill_from_pool<Fr, Pl>(lhs: PartialFill<Fr>, pool: Pl) -> FillFromPool<Fr, Pl>
-where
-    Fr: Fragment + OrderState + Copy,
-    Pl: Pool + Copy,
+    where
+        Fr: Fragment + OrderState + Copy,
+        Pl: Pool + Copy,
 {
     match lhs.target.side() {
         SideM::Bid => {
@@ -507,20 +507,20 @@ where
 mod tests {
     use either::Either;
 
+    use crate::execution_engine::liquidity_book::{
+        ExecutionCap, ExternalTLBEvents, fill_from_fragment, fill_from_pool, FillFromFragment, FillFromPool,
+        settle_price, TemporalLiquidityBook, TLB,
+    };
     use crate::execution_engine::liquidity_book::fragment::StateTrans;
     use crate::execution_engine::liquidity_book::pool::Pool;
     use crate::execution_engine::liquidity_book::recipe::{
         ExecutionRecipe, Fill, IntermediateRecipe, PartialFill, Swap, TerminalInstruction,
     };
-    use crate::execution_engine::liquidity_book::side::SideM::Bid;
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
+    use crate::execution_engine::liquidity_book::side::SideM::Bid;
     use crate::execution_engine::liquidity_book::state::tests::{SimpleCFMMPool, SimpleOrderPF};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::AbsolutePrice;
-    use crate::execution_engine::liquidity_book::{
-        fill_from_fragment, fill_from_pool, settle_price, ExecutionCap, ExternalTLBEvents, FillFromFragment,
-        FillFromPool, TemporalLiquidityBook, TLB,
-    };
     use crate::execution_engine::types::StableId;
 
     #[test]
@@ -645,7 +645,7 @@ mod tests {
             bounds: TimeBounds::None,
         };
         let make_match =
-            |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(AbsolutePrice::new(37, 100)));
+            |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(AbsolutePrice::new(37, 100).into()));
         let FillFromFragment {
             term_fill_lt,
             fill_rt: term_fill_rt,
@@ -685,7 +685,7 @@ mod tests {
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
-        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(p));
+        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(p.into()));
         let FillFromFragment {
             term_fill_lt,
             fill_rt: term_fill_rt,
@@ -728,7 +728,7 @@ mod tests {
             bounds: TimeBounds::None,
         };
         let make_match =
-            |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(AbsolutePrice::new(37, 100)));
+            |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(AbsolutePrice::new(37, 100).into()));
         let FillFromFragment {
             term_fill_lt,
             fill_rt: term_fill_rt,
@@ -803,7 +803,7 @@ mod tests {
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
-        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(index_price));
+        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(index_price.into()));
         let final_price = make_match(&ask_fr, &bid_fr);
         assert!(final_price.unwrap() - ask_price.unwrap() > bid_price.unwrap() - final_price.unwrap());
     }
@@ -837,7 +837,7 @@ mod tests {
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
-        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(index_price));
+        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(index_price.into()));
         let final_price = make_match(&ask_fr, &bid_fr);
         assert!(final_price.unwrap() - ask_price.unwrap() > bid_price.unwrap() - final_price.unwrap());
     }
@@ -871,7 +871,7 @@ mod tests {
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
-        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(index_price));
+        let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(index_price.into()));
         let final_price = make_match(&ask_fr, &bid_fr);
         assert_eq!(final_price, bid_price)
     }

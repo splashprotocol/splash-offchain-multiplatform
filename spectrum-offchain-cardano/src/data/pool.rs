@@ -19,7 +19,7 @@ use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
-use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
+use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality, StaticPrice};
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::collateral::Collateral;
@@ -215,7 +215,7 @@ pub struct AssetDeltas {
 
 impl Pool for AnyPool {
     type U = ExUnits;
-    fn static_price(&self) -> AbsolutePrice {
+    fn static_price(&self) -> StaticPrice {
         match self {
             PureCFMM(p) => p.static_price(),
             BalancedCFMM(p) => p.static_price(),

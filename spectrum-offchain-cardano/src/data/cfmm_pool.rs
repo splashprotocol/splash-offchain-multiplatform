@@ -13,7 +13,7 @@ use num_integer::Roots;
 use num_rational::Ratio;
 use type_equalities::IsEqual;
 
-use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
+use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality, StaticPrice};
 use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::ex_units::ExUnits;
@@ -280,14 +280,14 @@ where
 impl Pool for ConstFnPool {
     type U = ExUnits;
 
-    fn static_price(&self) -> AbsolutePrice {
+    fn static_price(&self) -> StaticPrice {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, _] = order_canonical(x, y);
         if x == base {
-            AbsolutePrice::new(self.reserves_y.untag(), self.reserves_x.untag())
+            AbsolutePrice::new(self.reserves_y.untag(), self.reserves_x.untag()).into()
         } else {
-            AbsolutePrice::new(self.reserves_x.untag(), self.reserves_y.untag())
+            AbsolutePrice::new(self.reserves_x.untag(), self.reserves_y.untag()).into()
         }
     }
 
