@@ -3,6 +3,7 @@ use primitive_types::U512;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 
 use crate::data::order::{Base, Quote};
+use crate::data::stable_pool_t2t::StablePoolT2T;
 
 const MAX_SWAP_ERROR: u64 = 2;
 const N_TRADABLE_ASSETS: u64 = 2;
@@ -166,6 +167,14 @@ pub fn check_exact_invariant(
     dn1 + alpha_before * d >= beta_before
         && dn1 + alpha_after * d <= beta_after
         && dn1 + alpha_after_shifted * d >= beta_after_shifted
+}
+
+pub fn calculate_context_values_list(
+    prev_state: StablePoolT2T,
+    new_state: StablePoolT2T
+) -> U512 {
+    //todo: implement
+    unimplemented!()
 }
 
 pub fn calculate_invariant(x_calc: &U512, y_calc: &U512, an2n: &U512) -> U512 {
