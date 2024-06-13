@@ -42,11 +42,11 @@ use cardano_explorer::Maestro;
 use cardano_mempool_sync::client::LocalTxMonitorClient;
 use cardano_mempool_sync::data::MempoolUpdate;
 use cardano_mempool_sync::mempool_stream;
-use cardano_submit_api::client::LocalTxSubmissionClient;
 use spectrum_cardano_lib::constants::BABBAGE_ERA_ID;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
+use spectrum_cardano_lib::transaction::OutboundTransaction;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::backlog::{BacklogCapacity, HotPriorityBacklog};
 use spectrum_offchain::data::event::{Channel, StateUpdate};
@@ -112,9 +112,12 @@ async fn main() {
             .await
             .expect("MempoolSync initialization failed");
     let (tx_submission_agent, tx_submission_channel) =
-        TxSubmissionAgent::<BABBAGE_ERA_ID, Transaction>::new(config.node, config.tx_submission_buffer_size)
-            .await
-            .expect("LocalTxSubmission initialization failed");
+        TxSubmissionAgent::<BABBAGE_ERA_ID, OutboundTransaction<Transaction>, Transaction>::new(
+            config.node,
+            config.tx_submission_buffer_size,
+        )
+        .await
+        .expect("LocalTxSubmission initialization failed");
 
     // prepare upstreams
     let tx_submission_stream = tx_submission_agent_stream(tx_submission_agent);

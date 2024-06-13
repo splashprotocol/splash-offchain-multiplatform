@@ -1,13 +1,36 @@
 use cml_chain::address::Address;
 use cml_chain::certs::{Credential, StakeCredential};
 use cml_chain::plutus::PlutusData;
-use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, TransactionOutput};
+use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, Transaction, TransactionOutput};
 use cml_chain::Value;
-use cml_crypto::ScriptHash;
+use cml_core::serialization::Serialize;
+use cml_crypto::{ScriptHash, TransactionHash};
 use cml_multi_era::babbage::{BabbageFormatTxOut, BabbageScriptRef, BabbageTransactionOutput};
+use derive_more::From;
+use std::ops::Deref;
+
+use spectrum_offchain::tx_hash::CannonicalHash;
 
 use crate::address::AddressExtension;
+use crate::hash::hash_transaction_canonical;
 use crate::AssetClass;
+
+#[derive(Clone, Debug, From)]
+pub struct OutboundTransaction<T>(T);
+
+impl<T> Deref for OutboundTransaction<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl CannonicalHash for OutboundTransaction<Transaction> {
+    type Hash = TransactionHash;
+    fn canonical_hash(&self) -> Self::Hash {
+        hash_transaction_canonical(&self.0.body)
+    }
+}
 
 pub trait TransactionOutputExtension {
     fn address(&self) -> &Address;

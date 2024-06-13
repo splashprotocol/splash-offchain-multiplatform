@@ -13,4 +13,5 @@ pub mod network;
 pub mod partitioning;
 pub(crate) mod rocks;
 pub mod streaming;
+pub mod tx_hash;
 pub mod tx_prover;

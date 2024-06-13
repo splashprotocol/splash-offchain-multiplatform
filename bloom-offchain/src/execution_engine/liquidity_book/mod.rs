@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 use std::fmt::{Debug, Display};
-use std::hash::Hash;
 use std::mem;
 use std::ops::{Sub, SubAssign};
 

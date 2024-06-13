@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
+use std::ops::Deref;
 
 use async_stream::stream;
 use cml_core::serialization::Serialize;
@@ -16,17 +17,17 @@ use spectrum_offchain::network::Network;
 use crate::node::NodeConfig;
 use crate::node_error::transcribe_bad_inputs_error;
 
-pub struct TxSubmissionAgent<'a, const ERA: u16, Tx> {
+pub struct TxSubmissionAgent<'a, const ERA: u16, TxAdapter, Tx> {
     client: LocalTxSubmissionClient<ERA, Tx>,
-    mailbox: mpsc::Receiver<SubmitTx<Tx>>,
+    mailbox: mpsc::Receiver<SubmitTx<TxAdapter>>,
     node_config: NodeConfig<'a>,
 }
 
-impl<'a, const ERA: u16, Tx> TxSubmissionAgent<'a, ERA, Tx> {
+impl<'a, const ERA: u16, TxAdapter, Tx> TxSubmissionAgent<'a, ERA, TxAdapter, Tx> {
     pub async fn new(
         node_config: NodeConfig<'a>,
         buffer_size: usize,
-    ) -> Result<(Self, TxSubmissionChannel<ERA, Tx>), Error> {
+    ) -> Result<(Self, TxSubmissionChannel<ERA, TxAdapter>), Error> {
         let tx_submission_client = LocalTxSubmissionClient::init(node_config.path, node_config.magic).await?;
         let (snd, recv) = mpsc::channel(buffer_size);
         let agent = Self {
@@ -83,10 +84,11 @@ impl From<SubmissionResult> for Result<(), TxRejected> {
 
 const MAX_SUBMIT_ATTEMPTS: usize = 3;
 
-pub fn tx_submission_agent_stream<'a, const ERA: u16, Tx>(
-    mut agent: TxSubmissionAgent<'a, ERA, Tx>,
+pub fn tx_submission_agent_stream<'a, const ERA: u16, TxAdapter, Tx>(
+    mut agent: TxSubmissionAgent<'a, ERA, TxAdapter, Tx>,
 ) -> impl Stream<Item = ()> + 'a
 where
+    TxAdapter: Deref<Target = Tx> + 'a,
     Tx: Serialize + Clone + 'a,
 {
     stream! {
@@ -94,7 +96,7 @@ where
             let SubmitTx(tx, on_resp) = agent.mailbox.select_next_some().await;
             let mut attempts_done = 0;
             loop {
-                match agent.client.submit_tx(tx.clone()).await {
+                match agent.client.submit_tx((*tx).clone()).await {
                     Ok(_) => on_resp.send(SubmissionResult::Ok).expect("Responder was dropped"),
                     Err(Error::TxSubmissionProtocol(err)) => {
                         trace!("Failed to submit TX: {}", hex::encode(tx.to_cbor_bytes()));

@@ -4,6 +4,7 @@ use cml_chain::transaction::Transaction;
 use cml_crypto::PrivateKey;
 
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
+use spectrum_cardano_lib::transaction::OutboundTransaction;
 use spectrum_offchain::tx_prover::TxProver;
 
 /// Signs transactions on behalf of operator.
@@ -16,11 +17,11 @@ impl<'a> OperatorProver<'a> {
     }
 }
 
-impl<'a> TxProver<SignedTxBuilder, Transaction> for OperatorProver<'a> {
-    fn prove(&self, mut candidate: SignedTxBuilder) -> Transaction {
+impl<'a> TxProver<SignedTxBuilder, OutboundTransaction<Transaction>> for OperatorProver<'a> {
+    fn prove(&self, mut candidate: SignedTxBuilder) -> OutboundTransaction<Transaction> {
         let body = candidate.body();
         let signature = make_vkey_witness(&hash_transaction_canonical(&body), self.0);
         candidate.add_vkey(signature);
-        candidate.build_unchecked()
+        candidate.build_unchecked().into()
     }
 }

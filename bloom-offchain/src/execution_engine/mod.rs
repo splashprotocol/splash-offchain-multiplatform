@@ -1,4 +1,4 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -10,10 +10,11 @@ use futures::channel::mpsc;
 use futures::stream::FusedStream;
 use futures::{FutureExt, Stream};
 use futures::{SinkExt, StreamExt};
-use log::{info, trace, warn};
+use log::{trace, warn};
 use tokio::sync::broadcast;
 
 use liquidity_book::interpreter::RecipeInterpreter;
+use liquidity_book::stashing_option::StashingOption;
 use spectrum_offchain::backlog::HotBacklog;
 use spectrum_offchain::circular_filter::CircularFilter;
 use spectrum_offchain::combinators::Ior;
@@ -23,6 +24,7 @@ use spectrum_offchain::data::{Baked, EntitySnapshot, Stable};
 use spectrum_offchain::health_alert::{HealthAlertClient, SlackHealthAlert};
 use spectrum_offchain::maker::Maker;
 use spectrum_offchain::network::Network;
+use spectrum_offchain::tx_hash::CannonicalHash;
 use spectrum_offchain::tx_prover::TxProver;
 
 use crate::execution_engine::backlog::SpecializedInterpreter;
@@ -39,7 +41,6 @@ use crate::execution_engine::multi_pair::MultiPair;
 use crate::execution_engine::resolver::resolve_source_state;
 use crate::execution_engine::storage::kv_store::KvStore;
 use crate::execution_engine::storage::StateIndex;
-use liquidity_book::stashing_option::StashingOption;
 
 pub mod backlog;
 pub mod batch_exec;
@@ -78,8 +79,9 @@ pub fn execution_part_stream<
     SpecOrd,
     Pool,
     Bearer,
-    Txc,
+    TxCandidate,
     Tx,
+    TxHash,
     Ctx,
     ExUnits,
     Index,
@@ -121,8 +123,9 @@ where
         + 'a,
     SpecOrd: SpecializedOrder<TPoolId = StableId, TOrderId = Ver> + Debug + Unpin + 'a,
     Bearer: Clone + Unpin + Debug + 'a,
-    Txc: Unpin + 'a,
-    Tx: Unpin + 'a,
+    TxCandidate: Unpin + 'a,
+    Tx: CannonicalHash<Hash = TxHash> + Unpin + 'a,
+    TxHash: Display + Unpin + 'a,
     Ctx: Clone + Unpin + 'a,
     Index: StateIndex<EvolvingEntity<CompOrd, Pool, Ver, Bearer>> + Unpin + 'a,
     Cache: KvStore<StableId, EvolvingEntity<CompOrd, Pool, Ver, Bearer>> + Unpin + 'a,
@@ -133,9 +136,9 @@ where
         + Unpin
         + 'a,
     Backlog: HotBacklog<Bundled<SpecOrd, Bearer>> + Maker<Ctx> + Unpin + 'a,
-    RecInterpreter: RecipeInterpreter<CompOrd, Pool, Ctx, Ver, Bearer, Txc> + Unpin + 'a,
-    SpecInterpreter: SpecializedInterpreter<Pool, SpecOrd, Ver, Txc, Bearer, Ctx> + Unpin + 'a,
-    Prover: TxProver<Txc, Tx> + Unpin + 'a,
+    RecInterpreter: RecipeInterpreter<CompOrd, Pool, Ctx, Ver, Bearer, TxCandidate> + Unpin + 'a,
+    SpecInterpreter: SpecializedInterpreter<Pool, SpecOrd, Ver, TxCandidate, Bearer, Ctx> + Unpin + 'a,
+    Prover: TxProver<TxCandidate, Tx> + Unpin + 'a,
     Net: Network<Tx, Err> + Clone + 'a,
     Err: TryInto<HashSet<Ver>> + Unpin + Debug + Display + 'a,
 {
@@ -179,8 +182,9 @@ pub struct Executor<
     SpecOrd,
     Pool,
     Bearer,
-    Txc,
+    TxCandidate,
     Tx,
+    TxHash,
     Ctx,
     Index,
     Cache,
@@ -207,29 +211,29 @@ pub struct Executor<
     /// Feedback channel is used to signal the status of transaction submitted earlier by the executor.
     feedback: mpsc::Receiver<Result<(), Err>>,
     /// Pending effects resulted from execution of a batch trade in a certain [Pair].
-    pending_effects: Option<(Pair, PendingEffects<CompOrd, SpecOrd, Pool, Ver, Bearer>)>,
+    pending_effects: Option<(Pair, TxHash, PendingEffects<CompOrd, SpecOrd, Pool, Ver, Bearer>)>,
     /// Which pair should we process in the first place.
     focus_set: FocusSet<Pair>,
     /// Temporarily memoize entities that came from unconfirmed updates.
     skip_filter: CircularFilter<128, Ver>,
-    pd: PhantomData<(StableId, Ver, Txc, Tx, Err)>,
+    pd: PhantomData<(StableId, Ver, TxCandidate, Tx, Err)>,
     alert_client: HealthAlertClient,
 }
 
-impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err>
-    Executor<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err>
+impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, E>
+    Executor<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, E>
 {
     fn new(
-        index: Ix,
-        cache: Cache,
-        multi_book: MultiPair<Pair, Book, Ctx>,
-        multi_backlog: MultiPair<Pair, Log, Ctx>,
-        context: Ctx,
-        trade_interpreter: RecIr,
-        spec_interpreter: SpecIr,
-        prover: Prov,
+        index: IX,
+        cache: CH,
+        multi_book: MultiPair<PR, TLB, C>,
+        multi_backlog: MultiPair<PR, L, C>,
+        context: C,
+        trade_interpreter: RIR,
+        spec_interpreter: SIR,
+        prover: PRV,
         upstream: S,
-        feedback: mpsc::Receiver<Result<(), Err>>,
+        feedback: mpsc::Receiver<Result<(), E>>,
         alert_client: HealthAlertClient,
     ) -> Self {
         Self {
@@ -251,13 +255,13 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
         }
     }
 
-    fn sync_backlog(&mut self, pair: &Pair, update: Channel<OrderUpdate<Bundled<SO, B>, SO>>)
+    fn sync_backlog(&mut self, pair: &PR, update: Channel<OrderUpdate<Bundled<SO, B>, SO>>)
     where
-        Pair: Copy + Eq + Hash + Display,
+        PR: Copy + Eq + Hash + Display,
         V: Copy + Eq + Hash + Display,
         SO: SpecializedOrder<TOrderId = V>,
-        Log: HotBacklog<Bundled<SO, B>> + Maker<Ctx>,
-        Ctx: Clone,
+        L: HotBacklog<Bundled<SO, B>> + Maker<C>,
+        C: Clone,
     {
         let is_confirmed = matches!(update, Channel::Ledger(_));
         let (Channel::Ledger(Confirmed(upd))
@@ -284,19 +288,19 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
 
     fn sync_book(
         &mut self,
-        pair: &Pair,
+        pair: &PR,
         transition: Ior<Either<Baked<CO, V>, Baked<P, V>>, Either<Baked<CO, V>, Baked<P, V>>>,
     ) where
-        Pair: Copy + Eq + Hash + Display,
-        Stab: Copy + Eq + Hash + Debug + Display,
+        PR: Copy + Eq + Hash + Display,
+        SID: Copy + Eq + Hash + Debug + Display,
         V: Copy + Eq + Hash + Display,
         B: Clone + Debug,
-        Ctx: Clone,
-        CO: Stable<StableId = Stab> + Clone + Debug,
-        P: Stable<StableId = Stab> + Clone + Debug,
-        Ix: StateIndex<EvolvingEntity<CO, P, V, B>>,
-        Cache: KvStore<Stab, EvolvingEntity<CO, P, V, B>>,
-        Book: ExternalTLBEvents<CO, P> + Maker<Ctx>,
+        C: Clone,
+        CO: Stable<StableId = SID> + Clone + Debug,
+        P: Stable<StableId = SID> + Clone + Debug,
+        IX: StateIndex<EvolvingEntity<CO, P, V, B>>,
+        CH: KvStore<SID, EvolvingEntity<CO, P, V, B>>,
+        TLB: ExternalTLBEvents<CO, P> + Maker<C>,
     {
         trace!(target: "executor", "syncing book pair: {}", pair);
         match transition {
@@ -323,11 +327,11 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
 
     fn cache<T>(&mut self, new_entity_state: Bundled<T, B>) -> Option<Ior<T, T>>
     where
-        Stab: Copy + Eq + Hash + Display,
+        SID: Copy + Eq + Hash + Display,
         V: Copy + Eq + Hash + Display,
-        T: EntitySnapshot<StableId = Stab, Version = V> + Clone,
+        T: EntitySnapshot<StableId = SID, Version = V> + Clone,
         B: Clone,
-        Cache: KvStore<Stab, Bundled<T, B>>,
+        CH: KvStore<SID, Bundled<T, B>>,
     {
         if let Some(Bundled(prev_best_state, _)) = self
             .cache
@@ -339,18 +343,18 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
         }
     }
 
-    fn invalidate_versions(&mut self, pair: &Pair, versions: HashSet<V>)
+    fn invalidate_versions(&mut self, pair: &PR, versions: HashSet<V>)
     where
-        Pair: Copy + Eq + Hash + Display,
-        Stab: Copy + Eq + Hash + Debug + Display,
+        PR: Copy + Eq + Hash + Display,
+        SID: Copy + Eq + Hash + Debug + Display,
         V: Copy + Eq + Hash + Display,
         B: Clone + Debug,
-        Ctx: Clone,
-        CO: Stable<StableId = Stab> + Clone + Debug + Display,
-        P: Stable<StableId = Stab> + Clone + Debug,
-        Ix: StateIndex<EvolvingEntity<CO, P, V, B>>,
-        Cache: KvStore<Stab, EvolvingEntity<CO, P, V, B>>,
-        Book: ExternalTLBEvents<CO, P> + Maker<Ctx>,
+        C: Clone,
+        CO: Stable<StableId = SID> + Clone + Debug + Display,
+        P: Stable<StableId = SID> + Clone + Debug,
+        IX: StateIndex<EvolvingEntity<CO, P, V, B>>,
+        CH: KvStore<SID, EvolvingEntity<CO, P, V, B>>,
+        TLB: ExternalTLBEvents<CO, P> + Maker<C>,
     {
         for ver in versions {
             if let Some(stable_id) = self.index.invalidate_version(ver) {
@@ -372,12 +376,12 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
 
     fn update_state<T>(&mut self, update: Channel<StateUpdate<Bundled<T, B>>>) -> Option<Ior<T, T>>
     where
-        Stab: Copy + Eq + Hash + Display,
+        SID: Copy + Eq + Hash + Display,
         V: Copy + Eq + Hash + Display,
-        T: EntitySnapshot<StableId = Stab, Version = V> + Clone,
+        T: EntitySnapshot<StableId = SID, Version = V> + Clone,
         B: Clone,
-        Ix: StateIndex<Bundled<T, B>>,
-        Cache: KvStore<Stab, Bundled<T, B>>,
+        IX: StateIndex<Bundled<T, B>>,
+        CH: KvStore<SID, Bundled<T, B>>,
     {
         let from_ledger = matches!(update, Channel::Ledger(_));
         let from_mempool = matches!(update, Channel::Mempool(_));
@@ -424,11 +428,11 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
 
     fn link_recipe(&self, recipe: ExecutionRecipe<CO, P>) -> LinkedExecutionRecipe<CO, P, B>
     where
-        Stab: Copy + Eq + Hash + Debug + Display,
+        SID: Copy + Eq + Hash + Debug + Display,
         V: Copy + Eq + Hash + Display,
-        CO: Stable<StableId = Stab> + Debug,
-        P: Stable<StableId = Stab> + Debug,
-        Cache: KvStore<Stab, EvolvingEntity<CO, P, V, B>>,
+        CO: Stable<StableId = SID> + Debug,
+        P: Stable<StableId = SID> + Debug,
+        CH: KvStore<SID, EvolvingEntity<CO, P, V, B>>,
     {
         let mut xs = recipe.instructions();
         let mut linked = vec![];
@@ -454,61 +458,67 @@ impl<S, Pair, Stab, V, CO, SO, P, B, Txc, Tx, Ctx, Ix, Cache, Book, Log, RecIr, 
     }
 }
 
-impl<S, Pair, Stab, Ver, CO, SO, P, B, Txc, Tx, U, C, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err> Stream
-    for Executor<S, Pair, Stab, Ver, CO, SO, P, B, Txc, Tx, C, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err>
+impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, U, C, IX, CH, TLB, L, RIR, SIR, PRV, E> Stream
+    for Executor<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, E>
 where
-    S: Stream<Item = (Pair, Event<CO, SO, P, B, Ver>)> + Unpin,
-    Pair: Copy + Eq + Ord + Hash + Display + Unpin,
-    Stab: Copy + Eq + Hash + Debug + Display + Unpin,
-    Ver: Copy + Eq + Hash + Display + Unpin,
-    P: Stable<StableId = Stab> + Copy + Debug + Unpin + Display,
-    CO: Stable<StableId = Stab> + Fragment<U = U> + OrderState + Copy + Debug + Unpin + Display,
-    SO: SpecializedOrder<TPoolId = Stab, TOrderId = Ver> + Unpin,
+    S: Stream<Item = (PR, Event<CO, SO, P, B, V>)> + Unpin,
+    PR: Copy + Eq + Ord + Hash + Display + Unpin,
+    SID: Copy + Eq + Hash + Debug + Display + Unpin,
+    V: Copy + Eq + Hash + Display + Unpin,
+    P: Stable<StableId = SID> + Copy + Debug + Unpin + Display,
+    CO: Stable<StableId = SID> + Fragment<U = U> + OrderState + Copy + Debug + Unpin + Display,
+    SO: SpecializedOrder<TPoolId = SID, TOrderId = V> + Unpin,
     B: Clone + Debug + Unpin,
-    Txc: Unpin,
-    Tx: Unpin,
+    TC: Unpin,
+    TX: CannonicalHash<Hash = TH> + Unpin,
+    TH: Display + Unpin,
     C: Clone + Unpin,
-    Ix: StateIndex<EvolvingEntity<CO, P, Ver, B>> + Unpin,
-    Cache: KvStore<Stab, EvolvingEntity<CO, P, Ver, B>> + Unpin,
-    Book: TemporalLiquidityBook<CO, P> + ExternalTLBEvents<CO, P> + TLBFeedback<CO, P> + Maker<C> + Unpin,
-    Log: HotBacklog<Bundled<SO, B>> + Maker<C> + Unpin,
-    RecIr: RecipeInterpreter<CO, P, C, Ver, B, Txc> + Unpin,
-    SpecIr: SpecializedInterpreter<P, SO, Ver, Txc, B, C> + Unpin,
-    Prov: TxProver<Txc, Tx> + Unpin,
-    Err: TryInto<HashSet<Ver>> + Unpin + Debug + Display,
+    IX: StateIndex<EvolvingEntity<CO, P, V, B>> + Unpin,
+    CH: KvStore<SID, EvolvingEntity<CO, P, V, B>> + Unpin,
+    TLB: TemporalLiquidityBook<CO, P> + ExternalTLBEvents<CO, P> + TLBFeedback<CO, P> + Maker<C> + Unpin,
+    L: HotBacklog<Bundled<SO, B>> + Maker<C> + Unpin,
+    RIR: RecipeInterpreter<CO, P, C, V, B, TC> + Unpin,
+    SIR: SpecializedInterpreter<P, SO, V, TC, B, C> + Unpin,
+    PRV: TxProver<TC, TX> + Unpin,
+    E: TryInto<HashSet<V>> + Unpin + Debug + Display,
 {
-    type Item = Tx;
+    type Item = TX;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         loop {
             // Wait for the feedback from the last pending job.
-            if let Some((pair, pending_effects)) = self.pending_effects.take() {
+            if let Some((pair, tx_hash, pending_effects)) = self.pending_effects.take() {
                 match Stream::poll_next(Pin::new(&mut self.feedback), cx) {
                     Poll::Ready(Some(result)) => match result {
-                        Ok(_) => match pending_effects {
-                            PendingEffects::FromLiquidityBook(mut pending_effects) => {
-                                while let Some(effect) = pending_effects.pop() {
-                                    match effect {
-                                        ExecutionEff::Updated(upd) => {
-                                            self.update_state(Channel::tx_submit(StateUpdate::Transition(
-                                                Ior::Right(upd),
-                                            )));
-                                        }
-                                        ExecutionEff::Eliminated(elim) => {
-                                            self.update_state(Channel::tx_submit(StateUpdate::Transition(
-                                                Ior::Left(elim.map(Either::Left)),
-                                            )));
+                        Ok(_) => {
+                            trace!("TX {} succeeded", tx_hash);
+                            match pending_effects {
+                                PendingEffects::FromLiquidityBook(mut pending_effects) => {
+                                    while let Some(effect) = pending_effects.pop() {
+                                        match effect {
+                                            ExecutionEff::Updated(upd) => {
+                                                self.update_state(Channel::tx_submit(
+                                                    StateUpdate::Transition(Ior::Right(upd)),
+                                                ));
+                                            }
+                                            ExecutionEff::Eliminated(elim) => {
+                                                self.update_state(Channel::tx_submit(
+                                                    StateUpdate::Transition(Ior::Left(
+                                                        elim.map(Either::Left),
+                                                    )),
+                                                ));
+                                            }
                                         }
                                     }
+                                    self.multi_book.get_mut(&pair).on_recipe_succeeded();
                                 }
-                                self.multi_book.get_mut(&pair).on_recipe_succeeded();
+                                PendingEffects::FromBacklog(new_pool, _) => {
+                                    self.update_state(Channel::tx_submit(StateUpdate::Transition(
+                                        Ior::Right(new_pool.map(Either::Right)),
+                                    )));
+                                }
                             }
-                            PendingEffects::FromBacklog(new_pool, _) => {
-                                self.update_state(Channel::tx_submit(StateUpdate::Transition(Ior::Right(
-                                    new_pool.map(Either::Right),
-                                ))));
-                            }
-                        },
+                        }
                         Err(err) => {
                             //todo: remove
                             let submit_res = self
@@ -518,7 +528,7 @@ where
 
                             trace!("Alert submitting result: {}", submit_res);
 
-                            warn!("TX failed {:?}", err);
+                            warn!("TX {} failed {:?}", tx_hash, err);
                             if let Ok(missing_bearers) = err.try_into() {
                                 match pending_effects {
                                     PendingEffects::FromLiquidityBook(_) => {
@@ -552,7 +562,7 @@ where
                         }
                     },
                     _ => {
-                        let _ = self.pending_effects.insert((pair, pending_effects));
+                        let _ = self.pending_effects.insert((pair, tx_hash, pending_effects));
                         return Poll::Pending;
                     }
                 }
@@ -577,10 +587,13 @@ where
                     let linked_recipe = self.link_recipe(recipe.into());
                     let ctx = self.context.clone();
                     let (txc, effects) = self.trade_interpreter.run(linked_recipe, ctx);
-                    let _ = self
-                        .pending_effects
-                        .insert((focus_pair, PendingEffects::FromLiquidityBook(effects)));
                     let tx = self.prover.prove(txc);
+                    let tx_hash = tx.canonical_hash();
+                    let _ = self.pending_effects.insert((
+                        focus_pair,
+                        tx_hash,
+                        PendingEffects::FromLiquidityBook(effects),
+                    ));
                     // Return pair to focus set to make sure corresponding TLB will be exhausted.
                     self.focus_set.push_back(focus_pair);
                     return Poll::Ready(Some(tx));
@@ -595,11 +608,13 @@ where
                             self.spec_interpreter
                                 .try_run(Bundled(pool.entity, pool_bearer), next_order, ctx)
                         {
+                            let tx = self.prover.prove(txc);
+                            let tx_hash = tx.canonical_hash();
                             let _ = self.pending_effects.insert((
                                 focus_pair,
+                                tx_hash,
                                 PendingEffects::FromBacklog(updated_pool, consumed_ord),
                             ));
-                            let tx = self.prover.prove(txc);
                             // Return pair to focus set to make sure corresponding TLB will be exhausted.
                             self.focus_set.push_back(focus_pair);
                             return Poll::Ready(Some(tx));
@@ -612,29 +627,29 @@ where
     }
 }
 
-impl<S, Pair, Stab, Ver, CO, SO, P, B, Txc, Tx, U, C, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err>
-    FusedStream
-    for Executor<S, Pair, Stab, Ver, CO, SO, P, B, Txc, Tx, C, Ix, Cache, Book, Log, RecIr, SpecIr, Prov, Err>
+impl<S, PR, ST, V, CO, SO, P, B, TC, TX, TH, U, C, IX, CH, TLB, L, RIR, SIR, PRV, E> FusedStream
+    for Executor<S, PR, ST, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, E>
 where
-    S: Stream<Item = (Pair, Event<CO, SO, P, B, Ver>)> + Unpin,
-    Pair: Copy + Eq + Ord + Hash + Display + Unpin,
-    Stab: Copy + Eq + Hash + Debug + Display + Unpin,
-    Ver: Copy + Eq + Hash + Display + Unpin,
-    P: Stable<StableId = Stab> + Copy + Debug + Unpin + Display,
-    CO: Stable<StableId = Stab> + Fragment<U = U> + OrderState + Copy + Debug + Unpin + Display,
-    SO: SpecializedOrder<TPoolId = Stab, TOrderId = Ver> + Unpin,
+    S: Stream<Item = (PR, Event<CO, SO, P, B, V>)> + Unpin,
+    PR: Copy + Eq + Ord + Hash + Display + Unpin,
+    ST: Copy + Eq + Hash + Debug + Display + Unpin,
+    V: Copy + Eq + Hash + Display + Unpin,
+    P: Stable<StableId = ST> + Copy + Debug + Unpin + Display,
+    CO: Stable<StableId = ST> + Fragment<U = U> + OrderState + Copy + Debug + Unpin + Display,
+    SO: SpecializedOrder<TPoolId = ST, TOrderId = V> + Unpin,
     B: Clone + Debug + Unpin,
-    Txc: Unpin,
-    Tx: Unpin,
+    TC: Unpin,
+    TX: CannonicalHash<Hash = TH> + Unpin,
+    TH: Display + Unpin,
     C: Clone + Unpin,
-    Ix: StateIndex<EvolvingEntity<CO, P, Ver, B>> + Unpin,
-    Cache: KvStore<Stab, EvolvingEntity<CO, P, Ver, B>> + Unpin,
-    Book: TemporalLiquidityBook<CO, P> + ExternalTLBEvents<CO, P> + TLBFeedback<CO, P> + Maker<C> + Unpin,
-    Log: HotBacklog<Bundled<SO, B>> + Maker<C> + Unpin,
-    RecIr: RecipeInterpreter<CO, P, C, Ver, B, Txc> + Unpin,
-    SpecIr: SpecializedInterpreter<P, SO, Ver, Txc, B, C> + Unpin,
-    Prov: TxProver<Txc, Tx> + Unpin,
-    Err: TryInto<HashSet<Ver>> + Unpin + Debug + Display,
+    IX: StateIndex<EvolvingEntity<CO, P, V, B>> + Unpin,
+    CH: KvStore<ST, EvolvingEntity<CO, P, V, B>> + Unpin,
+    TLB: TemporalLiquidityBook<CO, P> + ExternalTLBEvents<CO, P> + TLBFeedback<CO, P> + Maker<C> + Unpin,
+    L: HotBacklog<Bundled<SO, B>> + Maker<C> + Unpin,
+    RIR: RecipeInterpreter<CO, P, C, V, B, TC> + Unpin,
+    SIR: SpecializedInterpreter<P, SO, V, TC, B, C> + Unpin,
+    PRV: TxProver<TC, TX> + Unpin,
+    E: TryInto<HashSet<V>> + Unpin + Debug + Display,
 {
     fn is_terminated(&self) -> bool {
         false
