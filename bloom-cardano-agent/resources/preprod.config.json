@@ -50,6 +50,6 @@
   },
   "partitioning": {
     "numPartitionsTotal": 1,
-    "ownPartitionIndex": 0
+    "assignedPartitions": [0]
   }
 }
