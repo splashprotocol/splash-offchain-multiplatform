@@ -630,19 +630,17 @@ mod tests {
         treasury_x: u64,
         treasury_y: u64,
     ) -> StablePoolT2T {
-        let reserves_x = reserves_x.mul(10_u64.pow(x_decimals));
+        let reserves_x = reserves_x;
         println!("reserves_x in gen: {}", reserves_x);
-        let reserves_y = reserves_y.mul(10_u64.pow(y_decimals));
+        let reserves_y = reserves_y;
         println!("reserves_y in gen: {}", reserves_y);
         let inv_before = 510000000; // reserves_x * 2; //todo: copy from aiken test. Refactor it
         let liquidity = MAX_LQ_CAP - inv_before;
-        let reserves_x_str_digits_qty = reserves_x.to_string().len();
-        let reserves_y_str_digits_qty = reserves_y.to_string().len();
         let (multiplier_x, multiplier_y) =
-            if (reserves_x_str_digits_qty > reserves_y_str_digits_qty) {
-                (1, reserves_x_str_digits_qty - reserves_y_str_digits_qty)
-            } else if (reserves_x_str_digits_qty < reserves_y_str_digits_qty) {
-                (reserves_y_str_digits_qty - reserves_x_str_digits_qty, 1)
+            if (x_decimals > y_decimals) {
+                (1, 10_u32.pow(x_decimals - y_decimals))
+            } else if (x_decimals < y_decimals) {
+                (10_u32.pow(y_decimals - x_decimals), 1)
             } else {
                 (1, 1)
             };
