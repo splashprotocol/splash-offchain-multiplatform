@@ -373,9 +373,12 @@ impl RequiresRedeemer<CFMMPoolAction> for BalancePool {
 }
 
 impl RequiresRedeemer<CFMMPoolAction> for StablePoolT2TData {
+
+    // used for deposit/redeem operations. Pool output index is 0
     fn redeemer(self, prev_state: Self, pool_input_index: u64, action: CFMMPoolAction) -> PlutusData {
         StablePoolRedeemer{
             pool_input_index,
+            pool_output_index: 0,
             action,
             new_pool_state: self,
             prev_pool_state: prev_state,

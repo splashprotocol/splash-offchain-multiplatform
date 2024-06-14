@@ -582,6 +582,7 @@ mod tests {
     use crate::data::pool::{ApplyOrder, CFMMPoolAction, Lq, Rx, Ry};
     use crate::data::redeem::{ClassicalOnChainRedeem, Redeem};
     use crate::data::{OnChainOrderId, PoolId};
+    use crate::data::stable_pool_t2t::StablePoolT2T;
 
     const DATUM_SAMPLE: &str = "d8799fd8799f581c5df8fe3f9f0e10855f930e0ea6c227e3bba0aba54d39f9d55b95e21c436e6674ffd8799f4040ff01d8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737443ff04d8799f581c0df79145b95580c14ef4baf8d022d7f0cbb08f3bed43bf97a2ddd8cb426c71ff1a000186820a00009fd8799fd87a9f581cb046b660db0eaf9be4f4300180ccf277e4209dada77c48fbd37ba81dffffff581c8d4be10d934b60a22f267699ea3f7ebdade1f8e535d1bd0ef7ce18b61a0501bced08ff";
 

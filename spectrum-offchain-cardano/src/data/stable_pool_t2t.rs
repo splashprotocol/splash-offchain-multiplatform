@@ -41,7 +41,7 @@ use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::deployment::ProtocolValidator::StableFnPoolT2T;
 use crate::pool_math::cfmm_math::{classic_cfmm_reward_lp, classic_cfmm_shares_amount};
-use crate::pool_math::stable_pool_t2t_exact_math::{calc_stable_swap, calculate_invariant};
+use crate::pool_math::stable_pool_t2t_exact_math::{calc_stable_swap, calculate_context_values_list, calculate_invariant};
 
 const N_TRADABLE_ASSETS: u64 = 2;
 
@@ -115,8 +115,8 @@ pub enum StablePoolT2TVer {
 
 impl StablePoolT2TVer {
     pub fn try_from_address<Ctx>(pool_addr: &Address, ctx: &Ctx) -> Option<StablePoolT2TVer>
-    where
-        Ctx: Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>,
+        where
+            Ctx: Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>,
     {
         let maybe_hash = pool_addr.payment_cred().and_then(|c| match c {
             StakeCredential::PubKey { .. } => None,
@@ -158,7 +158,6 @@ pub struct StablePoolT2T {
 }
 
 impl StablePoolT2T {
-
     pub fn get_asset_deltas(&self, side: SideM) -> AssetDeltas {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
@@ -189,7 +188,7 @@ impl StablePoolT2T {
     }
 
     // [gx, tx, gy, ty]
-    fn create_redeemer(pool_action: CFMMPoolAction, pool_in_idx: u64, pool_out_idx: u64) -> PlutusData {
+    fn create_redeemer(pool_action: CFMMPoolAction, pool_in_idx: u64, pool_out_idx: u64, prev_state: StablePoolT2T, new_state: StablePoolT2T) -> PlutusData {
         /*
           Original structure of pool redeemer
 
@@ -210,17 +209,35 @@ impl StablePoolT2T {
         let self_ix_pd = PlutusData::Integer(BigInteger::from(pool_in_idx));
         let self_out_pd = PlutusData::Integer(BigInteger::from(pool_out_idx));
 
-        let context_values_list = PlutusData::ConstrPlutusData(ConstrPlutusData {
-            alternative: 0,
-            fields: Vec::from([]),
-            encodings: Some(ConstrPlutusDataEncoding {
-                len_encoding: Canonical,
-                tag_encoding: Some(cbor_event::Sz::One),
-                alternative_encoding: None,
-                fields_encoding: Indefinite,
-                prefer_compact: true,
-            }),
-        });
+
+        let context_values_list =
+            match pool_action {
+                CFMMPoolAction::Swap => {
+                    let context_values_list = calculate_context_values_list(prev_state, new_state);
+                    PlutusData::ConstrPlutusData(ConstrPlutusData {
+                        alternative: 0,
+                        fields: Vec::from([PlutusData::Integer(BigInteger::from(context_values_list.as_u128()))]),
+                        encodings: Some(ConstrPlutusDataEncoding {
+                            len_encoding: Canonical,
+                            tag_encoding: Some(cbor_event::Sz::One),
+                            alternative_encoding: None,
+                            fields_encoding: Indefinite,
+                            prefer_compact: true,
+                        }),
+                    })
+                }
+                _ => PlutusData::ConstrPlutusData(ConstrPlutusData {
+                    alternative: 1,
+                    fields: Vec::from([]),
+                    encodings: Some(ConstrPlutusDataEncoding {
+                        len_encoding: Canonical,
+                        tag_encoding: Some(cbor_event::Sz::One),
+                        alternative_encoding: None,
+                        fields_encoding: Indefinite,
+                        prefer_compact: true,
+                    }),
+                })
+            };
 
         PlutusData::ConstrPlutusData(ConstrPlutusData {
             alternative: 0,
@@ -237,8 +254,8 @@ impl StablePoolT2T {
 }
 
 impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for StablePoolT2T
-where
-    Ctx: Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>,
+    where
+        Ctx: Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         if let Some(pool_ver) = StablePoolT2TVer::try_from_address(repr.address(), ctx) {
@@ -324,8 +341,8 @@ impl Stable for StablePoolT2T {
 }
 
 impl<Ctx> RequiresValidator<Ctx> for StablePoolT2T
-where
-    Ctx: Has<DeployedValidator<{ StableFnPoolT2T as u8 }>>,
+    where
+        Ctx: Has<DeployedValidator<{ StableFnPoolT2T as u8 }>>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self.ver {
@@ -338,6 +355,7 @@ where
 
 pub struct StablePoolRedeemer {
     pub pool_input_index: u64,
+    pub pool_output_index: u64,
     pub action: CFMMPoolAction,
     pub new_pool_state: StablePoolT2T,
     pub prev_pool_state: StablePoolT2T,
@@ -345,7 +363,7 @@ pub struct StablePoolRedeemer {
 
 impl StablePoolRedeemer {
     pub fn to_plutus_data(self) -> PlutusData {
-        StablePoolT2T::create_redeemer(self.action, self.pool_input_index)
+        StablePoolT2T::create_redeemer(self.action, self.pool_input_index, self.pool_output_index, self.prev_pool_state, self.new_pool_state)
     }
 }
 
@@ -586,9 +604,10 @@ mod tests {
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::output::FinalizedTxOut;
     use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
-    use std::ops::Sub;
+    use std::ops::{Mul, Sub};
 
     use spectrum_cardano_lib::types::TryFromPData;
+    use crate::constants::MAX_LQ_CAP;
 
     use crate::data::balance_pool::{BalancePool, BalancePoolConfig, BalancePoolRedeemer, BalancePoolVer};
     use crate::data::order::ClassicalOrder;
@@ -596,9 +615,96 @@ mod tests {
     use crate::data::pool::{ApplyOrder, CFMMPoolAction, Lq, Rx, Ry};
     use crate::data::redeem::{ClassicalOnChainRedeem, Redeem};
     use crate::data::{OnChainOrderId, PoolId};
-    use crate::data::stable_pool_t2t::StablePoolT2TConfig;
+    use crate::data::stable_pool_t2t::{StablePoolRedeemer, StablePoolT2T, StablePoolT2TConfig, StablePoolT2TVer};
 
     const DATUM_SAMPLE: &str = "d8799fd8799f581c7dbe6f0c7849e2dae806cd4681910bfe1bbc0d5fd4e370e8e2f7bd4a436e6674ff190c80d8799f4040ffd8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737443ff0000d8799f581c6abe65f6adc8301ff4dbfcfcec1a187075639d21f85cae3c1cf2a060426c71ffd87980d879801a000186820a581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba260000ff";
+
+    fn gen_ada_token_pool(
+        reserves_x: u64,
+        x_decimals: u32,
+        reserves_y: u64,
+        y_decimals: u32,
+        lp_fee_x: u64,
+        lp_fee_y: u64,
+        treasury_fee: u64,
+        treasury_x: u64,
+        treasury_y: u64,
+    ) -> StablePoolT2T {
+        let reserves_x = reserves_x.mul(10_u64.pow(x_decimals));
+        println!("reserves_x in gen: {}", reserves_x);
+        let reserves_y = reserves_y.mul(10_u64.pow(y_decimals));
+        println!("reserves_y in gen: {}", reserves_y);
+        let inv_before = 510000000; // reserves_x * 2; //todo: copy from aiken test. Refactor it
+        let liquidity = MAX_LQ_CAP - inv_before;
+        let reserves_x_str_digits_qty = reserves_x.to_string().len();
+        let reserves_y_str_digits_qty = reserves_y.to_string().len();
+        let (multiplier_x, multiplier_y) =
+            if (reserves_x_str_digits_qty > reserves_y_str_digits_qty) {
+                (1, reserves_x_str_digits_qty - reserves_y_str_digits_qty)
+            } else if (reserves_x_str_digits_qty < reserves_y_str_digits_qty) {
+                (reserves_y_str_digits_qty - reserves_x_str_digits_qty, 1)
+            } else {
+                (1, 1)
+            };
+        return StablePoolT2T {
+            id: PoolId::from((
+                ScriptHash::from([
+                    162, 206, 112, 95, 150, 240, 52, 167, 61, 102, 158, 92, 11, 47, 25, 41, 48, 224, 188,
+                    211, 138, 203, 127, 107, 246, 89, 115, 157,
+                ]),
+                AssetName::from((
+                    3,
+                    [
+                        110, 102, 116, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0,
+                    ],
+                )),
+            )),
+            an2n: 300 * 16, // constant
+            reserves_x: TaggedAmount::new(reserves_x),
+            multiplier_x: multiplier_x as u64,
+            reserves_y: TaggedAmount::new(reserves_y),
+            multiplier_y: multiplier_y as u64,
+            liquidity: TaggedAmount::new(liquidity),
+            asset_x: TaggedAssetClass::new(AssetClass::Native),
+            asset_y: TaggedAssetClass::new(AssetClass::Token((
+                ScriptHash::from([
+                    75, 52, 89, 253, 24, 161, 219, 171, 226, 7, 205, 25, 201, 149, 26, 159, 172, 159, 92, 15,
+                    156, 56, 78, 61, 151, 239, 186, 38,
+                ]),
+                AssetName::from((
+                    5,
+                    [
+                        116, 101, 115, 116, 67, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0,
+                    ],
+                )),
+            ))),
+            asset_lq: TaggedAssetClass::new(AssetClass::Token((
+                ScriptHash::from([
+                    114, 191, 27, 172, 195, 20, 1, 41, 111, 158, 228, 210, 254, 123, 132, 165, 36, 56, 38,
+                    251, 3, 233, 206, 25, 51, 218, 254, 192,
+                ]),
+                AssetName::from((
+                    2,
+                    [
+                        108, 113, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0,
+                    ],
+                )),
+            ))),
+            lp_fee_x: Ratio::new_raw(lp_fee_x, 100000),
+            lp_fee_y: Ratio::new_raw(lp_fee_y, 100000),
+            treasury_fee: Ratio::new_raw(treasury_fee, 100000),
+            treasury_x: TaggedAmount::new(treasury_x),
+            treasury_y: TaggedAmount::new(treasury_y),
+            ver: StablePoolT2TVer::V1,
+            marginal_cost: ExUnits {
+                mem: 120000000,
+                steps: 100000000000,
+            },
+        };
+    }
 
     #[test]
     fn parse_stable_pool_t2t_datum() {
@@ -609,132 +715,44 @@ mod tests {
 
     #[test]
     fn swap() {
-        let pool = BalancePool {
-            id: PoolId::from((
-                ScriptHash::from([
-                    162, 206, 112, 95, 150, 240, 52, 167, 61, 102, 158, 92, 11, 47, 25, 41, 48, 224, 188,
-                    211, 138, 203, 127, 107, 246, 89, 115, 157,
-                ]),
-                AssetName::from((
-                    3,
-                    [
-                        110, 102, 116, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0,
-                    ],
-                )),
-            )),
-            reserves_x: TaggedAmount::new(2115301811439),
-            weight_x: 1,
-            reserves_y: TaggedAmount::new(27887555508598),
-            weight_y: 4,
-            liquidity: TaggedAmount::new(0),
-            asset_x: TaggedAssetClass::new(AssetClass::Native),
-            asset_y: TaggedAssetClass::new(AssetClass::Token((
-                ScriptHash::from([
-                    75, 52, 89, 253, 24, 161, 219, 171, 226, 7, 205, 25, 201, 149, 26, 159, 172, 159, 92, 15,
-                    156, 56, 78, 61, 151, 239, 186, 38,
-                ]),
-                AssetName::from((
-                    5,
-                    [
-                        116, 101, 115, 116, 67, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0,
-                    ],
-                )),
-            ))),
-            asset_lq: TaggedAssetClass::new(AssetClass::Token((
-                ScriptHash::from([
-                    114, 191, 27, 172, 195, 20, 1, 41, 111, 158, 228, 210, 254, 123, 132, 165, 36, 56, 38,
-                    251, 3, 233, 206, 25, 51, 218, 254, 192,
-                ]),
-                AssetName::from((
-                    2,
-                    [
-                        108, 113, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0,
-                    ],
-                )),
-            ))),
-            lp_fee_x: Ratio::new_raw(99000, 100000),
-            lp_fee_y: Ratio::new_raw(99000, 100000),
-            treasury_fee: Ratio::new_raw(100, 100000),
-            treasury_x: TaggedAmount::new(1143236614),
-            treasury_y: TaggedAmount::new(3057757049),
-            ver: BalancePoolVer::V1,
-            marginal_cost: ExUnits {
-                mem: 120000000,
-                steps: 100000000000,
-            },
-        };
-        let result = pool.swap(Side::Ask(200000000));
+        let pool = gen_ada_token_pool(
+            475000220,
+            6,
+            343088,
+            3,
+            20000,
+            20000,
+            50000,
+            220000220,
+            88088,
+        );
+
+        println!("pool: {:?}", pool);
+
+        let result = pool.swap(Side::Ask(390088 - 343088));
 
         assert_eq!(result.0, 652178037)
     }
 
     #[test]
     fn swap_redeemer_test() {
-        let pool = BalancePool {
-            id: PoolId::from((
-                ScriptHash::from([
-                    162, 206, 112, 95, 150, 240, 52, 167, 61, 102, 158, 92, 11, 47, 25, 41, 48, 224, 188,
-                    211, 138, 203, 127, 107, 246, 89, 115, 157,
-                ]),
-                AssetName::from((
-                    3,
-                    [
-                        110, 102, 116, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0,
-                    ],
-                )),
-            )),
-            reserves_x: TaggedAmount::new(200000000),
-            weight_x: 1,
-            reserves_y: TaggedAmount::new(84093845),
-            weight_y: 4,
-            liquidity: TaggedAmount::new(0),
-            asset_x: TaggedAssetClass::new(AssetClass::Native),
-            asset_y: TaggedAssetClass::new(AssetClass::Token((
-                ScriptHash::from([
-                    75, 52, 89, 253, 24, 161, 219, 171, 226, 7, 205, 25, 201, 149, 26, 159, 172, 159, 92, 15,
-                    156, 56, 78, 61, 151, 239, 186, 38,
-                ]),
-                AssetName::from((
-                    5,
-                    [
-                        116, 101, 115, 116, 67, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0,
-                    ],
-                )),
-            ))),
-            asset_lq: TaggedAssetClass::new(AssetClass::Token((
-                ScriptHash::from([
-                    114, 191, 27, 172, 195, 20, 1, 41, 111, 158, 228, 210, 254, 123, 132, 165, 36, 56, 38,
-                    251, 3, 233, 206, 25, 51, 218, 254, 192,
-                ]),
-                AssetName::from((
-                    2,
-                    [
-                        108, 113, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0,
-                    ],
-                )),
-            ))),
-            lp_fee_x: Ratio::new_raw(99970, 100000),
-            lp_fee_y: Ratio::new_raw(99970, 100000),
-            treasury_fee: Ratio::new_raw(10, 100000),
-            treasury_x: TaggedAmount::new(10000),
-            treasury_y: TaggedAmount::new(0),
-            ver: BalancePoolVer::V1,
-            marginal_cost: ExUnits {
-                mem: 120000000,
-                steps: 100000000000,
-            },
-        };
+        let pool = gen_ada_token_pool(
+            1_000_000_000,
+            9,
+            1_000_000_000,
+            9,
+            99000,
+            99000,
+            100,
+            0,
+            0,
+        );
 
         let (_result, new_pool) = pool.clone().swap(Side::Ask(363613802862));
 
-        let test_swap_redeemer = BalancePoolRedeemer {
+        let test_swap_redeemer = StablePoolRedeemer {
             pool_input_index: 0,
+            pool_output_index: 0,
             action: CFMMPoolAction::Swap,
             new_pool_state: new_pool,
             prev_pool_state: pool,
@@ -749,82 +767,29 @@ mod tests {
 
     #[test]
     fn deposit_redeemer_test() {
-        let pool_id = PoolId::from((
-            ScriptHash::from([
-                162, 206, 112, 95, 150, 240, 52, 167, 61, 102, 158, 92, 11, 47, 25, 41, 48, 224, 188, 211,
-                138, 203, 127, 107, 246, 89, 115, 157,
-            ]),
-            AssetName::from((
-                3,
-                [
-                    110, 102, 116, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0,
-                ],
-            )),
-        ));
-
-        let token_x = TaggedAssetClass::new(AssetClass::Native);
-        let token_y = TaggedAssetClass::new(AssetClass::Token((
-            ScriptHash::from([
-                75, 52, 89, 253, 24, 161, 219, 171, 226, 7, 205, 25, 201, 149, 26, 159, 172, 159, 92, 15,
-                156, 56, 78, 61, 151, 239, 186, 38,
-            ]),
-            AssetName::from((
-                5,
-                [
-                    116, 101, 115, 116, 67, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0,
-                ],
-            )),
-        )));
-
-        let token_lq = TaggedAssetClass::new(AssetClass::Token((
-            ScriptHash::from([
-                114, 191, 27, 172, 195, 20, 1, 41, 111, 158, 228, 210, 254, 123, 132, 165, 36, 56, 38, 251,
-                3, 233, 206, 25, 51, 218, 254, 192,
-            ]),
-            AssetName::from((
-                2,
-                [
-                    108, 113, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0,
-                ],
-            )),
-        )));
-
-        let pool = BalancePool {
-            id: pool_id,
-            reserves_x: TaggedAmount::new(29655901),
-            weight_x: 1,
-            reserves_y: TaggedAmount::new(53144),
-            weight_y: 4,
-            liquidity: TaggedAmount::new(9223372036854587823),
-            asset_x: token_x,
-            asset_y: token_y,
-            asset_lq: token_lq,
-            lp_fee_x: Ratio::new_raw(99000, 100000),
-            lp_fee_y: Ratio::new_raw(99000, 100000),
-            treasury_fee: Ratio::new_raw(100, 100000),
-            treasury_x: TaggedAmount::new(13000),
-            treasury_y: TaggedAmount::new(94),
-            ver: BalancePoolVer::V1,
-            marginal_cost: ExUnits {
-                mem: 120000000,
-                steps: 100000000000,
-            },
-        };
+        let pool = gen_ada_token_pool(
+            1_000_000_000,
+            9,
+            1_000_000_000,
+            9,
+            99000,
+            99000,
+            100,
+            0,
+            0,
+        );
 
         const TX: &str = "6c038a69587061acd5611507e68b1fd3a7e7d189367b7853f3bb5079a118b880";
         const IX: u64 = 1;
 
         let test_order: ClassicalOnChainRedeem = ClassicalOrder {
             id: OnChainOrderId(OutputRef::new(TransactionHash::from_hex(TX).unwrap(), IX)),
-            pool_id: pool_id,
+            pool_id: pool.id,
             order: Redeem {
-                pool_nft: pool_id,
-                token_x: token_x,
-                token_y: token_y,
-                token_lq: token_lq,
+                pool_nft: pool.id,
+                token_x: pool.asset_x,
+                token_y: pool.asset_y,
+                token_lq: pool.asset_lq,
                 token_lq_amount: TaggedAmount::new(1900727),
                 ex_fee: 1500000,
                 reward_pkh: Ed25519KeyHash::from([0u8; 28]),

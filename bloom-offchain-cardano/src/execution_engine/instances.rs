@@ -389,6 +389,7 @@ for Magnet<LinkedSwap<StablePoolT2T, FinalizedTxOut>>
             redeemer: delayed_redeemer(move |ordering| {
                 StablePoolRedeemer {
                     pool_input_index: ordering.index_of(&in_ref) as u64,
+                    pool_output_index: ordering.index_of(&in_ref) as u64,
                     action: CFMMPoolAction::Swap,
                     new_pool_state: transition,
                     prev_pool_state: pool,

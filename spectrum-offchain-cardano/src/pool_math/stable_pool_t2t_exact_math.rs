@@ -35,6 +35,9 @@ pub fn calc_stable_swap<X, Y>(
     let nn = U512::from(N_TRADABLE_ASSETS.pow(N_TRADABLE_ASSETS as u32));
     let ann = an2n_calc / nn;
 
+    println!("base_initial: {}", base_initial);
+    println!("quote_calc: {}", quote_calc);
+
     let d = calculate_invariant(&base_initial, &quote_calc, &an2n_calc);
     let b = s + d / ann;
     let dn1 = vec![d; usize::try_from(N_TRADABLE_ASSETS + 1).unwrap()]
@@ -106,6 +109,9 @@ pub fn calc_stable_swap<X, Y>(
         true
     );
 
+    println!("asset_to_initial: {}", asset_to_initial);
+    println!("asset_to: {}", asset_to);
+
     let quote_amount_pure_delta = asset_to_initial - asset_to;
 
     TaggedAmount::new((quote_amount_pure_delta / quote_mult).as_u64())
@@ -174,11 +180,11 @@ pub fn calculate_context_values_list(prev_state: StablePoolT2T, new_state: Stabl
     let x_mult = U512::from(prev_state.multiplier_x);
     let y_mult = U512::from(prev_state.multiplier_y);
 
-    let tradable_reserves_x0 = U512::from(prev_state.reserves_x - prev_state.treasury_x);
-    let tradable_reserves_y0 = U512::from(prev_state.reserves_y - prev_state.treasury_y);
+    let tradable_reserves_x0 = U512::from(prev_state.reserves_x.untag() - prev_state.treasury_x.untag());
+    let tradable_reserves_y0 = U512::from(prev_state.reserves_y.untag() - prev_state.treasury_y.untag());
 
-    let tradable_reserves_x1 = U512::from(new_state.reserves_x - new_state.treasury_x);
-    let tradable_reserves_y1 = U512::from(new_state.reserves_y - new_state.treasury_y);
+    let tradable_reserves_x1 = U512::from(new_state.reserves_x.untag() - new_state.treasury_x.untag());
+    let tradable_reserves_y1 = U512::from(new_state.reserves_y.untag() - new_state.treasury_y.untag());
 
     let (base_calc, quote, quote_delta, quote_mult, quote_lp_fee) =
         if tradable_reserves_x1 > tradable_reserves_x0 {
@@ -187,7 +193,7 @@ pub fn calculate_context_values_list(prev_state: StablePoolT2T, new_state: Stabl
                 tradable_reserves_y1,
                 tradable_reserves_y0 - tradable_reserves_y1,
                 y_mult,
-                U512::from(prev_state.lp_fee_y),
+                U512::from(prev_state.lp_fee_y.numer() / prev_state.lp_fee_y.denom()),
             )
         } else {
             (
@@ -195,7 +201,7 @@ pub fn calculate_context_values_list(prev_state: StablePoolT2T, new_state: Stabl
                 tradable_reserves_x1,
                 tradable_reserves_x0 - tradable_reserves_x1,
                 x_mult,
-                U512::from(prev_state.lp_fee_x),
+                U512::from(prev_state.lp_fee_x.numer() / prev_state.lp_fee_x.denom()),
             )
         };
     let denom = U512::from(100000); // normal denom parsing todo!()
@@ -210,6 +216,9 @@ pub fn calculate_invariant(x_calc: &U512, y_calc: &U512, an2n: &U512) -> U512 {
     let n_calc = U512::from(N_TRADABLE_ASSETS);
     let ann = an2n / nn;
     let s = x_calc + y_calc;
+    println!("x_calc: {}", x_calc);
+    println!("y_calc: {}", y_calc);
+    println!("x_calc * y_calc: {}", x_calc * y_calc);
     let p = x_calc * y_calc;
 
     let mut d_previous = U512::zero();
@@ -222,6 +231,9 @@ pub fn calculate_invariant(x_calc: &U512, y_calc: &U512, an2n: &U512) -> U512 {
             .copied()
             .reduce(|a, b| a * b)
             .unwrap();
+        println!("nn: {}", nn);
+        println!("p: {}", p);
+        println!("nn / p: {}", nn / p);
         let d_p = dn1 / nn / p;
         d = (ann * s + n_calc * d_p) * d_previous / ((ann - unit) * d_previous + (n_calc + unit) * d_p);
         abs_err = if d > d_previous {
