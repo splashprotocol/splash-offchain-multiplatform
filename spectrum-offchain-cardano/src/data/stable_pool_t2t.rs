@@ -481,22 +481,26 @@ impl Pool for StablePoolT2T {
             (self.reserves_y.as_mut(), self.lp_fee_x, self.reserves_x.as_mut())
         };
         let lp_fees = pure_output * lp_fee.numer() / lp_fee.denom();
+
         let treasury_fee = pure_output * self.treasury_fee.numer() / self.treasury_fee.denom();
         let output = pure_output - treasury_fee - lp_fees;
+        println!("pure_output {:?}", pure_output);
+        println!("output {:?}", output);
         match input {
             Side::Bid(input) => {
                 // A user bid means that they wish to buy the base asset for the quote asset, hence
                 // pool reserves of base decreases while reserves of quote increase.
                 *quote_reserves += input;
                 *base_reserves -= output;
-                self.treasury_y = TaggedAmount::new(self.treasury_y.untag() + treasury_fee);
+                println!("new treasury: {:?}", treasury_fee);
+                self.treasury_x = TaggedAmount::new(self.treasury_x.untag() + treasury_fee);
                 (output, self)
             }
             Side::Ask(input) => {
                 // User ask is the opposite; sell the base asset for the quote asset.
                 *base_reserves += input;
                 *quote_reserves -= output;
-                self.treasury_x = TaggedAmount::new(self.treasury_x.untag() + treasury_fee);
+                self.treasury_y = TaggedAmount::new(self.treasury_y.untag() + treasury_fee);
                 (output, self)
             }
         }
@@ -727,9 +731,10 @@ mod tests {
 
         println!("pool: {:?}", pool);
 
-        let result = pool.swap(Side::Ask(390088 - 343088));
+        let result = pool.swap(Side::Bid(390088 - 343088));
 
-        assert_eq!(result.0, 652178037)
+        assert_eq!(result.0, 14095525);
+        assert_eq!(result.1.treasury_x.untag(), 243492762);
     }
 
     #[test]
