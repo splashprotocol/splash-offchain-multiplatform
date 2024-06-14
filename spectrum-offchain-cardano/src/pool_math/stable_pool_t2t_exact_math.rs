@@ -80,6 +80,7 @@ pub fn calc_stable_swap<X, Y>(
 
     if !valid_inv {
         while !valid_inv && counter < 255 {
+            asset_to += unit;
             valid_inv = check_exact_invariant(
                 &U512::from(quote_mult),
                 &base_initial,
@@ -90,7 +91,6 @@ pub fn calc_stable_swap<X, Y>(
                 &nn,
                 &an2n_calc,
             );
-            asset_to += unit;
             counter += 1;
         }
     }
@@ -252,15 +252,15 @@ pub fn calculate_invariant(x_calc: &U512, y_calc: &U512, an2n: &U512) -> U512 {
             inv_err = calculate_invariant_error_sgn(x_calc, y_calc, &d, nn, &ann)
         }
     }
-    return d + unit;
+    return d;
 }
 
 #[cfg(test)]
 mod test {
     use num_rational::Ratio;
 
-    use spectrum_cardano_lib::AssetClass::Native;
     use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
+    use spectrum_cardano_lib::AssetClass::Native;
 
     use crate::data::order::{Base, Quote};
     use crate::pool_math::stable_pool_t2t_exact_math::calc_stable_swap;

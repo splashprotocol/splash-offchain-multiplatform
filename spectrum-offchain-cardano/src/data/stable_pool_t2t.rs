@@ -41,7 +41,9 @@ use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::deployment::ProtocolValidator::StableFnPoolT2T;
 use crate::pool_math::cfmm_math::{classic_cfmm_reward_lp, classic_cfmm_shares_amount};
-use crate::pool_math::stable_pool_t2t_exact_math::{calc_stable_swap, calculate_context_values_list, calculate_invariant};
+use crate::pool_math::stable_pool_t2t_exact_math::{
+    calc_stable_swap, calculate_context_values_list, calculate_invariant,
+};
 
 const N_TRADABLE_ASSETS: u64 = 2;
 
@@ -115,8 +117,8 @@ pub enum StablePoolT2TVer {
 
 impl StablePoolT2TVer {
     pub fn try_from_address<Ctx>(pool_addr: &Address, ctx: &Ctx) -> Option<StablePoolT2TVer>
-        where
-            Ctx: Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>,
+    where
+        Ctx: Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>,
     {
         let maybe_hash = pool_addr.payment_cred().and_then(|c| match c {
             StakeCredential::PubKey { .. } => None,
@@ -188,7 +190,13 @@ impl StablePoolT2T {
     }
 
     // [gx, tx, gy, ty]
-    fn create_redeemer(pool_action: CFMMPoolAction, pool_in_idx: u64, pool_out_idx: u64, prev_state: StablePoolT2T, new_state: StablePoolT2T) -> PlutusData {
+    fn create_redeemer(
+        pool_action: CFMMPoolAction,
+        pool_in_idx: u64,
+        pool_out_idx: u64,
+        prev_state: StablePoolT2T,
+        new_state: StablePoolT2T,
+    ) -> PlutusData {
         /*
           Original structure of pool redeemer
 
@@ -209,26 +217,14 @@ impl StablePoolT2T {
         let self_ix_pd = PlutusData::Integer(BigInteger::from(pool_in_idx));
         let self_out_pd = PlutusData::Integer(BigInteger::from(pool_out_idx));
 
-
-        let context_values_list =
-            match pool_action {
-                CFMMPoolAction::Swap => {
-                    let context_values_list = calculate_context_values_list(prev_state, new_state);
-                    PlutusData::ConstrPlutusData(ConstrPlutusData {
-                        alternative: 0,
-                        fields: Vec::from([PlutusData::Integer(BigInteger::from(context_values_list.as_u128()))]),
-                        encodings: Some(ConstrPlutusDataEncoding {
-                            len_encoding: Canonical,
-                            tag_encoding: Some(cbor_event::Sz::One),
-                            alternative_encoding: None,
-                            fields_encoding: Indefinite,
-                            prefer_compact: true,
-                        }),
-                    })
-                }
-                _ => PlutusData::ConstrPlutusData(ConstrPlutusData {
-                    alternative: 1,
-                    fields: Vec::from([]),
+        let context_values_list = match pool_action {
+            CFMMPoolAction::Swap => {
+                let context_values_list = calculate_context_values_list(prev_state, new_state);
+                PlutusData::ConstrPlutusData(ConstrPlutusData {
+                    alternative: 0,
+                    fields: Vec::from([PlutusData::Integer(BigInteger::from(
+                        context_values_list.as_u128(),
+                    ))]),
                     encodings: Some(ConstrPlutusDataEncoding {
                         len_encoding: Canonical,
                         tag_encoding: Some(cbor_event::Sz::One),
@@ -237,7 +233,19 @@ impl StablePoolT2T {
                         prefer_compact: true,
                     }),
                 })
-            };
+            }
+            _ => PlutusData::ConstrPlutusData(ConstrPlutusData {
+                alternative: 1,
+                fields: Vec::from([]),
+                encodings: Some(ConstrPlutusDataEncoding {
+                    len_encoding: Canonical,
+                    tag_encoding: Some(cbor_event::Sz::One),
+                    alternative_encoding: None,
+                    fields_encoding: Indefinite,
+                    prefer_compact: true,
+                }),
+            }),
+        };
 
         PlutusData::ConstrPlutusData(ConstrPlutusData {
             alternative: 0,
@@ -254,8 +262,8 @@ impl StablePoolT2T {
 }
 
 impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for StablePoolT2T
-    where
-        Ctx: Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>,
+where
+    Ctx: Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         if let Some(pool_ver) = StablePoolT2TVer::try_from_address(repr.address(), ctx) {
@@ -341,8 +349,8 @@ impl Stable for StablePoolT2T {
 }
 
 impl<Ctx> RequiresValidator<Ctx> for StablePoolT2T
-    where
-        Ctx: Has<DeployedValidator<{ StableFnPoolT2T as u8 }>>,
+where
+    Ctx: Has<DeployedValidator<{ StableFnPoolT2T as u8 }>>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self.ver {
@@ -363,7 +371,13 @@ pub struct StablePoolRedeemer {
 
 impl StablePoolRedeemer {
     pub fn to_plutus_data(self) -> PlutusData {
-        StablePoolT2T::create_redeemer(self.action, self.pool_input_index, self.pool_output_index, self.prev_pool_state, self.new_pool_state)
+        StablePoolT2T::create_redeemer(
+            self.action,
+            self.pool_input_index,
+            self.pool_output_index,
+            self.prev_pool_state,
+            self.new_pool_state,
+        )
     }
 }
 
@@ -480,30 +494,38 @@ impl Pool for StablePoolT2T {
         } else {
             (self.reserves_y.as_mut(), self.lp_fee_x, self.reserves_x.as_mut())
         };
-        let lp_fees = pure_output * lp_fee.numer() / lp_fee.denom();
+        let lp_fees = pure_output * lp_fee.numer() / lp_fee.denom() + 1;
 
-        let treasury_fee = pure_output * self.treasury_fee.numer() / self.treasury_fee.denom();
+        let treasury_fee_ = pure_output * self.treasury_fee.numer() / self.treasury_fee.denom();
+        let total_fees_real = treasury_fee_ + lp_fees;
+        let total_fees_ideal =
+            (pure_output + 1) * (self.treasury_fee.numer() + lp_fee.numer()) / lp_fee.denom();
+
+        let treasury_fee = if total_fees_real >= total_fees_ideal {
+            treasury_fee_
+        } else {
+            treasury_fee_ + 1
+        };
+
         let output = pure_output - treasury_fee - lp_fees;
         println!("pure_output {:?}", pure_output);
         println!("output {:?}", output);
         let test = (output * FEE_DEN) / (FEE_DEN - lp_fee.numer() - self.treasury_fee.numer());
         println!("test {:?}", test);
-        let to_treasury = (test * self.treasury_fee.numer()) / FEE_DEN;
         match input {
             Side::Bid(input) => {
                 // A user bid means that they wish to buy the base asset for the quote asset, hence
                 // pool reserves of base decreases while reserves of quote increase.
                 *quote_reserves += input;
                 *base_reserves -= output;
-                println!("new to treasury: {:?}", to_treasury);
-                self.treasury_x = TaggedAmount::new(self.treasury_x.untag() + to_treasury);
+                self.treasury_x = TaggedAmount::new(self.treasury_x.untag() + treasury_fee);
                 (output, self)
             }
             Side::Ask(input) => {
                 // User ask is the opposite; sell the base asset for the quote asset.
                 *base_reserves += input;
                 *quote_reserves -= output;
-                self.treasury_y = TaggedAmount::new(self.treasury_y.untag() + to_treasury);
+                self.treasury_y = TaggedAmount::new(self.treasury_y.untag() + treasury_fee);
                 (output, self)
             }
         }
@@ -599,30 +621,29 @@ impl ApplyOrder<ClassicalOnChainRedeem> for StablePoolT2T {
 
 #[cfg(test)]
 mod tests {
-    use bloom_offchain::execution_engine::bundled::Bundled;
-    use bloom_offchain::execution_engine::liquidity_book::pool::Pool;
-    use bloom_offchain::execution_engine::liquidity_book::side::Side;
-    use cml_chain::plutus::PlutusData;
     use cml_chain::Deserialize;
+    use cml_chain::plutus::PlutusData;
     use cml_core::serialization::Serialize;
     use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
     use num_rational::Ratio;
     use primitive_types::U512;
-    use spectrum_cardano_lib::ex_units::ExUnits;
-    use spectrum_cardano_lib::output::FinalizedTxOut;
+
+    use bloom_offchain::execution_engine::liquidity_book::pool::Pool;
+    use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
-    use std::ops::{Mul, Sub};
-
+    use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
-    use crate::constants::MAX_LQ_CAP;
 
-    use crate::data::balance_pool::{BalancePool, BalancePoolConfig, BalancePoolRedeemer, BalancePoolVer};
+    use crate::constants::MAX_LQ_CAP;
+    use crate::data::{OnChainOrderId, PoolId};
     use crate::data::order::ClassicalOrder;
     use crate::data::order::OrderType::BalanceFn;
-    use crate::data::pool::{ApplyOrder, CFMMPoolAction, Lq, Rx, Ry};
+    use crate::data::pool::{ApplyOrder, CFMMPoolAction};
     use crate::data::redeem::{ClassicalOnChainRedeem, Redeem};
-    use crate::data::{OnChainOrderId, PoolId};
-    use crate::data::stable_pool_t2t::{StablePoolRedeemer, StablePoolT2T, StablePoolT2TConfig, StablePoolT2TVer};
+    use crate::data::stable_pool_t2t::{
+        StablePoolRedeemer, StablePoolT2T, StablePoolT2TConfig, StablePoolT2TVer,
+    };
+    use crate::pool_math::stable_pool_t2t_exact_math::calculate_invariant;
 
     const DATUM_SAMPLE: &str = "d8799fd8799f581c7dbe6f0c7849e2dae806cd4681910bfe1bbc0d5fd4e370e8e2f7bd4a436e6674ff190c80d8799f4040ffd8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737443ff0000d8799f581c6abe65f6adc8301ff4dbfcfcec1a187075639d21f85cae3c1cf2a060426c71ffd87980d879801a000186820a581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba260000ff";
 
@@ -637,20 +658,25 @@ mod tests {
         treasury_x: u64,
         treasury_y: u64,
     ) -> StablePoolT2T {
+        let an2n = 300 * 16;
         let reserves_x = reserves_x;
         println!("reserves_x in gen: {}", reserves_x);
         let reserves_y = reserves_y;
         println!("reserves_y in gen: {}", reserves_y);
-        let inv_before = 510000000; // reserves_x * 2; //todo: copy from aiken test. Refactor it
-        let liquidity = MAX_LQ_CAP - inv_before;
-        let (multiplier_x, multiplier_y) =
-            if (x_decimals > y_decimals) {
-                (1, 10_u32.pow(x_decimals - y_decimals))
-            } else if (x_decimals < y_decimals) {
-                (10_u32.pow(y_decimals - x_decimals), 1)
-            } else {
-                (1, 1)
-            };
+        let (multiplier_x, multiplier_y) = if (x_decimals > y_decimals) {
+            (1, 10_u32.pow(x_decimals - y_decimals))
+        } else if (x_decimals < y_decimals) {
+            (10_u32.pow(y_decimals - x_decimals), 1)
+        } else {
+            (1, 1)
+        };
+        let inv_before = calculate_invariant(
+            &U512::from((reserves_x - treasury_x) * multiplier_x as u64),
+            &U512::from((reserves_y - treasury_y) * multiplier_x as u64),
+            &U512::from(an2n),
+        );
+        let liquidity = MAX_LQ_CAP - inv_before.as_u64();
+
         return StablePoolT2T {
             id: PoolId::from((
                 ScriptHash::from([
@@ -665,7 +691,7 @@ mod tests {
                     ],
                 )),
             )),
-            an2n: 300 * 16, // constant
+            an2n: an2n, // constant
             reserves_x: TaggedAmount::new(reserves_x),
             multiplier_x: multiplier_x as u64,
             reserves_y: TaggedAmount::new(reserves_y),
@@ -720,17 +746,8 @@ mod tests {
 
     #[test]
     fn swap() {
-        let pool = gen_ada_token_pool(
-            475000220,
-            6,
-            343088,
-            3,
-            20000,
-            20000,
-            50000,
-            220000220,
-            88088,
-        );
+        // Swap to min decimals;
+        let pool = gen_ada_token_pool(475000220, 6, 343088, 3, 20000, 20000, 50000, 220000220, 88088);
 
         println!("pool: {:?}", pool);
 
@@ -740,21 +757,35 @@ mod tests {
         assert_eq!(result.1.reserves_y.untag(), 390088);
         assert_eq!(result.1.treasury_x.untag(), 243492762);
         assert_eq!(result.1.treasury_y.untag(), 88088);
+
+        // Swap to max decimals;
+        let pool = gen_ada_token_pool(343088, 3, 475000220, 6, 20000, 20000, 50000, 88088, 220000220);
+
+        println!("pool: {:?}", pool);
+
+        let result = pool.swap(Side::Ask(390088 - 343088));
+
+        assert_eq!(result.1.reserves_x.untag(), 390088);
+        assert_eq!(result.1.reserves_y.untag(), 460904695);
+        assert_eq!(result.1.treasury_x.untag(), 88088);
+        assert_eq!(result.1.treasury_y.untag(), 243492762);
+
+        // Uniform swap;
+        let pool = gen_ada_token_pool(100000, 1, 100000, 1, 2000, 2000, 5000, 0, 0);
+
+        println!("pool: {:?}", pool);
+
+        let result = pool.swap(Side::Ask(1000));
+
+        assert_eq!(result.1.reserves_x.untag(), 101000);
+        assert_eq!(result.1.reserves_y.untag(), 99071);
+        assert_eq!(result.1.treasury_x.untag(), 0);
+        assert_eq!(result.1.treasury_y.untag(), 50);
     }
 
     #[test]
     fn swap_redeemer_test() {
-        let pool = gen_ada_token_pool(
-            1_000_000_000,
-            9,
-            1_000_000_000,
-            9,
-            99000,
-            99000,
-            100,
-            0,
-            0,
-        );
+        let pool = gen_ada_token_pool(1_000_000_000, 9, 1_000_000_000, 9, 99000, 99000, 100, 0, 0);
 
         let (_result, new_pool) = pool.clone().swap(Side::Ask(363613802862));
 
@@ -765,7 +796,7 @@ mod tests {
             new_pool_state: new_pool,
             prev_pool_state: pool,
         }
-            .to_plutus_data();
+        .to_plutus_data();
 
         assert_eq!(
             hex::encode(test_swap_redeemer.to_canonical_cbor_bytes()),
@@ -775,17 +806,7 @@ mod tests {
 
     #[test]
     fn deposit_redeemer_test() {
-        let pool = gen_ada_token_pool(
-            1_000_000_000,
-            9,
-            1_000_000_000,
-            9,
-            99000,
-            99000,
-            100,
-            0,
-            0,
-        );
+        let pool = gen_ada_token_pool(1_000_000_000, 9, 1_000_000_000, 9, 99000, 99000, 100, 0, 0);
 
         const TX: &str = "6c038a69587061acd5611507e68b1fd3a7e7d189367b7853f3bb5079a118b880";
         const IX: u64 = 1;
