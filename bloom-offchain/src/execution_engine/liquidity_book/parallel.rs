@@ -1,18 +1,20 @@
 use std::fmt::Debug;
 use std::mem;
+use bounded_integer::BoundedU64;
 
 use log::trace;
 
 use algebra_core::monoid::Monoid;
 use spectrum_offchain::data::Stable;
 
-use crate::execution_engine::liquidity_book::core::{MatchmakingAttempt, MatchmakingRecipe, TakeInProgress};
+use crate::execution_engine::liquidity_book::core::{MatchmakingAttempt, MatchmakingRecipe, MatchmakingStep, TakeInProgress};
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState};
 use crate::execution_engine::liquidity_book::market_maker::MarketMaker;
-use crate::execution_engine::liquidity_book::side::SideM;
+use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
 use crate::execution_engine::liquidity_book::state::TLBState;
 use crate::execution_engine::liquidity_book::{ExecutionCap, TLBFeedback};
+use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 
 /// TLB is a Universal Liquidity Aggregator (ULA), it is able to aggregate every piece of composable
 /// liquidity available in the market.
@@ -29,6 +31,7 @@ pub struct TLB<Taker, Maker: Stable, U> {
     state: TLBState<Taker, Maker>,
     execution_cap: ExecutionCap<U>,
     attempt_side: SideM,
+    step: MatchmakingStep,
 }
 
 impl<Taker, Maker, U> TLBFeedback<Taker, Maker> for TLB<Taker, Maker, U>
@@ -63,7 +66,18 @@ where
                             if batch.execution_units_consumed() < self.execution_cap.soft {
                                 // 1. Take a chunk of remaining input from remainder
                                 // 2. Take liquidity from best counter-offer (takers/makers)
-                                
+                                let rem_side = rem.target.side();
+                                let rem_price = rem_side.wrap(rem.target.price());
+                                let maybe_price_counter_taker = self.state.best_fr_price(!rem_side);
+                                let chunk_offered = rem.next_chunk_offered(self.step);
+                                let maybe_price_maker = self.state.preselect_market_maker(chunk_offered);
+                                match (maybe_price_counter_taker, maybe_price_maker) {
+                                    (Some(price_counter_taker), maybe_price_maker) if maybe_price_maker
+                                        .map(|(_, p)| price_counter_taker.better_than(p))
+                                        .unwrap_or(true) => {}
+                                    (_, Some((maker_sid, price_maker))) if rem_price.overlaps(price_maker) => {}
+                                    _ => {}
+                                }
                             }
                         }
                         break;
