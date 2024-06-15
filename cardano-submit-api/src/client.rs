@@ -1,7 +1,11 @@
+use std::io::Read;
 use std::marker::PhantomData;
 use std::path::Path;
 
+use cml_chain::crypto::hash::hash_transaction;
 use cml_core::serialization::Serialize;
+use cml_crypto::blake2b256;
+use log::trace;
 use pallas_network::miniprotocols::handshake::RefuseReason;
 use pallas_network::miniprotocols::localtxsubmission::{EraTx, RejectReason};
 use pallas_network::miniprotocols::{
@@ -54,10 +58,15 @@ impl<const ERA: u16, Tx> LocalTxSubmissionClient<ERA, Tx> {
         Tx: Serialize,
     {
         let tx_bytes = tx.to_cbor_bytes();
-        self.tx_submission
+        let hash = hex::encode(&blake2b256(&tx_bytes)[0..8]);
+        trace!("[{}] Going to submit TX", hash);
+        let result = self
+            .tx_submission
             .submit_tx(EraTx(ERA, tx_bytes))
             .await
-            .map_err(Error::TxSubmissionProtocol)
+            .map_err(Error::TxSubmissionProtocol);
+        trace!("[{}] Submit attempt finished", hex::encode(hash));
+        result
     }
 
     pub async fn close(self) {
