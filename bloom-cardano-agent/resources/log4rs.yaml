@@ -4,7 +4,7 @@ appenders:
     kind: rolling_file
     path: "/var/bot/logs/bot.log"
     encoder:
-      pattern: "{d(%Y-%m-%d %H:%M:%S)} {({l}):5.5} {T}:{t} — {m}{n}"
+      pattern: "{d(%Y-%m-%d %H:%M:%S)} {h({l}):5.5} {({T}):4.10} — {m}{n}"
     policy:
       # Identifies which policy is to be used. If no kind is specified, it will
       # default to "compound".

@@ -13,6 +13,8 @@ use pallas_network::miniprotocols::localtxsubmission::RejectReason;
 use cardano_submit_api::client::{Error, LocalTxSubmissionClient};
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::network::Network;
+use spectrum_offchain::tx_hash;
+use spectrum_offchain::tx_hash::CanonicalHash;
 
 use crate::node::NodeConfig;
 use crate::node_error::transcribe_bad_inputs_error;
@@ -88,35 +90,39 @@ pub fn tx_submission_agent_stream<'a, const ERA: u16, TxAdapter, Tx>(
     mut agent: TxSubmissionAgent<'a, ERA, TxAdapter, Tx>,
 ) -> impl Stream<Item = ()> + 'a
 where
-    TxAdapter: Deref<Target = Tx> + 'a,
+    TxAdapter: Deref<Target = Tx> + CanonicalHash + 'a,
+    TxAdapter::Hash: Display,
     Tx: Serialize + Clone + 'a,
 {
     stream! {
         loop {
             let SubmitTx(tx, on_resp) = agent.mailbox.select_next_some().await;
             let mut attempts_done = 0;
+            let tx_hash = tx.canonical_hash();
             loop {
                 match agent.client.submit_tx((*tx).clone()).await {
                     Ok(_) => on_resp.send(SubmissionResult::Ok).expect("Responder was dropped"),
                     Err(Error::TxSubmissionProtocol(err)) => {
-                        trace!("Failed to submit TX: {}", hex::encode(tx.to_cbor_bytes()));
+                        trace!("Failed to submit TX {}: {}", tx_hash, hex::encode(tx.to_cbor_bytes()));
                         match err {
                             localtxsubmission::Error::TxRejected(RejectReason(rejected_bytes)) => {
-                                trace!("TxRejected: Node responded with error: {}", hex::encode(&rejected_bytes));
-                                on_resp.send(SubmissionResult::TxRejected{rejected_bytes}).expect("Responder was dropped")
+                                trace!("TX {} rejected due to error: {}", tx_hash, hex::encode(&rejected_bytes));
+                                on_resp.send(SubmissionResult::TxRejected{rejected_bytes}).expect("Responder was dropped");
                             },
                             retryable_err => {
-                                trace!("TxSubmissionProtocol responded with error: {}", retryable_err);
+                                trace!("Failed to submit {}: protocol returned error: {}", tx_hash, retryable_err);
                                 if attempts_done < MAX_SUBMIT_ATTEMPTS {
+                                    trace!("Retrying");
                                     attempts_done += 1;
-                                    continue
+                                } else {
+                                    trace!("Restarting TxSubmissionProtocol");
+                                    agent = agent.restarted().await.expect("Failed to restart TxSubmissionProtocol");
                                 }
-                                trace!("Restarting TxSubmissionProtocol");
-                                agent = agent.restarted().await.expect("Failed to restart TxSubmissionProtocol");
+                                continue;
                             },
                         };
                     },
-                    Err(err) => panic!("Cannot submit TX due to {}", err),
+                    Err(err) => panic!("Cannot submit TX {} due to {}", tx_hash, err),
                 }
                 break;
             }

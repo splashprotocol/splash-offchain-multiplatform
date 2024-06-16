@@ -24,7 +24,7 @@ use spectrum_offchain::data::{Baked, EntitySnapshot, Stable};
 use spectrum_offchain::health_alert::{HealthAlertClient, SlackHealthAlert};
 use spectrum_offchain::maker::Maker;
 use spectrum_offchain::network::Network;
-use spectrum_offchain::tx_hash::CannonicalHash;
+use spectrum_offchain::tx_hash::CanonicalHash;
 use spectrum_offchain::tx_prover::TxProver;
 
 use crate::execution_engine::backlog::SpecializedInterpreter;
@@ -124,7 +124,7 @@ where
     SpecOrd: SpecializedOrder<TPoolId = StableId, TOrderId = Ver> + Debug + Unpin + 'a,
     Bearer: Clone + Unpin + Debug + 'a,
     TxCandidate: Unpin + 'a,
-    Tx: CannonicalHash<Hash = TxHash> + Unpin + 'a,
+    Tx: CanonicalHash<Hash = TxHash> + Unpin + 'a,
     TxHash: Display + Unpin + 'a,
     Ctx: Clone + Unpin + 'a,
     Index: StateIndex<EvolvingEntity<CompOrd, Pool, Ver, Bearer>> + Unpin + 'a,
@@ -470,7 +470,7 @@ where
     SO: SpecializedOrder<TPoolId = SID, TOrderId = V> + Unpin,
     B: Clone + Debug + Unpin,
     TC: Unpin,
-    TX: CannonicalHash<Hash = TH> + Unpin,
+    TX: CanonicalHash<Hash = TH> + Unpin,
     TH: Display + Unpin,
     C: Clone + Unpin,
     IX: StateIndex<EvolvingEntity<CO, P, V, B>> + Unpin,
@@ -639,7 +639,7 @@ where
     SO: SpecializedOrder<TPoolId = ST, TOrderId = V> + Unpin,
     B: Clone + Debug + Unpin,
     TC: Unpin,
-    TX: CannonicalHash<Hash = TH> + Unpin,
+    TX: CanonicalHash<Hash = TH> + Unpin,
     TH: Display + Unpin,
     C: Clone + Unpin,
     IX: StateIndex<EvolvingEntity<CO, P, V, B>> + Unpin,

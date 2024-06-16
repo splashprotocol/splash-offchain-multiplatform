@@ -9,7 +9,7 @@ use cml_multi_era::babbage::{BabbageFormatTxOut, BabbageScriptRef, BabbageTransa
 use derive_more::From;
 use std::ops::Deref;
 
-use spectrum_offchain::tx_hash::CannonicalHash;
+use spectrum_offchain::tx_hash::CanonicalHash;
 
 use crate::address::AddressExtension;
 use crate::hash::hash_transaction_canonical;
@@ -25,7 +25,7 @@ impl<T> Deref for OutboundTransaction<T> {
     }
 }
 
-impl CannonicalHash for OutboundTransaction<Transaction> {
+impl CanonicalHash for OutboundTransaction<Transaction> {
     type Hash = TransactionHash;
     fn canonical_hash(&self) -> Self::Hash {
         hash_transaction_canonical(&self.0.body)

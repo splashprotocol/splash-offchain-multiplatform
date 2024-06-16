@@ -107,7 +107,7 @@ where
                 .await
                 {
                     Ok((transitions, tx)) => {
-                        trace!(target: "offchain", "[{}] entities parsed from applied tx", transitions.len());
+                        trace!("{} entities found in applied TX", transitions.len());
                         let pool_index = self.general_handler.index.lock().await;
                         let mut index = self.order_index.lock().await;
                         index.run_eviction();
@@ -136,7 +136,7 @@ where
                 .await
                 {
                     Ok((transitions, tx)) => {
-                        trace!("[{}] entities parsed from unapplied tx", transitions.len());
+                        trace!("{} entities found in unapplied TX", transitions.len());
                         let mut index = self.order_index.lock().await;
                         let pool_index = self.general_handler.index.lock().await;
                         index.run_eviction();
@@ -192,7 +192,7 @@ where
                 .await
                 {
                     Ok((transitions, tx)) => {
-                        trace!(target: "offchain", "[{}] entities parsed from applied tx", transitions.len());
+                        trace!("{} entities found in unconfirmed TX", transitions.len());
                         let pool_index = self.general_handler.index.lock().await;
                         let mut index = self.order_index.lock().await;
                         index.run_eviction();
@@ -233,7 +233,6 @@ where
     Order::TOrderId: From<OutputRef> + Display,
     Index: OrderIndex<Order>,
 {
-    trace!("+- Scanning Tx {} for atomic orders", tx_hash);
     let num_outputs = tx.body.outputs.len();
     if num_outputs == 0 {
         return Err((tx_hash, tx));
@@ -306,7 +305,6 @@ where
     Entity::Version: From<OutputRef>,
     Index: TradableEntityIndex<Entity>,
 {
-    trace!("+- Scanning Tx {} for persistent entities", tx_hash);
     let num_outputs = tx.body.outputs.len();
     if num_outputs == 0 {
         return Err((tx_hash, tx));
@@ -400,7 +398,7 @@ where
             LedgerTxEvent::TxApplied { tx, slot } => {
                 match extract_persistent_transitions(Arc::clone(&self.index), self.context, tx).await {
                     Ok((transitions, tx)) => {
-                        trace!(target: "offchain", "[{}] entities parsed from applied tx", transitions.len());
+                        trace!("{} entities found in applied TX", transitions.len());
                         let mut index = self.index.lock().await;
                         index.run_eviction();
                         for tr in transitions {
@@ -421,7 +419,7 @@ where
             LedgerTxEvent::TxUnapplied(tx) => {
                 match extract_persistent_transitions(Arc::clone(&self.index), self.context, tx).await {
                     Ok((transitions, tx)) => {
-                        trace!("[{}] entities parsed from unapplied tx", transitions.len());
+                        trace!("{} entities found in applied TX", transitions.len());
                         let mut index = self.index.lock().await;
                         index.run_eviction();
                         for tr in transitions {
@@ -470,7 +468,7 @@ where
             MempoolUpdate::TxAccepted(tx) => {
                 match extract_persistent_transitions(Arc::clone(&self.index), self.context, tx).await {
                     Ok((transitions, tx)) => {
-                        trace!("[{}] entities parsed from applied tx", transitions.len());
+                        trace!("{} entities found in applied TX", transitions.len());
                         let mut index = self.index.lock().await;
                         index.run_eviction();
                         for tr in transitions {
