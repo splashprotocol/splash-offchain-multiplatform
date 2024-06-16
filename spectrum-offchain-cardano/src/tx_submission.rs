@@ -6,9 +6,10 @@ use async_stream::stream;
 use cml_core::serialization::Serialize;
 use futures::channel::{mpsc, oneshot};
 use futures::{SinkExt, Stream, StreamExt};
-use log::trace;
+use log::{trace, warn};
 use pallas_network::miniprotocols::localtxsubmission;
 use pallas_network::miniprotocols::localtxsubmission::RejectReason;
+use pallas_network::multiplexer;
 
 use cardano_submit_api::client::{Error, LocalTxSubmissionClient};
 use spectrum_cardano_lib::OutputRef;
@@ -38,6 +39,10 @@ impl<'a, const ERA: u16, TxAdapter, Tx> TxSubmissionAgent<'a, ERA, TxAdapter, Tx
             node_config,
         };
         Ok((agent, TxSubmissionChannel(snd)))
+    }
+
+    pub fn recover(&mut self) {
+        self.client.unsafe_reset();
     }
 
     pub async fn restarted(self) -> Result<Self, Error> {
@@ -106,11 +111,16 @@ where
                         trace!("Failed to submit TX {}: {}", tx_hash, hex::encode(tx.to_cbor_bytes()));
                         match err {
                             localtxsubmission::Error::TxRejected(RejectReason(rejected_bytes)) => {
-                                trace!("TX {} rejected due to error: {}", tx_hash, hex::encode(&rejected_bytes));
+                                trace!("TX {} was rejected due to error: {}", tx_hash, hex::encode(&rejected_bytes));
                                 on_resp.send(SubmissionResult::TxRejected{rejected_bytes}).expect("Responder was dropped");
                             },
+                            localtxsubmission::Error::InboundChannelError(multiplexer::Error::Decoding(_)) => {
+                                warn!("TX {} was likely rejected, reason unknown. Trying to recover.");
+                                agent.recover();
+                                on_resp.send(SubmissionResult::TxRejected{rejected_bytes: vec![]}).expect("Responder was dropped");
+                            }
                             retryable_err => {
-                                trace!("Failed to submit {}: protocol returned error: {}", tx_hash, retryable_err);
+                                trace!("Failed to submit TX {}: protocol returned error: {}", tx_hash, retryable_err);
                                 if attempts_done < MAX_SUBMIT_ATTEMPTS {
                                     trace!("Retrying");
                                     attempts_done += 1;

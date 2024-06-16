@@ -72,6 +72,10 @@ impl<const ERA: u16, Tx> LocalTxSubmissionClient<ERA, Tx> {
     pub async fn close(self) {
         self.plexer.abort().await
     }
+
+    pub fn unsafe_reset(&mut self) {
+        self.tx_submission.unsafe_reset();
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
