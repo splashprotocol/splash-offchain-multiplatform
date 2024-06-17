@@ -115,7 +115,7 @@ where
                                 on_resp.send(SubmissionResult::TxRejected{rejected_bytes}).expect("Responder was dropped");
                             },
                             localtxsubmission::Error::InboundChannelError(multiplexer::Error::Decoding(_)) => {
-                                warn!("TX {} was likely rejected, reason unknown. Trying to recover.");
+                                warn!("TX {} was likely rejected, reason unknown. Trying to recover.", tx_hash);
                                 agent.recover();
                                 on_resp.send(SubmissionResult::TxRejected{rejected_bytes: vec![]}).expect("Responder was dropped");
                             }
