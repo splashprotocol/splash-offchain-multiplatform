@@ -317,12 +317,13 @@ where
                 let max_execution_steps_possible = base_output / min_marginal_output;
                 let sufficient_execution_budget =
                     max_execution_steps_available >= max_execution_steps_possible;
+                let positive_min_marginal_output = min_marginal_output > 0;
                 let is_permissionless = conf.permitted_executors.is_empty();
                 let executable = is_permissionless
                     || conf
                         .permitted_executors
                         .contains(&ctx.select::<OperatorCred>().into());
-                if sufficient_execution_budget && executable {
+                if sufficient_execution_budget && positive_min_marginal_output && executable {
                     let bounds = ctx.select::<LimitOrderBounds>();
                     let valid_configuration = conf.cost_per_ex_step >= bounds.min_cost_per_ex_step
                         && execution_budget >= conf.cost_per_ex_step
