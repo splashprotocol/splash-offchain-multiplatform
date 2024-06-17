@@ -170,6 +170,15 @@ where
                                             })
                                         {
                                             trace!("Matched with fragment: {}", opposite_fr);
+                                            if let Some((_, sp, _)) = price_in_pools {
+                                                let spot_price = sp.into();
+                                                let both_above_spot = target_price.unwrap() < spot_price && opposite_fr.price() < spot_price;
+                                                let both_below_spot = target_price.unwrap() > spot_price && opposite_fr.price() > spot_price;
+                                                if both_below_spot || both_above_spot {
+                                                    trace!("Match with fragment {} cancelled", opposite_fr);
+                                                    break;
+                                                }
+                                            }
                                             execution_units_left -= opposite_fr.marginal_cost_hint();
                                             let make_match = |x: &Fr, y: &Fr| {
                                                 let (ask, bid) = match x.side() {
