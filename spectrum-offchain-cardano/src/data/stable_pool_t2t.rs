@@ -476,15 +476,20 @@ impl Pool for StablePoolT2T {
         };
         let lp_fees = pure_output * lp_fee.numer() / lp_fee.denom() + 1;
 
-        let treasury_fee_ = pure_output * self.treasury_fee.numer() / self.treasury_fee.denom();
-        let total_fees_real = treasury_fee_ + lp_fees;
-        let total_fees_ideal =
-            (pure_output + 1) * (self.treasury_fee.numer() + lp_fee.numer()) / lp_fee.denom();
-
-        let treasury_fee = if total_fees_real >= total_fees_ideal || *self.treasury_fee.numer() == 0 {
+        let mut treasury_fee_ = pure_output * self.treasury_fee.numer() / self.treasury_fee.denom();
+        let mut total_fees_real = treasury_fee_ + lp_fees;
+        let total_fees_ideal = pure_output * (self.treasury_fee.numer() + lp_fee.numer()) / lp_fee.denom();
+        let mut valid_treasury_fee = total_fees_real > total_fees_ideal;
+        let treasury_fee = if total_fees_real > total_fees_ideal || *self.treasury_fee.numer() == 0 {
             treasury_fee_
         } else {
-            treasury_fee_ + 1
+            while !valid_treasury_fee {
+                println!("{:?}", treasury_fee_);
+                treasury_fee_ += 1;
+                total_fees_real = treasury_fee_ + lp_fees;
+                valid_treasury_fee = total_fees_real > total_fees_ideal;
+            }
+            treasury_fee_
         };
 
         let output = pure_output - treasury_fee - lp_fees;
@@ -762,6 +767,18 @@ mod tests {
         assert_eq!(result.1.reserves_y.untag(), 99071);
         assert_eq!(result.1.treasury_x.untag(), 0);
         assert_eq!(result.1.treasury_y.untag(), 50);
+
+        // Some swap;
+        let pool = gen_ada_token_pool(100100000, 1, 99900201, 1, 100, 100, 100, 0, 100);
+
+        println!("pool: {:?}", pool);
+
+        let result = pool.swap(Side::Ask(100000));
+
+        assert_eq!(result.1.reserves_x.untag(), 100200000);
+        assert_eq!(result.1.reserves_y.untag(), 99800403);
+        assert_eq!(result.1.treasury_x.untag(), 0);
+        assert_eq!(result.1.treasury_y.untag(), 200);
     }
 
     #[test]
