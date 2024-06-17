@@ -1,11 +1,11 @@
-import { strigifyAll } from './helpers.ts';
+import { strigifyAll } from "./helpers.ts";
 
 export type Config<T> = {
-  validators?: T
+  validators?: T;
 };
 
-const TEMPLATE_CONFIG_PATH = './config.template.json';
-const CONFIG_PATH = './config.json';
+const TEMPLATE_CONFIG_PATH = "./config.template.json";
+const CONFIG_PATH = "./config.json";
 
 export async function getConfig<T extends object>(): Promise<Config<T>> {
   try {
@@ -22,7 +22,7 @@ async function getConfigTemplate<T extends object>(): Promise<Config<T>> {
   try {
     return JSON.parse(await Deno.readTextFile(TEMPLATE_CONFIG_PATH));
   } catch (_) {
-    throw Error('Config Template not found.');
+    throw Error("Config Template not found.");
   }
 }
 
@@ -33,5 +33,8 @@ export async function generateConfigJson<T extends object>(
 
   newConfig.validators = validators;
 
-  await Deno.writeTextFile(CONFIG_PATH, JSON.stringify(newConfig, strigifyAll, 2));
+  await Deno.writeTextFile(
+    CONFIG_PATH,
+    JSON.stringify(newConfig, strigifyAll, 2),
+  );
 }

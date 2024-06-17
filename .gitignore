@@ -13,3 +13,7 @@ seed.txt
 token.txt
 node_modules/
 state/
+splash-dao-testing/nfts.json
+splash-dao-testing/deployedValidators.json
+splash-dao-testing/validators.json
+splash-dao-testing/preprod.deployment.json
