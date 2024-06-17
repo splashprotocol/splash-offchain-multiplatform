@@ -5,12 +5,9 @@ use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
-use cml_chain::plutus::utils::ConstrPlutusDataEncoding;
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
-use cml_core::serialization::LenEncoding;
-use cml_core::serialization::LenEncoding::{Canonical, Indefinite};
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_integer::Roots;
 use num_rational::Ratio;
@@ -223,25 +220,24 @@ impl StablePoolT2T {
         let context_values_list = match pool_action {
             CFMMPoolAction::Swap => {
                 let context_values_list = calculate_context_values_list(prev_state, new_state);
-                ConstrPlutusData::new(0, Vec::from([
-                    PlutusData::new_list(vec![PlutusData::new_integer(BigInteger::from(
-                        context_values_list.as_u64(),
-                    ))])
-                ]))
+                ConstrPlutusData::new(
+                    0,
+                    Vec::from([PlutusData::new_list(vec![PlutusData::new_integer(
+                        BigInteger::from(context_values_list.as_u64()),
+                    )])]),
+                )
             }
-            _ => ConstrPlutusData::new(1, Vec::from([]))
+            _ => ConstrPlutusData::new(1, Vec::from([])),
         };
 
-        PlutusData::ConstrPlutusData(
-            ConstrPlutusData::new(
-                0,
-                Vec::from([
-                    self_ix_pd,
-                    self_out_pd,
-                    PlutusData::ConstrPlutusData(context_values_list)
-                ])
-            )
-        )
+        PlutusData::ConstrPlutusData(ConstrPlutusData::new(
+            0,
+            Vec::from([
+                self_ix_pd,
+                self_out_pd,
+                PlutusData::ConstrPlutusData(context_values_list),
+            ]),
+        ))
     }
 }
 
