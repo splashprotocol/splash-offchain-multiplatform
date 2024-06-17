@@ -311,10 +311,13 @@ where
                 .checked_sub(reserved_lovelace)
                 .and_then(|lov| lov.checked_sub(conf.fee))
                 .and_then(|lov| lov.checked_sub(tradable_lovelace))?;
-            let max_execution_steps_available = execution_budget / conf.cost_per_ex_step;
             if let Some(base_output) = linear_output_rel(conf.tradable_input, conf.base_price) {
                 let min_marginal_output = conf.min_marginal_output;
-                if let Some(max_execution_steps_possible) = base_output.checked_div(min_marginal_output) {
+                let max_execution_steps_possible = base_output.checked_div(min_marginal_output);
+                let max_execution_steps_available = execution_budget.checked_div(conf.cost_per_ex_step);
+                if let (Some(max_execution_steps_possible), Some(max_execution_steps_available)) =
+                    (max_execution_steps_possible, max_execution_steps_available)
+                {
                     let sufficient_execution_budget =
                         max_execution_steps_available >= max_execution_steps_possible;
                     let is_permissionless = conf.permitted_executors.is_empty();
