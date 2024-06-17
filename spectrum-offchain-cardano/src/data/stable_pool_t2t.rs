@@ -481,7 +481,7 @@ impl Pool for StablePoolT2T {
         let total_fees_ideal =
             (pure_output + 1) * (self.treasury_fee.numer() + lp_fee.numer()) / lp_fee.denom();
 
-        let treasury_fee = if total_fees_real >= total_fees_ideal && *self.treasury_fee.numer() != 0 {
+        let treasury_fee = if total_fees_real >= total_fees_ideal || *self.treasury_fee.numer() == 0 {
             treasury_fee_
         } else {
             treasury_fee_ + 1
