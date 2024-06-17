@@ -314,44 +314,45 @@ where
             let max_execution_steps_available = execution_budget / conf.cost_per_ex_step;
             if let Some(base_output) = linear_output_rel(conf.tradable_input, conf.base_price) {
                 let min_marginal_output = conf.min_marginal_output;
-                let max_execution_steps_possible = base_output / min_marginal_output;
-                let sufficient_execution_budget =
-                    max_execution_steps_available >= max_execution_steps_possible;
-                let positive_min_marginal_output = min_marginal_output > 0;
-                let is_permissionless = conf.permitted_executors.is_empty();
-                let executable = is_permissionless
-                    || conf
-                        .permitted_executors
-                        .contains(&ctx.select::<OperatorCred>().into());
-                if sufficient_execution_budget && positive_min_marginal_output && executable {
-                    let bounds = ctx.select::<LimitOrderBounds>();
-                    let valid_configuration = conf.cost_per_ex_step >= bounds.min_cost_per_ex_step
-                        && execution_budget >= conf.cost_per_ex_step
-                        && base_output >= min_marginal_output;
-                    if valid_configuration {
-                        // Fresh beacon must be derived from one of consumed utxos.
-                        let valid_fresh_beacon = ctx
-                            .select::<ConsumedInputs>()
-                            .find(|o| beacon_from_oref(*o) == conf.beacon);
-                        let script_info = ctx.select::<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>();
-                        return Some(LimitOrder {
-                            beacon: conf.beacon,
-                            input_asset: conf.input,
-                            input_amount: conf.tradable_input,
-                            output_asset: conf.output,
-                            output_amount: value.amount_of(conf.output).unwrap_or(0),
-                            base_price: conf.base_price,
-                            execution_budget,
-                            fee_asset: AssetClass::Native,
-                            fee: conf.fee,
-                            min_marginal_output: conf.min_marginal_output,
-                            max_cost_per_ex_step: conf.cost_per_ex_step,
-                            redeemer_address: conf.redeemer_address,
-                            cancellation_pkh: conf.cancellation_pkh,
-                            requires_executor_sig: !is_permissionless,
-                            virgin: valid_fresh_beacon,
-                            marginal_cost: script_info.marginal_cost,
-                        });
+                if let Some(max_execution_steps_possible) = base_output.checked_div(min_marginal_output) {
+                    let sufficient_execution_budget =
+                        max_execution_steps_available >= max_execution_steps_possible;
+                    let positive_min_marginal_output = min_marginal_output > 0;
+                    let is_permissionless = conf.permitted_executors.is_empty();
+                    let executable = is_permissionless
+                        || conf
+                            .permitted_executors
+                            .contains(&ctx.select::<OperatorCred>().into());
+                    if sufficient_execution_budget && positive_min_marginal_output && executable {
+                        let bounds = ctx.select::<LimitOrderBounds>();
+                        let valid_configuration = conf.cost_per_ex_step >= bounds.min_cost_per_ex_step
+                            && execution_budget >= conf.cost_per_ex_step
+                            && base_output >= min_marginal_output;
+                        if valid_configuration {
+                            // Fresh beacon must be derived from one of consumed utxos.
+                            let valid_fresh_beacon = ctx
+                                .select::<ConsumedInputs>()
+                                .find(|o| beacon_from_oref(*o) == conf.beacon);
+                            let script_info = ctx.select::<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>();
+                            return Some(LimitOrder {
+                                beacon: conf.beacon,
+                                input_asset: conf.input,
+                                input_amount: conf.tradable_input,
+                                output_asset: conf.output,
+                                output_amount: value.amount_of(conf.output).unwrap_or(0),
+                                base_price: conf.base_price,
+                                execution_budget,
+                                fee_asset: AssetClass::Native,
+                                fee: conf.fee,
+                                min_marginal_output: conf.min_marginal_output,
+                                max_cost_per_ex_step: conf.cost_per_ex_step,
+                                redeemer_address: conf.redeemer_address,
+                                cancellation_pkh: conf.cancellation_pkh,
+                                requires_executor_sig: !is_permissionless,
+                                virgin: valid_fresh_beacon,
+                                marginal_cost: script_info.marginal_cost,
+                            });
+                        }
                     }
                 }
             }
