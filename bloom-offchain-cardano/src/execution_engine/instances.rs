@@ -17,7 +17,7 @@ use spectrum_offchain_cardano::data::balance_pool::{BalancePool, BalancePoolRede
 use spectrum_offchain_cardano::data::cfmm_pool::ConstFnPoolVer::FeeSwitch;
 use spectrum_offchain_cardano::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
 use spectrum_offchain_cardano::data::pool::{AnyPool, AssetDeltas, CFMMPoolAction};
-use spectrum_offchain_cardano::data::{balance_pool, cfmm_pool};
+use spectrum_offchain_cardano::data::{balance_pool, cfmm_pool, stable_pool_t2t};
 use spectrum_offchain_cardano::data::stable_pool_t2t::{StablePoolRedeemer, StablePoolT2T};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{BalanceFnPoolV1, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolV1, ConstFnPoolV2, LimitOrderV1, LimitOrderWitnessV1, StableFnPoolT2T};
 use spectrum_offchain_cardano::deployment::{DeployedValidator, DeployedValidatorErased, RequiresValidator};
@@ -401,7 +401,7 @@ for Magnet<LinkedSwap<StablePoolT2T, FinalizedTxOut>>
         };
 
         if let Some(data) = produced_out.data_mut() {
-            balance_pool::unsafe_update_datum(
+            stable_pool_t2t::unsafe_update_datum(
                 data,
                 transition.treasury_x.untag(),
                 transition.treasury_y.untag(),

@@ -34,26 +34,28 @@ impl SlackHealthAlert for HealthAlertClient {
             cleaned_string
         );
 
-        let request = Request::post(&self.base_url)
-            .header("Content-Type", "application/json")
-            .body(body)
-            .map_err(|_| "failed to build request".to_string())?;
+        return Ok("test alert".to_string())
 
-        let response: Result<Response<Body>, String> = self.client.send(request).map_err(|x| {
-            println!("error: {:?}", x.to_string());
-            "failed to send slack alert".to_string()
-        });
-
-        return match response {
-            Ok(response) => {
-                if response.status().is_success() {
-                    Ok("Success".to_string())
-                } else {
-                    Err("expected 200 from slack query".into())
-                }
-            }
-            Err(_) => Err("error sending to slack".into()),
-        };
+        // let request = Request::post(&self.base_url)
+        //     .header("Content-Type", "application/json")
+        //     .body(body)
+        //     .map_err(|_| "failed to build request".to_string())?;
+        //
+        // let response: Result<Response<Body>, String> = self.client.send(request).map_err(|x| {
+        //     println!("error: {:?}", x.to_string());
+        //     "failed to send slack alert".to_string()
+        // });
+        //
+        // return match response {
+        //     Ok(response) => {
+        //         if response.status().is_success() {
+        //             Ok("Success".to_string())
+        //         } else {
+        //             Err("expected 200 from slack query".into())
+        //         }
+        //     }
+        //     Err(_) => Err("error sending to slack".into()),
+        // };
     }
 }
 

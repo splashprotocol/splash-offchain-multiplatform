@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::ops::Mul;
 
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
@@ -8,13 +9,15 @@ use cml_chain::plutus::utils::ConstrPlutusDataEncoding;
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
+use cml_core::serialization::LenEncoding;
 use cml_core::serialization::LenEncoding::{Canonical, Indefinite};
 use cml_multi_era::babbage::BabbageTransactionOutput;
+use num_integer::Roots;
 use num_rational::Ratio;
 use num_traits::{Pow, ToPrimitive};
 use primitive_types::U512;
 
-use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality};
+use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality, StaticPrice};
 use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
@@ -220,44 +223,25 @@ impl StablePoolT2T {
         let context_values_list = match pool_action {
             CFMMPoolAction::Swap => {
                 let context_values_list = calculate_context_values_list(prev_state, new_state);
-                PlutusData::ConstrPlutusData(ConstrPlutusData {
-                    alternative: 0,
-                    fields: Vec::from([PlutusData::Integer(BigInteger::from(
-                        context_values_list.as_u128(),
-                    ))]),
-                    encodings: Some(ConstrPlutusDataEncoding {
-                        len_encoding: Canonical,
-                        tag_encoding: Some(cbor_event::Sz::One),
-                        alternative_encoding: None,
-                        fields_encoding: Indefinite,
-                        prefer_compact: true,
-                    }),
-                })
+                ConstrPlutusData::new(0, Vec::from([
+                    PlutusData::new_list(vec![PlutusData::new_integer(BigInteger::from(
+                        context_values_list.as_u64(),
+                    ))])
+                ]))
             }
-            _ => PlutusData::ConstrPlutusData(ConstrPlutusData {
-                alternative: 1,
-                fields: Vec::from([]),
-                encodings: Some(ConstrPlutusDataEncoding {
-                    len_encoding: Canonical,
-                    tag_encoding: Some(cbor_event::Sz::One),
-                    alternative_encoding: None,
-                    fields_encoding: Indefinite,
-                    prefer_compact: true,
-                }),
-            }),
+            _ => ConstrPlutusData::new(1, Vec::from([]))
         };
 
-        PlutusData::ConstrPlutusData(ConstrPlutusData {
-            alternative: 0,
-            fields: Vec::from([self_ix_pd, self_out_pd, context_values_list]),
-            encodings: Some(ConstrPlutusDataEncoding {
-                len_encoding: Canonical,
-                tag_encoding: Some(cbor_event::Sz::One),
-                alternative_encoding: None,
-                fields_encoding: Indefinite,
-                prefer_compact: true,
-            }),
-        })
+        PlutusData::ConstrPlutusData(
+            ConstrPlutusData::new(
+                0,
+                Vec::from([
+                    self_ix_pd,
+                    self_out_pd,
+                    PlutusData::ConstrPlutusData(context_values_list)
+                ])
+            )
+        )
     }
 }
 
@@ -425,7 +409,7 @@ impl AMMOps for StablePoolT2T {
 
 impl Pool for StablePoolT2T {
     type U = ExUnits;
-    fn static_price(&self) -> AbsolutePrice {
+    fn static_price(&self) -> StaticPrice {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
 
@@ -441,20 +425,20 @@ impl Pool for StablePoolT2T {
             .copied()
             .reduce(|a, b| a * b)
             .unwrap();
-        let price_num = ann + (dn1 / U512::from(nn * x_calc.pow(2) * y_calc)).as_u64();
+        let price_num = ann + (dn1 / U512::from(nn).mul(x_calc.pow(2)).mul(y_calc)).as_u64();
         let price_denom = self.treasury_fee.denom().to_u64().unwrap()
-            * (ann + (dn1 / U512::from(nn * y_calc.pow(2) * x_calc)).as_u64());
+            * (ann + (dn1 / U512::from(nn).mul(y_calc.pow(2)).mul(x_calc)).as_u64());
 
         let [base, _] = order_canonical(x, y);
         if x == base {
             let reversed_total_fee_num_x =
                 self.treasury_fee.denom() - self.lp_fee_x.numer() - self.treasury_fee.numer();
 
-            AbsolutePrice::new(price_num * reversed_total_fee_num_x, price_denom)
+            AbsolutePrice::new(price_num * reversed_total_fee_num_x, price_denom).into()
         } else {
             let reversed_total_fee_num_y =
                 self.treasury_fee.denom() - self.lp_fee_y.numer() - self.treasury_fee.numer();
-            AbsolutePrice::new(price_denom, reversed_total_fee_num_y * price_num)
+            AbsolutePrice::new(price_denom, reversed_total_fee_num_y * price_num).into()
         }
     }
 
@@ -501,7 +485,7 @@ impl Pool for StablePoolT2T {
         let total_fees_ideal =
             (pure_output + 1) * (self.treasury_fee.numer() + lp_fee.numer()) / lp_fee.denom();
 
-        let treasury_fee = if total_fees_real >= total_fees_ideal {
+        let treasury_fee = if total_fees_real >= total_fees_ideal && *self.treasury_fee.numer() > 0 {
             treasury_fee_
         } else {
             treasury_fee_ + 1
@@ -532,11 +516,12 @@ impl Pool for StablePoolT2T {
     }
 
     fn quality(&self) -> PoolQuality {
-        // todo: example below
-        // let lq = (self.reserves_x.untag() / self.weight_x) as u128
-        //     * (self.reserves_y.untag() / self.weight_y) as u128;
-        // PoolQuality::from(lq.sqrt())
-        unimplemented!()
+        let invariant = calculate_invariant(
+            &U512::from((self.reserves_x - self.treasury_x).untag() * self.multiplier_x as u64),
+            &U512::from((self.reserves_y - self.treasury_y).untag() * self.multiplier_x as u64),
+            &U512::from(self.an2n),
+        );
+        PoolQuality::from(MAX_LQ_CAP - invariant.as_u64())
     }
 
     fn marginal_cost_hint(&self) -> Self::U {
@@ -672,7 +657,7 @@ mod tests {
         };
         let inv_before = calculate_invariant(
             &U512::from((reserves_x - treasury_x) * multiplier_x as u64),
-            &U512::from((reserves_y - treasury_y) * multiplier_x as u64),
+            &U512::from((reserves_y - treasury_y) * multiplier_y as u64),
             &U512::from(an2n),
         );
         let liquidity = MAX_LQ_CAP - inv_before.as_u64();

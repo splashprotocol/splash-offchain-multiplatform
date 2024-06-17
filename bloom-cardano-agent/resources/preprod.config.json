@@ -3,21 +3,21 @@
   "chainSync": {
     "startingPoint": {
       "Specific": [
-        62503919,
-        "cc492a0c3192ef5d5e0bc1aef2964282a82d1d8f3aac1054481451baec8c62d3"
+        62933174,
+        "8f8f764cb07e6e856cc220841dbed8a89609e53ba4ad0dbb2b8ab5e412eb9fc2"
       ]
     },
     "replayFromPoint": {
       "Specific": [
-        62503919,
-        "cc492a0c3192ef5d5e0bc1aef2964282a82d1d8f3aac1054481451baec8c62d3"
+        62933174,
+        "8f8f764cb07e6e856cc220841dbed8a89609e53ba4ad0dbb2b8ab5e412eb9fc2"
       ]
     },
-    "disableRollbacksUntil": 62503919,
+    "disableRollbacksUntil": 62933174,
     "dbPath": "state"
   },
   "node": {
-    "path": "/root/cardano-vasil-docker/ipc",
+    "path": "/root/cardano-vasil-docker/ipc/node.socket",
     "magic": 1
   },
   "txSubmissionBufferSize": 64,

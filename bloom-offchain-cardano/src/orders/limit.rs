@@ -5,6 +5,7 @@ use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::PolicyId;
 use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
 use cml_multi_era::babbage::BabbageTransactionOutput;
+use log::info;
 
 use bloom_offchain::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
 use bloom_offchain::execution_engine::liquidity_book::linear_output_rel;
