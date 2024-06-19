@@ -399,6 +399,8 @@ impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, 
             | StateUpdate::TransitionRollback(Ior::Both(_, new_state)) => {
                 let id = new_state.stable_id();
                 let ver = new_state.version();
+                let seen_recently = self.skip_filter.contains(&ver);
+                let state_exists = self.index.exists(&ver);
                 if from_ledger {
                     trace!("Observing new confirmed state {}", id);
                     self.index.put_confirmed(Confirmed(new_state));
@@ -411,8 +413,6 @@ impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, 
                         self.index.put_predicted(Predicted(new_state));
                     }
                 }
-                let seen_recently = self.skip_filter.contains(&ver);
-                let state_exists = self.index.exists(&ver);
                 if state_exists || seen_recently {
                     if from_ledger {
                         self.skip_filter.remove(&ver);
