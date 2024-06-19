@@ -6,6 +6,8 @@ pub const FEE_DEN: u64 = 100000;
 pub const ADA_WEIGHT: u64 = 1;
 pub const TOKEN_WEIGHT: u64 = 4;
 
+pub const MIN_POOL_LOVELACE: u64 = 100_000_000;
+
 pub const LEGACY_FEE_NUM_MULTIPLIER: u64 = 100;
 
 pub const WEIGHT_FEE_DEN: u64 = 5;

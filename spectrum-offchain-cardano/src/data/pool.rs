@@ -299,18 +299,12 @@ where
         + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
-        + Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>
-        + Has<PoolBounds>,
+        + Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
-        let bounds = ctx.select::<PoolBounds>();
-        if repr.value().amount_of(AssetClass::Native).unwrap_or(0) >= bounds.min_lovelace {
-            let cfmm_pool = ConstFnPool::try_from_ledger(repr, ctx).map(PureCFMM);
-            let balance_pool = BalancePool::try_from_ledger(repr, ctx).map(BalancedCFMM);
-            cfmm_pool.or(balance_pool)
-        } else {
-            None
-        }
+        let cfmm_pool = ConstFnPool::try_from_ledger(repr, ctx).map(PureCFMM);
+        let balance_pool = BalancePool::try_from_ledger(repr, ctx).map(BalancedCFMM);
+        cfmm_pool.or(balance_pool)
     }
 }
 
@@ -400,8 +394,8 @@ fn wrap_cml_action<U, Order>(
 }
 
 pub fn try_run_order_against_pool<Order, Pool, Ctx>(
-    Bundled(pool, FinalizedTxOut(pool_utxo, pool_ref)): Bundled<Pool, FinalizedTxOut>,
-    Bundled(order, FinalizedTxOut(order_utxo, order_ref)): Bundled<Order, FinalizedTxOut>,
+    pool_bundle: Bundled<Pool, FinalizedTxOut>,
+    order_bundle: Bundled<Order, FinalizedTxOut>,
     ctx: Ctx,
 ) -> Result<
     (SignedTxBuilder, Predicted<Bundled<Pool, FinalizedTxOut>>),
@@ -418,6 +412,9 @@ where
     Order: Into<CFMMPoolAction>,
     Ctx: Clone + Has<Collateral> + Has<OperatorRewardAddress>,
 {
+    let Bundled(pool, FinalizedTxOut(pool_utxo, pool_ref)) = pool_bundle.clone();
+    let Bundled(order, FinalizedTxOut(order_utxo, order_ref)) = order_bundle.clone();
+
     info!(target: "offchain", "Running order {} against pool {}", order_ref, pool_ref);
 
     let mut sorted_inputs = [pool_ref, order_ref];
@@ -469,13 +466,17 @@ where
 
     tx_builder
         .add_collateral(ctx.select::<Collateral>().into())
-        .unwrap();
+        .map_err(|err| RunOrderError::from_cml_error(err, order_bundle.clone()))?;
 
     tx_builder.add_reference_input(order_validator.reference_utxo);
     tx_builder.add_reference_input(pool_validator.reference_utxo);
 
-    tx_builder.add_input(pool_in).unwrap();
-    tx_builder.add_input(order_in).unwrap();
+    tx_builder
+        .add_input(pool_in)
+        .map_err(|err| RunOrderError::from_cml_error(err, order_bundle.clone()))?;
+    tx_builder
+        .add_input(order_in)
+        .map_err(|err| RunOrderError::from_cml_error(err, order_bundle.clone()))?;
 
     tx_builder.set_exunits(
         RedeemerWitnessKey::new(RedeemerTag::Spend, pool_in_idx.clone().into()),
@@ -488,11 +489,11 @@ where
 
     tx_builder
         .add_output(SingleOutputBuilderResult::new(pool_out.clone()))
-        .unwrap();
+        .map_err(|err| RunOrderError::from_cml_error(err, order_bundle.clone()))?;
 
     tx_builder
         .add_output(SingleOutputBuilderResult::new(user_out.into_ledger(ctx.clone())))
-        .unwrap();
+        .map_err(|err| RunOrderError::from_cml_error(err, order_bundle.clone()))?;
 
     let tx = wrap_cml_action(
         tx_builder.build(

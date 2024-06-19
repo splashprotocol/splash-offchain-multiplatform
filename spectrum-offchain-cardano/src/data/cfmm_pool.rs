@@ -27,7 +27,7 @@ use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
-use crate::constants::{FEE_DEN, LEGACY_FEE_NUM_MULTIPLIER, MAX_LQ_CAP};
+use crate::constants::{FEE_DEN, LEGACY_FEE_NUM_MULTIPLIER, MAX_LQ_CAP, MIN_POOL_LOVELACE};
 
 use crate::data::deposit::ClassicalOnChainDeposit;
 
@@ -39,7 +39,7 @@ use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
 use crate::data::pair::order_canonical;
 
 use crate::data::pool::{
-    ApplyOrder, ApplyOrderError, AssetDeltas, ImmutablePoolUtxo, Incompatible, Lq, Rx, Ry,
+    ApplyOrder, ApplyOrderError, AssetDeltas, ImmutablePoolUtxo, Lq, Rx, Ry,
 };
 use crate::data::redeem::ClassicalOnChainRedeem;
 
@@ -368,7 +368,13 @@ impl Pool for ConstFnPool {
     }
 
     fn swaps_allowed(&self) -> bool {
-        (self.reserves_x.untag() * 2) >= self.lq_lower_bound.untag()
+        let lq_bound = (self.reserves_x.untag() * 2) >= self.lq_lower_bound.untag();
+        let bot_bound = if self.asset_x.is_native() {
+            self.reserves_x.untag() >= MIN_POOL_LOVELACE
+        } else {
+            self.reserves_y.untag() >= MIN_POOL_LOVELACE
+        };
+        lq_bound && bot_bound
     }
 }
 
