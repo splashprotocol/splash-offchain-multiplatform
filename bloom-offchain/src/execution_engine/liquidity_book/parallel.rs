@@ -62,16 +62,15 @@ where
             let mut both_sides_tried = false;
             while batch.execution_units_consumed() < self.execution_cap.soft {
                 if let Some(best_taker) = self.state.try_pick_fr(self.attempt_side, ok) {
-                    batch.set_remainder(TakeInProgress::new(best_taker));
+                    let take = TakeInProgress::new(best_taker);
                     loop {
-                        if let Some(rem) = batch.remainder() {
                             if batch.execution_units_consumed() < self.execution_cap.soft {
                                 // 1. Take a chunk of remaining input from remainder
                                 // 2. Take liquidity from best counter-offer (takers/makers)
-                                let rem_side = rem.target.side();
-                                let rem_price = rem_side.wrap(rem.target.price());
+                                let rem_side = take.target.side();
+                                let rem_price = rem_side.wrap(take.target.price());
                                 let maybe_price_counter_taker = self.state.best_fr_price(!rem_side);
-                                let chunk_offered = rem.next_chunk_offered(self.step);
+                                let chunk_offered = take.next_chunk_offered(self.step);
                                 let maybe_price_maker = self.state.preselect_market_maker(chunk_offered);
                                 match (maybe_price_counter_taker, maybe_price_maker) {
                                     (Some(price_counter_taker), maybe_price_maker)
@@ -83,7 +82,6 @@ where
                                     _ => {}
                                 }
                             }
-                        }
                         break;
                     }
                 }
