@@ -1,9 +1,9 @@
+use crate::execution_engine::liquidity_book::core::Make;
 use crate::execution_engine::liquidity_book::side::Side;
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 use derive_more::{Display, Div, From, Into, Mul};
 use num_rational::Ratio;
 use std::cmp::Ordering;
-use crate::execution_engine::liquidity_book::core::Make;
 
 /// Price of a theoretical 0-swap in pool.
 #[repr(transparent)]
@@ -19,10 +19,6 @@ impl StaticPrice {
 /// Pooled liquidity.
 pub trait MarketMaker {
     type U;
-    // Take liquidity corresponding to specified `input` from maker.
-    fn take(self, input: Side<u64>) -> (Make, Self);
-    // Fuse maker with the given liquidity `bin`. Inverse of `take`.
-    fn fuse(self, make: Make) -> Self;
     /// Static price (regardless swap vol) in this pool.
     fn static_price(&self) -> StaticPrice;
     /// Real price of swap.

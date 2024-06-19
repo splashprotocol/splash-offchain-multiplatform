@@ -1,20 +1,22 @@
+use bounded_integer::BoundedU64;
 use std::fmt::Debug;
 use std::mem;
-use bounded_integer::BoundedU64;
 
 use log::trace;
 
 use algebra_core::monoid::Monoid;
 use spectrum_offchain::data::Stable;
 
-use crate::execution_engine::liquidity_book::core::{MatchmakingAttempt, MatchmakingRecipe, MatchmakingStep, TakeInProgress};
+use crate::execution_engine::liquidity_book::core::{
+    MatchmakingAttempt, MatchmakingRecipe, MatchmakingStep, TakeInProgress,
+};
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState};
 use crate::execution_engine::liquidity_book::market_maker::MarketMaker;
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
 use crate::execution_engine::liquidity_book::state::TLBState;
-use crate::execution_engine::liquidity_book::{ExecutionCap, TLBFeedback};
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;
+use crate::execution_engine::liquidity_book::{ExecutionCap, TLBFeedback};
 
 /// TLB is a Universal Liquidity Aggregator (ULA), it is able to aggregate every piece of composable
 /// liquidity available in the market.
@@ -72,10 +74,12 @@ where
                                 let chunk_offered = rem.next_chunk_offered(self.step);
                                 let maybe_price_maker = self.state.preselect_market_maker(chunk_offered);
                                 match (maybe_price_counter_taker, maybe_price_maker) {
-                                    (Some(price_counter_taker), maybe_price_maker) if maybe_price_maker
-                                        .map(|(_, p)| price_counter_taker.better_than(p))
-                                        .unwrap_or(true) => {}
-                                    (_, Some((maker_sid, price_maker))) if rem_price.overlaps(price_maker) => {}
+                                    (Some(price_counter_taker), maybe_price_maker)
+                                        if maybe_price_maker
+                                            .map(|(_, p)| price_counter_taker.better_than(p))
+                                            .unwrap_or(true) => {}
+                                    (_, Some((maker_sid, price_maker)))
+                                        if rem_price.overlaps(price_maker) => {}
                                     _ => {}
                                 }
                             }

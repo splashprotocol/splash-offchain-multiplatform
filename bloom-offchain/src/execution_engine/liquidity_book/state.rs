@@ -1,5 +1,5 @@
-use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap, HashSet};
 use std::collections::hash_map::Entry;
+use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::mem;
@@ -34,9 +34,9 @@ impl<Fr, Pl: Stable> IdleState<Fr, Pl> {
 }
 
 impl<Fr, Pl> IdleState<Fr, Pl>
-    where
-        Fr: Fragment + OrderState + Ord + Copy,
-        Pl: MarketMaker + Stable + Copy,
+where
+    Fr: Fragment + OrderState + Ord + Copy,
+    Pl: MarketMaker + Stable + Copy,
 {
     pub fn advance_clocks(&mut self, new_time: u64) {
         self.fragments.advance_clocks(new_time)
@@ -85,9 +85,9 @@ impl<Fr, Pl: Stable> PartialPreviewState<Fr, Pl> {
 }
 
 impl<Fr, Pl: Stable> PartialPreviewState<Fr, Pl>
-    where
-        Fr: Fragment + Ord,
-        Pl: Copy,
+where
+    Fr: Fragment + Ord,
+    Pl: Copy,
 {
     fn commit(&mut self) -> IdleState<Fr, Pl> {
         trace!(target: "state", "PartialPreviewState::commit");
@@ -183,9 +183,9 @@ impl<Fr, Pl: Stable> PreviewState<Fr, Pl> {
 }
 
 impl<Fr, Pl> PreviewState<Fr, Pl>
-    where
-        Fr: Fragment + Ord,
-        Pl: Stable + Copy,
+where
+    Fr: Fragment + Ord,
+    Pl: Stable + Copy,
 {
     fn commit(&mut self) -> IdleState<Fr, Pl> {
         trace!(target: "state", "PreviewState::commit");
@@ -304,7 +304,7 @@ impl<Fr, Pl: Stable> Display for TLBState<Fr, Pl> {
                     inner.active_fragments_preview.bids.len()
                 ),
             }
-                .as_str(),
+            .as_str(),
         )
     }
 }
@@ -316,8 +316,8 @@ impl<Fr, Pl: Stable> TLBState<Fr, Pl> {
 }
 
 impl<Fr, Pl: Stable> TLBState<Fr, Pl>
-    where
-        Fr: Fragment + Ord + Copy,
+where
+    Fr: Fragment + Ord + Copy,
 {
     fn active_fragments(&self) -> &Fragments<Fr> {
         match self {
@@ -329,9 +329,9 @@ impl<Fr, Pl: Stable> TLBState<Fr, Pl>
 }
 
 impl<Fr, Pl> TLBState<Fr, Pl>
-    where
-        Fr: Fragment + Ord + Copy,
-        Pl: Stable + Copy,
+where
+    Fr: Fragment + Ord + Copy,
+    Pl: Stable + Copy,
 {
     pub fn commit(&mut self) {
         match self {
@@ -418,16 +418,16 @@ impl<Fr, Pl> TLBState<Fr, Pl>
 }
 
 impl<Fr, Pl, U> TLBState<Fr, Pl>
-    where
-        Fr: Fragment<U=U> + Ord + Copy + Debug,
-        Pl: MarketMaker + Stable + Copy,
-        U: PartialOrd,
+where
+    Fr: Fragment<U = U> + Ord + Copy + Debug,
+    Pl: MarketMaker + Stable + Copy,
+    U: PartialOrd,
 {
     pub fn show_state(&self) -> String
-        where
-            Pl::StableId: Display,
-            Pl: Display,
-            Fr: Display,
+    where
+        Pl::StableId: Display,
+        Pl: Display,
+        Fr: Display,
     {
         let pools = self.pools().show_state();
         let fragments = self.active_fragments().show_state();
@@ -451,8 +451,8 @@ impl<Fr, Pl, U> TLBState<Fr, Pl>
 
     /// Pick best fragment from the specified side if it matches the specified condition.
     pub fn try_pick_fr<F>(&mut self, side: SideM, test: F) -> Option<Fr>
-        where
-            F: FnOnce(&Fr) -> bool,
+    where
+        F: FnOnce(&Fr) -> bool,
     {
         trace!(target: "state", "try_pick_fr");
         self.pick_active_fr(|af| try_pick_fr(af, side, test))
@@ -499,8 +499,8 @@ impl<Fr, Pl, U> TLBState<Fr, Pl>
 
     /// Pick active fragment ensuring TLB is in proper state.
     fn pick_active_fr<F>(&mut self, f: F) -> Option<Fr>
-        where
-            F: FnOnce(&mut Fragments<Fr>) -> Option<Fr>,
+    where
+        F: FnOnce(&mut Fragments<Fr>) -> Option<Fr>,
     {
         let mut needs_transition = false;
         let res = match self {
@@ -549,15 +549,18 @@ impl<Fr, Pl, U> TLBState<Fr, Pl>
 }
 
 impl<Fr, Pl> TLBState<Fr, Pl>
-    where
-        Fr: Fragment + Ord + Copy,
-        Pl: MarketMaker + Stable + Copy,
+where
+    Fr: Fragment + Ord + Copy,
+    Pl: MarketMaker + Stable + Copy,
 {
     pub fn best_market_maker(&self) -> Option<&Pl> {
         self.pools().pools.values().max_by_key(|p| p.quality())
     }
 
-    pub fn preselect_market_maker(&self, offered_amount: Side<InputAsset<u64>>) -> Option<(Pl::StableId, AbsolutePrice)> {
+    pub fn preselect_market_maker(
+        &self,
+        offered_amount: Side<InputAsset<u64>>,
+    ) -> Option<(Pl::StableId, AbsolutePrice)> {
         let pools = self
             .pools()
             .pools
@@ -593,8 +596,8 @@ impl<Fr, Pl> TLBState<Fr, Pl>
     }
 
     pub fn try_pick_pool<F>(&mut self, test: F) -> Option<Pl>
-        where
-            F: Fn(&Pl) -> bool,
+    where
+        F: Fn(&Pl) -> bool,
     {
         self.pick_pool(|pools| {
             for id in pools.quality_index.values() {
@@ -613,8 +616,8 @@ impl<Fr, Pl> TLBState<Fr, Pl>
 
     /// Pick pool ensuring TLB is in proper state.
     fn pick_pool<F>(&mut self, f: F) -> Option<Pl>
-        where
-            F: FnOnce(&mut Pools<Pl>) -> Option<Pl>,
+    where
+        F: FnOnce(&mut Pools<Pl>) -> Option<Pl>,
     {
         match self {
             // Transit into PartialPreview if state is untouched yet
@@ -650,9 +653,9 @@ fn pick_best_fr_either<Fr, U>(
     active_frontier: &mut Fragments<Fr>,
     index_price: Option<AbsolutePrice>,
 ) -> Option<Fr>
-    where
-        Fr: Fragment<U=U> + Ord + Copy,
-        U: PartialOrd,
+where
+    Fr: Fragment<U = U> + Ord + Copy,
+    U: PartialOrd,
 {
     trace!("Picking best fragment");
     let best_bid = active_frontier.bids.pop_first();
@@ -713,9 +716,9 @@ fn pick_best_fr_either<Fr, U>(
 }
 
 fn try_pick_fr<Fr, F>(active_frontier: &mut Fragments<Fr>, side: SideM, test: F) -> Option<Fr>
-    where
-        Fr: Fragment + Copy + Ord,
-        F: FnOnce(&Fr) -> bool,
+where
+    Fr: Fragment + Copy + Ord,
+    F: FnOnce(&Fr) -> bool,
 {
     let side = match side {
         SideM::Bid => &mut active_frontier.bids,
@@ -750,8 +753,8 @@ impl<Fr> Chronology<Fr> {
 }
 
 impl<Fr> Chronology<Fr>
-    where
-        Fr: Fragment + OrderState + Ord + Copy,
+where
+    Fr: Fragment + OrderState + Ord + Copy,
 {
     fn advance_clocks(&mut self, new_time: u64) {
         let new_slot = self
@@ -865,8 +868,8 @@ impl<Fr> Fragments<Fr> {
 }
 
 impl<Fr> Fragments<Fr>
-    where
-        Fr: Fragment + Ord,
+where
+    Fr: Fragment + Ord,
 {
     pub fn insert(&mut self, fr: Fr) {
         match fr.side() {
@@ -883,8 +886,8 @@ impl<Fr> Fragments<Fr>
     }
 
     pub fn show_state(&self) -> String
-        where
-            Fr: Display,
+    where
+        Fr: Display,
     {
         let asks = self
             .asks
@@ -915,9 +918,9 @@ impl<Pl: Stable> Pools<Pl> {
     }
 
     pub fn show_state(&self) -> String
-        where
-            Pl::StableId: Display,
-            Pl: Display,
+    where
+        Pl::StableId: Display,
+        Pl: Display,
     {
         self.pools
             .iter()
@@ -927,8 +930,8 @@ impl<Pl: Stable> Pools<Pl> {
 }
 
 impl<Pl> Pools<Pl>
-    where
-        Pl: MarketMaker + Stable + Copy,
+where
+    Pl: MarketMaker + Stable + Copy,
 {
     pub fn update_pool(&mut self, pool: Pl) {
         if let Some(old_pool) = self.pools.insert(pool.stable_id(), pool) {
@@ -956,9 +959,7 @@ pub mod tests {
     use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
     use crate::execution_engine::liquidity_book::market_maker::{MarketMaker, StaticPrice};
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
-    use crate::execution_engine::liquidity_book::state::{
-        IdleState, PoolQuality, StashingOption, TLBState,
-    };
+    use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, StashingOption, TLBState};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::{
         AbsolutePrice, ExBudgetUsed, ExCostUnits, ExFeeUsed, OutputAsset,
@@ -1422,7 +1423,7 @@ pub mod tests {
                     let base_output =
                         ((self.reserves_base as u128) * (quote_input as u128) * (self.fee_num as u128)
                             / ((self.reserves_quote as u128) * 1000u128
-                            + (quote_input as u128) * (self.fee_num as u128)))
+                                + (quote_input as u128) * (self.fee_num as u128)))
                             as u64;
                     self.reserves_quote += quote_input;
                     self.reserves_base -= base_output;
@@ -1432,7 +1433,7 @@ pub mod tests {
                     let quote_output =
                         ((self.reserves_quote as u128) * (base_input as u128) * (self.fee_num as u128)
                             / ((self.reserves_base as u128) * 1000u128
-                            + (base_input as u128) * (self.fee_num as u128)))
+                                + (base_input as u128) * (self.fee_num as u128)))
                             as u64;
                     self.reserves_base += base_input;
                     self.reserves_quote -= quote_output;
