@@ -22,7 +22,7 @@ use crate::deployment::{
     test_address, DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator,
 };
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct Redeem {
     pub pool_nft: PoolId,
     pub token_x: TaggedAssetClass<Rx>,

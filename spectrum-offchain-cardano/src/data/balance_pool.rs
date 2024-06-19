@@ -33,12 +33,10 @@ use crate::constants::{ADA_WEIGHT, FEE_DEN, MAX_LQ_CAP, TOKEN_WEIGHT, WEIGHT_FEE
 use crate::data::cfmm_pool::AMMOps;
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::operation_output::{DepositOutput, RedeemOutput};
-use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
+use crate::data::order::{Base, PoolNft, Quote};
 use crate::data::pair::order_canonical;
-use crate::data::pool::ApplyOrderError::MathErr;
 use crate::data::pool::{
-    ApplyOrder, ApplyOrderError, AssetDeltas, CFMMPoolAction, ImmutablePoolUtxo, Lq, MathErrorWithOrder, Rx,
-    Ry,
+    ApplyOrder, ApplyOrderError, AssetDeltas, CFMMPoolAction, ImmutablePoolUtxo, Lq, Rx, Ry,
 };
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
@@ -373,7 +371,7 @@ impl AMMOps for BalancePool {
         ))
     }
 
-    fn shares_amount(self, burned_lq: TaggedAmount<Lq>) -> Option<(TaggedAmount<Rx>, TaggedAmount<Ry>)> {
+    fn shares_amount(&self, burned_lq: TaggedAmount<Lq>) -> Option<(TaggedAmount<Rx>, TaggedAmount<Ry>)> {
         // Balance pool shares amount calculation is the same as for cfmm pool
         classic_cfmm_shares_amount(
             self.reserves_x - self.treasury_x,
@@ -492,22 +490,19 @@ impl ApplyOrder<ClassicalOnChainDeposit> for BalancePool {
 
     fn apply_order(
         mut self,
-        order_wrapper: ClassicalOnChainDeposit,
+        deposit: ClassicalOnChainDeposit,
     ) -> Result<(Self, DepositOutput), ApplyOrderError<ClassicalOnChainDeposit>> {
-        let net_x = if order_wrapper.order.token_x.is_native() {
-            order_wrapper.order.token_x_amount.untag()
-                - order_wrapper.order.ex_fee
-                - order_wrapper.order.collateral_ada
+        let order = deposit.order;
+        let net_x = if order.token_x.is_native() {
+            order.token_x_amount.untag() - order.ex_fee - order.collateral_ada
         } else {
-            order_wrapper.order.token_x_amount.untag()
+            order.token_x_amount.untag()
         };
 
-        let net_y = if order_wrapper.order.token_y.is_native() {
-            order_wrapper.order.token_y_amount.untag()
-                - order_wrapper.order.ex_fee
-                - order_wrapper.order.collateral_ada
+        let net_y = if order.token_y.is_native() {
+            order.token_y_amount.untag() - order.ex_fee - order.collateral_ada
         } else {
-            order_wrapper.order.token_y_amount.untag()
+            order.token_y_amount.untag()
         };
 
         match self.reward_lp(net_x, net_y) {
@@ -518,20 +513,20 @@ impl ApplyOrder<ClassicalOnChainDeposit> for BalancePool {
                 self.liquidity = self.liquidity + unlocked_lq;
 
                 let deposit_output = DepositOutput {
-                    token_x_asset: order_wrapper.order.token_x,
+                    token_x_asset: order.token_x,
                     token_x_charge_amount: change_x,
-                    token_y_asset: order_wrapper.order.token_y,
+                    token_y_asset: order.token_y,
                     token_y_charge_amount: change_y,
-                    token_lq_asset: order_wrapper.order.token_lq,
+                    token_lq_asset: order.token_lq,
                     token_lq_amount: unlocked_lq,
-                    ada_residue: order_wrapper.order.collateral_ada,
-                    redeemer_pkh: order_wrapper.order.reward_pkh,
-                    redeemer_stake_pkh: order_wrapper.order.reward_stake_pkh,
+                    ada_residue: order.collateral_ada,
+                    redeemer_pkh: order.reward_pkh,
+                    redeemer_stake_pkh: order.reward_stake_pkh,
                 };
 
                 Ok((self, deposit_output))
             }
-            None => Err(MathErr(MathErrorWithOrder { order: order_wrapper })),
+            None => Err(ApplyOrderError::incompatible(deposit)),
         }
     }
 }
@@ -541,54 +536,50 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
 
     fn apply_order(
         mut self,
-        order_wrapper: ClassicalOnChainRedeem,
+        redeem: ClassicalOnChainRedeem,
     ) -> Result<(Self, RedeemOutput), ApplyOrderError<ClassicalOnChainRedeem>> {
-        match self.clone().shares_amount(order_wrapper.order.token_lq_amount) {
+        let order = redeem.order;
+        match self.shares_amount(order.token_lq_amount) {
             Some((x_amount, y_amount)) => {
                 self.reserves_x = self.reserves_x - x_amount;
                 self.reserves_y = self.reserves_y - y_amount;
-                self.liquidity = self.liquidity - order_wrapper.order.token_lq_amount;
+                self.liquidity = self.liquidity - order.token_lq_amount;
 
                 let redeem_output = RedeemOutput {
-                    token_x_asset: order_wrapper.order.token_x,
+                    token_x_asset: order.token_x,
                     token_x_amount: x_amount,
-                    token_y_asset: order_wrapper.order.token_y,
+                    token_y_asset: order.token_y,
                     token_y_amount: y_amount,
-                    ada_residue: order_wrapper.order.collateral_ada,
-                    redeemer_pkh: order_wrapper.order.reward_pkh,
-                    redeemer_stake_pkh: order_wrapper.order.reward_stake_pkh,
+                    ada_residue: order.collateral_ada,
+                    redeemer_pkh: order.reward_pkh,
+                    redeemer_stake_pkh: order.reward_stake_pkh,
                 };
 
                 Ok((self, redeem_output))
             }
-            None => Err(MathErr(MathErrorWithOrder { order: order_wrapper })),
+            None => Err(ApplyOrderError::incompatible(redeem)),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use bloom_offchain::execution_engine::bundled::Bundled;
-    use bloom_offchain::execution_engine::liquidity_book::pool::Pool;
-    use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use cml_chain::plutus::PlutusData;
     use cml_chain::Deserialize;
     use cml_core::serialization::Serialize;
     use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
     use num_rational::Ratio;
-    use primitive_types::U512;
+
+    use bloom_offchain::execution_engine::liquidity_book::pool::Pool;
+    use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use spectrum_cardano_lib::ex_units::ExUnits;
-    use spectrum_cardano_lib::output::FinalizedTxOut;
-    use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
-    use std::ops::Sub;
-
     use spectrum_cardano_lib::types::TryFromPData;
+    use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
 
-    use crate::data::balance_order::RunBalanceAMMOrderOverPool;
     use crate::data::balance_pool::{BalancePool, BalancePoolConfig, BalancePoolRedeemer, BalancePoolVer};
     use crate::data::order::ClassicalOrder;
     use crate::data::order::OrderType::BalanceFn;
-    use crate::data::pool::{ApplyOrder, CFMMPoolAction, Lq, Rx, Ry};
+    use crate::data::pool::{ApplyOrder, CFMMPoolAction};
     use crate::data::redeem::{ClassicalOnChainRedeem, Redeem};
     use crate::data::{OnChainOrderId, PoolId};
 
