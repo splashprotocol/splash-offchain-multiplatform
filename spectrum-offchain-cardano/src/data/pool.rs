@@ -17,6 +17,7 @@ use cml_chain::{Coin, PolicyId};
 
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
+use tracing_subscriber::filter::combinator::Or;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality, StaticPrice};
@@ -33,7 +34,6 @@ use crate::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
 use crate::data::order::{ClassicalOrderAction, ClassicalOrderRedeemer, Quote};
 use crate::data::pair::PairId;
 use crate::data::pool::AnyPool::{BalancedCFMM, PureCFMM};
-use crate::data::pool::ApplyOrderError::{LowBatcherFeeErr, SlippageErr};
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::value::ValueExtension;
@@ -56,18 +56,26 @@ pub struct Ry;
 pub struct Lq;
 
 pub enum ApplyOrderError<Order> {
-    SlippageErr(Slippage<Order>),
-    LowBatcherFeeErr(LowerBatcherFee<Order>),
+    Slippage(Slippage<Order>),
+    LowBatcherFee(LowerBatcherFee<Order>),
+    Incompatible(Incompatible<Order>),
 }
 
 impl<Order> ApplyOrderError<Order> {
+    pub fn incompatible(order: Order) -> Self {
+        Self::Incompatible(Incompatible { order })
+    }
+
     pub fn map<F, T1>(self, f: F) -> ApplyOrderError<T1>
     where
         F: FnOnce(Order) -> T1,
     {
         match self {
-            SlippageErr(slippage) => SlippageErr(slippage.map(f)),
-            LowBatcherFeeErr(low_batcher_fee) => LowBatcherFeeErr(low_batcher_fee.map(f)),
+            ApplyOrderError::Slippage(slippage) => ApplyOrderError::Slippage(slippage.map(f)),
+            ApplyOrderError::LowBatcherFee(low_batcher_fee) => {
+                ApplyOrderError::LowBatcherFee(low_batcher_fee.map(f))
+            }
+            ApplyOrderError::Incompatible(math_error) => ApplyOrderError::Incompatible(math_error.map(f)),
         }
     }
 
@@ -76,7 +84,7 @@ impl<Order> ApplyOrderError<Order> {
         quote_amount: TaggedAmount<Quote>,
         expected_amount: TaggedAmount<Quote>,
     ) -> ApplyOrderError<Order> {
-        SlippageErr(Slippage {
+        ApplyOrderError::Slippage(Slippage {
             order,
             quote_amount,
             expected_amount,
@@ -84,7 +92,7 @@ impl<Order> ApplyOrderError<Order> {
     }
 
     pub fn low_batcher_fee(order: Order, batcher_fee: u64, ada_deposit: Coin) -> ApplyOrderError<Order> {
-        LowBatcherFeeErr(LowerBatcherFee {
+        ApplyOrderError::LowBatcherFee(LowerBatcherFee {
             order,
             batcher_fee,
             ada_deposit,
@@ -95,8 +103,9 @@ impl<Order> ApplyOrderError<Order> {
 impl<Order> From<ApplyOrderError<Order>> for RunOrderError<Order> {
     fn from(value: ApplyOrderError<Order>) -> RunOrderError<Order> {
         match value {
-            SlippageErr(slippage) => slippage.into(),
-            LowBatcherFeeErr(low_batcher_fee) => low_batcher_fee.into(),
+            ApplyOrderError::Slippage(slippage) => slippage.into(),
+            ApplyOrderError::LowBatcherFee(low_batcher_fee) => low_batcher_fee.into(),
+            ApplyOrderError::Incompatible(math_error) => math_error.into(),
         }
     }
 }
@@ -156,6 +165,26 @@ impl<Order> From<LowerBatcherFee<Order>> for RunOrderError<Order> {
             ),
             value.order,
         )
+    }
+}
+
+#[derive(Debug)]
+pub struct Incompatible<Order> {
+    pub order: Order,
+}
+
+impl<T> Incompatible<T> {
+    pub fn map<F, T1>(self, f: F) -> Incompatible<T1>
+    where
+        F: FnOnce(T) -> T1,
+    {
+        Incompatible { order: f(self.order) }
+    }
+}
+
+impl<Order> From<Incompatible<Order>> for RunOrderError<Order> {
+    fn from(value: Incompatible<Order>) -> Self {
+        RunOrderError::NonFatal("Math error".to_string(), value.order)
     }
 }
 
