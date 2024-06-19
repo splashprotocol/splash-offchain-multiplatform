@@ -35,8 +35,10 @@ use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::operation_output::{DepositOutput, RedeemOutput};
 use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
 use crate::data::pair::order_canonical;
+use crate::data::pool::ApplyOrderError::MathErr;
 use crate::data::pool::{
-    ApplyOrder, ApplyOrderError, AssetDeltas, CFMMPoolAction, ImmutablePoolUtxo, Lq, Rx, Ry,
+    ApplyOrder, ApplyOrderError, AssetDeltas, CFMMPoolAction, ImmutablePoolUtxo, Lq, MathErrorWithOrder, Rx,
+    Ry,
 };
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
@@ -346,7 +348,7 @@ impl AMMOps for BalancePool {
         &self,
         in_x_amount: u64,
         in_y_amount: u64,
-    ) -> (TaggedAmount<Lq>, TaggedAmount<Rx>, TaggedAmount<Ry>) {
+    ) -> Option<(TaggedAmount<Lq>, TaggedAmount<Rx>, TaggedAmount<Ry>)> {
         // Balance pool reward lp calculation is the same as for cfmm pool,
         // but we should "recalculate" change_x, change_y based on unlocked_lq
         let (unlocked_lq, _change_x, _change_y) = classic_cfmm_reward_lp(
@@ -355,7 +357,7 @@ impl AMMOps for BalancePool {
             self.liquidity,
             in_x_amount,
             in_y_amount,
-        );
+        )?;
 
         let x_to_deposit = (unlocked_lq.untag() as u128
             * (self.reserves_x.untag() - self.treasury_x.untag()) as u128)
@@ -364,14 +366,14 @@ impl AMMOps for BalancePool {
             * (self.reserves_y.untag() - self.treasury_y.untag()) as u128)
             / (self.liquidity.untag() as u128);
 
-        (
+        Some((
             unlocked_lq,
             TaggedAmount::new(in_x_amount - x_to_deposit as u64),
             TaggedAmount::new(in_y_amount - y_to_deposit_bn as u64),
-        )
+        ))
     }
 
-    fn shares_amount(self, burned_lq: TaggedAmount<Lq>) -> (TaggedAmount<Rx>, TaggedAmount<Ry>) {
+    fn shares_amount(self, burned_lq: TaggedAmount<Lq>) -> Option<(TaggedAmount<Rx>, TaggedAmount<Ry>)> {
         // Balance pool shares amount calculation is the same as for cfmm pool
         classic_cfmm_shares_amount(
             self.reserves_x - self.treasury_x,
@@ -490,40 +492,47 @@ impl ApplyOrder<ClassicalOnChainDeposit> for BalancePool {
 
     fn apply_order(
         mut self,
-        ClassicalOrder { order, .. }: ClassicalOnChainDeposit,
+        order_wrapper: ClassicalOnChainDeposit,
     ) -> Result<(Self, DepositOutput), ApplyOrderError<ClassicalOnChainDeposit>> {
-        let net_x = if order.token_x.is_native() {
-            order.token_x_amount.untag() - order.ex_fee - order.collateral_ada
+        let net_x = if order_wrapper.order.token_x.is_native() {
+            order_wrapper.order.token_x_amount.untag()
+                - order_wrapper.order.ex_fee
+                - order_wrapper.order.collateral_ada
         } else {
-            order.token_x_amount.untag()
+            order_wrapper.order.token_x_amount.untag()
         };
 
-        let net_y = if order.token_y.is_native() {
-            order.token_y_amount.untag() - order.ex_fee - order.collateral_ada
+        let net_y = if order_wrapper.order.token_y.is_native() {
+            order_wrapper.order.token_y_amount.untag()
+                - order_wrapper.order.ex_fee
+                - order_wrapper.order.collateral_ada
         } else {
-            order.token_y_amount.untag()
+            order_wrapper.order.token_y_amount.untag()
         };
 
-        let (unlocked_lq, change_x, change_y) = self.reward_lp(net_x, net_y);
+        match self.reward_lp(net_x, net_y) {
+            Some((unlocked_lq, change_x, change_y)) => {
+                self.reserves_x = self.reserves_x + TaggedAmount::new(net_x) - change_x;
+                self.reserves_y = self.reserves_y + TaggedAmount::new(net_y) - change_y;
 
-        self.reserves_x = self.reserves_x + TaggedAmount::new(net_x) - change_x;
-        self.reserves_y = self.reserves_y + TaggedAmount::new(net_y) - change_y;
+                self.liquidity = self.liquidity + unlocked_lq;
 
-        self.liquidity = self.liquidity + unlocked_lq;
+                let deposit_output = DepositOutput {
+                    token_x_asset: order_wrapper.order.token_x,
+                    token_x_charge_amount: change_x,
+                    token_y_asset: order_wrapper.order.token_y,
+                    token_y_charge_amount: change_y,
+                    token_lq_asset: order_wrapper.order.token_lq,
+                    token_lq_amount: unlocked_lq,
+                    ada_residue: order_wrapper.order.collateral_ada,
+                    redeemer_pkh: order_wrapper.order.reward_pkh,
+                    redeemer_stake_pkh: order_wrapper.order.reward_stake_pkh,
+                };
 
-        let deposit_output = DepositOutput {
-            token_x_asset: order.token_x,
-            token_x_charge_amount: change_x,
-            token_y_asset: order.token_y,
-            token_y_charge_amount: change_y,
-            token_lq_asset: order.token_lq,
-            token_lq_amount: unlocked_lq,
-            ada_residue: order.collateral_ada,
-            redeemer_pkh: order.reward_pkh,
-            redeemer_stake_pkh: order.reward_stake_pkh,
-        };
-
-        Ok((self, deposit_output))
+                Ok((self, deposit_output))
+            }
+            None => Err(MathErr(MathErrorWithOrder { order: order_wrapper })),
+        }
     }
 }
 
@@ -532,25 +541,28 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
 
     fn apply_order(
         mut self,
-        ClassicalOrder { order, .. }: ClassicalOnChainRedeem,
+        order_wrapper: ClassicalOnChainRedeem,
     ) -> Result<(Self, RedeemOutput), ApplyOrderError<ClassicalOnChainRedeem>> {
-        let (x_amount, y_amount) = self.clone().shares_amount(order.token_lq_amount);
+        match self.clone().shares_amount(order_wrapper.order.token_lq_amount) {
+            Some((x_amount, y_amount)) => {
+                self.reserves_x = self.reserves_x - x_amount;
+                self.reserves_y = self.reserves_y - y_amount;
+                self.liquidity = self.liquidity - order_wrapper.order.token_lq_amount;
 
-        self.reserves_x = self.reserves_x - x_amount;
-        self.reserves_y = self.reserves_y - y_amount;
-        self.liquidity = self.liquidity - order.token_lq_amount;
+                let redeem_output = RedeemOutput {
+                    token_x_asset: order_wrapper.order.token_x,
+                    token_x_amount: x_amount,
+                    token_y_asset: order_wrapper.order.token_y,
+                    token_y_amount: y_amount,
+                    ada_residue: order_wrapper.order.collateral_ada,
+                    redeemer_pkh: order_wrapper.order.reward_pkh,
+                    redeemer_stake_pkh: order_wrapper.order.reward_stake_pkh,
+                };
 
-        let redeem_output = RedeemOutput {
-            token_x_asset: order.token_x,
-            token_x_amount: x_amount,
-            token_y_asset: order.token_y,
-            token_y_amount: y_amount,
-            ada_residue: order.collateral_ada,
-            redeemer_pkh: order.reward_pkh,
-            redeemer_stake_pkh: order.reward_stake_pkh,
-        };
-
-        Ok((self, redeem_output))
+                Ok((self, redeem_output))
+            }
+            None => Err(MathErr(MathErrorWithOrder { order: order_wrapper })),
+        }
     }
 }
 

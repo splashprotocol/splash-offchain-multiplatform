@@ -17,6 +17,7 @@ use cml_chain::{Coin, PolicyId};
 
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
+use tracing_subscriber::filter::combinator::Or;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality, StaticPrice};
@@ -33,7 +34,7 @@ use crate::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
 use crate::data::order::{ClassicalOrderAction, ClassicalOrderRedeemer, Quote};
 use crate::data::pair::PairId;
 use crate::data::pool::AnyPool::{BalancedCFMM, PureCFMM};
-use crate::data::pool::ApplyOrderError::{LowBatcherFeeErr, SlippageErr};
+use crate::data::pool::ApplyOrderError::{LowBatcherFeeErr, MathErr, SlippageErr};
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::value::ValueExtension;
@@ -58,6 +59,7 @@ pub struct Lq;
 pub enum ApplyOrderError<Order> {
     SlippageErr(Slippage<Order>),
     LowBatcherFeeErr(LowerBatcherFee<Order>),
+    MathErr(MathErrorWithOrder<Order>),
 }
 
 impl<Order> ApplyOrderError<Order> {
@@ -68,6 +70,7 @@ impl<Order> ApplyOrderError<Order> {
         match self {
             SlippageErr(slippage) => SlippageErr(slippage.map(f)),
             LowBatcherFeeErr(low_batcher_fee) => LowBatcherFeeErr(low_batcher_fee.map(f)),
+            MathErr(math_error) => MathErr(math_error.map(f)),
         }
     }
 
@@ -97,6 +100,7 @@ impl<Order> From<ApplyOrderError<Order>> for RunOrderError<Order> {
         match value {
             SlippageErr(slippage) => slippage.into(),
             LowBatcherFeeErr(low_batcher_fee) => low_batcher_fee.into(),
+            MathErr(math_error) => math_error.into(),
         }
     }
 }
@@ -156,6 +160,26 @@ impl<Order> From<LowerBatcherFee<Order>> for RunOrderError<Order> {
             ),
             value.order,
         )
+    }
+}
+
+#[derive(Debug)]
+pub struct MathErrorWithOrder<Order> {
+    pub order: Order,
+}
+
+impl<T> MathErrorWithOrder<T> {
+    pub fn map<F, T1>(self, f: F) -> MathErrorWithOrder<T1>
+    where
+        F: FnOnce(T) -> T1,
+    {
+        MathErrorWithOrder { order: f(self.order) }
+    }
+}
+
+impl<Order> From<MathErrorWithOrder<Order>> for RunOrderError<Order> {
+    fn from(value: MathErrorWithOrder<Order>) -> Self {
+        RunOrderError::NonFatal("Math error".to_string(), value.order)
     }
 }
 
