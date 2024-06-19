@@ -270,14 +270,18 @@ impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, 
         match upd {
             OrderUpdate::Created(new_order) => {
                 let ver = SpecializedOrder::get_self_ref(&new_order);
-                if is_confirmed {
-                    let seen_recently = self.skip_filter.remove(&ver);
-                    if !seen_recently {
-                        self.multi_backlog.get_mut(pair).put(new_order)
+                let seen_recently = self.skip_filter.contains(&ver);
+                if seen_recently {
+                    if is_confirmed {
+                        self.skip_filter.remove(&ver);
                     }
                 } else {
+                    if is_confirmed {
+                        self.multi_backlog.get_mut(pair).put(new_order)
+                    } else {
+                        self.multi_backlog.get_mut(pair).put(new_order)
+                    }
                     self.skip_filter.add(ver);
-                    self.multi_backlog.get_mut(pair).put(new_order)
                 }
             }
             OrderUpdate::Eliminated(elim_order) => {
@@ -394,25 +398,29 @@ impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, 
             | StateUpdate::TransitionRollback(Ior::Right(new_state))
             | StateUpdate::TransitionRollback(Ior::Both(_, new_state)) => {
                 let id = new_state.stable_id();
+                let ver = new_state.version();
                 if from_ledger {
-                    trace!(target: "executor", "Observing new confirmed state {}", id);
-                    let ver = new_state.version();
-                    let state_exists = self.index.exists(&ver);
-                    let seen_recently = self.skip_filter.remove(&ver);
+                    trace!("Observing new confirmed state {}", id);
                     self.index.put_confirmed(Confirmed(new_state));
-                    if state_exists || seen_recently {
-                        // No TLB update is needed.
-                        return None;
-                    }
                 } else {
-                    self.skip_filter.add(new_state.version());
                     if from_mempool {
-                        trace!(target: "executor", "Observing new unconfirmed state {}", id);
+                        trace!("Observing new unconfirmed state {}", id);
                         self.index.put_unconfirmed(Unconfirmed(new_state));
                     } else {
-                        trace!(target: "executor", "Observing new predicted state {}", id);
+                        trace!("Observing new predicted state {}", id);
                         self.index.put_predicted(Predicted(new_state));
                     }
+                }
+                let seen_recently = self.skip_filter.contains(&ver);
+                let state_exists = self.index.exists(&ver);
+                if state_exists || seen_recently {
+                    if from_ledger {
+                        self.skip_filter.remove(&ver);
+                    }
+                    // No TLB update is needed.
+                    return None;
+                } else {
+                    self.skip_filter.add(ver);
                 }
                 match resolve_source_state(id, &self.index) {
                     Some(latest_state) => self.cache(latest_state),
