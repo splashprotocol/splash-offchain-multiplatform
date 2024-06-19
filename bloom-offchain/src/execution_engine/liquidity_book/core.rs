@@ -77,14 +77,23 @@ impl<Taker> TakeInProgress<Taker> {
         }
     }
 
-    pub fn remaining_amount_offered(&self) -> InputAsset<u64> where Taker: Fragment {
+    pub fn remaining_amount_offered(&self) -> InputAsset<u64>
+    where
+        Taker: Fragment,
+    {
         self.target.input() - self.action.removed_input
     }
 
-    pub fn next_chunk_offered(&self, step: MatchmakingStep) -> Side<InputAsset<u64>> where Taker: Fragment {
+    pub fn next_chunk_offered(&self, step: MatchmakingStep) -> Side<InputAsset<u64>>
+    where
+        Taker: Fragment,
+    {
         let chunk = self.target.input() * step.get() / 100;
         self.target.side().wrap(if chunk > 0 {
-            min(self.target.input() * step.get() / 100, self.remaining_amount_offered())
+            min(
+                self.target.input() * step.get() / 100,
+                self.remaining_amount_offered(),
+            )
         } else {
             self.remaining_amount_offered()
         })
@@ -101,8 +110,8 @@ pub struct MatchmakingAttempt<Taker: Stable, Maker: Stable, U> {
 
 impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
     pub fn empty() -> Self
-        where
-            U: Monoid,
+    where
+        U: Monoid,
     {
         Self {
             terminal_takes: HashMap::new(),
@@ -121,8 +130,8 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
     }
 
     pub fn execution_units_consumed(&self) -> U
-        where
-            U: Copy,
+    where
+        U: Copy,
     {
         self.execution_units_consumed
     }
@@ -133,8 +142,8 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
     }
 
     pub fn unsatisfied_fragments(&self) -> Vec<Taker>
-        where
-            Taker: Fragment + Copy,
+    where
+        Taker: Fragment + Copy,
     {
         let not_ok_terminal_takes = self.terminal_takes.iter().filter_map(|(_, apply)| {
             let target = apply.target;
@@ -166,13 +175,13 @@ pub struct MatchmakingRecipe<Taker: Stable, Maker: Stable> {
 }
 
 impl<Taker, Maker> MatchmakingRecipe<Taker, Maker>
-    where
-        Taker: Stable,
-        Maker: Stable,
+where
+    Taker: Stable,
+    Maker: Stable,
 {
     pub fn try_from<U>(attempt: MatchmakingAttempt<Taker, Maker, U>) -> Result<Self, Option<Vec<Taker>>>
-        where
-            Taker: Fragment + Copy,
+    where
+        Taker: Fragment + Copy,
     {
         if attempt.is_complete() {
             let unsatisfied_fragments = attempt.unsatisfied_fragments();
@@ -199,10 +208,10 @@ impl<Taker, Maker> MatchmakingRecipe<Taker, Maker>
                     }));
                 }
                 if let Some(TakeInProgress {
-                                action,
-                                result: Some(result),
-                                target,
-                            }) = remainder
+                    action,
+                    result: Some(result),
+                    target,
+                }) = remainder
                 {
                     instructions.push(Either::Left(Applied {
                         action,
