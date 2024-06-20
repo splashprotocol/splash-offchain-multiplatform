@@ -5,6 +5,7 @@ use std::sync::{Arc, Once};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use cml_chain::builders::tx_builder::TxBuilderError;
 use futures::{stream, Stream};
 use futures_timer::Delay;
 use log::{info, trace, warn};
@@ -18,6 +19,7 @@ use crate::box_resolver::resolve_entity_state;
 use crate::data::event::{Predicted, Traced};
 use crate::data::order::SpecializedOrder;
 use crate::data::EntitySnapshot;
+use crate::executor::RunOrderError::{Fatal, NonFatal};
 use crate::executor::TxSubmissionError::{OrderUtxoIsSpent, PoolUtxoIsSpent, UnknownError};
 use crate::network::Network;
 use crate::tx_prover::TxProver;
@@ -32,13 +34,17 @@ pub enum RunOrderError<TOrd> {
 }
 
 impl<O> RunOrderError<O> {
+    pub fn from_cml_error(cml_error: TxBuilderError, order: O) -> RunOrderError<O> {
+        Fatal(cml_error.to_string(), order)
+    }
+
     pub fn map<F, O2>(self, f: F) -> RunOrderError<O2>
     where
         F: FnOnce(O) -> O2,
     {
         match self {
-            RunOrderError::Fatal(rn, o) => RunOrderError::Fatal(rn, f(o)),
-            RunOrderError::NonFatal(rn, o) => RunOrderError::NonFatal(rn, f(o)),
+            Fatal(rn, o) => Fatal(rn, f(o)),
+            NonFatal(rn, o) => NonFatal(rn, f(o)),
         }
     }
 }

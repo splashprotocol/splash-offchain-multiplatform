@@ -29,14 +29,14 @@ use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
-use crate::constants::{ADA_WEIGHT, FEE_DEN, MAX_LQ_CAP, TOKEN_WEIGHT, WEIGHT_FEE_DEN};
+use crate::constants::{ADA_WEIGHT, FEE_DEN, MAX_LQ_CAP, MIN_POOL_LOVELACE, TOKEN_WEIGHT, WEIGHT_FEE_DEN};
 use crate::data::cfmm_pool::AMMOps;
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::operation_output::{DepositOutput, RedeemOutput};
 use crate::data::order::{Base, PoolNft, Quote};
 use crate::data::pair::order_canonical;
 use crate::data::pool::{
-    ApplyOrder, ApplyOrderError, AssetDeltas, CFMMPoolAction, ImmutablePoolUtxo, Lq, Rx, Ry,
+    ApplyOrder, ApplyOrderError, AssetDeltas, CFMMPoolAction, ImmutablePoolUtxo, Lq, PoolBounds, Rx, Ry,
 };
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
@@ -119,6 +119,7 @@ pub struct BalancePool {
     pub ver: BalancePoolVer,
     /// How many execution units pool invokation costs.
     pub marginal_cost: ExUnits,
+    pub min_pool_lovelace: u64,
 }
 
 impl BalancePool {
@@ -213,7 +214,7 @@ impl BalancePool {
 
 impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for BalancePool
 where
-    Ctx: Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>,
+    Ctx: Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>> + Has<PoolBounds>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         if let Some(pool_ver) = BalancePoolVer::try_from_address(repr.address(), ctx) {
@@ -221,6 +222,7 @@ where
             let pd = repr.datum().clone()?.into_pd()?;
             let conf = BalancePoolConfig::try_from_pd(pd.clone())?;
             let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
+            let bounds = ctx.select::<PoolBounds>();
             return Some(BalancePool {
                 id: PoolId::try_from(conf.pool_nft).ok()?,
                 reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
@@ -237,7 +239,10 @@ where
                 treasury_x: TaggedAmount::new(conf.treasury_x),
                 treasury_y: TaggedAmount::new(conf.treasury_y),
                 ver: pool_ver,
-                marginal_cost: ctx.get().marginal_cost,
+                marginal_cost: ctx
+                    .select::<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>()
+                    .marginal_cost,
+                min_pool_lovelace: bounds.min_lovelace,
             });
         }
         None
@@ -479,9 +484,11 @@ impl Pool for BalancePool {
     }
 
     fn swaps_allowed(&self) -> bool {
-        // balance pools do not support lq bound, so
-        // swaps allowed all time
-        true
+        if self.asset_x.is_native() {
+            self.reserves_x.untag() >= self.min_pool_lovelace
+        } else {
+            self.reserves_y.untag() >= self.min_pool_lovelace
+        }
     }
 }
 
