@@ -64,24 +64,23 @@ where
                 if let Some(best_taker) = self.state.try_pick_fr(self.attempt_side, ok) {
                     let take = TakeInProgress::new(best_taker);
                     loop {
-                            if batch.execution_units_consumed() < self.execution_cap.soft {
-                                // 1. Take a chunk of remaining input from remainder
-                                // 2. Take liquidity from best counter-offer (takers/makers)
-                                let rem_side = take.target.side();
-                                let rem_price = rem_side.wrap(take.target.price());
-                                let maybe_price_counter_taker = self.state.best_fr_price(!rem_side);
-                                let chunk_offered = take.next_chunk_offered(self.step);
-                                let maybe_price_maker = self.state.preselect_market_maker(chunk_offered);
-                                match (maybe_price_counter_taker, maybe_price_maker) {
-                                    (Some(price_counter_taker), maybe_price_maker)
-                                        if maybe_price_maker
-                                            .map(|(_, p)| price_counter_taker.better_than(p))
-                                            .unwrap_or(true) => {}
-                                    (_, Some((maker_sid, price_maker)))
-                                        if rem_price.overlaps(price_maker) => {}
-                                    _ => {}
-                                }
+                        if batch.execution_units_consumed() < self.execution_cap.soft {
+                            // 1. Take a chunk of remaining input from remainder
+                            // 2. Take liquidity from best counter-offer (takers/makers)
+                            let rem_side = take.target.side();
+                            let rem_price = rem_side.wrap(take.target.price());
+                            let maybe_price_counter_taker = self.state.best_fr_price(!rem_side);
+                            let chunk_offered = take.next_chunk_offered(self.step);
+                            let maybe_price_maker = self.state.preselect_market_maker(chunk_offered);
+                            match (maybe_price_counter_taker, maybe_price_maker) {
+                                (Some(price_counter_taker), maybe_price_maker)
+                                    if maybe_price_maker
+                                        .map(|(_, p)| price_counter_taker.better_than(p))
+                                        .unwrap_or(true) => {}
+                                (_, Some((maker_sid, price_maker))) if rem_price.overlaps(price_maker) => {}
+                                _ => {}
                             }
+                        }
                         break;
                     }
                 }
