@@ -35,12 +35,10 @@ use crate::orders::{limit, AnyOrder};
 #[repr(transparent)]
 pub struct Magnet<T>(pub T);
 
-/// Result of order execution.
-pub type OrderResult<Order> = ExecutionEff<Bundled<Order, TransactionOutput>, Bundled<Order, FinalizedTxOut>>;
-/// Result of operation applied to a pool.
-pub type PoolResult<Pool> = Bundled<Pool, TransactionOutput>;
+pub type EffectPreview<T> = ExecutionEff<Bundled<T, TransactionOutput>, Bundled<T, FinalizedTxOut>>;
+pub type FinalizedEffect<T> = ExecutionEff<Bundled<T, FinalizedTxOut>, Bundled<T, FinalizedTxOut>>;
 
-impl<Ctx> BatchExec<ExecutionState, OrderResult<AnyOrder>, Ctx>
+impl<Ctx> BatchExec<ExecutionState, EffectPreview<AnyOrder>, Ctx>
     for Magnet<LinkedFill<AnyOrder, FinalizedTxOut>>
 where
     Ctx: Has<NetworkId>
@@ -48,7 +46,7 @@ where
         + Has<DeployedValidator<{ LimitOrderV1 as u8 }>>
         + Has<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>,
 {
-    fn exec(self, state: ExecutionState, context: Ctx) -> (ExecutionState, OrderResult<AnyOrder>, Ctx) {
+    fn exec(self, state: ExecutionState, context: Ctx) -> (ExecutionState, EffectPreview<AnyOrder>, Ctx) {
         match self.0 {
             LinkedFill {
                 target_fr: Bundled(AnyOrder::Limit(o), src),
@@ -77,7 +75,7 @@ where
     }
 }
 
-impl<Ctx> BatchExec<ExecutionState, OrderResult<LimitOrder>, Ctx>
+impl<Ctx> BatchExec<ExecutionState, EffectPreview<LimitOrder>, Ctx>
     for Magnet<LinkedFill<LimitOrder, FinalizedTxOut>>
 where
     Ctx: Has<NetworkId>
@@ -85,7 +83,11 @@ where
         + Has<DeployedValidator<{ LimitOrderV1 as u8 }>>
         + Has<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>,
 {
-    fn exec(self, mut state: ExecutionState, context: Ctx) -> (ExecutionState, OrderResult<LimitOrder>, Ctx) {
+    fn exec(
+        self,
+        mut state: ExecutionState,
+        context: Ctx,
+    ) -> (ExecutionState, EffectPreview<LimitOrder>, Ctx) {
         let Magnet(LinkedFill {
             target_fr: Bundled(ord, FinalizedTxOut(consumed_out, in_ref)),
             next_fr: transition,
@@ -128,22 +130,21 @@ where
         candidate.sub_asset(ord.input_asset, removed_input);
         // Add output resulted from exchange.
         candidate.add_asset(ord.output_asset, added_output);
-        let (residual_order, effect) = {
-            match transition {
-                StateTrans::Active(next) => {
-                    if let Some(data) = candidate.data_mut() {
-                        limit::unsafe_update_datum(data, next.input_amount, next.fee);
-                    }
-                    (candidate.clone(), ExecutionEff::Updated(Bundled(next, candidate)))
+        let consumed_bundle = Bundled(ord, FinalizedTxOut(consumed_out, in_ref));
+        let (residual_order, effect) = match transition {
+            StateTrans::Active(next) => {
+                if let Some(data) = candidate.data_mut() {
+                    limit::unsafe_update_datum(data, next.input_amount, next.fee);
                 }
-                StateTrans::EOL => {
-                    candidate.null_datum();
-                    candidate.update_address(ord.redeemer_address.to_address(context.select::<NetworkId>()));
-                    (
-                        candidate,
-                        ExecutionEff::Eliminated(Bundled(ord, FinalizedTxOut(consumed_out, in_ref))),
-                    )
-                }
+                (
+                    candidate.clone(),
+                    ExecutionEff::Updated(consumed_bundle, Bundled(next, candidate)),
+                )
+            }
+            StateTrans::EOL => {
+                candidate.null_datum();
+                candidate.update_address(ord.redeemer_address.to_address(context.select::<NetworkId>()));
+                (candidate, ExecutionEff::Eliminated(consumed_bundle))
             }
         };
         let witness = context.select::<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>();
@@ -158,7 +159,8 @@ where
 }
 
 /// Batch execution routing for [AnyPool].
-impl<Ctx> BatchExec<ExecutionState, PoolResult<AnyPool>, Ctx> for Magnet<LinkedSwap<AnyPool, FinalizedTxOut>>
+impl<Ctx> BatchExec<ExecutionState, EffectPreview<AnyPool>, Ctx>
+    for Magnet<LinkedSwap<AnyPool, FinalizedTxOut>>
 where
     Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
@@ -166,7 +168,7 @@ where
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>,
 {
-    fn exec(self, state: ExecutionState, context: Ctx) -> (ExecutionState, PoolResult<AnyPool>, Ctx) {
+    fn exec(self, state: ExecutionState, context: Ctx) -> (ExecutionState, EffectPreview<AnyPool>, Ctx) {
         match self.0 {
             LinkedSwap {
                 target: Bundled(AnyPool::PureCFMM(p), src),
@@ -183,7 +185,11 @@ where
                     output,
                 })
                 .exec(state, context);
-                (st, res.map(AnyPool::PureCFMM), ctx)
+                (
+                    st,
+                    res.bimap(|c| c.map(AnyPool::PureCFMM), |p| p.map(AnyPool::PureCFMM)),
+                    ctx,
+                )
             }
             LinkedSwap {
                 target: Bundled(AnyPool::BalancedCFMM(p), src),
@@ -200,7 +206,11 @@ where
                     output,
                 })
                 .exec(state, context);
-                (st, res.map(AnyPool::BalancedCFMM), ctx)
+                (
+                    st,
+                    res.bimap(|c| c.map(AnyPool::BalancedCFMM), |p| p.map(AnyPool::BalancedCFMM)),
+                    ctx,
+                )
             }
             _ => unreachable!(),
         }
@@ -208,7 +218,7 @@ where
 }
 
 /// Batch execution logic for [ConstFnPool].
-impl<Ctx> BatchExec<ExecutionState, PoolResult<ConstFnPool>, Ctx>
+impl<Ctx> BatchExec<ExecutionState, EffectPreview<ConstFnPool>, Ctx>
     for Magnet<LinkedSwap<ConstFnPool, FinalizedTxOut>>
 where
     Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>>
@@ -216,7 +226,11 @@ where
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>,
 {
-    fn exec(self, mut state: ExecutionState, context: Ctx) -> (ExecutionState, PoolResult<ConstFnPool>, Ctx) {
+    fn exec(
+        self,
+        mut state: ExecutionState,
+        context: Ctx,
+    ) -> (ExecutionState, EffectPreview<ConstFnPool>, Ctx) {
         let Magnet(LinkedSwap {
             target: Bundled(pool, FinalizedTxOut(consumed_out, in_ref)),
             transition,
@@ -240,7 +254,7 @@ where
         } = pool.get_validator(&context);
         let input = ScriptInputBlueprint {
             reference: in_ref,
-            utxo: consumed_out,
+            utxo: consumed_out.clone(),
             script: ScriptWitness {
                 hash,
                 cost: delayed_cost(move |ctx| ex_budget + marginal_cost.scale(ctx.self_index as u64)),
@@ -267,20 +281,26 @@ where
 
         let updated_output = produced_out.clone();
 
-        let result = Bundled(transition, updated_output.clone());
+        let consumed = Bundled(pool, FinalizedTxOut(consumed_out, in_ref));
+        let produced = Bundled(transition, updated_output.clone());
+        let trans = ExecutionEff::Updated(consumed, produced);
 
         state.tx_blueprint.add_io(input, updated_output);
         state.tx_blueprint.add_ref_input(reference_utxo);
-        (state, result, context)
+        (state, trans, context)
     }
 }
 
-impl<Ctx> BatchExec<ExecutionState, PoolResult<BalancePool>, Ctx>
+impl<Ctx> BatchExec<ExecutionState, EffectPreview<BalancePool>, Ctx>
     for Magnet<LinkedSwap<BalancePool, FinalizedTxOut>>
 where
     Ctx: Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>,
 {
-    fn exec(self, mut state: ExecutionState, context: Ctx) -> (ExecutionState, PoolResult<BalancePool>, Ctx) {
+    fn exec(
+        self,
+        mut state: ExecutionState,
+        context: Ctx,
+    ) -> (ExecutionState, EffectPreview<BalancePool>, Ctx) {
         let Magnet(LinkedSwap {
             target: Bundled(pool, FinalizedTxOut(consumed_out, in_ref)),
             transition,
@@ -304,7 +324,7 @@ where
         } = pool.get_validator(&context);
         let input = ScriptInputBlueprint {
             reference: in_ref,
-            utxo: consumed_out,
+            utxo: consumed_out.clone(),
             script: ScriptWitness {
                 hash,
                 cost: delayed_cost(move |ctx| ex_budget + marginal_cost.scale(ctx.self_index as u64)),
@@ -329,10 +349,12 @@ where
             );
         }
 
-        let result = Bundled(transition, produced_out.clone());
+        let consumed = Bundled(pool, FinalizedTxOut(consumed_out, in_ref));
+        let produced = Bundled(transition, produced_out.clone());
+        let effect = ExecutionEff::Updated(consumed, produced);
 
         state.tx_blueprint.add_io(input, produced_out);
         state.tx_blueprint.add_ref_input(reference_utxo);
-        (state, result, context)
+        (state, effect, context)
     }
 }

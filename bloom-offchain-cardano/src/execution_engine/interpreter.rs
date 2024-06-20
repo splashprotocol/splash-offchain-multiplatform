@@ -24,7 +24,7 @@ use spectrum_offchain_cardano::deployment::DeployedValidator;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderWitnessV1;
 
 use crate::execution_engine::execution_state::ExecutionState;
-use crate::execution_engine::instances::{Magnet, OrderResult, PoolResult};
+use crate::execution_engine::instances::{EffectPreview, FinalizedEffect, Magnet};
 
 /// A short-living interpreter.
 #[derive(Debug, Copy, Clone)]
@@ -35,8 +35,8 @@ impl<'a, Fr, Pl, Ctx> RecipeInterpreter<Fr, Pl, Ctx, OutputRef, FinalizedTxOut, 
 where
     Fr: Copy + std::fmt::Debug,
     Pl: Copy + std::fmt::Debug,
-    Magnet<LinkedFill<Fr, FinalizedTxOut>>: BatchExec<ExecutionState, OrderResult<Fr>, Ctx>,
-    Magnet<LinkedSwap<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, PoolResult<Pl>, Ctx>,
+    Magnet<LinkedFill<Fr, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Fr>, Ctx>,
+    Magnet<LinkedSwap<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Pl>, Ctx>,
     Ctx: Clone
         + Sized
         + Has<Collateral>
@@ -50,12 +50,7 @@ where
         ctx: Ctx,
     ) -> (
         SignedTxBuilder,
-        Vec<
-            ExecutionEff<
-                Bundled<Either<Baked<Fr, OutputRef>, Baked<Pl, OutputRef>>, FinalizedTxOut>,
-                Bundled<Baked<Fr, OutputRef>, FinalizedTxOut>,
-            >,
-        >,
+        Vec<FinalizedEffect<Either<Baked<Fr, OutputRef>, Baked<Pl, OutputRef>>>>,
     ) {
         let (mut tx_builder, effects, ctx) = execute_recipe(ctx, instructions);
         let execution_fee_address = ctx.select::<OperatorRewardAddress>().into();
@@ -70,21 +65,26 @@ where
         let mut finalized_effects = vec![];
         for eff in effects {
             finalized_effects.push(eff.bimap(
-                |u| {
+                |p| {
                     let output_ix = tx_body_cloned
                         .outputs
                         .iter()
-                        .position(|out| out == &u.1)
+                        .position(|out| out == &p.1)
                         .expect("Tx.outputs must be coherent with effects!");
                     let out_ref = OutputRef::new(tx_hash, output_ix as u64);
-                    u.map(|inner| {
+                    p.map(|inner| {
                         inner.map_either(|lh| Baked::new(lh, out_ref), |rh| Baked::new(rh, out_ref))
                     })
                     .map_bearer(|out| FinalizedTxOut(out, out_ref))
                 },
-                |e| {
-                    let consumed_out_ref = e.1 .1;
-                    e.map(|fr| Baked::new(fr, consumed_out_ref))
+                |c| {
+                    let Bundled(_, FinalizedTxOut(_, consumed_out_ref)) = c;
+                    c.map(|fr| {
+                        fr.map_either(
+                            |fr| Baked::new(fr, consumed_out_ref),
+                            |pl| Baked::new(pl, consumed_out_ref),
+                        )
+                    })
                 },
             ))
         }
@@ -97,16 +97,12 @@ where
 fn execute_recipe<Fr, Pl, Ctx>(
     ctx: Ctx,
     instructions: Vec<LinkedTerminalInstruction<Fr, Pl, FinalizedTxOut>>,
-) -> (
-    TransactionBuilder,
-    Vec<ExecutionEff<Bundled<Either<Fr, Pl>, TransactionOutput>, Bundled<Fr, FinalizedTxOut>>>,
-    Ctx,
-)
+) -> (TransactionBuilder, Vec<EffectPreview<Either<Fr, Pl>>>, Ctx)
 where
     Fr: Copy,
     Pl: Copy,
-    Magnet<LinkedFill<Fr, FinalizedTxOut>>: BatchExec<ExecutionState, OrderResult<Fr>, Ctx>,
-    Magnet<LinkedSwap<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, PoolResult<Pl>, Ctx>,
+    Magnet<LinkedFill<Fr, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Fr>, Ctx>,
+    Magnet<LinkedSwap<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Pl>, Ctx>,
     Ctx: Clone
         + Sized
         + Has<Collateral>
@@ -170,32 +166,26 @@ fn balance_fee<Fr, Pl, Bearer>(
 fn execute<Fr, Pl, Ctx>(
     ctx: Ctx,
     state: ExecutionState,
-    mut updates_acc: Vec<
-        ExecutionEff<Bundled<Either<Fr, Pl>, TransactionOutput>, Bundled<Fr, FinalizedTxOut>>,
-    >,
+    mut updates_acc: Vec<EffectPreview<Either<Fr, Pl>>>,
     mut rem: Vec<LinkedTerminalInstruction<Fr, Pl, FinalizedTxOut>>,
-) -> (
-    ExecutionState,
-    Vec<ExecutionEff<Bundled<Either<Fr, Pl>, TransactionOutput>, Bundled<Fr, FinalizedTxOut>>>,
-    Ctx,
-)
+) -> (ExecutionState, Vec<EffectPreview<Either<Fr, Pl>>>, Ctx)
 where
     Fr: Copy,
     Pl: Copy,
-    Magnet<LinkedFill<Fr, FinalizedTxOut>>: BatchExec<ExecutionState, OrderResult<Fr>, Ctx>,
-    Magnet<LinkedSwap<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, PoolResult<Pl>, Ctx>,
+    Magnet<LinkedFill<Fr, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Fr>, Ctx>,
+    Magnet<LinkedSwap<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Pl>, Ctx>,
     Ctx: Clone,
 {
     if let Some(instruction) = rem.pop() {
         match instruction {
             LinkedTerminalInstruction::Fill(fill_order) => {
                 let (state, result, ctx) = Magnet(fill_order).exec(state, ctx);
-                updates_acc.push(result.map(|u| u.map(Either::Left)));
+                updates_acc.push(result.bimap(|u| u.map(Either::Left), |e| e.map(Either::Left)));
                 execute(ctx, state, updates_acc, rem)
             }
             LinkedTerminalInstruction::Swap(swap) => {
                 let (state, result, ctx) = Magnet(swap).exec(state, ctx);
-                updates_acc.push(ExecutionEff::Updated(result.map(Either::Right)));
+                updates_acc.push(result.bimap(|u| u.map(Either::Right), |e| e.map(Either::Right)));
                 execute(ctx, state, updates_acc, rem)
             }
         }

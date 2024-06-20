@@ -1,5 +1,5 @@
 pub enum ExecutionEff<T, K> {
-    Updated(T),
+    Updated(K, T),
     Eliminated(K),
 }
 
@@ -10,7 +10,7 @@ impl<T, K> ExecutionEff<T, K> {
         FK: FnOnce(K) -> K2,
     {
         match self {
-            ExecutionEff::Updated(u) => ExecutionEff::Updated(ft(u)),
+            ExecutionEff::Updated(e, u) => ExecutionEff::Updated(fk(e), ft(u)),
             ExecutionEff::Eliminated(e) => ExecutionEff::Eliminated(fk(e)),
         }
     }
@@ -20,7 +20,7 @@ impl<T, K> ExecutionEff<T, K> {
         F: FnOnce(T) -> T2,
     {
         match self {
-            ExecutionEff::Updated(u) => ExecutionEff::Updated(f(u)),
+            ExecutionEff::Updated(e, u) => ExecutionEff::Updated(e, f(u)),
             ExecutionEff::Eliminated(e) => ExecutionEff::Eliminated(e),
         }
     }
@@ -31,7 +31,7 @@ impl<T, K> ExecutionEff<T, K> {
     {
         match self {
             ExecutionEff::Eliminated(e) => ExecutionEff::Eliminated(f(e)),
-            ExecutionEff::Updated(u) => ExecutionEff::Updated(u),
+            ExecutionEff::Updated(e, u) => ExecutionEff::Updated(f(e), u),
         }
     }
 }

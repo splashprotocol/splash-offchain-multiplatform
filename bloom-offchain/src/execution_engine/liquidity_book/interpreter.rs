@@ -15,6 +15,11 @@ pub trait RecipeInterpreter<Fr, Pl, Ctx, V, Bearer, Txc> {
         ctx: Ctx,
     ) -> (
         Txc,
-        Vec<ExecutionEff<Bundled<Either<Baked<Fr, V>, Baked<Pl, V>>, Bearer>, Bundled<Baked<Fr, V>, Bearer>>>,
+        Vec<
+            ExecutionEff<
+                Bundled<Either<Baked<Fr, V>, Baked<Pl, V>>, Bearer>,
+                Bundled<Either<Baked<Fr, V>, Baked<Pl, V>>, Bearer>,
+            >,
+        >,
     );
 }

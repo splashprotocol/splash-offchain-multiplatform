@@ -62,7 +62,12 @@ pub type Event<CO, SO, P, B, V> =
 
 pub enum PendingEffects<CompOrd, SpecOrd, Pool, Ver, Bearer> {
     FromLiquidityBook(
-        Vec<ExecutionEff<EvolvingEntity<CompOrd, Pool, Ver, Bearer>, Bundled<Baked<CompOrd, Ver>, Bearer>>>,
+        Vec<
+            ExecutionEff<
+                EvolvingEntity<CompOrd, Pool, Ver, Bearer>,
+                EvolvingEntity<CompOrd, Pool, Ver, Bearer>,
+            >,
+        >,
     ),
     FromBacklog(Bundled<Baked<Pool, Ver>, Bearer>, Bundled<SpecOrd, Bearer>),
 }
@@ -215,7 +220,7 @@ pub struct Executor<
     /// Which pair should we process in the first place.
     focus_set: FocusSet<Pair>,
     /// Temporarily memoize entities that came from unconfirmed updates.
-    skip_filter: CircularFilter<128, Ver>,
+    skip_filter: CircularFilter<256, Ver>,
     pd: PhantomData<(StableId, Ver, TxCandidate, Tx, Err)>,
     alert_client: HealthAlertClient,
 }
@@ -270,18 +275,12 @@ impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, 
         match upd {
             OrderUpdate::Created(new_order) => {
                 let ver = SpecializedOrder::get_self_ref(&new_order);
-                let seen_recently = self.skip_filter.contains(&ver);
-                if seen_recently {
-                    if is_confirmed {
-                        self.skip_filter.remove(&ver);
-                    }
-                } else {
+                if !self.skip_filter.contains(&ver) {
                     if is_confirmed {
                         self.multi_backlog.get_mut(pair).put(new_order)
                     } else {
                         self.multi_backlog.get_mut(pair).put(new_order)
                     }
-                    self.skip_filter.add(ver);
                 }
             }
             OrderUpdate::Eliminated(elim_order) => {
@@ -397,30 +396,19 @@ impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, 
             | StateUpdate::Transition(Ior::Both(_, new_state))
             | StateUpdate::TransitionRollback(Ior::Right(new_state))
             | StateUpdate::TransitionRollback(Ior::Both(_, new_state)) => {
+                if self.skip_filter.contains(&new_state.version()) {
+                    return None;
+                }
                 let id = new_state.stable_id();
-                let ver = new_state.version();
-                let seen_recently = self.skip_filter.contains(&ver);
-                let state_exists = self.index.exists(&ver);
                 if from_ledger {
                     trace!("Observing new confirmed state {}", id);
                     self.index.put_confirmed(Confirmed(new_state));
+                } else if from_mempool {
+                    trace!("Observing new unconfirmed state {}", id);
+                    self.index.put_unconfirmed(Unconfirmed(new_state));
                 } else {
-                    if from_mempool {
-                        trace!("Observing new unconfirmed state {}", id);
-                        self.index.put_unconfirmed(Unconfirmed(new_state));
-                    } else {
-                        trace!("Observing new predicted state {}", id);
-                        self.index.put_predicted(Predicted(new_state));
-                    }
-                }
-                if state_exists || seen_recently {
-                    if from_ledger {
-                        self.skip_filter.remove(&ver);
-                    }
-                    // No TLB update is needed.
-                    return None;
-                } else {
-                    self.skip_filter.add(ver);
+                    trace!("Observing new predicted state {}", id);
+                    self.index.put_predicted(Predicted(new_state));
                 }
                 match resolve_source_state(id, &self.index) {
                     Some(latest_state) => self.cache(latest_state),
@@ -464,6 +452,14 @@ impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, 
         }
         LinkedExecutionRecipe(linked)
     }
+
+    fn processed(&mut self, ver: V)
+    where
+        V: Copy + Eq + Hash + Display,
+    {
+        trace!("Saving {} to skip filter", ver);
+        self.skip_filter.add(ver);
+    }
 }
 
 impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, U, C, IX, CH, TLB, L, RIR, SIR, PRV, E> Stream
@@ -504,23 +500,24 @@ where
                                 PendingEffects::FromLiquidityBook(mut pending_effects) => {
                                     while let Some(effect) = pending_effects.pop() {
                                         match effect {
-                                            ExecutionEff::Updated(upd) => {
+                                            ExecutionEff::Updated(elim, upd) => {
+                                                self.processed(elim.version());
                                                 self.update_state(Channel::tx_submit(
-                                                    StateUpdate::Transition(Ior::Right(upd)),
+                                                    StateUpdate::Transition(Ior::Both(elim, upd)),
                                                 ));
                                             }
                                             ExecutionEff::Eliminated(elim) => {
+                                                self.processed(elim.version());
                                                 self.update_state(Channel::tx_submit(
-                                                    StateUpdate::Transition(Ior::Left(
-                                                        elim.map(Either::Left),
-                                                    )),
+                                                    StateUpdate::Transition(Ior::Left(elim)),
                                                 ));
                                             }
                                         }
                                     }
                                     self.multi_book.get_mut(&pair).on_recipe_succeeded();
                                 }
-                                PendingEffects::FromBacklog(new_pool, _) => {
+                                PendingEffects::FromBacklog(new_pool, consumed_ord) => {
+                                    self.processed(consumed_ord.get_self_ref());
                                     self.update_state(Channel::tx_submit(StateUpdate::Transition(
                                         Ior::Right(new_pool.map(Either::Right)),
                                     )));

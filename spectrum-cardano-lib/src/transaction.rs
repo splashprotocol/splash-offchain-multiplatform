@@ -3,7 +3,6 @@ use cml_chain::certs::{Credential, StakeCredential};
 use cml_chain::plutus::PlutusData;
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, Transaction, TransactionOutput};
 use cml_chain::Value;
-use cml_core::serialization::Serialize;
 use cml_crypto::{ScriptHash, TransactionHash};
 use cml_multi_era::babbage::{BabbageFormatTxOut, BabbageScriptRef, BabbageTransactionOutput};
 use derive_more::From;
