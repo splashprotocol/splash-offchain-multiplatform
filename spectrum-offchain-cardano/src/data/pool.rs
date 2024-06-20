@@ -299,12 +299,13 @@ where
         + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
-        + Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>,
+        + Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>
+        + Has<PoolBounds>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
-        let cfmm_pool = ConstFnPool::try_from_ledger(repr, ctx).map(PureCFMM);
-        let balance_pool = BalancePool::try_from_ledger(repr, ctx).map(BalancedCFMM);
-        cfmm_pool.or(balance_pool)
+        ConstFnPool::try_from_ledger(repr, ctx)
+            .map(PureCFMM)
+            .or_else(|| BalancePool::try_from_ledger(repr, ctx).map(BalancedCFMM))
     }
 }
 

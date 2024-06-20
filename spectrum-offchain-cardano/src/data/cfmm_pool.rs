@@ -39,7 +39,7 @@ use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
 use crate::data::pair::order_canonical;
 
 use crate::data::pool::{
-    ApplyOrder, ApplyOrderError, AssetDeltas, ImmutablePoolUtxo, Lq, Rx, Ry,
+    ApplyOrder, ApplyOrderError, AssetDeltas, ImmutablePoolUtxo, Lq, PoolBounds, Rx, Ry,
 };
 use crate::data::redeem::ClassicalOnChainRedeem;
 
@@ -151,6 +151,7 @@ pub struct ConstFnPool {
     pub lq_lower_bound: TaggedAmount<Rx>,
     pub ver: ConstFnPoolVer,
     pub marginal_cost: ExUnits,
+    pub min_pool_lovelace: u64,
 }
 
 impl ConstFnPool {
@@ -370,9 +371,9 @@ impl Pool for ConstFnPool {
     fn swaps_allowed(&self) -> bool {
         let lq_bound = (self.reserves_x.untag() * 2) >= self.lq_lower_bound.untag();
         let bot_bound = if self.asset_x.is_native() {
-            self.reserves_x.untag() >= MIN_POOL_LOVELACE
+            self.reserves_x.untag() >= self.min_pool_lovelace
         } else {
-            self.reserves_y.untag() >= MIN_POOL_LOVELACE
+            self.reserves_y.untag() >= self.min_pool_lovelace
         };
         lq_bound && bot_bound
     }
@@ -399,12 +400,14 @@ where
     Ctx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
-        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>,
+        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+        + Has<PoolBounds>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         if let Some(pool_ver) = ConstFnPoolVer::try_from_address(repr.address(), ctx) {
             let value = repr.value();
             let pd = repr.datum().clone()?.into_pd()?;
+            let bounds = ctx.select::<PoolBounds>();
             let marginal_cost = match pool_ver {
                 ConstFnPoolVer::V1 => {
                     ctx.select::<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>()
@@ -445,6 +448,7 @@ where
                         lq_lower_bound: conf.lq_lower_bound,
                         ver: pool_ver,
                         marginal_cost,
+                        min_pool_lovelace: bounds.min_lovelace,
                     })
                 }
                 ConstFnPoolVer::FeeSwitch => {
@@ -466,6 +470,7 @@ where
                         lq_lower_bound: conf.lq_lower_bound,
                         ver: pool_ver,
                         marginal_cost,
+                        min_pool_lovelace: bounds.min_lovelace,
                     })
                 }
                 ConstFnPoolVer::FeeSwitchBiDirFee => {
@@ -489,6 +494,7 @@ where
                         lq_lower_bound: conf.lq_lower_bound,
                         ver: pool_ver,
                         marginal_cost,
+                        min_pool_lovelace: bounds.min_lovelace,
                     })
                 }
             };
