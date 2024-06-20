@@ -689,7 +689,7 @@ mod tests {
                 mem: 120000000,
                 steps: 100000000000,
             },
-            min_pool_lovelace: 1000000,
+            min_pool_lovelace: 0,
         };
         let result = pool.swap(Side::Ask(200000000));
 
@@ -754,7 +754,7 @@ mod tests {
                 mem: 120000000,
                 steps: 100000000000,
             },
-            min_pool_lovelace: 100000000,
+            min_pool_lovelace: 0,
         };
 
         let (_result, new_pool) = pool.clone().swap(Side::Ask(363613802862));
@@ -838,7 +838,7 @@ mod tests {
                 mem: 120000000,
                 steps: 100000000000,
             },
-            min_pool_lovelace: 10000000000,
+            min_pool_lovelace: 0,
         };
 
         println!("{}", MAX_LQ_CAP - 9223372036854560080);
