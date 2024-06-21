@@ -29,7 +29,7 @@ impl<const N: usize, T> CircularFilter<N, T> {
 
 impl<const N: usize, T: Hash + Eq + Clone> CircularFilter<N, T> {
     /// Adds new element to filter.
-    /// Returns evicted element is filter is full.
+    /// Returns evicted element if filter is full.
     pub fn add(&mut self, a: T) -> Option<T> {
         if self.filter.insert(a.clone()) {
             if let Err(a) = self.buffer.try_push_back(a) {

@@ -202,7 +202,7 @@ where
                                     entity_repo.invalidate(pool_state_id, pool_id).await;
                                 } else if errors.contains(&PoolUtxoIsSpent) {
                                     entity_repo.invalidate(pool_state_id, pool_id).await;
-                                    self.backlog.lock().await.recharge(ord);
+                                    self.backlog.lock().await.put(ord);
                                 }
                             }
                         } else {

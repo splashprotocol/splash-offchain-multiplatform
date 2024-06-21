@@ -284,7 +284,12 @@ impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, 
                 }
             }
             OrderUpdate::Eliminated(elim_order) => {
-                self.multi_backlog.get_mut(pair).remove(elim_order.get_self_ref())
+                let elim_order_id = elim_order.get_self_ref();
+                if is_confirmed {
+                    self.multi_backlog.get_mut(pair).remove(elim_order_id);
+                } else {
+                    self.multi_backlog.get_mut(pair).soft_evict(elim_order_id);
+                }
             }
         }
     }
@@ -371,7 +376,7 @@ impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, 
                 };
                 if let Some(tr) = maybe_transition {
                     trace!("Resulting transition is {}", tr);
-                    self.sync_book(pair, tr)
+                    self.sync_book(pair, tr);
                 }
             }
         }
@@ -544,9 +549,9 @@ where
                                     PendingEffects::FromBacklog(_, Bundled(order, br)) => {
                                         let order_ref = order.get_self_ref();
                                         if missing_bearers.contains(&order_ref) {
-                                            self.multi_backlog.get_mut(&pair).remove(order_ref);
+                                            self.multi_backlog.get_mut(&pair).soft_evict(order_ref);
                                         } else {
-                                            self.multi_backlog.get_mut(&pair).recharge(Bundled(order, br));
+                                            self.multi_backlog.get_mut(&pair).put(Bundled(order, br));
                                         }
                                     }
                                 }
@@ -560,7 +565,7 @@ where
                                             .on_recipe_failed(StashingOption::Unstash);
                                     }
                                     PendingEffects::FromBacklog(_, order) => {
-                                        self.multi_backlog.get_mut(&pair).recharge(order);
+                                        self.multi_backlog.get_mut(&pair).put(order);
                                     }
                                 }
                             }

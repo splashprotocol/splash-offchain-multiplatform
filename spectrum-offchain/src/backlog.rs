@@ -24,7 +24,6 @@ use crate::maker::Maker;
 
 pub mod data;
 pub mod persistence;
-pub mod process;
 
 /// A buffer for "hot" orders. Doesn't care about resiliency.
 pub trait HotBacklog<TOrd>
@@ -45,12 +44,8 @@ where
     fn remove<'a>(&mut self, ord_id: TOrd::TOrderId)
     where
         TOrd::TOrderId: 'a + Clone;
-    /// Return order back to backlog.
-    fn recharge<'a>(&mut self, ord: TOrd)
-    where
-        TOrd: 'a;
     /// Check order later.
-    fn check_later<'a>(&mut self, ord: TOrd)
+    fn soft_evict<'a>(&mut self, ord: TOrd::TOrderId)
     where
         TOrd: 'a;
 }
@@ -62,7 +57,7 @@ pub struct BacklogCapacity(u32);
 pub struct HotPriorityBacklog<TOrd: UniqueOrder> {
     queue: PriorityQueue<TOrd::TOrderId, OrderWeight>,
     store: HashMap<TOrd::TOrderId, TOrd>,
-    pending_orders: CircularFilter<128, TOrd>,
+    soft_evicted_orders: CircularFilter<256, TOrd::TOrderId>,
     capacity: u32,
 }
 
@@ -71,7 +66,7 @@ impl<TOrd: UniqueOrder> HotPriorityBacklog<TOrd> {
         Self {
             queue: PriorityQueue::new(),
             store: HashMap::new(),
-            pending_orders: CircularFilter::new(),
+            soft_evicted_orders: CircularFilter::new(),
             capacity: capacity.into(),
         }
     }
@@ -96,11 +91,11 @@ where
     where
         TOrd: 'a,
     {
-        let key = ord.get_self_ref();
-        if self.capacity > 0 && !self.store.contains_key(&key) {
+        let id = ord.get_self_ref();
+        if self.capacity > 0 && !self.store.contains_key(&id) && !self.soft_evicted_orders.contains(&id) {
             let wt = ord.weight();
-            self.queue.push(key, wt);
-            self.store.insert(key, ord);
+            self.queue.push(id, wt);
+            self.store.insert(id, ord);
             self.capacity -= 1;
         }
     }
@@ -122,35 +117,21 @@ where
         self.store.contains_key(&ord_id)
     }
 
-    fn remove<'a>(&mut self, ord_id: TOrd::TOrderId)
+    fn remove<'a>(&mut self, ord: TOrd::TOrderId)
     where
         TOrd::TOrderId: 'a + Clone,
     {
-        if self.store.remove(&ord_id).is_some() {
+        self.soft_evicted_orders.remove(&ord);
+        if self.store.remove(&ord).is_some() {
             self.capacity += 1;
         }
     }
 
-    fn recharge<'a>(&mut self, ord: TOrd)
+    fn soft_evict<'a>(&mut self, ord: TOrd::TOrderId)
     where
         TOrd: 'a,
     {
-        if self.capacity > 0 {
-            let key = ord.get_self_ref();
-            let wt = ord.weight();
-            self.queue.push(key, wt);
-            self.store.insert(key, ord);
-            self.capacity -= 1;
-        }
-    }
-
-    fn check_later<'a>(&mut self, ord: TOrd)
-    where
-        TOrd: 'a,
-    {
-        if let Some(revived_order) = self.pending_orders.add(ord) {
-            self.recharge(revived_order);
-        }
+        self.soft_evicted_orders.add(ord);
     }
 }
 
