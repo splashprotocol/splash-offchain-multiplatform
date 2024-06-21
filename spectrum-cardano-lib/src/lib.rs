@@ -11,6 +11,7 @@ use cml_chain::{PolicyId, Value};
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
 use derive_more::{From, Into};
+use num::{CheckedAdd, CheckedSub};
 use serde::Deserialize;
 
 use crate::plutus_data::{ConstrPlutusDataExtension, PlutusDataExtension};
@@ -329,6 +330,18 @@ impl<T> Sub for TaggedAmount<T> {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
         Self(self.0 - rhs.0, PhantomData::default())
+    }
+}
+
+impl<T> CheckedSub for TaggedAmount<T> {
+    fn checked_sub(self, v: Self) -> Option<Self> {
+        self.0.checked_sub(v.0).map(|res| TaggedAmount::new(res))
+    }
+}
+
+impl<T> CheckedAdd for TaggedAmount<T> {
+    fn checked_add(self, v: Self) -> Option<Self> {
+        self.0.checked_add(v.0).map(|res| TaggedAmount::new(res))
     }
 }
 

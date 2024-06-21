@@ -34,9 +34,9 @@ pub fn classic_cfmm_reward_lp(
     in_y_amount: u64,
 ) -> Option<(TaggedAmount<Lq>, TaggedAmount<Rx>, TaggedAmount<Ry>)> {
     let min_by_x =
-        ((in_x_amount as u128) * (liquidity.untag() as u128)).checked_div(reserves_x.untag() as u128)?;
+        ((in_x_amount as u128).checked_mul(liquidity.untag() as u128)).and_then(|res| res.checked_div(reserves_x.untag() as u128))?;
     let min_by_y =
-        ((in_y_amount as u128) * (liquidity.untag() as u128)).checked_div(reserves_y.untag() as u128)?;
+        ((in_y_amount as u128).checked_mul(liquidity.untag() as u128)).and_then(|res| res.checked_div(reserves_y.untag() as u128))?;
     let (change_by_x, change_by_y): (u64, u64) = if min_by_x == min_by_y {
         (0, 0)
     } else {
@@ -68,10 +68,10 @@ pub fn classic_cfmm_shares_amount(
     liquidity: TaggedAmount<Lq>,
     burned_lq: TaggedAmount<Lq>,
 ) -> Option<(TaggedAmount<Rx>, TaggedAmount<Ry>)> {
-    let x_amount =
-        ((burned_lq.untag() as u128) * (reserves_x.untag() as u128)).checked_div(liquidity.untag() as u128)?;
-    let y_amount =
-        ((burned_lq.untag() as u128) * (reserves_y.untag() as u128)).checked_div(liquidity.untag() as u128)?;
+    let x_amount = ((burned_lq.untag() as u128).checked_mul(reserves_x.untag() as u128))
+        .and_then(|res| res.checked_div(liquidity.untag() as u128))?;
+    let y_amount = ((burned_lq.untag() as u128).checked_mul(reserves_y.untag() as u128))
+        .and_then(|res| res.checked_div(liquidity.untag() as u128))?;
 
     Some((
         TaggedAmount::new(x_amount as u64),
