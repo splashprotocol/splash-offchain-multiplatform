@@ -334,13 +334,13 @@ impl<T> Sub for TaggedAmount<T> {
 }
 
 impl<T> CheckedSub for TaggedAmount<T> {
-    fn checked_sub(self, v: Self) -> Option<Self> {
-        self.0.checked_sub(v.0).map(|res| TaggedAmount::new(res))
+    fn checked_sub(&self, v: &Self) -> Option<Self> {
+        self.0.checked_sub(v.0).map(TaggedAmount::new)
     }
 }
 
 impl<T> CheckedAdd for TaggedAmount<T> {
-    fn checked_add(self, v: Self) -> Option<Self> {
+    fn checked_add(&self, v: &Self) -> Option<Self> {
         self.0.checked_add(v.0).map(|res| TaggedAmount::new(res))
     }
 }

@@ -527,18 +527,18 @@ impl ApplyOrder<ClassicalOnChainDeposit> for BalancePool {
             Some((unlocked_lq, change_x, change_y)) => {
                 self.reserves_x = self
                     .reserves_x
-                    .checked_add(TaggedAmount::new(net_x))
-                    .and_then(|result| result.checked_sub(change_x))
+                    .checked_add(&TaggedAmount::new(net_x))
+                    .and_then(|result| result.checked_sub(&change_x))
                     .ok_or(ApplyOrderError::incompatible(deposit.clone()))?;
                 self.reserves_y = self
                     .reserves_y
-                    .checked_add(TaggedAmount::new(net_y))
-                    .and_then(|result| result.checked_sub(change_y))
+                    .checked_add(&TaggedAmount::new(net_y))
+                    .and_then(|result| result.checked_sub(&change_y))
                     .ok_or(ApplyOrderError::incompatible(deposit.clone()))?;
 
                 self.liquidity = self
                     .liquidity
-                    .checked_add(unlocked_lq)
+                    .checked_add(&unlocked_lq)
                     .ok_or(ApplyOrderError::incompatible(deposit.clone()))?;
 
                 let deposit_output = DepositOutput {
@@ -572,15 +572,15 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
             Some((x_amount, y_amount)) => {
                 self.reserves_x = self
                     .reserves_x
-                    .checked_sub(x_amount)
+                    .checked_sub(&x_amount)
                     .ok_or(ApplyOrderError::incompatible(redeem.clone()))?;
                 self.reserves_y = self
                     .reserves_y
-                    .checked_sub(y_amount)
+                    .checked_sub(&y_amount)
                     .ok_or(ApplyOrderError::incompatible(redeem.clone()))?;
                 self.liquidity = self
                     .liquidity
-                    .checked_sub(order.token_lq_amount)
+                    .checked_sub(&order.token_lq_amount)
                     .ok_or(ApplyOrderError::incompatible(redeem.clone()))?;
 
                 let redeem_output = RedeemOutput {
