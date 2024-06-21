@@ -8,9 +8,9 @@ use std::cmp::Ordering;
 /// Price of a theoretical 0-swap in pool.
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Div, Mul, From, Into, Display)]
-pub struct StaticPrice(AbsolutePrice);
+pub struct SpotPrice(AbsolutePrice);
 
-impl StaticPrice {
+impl SpotPrice {
     pub fn unwrap(self) -> Ratio<u128> {
         self.0.unwrap()
     }
@@ -20,7 +20,7 @@ impl StaticPrice {
 pub trait MarketMaker {
     type U;
     /// Static price (regardless swap vol) in this pool.
-    fn static_price(&self) -> StaticPrice;
+    fn static_price(&self) -> SpotPrice;
     /// Real price of swap.
     fn real_price(&self, input: Side<u64>) -> AbsolutePrice;
     /// Output of a swap.

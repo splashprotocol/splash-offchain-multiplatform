@@ -36,14 +36,14 @@ impl OrderState for AnyOrder {
             AnyOrder::Limit(spot) => spot.with_updated_time(time).map(AnyOrder::Limit),
         }
     }
-    fn with_applied_swap(
+    fn apply_swap(
         self,
         removed_input: u64,
         added_output: u64,
     ) -> (StateTrans<Self>, ExBudgetUsed, ExFeeUsed) {
         match self {
             AnyOrder::Limit(spot) => {
-                let (tx, budget, fee) = spot.with_applied_swap(removed_input, added_output);
+                let (tx, budget, fee) = spot.apply_swap(removed_input, added_output);
                 (tx.map(AnyOrder::Limit), budget, fee)
             }
         }

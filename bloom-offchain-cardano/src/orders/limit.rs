@@ -117,7 +117,7 @@ impl OrderState for LimitOrder {
         StateTrans::Active(self)
     }
 
-    fn with_applied_swap(
+    fn apply_swap(
         mut self,
         removed_input: u64,
         added_output: u64,
