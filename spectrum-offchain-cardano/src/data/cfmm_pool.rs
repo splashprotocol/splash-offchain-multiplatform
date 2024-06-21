@@ -14,7 +14,7 @@ use num_rational::Ratio;
 use num_traits::{CheckedAdd, CheckedSub};
 use type_equalities::IsEqual;
 
-use bloom_offchain::execution_engine::liquidity_book::market_maker::{MarketMaker, PoolQuality, StaticPrice};
+use bloom_offchain::execution_engine::liquidity_book::market_maker::{MarketMaker, PoolQuality, SpotPrice};
 use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::ex_units::ExUnits;
@@ -285,7 +285,7 @@ where
 impl MarketMaker for ConstFnPool {
     type U = ExUnits;
 
-    fn static_price(&self) -> StaticPrice {
+    fn static_price(&self) -> SpotPrice {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, _] = order_canonical(x, y);

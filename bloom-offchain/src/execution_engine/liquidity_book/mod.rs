@@ -12,7 +12,7 @@ use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::maker::Maker;
 
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-use crate::execution_engine::liquidity_book::market_maker::{MarketMaker, StaticPrice};
+use crate::execution_engine::liquidity_book::market_maker::{MarketMaker, SpotPrice};
 use crate::execution_engine::liquidity_book::recipe::{
     ExecutionRecipe, Fill, IntermediateRecipe, PartialFill, Take, TerminalInstruction,
 };
@@ -314,7 +314,7 @@ const MAX_BIAS_PERCENT: u128 = 3;
 //           |         |           |          |
 //          ask      bias<=3%....pivot       bid
 /// Settle execution price for two interleaving fragments.
-fn settle_price<Fr: Fragment>(ask: &Fr, bid: &Fr, index_price: Option<StaticPrice>) -> AbsolutePrice {
+fn settle_price<Fr: Fragment>(ask: &Fr, bid: &Fr, index_price: Option<SpotPrice>) -> AbsolutePrice {
     let price_ask = ask.price();
     let price_bid = bid.price();
     let price_ask_rat = price_ask.unwrap();

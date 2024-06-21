@@ -11,7 +11,7 @@ use log::trace;
 use spectrum_offchain::data::Stable;
 
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-use crate::execution_engine::liquidity_book::market_maker::{MarketMaker, PoolQuality, StaticPrice};
+use crate::execution_engine::liquidity_book::market_maker::{MarketMaker, PoolQuality, SpotPrice};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, InputAsset};
@@ -417,12 +417,27 @@ where
     }
 }
 
+pub fn max_by_distance_to_spot<Fr>(fragments: &mut Fragments<Fr>, spot_price: SpotPrice) -> Option<Fr> {
+    None
+}
+
+pub fn max_by_volume<Fr>(fragments: &mut Fragments<Fr>) -> Option<Fr> {
+    None
+}
+
 impl<Fr, Pl, U> TLBState<Fr, Pl>
 where
     Fr: Fragment<U = U> + Ord + Copy + Debug,
     Pl: MarketMaker + Stable + Copy,
     U: PartialOrd,
 {
+    pub fn pick_taker<F>(&mut self, strategy: F) -> Option<Fr>
+    where
+        F: FnOnce(&mut Fragments<Fr>) -> Option<Fr>,
+    {
+        None
+    }
+
     pub fn show_state(&self) -> String
     where
         Pl::StableId: Display,
@@ -574,10 +589,7 @@ where
         }
     }
 
-    pub fn try_select_pool(
-        &self,
-        trade_hint: Side<u64>,
-    ) -> Option<(AbsolutePrice, StaticPrice, Pl::StableId)> {
+    pub fn try_select_pool(&self, trade_hint: Side<u64>) -> Option<(AbsolutePrice, SpotPrice, Pl::StableId)> {
         let pools = self
             .pools()
             .pools
@@ -957,7 +969,7 @@ pub mod tests {
     use spectrum_offchain::data::Stable;
 
     use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-    use crate::execution_engine::liquidity_book::market_maker::{MarketMaker, StaticPrice};
+    use crate::execution_engine::liquidity_book::market_maker::{MarketMaker, SpotPrice};
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
     use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, StashingOption, TLBState};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
@@ -1350,7 +1362,7 @@ pub mod tests {
             }
         }
 
-        fn with_applied_swap(
+        fn apply_swap(
             mut self,
             removed_input: u64,
             added_output: u64,
@@ -1400,7 +1412,7 @@ pub mod tests {
     impl MarketMaker for SimpleCFMMPool {
         type U = u64;
 
-        fn static_price(&self) -> StaticPrice {
+        fn static_price(&self) -> SpotPrice {
             AbsolutePrice::new(self.reserves_quote, self.reserves_base).into()
         }
 
