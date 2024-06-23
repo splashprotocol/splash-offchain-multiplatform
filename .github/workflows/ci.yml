@@ -42,28 +42,10 @@ jobs:
     
     - name: Notify Slack on Success
       if: success()
-      env:
-        SLACK_WEBHOOK_URL: ${{ https://hooks.slack.com/services/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 }}
-        GITHUB_REPOSITORY: ${{ github.repository }}
-        GITHUB_WORKFLOW: ${{ github.workflow }}
-        GITHUB_RUN_NUMBER: ${{ github.run_number }}
-        GITHUB_JOB: ${{ github.job }}
-        GITHUB_ACTOR: ${{ github.actor }}
-        GITHUB_SHA: ${{ github.sha }}
-        GITHUB_REF: ${{ github.ref }}
       run: |
-        curl -X POST -H 'Content-type: application/json' --data '{"text":"🎉 Build succeeded for repository: $GITHUB_REPOSITORY, workflow: $GITHUB_WORKFLOW, run: #$GITHUB_RUN_NUMBER. Commit: $GITHUB_SHA by $GITHUB_ACTOR. Check it here: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_NUMBER"}' $SLACK_WEBHOOK_URL
+        curl -X POST -H 'Content-type: application/json' --data '{"text":"🎉 Build succeeded!"}' https://hooks.slack.com/services/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
 
     - name: Notify Slack on Failure
       if: failure()
-      env:
-        SLACK_WEBHOOK_URL: ${{ https://hooks.slack.com/services/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 }}
-        GITHUB_REPOSITORY: ${{ github.repository }}
-        GITHUB_WORKFLOW: ${{ github.workflow }}
-        GITHUB_RUN_NUMBER: ${{ github.run_number }}
-        GITHUB_JOB: ${{ github.job }}
-        GITHUB_ACTOR: ${{ github.actor }}
-        GITHUB_SHA: ${{ github.sha }}
-        GITHUB_REF: ${{ github.ref }}
       run: |
-        curl -X POST -H 'Content-type: application/json' --data '{"text":"🚨 Build failed for repository: $GITHUB_REPOSITORY, workflow: $GITHUB_WORKFLOW, run: #$GITHUB_RUN_NUMBER. Commit: $GITHUB_SHA by $GITHUB_ACTOR. Check it here: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_NUMBER"}' $SLACK_WEBHOOK_URL
+        curl -X POST -H 'Content-type: application/json' --data '{"text":"🚨 Build failed!"}' https://hooks.slack.com/services/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
