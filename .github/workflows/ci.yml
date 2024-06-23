@@ -39,7 +39,8 @@ jobs:
 
     - name: Build with Cargo
       run: cargo build --package bloom-cardano-agent --bin bloom-cardano-agent
-    
+    - name: Run tests
+      run: cargo test --verbose
     - name: Notify Slack on Success
       if: success()
       run: |
