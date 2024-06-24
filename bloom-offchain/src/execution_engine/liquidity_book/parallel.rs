@@ -1,3 +1,4 @@
+use num_rational::Ratio;
 use std::cmp::min;
 use std::fmt::Debug;
 
@@ -8,13 +9,16 @@ use crate::execution_engine::liquidity_book::core::{
     Make, MatchmakingAttempt, MatchmakingRecipe, MatchmakingStep, TakerTrans, TryApply,
 };
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, TakerBehaviour};
-use crate::execution_engine::liquidity_book::market_maker::{MarketMaker, SpotPrice};
+use crate::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker, SpotPrice};
 use crate::execution_engine::liquidity_book::side::Side::{Ask, Bid};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
 use crate::execution_engine::liquidity_book::state::{max_by_distance_to_spot, max_by_volume, TLBState};
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, InputAsset};
-use crate::execution_engine::liquidity_book::{linear_output_unsafe, ExecutionCap, TLBFeedback};
+use crate::execution_engine::liquidity_book::{
+    linear_output_unsafe, settle_price, to_signed, to_unsigned, truncated, ExecutionCap, TLBFeedback,
+    MAX_BIAS_PERCENT,
+};
 
 /// TLB is a Universal Liquidity Aggregator (ULA), it is able to aggregate every piece of composable
 /// liquidity available in the market.
@@ -31,7 +35,6 @@ pub struct TLB<Taker, Maker: Stable, U> {
     state: TLBState<Taker, Maker>,
     execution_cap: ExecutionCap<U>,
     attempt_side: SideM,
-    step: MatchmakingStep,
 }
 
 impl<Taker, Maker, U> TLBFeedback<Taker, Maker> for TLB<Taker, Maker, U>
@@ -59,8 +62,8 @@ where
 
 impl<Taker, Maker, U> TemporalLiquidityBook<Taker, Maker> for TLB<Taker, Maker, U>
 where
-    Taker: Stable + Fragment<U = U> + OrderState + Ord + Copy + Debug,
-    Maker: Stable + MarketMaker<U = U> + Copy + Debug,
+    Taker: Stable + Fragment<U = U> + TakerBehaviour + Ord + Copy + Debug,
+    Maker: Stable + MarketMaker<U = U> + MakerBehavior + Copy + Debug,
     U: Monoid + PartialOrd + Copy,
 {
     fn attempt(&mut self) -> Option<MatchmakingRecipe<Taker, Maker>> {
@@ -75,7 +78,7 @@ where
                 let target_side = target_taker.side();
                 let target_price = target_side.wrap(target_taker.price());
                 let maybe_price_counter_taker = self.state.best_fr_price(!target_side);
-                let chunk_offered = target_side.wrap(0); //take.next_chunk_offered(self.step);
+                let chunk_offered = target_side.wrap(0); // todo
                 let maybe_price_maker = self.state.preselect_market_maker(chunk_offered);
                 match (maybe_price_counter_taker, maybe_price_maker) {
                     (Some(price_counter_taker), maybe_price_maker)
@@ -85,11 +88,18 @@ where
                     {
                         if let Some(counter_taker) = self.state.try_pick_fr(!target_side, ok) {
                             //fill target_taker <- counter_taker
+                            let make_match = |ask: &Taker, bid: &Taker| settle_price(ask, bid, spot_price);
+                            let (tx1, tx2) = execute_with_taker(target_taker, counter_taker, make_match);
+                            batch.add_take(tx1);
+                            batch.add_take(tx2);
                         }
                     }
                     (_, Some((maker_sid, price_maker))) if target_price.overlaps(price_maker) => {
                         if let Some(maker) = self.state.take_pool(&maker_sid) {
                             //fill target_taker <- maker
+                            let (tx1, tx2) = execute_with_maker(target_taker, maker, chunk_offered);
+                            batch.add_take(tx1);
+                            batch.add_make(tx2);
                         }
                     }
                     _ => {}
@@ -97,46 +107,24 @@ where
             }
         }
         None
-
-        // loop {
-        //     while batch.execution_units_consumed() < self.execution_cap.soft {
-        //         if let Some(best_taker) = self.state.try_pick_fr(self.attempt_side, ok) {
-        //             let take = TakeInProgress::new(best_taker);
-        //             loop {
-        //                 if batch.execution_units_consumed() < self.execution_cap.soft {
-        //                     // 1. Take a chunk of remaining input from remainder
-        //                     // 2. Take liquidity from best counter-offer (takers/makers)
-        //                     let rem_side = take.target.side();
-        //                     let rem_price = rem_side.wrap(take.target.price());
-        //                     let maybe_price_counter_taker = self.state.best_fr_price(!rem_side);
-        //                     let chunk_offered = take.next_chunk_offered(self.step);
-        //                     let maybe_price_maker = self.state.preselect_market_maker(chunk_offered);
-        //                     match (maybe_price_counter_taker, maybe_price_maker) {
-        //                         (Some(price_counter_taker), maybe_price_maker)
-        //                             if maybe_price_maker
-        //                                 .map(|(_, p)| price_counter_taker.better_than(p))
-        //                                 .unwrap_or(true) => {}
-        //                         (_, Some((maker_sid, price_maker))) if rem_price.overlaps(price_maker) => {}
-        //                         _ => {}
-        //                     }
-        //                 }
-        //                 break;
-        //             }
-        //         }
-        //         break;
-        //     }
-        // }
     }
 }
 
-fn fill_from_maker<Taker, Maker>(
+fn execute_with_maker<Taker, Maker>(
     target_taker: Taker,
     maker: Maker,
-) -> (TakerTrans<Taker>, TryApply<Make, Maker>) {
-    todo!()
+    chunk_size: Side<u64>,
+) -> (TakerTrans<Taker>, TryApply<Make, Maker>)
+where
+    Taker: Fragment + TakerBehaviour + Copy,
+    Maker: MakerBehavior + Copy,
+{
+    let maker_applied = maker.swap(chunk_size);
+    let taker_applied = target_taker.with_applied_trade(chunk_size.unwrap(), maker_applied.action.output);
+    (taker_applied, maker_applied)
 }
 
-fn fill_from_taker<Taker, F>(
+fn execute_with_taker<Taker, F>(
     target_taker: Taker,
     counter_taker: Taker,
     matchmaker: F,

@@ -1,6 +1,7 @@
 use algebra_core::monoid::Monoid;
 use derive_more::{Add, AddAssign, Sub, SubAssign};
 use std::ops::Add;
+use algebra_core::semigroup::Semigroup;
 
 #[derive(
     serde::Deserialize, Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Add, Sub, AddAssign, SubAssign,
@@ -19,12 +20,15 @@ impl ExUnits {
     }
 }
 
+impl Semigroup for ExUnits {
+    fn combine(self, other: Self) -> Self {
+        self.add(other)
+    }
+}
+
 impl Monoid for ExUnits {
     fn empty() -> Self {
         ExUnits { mem: 0, steps: 0 }
-    }
-    fn combine(self, other: Self) -> Self {
-        self.add(other)
     }
 }
 
