@@ -45,10 +45,14 @@ jobs:
       
     - name: Notify Slack on Success
       if: success()
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       run: |
-        curl -X POST -H 'Content-type: application/json' --data '{"text":"🎉 Build succeeded!"}' https://hooks.slack.com/services/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
+        curl -X POST -H 'Content-type: application/json' --data '{"text":"🎉 Build succeeded!"}' $SLACK_WEBHOOK_URL
 
     - name: Notify Slack on Failure
       if: failure()
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       run: |
-        curl -X POST -H 'Content-type: application/json' --data '{"text":"🚨 Build failed!"}' https://hooks.slack.com/services/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
+        curl -X POST -H 'Content-type: application/json' --data '{"text":"🚨 Build failed!"}' $SLACK_WEBHOOK_URL
