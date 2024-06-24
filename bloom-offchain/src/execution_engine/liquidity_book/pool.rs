@@ -29,7 +29,7 @@ pub trait Pool {
     /// How much (approximately) execution of this fragment will cost.
     fn marginal_cost_hint(&self) -> Self::U;
 
-    fn available_liquidity(&self, target_price: Side<AbsolutePrice>) -> (u128, u128);
+    fn available_liquidity(&self, max_price_impact: Side<Ratio<u128>>) -> (u128, u128);
 
     // Determine is swaps allowed for current pool, based on lq_bound.
     // Used for correct support of legacy v1/v2 and fee switch pools

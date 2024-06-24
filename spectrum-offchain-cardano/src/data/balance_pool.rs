@@ -5,31 +5,31 @@ use bignumber::BigNumber;
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
-use cml_chain::plutus::utils::ConstrPlutusDataEncoding;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
+use cml_chain::plutus::utils::ConstrPlutusDataEncoding;
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_core::serialization::LenEncoding::{Canonical, Indefinite};
 use cml_multi_era::babbage::BabbageTransactionOutput;
-use num_integer::Roots;
-use num_rational::Ratio;
-use num_traits::ToPrimitive;
-use num_traits::{CheckedAdd, CheckedSub};
-use primitive_types::U512;
 use dashu_base::sign::Abs;
 use dashu_float::DBig;
+use num_integer::Roots;
+use num_rational::Ratio;
+use num_traits::{CheckedAdd, CheckedSub};
+use num_traits::ToPrimitive;
+use primitive_types::U512;
 
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality, StaticPrice};
 use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension};
 use spectrum_cardano_lib::plutus_data::{IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
@@ -42,10 +42,10 @@ use crate::data::pair::order_canonical;
 use crate::data::pool::{
     ApplyOrder, ApplyOrderError, AssetDeltas, CFMMPoolAction, ImmutablePoolUtxo, Lq, PoolBounds, Rx, Ry,
 };
-use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
-use crate::deployment::ProtocolValidator::BalanceFnPoolV1;
+use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
+use crate::deployment::ProtocolValidator::BalanceFnPoolV1;
 use crate::pool_math::balance_math::balance_cfmm_output_amount;
 use crate::pool_math::cfmm_math::{classic_cfmm_reward_lp, classic_cfmm_shares_amount};
 
@@ -495,56 +495,87 @@ impl Pool for BalancePool {
         }
     }
 
-    fn available_liquidity(&self, target_price: Side<AbsolutePrice>) -> (u128, u128) {
+    fn available_liquidity(&self, max_price_impact: Side<Ratio<u128>>) -> (u128, u128) {
+        // "max_price_impact" is calculated as
+        // "max_price_impact = 1 - avg_sell_price / market_price" to be always > 0.
+        // Outputs are ("quote_amount_available", "base_amount_required").
+        // Outputs reflects how many quote asset the user will receive and how many base asset
+        // must be added to the pool in order for this operation to occur with a given
+        // "max_price_impact" relative to the current state of the pool.
+        // Note: all calculations are made taking fees into account, thus "max_price_impact"
+        // must also include fees in "market_price" calculation.
+        const BN_ONE: BigNumber = BigNumber { value: DBig::ONE };
 
-        const BN_ONE: BigNumber = BigNumber {
-            value: DBig::ONE
-        };
-
-        const MAX_ERR: i32 = 10;
+        const MAX_ERR: i32 = 1;
+        const MAX_ITERS: u32 = 25;
 
         let (tradable_reserves_base, w_base, tradable_reserves_quote, w_quote, total_fee_mult) =
-            match target_price {
-                Side::Bid(_) =>
-                    (
-                        BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
-                        BigNumber::from(self.weight_y as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
-                        BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
-                        BigNumber::from(self.weight_x as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
-                        BigNumber::from((self.lp_fee_y - self.treasury_fee).to_f64().unwrap())
-                    ),
-                Side::Ask(_) =>
-                    (
-                        BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
-                        BigNumber::from(self.weight_x as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
-                        BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
-                        BigNumber::from(self.weight_y as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
-                        BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64().unwrap())
-                    ),
+            match max_price_impact {
+                Side::Bid(_) => (
+                    BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
+                    BigNumber::from(self.weight_y as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
+                    BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
+                    BigNumber::from(self.weight_x as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
+                    BigNumber::from((self.lp_fee_y - self.treasury_fee).to_f64().unwrap()),
+                ),
+                Side::Ask(_) => (
+                    BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
+                    BigNumber::from(self.weight_x as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
+                    BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
+                    BigNumber::from(self.weight_y as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
+                    BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64().unwrap()),
+                ),
             };
 
         let lp = tradable_reserves_base.pow(&w_base.clone()) * tradable_reserves_quote.pow(&w_quote.clone());
-        let avarage_price = BigNumber::from(*target_price.any().numer() as f64).div(BigNumber::from(*target_price.any().denom() as f64));
+        // Note: Price impact = 1 - paid price / market price.
 
+        let market_price = tradable_reserves_quote
+            .clone()
+            .div(w_quote.clone())
+            .div(tradable_reserves_base.clone().div(w_base.clone()))
+            * total_fee_mult.clone();
+        let avg_sell_price = market_price
+            * (BN_ONE
+                - BigNumber::from(*max_price_impact.unwrap().numer() as f64)
+                    .div(BigNumber::from(*max_price_impact.unwrap().denom() as f64)));
+        println!(
+            "{:?}",
+            <u128>::try_from(
+                (total_fee_mult.clone() * BigNumber::from(100000))
+                    .value
+                    .to_int()
+                    .value()
+            )
+            .unwrap()
+        );
         //# Constants for calculations:
         let a = (w_base.clone() + w_quote.clone()) / w_quote.clone();
-        let b = (BN_ONE - a.clone());
+        let b = BN_ONE - a.clone();
         let c = lp.pow(&BN_ONE.div(w_quote.clone())) * w_base.clone() / w_quote.clone();
         let k = c.clone() / b.clone();
         //
         let x0 = tradable_reserves_base.clone();
         let mut x1 = x0.clone().mul(BigNumber::from(1.1)).to_precision(0); //int(1.1 * x0);
         let mut err = tradable_reserves_base.clone();
+        let mut counter = 0;
         // // # Numerical calculation procedure (usual less than 5 iterations).
         // // # You can increase 'maxErr' value to decrease number of iters.
-        while (err.to_precision(10).value.ge(&DBig::from(MAX_ERR))) {
-            let f_x = (avarage_price.clone().div(total_fee_mult.clone())) - k.clone() * (x1.clone().pow(&b.clone()) - x0.clone().pow(&b.clone())) / (x1.clone() - x0.clone());
-            let f_x_der = k.clone() * ((b.clone() - BN_ONE) * x1.clone().pow(&(b.clone() + BN_ONE)) + x1.clone() * x0.clone().pow(&b.clone()) - b.clone() * x0.clone() * x1.clone().pow(&b.clone())) / (x1.clone() * (x1.clone() - x0.clone()).powi(2));
+        while err.to_precision(10).value.ge(&DBig::from(MAX_ERR)) && counter < MAX_ITERS {
+            let f_x = (avg_sell_price.clone().div(total_fee_mult.clone()))
+                - k.clone() * (x1.clone().pow(&b.clone()) - x0.clone().pow(&b.clone()))
+                    / (x1.clone() - x0.clone());
+            let f_x_der = k.clone()
+                * ((b.clone() - BN_ONE) * x1.clone().pow(&(b.clone() + BN_ONE))
+                    + x1.clone() * x0.clone().pow(&b.clone())
+                    - b.clone() * x0.clone() * x1.clone().pow(&b.clone()))
+                / (x1.clone() * (x1.clone() - x0.clone()).powi(2));
             let add = f_x.clone().div(f_x_der.clone());
 
             if (x1.clone() + add.clone()).value.to_f64().value() > 0_f64 {
                 x1 = x1.clone() + add.clone();
                 err = BigNumber::from(add.clone().value.to_f32().value().abs());
+                counter += 1;
             } else {
                 break;
             }
@@ -557,7 +588,7 @@ impl Pool for BalancePool {
 
         return (
             <u128>::try_from(quote_delta.value.to_int().value()).unwrap(),
-            <u128>::try_from(base_delta.value.to_int().value()).unwrap()
+            <u128>::try_from(base_delta.value.to_int().value()).unwrap(),
         );
     }
 }
@@ -671,32 +702,25 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
 
 #[cfg(test)]
 mod tests {
-    use cml_chain::plutus::PlutusData;
     use cml_chain::Deserialize;
+    use cml_chain::plutus::PlutusData;
     use cml_core::serialization::Serialize;
     use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
     use num_rational::Ratio;
 
-    use crate::constants::MAX_LQ_CAP;
     use bloom_offchain::execution_engine::liquidity_book::pool::Pool;
     use bloom_offchain::execution_engine::liquidity_book::side::Side;
+    use bloom_offchain::execution_engine::liquidity_book::side::Side::{Ask, Bid};
+    use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
-    use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
-    use std::ops::{Mul, Sub};
-    use num_traits::ToPrimitive;
-    use bloom_offchain::execution_engine::liquidity_book::side::Side::{Ask, Bid};
-    use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 
-    use crate::constants::FEE_DEN;
-
-    use crate::data::balance_order::RunBalanceAMMOrderOverPool;
+    use crate::data::{OnChainOrderId, PoolId};
     use crate::data::balance_pool::{BalancePool, BalancePoolConfig, BalancePoolRedeemer, BalancePoolVer};
     use crate::data::order::ClassicalOrder;
     use crate::data::order::OrderType::BalanceFn;
     use crate::data::pool::{ApplyOrder, CFMMPoolAction};
     use crate::data::redeem::{ClassicalOnChainRedeem, Redeem};
-    use crate::data::{OnChainOrderId, PoolId};
 
     const DATUM_SAMPLE: &str = "d8799fd8799f581c5df8fe3f9f0e10855f930e0ea6c227e3bba0aba54d39f9d55b95e21c436e6674ffd8799f4040ff01d8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737443ff04d8799f581c0df79145b95580c14ef4baf8d022d7f0cbb08f3bed43bf97a2ddd8cb426c71ff1a000186820a00009fd8799fd87a9f581cb046b660db0eaf9be4f4300180ccf277e4209dada77c48fbd37ba81dffffff581c8d4be10d934b60a22f267699ea3f7ebdade1f8e535d1bd0ef7ce18b61a0501bced08ff";
 
@@ -797,16 +821,7 @@ mod tests {
 
     #[test]
     fn swap_redeemer_test() {
-        let pool = gen_ada_token_pool(
-            200000000,
-            84093845,
-            0,
-            99970,
-            99970,
-            10,
-            10000,
-            0,
-        );
+        let pool = gen_ada_token_pool(200000000, 84093845, 0, 99970, 99970, 10, 10000, 0);
 
         let (_result, new_pool) = pool.clone().swap(Side::Ask(363613802862));
 
@@ -816,7 +831,7 @@ mod tests {
             new_pool_state: new_pool,
             prev_pool_state: pool,
         }
-            .to_plutus_data();
+        .to_plutus_data();
 
         assert_eq!(
             hex::encode(test_swap_redeemer.to_canonical_cbor_bytes()),
@@ -826,7 +841,6 @@ mod tests {
 
     #[test]
     fn deposit_redeemer_test() {
-
         let pool = gen_ada_token_pool(
             1981759952,
             53144,
@@ -835,7 +849,7 @@ mod tests {
             99000,
             100,
             13000,
-            94
+            94,
         );
 
         const TX: &str = "6c038a69587061acd5611507e68b1fd3a7e7d189367b7853f3bb5079a118b880";
@@ -867,27 +881,14 @@ mod tests {
 
     #[test]
     fn available_liquidity_test() {
-        let pool = gen_ada_token_pool(
-            2105999997,
-            1981759952,
-            9223372036854587823,
-            99000,
-            99000,
-            0,
-            0,
-            0
-        );
+        let pool = gen_ada_token_pool(2105999997, 1981759952, 9223372036854587823, 99000, 99000, 0, 0, 0);
 
-        let spot_price =
-            Ratio::new_raw(
-                pool.reserves_x.untag() * pool.weight_y,
-                pool.reserves_y.untag() * pool.weight_x
-            );
+        let max_target_price_impact = Ratio::new_raw(45035996273705, 2251799813685248);
 
-        let target_price = Bid(AbsolutePrice::new(41, 10));
+        let (available_liquidity_quote_ask, _) = pool.available_liquidity(Ask(max_target_price_impact));
+        let (available_liquidity_quote_bid, _) = pool.available_liquidity(Bid(max_target_price_impact));
 
-        let (available_liquidity_quote, _) = pool.available_liquidity(target_price);
-
-        assert_eq!(available_liquidity_quote, 86233868)
+        assert_eq!(available_liquidity_quote_ask, 15918267);
+        assert_eq!(available_liquidity_quote_bid, 67120253);
     }
 }
