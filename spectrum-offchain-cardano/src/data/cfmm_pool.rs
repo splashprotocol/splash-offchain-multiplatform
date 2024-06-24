@@ -11,6 +11,7 @@ use cml_chain::Value;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_integer::Roots;
 use num_rational::Ratio;
+use num_traits::{CheckedAdd, CheckedSub};
 use type_equalities::IsEqual;
 
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality, StaticPrice};
@@ -44,6 +45,7 @@ use crate::data::pool::{
 use crate::data::redeem::ClassicalOnChainRedeem;
 
 use crate::data::fee_switch_pool::FeeSwitchPoolConfig;
+use crate::data::pool::ApplyOrderError::Incompatible;
 use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::{
     ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolV1, ConstFnPoolV2,
@@ -618,22 +620,43 @@ impl ApplyOrder<ClassicalOnChainDeposit> for ConstFnPool {
     ) -> Result<(Self, DepositOutput), ApplyOrderError<ClassicalOnChainDeposit>> {
         let order = deposit.order;
         let net_x = if order.token_x.is_native() {
-            order.token_x_amount.untag() - order.ex_fee - order.collateral_ada
+            order
+                .token_x_amount
+                .untag()
+                .checked_sub(order.ex_fee)
+                .and_then(|result| result.checked_sub(order.collateral_ada))
+                .ok_or(ApplyOrderError::incompatible(deposit.clone()))?
         } else {
             order.token_x_amount.untag()
         };
 
         let net_y = if order.token_y.is_native() {
-            order.token_y_amount.untag() - order.ex_fee - order.collateral_ada
+            order
+                .token_y_amount
+                .untag()
+                .checked_sub(order.ex_fee)
+                .and_then(|result| result.checked_sub(order.collateral_ada))
+                .ok_or(ApplyOrderError::incompatible(deposit.clone()))?
         } else {
             order.token_y_amount.untag()
         };
 
         match self.reward_lp(net_x, net_y) {
             Some((unlocked_lq, change_x, change_y)) => {
-                self.reserves_x = self.reserves_x + TaggedAmount::new(net_x) - change_x;
-                self.reserves_y = self.reserves_y + TaggedAmount::new(net_y) - change_y;
-                self.liquidity = self.liquidity + unlocked_lq;
+                self.reserves_x = self
+                    .reserves_x
+                    .checked_add(&TaggedAmount::new(net_x))
+                    .and_then(|result| result.checked_sub(&change_x))
+                    .ok_or(ApplyOrderError::incompatible(deposit.clone()))?;
+                self.reserves_y = self
+                    .reserves_y
+                    .checked_add(&TaggedAmount::new(net_y))
+                    .and_then(|result| result.checked_sub(&change_y))
+                    .ok_or(ApplyOrderError::incompatible(deposit.clone()))?;
+                self.liquidity = self
+                    .liquidity
+                    .checked_add(&unlocked_lq)
+                    .ok_or(ApplyOrderError::incompatible(deposit.clone()))?;
 
                 let deposit_output = DepositOutput {
                     token_x_asset: order.token_x,
@@ -664,9 +687,18 @@ impl ApplyOrder<ClassicalOnChainRedeem> for ConstFnPool {
         let order = redeem.order;
         match self.shares_amount(order.token_lq_amount) {
             Some((x_amount, y_amount)) => {
-                self.reserves_x = self.reserves_x - x_amount;
-                self.reserves_y = self.reserves_y - y_amount;
-                self.liquidity = self.liquidity - order.token_lq_amount;
+                self.reserves_x = self
+                    .reserves_x
+                    .checked_sub(&x_amount)
+                    .ok_or(ApplyOrderError::incompatible(redeem.clone()))?;
+                self.reserves_y = self
+                    .reserves_y
+                    .checked_sub(&y_amount)
+                    .ok_or(ApplyOrderError::incompatible(redeem.clone()))?;
+                self.liquidity = self
+                    .liquidity
+                    .checked_sub(&order.token_lq_amount)
+                    .ok_or(ApplyOrderError::incompatible(redeem))?;
 
                 let redeem_output = RedeemOutput {
                     token_x_asset: order.token_x,
@@ -751,6 +783,7 @@ mod tests {
             lq_lower_bound: TaggedAmount::new(0),
             ver: ConstFnPoolVer::FeeSwitch,
             marginal_cost: ExUnits { mem: 100, steps: 100 },
+            min_pool_lovelace: 10000000,
         };
 
         let (_, new_pool) = pool.clone().swap(Side::Ask(900000000));

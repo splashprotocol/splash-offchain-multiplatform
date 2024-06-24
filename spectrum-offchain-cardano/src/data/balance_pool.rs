@@ -14,6 +14,7 @@ use cml_core::serialization::LenEncoding::{Canonical, Indefinite};
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_integer::Roots;
 use num_rational::Ratio;
+use num_traits::{CheckedAdd, CheckedSub};
 use primitive_types::U512;
 
 use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality, StaticPrice};
@@ -501,23 +502,44 @@ impl ApplyOrder<ClassicalOnChainDeposit> for BalancePool {
     ) -> Result<(Self, DepositOutput), ApplyOrderError<ClassicalOnChainDeposit>> {
         let order = deposit.order;
         let net_x = if order.token_x.is_native() {
-            order.token_x_amount.untag() - order.ex_fee - order.collateral_ada
+            order
+                .token_x_amount
+                .untag()
+                .checked_sub(order.ex_fee)
+                .and_then(|result| result.checked_sub(order.collateral_ada))
+                .ok_or(ApplyOrderError::incompatible(deposit.clone()))?
         } else {
             order.token_x_amount.untag()
         };
 
         let net_y = if order.token_y.is_native() {
-            order.token_y_amount.untag() - order.ex_fee - order.collateral_ada
+            order
+                .token_y_amount
+                .untag()
+                .checked_sub(order.ex_fee)
+                .and_then(|result| result.checked_sub(order.collateral_ada))
+                .ok_or(ApplyOrderError::incompatible(deposit.clone()))?
         } else {
             order.token_y_amount.untag()
         };
 
         match self.reward_lp(net_x, net_y) {
             Some((unlocked_lq, change_x, change_y)) => {
-                self.reserves_x = self.reserves_x + TaggedAmount::new(net_x) - change_x;
-                self.reserves_y = self.reserves_y + TaggedAmount::new(net_y) - change_y;
+                self.reserves_x = self
+                    .reserves_x
+                    .checked_add(&TaggedAmount::new(net_x))
+                    .and_then(|result| result.checked_sub(&change_x))
+                    .ok_or(ApplyOrderError::incompatible(deposit.clone()))?;
+                self.reserves_y = self
+                    .reserves_y
+                    .checked_add(&TaggedAmount::new(net_y))
+                    .and_then(|result| result.checked_sub(&change_y))
+                    .ok_or(ApplyOrderError::incompatible(deposit.clone()))?;
 
-                self.liquidity = self.liquidity + unlocked_lq;
+                self.liquidity = self
+                    .liquidity
+                    .checked_add(&unlocked_lq)
+                    .ok_or(ApplyOrderError::incompatible(deposit.clone()))?;
 
                 let deposit_output = DepositOutput {
                     token_x_asset: order.token_x,
@@ -548,9 +570,18 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
         let order = redeem.order;
         match self.shares_amount(order.token_lq_amount) {
             Some((x_amount, y_amount)) => {
-                self.reserves_x = self.reserves_x - x_amount;
-                self.reserves_y = self.reserves_y - y_amount;
-                self.liquidity = self.liquidity - order.token_lq_amount;
+                self.reserves_x = self
+                    .reserves_x
+                    .checked_sub(&x_amount)
+                    .ok_or(ApplyOrderError::incompatible(redeem.clone()))?;
+                self.reserves_y = self
+                    .reserves_y
+                    .checked_sub(&y_amount)
+                    .ok_or(ApplyOrderError::incompatible(redeem.clone()))?;
+                self.liquidity = self
+                    .liquidity
+                    .checked_sub(&order.token_lq_amount)
+                    .ok_or(ApplyOrderError::incompatible(redeem.clone()))?;
 
                 let redeem_output = RedeemOutput {
                     token_x_asset: order.token_x,
@@ -577,6 +608,7 @@ mod tests {
     use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
     use num_rational::Ratio;
 
+    use crate::constants::MAX_LQ_CAP;
     use bloom_offchain::execution_engine::liquidity_book::pool::Pool;
     use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use spectrum_cardano_lib::ex_units::ExUnits;
@@ -657,6 +689,7 @@ mod tests {
                 mem: 120000000,
                 steps: 100000000000,
             },
+            min_pool_lovelace: 1000000,
         };
         let result = pool.swap(Side::Ask(200000000));
 
@@ -721,6 +754,7 @@ mod tests {
                 mem: 120000000,
                 steps: 100000000000,
             },
+            min_pool_lovelace: 100000000,
         };
 
         let (_result, new_pool) = pool.clone().swap(Side::Ask(363613802862));
@@ -786,25 +820,28 @@ mod tests {
 
         let pool = BalancePool {
             id: pool_id,
-            reserves_x: TaggedAmount::new(29655901),
+            reserves_x: TaggedAmount::new(152570837),
             weight_x: 1,
-            reserves_y: TaggedAmount::new(53144),
+            reserves_y: TaggedAmount::new(42092),
             weight_y: 4,
-            liquidity: TaggedAmount::new(9223372036854587823),
+            liquidity: TaggedAmount::new(MAX_LQ_CAP - 9223372036854560080),
             asset_x: token_x,
             asset_y: token_y,
             asset_lq: token_lq,
             lp_fee_x: Ratio::new_raw(99000, 100000),
             lp_fee_y: Ratio::new_raw(99000, 100000),
             treasury_fee: Ratio::new_raw(100, 100000),
-            treasury_x: TaggedAmount::new(13000),
-            treasury_y: TaggedAmount::new(94),
+            treasury_x: TaggedAmount::new(354535),
+            treasury_y: TaggedAmount::new(121),
             ver: BalancePoolVer::V1,
             marginal_cost: ExUnits {
                 mem: 120000000,
                 steps: 100000000000,
             },
+            min_pool_lovelace: 10000000000,
         };
+
+        println!("{}", MAX_LQ_CAP - 9223372036854560080);
 
         const TX: &str = "6c038a69587061acd5611507e68b1fd3a7e7d189367b7853f3bb5079a118b880";
         const IX: u64 = 1;
@@ -817,7 +854,7 @@ mod tests {
                 token_x: token_x,
                 token_y: token_y,
                 token_lq: token_lq,
-                token_lq_amount: TaggedAmount::new(1900727),
+                token_lq_amount: TaggedAmount::new(1581993),
                 ex_fee: 1500000,
                 reward_pkh: Ed25519KeyHash::from([0u8; 28]),
                 reward_stake_pkh: None,
