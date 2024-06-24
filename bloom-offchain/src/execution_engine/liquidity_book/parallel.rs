@@ -4,7 +4,9 @@ use std::fmt::Debug;
 use algebra_core::monoid::Monoid;
 use spectrum_offchain::data::Stable;
 
-use crate::execution_engine::liquidity_book::core::{Make, MatchmakingAttempt, MatchmakingRecipe, MatchmakingStep, Take, TakeInProgress, TakerTrans, TryApply};
+use crate::execution_engine::liquidity_book::core::{
+    Make, MatchmakingAttempt, MatchmakingRecipe, MatchmakingStep, TakerTrans, TryApply,
+};
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, TakerBehaviour};
 use crate::execution_engine::liquidity_book::market_maker::{MarketMaker, SpotPrice};
 use crate::execution_engine::liquidity_book::side::Side::{Ask, Bid};
@@ -62,20 +64,18 @@ where
     U: Monoid + PartialOrd + Copy,
 {
     fn attempt(&mut self) -> Option<MatchmakingRecipe<Taker, Maker>> {
-        let mut batch: MatchmakingAttempt<_, _, U> = MatchmakingAttempt::empty();
+        let mut batch: MatchmakingAttempt<Taker, Maker, U> = MatchmakingAttempt::empty();
         while batch.execution_units_consumed() < self.execution_cap.soft {
             let spot_price = self.spot_price();
-            let strategy = |fs| {
+            if let Some(target_taker) = self.state.pick_taker(|fs| {
                 spot_price
                     .map(|sp| max_by_distance_to_spot(fs, sp))
                     .unwrap_or(max_by_volume(fs))
-            };
-            if let Some(target_taker) = self.state.pick_taker(strategy) {
-                let take = TakeInProgress::new(target_taker);
-                let target_side = take.target.side();
-                let target_price = target_side.wrap(take.target.price());
+            }) {
+                let target_side = target_taker.side();
+                let target_price = target_side.wrap(target_taker.price());
                 let maybe_price_counter_taker = self.state.best_fr_price(!target_side);
-                let chunk_offered = take.next_chunk_offered(self.step);
+                let chunk_offered = target_side.wrap(0); //take.next_chunk_offered(self.step);
                 let maybe_price_maker = self.state.preselect_market_maker(chunk_offered);
                 match (maybe_price_counter_taker, maybe_price_maker) {
                     (Some(price_counter_taker), maybe_price_maker)
@@ -129,8 +129,11 @@ where
     }
 }
 
-fn fill_from_maker<Taker, Maker>(target_taker: Taker, maker: Maker) -> (TakerTrans<Taker>, TryApply<Make, Maker>) {
-    
+fn fill_from_maker<Taker, Maker>(
+    target_taker: Taker,
+    maker: Maker,
+) -> (TakerTrans<Taker>, TryApply<Make, Maker>) {
+    todo!()
 }
 
 fn fill_from_taker<Taker, F>(
@@ -138,9 +141,9 @@ fn fill_from_taker<Taker, F>(
     counter_taker: Taker,
     matchmaker: F,
 ) -> (TakerTrans<Taker>, TakerTrans<Taker>)
-    where
-        Taker: Fragment + TakerBehaviour + Copy,
-        F: FnOnce(&Taker, &Taker) -> AbsolutePrice,
+where
+    Taker: Fragment + TakerBehaviour + Copy,
+    F: FnOnce(&Taker, &Taker) -> AbsolutePrice,
 {
     let (ask, bid) = match target_taker.side() {
         SideM::Bid => (counter_taker, target_taker),

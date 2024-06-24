@@ -204,8 +204,7 @@ impl<T> StateIndex<T> for InMemoryStateIndex<T>
     fn invalidate_version(&mut self, ver: T::Version) -> Option<T::StableId> {
         if let Some(entity) = self.store.get(&ver) {
             let sid = entity.stable_id();
-            self
-                .index
+            self.index
                 .remove(&index_key(LAST_PREDICTED_PREFIX, sid))
                 .or_else(|| self.index.remove(&index_key(LAST_UNCONFIRMED_PREFIX, sid)))
                 .or_else(|| self.index.remove(&index_key(LAST_CONFIRMED_PREFIX, sid)));
