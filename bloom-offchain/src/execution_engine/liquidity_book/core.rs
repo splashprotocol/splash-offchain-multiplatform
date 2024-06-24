@@ -24,7 +24,25 @@ pub struct Make {
 
 impl Semigroup for Make {
     fn combine(self, other: Self) -> Self {
-        todo!("Semigroup for Make")
+        if self.side == other.side {
+            Make {
+                side: self.side,
+                input: self.input + other.input,
+                output: self.output + other.output,
+            }
+        } else {
+            let correct_side = if self.input > other.output {
+                self.side
+            } else {
+                other.side
+            };
+
+            Make {
+                side: correct_side,
+                input: self.input.abs_diff(other.output),
+                output: self.output.abs_diff(other.input),
+            }
+        }
     }
 }
 
@@ -197,5 +215,42 @@ where
         Taker: Fragment + Copy,
     {
         Err(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::execution_engine::liquidity_book::core::Make;
+    use crate::execution_engine::liquidity_book::side::SideM;
+    use algebra_core::semigroup::Semigroup;
+
+    #[test]
+    fn correct_makes_combine() {
+        let bid_make = Make {
+            side: SideM::Bid,
+            input: 150,
+            output: 200,
+        };
+
+        let ask_make = Make {
+            side: SideM::Ask,
+            input: 100,
+            output: 50,
+        };
+
+        let mut makes = vec![bid_make].repeat(3);
+        let mut ask_makes = vec![ask_make].repeat(2);
+
+        makes.append(&mut ask_makes);
+
+        let combined = makes
+            .iter()
+            .copied()
+            .reduce(|left, right| left.combine(right))
+            .unwrap();
+
+        assert_eq!(combined.side, SideM::Bid);
+        assert_eq!(combined.input, 350);
+        assert_eq!(combined.output, 400);
     }
 }

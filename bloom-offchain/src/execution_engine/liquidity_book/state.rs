@@ -974,7 +974,7 @@ pub mod tests {
     use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, StashingOption, TLBState};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::{
-        AbsolutePrice, ExBudgetUsed, ExCostUnits, ExFeeUsed, OutputAsset,
+        AbsolutePrice, ExBudgetUsed, ExCostUnits, ExFeeUsed, InputAsset, OutputAsset,
     };
     use crate::execution_engine::types::StableId;
 
@@ -1351,6 +1351,10 @@ pub mod tests {
         fn fee(&self) -> crate::execution_engine::liquidity_book::types::FeeAsset<u64> {
             self.fee
         }
+
+        fn output(&self) -> OutputAsset<u64> {
+            todo!()
+        }
     }
 
     impl OrderState for SimpleOrderPF {
@@ -1362,10 +1366,10 @@ pub mod tests {
             }
         }
 
-        fn apply_swap(
+        fn with_applied_swap(
             mut self,
-            removed_input: u64,
-            added_output: u64,
+            removed_input: InputAsset<u64>,
+            added_output: OutputAsset<u64>,
         ) -> (StateTrans<Self>, ExBudgetUsed, ExFeeUsed) {
             self.input -= removed_input;
             self.accumulated_output += added_output;
