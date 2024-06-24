@@ -1,4 +1,4 @@
-use crate::execution_engine::liquidity_book::core::Make;
+use crate::execution_engine::liquidity_book::core::{Make, TryApply};
 use crate::execution_engine::liquidity_book::side::Side;
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 use derive_more::{Display, Div, From, Into, Mul};
@@ -31,6 +31,12 @@ pub trait MarketMaker {
     fn marginal_cost_hint(&self) -> Self::U;
     // Is this maker active at the moment or not.
     fn is_active(&self) -> bool;
+}
+
+/// Pooled liquidity.
+pub trait MakerBehavior: Sized {
+    /// Output of a swap.
+    fn swap(self, input: Side<u64>) -> TryApply<Make, Self>;
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Into, From, Display)]

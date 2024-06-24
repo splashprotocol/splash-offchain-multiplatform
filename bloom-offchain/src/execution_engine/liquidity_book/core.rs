@@ -4,6 +4,7 @@ use bounded_integer::BoundedU64;
 use either::Either;
 
 use algebra_core::monoid::Monoid;
+use algebra_core::semigroup::Semigroup;
 use spectrum_offchain::data::Stable;
 
 use crate::execution_engine::liquidity_book::fragment::Fragment;
@@ -19,6 +20,12 @@ pub struct Make {
     pub side: SideM,
     pub input: InputAsset<u64>,
     pub output: OutputAsset<u64>,
+}
+
+impl Semigroup for Make {
+    fn combine(self, other: Self) -> Self {
+        todo!("Semigroup for Make")
+    }
 }
 
 /// Taking liquidity from market.
@@ -60,6 +67,15 @@ pub struct Trans<Cont, Term> {
     pub result: Next<Cont, Term>,
 }
 
+impl<Cont, Term> Semigroup for Trans<Cont, Term> {
+    fn combine(self, other: Self) -> Self {
+        Self {
+            target: self.target,
+            result: other.result,
+        }
+    }
+}
+
 pub type TakerTrans<Taker> = Trans<Taker, TerminalTake>;
 
 impl<T> TakerTrans<T> {
@@ -82,41 +98,22 @@ pub struct TryApply<Action, Subject> {
     pub result: Next<Subject, ()>,
 }
 
-// impl<Taker> TakeInProgress<Taker> {
-//     pub fn new(target: Taker) -> Self {
-//         Self {
-//             action: Take::new(),
-//             target,
-//             result: None,
-//         }
-//     }
-//
-//     pub fn remaining_amount_offered(&self) -> InputAsset<u64>
-//         where
-//             Taker: Fragment,
-//     {
-//         self.target.input() - self.action.removed_input
-//     }
-//
-//     pub fn next_chunk_offered(&self, step: MatchmakingStep) -> Side<InputAsset<u64>>
-//         where
-//             Taker: Fragment,
-//     {
-//         let chunk = self.target.input() * step.get() / 100;
-//         self.target.side().wrap(if chunk > 0 {
-//             min(
-//                 self.target.input() * step.get() / 100,
-//                 self.remaining_amount_offered(),
-//             )
-//         } else {
-//             self.remaining_amount_offered()
-//         })
-//     }
-// }
+impl<A, S> Semigroup for TryApply<A, S>
+where
+    A: Semigroup,
+{
+    fn combine(self, other: Self) -> Self {
+        Self {
+            action: self.action.combine(other.action),
+            target: self.target,
+            result: other.result,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct MatchmakingAttempt<Taker: Stable, Maker: Stable, U> {
-    takes: HashMap<Taker::StableId, Trans<Taker, TerminalTake>>,
+    takes: HashMap<Taker::StableId, TakerTrans<Taker>>,
     makes: HashMap<Maker::StableId, TryApply<Make, Maker>>,
     execution_units_consumed: U,
 }
@@ -157,6 +154,24 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
             }
         });
         not_ok_terminal_takes.collect()
+    }
+
+    pub fn add_take(&mut self, take: TakerTrans<Taker>) {
+        let sid = take.target.stable_id();
+        let take_combined = match self.takes.remove(&sid) {
+            None => take,
+            Some(existing_transition) => existing_transition.combine(take),
+        };
+        self.takes.insert(sid, take_combined);
+    }
+
+    pub fn add_make(&mut self, make: TryApply<Make, Maker>) {
+        let sid = make.target.stable_id();
+        let maker_combined = match self.makes.remove(&sid) {
+            None => make,
+            Some(existing_transition) => existing_transition.combine(make),
+        };
+        self.makes.insert(sid, maker_combined);
     }
 }
 

@@ -311,7 +311,7 @@ const MAX_BIAS_PERCENT: u128 = 3;
 //                     |
 // p: >.... P_x ......(.)...... P_index .... P_y.... >
 //           |         |           |          |
-//          ask      bias<=3%....pivot       bid
+//          ask     |bias|<=3%...pivot       bid
 /// Settle execution price for two interleaving fragments.
 fn settle_price<Fr: Fragment>(ask: &Fr, bid: &Fr, index_price: Option<SpotPrice>) -> AbsolutePrice {
     let price_ask = ask.price();

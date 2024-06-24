@@ -43,7 +43,7 @@ impl OrderState for AnyOrder {
     ) -> (StateTrans<Self>, ExBudgetUsed, ExFeeUsed) {
         match self {
             AnyOrder::Limit(spot) => {
-                let (tx, budget, fee) = spot.apply_swap(removed_input, added_output);
+                let (tx, budget, fee) = spot.with_applied_swap(removed_input, added_output);
                 (tx.map(AnyOrder::Limit), budget, fee)
             }
         }
