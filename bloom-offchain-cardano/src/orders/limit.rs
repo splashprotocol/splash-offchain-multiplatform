@@ -148,6 +148,10 @@ impl Fragment for LimitOrder {
         self.input_amount
     }
 
+    fn output(&self) -> OutputAsset<u64> {
+        self.output_amount
+    }
+
     fn price(&self) -> AbsolutePrice {
         AbsolutePrice::from_price(self.side(), self.base_price)
     }

@@ -14,6 +14,7 @@ pub fn derive_fragment(input: TokenStream) -> TokenStream {
             type U;
             fn side(&self) -> bloom_offchain::execution_engine::liquidity_book::side::SideM;
             fn input(&self) -> bloom_offchain::execution_engine::liquidity_book::types::InputAsset<u64>;
+            fn output(&self) -> bloom_offchain::execution_engine::liquidity_book::types::OutputAsset<u64>;
             fn price(&self) -> bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
             fn linear_fee(&self, input_consumed: bloom_offchain::execution_engine::liquidity_book::types::InputAsset<u64>) -> bloom_offchain::execution_engine::liquidity_book::types::FeeAsset<u64>;
             fn fee(&self) -> bloom_offchain::execution_engine::liquidity_book::types::FeeAsset<u64>;
