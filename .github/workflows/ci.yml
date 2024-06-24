@@ -42,7 +42,7 @@ jobs:
     - name: Run Cargo Build
       id: build
       run: |
-        if ! ccargo build --package bloom-cardano-agent --bin bloom-cardano-agent; then
+        if ! cargo build --package bloom-cardano-agent --bin bloom-cardano-agent; then
           echo "Cargo build failed."
           echo "::set-output name=status::failure"
         else
