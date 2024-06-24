@@ -36,7 +36,7 @@ impl OrderState for AnyOrder {
             AnyOrder::Limit(spot) => spot.with_updated_time(time).map(AnyOrder::Limit),
         }
     }
-    fn apply_swap(
+    fn with_applied_swap(
         self,
         removed_input: u64,
         added_output: u64,
