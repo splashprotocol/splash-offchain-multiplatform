@@ -3,8 +3,8 @@ use std::fmt::{Debug, Display, Formatter, Write};
 
 use log::trace;
 
-use spectrum_offchain::data::{EntitySnapshot, Stable};
 use spectrum_offchain::data::event::{Confirmed, Predicted, Unconfirmed};
+use spectrum_offchain::data::{EntitySnapshot, Stable};
 
 pub mod kv_store;
 
@@ -44,9 +44,9 @@ impl<'a, T: EntitySnapshot> Display for Displayed<'a, T> {
 }
 
 impl<In, T> StateIndex<T> for StateIndexTracing<In>
-    where
-        In: StateIndex<T>,
-        T: EntitySnapshot,
+where
+    In: StateIndex<T>,
+    T: EntitySnapshot,
 {
     fn get_last_confirmed<'a>(&self, id: T::StableId) -> Option<Confirmed<T>> {
         let res = self.0.get_last_confirmed(id);
@@ -154,10 +154,10 @@ const LAST_UNCONFIRMED_PREFIX: u8 = 4u8;
 const LAST_PREDICTED_PREFIX: u8 = 5u8;
 
 impl<T> StateIndex<T> for InMemoryStateIndex<T>
-    where
-        T: EntitySnapshot + Clone,
-        <T as EntitySnapshot>::Version: Copy + Debug + Eq,
-        <T as Stable>::StableId: Copy + Into<[u8; 28]>,
+where
+    T: EntitySnapshot + Clone,
+    <T as EntitySnapshot>::Version: Copy + Debug + Eq,
+    <T as Stable>::StableId: Copy + Into<[u8; 28]>,
 {
     fn get_last_confirmed(&self, id: T::StableId) -> Option<Confirmed<T>> {
         let index_key = index_key(LAST_CONFIRMED_PREFIX, id);
@@ -204,8 +204,7 @@ impl<T> StateIndex<T> for InMemoryStateIndex<T>
     fn invalidate_version(&mut self, ver: T::Version) -> Option<T::StableId> {
         if let Some(entity) = self.store.get(&ver) {
             let sid = entity.stable_id();
-            self
-                .index
+            self.index
                 .remove(&index_key(LAST_PREDICTED_PREFIX, sid))
                 .or_else(|| self.index.remove(&index_key(LAST_UNCONFIRMED_PREFIX, sid)))
                 .or_else(|| self.index.remove(&index_key(LAST_CONFIRMED_PREFIX, sid)));

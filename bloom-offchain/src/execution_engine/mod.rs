@@ -21,7 +21,6 @@ use spectrum_offchain::combinators::Ior;
 use spectrum_offchain::data::event::{Channel, Confirmed, Predicted, StateUpdate, Unconfirmed};
 use spectrum_offchain::data::order::{OrderUpdate, SpecializedOrder};
 use spectrum_offchain::data::{Baked, EntitySnapshot, Stable};
-use spectrum_offchain::health_alert::{HealthAlertClient, SlackHealthAlert};
 use spectrum_offchain::maker::Maker;
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_hash::CanonicalHash;
@@ -110,7 +109,6 @@ pub fn execution_part_stream<
     upstream: Upstream,
     network: Net,
     mut tip_reached_signal: broadcast::Receiver<bool>,
-    alert_client: HealthAlertClient,
 ) -> impl Stream<Item = ()> + 'a
 where
     Upstream: Stream<Item = (Pair, Event<CompOrd, SpecOrd, Pool, Bearer, Ver>)> + Unpin + 'a,
@@ -159,7 +157,6 @@ where
         prover,
         upstream,
         feedback_in,
-        alert_client,
     );
     let wait_signal = async move {
         let _ = tip_reached_signal.recv().await;
@@ -222,7 +219,6 @@ pub struct Executor<
     /// Temporarily memoize entities that came from unconfirmed updates.
     skip_filter: CircularFilter<256, Ver>,
     pd: PhantomData<(StableId, Ver, TxCandidate, Tx, Err)>,
-    alert_client: HealthAlertClient,
 }
 
 impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, E>
@@ -239,7 +235,6 @@ impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, 
         prover: PRV,
         upstream: S,
         feedback: mpsc::Receiver<Result<(), E>>,
-        alert_client: HealthAlertClient,
     ) -> Self {
         Self {
             index,
@@ -256,7 +251,6 @@ impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, 
             focus_set: FocusSet::new(),
             skip_filter: CircularFilter::new(),
             pd: Default::default(),
-            alert_client,
         }
     }
 
@@ -530,14 +524,6 @@ where
                             }
                         }
                         Err(err) => {
-                            //todo: remove
-                            let submit_res = self
-                                .alert_client
-                                .send_alert(format!("Tx submission error: {}", err).as_str())
-                                .unwrap_or("Failure".to_string());
-
-                            trace!("Alert submitting result: {}", submit_res);
-
                             warn!("TX {} failed {:?}", tx_hash, err);
                             if let Ok(missing_bearers) = err.try_into() {
                                 match pending_effects {
