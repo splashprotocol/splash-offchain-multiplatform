@@ -181,46 +181,6 @@ where
     where
         Taker: Fragment + Copy,
     {
-        if attempt.is_complete() {
-            let unsatisfied_fragments = attempt.unsatisfied_fragments();
-            if unsatisfied_fragments.is_empty() {
-                let MatchmakingAttempt {
-                    takes: terminal_takes,
-                    makes,
-                    ..
-                } = attempt;
-                let mut instructions = Vec::new();
-                for (taker_id, TryApply { action, result, .. }) in terminal_takes {
-                    instructions.push(Either::Left(Applied {
-                        action,
-                        result,
-                        target: taker_id,
-                    }));
-                }
-                for (maker_id, TryApply { action, result, .. }) in makes {
-                    instructions.push(Either::Right(Applied {
-                        action,
-                        result,
-                        target: maker_id,
-                    }));
-                }
-                if let Some(TakeInProgress {
-                    action,
-                    result: Some(result),
-                    target,
-                }) = remainder
-                {
-                    instructions.push(Either::Left(Applied {
-                        action,
-                        result,
-                        target: target.stable_id(),
-                    }));
-                }
-                return Ok(Self { instructions });
-            } else {
-                return Err(Some(unsatisfied_fragments));
-            }
-        }
         Err(None)
     }
 }
