@@ -7,8 +7,6 @@ use either::Either;
 use futures::channel::mpsc;
 use futures::stream::select_all;
 use futures::{stream_select, Stream, StreamExt};
-use isahc::http::Uri;
-use isahc::HttpClient;
 use log::info;
 use tokio::sync::{broadcast, Mutex};
 use tracing_subscriber::fmt::Subscriber;
@@ -54,7 +52,6 @@ use spectrum_offchain::data::order::OrderUpdate;
 use spectrum_offchain::data::Baked;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::event_sink::process_events;
-use spectrum_offchain::health_alert::HealthAlertClient;
 use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::streaming::boxed;
 use spectrum_offchain_cardano::collateral::pull_collateral;
@@ -210,13 +207,6 @@ async fn main() {
     let state_index = StateIndexTracing(InMemoryStateIndex::new());
     let state_cache = InMemoryKvStore::new();
 
-    let client = HttpClient::builder().build().unwrap();
-
-    let uri =
-        Uri::from_static("https://hooks.slack.com/services/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");
-
-    let alert_client = HealthAlertClient::new(client, uri, config.partitioning.assigned_partitions.clone());
-
     let (signal_tip_reached_snd, signal_tip_reached_recv) = broadcast::channel(1);
 
     let execution_stream_p1 = execution_part_stream(
@@ -234,7 +224,6 @@ async fn main() {
         ),
         tx_submission_channel.clone(),
         signal_tip_reached_snd.subscribe(),
-        alert_client.clone(),
     );
     let execution_stream_p2 = execution_part_stream(
         state_index.clone(),
@@ -251,7 +240,6 @@ async fn main() {
         ),
         tx_submission_channel.clone(),
         signal_tip_reached_snd.subscribe(),
-        alert_client.clone(),
     );
     let execution_stream_p3 = execution_part_stream(
         state_index.clone(),
@@ -268,7 +256,6 @@ async fn main() {
         ),
         tx_submission_channel.clone(),
         signal_tip_reached_snd.subscribe(),
-        alert_client.clone(),
     );
     let execution_stream_p4 = execution_part_stream(
         state_index,
@@ -285,7 +272,6 @@ async fn main() {
         ),
         tx_submission_channel,
         signal_tip_reached_snd.subscribe(),
-        alert_client,
     );
 
     let ledger_stream = Box::pin(ledger_transactions(

@@ -6,7 +6,6 @@ pub mod combinators;
 pub mod data;
 pub mod event_sink;
 pub mod executor;
-pub mod health_alert;
 pub mod ledger;
 pub mod maker;
 pub mod network;
