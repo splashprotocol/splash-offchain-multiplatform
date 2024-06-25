@@ -231,7 +231,7 @@ where
                 Ok(ex_recipe) => return Some(ex_recipe),
                 Err(None) => {
                     self.on_recipe_failed(StashingOption::Unstash);
-                    if mem::replace(&mut both_sides_tried, true) {
+                    if !mem::replace(&mut both_sides_tried, true) {
                         trace!("Trying to matchmake on the other side: {}", self.attempt_side);
                         continue;
                     }
