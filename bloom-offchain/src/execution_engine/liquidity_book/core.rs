@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use bounded_integer::BoundedU64;
 use either::Either;
 
 use algebra_core::monoid::Monoid;
@@ -8,25 +7,8 @@ use algebra_core::semigroup::Semigroup;
 use spectrum_offchain::data::Stable;
 
 use crate::execution_engine::liquidity_book::fragment::Fragment;
-use crate::execution_engine::liquidity_book::side::SideM;
+use crate::execution_engine::liquidity_book::market_maker::MarketMaker;
 use crate::execution_engine::liquidity_book::types::{FeeAsset, InputAsset, OutputAsset};
-
-pub type MatchmakingStep = BoundedU64<0, 100>;
-
-/// Usage of liquidity from market maker.
-/// take(P, M_1 + M_2 + ... + M_n) = take(P, M_1) |> take(_, M_2) |> ... take(_, M_n)
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct Make {
-    pub side: SideM,
-    pub input: InputAsset<u64>,
-    pub output: OutputAsset<u64>,
-}
-
-impl Semigroup for Make {
-    fn combine(self, other: Self) -> Self {
-        todo!("Semigroup for Make")
-    }
-}
 
 /// Taking liquidity from market.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -76,6 +58,8 @@ impl<Cont, Term> Semigroup for Trans<Cont, Term> {
     }
 }
 
+pub type MakerTrans<Maker> = Trans<Maker, ()>;
+
 pub type TakerTrans<Taker> = Trans<Taker, TerminalTake>;
 
 impl<T> TakerTrans<T> {
@@ -114,7 +98,7 @@ where
 #[derive(Debug, Clone)]
 pub struct MatchmakingAttempt<Taker: Stable, Maker: Stable, U> {
     takes: HashMap<Taker::StableId, TakerTrans<Taker>>,
-    makes: HashMap<Maker::StableId, TryApply<Make, Maker>>,
+    makes: HashMap<Maker::StableId, MakerTrans<Maker>>,
     execution_units_consumed: U,
 }
 
@@ -165,7 +149,7 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
         self.takes.insert(sid, take_combined);
     }
 
-    pub fn add_make(&mut self, make: TryApply<Make, Maker>) {
+    pub fn add_make(&mut self, make: MakerTrans<Maker>) {
         let sid = make.target.stable_id();
         let maker_combined = match self.makes.remove(&sid) {
             None => make,
@@ -184,7 +168,7 @@ pub struct Applied<Action, Subject: Stable> {
 
 #[derive(Debug, Clone)]
 pub struct MatchmakingRecipe<Taker: Stable, Maker: Stable> {
-    instructions: Vec<Either<Trans<Taker, TerminalTake>, Applied<Make, Maker>>>,
+    instructions: Vec<Either<TakerTrans<Taker>, MakerTrans<Maker>>>,
 }
 
 impl<Taker, Maker> MatchmakingRecipe<Taker, Maker>

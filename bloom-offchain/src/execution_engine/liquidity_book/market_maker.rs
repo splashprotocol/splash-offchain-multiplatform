@@ -1,9 +1,11 @@
-use crate::execution_engine::liquidity_book::core::{Make, TryApply};
-use crate::execution_engine::liquidity_book::side::Side;
-use crate::execution_engine::liquidity_book::types::AbsolutePrice;
+use std::cmp::Ordering;
+
 use derive_more::{Display, Div, From, Into, Mul};
 use num_rational::Ratio;
-use std::cmp::Ordering;
+
+use crate::execution_engine::liquidity_book::core::MakerTrans;
+use crate::execution_engine::liquidity_book::side::{Side, SideM};
+use crate::execution_engine::liquidity_book::types::{AbsolutePrice, OutputAsset};
 
 /// Price of a theoretical 0-swap in pool.
 #[repr(transparent)]
@@ -39,7 +41,7 @@ pub trait MarketMaker {
 /// Pooled liquidity.
 pub trait MakerBehavior: Sized {
     /// Output of a swap.
-    fn swap(self, input: Side<u64>) -> TryApply<Make, Self>;
+    fn swap(self, input: Side<u64>) -> (u64, MakerTrans<Self>);
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Into, From, Display)]

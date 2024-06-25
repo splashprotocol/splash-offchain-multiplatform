@@ -6,7 +6,7 @@ use algebra_core::monoid::Monoid;
 use spectrum_offchain::data::Stable;
 
 use crate::execution_engine::liquidity_book::core::{
-    Make, MatchmakingAttempt, MatchmakingRecipe, MatchmakingStep, TakerTrans, TryApply,
+    Make, MakerTrans, MatchmakingAttempt, MatchmakingRecipe, MatchmakingStep, TakerTrans, TryApply,
 };
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, TakerBehaviour};
 use crate::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker, SpotPrice};
@@ -89,17 +89,17 @@ where
                         if let Some(counter_taker) = self.state.try_pick_fr(!target_side, ok) {
                             //fill target_taker <- counter_taker
                             let make_match = |ask: &Taker, bid: &Taker| settle_price(ask, bid, spot_price);
-                            let (tx1, tx2) = execute_with_taker(target_taker, counter_taker, make_match);
-                            batch.add_take(tx1);
-                            batch.add_take(tx2);
+                            let (take_a, take_b) = execute_with_taker(target_taker, counter_taker, make_match);
+                            batch.add_take(take_a);
+                            batch.add_take(take_b);
                         }
                     }
                     (_, Some((maker_sid, price_maker))) if target_price.overlaps(price_maker) => {
                         if let Some(maker) = self.state.take_pool(&maker_sid) {
                             //fill target_taker <- maker
-                            let (tx1, tx2) = execute_with_maker(target_taker, maker, chunk_offered);
-                            batch.add_take(tx1);
-                            batch.add_make(tx2);
+                            let (take, make) = execute_with_maker(target_taker, maker, chunk_offered);
+                            batch.add_take(take);
+                            batch.add_make(make);
                         }
                     }
                     _ => {}
@@ -114,13 +114,13 @@ fn execute_with_maker<Taker, Maker>(
     target_taker: Taker,
     maker: Maker,
     chunk_size: Side<u64>,
-) -> (TakerTrans<Taker>, TryApply<Make, Maker>)
+) -> (TakerTrans<Taker>, MakerTrans<Maker>)
 where
     Taker: Fragment + TakerBehaviour + Copy,
     Maker: MakerBehavior + Copy,
 {
-    let maker_applied = maker.swap(chunk_size);
-    let taker_applied = target_taker.with_applied_trade(chunk_size.unwrap(), maker_applied.action.output);
+    let (output, maker_applied) = maker.swap(chunk_size);
+    let taker_applied = target_taker.with_applied_trade(chunk_size.unwrap(), output);
     (taker_applied, maker_applied)
 }
 
