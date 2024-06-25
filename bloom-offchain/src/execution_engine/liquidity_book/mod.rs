@@ -120,11 +120,11 @@ where
     U: PartialOrd + SubAssign + Sub<Output = U> + Copy + Debug,
 {
     fn attempt(&mut self) -> Option<ExecutionRecipe<Fr, Pl>> {
+        let mut sides_tried = 0;
         loop {
             let mut recipe: IntermediateRecipe<Fr, Pl> = IntermediateRecipe::empty();
             let mut pools_used = HashSet::new();
             let mut execution_units_left = self.execution_cap.hard;
-            let mut sides_tried = 0;
             while execution_units_left > self.execution_cap.safe_threshold() {
                 if let Some(best_fr) = self.state.try_pick_fr(self.attempt_side, |_| true) {
                     trace!("Best fragment: {}", best_fr);
