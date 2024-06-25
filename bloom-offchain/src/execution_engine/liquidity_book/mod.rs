@@ -124,7 +124,7 @@ where
             let mut recipe: IntermediateRecipe<Fr, Pl> = IntermediateRecipe::empty();
             let mut pools_used = HashSet::new();
             let mut execution_units_left = self.execution_cap.hard;
-            let mut both_sides_tried = false;
+            let mut sides_tried = 0;
             while execution_units_left > self.execution_cap.safe_threshold() {
                 if let Some(best_fr) = self.state.try_pick_fr(self.attempt_side, |_| true) {
                     trace!("Best fragment: {}", best_fr);
@@ -225,13 +225,14 @@ where
                     }
                 }
                 self.attempt_side = !self.attempt_side;
+                sides_tried += 1;
                 break;
             }
             match ExecutionRecipe::try_from(recipe) {
                 Ok(ex_recipe) => return Some(ex_recipe),
                 Err(None) => {
                     self.on_recipe_failed(StashingOption::Unstash);
-                    if !mem::replace(&mut both_sides_tried, true) {
+                    if sides_tried < 2 {
                         trace!("Trying to matchmake on the other side: {}", self.attempt_side);
                         continue;
                     }
