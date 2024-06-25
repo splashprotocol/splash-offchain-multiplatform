@@ -1,12 +1,10 @@
-use num_rational::Ratio;
-use std::cmp::min;
 use std::fmt::Debug;
 
 use algebra_core::monoid::Monoid;
 use spectrum_offchain::data::Stable;
 
 use crate::execution_engine::liquidity_book::core::{
-    Make, MakerTrans, MatchmakingAttempt, MatchmakingRecipe, MatchmakingStep, TakerTrans, TryApply,
+    MakerTrans, MatchmakingAttempt, MatchmakingRecipe, TakerTrans,
 };
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, TakerBehaviour};
 use crate::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker, SpotPrice};
@@ -14,10 +12,9 @@ use crate::execution_engine::liquidity_book::side::Side::{Ask, Bid};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
 use crate::execution_engine::liquidity_book::state::{max_by_distance_to_spot, max_by_volume, TLBState};
-use crate::execution_engine::liquidity_book::types::{AbsolutePrice, InputAsset};
+use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 use crate::execution_engine::liquidity_book::{
-    linear_output_unsafe, settle_price, to_signed, to_unsigned, truncated, ExecutionCap, TLBFeedback,
-    MAX_BIAS_PERCENT,
+    linear_output_unsafe, settle_price, ExecutionCap, TLBFeedback,
 };
 
 /// TLB is a Universal Liquidity Aggregator (ULA), it is able to aggregate every piece of composable
@@ -89,7 +86,8 @@ where
                         if let Some(counter_taker) = self.state.try_pick_fr(!target_side, ok) {
                             //fill target_taker <- counter_taker
                             let make_match = |ask: &Taker, bid: &Taker| settle_price(ask, bid, spot_price);
-                            let (take_a, take_b) = execute_with_taker(target_taker, counter_taker, make_match);
+                            let (take_a, take_b) =
+                                execute_with_taker(target_taker, counter_taker, make_match);
                             batch.add_take(take_a);
                             batch.add_take(take_b);
                         }
