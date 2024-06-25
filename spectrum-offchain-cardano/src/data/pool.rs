@@ -1,7 +1,7 @@
-use std::fmt::{format, Debug, Display, Formatter};
+use std::fmt::{Debug, Display, format, Formatter};
 
+use cml_chain::{Coin, PolicyId};
 use cml_chain::address::Address;
-
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
@@ -12,9 +12,6 @@ use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWit
 use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::{DatumOption, ScriptRef, TransactionOutput};
 use cml_chain::utils::BigInteger;
-
-use cml_chain::{Coin, PolicyId};
-
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
 use num_rational::Ratio;
@@ -24,31 +21,30 @@ use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{MarketMaker, PoolQuality, SpotPrice};
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, Token};
 use spectrum_cardano_lib::collateral::Collateral;
+use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::protocol_params::constant_tx_builder;
+use spectrum_cardano_lib::transaction::TransactionOutputExtension;
+use spectrum_cardano_lib::value::ValueExtension;
+use spectrum_offchain::data::{Has, Stable, Tradable};
+use spectrum_offchain::data::event::Predicted;
+use spectrum_offchain::executor::RunOrderError;
+use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 use crate::creds::OperatorRewardAddress;
 use crate::data::balance_pool::{BalancePool, BalancePoolRedeemer};
 use crate::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
+use crate::data::OnChainOrderId;
 use crate::data::order::{ClassicalOrderAction, ClassicalOrderRedeemer, Quote};
 use crate::data::pair::PairId;
 use crate::data::pool::AnyPool::{BalancedCFMM, PureCFMM};
-use spectrum_cardano_lib::ex_units::ExUnits;
-use spectrum_cardano_lib::transaction::TransactionOutputExtension;
-use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, Token};
-use spectrum_offchain::data::event::Predicted;
-use spectrum_offchain::data::{Has, Stable, Tradable};
-use spectrum_offchain::executor::RunOrderError;
-use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
-
-use crate::data::OnChainOrderId;
+use crate::deployment::{DeployedScriptInfo, RequiresValidator};
 use crate::deployment::ProtocolValidator::{
     BalanceFnPoolV1, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolV1, ConstFnPoolV2,
 };
-use crate::deployment::{DeployedScriptInfo, RequiresValidator};
 
 pub struct Rx;
 
@@ -286,10 +282,10 @@ impl MarketMaker for AnyPool {
         }
     }
 
-    fn available_liquidity(&self, max_price_impact: Side<Ratio<u128>>) -> (u128, u128) {
+    fn available_liquidity(&self, max_price_impact: Side<Ratio<u64>>, spot_impact: bool) -> (u64, u64) {
         match self {
-            PureCFMM(p) => p.available_liquidity(max_price_impact),
-            BalancedCFMM(p) => p.available_liquidity(max_price_impact),
+            PureCFMM(p) => p.available_liquidity(max_price_impact, spot_impact),
+            BalancedCFMM(p) => p.available_liquidity(max_price_impact, spot_impact),
         }
     }
 
@@ -526,12 +522,7 @@ pub struct CFMMPoolRefScriptOutput<const VER: u8>(pub TransactionUnspentOutput);
 
 #[cfg(test)]
 pub mod tests {
-    use cml_crypto::TransactionHash;
-    use rand::Rng;
-
     use bloom_offchain::execution_engine::liquidity_book::{market_maker::MarketMaker, side::Side};
-    use spectrum_cardano_lib::OutputRef;
-    use spectrum_offchain::ledger::TryFromLedger;
 
     use super::ConstFnPool;
 

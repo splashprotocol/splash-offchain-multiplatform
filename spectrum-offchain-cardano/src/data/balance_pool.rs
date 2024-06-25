@@ -495,9 +495,9 @@ impl MarketMaker for BalancePool {
         }
     }
 
-    fn available_liquidity(&self, max_price_impact: Side<Ratio<u128>>) -> (u128, u128) {
+    fn available_liquidity(&self, max_price_impact: Side<Ratio<u64>>, spot_impact: bool) -> (u64, u64) {
         // "max_price_impact" is calculated as
-        // "max_price_impact = 1 - avg_sell_price / market_price" to be always > 0.
+        // "max_price_impact = 1 - avg_sell_price (or market_price_new if spot_impact) / market_price" to be always > 0.
         // Outputs are ("quote_amount_available", "base_amount_required").
         // Outputs reflects how many quote asset the user will receive and how many base asset
         // must be added to the pool in order for this operation to occur with a given
@@ -527,32 +527,28 @@ impl MarketMaker for BalancePool {
                 ),
             };
 
-        let lp = tradable_reserves_base.pow(&w_base.clone()) * tradable_reserves_quote.pow(&w_quote.clone());
-        // Note: Price impact = 1 - paid price / market price.
+        let lq_balance = tradable_reserves_base.pow(&w_base.clone()) * tradable_reserves_quote.pow(&w_quote.clone());
 
         let market_price = tradable_reserves_quote
             .clone()
             .div(w_quote.clone())
             .div(tradable_reserves_base.clone().div(w_base.clone()))
             * total_fee_mult.clone();
-        let avg_sell_price = market_price
+
+        let impact_price = market_price
             * (BN_ONE
-                - BigNumber::from(*max_price_impact.unwrap().numer() as f64)
-                    .div(BigNumber::from(*max_price_impact.unwrap().denom() as f64)));
-        println!(
-            "{:?}",
-            <u128>::try_from(
-                (total_fee_mult.clone() * BigNumber::from(100000))
-                    .value
-                    .to_int()
-                    .value()
-            )
-            .unwrap()
-        );
+            - BigNumber::from(*max_price_impact.unwrap().numer() as f64)
+            .div(BigNumber::from(*max_price_impact.unwrap().denom() as f64)));
+        let avg_sell_price = if spot_impact {
+            impact_price
+        } else {
+            impact_price };
+
+
         //# Constants for calculations:
         let a = (w_base.clone() + w_quote.clone()) / w_quote.clone();
         let b = BN_ONE - a.clone();
-        let c = lp.pow(&BN_ONE.div(w_quote.clone())) * w_base.clone() / w_quote.clone();
+        let c = lq_balance.pow(&BN_ONE.div(w_quote.clone())) * w_base.clone() / w_quote.clone();
         let k = c.clone() / b.clone();
         //
         let x0 = tradable_reserves_base.clone();
@@ -583,12 +579,12 @@ impl MarketMaker for BalancePool {
 
         let base_delta = (x1.clone() - tradable_reserves_base.clone()) / total_fee_mult;
 
-        let tradable_reserves_quote_final = (lp / x1.clone().pow(&w_base.clone())).pow(&BN_ONE.div(&w_quote));
+        let tradable_reserves_quote_final = (lq_balance / x1.clone().pow(&w_base.clone())).pow(&BN_ONE.div(&w_quote));
         let quote_delta = tradable_reserves_quote - tradable_reserves_quote_final;
 
         return (
-            <u128>::try_from(quote_delta.value.to_int().value()).unwrap(),
-            <u128>::try_from(base_delta.value.to_int().value()).unwrap(),
+            <u64>::try_from(quote_delta.value.to_int().value()).unwrap(),
+            <u64>::try_from(base_delta.value.to_int().value()).unwrap(),
         );
     }
 }
@@ -702,17 +698,16 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
 
 #[cfg(test)]
 mod tests {
-    use bloom_offchain::execution_engine::liquidity_book::market_maker::MarketMaker;
-    use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use cml_chain::Deserialize;
     use cml_chain::plutus::PlutusData;
     use cml_core::serialization::Serialize;
     use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
     use num_rational::Ratio;
 
+    use bloom_offchain::execution_engine::liquidity_book::market_maker::MarketMaker;
+    use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use bloom_offchain::execution_engine::liquidity_book::side::Side::{Ask, Bid};
     use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
-    use crate::constants::MAX_LQ_CAP;
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
 
@@ -884,12 +879,25 @@ mod tests {
     fn available_liquidity_test() {
         let pool = gen_ada_token_pool(2105999997, 1981759952, 9223372036854587823, 99000, 99000, 0, 0, 0);
 
+        // Repair available volumes from average sell price impact.
         let max_target_price_impact = Ratio::new_raw(45035996273705, 2251799813685248);
 
-        let (available_liquidity_quote_ask, _) = pool.available_liquidity(Ask(max_target_price_impact));
-        let (available_liquidity_quote_bid, _) = pool.available_liquidity(Bid(max_target_price_impact));
+        let (available_liquidity_quote_ask, _) =
+            pool.available_liquidity(Ask(max_target_price_impact), false);
+        let (available_liquidity_quote_bid, _) =
+            pool.available_liquidity(Bid(max_target_price_impact), false);
 
         assert_eq!(available_liquidity_quote_ask, 15918267);
         assert_eq!(available_liquidity_quote_bid, 67120253);
+
+        // // Repair available volumes from pool spot price impact.
+        // let max_spot_price_impact = Ratio::new_raw(355981766792995, 9007199254740992);
+        //
+        // let (quote_qty_ask_spot, _) = pool.available_liquidity(Ask(max_spot_price_impact), true);
+        //
+        // let (quote_qty_bid_spot, _) = pool.available_liquidity(Bid(max_spot_price_impact), true);
+        //
+        // assert_eq!(quote_qty_ask_spot, 15918267);
+        // assert_eq!(quote_qty_bid_spot, 67120253)
     }
 }

@@ -286,8 +286,13 @@ impl MarketMaker for ConstFnPool {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, _] = order_canonical(x, y);
+        let total_fee_num = self.lp_fee_y - self.treasury_fee;
         if x == base {
-            AbsolutePrice::new(self.reserves_y.untag(), self.reserves_x.untag()).into()
+            AbsolutePrice::new(
+                self.reserves_y.untag() * total_fee_num.numer(),
+                self.reserves_x.untag() * total_fee_num.denom(),
+            )
+            .into()
         } else {
             AbsolutePrice::new(self.reserves_x.untag(), self.reserves_y.untag()).into()
         }
@@ -377,9 +382,9 @@ impl MarketMaker for ConstFnPool {
         lq_bound && bot_bound
     }
 
-    fn available_liquidity(&self, max_price_impact: Side<Ratio<u128>>) -> (u128, u128) {
+    fn available_liquidity(&self, max_price_impact: Side<Ratio<u64>>, spot_impact: bool) -> (u64, u64) {
         // "max_price_impact" is calculated as
-        // "max_price_impact = 1 - avg_sell_price / market_price" to be always > 0.
+        // "max_price_impact = 1 - avg_sell_price (or market_price_new if spot_impact) / market_price" to be always > 0.
         // Outputs are ("quote_amount_available", "base_amount_required").
         // Outputs reflects how many quote asset the user will receive and how many base asset
         // must be added to the pool in order for this operation to occur with a given
@@ -387,6 +392,7 @@ impl MarketMaker for ConstFnPool {
         // Note: all calculations are made taking fees into account, thus "max_price_impact"
         // must also include fees in "market_price" calculation.
         const BN_ONE: BigNumber = BigNumber { value: DBig::ONE };
+        let sqrt_degree = BigNumber::from(0.5);
 
         let (tradable_reserves_base, tradable_reserves_quote, total_fee_mult) = match max_price_impact {
             Side::Bid(_) => (
@@ -401,21 +407,24 @@ impl MarketMaker for ConstFnPool {
             ),
         };
 
-        let sqrt_degree = BigNumber::from(0.5);
+        let lq_balance = (tradable_reserves_base.clone() * tradable_reserves_quote.clone()).pow(&sqrt_degree);
 
         let market_price = tradable_reserves_quote
             .clone()
             .div(tradable_reserves_base.clone())
             * total_fee_mult.clone();
-        let avg_sell_price = market_price
+
+        let impact_price = market_price
             * (BN_ONE
                 - BigNumber::from(*max_price_impact.unwrap().numer() as f64)
-                    .div(BigNumber::from(*max_price_impact.unwrap().denom() as f64)));
-        let lq_balance = (tradable_reserves_base.clone() * tradable_reserves_quote.clone()).pow(&sqrt_degree);
-        //let p0 = tradable_reserves_quote.clone() / tradable_reserves_base.clone();
-        let p1 = (avg_sell_price * lq_balance.clone()
-            / (total_fee_mult.clone() * tradable_reserves_quote.clone()))
-        .pow(&BigNumber::from(2));
+                    .div(BigNumber::from(*max_price_impact.unwrap().denom() as f64)))
+            .div(total_fee_mult.clone());
+
+        let p1 = if spot_impact {
+            impact_price
+        } else {
+            (impact_price * lq_balance.clone() / tradable_reserves_quote.clone()).pow(&(BigNumber::from(2)))
+        };
         let p1_sqrt = p1.clone().pow(&sqrt_degree);
         let x1 = lq_balance.clone() / p1_sqrt.clone();
         let y1 = lq_balance.clone() * p1_sqrt.clone();
@@ -424,8 +433,8 @@ impl MarketMaker for ConstFnPool {
         let quote = tradable_reserves_quote - y1.clone();
 
         return (
-            <u128>::try_from(quote.to_precision(0).value.to_int().value()).unwrap(),
-            <u128>::try_from(base.to_precision(0).value.to_int().value()).unwrap(),
+            <u64>::try_from(quote.to_precision(0).value.to_int().value()).unwrap(),
+            <u64>::try_from(base.to_precision(0).value.to_int().value()).unwrap(),
         );
     }
 }
@@ -767,16 +776,21 @@ impl ApplyOrder<ClassicalOnChainRedeem> for ConstFnPool {
 }
 
 mod tests {
+    use bignumber::BigNumber;
     use cml_crypto::ScriptHash;
     use num_rational::Ratio;
+    use num_traits::ToPrimitive;
+    use primitive_types::U512;
 
-    use crate::data::cfmm_pool::{ConstFnPool, ConstFnPoolVer};
-    use crate::data::PoolId;
     use bloom_offchain::execution_engine::liquidity_book::market_maker::MarketMaker;
     use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use bloom_offchain::execution_engine::liquidity_book::side::Side::{Ask, Bid};
+    use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
     use spectrum_cardano_lib::ex_units::ExUnits;
+
+    use crate::data::cfmm_pool::{ConstFnPool, ConstFnPoolVer};
+    use crate::data::PoolId;
 
     fn gen_ada_token_pool(
         reserves_x: u64,
@@ -863,13 +877,51 @@ mod tests {
 
         let pool = gen_ada_token_pool(reserves_x, reserves_y, 0, fee_num, fee_num, 0, 0, 0);
 
+        // Repair available volumes from average sell price impact.
         let max_target_price_impact = Ratio::new_raw(45035996273705, 4503599627370496);
 
-        let (quote_qty_ask, _) = pool.available_liquidity(Ask(max_target_price_impact));
+        let (quote_qty_ask, _) = pool.available_liquidity(Ask(max_target_price_impact), false);
 
-        let (quote_qty_bid, _) = pool.available_liquidity(Bid(max_target_price_impact));
+        let (quote_qty_bid, _) = pool.available_liquidity(Bid(max_target_price_impact), false);
 
         assert_eq!(quote_qty_ask, 46028591130);
-        assert_eq!(quote_qty_bid, 11168540945)
+        assert_eq!(quote_qty_bid, 11168540945);
+
+        // Repair available volumes from pool spot price impact.
+        let max_spot_price_impact = Ratio::new_raw(179243265169347, 9007199254740992);
+
+        let (quote_qty_ask_spot, _) = pool.available_liquidity(Ask(max_spot_price_impact), true);
+
+        let (quote_qty_bid_spot, _) = pool.available_liquidity(Bid(max_spot_price_impact), true);
+
+        assert_eq!(quote_qty_ask_spot, 46028591130);
+        assert_eq!(quote_qty_bid_spot, 11168540945)
+    }
+    #[test]
+    fn best_price_selection_test() {
+        let fee_num0 = 98500;
+        let reserves_x0 = 1416854094529;
+        let reserves_y0 = 4202859113047;
+
+        let fee_num1 = 96500;
+        let reserves_x1 = 1716854094529;
+        let reserves_y1 = 4602859113047;
+
+        let fee_num2 = 99700;
+        let reserves_x2 = 1816854094523;
+        let reserves_y2 = 5102859113047;
+
+        let pool0 = gen_ada_token_pool(reserves_x0, reserves_y0, 0, fee_num0, fee_num0, 0, 0, 0);
+        let pool1 = gen_ada_token_pool(reserves_x1, reserves_y1, 0, fee_num1, fee_num1, 0, 0, 0);
+        let pool2 = gen_ada_token_pool(reserves_x2, reserves_y2, 0, fee_num2, fee_num2, 0, 0, 0);
+        let candidates = [pool0.clone(), pool1.clone(), pool2.clone()];
+        // Step 1. Compare spot price
+        let mut spot_prices = vec![];
+        for p in candidates {
+            spot_prices.push(p.static_price().unwrap().to_f64().unwrap())
+        }
+        let a = 3;
+        assert_eq!(spot_prices, vec![1f64])
+
     }
 }

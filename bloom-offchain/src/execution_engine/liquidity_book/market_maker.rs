@@ -1,9 +1,11 @@
+use std::cmp::Ordering;
+
+use derive_more::{Display, Div, From, Into, Mul};
+use num_rational::Ratio;
+
 use crate::execution_engine::liquidity_book::core::{Make, TryApply};
 use crate::execution_engine::liquidity_book::side::Side;
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;
-use derive_more::{Display, Div, From, Into, Mul};
-use num_rational::Ratio;
-use std::cmp::Ordering;
 
 /// Price of a theoretical 0-swap in pool.
 #[repr(transparent)]
@@ -30,7 +32,7 @@ pub trait MarketMaker {
     /// How much (approximately) execution of this fragment will cost.
     fn marginal_cost_hint(&self) -> Self::U;
 
-    fn available_liquidity(&self, max_price_impact: Side<Ratio<u128>>) -> (u128, u128);
+    fn available_liquidity(&self, max_price_impact: Side<Ratio<u64>>, spot_impact: bool) -> (u64, u64);
 
     // Is this maker active at the moment or not.
     fn is_active(&self) -> bool;
