@@ -1,0 +1,26 @@
+name: Notify Slack on Commit
+
+on:
+  push:
+    branches:
+      - develop  # Change this to your desired branch
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Notify Slack
+        uses: 8398a7/action-slack@v4
+        with:
+          status: success
+          text: |
+            :pushpin: *Commit on* `main`
+            *Repository:* <https://github.com/${{ github.repository }}|${{ github.repository }}>
+            *Commit:* <${{ github.event.head_commit.url }}|${{ github.event.head_commit.message }}>
+            *Author:* ${{ github.event.head_commit.committer.name }}
+
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
