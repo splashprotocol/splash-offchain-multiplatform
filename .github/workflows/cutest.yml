@@ -11,16 +11,34 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
-
-      - name: Notify Slack
-        uses: 8398a7/action-slack@v3
+      
+      - name: Notify Slack on Success
+        if: success()
+        uses: rtCamp/action-slack-notify@v2.1.1
         with:
-          status: success
-          text: |
-            :pushpin: *Commit on* `main`
-            *Repository:* <https://github.com/${{ github.repository }}|${{ github.repository }}>
-            *Commit:* <${{ github.event.head_commit.url }}|${{ github.event.head_commit.message }}>
-            *Author:* ${{ github.event.head_commit.committer.name }}
+          webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          title: 'GitHub Actions - Success 🎉'
+          message: |
+            *Repository*: <https://github.com/${{ github.repository }}|${{ github.repository }}>
+            *Branch*: `${{ github.ref }}`
+            *Commit*: <${{ github.event.head_commit.url }}|${{ github.event.head_commit.message }}>
+            *Author*: `${{ github.event.head_commit.committer.name }}`
+            *Status*: Success
+            *Action URL*: <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}>
+          color: good
 
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      - name: Notify Slack on Failure
+        if: failure()
+        uses: rtCamp/action-slack-notify@v2.1.1
+        with:
+          webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          title: 'GitHub Actions - Failure ❌'
+          message: |
+            *Repository*: <https://github.com/${{ github.repository }}|${{ github.repository }}>
+            *Branch*: `${{ github.ref }}`
+            *Commit*: <${{ github.event.head_commit.url }}|${{ github.event.head_commit.message }}>
+            *Author*: `${{ github.event.head_commit.committer.name }}`
+            *Status*: Failure
+            *Action URL*: <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}>
+          color: danger
+  
