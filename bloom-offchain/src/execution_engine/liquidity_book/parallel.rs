@@ -1,21 +1,22 @@
-use num_rational::Ratio;
-use std::cmp::min;
 use std::fmt::Debug;
 
 use algebra_core::monoid::Monoid;
 use spectrum_offchain::data::Stable;
 
+use crate::execution_engine::liquidity_book::core::{Make, TryApply};
 use crate::execution_engine::liquidity_book::core::{
-    Make, MatchmakingAttempt, MatchmakingRecipe, MatchmakingStep, TakerTrans, TryApply,
+    MatchmakingAttempt, MatchmakingRecipe, Next, TakerTrans,
 };
-use crate::execution_engine::liquidity_book::core::{MakerTrans, MatchmakingAttempt, MatchmakingRecipe, Next, TakerTrans};
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, TakerBehaviour};
 use crate::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker, SpotPrice};
-use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::side::Side::{Ask, Bid};
+use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
 use crate::execution_engine::liquidity_book::state::{max_by_distance_to_spot, max_by_volume, TLBState};
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;
+use crate::execution_engine::liquidity_book::{
+    linear_output_unsafe, settle_price, ExecutionCap, TLBFeedback,
+};
 
 /// TLB is a Universal Liquidity Aggregator (ULA), it is able to aggregate every piece of composable
 /// liquidity available in the market.
@@ -59,7 +60,7 @@ where
 
 impl<Taker, Maker, U> TLB<Taker, Maker, U>
 where
-    Taker: Fragment<U=U> + Ord + Copy + Debug,
+    Taker: Fragment<U = U> + Ord + Copy + Debug,
     Maker: MarketMaker + Stable + Copy,
     U: PartialOrd,
 {
@@ -78,8 +79,8 @@ where
 
 impl<Taker, Maker, U> TemporalLiquidityBook<Taker, Maker> for TLB<Taker, Maker, U>
 where
-    Taker: Stable + Fragment<U=U> + TakerBehaviour + Ord + Copy + Debug,
-    Maker: Stable + MarketMaker<U=U> + MakerBehavior + Copy + Debug,
+    Taker: Stable + Fragment<U = U> + TakerBehaviour + Ord + Copy + Debug,
+    Maker: Stable + MarketMaker<U = U> + MakerBehavior + Copy + Debug,
     U: Monoid + PartialOrd + Copy,
 {
     fn attempt(&mut self) -> Option<MatchmakingRecipe<Taker, Maker>> {
@@ -98,21 +99,21 @@ where
                 let maybe_price_maker = self.state.preselect_market_maker(chunk_offered);
                 match (maybe_price_counter_taker, maybe_price_maker) {
                     (Some(price_counter_taker), maybe_price_maker)
-                    if maybe_price_maker
-                        .map(|(_, p)| price_counter_taker.better_than(p))
-                        .unwrap_or(true) =>
-                        {
-                            if let Some(counter_taker) = self.state.try_pick_fr(!target_side, ok) {
-                                //fill target_taker <- counter_taker
-                                let make_match = |ask: &Taker, bid: &Taker| settle_price(ask, bid, spot_price);
-                                let (take_a, take_b) =
-                                    execute_with_taker(target_taker, counter_taker, make_match);
-                                for take in vec![take_a, take_b] {
-                                    batch.add_take(take);
-                                    self.on_take(take.result);
-                                }
+                        if maybe_price_maker
+                            .map(|(_, p)| price_counter_taker.better_than(p))
+                            .unwrap_or(true) =>
+                    {
+                        if let Some(counter_taker) = self.state.try_pick_fr(!target_side, ok) {
+                            //fill target_taker <- counter_taker
+                            let make_match = |ask: &Taker, bid: &Taker| settle_price(ask, bid, spot_price);
+                            let (take_a, take_b) =
+                                execute_with_taker(target_taker, counter_taker, make_match);
+                            for take in vec![take_a, take_b] {
+                                batch.add_take(take);
+                                self.on_take(take.result);
                             }
                         }
+                    }
                     (_, Some((maker_sid, price_maker))) if target_price.overlaps(price_maker) => {
                         if let Some(maker) = self.state.take_pool(&maker_sid) {
                             //fill target_taker <- maker

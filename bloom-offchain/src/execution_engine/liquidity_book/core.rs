@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use bounded_integer::BoundedU64;
 use either::Either;
 
 use algebra_core::monoid::Monoid;
@@ -10,8 +9,6 @@ use spectrum_offchain::data::Stable;
 use crate::execution_engine::liquidity_book::fragment::Fragment;
 use crate::execution_engine::liquidity_book::side::SideM;
 use crate::execution_engine::liquidity_book::types::{FeeAsset, InputAsset, OutputAsset};
-
-pub type MatchmakingStep = BoundedU64<0, 100>;
 
 /// Usage of liquidity from market maker.
 /// take(P, M_1 + M_2 + ... + M_n) = take(P, M_1) |> take(_, M_2) |> ... take(_, M_n)
