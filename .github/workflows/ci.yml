@@ -54,6 +54,7 @@ jobs:
     - name: Run tests
       run: cargo test --package bloom-cardano-agent --bin bloom-cardano-agent
 
+
     - name: Get Event Information
       id: info
       run: |
