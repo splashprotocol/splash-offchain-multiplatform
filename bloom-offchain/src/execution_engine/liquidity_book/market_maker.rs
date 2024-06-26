@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use bignumber::BigNumber;
 
 use derive_more::{Display, Div, From, Into, Mul};
 use num_rational::Ratio;
@@ -32,10 +33,10 @@ pub trait MarketMaker {
     /// How much (approximately) execution of this fragment will cost.
     fn marginal_cost_hint(&self) -> Self::U;
 
-    fn available_liquidity(&self, max_price_impact: Side<Ratio<u64>>, spot_impact: bool) -> (u64, u64);
-
     // Is this maker active at the moment or not.
     fn is_active(&self) -> bool;
+    fn available_liquidity_by_user_impact(&self, max_user_price_impact: Side<Ratio<u64>>) -> (u64, u64);
+    fn available_liquidity_by_spot_impact(&self, max_spot_price_impact: Side<Ratio<u64>>) -> (u64, u64);
 }
 
 /// Pooled liquidity.

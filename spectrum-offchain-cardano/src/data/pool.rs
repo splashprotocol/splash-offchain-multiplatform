@@ -282,17 +282,24 @@ impl MarketMaker for AnyPool {
         }
     }
 
-    fn available_liquidity(&self, max_price_impact: Side<Ratio<u64>>, spot_impact: bool) -> (u64, u64) {
-        match self {
-            PureCFMM(p) => p.available_liquidity(max_price_impact, spot_impact),
-            BalancedCFMM(p) => p.available_liquidity(max_price_impact, spot_impact),
-        }
-    }
-
     fn is_active(&self) -> bool {
         match self {
             PureCFMM(p) => p.is_active(),
             BalancedCFMM(p) => p.is_active(),
+        }
+    }
+
+    fn available_liquidity_by_user_impact(&self, max_user_price_impact: Side<Ratio<u64>>) -> (u64, u64) {
+        match self {
+            PureCFMM(p) => p.available_liquidity_by_user_impact(max_user_price_impact),
+            BalancedCFMM(p) => p.available_liquidity_by_user_impact(max_user_price_impact),
+        }
+    }
+
+    fn available_liquidity_by_spot_impact(&self, max_spot_price_impact: Side<Ratio<u64>>) -> (u64, u64) {
+        match self {
+            PureCFMM(p) => p.available_liquidity_by_spot_impact(max_spot_price_impact),
+            BalancedCFMM(p) => p.available_liquidity_by_spot_impact(max_spot_price_impact),
         }
     }
 }

@@ -5,8 +5,8 @@ use bignumber::BigNumber;
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
-use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::plutus::utils::ConstrPlutusDataEncoding;
+use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
@@ -16,20 +16,20 @@ use dashu_base::sign::Abs;
 use dashu_float::DBig;
 use num_integer::Roots;
 use num_rational::Ratio;
-use num_traits::{CheckedAdd, CheckedSub};
 use num_traits::ToPrimitive;
+use num_traits::{CheckedAdd, CheckedSub};
 use primitive_types::U512;
 
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{MarketMaker, PoolQuality, SpotPrice};
 use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
-use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension};
 use spectrum_cardano_lib::plutus_data::{IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
+use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
@@ -42,10 +42,10 @@ use crate::data::pair::order_canonical;
 use crate::data::pool::{
     ApplyOrder, ApplyOrderError, AssetDeltas, CFMMPoolAction, ImmutablePoolUtxo, Lq, PoolBounds, Rx, Ry,
 };
-use crate::data::PoolId;
 use crate::data::redeem::ClassicalOnChainRedeem;
-use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
+use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::BalanceFnPoolV1;
+use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::pool_math::balance_math::balance_cfmm_output_amount;
 use crate::pool_math::cfmm_math::{classic_cfmm_reward_lp, classic_cfmm_shares_amount};
 
@@ -495,14 +495,14 @@ impl MarketMaker for BalancePool {
         }
     }
 
-    fn available_liquidity(&self, max_price_impact: Side<Ratio<u64>>, spot_impact: bool) -> (u64, u64) {
-        // "max_price_impact" is calculated as
-        // "max_price_impact = 1 - avg_sell_price (or market_price_new if spot_impact) / market_price" to be always > 0.
+    fn available_liquidity_by_user_impact(&self, max_user_price_impact: Side<Ratio<u64>>) -> (u64, u64) {
+        // "max_user_price_impact" is calculated as
+        // "max_user_price_impact = 1 - avg_sell_price / market_price" to be always > 0.
         // Outputs are ("quote_amount_available", "base_amount_required").
         // Outputs reflects how many quote asset the user will receive and how many base asset
         // must be added to the pool in order for this operation to occur with a given
         // "max_price_impact" relative to the current state of the pool.
-        // Note: all calculations are made taking fees into account, thus "max_price_impact"
+        // Note: all calculations are made taking fees into account, thus "max_user_price_impact"
         // must also include fees in "market_price" calculation.
         const BN_ONE: BigNumber = BigNumber { value: DBig::ONE };
 
@@ -510,7 +510,7 @@ impl MarketMaker for BalancePool {
         const MAX_ITERS: u32 = 25;
 
         let (tradable_reserves_base, w_base, tradable_reserves_quote, w_quote, total_fee_mult) =
-            match max_price_impact {
+            match max_user_price_impact {
                 Side::Bid(_) => (
                     BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
                     BigNumber::from(self.weight_y as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
@@ -526,8 +526,8 @@ impl MarketMaker for BalancePool {
                     BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64().unwrap()),
                 ),
             };
-
-        let lq_balance = tradable_reserves_base.pow(&w_base.clone()) * tradable_reserves_quote.pow(&w_quote.clone());
+        let lq_balance =
+            tradable_reserves_base.pow(&w_base.clone()) * tradable_reserves_quote.pow(&w_quote.clone());
 
         let market_price = tradable_reserves_quote
             .clone()
@@ -535,15 +535,10 @@ impl MarketMaker for BalancePool {
             .div(tradable_reserves_base.clone().div(w_base.clone()))
             * total_fee_mult.clone();
 
-        let impact_price = market_price
+        let avg_sell_price = market_price
             * (BN_ONE
-            - BigNumber::from(*max_price_impact.unwrap().numer() as f64)
-            .div(BigNumber::from(*max_price_impact.unwrap().denom() as f64)));
-        let avg_sell_price = if spot_impact {
-            impact_price
-        } else {
-            impact_price };
-
+                - BigNumber::from(*max_user_price_impact.unwrap().numer() as f64)
+                    .div(BigNumber::from(*max_user_price_impact.unwrap().denom() as f64)));
 
         //# Constants for calculations:
         let a = (w_base.clone() + w_quote.clone()) / w_quote.clone();
@@ -576,10 +571,65 @@ impl MarketMaker for BalancePool {
                 break;
             }
         }
-
         let base_delta = (x1.clone() - tradable_reserves_base.clone()) / total_fee_mult;
 
-        let tradable_reserves_quote_final = (lq_balance / x1.clone().pow(&w_base.clone())).pow(&BN_ONE.div(&w_quote));
+        let tradable_reserves_quote_final =
+            (lq_balance / x1.clone().pow(&w_base.clone())).pow(&BN_ONE.div(&w_quote));
+        let quote_delta = tradable_reserves_quote - tradable_reserves_quote_final;
+
+        return (
+            <u64>::try_from(quote_delta.value.to_int().value()).unwrap(),
+            <u64>::try_from(base_delta.value.to_int().value()).unwrap(),
+        );
+    }
+    fn available_liquidity_by_spot_impact(&self, max_spot_price_impact: Side<Ratio<u64>>) -> (u64, u64) {
+        // "max_spot_price_impact" is calculated as
+        // "max_spot_price_impact = 1 - market_price_new / market_price" to be always > 0.
+        // Outputs are ("quote_amount_available", "base_amount_required").
+        // Outputs reflects how many quote asset the user will receive and how many base asset
+        // must be added to the pool in order for this operation to occur with a given
+        // "max_spot_price_impact" relative to the current state of the pool.
+        // Note: all calculations are made taking fees into account, thus "max_spot_price_impact"
+        // must also include fees in "market_price" calculation.
+        const BN_ONE: BigNumber = BigNumber { value: DBig::ONE };
+
+        let (tradable_reserves_base, w_base, tradable_reserves_quote, w_quote, total_fee_mult) =
+            match max_spot_price_impact {
+                Side::Bid(_) => (
+                    BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
+                    BigNumber::from(self.weight_y as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
+                    BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
+                    BigNumber::from(self.weight_x as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
+                    BigNumber::from((self.lp_fee_y - self.treasury_fee).to_f64().unwrap()),
+                ),
+                Side::Ask(_) => (
+                    BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
+                    BigNumber::from(self.weight_x as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
+                    BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
+                    BigNumber::from(self.weight_y as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
+                    BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64().unwrap()),
+                ),
+            };
+        let lq_balance =
+            tradable_reserves_base.pow(&w_base.clone()) * tradable_reserves_quote.pow(&w_quote.clone());
+
+        let market_price = tradable_reserves_quote
+            .clone()
+            .div(w_quote.clone())
+            .div(tradable_reserves_base.clone().div(w_base.clone()))
+            * total_fee_mult.clone();
+
+        let impact_price = market_price.clone()
+            * (BN_ONE
+                - BigNumber::from(*max_spot_price_impact.unwrap().numer() as f64)
+                    .div(BigNumber::from(*max_spot_price_impact.unwrap().denom() as f64)));
+        //# Constants for calculations:
+        let x1 = (market_price.clone() / impact_price.clone()).pow(&w_quote.clone())
+            * tradable_reserves_base.clone();
+        let base_delta = (x1.clone() - tradable_reserves_base.clone()) / total_fee_mult;
+
+        let tradable_reserves_quote_final =
+            (lq_balance / x1.clone().pow(&w_base.clone())).pow(&BN_ONE.div(&w_quote));
         let quote_delta = tradable_reserves_quote - tradable_reserves_quote_final;
 
         return (
@@ -698,8 +748,8 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
 
 #[cfg(test)]
 mod tests {
-    use cml_chain::Deserialize;
     use cml_chain::plutus::PlutusData;
+    use cml_chain::Deserialize;
     use cml_core::serialization::Serialize;
     use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
     use num_rational::Ratio;
@@ -707,16 +757,16 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::market_maker::MarketMaker;
     use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use bloom_offchain::execution_engine::liquidity_book::side::Side::{Ask, Bid};
-    use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
+    use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
 
-    use crate::data::{OnChainOrderId, PoolId};
     use crate::data::balance_pool::{BalancePool, BalancePoolConfig, BalancePoolRedeemer, BalancePoolVer};
     use crate::data::order::ClassicalOrder;
     use crate::data::order::OrderType::BalanceFn;
     use crate::data::pool::{ApplyOrder, CFMMPoolAction};
     use crate::data::redeem::{ClassicalOnChainRedeem, Redeem};
+    use crate::data::{OnChainOrderId, PoolId};
 
     const DATUM_SAMPLE: &str = "d8799fd8799f581c5df8fe3f9f0e10855f930e0ea6c227e3bba0aba54d39f9d55b95e21c436e6674ffd8799f4040ff01d8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737443ff04d8799f581c0df79145b95580c14ef4baf8d022d7f0cbb08f3bed43bf97a2ddd8cb426c71ff1a000186820a00009fd8799fd87a9f581cb046b660db0eaf9be4f4300180ccf277e4209dada77c48fbd37ba81dffffff581c8d4be10d934b60a22f267699ea3f7ebdade1f8e535d1bd0ef7ce18b61a0501bced08ff";
 
@@ -883,21 +933,21 @@ mod tests {
         let max_target_price_impact = Ratio::new_raw(45035996273705, 2251799813685248);
 
         let (available_liquidity_quote_ask, _) =
-            pool.available_liquidity(Ask(max_target_price_impact), false);
+            pool.available_liquidity_by_user_impact(Ask(max_target_price_impact));
         let (available_liquidity_quote_bid, _) =
-            pool.available_liquidity(Bid(max_target_price_impact), false);
+            pool.available_liquidity_by_user_impact(Bid(max_target_price_impact));
 
         assert_eq!(available_liquidity_quote_ask, 15918267);
         assert_eq!(available_liquidity_quote_bid, 67120253);
 
-        // // Repair available volumes from pool spot price impact.
-        // let max_spot_price_impact = Ratio::new_raw(355981766792995, 9007199254740992);
-        //
-        // let (quote_qty_ask_spot, _) = pool.available_liquidity(Ask(max_spot_price_impact), true);
-        //
-        // let (quote_qty_bid_spot, _) = pool.available_liquidity(Bid(max_spot_price_impact), true);
-        //
-        // assert_eq!(quote_qty_ask_spot, 15918267);
-        // assert_eq!(quote_qty_bid_spot, 67120253)
+        // Repair available volumes from pool spot price impact.
+        let max_spot_price_impact = Ratio::new_raw(355981766792995, 9007199254740992);
+
+        let (quote_qty_ask_spot, _) = pool.available_liquidity_by_spot_impact(Ask(max_spot_price_impact));
+
+        let (quote_qty_bid_spot, _) = pool.available_liquidity_by_spot_impact(Bid(max_spot_price_impact));
+
+        assert_eq!(quote_qty_ask_spot, 15918267);
+        assert_eq!(quote_qty_bid_spot, 66853939)
     }
 }
