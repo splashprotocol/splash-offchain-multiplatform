@@ -7,7 +7,6 @@ use algebra_core::semigroup::Semigroup;
 use spectrum_offchain::data::Stable;
 
 use crate::execution_engine::liquidity_book::fragment::Fragment;
-use crate::execution_engine::liquidity_book::market_maker::MarketMaker;
 use crate::execution_engine::liquidity_book::types::{FeeAsset, InputAsset, OutputAsset};
 
 /// Taking liquidity from market.
