@@ -1,10 +1,12 @@
+use num_rational::Ratio;
+use std::cmp::min;
 use std::fmt::Debug;
 
 use algebra_core::monoid::Monoid;
 use spectrum_offchain::data::Stable;
 
-use crate::execution_engine::liquidity_book::{
-    ExecutionCap, linear_output_unsafe, settle_price, TLBFeedback,
+use crate::execution_engine::liquidity_book::core::{
+    Make, MatchmakingAttempt, MatchmakingRecipe, MatchmakingStep, TakerTrans, TryApply,
 };
 use crate::execution_engine::liquidity_book::core::{MakerTrans, MatchmakingAttempt, MatchmakingRecipe, Next, TakerTrans};
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, TakerBehaviour};
@@ -133,13 +135,13 @@ fn execute_with_maker<Taker, Maker>(
     target_taker: Taker,
     maker: Maker,
     chunk_size: Side<u64>,
-) -> (TakerTrans<Taker>, MakerTrans<Maker>)
+) -> (TakerTrans<Taker>, TryApply<Make, Maker>)
 where
     Taker: Fragment + TakerBehaviour + Copy,
     Maker: MakerBehavior + Copy,
 {
-    let (output, maker_applied) = maker.swap(chunk_size);
-    let taker_applied = target_taker.with_applied_trade(chunk_size.unwrap(), output);
+    let maker_applied = maker.swap(chunk_size);
+    let taker_applied = target_taker.with_applied_trade(chunk_size.unwrap(), maker_applied.action.output);
     (taker_applied, maker_applied)
 }
 
