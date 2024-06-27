@@ -16,7 +16,7 @@ jobs:
         if: success()
         uses: rtCamp/action-slack-notify@v2.1.1
         with:
-          webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
           title: 'GitHub Actions - Success 🎉'
           message: |
             *Repository*: <https://github.com/${{ github.repository }}|${{ github.repository }}>
@@ -31,7 +31,7 @@ jobs:
         if: failure()
         uses: rtCamp/action-slack-notify@v2.1.1
         with:
-          webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
           title: 'GitHub Actions - Failure ❌'
           message: |
             *Repository*: <https://github.com/${{ github.repository }}|${{ github.repository }}>
