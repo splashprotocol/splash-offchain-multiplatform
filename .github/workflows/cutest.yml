@@ -3,42 +3,44 @@ name: Notify Slack on Commit
 on:
   push:
     branches:
-      - develop  # Change this to your desired branch
+      - develop
 
 jobs:
-  notify:
+  build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
-      
-      - name: Notify Slack on Success
-        if: success()
-        uses: rtCamp/action-slack-notify@v2.1.1
-        with:
-          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
-          title: 'GitHub Actions - Success 🎉'
-          message: |
-            *Repository*: <https://github.com/${{ github.repository }}|${{ github.repository }}>
-            *Branch*: `${{ github.ref }}`
-            *Commit*: <${{ github.event.head_commit.url }}|${{ github.event.head_commit.message }}>
-            *Author*: `${{ github.event.head_commit.committer.name }}`
-            *Status*: Success
-            *Action URL*: <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}>
-          color: good
 
-      - name: Notify Slack on Failure
-        if: failure()
-        uses: rtCamp/action-slack-notify@v2.1.1
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
         with:
-          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
-          title: 'GitHub Actions - Failure ❌'
-          message: |
-            *Repository*: <https://github.com/${{ github.repository }}|${{ github.repository }}>
-            *Branch*: `${{ github.ref }}`
-            *Commit*: <${{ github.event.head_commit.url }}|${{ github.event.head_commit.message }}>
-            *Author*: `${{ github.event.head_commit.committer.name }}`
-            *Status*: Failure
-            *Action URL*: <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}>
-          color: danger
-  
+          toolchain: stable
+
+      - name: Build with Cargo
+        id: cargo_build
+        run: |
+          cargo build --package bloom-cardano-agent --bin bloom-cardano-agent
+        continue-on-error: true  # Continue even if the build fails
+
+      - name: Capture Build Logs
+        if: ${{ failure() }}
+        run: |
+          echo "Build failed. Capturing logs..."
+          cargo build --verbose 2>&1 | tee build.log
+
+      - name: Post to Slack
+        if: ${{ always() }}  # Ensure this runs even if the previous steps fail
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_CHANNEL: '#your-slack-channel'
+        run: |
+          BUILD_STATUS=$([[ ${{ steps.cargo_build.outcome }} == 'success' ]] && echo 'succeeded' || echo 'failed')
+          if [ "${BUILD_STATUS}" == "failed" ]; then
+            BUILD_LOG=$(tail -n 20 build.log | sed 's/"/\\"/g' | tr -d '\n')
+            PAYLOAD='{"channel": "#your-slack-channel", "username": "GitHub Actions Bot", "text": "Cargo build *${BUILD_STATUS}* for `${{ github.repository }}`\nBranch: `${{ github.ref_name }}`\nCommit: `${{ github.sha }}`\nBuild Logs:\n```'${BUILD_LOG}'```", "icon_emoji": ":robot_face:"}'
+          else
+            PAYLOAD='{"channel": "#your-slack-channel", "username": "GitHub Actions Bot", "text": "Cargo build *${BUILD_STATUS}* for `${{ github.repository }}`\nBranch: `${{ github.ref_name }}`\nCommit: `${{ github.sha }}`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View build details>", "icon_emoji": ":robot_face:"}'
+          fi
+          curl -X POST -H 'Content-type: application/json' --data "${PAYLOAD}" $SLACK_WEBHOOK_URL
