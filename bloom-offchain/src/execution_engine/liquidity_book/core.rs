@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::collections::HashMap;
 
 use either::Either;
@@ -7,7 +8,7 @@ use algebra_core::semigroup::Semigroup;
 use spectrum_offchain::data::Stable;
 
 use crate::execution_engine::liquidity_book::fragment::Fragment;
-use crate::execution_engine::liquidity_book::side::SideM;
+use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::types::{FeeAsset, InputAsset, OutputAsset};
 
 /// Usage of liquidity from market maker.
@@ -151,6 +152,24 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
             }
         });
         not_ok_terminal_takes.collect()
+    }
+
+    pub fn next_offered_chunk(&self, taker: &Taker) -> Side<u64>
+    where
+        Taker: Fragment,
+    {
+        let initial_state = self
+            .takes
+            .get(&taker.stable_id())
+            .map(|tr| &tr.target)
+            .unwrap_or(taker);
+        let initial_chunk = initial_state.input() * 10 / 100;
+        let chunk = if initial_chunk > 0 {
+            min(initial_chunk, taker.input())
+        } else {
+            taker.input()
+        };
+        taker.side().wrap(chunk)
     }
 
     pub fn add_take(&mut self, take: TakerTrans<Taker>) {
