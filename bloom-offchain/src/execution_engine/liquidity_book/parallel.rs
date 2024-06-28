@@ -95,13 +95,14 @@ where
                 let target_side = target_taker.side();
                 let target_price = target_side.wrap(target_taker.price());
                 let maybe_price_counter_taker = self.state.best_fr_price(!target_side);
-                let chunk_offered = target_side.wrap(0); // todo
+                let chunk_offered = batch.next_offered_chunk(&target_taker);
                 let maybe_price_maker = self.state.preselect_market_maker(chunk_offered);
                 match (maybe_price_counter_taker, maybe_price_maker) {
                     (Some(price_counter_taker), maybe_price_maker)
-                        if maybe_price_maker
-                            .map(|(_, p)| price_counter_taker.better_than(p))
-                            .unwrap_or(true) =>
+                        if target_price.overlaps(price_counter_taker.unwrap())
+                            && maybe_price_maker
+                                .map(|(_, p)| price_counter_taker.better_than(p))
+                                .unwrap_or(true) =>
                     {
                         if let Some(counter_taker) = self.state.try_pick_fr(!target_side, ok) {
                             //fill target_taker <- counter_taker
