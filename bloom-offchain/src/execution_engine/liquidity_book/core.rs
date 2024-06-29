@@ -1,4 +1,4 @@
-use std::cmp::min;
+use std::cmp::{min, Ordering};
 use std::collections::HashMap;
 
 use either::Either;
@@ -8,23 +8,9 @@ use algebra_core::semigroup::Semigroup;
 use spectrum_offchain::data::Stable;
 
 use crate::execution_engine::liquidity_book::fragment::Fragment;
-use crate::execution_engine::liquidity_book::side::{Side, SideM};
+use crate::execution_engine::liquidity_book::market_maker::MarketMaker;
+use crate::execution_engine::liquidity_book::side::Side;
 use crate::execution_engine::liquidity_book::types::{FeeAsset, InputAsset, OutputAsset};
-
-/// Usage of liquidity from market maker.
-/// take(P, M_1 + M_2 + ... + M_n) = take(P, M_1) |> take(_, M_2) |> ... take(_, M_n)
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct Make {
-    pub side: SideM,
-    pub input: InputAsset<u64>,
-    pub output: OutputAsset<u64>,
-}
-
-impl Semigroup for Make {
-    fn combine(self, other: Self) -> Self {
-        todo!("Semigroup for Make")
-    }
-}
 
 /// Taking liquidity from market.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -58,6 +44,40 @@ pub enum Next<S, T> {
     Term(T),
 }
 
+impl<S, T> Next<S, T> {
+    pub fn map_succ<S1, F>(self, f: F) -> Next<S1, T>
+    where
+        F: FnOnce(S) -> S1,
+    {
+        match self {
+            Next::Succ(succ) => Next::Succ(f(succ)),
+            Next::Term(term) => Next::Term(term),
+        }
+    }
+
+    pub fn fold<R, F1, F2>(self, f1: F1, f2: F2) -> R
+    where
+        F1: FnOnce(S) -> R,
+        F2: FnOnce(T) -> R,
+    {
+        match self {
+            Next::Succ(succ) => f1(succ),
+            Next::Term(term) => f2(term),
+        }
+    }
+
+    pub fn fold_ref<R, F1, F2>(&self, f1: F1, f2: F2) -> R
+    where
+        F1: FnOnce(&S) -> R,
+        F2: FnOnce(&T) -> R,
+    {
+        match self {
+            Next::Succ(succ) => f1(succ),
+            Next::Term(term) => f2(term),
+        }
+    }
+}
+
 /// State transition of a take.
 #[derive(Debug, Copy, Clone)]
 pub struct Trans<Cont, Term> {
@@ -76,6 +96,8 @@ impl<Cont, Term> Semigroup for Trans<Cont, Term> {
 
 pub type TakerTrans<Taker> = Trans<Taker, TerminalTake>;
 
+pub type MakerTrans<Maker> = Trans<Maker, ()>;
+
 impl<T> TakerTrans<T> {
     pub fn added_output(&self) -> OutputAsset<u64>
     where
@@ -89,30 +111,10 @@ impl<T> TakerTrans<T> {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-pub struct TryApply<Action, Subject> {
-    pub action: Action,
-    pub target: Subject,
-    pub result: Next<Subject, ()>,
-}
-
-impl<A, S> Semigroup for TryApply<A, S>
-where
-    A: Semigroup,
-{
-    fn combine(self, other: Self) -> Self {
-        Self {
-            action: self.action.combine(other.action),
-            target: self.target,
-            result: other.result,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct MatchmakingAttempt<Taker: Stable, Maker: Stable, U> {
     takes: HashMap<Taker::StableId, TakerTrans<Taker>>,
-    makes: HashMap<Maker::StableId, TryApply<Make, Maker>>,
+    makes: HashMap<Maker::StableId, MakerTrans<Maker>>,
     execution_units_consumed: U,
 }
 
@@ -181,13 +183,36 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
         self.takes.insert(sid, take_combined);
     }
 
-    pub fn add_make(&mut self, make: TryApply<Make, Maker>) {
+    pub fn add_make(&mut self, make: MakerTrans<Maker>) -> Result<(), ()>
+    where
+        Maker: MarketMaker,
+    {
         let sid = make.target.stable_id();
         let maker_combined = match self.makes.remove(&sid) {
             None => make,
-            Some(existing_transition) => existing_transition.combine(make),
+            Some(existing_transition) => {
+                let existing_trend = existing_transition.result.fold_ref(
+                    |succ| {
+                        existing_transition
+                            .target
+                            .static_price()
+                            .cmp(&succ.static_price())
+                    },
+                    |_| Ordering::Equal,
+                );
+                let new_trend = make.result.fold_ref(
+                    |succ| make.target.static_price().cmp(&succ.static_price()),
+                    |_| Ordering::Equal,
+                );
+                if existing_trend == new_trend {
+                    existing_transition.combine(make)
+                } else {
+                    return Err(());
+                }
+            }
         };
         self.makes.insert(sid, maker_combined);
+        Ok(())
     }
 }
 
@@ -200,7 +225,7 @@ pub struct Applied<Action, Subject: Stable> {
 
 #[derive(Debug, Clone)]
 pub struct MatchmakingRecipe<Taker: Stable, Maker: Stable> {
-    instructions: Vec<Either<Trans<Taker, TerminalTake>, Applied<Make, Maker>>>,
+    instructions: Vec<Either<TakerTrans<Taker>, MakerTrans<Maker>>>,
 }
 
 impl<Taker, Maker> MatchmakingRecipe<Taker, Maker>

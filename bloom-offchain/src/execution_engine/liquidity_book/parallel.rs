@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use algebra_core::monoid::Monoid;
 use spectrum_offchain::data::Stable;
 
-use crate::execution_engine::liquidity_book::core::{Make, TryApply};
+use crate::execution_engine::liquidity_book::core::MakerTrans;
 use crate::execution_engine::liquidity_book::core::{
     MatchmakingAttempt, MatchmakingRecipe, Next, TakerTrans,
 };
@@ -119,10 +119,14 @@ where
                         if let Some(maker) = self.state.take_pool(&maker_sid) {
                             //fill target_taker <- maker
                             let (take, make) = execute_with_maker(target_taker, maker, chunk_offered);
-                            batch.add_take(take);
-                            batch.add_make(make);
-                            self.on_take(take.result);
-                            self.on_make(make.result);
+                            if let Ok(_) = batch.add_make(make) {
+                                batch.add_take(take);
+                                self.on_take(take.result);
+                                self.on_make(make.result);
+                            } else {
+                                self.state.pre_add_pool(maker);
+                                self.state.pre_add_fragment(target_taker);
+                            }
                         }
                     }
                     _ => {}
@@ -137,7 +141,7 @@ fn execute_with_maker<Taker, Maker>(
     target_taker: Taker,
     maker: Maker,
     chunk_size: Side<u64>,
-) -> (TakerTrans<Taker>, TryApply<Make, Maker>)
+) -> (TakerTrans<Taker>, MakerTrans<Maker>)
 where
     Taker: Fragment + TakerBehaviour + Copy,
     Maker: MakerBehavior + Copy,

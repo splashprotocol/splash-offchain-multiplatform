@@ -437,6 +437,10 @@ where
     {
         None
     }
+    
+    pub fn return_taker(&mut self, taker: Fr) {
+        self.
+    }
 
     pub fn show_state(&self) -> String
     where
@@ -625,7 +629,7 @@ where
     pub fn take_pool(&mut self, pid: &Pl::StableId) -> Option<Pl> {
         self.pick_pool(|pools| pools.pools.remove(pid))
     }
-
+    
     /// Pick pool ensuring TLB is in proper state.
     fn pick_pool<F>(&mut self, f: F) -> Option<Pl>
     where
@@ -965,6 +969,7 @@ pub mod tests {
     use std::fmt::{Debug, Display, Formatter};
 
     use either::Left;
+    use num_rational::Ratio;
 
     use spectrum_offchain::data::Stable;
 
@@ -1325,6 +1330,10 @@ pub mod tests {
             self.input
         }
 
+        fn output(&self) -> OutputAsset<u64> {
+            self.accumulated_output
+        }
+
         fn price(&self) -> AbsolutePrice {
             self.price
         }
@@ -1362,7 +1371,7 @@ pub mod tests {
             }
         }
 
-        fn apply_swap(
+        fn with_applied_swap(
             mut self,
             removed_input: u64,
             added_output: u64,
@@ -1456,6 +1465,10 @@ pub mod tests {
 
         fn quality(&self) -> PoolQuality {
             PoolQuality::from(self.reserves_quote + self.reserves_base)
+        }
+
+        fn available_liquidity(&self, max_price_impact: Side<Ratio<u128>>) -> (u128, u128) {
+            todo!()
         }
 
         fn marginal_cost_hint(&self) -> Self::U {
