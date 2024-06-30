@@ -1,46 +1,62 @@
-name: Notify Slack on Commit
+name: Test CI for Develop Branch
 
+# Trigger the workflow on push to the develop branch
 on:
   push:
     branches:
       - develop
+  
+  pull_request:
+    types: [opened, synchronize, closed]    
 
 jobs:
   build:
+
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
+    - name: Set up Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
 
-      - name: Build with Cargo
-        id: cargo_build
-        run: |
-          cargo build --package bloom-cardano-agent --bin bloom-cardano-agent
-        continue-on-error: true  # Continue even if the build fails
+    - name: Cache Cargo registry
+      uses: actions/cache@v3
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-registry-
 
-      - name: Capture Build Logs
-        if: ${{ failure() }}
-        run: |
-          echo "Build failed. Capturing logs..."
-          cargo build --verbose 2>&1 | tee build.log
-
-      - name: Post to Slack
-        if: ${{ always() }}  # Ensure this runs even if the previous steps fail
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
-          SLACK_CHANNEL: '#your-slack-channel'
-        run: |
-          BUILD_STATUS=$([[ ${{ steps.cargo_build.outcome }} == 'success' ]] && echo 'succeeded' || echo 'failed')
-          if [ "${BUILD_STATUS}" == "failed" ]; then
-            BUILD_LOG=$(tail -n 20 build.log | sed 's/"/\\"/g' | tr -d '\n')
-            PAYLOAD='{"channel": "#your-slack-channel", "username": "GitHub Actions Bot", "text": "Cargo build *${BUILD_STATUS}* for `${{ github.repository }}`\nBranch: `${{ github.ref_name }}`\nCommit: `${{ github.sha }}`\nBuild Logs:\n```'${BUILD_LOG}'```", "icon_emoji": ":robot_face:"}'
-          else
-            PAYLOAD='{"channel": "#your-slack-channel", "username": "GitHub Actions Bot", "text": "Cargo build *${BUILD_STATUS}* for `${{ github.repository }}`\nBranch: `${{ github.ref_name }}`\nCommit: `${{ github.sha }}`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View build details>", "icon_emoji": ":robot_face:"}'
-          fi
-          curl -X POST -H 'Content-type: application/json' --data "${PAYLOAD}" $SLACK_WEBHOOK_URL
+    - name: Cache Cargo build
+      uses: actions/cache@v3
+      with:
+        path: target
+        key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-build-
+    
+    - name: Run Cargo Build
+      id: build
+      run: |
+        if ! cargo build --package bloom-cardano-agent --bin bloom-cardano-agent; then
+          echo "Cargo build failed."
+          echo "::set-output name=status::failure"
+        else
+          echo "Cargo build succeeded."
+          echo "::set-output name=status::success"
+        fi
+   
+    - name: Run tests
+      run: cargo test --package bloom-cardano-agent --bin bloom-cardano-agent
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        fields: repo,message,commit,author,action,eventName,ref,workflow,job,took # selectable (default: repo,message)
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }} # required
+      if: always() # Pick up events even if the job fails or is canceled.
