@@ -39,6 +39,21 @@ jobs:
         key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-cargo-build-
+
+    - name: Run Cargo Format
+      id: fmt
+      run: |
+        cargo fmt --all -- --check || echo "Formatting issues detected."
+
+    - name: Check for Formatting Changes
+      id: diff
+      run: |
+        if ! git diff --exit-code; then
+          echo "status=failure" >> $GITHUB_ENV
+          echo "Formatting changes are required. Please run 'cargo fmt' to apply the changes." >> $GITHUB_ENV
+        else
+          echo "status=success" >> $GITHUB_ENV
+        fi
     
     - name: Run Cargo Build
       id: build
