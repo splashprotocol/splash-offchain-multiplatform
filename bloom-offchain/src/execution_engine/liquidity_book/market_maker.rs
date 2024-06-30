@@ -1,4 +1,4 @@
-use crate::execution_engine::liquidity_book::core::{Make, TryApply};
+use crate::execution_engine::liquidity_book::core::MakerTrans;
 use crate::execution_engine::liquidity_book::side::Side;
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 use derive_more::{Display, Div, From, Into, Mul};
@@ -23,15 +23,12 @@ pub trait MarketMaker {
     fn static_price(&self) -> SpotPrice;
     /// Real price of swap.
     fn real_price(&self, input: Side<u64>) -> AbsolutePrice;
-    /// Output of a swap.
-    fn swap(self, input: Side<u64>) -> (u64, Self);
     /// Quality of the pool.
     fn quality(&self) -> PoolQuality;
     /// How much (approximately) execution of this fragment will cost.
     fn marginal_cost_hint(&self) -> Self::U;
-
-    fn available_liquidity(&self, max_price_impact: Side<Ratio<u128>>) -> (u128, u128);
-
+    /// How much base and quote asset is available.
+    fn liquidity(&self) -> (u64, u64);
     // Is this maker active at the moment or not.
     fn is_active(&self) -> bool;
 }
@@ -39,7 +36,7 @@ pub trait MarketMaker {
 /// Pooled liquidity.
 pub trait MakerBehavior: Sized {
     /// Output of a swap.
-    fn swap(self, input: Side<u64>) -> TryApply<Make, Self>;
+    fn swap(self, input: Side<u64>) -> MakerTrans<Self>;
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Into, From, Display)]

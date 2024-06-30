@@ -377,56 +377,8 @@ impl MarketMaker for ConstFnPool {
         lq_bound && bot_bound
     }
 
-    fn available_liquidity(&self, max_price_impact: Side<Ratio<u128>>) -> (u128, u128) {
-        // "max_price_impact" is calculated as
-        // "max_price_impact = 1 - avg_sell_price / market_price" to be always > 0.
-        // Outputs are ("quote_amount_available", "base_amount_required").
-        // Outputs reflects how many quote asset the user will receive and how many base asset
-        // must be added to the pool in order for this operation to occur with a given
-        // "max_price_impact" relative to the current state of the pool.
-        // Note: all calculations are made taking fees into account, thus "max_price_impact"
-        // must also include fees in "market_price" calculation.
-        const BN_ONE: BigNumber = BigNumber { value: DBig::ONE };
-
-        let (tradable_reserves_base, tradable_reserves_quote, total_fee_mult) = match max_price_impact {
-            Side::Bid(_) => (
-                BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
-                BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
-                BigNumber::from((self.lp_fee_y - self.treasury_fee).to_f64().unwrap()),
-            ),
-            Side::Ask(_) => (
-                BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
-                BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
-                BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64().unwrap()),
-            ),
-        };
-
-        let sqrt_degree = BigNumber::from(0.5);
-
-        let market_price = tradable_reserves_quote
-            .clone()
-            .div(tradable_reserves_base.clone())
-            * total_fee_mult.clone();
-        let avg_sell_price = market_price
-            * (BN_ONE
-                - BigNumber::from(*max_price_impact.unwrap().numer() as f64)
-                    .div(BigNumber::from(*max_price_impact.unwrap().denom() as f64)));
-        let lq_balance = (tradable_reserves_base.clone() * tradable_reserves_quote.clone()).pow(&sqrt_degree);
-        //let p0 = tradable_reserves_quote.clone() / tradable_reserves_base.clone();
-        let p1 = (avg_sell_price * lq_balance.clone()
-            / (total_fee_mult.clone() * tradable_reserves_quote.clone()))
-        .pow(&BigNumber::from(2));
-        let p1_sqrt = p1.clone().pow(&sqrt_degree);
-        let x1 = lq_balance.clone() / p1_sqrt.clone();
-        let y1 = lq_balance.clone() * p1_sqrt.clone();
-
-        let base = (x1.clone() - tradable_reserves_base.clone()) / total_fee_mult;
-        let quote = tradable_reserves_quote - y1.clone();
-
-        return (
-            <u128>::try_from(quote.to_precision(0).value.to_int().value()).unwrap(),
-            <u128>::try_from(base.to_precision(0).value.to_int().value()).unwrap(),
-        );
+    fn liquidity(&self) -> (u64, u64) {
+        (self.reserves_x.untag(), self.reserves_y.untag())
     }
 }
 

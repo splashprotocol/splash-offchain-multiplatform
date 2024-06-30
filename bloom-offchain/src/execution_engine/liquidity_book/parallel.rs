@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::ops::AddAssign;
 
 use algebra_core::monoid::Monoid;
 use spectrum_offchain::data::Stable;
@@ -7,7 +8,7 @@ use crate::execution_engine::liquidity_book::core::MakerTrans;
 use crate::execution_engine::liquidity_book::core::{
     MatchmakingAttempt, MatchmakingRecipe, Next, TakerTrans,
 };
-use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, TakerBehaviour};
+use crate::execution_engine::liquidity_book::fragment::{Fragment, TakerBehaviour};
 use crate::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker, SpotPrice};
 use crate::execution_engine::liquidity_book::side::Side::{Ask, Bid};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
@@ -37,7 +38,7 @@ pub struct TLB<Taker, Maker: Stable, U> {
 
 impl<Taker, Maker, U> TLBFeedback<Taker, Maker> for TLB<Taker, Maker, U>
 where
-    Taker: Fragment + OrderState + Ord + Copy,
+    Taker: Fragment + Ord + Copy,
     Maker: MarketMaker + Stable + Copy,
 {
     fn on_recipe_succeeded(&mut self) {
@@ -51,10 +52,14 @@ where
 
 impl<Taker, Maker, U> TLB<Taker, Maker, U>
 where
-    Maker: MarketMaker + Stable,
+    Maker: Stable,
 {
-    fn spot_price(&self) -> Option<SpotPrice> {
-        None
+    fn spot_price(&self) -> Option<SpotPrice>
+    where
+        Taker: Fragment,
+        Maker: MarketMaker + Copy,
+    {
+        self.state.best_market_maker().map(|mm| mm.static_price())
     }
 }
 
@@ -81,59 +86,72 @@ impl<Taker, Maker, U> TemporalLiquidityBook<Taker, Maker> for TLB<Taker, Maker, 
 where
     Taker: Stable + Fragment<U = U> + TakerBehaviour + Ord + Copy + Debug,
     Maker: Stable + MarketMaker<U = U> + MakerBehavior + Copy + Debug,
-    U: Monoid + PartialOrd + Copy,
+    U: Monoid + AddAssign + PartialOrd + Copy,
 {
     fn attempt(&mut self) -> Option<MatchmakingRecipe<Taker, Maker>> {
-        let mut batch: MatchmakingAttempt<Taker, Maker, U> = MatchmakingAttempt::empty();
-        while batch.execution_units_consumed() < self.execution_cap.soft {
-            let spot_price = self.spot_price();
-            if let Some(target_taker) = self.state.pick_taker(|fs| {
-                spot_price
-                    .map(|sp| max_by_distance_to_spot(fs, sp))
-                    .unwrap_or(max_by_volume(fs))
-            }) {
-                let target_side = target_taker.side();
-                let target_price = target_side.wrap(target_taker.price());
-                let maybe_price_counter_taker = self.state.best_fr_price(!target_side);
-                let chunk_offered = batch.next_offered_chunk(&target_taker);
-                let maybe_price_maker = self.state.preselect_market_maker(chunk_offered);
-                match (maybe_price_counter_taker, maybe_price_maker) {
-                    (Some(price_counter_taker), maybe_price_maker)
-                        if target_price.overlaps(price_counter_taker.unwrap())
-                            && maybe_price_maker
-                                .map(|(_, p)| price_counter_taker.better_than(p))
-                                .unwrap_or(true) =>
-                    {
-                        if let Some(counter_taker) = self.state.try_pick_fr(!target_side, ok) {
-                            //fill target_taker <- counter_taker
-                            let make_match = |ask: &Taker, bid: &Taker| settle_price(ask, bid, spot_price);
-                            let (take_a, take_b) =
-                                execute_with_taker(target_taker, counter_taker, make_match);
-                            for take in vec![take_a, take_b] {
-                                batch.add_take(take);
-                                self.on_take(take.result);
+        loop {
+            let mut batch: MatchmakingAttempt<Taker, Maker, U> = MatchmakingAttempt::empty();
+            while batch.execution_units_consumed() < self.execution_cap.soft {
+                let spot_price = self.spot_price();
+                if let Some(target_taker) = self.state.pick_active_taker(|fs| {
+                    spot_price
+                        .map(|sp| max_by_distance_to_spot(fs, sp))
+                        .unwrap_or(max_by_volume(fs))
+                }) {
+                    let target_side = target_taker.side();
+                    let target_price = target_side.wrap(target_taker.price());
+                    let maybe_price_counter_taker = self.state.best_fr_price(!target_side);
+                    let chunk_offered = batch.next_offered_chunk(&target_taker);
+                    let maybe_price_maker = self.state.preselect_market_maker(chunk_offered);
+                    match (maybe_price_counter_taker, maybe_price_maker) {
+                        (Some(price_counter_taker), maybe_price_maker)
+                            if target_price.overlaps(price_counter_taker.unwrap())
+                                && maybe_price_maker
+                                    .map(|(_, p)| price_counter_taker.better_than(p))
+                                    .unwrap_or(true) =>
+                        {
+                            if let Some(counter_taker) = self.state.try_pick_fr(!target_side, ok) {
+                                //fill target_taker <- counter_taker
+                                let make_match =
+                                    |ask: &Taker, bid: &Taker| settle_price(ask, bid, spot_price);
+                                let (take_a, take_b) =
+                                    execute_with_taker(target_taker, counter_taker, make_match);
+                                for take in vec![take_a, take_b] {
+                                    batch.add_take(take);
+                                    self.on_take(take.result);
+                                }
                             }
                         }
-                    }
-                    (_, Some((maker_sid, price_maker))) if target_price.overlaps(price_maker) => {
-                        if let Some(maker) = self.state.take_pool(&maker_sid) {
-                            //fill target_taker <- maker
-                            let (take, make) = execute_with_maker(target_taker, maker, chunk_offered);
-                            if let Ok(_) = batch.add_make(make) {
-                                batch.add_take(take);
-                                self.on_take(take.result);
-                                self.on_make(make.result);
-                            } else {
-                                self.state.pre_add_pool(maker);
-                                self.state.pre_add_fragment(target_taker);
+                        (_, Some((maker_sid, price_maker))) if target_price.overlaps(price_maker) => {
+                            if let Some(maker) = self.state.take_pool(&maker_sid) {
+                                //fill target_taker <- maker
+                                let (take, make) = execute_with_maker(target_taker, maker, chunk_offered);
+                                if let Ok(_) = batch.add_make(make) {
+                                    batch.add_take(take);
+                                    self.on_take(take.result);
+                                    self.on_make(make.result);
+                                } else {
+                                    self.state.pre_add_pool(maker);
+                                    self.state.pre_add_fragment(target_taker);
+                                }
                             }
                         }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
+            match MatchmakingRecipe::try_from(batch) {
+                Ok(ex_recipe) => return Some(ex_recipe),
+                Err(None) => {
+                    self.on_recipe_failed(StashingOption::Unstash);
+                }
+                Err(Some(unsatisfied_fragments)) => {
+                    self.on_recipe_failed(StashingOption::Stash(unsatisfied_fragments));
+                    continue;
+                }
+            }
+            return None;
         }
-        None
     }
 }
 
@@ -144,10 +162,11 @@ fn execute_with_maker<Taker, Maker>(
 ) -> (TakerTrans<Taker>, MakerTrans<Maker>)
 where
     Taker: Fragment + TakerBehaviour + Copy,
-    Maker: MakerBehavior + Copy,
+    Maker: MarketMaker + MakerBehavior + Copy,
 {
     let maker_applied = maker.swap(chunk_size);
-    let taker_applied = target_taker.with_applied_trade(chunk_size.unwrap(), maker_applied.action.output);
+    let trade_output = maker_applied.gain().map(|val| val.unwrap()).unwrap_or(0);
+    let taker_applied = target_taker.with_applied_trade(chunk_size.unwrap(), trade_output);
     (taker_applied, maker_applied)
 }
 

@@ -286,10 +286,10 @@ impl MarketMaker for AnyPool {
         }
     }
 
-    fn available_liquidity(&self, max_price_impact: Side<Ratio<u128>>) -> (u128, u128) {
+    fn liquidity(&self) -> (u64, u64) {
         match self {
-            PureCFMM(p) => p.available_liquidity(max_price_impact),
-            BalancedCFMM(p) => p.available_liquidity(max_price_impact),
+            PureCFMM(p) => p.liquidity(),
+            BalancedCFMM(p) => p.liquidity(),
         }
     }
 

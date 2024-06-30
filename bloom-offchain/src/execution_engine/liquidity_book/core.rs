@@ -1,5 +1,6 @@
 use std::cmp::{min, Ordering};
 use std::collections::HashMap;
+use std::ops::AddAssign;
 
 use either::Either;
 
@@ -9,7 +10,7 @@ use spectrum_offchain::data::Stable;
 
 use crate::execution_engine::liquidity_book::fragment::Fragment;
 use crate::execution_engine::liquidity_book::market_maker::MarketMaker;
-use crate::execution_engine::liquidity_book::side::Side;
+use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::types::{FeeAsset, InputAsset, OutputAsset};
 
 /// Taking liquidity from market.
@@ -98,6 +99,39 @@ pub type TakerTrans<Taker> = Trans<Taker, TerminalTake>;
 
 pub type MakerTrans<Maker> = Trans<Maker, ()>;
 
+impl<Maker> MakerTrans<Maker> {
+    pub fn trade_side(&self) -> Option<SideM>
+    where
+        Maker: MarketMaker,
+    {
+        match &self.result {
+            Next::Succ(succ) => match self.target.static_price().cmp(&succ.static_price()) {
+                Ordering::Less => Some(SideM::Ask),
+                Ordering::Equal => None,
+                Ordering::Greater => Some(SideM::Bid),
+            },
+            _ => None,
+        }
+    }
+
+    pub fn gain(&self) -> Option<Side<u64>>
+    where
+        Maker: MarketMaker,
+    {
+        match &self.result {
+            Next::Succ(succ) => {
+                let (succ_reserves_b, succ_reserves_q) = succ.liquidity();
+                let (init_reserved_b, init_reserved_q) = self.target.liquidity();
+                succ_reserves_b
+                    .checked_sub(init_reserved_b)
+                    .map(Side::Ask)
+                    .or_else(|| succ_reserves_q.checked_sub(init_reserved_q).map(Side::Bid))
+            }
+            _ => None,
+        }
+    }
+}
+
 impl<T> TakerTrans<T> {
     pub fn added_output(&self) -> OutputAsset<u64>
     where
@@ -130,6 +164,10 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
         }
     }
 
+    pub fn is_complete(&self) -> bool {
+        self.takes.len() > 1 || self.takes.len() == 1 && self.makes.len() > 0
+    }
+
     pub fn execution_units_consumed(&self) -> U
     where
         U: Copy,
@@ -137,23 +175,21 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
         self.execution_units_consumed
     }
 
-    pub fn is_complete(&self) -> bool {
-        self.takes.len() > 0
-    }
-
     pub fn unsatisfied_fragments(&self) -> Vec<Taker>
     where
         Taker: Fragment + Copy,
     {
-        let not_ok_terminal_takes = self.takes.iter().filter_map(|(_, apply)| {
-            let target = apply.target;
-            if apply.added_output() < target.min_marginal_output() {
-                Some(target)
-            } else {
-                None
-            }
-        });
-        not_ok_terminal_takes.collect()
+        self.takes
+            .iter()
+            .filter_map(|(_, apply)| {
+                let target = apply.target;
+                if apply.added_output() < target.min_marginal_output() {
+                    Some(target)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     pub fn next_offered_chunk(&self, taker: &Taker) -> Side<u64>
@@ -174,10 +210,17 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
         taker.side().wrap(chunk)
     }
 
-    pub fn add_take(&mut self, take: TakerTrans<Taker>) {
+    pub fn add_take(&mut self, take: TakerTrans<Taker>)
+    where
+        Taker: Fragment<U = U>,
+        U: AddAssign,
+    {
         let sid = take.target.stable_id();
         let take_combined = match self.takes.remove(&sid) {
-            None => take,
+            None => {
+                self.execution_units_consumed += take.target.marginal_cost_hint();
+                take
+            }
             Some(existing_transition) => existing_transition.combine(take),
         };
         self.takes.insert(sid, take_combined);
@@ -185,27 +228,18 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
 
     pub fn add_make(&mut self, make: MakerTrans<Maker>) -> Result<(), ()>
     where
-        Maker: MarketMaker,
+        Maker: MarketMaker<U = U>,
+        U: AddAssign,
     {
         let sid = make.target.stable_id();
         let maker_combined = match self.makes.remove(&sid) {
-            None => make,
-            Some(existing_transition) => {
-                let existing_trend = existing_transition.result.fold_ref(
-                    |succ| {
-                        existing_transition
-                            .target
-                            .static_price()
-                            .cmp(&succ.static_price())
-                    },
-                    |_| Ordering::Equal,
-                );
-                let new_trend = make.result.fold_ref(
-                    |succ| make.target.static_price().cmp(&succ.static_price()),
-                    |_| Ordering::Equal,
-                );
-                if existing_trend == new_trend {
-                    existing_transition.combine(make)
+            None => {
+                self.execution_units_consumed += make.target.marginal_cost_hint();
+                make
+            }
+            Some(accumulated_trans) => {
+                if accumulated_trans.trade_side() == make.trade_side() {
+                    accumulated_trans.combine(make)
                 } else {
                     return Err(());
                 }
@@ -237,6 +271,23 @@ where
     where
         Taker: Fragment + Copy,
     {
-        Err(None)
+        if attempt.is_complete() {
+            let unsatisfied_fragments = attempt.unsatisfied_fragments();
+            if unsatisfied_fragments.is_empty() {
+                let MatchmakingAttempt { takes, makes, .. } = attempt;
+                let mut instructions = vec![];
+                for take in takes.into_values() {
+                    instructions.push(Either::Left(take));
+                }
+                for make in makes.into_values() {
+                    instructions.push(Either::Right(make));
+                }
+                Ok(Self { instructions })
+            } else {
+                Err(Some(unsatisfied_fragments))
+            }
+        } else {
+            Err(None)
+        }
     }
 }
