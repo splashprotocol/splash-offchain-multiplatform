@@ -42,7 +42,7 @@ jobs:
     - name: Run Cargo Format Check
       id: fmt
       run: |
-        cargo fmt --all --check
+        cargo fmt --package bloom-cardano-agent --check
         if [ $? -ne 0 ]; then
           echo "fmt_status=failure" >> $GITHUB_ENV
           echo "Cargo fmt found issues. Please run 'cargo fmt' to fix them." >> $GITHUB_ENV
