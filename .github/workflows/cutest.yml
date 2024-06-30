@@ -53,6 +53,8 @@ jobs:
    
     - name: Run tests
       run: cargo test --package bloom-cardano-agent --bin bloom-cardano-agent
+      
+    - name: action check  
       uses: 8398a7/action-slack@v3
       with:
         status: ${{ job.status }}
