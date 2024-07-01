@@ -20,7 +20,7 @@ jobs:
           status: custom
           fields: workflow, job, commit, author, message, repo, ref
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL2 }}
           SLACK_COLOR: good
           SLACK_USERNAME: GitHub Actions
           SLACK_TITLE: "New commit on develop branch"
