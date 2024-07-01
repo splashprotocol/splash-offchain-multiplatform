@@ -2,6 +2,7 @@ use std::fmt::Debug;
 use std::ops::Div;
 
 use bignumber::BigNumber;
+use bloom_offchain::execution_engine::liquidity_book::core::{MakeInProgress, Next, Trans};
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
@@ -17,7 +18,9 @@ use num_traits::ToPrimitive;
 use num_traits::{CheckedAdd, CheckedSub};
 use type_equalities::IsEqual;
 
-use bloom_offchain::execution_engine::liquidity_book::market_maker::{MarketMaker, PoolQuality, SpotPrice};
+use bloom_offchain::execution_engine::liquidity_book::market_maker::{
+    MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
+};
 use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::ex_units::ExUnits;
@@ -40,7 +43,7 @@ use crate::data::operation_output::{DepositOutput, RedeemOutput, SwapOutput};
 use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
 use crate::data::pair::order_canonical;
 use crate::data::pool::{
-    ApplyOrder, ApplyOrderError, AssetDeltas, ImmutablePoolUtxo, Lq, PoolBounds, Rx, Ry,
+    ApplyOrder, ApplyOrderError, ImmutablePoolUtxo, Lq, PoolAssetMapping, PoolBounds, Rx, Ry,
 };
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
@@ -154,28 +157,28 @@ pub struct ConstFnPool {
 }
 
 impl ConstFnPool {
-    pub fn get_asset_deltas(&self, side: SideM) -> AssetDeltas {
+    pub fn asset_mapping(&self, side: SideM) -> PoolAssetMapping {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, _] = order_canonical(x, y);
         if base == x {
             match side {
-                SideM::Bid => AssetDeltas {
+                SideM::Bid => PoolAssetMapping {
                     asset_to_deduct_from: x,
                     asset_to_add_to: y,
                 },
-                SideM::Ask => AssetDeltas {
+                SideM::Ask => PoolAssetMapping {
                     asset_to_deduct_from: y,
                     asset_to_add_to: x,
                 },
             }
         } else {
             match side {
-                SideM::Bid => AssetDeltas {
+                SideM::Bid => PoolAssetMapping {
                     asset_to_deduct_from: y,
                     asset_to_add_to: x,
                 },
-                SideM::Ask => AssetDeltas {
+                SideM::Ask => PoolAssetMapping {
                     asset_to_deduct_from: x,
                     asset_to_add_to: y,
                 },
@@ -279,40 +282,9 @@ where
     }
 }
 
-impl MarketMaker for ConstFnPool {
-    type U = ExUnits;
-
-    fn static_price(&self) -> SpotPrice {
-        let x = self.asset_x.untag();
-        let y = self.asset_y.untag();
-        let [base, _] = order_canonical(x, y);
-        if x == base {
-            AbsolutePrice::new(self.reserves_y.untag(), self.reserves_x.untag()).into()
-        } else {
-            AbsolutePrice::new(self.reserves_x.untag(), self.reserves_y.untag()).into()
-        }
-    }
-
-    fn real_price(&self, input: Side<u64>) -> AbsolutePrice {
-        let x = self.asset_x.untag();
-        let y = self.asset_y.untag();
-        let [base, quote] = order_canonical(x, y);
-        let (base, quote) = match input {
-            Side::Bid(input) => (
-                self.output_amount(TaggedAssetClass::new(quote), TaggedAmount::new(input))
-                    .untag(),
-                input,
-            ),
-            Side::Ask(input) => (
-                input,
-                self.output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
-                    .untag(),
-            ),
-        };
-        AbsolutePrice::new(quote, base)
-    }
-
-    fn swap(mut self, input: Side<u64>) -> (u64, Self) {
+impl MakerBehavior for ConstFnPool {
+    fn swap(mut self, input: Side<u64>) -> MakeInProgress<Self> {
+        let target = self;
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, quote] = order_canonical(x, y);
@@ -346,16 +318,52 @@ impl MarketMaker for ConstFnPool {
                 *quote_reserves += input;
                 *base_reserves -= output;
                 *quote_treasury += (input * self.treasury_fee.numer()) / self.treasury_fee.denom();
-                (output, self)
             }
             Side::Ask(input) => {
                 // User ask is the opposite; sell the base asset for the quote asset.
                 *base_reserves += input;
                 *quote_reserves -= output;
                 *base_treasury += (input * self.treasury_fee.numer()) / self.treasury_fee.denom();
-                (output, self)
             }
         }
+        Trans {
+            target,
+            result: Next::Succ(self),
+        }
+    }
+}
+
+impl MarketMaker for ConstFnPool {
+    type U = ExUnits;
+
+    fn static_price(&self) -> SpotPrice {
+        let x = self.asset_x.untag();
+        let y = self.asset_y.untag();
+        let [base, _] = order_canonical(x, y);
+        if x == base {
+            AbsolutePrice::new(self.reserves_y.untag(), self.reserves_x.untag()).into()
+        } else {
+            AbsolutePrice::new(self.reserves_x.untag(), self.reserves_y.untag()).into()
+        }
+    }
+
+    fn real_price(&self, input: Side<u64>) -> AbsolutePrice {
+        let x = self.asset_x.untag();
+        let y = self.asset_y.untag();
+        let [base, quote] = order_canonical(x, y);
+        let (base, quote) = match input {
+            Side::Bid(input) => (
+                self.output_amount(TaggedAssetClass::new(quote), TaggedAmount::new(input))
+                    .untag(),
+                input,
+            ),
+            Side::Ask(input) => (
+                input,
+                self.output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
+                    .untag(),
+            ),
+        };
+        AbsolutePrice::new(quote, base)
     }
 
     fn quality(&self) -> PoolQuality {
@@ -719,12 +727,13 @@ impl ApplyOrder<ClassicalOnChainRedeem> for ConstFnPool {
 }
 
 mod tests {
+    use bloom_offchain::execution_engine::liquidity_book::core::Next;
     use cml_crypto::ScriptHash;
     use num_rational::Ratio;
 
     use crate::data::cfmm_pool::{ConstFnPool, ConstFnPoolVer};
     use crate::data::PoolId;
-    use bloom_offchain::execution_engine::liquidity_book::market_maker::MarketMaker;
+    use bloom_offchain::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker};
     use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use bloom_offchain::execution_engine::liquidity_book::side::Side::{Ask, Bid};
     use spectrum_cardano_lib::ex_units::ExUnits;
@@ -800,28 +809,11 @@ mod tests {
     fn treasury_x_test() {
         let pool = gen_ada_token_pool(1632109645, 1472074052, 0, 99970, 99970, 10, 11500, 2909);
 
-        let (_, new_pool) = pool.clone().swap(Side::Ask(900000000));
+        let trans = pool.clone().swap(Side::Ask(900000000));
 
         let correct_x_treasury = 101500;
 
+        let Next::Succ(new_pool) = trans.result;
         assert_eq!(new_pool.treasury_x.untag(), correct_x_treasury)
-    }
-
-    #[test]
-    fn available_liquidity_test() {
-        let fee_num = 98500;
-        let reserves_x = 1116854094529;
-        let reserves_y = 4602859113047;
-
-        let pool = gen_ada_token_pool(reserves_x, reserves_y, 0, fee_num, fee_num, 0, 0, 0);
-
-        let max_target_price_impact = Ratio::new_raw(45035996273705, 4503599627370496);
-
-        let (quote_qty_ask, _) = pool.available_liquidity(Ask(max_target_price_impact));
-
-        let (quote_qty_bid, _) = pool.available_liquidity(Bid(max_target_price_impact));
-
-        assert_eq!(quote_qty_ask, 46028591130);
-        assert_eq!(quote_qty_bid, 11168540945)
     }
 }

@@ -1,4 +1,4 @@
-use crate::execution_engine::liquidity_book::core::{TerminalTake, Trans};
+use crate::execution_engine::liquidity_book::core::{TakeInProgress, TerminalTake, Trans};
 use num_rational::Ratio;
 use std::fmt::{Display, Formatter};
 
@@ -20,12 +20,12 @@ pub trait OrderState: Sized {
 
 /// Order as a state machine.
 pub trait TakerBehaviour: Sized {
-    fn with_updated_time(self, time: u64) -> Trans<Self, TerminalTake>;
     fn with_applied_trade(
         self,
         removed_input: InputAsset<u64>,
         added_output: OutputAsset<u64>,
-    ) -> Trans<Self, TerminalTake>;
+    ) -> TakeInProgress<Self>;
+    fn with_budget_corrected(self, delta: i64) -> (i64, Self);
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -71,8 +71,8 @@ pub trait Fragment {
     /// Price of base asset in quote asset.
     fn price(&self) -> AbsolutePrice;
     /// Batcher fee for whole swap.
-    fn linear_fee(&self, input_consumed: InputAsset<u64>) -> FeeAsset<u64>;
-    /// Fee value weighted by fragment size.
+    fn operator_fee(&self, input_consumed: InputAsset<u64>) -> FeeAsset<u64>;
+    /// Amount of fee asset user is willing to pay for execution.
     fn fee(&self) -> FeeAsset<u64>;
     /// How much (approximately) execution of this fragment will cost.
     fn marginal_cost_hint(&self) -> Self::U;

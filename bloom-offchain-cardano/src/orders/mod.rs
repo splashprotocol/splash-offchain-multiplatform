@@ -3,8 +3,11 @@ use std::fmt::{Debug, Display, Formatter};
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
 use bloom_derivation::{Fragment, Stable, Tradable};
-use bloom_offchain::execution_engine::liquidity_book::fragment::{OrderState, StateTrans};
-use bloom_offchain::execution_engine::liquidity_book::types::{ExBudgetUsed, ExFeeUsed};
+use bloom_offchain::execution_engine::liquidity_book::core::TakeInProgress;
+use bloom_offchain::execution_engine::liquidity_book::fragment::{OrderState, StateTrans, TakerBehaviour};
+use bloom_offchain::execution_engine::liquidity_book::types::{
+    ExBudgetUsed, ExFeeUsed, InputAsset, OutputAsset,
+};
 use spectrum_offchain::data::{Has, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::creds::OperatorCred;
@@ -26,6 +29,28 @@ impl Display for AnyOrder {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             AnyOrder::Limit(lo) => std::fmt::Display::fmt(&lo, f),
+        }
+    }
+}
+
+impl TakerBehaviour for AnyOrder {
+    fn with_applied_trade(
+        self,
+        removed_input: InputAsset<u64>,
+        added_output: OutputAsset<u64>,
+    ) -> TakeInProgress<Self> {
+        match self {
+            AnyOrder::Limit(o) => o
+                .with_applied_trade(removed_input, added_output)
+                .map(AnyOrder::Limit),
+        }
+    }
+    fn with_budget_corrected(self, delta: i64) -> (i64, Self) {
+        match self {
+            AnyOrder::Limit(o) => {
+                let (d, s) = o.with_budget_corrected(delta);
+                (d, AnyOrder::Limit(s))
+            }
         }
     }
 }

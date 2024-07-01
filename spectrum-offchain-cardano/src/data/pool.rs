@@ -1,7 +1,6 @@
-use std::fmt::{format, Debug, Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
 use cml_chain::address::Address;
-
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
@@ -12,22 +11,27 @@ use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWit
 use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::{DatumOption, ScriptRef, TransactionOutput};
 use cml_chain::utils::BigInteger;
-
 use cml_chain::{Coin, PolicyId};
-
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
-use num_rational::Ratio;
-use tracing_subscriber::filter::combinator::Or;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
-use bloom_offchain::execution_engine::liquidity_book::market_maker::{MarketMaker, PoolQuality, SpotPrice};
+use bloom_offchain::execution_engine::liquidity_book::core::MakeInProgress;
+use bloom_offchain::execution_engine::liquidity_book::market_maker::{
+    MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
+};
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::collateral::Collateral;
+use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::protocol_params::constant_tx_builder;
+use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, Token};
+use spectrum_offchain::data::event::Predicted;
+use spectrum_offchain::data::{Has, Stable, Tradable};
+use spectrum_offchain::executor::RunOrderError;
+use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 use crate::creds::OperatorRewardAddress;
 use crate::data::balance_pool::{BalancePool, BalancePoolRedeemer};
@@ -35,15 +39,6 @@ use crate::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
 use crate::data::order::{ClassicalOrderAction, ClassicalOrderRedeemer, Quote};
 use crate::data::pair::PairId;
 use crate::data::pool::AnyPool::{BalancedCFMM, PureCFMM};
-use spectrum_cardano_lib::ex_units::ExUnits;
-use spectrum_cardano_lib::transaction::TransactionOutputExtension;
-use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, Token};
-use spectrum_offchain::data::event::Predicted;
-use spectrum_offchain::data::{Has, Stable, Tradable};
-use spectrum_offchain::executor::RunOrderError;
-use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
-
 use crate::data::OnChainOrderId;
 use crate::deployment::ProtocolValidator::{
     BalanceFnPoolV1, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolV1, ConstFnPoolV2,
@@ -238,9 +233,18 @@ impl Display for AnyPool {
     }
 }
 
-pub struct AssetDeltas {
+pub struct PoolAssetMapping {
     pub asset_to_deduct_from: AssetClass,
     pub asset_to_add_to: AssetClass,
+}
+
+impl MakerBehavior for AnyPool {
+    fn swap(mut self, input: Side<u64>) -> MakeInProgress<Self> {
+        match self {
+            PureCFMM(p) => p.swap(input).map(PureCFMM),
+            BalancedCFMM(p) => p.swap(input).map(BalancedCFMM),
+        }
+    }
 }
 
 impl MarketMaker for AnyPool {
@@ -256,19 +260,6 @@ impl MarketMaker for AnyPool {
         match self {
             PureCFMM(p) => p.real_price(input),
             BalancedCFMM(p) => p.real_price(input),
-        }
-    }
-
-    fn swap(self, input: Side<u64>) -> (u64, Self) {
-        match self {
-            PureCFMM(p) => {
-                let (swap_res, new_pool) = p.swap(input);
-                (swap_res, PureCFMM(new_pool))
-            }
-            BalancedCFMM(p) => {
-                let (swap_res, new_pool) = p.swap(input);
-                (swap_res, BalancedCFMM(new_pool))
-            }
         }
     }
 
@@ -526,12 +517,9 @@ pub struct CFMMPoolRefScriptOutput<const VER: u8>(pub TransactionUnspentOutput);
 
 #[cfg(test)]
 pub mod tests {
-    use cml_crypto::TransactionHash;
-    use rand::Rng;
-
-    use bloom_offchain::execution_engine::liquidity_book::{market_maker::MarketMaker, side::Side};
-    use spectrum_cardano_lib::OutputRef;
-    use spectrum_offchain::ledger::TryFromLedger;
+    use bloom_offchain::execution_engine::liquidity_book::core::Next;
+    use bloom_offchain::execution_engine::liquidity_book::market_maker::MakerBehavior;
+    use bloom_offchain::execution_engine::liquidity_book::side::Side;
 
     use super::ConstFnPool;
 
@@ -547,14 +535,22 @@ pub mod tests {
         let ada_qty = 7000000;
 
         // Test Ask order (sell ADA to buy token)
-        let (output_token_0, next_pool) = pool.swap(Side::Ask(ada_qty));
+        let trans = pool.swap(Side::Ask(ada_qty));
+        let output_token_0 = trans.loss().unwrap().unwrap();
+        let Next::Succ(next_pool) = trans.result else {
+            unreachable!()
+        };
         let next_reserve_x = next_pool.reserves_x.untag();
         let next_reserve_y = next_pool.reserves_y.untag();
         assert_eq!(original_reserve_x, next_reserve_x - ada_qty);
         assert_eq!(original_reserve_y, next_reserve_y + output_token_0);
 
         // Now test Bid order (buy ADA by selling token)
-        let (output_ada_1, final_pool) = next_pool.swap(Side::Bid(output_token_0));
+        let trans_1 = next_pool.swap(Side::Bid(output_token_0));
+        let output_ada_1 = trans_1.loss().unwrap().unwrap();
+        let Next::Succ(final_pool) = trans_1.result else {
+            unreachable!()
+        };
         println!("final pool ada reserves: {}", final_pool.reserves_x.untag());
         assert_eq!(next_reserve_x, final_pool.reserves_x.untag() + output_ada_1);
         assert_eq!(next_reserve_y, final_pool.reserves_y.untag() - output_token_0);
@@ -572,7 +568,11 @@ pub mod tests {
         let qty = 7000000;
 
         // Test Ask order (sell ADA to buy token)
-        let (output_token_0, next_pool) = pool.swap(Side::Ask(qty));
+        let trans_0 = pool.swap(Side::Ask(qty));
+        let output_token_0 = trans_0.loss().unwrap().unwrap();
+        let Next::Succ(next_pool) = trans_0.result else {
+            unreachable!()
+        };
         let next_reserve_x = next_pool.reserves_x.untag();
         let next_reserve_y = next_pool.reserves_y.untag();
         println!("next_x: {}, next_y: {}", next_reserve_x, next_reserve_y);
@@ -580,7 +580,11 @@ pub mod tests {
         assert_eq!(original_reserve_x, next_reserve_x + output_token_0);
 
         // Now test Bid order (buy ADA by selling token)
-        let (output_ada_1, final_pool) = next_pool.swap(Side::Bid(output_token_0));
+        let trans_1 = next_pool.swap(Side::Bid(output_token_0));
+        let output_ada_1 = trans_1.loss().unwrap().unwrap();
+        let Next::Succ(final_pool) = trans_1.result else {
+            unreachable!()
+        };
         assert_eq!(next_reserve_y, final_pool.reserves_y.untag() + output_ada_1);
         assert_eq!(next_reserve_x, final_pool.reserves_x.untag() - output_token_0);
     }

@@ -1,4 +1,4 @@
-use crate::execution_engine::liquidity_book::core::MakerTrans;
+use crate::execution_engine::liquidity_book::core::MakeInProgress;
 use crate::execution_engine::liquidity_book::side::Side;
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 use derive_more::{Display, Div, From, Into, Mul};
@@ -36,7 +36,7 @@ pub trait MarketMaker {
 /// Pooled liquidity.
 pub trait MakerBehavior: Sized {
     /// Output of a swap.
-    fn swap(self, input: Side<u64>) -> MakerTrans<Self>;
+    fn swap(self, input: Side<u64>) -> MakeInProgress<Self>;
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Into, From, Display)]

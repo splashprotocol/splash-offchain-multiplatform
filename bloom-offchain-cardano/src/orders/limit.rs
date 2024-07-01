@@ -1,12 +1,15 @@
-use std::cmp::Ordering;
+use std::cmp::{max, Ordering};
 use std::fmt::{Display, Formatter};
 
+use bloom_offchain::execution_engine::liquidity_book::core::{Next, TakeInProgress, TerminalTake, Trans};
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::PolicyId;
 use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
-use bloom_offchain::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
+use bloom_offchain::execution_engine::liquidity_book::fragment::{
+    Fragment, OrderState, StateTrans, TakerBehaviour,
+};
 use bloom_offchain::execution_engine::liquidity_book::linear_output_relative;
 use bloom_offchain::execution_engine::liquidity_book::side::SideM;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
@@ -112,6 +115,41 @@ impl Ord for LimitOrder {
     }
 }
 
+impl TakerBehaviour for LimitOrder {
+    fn with_applied_trade(
+        mut self,
+        removed_input: InputAsset<u64>,
+        added_output: OutputAsset<u64>,
+    ) -> TakeInProgress<Self> {
+        let target = self;
+        let fee_used = self.operator_fee(removed_input);
+        self.fee -= fee_used;
+        self.input_amount -= removed_input;
+        self.output_amount += added_output;
+        let budget_used = self.max_cost_per_ex_step;
+        self.execution_budget -= budget_used;
+        let result = if self.execution_budget < self.max_cost_per_ex_step || self.input_amount == 0 {
+            Next::Term(TerminalTake {
+                remaining_input: self.input_amount,
+                accumulated_output: self.output_amount,
+                remaining_fee: self.fee,
+            })
+        } else {
+            Next::Succ(self)
+        };
+        Trans { target, result }
+    }
+
+    fn with_budget_corrected(mut self, delta: i64) -> (i64, Self) {
+        let fee_remainder = self.fee as i64;
+        let corrected_remainder = fee_remainder + delta;
+        let updated_fee_remainder = max(corrected_remainder, 0);
+        let real_delta = fee_remainder - updated_fee_remainder;
+        self.execution_budget = updated_fee_remainder as u64;
+        (real_delta, self)
+    }
+}
+
 impl OrderState for LimitOrder {
     fn with_updated_time(self, _time: u64) -> StateTrans<Self> {
         StateTrans::Active(self)
@@ -122,7 +160,7 @@ impl OrderState for LimitOrder {
         removed_input: u64,
         added_output: u64,
     ) -> (StateTrans<Self>, ExBudgetUsed, ExFeeUsed) {
-        let fee_used = self.linear_fee(removed_input);
+        let fee_used = self.operator_fee(removed_input);
         self.fee -= fee_used;
         self.input_amount -= removed_input;
         self.output_amount += added_output;
@@ -156,7 +194,7 @@ impl Fragment for LimitOrder {
         AbsolutePrice::from_price(self.side(), self.base_price)
     }
 
-    fn linear_fee(&self, input_consumed: InputAsset<u64>) -> FeeAsset<u64> {
+    fn operator_fee(&self, input_consumed: InputAsset<u64>) -> FeeAsset<u64> {
         if self.input_amount > 0 {
             self.fee * input_consumed / self.input_amount
         } else {

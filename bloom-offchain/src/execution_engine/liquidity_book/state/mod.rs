@@ -1,13 +1,11 @@
 use std::collections::hash_map::Entry;
-use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
 use std::fmt::{Debug, Display, Formatter};
-use std::hash::Hash;
 use std::mem;
 use std::ops::Add;
 
 use either::{Either, Left, Right};
 use log::trace;
-use num_rational::Ratio;
 
 use spectrum_offchain::data::Stable;
 
@@ -17,6 +15,8 @@ use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, InputAsset};
 use crate::execution_engine::liquidity_book::weight::Weighted;
+
+pub mod queries;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 /// State with no uncommitted changes.
@@ -415,59 +415,6 @@ where
             }
             TLBState::Preview(_) => {}
         }
-    }
-}
-
-pub fn max_by_distance_to_spot<Fr>(fragments: &mut Fragments<Fr>, spot_price: SpotPrice) -> Option<Fr>
-where
-    Fr: Fragment + Ord,
-{
-    let best_bid = fragments.bids.pop_first();
-    let best_ask = fragments.asks.pop_first();
-    match (best_ask, best_bid) {
-        (Some(ask), Some(bid)) => {
-            let abs_price = AbsolutePrice::from(spot_price).to_signed();
-            let distance_from_ask = abs_price - ask.price().to_signed();
-            let distance_from_bid = abs_price - bid.price().to_signed();
-            if distance_from_ask > distance_from_bid {
-                Some(ask)
-            } else if distance_from_ask < distance_from_bid {
-                Some(bid)
-            } else {
-                Some(_max_by_volume(ask, bid, Some(spot_price)))
-            }
-        }
-        (Some(taker), _) | (_, Some(taker)) => Some(taker),
-        _ => None,
-    }
-}
-
-fn _max_by_volume<Fr>(ask: Fr, bid: Fr, spot_price: Option<SpotPrice>) -> Fr
-where
-    Fr: Fragment,
-{
-    let index_price = spot_price
-        .map(AbsolutePrice::from)
-        .unwrap_or_else(|| ask.price() + bid.price() * Ratio::new(1, 2));
-    let ask_vol = Ratio::new(ask.input() as u128, 1) * index_price.unwrap();
-    let bid_vol = Ratio::new(1, bid.input() as u128) * index_price.unwrap();
-    if ask_vol > bid_vol {
-        ask
-    } else {
-        bid
-    }
-}
-
-pub fn max_by_volume<Fr>(fragments: &mut Fragments<Fr>) -> Option<Fr>
-where
-    Fr: Fragment + Ord,
-{
-    let best_bid = fragments.bids.pop_first();
-    let best_ask = fragments.asks.pop_first();
-    match (best_ask, best_bid) {
-        (Some(ask), Some(bid)) => Some(_max_by_volume(ask, bid, None)),
-        (Some(taker), _) | (_, Some(taker)) => Some(taker),
-        _ => None,
     }
 }
 
@@ -1023,17 +970,21 @@ pub mod tests {
     use std::fmt::{Debug, Display, Formatter};
 
     use either::Left;
-    use num_rational::Ratio;
 
     use spectrum_offchain::data::Stable;
 
-    use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-    use crate::execution_engine::liquidity_book::market_maker::{MarketMaker, SpotPrice};
+    use crate::execution_engine::liquidity_book::core::{
+        MakeInProgress, Next, TakeInProgress, TerminalTake, Trans,
+    };
+    use crate::execution_engine::liquidity_book::fragment::{
+        Fragment, OrderState, StateTrans, TakerBehaviour,
+    };
+    use crate::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker, SpotPrice};
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
     use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, StashingOption, TLBState};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::{
-        AbsolutePrice, ExBudgetUsed, ExCostUnits, ExFeeUsed, OutputAsset,
+        AbsolutePrice, ExBudgetUsed, ExCostUnits, ExFeeUsed, InputAsset, OutputAsset,
     };
     use crate::execution_engine::types::StableId;
 
@@ -1300,6 +1251,16 @@ pub mod tests {
         pub bounds: TimeBounds<u64>,
     }
 
+    impl Stable for SimpleOrderPF {
+        type StableId = StableId;
+        fn stable_id(&self) -> Self::StableId {
+            self.source
+        }
+        fn is_quasi_permanent(&self) -> bool {
+            true
+        }
+    }
+
     impl Display for SimpleOrderPF {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             f.write_str(&*format!(
@@ -1400,7 +1361,7 @@ pub mod tests {
             self.bounds
         }
 
-        fn linear_fee(
+        fn operator_fee(
             &self,
             input_consumed: crate::execution_engine::liquidity_book::types::InputAsset<u64>,
         ) -> crate::execution_engine::liquidity_book::types::FeeAsset<u64> {
@@ -1413,6 +1374,30 @@ pub mod tests {
 
         fn fee(&self) -> crate::execution_engine::liquidity_book::types::FeeAsset<u64> {
             self.fee
+        }
+    }
+
+    impl TakerBehaviour for SimpleOrderPF {
+        fn with_applied_trade(
+            self,
+            removed_input: InputAsset<u64>,
+            added_output: OutputAsset<u64>,
+        ) -> TakeInProgress<Self> {
+            let budget_used = added_output * self.fee;
+            let next = if self.input > 0 {
+                Next::Succ(self)
+            } else {
+                Next::Term(TerminalTake {
+                    remaining_input: removed_input,
+                    accumulated_output: added_output,
+                    remaining_budget: budget_used,
+                    remaining_fee: self.fee,
+                })
+            };
+            Trans {
+                target: self,
+                result: next,
+            }
         }
     }
 
@@ -1472,6 +1457,38 @@ pub mod tests {
         }
     }
 
+    impl MakerBehavior for SimpleCFMMPool {
+        fn swap(mut self, input: Side<u64>) -> MakeInProgress<Self> {
+            let init = self.clone();
+            let result = match input {
+                Side::Bid(quote_input) => {
+                    let base_output =
+                        ((self.reserves_base as u128) * (quote_input as u128) * (self.fee_num as u128)
+                            / ((self.reserves_quote as u128) * 1000u128
+                                + (quote_input as u128) * (self.fee_num as u128)))
+                            as u64;
+                    self.reserves_quote += quote_input;
+                    self.reserves_base -= base_output;
+                    self
+                }
+                Side::Ask(base_input) => {
+                    let quote_output =
+                        ((self.reserves_quote as u128) * (base_input as u128) * (self.fee_num as u128)
+                            / ((self.reserves_base as u128) * 1000u128
+                                + (base_input as u128) * (self.fee_num as u128)))
+                            as u64;
+                    self.reserves_base += base_input;
+                    self.reserves_quote -= quote_output;
+                    self
+                }
+            };
+            Trans {
+                target: init,
+                result: Next::Succ(result),
+            }
+        }
+    }
+
     impl MarketMaker for SimpleCFMMPool {
         type U = u64;
 
@@ -1482,37 +1499,14 @@ pub mod tests {
         fn real_price(&self, input: Side<u64>) -> AbsolutePrice {
             match input {
                 Side::Bid(quote_input) => {
-                    let (base_output, _) = self.swap(Side::Bid(quote_input));
+                    let result_pool = self.swap(Side::Bid(quote_input));
+                    let base_output = result_pool.loss().map(|r| r.unwrap()).unwrap_or(0);
                     AbsolutePrice::new(quote_input, base_output)
                 }
                 Side::Ask(base_input) => {
-                    let (quote_output, _) = self.swap(Side::Ask(base_input));
+                    let result_pool = self.swap(Side::Ask(base_input));
+                    let quote_output = result_pool.loss().map(|r| r.unwrap()).unwrap_or(0);
                     AbsolutePrice::new(quote_output, base_input)
-                }
-            }
-        }
-
-        fn swap(mut self, input: Side<u64>) -> (u64, Self) {
-            match input {
-                Side::Bid(quote_input) => {
-                    let base_output =
-                        ((self.reserves_base as u128) * (quote_input as u128) * (self.fee_num as u128)
-                            / ((self.reserves_quote as u128) * 1000u128
-                                + (quote_input as u128) * (self.fee_num as u128)))
-                            as u64;
-                    self.reserves_quote += quote_input;
-                    self.reserves_base -= base_output;
-                    (base_output, self)
-                }
-                Side::Ask(base_input) => {
-                    let quote_output =
-                        ((self.reserves_quote as u128) * (base_input as u128) * (self.fee_num as u128)
-                            / ((self.reserves_base as u128) * 1000u128
-                                + (base_input as u128) * (self.fee_num as u128)))
-                            as u64;
-                    self.reserves_base += base_input;
-                    self.reserves_quote -= quote_output;
-                    (quote_output, self)
                 }
             }
         }
