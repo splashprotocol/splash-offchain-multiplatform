@@ -36,11 +36,11 @@ jobs:
       run: |
         cargo fmt --package bloom-cardano-agent --check
         if [ $? -ne 0 ]; then
-          echo "fmt_status=failure" >> $GITHUB_ENV
-          echo "Cargo fmt found issues. Please run 'cargo fmt' to fix them." >> $GITHUB_ENV
+          echo "fmt_status=failure"
+          echo "Cargo fmt found issues. Please run 'cargo fmt' to fix them." 
         else
-          echo "fmt_status=success" >> $GITHUB_ENV
-          echo "No formatting issues found by cargo fmt." >> $GITHUB_ENV
+          echo "fmt_status=success" 
+          echo "No formatting issues found by cargo fmt." 
         fi
 
     - name: Check for Formatting Changes
@@ -48,11 +48,11 @@ jobs:
       run: |
         git diff --exit-code
         if [ $? -ne 0 ]; then
-          echo "fmt_diff_status=failure" >> $GITHUB_ENV
-          echo "Formatting changes are required. Please run 'cargo fmt' to apply the changes." >> $GITHUB_ENV
+          echo "fmt_diff_status=failure" >> 
+          echo "Formatting changes are required. Please run 'cargo fmt' to apply the changes." >> 
         else
-          echo "fmt_diff_status=success" >> $GITHUB_ENV
-          echo "No formatting changes required." >> $GITHUB_ENV
+          echo "fmt_diff_status=success" >> 
+          echo "No formatting changes required."
         fi
         
     - name: Cache Cargo build
