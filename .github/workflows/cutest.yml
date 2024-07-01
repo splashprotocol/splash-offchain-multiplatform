@@ -16,6 +16,22 @@ jobs:
         id: commit
         run: echo "::set-output name=message::$(git log -1 --pretty=format:'%h %s')"
 
+      - name: Simulate a job step
+        id: job
+        run: |
+          echo "Simulating a job step."
+          # Simulate a failure
+          # exit 1
+
+      - name: Set action result
+        id: result
+        run: |
+          if [ ${{ job.status }} == 'success' ]; then
+            echo "::set-output name=result::Success"
+          else
+            echo "::set-output name=result::Failure"
+          fi
+
       - name: Send notification to Slack
         if: always()
         uses: slackapi/slack-github-action@v1.23.0
@@ -30,8 +46,15 @@ jobs:
                     "type": "mrkdwn",
                     "text": "*New commit on develop branch:* \n*Commit:* <https://github.com/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit.outputs.message }}> \n*Author:* ${{ github.actor }} \n*Date:* ${{ github.event.head_commit.timestamp }}"
                   }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Action Result:* ${{ steps.result.outputs.result }}"
+                  }
                 }
               ]
             }
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL2 }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
