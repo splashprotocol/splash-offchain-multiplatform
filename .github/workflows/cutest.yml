@@ -38,13 +38,13 @@ jobs:
         with:
           payload: |
             {
-              "text": "New commit on develop branch: ${{ steps.commit.outputs.message }}",
+              "text": ":white_check_mark: New commit on *:green_heart: develop branch:* ${{ steps.commit.outputs.message }}",
               "blocks": [
                 {
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": "*New commit on develop branch:* \n*Commit:* <https://github.com/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit.outputs.message }}> \n*Author:* ${{ github.actor }} \n*Date:* ${{ github.event.head_commit.timestamp }}"
+                    "text": ":white_check_mark: New commit on *:green_heart: develop branch:* \n*Commit:* <https://github.com/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit.outputs.message }}> \n*Author:* ${{ github.actor }} \n*Date:* ${{ github.event.head_commit.timestamp }}"
                   }
                 },
                 {
