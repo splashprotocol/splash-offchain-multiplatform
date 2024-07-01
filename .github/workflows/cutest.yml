@@ -5,6 +5,10 @@ on:
     branches:
       - develop
 
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   slackNotification:
     runs-on: ubuntu-latest
