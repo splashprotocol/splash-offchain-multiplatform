@@ -1,4 +1,4 @@
-name: Test CI for Develop Branch
+name: Notify Slack on Commit to Develop
 
 on:
   push:
@@ -14,6 +14,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Debug environment variables
+        run: |
+          echo "SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL2 }}"
+          echo "SLACK_MESSAGE: A new commit has been pushed to the develop branch. Check it out!"
+          echo "SLACK_TITLE: New commit on develop branch"
+          echo "SLACK_FOOTER: Commit Details: ${{ github.sha }} by ${{ github.actor }}"
+
       - name: Send notification to Slack
         uses: 8398a7/action-slack@v3
         with:
@@ -26,4 +33,4 @@ jobs:
           SLACK_TITLE: "New commit on develop branch"
           SLACK_MESSAGE: "A new commit has been pushed to the develop branch. Check it out!"
           SLACK_FOOTER: "Commit Details: ${{ github.sha }} by ${{ github.actor }}"
-          SLACK_CHANNEL: "#ci-cd-messages" # replace with your Slack channel name
+          SLACK_CHANNEL: "#your-channel"  # Replace with your Slack channel name
