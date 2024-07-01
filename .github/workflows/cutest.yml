@@ -4,167 +4,22 @@ on:
   push:
     branches:
       - develop
-  
-  pull_request:
-    branches:
-      - develop
-    types: [opened, synchronize, closed]
 
 jobs:
-  build:
+  slackNotification:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-
-    - name: Set up Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-
-    - name: Cache Cargo registry
-      uses: actions/cache@v3
-      with:
-        path: ~/.cargo/registry
-        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-registry-
-
-    - name: Run Cargo Format Check
-      id: fmt
-      run: |
-        cargo fmt --package bloom-cardano-agent --check
-        if [ $? -ne 0 ]; then
-          echo "fmt_status=failure"
-          echo "Cargo fmt found issues. Please run 'cargo fmt' to fix them." 
-        else
-          echo "fmt_status=success" 
-          echo "No formatting issues found by cargo fmt." 
-        fi
-
-    - name: Check for Formatting Changes
-      id: diff
-      run: |
-        git diff --exit-code
-        if [ $? -ne 0 ]; then
-          echo "fmt_diff_status=failure" >> 
-          echo "Formatting changes are required. Please run 'cargo fmt' to apply the changes." >> 
-        else
-          echo "fmt_diff_status=success" >> 
-          echo "No formatting changes required."
-        fi
-        
-    - name: Cache Cargo build
-      uses: actions/cache@v3
-      with:
-        path: target
-        key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-build-
-          
-    - name: Run Cargo Build
-      id: build
-      run: |
-        if ! cargo build --package bloom-cardano-agent --bin bloom-cardano-agent; then
-          echo "build_status=failure" >> $GITHUB_ENV
-        else
-          echo "build_status=success" >> $GITHUB_ENV
-        fi
-
-    - name: Run tests
-      run: cargo test --package bloom-cardano-agent --bin bloom-cardano-agent
-
-    - name: Get Event Information
-      id: info
-      run: |
-        if [ "${{ github.event_name }}" == "push" ]; then
-          echo "event=push" >> $GITHUB_ENV
-          echo "branch=${{ github.ref_name }}" >> $GITHUB_ENV
-          echo "commits=$(echo "${{ github.event.commits }}" | jq '.[] | "- \(.message) by \(.author.name)"' -r | tr '\n' '\\n')" >> $GITHUB_ENV
-        elif [ "${{ github.event_name }}" == "pull_request" ]; then
-          echo "event=pull_request" >> $GITHUB_ENV
-          echo "action=${{ github.event.action }}" >> $GITHUB_ENV
-          echo "pr_title=${{ github.event.pull_request.title }}" >> $GITHUB_ENV
-          echo "pr_user=${{ github.event.pull_request.user.login }}" >> $GITHUB_ENV
-          echo "pr_url=${{ github.event.pull_request.html_url }}" >> $GITHUB_ENV
-          echo "pr_number=${{ github.event.pull_request.number }}" >> $GITHUB_ENV
-          echo "merged=${{ github.event.pull_request.merged }}" >> $GITHUB_ENV
-        fi
-
-    - name: Notify Slack
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        EVENT: ${{ env.event }}
-        BRANCH: ${{ env.branch }}
-        COMMITS: ${{ env.commits }}
-        PR_TITLE: ${{ env.pr_title }}
-        PR_USER: ${{ env.pr_user }}
-        PR_URL: ${{ env.pr_url }}
-        PR_NUMBER: ${{ env.pr_number }}
-        PR_ACTION: ${{ env.action }}
-        PR_MERGED: ${{ env.merged }}
-        BUILD_STATUS: ${{ env.build_status }}
-        FMT_STATUS: ${{ env.fmt_status }}
-        FMT_DIFF_STATUS: ${{ env.fmt_diff_status }}
-      run: |
-        if [ "$EVENT" == "push" ]; then
-          if [ "$BUILD_STATUS" == "failure" ]; then
-            TEXT="❌ *Build Failed on Push to develop Branch!*\n*Branch:* $BRANCH\n*Commits:*\n$COMMITS"
-          else
-            TEXT="📢 *New Push to develop Branch and Build Succeeded!*\n*Branch:* $BRANCH\n*Commits:*\n$COMMITS"
-          fi
-
-          if [ "$FMT_STATUS" == "failure" ]; then
-            TEXT="$TEXT\n\n⚠️ *Cargo fmt found issues!*\nPlease run 'cargo fmt' to fix them."
-          else
-            TEXT="$TEXT\n\n✅ *Cargo fmt check passed!*\nNo formatting issues found."
-          fi
-
-          if [ "$FMT_DIFF_STATUS" == "failure" ]; then
-            TEXT="$TEXT\n\n⚠️ *Formatting changes required!*\nPlease run 'cargo fmt' to apply the changes."
-          else
-            TEXT="$TEXT\n\n✅ *No formatting changes required!*"
-          fi
-
-        elif [ "$EVENT" == "pull_request" ]; then
-          if [ "$BUILD_STATUS" == "failure" ]; then
-            if [ "$PR_ACTION" == "opened" ]; then
-              TEXT="❌ *Build Failed for New Pull Request!*\n*Title:* $PR_TITLE\n*Author:* $PR_USER\n*URL:* $PR_URL\n*Number:* $PR_NUMBER"
-            elif [ "$PR_ACTION" == "synchronize" ]; then
-              TEXT="❌ *Build Failed for Updated Pull Request!*\n*Title:* $PR_TITLE\n*Author:* $PR_USER\n*URL:* $PR_URL\n*Number:* $PR_NUMBER"
-            elif [ "$PR_ACTION" == "closed" ]; then
-              if [ "$PR_MERGED" == "true" ]; then
-                TEXT="❌ *Build Failed for Merged Pull Request!*\n*Title:* $PR_TITLE\n*Author:* $PR_USER\n*URL:* $PR_URL\n*Number:* $PR_NUMBER"
-              else
-                TEXT="❌ *Build Failed for Closed Pull Request Without Merge!*\n*Title:* $PR_TITLE\n*Author:* $PR_USER\n*URL:* $PR_URL\n*Number:* $PR_NUMBER"
-              fi
-            fi
-          else
-            if [ "$PR_ACTION" == "opened" ]; then
-              TEXT="🚀 *New Pull Request Opened and Build Succeeded!*\n*Title:* $PR_TITLE\n*Author:* $PR_USER\n*URL:* $PR_URL\n*Number:* $PR_NUMBER"
-            elif [ "$PR_ACTION" == "synchronize" ]; then
-              TEXT="🔄 *Pull Request Updated and Build Succeeded!*\n*Title:* $PR_TITLE\n*Author:* $PR_USER\n*URL:* $PR_URL\n*Number:* $PR_NUMBER"
-            elif [ "$PR_ACTION" == "closed" ]; then
-              if [ "$PR_MERGED" == "true" ]; then
-                TEXT="🎉 *Pull Request Merged and Build Succeeded!*\n*Title:* $PR_TITLE\n*Author:* $PR_USER\n*URL:* $PR_URL\n*Number:* $PR_NUMBER"
-              else
-                TEXT="❌ *Pull Request Closed Without Merge but Build Succeeded!*\n*Title:* $PR_TITLE\n*Author:* $PR_USER\n*URL:* $PR_URL\n*Number:* $PR_NUMBER"
-              fi
-            fi
-          fi
-
-          if [ "$FMT_STATUS" == "failure" ]; then
-            TEXT="$TEXT\n\n⚠️ *Cargo fmt found issues!*\nPlease run 'cargo fmt' to fix them."
-          else
-            TEXT="$TEXT\n\n✅ *Cargo fmt check passed!*\nNo formatting issues found."
-          fi
-
-          if [ "$FMT_DIFF_STATUS" == "failure" ]; then
-            TEXT="$TEXT\n\n⚠️ *Formatting changes required!*\nPlease run 'cargo fmt' to apply the changes."
-          else
-            TEXT="$TEXT\n\n✅ *No formatting changes required!*"
-          fi
-        fi
-        
-        curl -X POST -H 'Content-type: application/json' --data "{\"text\": \"$TEXT\"}" $SLACK_WEBHOOK_URL
+      - name: Send notification to Slack
+        uses: 8398a7/action-slack@v3
+        with:
+          status: custom
+          fields: workflow, job, commit, author, message, repo, ref
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_COLOR: good
+          SLACK_USERNAME: GitHub Actions
+          SLACK_TITLE: "New commit on develop branch"
+          SLACK_MESSAGE: "A new commit has been pushed to the develop branch. Check it out!"
+          SLACK_FOOTER: "Commit Details: ${{ github.sha }} by ${{ github.actor }}"
+          SLACK_CHANNEL: "#ci-cd-messages" # replace with your Slack channel name
