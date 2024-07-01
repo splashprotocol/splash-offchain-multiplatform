@@ -1,36 +1,37 @@
-name: Notify Slack on Commit to Develop
+name: TEST Notify on New Commits
 
 on:
   push:
     branches:
       - develop
 
-permissions:
-  contents: read
-  actions: write
-
 jobs:
-  slackNotification:
+  notify:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Debug environment variables
-        run: |
-          echo "SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL2 }}"
-          echo "SLACK_MESSAGE: A new commit has been pushed to the develop branch. Check it out!"
-          echo "SLACK_TITLE: New commit on develop branch"
-          echo "SLACK_FOOTER: Commit Details: ${{ github.sha }} by ${{ github.actor }}"
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Get latest commit message
+        id: commit
+        run: echo "::set-output name=message::$(git log -1 --pretty=format:'%h %s')"
 
       - name: Send notification to Slack
-        uses: 8398a7/action-slack@v3
+        if: always()
+        uses: slackapi/slack-github-action@v1.23.0
         with:
-          status: custom
-          fields: workflow, job, commit, author, message, repo, ref
+          payload: |
+            {
+              "text": "New commit on develop branch: ${{ steps.commit.outputs.message }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*New commit on develop branch:* \n*Commit:* <https://github.com/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit.outputs.message }}> \n*Author:* ${{ github.actor }} \n*Date:* ${{ github.event.head_commit.timestamp }}"
+                  }
+                }
+              ]
+            }
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL2 }}
-          SLACK_COLOR: good
-          SLACK_USERNAME: GitHub Actions
-          SLACK_TITLE: "New commit on develop branch"
-          SLACK_MESSAGE: "A new commit has been pushed to the develop branch. Check it out!"
-          SLACK_FOOTER: "Commit Details: ${{ github.sha }} by ${{ github.actor }}"
-          SLACK_CHANNEL: "#your-channel"  # Replace with your Slack channel name
