@@ -9,7 +9,8 @@ use log::trace;
 
 use spectrum_offchain::data::Stable;
 
-use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
+use crate::execution_engine::liquidity_book::core::Next;
+use crate::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
 use crate::execution_engine::liquidity_book::market_maker::{MarketMaker, PoolQuality, SpotPrice};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
@@ -20,44 +21,47 @@ pub mod queries;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 /// State with no uncommitted changes.
-pub struct IdleState<Fr, Pl: Stable> {
-    fragments: Chronology<Fr>,
-    pools: Pools<Pl>,
+pub struct IdleState<T, M: Stable> {
+    takers: Chronology<T>,
+    makers: MarketMakers<M>,
 }
 
-impl<Fr, Pl: Stable> IdleState<Fr, Pl> {
+impl<T, M: Stable> IdleState<T, M> {
     fn new(time_now: u64) -> Self {
         Self {
-            fragments: Chronology::new(time_now),
-            pools: Pools::new(),
+            takers: Chronology::new(time_now),
+            makers: MarketMakers::new(),
         }
     }
 }
 
-impl<Fr, Pl> IdleState<Fr, Pl>
+impl<T, M> IdleState<T, M>
 where
-    Fr: Fragment + OrderState + Ord + Copy,
-    Pl: MarketMaker + Stable + Copy,
+    T: MarketTaker + TakerBehaviour + Ord + Copy + Debug,
+    M: MarketMaker + Stable + Copy + Debug,
 {
     pub fn advance_clocks(&mut self, new_time: u64) {
-        self.fragments.advance_clocks(new_time)
+        self.takers.advance_clocks(new_time)
     }
 
-    pub fn add_fragment(&mut self, fr: Fr) {
-        self.fragments.add_fragment(fr);
+    pub fn add_fragment(&mut self, fr: T) {
+        trace!("Adding {:?} to active frontier", fr);
+        self.takers.add_fragment(fr);
     }
 
-    pub fn remove_fragment(&mut self, fr: Fr) {
-        trace!("Removing fragment");
-        self.fragments.remove_fragment(fr);
+    pub fn remove_fragment(&mut self, fr: T) {
+        trace!("Removing {:?} from active frontier", fr);
+        self.takers.remove_fragment(fr);
     }
 
-    pub fn update_pool(&mut self, pool: Pl) {
-        self.pools.update_pool(pool);
+    pub fn update_pool(&mut self, maker: M) {
+        trace!("Updating {:?} in active frontier", maker);
+        self.makers.update_pool(maker);
     }
 
-    pub fn remove_pool(&mut self, pool: Pl) {
-        self.pools.remove_pool(pool);
+    pub fn remove_pool(&mut self, maker: M) {
+        trace!("Removing {:?} from active frontier", maker);
+        self.makers.remove_pool(maker);
     }
 }
 
@@ -65,88 +69,88 @@ where
 /// We use this one when no preview fragments/pools are generated to avoid
 /// overhead of copying active frontier projection.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct PartialPreviewState<Fr, Pl: Stable> {
-    fragments_preview: Chronology<Fr>,
-    consumed_active_fragments: Vec<Fr>,
-    stashed_active_fragments: Vec<Fr>,
-    pools_intact: Pools<Pl>,
-    pools_preview: Pools<Pl>,
+pub struct PartialPreviewState<T, M: Stable> {
+    takers_preview: Chronology<T>,
+    consumed_active_takers: Vec<T>,
+    stashed_active_takers: Vec<T>,
+    makers_intact: MarketMakers<M>,
+    makers_preview: MarketMakers<M>,
 }
 
-impl<Fr, Pl: Stable> PartialPreviewState<Fr, Pl> {
+impl<T, M: Stable> PartialPreviewState<T, M> {
     pub fn new(time_now: u64) -> Self {
         Self {
-            fragments_preview: Chronology::new(time_now),
-            consumed_active_fragments: vec![],
-            stashed_active_fragments: vec![],
-            pools_intact: Pools::new(),
-            pools_preview: Pools::new(),
+            takers_preview: Chronology::new(time_now),
+            consumed_active_takers: vec![],
+            stashed_active_takers: vec![],
+            makers_intact: MarketMakers::new(),
+            makers_preview: MarketMakers::new(),
         }
     }
 }
 
-impl<Fr, Pl: Stable> PartialPreviewState<Fr, Pl>
+impl<T, M: Stable> PartialPreviewState<T, M>
 where
-    Fr: Fragment + Ord,
-    Pl: Copy,
+    T: MarketTaker + Ord,
+    M: Copy,
 {
-    fn commit(&mut self) -> IdleState<Fr, Pl> {
+    fn commit(&mut self) -> IdleState<T, M> {
         trace!(target: "state", "PartialPreviewState::commit");
         let mut fresh_settled_st = IdleState::new(0);
-        mem::swap(&mut fresh_settled_st.fragments, &mut self.fragments_preview);
-        mem::swap(&mut fresh_settled_st.pools, &mut self.pools_preview);
+        mem::swap(&mut fresh_settled_st.takers, &mut self.takers_preview);
+        mem::swap(&mut fresh_settled_st.makers, &mut self.makers_preview);
         fresh_settled_st
     }
 
     fn rollback(
         &mut self,
-        stashing_opt: StashingOption<Fr>,
-    ) -> Either<IdleState<Fr, Pl>, PartialPreviewState<Fr, Pl>> {
+        stashing_opt: StashingOption<T>,
+    ) -> Either<IdleState<T, M>, PartialPreviewState<T, M>> {
         trace!(target: "state", "PartialPreviewState::rollback");
         // Return consumed fragments to reconstruct initial state.
-        while let Some(fr) = self.consumed_active_fragments.pop() {
-            self.fragments_preview.active.insert(fr);
+        while let Some(fr) = self.consumed_active_takers.pop() {
+            self.takers_preview.active.insert(fr);
         }
         match stashing_opt {
             StashingOption::Stash(mut to_stash) => {
                 for fr in &to_stash {
-                    self.fragments_preview.active.remove(fr);
+                    self.takers_preview.active.remove(fr);
                 }
-                self.stashed_active_fragments.append(&mut to_stash);
+                self.stashed_active_takers.append(&mut to_stash);
             }
             StashingOption::Unstash => {
                 self.unstash();
             }
         }
-        if self.stashed_active_fragments.is_empty() {
+        if self.stashed_active_takers.is_empty() {
             trace!("PartialPreviewState => IdleState");
             let mut fresh_idle_st = IdleState::new(0);
             // Move reconstructed initial fragments into idle state.
-            mem::swap(&mut self.fragments_preview, &mut fresh_idle_st.fragments);
-            mem::swap(&mut self.pools_intact, &mut fresh_idle_st.pools);
+            mem::swap(&mut self.takers_preview, &mut fresh_idle_st.takers);
+            mem::swap(&mut self.makers_intact, &mut fresh_idle_st.makers);
             Left(fresh_idle_st)
         } else {
             trace!("PartialPreviewState => PartialPreviewState[With Stash]");
-            let mut fresh_preview_st = PartialPreviewState::new(self.fragments_preview.time_now);
+            let mut fresh_preview_st = PartialPreviewState::new(self.takers_preview.time_now);
             // Move reconstructed initial fragments into idle state.
             mem::swap(
-                &mut self.fragments_preview,
-                &mut fresh_preview_st.fragments_preview,
+                &mut self.takers_preview,
+                &mut fresh_preview_st.takers_preview,
             );
             mem::swap(
-                &mut self.stashed_active_fragments,
-                &mut fresh_preview_st.stashed_active_fragments,
+                &mut self.stashed_active_takers,
+                &mut fresh_preview_st.stashed_active_takers,
             );
-            mem::swap(&mut self.pools_intact, &mut fresh_preview_st.pools_intact);
-            fresh_preview_st.pools_preview = fresh_preview_st.pools_intact.clone();
+            mem::swap(&mut self.makers_intact, &mut fresh_preview_st.makers_intact);
+            fresh_preview_st.makers_preview = fresh_preview_st.makers_intact.clone();
             Right(fresh_preview_st)
         }
     }
 
     fn unstash(&mut self) {
-        let stashed_fragments = mem::take(&mut self.stashed_active_fragments);
+        let stashed_fragments = mem::take(&mut self.stashed_active_takers);
         for fr in stashed_fragments {
-            self.fragments_preview.active.insert(fr);
+            self.takers_preview.active.insert(fr);
         }
     }
 }
@@ -156,70 +160,70 @@ where
 /// consumption and production of new fragments/pools.
 /// Comes with overhead of cloning active frontier/pools upon construction.
 #[derive(Debug, Clone)]
-pub struct PreviewState<Fr, Pl: Stable> {
+pub struct PreviewState<T, M: Stable> {
     /// Fragments before changes.
-    fragments_intact: Chronology<Fr>,
+    takers_intact: Chronology<T>,
     /// Active fragments with changes pre-applied.
-    active_fragments_preview: Fragments<Fr>,
-    stashed_active_fragments: Vec<Fr>,
+    active_takers_preview: MarketTakers<T>,
+    stashed_active_takers: Vec<T>,
     /// Set of new inactive fragments.
-    inactive_fragments_changeset: Vec<(u64, Fr)>,
+    inactive_takers_changeset: Vec<(u64, T)>,
     /// Pools before changes.
-    pools_intact: Pools<Pl>,
+    makers_intact: MarketMakers<M>,
     /// Active pools with changes pre-applied.
-    pools_preview: Pools<Pl>,
+    makers_preview: MarketMakers<M>,
 }
 
 impl<Fr, Pl: Stable> PreviewState<Fr, Pl> {
     fn new(time_now: u64) -> Self {
         Self {
-            fragments_intact: Chronology::new(time_now),
-            active_fragments_preview: Fragments::new(),
-            inactive_fragments_changeset: vec![],
-            stashed_active_fragments: vec![],
-            pools_intact: Pools::new(),
-            pools_preview: Pools::new(),
+            takers_intact: Chronology::new(time_now),
+            active_takers_preview: MarketTakers::new(),
+            inactive_takers_changeset: vec![],
+            stashed_active_takers: vec![],
+            makers_intact: MarketMakers::new(),
+            makers_preview: MarketMakers::new(),
         }
     }
 }
 
 impl<Fr, Pl> PreviewState<Fr, Pl>
 where
-    Fr: Fragment + Ord,
+    Fr: MarketTaker + Ord,
     Pl: Stable + Copy,
 {
     fn commit(&mut self) -> IdleState<Fr, Pl> {
         trace!(target: "state", "PreviewState::commit");
         // Commit active fragments preview if available.
         mem::swap(
-            &mut self.fragments_intact.active,
-            &mut self.active_fragments_preview,
+            &mut self.takers_intact.active,
+            &mut self.active_takers_preview,
         );
         // Commit inactive fragments.
-        while let Some((t, fr)) = self.inactive_fragments_changeset.pop() {
-            match self.fragments_intact.inactive.entry(t) {
+        while let Some((time, t)) = self.inactive_takers_changeset.pop() {
+            match self.takers_intact.inactive.entry(time) {
                 btree_map::Entry::Vacant(entry) => {
-                    let mut frs = Fragments::new();
-                    frs.insert(fr);
-                    entry.insert(frs);
+                    let mut takers = MarketTakers::new();
+                    takers.insert(t);
+                    entry.insert(takers);
                 }
                 btree_map::Entry::Occupied(mut entry) => {
-                    entry.get_mut().insert(fr);
+                    entry.get_mut().insert(t);
                 }
             }
         }
-        let mut fresh_settled_st = IdleState::new(self.fragments_intact.time_now);
+        let mut fresh_settled_st = IdleState::new(self.takers_intact.time_now);
         self.unstash();
-        mem::swap(&mut fresh_settled_st.fragments, &mut self.fragments_intact);
+        mem::swap(&mut fresh_settled_st.takers, &mut self.takers_intact);
         // Commit pools preview if available.
-        mem::swap(&mut fresh_settled_st.pools, &mut self.pools_preview);
+        mem::swap(&mut fresh_settled_st.makers, &mut self.makers_preview);
         fresh_settled_st
     }
 
     fn unstash(&mut self) {
-        let stashed_fragments = mem::take(&mut self.stashed_active_fragments);
+        let stashed_fragments = mem::take(&mut self.stashed_active_takers);
         for fr in stashed_fragments {
-            self.fragments_intact.active.insert(fr);
+            self.takers_intact.active.insert(fr);
         }
     }
 
@@ -230,33 +234,33 @@ where
         match stashing_opt {
             StashingOption::Stash(mut to_stash) => {
                 for fr in &to_stash {
-                    self.fragments_intact.active.remove(&fr);
+                    self.takers_intact.active.remove(&fr);
                 }
-                self.stashed_active_fragments.append(&mut to_stash);
+                self.stashed_active_takers.append(&mut to_stash);
             }
             StashingOption::Unstash => {
                 self.unstash();
             }
         }
-        if self.stashed_active_fragments.is_empty() {
+        if self.stashed_active_takers.is_empty() {
             trace!("PreviewState => IdleState");
-            let mut fresh_settled_st = IdleState::new(self.fragments_intact.time_now);
-            mem::swap(&mut fresh_settled_st.fragments, &mut self.fragments_intact);
-            mem::swap(&mut fresh_settled_st.pools, &mut self.pools_intact);
+            let mut fresh_settled_st = IdleState::new(self.takers_intact.time_now);
+            mem::swap(&mut fresh_settled_st.takers, &mut self.takers_intact);
+            mem::swap(&mut fresh_settled_st.makers, &mut self.makers_intact);
             Left(fresh_settled_st)
         } else {
             trace!("PreviewState => PartialPreviewState[With Stash]");
-            let mut fresh_preview_st = PartialPreviewState::new(self.fragments_intact.time_now);
+            let mut fresh_preview_st = PartialPreviewState::new(self.takers_intact.time_now);
             mem::swap(
-                &mut fresh_preview_st.fragments_preview,
-                &mut self.fragments_intact,
+                &mut fresh_preview_st.takers_preview,
+                &mut self.takers_intact,
             );
             mem::swap(
-                &mut fresh_preview_st.stashed_active_fragments,
-                &mut self.stashed_active_fragments,
+                &mut fresh_preview_st.stashed_active_takers,
+                &mut self.stashed_active_takers,
             );
-            mem::swap(&mut fresh_preview_st.pools_intact, &mut self.pools_intact);
-            fresh_preview_st.pools_preview = fresh_preview_st.pools_intact.clone();
+            mem::swap(&mut fresh_preview_st.makers_intact, &mut self.makers_intact);
+            fresh_preview_st.makers_preview = fresh_preview_st.makers_intact.clone();
             Right(fresh_preview_st)
         }
     }
@@ -264,45 +268,45 @@ where
 
 /// The idea of TLB state automata is to minimize overhead of maintaining preview of modified state.
 #[derive(Debug, Clone)]
-pub enum TLBState<Fr, Pl: Stable> {
+pub enum TLBState<T, M: Stable> {
     /// State with no uncommitted changes.
     ///
     ///              Idle
     ///              |  \
     /// PartialPreview   Preview
-    Idle(IdleState<Fr, Pl>),
+    Idle(IdleState<T, M>),
     /// Modified state that reflects only consumption of fragments and full preview of pools.
     ///
     ///          PartialPreview
     ///              |  \
     ///           Idle   Preview
-    PartialPreview(PartialPreviewState<Fr, Pl>),
+    PartialPreview(PartialPreviewState<T, M>),
     /// State with areas of uncommitted changes: consumption and production of fragments/pools.
     ///
     ///             Preview
     ///                |
     ///              Idle
-    Preview(PreviewState<Fr, Pl>),
+    Preview(PreviewState<T, M>),
 }
 
-impl<Fr, Pl: Stable> Display for TLBState<Fr, Pl> {
+impl<T, M: Stable> Display for TLBState<T, M> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(
             match self {
                 TLBState::Idle(inner) => format!(
                     "TLBState::Idle(active: {} asks, {} bids)",
-                    inner.fragments.active.asks.len(),
-                    inner.fragments.active.bids.len()
+                    inner.takers.active.asks.len(),
+                    inner.takers.active.bids.len()
                 ),
                 TLBState::PartialPreview(inner) => format!(
                     "TLBState::PartialPreview(active: {} asks, {} bids)",
-                    inner.fragments_preview.active.asks.len(),
-                    inner.fragments_preview.active.bids.len()
+                    inner.takers_preview.active.asks.len(),
+                    inner.takers_preview.active.bids.len()
                 ),
                 TLBState::Preview(inner) => format!(
                     "TLBState::Preview(active: {} asks, {} bids)",
-                    inner.active_fragments_preview.asks.len(),
-                    inner.active_fragments_preview.bids.len()
+                    inner.active_takers_preview.asks.len(),
+                    inner.active_takers_preview.bids.len()
                 ),
             }
             .as_str(),
@@ -310,29 +314,29 @@ impl<Fr, Pl: Stable> Display for TLBState<Fr, Pl> {
     }
 }
 
-impl<Fr, Pl: Stable> TLBState<Fr, Pl> {
+impl<T, M: Stable> TLBState<T, M> {
     pub fn new(time: u64) -> Self {
         Self::Idle(IdleState::new(time))
     }
 }
 
-impl<Fr, Pl: Stable> TLBState<Fr, Pl>
+impl<T, M: Stable> TLBState<T, M>
 where
-    Fr: Fragment + Ord + Copy,
+    T: MarketTaker + Ord + Copy,
 {
-    fn active_fragments(&self) -> &Fragments<Fr> {
+    fn active_fragments(&self) -> &MarketTakers<T> {
         match self {
-            TLBState::Idle(st) => &st.fragments.active,
-            TLBState::PartialPreview(st) => &st.fragments_preview.active,
-            TLBState::Preview(st) => &st.active_fragments_preview,
+            TLBState::Idle(st) => &st.takers.active,
+            TLBState::PartialPreview(st) => &st.takers_preview.active,
+            TLBState::Preview(st) => &st.active_takers_preview,
         }
     }
 }
 
-impl<Fr, Pl> TLBState<Fr, Pl>
+impl<T, M> TLBState<T, M>
 where
-    Fr: Fragment + Ord + Copy,
-    Pl: Stable + Copy,
+    T: MarketTaker + Ord + Copy,
+    M: Stable + Copy,
 {
     pub fn commit(&mut self) {
         match self {
@@ -350,7 +354,7 @@ where
         }
     }
 
-    pub fn rollback(&mut self, stashing_opt: StashingOption<Fr>) {
+    pub fn rollback(&mut self, stashing_opt: StashingOption<T>) {
         match self {
             TLBState::PartialPreview(st) => {
                 trace!(target: "tlb", "TLBState::PartialPreview: rollback");
@@ -370,16 +374,16 @@ where
         }
     }
 
-    fn move_into_partial_preview(&mut self, target: &mut PartialPreviewState<Fr, Pl>) {
+    fn move_into_partial_preview(&mut self, target: &mut PartialPreviewState<T, M>) {
         match self {
             // Transit into PartialPreview if state is untouched yet
             TLBState::Idle(st) => {
                 trace!(target: "state", "TLBState::move_into_partial_preview: MOVING FROM IDLE");
                 // Move untouched fragments/pools sets into fresh state.
-                mem::swap(&mut target.fragments_preview, &mut st.fragments);
-                mem::swap(&mut target.pools_intact, &mut st.pools);
+                mem::swap(&mut target.takers_preview, &mut st.takers);
+                mem::swap(&mut target.makers_intact, &mut st.makers);
                 // Initialize pools preview with a copy of untouched pools.
-                target.pools_preview = target.pools_intact.clone();
+                target.makers_preview = target.makers_intact.clone();
             }
             TLBState::PartialPreview(_) | TLBState::Preview(_) => {
                 trace!(target: "state", "TLBState::move_into_partial_preview: NO-OP");
@@ -387,48 +391,48 @@ where
         }
     }
 
-    fn move_into_preview(&mut self, target: &mut PreviewState<Fr, Pl>) {
+    fn move_into_preview(&mut self, target: &mut PreviewState<T, M>) {
         match self {
             TLBState::Idle(st) => {
                 trace!(target: "state", "TLBState::move_into_preview from IDLE");
                 // Move untouched fragments/pools into preview state.
-                mem::swap(&mut target.fragments_intact, &mut st.fragments);
-                mem::swap(&mut target.pools_intact, &mut st.pools);
+                mem::swap(&mut target.takers_intact, &mut st.takers);
+                mem::swap(&mut target.makers_intact, &mut st.makers);
                 // Move active fragments/pools to use as a preview.
-                let mut active_fragments = target.fragments_intact.active.clone();
-                mem::swap(&mut target.active_fragments_preview, &mut active_fragments);
-                target.pools_preview = target.pools_intact.clone();
+                let mut active_fragments = target.takers_intact.active.clone();
+                mem::swap(&mut target.active_takers_preview, &mut active_fragments);
+                target.makers_preview = target.makers_intact.clone();
             }
             TLBState::PartialPreview(st) => {
                 trace!(target: "state", "TLBState::move_into_preview from PARTIAL_PREVIEW");
                 // Copy active fragments/pools to use as a preview.
-                let mut active_fragments = st.fragments_preview.active.clone();
-                mem::swap(&mut target.active_fragments_preview, &mut active_fragments);
-                mem::swap(&mut target.pools_preview, &mut st.pools_preview);
+                let mut active_fragments = st.takers_preview.active.clone();
+                mem::swap(&mut target.active_takers_preview, &mut active_fragments);
+                mem::swap(&mut target.makers_preview, &mut st.makers_preview);
                 // Return consumed fragments to reconstruct initial state.
-                while let Some(fr) = st.consumed_active_fragments.pop() {
-                    st.fragments_preview.active.insert(fr);
+                while let Some(fr) = st.consumed_active_takers.pop() {
+                    st.takers_preview.active.insert(fr);
                 }
                 // Move untouched state into preview.
-                mem::swap(&mut target.fragments_intact, &mut st.fragments_preview);
-                mem::swap(&mut target.pools_intact, &mut st.pools_intact);
+                mem::swap(&mut target.takers_intact, &mut st.takers_preview);
+                mem::swap(&mut target.makers_intact, &mut st.makers_intact);
             }
             TLBState::Preview(_) => {}
         }
     }
 }
 
-impl<Fr, Pl, U> TLBState<Fr, Pl>
+impl<T, M, U> TLBState<T, M>
 where
-    Fr: Fragment<U = U> + Ord + Copy + Debug,
-    Pl: MarketMaker + Stable + Copy,
+    T: MarketTaker<U = U> + Ord + Copy + Debug,
+    M: MarketMaker + Stable + Copy,
     U: PartialOrd,
 {
     pub fn show_state(&self) -> String
     where
-        Pl::StableId: Display,
-        Pl: Display,
-        Fr: Display,
+        M::StableId: Display,
+        M: Display,
+        T: Display,
     {
         let pools = self.pools().show_state();
         let fragments = self.active_fragments().show_state();
@@ -437,7 +441,6 @@ where
 
     pub fn best_fr_price(&self, side: SideM) -> Option<Side<AbsolutePrice>> {
         let active_fragments = self.active_fragments();
-        println!("Active FRS: {:?}", active_fragments);
         let side_store = match side {
             SideM::Bid => &active_fragments.bids,
             SideM::Ask => &active_fragments.asks,
@@ -446,22 +449,22 @@ where
     }
 
     /// Pick best fragment from either side
-    pub fn pick_best_fr_either(&mut self, index_price: Option<AbsolutePrice>) -> Option<Fr> {
+    pub fn pick_best_fr_either(&mut self, index_price: Option<AbsolutePrice>) -> Option<T> {
         trace!(target: "state", "pick_best_fr_either");
         self.pick_active_taker(|fragments| pick_best_fr_either(fragments, index_price))
     }
 
     /// Pick best fragment from the specified side if it matches the specified condition.
-    pub fn try_pick_fr<F>(&mut self, side: SideM, test: F) -> Option<Fr>
+    pub fn try_pick_fr<F>(&mut self, side: SideM, test: F) -> Option<T>
     where
-        F: FnOnce(&Fr) -> bool,
+        F: FnOnce(&T) -> bool,
     {
         trace!(target: "state", "try_pick_fr");
         self.pick_active_taker(|af| try_pick_fr(af, side, test))
     }
 
-    /// Add preview fragment [Fr].
-    pub fn pre_add_fragment(&mut self, fr: Fr) {
+    /// Add preview fragment [T].
+    pub fn pre_add_fragment(&mut self, fr: T) {
         trace!(target: "state", "pre_add_fragment");
         let time = self.current_time();
         match (self, fr.time_bounds().lower_bound()) {
@@ -472,43 +475,43 @@ where
                 // Add fr into preview.
                 match lower_bound {
                     Some(lower_bound) if lower_bound > time => {
-                        preview_st.inactive_fragments_changeset.push((lower_bound, fr));
+                        preview_st.inactive_takers_changeset.push((lower_bound, fr));
                     }
-                    _ => preview_st.active_fragments_preview.insert(fr),
+                    _ => preview_st.active_takers_preview.insert(fr),
                 }
                 mem::swap(this, &mut TLBState::Preview(preview_st));
             }
             (TLBState::Preview(ref mut preview_st), lower_bound) => match lower_bound {
-                Some(lb) if lb > time => preview_st.inactive_fragments_changeset.push((lb, fr)),
-                _ => preview_st.active_fragments_preview.insert(fr),
+                Some(lb) if lb > time => preview_st.inactive_takers_changeset.push((lb, fr)),
+                _ => preview_st.active_takers_preview.insert(fr),
             },
         }
     }
 
-    /// Add preview pool [Pl].
-    pub fn pre_add_pool(&mut self, pool: Pl) {
+    /// Add preview pool [M].
+    pub fn pre_add_pool(&mut self, pool: M) {
         match self {
             this @ TLBState::Idle(_) | this @ TLBState::PartialPreview(_) => {
                 let mut preview_st = PreviewState::new(0);
                 this.move_into_preview(&mut preview_st);
                 // Add pool into preview.
-                preview_st.pools_preview.update_pool(pool);
+                preview_st.makers_preview.update_pool(pool);
                 mem::swap(this, &mut TLBState::Preview(preview_st));
             }
-            TLBState::Preview(ref mut state) => state.pools_preview.update_pool(pool),
+            TLBState::Preview(ref mut state) => state.makers_preview.update_pool(pool),
         }
     }
 
     /// Pick active fragment ensuring TLB is in proper state.
-    pub fn pick_active_taker<F>(&mut self, f: F) -> Option<Fr>
+    pub fn pick_active_taker<F>(&mut self, f: F) -> Option<T>
     where
-        F: FnOnce(&mut Fragments<Fr>) -> Option<Fr>,
+        F: FnOnce(&mut MarketTakers<T>) -> Option<T>,
     {
         let mut needs_transition = false;
         let res = match self {
             // Transit into PartialPreview if state is untouched yet
             TLBState::Idle(idle_st) => {
-                let active_fragments = &mut idle_st.fragments.active;
+                let active_fragments = &mut idle_st.takers.active;
                 if let Some(choice) = f(active_fragments) {
                     needs_transition = true;
                     Some(choice)
@@ -517,16 +520,16 @@ where
                 }
             }
             TLBState::PartialPreview(busy_st) => {
-                let active_fragments = &mut busy_st.fragments_preview.active;
+                let active_fragments = &mut busy_st.takers_preview.active;
                 if let Some(choice) = f(active_fragments) {
-                    busy_st.consumed_active_fragments.push(choice);
+                    busy_st.consumed_active_takers.push(choice);
                     Some(choice)
                 } else {
                     None
                 }
             }
             TLBState::Preview(preview_st) => {
-                let active_fragments = &mut preview_st.active_fragments_preview;
+                let active_fragments = &mut preview_st.active_takers_preview;
                 f(active_fragments)
             }
         };
@@ -534,7 +537,7 @@ where
         if needs_transition {
             let mut busy_st = PartialPreviewState::new(0);
             self.move_into_partial_preview(&mut busy_st);
-            busy_st.consumed_active_fragments.push(res.unwrap());
+            busy_st.consumed_active_takers.push(res.unwrap());
             mem::swap(self, &mut TLBState::PartialPreview(busy_st));
         }
 
@@ -543,40 +546,40 @@ where
 
     fn current_time(&self) -> u64 {
         match self {
-            TLBState::Idle(st) => st.fragments.time_now,
-            TLBState::PartialPreview(st) => st.fragments_preview.time_now,
-            TLBState::Preview(st) => st.fragments_intact.time_now,
+            TLBState::Idle(st) => st.takers.time_now,
+            TLBState::PartialPreview(st) => st.takers_preview.time_now,
+            TLBState::Preview(st) => st.takers_intact.time_now,
         }
     }
 }
 
-impl<Fr, Pl> TLBState<Fr, Pl>
+impl<T, M> TLBState<T, M>
 where
-    Pl: MarketMaker + Stable,
+    M: MarketMaker + Stable,
 {
-    pub fn best_market_maker(&self) -> Option<&Pl>
+    pub fn best_market_maker(&self) -> Option<&M>
     where
-        Fr: Fragment,
-        Pl: MarketMaker + Stable + Copy,
+        T: MarketTaker,
+        M: MarketMaker + Stable + Copy,
     {
-        self.pools().pools.values().max_by_key(|p| p.quality())
+        self.pools().values.values().max_by_key(|p| p.quality())
     }
 }
 
-impl<Fr, Pl> TLBState<Fr, Pl>
+impl<T, M> TLBState<T, M>
 where
-    Pl: Stable + Copy,
+    M: Stable + Copy,
 {
     pub fn preselect_market_maker(
         &self,
         offered_amount: Side<InputAsset<u64>>,
-    ) -> Option<(Pl::StableId, AbsolutePrice)>
+    ) -> Option<(M::StableId, AbsolutePrice)>
     where
-        Pl: MarketMaker,
+        M: MarketMaker,
     {
         let pools = self
             .pools()
-            .pools
+            .values
             .values()
             .filter(|pool| pool.is_active())
             .map(|p| (p.stable_id(), p.real_price(offered_amount)))
@@ -587,13 +590,13 @@ where
         }
     }
 
-    pub fn try_select_pool(&self, trade_hint: Side<u64>) -> Option<(AbsolutePrice, SpotPrice, Pl::StableId)>
+    pub fn try_select_pool(&self, trade_hint: Side<u64>) -> Option<(AbsolutePrice, SpotPrice, M::StableId)>
     where
-        Pl: MarketMaker,
+        M: MarketMaker,
     {
         let pools = self
             .pools()
-            .pools
+            .values
             .values()
             .filter(|pool| pool.is_active())
             .map(|p| {
@@ -608,14 +611,14 @@ where
         }
     }
 
-    pub fn try_pick_pool<F>(&mut self, test: F) -> Option<Pl>
+    pub fn try_pick_pool<F>(&mut self, test: F) -> Option<M>
     where
-        Fr: Fragment + Ord + Copy,
-        F: Fn(&Pl) -> bool,
+        T: MarketTaker + Ord + Copy,
+        F: Fn(&M) -> bool,
     {
         self.pick_pool(|pools| {
             for id in pools.quality_index.values() {
-                match pools.pools.entry(*id) {
+                match pools.values.entry(*id) {
                     Entry::Occupied(pl) if test(pl.get()) => return Some(pl.remove()),
                     _ => {}
                 }
@@ -624,58 +627,57 @@ where
         })
     }
 
-    pub fn take_pool(&mut self, pid: &Pl::StableId) -> Option<Pl>
+    pub fn take_pool(&mut self, pid: &M::StableId) -> Option<M>
     where
-        Fr: Fragment + Ord + Copy,
+        T: MarketTaker + Ord + Copy,
     {
-        self.pick_pool(|pools| pools.pools.remove(pid))
+        self.pick_pool(|pools| pools.values.remove(pid))
     }
 
     /// Pick pool ensuring TLB is in proper state.
-    fn pick_pool<F>(&mut self, f: F) -> Option<Pl>
+    fn pick_pool<F>(&mut self, f: F) -> Option<M>
     where
-        F: FnOnce(&mut Pools<Pl>) -> Option<Pl>,
-        Fr: Fragment + Ord + Copy,
+        F: FnOnce(&mut MarketMakers<M>) -> Option<M>,
+        T: MarketTaker + Ord + Copy,
     {
         match self {
             // Transit into PartialPreview if state is untouched yet
             this @ TLBState::Idle(_) => {
                 let mut busy_st = PartialPreviewState::new(0);
                 this.move_into_partial_preview(&mut busy_st);
-                let pools_preview = &mut busy_st.pools_preview;
+                let pools_preview = &mut busy_st.makers_preview;
                 let result = f(pools_preview);
                 mem::swap(this, &mut TLBState::PartialPreview(busy_st));
                 result
             }
             TLBState::PartialPreview(busy_st) => {
-                let pools_preview = &mut busy_st.pools_preview;
+                let pools_preview = &mut busy_st.makers_preview;
                 f(pools_preview)
             }
             TLBState::Preview(preview_st) => {
-                let pools_preview = &mut preview_st.pools_preview;
+                let pools_preview = &mut preview_st.makers_preview;
                 f(pools_preview)
             }
         }
     }
 
-    fn pools(&self) -> &Pools<Pl> {
+    fn pools(&self) -> &MarketMakers<M> {
         match self {
-            TLBState::Idle(st) => &st.pools,
-            TLBState::PartialPreview(st) => &st.pools_preview,
-            TLBState::Preview(st) => &st.pools_preview,
+            TLBState::Idle(st) => &st.makers,
+            TLBState::PartialPreview(st) => &st.makers_preview,
+            TLBState::Preview(st) => &st.makers_preview,
         }
     }
 }
 
-fn pick_best_fr_either<Fr, U>(
-    active_frontier: &mut Fragments<Fr>,
+fn pick_best_fr_either<T, U>(
+    active_frontier: &mut MarketTakers<T>,
     index_price: Option<AbsolutePrice>,
-) -> Option<Fr>
+) -> Option<T>
 where
-    Fr: Fragment<U = U> + Ord + Copy,
+    T: MarketTaker<U = U> + Ord + Copy,
     U: PartialOrd,
 {
-    trace!("Picking best fragment");
     let best_bid = active_frontier.bids.pop_first();
     let best_ask = active_frontier.asks.pop_first();
     match (best_bid, best_ask) {
@@ -685,45 +687,13 @@ where
             let bid_is_heavier = bid.weight() >= ask.weight();
             if (bid_is_heavier && !bid_is_underpriced) || ask_is_overpriced {
                 active_frontier.asks.insert(ask);
-                trace!(
-                    "All BIDs: {}",
-                    active_frontier
-                        .bids
-                        .iter()
-                        .map(|i| i.price().to_string())
-                        .fold("".to_string(), |acc, x| acc.add(format!("{}, ", x).as_str()))
-                );
                 Some(bid)
             } else {
                 active_frontier.bids.insert(bid);
-                trace!(
-                    "All ASKs: {}",
-                    active_frontier
-                        .asks
-                        .iter()
-                        .map(|i| i.price().to_string())
-                        .fold("".to_string(), |x, axx| x.add(format!("{}, ", axx).as_str()))
-                );
                 Some(ask)
             }
         }
         (Some(any), None) | (None, Some(any)) => {
-            trace!(
-                "All BIDs: {}",
-                active_frontier
-                    .bids
-                    .iter()
-                    .map(|i| i.price().to_string())
-                    .fold("".to_string(), |acc, x| acc.add(format!("{}, ", x).as_str()))
-            );
-            trace!(
-                "All ASKs: {}",
-                active_frontier
-                    .asks
-                    .iter()
-                    .map(|i| i.price().to_string())
-                    .fold("".to_string(), |x, axx| x.add(format!("{}, ", axx).as_str()))
-            );
             Some(any)
         }
         _ => {
@@ -733,10 +703,10 @@ where
     }
 }
 
-fn try_pick_fr<Fr, F>(active_frontier: &mut Fragments<Fr>, side: SideM, test: F) -> Option<Fr>
+fn try_pick_fr<T, F>(active_frontier: &mut MarketTakers<T>, side: SideM, test: F) -> Option<T>
 where
-    Fr: Fragment + Copy + Ord,
-    F: FnOnce(&Fr) -> bool,
+    T: MarketTaker + Copy + Ord,
+    F: FnOnce(&T) -> bool,
 {
     let side = match side {
         SideM::Bid => &mut active_frontier.bids,
@@ -754,46 +724,46 @@ where
 
 /// Liquidity fragments spread across time axis.
 #[derive(Debug, Clone, Eq, PartialEq)]
-struct Chronology<Fr> {
+struct Chronology<T> {
     time_now: u64,
-    active: Fragments<Fr>,
-    inactive: BTreeMap<u64, Fragments<Fr>>,
+    active: MarketTakers<T>,
+    inactive: BTreeMap<u64, MarketTakers<T>>,
 }
 
-impl<Fr> Chronology<Fr> {
+impl<T> Chronology<T> {
     pub fn new(time_now: u64) -> Self {
         Self {
             time_now,
-            active: Fragments::new(),
+            active: MarketTakers::new(),
             inactive: BTreeMap::new(),
         }
     }
 }
 
-impl<Fr> Chronology<Fr>
+impl<T> Chronology<T>
 where
-    Fr: Fragment + OrderState + Ord + Copy,
+    T: MarketTaker + TakerBehaviour + Ord + Copy,
 {
     fn advance_clocks(&mut self, new_time: u64) {
         let new_slot = self
             .inactive
             .remove(&new_time)
-            .unwrap_or_else(|| Fragments::new());
-        let Fragments { asks, bids } = mem::replace(&mut self.active, new_slot);
+            .unwrap_or_else(|| MarketTakers::new());
+        let MarketTakers { asks, bids } = mem::replace(&mut self.active, new_slot);
         for fr in asks {
-            if let StateTrans::Active(next_fr) = fr.with_updated_time(new_time) {
+            if let Next::Succ(next_fr) = fr.with_updated_time(new_time) {
                 self.active.asks.insert(next_fr);
             }
         }
         for fr in bids {
-            if let StateTrans::Active(next_fr) = fr.with_updated_time(new_time) {
+            if let Next::Succ(next_fr) = fr.with_updated_time(new_time) {
                 self.active.bids.insert(next_fr);
             }
         }
         self.time_now = new_time;
     }
 
-    fn remove_fragment(&mut self, fr: Fr) {
+    fn remove_fragment(&mut self, fr: T) {
         if let Some(lower_bound) = fr.time_bounds().lower_bound() {
             if lower_bound > self.time_now {
                 match self.inactive.entry(lower_bound) {
@@ -808,38 +778,21 @@ where
                 return;
             }
         }
-        trace!("Removing fragment from active frontier");
         match fr.side() {
             SideM::Bid => {
                 self.active.bids.remove(&fr);
-                trace!(
-                    "All BIDs after removal: {}",
-                    self.active
-                        .bids
-                        .iter()
-                        .map(|i| i.price().to_string())
-                        .fold("".to_string(), |acc, x| acc.add(format!("{}, ", x).as_str()))
-                );
             }
             SideM::Ask => {
                 self.active.asks.remove(&fr);
-                trace!(
-                    "All ASKs after removal: {}",
-                    self.active
-                        .asks
-                        .iter()
-                        .map(|i| i.price().to_string())
-                        .fold("".to_string(), |acc, x| acc.add(format!("{}, ", x).as_str()))
-                );
             }
         };
     }
 
-    fn add_fragment(&mut self, fr: Fr) {
+    fn add_fragment(&mut self, fr: T) {
         match fr.time_bounds().lower_bound() {
             Some(lower_bound) if lower_bound > self.time_now => match self.inactive.entry(lower_bound) {
                 btree_map::Entry::Vacant(e) => {
-                    let mut fresh_fragments = Fragments::new();
+                    let mut fresh_fragments = MarketTakers::new();
                     fresh_fragments.insert(fr);
                     e.insert(fresh_fragments);
                 }
@@ -849,34 +802,18 @@ where
             },
             _ => {
                 self.active.insert(fr);
-                trace!(
-                    "All BIDs after addition: {}",
-                    self.active
-                        .bids
-                        .iter()
-                        .map(|i| i.price().to_string())
-                        .fold("".to_string(), |acc, x| acc.add(format!("{}, ", x).as_str()))
-                );
-                trace!(
-                    "All ASKs after addition: {}",
-                    self.active
-                        .asks
-                        .iter()
-                        .map(|i| i.price().to_string())
-                        .fold("".to_string(), |acc, x| acc.add(format!("{}, ", x).as_str()))
-                );
             }
         }
     }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct Fragments<Fr> {
-    asks: BTreeSet<Fr>,
-    bids: BTreeSet<Fr>,
+pub struct MarketTakers<T> {
+    asks: BTreeSet<T>,
+    bids: BTreeSet<T>,
 }
 
-impl<Fr> Fragments<Fr> {
+impl<T> MarketTakers<T> {
     fn new() -> Self {
         Self {
             asks: BTreeSet::new(),
@@ -885,18 +822,18 @@ impl<Fr> Fragments<Fr> {
     }
 }
 
-impl<Fr> Fragments<Fr>
+impl<T> MarketTakers<T>
 where
-    Fr: Fragment + Ord,
+    T: MarketTaker + Ord,
 {
-    pub fn insert(&mut self, fr: Fr) {
+    pub fn insert(&mut self, fr: T) {
         match fr.side() {
             SideM::Bid => self.bids.insert(fr),
             SideM::Ask => self.asks.insert(fr),
         };
     }
 
-    pub fn remove(&mut self, fr: &Fr) {
+    pub fn remove(&mut self, fr: &T) {
         match fr.side() {
             SideM::Bid => self.bids.remove(fr),
             SideM::Ask => self.asks.remove(fr),
@@ -905,7 +842,7 @@ where
 
     pub fn show_state(&self) -> String
     where
-        Fr: Display,
+        T: Display,
     {
         let asks = self
             .asks
@@ -922,45 +859,45 @@ where
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct Pools<Pl: Stable> {
-    pools: HashMap<Pl::StableId, Pl>,
-    quality_index: BTreeMap<PoolQuality, Pl::StableId>,
+pub struct MarketMakers<M: Stable> {
+    values: HashMap<M::StableId, M>,
+    quality_index: BTreeMap<PoolQuality, M::StableId>,
 }
 
-impl<Pl: Stable> Pools<Pl> {
+impl<M: Stable> MarketMakers<M> {
     pub fn new() -> Self {
         Self {
-            pools: HashMap::new(),
+            values: HashMap::new(),
             quality_index: BTreeMap::new(),
         }
     }
 
     pub fn show_state(&self) -> String
     where
-        Pl::StableId: Display,
-        Pl: Display,
+        M::StableId: Display,
+        M: Display,
     {
-        self.pools
+        self.values
             .iter()
             .map(|(k, v)| format!("{} -> {}", k, v))
             .fold("".to_string(), |acc, x| acc.add(format!("{}, ", x).as_str()))
     }
 }
 
-impl<Pl> Pools<Pl>
+impl<M> MarketMakers<M>
 where
-    Pl: MarketMaker + Stable + Copy,
+    M: MarketMaker + Stable + Copy,
 {
-    pub fn update_pool(&mut self, pool: Pl) {
-        if let Some(old_pool) = self.pools.insert(pool.stable_id(), pool) {
+    pub fn update_pool(&mut self, pool: M) {
+        if let Some(old_pool) = self.values.insert(pool.stable_id(), pool) {
             trace!(target: "state", "removing old pool {}", old_pool.stable_id());
             self.quality_index.remove(&old_pool.quality());
         }
         trace!(target: "state", "adding new pool id: {}, quality: {:?}", pool.stable_id(), pool.quality());
         self.quality_index.insert(pool.quality(), pool.stable_id());
     }
-    pub fn remove_pool(&mut self, pool: Pl) {
-        self.pools.remove(&pool.stable_id());
+    pub fn remove_pool(&mut self, pool: M) {
+        self.values.remove(&pool.stable_id());
         self.quality_index.remove(&pool.quality());
     }
 }
@@ -974,18 +911,14 @@ pub mod tests {
 
     use spectrum_offchain::data::Stable;
 
-    use crate::execution_engine::liquidity_book::core::{
-        MakeInProgress, Next, TakeInProgress, TerminalTake, Trans,
-    };
-    use crate::execution_engine::liquidity_book::fragment::{
-        Fragment, OrderState, StateTrans, TakerBehaviour,
-    };
+    use crate::execution_engine::liquidity_book::core::{Next, TerminalTake, Trans};
+    use crate::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
     use crate::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker, SpotPrice};
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
     use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, StashingOption, TLBState};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::{
-        AbsolutePrice, ExBudgetUsed, ExCostUnits, ExFeeUsed, FeeAsset, InputAsset, OutputAsset,
+        AbsolutePrice, ExCostUnits, FeeAsset, InputAsset, OutputAsset,
     };
     use crate::execution_engine::types::StableId;
 
@@ -994,7 +927,7 @@ pub mod tests {
         let time_now = 1000u64;
         let ord = SimpleOrderPF::default_with_bounds(TimeBounds::After(time_now + 100));
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(ord);
+        s0.takers.add_fragment(ord);
         assert_eq!(TLBState::Idle(s0).pick_best_fr_either(None), None);
     }
 
@@ -1003,7 +936,7 @@ pub mod tests {
         let time_now = 1000u64;
         let ord = SimpleOrderPF::default_with_bounds(TimeBounds::None);
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(ord);
+        s0.takers.add_fragment(ord);
         let mut s0_wrapped = TLBState::Idle(s0);
         assert_eq!(s0_wrapped.pick_best_fr_either(None), Some(ord));
         assert_eq!(s0_wrapped.pick_best_fr_either(None), None);
@@ -1015,9 +948,9 @@ pub mod tests {
         let delta = 100u64;
         let ord = SimpleOrderPF::default_with_bounds(TimeBounds::After(time_now + delta));
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(ord);
+        s0.takers.add_fragment(ord);
         assert_eq!(TLBState::Idle(s0.clone()).pick_best_fr_either(None), None);
-        s0.fragments.advance_clocks(time_now + delta);
+        s0.takers.advance_clocks(time_now + delta);
         assert_eq!(TLBState::Idle(s0).pick_best_fr_either(None), Some(ord));
     }
 
@@ -1027,9 +960,9 @@ pub mod tests {
         let delta = 100u64;
         let ord = SimpleOrderPF::default_with_bounds(TimeBounds::Until(time_now + delta));
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(ord);
+        s0.takers.add_fragment(ord);
         assert_eq!(TLBState::Idle(s0.clone()).pick_best_fr_either(None), Some(ord));
-        s0.fragments.advance_clocks(time_now + delta + 1);
+        s0.takers.advance_clocks(time_now + delta + 1);
         assert_eq!(TLBState::Idle(s0).pick_best_fr_either(None), None);
     }
 
@@ -1040,8 +973,8 @@ pub mod tests {
         let ask = SimpleOrderPF::new(SideM::Ask, 1000, index_price, 100);
         let bid = SimpleOrderPF::new(SideM::Bid, 1000, AbsolutePrice::new(1, 40), 200);
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(ask);
-        s0.fragments.add_fragment(bid);
+        s0.takers.add_fragment(ask);
+        s0.takers.add_fragment(bid);
         assert_eq!(
             TLBState::Idle(s0).pick_best_fr_either(Some(index_price)),
             Some(ask)
@@ -1055,8 +988,8 @@ pub mod tests {
         let ask = SimpleOrderPF::new(SideM::Ask, 1000, AbsolutePrice::new(1, 30), 100);
         let bid = SimpleOrderPF::new(SideM::Bid, 1000, index_price, 200);
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(ask);
-        s0.fragments.add_fragment(bid);
+        s0.takers.add_fragment(ask);
+        s0.takers.add_fragment(bid);
         assert_eq!(
             TLBState::Idle(s0).pick_best_fr_either(Some(index_price)),
             Some(bid)
@@ -1070,8 +1003,8 @@ pub mod tests {
         let ask = SimpleOrderPF::new(SideM::Ask, 1000, AbsolutePrice::new(1, 30), 100);
         let bid = SimpleOrderPF::new(SideM::Bid, 1000, AbsolutePrice::new(1, 40), 200);
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(ask);
-        s0.fragments.add_fragment(bid);
+        s0.takers.add_fragment(ask);
+        s0.takers.add_fragment(bid);
         assert_eq!(
             TLBState::Idle(s0).pick_best_fr_either(Some(index_price)),
             Some(bid)
@@ -1085,14 +1018,14 @@ pub mod tests {
         let o1 = SimpleOrderPF::default_with_bounds(TimeBounds::Until(time_now + delta));
         let o2 = SimpleOrderPF::default_with_bounds(TimeBounds::None);
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(o1);
+        s0.takers.add_fragment(o1);
         let s0_copy = s0.clone();
         let mut state = TLBState::Idle(s0);
         state.pre_add_fragment(o2);
         match state {
             TLBState::Preview(st) => {
-                assert_eq!(st.fragments_intact, s0_copy.fragments);
-                let preview = st.active_fragments_preview;
+                assert_eq!(st.takers_intact, s0_copy.takers);
+                let preview = st.active_takers_preview;
                 assert!(preview.bids.contains(&o1) || preview.asks.contains(&o1));
                 assert!(preview.bids.contains(&o2) || preview.asks.contains(&o2));
                 dbg!(preview);
@@ -1108,15 +1041,15 @@ pub mod tests {
         let o1 = SimpleOrderPF::default_with_bounds(TimeBounds::Until(time_now + delta));
         let o2 = SimpleOrderPF::default_with_bounds(TimeBounds::After(time_now + delta));
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(o1);
+        s0.takers.add_fragment(o1);
         let s0_copy = s0.clone();
         let mut state = TLBState::Idle(s0);
         state.pre_add_fragment(o2);
         match state {
             TLBState::Preview(st) => {
-                assert_eq!(st.fragments_intact, s0_copy.fragments);
+                assert_eq!(st.takers_intact, s0_copy.takers);
                 assert_eq!(
-                    st.inactive_fragments_changeset,
+                    st.inactive_takers_changeset,
                     vec![(o2.bounds.lower_bound().unwrap(), o2)]
                 );
             }
@@ -1131,7 +1064,7 @@ pub mod tests {
         let o1 = SimpleOrderPF::default_with_bounds(TimeBounds::Until(time_now + delta));
         let o2 = SimpleOrderPF::default_with_bounds(TimeBounds::None);
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(o1);
+        s0.takers.add_fragment(o1);
         let _s0_copy = s0.clone();
         let mut state = TLBState::Idle(s0);
         state.pre_add_fragment(o2);
@@ -1139,19 +1072,19 @@ pub mod tests {
             TLBState::Preview(mut s1) => {
                 let s1_copy = s1.clone();
                 let s2 = s1.commit();
-                for (t, fr) in s1_copy.inactive_fragments_changeset {
+                for (t, fr) in s1_copy.inactive_takers_changeset {
                     assert!(s2
-                        .fragments
+                        .takers
                         .inactive
                         .get(&t)
                         .map(|frs| frs.asks.contains(&fr) || frs.bids.contains(&fr))
                         .unwrap_or(false));
                 }
-                for fr in &s1_copy.active_fragments_preview.bids {
-                    assert!(s2.fragments.active.bids.contains(&fr))
+                for fr in &s1_copy.active_takers_preview.bids {
+                    assert!(s2.takers.active.bids.contains(&fr))
                 }
-                for fr in &s1_copy.active_fragments_preview.asks {
-                    assert!(s2.fragments.active.asks.contains(&fr))
+                for fr in &s1_copy.active_takers_preview.asks {
+                    assert!(s2.takers.active.asks.contains(&fr))
                 }
             }
             _ => panic!(),
@@ -1166,8 +1099,8 @@ pub mod tests {
         let o2 = SimpleOrderPF::default_with_bounds(TimeBounds::None);
         let o3 = SimpleOrderPF::default_with_bounds(TimeBounds::None);
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(o1);
-        s0.fragments.add_fragment(o2);
+        s0.takers.add_fragment(o1);
+        s0.takers.add_fragment(o2);
         let s0_copy = s0.clone();
         let mut state = TLBState::Idle(s0);
         // One new fragment added into the preview.
@@ -1177,8 +1110,8 @@ pub mod tests {
         match state {
             TLBState::Preview(mut s1) => {
                 if let Left(s2) = s1.rollback(StashingOption::Unstash) {
-                    assert_eq!(s2.fragments, s0_copy.fragments);
-                    assert_eq!(s2.pools, s0_copy.pools);
+                    assert_eq!(s2.takers, s0_copy.takers);
+                    assert_eq!(s2.makers, s0_copy.makers);
                 } else {
                     panic!()
                 }
@@ -1194,8 +1127,8 @@ pub mod tests {
         let o1 = SimpleOrderPF::default_with_bounds(TimeBounds::Until(time_now + delta));
         let o2 = SimpleOrderPF::default_with_bounds(TimeBounds::None);
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(o1);
-        s0.fragments.add_fragment(o2);
+        s0.takers.add_fragment(o1);
+        s0.takers.add_fragment(o2);
         let s0_copy = s0.clone();
         let mut state = TLBState::Idle(s0);
         // One old fragment removed from the preview.
@@ -1203,8 +1136,8 @@ pub mod tests {
         match state {
             TLBState::PartialPreview(mut s1) => {
                 if let Left(s2) = s1.rollback(StashingOption::Unstash) {
-                    assert_eq!(s2.fragments, s0_copy.fragments);
-                    assert_eq!(s2.pools, s0_copy.pools);
+                    assert_eq!(s2.takers, s0_copy.takers);
+                    assert_eq!(s2.makers, s0_copy.makers);
                 } else {
                     panic!()
                 }
@@ -1224,17 +1157,17 @@ pub mod tests {
             fee_num: 0,
         };
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
-        s0.fragments.add_fragment(o2);
-        s0.pools.update_pool(p0);
+        s0.takers.add_fragment(o2);
+        s0.makers.update_pool(p0);
         let mut state = TLBState::Idle(s0);
         state.commit();
         assert_eq!(state.pick_best_fr_either(None), Some(o2));
         state.rollback(StashingOption::Stash(vec![o2]));
-        assert_eq!(state.pools().pools.get(&p0.pool_id).copied(), Some(p0));
+        assert_eq!(state.pools().values.get(&p0.pool_id).copied(), Some(p0));
         assert_eq!(state.pick_best_fr_either(None), None);
         state.rollback(StashingOption::Unstash);
         assert_eq!(state.pick_best_fr_either(None), Some(o2));
-        assert_eq!(state.pools().pools.get(&p0.pool_id).copied(), Some(p0));
+        assert_eq!(state.pools().values.get(&p0.pool_id).copied(), Some(p0));
     }
 
     /// Order that supports partial filling.
@@ -1335,7 +1268,7 @@ pub mod tests {
         }
     }
 
-    impl Fragment for SimpleOrderPF {
+    impl MarketTaker for SimpleOrderPF {
         type U = u64;
 
         fn side(&self) -> SideM {
@@ -1380,16 +1313,24 @@ pub mod tests {
     }
 
     impl TakerBehaviour for SimpleOrderPF {
+        fn with_updated_time(self, time: u64) -> Next<Self, ()> {
+            if self.bounds.contain(&time) {
+                Next::Succ(self)
+            } else {
+                Next::Term(())
+            }
+        }
+
         fn with_applied_trade(
             mut self,
             removed_input: InputAsset<u64>,
             added_output: OutputAsset<u64>,
-        ) -> TakeInProgress<Self> {
+        ) -> Next<Self, TerminalTake> {
             let target = self;
             self.fee -= self.operator_fee(removed_input);
             self.input -= removed_input;
             self.accumulated_output += added_output;
-            let next = if self.input > 0 {
+            if self.input > 0 {
                 Next::Succ(self)
             } else {
                 Next::Term(TerminalTake {
@@ -1398,8 +1339,7 @@ pub mod tests {
                     remaining_fee: self.fee,
                     remaining_budget: self.ex_budget,
                 })
-            };
-            Trans { target, result: next }
+            }
         }
         fn with_budget_corrected(mut self, delta: i64) -> (i64, Self) {
             let budget_remainder = self.ex_budget as i64;
@@ -1408,32 +1348,6 @@ pub mod tests {
             let real_delta = budget_remainder - updated_budget_remainder;
             self.ex_budget = updated_budget_remainder as u64;
             (real_delta, self)
-        }
-    }
-
-    impl OrderState for SimpleOrderPF {
-        fn with_updated_time(self, time: u64) -> StateTrans<Self> {
-            if self.bounds.contain(&time) {
-                StateTrans::Active(self)
-            } else {
-                StateTrans::EOL
-            }
-        }
-
-        fn with_applied_swap(
-            mut self,
-            removed_input: u64,
-            added_output: u64,
-        ) -> (StateTrans<Self>, ExBudgetUsed, ExFeeUsed) {
-            self.input -= removed_input;
-            self.accumulated_output += added_output;
-            let budget_used = added_output * self.fee;
-            let next_st = if self.input > 0 {
-                StateTrans::Active(self)
-            } else {
-                StateTrans::EOL
-            };
-            (next_st, budget_used, ExFeeUsed::from(self.fee))
         }
     }
 
@@ -1468,8 +1382,7 @@ pub mod tests {
     }
 
     impl MakerBehavior for SimpleCFMMPool {
-        fn swap(mut self, input: Side<u64>) -> MakeInProgress<Self> {
-            let init = self.clone();
+        fn swap(mut self, input: Side<u64>) -> Next<Self, ()> {
             let result = match input {
                 Side::Bid(quote_input) => {
                     let base_output =
@@ -1492,10 +1405,7 @@ pub mod tests {
                     self
                 }
             };
-            Trans {
-                target: init,
-                result: Next::Succ(result),
-            }
+            Next::Succ(result)
         }
     }
 
@@ -1510,12 +1420,14 @@ pub mod tests {
             match input {
                 Side::Bid(quote_input) => {
                     let result_pool = self.swap(Side::Bid(quote_input));
-                    let base_output = result_pool.loss().map(|r| r.unwrap()).unwrap_or(0);
+                    let trans = Trans::new(*self, result_pool);
+                    let base_output = trans.loss().map(|r| r.unwrap()).unwrap_or(0);
                     AbsolutePrice::new(quote_input, base_output)
                 }
                 Side::Ask(base_input) => {
                     let result_pool = self.swap(Side::Ask(base_input));
-                    let quote_output = result_pool.loss().map(|r| r.unwrap()).unwrap_or(0);
+                    let trans = Trans::new(*self, result_pool);
+                    let quote_output = trans.loss().map(|r| r.unwrap()).unwrap_or(0);
                     AbsolutePrice::new(quote_output, base_input)
                 }
             }

@@ -7,12 +7,12 @@ use num_rational::Ratio;
 use primitive_types::U256;
 
 use crate::execution_engine::liquidity_book::core::{
-    MakeInProgress, MatchmakingAttempt, MatchmakingRecipe, Next, TakeInProgress,
+    MakeInProgress, MatchmakingAttempt, MatchmakingRecipe, Next, TakeInProgress, Trans,
 };
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::maker::Maker;
 
-use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, TakerBehaviour};
+use crate::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
 use crate::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker, SpotPrice};
 
 use crate::execution_engine::liquidity_book::side::Side::{Ask, Bid};
@@ -27,7 +27,6 @@ pub mod core;
 pub mod fragment;
 pub mod interpreter;
 pub mod market_maker;
-pub mod recipe;
 pub mod side;
 pub mod stashing_option;
 mod state;
@@ -41,17 +40,17 @@ pub mod weight;
 /// Composable liquidity falls into two essential categories:
 /// (1.) Discrete Fragments of liquidity;
 /// (2.) Pooled (according to some AMM formula) liquidity;
-pub trait TemporalLiquidityBook<Taker: Stable, Maker: Stable> {
+pub trait TemporalLiquidityBook<Taker, Maker> {
     fn attempt(&mut self) -> Option<MatchmakingRecipe<Taker, Maker>>;
 }
 
 /// TLB API for external events affecting its state.
-pub trait ExternalTLBEvents<Fr, Pl> {
+pub trait ExternalTLBEvents<T, M> {
     fn advance_clocks(&mut self, new_time: u64);
-    fn add_fragment(&mut self, fr: Fr);
-    fn remove_fragment(&mut self, fr: Fr);
-    fn update_pool(&mut self, pool: Pl);
-    fn remove_pool(&mut self, pool: Pl);
+    fn add_fragment(&mut self, fr: T);
+    fn remove_fragment(&mut self, fr: T);
+    fn update_pool(&mut self, pool: M);
+    fn remove_pool(&mut self, pool: M);
 }
 
 /// TLB API for feedback events affecting its state.
@@ -74,7 +73,7 @@ pub struct TLB<Taker, Maker: Stable, U> {
 
 impl<Taker, Maker, U> TLBFeedback<Taker, Maker> for TLB<Taker, Maker, U>
 where
-    Taker: Fragment + Ord + Copy,
+    Taker: MarketTaker + Ord + Copy,
     Maker: MarketMaker + Stable + Copy,
 {
     fn on_recipe_succeeded(&mut self) {
@@ -99,7 +98,7 @@ where
 
     fn spot_price(&self) -> Option<SpotPrice>
     where
-        Taker: Fragment,
+        Taker: MarketTaker,
         Maker: MarketMaker + Copy,
     {
         self.state.best_market_maker().map(|mm| mm.static_price())
@@ -108,7 +107,7 @@ where
 
 impl<Taker, Maker, U> TLB<Taker, Maker, U>
 where
-    Taker: Fragment<U = U> + Ord + Copy + Debug,
+    Taker: MarketTaker<U = U> + Ord + Copy + Debug,
     Maker: MarketMaker + Stable + Copy,
     U: PartialOrd,
 {
@@ -127,29 +126,29 @@ where
 
 impl<Taker, Maker, U> TemporalLiquidityBook<Taker, Maker> for TLB<Taker, Maker, U>
 where
-    Taker: Stable + Fragment<U = U> + TakerBehaviour + Ord + Copy + Debug,
+    Taker: Stable + MarketTaker<U = U> + TakerBehaviour + Ord + Copy + Debug,
     Maker: Stable + MarketMaker<U = U> + MakerBehavior + Copy + Debug,
     U: Monoid + AddAssign + PartialOrd + Copy,
 {
     fn attempt(&mut self) -> Option<MatchmakingRecipe<Taker, Maker>> {
         loop {
-            println!("Attempting to matchmake");
+            trace!("Attempting to matchmake");
             let mut batch: MatchmakingAttempt<Taker, Maker, U> = MatchmakingAttempt::empty();
             while batch.execution_units_consumed() < self.execution_cap.soft {
                 let spot_price = self.spot_price();
-                println!("Spot price is: {:?}", spot_price);
+                trace!("Spot price is: {:?}", spot_price);
                 if let Some(target_taker) = self.state.pick_active_taker(|fs| {
                     spot_price
                         .map(|sp| max_by_distance_to_spot(fs, sp))
-                        .unwrap_or(max_by_volume(fs))
+                        .unwrap_or_else(|| max_by_volume(fs))
                 }) {
-                    println!("Selected taker is: {:?}", target_taker);
+                    trace!("Selected taker is: {:?}", target_taker);
                     let target_side = target_taker.side();
                     let target_price = target_side.wrap(target_taker.price());
                     let maybe_price_counter_taker = self.state.best_fr_price(!target_side);
                     let chunk_offered = batch.next_offered_chunk(&target_taker);
                     let maybe_price_maker = self.state.preselect_market_maker(chunk_offered);
-                    println!(
+                    trace!(
                         "P_target: {:?}, P_counter: {:?}, P_amm: {:?}",
                         target_price, maybe_price_counter_taker, maybe_price_maker
                     );
@@ -161,7 +160,7 @@ where
                                     .unwrap_or(true) =>
                         {
                             if let Some(counter_taker) = self.state.try_pick_fr(!target_side, ok) {
-                                println!("Taker {:?} matched with {:?}", target_taker, counter_taker);
+                                trace!("Taker {:?} matched with {:?}", target_taker, counter_taker);
                                 let make_match =
                                     |ask: &Taker, bid: &Taker| settle_price(ask, bid, spot_price);
                                 let (take_a, take_b) =
@@ -175,7 +174,7 @@ where
                         }
                         (_, Some((maker_sid, price_maker))) if target_price.overlaps(price_maker) => {
                             if let Some(maker) = self.state.take_pool(&maker_sid) {
-                                println!("Taker {:?} matched with {:?}", target_taker, maker);
+                                trace!("Taker {:?} matched with {:?}", target_taker, maker);
                                 let (take, make) = execute_with_maker(target_taker, maker, chunk_offered);
                                 if let Ok(_) = batch.add_make(make) {
                                     batch.add_take(take);
@@ -183,7 +182,7 @@ where
                                     self.on_make(make.result);
                                     continue;
                                 } else {
-                                    println!("Maker {} caused an opposite swap", maker.stable_id());
+                                    warn!("Maker {} caused an opposite swap", maker.stable_id());
                                     self.state.pre_add_pool(maker);
                                     self.state.pre_add_fragment(target_taker);
                                 }
@@ -220,13 +219,15 @@ fn execute_with_maker<Taker, Maker>(
     chunk_size: Side<u64>,
 ) -> (TakeInProgress<Taker>, MakeInProgress<Maker>)
 where
-    Taker: Fragment + TakerBehaviour + Copy,
+    Taker: MarketTaker + TakerBehaviour + Copy,
     Maker: MarketMaker + MakerBehavior + Copy,
 {
-    let maker_applied = maker.swap(chunk_size);
-    let trade_output = maker_applied.loss().map(|val| val.unwrap()).unwrap_or(0);
-    let taker_applied = target_taker.with_applied_trade(chunk_size.unwrap(), trade_output);
-    (taker_applied, maker_applied)
+    let next_maker = maker.swap(chunk_size);
+    let make = Trans::new(maker, next_maker);
+    let trade_output = make.loss().map(|val| val.unwrap()).unwrap_or(0);
+    let next_taker = target_taker.with_applied_trade(chunk_size.unwrap(), trade_output);
+    let take = Trans::new(target_taker, next_taker);
+    (take, make)
 }
 
 fn execute_with_taker<Taker, F>(
@@ -235,7 +236,7 @@ fn execute_with_taker<Taker, F>(
     matchmaker: F,
 ) -> (TakeInProgress<Taker>, TakeInProgress<Taker>)
 where
-    Taker: Fragment + TakerBehaviour + Copy,
+    Taker: MarketTaker + TakerBehaviour + Copy,
     F: FnOnce(&Taker, &Taker) -> AbsolutePrice,
 {
     let (ask, bid) = match target_taker.side() {
@@ -256,7 +257,7 @@ where
     };
     let next_ask = ask.with_applied_trade(base, quote);
     let next_bid = bid.with_applied_trade(quote, base);
-    (next_ask, next_bid)
+    (Trans::new(ask, next_ask), Trans::new(bid, next_bid))
 }
 
 fn ok<T>(_: &T) -> bool {
@@ -290,20 +291,18 @@ where
 
 impl<Fr, Pl, U> ExternalTLBEvents<Fr, Pl> for TLB<Fr, Pl, U>
 where
-    Fr: Fragment + OrderState + Ord + Copy + Display,
-    Pl: MarketMaker + Stable + Copy,
+    Fr: MarketTaker + TakerBehaviour + Ord + Copy + Debug,
+    Pl: MarketMaker + Stable + Copy + Debug,
 {
     fn advance_clocks(&mut self, new_time: u64) {
         requiring_settled_state(self, |st| st.advance_clocks(new_time))
     }
 
     fn add_fragment(&mut self, fr: Fr) {
-        trace!(target: "tlb", "TLB::add_fragment({})", fr);
         requiring_settled_state(self, |st| st.add_fragment(fr))
     }
 
     fn remove_fragment(&mut self, fr: Fr) {
-        trace!(target: "tlb", "TLB::remove_fragment({})", fr);
         requiring_settled_state(self, |st| st.remove_fragment(fr))
     }
 
@@ -324,7 +323,7 @@ const MAX_BIAS_PERCENT: u128 = 3;
 //           |         |           |          |
 //          ask     |bias|<=3%...pivot       bid
 /// Settle execution price for two interleaving fragments.
-fn settle_price<Fr: Fragment>(ask: &Fr, bid: &Fr, index_price: Option<SpotPrice>) -> AbsolutePrice {
+fn settle_price<Fr: MarketTaker>(ask: &Fr, bid: &Fr, index_price: Option<SpotPrice>) -> AbsolutePrice {
     let price_ask = ask.price();
     let price_bid = bid.price();
     let price_ask_rat = price_ask.unwrap();
@@ -379,7 +378,7 @@ fn linear_output_unsafe(input: u64, price: Side<AbsolutePrice>) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::execution_engine::liquidity_book::fragment::Fragment;
+    use crate::execution_engine::liquidity_book::fragment::MarketTaker;
     use crate::execution_engine::liquidity_book::market_maker::MarketMaker;
     use crate::execution_engine::liquidity_book::side::SideM::{Ask, Bid};
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
@@ -426,12 +425,18 @@ mod tests {
     #[test]
     fn recipe_fill_fragment_from_fragment() {
         // Assuming pair ADA/USDT @ 0.37
-        let o1 = SimpleOrderPF::new(SideM::Ask, 2000, AbsolutePrice::new(36, 100), 1000);
-        let o2 = SimpleOrderPF::new(SideM::Bid, 370, AbsolutePrice::new(37, 100), 990);
+        let o1 = SimpleOrderPF::new(Ask, 20000, AbsolutePrice::new(36, 100), 1000);
+        let o2 = SimpleOrderPF::new(Bid, 3700, AbsolutePrice::new(37, 100), 990);
         let p1 = SimpleCFMMPool {
             pool_id: StableId::random(),
-            reserves_base: 1000000000000000,
-            reserves_quote: 370000000000000,
+            reserves_base: 1000000,
+            reserves_quote: 370000,
+            fee_num: 997,
+        };
+        let p2 = SimpleCFMMPool {
+            pool_id: StableId::random(),
+            reserves_base: 1000000,
+            reserves_quote: 370000,
             fee_num: 997,
         };
         let mut book = TLB::new(
@@ -444,35 +449,8 @@ mod tests {
         book.add_fragment(o1);
         book.add_fragment(o2);
         book.update_pool(p1);
+        book.update_pool(p2);
         let recipe = book.attempt();
-        // let expected_recipe = IntermediateRecipe {
-        //     terminal: vec![
-        //         TerminalInstruction::Fill(Fill {
-        //             target_fr: o2,
-        //             next_fr: StateTrans::EOL,
-        //             removed_input: o2.input,
-        //             added_output: 1000,
-        //             budget_used: 990000,
-        //             fee_used: 990,
-        //         }),
-        //         TerminalInstruction::Swap(Take {
-        //             target: p1,
-        //             transition: p2,
-        //             side: SideM::Ask,
-        //             input: 1000,
-        //             output: 368,
-        //         }),
-        //         TerminalInstruction::Fill(Fill {
-        //             target_fr: o1,
-        //             next_fr: StateTrans::EOL,
-        //             removed_input: o1.input,
-        //             added_output: 738,
-        //             budget_used: 738000,
-        //             fee_used: 1000,
-        //         }),
-        //     ],
-        //     remainder: None,
-        // };
         dbg!(recipe);
     }
 
@@ -553,7 +531,7 @@ mod tests {
         // Assuming pair ADA/USDT @ ask price 0.360, real price in pool 0.364.
         let ask_fr = SimpleOrderPF {
             source: StableId::random(),
-            side: SideM::Ask,
+            side: Ask,
             input: 1000,
             accumulated_output: 0,
             min_marginal_output: 0,
@@ -581,7 +559,7 @@ mod tests {
         let index_price = AbsolutePrice::new(40, 100);
         let ask_fr = SimpleOrderPF {
             source: StableId::random(),
-            side: SideM::Ask,
+            side: Ask,
             input: 1000,
             accumulated_output: 0,
             min_marginal_output: 0,
@@ -593,7 +571,7 @@ mod tests {
         };
         let bid_fr = SimpleOrderPF {
             source: StableId::random(),
-            side: SideM::Bid,
+            side: Bid,
             input: 360,
             accumulated_output: 0,
             min_marginal_output: 0,
@@ -615,7 +593,7 @@ mod tests {
         let index_price = AbsolutePrice::new(51, 100);
         let ask_fr = SimpleOrderPF {
             source: StableId::random(),
-            side: SideM::Ask,
+            side: Ask,
             input: 1000,
             accumulated_output: 0,
             min_marginal_output: 0,
@@ -627,7 +605,7 @@ mod tests {
         };
         let bid_fr = SimpleOrderPF {
             source: StableId::random(),
-            side: SideM::Bid,
+            side: Bid,
             input: 360,
             accumulated_output: 0,
             min_marginal_output: 0,

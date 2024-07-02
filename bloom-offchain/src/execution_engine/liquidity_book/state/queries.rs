@@ -1,12 +1,12 @@
-use crate::execution_engine::liquidity_book::fragment::Fragment;
+use crate::execution_engine::liquidity_book::fragment::MarketTaker;
 use crate::execution_engine::liquidity_book::market_maker::SpotPrice;
-use crate::execution_engine::liquidity_book::state::Fragments;
+use crate::execution_engine::liquidity_book::state::MarketTakers;
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 use num_rational::Ratio;
 
-pub fn max_by_distance_to_spot<Fr>(fragments: &mut Fragments<Fr>, spot_price: SpotPrice) -> Option<Fr>
+pub fn max_by_distance_to_spot<Fr>(fragments: &mut MarketTakers<Fr>, spot_price: SpotPrice) -> Option<Fr>
 where
-    Fr: Fragment + Ord + Copy,
+    Fr: MarketTaker + Ord + Copy,
 {
     let best_bid = fragments.bids.pop_first();
     let best_ask = fragments.asks.pop_first();
@@ -38,7 +38,7 @@ where
 
 fn _max_by_volume<Fr>(ask: Fr, bid: Fr, spot_price: Option<SpotPrice>) -> Fr
 where
-    Fr: Fragment,
+    Fr: MarketTaker,
 {
     let index_price = spot_price
         .map(AbsolutePrice::from)
@@ -52,9 +52,9 @@ where
     }
 }
 
-pub fn max_by_volume<Fr>(fragments: &mut Fragments<Fr>) -> Option<Fr>
+pub fn max_by_volume<Fr>(fragments: &mut MarketTakers<Fr>) -> Option<Fr>
 where
-    Fr: Fragment + Ord + Copy,
+    Fr: MarketTaker + Ord + Copy,
 {
     let best_bid = fragments.bids.pop_first();
     let best_ask = fragments.asks.pop_first();

@@ -1,65 +1,22 @@
-use crate::execution_engine::liquidity_book::core::{TakeInProgress, TerminalTake, Trans};
-use num_rational::Ratio;
-use std::fmt::{Display, Formatter};
-
+use crate::execution_engine::liquidity_book::core::{Next, TerminalTake};
 use crate::execution_engine::liquidity_book::side::SideM;
 use crate::execution_engine::liquidity_book::time::TimeBounds;
-use crate::execution_engine::liquidity_book::types::{
-    AbsolutePrice, ExBudgetUsed, ExFeeUsed, FeeAsset, InputAsset, OutputAsset,
-};
-
-/// Order as a state machine.
-pub trait OrderState: Sized {
-    fn with_updated_time(self, time: u64) -> StateTrans<Self>;
-    fn with_applied_swap(
-        self,
-        removed_input: InputAsset<u64>,
-        added_output: OutputAsset<u64>,
-    ) -> (StateTrans<Self>, ExBudgetUsed, ExFeeUsed);
-}
+use crate::execution_engine::liquidity_book::types::{AbsolutePrice, FeeAsset, InputAsset, OutputAsset};
 
 /// Order as a state machine.
 pub trait TakerBehaviour: Sized {
+    fn with_updated_time(self, time: u64) -> Next<Self, ()>;
     fn with_applied_trade(
         self,
         removed_input: InputAsset<u64>,
         added_output: OutputAsset<u64>,
-    ) -> TakeInProgress<Self>;
+    ) -> Next<Self, TerminalTake>;
     fn with_budget_corrected(self, delta: i64) -> (i64, Self);
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum StateTrans<T> {
-    /// Next state is available.
-    Active(T),
-    /// Order is exhausted.
-    EOL,
-}
-
-impl<T: Display> Display for StateTrans<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            StateTrans::Active(t) => f.write_str(&*format!("Active({})", t.to_string())),
-            StateTrans::EOL => f.write_str(&*format!("EOL")),
-        }
-    }
-}
-
-impl<T> StateTrans<T> {
-    pub fn map<B, F>(self, f: F) -> StateTrans<B>
-    where
-        F: FnOnce(T) -> B,
-    {
-        match self {
-            StateTrans::Active(t) => StateTrans::Active(f(t)),
-            StateTrans::EOL => StateTrans::EOL,
-        }
-    }
-}
-
 /// Immutable discrete fragment of liquidity available at a specified timeframe at a specified price.
-/// Fragment is a projection of an order [OrderState] at a specific point on time axis.
-pub trait Fragment {
+/// MarketTaker is a projection of an order [TakerBehaviour] at a specific point on time axis.
+pub trait MarketTaker {
     /// Quantifier of execution cost.
     type U;
     /// Side of the fragment relative to pair it maps to.

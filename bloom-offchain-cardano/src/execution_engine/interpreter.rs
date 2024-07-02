@@ -8,11 +8,8 @@ use tailcall::tailcall;
 use bloom_offchain::execution_engine::batch_exec::BatchExec;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::liquidity_book::core::{Execution, ExecutionRecipe, Make, Take};
-use bloom_offchain::execution_engine::liquidity_book::fragment::{Fragment, TakerBehaviour};
+use bloom_offchain::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
 use bloom_offchain::execution_engine::liquidity_book::interpreter::RecipeInterpreter;
-use bloom_offchain::execution_engine::liquidity_book::recipe::{
-    LinkedExecutionRecipe, LinkedFill, LinkedSwap, LinkedTerminalInstruction,
-};
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
@@ -33,7 +30,7 @@ pub struct CardanoRecipeInterpreter;
 impl<'a, Fr, Pl, Ctx> RecipeInterpreter<Fr, Pl, Ctx, OutputRef, FinalizedTxOut, SignedTxBuilder>
     for CardanoRecipeInterpreter
 where
-    Fr: Fragment + TakerBehaviour + Copy + std::fmt::Debug,
+    Fr: MarketTaker + TakerBehaviour + Copy + std::fmt::Debug,
     Pl: Copy + std::fmt::Debug,
     Magnet<Take<Fr, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Fr>, Ctx>,
     Magnet<Make<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Pl>, Ctx>,
@@ -99,7 +96,7 @@ fn execute_recipe<Fr, Pl, Ctx>(
     instructions: Vec<Execution<Fr, Pl, FinalizedTxOut>>,
 ) -> (TransactionBuilder, Vec<EffectPreview<Either<Fr, Pl>>>, Ctx)
 where
-    Fr: Fragment + TakerBehaviour + Copy,
+    Fr: MarketTaker + TakerBehaviour + Copy,
     Pl: Copy,
     Magnet<Take<Fr, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Fr>, Ctx>,
     Magnet<Make<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Pl>, Ctx>,
@@ -148,7 +145,7 @@ fn balance_fee<Fr, Pl, Bearer>(
     mut instructions: Vec<Execution<Fr, Pl, Bearer>>,
 ) -> Vec<Execution<Fr, Pl, Bearer>>
 where
-    Fr: Fragment + TakerBehaviour + Copy,
+    Fr: MarketTaker + TakerBehaviour + Copy,
 {
     for i in &mut instructions {
         if let Either::Left(take) = i {

@@ -11,12 +11,12 @@ use algebra_core::semigroup::Semigroup;
 use spectrum_offchain::data::Stable;
 
 use crate::execution_engine::bundled::Bundled;
-use crate::execution_engine::liquidity_book::fragment::{Fragment, TakerBehaviour};
+use crate::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
 use crate::execution_engine::liquidity_book::market_maker::MarketMaker;
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::types::{FeeAsset, InputAsset, OutputAsset};
 
-/// Taking liquidity from market.
+/// Terminal state of a take that was fulfilled.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct TerminalTake {
     /// Input asset removed as a result of this transaction.
@@ -80,6 +80,10 @@ impl<Cont, Term> Trans<Cont, Cont, Term> {
 }
 
 impl<Init, Cont, Term> Trans<Init, Cont, Term> {
+    pub fn new(target: Init, result: Next<Cont, Term>) -> Self {
+        Self { target, result }
+    }
+
     pub fn map_cont<B, F>(self, f: F) -> Trans<Init, B, Term>
     where
         F: FnOnce(Cont) -> B,
@@ -111,7 +115,7 @@ pub type Make<Maker, Bearer> = Trans<Bundled<Maker, Bearer>, Maker, ()>;
 impl<T, B> Take<T, B> {
     pub fn added_output(&self) -> OutputAsset<u64>
     where
-        T: Fragment,
+        T: MarketTaker,
     {
         let accumulated_output = match &self.result {
             Next::Succ(next) => next.output(),
@@ -124,7 +128,7 @@ impl<T, B> Take<T, B> {
 
     pub fn removed_input(&self) -> InputAsset<u64>
     where
-        T: Fragment,
+        T: MarketTaker,
     {
         let remaining_input = match &self.result {
             Next::Succ(next) => next.input(),
@@ -139,7 +143,7 @@ impl<T, B> Take<T, B> {
 
     pub fn consumed_fee(&self) -> FeeAsset<u64>
     where
-        T: Fragment,
+        T: MarketTaker,
     {
         let remaining_fee = match &self.result {
             Next::Succ(next) => next.fee(),
@@ -154,7 +158,7 @@ impl<T, B> Take<T, B> {
 
     pub fn consumed_budget(&self) -> FeeAsset<u64>
     where
-        T: Fragment,
+        T: MarketTaker,
     {
         let remaining_budget = match &self.result {
             Next::Succ(next) => next.budget(),
@@ -169,7 +173,7 @@ impl<T, B> Take<T, B> {
 
     pub fn scale_budget(&mut self, scale: Ratio<u64>) -> i64
     where
-        T: Fragment + TakerBehaviour + Copy,
+        T: MarketTaker + TakerBehaviour + Copy,
     {
         match &mut self.result {
             Next::Succ(mut next) => {
@@ -192,7 +196,7 @@ impl<T, B> Take<T, B> {
 
     pub fn correct_budget(&mut self, delta: i64) -> i64
     where
-        T: Fragment + TakerBehaviour + Copy,
+        T: MarketTaker + TakerBehaviour + Copy,
     {
         match &mut self.result {
             Next::Succ(mut next) => {
@@ -312,7 +316,7 @@ impl<Maker> MakeInProgress<Maker> {
 impl<T> TakeInProgress<T> {
     pub fn added_output(&self) -> OutputAsset<u64>
     where
-        T: Fragment,
+        T: MarketTaker,
     {
         let accumulated_output = match &self.result {
             Next::Succ(next) => next.output(),
@@ -330,6 +334,8 @@ pub struct MatchmakingAttempt<Taker: Stable, Maker: Stable, U> {
     makes: HashMap<Maker::StableId, MakeInProgress<Maker>>,
     execution_units_consumed: U,
 }
+
+const NUM_SPLIT_STEPS: u64 = 25;
 
 impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
     pub fn empty() -> Self
@@ -356,7 +362,7 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
 
     pub fn unsatisfied_fragments(&self) -> Vec<Taker>
     where
-        Taker: Fragment + Copy,
+        Taker: MarketTaker + Copy,
     {
         self.takes
             .iter()
@@ -373,14 +379,14 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
 
     pub fn next_offered_chunk(&self, taker: &Taker) -> Side<u64>
     where
-        Taker: Fragment,
+        Taker: MarketTaker,
     {
         let initial_state = self
             .takes
             .get(&taker.stable_id())
             .map(|tr| &tr.target)
             .unwrap_or(taker);
-        let initial_chunk = initial_state.input() * 10 / 100;
+        let initial_chunk = initial_state.input() * NUM_SPLIT_STEPS / 100;
         let chunk = if initial_chunk > 0 {
             min(initial_chunk, taker.input())
         } else {
@@ -391,7 +397,7 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
 
     pub fn add_take(&mut self, take: TakeInProgress<Taker>)
     where
-        Taker: Fragment<U = U>,
+        Taker: MarketTaker<U = U>,
         U: AddAssign,
     {
         let sid = take.target.stable_id();
@@ -448,7 +454,7 @@ where
 {
     pub fn try_from<U>(attempt: MatchmakingAttempt<Taker, Maker, U>) -> Result<Self, Option<Vec<Taker>>>
     where
-        Taker: Fragment + Copy,
+        Taker: MarketTaker + Copy,
     {
         if attempt.is_complete() {
             let unsatisfied_fragments = attempt.unsatisfied_fragments();
@@ -472,34 +478,6 @@ where
 }
 
 pub type Execution<T, M, B> = Either<Take<T, B>, Make<M, B>>;
-
-// impl<T, M, B> Execution<T, M, B> {
-//     pub fn scale_budget(&mut self, scale: Ratio<u64>) -> i64 {
-//         match self {
-//             LinkedTerminalInstruction::Fill(fill) => {
-//                 let old_val = fill.budget_used;
-//                 let new_val = fill.budget_used * scale.numer() / scale.denom();
-//                 fill.budget_used = new_val;
-//                 let delta = new_val as i64 - old_val as i64;
-//                 delta
-//             }
-//             LinkedTerminalInstruction::Swap(_) => 0,
-//         }
-//     }
-//
-//     pub fn correct_budget(&mut self, val: i64) -> i64 {
-//         match self {
-//             LinkedTerminalInstruction::Fill(fill) => {
-//                 let old_val = fill.budget_used as i64;
-//                 let new_val = max(old_val + val, 0);
-//                 fill.budget_used = new_val as u64;
-//                 let delta = new_val - old_val;
-//                 delta
-//             }
-//             LinkedTerminalInstruction::Swap(_) => 0,
-//         }
-//     }
-// }
 
 /// Same as [MatchmakingRecipe] but with bearers attached to each target element.
 #[derive(Debug, Clone)]

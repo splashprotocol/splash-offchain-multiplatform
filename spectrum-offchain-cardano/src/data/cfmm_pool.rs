@@ -283,8 +283,7 @@ where
 }
 
 impl MakerBehavior for ConstFnPool {
-    fn swap(mut self, input: Side<u64>) -> MakeInProgress<Self> {
-        let target = self;
+    fn swap(mut self, input: Side<u64>) -> Next<Self, ()> {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, quote] = order_canonical(x, y);
@@ -326,10 +325,7 @@ impl MakerBehavior for ConstFnPool {
                 *base_treasury += (input * self.treasury_fee.numer()) / self.treasury_fee.denom();
             }
         }
-        Trans {
-            target,
-            result: Next::Succ(self),
-        }
+        Next::Succ(self)
     }
 }
 

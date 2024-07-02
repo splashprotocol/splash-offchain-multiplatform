@@ -1,20 +1,18 @@
 use std::cmp::{max, Ordering};
 use std::fmt::{Display, Formatter};
 
-use bloom_offchain::execution_engine::liquidity_book::core::{Next, TakeInProgress, TerminalTake, Trans};
+use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake};
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::PolicyId;
 use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
-use bloom_offchain::execution_engine::liquidity_book::fragment::{
-    Fragment, OrderState, StateTrans, TakerBehaviour,
-};
+use bloom_offchain::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
 use bloom_offchain::execution_engine::liquidity_book::linear_output_relative;
 use bloom_offchain::execution_engine::liquidity_book::side::SideM;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
 use bloom_offchain::execution_engine::liquidity_book::types::{
-    AbsolutePrice, ExBudgetUsed, ExFeeUsed, FeeAsset, InputAsset, OutputAsset, RelativePrice,
+    AbsolutePrice, FeeAsset, InputAsset, OutputAsset, RelativePrice,
 };
 use bloom_offchain::execution_engine::liquidity_book::weight::Weighted;
 use spectrum_cardano_lib::address::PlutusAddress;
@@ -116,19 +114,22 @@ impl Ord for LimitOrder {
 }
 
 impl TakerBehaviour for LimitOrder {
+    fn with_updated_time(self, time: u64) -> Next<Self, ()> {
+        Next::Succ(self)
+    }
+
     fn with_applied_trade(
         mut self,
         removed_input: InputAsset<u64>,
         added_output: OutputAsset<u64>,
-    ) -> TakeInProgress<Self> {
-        let target = self;
+    ) -> Next<Self, TerminalTake> {
         let fee_used = self.operator_fee(removed_input);
         self.fee -= fee_used;
         self.input_amount -= removed_input;
         self.output_amount += added_output;
         let budget_used = self.max_cost_per_ex_step;
         self.execution_budget -= budget_used;
-        let result = if self.execution_budget < self.max_cost_per_ex_step || self.input_amount == 0 {
+        if self.execution_budget < self.max_cost_per_ex_step || self.input_amount == 0 {
             Next::Term(TerminalTake {
                 remaining_input: self.input_amount,
                 accumulated_output: self.output_amount,
@@ -137,8 +138,7 @@ impl TakerBehaviour for LimitOrder {
             })
         } else {
             Next::Succ(self)
-        };
-        Trans { target, result }
+        }
     }
 
     fn with_budget_corrected(mut self, delta: i64) -> (i64, Self) {
@@ -151,32 +151,7 @@ impl TakerBehaviour for LimitOrder {
     }
 }
 
-impl OrderState for LimitOrder {
-    fn with_updated_time(self, _time: u64) -> StateTrans<Self> {
-        StateTrans::Active(self)
-    }
-
-    fn with_applied_swap(
-        mut self,
-        removed_input: u64,
-        added_output: u64,
-    ) -> (StateTrans<Self>, ExBudgetUsed, ExFeeUsed) {
-        let fee_used = self.operator_fee(removed_input);
-        self.fee -= fee_used;
-        self.input_amount -= removed_input;
-        self.output_amount += added_output;
-        let budget_used = self.max_cost_per_ex_step;
-        self.execution_budget -= budget_used;
-        let next_st = if self.execution_budget < self.max_cost_per_ex_step || self.input_amount == 0 {
-            StateTrans::EOL
-        } else {
-            StateTrans::Active(self)
-        };
-        (next_st, budget_used, fee_used)
-    }
-}
-
-impl Fragment for LimitOrder {
+impl MarketTaker for LimitOrder {
     type U = ExUnits;
 
     fn side(&self) -> SideM {
@@ -427,7 +402,7 @@ mod tests {
     use cml_multi_era::babbage::{BabbageFormatTxOut, BabbageTransactionOutput};
     use type_equalities::IsEqual;
 
-    use bloom_offchain::execution_engine::liquidity_book::fragment::Fragment;
+    use bloom_offchain::execution_engine::liquidity_book::fragment::MarketTaker;
     use bloom_offchain::execution_engine::liquidity_book::{
         ExecutionCap, ExternalTLBEvents, TemporalLiquidityBook, TLB,
     };

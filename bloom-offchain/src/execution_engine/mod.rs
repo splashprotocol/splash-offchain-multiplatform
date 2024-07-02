@@ -30,8 +30,8 @@ use crate::execution_engine::backlog::SpecializedInterpreter;
 use crate::execution_engine::bundled::Bundled;
 use crate::execution_engine::execution_effect::ExecutionEff;
 use crate::execution_engine::focus_set::FocusSet;
-use crate::execution_engine::liquidity_book::core::{ExecutionRecipe, MatchmakingRecipe};
-use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState};
+use crate::execution_engine::liquidity_book::core::ExecutionRecipe;
+use crate::execution_engine::liquidity_book::fragment::MarketTaker;
 use crate::execution_engine::liquidity_book::{ExternalTLBEvents, TLBFeedback, TemporalLiquidityBook};
 use crate::execution_engine::multi_pair::MultiPair;
 use crate::execution_engine::resolver::resolve_source_state;
@@ -113,14 +113,7 @@ where
     StableId: Copy + Eq + Hash + Debug + Display + Unpin + 'a,
     Ver: Copy + Eq + Hash + Display + Unpin + 'a,
     Pool: Stable<StableId = StableId> + Copy + Debug + Unpin + Display + 'a,
-    CompOrd: Stable<StableId = StableId>
-        + Fragment<U = ExUnits>
-        + OrderState
-        + Copy
-        + Debug
-        + Unpin
-        + Display
-        + 'a,
+    CompOrd: Stable<StableId = StableId> + MarketTaker<U = ExUnits> + Copy + Debug + Unpin + Display + 'a,
     SpecOrd: SpecializedOrder<TPoolId = StableId, TOrderId = Ver> + Debug + Unpin + 'a,
     Bearer: Clone + Unpin + Debug + 'a,
     TxCandidate: Unpin + 'a,
@@ -435,7 +428,7 @@ where
     SID: Copy + Eq + Hash + Debug + Display + Unpin,
     V: Copy + Eq + Hash + Display + Unpin,
     P: Stable<StableId = SID> + Copy + Debug + Unpin + Display,
-    CO: Stable<StableId = SID> + Fragment<U = U> + OrderState + Copy + Debug + Unpin + Display,
+    CO: Stable<StableId = SID> + MarketTaker<U = U> + Copy + Debug + Unpin + Display,
     SO: SpecializedOrder<TPoolId = SID, TOrderId = V> + Unpin,
     B: Clone + Debug + Unpin,
     TC: Unpin,
@@ -600,7 +593,7 @@ where
     ST: Copy + Eq + Hash + Debug + Display + Unpin,
     V: Copy + Eq + Hash + Display + Unpin,
     P: Stable<StableId = ST> + Copy + Debug + Unpin + Display,
-    CO: Stable<StableId = ST> + Fragment<U = U> + OrderState + Copy + Debug + Unpin + Display,
+    CO: Stable<StableId = ST> + MarketTaker<U = U> + Copy + Debug + Unpin + Display,
     SO: SpecializedOrder<TPoolId = ST, TOrderId = V> + Unpin,
     B: Clone + Debug + Unpin,
     TC: Unpin,
