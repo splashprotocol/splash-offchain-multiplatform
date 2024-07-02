@@ -87,7 +87,7 @@ async function main() {
     await setupWallet(lucid);
 
     const conf = await getConfig<BuiltValidators>();
-    
+
     const utxos = (await lucid.wallet.getUtxos());
 
     const boxWithToken = await getUtxoWithToken(utxos, encodedTestB);
@@ -109,13 +109,13 @@ async function main() {
         { hash: conf.validators!.balancePool.hash, type: 'Script' },
       );
 
-    const nftMintingPolicy: MintingPolicy = 
+    const nftMintingPolicy: MintingPolicy =
         {
             type: "PlutusV2",
             script: nftInfo.script
         }
 
-    const lqMintingPolicy: MintingPolicy = 
+    const lqMintingPolicy: MintingPolicy =
         {
             type: "PlutusV2",
             script: lqInfo.script
@@ -127,21 +127,21 @@ async function main() {
     console.log(`lq: ${lqUnit}`);
     console.log(`nftUnit: ${nftUnit}`);
 
-    const mintingLqAssets: Record<Unit | "lovelace", bigint> = 
+    const mintingLqAssets: Record<Unit | "lovelace", bigint> =
         {
             [lqUnit]: lqEmission
         }
 
-    const mintingNftAssets: Record<Unit | "lovelace", bigint> = 
+    const mintingNftAssets: Record<Unit | "lovelace", bigint> =
         {
             [nftUnit]: nftEmission
         }
-    
+
     const poolConfig = await buildPoolConfig(lucid, startLovelaceValue, adaWeight, startTokenB, tokenBWeight, nftInfo.policyId, lqInfo.policyId);
 
     console.log(`poolConfig: ${JSON.stringify(poolConfig)}`)
 
-    const depositedValue = { 
+    const depositedValue = {
         lovelace: BigInt(startLovelaceValue),
         [asUnit(poolConfig.poolY)]: BigInt(startTokenB),
         [asUnit(poolConfig.poolNft)]: nftEmission,
@@ -291,5 +291,5 @@ function getDAO<T>(url: URL, nftCS: string, nftTN: string): Promise<T> {
               return data
           })
 }
-  
+
 main();

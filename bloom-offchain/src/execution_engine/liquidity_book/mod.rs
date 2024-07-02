@@ -150,7 +150,9 @@ where
                     let maybe_price_maker = self.state.preselect_market_maker(chunk_offered);
                     trace!(
                         "P_target: {:?}, P_counter: {:?}, P_amm: {:?}",
-                        target_price, maybe_price_counter_taker, maybe_price_maker
+                        target_price,
+                        maybe_price_counter_taker,
+                        maybe_price_maker
                     );
                     match (maybe_price_counter_taker, maybe_price_maker) {
                         (Some(price_counter_taker), maybe_price_maker)

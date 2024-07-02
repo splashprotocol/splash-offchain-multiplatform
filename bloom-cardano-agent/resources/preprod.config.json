@@ -3,17 +3,17 @@
   "chainSync": {
     "startingPoint": {
       "Specific": [
-        54677733,
-        "07eb197601aa88770c676e7e9c7f529fc03407d614076c9d812b8c2a985a9fba"
+        63659627,
+        "198f745d714f9794174d9db6f49275e5c418437251136aa0d8b8e9aab4cf26b0"
       ]
     },
     "replayFromPoint": {
       "Specific": [
-        58169558,
-        "9830dc755157ad897f1e6fb6270742a69efcf2cc3859b1399f94fcc184fe150d"
+        63659627,
+        "198f745d714f9794174d9db6f49275e5c418437251136aa0d8b8e9aab4cf26b0"
       ]
     },
-    "disableRollbacksUntil": 58169000,
+    "disableRollbacksUntil": 63659627,
     "dbPath": "state"
   },
   "node": {
@@ -27,8 +27,8 @@
     "secs": 120,
     "nanos": 0
   },
-  "operatorKey": "xprv1lzpajzrahfy23zyt8479w6h5rj7tvj5e4sa4f3pg7xk0439l2dtdc0m3j2squs5vc2fzjljaamm6a32t364ncwjkhexnnr3kezqz8v22kwsh967asaxz7jqvjdsefvvktg4zkwphtfe60fhylj248eyetvr9x6sr",
-  "operatorRewardAddress": "addr_test1qp97f7397q5aznqdwga0fg0xlfcn8lp6vy8csqek4459ewjmmfesg02r4kxltnn4vww0frsl9dz52spmayhszylrw5mstjywvz",
+  "operatorKey": "xprv1aqa4sdkzr0lz6uk9kzexh0stds2a98zsqx2df5gmugy9jrk2gpq450zjk46jl5sec69wja0x07wlslymcasz8l2z7mg5e3t5ljgs0y373ugch5mvydccjehz0uszzt8mds75c9trzpmrz6zvr068vkl7sy23ytcs",
+  "operatorRewardAddress": "addr_test1vqheluzd3y2t7exkwxsr6d9t0ym7kstcx84xh8mlhj4edag0f3unf",
   "maestroKeyPath": "bloom-cardano-agent/resources/preprod.maestro.key",
   "executionCap": {
     "soft": {

@@ -16,10 +16,11 @@ use spectrum_offchain_cardano::data::balance_pool::{BalancePool, BalancePoolRede
 use spectrum_offchain_cardano::data::cfmm_pool::ConstFnPoolVer::FeeSwitch;
 use spectrum_offchain_cardano::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
 use spectrum_offchain_cardano::data::pool::{AnyPool, CFMMPoolAction, PoolAssetMapping};
-use spectrum_offchain_cardano::data::{balance_pool, cfmm_pool};
+use spectrum_offchain_cardano::data::stable_pool_t2t::{StablePoolRedeemer, StablePoolT2T};
+use spectrum_offchain_cardano::data::{balance_pool, cfmm_pool, stable_pool_t2t};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolV1, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolV1, ConstFnPoolV2,
-    LimitOrderV1, LimitOrderWitnessV1,
+    LimitOrderV1, LimitOrderWitnessV1, StableFnPoolT2T,
 };
 use spectrum_offchain_cardano::deployment::{DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use spectrum_offchain_cardano::script::{
@@ -153,7 +154,8 @@ where
         + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
-        + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>,
+        + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ StableFnPoolT2T as u8 }>>,
 {
     fn exec(self, state: ExecutionState, context: Ctx) -> (ExecutionState, EffectPreview<AnyPool>, Ctx) {
         match self.0 {
