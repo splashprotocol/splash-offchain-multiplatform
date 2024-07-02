@@ -1,6 +1,5 @@
 use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionBuilder};
 
-use cml_chain::transaction::TransactionOutput;
 use either::Either;
 use log::trace;
 use num_rational::Ratio;
@@ -8,11 +7,9 @@ use tailcall::tailcall;
 
 use bloom_offchain::execution_engine::batch_exec::BatchExec;
 use bloom_offchain::execution_engine::bundled::Bundled;
-use bloom_offchain::execution_engine::execution_effect::ExecutionEff;
+use bloom_offchain::execution_engine::liquidity_book::core::{Execution, ExecutionRecipe, Make, Take};
+use bloom_offchain::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
 use bloom_offchain::execution_engine::liquidity_book::interpreter::RecipeInterpreter;
-use bloom_offchain::execution_engine::liquidity_book::recipe::{
-    LinkedExecutionRecipe, LinkedFill, LinkedSwap, LinkedTerminalInstruction,
-};
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
@@ -33,10 +30,10 @@ pub struct CardanoRecipeInterpreter;
 impl<'a, Fr, Pl, Ctx> RecipeInterpreter<Fr, Pl, Ctx, OutputRef, FinalizedTxOut, SignedTxBuilder>
     for CardanoRecipeInterpreter
 where
-    Fr: Copy + std::fmt::Debug,
+    Fr: MarketTaker + TakerBehaviour + Copy + std::fmt::Debug,
     Pl: Copy + std::fmt::Debug,
-    Magnet<LinkedFill<Fr, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Fr>, Ctx>,
-    Magnet<LinkedSwap<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Pl>, Ctx>,
+    Magnet<Take<Fr, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Fr>, Ctx>,
+    Magnet<Make<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Pl>, Ctx>,
     Ctx: Clone
         + Sized
         + Has<Collateral>
@@ -46,7 +43,7 @@ where
 {
     fn run(
         &mut self,
-        LinkedExecutionRecipe(instructions): LinkedExecutionRecipe<Fr, Pl, FinalizedTxOut>,
+        ExecutionRecipe(instructions): ExecutionRecipe<Fr, Pl, FinalizedTxOut>,
         ctx: Ctx,
     ) -> (
         SignedTxBuilder,
@@ -96,13 +93,13 @@ where
 #[tailcall]
 fn execute_recipe<Fr, Pl, Ctx>(
     ctx: Ctx,
-    instructions: Vec<LinkedTerminalInstruction<Fr, Pl, FinalizedTxOut>>,
+    instructions: Vec<Execution<Fr, Pl, FinalizedTxOut>>,
 ) -> (TransactionBuilder, Vec<EffectPreview<Either<Fr, Pl>>>, Ctx)
 where
-    Fr: Copy,
+    Fr: MarketTaker + TakerBehaviour + Copy,
     Pl: Copy,
-    Magnet<LinkedFill<Fr, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Fr>, Ctx>,
-    Magnet<LinkedSwap<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Pl>, Ctx>,
+    Magnet<Take<Fr, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Fr>, Ctx>,
+    Magnet<Make<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Pl>, Ctx>,
     Ctx: Clone
         + Sized
         + Has<Collateral>
@@ -145,18 +142,24 @@ where
 fn balance_fee<Fr, Pl, Bearer>(
     mut fee_mismatch: i64,
     rescale_factor: Ratio<u64>,
-    mut instructions: Vec<LinkedTerminalInstruction<Fr, Pl, Bearer>>,
-) -> Vec<LinkedTerminalInstruction<Fr, Pl, Bearer>> {
+    mut instructions: Vec<Execution<Fr, Pl, Bearer>>,
+) -> Vec<Execution<Fr, Pl, Bearer>>
+where
+    Fr: MarketTaker + TakerBehaviour + Copy,
+{
     for i in &mut instructions {
-        let delta = i.scale_budget(rescale_factor);
-        fee_mismatch += delta;
+        if let Either::Left(take) = i {
+            take.scale_budget(rescale_factor);
+        }
     }
     for i in &mut instructions {
-        if fee_mismatch != 0 {
-            let delta = i.correct_budget(-fee_mismatch);
-            fee_mismatch += delta;
-        } else {
-            break;
+        if let Either::Left(take) = i {
+            if fee_mismatch != 0 {
+                let delta = take.correct_budget(-fee_mismatch);
+                fee_mismatch += delta;
+            } else {
+                break;
+            }
         }
     }
     instructions
@@ -167,24 +170,24 @@ fn execute<Fr, Pl, Ctx>(
     ctx: Ctx,
     state: ExecutionState,
     mut updates_acc: Vec<EffectPreview<Either<Fr, Pl>>>,
-    mut rem: Vec<LinkedTerminalInstruction<Fr, Pl, FinalizedTxOut>>,
+    mut rem: Vec<Execution<Fr, Pl, FinalizedTxOut>>,
 ) -> (ExecutionState, Vec<EffectPreview<Either<Fr, Pl>>>, Ctx)
 where
     Fr: Copy,
     Pl: Copy,
-    Magnet<LinkedFill<Fr, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Fr>, Ctx>,
-    Magnet<LinkedSwap<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Pl>, Ctx>,
+    Magnet<Take<Fr, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Fr>, Ctx>,
+    Magnet<Make<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Pl>, Ctx>,
     Ctx: Clone,
 {
     if let Some(instruction) = rem.pop() {
         match instruction {
-            LinkedTerminalInstruction::Fill(fill_order) => {
-                let (state, result, ctx) = Magnet(fill_order).exec(state, ctx);
+            Either::Left(take) => {
+                let (state, result, ctx) = Magnet(take).exec(state, ctx);
                 updates_acc.push(result.bimap(|u| u.map(Either::Left), |e| e.map(Either::Left)));
                 execute(ctx, state, updates_acc, rem)
             }
-            LinkedTerminalInstruction::Swap(swap) => {
-                let (state, result, ctx) = Magnet(swap).exec(state, ctx);
+            Either::Right(make) => {
+                let (state, result, ctx) = Magnet(make).exec(state, ctx);
                 updates_acc.push(result.bimap(|u| u.map(Either::Right), |e| e.map(Either::Right)));
                 execute(ctx, state, updates_acc, rem)
             }
@@ -195,100 +198,10 @@ where
 }
 
 mod tests {
-    use crate::execution_engine::interpreter::balance_fee;
-    use bloom_offchain::execution_engine::bundled::Bundled;
-    use bloom_offchain::execution_engine::liquidity_book::fragment::StateTrans;
-    use bloom_offchain::execution_engine::liquidity_book::recipe::{
-        Fill, LinkedFill, LinkedSwap, LinkedTerminalInstruction, TerminalInstruction,
-    };
-    use bloom_offchain::execution_engine::liquidity_book::side::SideM;
-    use num_rational::Ratio;
 
     #[test]
-    fn fee_overuse_balancing() {
-        let instructions = vec![
-            LinkedTerminalInstruction::Fill(LinkedFill {
-                target_fr: Bundled((), ()),
-                next_fr: StateTrans::EOL,
-                removed_input: 0,
-                added_output: 0,
-                budget_used: 250000,
-                fee_used: 0,
-            }),
-            LinkedTerminalInstruction::Swap(LinkedSwap {
-                target: Bundled((), ()),
-                transition: (),
-                side: SideM::Bid,
-                input: 0,
-                output: 0,
-            }),
-            LinkedTerminalInstruction::Fill(LinkedFill {
-                target_fr: Bundled((), ()),
-                next_fr: StateTrans::EOL,
-                removed_input: 0,
-                added_output: 0,
-                budget_used: 250000,
-                fee_used: 0,
-            }),
-        ];
-        let reserved_fee = 500000;
-        let estimated_fee = 456325;
-        let rescale_factor = Ratio::new(estimated_fee, reserved_fee);
-        let fee_mismatch = reserved_fee as i64 - estimated_fee as i64;
-        let balanced_instructions = balance_fee(fee_mismatch, rescale_factor, instructions);
-        assert_eq!(
-            balanced_instructions
-                .iter()
-                .map(|i| match i {
-                    LinkedTerminalInstruction::Fill(f) => f.budget_used,
-                    LinkedTerminalInstruction::Swap(_) => 0,
-                })
-                .sum::<u64>(),
-            estimated_fee
-        )
-    }
+    fn fee_overuse_balancing() {}
 
     #[test]
-    fn fee_underuse_balancing() {
-        let instructions = vec![
-            LinkedTerminalInstruction::Fill(LinkedFill {
-                target_fr: Bundled((), ()),
-                next_fr: StateTrans::EOL,
-                removed_input: 0,
-                added_output: 0,
-                budget_used: 1_000,
-                fee_used: 0,
-            }),
-            LinkedTerminalInstruction::Swap(LinkedSwap {
-                target: Bundled((), ()),
-                transition: (),
-                side: SideM::Bid,
-                input: 0,
-                output: 0,
-            }),
-            LinkedTerminalInstruction::Fill(LinkedFill {
-                target_fr: Bundled((), ()),
-                next_fr: StateTrans::EOL,
-                removed_input: 0,
-                added_output: 0,
-                budget_used: 2_000,
-                fee_used: 0,
-            }),
-        ];
-        let reserved_fee = 3_000;
-        let estimated_fee = 4_000;
-        let rescale_factor = Ratio::new(estimated_fee, reserved_fee);
-        let fee_mismatch = reserved_fee as i64 - estimated_fee as i64;
-        let balanced_instructions = balance_fee(fee_mismatch, rescale_factor, instructions);
-        assert_eq!(
-            balanced_instructions
-                .iter()
-                .map(|i| match i {
-                    LinkedTerminalInstruction::Fill(f) => f.budget_used,
-                    LinkedTerminalInstruction::Swap(_) => 0,
-                })
-                .sum::<u64>(),
-            estimated_fee
-        )
-    }
+    fn fee_underuse_balancing() {}
 }

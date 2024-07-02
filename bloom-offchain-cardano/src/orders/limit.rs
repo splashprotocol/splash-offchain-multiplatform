@@ -1,17 +1,18 @@
-use std::cmp::Ordering;
+use std::cmp::{max, Ordering};
 use std::fmt::{Display, Formatter};
 
+use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake};
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::PolicyId;
 use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
-use bloom_offchain::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-use bloom_offchain::execution_engine::liquidity_book::linear_output_rel;
+use bloom_offchain::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
+use bloom_offchain::execution_engine::liquidity_book::linear_output_relative;
 use bloom_offchain::execution_engine::liquidity_book::side::SideM;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
 use bloom_offchain::execution_engine::liquidity_book::types::{
-    AbsolutePrice, ExBudgetUsed, ExFeeUsed, FeeAsset, InputAsset, OutputAsset, RelativePrice,
+    AbsolutePrice, FeeAsset, InputAsset, OutputAsset, RelativePrice,
 };
 use bloom_offchain::execution_engine::liquidity_book::weight::Weighted;
 use spectrum_cardano_lib::address::PlutusAddress;
@@ -112,32 +113,45 @@ impl Ord for LimitOrder {
     }
 }
 
-impl OrderState for LimitOrder {
-    fn with_updated_time(self, _time: u64) -> StateTrans<Self> {
-        StateTrans::Active(self)
+impl TakerBehaviour for LimitOrder {
+    fn with_updated_time(self, time: u64) -> Next<Self, ()> {
+        Next::Succ(self)
     }
 
-    fn with_applied_swap(
+    fn with_applied_trade(
         mut self,
-        removed_input: u64,
-        added_output: u64,
-    ) -> (StateTrans<Self>, ExBudgetUsed, ExFeeUsed) {
-        let fee_used = self.linear_fee(removed_input);
+        removed_input: InputAsset<u64>,
+        added_output: OutputAsset<u64>,
+    ) -> Next<Self, TerminalTake> {
+        let fee_used = self.operator_fee(removed_input);
         self.fee -= fee_used;
         self.input_amount -= removed_input;
         self.output_amount += added_output;
         let budget_used = self.max_cost_per_ex_step;
         self.execution_budget -= budget_used;
-        let next_st = if self.execution_budget < self.max_cost_per_ex_step || self.input_amount == 0 {
-            StateTrans::EOL
+        if self.execution_budget < self.max_cost_per_ex_step || self.input_amount == 0 {
+            Next::Term(TerminalTake {
+                remaining_input: self.input_amount,
+                accumulated_output: self.output_amount,
+                remaining_fee: self.fee,
+                remaining_budget: self.execution_budget,
+            })
         } else {
-            StateTrans::Active(self)
-        };
-        (next_st, budget_used, fee_used)
+            Next::Succ(self)
+        }
+    }
+
+    fn with_budget_corrected(mut self, delta: i64) -> (i64, Self) {
+        let budget_remainder = self.execution_budget as i64;
+        let corrected_remainder = budget_remainder + delta;
+        let updated_budget_remainder = max(corrected_remainder, 0);
+        let real_delta = budget_remainder - updated_budget_remainder;
+        self.execution_budget = updated_budget_remainder as u64;
+        (real_delta, self)
     }
 }
 
-impl Fragment for LimitOrder {
+impl MarketTaker for LimitOrder {
     type U = ExUnits;
 
     fn side(&self) -> SideM {
@@ -148,20 +162,27 @@ impl Fragment for LimitOrder {
         self.input_amount
     }
 
+    fn output(&self) -> OutputAsset<u64> {
+        self.output_amount
+    }
+
     fn price(&self) -> AbsolutePrice {
         AbsolutePrice::from_price(self.side(), self.base_price)
     }
 
-    fn linear_fee(&self, input_consumed: InputAsset<u64>) -> FeeAsset<u64> {
-        if self.input_amount > 0 {
-            self.fee * input_consumed / self.input_amount
-        } else {
-            0
-        }
+    fn operator_fee(&self, input_consumed: InputAsset<u64>) -> FeeAsset<u64> {
+        self.fee
+            .saturating_mul(input_consumed)
+            .checked_div(self.input_amount)
+            .unwrap_or(0)
     }
 
     fn fee(&self) -> FeeAsset<u64> {
         self.fee
+    }
+
+    fn budget(&self) -> FeeAsset<u64> {
+        self.execution_budget
     }
 
     fn marginal_cost_hint(&self) -> ExUnits {
@@ -311,7 +332,7 @@ where
                 .checked_sub(reserved_lovelace)
                 .and_then(|lov| lov.checked_sub(conf.fee))
                 .and_then(|lov| lov.checked_sub(tradable_lovelace))?;
-            if let Some(base_output) = linear_output_rel(conf.tradable_input, conf.base_price) {
+            if let Some(base_output) = linear_output_relative(conf.tradable_input, conf.base_price) {
                 let min_marginal_output = conf.min_marginal_output;
                 let max_execution_steps_possible = base_output.checked_div(min_marginal_output);
                 let max_execution_steps_available = execution_budget.checked_div(conf.cost_per_ex_step);
@@ -381,7 +402,7 @@ mod tests {
     use cml_multi_era::babbage::{BabbageFormatTxOut, BabbageTransactionOutput};
     use type_equalities::IsEqual;
 
-    use bloom_offchain::execution_engine::liquidity_book::fragment::Fragment;
+    use bloom_offchain::execution_engine::liquidity_book::fragment::MarketTaker;
     use bloom_offchain::execution_engine::liquidity_book::{
         ExecutionCap, ExternalTLBEvents, TemporalLiquidityBook, TLB,
     };

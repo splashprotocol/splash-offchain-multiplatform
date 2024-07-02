@@ -30,11 +30,8 @@ use crate::execution_engine::backlog::SpecializedInterpreter;
 use crate::execution_engine::bundled::Bundled;
 use crate::execution_engine::execution_effect::ExecutionEff;
 use crate::execution_engine::focus_set::FocusSet;
-use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState};
-use crate::execution_engine::liquidity_book::recipe::{
-    ExecutionRecipe, LinkedExecutionRecipe, LinkedFill, LinkedSwap, LinkedTerminalInstruction,
-    TerminalInstruction,
-};
+use crate::execution_engine::liquidity_book::core::ExecutionRecipe;
+use crate::execution_engine::liquidity_book::fragment::MarketTaker;
 use crate::execution_engine::liquidity_book::{ExternalTLBEvents, TLBFeedback, TemporalLiquidityBook};
 use crate::execution_engine::multi_pair::MultiPair;
 use crate::execution_engine::resolver::resolve_source_state;
@@ -116,14 +113,7 @@ where
     StableId: Copy + Eq + Hash + Debug + Display + Unpin + 'a,
     Ver: Copy + Eq + Hash + Display + Unpin + 'a,
     Pool: Stable<StableId = StableId> + Copy + Debug + Unpin + Display + 'a,
-    CompOrd: Stable<StableId = StableId>
-        + Fragment<U = ExUnits>
-        + OrderState
-        + Copy
-        + Debug
-        + Unpin
-        + Display
-        + 'a,
+    CompOrd: Stable<StableId = StableId> + MarketTaker<U = ExUnits> + Copy + Debug + Unpin + Display + 'a,
     SpecOrd: SpecializedOrder<TPoolId = StableId, TOrderId = Ver> + Debug + Unpin + 'a,
     Bearer: Clone + Unpin + Debug + 'a,
     TxCandidate: Unpin + 'a,
@@ -421,37 +411,6 @@ impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, 
         }
     }
 
-    fn link_recipe(&self, recipe: ExecutionRecipe<CO, P>) -> LinkedExecutionRecipe<CO, P, B>
-    where
-        SID: Copy + Eq + Hash + Debug + Display,
-        V: Copy + Eq + Hash + Display,
-        CO: Stable<StableId = SID> + Debug,
-        P: Stable<StableId = SID> + Debug,
-        CH: KvStore<SID, EvolvingEntity<CO, P, V, B>>,
-    {
-        let mut xs = recipe.instructions();
-        let mut linked = vec![];
-        while let Some(i) = xs.pop() {
-            match i {
-                TerminalInstruction::Fill(fill) => {
-                    let id = fill.target_fr.stable_id();
-                    let Bundled(_, bearer) = self.cache.get(id).expect("State is inconsistent");
-                    linked.push(LinkedTerminalInstruction::Fill(LinkedFill::from_fill(
-                        fill, bearer,
-                    )));
-                }
-                TerminalInstruction::Swap(swap) => {
-                    let id = swap.target.stable_id();
-                    let Bundled(_, bearer) = self.cache.get(id).expect("State is inconsistent");
-                    linked.push(LinkedTerminalInstruction::Swap(LinkedSwap::from_swap(
-                        swap, bearer,
-                    )));
-                }
-            }
-        }
-        LinkedExecutionRecipe(linked)
-    }
-
     fn processed(&mut self, ver: V)
     where
         V: Copy + Eq + Hash + Display,
@@ -469,7 +428,7 @@ where
     SID: Copy + Eq + Hash + Debug + Display + Unpin,
     V: Copy + Eq + Hash + Display + Unpin,
     P: Stable<StableId = SID> + Copy + Debug + Unpin + Display,
-    CO: Stable<StableId = SID> + Fragment<U = U> + OrderState + Copy + Debug + Unpin + Display,
+    CO: Stable<StableId = SID> + MarketTaker<U = U> + Copy + Debug + Unpin + Display,
     SO: SpecializedOrder<TPoolId = SID, TOrderId = V> + Unpin,
     B: Clone + Debug + Unpin,
     TC: Unpin,
@@ -580,7 +539,10 @@ where
             while let Some(focus_pair) = self.focus_set.pop_front() {
                 // Try TLB:
                 if let Some(recipe) = self.multi_book.get_mut(&focus_pair).attempt() {
-                    let linked_recipe = self.link_recipe(recipe.into());
+                    let linked_recipe = ExecutionRecipe::new(recipe, |id| {
+                        self.cache.get(id).map(|Bundled(_, bearer)| bearer)
+                    })
+                    .expect("State is inconsistent");
                     let ctx = self.context.clone();
                     let (txc, effects) = self.trade_interpreter.run(linked_recipe, ctx);
                     let tx = self.prover.prove(txc);
@@ -631,7 +593,7 @@ where
     ST: Copy + Eq + Hash + Debug + Display + Unpin,
     V: Copy + Eq + Hash + Display + Unpin,
     P: Stable<StableId = ST> + Copy + Debug + Unpin + Display,
-    CO: Stable<StableId = ST> + Fragment<U = U> + OrderState + Copy + Debug + Unpin + Display,
+    CO: Stable<StableId = ST> + MarketTaker<U = U> + Copy + Debug + Unpin + Display,
     SO: SpecializedOrder<TPoolId = ST, TOrderId = V> + Unpin,
     B: Clone + Debug + Unpin,
     TC: Unpin,

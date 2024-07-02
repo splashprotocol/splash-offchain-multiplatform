@@ -1,66 +1,38 @@
-use num_rational::Ratio;
-use std::fmt::{Display, Formatter};
-
+use crate::execution_engine::liquidity_book::core::{Next, TerminalTake};
 use crate::execution_engine::liquidity_book::side::SideM;
 use crate::execution_engine::liquidity_book::time::TimeBounds;
-use crate::execution_engine::liquidity_book::types::{
-    AbsolutePrice, ExBudgetUsed, ExFeeUsed, FeeAsset, InputAsset, OutputAsset,
-};
+use crate::execution_engine::liquidity_book::types::{AbsolutePrice, FeeAsset, InputAsset, OutputAsset};
 
 /// Order as a state machine.
-pub trait OrderState: Sized {
-    fn with_updated_time(self, time: u64) -> StateTrans<Self>;
-    fn with_applied_swap(
+pub trait TakerBehaviour: Sized {
+    fn with_updated_time(self, time: u64) -> Next<Self, ()>;
+    fn with_applied_trade(
         self,
         removed_input: InputAsset<u64>,
         added_output: OutputAsset<u64>,
-    ) -> (StateTrans<Self>, ExBudgetUsed, ExFeeUsed);
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum StateTrans<T> {
-    /// Next state is available.
-    Active(T),
-    /// Order is exhausted.
-    EOL,
-}
-
-impl<T: Display> Display for StateTrans<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            StateTrans::Active(t) => f.write_str(&*format!("Active({})", t.to_string())),
-            StateTrans::EOL => f.write_str(&*format!("EOL")),
-        }
-    }
-}
-
-impl<T> StateTrans<T> {
-    pub fn map<B, F>(self, f: F) -> StateTrans<B>
-    where
-        F: FnOnce(T) -> B,
-    {
-        match self {
-            StateTrans::Active(t) => StateTrans::Active(f(t)),
-            StateTrans::EOL => StateTrans::EOL,
-        }
-    }
+    ) -> Next<Self, TerminalTake>;
+    fn with_budget_corrected(self, delta: i64) -> (i64, Self);
 }
 
 /// Immutable discrete fragment of liquidity available at a specified timeframe at a specified price.
-/// Fragment is a projection of an order [OrderState] at a specific point on time axis.
-pub trait Fragment {
+/// MarketTaker is a projection of an order [TakerBehaviour] at a specific point on time axis.
+pub trait MarketTaker {
     /// Quantifier of execution cost.
     type U;
     /// Side of the fragment relative to pair it maps to.
     fn side(&self) -> SideM;
-    /// Input asset.
+    /// Amount of input asset remaining.
     fn input(&self) -> InputAsset<u64>;
+    /// Amount of output asset accumulated.
+    fn output(&self) -> OutputAsset<u64>;
     /// Price of base asset in quote asset.
     fn price(&self) -> AbsolutePrice;
     /// Batcher fee for whole swap.
-    fn linear_fee(&self, input_consumed: InputAsset<u64>) -> FeeAsset<u64>;
-    /// Fee value weighted by fragment size.
+    fn operator_fee(&self, input_consumed: InputAsset<u64>) -> FeeAsset<u64>;
+    /// Amount of fee asset reserved as operator premium.
     fn fee(&self) -> FeeAsset<u64>;
+    /// Amount of fee asset reserved to pay for execution.
+    fn budget(&self) -> FeeAsset<u64>;
     /// How much (approximately) execution of this fragment will cost.
     fn marginal_cost_hint(&self) -> Self::U;
     /// Minimal amount of output per execution step.

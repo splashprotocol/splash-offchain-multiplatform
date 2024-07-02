@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use num_rational::Ratio;
 
-use crate::execution_engine::liquidity_book::fragment::Fragment;
+use crate::execution_engine::liquidity_book::fragment::MarketTaker;
 use crate::execution_engine::liquidity_book::types::{ExCostUnits, FeeAsset};
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -38,7 +38,7 @@ pub trait Weighted<U> {
 
 impl<T, U> Weighted<U> for T
 where
-    T: Fragment<U = U>,
+    T: MarketTaker<U = U>,
 {
     fn weight(&self) -> OrderWeight<U> {
         OrderWeight(self.fee(), self.marginal_cost_hint())

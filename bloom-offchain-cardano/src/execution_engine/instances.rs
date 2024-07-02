@@ -6,8 +6,7 @@ use log::trace;
 use bloom_offchain::execution_engine::batch_exec::BatchExec;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_effect::ExecutionEff;
-use bloom_offchain::execution_engine::liquidity_book::fragment::StateTrans;
-use bloom_offchain::execution_engine::liquidity_book::recipe::{LinkedFill, LinkedSwap};
+use bloom_offchain::execution_engine::liquidity_book::core::{Make, Next, Take, Trans};
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::NetworkId;
@@ -16,7 +15,7 @@ use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::balance_pool::{BalancePool, BalancePoolRedeemer};
 use spectrum_offchain_cardano::data::cfmm_pool::ConstFnPoolVer::FeeSwitch;
 use spectrum_offchain_cardano::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
-use spectrum_offchain_cardano::data::pool::{AnyPool, AssetDeltas, CFMMPoolAction};
+use spectrum_offchain_cardano::data::pool::{AnyPool, CFMMPoolAction, PoolAssetMapping};
 use spectrum_offchain_cardano::data::{balance_pool, cfmm_pool};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolV1, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolV1, ConstFnPoolV2,
@@ -38,8 +37,7 @@ pub struct Magnet<T>(pub T);
 pub type EffectPreview<T> = ExecutionEff<Bundled<T, TransactionOutput>, Bundled<T, FinalizedTxOut>>;
 pub type FinalizedEffect<T> = ExecutionEff<Bundled<T, FinalizedTxOut>, Bundled<T, FinalizedTxOut>>;
 
-impl<Ctx> BatchExec<ExecutionState, EffectPreview<AnyOrder>, Ctx>
-    for Magnet<LinkedFill<AnyOrder, FinalizedTxOut>>
+impl<Ctx> BatchExec<ExecutionState, EffectPreview<AnyOrder>, Ctx> for Magnet<Take<AnyOrder, FinalizedTxOut>>
 where
     Ctx: Has<NetworkId>
         + Has<OperatorCred>
@@ -47,36 +45,25 @@ where
         + Has<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>,
 {
     fn exec(self, state: ExecutionState, context: Ctx) -> (ExecutionState, EffectPreview<AnyOrder>, Ctx) {
-        match self.0 {
-            LinkedFill {
-                target_fr: Bundled(AnyOrder::Limit(o), src),
-                next_fr: transition,
-                removed_input,
-                added_output,
-                budget_used,
-                fee_used,
-            } => {
-                let (st, res, ctx) = Magnet(LinkedFill {
-                    target_fr: Bundled(o, src),
-                    next_fr: transition.map(|AnyOrder::Limit(o2)| o2),
-                    removed_input,
-                    added_output,
-                    budget_used,
-                    fee_used,
-                })
-                .exec(state, context);
-                (
-                    st,
-                    res.bimap(|u| u.map(AnyOrder::Limit), |e| e.map(AnyOrder::Limit)),
-                    ctx,
-                )
-            }
-        }
+        let Magnet(Trans {
+            target: Bundled(AnyOrder::Limit(o), src),
+            result,
+        }) = self;
+        let (st, res, ctx) = Magnet(Trans {
+            target: Bundled(o, src),
+            result: result.map_succ(|AnyOrder::Limit(o2)| o2),
+        })
+        .exec(state, context);
+        (
+            st,
+            res.bimap(|u| u.map(AnyOrder::Limit), |e| e.map(AnyOrder::Limit)),
+            ctx,
+        )
     }
 }
 
 impl<Ctx> BatchExec<ExecutionState, EffectPreview<LimitOrder>, Ctx>
-    for Magnet<LinkedFill<LimitOrder, FinalizedTxOut>>
+    for Magnet<Take<LimitOrder, FinalizedTxOut>>
 where
     Ctx: Has<NetworkId>
         + Has<OperatorCred>
@@ -88,19 +75,20 @@ where
         mut state: ExecutionState,
         context: Ctx,
     ) -> (ExecutionState, EffectPreview<LimitOrder>, Ctx) {
-        let Magnet(LinkedFill {
-            target_fr: Bundled(ord, FinalizedTxOut(consumed_out, in_ref)),
-            next_fr: transition,
-            removed_input,
-            added_output,
-            budget_used,
-            fee_used,
-        }) = self;
+        let Magnet(trans) = self;
+        let removed_input = trans.removed_input();
+        let added_output = trans.added_output();
+        let consumed_budget = trans.consumed_budget();
+        let consumed_fee = trans.consumed_fee();
         trace!(
-            "Exec(Order): budget_used: {}, fee_used: {}",
-            budget_used,
-            fee_used
+            "Exec(LimitOrder): budget_used: {}, fee_used: {}",
+            consumed_budget,
+            consumed_fee
         );
+        let Trans {
+            target: Bundled(ord, FinalizedTxOut(consumed_out, in_ref)),
+            result,
+        } = trans;
         let DeployedValidatorErased {
             reference_utxo,
             hash,
@@ -125,14 +113,14 @@ where
         };
         let mut candidate = consumed_out.clone();
         // Subtract budget + fee used to facilitate execution.
-        candidate.sub_asset(ord.fee_asset, budget_used + fee_used);
+        candidate.sub_asset(ord.fee_asset, consumed_budget + consumed_fee);
         // Subtract tradable input used in exchange.
         candidate.sub_asset(ord.input_asset, removed_input);
         // Add output resulted from exchange.
         candidate.add_asset(ord.output_asset, added_output);
         let consumed_bundle = Bundled(ord, FinalizedTxOut(consumed_out, in_ref));
-        let (residual_order, effect) = match transition {
-            StateTrans::Active(next) => {
+        let (residual_order, effect) = match result {
+            Next::Succ(next) => {
                 if let Some(data) = candidate.data_mut() {
                     limit::unsafe_update_datum(data, next.input_amount, next.fee);
                 }
@@ -141,14 +129,14 @@ where
                     ExecutionEff::Updated(consumed_bundle, Bundled(next, candidate)),
                 )
             }
-            StateTrans::EOL => {
+            Next::Term(_) => {
                 candidate.null_datum();
                 candidate.update_address(ord.redeemer_address.to_address(context.select::<NetworkId>()));
                 (candidate, ExecutionEff::Eliminated(consumed_bundle))
             }
         };
         let witness = context.select::<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>();
-        state.add_fee(budget_used);
+        state.add_fee(consumed_budget);
         state
             .tx_blueprint
             .add_witness(witness.erased(), PlutusData::new_list(vec![]));
@@ -159,8 +147,7 @@ where
 }
 
 /// Batch execution routing for [AnyPool].
-impl<Ctx> BatchExec<ExecutionState, EffectPreview<AnyPool>, Ctx>
-    for Magnet<LinkedSwap<AnyPool, FinalizedTxOut>>
+impl<Ctx> BatchExec<ExecutionState, EffectPreview<AnyPool>, Ctx> for Magnet<Make<AnyPool, FinalizedTxOut>>
 where
     Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
@@ -170,19 +157,13 @@ where
 {
     fn exec(self, state: ExecutionState, context: Ctx) -> (ExecutionState, EffectPreview<AnyPool>, Ctx) {
         match self.0 {
-            LinkedSwap {
+            Trans {
                 target: Bundled(AnyPool::PureCFMM(p), src),
-                transition: AnyPool::PureCFMM(p2),
-                side,
-                input,
-                output,
+                result: Next::Succ(AnyPool::PureCFMM(p2)),
             } => {
-                let (st, res, ctx) = Magnet(LinkedSwap {
+                let (st, res, ctx) = Magnet(Trans {
                     target: Bundled(p, src),
-                    transition: p2,
-                    side,
-                    input,
-                    output,
+                    result: Next::Succ(p2),
                 })
                 .exec(state, context);
                 (
@@ -191,19 +172,13 @@ where
                     ctx,
                 )
             }
-            LinkedSwap {
+            Trans {
                 target: Bundled(AnyPool::BalancedCFMM(p), src),
-                transition: AnyPool::BalancedCFMM(p2),
-                side,
-                input,
-                output,
+                result: Next::Succ(AnyPool::BalancedCFMM(p2)),
             } => {
-                let (st, res, ctx) = Magnet(LinkedSwap {
+                let (st, res, ctx) = Magnet(Trans {
                     target: Bundled(p, src),
-                    transition: p2,
-                    side,
-                    input,
-                    output,
+                    result: Next::Succ(p2),
                 })
                 .exec(state, context);
                 (
@@ -219,7 +194,7 @@ where
 
 /// Batch execution logic for [ConstFnPool].
 impl<Ctx> BatchExec<ExecutionState, EffectPreview<ConstFnPool>, Ctx>
-    for Magnet<LinkedSwap<ConstFnPool, FinalizedTxOut>>
+    for Magnet<Make<ConstFnPool, FinalizedTxOut>>
 where
     Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
@@ -231,20 +206,21 @@ where
         mut state: ExecutionState,
         context: Ctx,
     ) -> (ExecutionState, EffectPreview<ConstFnPool>, Ctx) {
-        let Magnet(LinkedSwap {
+        let Magnet(trans) = self;
+        let side = trans.trade_side().expect("Empty swaps aren't allowed");
+        let removed_liquidity = trans.loss().expect("Something must be removed");
+        let added_liquidity = trans.gain().expect("Something must be added");
+        let Trans {
             target: Bundled(pool, FinalizedTxOut(consumed_out, in_ref)),
-            transition,
-            side,
-            input,
-            output,
-        }) = self;
+            result,
+        } = trans;
         let mut produced_out = consumed_out.clone();
-        let AssetDeltas {
+        let PoolAssetMapping {
             asset_to_deduct_from,
             asset_to_add_to,
-        } = pool.get_asset_deltas(side);
-        produced_out.sub_asset(asset_to_deduct_from, output);
-        produced_out.add_asset(asset_to_add_to, input);
+        } = pool.asset_mapping(side);
+        produced_out.sub_asset(asset_to_deduct_from, removed_liquidity);
+        produced_out.add_asset(asset_to_add_to, added_liquidity);
 
         let DeployedValidatorErased {
             reference_utxo,
@@ -267,6 +243,10 @@ where
                 .to_plutus_data()
             }),
             required_signers: vec![],
+        };
+
+        let Next::Succ(transition) = result else {
+            panic!("ConstFn pool isn't supposed to terminate in result of a trade")
         };
 
         if transition.ver == FeeSwitch {
@@ -292,7 +272,7 @@ where
 }
 
 impl<Ctx> BatchExec<ExecutionState, EffectPreview<BalancePool>, Ctx>
-    for Magnet<LinkedSwap<BalancePool, FinalizedTxOut>>
+    for Magnet<Make<BalancePool, FinalizedTxOut>>
 where
     Ctx: Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>,
 {
@@ -301,20 +281,25 @@ where
         mut state: ExecutionState,
         context: Ctx,
     ) -> (ExecutionState, EffectPreview<BalancePool>, Ctx) {
-        let Magnet(LinkedSwap {
+        let Magnet(trans) = self;
+        let side = trans.trade_side().expect("Empty swaps aren't allowed");
+        let removed_liquidity = trans.loss().expect("Something must be removed");
+        let added_liquidity = trans.gain().expect("Something must be added");
+        let Trans {
             target: Bundled(pool, FinalizedTxOut(consumed_out, in_ref)),
-            transition,
-            side,
-            input,
-            output,
-        }) = self;
+            result,
+        } = trans;
         let mut produced_out = consumed_out.clone();
-        let AssetDeltas {
+        let PoolAssetMapping {
             asset_to_deduct_from,
             asset_to_add_to,
         } = pool.get_asset_deltas(side);
-        produced_out.sub_asset(asset_to_deduct_from, output);
-        produced_out.add_asset(asset_to_add_to, input);
+        produced_out.sub_asset(asset_to_deduct_from, removed_liquidity);
+        produced_out.add_asset(asset_to_add_to, added_liquidity);
+
+        let Next::Succ(transition) = result else {
+            panic!("Balance pool isn't supposed to terminate in result of a trade")
+        };
 
         let DeployedValidatorErased {
             reference_utxo,
