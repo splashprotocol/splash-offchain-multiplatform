@@ -529,62 +529,6 @@ impl MarketMaker for StablePoolT2T {
         AbsolutePrice::new(quote, base)
     }
 
-    // fn swap(mut self, input: Side<u64>) -> (u64, Self) {
-    //     let x = self.asset_x.untag();
-    //     let y = self.asset_y.untag();
-    //     let [base, quote] = order_canonical(x, y);
-    //     let pure_output = match input {
-    //         Side::Bid(input) => self
-    //             .output_amount(TaggedAssetClass::new(quote), TaggedAmount::new(input))
-    //             .untag(),
-    //         Side::Ask(input) => self
-    //             .output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
-    //             .untag(),
-    //     };
-    //     let (base_reserves, lp_fee, quote_reserves) = if x == base {
-    //         (self.reserves_x.as_mut(), self.lp_fee_y, self.reserves_y.as_mut())
-    //     } else {
-    //         (self.reserves_y.as_mut(), self.lp_fee_x, self.reserves_x.as_mut())
-    //     };
-    //     let lp_fees = pure_output * lp_fee.numer() / lp_fee.denom() + 1;
-    //
-    //     let mut treasury_fee_ = (pure_output * self.treasury_fee.numer()) / self.treasury_fee.denom();
-    //     let mut total_fees_real = treasury_fee_ + lp_fees;
-    //     let total_fees_ideal = pure_output * (self.treasury_fee.numer() + lp_fee.numer()) / lp_fee.denom();
-    //     let f_rev = lp_fee.denom() - self.treasury_fee.numer() - lp_fee.numer();
-    //     let mut quote_total_delta = pure_output - lp_fees - treasury_fee_ - 1;
-    //     let mut valid_treasury_fee = treasury_fee_ * f_rev >= quote_total_delta * self.treasury_fee.numer();
-    //     let treasury_fee = if valid_treasury_fee || *self.treasury_fee.numer() == 0 {
-    //         treasury_fee_
-    //     } else {
-    //         while !valid_treasury_fee {
-    //             treasury_fee_ += 1;
-    //             quote_total_delta = pure_output - lp_fees - treasury_fee_;
-    //             valid_treasury_fee = treasury_fee_ * f_rev >= quote_total_delta * self.treasury_fee.numer();
-    //         }
-    //         treasury_fee_
-    //     };
-    //
-    //     let output = pure_output - treasury_fee - lp_fees;
-    //     match input {
-    //         Side::Bid(input) => {
-    //             // A user bid means that they wish to buy the base asset for the quote asset, hence
-    //             // pool reserves of base decreases while reserves of quote increase.
-    //             *quote_reserves += input;
-    //             *base_reserves -= output;
-    //             self.treasury_x = TaggedAmount::new(self.treasury_x.untag() + treasury_fee);
-    //             (output, self)
-    //         }
-    //         Side::Ask(input) => {
-    //             // User ask is the opposite; sell the base asset for the quote asset.
-    //             *base_reserves += input;
-    //             *quote_reserves -= output;
-    //             self.treasury_y = TaggedAmount::new(self.treasury_y.untag() + treasury_fee);
-    //             (output, self)
-    //         }
-    //     }
-    // }
-
     fn quality(&self) -> PoolQuality {
         let invariant = calculate_invariant(
             &U512::from((self.reserves_x - self.treasury_x).untag() * self.multiplier_x as u64),
