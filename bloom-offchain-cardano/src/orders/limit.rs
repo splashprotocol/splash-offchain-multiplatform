@@ -133,6 +133,7 @@ impl TakerBehaviour for LimitOrder {
                 remaining_input: self.input_amount,
                 accumulated_output: self.output_amount,
                 remaining_fee: self.fee,
+                remaining_budget: self.execution_budget,
             })
         } else {
             Next::Succ(self)
@@ -141,11 +142,11 @@ impl TakerBehaviour for LimitOrder {
     }
 
     fn with_budget_corrected(mut self, delta: i64) -> (i64, Self) {
-        let fee_remainder = self.fee as i64;
-        let corrected_remainder = fee_remainder + delta;
-        let updated_fee_remainder = max(corrected_remainder, 0);
-        let real_delta = fee_remainder - updated_fee_remainder;
-        self.execution_budget = updated_fee_remainder as u64;
+        let budget_remainder = self.execution_budget as i64;
+        let corrected_remainder = budget_remainder + delta;
+        let updated_budget_remainder = max(corrected_remainder, 0);
+        let real_delta = budget_remainder - updated_budget_remainder;
+        self.execution_budget = updated_budget_remainder as u64;
         (real_delta, self)
     }
 }
@@ -195,15 +196,18 @@ impl Fragment for LimitOrder {
     }
 
     fn operator_fee(&self, input_consumed: InputAsset<u64>) -> FeeAsset<u64> {
-        if self.input_amount > 0 {
-            self.fee * input_consumed / self.input_amount
-        } else {
-            0
-        }
+        self.fee
+            .saturating_mul(input_consumed)
+            .checked_div(self.input_amount)
+            .unwrap_or(0)
     }
 
     fn fee(&self) -> FeeAsset<u64> {
         self.fee
+    }
+
+    fn budget(&self) -> FeeAsset<u64> {
+        self.execution_budget
     }
 
     fn marginal_cost_hint(&self) -> ExUnits {

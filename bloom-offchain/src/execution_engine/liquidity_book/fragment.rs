@@ -72,8 +72,10 @@ pub trait Fragment {
     fn price(&self) -> AbsolutePrice;
     /// Batcher fee for whole swap.
     fn operator_fee(&self, input_consumed: InputAsset<u64>) -> FeeAsset<u64>;
-    /// Amount of fee asset user is willing to pay for execution.
+    /// Amount of fee asset reserved as operator premium.
     fn fee(&self) -> FeeAsset<u64>;
+    /// Amount of fee asset reserved to pay for execution.
+    fn budget(&self) -> FeeAsset<u64>;
     /// How much (approximately) execution of this fragment will cost.
     fn marginal_cost_hint(&self) -> Self::U;
     /// Minimal amount of output per execution step.

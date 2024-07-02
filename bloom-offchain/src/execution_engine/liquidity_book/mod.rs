@@ -133,22 +133,26 @@ where
 {
     fn attempt(&mut self) -> Option<MatchmakingRecipe<Taker, Maker>> {
         loop {
-            trace!("Attempting to matchmake");
+            println!("Attempting to matchmake");
             let mut batch: MatchmakingAttempt<Taker, Maker, U> = MatchmakingAttempt::empty();
             while batch.execution_units_consumed() < self.execution_cap.soft {
                 let spot_price = self.spot_price();
-                trace!("Spot price is: {:?}", spot_price);
+                println!("Spot price is: {:?}", spot_price);
                 if let Some(target_taker) = self.state.pick_active_taker(|fs| {
                     spot_price
                         .map(|sp| max_by_distance_to_spot(fs, sp))
                         .unwrap_or(max_by_volume(fs))
                 }) {
-                    trace!("Selected taker is: {:?}", target_taker);
+                    println!("Selected taker is: {:?}", target_taker);
                     let target_side = target_taker.side();
                     let target_price = target_side.wrap(target_taker.price());
                     let maybe_price_counter_taker = self.state.best_fr_price(!target_side);
                     let chunk_offered = batch.next_offered_chunk(&target_taker);
                     let maybe_price_maker = self.state.preselect_market_maker(chunk_offered);
+                    println!(
+                        "P_target: {:?}, P_counter: {:?}, P_amm: {:?}",
+                        target_price, maybe_price_counter_taker, maybe_price_maker
+                    );
                     match (maybe_price_counter_taker, maybe_price_maker) {
                         (Some(price_counter_taker), maybe_price_maker)
                             if target_price.overlaps(price_counter_taker.unwrap())
@@ -157,7 +161,7 @@ where
                                     .unwrap_or(true) =>
                         {
                             if let Some(counter_taker) = self.state.try_pick_fr(!target_side, ok) {
-                                trace!("Taker {:?} matched with {:?}", target_taker, counter_taker);
+                                println!("Taker {:?} matched with {:?}", target_taker, counter_taker);
                                 let make_match =
                                     |ask: &Taker, bid: &Taker| settle_price(ask, bid, spot_price);
                                 let (take_a, take_b) =
@@ -166,18 +170,20 @@ where
                                     batch.add_take(take);
                                     self.on_take(take.result);
                                 }
+                                continue;
                             }
                         }
                         (_, Some((maker_sid, price_maker))) if target_price.overlaps(price_maker) => {
                             if let Some(maker) = self.state.take_pool(&maker_sid) {
-                                trace!("Taker {:?} matched with {:?}", target_taker, maker);
+                                println!("Taker {:?} matched with {:?}", target_taker, maker);
                                 let (take, make) = execute_with_maker(target_taker, maker, chunk_offered);
                                 if let Ok(_) = batch.add_make(make) {
                                     batch.add_take(take);
                                     self.on_take(take.result);
                                     self.on_make(make.result);
+                                    continue;
                                 } else {
-                                    warn!("Maker {} caused an opposite swap", maker.stable_id());
+                                    println!("Maker {} caused an opposite swap", maker.stable_id());
                                     self.state.pre_add_pool(maker);
                                     self.state.pre_add_fragment(target_taker);
                                 }
@@ -186,6 +192,7 @@ where
                         _ => {}
                     }
                 }
+                break;
             }
             match MatchmakingRecipe::try_from(batch) {
                 Ok(ex_recipe) => {
@@ -232,8 +239,8 @@ where
     F: FnOnce(&Taker, &Taker) -> AbsolutePrice,
 {
     let (ask, bid) = match target_taker.side() {
-        SideM::Bid => (counter_taker, target_taker),
         SideM::Ask => (target_taker, counter_taker),
+        SideM::Bid => (counter_taker, target_taker),
     };
     let price = matchmaker(&ask, &bid);
     let quote_input = bid.input();
@@ -247,9 +254,9 @@ where
     } else {
         (quote_input, demand_base)
     };
-    let next_bid = bid.with_applied_trade(quote, base);
     let next_ask = ask.with_applied_trade(base, quote);
-    (next_bid, next_ask)
+    let next_bid = bid.with_applied_trade(quote, base);
+    (next_ask, next_bid)
 }
 
 fn ok<T>(_: &T) -> bool {
@@ -374,7 +381,7 @@ fn linear_output_unsafe(input: u64, price: Side<AbsolutePrice>) -> u64 {
 mod tests {
     use crate::execution_engine::liquidity_book::fragment::Fragment;
     use crate::execution_engine::liquidity_book::market_maker::MarketMaker;
-    use crate::execution_engine::liquidity_book::side::SideM::Bid;
+    use crate::execution_engine::liquidity_book::side::SideM::{Ask, Bid};
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
     use crate::execution_engine::liquidity_book::state::tests::{SimpleCFMMPool, SimpleOrderPF};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
@@ -479,7 +486,7 @@ mod tests {
             accumulated_output: 0,
             min_marginal_output: 0,
             price: AbsolutePrice::new(37, 100),
-            fee: 1000,
+            fee: 0,
             ex_budget: 0,
             cost_hint: 100,
             bounds: TimeBounds::None,
@@ -491,7 +498,7 @@ mod tests {
             accumulated_output: 0,
             min_marginal_output: 0,
             price: AbsolutePrice::new(37, 100),
-            fee: 1000,
+            fee: 0,
             ex_budget: 0,
             cost_hint: 100,
             bounds: TimeBounds::None,
@@ -510,24 +517,24 @@ mod tests {
         let p = AbsolutePrice::new(37, 100);
         let fr1 = SimpleOrderPF {
             source: StableId::random(),
-            side: SideM::Ask,
+            side: Ask,
             input: 1000,
             accumulated_output: 0,
             min_marginal_output: 0,
             price: p,
-            fee: 2000,
+            fee: 0,
             ex_budget: 0,
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
         let fr2 = SimpleOrderPF {
             source: StableId::random(),
-            side: SideM::Bid,
+            side: Bid,
             input: 210,
             accumulated_output: 0,
             min_marginal_output: 0,
             price: p,
-            fee: 2000,
+            fee: 0,
             ex_budget: 0,
             cost_hint: 100,
             bounds: TimeBounds::None,
@@ -535,10 +542,10 @@ mod tests {
         let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| settle_price(x, y, Some(p.into()));
         let (t1, t2) = execute_with_taker(fr1, fr2, make_match);
         assert_eq!(
-            t1.added_output(),
+            t2.added_output(),
             ((fr2.input as u128) * fr1.price.denom() / fr1.price.numer()) as u64
         );
-        assert_eq!(t2.added_output(), fr2.input);
+        assert_eq!(t1.added_output(), fr2.input);
     }
 
     #[test]

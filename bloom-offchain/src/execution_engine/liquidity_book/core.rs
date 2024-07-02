@@ -23,18 +23,10 @@ pub struct TerminalTake {
     pub remaining_input: InputAsset<u64>,
     /// Output asset added as a result of this transaction.
     pub accumulated_output: OutputAsset<u64>,
-    /// Execution fee charged.
+    /// Remaining execution budget.
+    pub remaining_budget: FeeAsset<u64>,
+    /// Remaining operator fee.
     pub remaining_fee: FeeAsset<u64>,
-}
-
-impl TerminalTake {
-    pub fn new() -> Self {
-        Self {
-            remaining_input: 0,
-            accumulated_output: 0,
-            remaining_fee: 0,
-        }
-    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -149,14 +141,14 @@ impl<T, B> Take<T, B> {
     where
         T: Fragment,
     {
-        let remaining_input = match &self.result {
+        let remaining_fee = match &self.result {
             Next::Succ(next) => next.fee(),
             Next::Term(term) => term.remaining_fee,
         };
         self.target
             .0
-            .input()
-            .checked_sub(remaining_input)
+            .fee()
+            .checked_sub(remaining_fee)
             .expect("Fee cannot increase")
     }
 
@@ -164,10 +156,15 @@ impl<T, B> Take<T, B> {
     where
         T: Fragment,
     {
-        let execution_fee = self.target.0.operator_fee(self.removed_input());
-        self.consumed_fee()
-            .checked_sub(execution_fee)
-            .expect("Fee cannot increase")
+        let remaining_budget = match &self.result {
+            Next::Succ(next) => next.budget(),
+            Next::Term(term) => term.remaining_budget,
+        };
+        self.target
+            .0
+            .budget()
+            .checked_sub(remaining_budget)
+            .expect("Budget cannot increase")
     }
 
     pub fn scale_budget(&mut self, scale: Ratio<u64>) -> i64
@@ -187,7 +184,7 @@ impl<T, B> Take<T, B> {
                 let old_val = self.consumed_budget();
                 let new_val = old_val * scale.numer() / scale.denom();
                 let delta = old_val as i64 - new_val as i64;
-                term.remaining_fee = (term.remaining_fee as i64 + delta) as u64;
+                term.remaining_budget = (term.remaining_budget as i64 + delta) as u64;
                 delta
             }
         }
@@ -207,7 +204,7 @@ impl<T, B> Take<T, B> {
                 let old_val = self.consumed_budget() as i64;
                 let new_val = max(old_val + delta, 0);
                 let real_delta = old_val - new_val;
-                term.remaining_fee = (term.remaining_fee as i64 + real_delta) as u64;
+                term.remaining_budget = (term.remaining_budget as i64 + real_delta) as u64;
                 real_delta
             }
         }
@@ -324,44 +321,6 @@ impl<T> TakeInProgress<T> {
         accumulated_output
             .checked_sub(self.target.output())
             .expect("Output cannot decrease")
-    }
-
-    pub fn removed_input(&self) -> InputAsset<u64>
-    where
-        T: Fragment,
-    {
-        let remaining_input = match &self.result {
-            Next::Succ(next) => next.input(),
-            Next::Term(term) => term.remaining_input,
-        };
-        self.target
-            .input()
-            .checked_sub(remaining_input)
-            .expect("Input cannot increase")
-    }
-
-    pub fn consumed_fee(&self) -> FeeAsset<u64>
-    where
-        T: Fragment,
-    {
-        let remaining_input = match &self.result {
-            Next::Succ(next) => next.fee(),
-            Next::Term(term) => term.remaining_fee,
-        };
-        self.target
-            .input()
-            .checked_sub(remaining_input)
-            .expect("Fee cannot increase")
-    }
-
-    pub fn consumed_budget(&self) -> FeeAsset<u64>
-    where
-        T: Fragment,
-    {
-        let execution_fee = self.target.operator_fee(self.removed_input());
-        self.consumed_fee()
-            .checked_sub(execution_fee)
-            .expect("Fee cannot increase")
     }
 }
 

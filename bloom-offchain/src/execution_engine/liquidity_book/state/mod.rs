@@ -437,6 +437,7 @@ where
 
     pub fn best_fr_price(&self, side: SideM) -> Option<Side<AbsolutePrice>> {
         let active_fragments = self.active_fragments();
+        println!("Active FRS: {:?}", active_fragments);
         let side_store = match side {
             SideM::Bid => &active_fragments.bids,
             SideM::Ask => &active_fragments.asks,
@@ -966,7 +967,7 @@ where
 
 #[cfg(test)]
 pub mod tests {
-    use std::cmp::Ordering;
+    use std::cmp::{max, Ordering};
     use std::fmt::{Debug, Display, Formatter};
 
     use either::Left;
@@ -984,7 +985,7 @@ pub mod tests {
     use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, StashingOption, TLBState};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::{
-        AbsolutePrice, ExBudgetUsed, ExCostUnits, ExFeeUsed, InputAsset, OutputAsset,
+        AbsolutePrice, ExBudgetUsed, ExCostUnits, ExFeeUsed, FeeAsset, InputAsset, OutputAsset,
     };
     use crate::execution_engine::types::StableId;
 
@@ -1361,10 +1362,7 @@ pub mod tests {
             self.bounds
         }
 
-        fn operator_fee(
-            &self,
-            input_consumed: crate::execution_engine::liquidity_book::types::InputAsset<u64>,
-        ) -> crate::execution_engine::liquidity_book::types::FeeAsset<u64> {
+        fn operator_fee(&self, input_consumed: InputAsset<u64>) -> FeeAsset<u64> {
             self.fee * input_consumed / self.input
         }
 
@@ -1372,32 +1370,44 @@ pub mod tests {
             self.min_marginal_output
         }
 
-        fn fee(&self) -> crate::execution_engine::liquidity_book::types::FeeAsset<u64> {
+        fn fee(&self) -> FeeAsset<u64> {
             self.fee
+        }
+
+        fn budget(&self) -> FeeAsset<u64> {
+            self.ex_budget
         }
     }
 
     impl TakerBehaviour for SimpleOrderPF {
         fn with_applied_trade(
-            self,
+            mut self,
             removed_input: InputAsset<u64>,
             added_output: OutputAsset<u64>,
         ) -> TakeInProgress<Self> {
-            let budget_used = added_output * self.fee;
+            let target = self;
+            self.fee -= self.operator_fee(removed_input);
+            self.input -= removed_input;
+            self.accumulated_output += added_output;
             let next = if self.input > 0 {
                 Next::Succ(self)
             } else {
                 Next::Term(TerminalTake {
-                    remaining_input: removed_input,
-                    accumulated_output: added_output,
-                    remaining_budget: budget_used,
+                    remaining_input: self.input,
+                    accumulated_output: self.accumulated_output,
                     remaining_fee: self.fee,
+                    remaining_budget: self.ex_budget,
                 })
             };
-            Trans {
-                target: self,
-                result: next,
-            }
+            Trans { target, result: next }
+        }
+        fn with_budget_corrected(mut self, delta: i64) -> (i64, Self) {
+            let budget_remainder = self.ex_budget as i64;
+            let corrected_remainder = budget_remainder + delta;
+            let updated_budget_remainder = max(corrected_remainder, 0);
+            let real_delta = budget_remainder - updated_budget_remainder;
+            self.ex_budget = updated_budget_remainder as u64;
+            (real_delta, self)
         }
     }
 

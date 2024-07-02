@@ -6,7 +6,7 @@ use num_rational::Ratio;
 
 pub fn max_by_distance_to_spot<Fr>(fragments: &mut Fragments<Fr>, spot_price: SpotPrice) -> Option<Fr>
 where
-    Fr: Fragment + Ord,
+    Fr: Fragment + Ord + Copy,
 {
     let best_bid = fragments.bids.pop_first();
     let best_ask = fragments.asks.pop_first();
@@ -16,11 +16,19 @@ where
             let distance_from_ask = abs_price - ask.price().to_signed();
             let distance_from_bid = abs_price - bid.price().to_signed();
             if distance_from_ask > distance_from_bid {
+                fragments.insert(bid);
                 Some(ask)
             } else if distance_from_ask < distance_from_bid {
+                fragments.insert(ask);
                 Some(bid)
             } else {
-                Some(_max_by_volume(ask, bid, Some(spot_price)))
+                let choice = _max_by_volume(ask, bid, Some(spot_price));
+                if choice == ask {
+                    fragments.insert(bid);
+                } else {
+                    fragments.insert(ask);
+                }
+                Some(choice)
             }
         }
         (Some(taker), _) | (_, Some(taker)) => Some(taker),
@@ -46,12 +54,20 @@ where
 
 pub fn max_by_volume<Fr>(fragments: &mut Fragments<Fr>) -> Option<Fr>
 where
-    Fr: Fragment + Ord,
+    Fr: Fragment + Ord + Copy,
 {
     let best_bid = fragments.bids.pop_first();
     let best_ask = fragments.asks.pop_first();
     match (best_ask, best_bid) {
-        (Some(ask), Some(bid)) => Some(_max_by_volume(ask, bid, None)),
+        (Some(ask), Some(bid)) => {
+            let choice = _max_by_volume(ask, bid, None);
+            if choice == ask {
+                fragments.insert(bid);
+            } else {
+                fragments.insert(ask);
+            }
+            Some(choice)
+        }
         (Some(taker), _) | (_, Some(taker)) => Some(taker),
         _ => None,
     }
