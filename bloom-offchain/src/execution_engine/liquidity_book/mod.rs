@@ -1,5 +1,5 @@
 use std::fmt::{Debug, Display};
-use std::ops::{AddAssign, Sub};
+use std::ops::AddAssign;
 
 use algebra_core::monoid::Monoid;
 use log::{trace, warn};
@@ -64,12 +64,6 @@ pub trait TLBFeedback<Fr, Pl> {
 pub struct ExecutionCap<U> {
     pub soft: U,
     pub hard: U,
-}
-
-impl<U: Sub<Output = U> + Copy> ExecutionCap<U> {
-    fn safe_threshold(&self) -> U {
-        self.hard - self.soft
-    }
 }
 
 #[derive(Debug, Clone)]
