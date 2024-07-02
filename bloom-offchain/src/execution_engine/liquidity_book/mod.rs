@@ -12,9 +12,9 @@ use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::maker::Maker;
 
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-use crate::execution_engine::liquidity_book::pool::{Pool, StaticPrice};
+use crate::execution_engine::liquidity_book::market_maker::{MarketMaker, SpotPrice};
 use crate::execution_engine::liquidity_book::recipe::{
-    ExecutionRecipe, Fill, IntermediateRecipe, PartialFill, Swap, TerminalInstruction,
+    ExecutionRecipe, Fill, IntermediateRecipe, PartialFill, Take, TerminalInstruction,
 };
 use crate::execution_engine::liquidity_book::side::Side::{Ask, Bid};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
@@ -23,9 +23,11 @@ use crate::execution_engine::liquidity_book::state::{IdleState, TLBState};
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, RelativePrice};
 use crate::execution_engine::types::Time;
 
+mod core;
 pub mod fragment;
 pub mod interpreter;
-pub mod pool;
+pub mod market_maker;
+mod parallel;
 pub mod recipe;
 pub mod side;
 pub mod stashing_option;
@@ -103,7 +105,7 @@ impl<Fr, Pl: Stable, U> TLB<Fr, Pl, U> {
 impl<Fr, Pl, U> TLB<Fr, Pl, U>
 where
     Fr: Fragment<U = U> + OrderState + Ord + Copy + Debug,
-    Pl: Pool + Stable + Copy,
+    Pl: MarketMaker + Stable + Copy,
     U: PartialOrd,
 {
     fn on_transition(&mut self, tx: StateTrans<Fr>) {
@@ -116,7 +118,7 @@ where
 impl<Fr, Pl, U> TemporalLiquidityBook<Fr, Pl> for TLB<Fr, Pl, U>
 where
     Fr: Fragment<U = U> + OrderState + Copy + Ord + Display + Debug,
-    Pl: Pool<U = U> + Stable + Copy + Debug + Display,
+    Pl: MarketMaker<U = U> + Stable + Copy + Debug + Display,
     U: PartialOrd + SubAssign + Sub<Output = U> + Copy + Debug,
 {
     fn attempt(&mut self) -> Option<ExecutionRecipe<Fr, Pl>> {
@@ -265,7 +267,7 @@ where
 impl<Fr, Pl, U> ExternalTLBEvents<Fr, Pl> for TLB<Fr, Pl, U>
 where
     Fr: Fragment + OrderState + Ord + Copy + Display,
-    Pl: Pool + Stable + Copy,
+    Pl: MarketMaker + Stable + Copy,
 {
     fn advance_clocks(&mut self, new_time: u64) {
         requiring_settled_state(self, |st| st.advance_clocks(new_time))
@@ -293,7 +295,7 @@ where
 impl<Fr, Pl, U> TLBFeedback<Fr, Pl> for TLB<Fr, Pl, U>
 where
     Fr: Fragment + OrderState + Ord + Copy,
-    Pl: Pool + Stable + Copy,
+    Pl: MarketMaker + Stable + Copy,
 {
     fn on_recipe_succeeded(&mut self) {
         self.state.commit();
@@ -310,9 +312,9 @@ const MAX_BIAS_PERCENT: u128 = 3;
 //                     |
 // p: >.... P_x ......(.)...... P_index .... P_y.... >
 //           |         |           |          |
-//          ask      bias<=3%....pivot       bid
+//          ask     |bias|<=3%...pivot       bid
 /// Settle execution price for two interleaving fragments.
-fn settle_price<Fr: Fragment>(ask: &Fr, bid: &Fr, index_price: Option<StaticPrice>) -> AbsolutePrice {
+fn settle_price<Fr: Fragment>(ask: &Fr, bid: &Fr, index_price: Option<SpotPrice>) -> AbsolutePrice {
     let price_ask = ask.price();
     let price_bid = bid.price();
     let price_ask_rat = price_ask.unwrap();
@@ -442,7 +444,7 @@ where
     }
 }
 
-pub fn linear_output_rel(input: u64, price: RelativePrice) -> Option<u64> {
+pub fn linear_output_relative(input: u64, price: RelativePrice) -> Option<u64> {
     u64::try_from(U256::from(input) * U256::from(*price.numer()) / U256::from(*price.denom())).ok()
 }
 
@@ -455,13 +457,13 @@ fn linear_output_unsafe(input: u64, price: Side<AbsolutePrice>) -> u64 {
 
 struct FillFromPool<Fr, Pl> {
     term_fill: Fill<Fr>,
-    swap: Swap<Pl>,
+    swap: Take<Pl>,
 }
 
 fn fill_from_pool<Fr, Pl>(lhs: PartialFill<Fr>, pool: Pl) -> FillFromPool<Fr, Pl>
 where
     Fr: Fragment + OrderState + Copy,
-    Pl: Pool + Copy,
+    Pl: MarketMaker + Copy,
 {
     match lhs.target.side() {
         SideM::Bid => {
@@ -470,7 +472,7 @@ where
             let quote_input = bid.remaining_input;
             let (execution_amount, next_pool) = pool.swap(Side::Bid(quote_input));
             bid.accumulated_output += execution_amount;
-            let swap = Swap {
+            let swap = Take {
                 target: pool,
                 transition: next_pool,
                 side: SideM::Bid,
@@ -488,7 +490,7 @@ where
             let base_input = ask.remaining_input;
             let (execution_amount, next_pool) = pool.swap(Side::Ask(base_input));
             ask.accumulated_output += execution_amount;
-            let swap = Swap {
+            let swap = Take {
                 target: pool,
                 transition: next_pool,
                 side: SideM::Ask,
@@ -508,9 +510,9 @@ mod tests {
     use either::Either;
 
     use crate::execution_engine::liquidity_book::fragment::StateTrans;
-    use crate::execution_engine::liquidity_book::pool::Pool;
+    use crate::execution_engine::liquidity_book::market_maker::MarketMaker;
     use crate::execution_engine::liquidity_book::recipe::{
-        ExecutionRecipe, Fill, IntermediateRecipe, PartialFill, Swap, TerminalInstruction,
+        ExecutionRecipe, Fill, IntermediateRecipe, PartialFill, Take, TerminalInstruction,
     };
     use crate::execution_engine::liquidity_book::side::SideM::Bid;
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
@@ -596,7 +598,7 @@ mod tests {
                     budget_used: 990000,
                     fee_used: 990,
                 }),
-                TerminalInstruction::Swap(Swap {
+                TerminalInstruction::Swap(Take {
                     target: p1,
                     transition: p2,
                     side: SideM::Ask,

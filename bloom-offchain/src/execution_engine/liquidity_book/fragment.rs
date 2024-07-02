@@ -1,3 +1,4 @@
+use crate::execution_engine::liquidity_book::core::{TerminalTake, Trans};
 use num_rational::Ratio;
 use std::fmt::{Display, Formatter};
 
@@ -15,6 +16,16 @@ pub trait OrderState: Sized {
         removed_input: InputAsset<u64>,
         added_output: OutputAsset<u64>,
     ) -> (StateTrans<Self>, ExBudgetUsed, ExFeeUsed);
+}
+
+/// Order as a state machine.
+pub trait TakerBehaviour: Sized {
+    fn with_updated_time(self, time: u64) -> Trans<Self, TerminalTake>;
+    fn with_applied_trade(
+        self,
+        removed_input: InputAsset<u64>,
+        added_output: OutputAsset<u64>,
+    ) -> Trans<Self, TerminalTake>;
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -53,8 +64,10 @@ pub trait Fragment {
     type U;
     /// Side of the fragment relative to pair it maps to.
     fn side(&self) -> SideM;
-    /// Input asset.
+    /// Amount of input asset remaining.
     fn input(&self) -> InputAsset<u64>;
+    /// Amount of output asset accumulated.
+    fn output(&self) -> OutputAsset<u64>;
     /// Price of base asset in quote asset.
     fn price(&self) -> AbsolutePrice;
     /// Batcher fee for whole swap.

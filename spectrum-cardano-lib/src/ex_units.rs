@@ -1,4 +1,5 @@
 use algebra_core::monoid::Monoid;
+use algebra_core::semigroup::Semigroup;
 use derive_more::{Add, AddAssign, Sub, SubAssign};
 use std::ops::Add;
 
@@ -19,12 +20,15 @@ impl ExUnits {
     }
 }
 
+impl Semigroup for ExUnits {
+    fn combine(self, other: Self) -> Self {
+        self.add(other)
+    }
+}
+
 impl Monoid for ExUnits {
     fn empty() -> Self {
         ExUnits { mem: 0, steps: 0 }
-    }
-    fn combine(self, other: Self) -> Self {
-        self.add(other)
     }
 }
 

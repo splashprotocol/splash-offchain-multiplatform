@@ -1,4 +1,3 @@
-use either::{Either, Left, Right};
 use std::collections::hash_map::Entry;
 use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::{Debug, Display, Formatter};
@@ -6,15 +5,16 @@ use std::hash::Hash;
 use std::mem;
 use std::ops::Add;
 
+use either::{Either, Left, Right};
 use log::trace;
 
 use spectrum_offchain::data::Stable;
 
 use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-use crate::execution_engine::liquidity_book::pool::{Pool, PoolQuality, StaticPrice};
+use crate::execution_engine::liquidity_book::market_maker::{MarketMaker, PoolQuality, SpotPrice};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
-use crate::execution_engine::liquidity_book::types::AbsolutePrice;
+use crate::execution_engine::liquidity_book::types::{AbsolutePrice, InputAsset};
 use crate::execution_engine::liquidity_book::weight::Weighted;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -36,7 +36,7 @@ impl<Fr, Pl: Stable> IdleState<Fr, Pl> {
 impl<Fr, Pl> IdleState<Fr, Pl>
 where
     Fr: Fragment + OrderState + Ord + Copy,
-    Pl: Pool + Stable + Copy,
+    Pl: MarketMaker + Stable + Copy,
 {
     pub fn advance_clocks(&mut self, new_time: u64) {
         self.fragments.advance_clocks(new_time)
@@ -417,12 +417,27 @@ where
     }
 }
 
+pub fn max_by_distance_to_spot<Fr>(fragments: &mut Fragments<Fr>, spot_price: SpotPrice) -> Option<Fr> {
+    None
+}
+
+pub fn max_by_volume<Fr>(fragments: &mut Fragments<Fr>) -> Option<Fr> {
+    None
+}
+
 impl<Fr, Pl, U> TLBState<Fr, Pl>
 where
     Fr: Fragment<U = U> + Ord + Copy + Debug,
-    Pl: Pool + Stable + Copy,
+    Pl: MarketMaker + Stable + Copy,
     U: PartialOrd,
 {
+    pub fn pick_taker<F>(&mut self, strategy: F) -> Option<Fr>
+    where
+        F: FnOnce(&mut Fragments<Fr>) -> Option<Fr>,
+    {
+        None
+    }
+
     pub fn show_state(&self) -> String
     where
         Pl::StableId: Display,
@@ -551,17 +566,35 @@ where
 impl<Fr, Pl> TLBState<Fr, Pl>
 where
     Fr: Fragment + Ord + Copy,
-    Pl: Pool + Stable + Copy,
+    Pl: MarketMaker + Stable + Copy,
 {
-    pub fn try_select_pool(
+    pub fn best_market_maker(&self) -> Option<&Pl> {
+        self.pools().pools.values().max_by_key(|p| p.quality())
+    }
+
+    pub fn preselect_market_maker(
         &self,
-        trade_hint: Side<u64>,
-    ) -> Option<(AbsolutePrice, StaticPrice, Pl::StableId)> {
+        offered_amount: Side<InputAsset<u64>>,
+    ) -> Option<(Pl::StableId, AbsolutePrice)> {
         let pools = self
             .pools()
             .pools
             .values()
-            .filter(|pool| pool.swaps_allowed())
+            .filter(|pool| pool.is_active())
+            .map(|p| (p.stable_id(), p.real_price(offered_amount)))
+            .collect::<Vec<_>>();
+        match offered_amount {
+            Side::Bid(_) => pools.into_iter().min_by_key(|(_, rp)| *rp),
+            Side::Ask(_) => pools.into_iter().max_by_key(|(_, rp)| *rp),
+        }
+    }
+
+    pub fn try_select_pool(&self, trade_hint: Side<u64>) -> Option<(AbsolutePrice, SpotPrice, Pl::StableId)> {
+        let pools = self
+            .pools()
+            .pools
+            .values()
+            .filter(|pool| pool.is_active())
             .map(|p| {
                 let real_p = p.real_price(trade_hint);
                 let static_p = p.static_price();
@@ -910,7 +943,7 @@ impl<Pl: Stable> Pools<Pl> {
 
 impl<Pl> Pools<Pl>
 where
-    Pl: Pool + Stable + Copy,
+    Pl: MarketMaker + Stable + Copy,
 {
     pub fn update_pool(&mut self, pool: Pl) {
         if let Some(old_pool) = self.pools.insert(pool.stable_id(), pool) {
@@ -928,18 +961,17 @@ where
 
 #[cfg(test)]
 pub mod tests {
-    use either::Left;
     use std::cmp::Ordering;
     use std::fmt::{Debug, Display, Formatter};
+
+    use either::Left;
 
     use spectrum_offchain::data::Stable;
 
     use crate::execution_engine::liquidity_book::fragment::{Fragment, OrderState, StateTrans};
-    use crate::execution_engine::liquidity_book::pool::{Pool, StaticPrice};
+    use crate::execution_engine::liquidity_book::market_maker::{MarketMaker, SpotPrice};
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
-    use crate::execution_engine::liquidity_book::state::{
-        Fragments, IdleState, PoolQuality, StashingOption, TLBState,
-    };
+    use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, StashingOption, TLBState};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::{
         AbsolutePrice, ExBudgetUsed, ExCostUnits, ExFeeUsed, OutputAsset,
@@ -1330,7 +1362,7 @@ pub mod tests {
             }
         }
 
-        fn with_applied_swap(
+        fn apply_swap(
             mut self,
             removed_input: u64,
             added_output: u64,
@@ -1377,10 +1409,10 @@ pub mod tests {
         }
     }
 
-    impl Pool for SimpleCFMMPool {
+    impl MarketMaker for SimpleCFMMPool {
         type U = u64;
 
-        fn static_price(&self) -> StaticPrice {
+        fn static_price(&self) -> SpotPrice {
             AbsolutePrice::new(self.reserves_quote, self.reserves_base).into()
         }
 
@@ -1430,7 +1462,7 @@ pub mod tests {
             10
         }
 
-        fn swaps_allowed(&self) -> bool {
+        fn is_active(&self) -> bool {
             // SimpleCFMMPool used only for tests
             true
         }

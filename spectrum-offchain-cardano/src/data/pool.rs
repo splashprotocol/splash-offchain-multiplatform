@@ -17,10 +17,11 @@ use cml_chain::{Coin, PolicyId};
 
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
+use num_rational::Ratio;
 use tracing_subscriber::filter::combinator::Or;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
-use bloom_offchain::execution_engine::liquidity_book::pool::{Pool, PoolQuality, StaticPrice};
+use bloom_offchain::execution_engine::liquidity_book::market_maker::{MarketMaker, PoolQuality, SpotPrice};
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::collateral::Collateral;
@@ -242,9 +243,9 @@ pub struct AssetDeltas {
     pub asset_to_add_to: AssetClass,
 }
 
-impl Pool for AnyPool {
+impl MarketMaker for AnyPool {
     type U = ExUnits;
-    fn static_price(&self) -> StaticPrice {
+    fn static_price(&self) -> SpotPrice {
         match self {
             PureCFMM(p) => p.static_price(),
             BalancedCFMM(p) => p.static_price(),
@@ -285,10 +286,17 @@ impl Pool for AnyPool {
         }
     }
 
-    fn swaps_allowed(&self) -> bool {
+    fn available_liquidity(&self, max_price_impact: Side<Ratio<u128>>) -> (u128, u128) {
         match self {
-            PureCFMM(p) => p.swaps_allowed(),
-            BalancedCFMM(p) => p.swaps_allowed(),
+            PureCFMM(p) => p.available_liquidity(max_price_impact),
+            BalancedCFMM(p) => p.available_liquidity(max_price_impact),
+        }
+    }
+
+    fn is_active(&self) -> bool {
+        match self {
+            PureCFMM(p) => p.is_active(),
+            BalancedCFMM(p) => p.is_active(),
         }
     }
 }
@@ -521,7 +529,7 @@ pub mod tests {
     use cml_crypto::TransactionHash;
     use rand::Rng;
 
-    use bloom_offchain::execution_engine::liquidity_book::{pool::Pool, side::Side};
+    use bloom_offchain::execution_engine::liquidity_book::{market_maker::MarketMaker, side::Side};
     use spectrum_cardano_lib::OutputRef;
     use spectrum_offchain::ledger::TryFromLedger;
 

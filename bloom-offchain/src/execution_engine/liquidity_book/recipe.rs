@@ -1,4 +1,5 @@
 use std::cmp::max;
+use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 
 use log::{info, trace};
@@ -169,7 +170,7 @@ impl<Fr, Pl, Src> LinkedTerminalInstruction<Fr, Pl, Src> {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum TerminalInstruction<Fr, Pl> {
     Fill(Fill<Fr>),
-    Swap(Swap<Pl>),
+    Swap(Take<Pl>),
 }
 
 impl<Fr: Display, Pl: Display> Display for TerminalInstruction<Fr, Pl> {
@@ -340,7 +341,7 @@ pub struct LinkedSwap<Pl, Src> {
 }
 
 impl<Pl, Src> LinkedSwap<Pl, Src> {
-    pub fn from_swap(swap: Swap<Pl>, target_src: Src) -> Self {
+    pub fn from_swap(swap: Take<Pl>, target_src: Src) -> Self {
         Self {
             target: Bundled(swap.target, target_src),
             transition: swap.transition,
@@ -352,7 +353,7 @@ impl<Pl, Src> LinkedSwap<Pl, Src> {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct Swap<Pl> {
+pub struct Take<Pl> {
     pub target: Pl,
     pub transition: Pl,
     pub side: SideM,
@@ -360,7 +361,7 @@ pub struct Swap<Pl> {
     pub output: u64,
 }
 
-impl<Pl: Display> Display for Swap<Pl> {
+impl<Pl: Display> Display for Take<Pl> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(&*format!(
             "Swap(target={}, transition={}, side={}, input={}, output={})",
