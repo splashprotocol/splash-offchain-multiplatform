@@ -129,4 +129,4 @@ jobs:
             fi
           fi
         fi
-        curl -X POST -H 'Content-type: application/json' --data "{\"text\": \"$TEXT\"}" $SLACK_WEBHOOK_URL2
+        curl -X POST -H 'Content-type: application/json' --data "{\"text\": \"$TEXT\"}" $SLACK_WEBHOOK_URL
