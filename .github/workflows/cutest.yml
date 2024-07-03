@@ -1,4 +1,4 @@
-name: Rust CI for Develop Branch
+name: TEST CI for Develop Branch
 
 # Trigger the workflow on push to the develop branch
 on:
@@ -39,7 +39,17 @@ jobs:
         key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-cargo-build-
-    
+          
+    - name: Run Cargo fmt
+      id: fmt
+      run: |
+        if ! cargo fmt --all -- --check; then
+          echo "Cargo fmt failed."
+          echo "::set-output name=status::failure"
+        else
+          echo "Cargo fmt succeeded."
+          echo "::set-output name=status::success"
+        fi
     - name: Run Cargo Build
       id: build
       run: |
