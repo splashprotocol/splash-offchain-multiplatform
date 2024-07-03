@@ -246,6 +246,31 @@ mod tests {
     }
 
     #[test]
+    fn fee_overuse_balancing_single() {
+        let t0_0 = SimpleOrderPF::new(0, 2000000);
+        let t0_1 = SimpleOrderPF::new(0, 0);
+        let instructions = vec![
+            Either::Left(Trans::new(Bundled(t0_0, ()), Next::Succ(t0_1))),
+        ];
+        let reserved_fee = 2000000u64;
+        let fee_mismatch = 1658040i64;
+        let estimated_fee = reserved_fee - fee_mismatch as u64;
+        let rescale_factor = Ratio::new(estimated_fee, reserved_fee);
+        let balanced_instructions = balance_fee::<_, (), _>(fee_mismatch, rescale_factor, instructions);
+        dbg!(balanced_instructions.clone());
+        assert_eq!(
+            balanced_instructions
+                .iter()
+                .map(|i| match i {
+                    Either::Left(f) => f.consumed_budget(),
+                    _ => 0,
+                })
+                .sum::<u64>(),
+            estimated_fee
+        )
+    }
+
+    #[test]
     fn fee_underuse_balancing_even() {
         let t0_0 = SimpleOrderPF::new(0, 250000);
         let t0_1 = SimpleOrderPF::new(0, 100000);

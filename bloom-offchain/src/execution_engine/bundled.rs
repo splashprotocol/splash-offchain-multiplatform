@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 
 use spectrum_offchain::backlog;
@@ -10,6 +11,12 @@ use crate::execution_engine::liquidity_book;
 /// Entity bundled with its source.h
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Bundled<T, Bearer>(pub T, pub Bearer);
+
+impl<T: Display, B> Display for Bundled<T, B> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(format!("Bundled({}, _)", self.0).as_str())
+    }
+}
 
 impl<T, Bearer> Bundled<T, Bearer> {
     pub fn map<T2, F>(self, f: F) -> Bundled<T2, Bearer>

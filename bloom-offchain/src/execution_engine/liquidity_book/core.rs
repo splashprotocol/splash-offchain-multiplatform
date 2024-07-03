@@ -107,6 +107,16 @@ impl<Init, Cont, Term> Trans<Init, Cont, Term> {
         Self { target, result }
     }
 
+    pub fn map_target<B, F>(self, f: F) -> Trans<B, Cont, Term>
+    where
+        F: FnOnce(Init) -> B,
+    {
+        Trans {
+            target: f(self.target),
+            result: self.result,
+        }
+    }
+
     pub fn map_cont<B, F>(self, f: F) -> Trans<Init, B, Term>
     where
         F: FnOnce(Cont) -> B,

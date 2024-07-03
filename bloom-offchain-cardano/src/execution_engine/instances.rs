@@ -77,6 +77,7 @@ where
         context: Ctx,
     ) -> (ExecutionState, EffectPreview<LimitOrder>, Ctx) {
         let Magnet(trans) = self;
+        trace!("Running transition: {}", trans);
         let removed_input = trans.removed_input();
         let added_output = trans.added_output();
         let consumed_budget = trans.consumed_budget();

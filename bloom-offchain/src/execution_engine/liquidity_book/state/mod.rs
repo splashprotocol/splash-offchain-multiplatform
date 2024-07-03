@@ -37,30 +37,30 @@ impl<T, M: Stable> IdleState<T, M> {
 
 impl<T, M> IdleState<T, M>
 where
-    T: MarketTaker + TakerBehaviour + Ord + Copy + Debug,
-    M: MarketMaker + Stable + Copy + Debug,
+    T: MarketTaker + TakerBehaviour + Ord + Copy + Display,
+    M: MarketMaker + Stable + Copy + Display,
 {
     pub fn advance_clocks(&mut self, new_time: u64) {
         self.takers.advance_clocks(new_time)
     }
 
     pub fn add_fragment(&mut self, fr: T) {
-        trace!("Adding {:?} to active frontier", fr);
+        trace!("Adding {} to active frontier", fr);
         self.takers.add_fragment(fr);
     }
 
     pub fn remove_fragment(&mut self, fr: T) {
-        trace!("Removing {:?} from active frontier", fr);
+        trace!("Removing {} from active frontier", fr);
         self.takers.remove_fragment(fr);
     }
 
     pub fn update_pool(&mut self, maker: M) {
-        trace!("Updating {:?} in active frontier", maker);
+        trace!("Updating {} in active frontier", maker);
         self.makers.update_pool(maker);
     }
 
     pub fn remove_pool(&mut self, maker: M) {
-        trace!("Removing {:?} from active frontier", maker);
+        trace!("Removing {} from active frontier", maker);
         self.makers.remove_pool(maker);
     }
 }
