@@ -114,7 +114,7 @@ impl Ord for LimitOrder {
 }
 
 impl TakerBehaviour for LimitOrder {
-    fn with_updated_time(self, time: u64) -> Next<Self, Unit> {
+    fn with_updated_time(self, _: u64) -> Next<Self, Unit> {
         Next::Succ(self)
     }
 

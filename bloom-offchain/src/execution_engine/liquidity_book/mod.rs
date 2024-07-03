@@ -556,6 +556,35 @@ mod tests {
     }
 
     #[test]
+    fn fill_order_from_pool() {
+        // Assuming pair ADA/USDT @ ask price 0.360, real price in pool 0.364.
+        let ask_fr = SimpleOrderPF {
+            source: StableId::random(),
+            side: Bid,
+            input: 8851624528,
+            accumulated_output: 2512730,
+            min_marginal_output: 0,
+            price: AbsolutePrice::new(8851624528, 2114025439),
+            fee: 0,
+            ex_budget: 0,
+            cost_hint: 0,
+            bounds: TimeBounds::None,
+        };
+        let pool = SimpleCFMMPool {
+            pool_id: StableId::random(),
+            reserves_base: 4296646506159,
+            reserves_quote: 1148842702781,
+            fee_num: 997,
+        };
+        let real_price_in_pool = pool.real_price(Side::Ask(ask_fr.input()));
+        println!("Price in pool {}", real_price_in_pool);
+        let (t, m) = execute_with_maker(ask_fr, pool, Side::Ask(ask_fr.input()));
+        println!("Result: ({}, {})", t, m);
+        assert_eq!(m.gain().unwrap().unwrap(), t.removed_input());
+        assert_eq!(m.loss().unwrap().unwrap(), t.added_output());
+    }
+
+    #[test]
     fn match_price_biased_towards_best_fee() {
         let ask_price = AbsolutePrice::new(30, 100);
         let bid_price = AbsolutePrice::new(50, 100);

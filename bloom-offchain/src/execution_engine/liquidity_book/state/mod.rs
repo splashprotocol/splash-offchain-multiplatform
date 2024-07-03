@@ -900,7 +900,7 @@ pub mod tests {
 
     use spectrum_offchain::data::Stable;
 
-    use crate::execution_engine::liquidity_book::core::{Next, TerminalTake, Trans};
+    use crate::execution_engine::liquidity_book::core::{Next, TerminalTake, Trans, Unit};
     use crate::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
     use crate::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker, SpotPrice};
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
@@ -1306,7 +1306,7 @@ pub mod tests {
             if self.bounds.contain(&time) {
                 Next::Succ(self)
             } else {
-                Next::Term(())
+                Next::Term(Unit)
             }
         }
 

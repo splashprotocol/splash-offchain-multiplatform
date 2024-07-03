@@ -250,9 +250,9 @@ impl<Maker, B> Make<Maker, B> {
     {
         match &self.result {
             Next::Succ(succ) => match self.target.0.static_price().cmp(&succ.static_price()) {
-                Ordering::Less => Some(SideM::Ask),
+                Ordering::Less => Some(SideM::Bid),
                 Ordering::Equal => None,
-                Ordering::Greater => Some(SideM::Bid),
+                Ordering::Greater => Some(SideM::Ask),
             },
             _ => None,
         }
@@ -342,6 +342,20 @@ impl<Maker> MakeInProgress<Maker> {
 }
 
 impl<T> TakeInProgress<T> {
+    pub fn removed_input(&self) -> InputAsset<u64>
+    where
+        T: MarketTaker,
+    {
+        let remaining_input = match &self.result {
+            Next::Succ(next) => next.input(),
+            Next::Term(term) => term.remaining_input,
+        };
+        self.target
+            .input()
+            .checked_sub(remaining_input)
+            .expect("Input cannot increase")
+    }
+
     pub fn added_output(&self) -> OutputAsset<u64>
     where
         T: MarketTaker,
