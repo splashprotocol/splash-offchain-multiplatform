@@ -1,60 +1,122 @@
-name: TEST Notify on New Commits
+name: Rust CI for Develop Branch
 
+# Trigger the workflow on push to the develop branch
 on:
   push:
     branches:
       - develop
+  
+  pull_request:
+    types: [opened, synchronize, closed]    
 
 jobs:
-  notify:
+  build:
+
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-      - name: Get latest commit message
-        id: commit
-        run: echo "::set-output name=message::$(git log -1 --pretty=format:'%h %s')"
+    - name: Set up Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
 
-      - name: Simulate a job step
-        id: job
-        run: |
-          echo "Simulating a job step."
-          # Simulate a failure
-          # exit 1
+    - name: Cache Cargo registry
+      uses: actions/cache@v3
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-registry-
 
-      - name: Set action result
-        id: result
-        run: |
-          if [ ${{ job.status }} == 'success' ]; then
-            echo "::set-output name=result::Success"
+    - name: Cache Cargo build
+      uses: actions/cache@v3
+      with:
+        path: target
+        key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-build-
+    
+    - name: Run Cargo Build
+      id: build
+      run: |
+        if ! cargo build --package bloom-cardano-agent --bin bloom-cardano-agent; then
+          echo "Cargo build failed."
+          echo "::set-output name=status::failure"
+        else
+          echo "Cargo build succeeded."
+          echo "::set-output name=status::success"
+        fi
+   
+    - name: Run tests
+      run: cargo test --package bloom-cardano-agent --bin bloom-cardano-agent
+
+
+    - name: Get Event Information
+      id: info
+      run: |
+        if [ "${{ github.event_name }}" == "push" ]; then
+          echo "::set-output name=event::push"
+          echo "::set-output name=branch::${{ github.ref_name }}"
+          echo "::set-output name=commits::$(echo "${{ github.event.commits }}" | jq '.[] | "- \(.message) by \(.author.name)"' -r | tr '\n' '\\n')"
+        elif [ "${{ github.event_name }}" == "pull_request" ]; then
+          echo "::set-output name=event::pull_request"
+          echo "::set-output name=action::${{ github.event.action }}"
+          echo "::set-output name=pr_title::${{ github.event.pull_request.title }}"
+          echo "::set-output name=pr_user::${{ github.event.pull_request.user.login }}"
+          echo "::set-output name=pr_url::${{ github.event.pull_request.html_url }}"
+          echo "::set-output name=pr_number::${{ github.event.pull_request.number }}"
+          echo "::set-output name=merged::${{ github.event.pull_request.merged }}"
+        fi
+        
+    - name: Notify Slack
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL2 }}
+        EVENT: ${{ steps.info.outputs.event }}
+        BRANCH: ${{ steps.info.outputs.branch }}
+        COMMITS: ${{ steps.info.outputs.commits }}
+        PR_TITLE: ${{ steps.info.outputs.pr_title }}
+        PR_USER: ${{ steps.info.outputs.pr_user }}
+        PR_URL: ${{ steps.info.outputs.pr_url }}
+        PR_NUMBER: ${{ steps.info.outputs.pr_number }}
+        PR_ACTION: ${{ steps.info.outputs.action }}
+        PR_MERGED: ${{ steps.info.outputs.merged }}
+        BUILD_STATUS: ${{ steps.build.outputs.status }}
+      run: |
+        if [ "$EVENT" == "push" ]; then
+          if [ "$BUILD_STATUS" == "failure" ]; then
+            TEXT="❌ *Build Failed on Push to develop Branch!*\n*Branch:* $BRANCH\n*Commits:*\n$COMMITS"
           else
-            echo "::set-output name=result::Failure"
+            TEXT="📢 *New Push to develop Branch and Build Succeeded!*\n*Branch:* $BRANCH\n*Commits:*\n$COMMITS"
           fi
-
-      - name: Send notification to Slack
-        if: always()
-        uses: slackapi/slack-github-action@v1.23.0
-        with:
-          payload: |
-            {
-              "text": ":white_check_mark: New commit on *:green_heart: develop branch:* ${{ steps.commit.outputs.message }}",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": ":white_check_mark: New commit on *:green_heart: develop branch:* \n*Commit:* <https://github.com/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit.outputs.message }}> \n*Author:* ${{ github.actor }} \n*Date:* ${{ github.event.head_commit.timestamp }}"
-                  }
-                },
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*Action Result:* ${{ steps.result.outputs.result }}"
-                  }
-                }
-              ]
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL2 }}
+        elif [ "$EVENT" == "pull_request" ]; then
+          if [ "$BUILD_STATUS" == "failure" ]; then
+            if [ "$PR_ACTION" == "opened" ]; then
+              TEXT="❌ *Build Failed for New Pull Request!*\n*Title:* $PR_TITLE\n*Author:* $PR_USER\n*URL:* $PR_URL\n*Number:* $PR_NUMBER"
+            elif [ "$PR_ACTION" == "synchronize" ]; then
+              TEXT="❌ *Build Failed for Updated Pull Request!*\n*Title:* $PR_TITLE\n*Author:* $PR_USER\n*URL:* $PR_URL\n*Number:* $PR_NUMBER"
+            elif [ "$PR_ACTION" == "closed" ]; then
+              if [ "$PR_MERGED" == "true" ]; then
+                TEXT="❌ *Build Failed for Merged Pull Request!*\n*Title:* $PR_TITLE\n*Author:* $PR_USER\n*URL:* $PR_URL\n*Number:* $PR_NUMBER"
+              else
+                TEXT="❌ *Build Failed for Closed Pull Request Without Merge!*\n*Title:* $PR_TITLE\n*Author:* $PR_USER\n*URL:* $PR_URL\n*Number:* $PR_NUMBER"
+              fi
+            fi
+          else
+            if [ "$PR_ACTION" == "opened" ]; then
+              TEXT="🚀 *New Pull Request Opened and Build Succeeded!*\n*Title:* $PR_TITLE\n*Author:* $PR_USER\n*URL:* $PR_URL\n*Number:* $PR_NUMBER"
+            elif [ "$PR_ACTION" == "synchronize" ]; then
+              TEXT="🔄 *Pull Request Updated and Build Succeeded!*\n*Title:* $PR_TITLE\n*Author:* $PR_USER\n*URL:* $PR_URL\n*Number:* $PR_NUMBER"
+            elif [ "$PR_ACTION" == "closed" ]; then
+              if [ "$PR_MERGED" == "true" ]; then
+                TEXT="🎉 *Pull Request Merged and Build Succeeded!*\n*Title:* $PR_TITLE\n*Author:* $PR_USER\n*URL:* $PR_URL\n*Number:* $PR_NUMBER"
+              else
+                TEXT="❌ *Pull Request Closed Without Merge but Build Succeeded!*\n*Title:* $PR_TITLE\n*Author:* $PR_USER\n*URL:* $PR_URL\n*Number:* $PR_NUMBER"
+              fi
+            fi
+          fi
+        fi
+        curl -X POST -H 'Content-type: application/json' --data "{\"text\": \"$TEXT\"}" $SLACK_WEBHOOK_URL2
