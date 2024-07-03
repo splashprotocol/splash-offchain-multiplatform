@@ -1,7 +1,7 @@
 use std::cmp::{max, Ordering};
 use std::fmt::{Display, Formatter};
 
-use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake};
+use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::PolicyId;
 use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
@@ -114,7 +114,7 @@ impl Ord for LimitOrder {
 }
 
 impl TakerBehaviour for LimitOrder {
-    fn with_updated_time(self, time: u64) -> Next<Self, ()> {
+    fn with_updated_time(self, time: u64) -> Next<Self, Unit> {
         Next::Succ(self)
     }
 

@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::ops::Mul;
 
-use bloom_offchain::execution_engine::liquidity_book::core::Next;
+use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
     MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
 };
@@ -409,7 +409,7 @@ impl AMMOps for StablePoolT2T {
 }
 
 impl MakerBehavior for StablePoolT2T {
-    fn swap(mut self, input: Side<u64>) -> Next<Self, ()> {
+    fn swap(mut self, input: Side<u64>) -> Next<Self, Unit> {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, quote] = order_canonical(x, y);

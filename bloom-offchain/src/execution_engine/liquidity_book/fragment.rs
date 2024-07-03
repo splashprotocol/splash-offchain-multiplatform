@@ -1,11 +1,11 @@
-use crate::execution_engine::liquidity_book::core::{Next, TerminalTake};
+use crate::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
 use crate::execution_engine::liquidity_book::side::SideM;
 use crate::execution_engine::liquidity_book::time::TimeBounds;
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, FeeAsset, InputAsset, OutputAsset};
 
 /// Order as a state machine.
 pub trait TakerBehaviour: Sized {
-    fn with_updated_time(self, time: u64) -> Next<Self, ()>;
+    fn with_updated_time(self, time: u64) -> Next<Self, Unit>;
     fn with_applied_trade(
         self,
         removed_input: InputAsset<u64>,

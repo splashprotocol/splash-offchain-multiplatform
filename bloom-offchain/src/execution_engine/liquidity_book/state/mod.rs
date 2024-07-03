@@ -415,7 +415,7 @@ where
 
 impl<T, M, U> TLBState<T, M>
 where
-    T: MarketTaker<U = U> + Ord + Copy + Debug,
+    T: MarketTaker<U = U> + Ord + Copy + Display,
     M: MarketMaker + Stable + Copy,
     U: PartialOrd,
 {
@@ -1302,7 +1302,7 @@ pub mod tests {
     }
 
     impl TakerBehaviour for SimpleOrderPF {
-        fn with_updated_time(self, time: u64) -> Next<Self, ()> {
+        fn with_updated_time(self, time: u64) -> Next<Self, Unit> {
             if self.bounds.contain(&time) {
                 Next::Succ(self)
             } else {
@@ -1371,7 +1371,7 @@ pub mod tests {
     }
 
     impl MakerBehavior for SimpleCFMMPool {
-        fn swap(mut self, input: Side<u64>) -> Next<Self, ()> {
+        fn swap(mut self, input: Side<u64>) -> Next<Self, Unit> {
             let result = match input {
                 Side::Bid(quote_input) => {
                     let base_output =

@@ -17,7 +17,7 @@ use num_rational::Ratio;
 use num_traits::{CheckedAdd, CheckedSub};
 use primitive_types::U512;
 
-use bloom_offchain::execution_engine::liquidity_book::core::{MakeInProgress, Next, Trans};
+use bloom_offchain::execution_engine::liquidity_book::core::{MakeInProgress, Next, Trans, Unit};
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
     MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
 };
@@ -392,7 +392,7 @@ impl AMMOps for BalancePool {
 }
 
 impl MakerBehavior for BalancePool {
-    fn swap(mut self, input: Side<u64>) -> Next<Self, ()> {
+    fn swap(mut self, input: Side<u64>) -> Next<Self, Unit> {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, quote] = order_canonical(x, y);

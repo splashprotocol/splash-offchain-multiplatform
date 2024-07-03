@@ -107,7 +107,7 @@ where
 
 impl<Taker, Maker, U> TLB<Taker, Maker, U>
 where
-    Taker: MarketTaker<U = U> + Ord + Copy + Debug,
+    Taker: MarketTaker<U = U> + Ord + Copy + Display,
     Maker: MarketMaker + Stable + Copy,
     U: PartialOrd,
 {
@@ -126,8 +126,8 @@ where
 
 impl<Taker, Maker, U> TemporalLiquidityBook<Taker, Maker> for TLB<Taker, Maker, U>
 where
-    Taker: Stable + MarketTaker<U = U> + TakerBehaviour + Ord + Copy + Debug,
-    Maker: Stable + MarketMaker<U = U> + MakerBehavior + Copy + Debug,
+    Taker: Stable + MarketTaker<U = U> + TakerBehaviour + Ord + Copy + Display,
+    Maker: Stable + MarketMaker<U = U> + MakerBehavior + Copy + Display,
     U: Monoid + AddAssign + PartialOrd + Copy,
 {
     fn attempt(&mut self) -> Option<MatchmakingRecipe<Taker, Maker>> {
@@ -142,15 +142,15 @@ where
                         .map(|sp| max_by_distance_to_spot(fs, sp))
                         .unwrap_or_else(|| max_by_volume(fs))
                 }) {
-                    trace!("Selected taker is: {:?}", target_taker);
+                    trace!("Selected taker is: {}", target_taker);
                     let target_side = target_taker.side();
                     let target_price = target_side.wrap(target_taker.price());
                     let maybe_price_counter_taker = self.state.best_taker_price(!target_side);
                     let chunk_offered = batch.next_offered_chunk(&target_taker);
                     let maybe_price_maker = self.state.preselect_market_maker(chunk_offered);
                     trace!(
-                        "P_target: {:?}, P_counter: {:?}, P_amm: {:?}",
-                        target_price,
+                        "P_target: {}, P_counter: {:?}, P_amm: {:?}",
+                        target_price.unwrap(),
                         maybe_price_counter_taker,
                         maybe_price_maker
                     );
@@ -162,7 +162,7 @@ where
                                     .unwrap_or(true) =>
                         {
                             if let Some(counter_taker) = self.state.try_pick_taker(!target_side, ok) {
-                                trace!("Taker {:?} matched with {:?}", target_taker, counter_taker);
+                                trace!("Taker {} matched with {}", target_taker, counter_taker);
                                 let make_match =
                                     |ask: &Taker, bid: &Taker| settle_price(ask, bid, spot_price);
                                 let (take_a, take_b) =
@@ -176,7 +176,7 @@ where
                         }
                         (_, Some((maker_sid, price_maker))) if target_price.overlaps(price_maker) => {
                             if let Some(maker) = self.state.pick_maker_by_id(&maker_sid) {
-                                trace!("Taker {:?} matched with {:?}", target_taker, maker);
+                                trace!("Taker {} matched with {}", target_taker, maker);
                                 let (take, make) = execute_with_maker(target_taker, maker, chunk_offered);
                                 if let Ok(_) = batch.add_make(make) {
                                     batch.add_take(take);
@@ -197,7 +197,7 @@ where
             }
             match MatchmakingRecipe::try_from(batch) {
                 Ok(ex_recipe) => {
-                    trace!("Successfully formed a batch {:?}", ex_recipe);
+                    trace!("Successfully formed a batch {}", ex_recipe);
                     return Some(ex_recipe);
                 }
                 Err(None) => {
@@ -368,7 +368,8 @@ fn to_unsigned(r: Ratio<i128>) -> Ratio<u128> {
 }
 
 pub fn linear_output_relative(input: u64, price: RelativePrice) -> Option<u64> {
-    u64::try_from(U256::from(input) * U256::from(*price.numer()) / U256::from(*price.denom())).ok()
+    u64::try_from((U256::from(input) * U256::from(*price.numer())).checked_div(U256::from(*price.denom()))?)
+        .ok()
 }
 
 fn linear_output_unsafe(input: u64, price: Side<AbsolutePrice>) -> u64 {

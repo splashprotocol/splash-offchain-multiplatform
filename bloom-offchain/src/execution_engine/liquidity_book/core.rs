@@ -1,10 +1,12 @@
+use derive_more::Display;
+use either::Either;
+use log::trace;
+use num_rational::Ratio;
 use std::cmp::{max, min, Ordering};
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter, Write};
 use std::mem;
 use std::ops::AddAssign;
-
-use either::Either;
-use num_rational::Ratio;
 
 use algebra_core::monoid::Monoid;
 use algebra_core::semigroup::Semigroup;
@@ -29,12 +31,27 @@ pub struct TerminalTake {
     pub remaining_fee: FeeAsset<u64>,
 }
 
+impl Display for TerminalTake {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(format!("TerminalTake(remaining_input={}, accumulated_output={}, remaining_budget={}, remaining_fee={})", self.remaining_input, self.accumulated_output, self.remaining_budget, self.remaining_fee).as_str())
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 pub enum Next<S, T> {
     /// Successive state is available.
     Succ(S),
     /// Terminal state.
     Term(T),
+}
+
+impl<S: Display, T: Display> Display for Next<S, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Next::Succ(s) => f.write_str(format!("Succ({})", s).as_str()),
+            Next::Term(t) => f.write_str(format!("Term({})", t).as_str()),
+        }
+    }
 }
 
 impl<S, T> Next<S, T> {
@@ -65,6 +82,12 @@ impl<S, T> Next<S, T> {
 pub struct Trans<Init, Cont, Term> {
     pub target: Init,
     pub result: Next<Cont, Term>,
+}
+
+impl<I: Display, C: Display, T: Display> Display for Trans<I, C, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(format!("{} -> {}", self.target, self.result).as_str())
+    }
 }
 
 impl<Cont, Term> Trans<Cont, Cont, Term> {
@@ -104,13 +127,16 @@ impl<Init, Cont, Term> Semigroup for Trans<Init, Cont, Term> {
     }
 }
 
+#[derive(Copy, Clone, Debug, Display)]
+pub struct Unit;
+
 pub type TakeInProgress<Taker> = Trans<Taker, Taker, TerminalTake>;
 
 pub type Take<Taker, Bearer> = Trans<Bundled<Taker, Bearer>, Taker, TerminalTake>;
 
-pub type MakeInProgress<Maker> = Trans<Maker, Maker, ()>;
+pub type MakeInProgress<Maker> = Trans<Maker, Maker, Unit>;
 
-pub type Make<Maker, Bearer> = Trans<Bundled<Maker, Bearer>, Maker, ()>;
+pub type Make<Maker, Bearer> = Trans<Bundled<Maker, Bearer>, Maker, Unit>;
 
 impl<T, B> Take<T, B> {
     pub fn added_output(&self) -> OutputAsset<u64>
@@ -389,11 +415,17 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
             .map(|tr| &tr.target)
             .unwrap_or(taker);
         let initial_chunk = initial_state.input() * NUM_SPLIT_STEPS / 100;
+        trace!(
+            "Initial chunk: {} derived from input: {}",
+            initial_chunk,
+            initial_state.input()
+        );
         let chunk = if initial_chunk > 0 {
             min(initial_chunk, taker.input())
         } else {
             taker.input()
         };
+        trace!("Resulted chunk: {}", chunk);
         taker.side().wrap(chunk)
     }
 
@@ -447,6 +479,19 @@ pub struct Applied<Action, Subject: Stable> {
 #[derive(Debug, Clone)]
 pub struct MatchmakingRecipe<Taker, Maker> {
     pub(crate) instructions: Vec<Either<TakeInProgress<Taker>, MakeInProgress<Maker>>>,
+}
+
+impl<T: Display, M: Display> Display for MatchmakingRecipe<T, M> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("MatchmakingRecipe(")?;
+        for i in &self.instructions {
+            match i {
+                Either::Left(take) => f.write_str(format!("{}, ", take).as_str())?,
+                Either::Right(make) => f.write_str(format!("{}, ", make).as_str())?,
+            }
+        }
+        f.write_str(")")
+    }
 }
 
 impl<Taker, Maker> MatchmakingRecipe<Taker, Maker>

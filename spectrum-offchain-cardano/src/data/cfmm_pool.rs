@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::ops::Div;
 
 use bignumber::BigNumber;
-use bloom_offchain::execution_engine::liquidity_book::core::{MakeInProgress, Next, Trans};
+use bloom_offchain::execution_engine::liquidity_book::core::{MakeInProgress, Next, Trans, Unit};
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
@@ -283,7 +283,7 @@ where
 }
 
 impl MakerBehavior for ConstFnPool {
-    fn swap(mut self, input: Side<u64>) -> Next<Self, ()> {
+    fn swap(mut self, input: Side<u64>) -> Next<Self, Unit> {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, quote] = order_canonical(x, y);

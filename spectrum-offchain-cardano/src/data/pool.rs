@@ -18,7 +18,7 @@ use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
-use bloom_offchain::execution_engine::liquidity_book::core::{MakeInProgress, Next};
+use bloom_offchain::execution_engine::liquidity_book::core::{MakeInProgress, Next, Unit};
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
     MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
 };
@@ -253,7 +253,7 @@ pub struct PoolAssetMapping {
 }
 
 impl MakerBehavior for AnyPool {
-    fn swap(mut self, input: Side<u64>) -> Next<Self, ()> {
+    fn swap(mut self, input: Side<u64>) -> Next<Self, Unit> {
         match self {
             PureCFMM(p) => p.swap(input).map_succ(PureCFMM),
             BalancedCFMM(p) => p.swap(input).map_succ(BalancedCFMM),

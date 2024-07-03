@@ -3,7 +3,7 @@ use std::fmt::{Debug, Display, Formatter};
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
 use bloom_derivation::{MarketTaker, Stable, Tradable};
-use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake};
+use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
 use bloom_offchain::execution_engine::liquidity_book::fragment::TakerBehaviour;
 use bloom_offchain::execution_engine::liquidity_book::types::{InputAsset, OutputAsset};
 use spectrum_offchain::data::Has;
@@ -32,7 +32,7 @@ impl Display for AnyOrder {
 }
 
 impl TakerBehaviour for AnyOrder {
-    fn with_updated_time(self, time: u64) -> Next<Self, ()> {
+    fn with_updated_time(self, time: u64) -> Next<Self, Unit> {
         match self {
             AnyOrder::Limit(o) => o.with_updated_time(time).map_succ(AnyOrder::Limit),
         }

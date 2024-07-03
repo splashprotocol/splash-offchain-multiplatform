@@ -363,7 +363,7 @@ mod tests {
     }
 
     impl TakerBehaviour for SimpleOrderPF {
-        fn with_updated_time(self, time: u64) -> Next<Self, ()> {
+        fn with_updated_time(self, time: u64) -> Next<Self, Unit> {
             Next::Succ(self)
         }
 
