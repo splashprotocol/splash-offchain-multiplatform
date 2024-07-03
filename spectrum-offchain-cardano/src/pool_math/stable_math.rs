@@ -34,21 +34,6 @@ pub fn stable_cfmm_reward_lp(
         }
     };
     let unlocked_lq: u64 = min(min_by_x, min_by_y) as u64;
-    info!("((min_by_x - min_by_y) * (reserves_x.untag() as u128))
-                    .checked_div(liquidity.untag() as u128)?: {}", ((min_by_x - min_by_y) * (reserves_x.untag() as u128))
-                    .checked_div(liquidity.untag() as u128)?);
-    info!("reserves_y: {}", reserves_y.untag());
-    info!("reserves_x: {}", reserves_x.untag());
-    info!("reserves_y: {}", reserves_y.untag());
-    info!("liquidity: {}", liquidity.untag());
-    info!("in_x_amount: {}", in_x_amount);
-    info!("in_y_amount: {}", in_y_amount);
-    info!("min_by_x: {}", min_by_x);
-    info!("min_by_y: {}", min_by_y);
-    info!("min(min_by_x, min_by_y): {}", min(min_by_x, min_by_y));
-    info!("unlocked_lq: {}", unlocked_lq);
-    info!("change_by_x: {}", change_by_x);
-    info!("change_by_y: {}", change_by_y);
     Some((
         TaggedAmount::new(unlocked_lq),
         TaggedAmount::new(change_by_x),
