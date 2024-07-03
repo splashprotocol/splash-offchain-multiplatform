@@ -662,15 +662,15 @@ impl ApplyOrder<ClassicalOnChainRedeem> for StablePoolT2T {
 
 #[cfg(test)]
 mod tests {
+    use bloom_offchain::execution_engine::liquidity_book::core::Next;
+    use bloom_offchain::execution_engine::liquidity_book::market_maker::MakerBehavior;
+    use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use cml_chain::plutus::PlutusData;
     use cml_chain::Deserialize;
     use cml_core::serialization::Serialize;
     use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
     use num_rational::Ratio;
     use primitive_types::U512;
-
-    use bloom_offchain::execution_engine::liquidity_book::pool::Pool;
-    use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
@@ -799,12 +799,14 @@ mod tests {
             300 * 16,
         );
 
-        let result = pool.swap(Side::Bid(390088 - 343088));
+        let Next::Succ(result) = pool.swap(Side::Bid(390088 - 343088)) else {
+            panic!()
+        };
 
-        assert_eq!(result.1.reserves_x.untag(), 460904695);
-        assert_eq!(result.1.reserves_y.untag(), 390088);
-        assert_eq!(result.1.treasury_x.untag(), 243492762);
-        assert_eq!(result.1.treasury_y.untag(), 88088);
+        assert_eq!(result.reserves_x.untag(), 460904695);
+        assert_eq!(result.reserves_y.untag(), 390088);
+        assert_eq!(result.treasury_x.untag(), 243492762);
+        assert_eq!(result.treasury_y.untag(), 88088);
 
         // Swap to max decimals;
         let pool = gen_ada_token_pool(
@@ -820,42 +822,50 @@ mod tests {
             300 * 16,
         );
 
-        let result = pool.swap(Side::Ask(390088 - 343088));
+        let Next::Succ(result) = pool.swap(Side::Ask(390088 - 343088)) else {
+            panic!()
+        };
 
-        assert_eq!(result.1.reserves_x.untag(), 390088);
-        assert_eq!(result.1.reserves_y.untag(), 460904695);
-        assert_eq!(result.1.treasury_x.untag(), 88088);
-        assert_eq!(result.1.treasury_y.untag(), 243492762);
+        assert_eq!(result.reserves_x.untag(), 390088);
+        assert_eq!(result.reserves_y.untag(), 460904695);
+        assert_eq!(result.treasury_x.untag(), 88088);
+        assert_eq!(result.treasury_y.untag(), 243492762);
 
         // Uniform swap;
         let pool = gen_ada_token_pool(100000, 1, 100000, 1, 2000, 2000, 5000, 0, 0, 300 * 16);
 
-        let result = pool.swap(Side::Ask(1000));
+        let Next::Succ(result) = pool.swap(Side::Ask(1000)) else {
+            panic!()
+        };
 
-        assert_eq!(result.1.reserves_x.untag(), 101000);
-        assert_eq!(result.1.reserves_y.untag(), 99071);
-        assert_eq!(result.1.treasury_x.untag(), 0);
-        assert_eq!(result.1.treasury_y.untag(), 50);
+        assert_eq!(result.reserves_x.untag(), 101000);
+        assert_eq!(result.reserves_y.untag(), 99071);
+        assert_eq!(result.treasury_x.untag(), 0);
+        assert_eq!(result.treasury_y.untag(), 50);
 
         // Some swap;
         let pool = gen_ada_token_pool(100100000, 1, 99900201, 1, 100, 100, 100, 0, 100, 300 * 16);
 
-        let result = pool.swap(Side::Ask(100000));
+        let Next::Succ(result) = pool.swap(Side::Ask(100000)) else {
+            panic!()
+        };
 
-        assert_eq!(result.1.reserves_x.untag(), 100200000);
-        assert_eq!(result.1.reserves_y.untag(), 99800403);
-        assert_eq!(result.1.treasury_x.untag(), 0);
-        assert_eq!(result.1.treasury_y.untag(), 200);
+        assert_eq!(result.reserves_x.untag(), 100200000);
+        assert_eq!(result.reserves_y.untag(), 99800403);
+        assert_eq!(result.treasury_x.untag(), 0);
+        assert_eq!(result.treasury_y.untag(), 200);
 
         // Uniform swap;
         let pool = gen_ada_token_pool(108500000, 1, 108500000, 1, 100, 100, 100, 0, 0, 200 * 16);
 
-        let result = pool.swap(Side::Ask(100000000));
+        let Next::Succ(result) = pool.swap(Side::Ask(100000000)) else {
+            panic!()
+        };
 
-        assert_eq!(result.1.reserves_x.untag(), 208500000);
-        assert_eq!(result.1.reserves_y.untag(), 9990110);
-        assert_eq!(result.1.treasury_x.untag(), 0);
-        assert_eq!(result.1.treasury_y.untag(), 98708);
+        assert_eq!(result.reserves_x.untag(), 208500000);
+        assert_eq!(result.reserves_y.untag(), 9990110);
+        assert_eq!(result.treasury_x.untag(), 0);
+        assert_eq!(result.treasury_y.untag(), 98708);
     }
 
     #[test]
@@ -873,7 +883,9 @@ mod tests {
             300 * 16,
         );
 
-        let (_result, new_pool) = pool.clone().swap(Side::Ask(363613802862));
+        let Next::Succ(new_pool) = pool.swap(Side::Ask(363613802862)) else {
+            panic!()
+        };
 
         let test_swap_redeemer = StablePoolRedeemer {
             pool_input_index: 0,

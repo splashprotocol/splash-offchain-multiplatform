@@ -610,7 +610,7 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
 
 #[cfg(test)]
 mod tests {
-    use bloom_offchain::execution_engine::liquidity_book::core::Next;
+    use bloom_offchain::execution_engine::liquidity_book::core::{Next, Trans};
     use bloom_offchain::execution_engine::liquidity_book::market_maker::MakerBehavior;
     use cml_chain::plutus::PlutusData;
     use cml_chain::Deserialize;
@@ -723,17 +723,19 @@ mod tests {
             3057757049,
         );
 
-        let result = pool.swap(Side::Ask(200000000));
+        let next_pool = pool.swap(Side::Ask(200000000));
+        let trans = Trans::new(pool, next_pool);
 
-        assert_eq!(result.loss(), Some(Ask(652178037)))
+        assert_eq!(trans.loss(), Some(Ask(652178037)))
     }
 
     #[test]
     fn swap_redeemer_test() {
         let pool = gen_ada_token_pool(200000000, 84093845, 0, 99970, 99970, 10, 10000, 0);
 
-        let result = pool.swap(Side::Ask(363613802862));
-        let Next::Succ(new_pool) = result.result;
+        let Next::Succ(new_pool) = pool.swap(Side::Ask(363613802862)) else {
+            panic!()
+        };
 
         let test_swap_redeemer = BalancePoolRedeemer {
             pool_input_index: 0,

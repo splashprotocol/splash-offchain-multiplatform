@@ -723,15 +723,15 @@ impl ApplyOrder<ClassicalOnChainRedeem> for ConstFnPool {
 }
 
 mod tests {
-    use bloom_offchain::execution_engine::liquidity_book::core::Next;
+    use bloom_offchain::execution_engine::liquidity_book::core::{Next, Trans};
     use cml_crypto::ScriptHash;
     use num_rational::Ratio;
 
     use crate::data::cfmm_pool::{ConstFnPool, ConstFnPoolVer};
     use crate::data::PoolId;
     use bloom_offchain::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker};
-    use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use bloom_offchain::execution_engine::liquidity_book::side::Side::{Ask, Bid};
+    use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
 
@@ -805,11 +805,16 @@ mod tests {
     fn treasury_x_test() {
         let pool = gen_ada_token_pool(1632109645, 1472074052, 0, 99970, 99970, 10, 11500, 2909);
 
-        let trans = pool.clone().swap(Side::Ask(900000000));
+        let resulted_pool = pool.swap(Side::Ask(900000000));
+        let trans = Trans::new(pool, resulted_pool);
+
+        assert_eq!(Some(SideM::Ask), trans.trade_side());
 
         let correct_x_treasury = 101500;
 
-        let Next::Succ(new_pool) = trans.result;
+        let Next::Succ(new_pool) = resulted_pool else {
+            panic!()
+        };
         assert_eq!(new_pool.treasury_x.untag(), correct_x_treasury)
     }
 }

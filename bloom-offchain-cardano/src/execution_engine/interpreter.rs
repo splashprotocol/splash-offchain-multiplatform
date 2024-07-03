@@ -208,7 +208,7 @@ mod tests {
     use num_rational::Ratio;
 
     use bloom_offchain::execution_engine::bundled::Bundled;
-    use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Trans};
+    use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Trans, Unit};
     use bloom_offchain::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
     use bloom_offchain::execution_engine::liquidity_book::side::SideM;
     use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;

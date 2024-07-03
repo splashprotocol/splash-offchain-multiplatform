@@ -400,6 +400,7 @@ mod tests {
     use cml_core::serialization::Deserialize;
     use cml_crypto::{Ed25519KeyHash, TransactionHash};
     use cml_multi_era::babbage::{BabbageFormatTxOut, BabbageTransactionOutput};
+    use num_rational::Ratio;
     use type_equalities::IsEqual;
 
     use bloom_offchain::execution_engine::liquidity_book::fragment::MarketTaker;
@@ -466,6 +467,11 @@ mod tests {
 
     const TX: &str = "6c038a69587061acd5611507e68b1fd3a7e7d189367b7853f3bb5079a118b880";
     const IX: u64 = 1;
+
+    #[test]
+    fn foo() {
+        dbg!(Ratio::new(3, 5).cmp(&Ratio::new(1, 6)));
+    }
 
     #[test]
     fn update_order_datum() {
