@@ -543,7 +543,7 @@ impl MarketMaker for StablePoolT2T {
     }
 
     fn liquidity(&self) -> (u64, u64) {
-        todo!()
+        (self.reserves_x.untag(), self.reserves_y.untag())
     }
 
     fn is_active(&self) -> bool {
