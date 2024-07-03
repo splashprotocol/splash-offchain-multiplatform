@@ -82,7 +82,9 @@ where
         let consumed_budget = trans.consumed_budget();
         let consumed_fee = trans.consumed_fee();
         trace!(
-            "Exec(LimitOrder): budget_used: {}, fee_used: {}",
+            "LimitOrder::exec(removed_input={}, added_output={}, consumed_budget={}, consumed_fee={})",
+            removed_input,
+            added_output,
             consumed_budget,
             consumed_fee
         );
@@ -221,6 +223,7 @@ where
             asset_to_deduct_from,
             asset_to_add_to,
         } = pool.asset_mapping(side);
+        trace!("ConstFnPool::exec(side={}, removed_liq={}, added_liq={}, asset_to_deduct_from={}, asset_to_add_to={})", side, removed_liquidity, added_liquidity, asset_to_deduct_from, asset_to_add_to);
         produced_out.sub_asset(asset_to_deduct_from, removed_liquidity);
         produced_out.add_asset(asset_to_add_to, added_liquidity);
 

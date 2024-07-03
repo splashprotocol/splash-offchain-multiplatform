@@ -298,9 +298,9 @@ impl<Maker> MakeInProgress<Maker> {
     {
         match &self.result {
             Next::Succ(succ) => match self.target.static_price().cmp(&succ.static_price()) {
-                Ordering::Less => Some(SideM::Ask),
+                Ordering::Less => Some(SideM::Bid),
                 Ordering::Equal => None,
-                Ordering::Greater => Some(SideM::Bid),
+                Ordering::Greater => Some(SideM::Ask),
             },
             _ => None,
         }
