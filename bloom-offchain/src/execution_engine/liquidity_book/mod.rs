@@ -113,13 +113,13 @@ where
 {
     fn on_take<Any>(&mut self, tx: Next<Taker, Any>) {
         if let Next::Succ(next) = tx {
-            self.state.pre_add_fragment(next);
+            self.state.pre_add_taker(next);
         }
     }
 
     fn on_make<Any>(&mut self, tx: Next<Maker, Any>) {
         if let Next::Succ(next) = tx {
-            self.state.pre_add_pool(next);
+            self.state.pre_add_maker(next);
         }
     }
 }
@@ -145,7 +145,7 @@ where
                     trace!("Selected taker is: {:?}", target_taker);
                     let target_side = target_taker.side();
                     let target_price = target_side.wrap(target_taker.price());
-                    let maybe_price_counter_taker = self.state.best_fr_price(!target_side);
+                    let maybe_price_counter_taker = self.state.best_taker_price(!target_side);
                     let chunk_offered = batch.next_offered_chunk(&target_taker);
                     let maybe_price_maker = self.state.preselect_market_maker(chunk_offered);
                     trace!(
@@ -161,7 +161,7 @@ where
                                     .map(|(_, p)| price_counter_taker.better_than(p))
                                     .unwrap_or(true) =>
                         {
-                            if let Some(counter_taker) = self.state.try_pick_fr(!target_side, ok) {
+                            if let Some(counter_taker) = self.state.try_pick_taker(!target_side, ok) {
                                 trace!("Taker {:?} matched with {:?}", target_taker, counter_taker);
                                 let make_match =
                                     |ask: &Taker, bid: &Taker| settle_price(ask, bid, spot_price);
@@ -175,7 +175,7 @@ where
                             }
                         }
                         (_, Some((maker_sid, price_maker))) if target_price.overlaps(price_maker) => {
-                            if let Some(maker) = self.state.take_pool(&maker_sid) {
+                            if let Some(maker) = self.state.pick_maker_by_id(&maker_sid) {
                                 trace!("Taker {:?} matched with {:?}", target_taker, maker);
                                 let (take, make) = execute_with_maker(target_taker, maker, chunk_offered);
                                 if let Ok(_) = batch.add_make(make) {
@@ -185,8 +185,8 @@ where
                                     continue;
                                 } else {
                                     warn!("Maker {} caused an opposite swap", maker.stable_id());
-                                    self.state.pre_add_pool(maker);
-                                    self.state.pre_add_fragment(target_taker);
+                                    self.state.pre_add_maker(maker);
+                                    self.state.pre_add_taker(target_taker);
                                 }
                             }
                         }
@@ -204,9 +204,9 @@ where
                     trace!("Matchmaking attempt failed");
                     self.on_recipe_failed(StashingOption::Unstash);
                 }
-                Err(Some(unsatisfied_fragments)) => {
+                Err(Some(unsatisfied_takers)) => {
                     trace!("Matchmaking attempt failed due to taker limits, retrying");
-                    self.on_recipe_failed(StashingOption::Stash(unsatisfied_fragments));
+                    self.on_recipe_failed(StashingOption::Stash(unsatisfied_takers));
                     continue;
                 }
             }

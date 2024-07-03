@@ -430,7 +430,7 @@ where
         format!("Fragments(active): {}, Pools: {}", fragments, pools)
     }
 
-    pub fn best_fr_price(&self, side: SideM) -> Option<Side<AbsolutePrice>> {
+    pub fn best_taker_price(&self, side: SideM) -> Option<Side<AbsolutePrice>> {
         let active_fragments = self.active_fragments();
         let side_store = match side {
             SideM::Bid => &active_fragments.bids,
@@ -446,7 +446,7 @@ where
     }
 
     /// Pick best fragment from the specified side if it matches the specified condition.
-    pub fn try_pick_fr<F>(&mut self, side: SideM, test: F) -> Option<T>
+    pub fn try_pick_taker<F>(&mut self, side: SideM, test: F) -> Option<T>
     where
         F: FnOnce(&T) -> bool,
     {
@@ -455,7 +455,7 @@ where
     }
 
     /// Add preview fragment [T].
-    pub fn pre_add_fragment(&mut self, fr: T) {
+    pub fn pre_add_taker(&mut self, fr: T) {
         trace!(target: "state", "pre_add_fragment");
         let time = self.current_time();
         match (self, fr.time_bounds().lower_bound()) {
@@ -480,7 +480,7 @@ where
     }
 
     /// Add preview pool [M].
-    pub fn pre_add_pool(&mut self, pool: M) {
+    pub fn pre_add_maker(&mut self, pool: M) {
         match self {
             this @ TLBState::Idle(_) | this @ TLBState::PartialPreview(_) => {
                 let mut preview_st = PreviewState::new(0);
@@ -607,7 +607,7 @@ where
         T: MarketTaker + Ord + Copy,
         F: Fn(&M) -> bool,
     {
-        self.pick_pool(|pools| {
+        self.pick_maker(|pools| {
             for id in pools.quality_index.values() {
                 match pools.values.entry(*id) {
                     Entry::Occupied(pl) if test(pl.get()) => return Some(pl.remove()),
@@ -618,15 +618,15 @@ where
         })
     }
 
-    pub fn take_pool(&mut self, pid: &M::StableId) -> Option<M>
+    pub fn pick_maker_by_id(&mut self, pid: &M::StableId) -> Option<M>
     where
         T: MarketTaker + Ord + Copy,
     {
-        self.pick_pool(|pools| pools.values.remove(pid))
+        self.pick_maker(|pools| pools.values.remove(pid))
     }
 
     /// Pick pool ensuring TLB is in proper state.
-    fn pick_pool<F>(&mut self, f: F) -> Option<M>
+    fn pick_maker<F>(&mut self, f: F) -> Option<M>
     where
         F: FnOnce(&mut MarketMakers<M>) -> Option<M>,
         T: MarketTaker + Ord + Copy,
@@ -1010,7 +1010,7 @@ pub mod tests {
         s0.takers.add_fragment(o1);
         let s0_copy = s0.clone();
         let mut state = TLBState::Idle(s0);
-        state.pre_add_fragment(o2);
+        state.pre_add_taker(o2);
         match state {
             TLBState::Preview(st) => {
                 assert_eq!(st.takers_intact, s0_copy.takers);
@@ -1033,7 +1033,7 @@ pub mod tests {
         s0.takers.add_fragment(o1);
         let s0_copy = s0.clone();
         let mut state = TLBState::Idle(s0);
-        state.pre_add_fragment(o2);
+        state.pre_add_taker(o2);
         match state {
             TLBState::Preview(st) => {
                 assert_eq!(st.takers_intact, s0_copy.takers);
@@ -1056,7 +1056,7 @@ pub mod tests {
         s0.takers.add_fragment(o1);
         let _s0_copy = s0.clone();
         let mut state = TLBState::Idle(s0);
-        state.pre_add_fragment(o2);
+        state.pre_add_taker(o2);
         match state {
             TLBState::Preview(mut s1) => {
                 let s1_copy = s1.clone();
@@ -1093,7 +1093,7 @@ pub mod tests {
         let s0_copy = s0.clone();
         let mut state = TLBState::Idle(s0);
         // One new fragment added into the preview.
-        state.pre_add_fragment(o3);
+        state.pre_add_taker(o3);
         // One old fragment removed from the preview.
         assert!(matches!(state.pick_best_fr_either(None), Some(_)));
         match state {
