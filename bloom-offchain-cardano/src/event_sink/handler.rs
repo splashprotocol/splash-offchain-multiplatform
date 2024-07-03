@@ -731,6 +731,18 @@ mod tests {
                     script_hash: ScriptHash::from([0u8; 28]),
                     marginal_cost: ExUnits::empty(),
                 },
+                stable_fn_pool_t2t: DeployedScriptInfo {
+                    script_hash: ScriptHash::from([0u8; 28]),
+                    marginal_cost: ExUnits::empty(),
+                },
+                stable_fn_pool_t2t_deposit: DeployedScriptInfo {
+                    script_hash: ScriptHash::from([0u8; 28]),
+                    marginal_cost: ExUnits::empty(),
+                },
+                stable_fn_pool_t2t_redeem: DeployedScriptInfo {
+                    script_hash: ScriptHash::from([0u8; 28]),
+                    marginal_cost: ExUnits::empty(),
+                },
             },
         };
         let mut handler = PairUpdateHandler::new(Partitioned::new([snd]), index, context);

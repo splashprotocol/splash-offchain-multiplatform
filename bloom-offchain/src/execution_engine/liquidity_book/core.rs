@@ -175,17 +175,18 @@ impl<T, B> Take<T, B> {
     where
         T: MarketTaker + TakerBehaviour + Copy,
     {
+        let consumed_budget = self.consumed_budget();
         match &mut self.result {
-            Next::Succ(mut next) => {
-                let old_val = self.consumed_budget();
+            Next::Succ(ref mut next) => {
+                let old_val = consumed_budget;
                 let new_val = old_val * scale.numer() / scale.denom();
                 let delta = old_val as i64 - new_val as i64;
-                let (_, updated) = next.with_budget_corrected(delta);
-                let _ = mem::replace(&mut next, updated);
-                delta
+                let (real_delta, updated) = next.with_budget_corrected(delta);
+                let _ = mem::replace(next, updated);
+                real_delta
             }
-            Next::Term(mut term) => {
-                let old_val = self.consumed_budget();
+            Next::Term(ref mut term) => {
+                let old_val = consumed_budget;
                 let new_val = old_val * scale.numer() / scale.denom();
                 let delta = old_val as i64 - new_val as i64;
                 term.remaining_budget = (term.remaining_budget as i64 + delta) as u64;
@@ -198,14 +199,15 @@ impl<T, B> Take<T, B> {
     where
         T: MarketTaker + TakerBehaviour + Copy,
     {
+        let consumed_budget = self.consumed_budget();
         match &mut self.result {
-            Next::Succ(mut next) => {
+            Next::Succ(ref mut next) => {
                 let (real_delta, updated) = next.with_budget_corrected(delta);
-                let _ = mem::replace(&mut next, updated);
+                let _ = mem::replace(next, updated);
                 real_delta
             }
-            Next::Term(mut term) => {
-                let old_val = self.consumed_budget() as i64;
+            Next::Term(ref mut term) => {
+                let old_val = consumed_budget as i64;
                 let new_val = max(old_val + delta, 0);
                 let real_delta = old_val - new_val;
                 term.remaining_budget = (term.remaining_budget as i64 + real_delta) as u64;

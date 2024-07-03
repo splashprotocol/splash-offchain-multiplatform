@@ -1,5 +1,6 @@
-use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionBuilder};
+use std::fmt::Debug;
 
+use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionBuilder};
 use either::Either;
 use log::trace;
 use num_rational::Ratio;
@@ -149,14 +150,15 @@ where
 {
     for i in &mut instructions {
         if let Either::Left(take) = i {
-            take.scale_budget(rescale_factor);
+            let delta = take.scale_budget(rescale_factor);
+            fee_mismatch -= delta;
         }
     }
     for i in &mut instructions {
         if let Either::Left(take) = i {
             if fee_mismatch != 0 {
-                let delta = take.correct_budget(-fee_mismatch);
-                fee_mismatch += delta;
+                let delta = take.correct_budget(fee_mismatch);
+                fee_mismatch -= delta;
             } else {
                 break;
             }
@@ -197,11 +199,189 @@ where
     }
 }
 
+#[cfg(test)]
 mod tests {
+    use std::cmp::max;
+    use std::fmt::{Display, Formatter};
+
+    use either::Either;
+    use num_rational::Ratio;
+
+    use bloom_offchain::execution_engine::bundled::Bundled;
+    use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Trans};
+    use bloom_offchain::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
+    use bloom_offchain::execution_engine::liquidity_book::side::SideM;
+    use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
+    use bloom_offchain::execution_engine::liquidity_book::types::{
+        AbsolutePrice, ExCostUnits, FeeAsset, InputAsset, OutputAsset,
+    };
+
+    use crate::execution_engine::interpreter::balance_fee;
 
     #[test]
-    fn fee_overuse_balancing() {}
+    fn fee_overuse_balancing() {
+        let t0_0 = SimpleOrderPF::new(0, 250000);
+        let t0_1 = SimpleOrderPF::new(0, 0);
+        let t1_0 = SimpleOrderPF::new(0, 250000);
+        let t1_1 = SimpleOrderPF::new(0, 0);
+        let instructions = vec![
+            Either::Left(Trans::new(Bundled(t0_0, ()), Next::Succ(t0_1))),
+            Either::Left(Trans::new(Bundled(t1_0, ()), Next::Succ(t1_1))),
+        ];
+        let reserved_fee = 500000;
+        let estimated_fee = 456325;
+        let rescale_factor = Ratio::new(estimated_fee, reserved_fee);
+        let fee_mismatch = reserved_fee as i64 - estimated_fee as i64;
+        let balanced_instructions = balance_fee::<_, (), _>(fee_mismatch, rescale_factor, instructions);
+        assert_eq!(
+            balanced_instructions
+                .iter()
+                .map(|i| match i {
+                    Either::Left(f) => f.consumed_budget(),
+                    _ => 0,
+                })
+                .sum::<u64>(),
+            estimated_fee
+        )
+    }
 
     #[test]
-    fn fee_underuse_balancing() {}
+    fn fee_underuse_balancing_even() {
+        let t0_0 = SimpleOrderPF::new(0, 250000);
+        let t0_1 = SimpleOrderPF::new(0, 100000);
+        let t1_0 = SimpleOrderPF::new(0, 250000);
+        let t1_1 = SimpleOrderPF::new(0, 100000);
+        let instructions = vec![
+            Either::Left(Trans::new(Bundled(t0_0, ()), Next::Succ(t0_1))),
+            Either::Left(Trans::new(Bundled(t1_0, ()), Next::Succ(t1_1))),
+        ];
+        let reserved_fee = 300000;
+        let estimated_fee = 500000;
+        let rescale_factor = Ratio::new(estimated_fee, reserved_fee);
+        let fee_mismatch = reserved_fee as i64 - estimated_fee as i64;
+        let balanced_instructions = balance_fee::<_, (), _>(fee_mismatch, rescale_factor, instructions);
+        assert_eq!(
+            balanced_instructions
+                .iter()
+                .map(|i| match i {
+                    Either::Left(f) => f.consumed_budget(),
+                    _ => 0,
+                })
+                .sum::<u64>(),
+            estimated_fee
+        )
+    }
+
+    #[test]
+    fn fee_underuse_balancing_uneven() {
+        let t0_0 = SimpleOrderPF::new(0, 250000);
+        let t0_1 = SimpleOrderPF::new(0, 50000);
+        let t1_0 = SimpleOrderPF::new(0, 250000);
+        let t1_1 = SimpleOrderPF::new(0, 100000);
+        let instructions = vec![
+            Either::Left(Trans::new(Bundled(t0_0, ()), Next::Succ(t0_1))),
+            Either::Left(Trans::new(Bundled(t1_0, ()), Next::Succ(t1_1))),
+        ];
+        let reserved_fee = 350000;
+        let estimated_fee = 500000;
+        let rescale_factor = Ratio::new(estimated_fee, reserved_fee);
+        let fee_mismatch = reserved_fee as i64 - estimated_fee as i64;
+        let balanced_instructions = balance_fee::<_, (), _>(fee_mismatch, rescale_factor, instructions);
+        assert_eq!(
+            balanced_instructions
+                .iter()
+                .map(|i| match i {
+                    Either::Left(f) => f.consumed_budget(),
+                    _ => 0,
+                })
+                .sum::<u64>(),
+            estimated_fee
+        )
+    }
+
+    /// Order that supports partial filling.
+    #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+    pub struct SimpleOrderPF {
+        pub fee: u64,
+        pub ex_budget: u64,
+    }
+
+    impl Display for SimpleOrderPF {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            f.write_str(&*format!("Ord(fee={}, budget={})", self.fee, self.ex_budget))
+        }
+    }
+
+    impl SimpleOrderPF {
+        pub fn new(fee: u64, ex_budget: u64) -> Self {
+            Self { fee, ex_budget }
+        }
+    }
+
+    impl MarketTaker for SimpleOrderPF {
+        type U = u64;
+
+        fn side(&self) -> SideM {
+            SideM::Ask
+        }
+
+        fn input(&self) -> u64 {
+            0
+        }
+
+        fn output(&self) -> OutputAsset<u64> {
+            0
+        }
+
+        fn price(&self) -> AbsolutePrice {
+            AbsolutePrice::new(1, 1)
+        }
+
+        fn marginal_cost_hint(&self) -> ExCostUnits {
+            0
+        }
+
+        fn time_bounds(&self) -> TimeBounds<u64> {
+            TimeBounds::None
+        }
+
+        fn operator_fee(&self, input_consumed: InputAsset<u64>) -> FeeAsset<u64> {
+            0
+        }
+
+        fn min_marginal_output(&self) -> OutputAsset<u64> {
+            0
+        }
+
+        fn fee(&self) -> FeeAsset<u64> {
+            self.fee
+        }
+
+        fn budget(&self) -> FeeAsset<u64> {
+            self.ex_budget
+        }
+    }
+
+    impl TakerBehaviour for SimpleOrderPF {
+        fn with_updated_time(self, time: u64) -> Next<Self, ()> {
+            Next::Succ(self)
+        }
+
+        fn with_applied_trade(
+            mut self,
+            removed_input: InputAsset<u64>,
+            added_output: OutputAsset<u64>,
+        ) -> Next<Self, TerminalTake> {
+            Next::Succ(self)
+        }
+
+        fn with_budget_corrected(mut self, delta: i64) -> (i64, Self) {
+            let budget_remainder = self.ex_budget as i64;
+            let corrected_remainder = budget_remainder + delta;
+            let updated_budget_remainder = max(corrected_remainder, 0);
+            let real_delta = updated_budget_remainder - budget_remainder;
+            self.ex_budget = updated_budget_remainder as u64;
+            (real_delta, self)
+        }
+    }
 }
