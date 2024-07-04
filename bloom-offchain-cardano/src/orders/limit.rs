@@ -84,7 +84,7 @@ impl Display for LimitOrder {
                 self.beacon,
                 self.side(),
                 self.pair_id(),
-                self.base_price,
+                self.price(),
                 self.input_amount,
                 self.input_asset,
                 self.output_amount,

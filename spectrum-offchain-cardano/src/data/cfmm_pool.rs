@@ -18,9 +18,7 @@ use num_traits::ToPrimitive;
 use num_traits::{CheckedAdd, CheckedSub};
 use type_equalities::IsEqual;
 
-use bloom_offchain::execution_engine::liquidity_book::market_maker::{
-    MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
-};
+use bloom_offchain::execution_engine::liquidity_book::market_maker::{AbsoluteReserves, MakerBehavior, MarketMaker, PoolQuality, SpotPrice};
 use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::ex_units::ExUnits;
@@ -381,8 +379,21 @@ impl MarketMaker for ConstFnPool {
         lq_bound && bot_bound
     }
 
-    fn liquidity(&self) -> (u64, u64) {
-        (self.reserves_x.untag(), self.reserves_y.untag())
+    fn liquidity(&self) -> AbsoluteReserves {
+        let x = self.asset_x.untag();
+        let y = self.asset_y.untag();
+        let [base, _] = order_canonical(x, y);
+        if base == x {
+            AbsoluteReserves {
+                base: self.reserves_x.untag(),
+                quote: self.reserves_y.untag(),
+            }
+        } else {
+            AbsoluteReserves {
+                base: self.reserves_y.untag(),
+                quote: self.reserves_x.untag(),
+            }
+        }
     }
 }
 

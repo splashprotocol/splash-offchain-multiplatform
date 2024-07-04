@@ -2,9 +2,7 @@ use std::fmt::Debug;
 use std::ops::Mul;
 
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
-use bloom_offchain::execution_engine::liquidity_book::market_maker::{
-    MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
-};
+use bloom_offchain::execution_engine::liquidity_book::market_maker::{AbsoluteReserves, MakerBehavior, MarketMaker, PoolQuality, SpotPrice};
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
@@ -542,8 +540,21 @@ impl MarketMaker for StablePoolT2T {
         self.marginal_cost
     }
 
-    fn liquidity(&self) -> (u64, u64) {
-        (self.reserves_x.untag(), self.reserves_y.untag())
+    fn liquidity(&self) -> AbsoluteReserves {
+        let x = self.asset_x.untag();
+        let y = self.asset_y.untag();
+        let [base, _] = order_canonical(x, y);
+        if base == x {
+            AbsoluteReserves {
+                base: self.reserves_x.untag(),
+                quote: self.reserves_y.untag(),
+            }
+        } else {
+            AbsoluteReserves {
+                base: self.reserves_y.untag(),
+                quote: self.reserves_x.untag(),
+            }
+        }
     }
 
     fn is_active(&self) -> bool {

@@ -16,6 +16,12 @@ impl SpotPrice {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+pub struct AbsoluteReserves {
+    pub base: u64,
+    pub quote: u64,
+}
+
 /// Pooled liquidity.
 pub trait MarketMaker {
     type U;
@@ -28,8 +34,8 @@ pub trait MarketMaker {
     /// How much (approximately) execution of this fragment will cost.
     fn marginal_cost_hint(&self) -> Self::U;
     /// How much base and quote asset is available.
-    fn liquidity(&self) -> (u64, u64);
-    // Is this maker active at the moment or not.
+    fn liquidity(&self) -> AbsoluteReserves;
+    /// Is this MM active at the moment or not.
     fn is_active(&self) -> bool;
 }
 
