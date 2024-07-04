@@ -149,7 +149,7 @@ impl TakerBehaviour for LimitOrder {
         let budget_remainder = self.execution_budget as i64;
         let corrected_remainder = budget_remainder + delta;
         let updated_budget_remainder = max(corrected_remainder, 0);
-        let real_delta = budget_remainder - updated_budget_remainder;
+        let real_delta = updated_budget_remainder - budget_remainder;
         self.execution_budget = updated_budget_remainder as u64;
         (real_delta, self)
     }
