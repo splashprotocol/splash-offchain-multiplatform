@@ -192,6 +192,21 @@ where
                     ctx,
                 )
             }
+            Trans {
+                target: Bundled(AnyPool::StableCFMM(p), src),
+                result: Next::Succ(AnyPool::StableCFMM(p2)),
+            } => {
+                let (st, res, ctx) = Magnet(Trans {
+                    target: Bundled(p, src),
+                    result: Next::Succ(p2),
+                })
+                .exec(state, context);
+                (
+                    st,
+                    res.bimap(|c| c.map(AnyPool::StableCFMM), |p| p.map(AnyPool::StableCFMM)),
+                    ctx,
+                )
+            }
             _ => unreachable!(),
         }
     }
@@ -323,6 +338,80 @@ where
             redeemer: delayed_redeemer(move |ordering| {
                 BalancePoolRedeemer {
                     pool_input_index: ordering.index_of(&in_ref) as u64,
+                    action: CFMMPoolAction::Swap,
+                    new_pool_state: transition,
+                    prev_pool_state: pool,
+                }
+                .to_plutus_data()
+            }),
+            required_signers: vec![],
+        };
+
+        if let Some(data) = produced_out.data_mut() {
+            balance_pool::unsafe_update_datum(
+                data,
+                transition.treasury_x.untag(),
+                transition.treasury_y.untag(),
+            );
+        }
+
+        let consumed = Bundled(pool, FinalizedTxOut(consumed_out, in_ref));
+        let produced = Bundled(transition, produced_out.clone());
+        let effect = ExecutionEff::Updated(consumed, produced);
+
+        state.tx_blueprint.add_io(input, produced_out);
+        state.tx_blueprint.add_ref_input(reference_utxo);
+        (state, effect, context)
+    }
+}
+
+impl<Ctx> BatchExec<ExecutionState, EffectPreview<StablePoolT2T>, Ctx>
+    for Magnet<Make<StablePoolT2T, FinalizedTxOut>>
+where
+    Ctx: Has<DeployedValidator<{ StableFnPoolT2T as u8 }>>,
+{
+    fn exec(
+        self,
+        mut state: ExecutionState,
+        context: Ctx,
+    ) -> (ExecutionState, EffectPreview<StablePoolT2T>, Ctx) {
+        let Magnet(trans) = self;
+        let side = trans.trade_side().expect("Empty swaps aren't allowed");
+        let removed_liquidity = trans.loss().expect("Something must be removed");
+        let added_liquidity = trans.gain().expect("Something must be added");
+        let Trans {
+            target: Bundled(pool, FinalizedTxOut(consumed_out, in_ref)),
+            result,
+        } = trans;
+        let mut produced_out = consumed_out.clone();
+        let PoolAssetMapping {
+            asset_to_deduct_from,
+            asset_to_add_to,
+        } = pool.get_asset_deltas(side);
+        produced_out.sub_asset(asset_to_deduct_from, removed_liquidity);
+        produced_out.add_asset(asset_to_add_to, added_liquidity);
+
+        let Next::Succ(transition) = result else {
+            panic!("Stable pool isn't supposed to terminate in result of a trade")
+        };
+
+        let DeployedValidatorErased {
+            reference_utxo,
+            hash,
+            ex_budget,
+            marginal_cost,
+        } = pool.get_validator(&context);
+        let input = ScriptInputBlueprint {
+            reference: in_ref,
+            utxo: consumed_out.clone(),
+            script: ScriptWitness {
+                hash,
+                cost: delayed_cost(move |ctx| ex_budget + marginal_cost.scale(ctx.self_index as u64)),
+            },
+            redeemer: delayed_redeemer(move |ordering| {
+                StablePoolRedeemer {
+                    pool_input_index: ordering.index_of(&in_ref) as u64,
+                    pool_output_index: ordering.index_of(&in_ref) as u64,
                     action: CFMMPoolAction::Swap,
                     new_pool_state: transition,
                     prev_pool_state: pool,
