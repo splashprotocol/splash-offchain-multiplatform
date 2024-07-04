@@ -126,7 +126,7 @@ where
     let estimated_fee = tx_builder.min_fee(true).unwrap();
     let fee_mismatch = reserved_fee as i64 - estimated_fee as i64;
     trace!(
-        "Est. fee {}, reserved fee: {}, mismatch {}",
+        "Est. fee: {}, reserved fee: {}, mismatch: {}",
         estimated_fee,
         reserved_fee,
         fee_mismatch
@@ -150,15 +150,15 @@ where
 {
     for i in &mut instructions {
         if let Either::Left(take) = i {
-            let delta = take.scale_budget(rescale_factor);
-            fee_mismatch -= delta;
+            let delta = take.scale_consumed_budget(rescale_factor);
+            fee_mismatch += delta;
         }
     }
     for i in &mut instructions {
         if let Either::Left(take) = i {
             if fee_mismatch != 0 {
-                let delta = take.correct_budget(fee_mismatch);
-                fee_mismatch -= delta;
+                let delta = take.correct_consumed_budget(-fee_mismatch);
+                fee_mismatch += delta;
             } else {
                 break;
             }

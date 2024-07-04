@@ -31,6 +31,17 @@ pub struct TerminalTake {
     pub remaining_fee: FeeAsset<u64>,
 }
 
+impl TerminalTake {
+    pub fn with_budget_corrected(mut self, delta: i64) -> (i64, Self) {
+        let budget_remainder = self.remaining_budget as i64;
+        let corrected_remainder = budget_remainder + delta;
+        let updated_budget_remainder = max(corrected_remainder, 0);
+        let real_delta = updated_budget_remainder - budget_remainder;
+        self.remaining_budget = updated_budget_remainder as u64;
+        (real_delta, self)
+    }
+}
+
 impl Display for TerminalTake {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(format!("TerminalTake(remaining_input={}, accumulated_output={}, remaining_budget={}, remaining_fee={})", self.remaining_input, self.accumulated_output, self.remaining_budget, self.remaining_fee).as_str())
@@ -207,7 +218,7 @@ impl<T, B> Take<T, B> {
             .expect("Budget cannot increase")
     }
 
-    pub fn scale_budget(&mut self, scale: Ratio<u64>) -> i64
+    pub fn scale_consumed_budget(&mut self, scale: Ratio<u64>) -> i64
     where
         T: MarketTaker + TakerBehaviour + Copy,
     {
@@ -216,38 +227,40 @@ impl<T, B> Take<T, B> {
             Next::Succ(ref mut next) => {
                 let old_val = consumed_budget;
                 let new_val = old_val * scale.numer() / scale.denom();
-                let delta = old_val as i64 - new_val as i64;
-                let (real_delta, updated) = next.with_budget_corrected(delta);
+                let delta_consumed_budget = new_val as i64 - old_val as i64;
+                let (delta_budget, updated) = next.with_budget_corrected(-delta_consumed_budget);
                 let _ = mem::replace(next, updated);
-                real_delta
+                let delta_consumed_budget = -delta_budget;
+                delta_consumed_budget
             }
             Next::Term(ref mut term) => {
                 let old_val = consumed_budget;
                 let new_val = old_val * scale.numer() / scale.denom();
-                let delta = old_val as i64 - new_val as i64;
-                term.remaining_budget = (term.remaining_budget as i64 + delta) as u64;
-                delta
+                let delta_consumed_budget = new_val as i64 - old_val as i64;
+                let (delta_budget, updated) = term.with_budget_corrected(-delta_consumed_budget);
+                let _ = mem::replace(term, updated);
+                let delta_consumed_budget = -delta_budget;
+                delta_consumed_budget
             }
         }
     }
 
-    pub fn correct_budget(&mut self, delta: i64) -> i64
+    pub fn correct_consumed_budget(&mut self, delta: i64) -> i64
     where
         T: MarketTaker + TakerBehaviour + Copy,
     {
-        let consumed_budget = self.consumed_budget();
         match &mut self.result {
             Next::Succ(ref mut next) => {
-                let (real_delta, updated) = next.with_budget_corrected(delta);
+                let (delta_budget, updated) = next.with_budget_corrected(-delta);
                 let _ = mem::replace(next, updated);
-                real_delta
+                let delta_consumed_budget = -delta_budget;
+                delta_consumed_budget
             }
             Next::Term(ref mut term) => {
-                let old_val = consumed_budget as i64;
-                let new_val = max(old_val + delta, 0);
-                let real_delta = old_val - new_val;
-                term.remaining_budget = (term.remaining_budget as i64 + real_delta) as u64;
-                real_delta
+                let (delta_budget, updated) = term.with_budget_corrected(-delta);
+                let _ = mem::replace(term, updated);
+                let delta_consumed_budget = -delta_budget;
+                delta_consumed_budget
             }
         }
     }
