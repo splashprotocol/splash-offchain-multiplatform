@@ -445,13 +445,13 @@ impl MarketMaker for BalancePool {
         let y = self.asset_y.untag();
         let [base, _] = order_canonical(x, y);
         if x == base {
-            AbsolutePrice::new(
+            AbsolutePrice::new_unsafe(
                 (self.reserves_y.untag() * WEIGHT_FEE_DEN) / self.weight_y,
                 (self.reserves_x.untag() * WEIGHT_FEE_DEN) / self.weight_x,
             )
             .into()
         } else {
-            AbsolutePrice::new(
+            AbsolutePrice::new_unsafe(
                 (self.reserves_x.untag() * WEIGHT_FEE_DEN) / self.weight_x,
                 (self.reserves_y.untag() * WEIGHT_FEE_DEN) / self.weight_y,
             )
@@ -459,7 +459,7 @@ impl MarketMaker for BalancePool {
         }
     }
 
-    fn real_price(&self, input: Side<u64>) -> AbsolutePrice {
+    fn real_price(&self, input: Side<u64>) -> Option<AbsolutePrice> {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, quote] = order_canonical(x, y);

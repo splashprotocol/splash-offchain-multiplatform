@@ -272,7 +272,7 @@ impl MarketMaker for AnyPool {
         }
     }
 
-    fn real_price(&self, input: Side<u64>) -> AbsolutePrice {
+    fn real_price(&self, input: Side<u64>) -> Option<AbsolutePrice> {
         match self {
             PureCFMM(p) => p.real_price(input),
             BalancedCFMM(p) => p.real_price(input),

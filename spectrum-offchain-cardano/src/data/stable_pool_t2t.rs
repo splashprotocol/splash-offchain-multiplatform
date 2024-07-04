@@ -502,15 +502,15 @@ impl MarketMaker for StablePoolT2T {
             let reversed_total_fee_num_x =
                 self.treasury_fee.denom() - self.lp_fee_x.numer() - self.treasury_fee.numer();
 
-            AbsolutePrice::new(price_num * reversed_total_fee_num_x, price_denom).into()
+            AbsolutePrice::new_unsafe(price_num * reversed_total_fee_num_x, price_denom).into()
         } else {
             let reversed_total_fee_num_y =
                 self.treasury_fee.denom() - self.lp_fee_y.numer() - self.treasury_fee.numer();
-            AbsolutePrice::new(price_denom, reversed_total_fee_num_y * price_num).into()
+            AbsolutePrice::new_unsafe(price_denom, reversed_total_fee_num_y * price_num).into()
         }
     }
 
-    fn real_price(&self, input: Side<u64>) -> AbsolutePrice {
+    fn real_price(&self, input: Side<u64>) -> Option<AbsolutePrice> {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, quote] = order_canonical(x, y);

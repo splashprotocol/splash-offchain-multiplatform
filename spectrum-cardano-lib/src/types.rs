@@ -25,9 +25,11 @@ where
 impl TryFromPData for Ratio<u128> {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
-        Some(Ratio::new(
-            cpd.take_field(0)?.into_u128()?,
-            cpd.take_field(1)?.into_u128()?,
-        ))
+        let denom = cpd.take_field(1)?.into_u128()?;
+        if denom != 0 {
+            Some(Ratio::new(cpd.take_field(0)?.into_u128()?, denom))
+        } else {
+            None
+        }
     }
 }

@@ -46,13 +46,22 @@ impl Display for AbsolutePrice {
 
 impl AbsolutePrice {
     #[inline]
-    pub fn new(numer: u64, denom: u64) -> AbsolutePrice {
-        Self(Ratio::new(numer as u128, denom as u128))
+    pub fn new_unsafe(numer: u64, denom: u64) -> AbsolutePrice {
+        Self(Ratio::new_raw(numer as u128, denom as u128))
+    }
+
+    #[inline]
+    pub fn new(numer: u64, denom: u64) -> Option<AbsolutePrice> {
+        if denom != 0 {
+            Some(Self(Ratio::new_raw(numer as u128, denom as u128)))
+        } else {
+            None
+        }
     }
 
     #[inline]
     pub fn zero() -> AbsolutePrice {
-        Self::new(0, 1)
+        Self::new_unsafe(0, 1)
     }
 
     pub fn from_price(side: SideM, price: RelativePrice) -> Self {

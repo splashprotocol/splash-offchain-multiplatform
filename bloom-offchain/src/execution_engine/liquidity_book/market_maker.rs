@@ -22,7 +22,7 @@ pub trait MarketMaker {
     /// Static price (regardless swap vol) in this pool.
     fn static_price(&self) -> SpotPrice;
     /// Real price of swap.
-    fn real_price(&self, input: Side<u64>) -> AbsolutePrice;
+    fn real_price(&self, input: Side<u64>) -> Option<AbsolutePrice>;
     /// Quality of the pool.
     fn quality(&self) -> PoolQuality;
     /// How much (approximately) execution of this fragment will cost.

@@ -249,9 +249,7 @@ mod tests {
     fn fee_overuse_balancing_single() {
         let t0_0 = SimpleOrderPF::new(0, 2000000);
         let t0_1 = SimpleOrderPF::new(0, 0);
-        let instructions = vec![
-            Either::Left(Trans::new(Bundled(t0_0, ()), Next::Succ(t0_1))),
-        ];
+        let instructions = vec![Either::Left(Trans::new(Bundled(t0_0, ()), Next::Succ(t0_1)))];
         let reserved_fee = 2000000u64;
         let fee_mismatch = 1658040i64;
         let estimated_fee = reserved_fee - fee_mismatch as u64;
@@ -359,7 +357,7 @@ mod tests {
         }
 
         fn price(&self) -> AbsolutePrice {
-            AbsolutePrice::new(1, 1)
+            AbsolutePrice::new_unsafe(1, 1)
         }
 
         fn marginal_cost_hint(&self) -> ExCostUnits {

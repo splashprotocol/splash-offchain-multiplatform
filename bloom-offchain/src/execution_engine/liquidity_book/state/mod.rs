@@ -573,7 +573,7 @@ where
             .values
             .values()
             .filter(|pool| pool.is_active())
-            .map(|p| (p.stable_id(), p.real_price(offered_amount)))
+            .filter_map(|p| p.real_price(offered_amount).map(|rp| (p.stable_id(), rp)))
             .collect::<Vec<_>>();
         match offered_amount {
             Side::Bid(_) => pools.into_iter().min_by_key(|(_, rp)| *rp),
@@ -590,10 +590,9 @@ where
             .values
             .values()
             .filter(|pool| pool.is_active())
-            .map(|p| {
-                let real_p = p.real_price(trade_hint);
-                let static_p = p.static_price();
-                (real_p, static_p, p.stable_id())
+            .filter_map(|p| {
+                let sp = p.static_price();
+                p.real_price(trade_hint).map(|rp| (rp, sp, p.stable_id()))
             })
             .collect::<Vec<_>>();
         match trade_hint {
@@ -958,9 +957,9 @@ pub mod tests {
     #[test]
     fn choose_best_fragment_bid_is_underpriced() {
         let time_now = 1000u64;
-        let index_price = AbsolutePrice::new(1, 35);
+        let index_price = AbsolutePrice::new_unsafe(1, 35);
         let ask = SimpleOrderPF::new(SideM::Ask, 1000, index_price, 100);
-        let bid = SimpleOrderPF::new(SideM::Bid, 1000, AbsolutePrice::new(1, 40), 200);
+        let bid = SimpleOrderPF::new(SideM::Bid, 1000, AbsolutePrice::new_unsafe(1, 40), 200);
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.takers.add_fragment(ask);
         s0.takers.add_fragment(bid);
@@ -973,8 +972,8 @@ pub mod tests {
     #[test]
     fn choose_best_fragment_ask_is_overpriced() {
         let time_now = 1000u64;
-        let index_price = AbsolutePrice::new(1, 35);
-        let ask = SimpleOrderPF::new(SideM::Ask, 1000, AbsolutePrice::new(1, 30), 100);
+        let index_price = AbsolutePrice::new_unsafe(1, 35);
+        let ask = SimpleOrderPF::new(SideM::Ask, 1000, AbsolutePrice::new_unsafe(1, 30), 100);
         let bid = SimpleOrderPF::new(SideM::Bid, 1000, index_price, 200);
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.takers.add_fragment(ask);
@@ -988,9 +987,9 @@ pub mod tests {
     #[test]
     fn choose_best_fragment_both_orders_price_is_off() {
         let time_now = 1000u64;
-        let index_price = AbsolutePrice::new(1, 35);
-        let ask = SimpleOrderPF::new(SideM::Ask, 1000, AbsolutePrice::new(1, 30), 100);
-        let bid = SimpleOrderPF::new(SideM::Bid, 1000, AbsolutePrice::new(1, 40), 200);
+        let index_price = AbsolutePrice::new_unsafe(1, 35);
+        let ask = SimpleOrderPF::new(SideM::Ask, 1000, AbsolutePrice::new_unsafe(1, 30), 100);
+        let bid = SimpleOrderPF::new(SideM::Bid, 1000, AbsolutePrice::new_unsafe(1, 40), 200);
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.takers.add_fragment(ask);
         s0.takers.add_fragment(bid);
@@ -1248,7 +1247,7 @@ pub mod tests {
                 input: 1000_000_000,
                 accumulated_output: 0,
                 min_marginal_output: 0,
-                price: AbsolutePrice::new(1, 100),
+                price: AbsolutePrice::new_unsafe(1, 100),
                 fee: 100,
                 ex_budget: 0,
                 cost_hint: 0,
@@ -1402,7 +1401,7 @@ pub mod tests {
         type U = u64;
 
         fn static_price(&self) -> SpotPrice {
-            AbsolutePrice::new(self.reserves_quote, self.reserves_base).into()
+            AbsolutePrice::new_unsafe(self.reserves_quote, self.reserves_base).into()
         }
 
         fn real_price(&self, input: Side<u64>) -> AbsolutePrice {
@@ -1411,13 +1410,13 @@ pub mod tests {
                     let result_pool = self.swap(Side::Bid(quote_input));
                     let trans = Trans::new(*self, result_pool);
                     let base_output = trans.loss().map(|r| r.unwrap()).unwrap_or(0);
-                    AbsolutePrice::new(quote_input, base_output)
+                    AbsolutePrice::new_unsafe(quote_input, base_output)
                 }
                 Side::Ask(base_input) => {
                     let result_pool = self.swap(Side::Ask(base_input));
                     let trans = Trans::new(*self, result_pool);
                     let quote_output = trans.loss().map(|r| r.unwrap()).unwrap_or(0);
-                    AbsolutePrice::new(quote_output, base_input)
+                    AbsolutePrice::new_unsafe(quote_output, base_input)
                 }
             }
         }

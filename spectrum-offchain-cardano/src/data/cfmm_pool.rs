@@ -337,13 +337,13 @@ impl MarketMaker for ConstFnPool {
         let y = self.asset_y.untag();
         let [base, _] = order_canonical(x, y);
         if x == base {
-            AbsolutePrice::new(self.reserves_y.untag(), self.reserves_x.untag()).into()
+            AbsolutePrice::new_unsafe(self.reserves_y.untag(), self.reserves_x.untag()).into()
         } else {
-            AbsolutePrice::new(self.reserves_x.untag(), self.reserves_y.untag()).into()
+            AbsolutePrice::new_unsafe(self.reserves_x.untag(), self.reserves_y.untag()).into()
         }
     }
 
-    fn real_price(&self, input: Side<u64>) -> AbsolutePrice {
+    fn real_price(&self, input: Side<u64>) -> Option<AbsolutePrice> {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, quote] = order_canonical(x, y);
