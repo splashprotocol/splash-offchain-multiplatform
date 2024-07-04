@@ -380,6 +380,13 @@ impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, 
         let (Channel::Ledger(Confirmed(upd))
         | Channel::Mempool(Unconfirmed(upd))
         | Channel::TxSubmit(Predicted(upd))) = update;
+        if let StateUpdate::TransitionRollback(Ior::Both(rolled_back_state, _)) = &upd {
+            trace!(
+                "State {} was eliminated in result of rollback.",
+                rolled_back_state.stable_id()
+            );
+            self.index.invalidate_version(rolled_back_state.version());
+        }
         match upd {
             StateUpdate::Transition(Ior::Right(new_state))
             | StateUpdate::Transition(Ior::Both(_, new_state))

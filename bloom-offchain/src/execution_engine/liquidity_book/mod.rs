@@ -6,14 +6,14 @@ use log::{trace, warn};
 use num_rational::Ratio;
 use primitive_types::U256;
 
+use crate::display::{display_option, display_tuple};
 use crate::execution_engine::liquidity_book::core::{
     MakeInProgress, MatchmakingAttempt, MatchmakingRecipe, Next, TakeInProgress, Trans,
 };
-use spectrum_offchain::data::{Has, Stable};
-use spectrum_offchain::maker::Maker;
-use crate::display::{display_option, display_tuple};
 use crate::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
 use crate::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker, SpotPrice};
+use spectrum_offchain::data::{Has, Stable};
+use spectrum_offchain::maker::Maker;
 
 use crate::execution_engine::liquidity_book::side::Side::{Ask, Bid};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};

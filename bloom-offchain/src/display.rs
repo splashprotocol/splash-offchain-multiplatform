@@ -24,9 +24,9 @@ pub struct DisplayTuple<A, B>((A, B));
 impl<A: Display, B: Display> Display for DisplayTuple<A, B> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str("(")?;
-        self.0.0.fmt(f)?;
+        self.0 .0.fmt(f)?;
         f.write_str(", ")?;
-        self.0.1.fmt(f)?;
+        self.0 .1.fmt(f)?;
         f.write_str(")")
     }
-} 
+}
