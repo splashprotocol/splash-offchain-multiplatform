@@ -11,7 +11,7 @@ use crate::execution_engine::liquidity_book::core::{
 };
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::maker::Maker;
-
+use crate::display::{display_option, display_tuple};
 use crate::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
 use crate::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker, SpotPrice};
 
@@ -136,7 +136,7 @@ where
             let mut batch: MatchmakingAttempt<Taker, Maker, U> = MatchmakingAttempt::empty();
             while batch.execution_units_consumed() < self.execution_cap.soft {
                 let spot_price = self.spot_price();
-                trace!("Spot price is: {:?}", spot_price);
+                trace!("Spot price is: {}", display_option(spot_price));
                 if let Some(target_taker) = self.state.pick_active_taker(|fs| {
                     spot_price
                         .map(|sp| max_by_distance_to_spot(fs, sp))
@@ -149,10 +149,10 @@ where
                     let chunk_offered = batch.next_offered_chunk(&target_taker);
                     let maybe_price_maker = self.state.preselect_market_maker(chunk_offered);
                     trace!(
-                        "P_target: {}, P_counter: {:?}, P_amm: {:?}",
+                        "P_target: {}, P_counter: {}, P_amm: {}",
                         target_price.unwrap(),
-                        maybe_price_counter_taker,
-                        maybe_price_maker
+                        display_option(maybe_price_counter_taker),
+                        display_option(maybe_price_maker.map(display_tuple))
                     );
                     match (maybe_price_counter_taker, maybe_price_maker) {
                         (Some(price_counter_taker), maybe_price_maker)
