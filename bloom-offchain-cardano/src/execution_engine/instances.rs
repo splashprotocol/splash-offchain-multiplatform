@@ -392,7 +392,7 @@ where
         produced_out.add_asset(asset_to_add_to, added_liquidity);
 
         let Next::Succ(transition) = result else {
-            panic!("Balance pool isn't supposed to terminate in result of a trade")
+            panic!("Stable pool isn't supposed to terminate in result of a trade")
         };
 
         let DeployedValidatorErased {
