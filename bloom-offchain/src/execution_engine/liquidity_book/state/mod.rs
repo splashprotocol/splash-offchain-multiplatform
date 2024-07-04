@@ -901,7 +901,9 @@ pub mod tests {
 
     use crate::execution_engine::liquidity_book::core::{Next, TerminalTake, Trans, Unit};
     use crate::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
-    use crate::execution_engine::liquidity_book::market_maker::{AbsoluteReserves, MakerBehavior, MarketMaker, SpotPrice};
+    use crate::execution_engine::liquidity_book::market_maker::{
+        AbsoluteReserves, MakerBehavior, MarketMaker, SpotPrice,
+    };
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
     use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, StashingOption, TLBState};
     use crate::execution_engine::liquidity_book::time::TimeBounds;

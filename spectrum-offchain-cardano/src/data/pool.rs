@@ -19,7 +19,9 @@ use log::info;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::liquidity_book::core::{MakeInProgress, Next, Unit};
-use bloom_offchain::execution_engine::liquidity_book::market_maker::{AbsoluteReserves, MakerBehavior, MarketMaker, PoolQuality, SpotPrice};
+use bloom_offchain::execution_engine::liquidity_book::market_maker::{
+    AbsoluteReserves, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
+};
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::collateral::Collateral;

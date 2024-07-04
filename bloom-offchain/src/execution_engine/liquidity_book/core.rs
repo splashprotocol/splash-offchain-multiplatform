@@ -273,8 +273,14 @@ impl<Maker, B> Make<Maker, B> {
     {
         match &self.result {
             Next::Succ(succ) => {
-                let AbsoluteReserves { base: succ_reserves_b, quote: succ_reserves_q } = succ.liquidity();
-                let AbsoluteReserves { base: init_reserves_b, quote: init_reserved_q } = self.target.0.liquidity();
+                let AbsoluteReserves {
+                    base: succ_reserves_b,
+                    quote: succ_reserves_q,
+                } = succ.liquidity();
+                let AbsoluteReserves {
+                    base: init_reserves_b,
+                    quote: init_reserved_q,
+                } = self.target.0.liquidity();
                 if succ_reserves_b < init_reserves_b && succ_reserves_q > init_reserved_q {
                     Some(SideM::Bid)
                 } else if succ_reserves_b > init_reserves_b && succ_reserves_q < init_reserved_q {
@@ -282,7 +288,7 @@ impl<Maker, B> Make<Maker, B> {
                 } else {
                     None
                 }
-            },
+            }
             _ => None,
         }
     }
@@ -293,8 +299,14 @@ impl<Maker, B> Make<Maker, B> {
     {
         match &self.result {
             Next::Succ(succ) => {
-                let AbsoluteReserves { base: succ_reserves_b, quote: succ_reserves_q } = succ.liquidity();
-                let AbsoluteReserves { base: init_reserves_b, quote: init_reserves_q } = self.target.0.liquidity();
+                let AbsoluteReserves {
+                    base: succ_reserves_b,
+                    quote: succ_reserves_q,
+                } = succ.liquidity();
+                let AbsoluteReserves {
+                    base: init_reserves_b,
+                    quote: init_reserves_q,
+                } = self.target.0.liquidity();
                 succ_reserves_b
                     .checked_sub(init_reserves_b)
                     .or_else(|| succ_reserves_q.checked_sub(init_reserves_q))
@@ -309,8 +321,14 @@ impl<Maker, B> Make<Maker, B> {
     {
         match &self.result {
             Next::Succ(succ) => {
-                let AbsoluteReserves { base: succ_reserves_b, quote: succ_reserves_q } = succ.liquidity();
-                let AbsoluteReserves { base: init_reserves_b, quote: init_reserves_q } = self.target.0.liquidity();
+                let AbsoluteReserves {
+                    base: succ_reserves_b,
+                    quote: succ_reserves_q,
+                } = succ.liquidity();
+                let AbsoluteReserves {
+                    base: init_reserves_b,
+                    quote: init_reserves_q,
+                } = self.target.0.liquidity();
                 init_reserves_b
                     .checked_sub(succ_reserves_b)
                     .or_else(|| init_reserves_q.checked_sub(succ_reserves_q))
@@ -327,8 +345,14 @@ impl<Maker> MakeInProgress<Maker> {
     {
         match &self.result {
             Next::Succ(succ) => {
-                let AbsoluteReserves { base: succ_reserves_b, quote: succ_reserves_q } = succ.liquidity();
-                let AbsoluteReserves { base: init_reserves_b, quote: init_reserved_q } = self.target.liquidity();
+                let AbsoluteReserves {
+                    base: succ_reserves_b,
+                    quote: succ_reserves_q,
+                } = succ.liquidity();
+                let AbsoluteReserves {
+                    base: init_reserves_b,
+                    quote: init_reserved_q,
+                } = self.target.liquidity();
                 if succ_reserves_b < init_reserves_b && succ_reserves_q > init_reserved_q {
                     Some(SideM::Bid)
                 } else if succ_reserves_b > init_reserves_b && succ_reserves_q < init_reserved_q {
@@ -336,7 +360,7 @@ impl<Maker> MakeInProgress<Maker> {
                 } else {
                     None
                 }
-            },
+            }
             _ => None,
         }
     }
@@ -347,8 +371,14 @@ impl<Maker> MakeInProgress<Maker> {
     {
         match &self.result {
             Next::Succ(succ) => {
-                let AbsoluteReserves { base: succ_reserves_b, quote: succ_reserves_q } = succ.liquidity();
-                let AbsoluteReserves { base: init_reserves_b, quote: init_reserves_q } = self.target.liquidity();
+                let AbsoluteReserves {
+                    base: succ_reserves_b,
+                    quote: succ_reserves_q,
+                } = succ.liquidity();
+                let AbsoluteReserves {
+                    base: init_reserves_b,
+                    quote: init_reserves_q,
+                } = self.target.liquidity();
                 succ_reserves_b
                     .checked_sub(init_reserves_b)
                     .map(Side::Ask)
@@ -364,8 +394,14 @@ impl<Maker> MakeInProgress<Maker> {
     {
         match &self.result {
             Next::Succ(succ) => {
-                let AbsoluteReserves { base: succ_reserves_b, quote: succ_reserves_q } = succ.liquidity();
-                let AbsoluteReserves { base: init_reserves_b, quote: init_reserves_q } = self.target.liquidity();
+                let AbsoluteReserves {
+                    base: succ_reserves_b,
+                    quote: succ_reserves_q,
+                } = succ.liquidity();
+                let AbsoluteReserves {
+                    base: init_reserves_b,
+                    quote: init_reserves_q,
+                } = self.target.liquidity();
                 init_reserves_b
                     .checked_sub(succ_reserves_b)
                     .map(Side::Bid)
