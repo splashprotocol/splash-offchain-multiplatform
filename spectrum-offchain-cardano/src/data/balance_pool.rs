@@ -623,19 +623,20 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
 
 #[cfg(test)]
 mod tests {
-    use bloom_offchain::execution_engine::liquidity_book::core::{Next, Trans};
+    use algebra_core::semigroup::Semigroup;
+    use bloom_offchain::execution_engine::liquidity_book::core::{Next, Trans, Unit};
     use bloom_offchain::execution_engine::liquidity_book::market_maker::MakerBehavior;
+    use bloom_offchain::execution_engine::liquidity_book::side::Side;
+    use bloom_offchain::execution_engine::liquidity_book::side::Side::{Ask, Bid};
     use cml_chain::plutus::PlutusData;
     use cml_chain::Deserialize;
     use cml_core::serialization::Serialize;
     use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
     use num_rational::Ratio;
-
-    use bloom_offchain::execution_engine::liquidity_book::side::Side;
-    use bloom_offchain::execution_engine::liquidity_book::side::Side::{Ask, Bid};
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
+    use std::cmp::min;
 
     use crate::data::balance_pool::{BalancePool, BalancePoolConfig, BalancePoolRedeemer, BalancePoolVer};
     use crate::data::order::ClassicalOrder;
@@ -740,6 +741,54 @@ mod tests {
         let trans = Trans::new(pool, next_pool);
 
         assert_eq!(trans.loss(), Some(Ask(652178037)))
+    }
+
+    #[test]
+    fn swap_is_semigroup() {
+        let pool = gen_ada_token_pool(
+            1145234875102,
+            31371708695699,
+            9223356007720560247,
+            99000,
+            99000,
+            100,
+            2858654886,
+            18142984027,
+        );
+
+        let input = 449874942;
+
+        let atomic_swap_result = pool.swap(Bid(input));
+        let atomic_swap_trans = Trans::new(pool, atomic_swap_result);
+
+        let mut iterative_swap_result: Option<Trans<BalancePool, BalancePool, Unit>> = None;
+        let mut remaining_input = input;
+        let mut pool_in_progress = pool;
+        loop {
+            if remaining_input > 0 {
+                let initial_chunk = input * 25 / 100;
+                let chunk = if initial_chunk > 0 {
+                    min(initial_chunk, remaining_input)
+                } else {
+                    remaining_input
+                };
+                let partial_swap_result = pool_in_progress.swap(Bid(chunk));
+                let partial_swap_trans = Trans::new(pool_in_progress, partial_swap_result);
+                iterative_swap_result = match iterative_swap_result {
+                    None => Some(partial_swap_trans),
+                    Some(swap) => Some(swap.combine(partial_swap_trans)),
+                };
+                let Next::Succ(next_pool) = partial_swap_result else {
+                    panic!()
+                };
+                remaining_input -= chunk;
+                pool_in_progress = next_pool;
+                continue;
+            }
+            break;
+        }
+
+        assert_eq!(Some(atomic_swap_trans), iterative_swap_result);
     }
 
     #[test]

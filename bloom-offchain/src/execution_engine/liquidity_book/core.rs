@@ -48,7 +48,7 @@ impl Display for TerminalTake {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Next<S, T> {
     /// Successive state is available.
     Succ(S),
@@ -89,7 +89,7 @@ impl<S, T> Next<S, T> {
 }
 
 /// State transition of a take.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Trans<Init, Cont, Term> {
     pub target: Init,
     pub result: Next<Cont, Term>,
@@ -148,7 +148,7 @@ impl<Init, Cont, Term> Semigroup for Trans<Init, Cont, Term> {
     }
 }
 
-#[derive(Copy, Clone, Debug, Display)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Display)]
 pub struct Unit;
 
 pub type TakeInProgress<Taker> = Trans<Taker, Taker, TerminalTake>;
@@ -448,8 +448,6 @@ pub struct MatchmakingAttempt<Taker: Stable, Maker: Stable, U> {
     execution_units_consumed: U,
 }
 
-const NUM_SPLIT_STEPS: u64 = 25;
-
 impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
     pub fn empty() -> Self
     where
@@ -499,7 +497,7 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
             .get(&taker.stable_id())
             .map(|tr| &tr.target)
             .unwrap_or(taker);
-        let initial_chunk = initial_state.input() * NUM_SPLIT_STEPS / 100;
+        let initial_chunk = initial_state.input();
         trace!(
             "Initial chunk: {} derived from input: {}",
             initial_chunk,

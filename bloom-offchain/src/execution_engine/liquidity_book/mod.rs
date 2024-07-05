@@ -577,9 +577,7 @@ mod tests {
             fee_num: 997,
         };
         let real_price_in_pool = pool.real_price(Side::Ask(ask_fr.input()));
-        println!("Price in pool {}", real_price_in_pool);
         let (t, m) = execute_with_maker(ask_fr, pool, Side::Ask(ask_fr.input()));
-        println!("Result: ({}, {})", t, m);
         assert_eq!(m.gain().unwrap().unwrap(), t.removed_input());
         assert_eq!(m.loss().unwrap().unwrap(), t.added_output());
     }

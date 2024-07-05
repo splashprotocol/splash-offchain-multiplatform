@@ -1406,19 +1406,19 @@ pub mod tests {
             AbsolutePrice::new_unsafe(self.reserves_quote, self.reserves_base).into()
         }
 
-        fn real_price(&self, input: Side<u64>) -> AbsolutePrice {
+        fn real_price(&self, input: Side<u64>) -> Option<AbsolutePrice> {
             match input {
                 Side::Bid(quote_input) => {
                     let result_pool = self.swap(Side::Bid(quote_input));
                     let trans = Trans::new(*self, result_pool);
                     let base_output = trans.loss().map(|r| r.unwrap()).unwrap_or(0);
-                    AbsolutePrice::new_unsafe(quote_input, base_output)
+                    AbsolutePrice::new(quote_input, base_output)
                 }
                 Side::Ask(base_input) => {
                     let result_pool = self.swap(Side::Ask(base_input));
                     let trans = Trans::new(*self, result_pool);
                     let quote_output = trans.loss().map(|r| r.unwrap()).unwrap_or(0);
-                    AbsolutePrice::new_unsafe(quote_output, base_input)
+                    AbsolutePrice::new(quote_output, base_input)
                 }
             }
         }
