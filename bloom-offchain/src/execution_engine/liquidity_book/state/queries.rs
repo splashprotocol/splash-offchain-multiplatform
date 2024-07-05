@@ -42,7 +42,7 @@ where
 {
     let index_price = spot_price
         .map(AbsolutePrice::from)
-        .unwrap_or_else(|| ask.price() + bid.price() * Ratio::new(1, 2));
+        .unwrap_or_else(|| (ask.price() + bid.price()) * Ratio::new(1, 2));
     let ask_vol = Ratio::new(ask.input() as u128, 1) * index_price.unwrap();
     let bid_vol = Ratio::new(1, bid.input() as u128) * index_price.unwrap();
     if ask_vol > bid_vol {
