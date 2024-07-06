@@ -1,3 +1,4 @@
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter, Write};
 
@@ -202,12 +203,20 @@ where
     }
 
     fn invalidate_version(&mut self, ver: T::Version) -> Option<T::StableId> {
-        if let Some(entity) = self.store.get(&ver) {
+        if let Some(entity) = self.store.remove(&ver) {
             let sid = entity.stable_id();
-            self.index.remove(&index_key(LAST_PREDICTED_PREFIX, sid));
-            self.index.remove(&index_key(LAST_UNCONFIRMED_PREFIX, sid));
-            self.index.remove(&index_key(LAST_CONFIRMED_PREFIX, sid));
-            self.store.remove(&ver);
+            let indexes = vec![
+                LAST_PREDICTED_PREFIX,
+                LAST_UNCONFIRMED_PREFIX,
+                LAST_CONFIRMED_PREFIX,
+            ];
+            for index in indexes {
+                if let Entry::Occupied(index_ver) = self.index.entry(index_key(index, sid)) {
+                    if *index_ver.get() == ver {
+                        index_ver.remove();
+                    }
+                }
+            }
             return Some(sid);
         }
         None
