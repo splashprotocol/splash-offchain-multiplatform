@@ -40,11 +40,9 @@ fn _max_by_volume<Fr>(ask: Fr, bid: Fr, spot_price: Option<SpotPrice>) -> Fr
 where
     Fr: MarketTaker,
 {
-    let index_price = spot_price
-        .map(AbsolutePrice::from)
-        .unwrap_or_else(|| (ask.price() + bid.price()) * Ratio::new(1, 2));
-    let ask_vol = Ratio::new(ask.input() as u128, 1) * index_price.unwrap();
-    let bid_vol = Ratio::new(1, bid.input() as u128) * index_price.unwrap();
+    let raw_spot_price = spot_price.map(|sp| sp.unwrap());
+    let ask_vol = Ratio::new(ask.input() as u128, 1);
+    let bid_vol = Ratio::new(1, bid.input() as u128) * raw_spot_price.unwrap_or_else(|| bid.price().unwrap());
     if ask_vol > bid_vol {
         ask
     } else {
