@@ -3,6 +3,8 @@ use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use either::Either;
@@ -106,6 +108,7 @@ pub fn execution_part_stream<
     upstream: Upstream,
     network: Net,
     mut tip_reached_signal: broadcast::Receiver<bool>,
+    rollback_is_active: Arc<AtomicBool>,
 ) -> impl Stream<Item = ()> + 'a
 where
     Upstream: Stream<Item = (Pair, Event<CompOrd, SpecOrd, Pool, Bearer, Ver>)> + Unpin + 'a,
@@ -147,6 +150,7 @@ where
         prover,
         upstream,
         feedback_in,
+        rollback_is_active,
     );
     let wait_signal = async move {
         let _ = tip_reached_signal.recv().await;
@@ -209,6 +213,7 @@ pub struct Executor<
     /// Temporarily memoize entities that came from unconfirmed updates.
     skip_filter: CircularFilter<256, Ver>,
     pd: PhantomData<(StableId, Ver, TxCandidate, Tx, Err)>,
+    rollback_is_active: Arc<AtomicBool>,
 }
 
 impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, E>
@@ -225,6 +230,7 @@ impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, 
         prover: PRV,
         upstream: S,
         feedback: mpsc::Receiver<Result<(), E>>,
+        rollback_is_active: Arc<AtomicBool>,
     ) -> Self {
         Self {
             index,
@@ -241,6 +247,7 @@ impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, 
             focus_set: FocusSet::new(),
             skip_filter: CircularFilter::new(),
             pd: Default::default(),
+            rollback_is_active,
         }
     }
 
@@ -455,6 +462,9 @@ where
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         loop {
+            if self.rollback_is_active.load(Ordering::Relaxed) {
+                return Poll::Pending;
+            }
             // Wait for the feedback from the last pending job.
             if let Some((pair, tx_hash, pending_effects)) = self.pending_effects.take() {
                 match Stream::poll_next(Pin::new(&mut self.feedback), cx) {
