@@ -491,8 +491,10 @@ impl MarketMaker for BalancePool {
     fn is_active(&self) -> bool {
         if self.asset_x.is_native() {
             self.reserves_x.untag() >= self.min_pool_lovelace
-        } else {
+        } else if self.asset_y.is_native() {
             self.reserves_y.untag() >= self.min_pool_lovelace
+        } else {
+            true
         }
     }
 

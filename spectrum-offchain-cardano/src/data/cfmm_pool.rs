@@ -373,12 +373,14 @@ impl MarketMaker for ConstFnPool {
 
     fn is_active(&self) -> bool {
         let lq_bound = (self.reserves_x.untag() * 2) >= self.lq_lower_bound.untag();
-        let bot_bound = if self.asset_x.is_native() {
+        let native_bound = if self.asset_x.is_native() {
             self.reserves_x.untag() >= self.min_pool_lovelace
-        } else {
+        } else if self.asset_y.is_native() {
             self.reserves_y.untag() >= self.min_pool_lovelace
+        } else {
+            true
         };
-        lq_bound && bot_bound
+        lq_bound && native_bound
     }
 
     fn liquidity(&self) -> AbsoluteReserves {
