@@ -15,6 +15,17 @@ use futures::{SinkExt, StreamExt};
 use log::{trace, warn};
 use tokio::sync::broadcast;
 
+use crate::execution_engine::backlog::SpecializedInterpreter;
+use crate::execution_engine::bundled::Bundled;
+use crate::execution_engine::execution_effect::ExecutionEff;
+use crate::execution_engine::focus_set::FocusSet;
+use crate::execution_engine::liquidity_book::core::ExecutionRecipe;
+use crate::execution_engine::liquidity_book::fragment::MarketTaker;
+use crate::execution_engine::liquidity_book::{ExternalTLBEvents, TLBFeedback, TemporalLiquidityBook};
+use crate::execution_engine::multi_pair::MultiPair;
+use crate::execution_engine::resolver::resolve_source_state;
+use crate::execution_engine::storage::kv_store::KvStore;
+use crate::execution_engine::storage::StateIndex;
 use liquidity_book::interpreter::RecipeInterpreter;
 use liquidity_book::stashing_option::StashingOption;
 use spectrum_offchain::backlog::HotBacklog;
@@ -27,18 +38,7 @@ use spectrum_offchain::maker::Maker;
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_hash::CanonicalHash;
 use spectrum_offchain::tx_prover::TxProver;
-
-use crate::execution_engine::backlog::SpecializedInterpreter;
-use crate::execution_engine::bundled::Bundled;
-use crate::execution_engine::execution_effect::ExecutionEff;
-use crate::execution_engine::focus_set::FocusSet;
-use crate::execution_engine::liquidity_book::core::ExecutionRecipe;
-use crate::execution_engine::liquidity_book::fragment::MarketTaker;
-use crate::execution_engine::liquidity_book::{ExternalTLBEvents, TLBFeedback, TemporalLiquidityBook};
-use crate::execution_engine::multi_pair::MultiPair;
-use crate::execution_engine::resolver::resolve_source_state;
-use crate::execution_engine::storage::kv_store::KvStore;
-use crate::execution_engine::storage::StateIndex;
+use spectrum_streaming::StreamExt as StreamExtX;
 
 pub mod backlog;
 pub mod batch_exec;
@@ -108,7 +108,7 @@ pub fn execution_part_stream<
     upstream: Upstream,
     network: Net,
     mut tip_reached_signal: broadcast::Receiver<bool>,
-    rollback_is_active: Arc<AtomicBool>,
+    rollback_in_progress: Arc<AtomicBool>,
 ) -> impl Stream<Item = ()> + 'a
 where
     Upstream: Stream<Item = (Pair, Event<CompOrd, SpecOrd, Pool, Bearer, Ver>)> + Unpin + 'a,
@@ -150,21 +150,22 @@ where
         prover,
         upstream,
         feedback_in,
-        rollback_is_active,
     );
     let wait_signal = async move {
         let _ = tip_reached_signal.recv().await;
     };
     wait_signal
         .map(move |_| {
-            executor.then(move |tx| {
-                let mut network = network.clone();
-                let mut feedback = feedback_out.clone();
-                async move {
-                    let result = network.submit_tx(tx).await;
-                    feedback.send(result).await.expect("Filed to propagate feedback.");
-                }
-            })
+            executor
+                .conditional(move || !rollback_in_progress.load(Ordering::Relaxed))
+                .then(move |tx| {
+                    let mut network = network.clone();
+                    let mut feedback = feedback_out.clone();
+                    async move {
+                        let result = network.submit_tx(tx).await;
+                        feedback.send(result).await.expect("Filed to propagate feedback.");
+                    }
+                })
         })
         .flatten_stream()
 }
@@ -213,7 +214,6 @@ pub struct Executor<
     /// Temporarily memoize entities that came from unconfirmed updates.
     skip_filter: CircularFilter<256, Ver>,
     pd: PhantomData<(StableId, Ver, TxCandidate, Tx, Err)>,
-    rollback_is_active: Arc<AtomicBool>,
 }
 
 impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, E>
@@ -230,7 +230,6 @@ impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, 
         prover: PRV,
         upstream: S,
         feedback: mpsc::Receiver<Result<(), E>>,
-        rollback_is_active: Arc<AtomicBool>,
     ) -> Self {
         Self {
             index,
@@ -247,7 +246,6 @@ impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, 
             focus_set: FocusSet::new(),
             skip_filter: CircularFilter::new(),
             pd: Default::default(),
-            rollback_is_active,
         }
     }
 
@@ -462,9 +460,6 @@ where
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         loop {
-            if self.rollback_is_active.load(Ordering::Relaxed) {
-                return Poll::Pending;
-            }
             // Wait for the feedback from the last pending job.
             if let Some((pair, tx_hash, pending_effects)) = self.pending_effects.take() {
                 match Stream::poll_next(Pin::new(&mut self.feedback), cx) {

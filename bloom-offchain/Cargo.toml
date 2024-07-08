@@ -8,6 +8,7 @@ rust-version = "1.75.0"
 
 [dependencies]
 spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain" }
+spectrum-streaming = { version = "0.1.0", path = "../spectrum-streaming" }
 algebra-core = { version = "0.1.0", path = "../algebra-core" }
 isahc = { version = "1.7.2", features = ["json"] }
 futures = "0.3.25"
