@@ -326,6 +326,7 @@ where
         if test_address(repr.address(), ctx) {
             let value = repr.value().clone();
             let conf = Datum::try_from_pd(repr.datum()?.into_pd()?)?;
+            let total_input_asset_amount = value.amount_of(conf.input)?;
             let total_ada_input = value.amount_of(AssetClass::Native)?;
             let (reserved_lovelace, tradable_lovelace) = match (conf.input, conf.output) {
                 (AssetClass::Native, _) => (MIN_LOVELACE, conf.tradable_input),
@@ -343,6 +344,7 @@ where
                 if let (Some(max_execution_steps_possible), Some(max_execution_steps_available)) =
                     (max_execution_steps_possible, max_execution_steps_available)
                 {
+                    let sufficient_input = total_input_asset_amount >= conf.tradable_input;
                     let sufficient_execution_budget =
                         max_execution_steps_available >= max_execution_steps_possible;
                     let is_permissionless = conf.permitted_executors.is_empty();
@@ -350,7 +352,7 @@ where
                         || conf
                             .permitted_executors
                             .contains(&ctx.select::<OperatorCred>().into());
-                    if sufficient_execution_budget && executable {
+                    if sufficient_input && sufficient_execution_budget && executable {
                         let bounds = ctx.select::<LimitOrderBounds>();
                         let valid_configuration = conf.cost_per_ex_step >= bounds.min_cost_per_ex_step
                             && execution_budget >= conf.cost_per_ex_step
