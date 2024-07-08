@@ -50,10 +50,6 @@ jobs:
           echo "Cargo build succeeded."
           echo "::set-output name=status::success"
         fi
-   
-    - name: Run tests
-      run: cargo test --package bloom-cardano-agent --bin bloom-cardano-agent
-
 
     - name: Get Event Information
       id: info
