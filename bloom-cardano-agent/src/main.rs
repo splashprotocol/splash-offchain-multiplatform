@@ -286,7 +286,7 @@ async fn main() {
         chain_sync_stream(chain_sync, signal_tip_reached_snd),
         config.chain_sync.disable_rollbacks_until,
         config.chain_sync.replay_from_point,
-        rollback_in_progress.clone(),
+        rollback_in_progress,
     ))
     .await
     .map(|ev| match ev {
