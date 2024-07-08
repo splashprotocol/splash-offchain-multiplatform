@@ -14,9 +14,11 @@ use crate::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehavi
 use crate::execution_engine::liquidity_book::market_maker::{MarketMaker, PoolQuality, SpotPrice};
 use crate::execution_engine::liquidity_book::side::{Side, SideM};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
+use crate::execution_engine::liquidity_book::state::price_range::AllowedPriceRange;
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, InputAsset};
 use crate::execution_engine::liquidity_book::weight::Weighted;
 
+mod price_range;
 pub mod queries;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -428,6 +430,41 @@ where
         let pools = self.pools().show_state();
         let fragments = self.active_fragments().show_state();
         format!("Fragments(active): {}, Pools: {}", fragments, pools)
+    }
+
+    pub fn allowed_price_range(&self) -> AllowedPriceRange {
+        match self {
+            TLBState::Idle(_) => AllowedPriceRange::default(),
+            TLBState::PartialPreview(PartialPreviewState {
+                stashed_active_takers,
+                ..
+            })
+            | TLBState::Preview(PreviewState {
+                stashed_active_takers,
+                ..
+            }) => AllowedPriceRange {
+                max_ask_price: stashed_active_takers
+                    .iter()
+                    .filter_map(|tk| {
+                        if tk.side() == SideM::Ask {
+                            Some(tk.price())
+                        } else {
+                            None
+                        }
+                    })
+                    .min(),
+                min_bid_price: stashed_active_takers
+                    .iter()
+                    .filter_map(|tk| {
+                        if tk.side() == SideM::Bid {
+                            Some(tk.price())
+                        } else {
+                            None
+                        }
+                    })
+                    .max(),
+            },
+        }
     }
 
     pub fn best_taker_price(&self, side: SideM) -> Option<Side<AbsolutePrice>> {
@@ -905,12 +942,57 @@ pub mod tests {
         AbsoluteReserves, MakerBehavior, MarketMaker, SpotPrice,
     };
     use crate::execution_engine::liquidity_book::side::{Side, SideM};
-    use crate::execution_engine::liquidity_book::state::{IdleState, PoolQuality, StashingOption, TLBState};
+    use crate::execution_engine::liquidity_book::state::{
+        AllowedPriceRange, Chronology, IdleState, MarketMakers, PartialPreviewState, PoolQuality,
+        StashingOption, TLBState,
+    };
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::{
         AbsolutePrice, ExCostUnits, FeeAsset, InputAsset, OutputAsset,
     };
     use crate::execution_engine::types::StableId;
+
+    #[test]
+    fn get_allowed_price_range_both_sides() {
+        let st: TLBState<SimpleOrderPF, SimpleCFMMPool> = TLBState::PartialPreview(PartialPreviewState {
+            takers_preview: Chronology::new(0),
+            consumed_active_takers: vec![],
+            stashed_active_takers: vec![
+                SimpleOrderPF::new(SideM::Ask, 0, AbsolutePrice::new_unsafe(1, 2), 0),
+                SimpleOrderPF::new(SideM::Ask, 0, AbsolutePrice::new_unsafe(1, 3), 0),
+                SimpleOrderPF::new(SideM::Bid, 0, AbsolutePrice::new_unsafe(2, 3), 0),
+                SimpleOrderPF::new(SideM::Bid, 0, AbsolutePrice::new_unsafe(1, 3), 0),
+            ],
+            makers_intact: MarketMakers::new(),
+            makers_preview: MarketMakers::new(),
+        });
+        let range = st.allowed_price_range();
+        let expected_range = AllowedPriceRange {
+            max_ask_price: Some(AbsolutePrice::new_unsafe(1, 3)),
+            min_bid_price: Some(AbsolutePrice::new_unsafe(2, 3)),
+        };
+        assert_eq!(range, expected_range);
+    }
+
+    #[test]
+    fn get_allowed_price_range_one_side() {
+        let st: TLBState<SimpleOrderPF, SimpleCFMMPool> = TLBState::PartialPreview(PartialPreviewState {
+            takers_preview: Chronology::new(0),
+            consumed_active_takers: vec![],
+            stashed_active_takers: vec![
+                SimpleOrderPF::new(SideM::Ask, 0, AbsolutePrice::new_unsafe(1, 2), 0),
+                SimpleOrderPF::new(SideM::Ask, 0, AbsolutePrice::new_unsafe(1, 3), 0),
+            ],
+            makers_intact: MarketMakers::new(),
+            makers_preview: MarketMakers::new(),
+        });
+        let range = st.allowed_price_range();
+        let expected_range = AllowedPriceRange {
+            max_ask_price: Some(AbsolutePrice::new_unsafe(1, 3)),
+            min_bid_price: None,
+        };
+        assert_eq!(range, expected_range);
+    }
 
     #[test]
     fn add_inactive_fragment() {

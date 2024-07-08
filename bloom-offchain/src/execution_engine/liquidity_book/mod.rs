@@ -136,11 +136,13 @@ where
             let mut batch: MatchmakingAttempt<Taker, Maker, U> = MatchmakingAttempt::empty();
             while batch.execution_units_consumed() < self.execution_cap.soft {
                 let spot_price = self.spot_price();
+                let price_range = self.state.allowed_price_range();
                 trace!("Spot price is: {}", display_option(spot_price));
+                trace!("Price range is: {}", price_range);
                 if let Some(target_taker) = self.state.pick_active_taker(|fs| {
                     spot_price
-                        .map(|sp| max_by_distance_to_spot(fs, sp))
-                        .unwrap_or_else(|| max_by_volume(fs))
+                        .map(|sp| max_by_distance_to_spot(fs, sp, price_range))
+                        .unwrap_or_else(|| max_by_volume(fs, price_range))
                 }) {
                     trace!("Selected taker is: {}", target_taker);
                     let target_side = target_taker.side();

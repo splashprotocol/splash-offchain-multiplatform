@@ -1,15 +1,19 @@
 use crate::execution_engine::liquidity_book::fragment::MarketTaker;
 use crate::execution_engine::liquidity_book::market_maker::SpotPrice;
-use crate::execution_engine::liquidity_book::state::MarketTakers;
+use crate::execution_engine::liquidity_book::state::{AllowedPriceRange, MarketTakers};
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 use num_rational::Ratio;
 
-pub fn max_by_distance_to_spot<Fr>(fragments: &mut MarketTakers<Fr>, spot_price: SpotPrice) -> Option<Fr>
+pub fn max_by_distance_to_spot<Fr>(
+    fragments: &mut MarketTakers<Fr>,
+    spot_price: SpotPrice,
+    range: AllowedPriceRange,
+) -> Option<Fr>
 where
     Fr: MarketTaker + Ord + Copy,
 {
-    let best_bid = fragments.bids.pop_first();
-    let best_ask = fragments.asks.pop_first();
+    let best_bid = fragments.bids.pop_first().and_then(|tk| range.test_bid(tk));
+    let best_ask = fragments.asks.pop_first().and_then(|tk| range.test_ask(tk));
     match (best_ask, best_bid) {
         (Some(ask), Some(bid)) => {
             let abs_price = AbsolutePrice::from(spot_price).to_signed();
@@ -50,12 +54,12 @@ where
     }
 }
 
-pub fn max_by_volume<Fr>(fragments: &mut MarketTakers<Fr>) -> Option<Fr>
+pub fn max_by_volume<Fr>(fragments: &mut MarketTakers<Fr>, range: AllowedPriceRange) -> Option<Fr>
 where
     Fr: MarketTaker + Ord + Copy,
 {
-    let best_bid = fragments.bids.pop_first();
-    let best_ask = fragments.asks.pop_first();
+    let best_bid = fragments.bids.pop_first().and_then(|tk| range.test_bid(tk));
+    let best_ask = fragments.asks.pop_first().and_then(|tk| range.test_ask(tk));
     match (best_ask, best_bid) {
         (Some(ask), Some(bid)) => {
             let choice = _max_by_volume(ask, bid, None);
