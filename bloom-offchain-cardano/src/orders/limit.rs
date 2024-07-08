@@ -315,9 +315,6 @@ fn beacon_from_oref(oref: OutputRef) -> PolicyId {
 
 const MIN_LOVELACE: u64 = 1_500_000;
 
-//thread 'main' panicked at /root/spectrum-offchain-multiplatform/bloom-offchain-cardano/src/execution_engine/interpreter.rs:58:14:
-// called `Result::unwrap()` on an `Err` value: MissingInputOrOutput
-
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for LimitOrder
 where
     C: Has<OperatorCred>
