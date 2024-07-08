@@ -88,7 +88,7 @@ async fn main() {
 
     info!("Starting Off-Chain Agent ..");
 
-    let rollback_is_active_flag = Arc::new(AtomicBool::new(false));
+    let rollback_in_progress = Arc::new(AtomicBool::new(false));
 
     let explorer = Maestro::new(config.maestro_key_path, config.network_id.into())
         .await
@@ -227,7 +227,7 @@ async fn main() {
         ),
         tx_submission_channel.clone(),
         signal_tip_reached_snd.subscribe(),
-        rollback_is_active_flag.clone(),
+        rollback_in_progress.clone(),
     );
     let execution_stream_p2 = execution_part_stream(
         state_index.clone(),
@@ -244,7 +244,7 @@ async fn main() {
         ),
         tx_submission_channel.clone(),
         signal_tip_reached_snd.subscribe(),
-        rollback_is_active_flag.clone(),
+        rollback_in_progress.clone(),
     );
     let execution_stream_p3 = execution_part_stream(
         state_index.clone(),
@@ -261,7 +261,7 @@ async fn main() {
         ),
         tx_submission_channel.clone(),
         signal_tip_reached_snd.subscribe(),
-        rollback_is_active_flag.clone(),
+        rollback_in_progress.clone(),
     );
     let execution_stream_p4 = execution_part_stream(
         state_index,
@@ -278,7 +278,7 @@ async fn main() {
         ),
         tx_submission_channel,
         signal_tip_reached_snd.subscribe(),
-        rollback_is_active_flag.clone(),
+        rollback_in_progress.clone(),
     );
 
     let ledger_stream = Box::pin(ledger_transactions(
@@ -286,7 +286,7 @@ async fn main() {
         chain_sync_stream(chain_sync, signal_tip_reached_snd),
         config.chain_sync.disable_rollbacks_until,
         config.chain_sync.replay_from_point,
-        rollback_is_active_flag.clone(),
+        rollback_in_progress.clone(),
     ))
     .await
     .map(|ev| match ev {
