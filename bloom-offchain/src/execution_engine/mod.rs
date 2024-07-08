@@ -3,6 +3,8 @@ use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use either::Either;
@@ -12,19 +14,6 @@ use futures::{FutureExt, Stream};
 use futures::{SinkExt, StreamExt};
 use log::{trace, warn};
 use tokio::sync::broadcast;
-
-use liquidity_book::interpreter::RecipeInterpreter;
-use liquidity_book::stashing_option::StashingOption;
-use spectrum_offchain::backlog::HotBacklog;
-use spectrum_offchain::circular_filter::CircularFilter;
-use spectrum_offchain::combinators::Ior;
-use spectrum_offchain::data::event::{Channel, Confirmed, Predicted, StateUpdate, Unconfirmed};
-use spectrum_offchain::data::order::{OrderUpdate, SpecializedOrder};
-use spectrum_offchain::data::{Baked, EntitySnapshot, Stable};
-use spectrum_offchain::maker::Maker;
-use spectrum_offchain::network::Network;
-use spectrum_offchain::tx_hash::CanonicalHash;
-use spectrum_offchain::tx_prover::TxProver;
 
 use crate::execution_engine::backlog::SpecializedInterpreter;
 use crate::execution_engine::bundled::Bundled;
@@ -37,6 +26,19 @@ use crate::execution_engine::multi_pair::MultiPair;
 use crate::execution_engine::resolver::resolve_source_state;
 use crate::execution_engine::storage::kv_store::KvStore;
 use crate::execution_engine::storage::StateIndex;
+use liquidity_book::interpreter::RecipeInterpreter;
+use liquidity_book::stashing_option::StashingOption;
+use spectrum_offchain::backlog::HotBacklog;
+use spectrum_offchain::circular_filter::CircularFilter;
+use spectrum_offchain::combinators::Ior;
+use spectrum_offchain::data::event::{Channel, Confirmed, Predicted, StateUpdate, Unconfirmed};
+use spectrum_offchain::data::order::{OrderUpdate, SpecializedOrder};
+use spectrum_offchain::data::{Baked, EntitySnapshot, Stable};
+use spectrum_offchain::maker::Maker;
+use spectrum_offchain::network::Network;
+use spectrum_offchain::tx_hash::CanonicalHash;
+use spectrum_offchain::tx_prover::TxProver;
+use spectrum_streaming::StreamExt as StreamExtX;
 
 pub mod backlog;
 pub mod batch_exec;
@@ -106,6 +108,7 @@ pub fn execution_part_stream<
     upstream: Upstream,
     network: Net,
     mut tip_reached_signal: broadcast::Receiver<bool>,
+    rollback_in_progress: Arc<AtomicBool>,
 ) -> impl Stream<Item = ()> + 'a
 where
     Upstream: Stream<Item = (Pair, Event<CompOrd, SpecOrd, Pool, Bearer, Ver>)> + Unpin + 'a,
@@ -153,14 +156,16 @@ where
     };
     wait_signal
         .map(move |_| {
-            executor.then(move |tx| {
-                let mut network = network.clone();
-                let mut feedback = feedback_out.clone();
-                async move {
-                    let result = network.submit_tx(tx).await;
-                    feedback.send(result).await.expect("Filed to propagate feedback.");
-                }
-            })
+            executor
+                .conditional(move || !rollback_in_progress.load(Ordering::Relaxed))
+                .then(move |tx| {
+                    let mut network = network.clone();
+                    let mut feedback = feedback_out.clone();
+                    async move {
+                        let result = network.submit_tx(tx).await;
+                        feedback.send(result).await.expect("Filed to propagate feedback.");
+                    }
+                })
         })
         .flatten_stream()
 }

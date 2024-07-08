@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use async_stream::stream;
@@ -25,6 +26,7 @@ pub async fn ledger_transactions<'a, S, Cache>(
     handle_rollbacks_after: Slot,
     // Reapply known blocks before pulling new ones.
     replay_from: Option<Point>,
+    rollback_in_progress: Arc<AtomicBool>,
 ) -> impl Stream<Item = LedgerTxEvent<BabbageTransaction>> + 'a
 where
     S: Stream<Item = ChainUpgrade<BabbageBlock>> + 'a,
@@ -50,7 +52,14 @@ where
         .filter_map(|result| async { result });
     replayed_blocks
         .chain(upstream)
-        .then(move |u| process_upstream_by_txs(Arc::clone(&cache), u, handle_rollbacks_after))
+        .then(move |u| {
+            process_upstream_by_txs(
+                Arc::clone(&cache),
+                u,
+                handle_rollbacks_after,
+                rollback_in_progress.clone(),
+            )
+        })
         .flatten()
 }
 
@@ -60,18 +69,27 @@ pub fn ledger_blocks<'a, S, Cache>(
     upstream: S,
     // Rollbacks will not be handled until the specified slot is reached.
     handle_rollbacks_after: Slot,
+    rollback_in_progress: Arc<AtomicBool>,
 ) -> impl Stream<Item = LedgerBlockEvent<BabbageBlock>> + 'a
 where
     S: Stream<Item = ChainUpgrade<BabbageBlock>> + 'a,
     Cache: LedgerCache + 'a,
 {
-    upstream.flat_map(move |u| process_upstream_by_blocks(Arc::clone(&cache), u, handle_rollbacks_after))
+    upstream.flat_map(move |u| {
+        process_upstream_by_blocks(
+            Arc::clone(&cache),
+            u,
+            handle_rollbacks_after,
+            rollback_in_progress.clone(),
+        )
+    })
 }
 
 async fn process_upstream_by_txs<'a, Cache>(
     cache: Arc<Mutex<Cache>>,
     upgr: ChainUpgrade<BabbageBlock>,
     handle_rollbacks_after: Slot,
+    rollback_in_progress: Arc<AtomicBool>,
 ) -> Pin<Box<dyn Stream<Item = LedgerTxEvent<BabbageTransaction>> + 'a>>
 where
     Cache: LedgerCache + 'a,
@@ -100,13 +118,15 @@ where
         }
         ChainUpgrade::RollBackward(point) if point.get_slot() > handle_rollbacks_after => {
             warn!("Node requested rollback to point {:?}", point);
-            Box::pin(rollback(cache, point.into()).flat_map(|blk| {
-                let unapplied_txs: Vec<_> = unpack_valid_transactions(blk)
-                    .map(|(tx, _)| LedgerTxEvent::TxUnapplied(tx))
-                    .rev()
-                    .collect();
-                stream::iter(unapplied_txs)
-            }))
+            Box::pin(
+                rollback(cache, point.into(), rollback_in_progress).flat_map(|blk| {
+                    let unapplied_txs: Vec<_> = unpack_valid_transactions(blk)
+                        .map(|(tx, _)| LedgerTxEvent::TxUnapplied(tx))
+                        .rev()
+                        .collect();
+                    stream::iter(unapplied_txs)
+                }),
+            )
         }
         ChainUpgrade::RollBackward(_) => {
             warn!("Node requested rollback while rollbacks are disabled.");
@@ -169,6 +189,7 @@ fn process_upstream_by_blocks<'a, Cache>(
     cache: Arc<Mutex<Cache>>,
     upgr: ChainUpgrade<BabbageBlock>,
     handle_rollbacks_after: Slot,
+    rollback_in_progress: Arc<AtomicBool>,
 ) -> Pin<Box<dyn Stream<Item = LedgerBlockEvent<BabbageBlock>> + 'a>>
 where
     Cache: LedgerCache + 'a,
@@ -188,9 +209,9 @@ where
             }
             LedgerBlockEvent::RollForward(blk)
         })),
-        ChainUpgrade::RollBackward(point) if point.get_slot() > handle_rollbacks_after => {
-            Box::pin(rollback(cache, point.into()).map(LedgerBlockEvent::RollBackward))
-        }
+        ChainUpgrade::RollBackward(point) if point.get_slot() > handle_rollbacks_after => Box::pin(
+            rollback(cache, point.into(), rollback_in_progress.clone()).map(LedgerBlockEvent::RollBackward),
+        ),
         ChainUpgrade::RollBackward(_) => {
             warn!("Node requested rollback while rollbacks are disabled.");
             Box::pin(stream::empty())
@@ -199,27 +220,32 @@ where
 }
 
 /// Handle rollback to a specific point in the past.
-fn rollback<Cache>(cache: Arc<Mutex<Cache>>, to_point: Point) -> impl Stream<Item = BabbageBlock>
+fn rollback<Cache>(
+    cache: Arc<Mutex<Cache>>,
+    to_point: Point,
+    rollback_in_progress: Arc<AtomicBool>,
+) -> impl Stream<Item = BabbageBlock>
 where
     Cache: LedgerCache,
 {
     stream! {
         loop {
+            rollback_in_progress.swap(true, Ordering::Relaxed);
             let cache = cache.lock().await;
             if let Some(tip) = cache.get_tip().await {
                 let rollback_finished = tip == to_point;
-                if rollback_finished {
-                    trace!("Rolled back to point {:?}", to_point);
-                    break;
-                }
-                if let Some(LinkedBlock(block_bytes, prev_point)) = cache.get_block(tip.clone()).await {
-                    cache.delete(tip).await;
-                    cache.set_tip(prev_point).await;
-                    let block = BabbageBlock::from_cbor_bytes(&block_bytes).expect("Block deserialization failed");
-                    yield block;
-                    continue;
+                if !rollback_finished {
+                    if let Some(LinkedBlock(block_bytes, prev_point)) = cache.get_block(tip.clone()).await {
+                        cache.delete(tip).await;
+                        cache.set_tip(prev_point).await;
+                        let block = BabbageBlock::from_cbor_bytes(&block_bytes).expect("Block deserialization failed");
+                        yield block;
+                        continue;
+                    }
                 }
             }
+            trace!("Rolled back to point {:?}", to_point);
+            rollback_in_progress.swap(false, Ordering::Relaxed);
             break;
         }
     }
