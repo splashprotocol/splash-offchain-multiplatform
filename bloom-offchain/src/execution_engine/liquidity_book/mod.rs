@@ -169,7 +169,7 @@ where
                                                     && fr.marginal_cost_hint() <= execution_units_left
                                             })
                                         {
-                                            trace!("Matched with fragment: {}", opposite_fr);
+                                            trace!("Matched with fragment : {}", opposite_fr);
                                             execution_units_left -= opposite_fr.marginal_cost_hint();
                                             let make_match = |x: &Fr, y: &Fr| {
                                                 let (ask, bid) = match x.side() {
