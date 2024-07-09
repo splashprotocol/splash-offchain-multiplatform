@@ -10,6 +10,6 @@
   },
   "pool": {
     "minN2tLovelace": 100000000,
-    "minT2tLovelace": 10000000,
+    "minT2tLovelace": 10000000
   }
 }
