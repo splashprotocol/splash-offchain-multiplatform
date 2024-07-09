@@ -8,7 +8,7 @@ use futures::channel::{mpsc, oneshot};
 use futures::{SinkExt, Stream, StreamExt};
 use log::{trace, warn};
 use pallas_network::miniprotocols::localtxsubmission;
-use pallas_network::miniprotocols::localtxsubmission::RejectReason;
+use pallas_network::miniprotocols::localtxsubmission::{RejectReason, Response};
 use pallas_network::multiplexer;
 
 use cardano_submit_api::client::{Error, LocalTxSubmissionClient};
@@ -106,15 +106,15 @@ where
             let tx_hash = tx.canonical_hash();
             loop {
                 match agent.client.submit_tx((*tx).clone()).await {
-                    Ok(_) => on_resp.send(SubmissionResult::Ok).expect("Responder was dropped"),
+                    Ok(Response::Accepted) => on_resp.send(SubmissionResult::Ok).expect("Responder was dropped"),
+                    Ok(Response::Rejected(RejectReason(rejected_bytes))) => {
+                        trace!("TX {} was rejected due to error: {}", tx_hash, hex::encode(&rejected_bytes));
+                        on_resp.send(SubmissionResult::TxRejected{rejected_bytes}).expect("Responder was dropped");
+                    },
                     Err(Error::TxSubmissionProtocol(err)) => {
                         trace!("Failed to submit TX {}: {}", tx_hash, hex::encode(tx.to_cbor_bytes()));
                         match err {
-                            localtxsubmission::Error::TxRejected(RejectReason(rejected_bytes)) => {
-                                trace!("TX {} was rejected due to error: {}", tx_hash, hex::encode(&rejected_bytes));
-                                on_resp.send(SubmissionResult::TxRejected{rejected_bytes}).expect("Responder was dropped");
-                            },
-                            localtxsubmission::Error::InboundChannelError(multiplexer::Error::Decoding(_)) => {
+                            localtxsubmission::Error::ChannelError(multiplexer::Error::Decoding(_)) => {
                                 warn!("TX {} was likely rejected, reason unknown. Trying to recover.", tx_hash);
                                 agent.recover();
                                 on_resp.send(SubmissionResult::TxRejected{rejected_bytes: vec![]}).expect("Responder was dropped");

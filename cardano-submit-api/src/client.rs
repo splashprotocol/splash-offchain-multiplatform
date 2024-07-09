@@ -5,9 +5,9 @@ use std::path::Path;
 use cml_chain::crypto::hash::hash_transaction;
 use cml_core::serialization::Serialize;
 use cml_crypto::blake2b256;
-use log::trace;
+use log::{trace, warn};
 use pallas_network::miniprotocols::handshake::RefuseReason;
-use pallas_network::miniprotocols::localtxsubmission::{EraTx, RejectReason};
+use pallas_network::miniprotocols::localtxsubmission::{EraTx, RejectReason, Response};
 use pallas_network::miniprotocols::{
     handshake, localtxsubmission, PROTOCOL_N2C_HANDSHAKE, PROTOCOL_N2C_TX_SUBMISSION,
 };
@@ -53,7 +53,7 @@ impl<const ERA: u16, Tx> LocalTxSubmissionClient<ERA, Tx> {
         })
     }
 
-    pub async fn submit_tx(&mut self, tx: Tx) -> Result<(), Error>
+    pub async fn submit_tx(&mut self, tx: Tx) -> Result<Response<RejectReason>, Error>
     where
         Tx: Serialize,
     {
@@ -74,7 +74,7 @@ impl<const ERA: u16, Tx> LocalTxSubmissionClient<ERA, Tx> {
     }
 
     pub fn unsafe_reset(&mut self) {
-        self.tx_submission.unsafe_reset();
+        warn!("Unsafe client reset was requested, but it is no longer supported!");
     }
 }
 
@@ -87,7 +87,7 @@ pub enum Error {
     HandshakeProtocol(handshake::Error),
 
     #[error("chain-sync protocol error")]
-    TxSubmissionProtocol(#[source] localtxsubmission::Error<RejectReason>),
+    TxSubmissionProtocol(#[source] localtxsubmission::Error),
 
     #[error("handshake version not accepted")]
     HandshakeRefused(RefuseReason),
