@@ -252,25 +252,27 @@ where
             let pd = repr.datum().clone()?.into_pd()?;
             let conf = StablePoolT2TConfig::try_from_pd(pd.clone())?;
             let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
-            return Some(StablePoolT2T {
-                id: PoolId::try_from(conf.pool_nft).ok()?,
-                an2n: conf.an2n,
-                reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
-                multiplier_x: conf.multiplier_x,
-                reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
-                multiplier_y: conf.multiplier_y,
-                liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
-                asset_x: conf.asset_x,
-                asset_y: conf.asset_y,
-                asset_lq: conf.asset_lq,
-                lp_fee_x: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
-                lp_fee_y: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
-                treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
-                treasury_x: TaggedAmount::new(conf.treasury_x),
-                treasury_y: TaggedAmount::new(conf.treasury_y),
-                ver: pool_ver,
-                marginal_cost: ctx.get().marginal_cost,
-            });
+            if conf.asset_x.is_native() || conf.asset_y.is_native() {
+                return Some(StablePoolT2T {
+                    id: PoolId::try_from(conf.pool_nft).ok()?,
+                    an2n: conf.an2n,
+                    reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
+                    multiplier_x: conf.multiplier_x,
+                    reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
+                    multiplier_y: conf.multiplier_y,
+                    liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
+                    asset_x: conf.asset_x,
+                    asset_y: conf.asset_y,
+                    asset_lq: conf.asset_lq,
+                    lp_fee_x: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
+                    lp_fee_y: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
+                    treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
+                    treasury_x: TaggedAmount::new(conf.treasury_x),
+                    treasury_y: TaggedAmount::new(conf.treasury_y),
+                    ver: pool_ver,
+                    marginal_cost: ctx.get().marginal_cost,
+                });
+            }
         }
         None
     }
