@@ -7,10 +7,11 @@ use spectrum_offchain_cardano::data::deposit::DepositOrderBounds;
 use spectrum_offchain_cardano::data::pool::PoolBounds;
 use spectrum_offchain_cardano::data::redeem::RedeemOrderBounds;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
-    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnFeeSwitchPoolDeposit,
-    ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
-    ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
-    LimitOrderV1, LimitOrderWitnessV1, StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
+    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2,
+    ConstFnFeeSwitchPoolDeposit, ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit,
+    ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolRedeem,
+    ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2, LimitOrderV1, LimitOrderWitnessV1, StableFnPoolT2T,
+    StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHashes};
 use spectrum_offchain_cardano::utxo::ConsumedInputs;
@@ -88,6 +89,14 @@ impl Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>> for HandlerContext 
     }
 }
 
+impl Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>> for HandlerContext {
+    fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }> {
+        self.scripts.const_fn_pool_fee_switch_v2.clone()
+    }
+}
+
 impl Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>> for HandlerContext {
     fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>>(
         &self,
@@ -149,6 +158,14 @@ impl Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>> for HandlerContext {
         &self,
     ) -> DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }> {
         self.scripts.balance_fn_pool_v1.clone()
+    }
+}
+
+impl Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>> for HandlerContext {
+    fn select<U: IsEqual<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }> {
+        self.scripts.balance_fn_pool_v2.clone()
     }
 }
 

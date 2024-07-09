@@ -45,7 +45,7 @@ use crate::data::pool::{
 };
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
-use crate::deployment::ProtocolValidator::BalanceFnPoolV1;
+use crate::deployment::ProtocolValidator::{BalanceFnPoolV1, BalanceFnPoolV2};
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::pool_math::balance_math::balance_cfmm_output_amount;
 use crate::pool_math::cfmm_math::{classic_cfmm_reward_lp, classic_cfmm_shares_amount};
@@ -81,12 +81,14 @@ impl TryFromPData for BalancePoolConfig {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum BalancePoolVer {
     V1,
+    V2,
 }
 
 impl BalancePoolVer {
     pub fn try_from_address<Ctx>(pool_addr: &Address, ctx: &Ctx) -> Option<BalancePoolVer>
     where
         Ctx: Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>,
+        Ctx: Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>,
     {
         let maybe_hash = pool_addr.payment_cred().and_then(|c| match c {
             StakeCredential::PubKey { .. } => None,
@@ -99,6 +101,12 @@ impl BalancePoolVer {
                 == *this_hash
             {
                 return Some(BalancePoolVer::V1);
+            } else if ctx
+                .select::<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>()
+                .script_hash
+                == *this_hash
+            {
+                return Some(BalancePoolVer::V2);
             }
         };
         None
@@ -219,7 +227,9 @@ impl BalancePool {
 
 impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for BalancePool
 where
-    Ctx: Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>> + Has<PoolBounds>,
+    Ctx: Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>
+        + Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>
+        + Has<PoolBounds>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         if let Some(pool_ver) = BalancePoolVer::try_from_address(repr.address(), ctx) {
@@ -312,12 +322,15 @@ impl Stable for BalancePool {
 
 impl<Ctx> RequiresValidator<Ctx> for BalancePool
 where
-    Ctx: Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>,
+    Ctx: Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>> + Has<DeployedValidator<{ BalanceFnPoolV2 as u8 }>>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self.ver {
-            _ => ctx
+             BalancePoolVer::V1 => ctx
                 .select::<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>()
+                .erased(),
+            BalancePoolVer::V2 => ctx
+                .select::<DeployedValidator<{ BalanceFnPoolV2 as u8 }>>()
                 .erased(),
         }
     }

@@ -3,21 +3,21 @@
   "chainSync": {
     "startingPoint": {
       "Specific": [
-        63659627,
-        "198f745d714f9794174d9db6f49275e5c418437251136aa0d8b8e9aab4cf26b0"
+        64919047,
+        "1baae92d01e355d0cdb1908dbdecdd0c73be76a6f460c460ad6772bb9cce1bde"
       ]
     },
     "replayFromPoint": {
       "Specific": [
-        63659627,
-        "198f745d714f9794174d9db6f49275e5c418437251136aa0d8b8e9aab4cf26b0"
+        64919047,
+        "1baae92d01e355d0cdb1908dbdecdd0c73be76a6f460c460ad6772bb9cce1bde"
       ]
     },
-    "disableRollbacksUntil": 63659627,
+    "disableRollbacksUntil": 64919047,
     "dbPath": "state"
   },
   "node": {
-    "path": "/Users/oskin/node-external/node.socket",
+    "path": "/root/cardano-vasil-docker/ipc/node.socket",
     "magic": 1
   },
   "txSubmissionBufferSize": 64,
@@ -27,8 +27,8 @@
     "secs": 120,
     "nanos": 0
   },
-  "operatorKey": "xprv1aqa4sdkzr0lz6uk9kzexh0stds2a98zsqx2df5gmugy9jrk2gpq450zjk46jl5sec69wja0x07wlslymcasz8l2z7mg5e3t5ljgs0y373ugch5mvydccjehz0uszzt8mds75c9trzpmrz6zvr068vkl7sy23ytcs",
-  "operatorRewardAddress": "addr_test1vqheluzd3y2t7exkwxsr6d9t0ym7kstcx84xh8mlhj4edag0f3unf",
+  "operatorKey": "",
+  "operatorRewardAddress": "",
   "maestroKeyPath": "bloom-cardano-agent/resources/preprod.maestro.key",
   "executionCap": {
     "soft": {

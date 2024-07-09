@@ -100,6 +100,7 @@ pub struct DeployedValidators {
     pub const_fn_pool_v1: DeployedValidatorRef,
     pub const_fn_pool_v2: DeployedValidatorRef,
     pub const_fn_pool_fee_switch: DeployedValidatorRef,
+    pub const_fn_pool_fee_switch_v2: DeployedValidatorRef,
     pub const_fn_pool_fee_switch_bidir_fee: DeployedValidatorRef,
     pub const_fn_pool_swap: DeployedValidatorRef,
     pub const_fn_pool_deposit: DeployedValidatorRef,
@@ -108,6 +109,7 @@ pub struct DeployedValidators {
     pub const_fn_fee_switch_pool_deposit: DeployedValidatorRef,
     pub const_fn_fee_switch_pool_redeem: DeployedValidatorRef,
     pub balance_fn_pool_v1: DeployedValidatorRef,
+    pub balance_fn_pool_v2: DeployedValidatorRef,
     pub balance_fn_pool_deposit: DeployedValidatorRef,
     pub balance_fn_pool_redeem: DeployedValidatorRef,
     pub stable_fn_pool_t2t: DeployedValidatorRef,
@@ -123,6 +125,7 @@ impl From<&DeployedValidators> for ProtocolScriptHashes {
             const_fn_pool_v1: From::from(&deployment.const_fn_pool_v1),
             const_fn_pool_v2: From::from(&deployment.const_fn_pool_v2),
             const_fn_pool_fee_switch: From::from(&deployment.const_fn_pool_fee_switch),
+            const_fn_pool_fee_switch_v2: From::from(&deployment.const_fn_pool_fee_switch_v2),
             const_fn_pool_fee_switch_bidir_fee: From::from(&deployment.const_fn_pool_fee_switch_bidir_fee),
             const_fn_pool_swap: From::from(&deployment.const_fn_pool_swap),
             const_fn_pool_deposit: From::from(&deployment.const_fn_pool_deposit),
@@ -131,6 +134,7 @@ impl From<&DeployedValidators> for ProtocolScriptHashes {
             const_fn_fee_switch_pool_deposit: From::from(&deployment.const_fn_fee_switch_pool_deposit),
             const_fn_fee_switch_pool_redeem: From::from(&deployment.const_fn_fee_switch_pool_redeem),
             balance_fn_pool_v1: From::from(&deployment.balance_fn_pool_v1),
+            balance_fn_pool_v2: From::from(&deployment.balance_fn_pool_v2),
             balance_fn_pool_deposit: From::from(&deployment.balance_fn_pool_deposit),
             balance_fn_pool_redeem: From::from(&deployment.balance_fn_pool_redeem),
             stable_fn_pool_t2t: From::from(&deployment.stable_fn_pool_t2t),
@@ -258,6 +262,7 @@ pub enum ProtocolValidator {
     ConstFnPoolV1,
     ConstFnPoolV2,
     ConstFnPoolFeeSwitch,
+    ConstFnPoolFeeSwitchV2,
     ConstFnPoolFeeSwitchBiDirFee,
     ConstFnPoolSwap,
     ConstFnPoolDeposit,
@@ -266,6 +271,7 @@ pub enum ProtocolValidator {
     ConstFnFeeSwitchPoolDeposit,
     ConstFnFeeSwitchPoolRedeem,
     BalanceFnPoolV1,
+    BalanceFnPoolV2,
     BalanceFnPoolSwap,
     BalanceFnPoolDeposit,
     BalanceFnPoolRedeem,
@@ -281,6 +287,8 @@ pub struct ProtocolScriptHashes {
     pub const_fn_pool_v1: DeployedScriptInfo<{ ProtocolValidator::ConstFnPoolV1 as u8 }>,
     pub const_fn_pool_v2: DeployedScriptInfo<{ ProtocolValidator::ConstFnPoolV2 as u8 }>,
     pub const_fn_pool_fee_switch: DeployedScriptInfo<{ ProtocolValidator::ConstFnPoolFeeSwitch as u8 }>,
+    pub const_fn_pool_fee_switch_v2:
+        DeployedScriptInfo<{ ProtocolValidator::ConstFnPoolFeeSwitchV2 as u8 }>,
     pub const_fn_pool_fee_switch_bidir_fee:
         DeployedScriptInfo<{ ProtocolValidator::ConstFnPoolFeeSwitchBiDirFee as u8 }>,
     pub const_fn_pool_swap: DeployedScriptInfo<{ ProtocolValidator::ConstFnPoolSwap as u8 }>,
@@ -293,6 +301,7 @@ pub struct ProtocolScriptHashes {
     pub const_fn_fee_switch_pool_redeem:
         DeployedScriptInfo<{ ProtocolValidator::ConstFnFeeSwitchPoolRedeem as u8 }>,
     pub balance_fn_pool_v1: DeployedScriptInfo<{ ProtocolValidator::BalanceFnPoolV1 as u8 }>,
+    pub balance_fn_pool_v2: DeployedScriptInfo<{ ProtocolValidator::BalanceFnPoolV2 as u8 }>,
     pub balance_fn_pool_deposit: DeployedScriptInfo<{ ProtocolValidator::BalanceFnPoolDeposit as u8 }>,
     pub balance_fn_pool_redeem: DeployedScriptInfo<{ ProtocolValidator::BalanceFnPoolRedeem as u8 }>,
     pub stable_fn_pool_t2t: DeployedScriptInfo<{ ProtocolValidator::StableFnPoolT2T as u8 }>,
@@ -308,6 +317,7 @@ impl From<&ProtocolDeployment> for ProtocolScriptHashes {
             const_fn_pool_v1: From::from(&deployment.const_fn_pool_v1),
             const_fn_pool_v2: From::from(&deployment.const_fn_pool_v2),
             const_fn_pool_fee_switch: From::from(&deployment.const_fn_pool_fee_switch),
+            const_fn_pool_fee_switch_v2: From::from(&deployment.const_fn_pool_fee_switch_v2),
             const_fn_pool_fee_switch_bidir_fee: From::from(&deployment.const_fn_pool_fee_switch_bidir_fee),
             const_fn_pool_swap: From::from(&deployment.const_fn_pool_swap),
             const_fn_pool_deposit: From::from(&deployment.const_fn_pool_deposit),
@@ -316,6 +326,7 @@ impl From<&ProtocolDeployment> for ProtocolScriptHashes {
             const_fn_fee_switch_pool_deposit: From::from(&deployment.const_fn_fee_switch_pool_deposit),
             const_fn_fee_switch_pool_redeem: From::from(&deployment.const_fn_fee_switch_pool_redeem),
             balance_fn_pool_v1: From::from(&deployment.balance_fn_pool_v1),
+            balance_fn_pool_v2: From::from(&deployment.balance_fn_pool_v2),
             balance_fn_pool_deposit: From::from(&deployment.balance_fn_pool_deposit),
             balance_fn_pool_redeem: From::from(&deployment.balance_fn_pool_redeem),
             stable_fn_pool_t2t: From::from(&deployment.stable_fn_pool_t2t),
@@ -332,6 +343,7 @@ pub struct ProtocolDeployment {
     pub const_fn_pool_v1: DeployedValidator<{ ProtocolValidator::ConstFnPoolV1 as u8 }>,
     pub const_fn_pool_v2: DeployedValidator<{ ProtocolValidator::ConstFnPoolV2 as u8 }>,
     pub const_fn_pool_fee_switch: DeployedValidator<{ ProtocolValidator::ConstFnPoolFeeSwitch as u8 }>,
+    pub const_fn_pool_fee_switch_v2: DeployedValidator<{ ProtocolValidator::ConstFnPoolFeeSwitchV2 as u8 }>,
     pub const_fn_pool_fee_switch_bidir_fee:
         DeployedValidator<{ ProtocolValidator::ConstFnPoolFeeSwitchBiDirFee as u8 }>,
     pub const_fn_pool_swap: DeployedValidator<{ ProtocolValidator::ConstFnPoolSwap as u8 }>,
@@ -344,6 +356,7 @@ pub struct ProtocolDeployment {
     pub const_fn_fee_switch_pool_redeem:
         DeployedValidator<{ ProtocolValidator::ConstFnFeeSwitchPoolRedeem as u8 }>,
     pub balance_fn_pool_v1: DeployedValidator<{ ProtocolValidator::BalanceFnPoolV1 as u8 }>,
+    pub balance_fn_pool_v2: DeployedValidator<{ ProtocolValidator::BalanceFnPoolV2 as u8 }>,
     pub balance_fn_pool_deposit: DeployedValidator<{ ProtocolValidator::BalanceFnPoolDeposit as u8 }>,
     pub balance_fn_pool_redeem: DeployedValidator<{ ProtocolValidator::BalanceFnPoolRedeem as u8 }>,
     pub stable_fn_pool_t2t: DeployedValidator<{ ProtocolValidator::StableFnPoolT2T as u8 }>,
@@ -361,6 +374,11 @@ impl ProtocolDeployment {
             const_fn_pool_v2: DeployedValidator::unsafe_pull(validators.const_fn_pool_v2, explorer).await,
             const_fn_pool_fee_switch: DeployedValidator::unsafe_pull(
                 validators.const_fn_pool_fee_switch,
+                explorer,
+            )
+            .await,
+            const_fn_pool_fee_switch_v2: DeployedValidator::unsafe_pull(
+                validators.const_fn_pool_fee_switch_v2,
                 explorer,
             )
             .await,
@@ -390,6 +408,11 @@ impl ProtocolDeployment {
             )
             .await,
             balance_fn_pool_v1: DeployedValidator::unsafe_pull(validators.balance_fn_pool_v1, explorer).await,
+            balance_fn_pool_v2: DeployedValidator::unsafe_pull(
+                validators.balance_fn_pool_v2,
+                explorer,
+            )
+            .await,
             balance_fn_pool_deposit: DeployedValidator::unsafe_pull(
                 validators.balance_fn_pool_deposit,
                 explorer,
