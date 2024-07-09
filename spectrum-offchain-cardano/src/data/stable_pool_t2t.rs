@@ -26,6 +26,7 @@ use spectrum_cardano_lib::plutus_data::{IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
+use spectrum_cardano_lib::AssetClass::Native;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
@@ -38,7 +39,7 @@ use crate::data::operation_output::{DepositOutput, RedeemOutput};
 use crate::data::order::{Base, PoolNft, Quote};
 use crate::data::pair::order_canonical;
 use crate::data::pool::{
-    ApplyOrder, ApplyOrderError, CFMMPoolAction, ImmutablePoolUtxo, Lq, PoolAssetMapping, Rx, Ry,
+    ApplyOrder, ApplyOrderError, CFMMPoolAction, ImmutablePoolUtxo, Lq, PoolAssetMapping, PoolBounds, Rx, Ry,
 };
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
@@ -202,23 +203,6 @@ impl StablePoolT2T {
         prev_state: StablePoolT2T,
         new_state: StablePoolT2T,
     ) -> PlutusData {
-        /*
-          Original structure of pool redeemer
-
-            pub type PoolAction {
-              AMMAction { context_values_list: List<Int> }
-              // "context_values_list" for swap actions contains:
-              // - 0: Value of the StableSwap invariant for the output state;
-              PDAOAction
-            }
-
-            pub type PoolRedeemer {
-                pool_in_ix: Int,
-                pool_out_ix: Int,
-                action: PoolAction,
-            }
-        */
-
         let self_ix_pd = PlutusData::Integer(BigInteger::from(pool_in_idx));
         let self_out_pd = PlutusData::Integer(BigInteger::from(pool_out_idx));
 
@@ -248,7 +232,7 @@ impl StablePoolT2T {
 
 impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for StablePoolT2T
 where
-    Ctx: Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>,
+    Ctx: Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>> + Has<PoolBounds>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         if let Some(pool_ver) = StablePoolT2TVer::try_from_address(repr.address(), ctx) {
@@ -256,25 +240,31 @@ where
             let pd = repr.datum().clone()?.into_pd()?;
             let conf = StablePoolT2TConfig::try_from_pd(pd.clone())?;
             let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
-            return Some(StablePoolT2T {
-                id: PoolId::try_from(conf.pool_nft).ok()?,
-                an2n: conf.an2n,
-                reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
-                multiplier_x: conf.multiplier_x,
-                reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
-                multiplier_y: conf.multiplier_y,
-                liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
-                asset_x: conf.asset_x,
-                asset_y: conf.asset_y,
-                asset_lq: conf.asset_lq,
-                lp_fee_x: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
-                lp_fee_y: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
-                treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
-                treasury_x: TaggedAmount::new(conf.treasury_x),
-                treasury_y: TaggedAmount::new(conf.treasury_y),
-                ver: pool_ver,
-                marginal_cost: ctx.get().marginal_cost,
-            });
+            let bounds = ctx.select::<PoolBounds>();
+            let lov = value.amount_of(Native)?;
+            if conf.asset_x.is_native() || conf.asset_y.is_native() || bounds.min_t2t_lovelace <= lov {
+                return Some(StablePoolT2T {
+                    id: PoolId::try_from(conf.pool_nft).ok()?,
+                    an2n: conf.an2n,
+                    reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
+                    multiplier_x: conf.multiplier_x,
+                    reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
+                    multiplier_y: conf.multiplier_y,
+                    liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
+                    asset_x: conf.asset_x,
+                    asset_y: conf.asset_y,
+                    asset_lq: conf.asset_lq,
+                    lp_fee_x: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
+                    lp_fee_y: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
+                    treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
+                    treasury_x: TaggedAmount::new(conf.treasury_x),
+                    treasury_y: TaggedAmount::new(conf.treasury_y),
+                    ver: pool_ver,
+                    marginal_cost: ctx
+                        .select::<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>()
+                        .marginal_cost,
+                });
+            }
         }
         None
     }

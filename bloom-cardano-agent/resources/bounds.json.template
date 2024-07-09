@@ -9,6 +9,7 @@
     "minCollateralAda": 1500000
   },
   "pool": {
-    "minLovelace": 1000000000
+    "minN2tLovelace": 100000000,
+    "minT2tLovelace": 10000000,
   }
 }

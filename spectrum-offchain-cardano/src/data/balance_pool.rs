@@ -29,6 +29,7 @@ use spectrum_cardano_lib::plutus_data::{IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
+use spectrum_cardano_lib::AssetClass::Native;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
@@ -227,27 +228,30 @@ where
             let conf = BalancePoolConfig::try_from_pd(pd.clone())?;
             let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
             let bounds = ctx.select::<PoolBounds>();
-            return Some(BalancePool {
-                id: PoolId::try_from(conf.pool_nft).ok()?,
-                reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
-                weight_x: ADA_WEIGHT,
-                reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
-                weight_y: TOKEN_WEIGHT,
-                liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
-                asset_x: conf.asset_x,
-                asset_y: conf.asset_y,
-                asset_lq: conf.asset_lq,
-                lp_fee_x: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
-                lp_fee_y: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
-                treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
-                treasury_x: TaggedAmount::new(conf.treasury_x),
-                treasury_y: TaggedAmount::new(conf.treasury_y),
-                ver: pool_ver,
-                marginal_cost: ctx
-                    .select::<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>()
-                    .marginal_cost,
-                min_pool_lovelace: bounds.min_lovelace,
-            });
+            let lov = value.amount_of(Native)?;
+            if conf.asset_x.is_native() || conf.asset_y.is_native() || bounds.min_t2t_lovelace <= lov {
+                return Some(BalancePool {
+                    id: PoolId::try_from(conf.pool_nft).ok()?,
+                    reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
+                    weight_x: ADA_WEIGHT,
+                    reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
+                    weight_y: TOKEN_WEIGHT,
+                    liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
+                    asset_x: conf.asset_x,
+                    asset_y: conf.asset_y,
+                    asset_lq: conf.asset_lq,
+                    lp_fee_x: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
+                    lp_fee_y: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
+                    treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
+                    treasury_x: TaggedAmount::new(conf.treasury_x),
+                    treasury_y: TaggedAmount::new(conf.treasury_y),
+                    ver: pool_ver,
+                    marginal_cost: ctx
+                        .select::<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>()
+                        .marginal_cost,
+                    min_pool_lovelace: bounds.min_n2t_lovelace,
+                });
+            }
         }
         None
     }

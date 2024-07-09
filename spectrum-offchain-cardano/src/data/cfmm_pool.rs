@@ -30,6 +30,7 @@ use spectrum_cardano_lib::plutus_data::{
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
+use spectrum_cardano_lib::AssetClass::Native;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
@@ -153,7 +154,7 @@ pub struct ConstFnPool {
     pub lq_lower_bound: TaggedAmount<Rx>,
     pub ver: ConstFnPoolVer,
     pub marginal_cost: ExUnits,
-    pub min_pool_lovelace: u64,
+    pub bounds: PoolBounds,
 }
 
 impl ConstFnPool {
@@ -374,9 +375,9 @@ impl MarketMaker for ConstFnPool {
     fn is_active(&self) -> bool {
         let lq_bound = (self.reserves_x.untag() * 2) >= self.lq_lower_bound.untag();
         let native_bound = if self.asset_x.is_native() {
-            self.reserves_x.untag() >= self.min_pool_lovelace
+            self.reserves_x.untag() >= self.bounds.min_n2t_lovelace
         } else if self.asset_y.is_native() {
-            self.reserves_y.untag() >= self.min_pool_lovelace
+            self.reserves_y.untag() >= self.bounds.min_n2t_lovelace
         } else {
             true
         };
@@ -448,11 +449,11 @@ where
                         .marginal_cost
                 }
             };
-            return match pool_ver {
+            match pool_ver {
                 ConstFnPoolVer::V1 | ConstFnPoolVer::V2 => {
                     let conf = LegacyCFMMPoolConfig::try_from_pd(pd.clone())?;
                     let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
-                    Some(ConstFnPool {
+                    return Some(ConstFnPool {
                         id: PoolId::try_from(conf.pool_nft).ok()?,
                         reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
                         reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
@@ -470,54 +471,62 @@ where
                         lq_lower_bound: conf.lq_lower_bound,
                         ver: pool_ver,
                         marginal_cost,
-                        min_pool_lovelace: bounds.min_lovelace,
-                    })
+                        bounds,
+                    });
                 }
                 ConstFnPoolVer::FeeSwitch => {
                     let conf = FeeSwitchPoolConfig::try_from_pd(pd.clone())?;
                     let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
-                    Some(ConstFnPool {
-                        id: PoolId::try_from(conf.pool_nft).ok()?,
-                        reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
-                        reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
-                        liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
-                        asset_x: conf.asset_x,
-                        asset_y: conf.asset_y,
-                        asset_lq: conf.asset_lq,
-                        lp_fee_x: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
-                        lp_fee_y: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
-                        treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
-                        treasury_x: TaggedAmount::new(conf.treasury_x),
-                        treasury_y: TaggedAmount::new(conf.treasury_y),
-                        lq_lower_bound: conf.lq_lower_bound,
-                        ver: pool_ver,
-                        marginal_cost,
-                        min_pool_lovelace: bounds.min_lovelace,
-                    })
+                    let lov = value.amount_of(Native)?;
+                    if conf.asset_x.is_native() || conf.asset_y.is_native() || bounds.min_t2t_lovelace <= lov
+                    {
+                        return Some(ConstFnPool {
+                            id: PoolId::try_from(conf.pool_nft).ok()?,
+                            reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
+                            reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
+                            liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
+                            asset_x: conf.asset_x,
+                            asset_y: conf.asset_y,
+                            asset_lq: conf.asset_lq,
+                            lp_fee_x: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
+                            lp_fee_y: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
+                            treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
+                            treasury_x: TaggedAmount::new(conf.treasury_x),
+                            treasury_y: TaggedAmount::new(conf.treasury_y),
+                            lq_lower_bound: conf.lq_lower_bound,
+                            ver: pool_ver,
+                            marginal_cost,
+                            bounds,
+                        });
+                    }
                 }
                 ConstFnPoolVer::FeeSwitchBiDirFee => {
                     let conf = FeeSwitchBidirectionalPoolConfig::try_from_pd(pd.clone())?;
                     let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
-                    Some(ConstFnPool {
-                        id: PoolId::try_from(conf.pool_nft).ok()?,
-                        reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?)
-                            - TaggedAmount::new(conf.treasury_x),
-                        reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?)
-                            - TaggedAmount::new(conf.treasury_y),
-                        liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
-                        asset_x: conf.asset_x,
-                        asset_y: conf.asset_y,
-                        asset_lq: conf.asset_lq,
-                        lp_fee_x: Ratio::new_raw(conf.lp_fee_num_x, FEE_DEN),
-                        lp_fee_y: Ratio::new_raw(conf.lp_fee_num_y, FEE_DEN),
-                        treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
-                        treasury_x: TaggedAmount::new(conf.treasury_x),
-                        treasury_y: TaggedAmount::new(conf.treasury_y),
-                        lq_lower_bound: conf.lq_lower_bound,
-                        ver: pool_ver,
-                        marginal_cost,
-                        min_pool_lovelace: bounds.min_lovelace,
-                    })
+                    let lov = value.amount_of(Native)?;
+                    if conf.asset_x.is_native() || conf.asset_y.is_native() || bounds.min_t2t_lovelace <= lov
+                    {
+                        return Some(ConstFnPool {
+                            id: PoolId::try_from(conf.pool_nft).ok()?,
+                            reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?)
+                                - TaggedAmount::new(conf.treasury_x),
+                            reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?)
+                                - TaggedAmount::new(conf.treasury_y),
+                            liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
+                            asset_x: conf.asset_x,
+                            asset_y: conf.asset_y,
+                            asset_lq: conf.asset_lq,
+                            lp_fee_x: Ratio::new_raw(conf.lp_fee_num_x, FEE_DEN),
+                            lp_fee_y: Ratio::new_raw(conf.lp_fee_num_y, FEE_DEN),
+                            treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
+                            treasury_x: TaggedAmount::new(conf.treasury_x),
+                            treasury_y: TaggedAmount::new(conf.treasury_y),
+                            lq_lower_bound: conf.lq_lower_bound,
+                            ver: pool_ver,
+                            marginal_cost,
+                            bounds,
+                        });
+                    }
                 }
             };
         };
@@ -743,6 +752,7 @@ mod tests {
     use num_rational::Ratio;
 
     use crate::data::cfmm_pool::{ConstFnPool, ConstFnPoolVer};
+    use crate::data::pool::PoolBounds;
     use crate::data::PoolId;
     use bloom_offchain::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker};
     use bloom_offchain::execution_engine::liquidity_book::side::Side::{Ask, Bid};
@@ -812,7 +822,10 @@ mod tests {
             lq_lower_bound: TaggedAmount::new(0),
             ver: ConstFnPoolVer::FeeSwitch,
             marginal_cost: ExUnits { mem: 100, steps: 100 },
-            min_pool_lovelace: 10000000,
+            bounds: PoolBounds {
+                min_n2t_lovelace: 10000000,
+                min_t2t_lovelace: 10000000,
+            },
         };
     }
 

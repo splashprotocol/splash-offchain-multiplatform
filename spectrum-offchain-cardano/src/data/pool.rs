@@ -209,10 +209,11 @@ impl CFMMPoolAction {
     }
 }
 
-#[derive(Copy, Clone, Debug, serde::Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PoolBounds {
-    pub min_lovelace: u64,
+    pub min_n2t_lovelace: u64,
+    pub min_t2t_lovelace: u64,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
