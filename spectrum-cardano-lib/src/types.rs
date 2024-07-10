@@ -27,7 +27,7 @@ impl TryFromPData for Ratio<u128> {
         let mut cpd = data.into_constr_pd()?;
         let denom = cpd.take_field(1)?.into_u128()?;
         if denom != 0 {
-            Some(Ratio::new(cpd.take_field(0)?.into_u128()?, denom))
+            Some(Ratio::new_raw(cpd.take_field(0)?.into_u128()?, denom))
         } else {
             None
         }

@@ -460,7 +460,7 @@ mod tests {
     }
 
     #[test]
-    fn fill_fragment_from_fragment() {
+    fn match_taker_with_taker() {
         // Assuming pair ADA/USDT @ 0.37
         let fr1 = SimpleOrderPF {
             source: StableId::random(),
@@ -495,7 +495,7 @@ mod tests {
     }
 
     #[test]
-    fn fill_fragment_from_fragment_partial() {
+    fn match_taker_with_taker_partial() {
         // Assuming pair ADA/USDT @ 0.37
         let p = AbsolutePrice::new_unsafe(37, 100);
         let fr1 = SimpleOrderPF {

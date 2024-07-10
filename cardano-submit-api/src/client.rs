@@ -1,8 +1,6 @@
-use std::io::Read;
 use std::marker::PhantomData;
 use std::path::Path;
 
-use cml_chain::crypto::hash::hash_transaction;
 use cml_core::serialization::Serialize;
 use cml_crypto::blake2b256;
 use log::{trace, warn};
