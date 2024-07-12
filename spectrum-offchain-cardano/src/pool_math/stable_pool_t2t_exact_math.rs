@@ -266,7 +266,7 @@ pub fn calculate_invariant(x_calc: &U512, y_calc: &U512, an2n: &U512) -> U512 {
             .copied()
             .reduce(|a, b| a * b)
             .unwrap();
-        let d_p = dn1 / nn / p;
+        let d_p = dn1 / (nn * p);
         d = (ann * s + n_calc * d_p) * d_previous / ((ann - unit) * d_previous + (n_calc + unit) * d_p);
         abs_err = if d > d_previous {
             d - d_previous
