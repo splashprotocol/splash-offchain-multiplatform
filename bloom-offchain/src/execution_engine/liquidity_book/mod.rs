@@ -296,7 +296,7 @@ where
 impl<Fr, Pl, U> ExternalTLBEvents<Fr, Pl> for TLB<Fr, Pl, U>
 where
     Fr: MarketTaker + TakerBehaviour + Ord + Copy + Display,
-    Pl: MarketMaker + Stable + Copy + Display,
+    Pl: MarketMaker + Stable + Copy + Display + Debug,
 {
     fn advance_clocks(&mut self, new_time: u64) {
         requiring_settled_state(self, |st| st.advance_clocks(new_time))

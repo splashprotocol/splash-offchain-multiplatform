@@ -419,8 +419,6 @@ impl MakerBehavior for StablePoolT2T {
         let lp_fees = pure_output * lp_fee.numer() / lp_fee.denom() + 1;
 
         let mut treasury_fee_ = (pure_output * self.treasury_fee.numer()) / self.treasury_fee.denom();
-        let mut total_fees_real = treasury_fee_ + lp_fees;
-        let total_fees_ideal = pure_output * (self.treasury_fee.numer() + lp_fee.numer()) / lp_fee.denom();
         let f_rev = lp_fee.denom() - self.treasury_fee.numer() - lp_fee.numer();
         let mut quote_total_delta = pure_output - lp_fees - treasury_fee_ - 1;
         let mut valid_treasury_fee = treasury_fee_ * f_rev >= quote_total_delta * self.treasury_fee.numer();

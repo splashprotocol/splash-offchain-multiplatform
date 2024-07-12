@@ -256,11 +256,10 @@ pub fn calculate_invariant(x_calc: &U512, y_calc: &U512, an2n: &U512) -> U512 {
     let s = x_calc + y_calc;
     let p = x_calc * y_calc;
 
-    let mut d_previous = U512::zero();
-    let mut d = s.clone();
+    let mut d = s;
     let mut abs_err = unit;
     while abs_err >= unit {
-        d_previous = d;
+        let d_previous = d;
         let dn1 = vec![d_previous; usize::try_from(N_TRADABLE_ASSETS + 1).unwrap()]
             .iter()
             .copied()

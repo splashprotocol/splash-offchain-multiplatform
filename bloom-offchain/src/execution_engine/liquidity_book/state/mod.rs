@@ -40,7 +40,7 @@ impl<T, M: Stable> IdleState<T, M> {
 impl<T, M> IdleState<T, M>
 where
     T: MarketTaker + TakerBehaviour + Ord + Copy + Display,
-    M: MarketMaker + Stable + Copy + Display,
+    M: MarketMaker + Stable + Copy + Display + Debug,
 {
     pub fn advance_clocks(&mut self, new_time: u64) {
         self.takers.advance_clocks(new_time)
@@ -57,6 +57,7 @@ where
     }
 
     pub fn update_pool(&mut self, maker: M) {
+        trace!("Updating {:?} in active frontier", maker);
         trace!("Updating {} in active frontier", maker);
         self.makers.update_pool(maker);
     }
