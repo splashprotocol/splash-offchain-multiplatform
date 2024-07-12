@@ -9,6 +9,7 @@ use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_multi_era::babbage::BabbageTransactionOutput;
+use log::info;
 use num_integer::Roots;
 use num_rational::Ratio;
 use num_traits::{CheckedAdd, CheckedSub, Pow, ToPrimitive};
@@ -530,6 +531,9 @@ impl Pool for StablePoolT2T {
     }
 
     fn quality(&self) -> PoolQuality {
+
+        info!("PoolInfo: {:?}", self);
+
         let invariant = calculate_invariant(
             &U512::from((self.reserves_x - self.treasury_x).untag() * self.multiplier_x as u64),
             &U512::from((self.reserves_y - self.treasury_y).untag() * self.multiplier_y as u64),
