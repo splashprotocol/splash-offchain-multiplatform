@@ -274,15 +274,15 @@ pub fn calculate_invariant(x_calc: &U512, y_calc: &U512, an2n: &U512) -> U512 {
         // println!("p: {}", p);
         // println!("nn / p: {}", nn / p);
         let d_p = dn1 / (nn * p) ;
-        // info!("(ann): {}", (ann));
-        // info!("(unit): {}", (unit));
-        // info!("(ann - unit): {}", (ann - unit));
-        // info!("d_previous: {}", d_previous);
-        // info!("n_calc: {}", (n_calc ));
-        // info!("unit: {}", (unit));
-        // info!("n_calc + unit: {}", (n_calc + unit));
-        // info!("d_p: {}", d_p);
-        // info!("((ann - unit) * d_previous + (n_calc + unit) * d_p): {}", ((ann - unit) * d_previous + (n_calc + unit) * d_p));
+        info!("(ann): {}", (ann));
+        info!("(unit): {}", (unit));
+        info!("(ann - unit): {}", (ann - unit));
+        info!("d_previous: {}", d_previous);
+        info!("n_calc: {}", (n_calc ));
+        info!("unit: {}", (unit));
+        info!("n_calc + unit: {}", (n_calc + unit));
+        info!("d_p: {}", d_p);
+        info!("((ann - unit) * d_previous + (n_calc + unit) * d_p): {}", ((ann - unit) * d_previous + (n_calc + unit) * d_p));
         d = (ann * s + n_calc * d_p) * d_previous / ((ann - unit) * d_previous + (n_calc + unit) * d_p);
         abs_err = if d > d_previous {
             d - d_previous
