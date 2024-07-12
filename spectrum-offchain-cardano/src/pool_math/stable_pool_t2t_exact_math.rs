@@ -1,3 +1,4 @@
+use log::info;
 use primitive_types::U512;
 
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
@@ -254,9 +255,9 @@ pub fn calculate_invariant(x_calc: &U512, y_calc: &U512, an2n: &U512) -> U512 {
     let n_calc = U512::from(N_TRADABLE_ASSETS);
     let ann = an2n / nn;
     let s = x_calc + y_calc;
-    println!("x_calc: {}", x_calc);
-    println!("y_calc: {}", y_calc);
-    println!("x_calc * y_calc: {}", x_calc * y_calc);
+    info!("x_calc: {}", x_calc);
+    info!("y_calc: {}", y_calc);
+    info!("x_calc * y_calc: {}", x_calc * y_calc);
     let p = x_calc * y_calc;
 
     let mut d_previous = U512::zero();
@@ -273,6 +274,15 @@ pub fn calculate_invariant(x_calc: &U512, y_calc: &U512, an2n: &U512) -> U512 {
         // println!("p: {}", p);
         // println!("nn / p: {}", nn / p);
         let d_p = (dn1 * p) / nn ;
+        info!("(ann): {}", (ann));
+        info!("(unit): {}", (unit));
+        info!("(ann - unit): {}", (ann - unit));
+        info!("d_previous: {}", d_previous);
+        info!("n_calc: {}", (n_calc ));
+        info!("unit: {}", (unit));
+        info!("n_calc + unit: {}", (n_calc + unit));
+        info!("d_p: {}", d_p);
+        info!("((ann - unit) * d_previous + (n_calc + unit) * d_p): {}", ((ann - unit) * d_previous + (n_calc + unit) * d_p));
         d = (ann * s + n_calc * d_p) * d_previous / ((ann - unit) * d_previous + (n_calc + unit) * d_p);
         abs_err = if d > d_previous {
             d - d_previous

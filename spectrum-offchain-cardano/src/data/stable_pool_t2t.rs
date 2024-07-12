@@ -532,7 +532,7 @@ impl Pool for StablePoolT2T {
     fn quality(&self) -> PoolQuality {
         let invariant = calculate_invariant(
             &U512::from((self.reserves_x - self.treasury_x).untag() * self.multiplier_x as u64),
-            &U512::from((self.reserves_y - self.treasury_y).untag() * self.multiplier_x as u64),
+            &U512::from((self.reserves_y - self.treasury_y).untag() * self.multiplier_y as u64),
             &U512::from(self.an2n),
         );
         PoolQuality::from(MAX_LQ_CAP - invariant.as_u64())
