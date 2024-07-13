@@ -668,7 +668,8 @@ mod tests {
                     min_collateral_ada: 1000,
                 },
                 pool: PoolBounds {
-                    min_n2t_lovelace: 1000,
+                    min_n2t_lovelace: 1000, 
+                    min_t2t_lovelace: 1000,
                 },
             },
             executor_cred: ex_cred,
