@@ -8,7 +8,7 @@ use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::execution_engine::liquidity_book;
 
-/// Entity bundled with its source.h
+/// Entity bundled with its source.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Bundled<T, Bearer>(pub T, pub Bearer);
 

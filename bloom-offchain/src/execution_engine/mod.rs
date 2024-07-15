@@ -58,7 +58,7 @@ type EvolvingEntity<CO, P, V, B> = Bundled<Either<Baked<CO, V>, Baked<P, V>>, B>
 pub type Event<CO, SO, P, B, V> =
     Either<Channel<StateUpdate<EvolvingEntity<CO, P, V, B>>>, Channel<OrderUpdate<Bundled<SO, B>, SO>>>;
 
-pub enum PendingEffects<CompOrd, SpecOrd, Pool, Ver, Bearer> {
+enum PendingEffects<CompOrd, SpecOrd, Pool, Ver, Bearer> {
     FromLiquidityBook(
         Vec<
             ExecutionEff<
@@ -68,6 +68,13 @@ pub enum PendingEffects<CompOrd, SpecOrd, Pool, Ver, Bearer> {
         >,
     ),
     FromBacklog(Bundled<Baked<Pool, Ver>, Bearer>, Bundled<SpecOrd, Bearer>),
+}
+
+struct PendingEffectsByPair<Pair, TxHash, CompOrd, SpecOrd, Pool, Ver, Bearer> {
+    pair: Pair,
+    tx_hash: TxHash,
+    consumed_versions: HashSet<Ver>,
+    pending_effects: PendingEffects<CompOrd, SpecOrd, Pool, Ver, Bearer>,
 }
 
 /// Instantiate execution stream partition.
@@ -208,7 +215,7 @@ pub struct Executor<
     /// Feedback channel is used to signal the status of transaction submitted earlier by the executor.
     feedback: mpsc::Receiver<Result<(), Err>>,
     /// Pending effects resulted from execution of a batch trade in a certain [Pair].
-    pending_effects: Option<(Pair, TxHash, PendingEffects<CompOrd, SpecOrd, Pool, Ver, Bearer>)>,
+    pending_effects: Option<PendingEffectsByPair<Pair, TxHash, CompOrd, SpecOrd, Pool, Ver, Bearer>>,
     /// Which pair should we process in the first place.
     focus_set: FocusSet<Pair>,
     /// Temporarily memoize entities that came from unconfirmed updates.
@@ -461,7 +468,13 @@ where
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         loop {
             // Wait for the feedback from the last pending job.
-            if let Some((pair, tx_hash, pending_effects)) = self.pending_effects.take() {
+            if let Some(PendingEffectsByPair {
+                pair,
+                tx_hash,
+                consumed_versions,
+                pending_effects,
+            }) = self.pending_effects.take()
+            {
                 match Stream::poll_next(Pin::new(&mut self.feedback), cx) {
                     Poll::Ready(Some(result)) => match result {
                         Ok(_) => {
@@ -503,16 +516,22 @@ where
                                             .get_mut(&pair)
                                             .on_recipe_failed(StashingOption::Unstash);
                                     }
-                                    PendingEffects::FromBacklog(_, Bundled(order, br)) => {
+                                    PendingEffects::FromBacklog(_, order) => {
                                         let order_ref = order.get_self_ref();
                                         if missing_bearers.contains(&order_ref) {
                                             self.multi_backlog.get_mut(&pair).soft_evict(order_ref);
                                         } else {
-                                            self.multi_backlog.get_mut(&pair).put(Bundled(order, br));
+                                            self.multi_backlog.get_mut(&pair).put(order);
                                         }
                                     }
                                 }
-                                self.invalidate_versions(&pair, missing_bearers.clone());
+                                // Defensive programming against node sending error for an irrelevant TX.
+                                let has_relevant_bearers =
+                                    missing_bearers.intersection(&consumed_versions).next().is_some();
+                                if has_relevant_bearers {
+                                    trace!("Going to process missing bearers");
+                                    self.invalidate_versions(&pair, missing_bearers.clone());
+                                }
                             } else {
                                 warn!("Unknown Tx submission error!");
                                 match pending_effects {
@@ -529,7 +548,12 @@ where
                         }
                     },
                     _ => {
-                        let _ = self.pending_effects.insert((pair, tx_hash, pending_effects));
+                        let _ = self.pending_effects.insert(PendingEffectsByPair {
+                            pair,
+                            tx_hash,
+                            consumed_versions,
+                            pending_effects,
+                        });
                         return Poll::Pending;
                     }
                 }
@@ -551,19 +575,22 @@ where
             while let Some(focus_pair) = self.focus_set.pop_front() {
                 // Try TLB:
                 if let Some(recipe) = self.multi_book.get_mut(&focus_pair).attempt() {
-                    let linked_recipe = ExecutionRecipe::new(recipe, |id| {
-                        self.cache.get(id).map(|Bundled(_, bearer)| bearer)
+                    let (linked_recipe, consumed_versions) = ExecutionRecipe::link(recipe, |id| {
+                        self.cache
+                            .get(id)
+                            .map(|Bundled(t, bearer)| (t.either(|b| b.version, |b| b.version), bearer))
                     })
                     .expect("State is inconsistent");
                     let ctx = self.context.clone();
                     let (txc, effects) = self.trade_interpreter.run(linked_recipe, ctx);
                     let tx = self.prover.prove(txc);
                     let tx_hash = tx.canonical_hash();
-                    let _ = self.pending_effects.insert((
-                        focus_pair,
+                    let _ = self.pending_effects.insert(PendingEffectsByPair {
+                        pair: focus_pair,
                         tx_hash,
-                        PendingEffects::FromLiquidityBook(effects),
-                    ));
+                        consumed_versions,
+                        pending_effects: PendingEffects::FromLiquidityBook(effects),
+                    });
                     // Return pair to focus set to make sure corresponding TLB will be exhausted.
                     self.focus_set.push_back(focus_pair);
                     return Poll::Ready(Some(tx));
@@ -580,11 +607,14 @@ where
                         {
                             let tx = self.prover.prove(txc);
                             let tx_hash = tx.canonical_hash();
-                            let _ = self.pending_effects.insert((
-                                focus_pair,
+                            let consumed_versions =
+                                HashSet::from_iter(vec![pool.version, consumed_ord.get_self_ref()]);
+                            let _ = self.pending_effects.insert(PendingEffectsByPair {
+                                pair: focus_pair,
                                 tx_hash,
-                                PendingEffects::FromBacklog(updated_pool, consumed_ord),
-                            ));
+                                consumed_versions,
+                                pending_effects: PendingEffects::FromBacklog(updated_pool, consumed_ord),
+                            });
                             // Return pair to focus set to make sure corresponding TLB will be exhausted.
                             self.focus_set.push_back(focus_pair);
                             return Poll::Ready(Some(tx));

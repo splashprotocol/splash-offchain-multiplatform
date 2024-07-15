@@ -63,7 +63,7 @@ impl<const ERA: u16, Tx> LocalTxSubmissionClient<ERA, Tx> {
             .submit_tx(EraTx(ERA, tx_bytes))
             .await
             .map_err(Error::TxSubmissionProtocol);
-        trace!("[{}] Submit attempt finished", hex::encode(hash));
+        trace!("[{}] Submit attempt finished", hash);
         result
     }
 

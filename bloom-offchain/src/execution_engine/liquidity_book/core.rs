@@ -3,8 +3,9 @@ use either::Either;
 use log::trace;
 use num_rational::Ratio;
 use std::cmp::{max, min, Ordering};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter, Write};
+use std::hash::Hash;
 use std::mem;
 use std::ops::AddAssign;
 
@@ -614,17 +615,23 @@ pub type Execution<T, M, B> = Either<Take<T, B>, Make<M, B>>;
 pub struct ExecutionRecipe<Taker, Maker, B>(pub Vec<Execution<Taker, Maker, B>>);
 
 impl<T, M, B> ExecutionRecipe<T, M, B> {
-    pub fn new<I, F>(MatchmakingRecipe { instructions }: MatchmakingRecipe<T, M>, link: F) -> Result<Self, ()>
+    pub fn link<I, F, V>(
+        MatchmakingRecipe { instructions }: MatchmakingRecipe<T, M>,
+        link: F,
+    ) -> Result<(Self, HashSet<V>), ()>
     where
+        V: Hash + Eq,
         T: Stable<StableId = I>,
         M: Stable<StableId = I>,
-        F: Fn(I) -> Option<B>,
+        F: Fn(I) -> Option<(V, B)>,
     {
         let mut translated_instructions = vec![];
+        let mut consumed_versions = vec![];
         for i in instructions {
             match i {
                 Either::Left(Trans { target, result }) => {
-                    if let Some(bearer) = link(target.stable_id()) {
+                    if let Some((ver, bearer)) = link(target.stable_id()) {
+                        consumed_versions.push(ver);
                         translated_instructions.push(Either::Left(Trans {
                             target: Bundled(target, bearer),
                             result,
@@ -633,7 +640,8 @@ impl<T, M, B> ExecutionRecipe<T, M, B> {
                     }
                 }
                 Either::Right(Trans { target, result }) => {
-                    if let Some(bearer) = link(target.stable_id()) {
+                    if let Some((ver, bearer)) = link(target.stable_id()) {
+                        consumed_versions.push(ver);
                         translated_instructions.push(Either::Right(Trans {
                             target: Bundled(target, bearer),
                             result,
@@ -644,6 +652,9 @@ impl<T, M, B> ExecutionRecipe<T, M, B> {
             }
             return Err(());
         }
-        Ok(Self(translated_instructions))
+        Ok((
+            Self(translated_instructions),
+            HashSet::from_iter(consumed_versions),
+        ))
     }
 }
