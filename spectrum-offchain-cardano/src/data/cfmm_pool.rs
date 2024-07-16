@@ -49,7 +49,7 @@ use crate::data::pool::{
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::{
-    ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolV1, ConstFnPoolV2,
+    ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2,
 };
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::fees::FeeExtension;
@@ -91,6 +91,7 @@ pub enum ConstFnPoolVer {
     V1,
     V2,
     FeeSwitch,
+    FeeSwitchV2,
     FeeSwitchBiDirFee,
 }
 
@@ -100,6 +101,7 @@ impl ConstFnPoolVer {
         Ctx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
             + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
             + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
+            + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>
             + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>,
     {
         let maybe_hash = pool_addr.payment_cred().and_then(|c| match c {
@@ -125,6 +127,12 @@ impl ConstFnPoolVer {
                 == *this_hash
             {
                 return Some(ConstFnPoolVer::FeeSwitch);
+            } else if ctx
+                .select::<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>()
+                .script_hash
+                == *this_hash
+            {
+                return Some(ConstFnPoolVer::FeeSwitchV2);
             } else if ctx
                 .select::<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>()
                 .script_hash
@@ -263,6 +271,7 @@ where
     Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchV2 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
@@ -272,6 +281,9 @@ where
                 .erased(),
             ConstFnPoolVer::FeeSwitch => ctx
                 .select::<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>()
+                .erased(),
+            ConstFnPoolVer::FeeSwitchV2 => ctx
+                .select::<DeployedValidator<{ ConstFnPoolFeeSwitchV2 as u8 }>>()
                 .erased(),
             ConstFnPoolVer::FeeSwitchBiDirFee => ctx
                 .select::<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>()
@@ -423,6 +435,7 @@ where
     Ctx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
         + Has<PoolBounds>,
 {
@@ -442,6 +455,10 @@ where
                 }
                 ConstFnPoolVer::FeeSwitch => {
                     ctx.select::<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>()
+                        .marginal_cost
+                }
+                ConstFnPoolVer::FeeSwitchV2 => {
+                    ctx.select::<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>()
                         .marginal_cost
                 }
                 ConstFnPoolVer::FeeSwitchBiDirFee => {
@@ -474,7 +491,7 @@ where
                         bounds,
                     });
                 }
-                ConstFnPoolVer::FeeSwitch => {
+                ConstFnPoolVer::FeeSwitch | ConstFnPoolVer::FeeSwitchV2 => {
                     let conf = FeeSwitchPoolConfig::try_from_pd(pd.clone())?;
                     let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
                     let lov = value.amount_of(Native)?;
@@ -557,7 +574,7 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for ConstFnPool {
         ma.set(policy_lq, name_lq.into(), MAX_LQ_CAP - self.liquidity.untag());
         ma.set(nft_lq, name_nft.into(), 1);
 
-        if self.ver == ConstFnPoolVer::FeeSwitch {
+        if self.ver == ConstFnPoolVer::FeeSwitch || self.ver == ConstFnPoolVer::FeeSwitchV2 {
             if let Some(DatumOption::Datum { datum, .. }) = &mut immut_pool.datum_option {
                 unsafe_update_pd(datum, self.treasury_x.untag(), self.treasury_y.untag());
             }

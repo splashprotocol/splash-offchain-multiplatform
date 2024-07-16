@@ -28,10 +28,11 @@ use crate::data::pool::try_run_order_against_pool;
 use crate::data::redeem::{ClassicalOnChainRedeem, RedeemOrderBounds};
 use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::{
-    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnFeeSwitchPoolDeposit,
-    ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
-    ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
-    StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
+    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2,
+    ConstFnFeeSwitchPoolDeposit, ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit,
+    ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolRedeem,
+    ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2, StableFnPoolT2T, StableFnPoolT2TDeposit,
+    StableFnPoolT2TRedeem,
 };
 use crate::deployment::{DeployedScriptInfo, DeployedValidator};
 use spectrum_cardano_lib::{NetworkId, OutputRef};
@@ -201,6 +202,7 @@ where
         + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedValidator<{ ConstFnFeeSwitchPoolSwap as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchV2 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolSwap as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolDeposit as u8 }>>
@@ -210,6 +212,7 @@ where
         + Has<DeployedValidator<{ ConstFnFeeSwitchPoolRedeem as u8 }>>
         // comes from common execution for deposit and redeem for balance pool
         + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ BalanceFnPoolV2 as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolRedeem as u8 }>>
         + Has<DeployedValidator<{ StableFnPoolT2T as u8 }>>

@@ -74,6 +74,21 @@
       "steps": 5000000
     }
   },
+  "constFnPoolFeeSwitchV2": {
+    "hash": "9dee0659686c3ab807895c929e3284c11222affd710b09be690f924d",
+    "referenceUtxo": {
+      "txHash": "482719d050a96b91206f78c6c2b834e844ea576557387e09e7b1c8afa4d433ac",
+      "outputIndex": 0
+    },
+    "cost": {
+      "mem": 600000,
+      "steps": 250000000
+    },
+    "marginalCost": {
+      "mem": 15000,
+      "steps": 5000000
+    }
+  },
   "constFnPoolFeeSwitchBidirFee": {
     "hash": "680f52841c06f32cecdcdeff2c20ce6b70c2a5249b94d1a2b4eff294",
     "referenceUtxo": {
@@ -155,6 +170,21 @@
     "hash": "f60fd1e70f4b9dfc09cdde8d7f7f1277de2694c82a516d7d3cc9e03e",
     "referenceUtxo": {
       "txHash": "0a60192a42eb26ad5c66a75777885342c40b244a35585e94a7e1ad93d760941e",
+      "outputIndex": 0
+    },
+    "cost": {
+      "mem": 600000,
+      "steps": 260000000
+    },
+    "marginalCost": {
+      "mem": 15000,
+      "steps": 5000000
+    }
+  },
+  "balanceFnPoolV2": {
+    "hash": "c5283689ea30e0920c50adf77345b5809c05c962cc111e0f1d2dbedb",
+    "referenceUtxo": {
+      "txHash": "bdd7c8c259bbf3c2a2c34b142f717f7edae2c0cddf321f1533cd2f9eb6b20b1d",
       "outputIndex": 0
     },
     "cost": {

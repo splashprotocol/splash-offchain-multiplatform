@@ -17,10 +17,11 @@ use spectrum_offchain_cardano::data::pool::AnyPool::{BalancedCFMM, PureCFMM, Sta
 use spectrum_offchain_cardano::data::stable_order::RunStableAMMOrderOverPool;
 use spectrum_offchain_cardano::deployment::DeployedValidator;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
-    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnFeeSwitchPoolDeposit,
-    ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
-    ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
-    StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
+    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2,
+    ConstFnFeeSwitchPoolDeposit, ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit,
+    ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolRedeem,
+    ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2, StableFnPoolT2T, StableFnPoolT2TDeposit,
+    StableFnPoolT2TRedeem,
 };
 
 /// Magnet for local instances.
@@ -37,6 +38,7 @@ where
         + Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchV2 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolSwap as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolDeposit as u8 }>>
@@ -45,6 +47,7 @@ where
         + Has<DeployedValidator<{ ConstFnFeeSwitchPoolDeposit as u8 }>>
         + Has<DeployedValidator<{ ConstFnFeeSwitchPoolRedeem as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ BalanceFnPoolV2 as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolRedeem as u8 }>>
         + Has<DeployedValidator<{ StableFnPoolT2T as u8 }>>

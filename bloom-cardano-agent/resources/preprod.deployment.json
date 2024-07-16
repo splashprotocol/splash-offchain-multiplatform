@@ -62,6 +62,21 @@
       "steps": 1200000000
     }
   },
+  "constFnPoolFeeSwitchV2": {
+    "hash": "9dee0659686c3ab807895c929e3284c11222affd710b09be690f924d",
+    "referenceUtxo": {
+      "txHash": "a85dbebcf7a9c27a2548191e6516b12140ec744c142248355ddeef8652ab071f",
+      "outputIndex": 0
+    },
+    "cost": {
+      "mem": 650000,
+      "steps": 260000000
+    },
+    "marginalCost": {
+      "mem": 15000,
+      "steps": 5000000
+    }
+  },
   "constFnPoolFeeSwitchBidirFee": {
     "hash": "6b9c456aa650cb808a9ab54326e039d5235ed69f069c9664a8fe5b69",
     "referenceUtxo": {
@@ -148,6 +163,21 @@
     "cost": {
       "mem": 1600000,
       "steps": 1200000000
+    }
+  },
+  "balanceFnPoolV2": {
+    "hash": "c5283689ea30e0920c50adf77345b5809c05c962cc111e0f1d2dbedb",
+    "referenceUtxo": {
+      "txHash": "31597886bebc87a57aa62ac9bbfd67d0d9dabc5d81f0567ba0220c0f55de640b",
+      "outputIndex": 0
+    },
+    "cost": {
+      "mem": 600000,
+      "steps": 260000000
+    },
+    "marginalCost": {
+      "mem": 15000,
+      "steps": 5000000
     }
   },
   "balanceFnPoolDeposit": {

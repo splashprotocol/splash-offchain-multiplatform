@@ -13,14 +13,15 @@ use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::data::Has;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::balance_pool::{BalancePool, BalancePoolRedeemer};
-use spectrum_offchain_cardano::data::cfmm_pool::ConstFnPoolVer::FeeSwitch;
+use spectrum_offchain_cardano::data::cfmm_pool::ConstFnPoolVer::{FeeSwitch, FeeSwitchV2};
 use spectrum_offchain_cardano::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
 use spectrum_offchain_cardano::data::pool::{AnyPool, CFMMPoolAction, PoolAssetMapping};
 use spectrum_offchain_cardano::data::stable_pool_t2t::{StablePoolRedeemer, StablePoolT2T};
 use spectrum_offchain_cardano::data::{balance_pool, cfmm_pool, stable_pool_t2t};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
-    BalanceFnPoolV1, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolV1, ConstFnPoolV2,
-    LimitOrderV1, LimitOrderWitnessV1, StableFnPoolT2T,
+    BalanceFnPoolV1, BalanceFnPoolV2, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,
+    ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, LimitOrderV1, LimitOrderWitnessV1,
+    StableFnPoolT2T,
 };
 use spectrum_offchain_cardano::deployment::{DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use spectrum_offchain_cardano::script::{
@@ -156,8 +157,10 @@ where
     Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchV2 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ BalanceFnPoolV2 as u8 }>>
         + Has<DeployedValidator<{ StableFnPoolT2T as u8 }>>,
 {
     fn exec(self, state: ExecutionState, context: Ctx) -> (ExecutionState, EffectPreview<AnyPool>, Ctx) {
@@ -219,6 +222,7 @@ where
     Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchV2 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>,
 {
     fn exec(
@@ -270,7 +274,7 @@ where
             panic!("ConstFn pool isn't supposed to terminate in result of a trade")
         };
 
-        if transition.ver == FeeSwitch {
+        if transition.ver == FeeSwitch || transition.ver == FeeSwitchV2 {
             if let Some(data) = produced_out.data_mut() {
                 cfmm_pool::unsafe_update_pd(
                     data,
@@ -296,6 +300,7 @@ impl<Ctx> BatchExec<ExecutionState, EffectPreview<BalancePool>, Ctx>
     for Magnet<Make<BalancePool, FinalizedTxOut>>
 where
     Ctx: Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>,
+    Ctx: Has<DeployedValidator<{ BalanceFnPoolV2 as u8 }>>,
 {
     fn exec(
         self,

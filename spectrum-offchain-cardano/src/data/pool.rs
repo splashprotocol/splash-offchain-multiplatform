@@ -47,8 +47,8 @@ use spectrum_cardano_lib::value::ValueExtension;
 use crate::data::stable_pool_t2t::{StablePoolRedeemer, StablePoolT2T as StablePoolT2TData};
 use crate::data::OnChainOrderId;
 use crate::deployment::ProtocolValidator::{
-    BalanceFnPoolV1, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolV1, ConstFnPoolV2,
-    StableFnPoolT2T,
+    BalanceFnPoolV1, BalanceFnPoolV2, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,
+    ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, StableFnPoolT2T,
 };
 use crate::deployment::{DeployedScriptInfo, RequiresValidator};
 
@@ -319,8 +319,10 @@ where
     C: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
         + Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>
+        + Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
         + Has<PoolBounds>,
 {
