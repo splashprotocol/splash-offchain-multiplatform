@@ -35,7 +35,7 @@ pub fn calc_stable_swap<X, Y>(
     let nn = U512::from(N_TRADABLE_ASSETS.pow(N_TRADABLE_ASSETS as u32));
     let ann = an2n_calc.checked_div(nn)?;
 
-    let d = calculate_invariant(base_initial, quote_calc, an2n_calc);
+    let d = calculate_invariant(base_initial, quote_calc, an2n_calc)?;
     let b = s + d.checked_div(ann)?;
     let dn1 = vec![d; usize::try_from(N_TRADABLE_ASSETS + 1).unwrap()]
         .iter()
@@ -61,18 +61,18 @@ pub fn calc_stable_swap<X, Y>(
         };
     }
 
-    let d_new = calculate_invariant(&base_calc, &asset_to, &an2n_calc);
-    let d_after = if { d_new > d } { d_new.clone() } else { d.clone() };
+    let d_new = calculate_invariant(base_calc, asset_to, an2n_calc)?;
+    let d_after = if { d_new > d } { d_new.clone() } else { d };
 
     let mut valid_inv = check_exact_invariant(
-        &U512::from(quote_mult),
-        &base_initial,
-        &asset_to_initial,
-        &base_calc,
-        &asset_to,
-        &d_after,
-        &nn,
-        &an2n_calc,
+        U512::from(quote_mult),
+        base_initial,
+        asset_to_initial,
+        base_calc,
+        asset_to,
+        d_after,
+        nn,
+        an2n_calc,
     );
     let mut counter = 0;
 
@@ -80,14 +80,14 @@ pub fn calc_stable_swap<X, Y>(
         while !valid_inv && counter < 255 {
             asset_to += unit;
             valid_inv = check_exact_invariant(
-                &U512::from(quote_mult),
-                &base_initial,
-                &asset_to_initial,
-                &base_calc,
-                &asset_to,
-                &d_after,
-                &nn,
-                &an2n_calc,
+                U512::from(quote_mult),
+                base_initial,
+                asset_to_initial,
+                base_calc,
+                asset_to,
+                d_after,
+                nn,
+                an2n_calc,
             );
             counter += 1;
         }
@@ -95,14 +95,14 @@ pub fn calc_stable_swap<X, Y>(
 
     assert_eq!(
         check_exact_invariant(
-            &U512::from(quote_mult),
-            &base_initial,
-            &asset_to_initial,
-            &base_calc,
-            &asset_to,
-            &d_after,
-            &nn,
-            &an2n_calc
+            U512::from(quote_mult),
+            base_initial,
+            asset_to_initial,
+            base_calc,
+            asset_to,
+            d_after,
+            nn,
+            an2n_calc
         ),
         true
     );
@@ -112,7 +112,7 @@ pub fn calc_stable_swap<X, Y>(
 
     let quote_amount_pure_delta = asset_to_initial - asset_to;
 
-    TaggedAmount::new((quote_amount_pure_delta / quote_mult).as_u64())
+    Some(TaggedAmount::new((quote_amount_pure_delta / quote_mult).as_u64()))
 }
 
 pub fn calculate_invariant_error_sgn_from_totals(
@@ -121,14 +121,14 @@ pub fn calculate_invariant_error_sgn_from_totals(
     ann_total_sum_calc: U512,
     d: U512,
 ) -> bool {
-    let inv_right = *d * *ann
-        + vec![*d; usize::try_from(N_TRADABLE_ASSETS + 1).unwrap()]
+    let inv_right = d * ann
+        + vec![d; usize::try_from(N_TRADABLE_ASSETS + 1).unwrap()]
             .iter()
             .copied()
             .reduce(|a, b| a * b)
             .unwrap()
-            / *nn_total_prod_calc;
-    let inv_left = *ann_total_sum_calc + *d;
+            / nn_total_prod_calc;
+    let inv_left = ann_total_sum_calc + d;
     inv_right >= inv_left
 }
 
@@ -150,7 +150,7 @@ pub fn check_exact_invariant(
 ) -> bool {
     let max_swap_err = U512::from(MAX_SWAP_ERROR);
     let an2n_nn = an2n - nn;
-    let dn1 = vec![*d; usize::try_from(N_TRADABLE_ASSETS + 1).unwrap()]
+    let dn1 = vec![d; usize::try_from(N_TRADABLE_ASSETS + 1).unwrap()]
         .iter()
         .copied()
         .reduce(|a, b| a * b)

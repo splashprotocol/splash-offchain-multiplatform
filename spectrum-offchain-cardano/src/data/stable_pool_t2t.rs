@@ -371,7 +371,7 @@ impl AMMOps for StablePoolT2T {
             base_asset,
             base_amount,
             self.an2n,
-        )
+        ).expect("Output amount calculated correctly")
     }
 
     fn reward_lp(
@@ -464,7 +464,11 @@ impl MarketMaker for StablePoolT2T {
 
         let nn = N_TRADABLE_ASSETS.pow(N_TRADABLE_ASSETS as u32);
         let ann = self.an2n / nn;
-        let d = calculate_invariant(&U512::from(x_calc), &U512::from(y_calc), &U512::from(self.an2n));
+        let d = calculate_invariant(
+            U512::from(x_calc),
+            U512::from(y_calc),
+            U512::from(self.an2n)
+        ).expect("Invariant calculated correctly");
 
         let dn1 = vec![d; usize::try_from(N_TRADABLE_ASSETS + 1).unwrap()]
             .iter()
@@ -519,10 +523,10 @@ impl MarketMaker for StablePoolT2T {
 
     fn quality(&self) -> PoolQuality {
         let invariant = calculate_invariant(
-            &U512::from((self.reserves_x - self.treasury_x).untag() * self.multiplier_x as u64),
-            &U512::from((self.reserves_y - self.treasury_y).untag() * self.multiplier_x as u64),
-            &U512::from(self.an2n),
-        );
+            U512::from((self.reserves_x - self.treasury_x).untag() * self.multiplier_x as u64),
+            U512::from((self.reserves_y - self.treasury_y).untag() * self.multiplier_x as u64),
+            U512::from(self.an2n),
+        ).expect("Invariant calculated correctly");
         PoolQuality::from(MAX_LQ_CAP - invariant.as_u64())
     }
 
@@ -711,10 +715,10 @@ mod tests {
             (1, 1)
         };
         let inv_before = calculate_invariant(
-            &U512::from((reserves_x - treasury_x) * multiplier_x as u64),
-            &U512::from((reserves_y - treasury_y) * multiplier_y as u64),
-            &U512::from(an2n),
-        );
+            U512::from((reserves_x - treasury_x) * multiplier_x as u64),
+            U512::from((reserves_y - treasury_y) * multiplier_y as u64),
+            U512::from(an2n),
+        ).expect("Invariant calculated correctly");
         let liquidity = MAX_LQ_CAP - inv_before.as_u64();
 
         return StablePoolT2T {
