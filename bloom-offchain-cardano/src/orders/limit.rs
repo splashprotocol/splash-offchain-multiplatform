@@ -9,7 +9,7 @@ use cml_multi_era::babbage::BabbageTransactionOutput;
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
 use bloom_offchain::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
 use bloom_offchain::execution_engine::liquidity_book::linear_output_relative;
-use bloom_offchain::execution_engine::liquidity_book::side::SideM;
+use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
 use bloom_offchain::execution_engine::liquidity_book::types::{
     AbsolutePrice, FeeAsset, InputAsset, OutputAsset, RelativePrice,
@@ -106,7 +106,7 @@ impl PartialOrd for LimitOrder {
 impl Ord for LimitOrder {
     fn cmp(&self, other: &Self) -> Ordering {
         let cmp_by_price = self.price().cmp(&other.price());
-        let cmp_by_price = if matches!(self.side(), SideM::Bid) {
+        let cmp_by_price = if matches!(self.side(), Side::Bid) {
             cmp_by_price.reverse()
         } else {
             cmp_by_price
@@ -158,7 +158,7 @@ impl TakerBehaviour for LimitOrder {
 impl MarketTaker for LimitOrder {
     type U = ExUnits;
 
-    fn side(&self) -> SideM {
+    fn side(&self) -> Side {
         side_of(self.input_asset, self.output_asset)
     }
 

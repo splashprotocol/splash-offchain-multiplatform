@@ -9,7 +9,7 @@ use bloom_offchain::execution_engine::execution_effect::ExecutionEff;
 use bloom_offchain::execution_engine::liquidity_book::core::{Make, Next, Take, Trans};
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
-use spectrum_cardano_lib::NetworkId;
+use spectrum_cardano_lib::{AssetClass, NetworkId};
 use spectrum_offchain::data::Has;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::balance_pool::{BalancePool, BalancePoolRedeemer};
@@ -20,7 +20,7 @@ use spectrum_offchain_cardano::data::stable_pool_t2t::{StablePoolRedeemer, Stabl
 use spectrum_offchain_cardano::data::{balance_pool, cfmm_pool, stable_pool_t2t};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolV1, BalanceFnPoolV2, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,
-    ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, LimitOrderV1, LimitOrderWitnessV1,
+    ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, GridOrderNative, LimitOrderV1, LimitOrderWitnessV1,
     StableFnPoolT2T,
 };
 use spectrum_offchain_cardano::deployment::{DeployedValidator, DeployedValidatorErased, RequiresValidator};
@@ -29,8 +29,9 @@ use spectrum_offchain_cardano::script::{
 };
 
 use crate::execution_engine::execution_state::{ExecutionState, ScriptInputBlueprint};
+use crate::orders::grid::GridOrder;
 use crate::orders::limit::LimitOrder;
-use crate::orders::{limit, AnyOrder};
+use crate::orders::{grid, limit, AnyOrder};
 
 /// Magnet for local instances.
 #[repr(transparent)]
@@ -43,24 +44,49 @@ impl<Ctx> BatchExec<ExecutionState, EffectPreview<AnyOrder>, Ctx> for Magnet<Tak
 where
     Ctx: Has<NetworkId>
         + Has<OperatorCred>
+        + Has<DeployedValidator<{ GridOrderNative as u8 }>>
         + Has<DeployedValidator<{ LimitOrderV1 as u8 }>>
         + Has<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>,
 {
     fn exec(self, state: ExecutionState, context: Ctx) -> (ExecutionState, EffectPreview<AnyOrder>, Ctx) {
-        let Magnet(Trans {
-            target: Bundled(AnyOrder::Limit(o), src),
-            result,
-        }) = self;
-        let (st, res, ctx) = Magnet(Trans {
-            target: Bundled(o, src),
-            result: result.map_succ(|AnyOrder::Limit(o2)| o2),
-        })
-        .exec(state, context);
-        (
-            st,
-            res.bimap(|u| u.map(AnyOrder::Limit), |e| e.map(AnyOrder::Limit)),
-            ctx,
-        )
+        match self {
+            Magnet(Trans {
+                target: Bundled(AnyOrder::Limit(o), src),
+                result,
+            }) => {
+                let (st, res, ctx) = Magnet(Trans {
+                    target: Bundled(o, src),
+                    result: result.map_succ(|ord| match ord {
+                        AnyOrder::Limit(o2) => o2,
+                        _ => unreachable!(),
+                    }),
+                })
+                .exec(state, context);
+                (
+                    st,
+                    res.bimap(|u| u.map(AnyOrder::Limit), |e| e.map(AnyOrder::Limit)),
+                    ctx,
+                )
+            }
+            Magnet(Trans {
+                target: Bundled(AnyOrder::Grid(o), src),
+                result,
+            }) => {
+                let (st, res, ctx) = Magnet(Trans {
+                    target: Bundled(o, src),
+                    result: result.map_succ(|ord| match ord {
+                        AnyOrder::Grid(o2) => o2,
+                        _ => unreachable!(),
+                    }),
+                })
+                .exec(state, context);
+                (
+                    st,
+                    res.bimap(|u| u.map(AnyOrder::Grid), |e| e.map(AnyOrder::Grid)),
+                    ctx,
+                )
+            }
+        }
     }
 }
 
@@ -145,6 +171,82 @@ where
         state
             .tx_blueprint
             .add_witness(witness.erased(), PlutusData::new_list(vec![]));
+        state.tx_blueprint.add_io(input, residual_order);
+        state.tx_blueprint.add_ref_input(reference_utxo);
+        (state, effect, context)
+    }
+}
+
+impl<Ctx> BatchExec<ExecutionState, EffectPreview<GridOrder>, Ctx> for Magnet<Take<GridOrder, FinalizedTxOut>>
+where
+    Ctx: Has<NetworkId> + Has<DeployedValidator<{ GridOrderNative as u8 }>>,
+{
+    fn exec(
+        self,
+        mut state: ExecutionState,
+        context: Ctx,
+    ) -> (ExecutionState, EffectPreview<GridOrder>, Ctx) {
+        let Magnet(trans) = self;
+        trace!("Running transition: {}", trans);
+        let removed_input = trans.removed_input();
+        let added_output = trans.added_output();
+        let consumed_budget = trans.consumed_budget();
+        let consumed_fee = trans.consumed_fee();
+        trace!(
+            "GridOrder::exec(removed_input={}, added_output={}, consumed_budget={}, consumed_fee={})",
+            removed_input,
+            added_output,
+            consumed_budget,
+            consumed_fee
+        );
+        let Trans {
+            target: Bundled(ord, FinalizedTxOut(consumed_out, in_ref)),
+            result,
+        } = trans;
+        let DeployedValidatorErased {
+            reference_utxo,
+            hash,
+            ex_budget,
+            ..
+        } = context
+            .select::<DeployedValidator<{ GridOrderNative as u8 }>>()
+            .erased();
+        let input = ScriptInputBlueprint {
+            reference: in_ref,
+            utxo: consumed_out.clone(),
+            script: ScriptWitness {
+                hash,
+                cost: ready_cost(ex_budget),
+            },
+            redeemer: ready_redeemer(limit::EXEC_REDEEMER),
+            required_signers: vec![],
+        };
+        let mut candidate = consumed_out.clone();
+        let (input_asset, output_asset) = ord.absolute_io();
+        // Subtract budget + fee used to facilitate execution.
+        candidate.sub_asset(AssetClass::Native, consumed_budget + consumed_fee);
+        // Subtract tradable input used in exchange.
+        candidate.sub_asset(input_asset, removed_input);
+        // Add output resulted from exchange.
+        candidate.add_asset(output_asset, added_output);
+        let consumed_bundle = Bundled(ord, FinalizedTxOut(consumed_out, in_ref));
+        let (residual_order, effect) = match result {
+            Next::Succ(next) => {
+                if let Some(data) = candidate.data_mut() {
+                    grid::unsafe_update_datum(data, next.quote_offer, next.price, next.relative_side);
+                }
+                (
+                    candidate.clone(),
+                    ExecutionEff::Updated(consumed_bundle, Bundled(next, candidate)),
+                )
+            }
+            Next::Term(_) => {
+                candidate.null_datum();
+                candidate.update_address(ord.redeemer_address.to_address(context.select::<NetworkId>()));
+                (candidate, ExecutionEff::Eliminated(consumed_bundle))
+            }
+        };
+        state.add_fee(consumed_budget);
         state.tx_blueprint.add_io(input, residual_order);
         state.tx_blueprint.add_ref_input(reference_utxo);
         (state, effect, context)

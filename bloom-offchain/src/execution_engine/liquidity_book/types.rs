@@ -6,7 +6,7 @@ use bignumber::BigNumber;
 use derive_more::{Add, Div, From, Into, Mul, Sub};
 use num_rational::Ratio;
 
-use crate::execution_engine::liquidity_book::side::{Side, SideM};
+use crate::execution_engine::liquidity_book::side::{OnSide, Side};
 
 pub type Lovelace = u64;
 
@@ -64,11 +64,11 @@ impl AbsolutePrice {
         Self::new_unsafe(0, 1)
     }
 
-    pub fn from_price(side: SideM, price: RelativePrice) -> Self {
+    pub fn from_price(side: Side, price: RelativePrice) -> Self {
         Self(match side {
             // In case of bid the price in order is base/quote, so we inverse it.
-            SideM::Bid => price.pow(-1),
-            SideM::Ask => price,
+            Side::Bid => price.pow(-1),
+            Side::Ask => price,
         })
     }
 
@@ -88,14 +88,14 @@ impl AbsolutePrice {
     }
 }
 
-impl Side<AbsolutePrice> {
+impl OnSide<AbsolutePrice> {
     /// Compare prices on opposite sides.
     pub fn overlaps(self, that: AbsolutePrice) -> bool {
         match self {
             // Bid price must be higher than Ask price to overlap.
-            Side::Bid(this) => this >= that,
+            OnSide::Bid(this) => this >= that,
             // Ask price must be lower than Bid side to overlap.
-            Side::Ask(this) => this <= that,
+            OnSide::Ask(this) => this <= that,
         }
     }
 
@@ -103,9 +103,9 @@ impl Side<AbsolutePrice> {
     pub fn better_than(self, that: AbsolutePrice) -> bool {
         match self {
             // If we compare Bid prices, then we favor the highest price.
-            Side::Bid(this) => this >= that,
+            OnSide::Bid(this) => this >= that,
             // If we compare Ask prices, then we favor the lowest price.
-            Side::Ask(this) => this <= that,
+            OnSide::Ask(this) => this <= that,
         }
     }
 }

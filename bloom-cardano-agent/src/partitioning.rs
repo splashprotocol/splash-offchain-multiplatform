@@ -2,7 +2,7 @@ use std::hash::Hash;
 
 use futures::{future, Stream, StreamExt};
 
-use bloom_offchain_cardano::orders::partitioning::Partitioning;
+use bloom_offchain::partitioning::Partitioning;
 
 pub fn select_partition<S: Stream<Item = (Pair, T)>, Pair: Copy + Hash, T>(
     upstream: S,

@@ -1,75 +1,75 @@
 use std::fmt::{Display, Formatter};
 use std::ops::Not;
 
-use derive_more::Display;
+use derive_more::{Display, From, Into};
 
 /// Side marker.
 #[derive(Debug, Display, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum SideM {
+pub enum Side {
     Bid,
     Ask,
 }
 
-impl SideM {
-    pub fn wrap<T>(self, value: T) -> Side<T> {
+impl Side {
+    pub fn wrap<T>(self, value: T) -> OnSide<T> {
         match self {
-            SideM::Bid => Side::Bid(value),
-            SideM::Ask => Side::Ask(value),
+            Side::Bid => OnSide::Bid(value),
+            Side::Ask => OnSide::Ask(value),
         }
     }
 }
 
-impl Not for SideM {
-    type Output = SideM;
+impl Not for Side {
+    type Output = Side;
     fn not(self) -> Self::Output {
         match self {
-            SideM::Bid => SideM::Ask,
-            SideM::Ask => SideM::Bid,
+            Side::Bid => Side::Ask,
+            Side::Ask => Side::Bid,
         }
     }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub enum Side<T> {
+pub enum OnSide<T> {
     Bid(T),
     Ask(T),
 }
 
-impl<T: Display> Display for Side<T> {
+impl<T: Display> Display for OnSide<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Side::Bid(bid) => f.write_str(&*format!("Bid({})", bid)),
-            Side::Ask(ask) => f.write_str(&*format!("Ask({})", ask)),
+            OnSide::Bid(bid) => f.write_str(&*format!("Bid({})", bid)),
+            OnSide::Ask(ask) => f.write_str(&*format!("Ask({})", ask)),
         }
     }
 }
 
-impl<T> Side<T> {
+impl<T> OnSide<T> {
     pub fn any(&self) -> &T {
         match self {
-            Side::Bid(t) => t,
-            Side::Ask(t) => t,
+            OnSide::Bid(t) => t,
+            OnSide::Ask(t) => t,
         }
     }
     pub fn unwrap(self) -> T {
         match self {
-            Side::Bid(t) => t,
-            Side::Ask(t) => t,
+            OnSide::Bid(t) => t,
+            OnSide::Ask(t) => t,
         }
     }
-    pub fn marker(&self) -> SideM {
+    pub fn marker(&self) -> Side {
         match self {
-            Side::Bid(_) => SideM::Bid,
-            Side::Ask(_) => SideM::Ask,
+            OnSide::Bid(_) => Side::Bid,
+            OnSide::Ask(_) => Side::Ask,
         }
     }
-    pub fn map<R, F>(self, f: F) -> Side<R>
+    pub fn map<R, F>(self, f: F) -> OnSide<R>
     where
         F: FnOnce(T) -> R,
     {
         match self {
-            Side::Bid(t) => Side::Bid(f(t)),
-            Side::Ask(t) => Side::Ask(f(t)),
+            OnSide::Bid(t) => OnSide::Bid(f(t)),
+            OnSide::Ask(t) => OnSide::Ask(f(t)),
         }
     }
 }

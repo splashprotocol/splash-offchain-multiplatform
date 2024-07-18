@@ -2,6 +2,8 @@ use std::fmt::{Debug, Display, Formatter};
 
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
+use crate::orders::grid::GridOrder;
+use crate::orders::limit::{LimitOrder, LimitOrderBounds};
 use bloom_derivation::{MarketTaker, Stable, Tradable};
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
 use bloom_offchain::execution_engine::liquidity_book::fragment::TakerBehaviour;
@@ -13,20 +15,20 @@ use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
 use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
-use crate::orders::limit::{LimitOrder, LimitOrderBounds};
-
+pub mod grid;
 pub mod limit;
-pub mod partitioning;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, MarketTaker, Stable, Tradable)]
 pub enum AnyOrder {
     Limit(LimitOrder),
+    Grid(GridOrder),
 }
 
 impl Display for AnyOrder {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             AnyOrder::Limit(lo) => std::fmt::Display::fmt(&lo, f),
+            AnyOrder::Grid(go) => std::fmt::Display::fmt(&go, f),
         }
     }
 }
@@ -35,6 +37,7 @@ impl TakerBehaviour for AnyOrder {
     fn with_updated_time(self, time: u64) -> Next<Self, Unit> {
         match self {
             AnyOrder::Limit(o) => o.with_updated_time(time).map_succ(AnyOrder::Limit),
+            AnyOrder::Grid(o) => o.with_updated_time(time).map_succ(AnyOrder::Grid),
         }
     }
 
@@ -47,6 +50,9 @@ impl TakerBehaviour for AnyOrder {
             AnyOrder::Limit(o) => o
                 .with_applied_trade(removed_input, added_output)
                 .map_succ(AnyOrder::Limit),
+            AnyOrder::Grid(o) => o
+                .with_applied_trade(removed_input, added_output)
+                .map_succ(AnyOrder::Grid),
         }
     }
     fn with_budget_corrected(self, delta: i64) -> (i64, Self) {
@@ -54,6 +60,10 @@ impl TakerBehaviour for AnyOrder {
             AnyOrder::Limit(o) => {
                 let (d, s) = o.with_budget_corrected(delta);
                 (d, AnyOrder::Limit(s))
+            }
+            AnyOrder::Grid(o) => {
+                let (d, s) = o.with_budget_corrected(delta);
+                (d, AnyOrder::Grid(s))
             }
         }
     }

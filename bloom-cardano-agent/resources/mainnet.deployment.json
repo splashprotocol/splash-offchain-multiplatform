@@ -29,6 +29,21 @@
       "steps": 91500000
     }
   },
+  "gridOrderNative": {
+    "hash": "6eff899ca605c05c115f0d7b0d0397e2dd886cd366d77bcb4ac65922",
+    "referenceUtxo": {
+      "txHash": "781bbc3180ec6ac950be57cf8e48fc7635fadc6af6647ee1ecf3847d89f8c248",
+      "outputIndex": 0
+    },
+    "cost": {
+      "mem": 600000,
+      "steps": 240000000
+    },
+    "marginalCost": {
+      "mem": 600000,
+      "steps": 240000000
+    }
+  },
   "constFnPoolV1": {
     "hash": "e628bfd68c07a7a38fcd7d8df650812a9dfdbee54b1ed4c25c87ffbf",
     "referenceUtxo": {

@@ -12,7 +12,7 @@ use spectrum_offchain::data::Stable;
 use crate::execution_engine::liquidity_book::core::Next;
 use crate::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
 use crate::execution_engine::liquidity_book::market_maker::{MarketMaker, PoolQuality, SpotPrice};
-use crate::execution_engine::liquidity_book::side::{Side, SideM};
+use crate::execution_engine::liquidity_book::side::{OnSide, Side};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
 use crate::execution_engine::liquidity_book::state::price_range::AllowedPriceRange;
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, InputAsset};
@@ -447,7 +447,7 @@ where
                 max_ask_price: stashed_active_takers
                     .iter()
                     .filter_map(|tk| {
-                        if tk.side() == SideM::Ask {
+                        if tk.side() == Side::Ask {
                             Some(tk.price())
                         } else {
                             None
@@ -457,7 +457,7 @@ where
                 min_bid_price: stashed_active_takers
                     .iter()
                     .filter_map(|tk| {
-                        if tk.side() == SideM::Bid {
+                        if tk.side() == Side::Bid {
                             Some(tk.price())
                         } else {
                             None
@@ -468,11 +468,11 @@ where
         }
     }
 
-    pub fn best_taker_price(&self, side: SideM) -> Option<Side<AbsolutePrice>> {
+    pub fn best_taker_price(&self, side: Side) -> Option<OnSide<AbsolutePrice>> {
         let active_fragments = self.active_fragments();
         let side_store = match side {
-            SideM::Bid => &active_fragments.bids,
-            SideM::Ask => &active_fragments.asks,
+            Side::Bid => &active_fragments.bids,
+            Side::Ask => &active_fragments.asks,
         };
         side_store.first().map(|fr| side.wrap(fr.price()))
     }
@@ -484,7 +484,7 @@ where
     }
 
     /// Pick best fragment from the specified side if it matches the specified condition.
-    pub fn try_pick_taker<F>(&mut self, side: SideM, test: F) -> Option<T>
+    pub fn try_pick_taker<F>(&mut self, side: Side, test: F) -> Option<T>
     where
         F: FnOnce(&T) -> bool,
     {
@@ -601,7 +601,7 @@ where
 {
     pub fn preselect_market_maker(
         &self,
-        offered_amount: Side<InputAsset<u64>>,
+        offered_amount: OnSide<InputAsset<u64>>,
     ) -> Option<(M::StableId, AbsolutePrice)>
     where
         M: MarketMaker,
@@ -614,12 +614,12 @@ where
             .filter_map(|p| p.real_price(offered_amount).map(|rp| (p.stable_id(), rp)))
             .collect::<Vec<_>>();
         match offered_amount {
-            Side::Bid(_) => pools.into_iter().min_by_key(|(_, rp)| *rp),
-            Side::Ask(_) => pools.into_iter().max_by_key(|(_, rp)| *rp),
+            OnSide::Bid(_) => pools.into_iter().min_by_key(|(_, rp)| *rp),
+            OnSide::Ask(_) => pools.into_iter().max_by_key(|(_, rp)| *rp),
         }
     }
 
-    pub fn try_select_pool(&self, trade_hint: Side<u64>) -> Option<(AbsolutePrice, SpotPrice, M::StableId)>
+    pub fn try_select_pool(&self, trade_hint: OnSide<u64>) -> Option<(AbsolutePrice, SpotPrice, M::StableId)>
     where
         M: MarketMaker,
     {
@@ -634,8 +634,8 @@ where
             })
             .collect::<Vec<_>>();
         match trade_hint {
-            Side::Bid(_) => pools.into_iter().min_by_key(|(rp, _, _)| *rp),
-            Side::Ask(_) => pools.into_iter().max_by_key(|(rp, _, _)| *rp),
+            OnSide::Bid(_) => pools.into_iter().min_by_key(|(rp, _, _)| *rp),
+            OnSide::Ask(_) => pools.into_iter().max_by_key(|(rp, _, _)| *rp),
         }
     }
 
@@ -729,14 +729,14 @@ where
     }
 }
 
-fn try_pick_fr<T, F>(active_frontier: &mut MarketTakers<T>, side: SideM, test: F) -> Option<T>
+fn try_pick_fr<T, F>(active_frontier: &mut MarketTakers<T>, side: Side, test: F) -> Option<T>
 where
     T: MarketTaker + Copy + Ord,
     F: FnOnce(&T) -> bool,
 {
     let side = match side {
-        SideM::Bid => &mut active_frontier.bids,
-        SideM::Ask => &mut active_frontier.asks,
+        Side::Bid => &mut active_frontier.bids,
+        Side::Ask => &mut active_frontier.asks,
     };
     if let Some(best_fr) = side.pop_first() {
         if test(&best_fr) {
@@ -795,8 +795,8 @@ where
                 match self.inactive.entry(lower_bound) {
                     btree_map::Entry::Occupied(e) => {
                         match fr.side() {
-                            SideM::Bid => e.into_mut().bids.remove(&fr),
-                            SideM::Ask => e.into_mut().asks.remove(&fr),
+                            Side::Bid => e.into_mut().bids.remove(&fr),
+                            Side::Ask => e.into_mut().asks.remove(&fr),
                         };
                     }
                     btree_map::Entry::Vacant(_) => {}
@@ -805,10 +805,10 @@ where
             }
         }
         match fr.side() {
-            SideM::Bid => {
+            Side::Bid => {
                 self.active.bids.remove(&fr);
             }
-            SideM::Ask => {
+            Side::Ask => {
                 self.active.asks.remove(&fr);
             }
         };
@@ -854,15 +854,15 @@ where
 {
     pub fn insert(&mut self, fr: T) {
         match fr.side() {
-            SideM::Bid => self.bids.insert(fr),
-            SideM::Ask => self.asks.insert(fr),
+            Side::Bid => self.bids.insert(fr),
+            Side::Ask => self.asks.insert(fr),
         };
     }
 
     pub fn remove(&mut self, fr: &T) {
         match fr.side() {
-            SideM::Bid => self.bids.remove(fr),
-            SideM::Ask => self.asks.remove(fr),
+            Side::Bid => self.bids.remove(fr),
+            Side::Ask => self.asks.remove(fr),
         };
     }
 
@@ -942,7 +942,7 @@ pub mod tests {
     use crate::execution_engine::liquidity_book::market_maker::{
         AbsoluteReserves, MakerBehavior, MarketMaker, SpotPrice,
     };
-    use crate::execution_engine::liquidity_book::side::{Side, SideM};
+    use crate::execution_engine::liquidity_book::side::{OnSide, Side};
     use crate::execution_engine::liquidity_book::state::{
         AllowedPriceRange, Chronology, IdleState, MarketMakers, PartialPreviewState, PoolQuality,
         StashingOption, TLBState,
@@ -959,10 +959,10 @@ pub mod tests {
             takers_preview: Chronology::new(0),
             consumed_active_takers: vec![],
             stashed_active_takers: vec![
-                SimpleOrderPF::new(SideM::Ask, 0, AbsolutePrice::new_unsafe(1, 2), 0),
-                SimpleOrderPF::new(SideM::Ask, 0, AbsolutePrice::new_unsafe(1, 3), 0),
-                SimpleOrderPF::new(SideM::Bid, 0, AbsolutePrice::new_unsafe(2, 3), 0),
-                SimpleOrderPF::new(SideM::Bid, 0, AbsolutePrice::new_unsafe(1, 3), 0),
+                SimpleOrderPF::new(Side::Ask, 0, AbsolutePrice::new_unsafe(1, 2), 0),
+                SimpleOrderPF::new(Side::Ask, 0, AbsolutePrice::new_unsafe(1, 3), 0),
+                SimpleOrderPF::new(Side::Bid, 0, AbsolutePrice::new_unsafe(2, 3), 0),
+                SimpleOrderPF::new(Side::Bid, 0, AbsolutePrice::new_unsafe(1, 3), 0),
             ],
             makers_intact: MarketMakers::new(),
             makers_preview: MarketMakers::new(),
@@ -981,8 +981,8 @@ pub mod tests {
             takers_preview: Chronology::new(0),
             consumed_active_takers: vec![],
             stashed_active_takers: vec![
-                SimpleOrderPF::new(SideM::Ask, 0, AbsolutePrice::new_unsafe(1, 2), 0),
-                SimpleOrderPF::new(SideM::Ask, 0, AbsolutePrice::new_unsafe(1, 3), 0),
+                SimpleOrderPF::new(Side::Ask, 0, AbsolutePrice::new_unsafe(1, 2), 0),
+                SimpleOrderPF::new(Side::Ask, 0, AbsolutePrice::new_unsafe(1, 3), 0),
             ],
             makers_intact: MarketMakers::new(),
             makers_preview: MarketMakers::new(),
@@ -1043,8 +1043,8 @@ pub mod tests {
     fn choose_best_fragment_bid_is_underpriced() {
         let time_now = 1000u64;
         let index_price = AbsolutePrice::new_unsafe(1, 35);
-        let ask = SimpleOrderPF::new(SideM::Ask, 1000, index_price, 100);
-        let bid = SimpleOrderPF::new(SideM::Bid, 1000, AbsolutePrice::new_unsafe(1, 40), 200);
+        let ask = SimpleOrderPF::new(Side::Ask, 1000, index_price, 100);
+        let bid = SimpleOrderPF::new(Side::Bid, 1000, AbsolutePrice::new_unsafe(1, 40), 200);
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.takers.add_fragment(ask);
         s0.takers.add_fragment(bid);
@@ -1058,8 +1058,8 @@ pub mod tests {
     fn choose_best_fragment_ask_is_overpriced() {
         let time_now = 1000u64;
         let index_price = AbsolutePrice::new_unsafe(1, 35);
-        let ask = SimpleOrderPF::new(SideM::Ask, 1000, AbsolutePrice::new_unsafe(1, 30), 100);
-        let bid = SimpleOrderPF::new(SideM::Bid, 1000, index_price, 200);
+        let ask = SimpleOrderPF::new(Side::Ask, 1000, AbsolutePrice::new_unsafe(1, 30), 100);
+        let bid = SimpleOrderPF::new(Side::Bid, 1000, index_price, 200);
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.takers.add_fragment(ask);
         s0.takers.add_fragment(bid);
@@ -1073,8 +1073,8 @@ pub mod tests {
     fn choose_best_fragment_both_orders_price_is_off() {
         let time_now = 1000u64;
         let index_price = AbsolutePrice::new_unsafe(1, 35);
-        let ask = SimpleOrderPF::new(SideM::Ask, 1000, AbsolutePrice::new_unsafe(1, 30), 100);
-        let bid = SimpleOrderPF::new(SideM::Bid, 1000, AbsolutePrice::new_unsafe(1, 40), 200);
+        let ask = SimpleOrderPF::new(Side::Ask, 1000, AbsolutePrice::new_unsafe(1, 30), 100);
+        let bid = SimpleOrderPF::new(Side::Bid, 1000, AbsolutePrice::new_unsafe(1, 40), 200);
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.takers.add_fragment(ask);
         s0.takers.add_fragment(bid);
@@ -1247,7 +1247,7 @@ pub mod tests {
     #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
     pub struct SimpleOrderPF {
         pub source: StableId,
-        pub side: SideM,
+        pub side: Side,
         pub input: u64,
         pub accumulated_output: u64,
         pub min_marginal_output: u64,
@@ -1290,7 +1290,7 @@ pub mod tests {
     }
 
     impl SimpleOrderPF {
-        pub fn new(side: SideM, input: u64, price: AbsolutePrice, fee: u64) -> Self {
+        pub fn new(side: Side, input: u64, price: AbsolutePrice, fee: u64) -> Self {
             Self {
                 source: StableId::random(),
                 side,
@@ -1305,7 +1305,7 @@ pub mod tests {
             }
         }
         pub fn make(
-            side: SideM,
+            side: Side,
             input: u64,
             price: AbsolutePrice,
             fee: u64,
@@ -1328,7 +1328,7 @@ pub mod tests {
         pub fn default_with_bounds(bounds: TimeBounds<u64>) -> Self {
             Self {
                 source: StableId::random(),
-                side: SideM::Ask,
+                side: Side::Ask,
                 input: 1000_000_000,
                 accumulated_output: 0,
                 min_marginal_output: 0,
@@ -1344,7 +1344,7 @@ pub mod tests {
     impl MarketTaker for SimpleOrderPF {
         type U = u64;
 
-        fn side(&self) -> SideM {
+        fn side(&self) -> Side {
             self.side
         }
 
@@ -1455,9 +1455,9 @@ pub mod tests {
     }
 
     impl MakerBehavior for SimpleCFMMPool {
-        fn swap(mut self, input: Side<u64>) -> Next<Self, Unit> {
+        fn swap(mut self, input: OnSide<u64>) -> Next<Self, Unit> {
             let result = match input {
-                Side::Bid(quote_input) => {
+                OnSide::Bid(quote_input) => {
                     let base_output =
                         ((self.reserves_base as u128) * (quote_input as u128) * (self.fee_num as u128)
                             / ((self.reserves_quote as u128) * 1000u128
@@ -1467,7 +1467,7 @@ pub mod tests {
                     self.reserves_base -= base_output;
                     self
                 }
-                Side::Ask(base_input) => {
+                OnSide::Ask(base_input) => {
                     let quote_output =
                         ((self.reserves_quote as u128) * (base_input as u128) * (self.fee_num as u128)
                             / ((self.reserves_base as u128) * 1000u128
@@ -1489,16 +1489,16 @@ pub mod tests {
             AbsolutePrice::new_unsafe(self.reserves_quote, self.reserves_base).into()
         }
 
-        fn real_price(&self, input: Side<u64>) -> Option<AbsolutePrice> {
+        fn real_price(&self, input: OnSide<u64>) -> Option<AbsolutePrice> {
             match input {
-                Side::Bid(quote_input) => {
-                    let result_pool = self.swap(Side::Bid(quote_input));
+                OnSide::Bid(quote_input) => {
+                    let result_pool = self.swap(OnSide::Bid(quote_input));
                     let trans = Trans::new(*self, result_pool);
                     let base_output = trans.loss().map(|r| r.unwrap()).unwrap_or(0);
                     AbsolutePrice::new(quote_input, base_output)
                 }
-                Side::Ask(base_input) => {
-                    let result_pool = self.swap(Side::Ask(base_input));
+                OnSide::Ask(base_input) => {
+                    let result_pool = self.swap(OnSide::Ask(base_input));
                     let trans = Trans::new(*self, result_pool);
                     let quote_output = trans.loss().map(|r| r.unwrap()).unwrap_or(0);
                     AbsolutePrice::new(quote_output, base_input)

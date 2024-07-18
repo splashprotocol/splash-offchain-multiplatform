@@ -1,9 +1,9 @@
 import { Lucid, Script, TxComplete } from "https://deno.land/x/lucid@0.10.7/mod.ts";
 import { BuiltValidators, DeployedValidators, ScriptNames } from "./types.ts";
-import { LimitOrderBatchWitness, LimitOrderLimitOrder, PoolT2tExactValidateStablePoolTransitionT2tExact, StabledepositContract, StableredeemContract } from "./../plutus.ts";
 import { getLucid } from "./lucid.ts";
 import { generateConfigJson } from "./config.ts";
 import { setupWallet } from "./wallet.ts";
+import { GridGridNative } from "../plutus.ts";
 
 export class Deployment {
   lucid: Lucid;
@@ -13,43 +13,13 @@ export class Deployment {
   }
 
   build(): BuiltValidators {
-    const witnessScript = new LimitOrderBatchWitness();
-    const witnessScriptHash = this.lucid.utils.validatorToScriptHash(witnessScript);
-    const orderScript = new LimitOrderLimitOrder({
-      Inline: [
-        {
-          ScriptCredential: [witnessScriptHash],
-        },
-      ],
-    });
-    const orderScriptHash = this.lucid.utils.validatorToScriptHash(orderScript);
-    const stablePoolT2T = new PoolT2tExactValidateStablePoolTransitionT2tExact('00000000000000000000000000000000000000000000000000000000')
-    const stablePoolT2TScriptHash = this.lucid.utils.validatorToScriptHash(stablePoolT2T);
-    const stablePoolT2TDeposit = new StabledepositContract()
-    const stablePoolT2TDepositScriptHash = this.lucid.utils.validatorToScriptHash(stablePoolT2TDeposit);
-    const stablePoolT2TRedeem = new StableredeemContract()
-    const stablePoolT2TRedeemScriptHash = this.lucid.utils.validatorToScriptHash(stablePoolT2TRedeem);
+    const gridOrderNativeScript = new GridGridNative();
+    const gridOrderNativeHash = this.lucid.utils.validatorToScriptHash(gridOrderNativeScript);
     return {
-      limitOrder: {
-        script: orderScript,
-        hash: orderScriptHash,
+      gridOrderNative: {
+        script: gridOrderNativeScript,
+        hash: gridOrderNativeHash,
       },
-      limitOrderWitness: {
-        script: witnessScript,
-        hash: witnessScriptHash,
-      },
-      stablePoolT2T: {
-        script: stablePoolT2T,
-        hash: stablePoolT2TScriptHash,
-      },
-      RedeemT2tStableRedeemT2t: {
-        script: stablePoolT2TRedeem,
-        hash: stablePoolT2TRedeemScriptHash,
-      },
-      DepositT2t2tStableDepositT2t: {
-        script: stablePoolT2TDeposit,
-        hash: stablePoolT2TDepositScriptHash,
-      }
     }
   }
 
@@ -59,38 +29,13 @@ export class Deployment {
       slot: 0,
     });
     const lockScript = this.lucid.utils.validatorToAddress(ns);
-    const witnessRewardAddress = this.lucid.utils.credentialToRewardAddress({
-      type: "Script",
-      hash: builtValidators.limitOrderWitness.hash
-    });
     const tx = await this.lucid
       .newTx()
       .payToAddressWithData(
         lockScript,
-        { scriptRef: builtValidators.limitOrder.script },
+        { scriptRef: builtValidators.gridOrderNative.script },
         {},
       )
-      .payToAddressWithData(
-        lockScript,
-        { scriptRef: builtValidators.limitOrderWitness.script },
-        {},
-      )
-      .payToAddressWithData(
-        lockScript,
-        { scriptRef: builtValidators.stablePoolT2T.script },
-        {},
-      )
-      .payToAddressWithData(
-        lockScript,
-        { scriptRef: builtValidators.DepositT2t2tStableDepositT2t.script },
-        {},
-      )
-      .payToAddressWithData(
-        lockScript,
-        { scriptRef: builtValidators.RedeemT2tStableRedeemT2t.script },
-        {},
-      )
-      .registerStake(witnessRewardAddress)
       .complete();
 
     return tx;

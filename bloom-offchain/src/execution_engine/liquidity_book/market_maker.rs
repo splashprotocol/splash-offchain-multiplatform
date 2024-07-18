@@ -1,5 +1,5 @@
 use crate::execution_engine::liquidity_book::core::{MakeInProgress, Next, Unit};
-use crate::execution_engine::liquidity_book::side::Side;
+use crate::execution_engine::liquidity_book::side::OnSide;
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 use derive_more::{Display, Div, From, Into, Mul};
 use num_rational::Ratio;
@@ -28,7 +28,7 @@ pub trait MarketMaker {
     /// Static price (regardless swap vol) in this pool.
     fn static_price(&self) -> SpotPrice;
     /// Real price of swap.
-    fn real_price(&self, input: Side<u64>) -> Option<AbsolutePrice>;
+    fn real_price(&self, input: OnSide<u64>) -> Option<AbsolutePrice>;
     /// Quality of the pool.
     fn quality(&self) -> PoolQuality;
     /// How much (approximately) execution of this fragment will cost.
@@ -42,7 +42,7 @@ pub trait MarketMaker {
 /// Pooled liquidity.
 pub trait MakerBehavior: Sized {
     /// Output of a swap.
-    fn swap(self, input: Side<u64>) -> Next<Self, Unit>;
+    fn swap(self, input: OnSide<u64>) -> Next<Self, Unit>;
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Into, From, Display)]

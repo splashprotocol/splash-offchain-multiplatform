@@ -6,7 +6,12 @@ use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::order::ClassicalAMMOrder;
 use crate::data::pool::try_run_order_against_pool;
 use crate::data::redeem::ClassicalOnChainRedeem;
-use crate::deployment::ProtocolValidator::{BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2, ConstFnFeeSwitchPoolDeposit, ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2, StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem};
+use crate::deployment::ProtocolValidator::{
+    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2, ConstFnFeeSwitchPoolDeposit,
+    ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolRedeem,
+    ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2, StableFnPoolT2T, StableFnPoolT2TDeposit,
+    StableFnPoolT2TRedeem,
+};
 use crate::deployment::{DeployedScriptInfo, DeployedValidator};
 use bloom_offchain::execution_engine::bundled::Bundled;
 use cml_chain::builders::tx_builder::SignedTxBuilder;

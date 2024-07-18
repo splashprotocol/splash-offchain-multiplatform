@@ -12,7 +12,7 @@ pub fn derive_fragment(input: TokenStream) -> TokenStream {
         bloom_offchain::execution_engine::liquidity_book::fragment::MarketTaker,
         pub trait MarketTaker {
             type U;
-            fn side(&self) -> bloom_offchain::execution_engine::liquidity_book::side::SideM;
+            fn side(&self) -> bloom_offchain::execution_engine::liquidity_book::side::Side;
             fn input(&self) -> bloom_offchain::execution_engine::liquidity_book::types::InputAsset<u64>;
             fn output(&self) -> bloom_offchain::execution_engine::liquidity_book::types::OutputAsset<u64>;
             fn price(&self) -> bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;

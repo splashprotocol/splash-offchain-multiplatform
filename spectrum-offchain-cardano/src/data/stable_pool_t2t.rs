@@ -18,7 +18,7 @@ use num_rational::Ratio;
 use num_traits::{CheckedAdd, CheckedSub, Pow, ToPrimitive};
 use primitive_types::U512;
 
-use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
+use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension};
@@ -166,28 +166,28 @@ pub struct StablePoolT2T {
 }
 
 impl StablePoolT2T {
-    pub fn get_asset_deltas(&self, side: SideM) -> PoolAssetMapping {
+    pub fn get_asset_deltas(&self, side: Side) -> PoolAssetMapping {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, _] = order_canonical(x, y);
         if base == x {
             match side {
-                SideM::Bid => PoolAssetMapping {
+                Side::Bid => PoolAssetMapping {
                     asset_to_deduct_from: x,
                     asset_to_add_to: y,
                 },
-                SideM::Ask => PoolAssetMapping {
+                Side::Ask => PoolAssetMapping {
                     asset_to_deduct_from: y,
                     asset_to_add_to: x,
                 },
             }
         } else {
             match side {
-                SideM::Bid => PoolAssetMapping {
+                Side::Bid => PoolAssetMapping {
                     asset_to_deduct_from: y,
                     asset_to_add_to: x,
                 },
-                SideM::Ask => PoolAssetMapping {
+                Side::Ask => PoolAssetMapping {
                     asset_to_deduct_from: x,
                     asset_to_add_to: y,
                 },
@@ -399,15 +399,15 @@ impl AMMOps for StablePoolT2T {
 }
 
 impl MakerBehavior for StablePoolT2T {
-    fn swap(mut self, input: Side<u64>) -> Next<Self, Unit> {
+    fn swap(mut self, input: OnSide<u64>) -> Next<Self, Unit> {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, quote] = order_canonical(x, y);
         let pure_output = match input {
-            Side::Bid(input) => self
+            OnSide::Bid(input) => self
                 .output_amount(TaggedAssetClass::new(quote), TaggedAmount::new(input))
                 .untag(),
-            Side::Ask(input) => self
+            OnSide::Ask(input) => self
                 .output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
                 .untag(),
         };
@@ -435,14 +435,14 @@ impl MakerBehavior for StablePoolT2T {
 
         let output = pure_output - treasury_fee - lp_fees;
         match input {
-            Side::Bid(input) => {
+            OnSide::Bid(input) => {
                 // A user bid means that they wish to buy the base asset for the quote asset, hence
                 // pool reserves of base decreases while reserves of quote increase.
                 *quote_reserves += input;
                 *base_reserves -= output;
                 self.treasury_x = TaggedAmount::new(self.treasury_x.untag() + treasury_fee);
             }
-            Side::Ask(input) => {
+            OnSide::Ask(input) => {
                 // User ask is the opposite; sell the base asset for the quote asset.
                 *base_reserves += input;
                 *quote_reserves -= output;
@@ -498,17 +498,17 @@ impl MarketMaker for StablePoolT2T {
         }
     }
 
-    fn real_price(&self, input: Side<u64>) -> Option<AbsolutePrice> {
+    fn real_price(&self, input: OnSide<u64>) -> Option<AbsolutePrice> {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, quote] = order_canonical(x, y);
         let (base, quote) = match input {
-            Side::Bid(input) => (
+            OnSide::Bid(input) => (
                 self.output_amount(TaggedAssetClass::new(quote), TaggedAmount::new(input))
                     .untag(),
                 input,
             ),
-            Side::Ask(input) => (
+            OnSide::Ask(input) => (
                 input,
                 self.output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
                     .untag(),
@@ -665,7 +665,7 @@ impl ApplyOrder<ClassicalOnChainRedeem> for StablePoolT2T {
 mod tests {
     use bloom_offchain::execution_engine::liquidity_book::core::Next;
     use bloom_offchain::execution_engine::liquidity_book::market_maker::MakerBehavior;
-    use bloom_offchain::execution_engine::liquidity_book::side::Side;
+    use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
     use cml_chain::plutus::PlutusData;
     use cml_chain::Deserialize;
     use cml_core::serialization::Serialize;
@@ -800,7 +800,7 @@ mod tests {
             300 * 16,
         );
 
-        let Next::Succ(result) = pool.swap(Side::Bid(390088 - 343088)) else {
+        let Next::Succ(result) = pool.swap(OnSide::Bid(390088 - 343088)) else {
             panic!()
         };
 
@@ -823,7 +823,7 @@ mod tests {
             300 * 16,
         );
 
-        let Next::Succ(result) = pool.swap(Side::Ask(390088 - 343088)) else {
+        let Next::Succ(result) = pool.swap(OnSide::Ask(390088 - 343088)) else {
             panic!()
         };
 
@@ -835,7 +835,7 @@ mod tests {
         // Uniform swap;
         let pool = gen_ada_token_pool(100000, 1, 100000, 1, 2000, 2000, 5000, 0, 0, 300 * 16);
 
-        let Next::Succ(result) = pool.swap(Side::Ask(1000)) else {
+        let Next::Succ(result) = pool.swap(OnSide::Ask(1000)) else {
             panic!()
         };
 
@@ -847,7 +847,7 @@ mod tests {
         // Some swap;
         let pool = gen_ada_token_pool(100100000, 1, 99900201, 1, 100, 100, 100, 0, 100, 300 * 16);
 
-        let Next::Succ(result) = pool.swap(Side::Ask(100000)) else {
+        let Next::Succ(result) = pool.swap(OnSide::Ask(100000)) else {
             panic!()
         };
 
@@ -859,7 +859,7 @@ mod tests {
         // Uniform swap;
         let pool = gen_ada_token_pool(108500000, 1, 108500000, 1, 100, 100, 100, 0, 0, 200 * 16);
 
-        let Next::Succ(result) = pool.swap(Side::Ask(100000000)) else {
+        let Next::Succ(result) = pool.swap(OnSide::Ask(100000000)) else {
             panic!()
         };
 
@@ -884,7 +884,7 @@ mod tests {
             300 * 16,
         );
 
-        let Next::Succ(new_pool) = pool.swap(Side::Ask(363613802862)) else {
+        let Next::Succ(new_pool) = pool.swap(OnSide::Ask(363613802862)) else {
             panic!()
         };
 
