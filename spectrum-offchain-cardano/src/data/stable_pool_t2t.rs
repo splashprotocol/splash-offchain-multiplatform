@@ -13,9 +13,8 @@ use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_multi_era::babbage::BabbageTransactionOutput;
-use num_integer::Roots;
 use num_rational::Ratio;
-use num_traits::{CheckedAdd, CheckedSub, Pow, ToPrimitive};
+use num_traits::{CheckedAdd, CheckedSub, ToPrimitive};
 use primitive_types::U512;
 
 use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
@@ -32,7 +31,6 @@ use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 use crate::constants::{FEE_DEN, MAX_LQ_CAP};
-use crate::data::balance_pool::BalancePool;
 use crate::data::cfmm_pool::AMMOps;
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::operation_output::{DepositOutput, RedeemOutput};
@@ -45,7 +43,7 @@ use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::StableFnPoolT2T;
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
-use crate::pool_math::cfmm_math::{classic_cfmm_reward_lp, classic_cfmm_shares_amount};
+use crate::pool_math::cfmm_math::classic_cfmm_shares_amount;
 use crate::pool_math::stable_math::stable_cfmm_reward_lp;
 use crate::pool_math::stable_pool_t2t_exact_math::{
     calc_stable_swap, calculate_context_values_list, calculate_invariant,
@@ -208,7 +206,8 @@ impl StablePoolT2T {
 
         let context_values_list = match pool_action {
             CFMMPoolAction::Swap => {
-                let context_values_list = calculate_context_values_list(prev_state, new_state);
+                let context_values_list = calculate_context_values_list(prev_state, new_state)
+                    .expect("Context_values_list created successfully");
                 ConstrPlutusData::new(
                     0,
                     Vec::from([PlutusData::new_list(vec![PlutusData::new_integer(
@@ -371,7 +370,8 @@ impl AMMOps for StablePoolT2T {
             base_asset,
             base_amount,
             self.an2n,
-        ).expect("Output amount calculated correctly")
+        )
+        .expect("Output amount calculated correctly")
     }
 
     fn reward_lp(
@@ -464,11 +464,8 @@ impl MarketMaker for StablePoolT2T {
 
         let nn = N_TRADABLE_ASSETS.pow(N_TRADABLE_ASSETS as u32);
         let ann = self.an2n / nn;
-        let d = calculate_invariant(
-            U512::from(x_calc),
-            U512::from(y_calc),
-            U512::from(self.an2n)
-        ).expect("Invariant calculated correctly");
+        let d = calculate_invariant(U512::from(x_calc), U512::from(y_calc), U512::from(self.an2n))
+            .expect("Invariant calculated correctly");
 
         let dn1 = vec![d; usize::try_from(N_TRADABLE_ASSETS + 1).unwrap()]
             .iter()
@@ -508,14 +505,32 @@ impl MarketMaker for StablePoolT2T {
         let [base, quote] = order_canonical(x, y);
         let (base, quote) = match input {
             Side::Bid(input) => (
-                self.output_amount(TaggedAssetClass::new(quote), TaggedAmount::new(input))
-                    .untag(),
+                calc_stable_swap(
+                    self.asset_x,
+                    self.reserves_x - self.treasury_x,
+                    self.multiplier_x,
+                    self.reserves_y - self.treasury_y,
+                    self.multiplier_y,
+                    TaggedAssetClass::new(quote),
+                    TaggedAmount::new(input),
+                    self.an2n,
+                )?
+                .untag(),
                 input,
             ),
             Side::Ask(input) => (
                 input,
-                self.output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
-                    .untag(),
+                calc_stable_swap(
+                    self.asset_x,
+                    self.reserves_x - self.treasury_x,
+                    self.multiplier_x,
+                    self.reserves_y - self.treasury_y,
+                    self.multiplier_y,
+                    TaggedAssetClass::new(base),
+                    TaggedAmount::new(input),
+                    self.an2n,
+                )?
+                .untag(),
             ),
         };
         AbsolutePrice::new(quote, base)
@@ -526,7 +541,8 @@ impl MarketMaker for StablePoolT2T {
             U512::from((self.reserves_x - self.treasury_x).untag() * self.multiplier_x as u64),
             U512::from((self.reserves_y - self.treasury_y).untag() * self.multiplier_x as u64),
             U512::from(self.an2n),
-        ).expect("Invariant calculated correctly");
+        )
+        .expect("Invariant calculated correctly");
         PoolQuality::from(MAX_LQ_CAP - invariant.as_u64())
     }
 
@@ -707,9 +723,9 @@ mod tests {
     ) -> StablePoolT2T {
         let reserves_x = reserves_x;
         let reserves_y = reserves_y;
-        let (multiplier_x, multiplier_y) = if (x_decimals > y_decimals) {
+        let (multiplier_x, multiplier_y) = if x_decimals > y_decimals {
             (1, 10_u32.pow(x_decimals - y_decimals))
-        } else if (x_decimals < y_decimals) {
+        } else if x_decimals < y_decimals {
             (10_u32.pow(y_decimals - x_decimals), 1)
         } else {
             (1, 1)
@@ -718,7 +734,8 @@ mod tests {
             U512::from((reserves_x - treasury_x) * multiplier_x as u64),
             U512::from((reserves_y - treasury_y) * multiplier_y as u64),
             U512::from(an2n),
-        ).expect("Invariant calculated correctly");
+        )
+        .expect("Invariant calculated correctly");
         let liquidity = MAX_LQ_CAP - inv_before.as_u64();
 
         return StablePoolT2T {
@@ -944,6 +961,6 @@ mod tests {
 
         let test = pool.apply_order(test_order);
 
-        assert_eq!(1, 1)
+        assert_eq!(test.is_ok(), true)
     }
 }

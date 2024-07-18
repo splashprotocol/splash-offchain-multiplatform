@@ -254,7 +254,7 @@ pub struct PoolAssetMapping {
 }
 
 impl MakerBehavior for AnyPool {
-    fn swap(mut self, input: Side<u64>) -> Next<Self, Unit> {
+    fn swap(self, input: Side<u64>) -> Next<Self, Unit> {
         match self {
             PureCFMM(p) => p.swap(input).map_succ(PureCFMM),
             BalancedCFMM(p) => p.swap(input).map_succ(BalancedCFMM),

@@ -754,8 +754,7 @@ mod tests {
     use crate::data::cfmm_pool::{ConstFnPool, ConstFnPoolVer};
     use crate::data::pool::PoolBounds;
     use crate::data::PoolId;
-    use bloom_offchain::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker};
-    use bloom_offchain::execution_engine::liquidity_book::side::Side::{Ask, Bid};
+    use bloom_offchain::execution_engine::liquidity_book::market_maker::MakerBehavior;
     use bloom_offchain::execution_engine::liquidity_book::side::{Side, SideM};
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
