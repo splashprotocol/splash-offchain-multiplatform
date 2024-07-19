@@ -374,7 +374,7 @@ pub fn linear_output_relative(input: u64, price: RelativePrice) -> Option<u64> {
         .ok()
 }
 
-fn linear_output_unsafe(input: u64, price: OnSide<AbsolutePrice>) -> u64 {
+pub fn linear_output_unsafe(input: u64, price: OnSide<AbsolutePrice>) -> u64 {
     match price {
         Bid(price) => (U256::from(input) * U256::from(*price.denom()) / U256::from(*price.numer())).as_u64(),
         Ask(price) => (U256::from(input) * U256::from(*price.numer()) / U256::from(*price.denom())).as_u64(),

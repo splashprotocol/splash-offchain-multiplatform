@@ -233,7 +233,7 @@ where
         let (residual_order, effect) = match result {
             Next::Succ(next) => {
                 if let Some(data) = candidate.data_mut() {
-                    grid::unsafe_update_datum(data, next.quote_offer, next.price, next.relative_side);
+                    grid::unsafe_update_datum(data, next.quote_offer, next.price, next.side);
                 }
                 (
                     candidate.clone(),

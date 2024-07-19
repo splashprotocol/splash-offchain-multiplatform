@@ -5,18 +5,19 @@ use cml_chain::plutus::PlutusData;
 use cml_chain::PolicyId;
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding};
 use cml_multi_era::babbage::BabbageTransactionOutput;
+use derive_more::{From, Into};
 use num_rational::Ratio;
 
-use crate::relative_side::RelativeSide;
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
 use bloom_offchain::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
 use bloom_offchain::execution_engine::liquidity_book::types::{
-    AbsolutePrice, FeeAsset, InputAsset, Lovelace, OutputAsset, RelativePrice,
+    AbsolutePrice, FeeAsset, InputAsset, Lovelace, OutputAsset,
 };
 use bloom_offchain::execution_engine::liquidity_book::weight::Weighted;
 use spectrum_cardano_lib::address::PlutusAddress;
+use spectrum_cardano_lib::AssetClass;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
@@ -24,12 +25,32 @@ use spectrum_cardano_lib::plutus_data::{
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::AssetClass;
 use spectrum_offchain::data::{Has, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
-use spectrum_offchain_cardano::data::pair::{side_of, PairId};
+use spectrum_offchain_cardano::data::pair::{PairId, side_of};
+use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, test_address};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::GridOrderNative;
-use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
+
+use crate::relative_side::RelativeSide;
+
+/// Quote/Base price relative to order.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Into, From)]
+pub struct GridPrice(Ratio<u128>);
+impl GridPrice {
+    #[inline]
+    pub fn new_unsafe(numer: u128, denom: u128) -> Self {
+        Self(Ratio::new_raw(numer, denom))
+    }
+    pub fn value(self) -> Ratio<u128> {
+        self.0
+    }
+    pub fn num(&self) -> u128 {
+        *self.0.numer()
+    }
+    pub fn den(&self) -> u128 {
+        *self.0.denom()
+    }
+}
 
 /// Open Grid Order.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -42,10 +63,10 @@ pub struct GridOrder {
     pub base_reserves: u64,
     pub quote_reserves: u64,
     pub quote_offer: u64,
-    pub price: RelativePrice,
+    pub price: GridPrice,
     /// Side relative to the order .
     /// Note, it may differ from absolute (canonical) Side in TLB.
-    pub relative_side: RelativeSide,
+    pub side: RelativeSide,
     /// Minimal marginal output of base asset allowed per execution step.
     pub min_marginal_output_base: u64,
     /// Minimal marginal output of quote asset allowed per execution step.
@@ -62,7 +83,7 @@ pub struct GridOrder {
 impl GridOrder {
     /// Relative input, output assets of the order.
     pub fn relative_io(&self) -> (AssetClass, AssetClass) {
-        match self.relative_side.value() {
+        match self.side.value() {
             Side::Bid => (self.quote_asset, self.base_asset),
             Side::Ask => (self.base_asset, self.quote_asset),
         }
@@ -70,7 +91,7 @@ impl GridOrder {
 
     /// Canonical input, output assets of the order.
     pub fn absolute_io(&self) -> (AssetClass, AssetClass) {
-        let relative_side = self.relative_side.value();
+        let relative_side = self.side.value();
         let absolute_side = self.side();
         if absolute_side == relative_side {
             match relative_side {
@@ -137,7 +158,7 @@ impl TakerBehaviour for GridOrder {
         removed_input: InputAsset<u64>,
         added_output: OutputAsset<u64>,
     ) -> Next<Self, TerminalTake> {
-        let relative_side = self.relative_side.value();
+        let relative_side = self.side.value();
         let absolute_side = self.side();
         let mut mock = <u64>::MAX;
         let (input_reserves, input_offer, output_reserves, output_offer) = if relative_side == absolute_side {
@@ -179,18 +200,20 @@ impl TakerBehaviour for GridOrder {
         self.remaining_execution_budget -= budget_used;
         match relative_side {
             Side::Bid if self.quote_reserves == 0 => {
-                self.relative_side = Side::Ask.into();
+                self.side = Side::Ask.into();
                 self.price = Ratio::new_raw(
-                    *self.price.numer() * *self.buy_shift_factor.numer(),
-                    *self.price.denom() * *self.buy_shift_factor.denom(),
-                );
+                    self.price.num() * *self.buy_shift_factor.numer(),
+                    self.price.den() * *self.buy_shift_factor.denom(),
+                )
+                .into();
             }
             Side::Ask if self.quote_offer == 0 => {
-                self.relative_side = Side::Bid.into();
+                self.side = Side::Bid.into();
                 self.price = Ratio::new_raw(
-                    *self.price.numer() * *self.sell_shift_factor.numer(),
-                    *self.price.denom() * *self.sell_shift_factor.denom(),
-                );
+                    self.price.num() * *self.sell_shift_factor.numer(),
+                    self.price.den() * *self.sell_shift_factor.denom(),
+                )
+                .into();
             }
             _ => (),
         }
@@ -216,37 +239,28 @@ impl MarketTaker for GridOrder {
     }
 
     fn input(&self) -> u64 {
-        let relative_side = self.relative_side.value();
-        if relative_side == self.side() {
-            match relative_side {
-                Side::Bid => self.quote_offer,
-                Side::Ask => self.base_reserves,
-            }
-        } else {
-            match relative_side {
-                Side::Ask => self.quote_offer,
-                Side::Bid => self.base_reserves,
-            }
+        let relative_side = self.side.value();
+        match relative_side {
+            Side::Bid => self.quote_offer,
+            Side::Ask => self.base_reserves,
         }
     }
 
     fn output(&self) -> OutputAsset<u64> {
-        let relative_side = self.relative_side.value();
-        if relative_side == self.side() {
-            match relative_side {
-                Side::Ask => self.quote_reserves,
-                Side::Bid => self.base_reserves,
-            }
-        } else {
-            match relative_side {
-                Side::Bid => self.quote_reserves,
-                Side::Ask => self.base_reserves,
-            }
+        let relative_side = self.side.value();
+        match relative_side {
+            Side::Ask => self.quote_reserves,
+            Side::Bid => self.base_reserves,
         }
     }
 
     fn price(&self) -> AbsolutePrice {
-        AbsolutePrice::from_price(self.side(), self.price)
+        let relative_side = self.side.value();
+        if relative_side == self.side() {
+            self.price.value().into()
+        } else {
+            self.price.value().pow(-1).into()
+        }
     }
 
     fn operator_fee(&self, _: InputAsset<u64>) -> FeeAsset<u64> {
@@ -300,7 +314,7 @@ struct DatumNative {
     sell_shift_factor: Ratio<u128>,
     max_lovelace_offer: Lovelace,
     lovelace_offer: Lovelace,
-    price: RelativePrice,
+    price: GridPrice,
     side: RelativeSide,
     budget_per_transaction: Lovelace,
     min_marginal_output_lovelace: Lovelace,
@@ -358,7 +372,7 @@ impl TryFromPData for DatumNative {
                 .take_field(DATUM_NATIVE_MAPPING.max_lovelace_offer)?
                 .into_u64()?,
             lovelace_offer: cpd.take_field(DATUM_NATIVE_MAPPING.lovelace_offer)?.into_u64()?,
-            price: RelativePrice::try_from_pd(cpd.take_field(DATUM_NATIVE_MAPPING.price)?)?,
+            price: <Ratio<u128>>::try_from_pd(cpd.take_field(DATUM_NATIVE_MAPPING.price)?)?.into(),
             side: bool::try_from_pd(cpd.take_field(DATUM_NATIVE_MAPPING.side)?).map(|flag| {
                 if flag {
                     Side::Bid.into()
@@ -391,12 +405,12 @@ impl TryFromPData for DatumNative {
 pub fn unsafe_update_datum(
     data: &mut PlutusData,
     lovelace_offer: u64,
-    price: RelativePrice,
+    price: GridPrice,
     relative_side: RelativeSide,
 ) {
     let cpd = data.get_constr_pd_mut().unwrap();
     cpd.set_field(DATUM_NATIVE_MAPPING.lovelace_offer, lovelace_offer.into_pd());
-    cpd.set_field(DATUM_NATIVE_MAPPING.price, price.into_pd());
+    cpd.set_field(DATUM_NATIVE_MAPPING.price, price.value().into_pd());
     cpd.set_field(DATUM_NATIVE_MAPPING.side, relative_side.into_pd());
 }
 
@@ -421,7 +435,7 @@ where
                 quote_reserves: total_lovelace,
                 quote_offer: conf.lovelace_offer,
                 price: harden_price(conf.price, conf.side),
-                relative_side: conf.side,
+                side: conf.side,
                 min_marginal_output_base: conf.min_marginal_output_token,
                 min_marginal_output_quote: conf.min_marginal_output_lovelace,
                 max_execution_budget_per_step: conf.budget_per_transaction,
@@ -435,7 +449,7 @@ where
 }
 
 fn with_consistency_verified_native(grid_order: GridOrder) -> Option<GridOrder> {
-    let min_real_lovelace = if matches!(grid_order.relative_side.value(), Side::Bid) {
+    let min_real_lovelace = if matches!(grid_order.side.value(), Side::Bid) {
         grid_order.quote_offer + grid_order.remaining_execution_budget
     } else {
         grid_order.remaining_execution_budget
@@ -447,22 +461,26 @@ fn with_consistency_verified_native(grid_order: GridOrder) -> Option<GridOrder> 
     None
 }
 
-fn harden_price(p: RelativePrice, side: RelativeSide) -> RelativePrice {
+fn harden_price(p: GridPrice, side: RelativeSide) -> GridPrice {
     match side.value() {
-        Side::Bid => RelativePrice::new(*p.numer(), *p.denom() + 1),
-        Side::Ask => RelativePrice::new(*p.numer() + 1, *p.denom()),
+        Side::Bid => GridPrice::new_unsafe(p.num(), p.den() + 1),
+        Side::Ask => GridPrice::new_unsafe(p.num() + 1, p.den()),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use bloom_offchain::execution_engine::liquidity_book::side::Side;
-    use bloom_offchain::execution_engine::liquidity_book::types::RelativePrice;
     use cml_chain::plutus::PlutusData;
     use cml_core::serialization::Deserialize;
+
+    use bloom_offchain::execution_engine::liquidity_book::fragment::MarketTaker;
+    use bloom_offchain::execution_engine::liquidity_book::linear_output_unsafe;
+    use bloom_offchain::execution_engine::liquidity_book::side::Side;
+    use spectrum_cardano_lib::AssetClass;
+    use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
 
-    use crate::orders::grid::{unsafe_update_datum, DatumNative};
+    use crate::orders::grid::{DatumNative, GridOrder, GridPrice, unsafe_update_datum};
 
     #[test]
     fn read_datum() {
@@ -475,10 +493,45 @@ mod tests {
     fn update_datum() {
         let mut datum = PlutusData::from_cbor_bytes(&*hex::decode(DATUM).unwrap()).unwrap();
         let order_state_0 = DatumNative::try_from_pd(datum.clone()).unwrap();
-        unsafe_update_datum(&mut datum, 100, RelativePrice::new(1, 2), Side::Ask.into());
+        unsafe_update_datum(&mut datum, 100, GridPrice::new_unsafe(1, 2), Side::Ask.into());
         let order_state_1 = DatumNative::try_from_pd(datum.clone()).unwrap();
         dbg!(order_state_0);
         dbg!(order_state_1);
+    }
+
+    #[test]
+    fn correct_tlb_interface() {
+        let mut datum = PlutusData::from_cbor_bytes(&*hex::decode(DATUM).unwrap()).unwrap();
+        let order_state = DatumNative::try_from_pd(datum.clone()).unwrap();
+        let order = GridOrder {
+            beacon: order_state.beacon,
+            base_asset: order_state.token,
+            quote_asset: AssetClass::Native,
+            buy_shift_factor: order_state.buy_shift_factor,
+            sell_shift_factor: order_state.sell_shift_factor,
+            base_reserves: 0,
+            quote_reserves: 120_000_000,
+            quote_offer: 100_000_000,
+            price: order_state.price,
+            side: order_state.side,
+            min_marginal_output_base: order_state.min_marginal_output_token,
+            min_marginal_output_quote: order_state.min_marginal_output_lovelace,
+            max_execution_budget_per_step: order_state.budget_per_transaction,
+            remaining_execution_budget: order_state.budget_per_transaction,
+            redeemer_address: order_state.redeemer_address,
+            marginal_cost: ExUnits { mem: 0, steps: 0 },
+        };
+        assert_eq!(order.input(), order.quote_offer);
+        assert_eq!(order.output(), order.base_reserves);
+        assert_eq!(order.side(), !order.side.value());
+        assert_eq!(order.price(), order.price.value().pow(-1).into());
+        assert_eq!(
+            linear_output_unsafe(order.input(), order.side().wrap(order.price())),
+            linear_output_unsafe(
+                order.quote_offer,
+                order.side.value().wrap(order.price.value().into())
+            )
+        );
     }
 
     const DATUM: &str = "d8799f581c062221778dde04f0b931f1ae4d74aa746f26deeb464251568c435d26d8799f581ce52964af4fffdb54504859875b1827b60ba679074996156461143dc1454f5054494dffd8799f1903ed1903e8ffd8799f1903e81903e3ff1a01312d001a01312d00d8799f182b1864ffd87a801a0007a1201a004c4b401a00989680d8799fd8799f581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b25ffd8799fd8799fd8799f581c7846f6bb07f5b2825885e4502679e699b4e60a0c4609a46bc35454cdffffffff581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b25ff";

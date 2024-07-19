@@ -19,7 +19,7 @@ pub type InputAsset<T> = T;
 pub type OutputAsset<T> = T;
 pub type FeeAsset<T> = T;
 
-/// Price of base asset denominated in units of quote asset.
+/// Price of base asset denominated in units of quote asset (Quote/Base).
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Div, Mul, Sub, Add, From, Into)]
 pub struct AbsolutePrice(Ratio<u128>);
