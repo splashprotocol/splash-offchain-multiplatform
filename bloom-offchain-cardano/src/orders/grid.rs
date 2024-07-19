@@ -424,7 +424,7 @@ where
             let conf = DatumNative::try_from_pd(repr.datum()?.into_pd()?)?;
             let base = conf.token;
             let total_lovelace = value.amount_of(AssetClass::Native)?;
-            let total_base = value.amount_of(base)?;
+            let total_base = value.amount_of(base).unwrap_or(0);
             return with_consistency_verified_native(Self {
                 beacon: conf.beacon,
                 base_asset: base,
@@ -472,6 +472,8 @@ fn harden_price(p: GridPrice, side: RelativeSide) -> GridPrice {
 mod tests {
     use cml_chain::plutus::PlutusData;
     use cml_core::serialization::Deserialize;
+    use cml_multi_era::babbage::BabbageTransactionOutput;
+    use type_equalities::IsEqual;
 
     use bloom_offchain::execution_engine::liquidity_book::fragment::MarketTaker;
     use bloom_offchain::execution_engine::liquidity_book::linear_output_unsafe;
@@ -479,6 +481,10 @@ mod tests {
     use spectrum_cardano_lib::AssetClass;
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
+    use spectrum_offchain::data::Has;
+    use spectrum_offchain::ledger::TryFromLedger;
+    use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
+    use spectrum_offchain_cardano::deployment::ProtocolValidator::GridOrderNative;
 
     use crate::orders::grid::{DatumNative, GridOrder, GridPrice, unsafe_update_datum};
 
@@ -534,5 +540,33 @@ mod tests {
         );
     }
 
+    struct Context {
+        grid_order: DeployedScriptInfo<{ GridOrderNative as u8 }>,
+    }
+
+    impl Has<DeployedScriptInfo<{ GridOrderNative as u8 }>> for Context {
+        fn select<U: IsEqual<DeployedScriptInfo<{ GridOrderNative as u8 }>>>(
+            &self,
+        ) -> DeployedScriptInfo<{ GridOrderNative as u8 }> {
+            self.grid_order
+        }
+    }
+    
+    #[test]
+    fn try_read() {
+        let raw_deployment = std::fs::read_to_string("/Users/oskin/dev/spectrum/spectrum-offchain-multiplatform/bloom-cardano-agent/resources/mainnet.deployment.json").expect("Cannot load deployment file");
+        let deployment: DeployedValidators =
+            serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
+        let scripts = ProtocolScriptHashes::from(&deployment);
+        let ctx = Context {
+            grid_order: scripts.grid_order_native,
+        };
+        let bearer = BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(UTXO).unwrap()).unwrap();
+        let ord = GridOrder::try_from_ledger(&bearer, &ctx).unwrap();
+        println!("Order: {:?}", ord);
+        println!("P_abs: {}", ord.price());
+    }
+
     const DATUM: &str = "d8799f581c062221778dde04f0b931f1ae4d74aa746f26deeb464251568c435d26d8799f581ce52964af4fffdb54504859875b1827b60ba679074996156461143dc1454f5054494dffd8799f1903ed1903e8ffd8799f1903e81903e3ff1a01312d001a01312d00d8799f182b1864ffd87a801a0007a1201a004c4b401a00989680d8799fd8799f581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b25ffd8799fd8799fd8799f581c7846f6bb07f5b2825885e4502679e699b4e60a0c4609a46bc35454cdffffffff581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b25ff";
+    const UTXO: &str = "a300581d716eff899ca605c05c115f0d7b0d0397e2dd886cd366d77bcb4ac6592201821a01c9c380a1581c062221778dde04f0b931f1ae4d74aa746f26deeb464251568c435d26a14001028201d81858f0d8799f581c062221778dde04f0b931f1ae4d74aa746f26deeb464251568c435d26d8799f581ce52964af4fffdb54504859875b1827b60ba679074996156461143dc1454f5054494dffd8799f1903ed1903e8ffd8799f1903e81903e3ff1a01312d001a01312d00d8799f182b1864ffd87a801a0007a1201a004c4b401a00989680d8799fd8799f581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b25ffd8799fd8799fd8799f581c7846f6bb07f5b2825885e4502679e699b4e60a0c4609a46bc35454cdffffffff581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b25ff";
 }
