@@ -22,7 +22,7 @@ use bloom_offchain::execution_engine::liquidity_book::core::{MakeInProgress, Nex
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
     AbsoluteReserves, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
 };
-use bloom_offchain::execution_engine::liquidity_book::side::Side;
+use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::ex_units::ExUnits;
@@ -254,7 +254,7 @@ pub struct PoolAssetMapping {
 }
 
 impl MakerBehavior for AnyPool {
-    fn swap(mut self, input: Side<u64>) -> Next<Self, Unit> {
+    fn swap(mut self, input: OnSide<u64>) -> Next<Self, Unit> {
         match self {
             PureCFMM(p) => p.swap(input).map_succ(PureCFMM),
             BalancedCFMM(p) => p.swap(input).map_succ(BalancedCFMM),
@@ -273,7 +273,7 @@ impl MarketMaker for AnyPool {
         }
     }
 
-    fn real_price(&self, input: Side<u64>) -> Option<AbsolutePrice> {
+    fn real_price(&self, input: OnSide<u64>) -> Option<AbsolutePrice> {
         match self {
             PureCFMM(p) => p.real_price(input),
             BalancedCFMM(p) => p.real_price(input),
@@ -561,7 +561,7 @@ pub struct CFMMPoolRefScriptOutput<const VER: u8>(pub TransactionUnspentOutput);
 pub mod tests {
     use bloom_offchain::execution_engine::liquidity_book::core::{Next, Trans};
     use bloom_offchain::execution_engine::liquidity_book::market_maker::MakerBehavior;
-    use bloom_offchain::execution_engine::liquidity_book::side::Side;
+    use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
 
     use super::ConstFnPool;
 
@@ -577,7 +577,7 @@ pub mod tests {
         let ada_qty = 7000000;
 
         // Test Ask order (sell ADA to buy token)
-        let next_pool = pool.swap(Side::Ask(ada_qty));
+        let next_pool = pool.swap(OnSide::Ask(ada_qty));
         let trans_0 = Trans::new(pool, next_pool);
         let output_token_0 = trans_0.loss().unwrap().unwrap();
         let Next::Succ(next_pool) = trans_0.result else {
@@ -589,7 +589,7 @@ pub mod tests {
         assert_eq!(original_reserve_y, next_reserve_y + output_token_0);
 
         // Now test Bid order (buy ADA by selling token)
-        let next_next_pool = next_pool.swap(Side::Bid(output_token_0));
+        let next_next_pool = next_pool.swap(OnSide::Bid(output_token_0));
         let trans_1 = Trans::new(next_pool, next_next_pool);
         let output_ada_1 = trans_1.loss().unwrap().unwrap();
         let Next::Succ(final_pool) = trans_1.result else {
@@ -612,7 +612,7 @@ pub mod tests {
         let qty = 7000000;
 
         // Test Ask order (sell ADA to buy token)
-        let next_pool = pool.swap(Side::Ask(qty));
+        let next_pool = pool.swap(OnSide::Ask(qty));
         let trans_0 = Trans::new(pool, next_pool);
         let output_token_0 = trans_0.loss().unwrap().unwrap();
         let Next::Succ(next_pool) = trans_0.result else {
@@ -625,7 +625,7 @@ pub mod tests {
         assert_eq!(original_reserve_x, next_reserve_x + output_token_0);
 
         // Now test Bid order (buy ADA by selling token)
-        let next_next_pool = next_pool.swap(Side::Bid(output_token_0));
+        let next_next_pool = next_pool.swap(OnSide::Bid(output_token_0));
         let trans_1 = Trans::new(next_pool, next_next_pool);
         let output_ada_1 = trans_1.loss().unwrap().unwrap();
         let Next::Succ(final_pool) = trans_1.result else {

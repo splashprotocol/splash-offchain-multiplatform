@@ -1,6 +1,6 @@
 use std::fmt::{Display, Formatter, Write};
 
-use bloom_offchain::execution_engine::liquidity_book::side::SideM;
+use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use spectrum_cardano_lib::AssetClass;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -15,12 +15,12 @@ impl PairId {
 }
 
 /// Determine side of a trade relatively to canonical pair.
-pub fn side_of(input: AssetClass, output: AssetClass) -> SideM {
+pub fn side_of(input: AssetClass, output: AssetClass) -> Side {
     let xs = order_canonical(input, output);
     if xs[0] == input {
-        SideM::Ask
+        Side::Ask
     } else {
-        SideM::Bid
+        Side::Bid
     }
 }
 

@@ -16,7 +16,7 @@ use spectrum_offchain::data::Stable;
 use crate::execution_engine::bundled::Bundled;
 use crate::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
 use crate::execution_engine::liquidity_book::market_maker::{AbsoluteReserves, MarketMaker};
-use crate::execution_engine::liquidity_book::side::{Side, SideM};
+use crate::execution_engine::liquidity_book::side::{OnSide, Side};
 use crate::execution_engine::liquidity_book::types::{FeeAsset, InputAsset, OutputAsset};
 
 /// Terminal state of a take that was fulfilled.
@@ -268,7 +268,7 @@ impl<T, B> Take<T, B> {
 }
 
 impl<Maker, B> Make<Maker, B> {
-    pub fn trade_side(&self) -> Option<SideM>
+    pub fn trade_side(&self) -> Option<Side>
     where
         Maker: MarketMaker,
     {
@@ -283,9 +283,9 @@ impl<Maker, B> Make<Maker, B> {
                     quote: init_reserved_q,
                 } = self.target.0.liquidity();
                 if succ_reserves_b < init_reserves_b && succ_reserves_q > init_reserved_q {
-                    Some(SideM::Bid)
+                    Some(Side::Bid)
                 } else if succ_reserves_b > init_reserves_b && succ_reserves_q < init_reserved_q {
-                    Some(SideM::Ask)
+                    Some(Side::Ask)
                 } else {
                     None
                 }
@@ -340,7 +340,7 @@ impl<Maker, B> Make<Maker, B> {
 }
 
 impl<Maker> MakeInProgress<Maker> {
-    pub fn trade_side(&self) -> Option<SideM>
+    pub fn trade_side(&self) -> Option<Side>
     where
         Maker: MarketMaker,
     {
@@ -355,9 +355,9 @@ impl<Maker> MakeInProgress<Maker> {
                     quote: init_reserved_q,
                 } = self.target.liquidity();
                 if succ_reserves_b < init_reserves_b && succ_reserves_q > init_reserved_q {
-                    Some(SideM::Bid)
+                    Some(Side::Bid)
                 } else if succ_reserves_b > init_reserves_b && succ_reserves_q < init_reserved_q {
-                    Some(SideM::Ask)
+                    Some(Side::Ask)
                 } else {
                     None
                 }
@@ -366,7 +366,7 @@ impl<Maker> MakeInProgress<Maker> {
         }
     }
 
-    pub fn gain(&self) -> Option<Side<u64>>
+    pub fn gain(&self) -> Option<OnSide<u64>>
     where
         Maker: MarketMaker,
     {
@@ -382,14 +382,14 @@ impl<Maker> MakeInProgress<Maker> {
                 } = self.target.liquidity();
                 succ_reserves_b
                     .checked_sub(init_reserves_b)
-                    .map(Side::Ask)
-                    .or_else(|| succ_reserves_q.checked_sub(init_reserves_q).map(Side::Bid))
+                    .map(OnSide::Ask)
+                    .or_else(|| succ_reserves_q.checked_sub(init_reserves_q).map(OnSide::Bid))
             }
             _ => None,
         }
     }
 
-    pub fn loss(&self) -> Option<Side<u64>>
+    pub fn loss(&self) -> Option<OnSide<u64>>
     where
         Maker: MarketMaker,
     {
@@ -405,8 +405,8 @@ impl<Maker> MakeInProgress<Maker> {
                 } = self.target.liquidity();
                 init_reserves_b
                     .checked_sub(succ_reserves_b)
-                    .map(Side::Bid)
-                    .or_else(|| init_reserves_q.checked_sub(succ_reserves_q).map(Side::Ask))
+                    .map(OnSide::Bid)
+                    .or_else(|| init_reserves_q.checked_sub(succ_reserves_q).map(OnSide::Ask))
             }
             _ => None,
         }
@@ -489,7 +489,7 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
             .collect()
     }
 
-    pub fn next_offered_chunk(&self, taker: &Taker) -> Side<u64>
+    pub fn next_offered_chunk(&self, taker: &Taker) -> OnSide<u64>
     where
         Taker: MarketTaker,
     {

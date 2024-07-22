@@ -15,8 +15,8 @@ use crate::execution_engine::liquidity_book::market_maker::{MakerBehavior, Marke
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::maker::Maker;
 
-use crate::execution_engine::liquidity_book::side::Side::{Ask, Bid};
-use crate::execution_engine::liquidity_book::side::{Side, SideM};
+use crate::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
+use crate::execution_engine::liquidity_book::side::{OnSide, Side};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
 use crate::execution_engine::liquidity_book::state::queries::{max_by_distance_to_spot, max_by_volume};
 use crate::execution_engine::liquidity_book::state::{IdleState, TLBState};
@@ -220,7 +220,7 @@ where
 fn execute_with_maker<Taker, Maker>(
     target_taker: Taker,
     maker: Maker,
-    chunk_size: Side<u64>,
+    chunk_size: OnSide<u64>,
 ) -> (TakeInProgress<Taker>, MakeInProgress<Maker>)
 where
     Taker: MarketTaker + TakerBehaviour + Copy,
@@ -244,8 +244,8 @@ where
     F: FnOnce(&Taker, &Taker) -> AbsolutePrice,
 {
     let (ask, bid) = match target_taker.side() {
-        SideM::Ask => (target_taker, counter_taker),
-        SideM::Bid => (counter_taker, target_taker),
+        Side::Ask => (target_taker, counter_taker),
+        Side::Bid => (counter_taker, target_taker),
     };
     let price = matchmaker(&ask, &bid);
     let quote_input = bid.input();
@@ -374,7 +374,7 @@ pub fn linear_output_relative(input: u64, price: RelativePrice) -> Option<u64> {
         .ok()
 }
 
-fn linear_output_unsafe(input: u64, price: Side<AbsolutePrice>) -> u64 {
+pub fn linear_output_unsafe(input: u64, price: OnSide<AbsolutePrice>) -> u64 {
     match price {
         Bid(price) => (U256::from(input) * U256::from(*price.denom()) / U256::from(*price.numer())).as_u64(),
         Ask(price) => (U256::from(input) * U256::from(*price.numer()) / U256::from(*price.denom())).as_u64(),
@@ -385,8 +385,8 @@ fn linear_output_unsafe(input: u64, price: Side<AbsolutePrice>) -> u64 {
 mod tests {
     use crate::execution_engine::liquidity_book::fragment::MarketTaker;
     use crate::execution_engine::liquidity_book::market_maker::MarketMaker;
-    use crate::execution_engine::liquidity_book::side::SideM::{Ask, Bid};
-    use crate::execution_engine::liquidity_book::side::{Side, SideM};
+    use crate::execution_engine::liquidity_book::side::Side::{Ask, Bid};
+    use crate::execution_engine::liquidity_book::side::{OnSide, Side};
     use crate::execution_engine::liquidity_book::state::tests::{SimpleCFMMPool, SimpleOrderPF};
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::AbsolutePrice;
@@ -400,7 +400,7 @@ mod tests {
     fn recipe_fill_fragment_from_fragment_batch() {
         // Assuming pair ADA/USDT @ 0.37
         let o1 = SimpleOrderPF::make(
-            SideM::Ask,
+            Side::Ask,
             35000000,
             AbsolutePrice::new_unsafe(11989509179467966, 1000000000000000),
             0,
@@ -408,7 +408,7 @@ mod tests {
             5994754,
         );
         let o2 = SimpleOrderPF::make(
-            SideM::Bid,
+            Side::Bid,
             103471165,
             AbsolutePrice::new_unsafe(103471165, 6634631),
             0,
@@ -464,7 +464,7 @@ mod tests {
         // Assuming pair ADA/USDT @ 0.37
         let fr1 = SimpleOrderPF {
             source: StableId::random(),
-            side: SideM::Ask,
+            side: Side::Ask,
             input: 1000,
             accumulated_output: 0,
             min_marginal_output: 0,
@@ -476,7 +476,7 @@ mod tests {
         };
         let fr2 = SimpleOrderPF {
             source: StableId::random(),
-            side: SideM::Bid,
+            side: Side::Bid,
             input: 370,
             accumulated_output: 0,
             min_marginal_output: 0,
@@ -552,8 +552,8 @@ mod tests {
             reserves_quote: 36600000000000,
             fee_num: 997,
         };
-        let real_price_in_pool = pool.real_price(Side::Ask(ask_fr.input()));
-        let (t, m) = execute_with_maker(ask_fr, pool, Side::Ask(ask_fr.input()));
+        let real_price_in_pool = pool.real_price(OnSide::Ask(ask_fr.input()));
+        let (t, m) = execute_with_maker(ask_fr, pool, OnSide::Ask(ask_fr.input()));
         assert_eq!(m.gain().unwrap().unwrap(), ask_fr.input());
     }
 
@@ -578,8 +578,8 @@ mod tests {
             reserves_quote: 1148842702781,
             fee_num: 997,
         };
-        let real_price_in_pool = pool.real_price(Side::Ask(ask_fr.input()));
-        let (t, m) = execute_with_maker(ask_fr, pool, Side::Ask(ask_fr.input()));
+        let real_price_in_pool = pool.real_price(OnSide::Ask(ask_fr.input()));
+        let (t, m) = execute_with_maker(ask_fr, pool, OnSide::Ask(ask_fr.input()));
         assert_eq!(m.gain().unwrap().unwrap(), t.removed_input());
         assert_eq!(m.loss().unwrap().unwrap(), t.added_output());
     }
@@ -659,7 +659,7 @@ mod tests {
         let index_price = AbsolutePrice::new_unsafe(40, 100);
         let ask_fr = SimpleOrderPF {
             source: StableId::random(),
-            side: SideM::Ask,
+            side: Side::Ask,
             input: 1000,
             min_marginal_output: 0,
             accumulated_output: 0,
@@ -671,7 +671,7 @@ mod tests {
         };
         let bid_fr = SimpleOrderPF {
             source: StableId::random(),
-            side: SideM::Bid,
+            side: Side::Bid,
             input: 360,
             accumulated_output: 0,
             min_marginal_output: 0,

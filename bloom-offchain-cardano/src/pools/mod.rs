@@ -17,11 +17,10 @@ use spectrum_offchain_cardano::data::pool::AnyPool::{BalancedCFMM, PureCFMM, Sta
 use spectrum_offchain_cardano::data::stable_order::RunStableAMMOrderOverPool;
 use spectrum_offchain_cardano::deployment::DeployedValidator;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
-    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2,
-    ConstFnFeeSwitchPoolDeposit, ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit,
-    ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolRedeem,
-    ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2, StableFnPoolT2T, StableFnPoolT2TDeposit,
-    StableFnPoolT2TRedeem,
+    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2, ConstFnFeeSwitchPoolDeposit,
+    ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
+    ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1,
+    ConstFnPoolV2, StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 
 /// Magnet for local instances.

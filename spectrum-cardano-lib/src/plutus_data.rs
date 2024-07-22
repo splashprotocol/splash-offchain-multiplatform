@@ -1,10 +1,12 @@
 use std::mem;
+use std::ops::Deref;
 use std::str::FromStr;
 
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::DatumOption;
 use cml_chain::utils::BigInteger;
 use cml_core::serialization::LenEncoding;
+use num_rational::Ratio;
 use primitive_types::U512;
 
 pub trait IntoPlutusData {
@@ -32,6 +34,15 @@ impl IntoPlutusData for U512 {
 impl IntoPlutusData for ConstrPlutusData {
     fn into_pd(self) -> PlutusData {
         PlutusData::ConstrPlutusData(self)
+    }
+}
+
+impl<T: IntoPlutusData + Copy> IntoPlutusData for Ratio<T> {
+    fn into_pd(self) -> PlutusData {
+        PlutusData::ConstrPlutusData(ConstrPlutusData::new(
+            0,
+            vec![(*self.numer()).into_pd(), (*self.denom()).into_pd()],
+        ))
     }
 }
 

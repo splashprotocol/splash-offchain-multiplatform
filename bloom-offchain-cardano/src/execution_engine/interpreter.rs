@@ -19,7 +19,7 @@ use spectrum_cardano_lib::{NetworkId, OutputRef};
 use spectrum_offchain::data::{Baked, Has};
 use spectrum_offchain_cardano::creds::{OperatorCred, OperatorRewardAddress};
 use spectrum_offchain_cardano::deployment::DeployedValidator;
-use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderWitnessV1;
+use spectrum_offchain_cardano::deployment::ProtocolValidator::{GridOrderNative, LimitOrderWitnessV1};
 
 use crate::execution_engine::execution_state::ExecutionState;
 use crate::execution_engine::instances::{EffectPreview, FinalizedEffect, Magnet};
@@ -31,8 +31,8 @@ pub struct CardanoRecipeInterpreter;
 impl<'a, Fr, Pl, Ctx> RecipeInterpreter<Fr, Pl, Ctx, OutputRef, FinalizedTxOut, SignedTxBuilder>
     for CardanoRecipeInterpreter
 where
-    Fr: MarketTaker + TakerBehaviour + Copy + std::fmt::Debug,
-    Pl: Copy + std::fmt::Debug,
+    Fr: MarketTaker + TakerBehaviour + Copy + Debug,
+    Pl: Copy + Debug,
     Magnet<Take<Fr, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Fr>, Ctx>,
     Magnet<Make<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Pl>, Ctx>,
     Ctx: Clone
@@ -210,7 +210,7 @@ mod tests {
     use bloom_offchain::execution_engine::bundled::Bundled;
     use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Trans, Unit};
     use bloom_offchain::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
-    use bloom_offchain::execution_engine::liquidity_book::side::SideM;
+    use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
     use bloom_offchain::execution_engine::liquidity_book::types::{
         AbsolutePrice, ExCostUnits, FeeAsset, InputAsset, OutputAsset,
@@ -344,8 +344,8 @@ mod tests {
     impl MarketTaker for SimpleOrderPF {
         type U = u64;
 
-        fn side(&self) -> SideM {
-            SideM::Ask
+        fn side(&self) -> Side {
+            Side::Ask
         }
 
         fn input(&self) -> u64 {

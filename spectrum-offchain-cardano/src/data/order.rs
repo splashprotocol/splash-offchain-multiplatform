@@ -28,11 +28,10 @@ use crate::data::pool::try_run_order_against_pool;
 use crate::data::redeem::{ClassicalOnChainRedeem, RedeemOrderBounds};
 use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::{
-    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2,
-    ConstFnFeeSwitchPoolDeposit, ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit,
-    ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolRedeem,
-    ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2, StableFnPoolT2T, StableFnPoolT2TDeposit,
-    StableFnPoolT2TRedeem,
+    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2, ConstFnFeeSwitchPoolDeposit,
+    ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
+    ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1,
+    ConstFnPoolV2, StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use crate::deployment::{DeployedScriptInfo, DeployedValidator};
 use spectrum_cardano_lib::{NetworkId, OutputRef};

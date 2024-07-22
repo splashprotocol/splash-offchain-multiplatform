@@ -1,5 +1,5 @@
 use crate::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
-use crate::execution_engine::liquidity_book::side::SideM;
+use crate::execution_engine::liquidity_book::side::Side;
 use crate::execution_engine::liquidity_book::time::TimeBounds;
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, FeeAsset, InputAsset, OutputAsset};
 
@@ -20,7 +20,7 @@ pub trait MarketTaker {
     /// Quantifier of execution cost.
     type U;
     /// Side of the fragment relative to pair it maps to.
-    fn side(&self) -> SideM;
+    fn side(&self) -> Side;
     /// Amount of input asset remaining.
     fn input(&self) -> InputAsset<u64>;
     /// Amount of output asset accumulated.

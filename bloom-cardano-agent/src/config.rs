@@ -3,7 +3,7 @@ use std::time::Duration;
 use cml_core::Slot;
 
 use bloom_offchain::execution_engine::liquidity_book;
-use bloom_offchain_cardano::orders::partitioning::Partitioning;
+use bloom_offchain::partitioning::Partitioning;
 use cardano_chain_sync::client::Point;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::NetworkId;
