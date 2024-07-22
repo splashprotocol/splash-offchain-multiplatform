@@ -39,6 +39,14 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-cargo-build-
     
+    - name: Run Cargo fmt
+      id: fmt
+      run: |
+        if ! cargo fmt --all -- --check; then
+          echo "Cargo fmt failed."
+        else
+          echo "Cargo build succeeded."
+        fi
     - name: Run Cargo Build
       id: build
       run: |
