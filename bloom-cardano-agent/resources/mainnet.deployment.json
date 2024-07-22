@@ -96,8 +96,8 @@
       "outputIndex": 0
     },
     "cost": {
-      "mem": 600000,
-      "steps": 250000000
+      "mem": 700000,
+      "steps": 275000000
     },
     "marginalCost": {
       "mem": 15000,
@@ -203,8 +203,8 @@
       "outputIndex": 0
     },
     "cost": {
-      "mem": 600000,
-      "steps": 260000000
+      "mem": 700000,
+      "steps": 275000000
     },
     "marginalCost": {
       "mem": 15000,
