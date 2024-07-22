@@ -3,7 +3,7 @@ import { BuiltValidators, DeployedValidators, ScriptNames } from "./types.ts";
 import { getLucid } from "./lucid.ts";
 import { generateConfigJson } from "./config.ts";
 import { setupWallet } from "./wallet.ts";
-import { GridGridNative } from "../plutus.ts";
+import { GridGridNative, LimitOrderBatchWitness, LimitOrderLimitOrder } from "../plutus.ts";
 
 export class Deployment {
   lucid: Lucid;
@@ -13,9 +13,27 @@ export class Deployment {
   }
 
   build(): BuiltValidators {
+    const witnessScript = new LimitOrderBatchWitness();
+    const witnessScriptHash = this.lucid.utils.validatorToScriptHash(witnessScript);
+    const orderScript = new LimitOrderLimitOrder({
+      Inline: [
+        {
+          ScriptCredential: [witnessScriptHash],
+        },
+      ],
+    });
+    const orderScriptHash = this.lucid.utils.validatorToScriptHash(orderScript);
     const gridOrderNativeScript = new GridGridNative();
     const gridOrderNativeHash = this.lucid.utils.validatorToScriptHash(gridOrderNativeScript);
     return {
+      limitOrder: {
+        script: orderScript,
+        hash: orderScriptHash,
+      },
+      limitOrderWitness: {
+        script: witnessScript,
+        hash: witnessScriptHash,
+      },
       gridOrderNative: {
         script: gridOrderNativeScript,
         hash: gridOrderNativeHash,
@@ -29,13 +47,28 @@ export class Deployment {
       slot: 0,
     });
     const lockScript = this.lucid.utils.validatorToAddress(ns);
+    const witnessRewardAddress = this.lucid.utils.credentialToRewardAddress({
+      type: "Script",
+      hash: builtValidators.limitOrderWitness.hash
+    });
     const tx = await this.lucid
       .newTx()
+      .payToAddressWithData(
+        lockScript,
+        { scriptRef: builtValidators.limitOrder.script },
+        {},
+      )
+      .payToAddressWithData(
+        lockScript,
+        { scriptRef: builtValidators.limitOrderWitness.script },
+        {},
+      )
       .payToAddressWithData(
         lockScript,
         { scriptRef: builtValidators.gridOrderNative.script },
         {},
       )
+      .registerStake(witnessRewardAddress)
       .complete();
 
     return tx;

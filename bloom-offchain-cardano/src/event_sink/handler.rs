@@ -455,7 +455,7 @@ where
             LedgerTxEvent::TxUnapplied(tx) => {
                 match extract_persistent_transitions(Arc::clone(&self.index), self.context, tx).await {
                     Ok((transitions, tx)) => {
-                        trace!("{} entities found in applied TX", transitions.len());
+                        trace!("{} entities found in unapplied TX", transitions.len());
                         let mut index = self.index.lock().await;
                         index.run_eviction();
                         for tr in transitions {
