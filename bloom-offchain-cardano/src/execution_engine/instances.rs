@@ -529,7 +529,7 @@ where
         };
 
         if let Some(data) = produced_out.data_mut() {
-            balance_pool::unsafe_update_datum(
+            stable_pool_t2t::unsafe_update_datum(
                 data,
                 transition.treasury_x.untag(),
                 transition.treasury_y.untag(),
