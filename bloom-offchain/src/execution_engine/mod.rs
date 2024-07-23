@@ -405,6 +405,7 @@ impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, 
             | StateUpdate::TransitionRollback(Ior::Right(new_state))
             | StateUpdate::TransitionRollback(Ior::Both(_, new_state)) => {
                 if self.skip_filter.contains(&new_state.version()) {
+                    trace!("State transition of {} is skipped", new_state.stable_id());
                     return None;
                 }
                 let id = new_state.stable_id();

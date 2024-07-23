@@ -17,7 +17,6 @@ use bloom_offchain::execution_engine::liquidity_book::types::{
 };
 use bloom_offchain::execution_engine::liquidity_book::weight::Weighted;
 use spectrum_cardano_lib::address::PlutusAddress;
-use spectrum_cardano_lib::AssetClass;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
@@ -25,11 +24,12 @@ use spectrum_cardano_lib::plutus_data::{
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
+use spectrum_cardano_lib::AssetClass;
 use spectrum_offchain::data::{Has, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
-use spectrum_offchain_cardano::data::pair::{PairId, side_of};
-use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, test_address};
+use spectrum_offchain_cardano::data::pair::{side_of, PairId};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::GridOrderNative;
+use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 
 use crate::relative_side::RelativeSide;
 
@@ -478,15 +478,17 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::fragment::MarketTaker;
     use bloom_offchain::execution_engine::liquidity_book::linear_output_unsafe;
     use bloom_offchain::execution_engine::liquidity_book::side::Side;
-    use spectrum_cardano_lib::AssetClass;
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
+    use spectrum_cardano_lib::AssetClass;
     use spectrum_offchain::data::Has;
     use spectrum_offchain::ledger::TryFromLedger;
-    use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
     use spectrum_offchain_cardano::deployment::ProtocolValidator::GridOrderNative;
+    use spectrum_offchain_cardano::deployment::{
+        DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes,
+    };
 
-    use crate::orders::grid::{DatumNative, GridOrder, GridPrice, unsafe_update_datum};
+    use crate::orders::grid::{unsafe_update_datum, DatumNative, GridOrder, GridPrice};
 
     #[test]
     fn read_datum() {
@@ -551,7 +553,7 @@ mod tests {
             self.grid_order
         }
     }
-    
+
     #[test]
     fn try_read() {
         let raw_deployment = std::fs::read_to_string("/Users/oskin/dev/spectrum/spectrum-offchain-multiplatform/bloom-cardano-agent/resources/mainnet.deployment.json").expect("Cannot load deployment file");
