@@ -1,7 +1,9 @@
+use std::mem;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use futures_core::Stream;
+use log::trace;
 use pin_project_lite::pin_project;
 
 pin_project! {
@@ -11,6 +13,7 @@ pin_project! {
         #[pin]
         stream: S,
         cond: C,
+        is_suspended: bool,
     }
 }
 
@@ -20,7 +23,7 @@ where
     C: Fn() -> bool,
 {
     pub fn new(stream: S, cond: C) -> Self {
-        Self { stream, cond }
+        Self { stream, cond, is_suspended: false }
     }
 }
 
@@ -31,9 +34,15 @@ where
 {
     type Item = S::Item;
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        if !(&self.cond)() {
+        let mut this = self.as_mut().project();
+        if !(this.cond)() {
+            let _ = mem::replace(this.is_suspended, true);
+            trace!("Conditional stream suspended");
             return Poll::Pending;
         }
-        self.as_mut().project().stream.as_mut().poll_next(cx)
+        if mem::replace(this.is_suspended, false) {
+            trace!("Conditional stream resumed");
+        }
+        this.stream.as_mut().poll_next(cx)
     }
 }

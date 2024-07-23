@@ -82,7 +82,7 @@ impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex>
     EventHandler<LedgerTxEvent<ProcessingTransaction>>
     for SpecializedHandler<PairUpdateHandler<N, PairId, Topic, Order, PoolIndex>, OrderIndex, Pool>
 where
-    PairId: Copy + Hash,
+    PairId: Copy + Hash + Eq,
     Topic: Sink<(PairId, Channel<OrderUpdate<Order, Order>>)> + Unpin,
     Topic::Error: Debug,
     Pool: EntitySnapshot + Tradable<PairId = PairId>,
@@ -98,7 +98,8 @@ where
         &mut self,
         ev: LedgerTxEvent<ProcessingTransaction>,
     ) -> Option<LedgerTxEvent<ProcessingTransaction>> {
-        match ev {
+        let mut updates: HashMap<PairId, Vec<Channel<OrderUpdate<Order, Order>>>> = HashMap::new();
+        let remainder = match ev {
             LedgerTxEvent::TxApplied { tx, slot } => {
                 match extract_atomic_transitions(
                     Arc::clone(&self.order_index),
@@ -115,12 +116,15 @@ where
                         for tr in transitions {
                             if let Some(pair) = pool_index.pair_of(&pool_ref_of(&tr)) {
                                 index_atomic_transition(&mut index, &tr);
-                                let topic = self.general_handler.topic.get_mut(pair);
-                                topic
-                                    .feed((pair, Channel::ledger(tr.into())))
-                                    .await
-                                    .expect("Channel is closed");
-                                topic.flush().await.expect("Failed to commit message");
+                                let upd = Channel::ledger(tr.into());
+                                match updates.entry(pair) {
+                                    Entry::Occupied(mut entry) => {
+                                        entry.get_mut().push(upd);
+                                    }
+                                    Entry::Vacant(entry) => {
+                                        entry.insert(vec![upd]);
+                                    }
+                                }
                             }
                         }
                         Some(LedgerTxEvent::TxApplied { tx, slot })
@@ -145,12 +149,15 @@ where
                             if let Some(pair) = pool_index.pair_of(&pool_ref_of(&tr)) {
                                 let inverse_tr = tr.flip();
                                 index_atomic_transition(&mut index, &inverse_tr);
-                                let topic = self.general_handler.topic.get_mut(pair);
-                                topic
-                                    .feed((pair, Channel::ledger(inverse_tr.into())))
-                                    .await
-                                    .expect("Channel is closed");
-                                topic.flush().await.expect("Failed to commit message");
+                                let upd = Channel::ledger(inverse_tr.into());
+                                match updates.entry(pair) {
+                                    Entry::Occupied(mut entry) => {
+                                        entry.get_mut().push(upd);
+                                    }
+                                    Entry::Vacant(entry) => {
+                                        entry.insert(vec![upd]);
+                                    }
+                                }
                             }
                         }
                         Some(LedgerTxEvent::TxUnapplied(tx))
@@ -158,7 +165,17 @@ where
                     Err(tx) => Some(LedgerTxEvent::TxUnapplied(tx)),
                 }
             }
+        };
+        for (pair, updates_by_pair) in updates {
+            let num_updates = updates_by_pair.len();
+            let topic = self.general_handler.topic.get_mut(pair);
+            for upd in updates_by_pair {
+                topic.feed((pair, upd)).await.expect("Channel is closed");
+            }
+            topic.flush().await.expect("Failed to commit updates");
+            trace!("{} special updates commited", num_updates);
         }
+        remainder
     }
 }
 
@@ -167,7 +184,7 @@ impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex>
     EventHandler<MempoolUpdate<ProcessingTransaction>>
     for SpecializedHandler<PairUpdateHandler<N, PairId, Topic, Order, PoolIndex>, OrderIndex, Pool>
 where
-    PairId: Copy + Hash,
+    PairId: Copy + Hash + Eq,
     Topic: Sink<(PairId, Channel<OrderUpdate<Order, Order>>)> + Unpin,
     Topic::Error: Debug,
     Pool: EntitySnapshot + Tradable<PairId = PairId>,
@@ -183,7 +200,8 @@ where
         &mut self,
         ev: MempoolUpdate<ProcessingTransaction>,
     ) -> Option<MempoolUpdate<ProcessingTransaction>> {
-        match ev {
+        let mut updates: HashMap<PairId, Vec<Channel<OrderUpdate<Order, Order>>>> = HashMap::new();
+        let remainder = match ev {
             MempoolUpdate::TxAccepted(tx) => {
                 match extract_atomic_transitions(
                     Arc::clone(&self.order_index),
@@ -200,12 +218,15 @@ where
                         for tr in transitions {
                             if let Some(pair) = pool_index.pair_of(&pool_ref_of(&tr)) {
                                 index_atomic_transition(&mut index, &tr);
-                                let topic = self.general_handler.topic.get_mut(pair);
-                                topic
-                                    .feed((pair, Channel::mempool(tr.into())))
-                                    .await
-                                    .expect("Channel is closed");
-                                topic.flush().await.expect("Failed to commit message");
+                                let upd = Channel::mempool(tr.into());
+                                match updates.entry(pair) {
+                                    Entry::Occupied(mut entry) => {
+                                        entry.get_mut().push(upd);
+                                    }
+                                    Entry::Vacant(entry) => {
+                                        entry.insert(vec![upd]);
+                                    }
+                                }
                             }
                         }
                         Some(MempoolUpdate::TxAccepted(tx))
@@ -213,7 +234,17 @@ where
                     Err(tx) => Some(MempoolUpdate::TxAccepted(tx)),
                 }
             }
+        };
+        for (pair, updates_by_pair) in updates {
+            let num_updates = updates_by_pair.len();
+            let topic = self.general_handler.topic.get_mut(pair);
+            for upd in updates_by_pair {
+                topic.feed((pair, upd)).await.expect("Channel is closed");
+            }
+            topic.flush().await.expect("Failed to commit updates");
+            trace!("{} special mempool updates commited", num_updates);
         }
+        remainder
     }
 }
 
@@ -247,7 +278,7 @@ where
         let mut index = index.lock().await;
         if let Some(order) = index.get(&state_id) {
             let order_id = order.get_self_ref();
-            trace!("Order {} eliminated", order_id);
+            trace!("Order {} eliminated by {}", order_id, tx_hash);
             consumed_orders.insert(order_id, order);
         }
     }
@@ -260,7 +291,7 @@ where
         match Order::try_from_ledger(&o, &HandlerContext::new(o_ref, consumed_utxos, context)) {
             Some(order) => {
                 let order_id = order.get_self_ref();
-                trace!("Order {} created", order_id);
+                trace!("Order {} created by {}", order_id, tx_hash);
                 produced_orders.insert(order_id, order);
             }
             None => {
@@ -320,7 +351,7 @@ where
         if index.exists(&state_id) {
             if let Some(entity) = index.get_state(&state_id) {
                 let entity_id = entity.stable_id();
-                trace!("Entity {} consumed", entity_id);
+                trace!("Entity {} consumed by {}", entity_id, tx_hash);
                 consumed_entities.insert(entity_id, entity);
             }
         }
@@ -334,7 +365,7 @@ where
         match Entity::try_from_ledger(&o, &HandlerContext::new(o_ref, consumed_utxos, context)) {
             Some(entity) => {
                 let entity_id = entity.stable_id();
-                trace!("Entity {} created", entity_id);
+                trace!("Entity {} created by {}", entity_id, tx_hash);
                 produced_entities.insert(entity_id, entity);
             }
             None => {
@@ -406,7 +437,7 @@ where
                         for tr in transitions {
                             index_transition(&mut index, &tr);
                             let pair = pair_id_of(&tr);
-                            let upd = Channel::Ledger(Confirmed(StateUpdate::Transition(tr)));
+                            let upd = Channel::ledger(StateUpdate::Transition(tr));
                             match updates.entry(pair) {
                                 Entry::Occupied(mut entry) => {
                                     entry.get_mut().push(upd);
@@ -427,12 +458,11 @@ where
                         trace!("{} entities found in applied TX", transitions.len());
                         let mut index = self.index.lock().await;
                         index.run_eviction();
-                        let mut updates: HashMap<PairId, Vec<Channel<StateUpdate<Entity>>>> = HashMap::new();
                         for tr in transitions {
                             let inverse_tr = tr.swap();
                             index_transition(&mut index, &inverse_tr);
                             let pair = pair_id_of(&inverse_tr);
-                            let upd = Channel::Ledger(Confirmed(StateUpdate::TransitionRollback(inverse_tr)));
+                            let upd = Channel::ledger(StateUpdate::TransitionRollback(inverse_tr));
                             match updates.entry(pair) {
                                 Entry::Occupied(mut entry) => {
                                     entry.get_mut().push(upd);
@@ -485,13 +515,13 @@ where
             MempoolUpdate::TxAccepted(tx) => {
                 match extract_persistent_transitions(Arc::clone(&self.index), self.context, tx).await {
                     Ok((transitions, tx)) => {
-                        trace!("{} entities found in applied TX", transitions.len());
+                        trace!("{} entities found in accepted TX", transitions.len());
                         let mut index = self.index.lock().await;
                         index.run_eviction();
                         for tr in transitions {
                             index_transition(&mut index, &tr);
                             let pair = pair_id_of(&tr);
-                            let upd = Channel::Mempool(Unconfirmed(StateUpdate::Transition(tr)));
+                            let upd = Channel::mempool(StateUpdate::Transition(tr));
                             match updates.entry(pair) {
                                 Entry::Occupied(mut entry) => {
                                     entry.get_mut().push(upd);
