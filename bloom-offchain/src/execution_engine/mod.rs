@@ -115,7 +115,6 @@ pub fn execution_part_stream<
     upstream: Upstream,
     network: Net,
     mut tip_reached_signal: broadcast::Receiver<bool>,
-    rollback_in_progress: Arc<AtomicBool>,
 ) -> impl Stream<Item = ()> + 'a
 where
     Upstream: Stream<Item = (Pair, Event<CompOrd, SpecOrd, Pool, Bearer, Ver>)> + Unpin + 'a,
@@ -164,7 +163,6 @@ where
     wait_signal
         .map(move |_| {
             executor
-                .conditional(move || !rollback_in_progress.load(Ordering::Relaxed))
                 .then(move |tx| {
                     let mut network = network.clone();
                     let mut feedback = feedback_out.clone();
@@ -362,7 +360,7 @@ impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, 
     {
         for ver in versions {
             if let Some(stable_id) = self.index.invalidate_version(ver) {
-                trace!("Invalidating snapshot of {}", stable_id);
+                trace!("Invalidating snapshot {} of {}", ver, stable_id);
                 let maybe_transition = match resolve_source_state(stable_id, &self.index) {
                     None => self
                         .cache
