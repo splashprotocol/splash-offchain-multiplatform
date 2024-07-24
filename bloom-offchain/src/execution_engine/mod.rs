@@ -3,8 +3,6 @@ use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use either::Either;
@@ -38,7 +36,6 @@ use spectrum_offchain::maker::Maker;
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_hash::CanonicalHash;
 use spectrum_offchain::tx_prover::TxProver;
-use spectrum_streaming::StreamExt as StreamExtX;
 
 pub mod backlog;
 pub mod batch_exec;
@@ -162,15 +159,14 @@ where
     };
     wait_signal
         .map(move |_| {
-            executor
-                .then(move |tx| {
-                    let mut network = network.clone();
-                    let mut feedback = feedback_out.clone();
-                    async move {
-                        let result = network.submit_tx(tx).await;
-                        feedback.send(result).await.expect("Filed to propagate feedback.");
-                    }
-                })
+            executor.then(move |tx| {
+                let mut network = network.clone();
+                let mut feedback = feedback_out.clone();
+                async move {
+                    let result = network.submit_tx(tx).await;
+                    feedback.send(result).await.expect("Filed to propagate feedback.");
+                }
+            })
         })
         .flatten_stream()
 }
@@ -270,11 +266,7 @@ impl<S, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, IX, CH, TLB, L, RIR, SIR, PRV, 
             OrderUpdate::Created(new_order) => {
                 let ver = SpecializedOrder::get_self_ref(&new_order);
                 if !self.skip_filter.contains(&ver) {
-                    if is_confirmed {
-                        self.multi_backlog.get_mut(pair).put(new_order)
-                    } else {
-                        self.multi_backlog.get_mut(pair).put(new_order)
-                    }
+                    self.multi_backlog.get_mut(pair).put(new_order)
                 }
             }
             OrderUpdate::Eliminated(elim_order) => {

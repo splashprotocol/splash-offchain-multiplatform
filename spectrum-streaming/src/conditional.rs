@@ -23,7 +23,11 @@ where
     C: Fn() -> bool,
 {
     pub fn new(stream: S, cond: C) -> Self {
-        Self { stream, cond, is_suspended: false }
+        Self {
+            stream,
+            cond,
+            is_suspended: false,
+        }
     }
 }
 
