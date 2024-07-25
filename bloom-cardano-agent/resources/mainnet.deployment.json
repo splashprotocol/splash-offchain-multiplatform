@@ -1,8 +1,8 @@
 {
   "limitOrderWitness": {
-    "hash": "221ad845313837904c15a0f0107dd0cbe8bdf4a41701866dabe996e4",
+    "hash": "3f462bf2453b153c876783601af26259d0f0f25b2c66510eca0b654b",
     "referenceUtxo": {
-      "txHash": "bbe217640f5ef47f2fd0efd70724f8dfbf674b1376ddffb30817d07c7e512d1e",
+      "txHash": "9915e8d13eda409d58526a8196aec116177bfa3e6556fb7056d8100a56be0691",
       "outputIndex": 1
     },
     "cost": {
@@ -15,9 +15,9 @@
     }
   },
   "limitOrder": {
-    "hash": "dbe7a3d8a1d82990992a38eea1a2efaa68e931e252fc92ca1383809b",
+    "hash": "2025463437ee5d64e89814a66ce7f98cb184a66ae85a2fbbfd750106",
     "referenceUtxo": {
-      "txHash": "cb0a5c67993d3bfa965f2b948f9975e0308a25c6c47e05e61773656fc58ad13c",
+      "txHash": "9915e8d13eda409d58526a8196aec116177bfa3e6556fb7056d8100a56be0691",
       "outputIndex": 0
     },
     "cost": {
@@ -32,8 +32,8 @@
   "gridOrderNative": {
     "hash": "6eff899ca605c05c115f0d7b0d0397e2dd886cd366d77bcb4ac65922",
     "referenceUtxo": {
-      "txHash": "781bbc3180ec6ac950be57cf8e48fc7635fadc6af6647ee1ecf3847d89f8c248",
-      "outputIndex": 0
+      "txHash": "9915e8d13eda409d58526a8196aec116177bfa3e6556fb7056d8100a56be0691",
+      "outputIndex": 2
     },
     "cost": {
       "mem": 600000,

@@ -334,7 +334,7 @@ fn settle_price<Fr: MarketTaker>(ask: &Fr, bid: &Fr, index_price: Option<SpotPri
     let price_bid_rat = price_bid.unwrap();
     let d = price_bid_rat - price_ask_rat;
     let pivotal_price = if let Some(index_price) = index_price {
-        truncated(index_price.unwrap(), price_ask_rat, price_bid_rat)
+        clamp(index_price.unwrap(), price_ask_rat, price_bid_rat)
     } else {
         price_ask_rat + d / 2
     };
@@ -348,10 +348,10 @@ fn settle_price<Fr: MarketTaker>(ask: &Fr, bid: &Fr, index_price: Option<SpotPri
     let max_deviation = pivotal_price * Ratio::new(MAX_BIAS_PERCENT, 100);
     let deviation = to_signed(max_deviation) * Ratio::new(bias_percent, 100);
     let corrected_price = to_unsigned(to_signed(pivotal_price) + deviation);
-    AbsolutePrice::from(truncated(corrected_price, price_ask_rat, price_bid_rat))
+    AbsolutePrice::from(clamp(corrected_price, price_ask_rat, price_bid_rat))
 }
 
-fn truncated<I: PartialOrd>(value: I, low: I, high: I) -> I {
+fn clamp<I: PartialOrd>(value: I, low: I, high: I) -> I {
     if value >= low && value <= high {
         value
     } else if value < low {

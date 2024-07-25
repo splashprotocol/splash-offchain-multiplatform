@@ -117,7 +117,7 @@ where
             Box::pin(stream::iter(applied_txs))
         }
         ChainUpgrade::RollBackward(point) if point.get_slot() > handle_rollbacks_after => {
-            warn!("Node requested rollback to point {:?}", point);
+            info!("Node requested rollback to point {:?}", point);
             Box::pin(
                 rollback(cache, point.into(), rollback_in_progress).flat_map(|blk| {
                     let unapplied_txs: Vec<_> = unpack_valid_transactions(blk)
@@ -244,7 +244,7 @@ where
                     }
                 }
             }
-            trace!("Rolled back to point {:?}", to_point);
+            info!("Rolled back to point {:?}", to_point);
             rollback_in_progress.swap(false, Ordering::Relaxed);
             break;
         }

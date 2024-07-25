@@ -1,4 +1,4 @@
-use std::cmp::{max, Ordering};
+use std::cmp::{max, min, Ordering};
 use std::fmt::{Display, Formatter};
 
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
@@ -338,7 +338,7 @@ where
                 .and_then(|lov| lov.checked_sub(conf.fee))
                 .and_then(|lov| lov.checked_sub(tradable_lovelace))?;
             if let Some(base_output) = linear_output_relative(conf.tradable_input, conf.base_price) {
-                let min_marginal_output = conf.min_marginal_output;
+                let min_marginal_output = min(conf.min_marginal_output, base_output);
                 let max_execution_steps_possible = base_output.checked_div(min_marginal_output);
                 let max_execution_steps_available = execution_budget.checked_div(conf.cost_per_ex_step);
                 if let (Some(max_execution_steps_possible), Some(max_execution_steps_available)) =
@@ -355,8 +355,7 @@ where
                     if sufficient_input && sufficient_execution_budget && executable {
                         let bounds = ctx.select::<LimitOrderBounds>();
                         let valid_configuration = conf.cost_per_ex_step >= bounds.min_cost_per_ex_step
-                            && execution_budget >= conf.cost_per_ex_step
-                            && base_output >= min_marginal_output;
+                            && execution_budget >= conf.cost_per_ex_step;
                         if valid_configuration {
                             // Fresh beacon must be derived from one of consumed utxos.
                             let valid_fresh_beacon = ctx
@@ -373,7 +372,7 @@ where
                                 execution_budget,
                                 fee_asset: AssetClass::Native,
                                 fee: conf.fee,
-                                min_marginal_output: conf.min_marginal_output,
+                                min_marginal_output,
                                 max_cost_per_ex_step: conf.cost_per_ex_step,
                                 redeemer_address: conf.redeemer_address,
                                 cancellation_pkh: conf.cancellation_pkh,
