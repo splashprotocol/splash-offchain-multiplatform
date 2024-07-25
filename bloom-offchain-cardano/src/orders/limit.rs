@@ -368,7 +368,7 @@ where
                                 input_amount: conf.tradable_input,
                                 output_asset: conf.output,
                                 output_amount: value.amount_of(conf.output).unwrap_or(0),
-                                base_price: harden_price(conf.base_price),
+                                base_price: harden_price(conf.base_price, conf.tradable_input),
                                 execution_budget,
                                 fee_asset: AssetClass::Native,
                                 fee: conf.fee,
@@ -389,15 +389,9 @@ where
     }
 }
 
-const MIN_HARDENABLE_PRICE_NUM: u128 = 1000;
-
-fn harden_price(p: RelativePrice) -> RelativePrice {
-    let num = *p.numer();
-    if num >= MIN_HARDENABLE_PRICE_NUM {
-        RelativePrice::new(num + 1, *p.denom())
-    } else {
-        p
-    }
+fn harden_price(p: RelativePrice, input: u64) -> RelativePrice {
+    let min_output = (input as u128 * *p.numer()).div_ceil(*p.denom());
+    RelativePrice::new(min_output, input as u128)
 }
 
 #[derive(Copy, Clone, Debug, serde::Deserialize)]
@@ -526,7 +520,7 @@ mod tests {
         println!("P_abs: {}", ord.price());
     }
 
-    const ORDER_UTXO: &str = "a300583911dbe7a3d8a1d82990992a38eea1a2efaa68e931e252fc92ca1383809b7846f6bb07f5b2825885e4502679e699b4e60a0c4609a46bc35454cd011a002dc6c0028201d81858f7d8798c4100581ca23b6f28ffd04ea3a48c1a6dedac10683487e9405406f64fe9a0d3e8d8798240401a000f42401a0007a1201a000ddd51d87982581cf6099832f9563e4cf59602b3351c3c5a8a7dda2d44575ef69b82cf8d40d879821b002047e5c5ee629e1b002386f26fc1000000d87982d87981581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b25d87981d87981d87981581c7846f6bb07f5b2825885e4502679e699b4e60a0c4609a46bc35454cd581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b2581581c2f9ff04d8914bf64d671a03d34ab7937eb417831ea6b9f7fbcab96f5";
+    const ORDER_UTXO: &str = "a300583911dbe7a3d8a1d82990992a38eea1a2efaa68e931e252fc92ca1383809bde7866fe5068ebf3c87dcdb568da528da5dcb5f659d9b60010e7450f01821a0024b274a1581cecc0c71e1eb2d5d51b76cd918693550858a8fa5fb5f937901ec5eb8aa1464d41524b455402028201d818590118d8798c4100581cf8903c25300f894f83566921d9f84b02515775a99734ededa771113bd87982581cecc0c71e1eb2d5d51b76cd918693550858a8fa5fb5f937901ec5eb8a464d41524b4554021a0007a12001d87982581c4dba80a853a7791030e470024314c7bccd4a249a87f44f78ff5a3ec746536f6c616e61d879821b000358869b0242cd1b00038d7ea4c6800000d87982d87981581c74104cd5ca6288c1dd2e22ee5c874fdcfc1b81897462d91153496430d87981d87981d87981581cde7866fe5068ebf3c87dcdb568da528da5dcb5f659d9b60010e7450f581c74104cd5ca6288c1dd2e22ee5c874fdcfc1b81897462d9115349643081581c2f9ff04d8914bf64d671a03d34ab7937eb417831ea6b9f7fbcab96f5";
 
     #[test]
     fn read_config() {
