@@ -6,7 +6,6 @@ pub mod deployment;
 pub mod event_sink;
 mod fees;
 pub mod node;
-mod node_error;
 pub mod parametrized_validators;
 pub mod pool_math;
 pub mod prover;
