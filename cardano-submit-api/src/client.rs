@@ -5,22 +5,23 @@ use cml_core::serialization::Serialize;
 use cml_crypto::blake2b256;
 use log::{trace, warn};
 use pallas_network::miniprotocols::handshake::RefuseReason;
-use pallas_network::miniprotocols::localtxsubmission::{EraTx, RejectReason, Response};
+use pallas_network::miniprotocols::localtxsubmission::cardano_node_errors::ApplyTxError;
+use pallas_network::miniprotocols::localtxsubmission::{EraTx, NodeErrorDecoder, Response};
 use pallas_network::miniprotocols::{
     handshake, localtxsubmission, PROTOCOL_N2C_HANDSHAKE, PROTOCOL_N2C_TX_SUBMISSION,
 };
 use pallas_network::multiplexer;
 use pallas_network::multiplexer::{Bearer, RunningPlexer};
 
-pub struct LocalTxSubmissionClient<const ERA: u16, Tx> {
+pub struct LocalTxSubmissionClient<'a, const ERA: u16, Tx> {
     plexer: RunningPlexer,
-    tx_submission: localtxsubmission::Client,
+    tx_submission: localtxsubmission::Client<'a, NodeErrorDecoder>,
     tx: PhantomData<Tx>,
 }
 
-impl<const ERA: u16, Tx> LocalTxSubmissionClient<ERA, Tx> {
+impl<'a, const ERA: u16, Tx> LocalTxSubmissionClient<'a, ERA, Tx> {
     #[cfg(not(target_os = "windows"))]
-    pub async fn init<'a>(path: impl AsRef<Path>, magic: u64) -> Result<Self, Error> {
+    pub async fn init(path: impl AsRef<Path>, magic: u64) -> Result<Self, Error> {
         let bearer = Bearer::connect_unix(path).await.map_err(Error::ConnectFailure)?;
 
         let mut mplex = multiplexer::Plexer::new(bearer);
@@ -42,7 +43,7 @@ impl<const ERA: u16, Tx> LocalTxSubmissionClient<ERA, Tx> {
             return Err(Error::HandshakeRefused(reason));
         }
 
-        let ts_client = localtxsubmission::Client::new(ts_channel);
+        let ts_client = localtxsubmission::Client::new(ts_channel, NodeErrorDecoder::default());
 
         Ok(Self {
             plexer,
@@ -51,7 +52,7 @@ impl<const ERA: u16, Tx> LocalTxSubmissionClient<ERA, Tx> {
         })
     }
 
-    pub async fn submit_tx(&mut self, tx: Tx) -> Result<Response<RejectReason>, Error>
+    pub async fn submit_tx(&mut self, tx: Tx) -> Result<Response<Vec<ApplyTxError>>, Error>
     where
         Tx: Serialize,
     {
