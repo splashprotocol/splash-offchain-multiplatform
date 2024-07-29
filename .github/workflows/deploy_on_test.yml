@@ -26,3 +26,16 @@ jobs:
         context: .
         push: true
         tags: ${{ secrets.DOCKER_USERNAME }}/check:latest
+
+    - name: Deploy to Host
+      env:
+        SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        HOST: ${{ secrets.HOST }}
+        SSH_USER: ${{ secrets.SSH_USER }}
+      run: |
+        echo "${SSH_PRIVATE_KEY}" > private_key
+        chmod 600 private_key
+        ssh -i private_key ${SSH_USER}@${HOST} << 'EOF'
+          touch /root/TEST/test.txt
+        EOF
+      shell: bash
