@@ -13,6 +13,7 @@ jobs:
     
     - name: Add known_hosts
       run: |
+        mkdir -p ~/.ssh
         echo "${{ secrets.KNOWN_HOSTS }}" > ~/.ssh/known_hosts
     
     - name: Deploy to Host
