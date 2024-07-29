@@ -105,9 +105,7 @@ where
                     Ok(Response::Accepted) => on_resp.send(SubmissionResult::Ok).expect("Responder was dropped"),
                     Ok(Response::Rejected(errors)) => {
                         trace!("TX {} was rejected due to error: {:?}", tx_hash, errors);
-                        let errors: Vec<ProtocolRejectReason> = errors.into_iter().flat_map(|ApplyTxError { node_errors }|
-                            node_errors.into_iter().map(ProtocolRejectReason::from)).collect();
-                        on_resp.send(SubmissionResult::TxRejected{errors: errors.into()}).expect("Responder was dropped");
+                        on_resp.send(SubmissionResult::TxRejected{errors:  RejectReasons(errors)}).expect("Responder was dropped");
                     },
                     Err(Error::TxSubmissionProtocol(err)) => {
                         trace!("Failed to submit TX {}: {}", tx_hash, hex::encode(tx.to_cbor_bytes()));
@@ -143,13 +141,20 @@ impl TryFrom<RejectReasons> for HashSet<OutputRef> {
     fn try_from(value: RejectReasons) -> Result<Self, Self::Error> {
         let mut outputs = HashSet::new();
 
-        for reason in value.0 {
-            if let ProtocolRejectReason::BadInputsUtxo(inputs) = reason {
-                let o = inputs.into_iter().map(|TxInput { tx_hash, index }| {
-                    let tx_hash = *tx_hash;
-                    OutputRef::new(tx_hash.into(), index)
-                });
-                outputs.extend(o);
+        for ApplyTxError { node_errors } in value.0 {
+            for error in node_errors {
+                if let ShelleyLedgerPredFailure::UtxowFailure(BabbageUtxowPredFailure::UtxoFailure(
+                    BabbageUtxoPredFailure::AlonzoInBabbageUtxoPredFailure(
+                        AlonzoUtxoPredFailure::BadInputsUtxo(inputs),
+                    ),
+                )) = error
+                {
+                    let o = inputs.into_iter().map(|TxInput { tx_hash, index }| {
+                        let tx_hash = *tx_hash;
+                        OutputRef::new(tx_hash.into(), index)
+                    });
+                    outputs.extend(o);
+                }
             }
         }
 
@@ -175,111 +180,4 @@ where
 
 #[derive(Debug, Clone, derive_more::Display, derive_more::From)]
 #[display(fmt = "RejectReasons: {:?}", "_0")]
-pub struct RejectReasons(pub Vec<ProtocolRejectReason>);
-
-#[derive(Debug, Clone, derive_more::Display)]
-pub enum ProtocolRejectReason {
-    /// Missing/bad TX inputs
-    #[display(fmt = "ProtocolRejectReason::BadInputsUtxo: {:?}", "_0")]
-    BadInputsUtxo(Vec<TxInput>),
-    #[display(
-        fmt = "ProtocolRejectReason::ValueNotConserved: Consumed {:?}, produced {:?}",
-        consumed,
-        produced
-    )]
-    ValueNotConserved { consumed: Value, produced: Value },
-    #[display(fmt = "ProtocolRejectReason::MissingVKeyWitnesses: {:?}", "_0")]
-    MissingVKeyWitnesses(Vec<pallas_crypto::hash::Hash<28>>),
-    #[display(fmt = "ProtocolRejectReason::MissingScriptWitnesses: {:?}", "_0")]
-    MissingScriptWitnesses(Vec<pallas_crypto::hash::Hash<28>>),
-    /// A generic error that cannot be clearly identified.
-    Unknown(String),
-}
-
-impl From<ShelleyLedgerPredFailure> for ProtocolRejectReason {
-    fn from(value: ShelleyLedgerPredFailure) -> Self {
-        match value {
-            ShelleyLedgerPredFailure::UtxowFailure(babbage_failure) => match babbage_failure {
-                BabbageUtxowPredFailure::AlonzoInBabbageUtxowPredFailure(alonzo_fail) => match alonzo_fail {
-                    AlonzoUtxowPredFailure::ShelleyInAlonzoUtxowPredfailure(shelley_fail) => {
-                        match shelley_fail {
-                            ShelleyUtxowPredFailure::MissingVKeyWitnessesUTXOW(m) => {
-                                ProtocolRejectReason::MissingVKeyWitnesses(m)
-                            }
-                            ShelleyUtxowPredFailure::MissingScriptWitnessesUTXOW(m) => {
-                                ProtocolRejectReason::MissingScriptWitnesses(m)
-                            }
-                            ShelleyUtxowPredFailure::InvalidWitnessesUTXOW => unimplemented!(),
-                            ShelleyUtxowPredFailure::ScriptWitnessNotValidatingUTXOW(_) => {
-                                unimplemented!()
-                            }
-                            ShelleyUtxowPredFailure::UtxoFailure => unimplemented!(),
-                            ShelleyUtxowPredFailure::MIRInsufficientGenesisSigsUTXOW => {
-                                unimplemented!()
-                            }
-                            ShelleyUtxowPredFailure::MissingTxBodyMetadataHash => {
-                                unimplemented!()
-                            }
-                            ShelleyUtxowPredFailure::MissingTxMetadata => unimplemented!(),
-                            ShelleyUtxowPredFailure::ConflictingMetadataHash => {
-                                unimplemented!()
-                            }
-                            ShelleyUtxowPredFailure::InvalidMetadata => unimplemented!(),
-                            ShelleyUtxowPredFailure::ExtraneousScriptWitnessesUTXOW(_) => {
-                                unimplemented!()
-                            }
-                        }
-                    }
-                    AlonzoUtxowPredFailure::MissingRedeemers => unimplemented!(),
-                    AlonzoUtxowPredFailure::MissingRequiredDatums => unimplemented!(),
-                    AlonzoUtxowPredFailure::NotAllowedSupplementalDatums => unimplemented!(),
-                    AlonzoUtxowPredFailure::PPViewHashesDontMatch => unimplemented!(),
-                    AlonzoUtxowPredFailure::MissingRequiredSigners(_) => unimplemented!(),
-                    AlonzoUtxowPredFailure::UnspendableUtxoNoDatumHash => unimplemented!(),
-                    AlonzoUtxowPredFailure::ExtraRedeemers => unimplemented!(),
-                },
-                BabbageUtxowPredFailure::UtxoFailure(utxo_fail) => match utxo_fail {
-                    BabbageUtxoPredFailure::AlonzoInBabbageUtxoPredFailure(alonzo_fail) => {
-                        match alonzo_fail {
-                            AlonzoUtxoPredFailure::BadInputsUtxo(inputs) => {
-                                ProtocolRejectReason::BadInputsUtxo(inputs)
-                            }
-                            AlonzoUtxoPredFailure::ValueNotConservedUTxO {
-                                consumed_value,
-                                produced_value,
-                            } => ProtocolRejectReason::ValueNotConserved {
-                                consumed: consumed_value,
-                                produced: produced_value,
-                            },
-                            AlonzoUtxoPredFailure::OutsideValidityIntervalUTxO => unimplemented!(),
-                            AlonzoUtxoPredFailure::MaxTxSizeUTxO => unimplemented!(),
-                            AlonzoUtxoPredFailure::InputSetEmptyUTxO => unimplemented!(),
-                            AlonzoUtxoPredFailure::FeeTooSmallUTxO => unimplemented!(),
-                            AlonzoUtxoPredFailure::WrongNetwork => unimplemented!(),
-                            AlonzoUtxoPredFailure::WrongNetworkWithdrawal => unimplemented!(),
-                            AlonzoUtxoPredFailure::OutputTooSmallUTxO => unimplemented!(),
-                            AlonzoUtxoPredFailure::UtxosFailure(failure) => unimplemented!(),
-                            AlonzoUtxoPredFailure::OutputBootAddrAttrsTooBig => unimplemented!(),
-                            AlonzoUtxoPredFailure::TriesToForgeADA => unimplemented!(),
-                            AlonzoUtxoPredFailure::OutputTooBigUTxO => unimplemented!(),
-                            AlonzoUtxoPredFailure::InsufficientCollateral => unimplemented!(),
-                            AlonzoUtxoPredFailure::ScriptsNotPaidUTxO => unimplemented!(),
-                            AlonzoUtxoPredFailure::ExUnitsTooBigUTxO => unimplemented!(),
-                            AlonzoUtxoPredFailure::CollateralContainsNonADA => unimplemented!(),
-                            AlonzoUtxoPredFailure::WrongNetworkInTxBody => unimplemented!(),
-                            AlonzoUtxoPredFailure::OutsideForecast => unimplemented!(),
-                            AlonzoUtxoPredFailure::TooManyCollateralInputs => unimplemented!(),
-                            AlonzoUtxoPredFailure::NoCollateralInputs => unimplemented!(),
-                        }
-                    }
-                    BabbageUtxoPredFailure::IncorrectTotalCollateralField => unimplemented!(),
-                    BabbageUtxoPredFailure::BabbageOutputTooSmallUTxO => unimplemented!(),
-                    BabbageUtxoPredFailure::BabbageNonDisjointRefInputs => unimplemented!(),
-                },
-                BabbageUtxowPredFailure::MalformedScriptWitnesses => unimplemented!(),
-                BabbageUtxowPredFailure::MalformedReferenceScripts => unimplemented!(),
-            },
-            ShelleyLedgerPredFailure::DelegsFailure => unimplemented!(),
-        }
-    }
-}
+pub struct RejectReasons(pub Vec<ApplyTxError>);
