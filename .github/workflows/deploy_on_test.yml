@@ -10,7 +10,11 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v2
-
+    
+    - name: Add known_hosts
+      run: |
+        echo "${{ secrets.KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+    
     - name: Deploy to Host
       env:
         SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
