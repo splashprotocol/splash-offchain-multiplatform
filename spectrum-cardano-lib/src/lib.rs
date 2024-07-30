@@ -275,6 +275,12 @@ impl<T> TryFromPData for TaggedAssetClass<T> {
 #[derivative(Debug(bound = ""), Copy(bound = ""), Clone(bound = ""), Eq(bound = ""))]
 pub struct TaggedAmount<T>(u64, PhantomData<T>);
 
+impl<T> Display for TaggedAmount<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.0, f)
+    }
+}
+
 impl<T> PartialEq for TaggedAmount<T> {
     fn eq(&self, other: &Self) -> bool {
         self.0.eq(&other.0)

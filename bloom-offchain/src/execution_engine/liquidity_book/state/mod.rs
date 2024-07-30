@@ -57,7 +57,6 @@ where
     }
 
     pub fn update_pool(&mut self, maker: M) {
-        trace!("Updating {:?} in active frontier", maker);
         trace!("Updating {} in active frontier", maker);
         self.makers.update_pool(maker);
     }

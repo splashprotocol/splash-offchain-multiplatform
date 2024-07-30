@@ -227,22 +227,31 @@ impl Display for AnyPool {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             PureCFMM(p) => f.write_str(&*format!(
-                "PureCFMM(id: {}, static_price: {}, quality: {})",
+                "PureCFMM(id: {}, static_price: {}, rx: {}, ry: {}, tx: {}, ty: {})",
                 p.id,
                 p.static_price(),
-                p.quality()
+                p.reserves_x,
+                p.reserves_y,
+                p.treasury_x,
+                p.treasury_y,
             )),
             BalancedCFMM(p) => f.write_str(&*format!(
-                "BalancedCFMM(id: {}, static_price: {}, quality: {})",
+                "BalancedCFMM(id: {}, static_price: {}, rx: {}, ry: {}, tx: {}, ty: {})",
                 p.id,
                 p.static_price(),
-                p.quality()
+                p.reserves_x,
+                p.reserves_y,
+                p.treasury_x,
+                p.treasury_y,
             )),
             StableCFMM(p) => f.write_str(&*format!(
-                "StableCFMM(id: {}, static_price: {}, quality: {})",
+                "StableCFMM(id: {}, static_price: {}, rx: {}, ry: {}, tx: {}, ty: {})",
                 p.id,
                 p.static_price(),
-                p.quality()
+                p.reserves_x,
+                p.reserves_y,
+                p.treasury_x,
+                p.treasury_y,
             )),
         }
     }
