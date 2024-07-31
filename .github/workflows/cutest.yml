@@ -56,8 +56,7 @@ jobs:
             "attachments": [
               {
                 "text": "Cargo fmt check finished with status: ${{ job.status }}. For more details, visit the run at ${{ github.run_url }}.",
-                "color": "${{ job.status == 'success' && 'good' || 'danger' }}"
+                "color": "${{ job.status == 'success' && 'good' || '#FF0000' }}"
               }
             ]
           }
-    
