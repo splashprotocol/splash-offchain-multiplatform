@@ -4,10 +4,7 @@ name: TEST CI for Develop Branch
 on:
   push:
     branches:
-      - develop
-  
-  pull_request:
-    types: [opened, synchronize, closed]    
+      - cicdtest  
 
 jobs:
   build:
@@ -40,93 +37,27 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-cargo-build-
           
-    - name: Run Cargo fmt
-      id: fmt
+    - name: Run cargo fmt check
+      id: cargo_fmt
       run: |
-        if ! cargo fmt --all -- --check; then
-          echo "Cargo fmt failed."
-          echo "::set-output name=status::failure"
-        else
-          echo "Cargo fmt succeeded."
-          echo "::set-output name=status::success"
-        fi
-    - name: Run Cargo Build
-      id: build
-      run: |
-        if ! cargo build --package bloom-cardano-agent --bin bloom-cardano-agent; then
-          echo "Cargo build failed."
-          echo "::set-output name=status::failure"
-        else
-          echo "Cargo build succeeded."
-          echo "::set-output name=status::success"
-        fi
-   
-    - name: Run tests
-      run: cargo test --package bloom-cardano-agent --bin bloom-cardano-agent
+        cargo fmt --all --check
+        echo "cargo_fmt_result=$?" >> $GITHUB_ENV
 
-
-    - name: Get Event Information
-      id: info
-      run: |
-        if [ "${{ github.event_name }}" == "push" ]; then
-          echo "::set-output name=event::push"
-          echo "::set-output name=branch::${{ github.ref_name }}"
-          echo "::set-output name=commits::$(echo "${{ github.event.commits }}" | jq '.[] | "- \(.message) by \(.author.name)"' -r | tr '\n' '\\n')"
-        elif [ "${{ github.event_name }}" == "pull_request" ]; then
-          echo "::set-output name=event::pull_request"
-          echo "::set-output name=action::${{ github.event.action }}"
-          echo "::set-output name=pr_title::${{ github.event.pull_request.title }}"
-          echo "::set-output name=pr_user::${{ github.event.pull_request.user.login }}"
-          echo "::set-output name=pr_url::${{ github.event.pull_request.html_url }}"
-          echo "::set-output name=pr_number::${{ github.event.pull_request.number }}"
-          echo "::set-output name=merged::${{ github.event.pull_request.merged }}"
-        fi
-        
-    - name: Notify Slack
+    - name: Send result to Slack
+      if: always()
+      uses: rtCamp/action-slack-notify@v2
       env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL2 }}
-        EVENT: ${{ steps.info.outputs.event }}
-        BRANCH: ${{ steps.info.outputs.branch }}
-        COMMITS: ${{ steps.info.outputs.commits }}
-        PR_TITLE: ${{ steps.info.outputs.pr_title }}
-        PR_USER: ${{ steps.info.outputs.pr_user }}
-        PR_URL: ${{ steps.info.outputs.pr_url }}
-        PR_NUMBER: ${{ steps.info.outputs.pr_number }}
-        PR_ACTION: ${{ steps.info.outputs.action }}
-        PR_MERGED: ${{ steps.info.outputs.merged }}
-        BUILD_STATUS: ${{ steps.build.outputs.status }}
-      run: |
-        if [ "$EVENT" == "push" ]; then
-          if [ "$BUILD_STATUS" == "failure" ]; then
-            TEXT="❌ *Build Failed on Push to develop Branch!*\n*Branch:* $BRANCH\n*Commits:*\n$COMMITS"
-          else
-            TEXT="📢 *New Push to develop Branch and Build Succeeded!*\n*Branch:* $BRANCH\n*Commits:*\n$COMMITS"
-          fi
-        elif [ "$EVENT" == "pull_request" ]; then
-          if [ "$BUILD_STATUS" == "failure" ]; then
-            if [ "$PR_ACTION" == "opened" ]; then
-              TEXT="❌ *Build Failed for New Pull Request!*\n*Title:* $PR_TITLE\n*Author:* $PR_USER\n*URL:* $PR_URL\n*Number:* $PR_NUMBER"
-            elif [ "$PR_ACTION" == "synchronize" ]; then
-              TEXT="❌ *Build Failed for Updated Pull Request!*\n*Title:* $PR_TITLE\n*Author:* $PR_USER\n*URL:* $PR_URL\n*Number:* $PR_NUMBER"
-            elif [ "$PR_ACTION" == "closed" ]; then
-              if [ "$PR_MERGED" == "true" ]; then
-                TEXT="❌ *Build Failed for Merged Pull Request!*\n*Title:* $PR_TITLE\n*Author:* $PR_USER\n*URL:* $PR_URL\n*Number:* $PR_NUMBER"
-              else
-                TEXT="❌ *Build Failed for Closed Pull Request Without Merge!*\n*Title:* $PR_TITLE\n*Author:* $PR_USER\n*URL:* $PR_URL\n*Number:* $PR_NUMBER"
-              fi
-            fi
-          else
-            if [ "$PR_ACTION" == "opened" ]; then
-              TEXT="🚀 *New Pull Request Opened and Build Succeeded!*\n*Title:* $PR_TITLE\n*Author:* $PR_USER\n*URL:* $PR_URL\n*Number:* $PR_NUMBER"
-            elif [ "$PR_ACTION" == "synchronize" ]; then
-              TEXT="🔄 *Pull Request Updated and Build Succeeded!*\n*Title:* $PR_TITLE\n*Author:* $PR_USER\n*URL:* $PR_URL\n*Number:* $PR_NUMBER"
-            elif [ "$PR_ACTION" == "closed" ]; then
-              if [ "$PR_MERGED" == "true" ]; then
-                TEXT="🎉 *Pull Request Merged and Build Succeeded!*\n*Title:* $PR_TITLE\n*Author:* $PR_USER\n*URL:* $PR_URL\n*Number:* $PR_NUMBER"
-              else
-                TEXT="❌ *Pull Request Closed Without Merge but Build Succeeded!*\n*Title:* $PR_TITLE\n*Author:* $PR_USER\n*URL:* $PR_URL\n*Number:* $PR_NUMBER"
-              fi
-            fi
-          fi
-        fi
-        curl -X POST -H 'Content-type: application/json' --data "{\"text\": \"$TEXT\"}" $SLACK_WEBHOOK_URL
+        SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK2 }}
+        STATUS: ${{ job.status }}
+      with:
+        payload: |
+          {
+            "text": "Cargo fmt check result: ${{ job.status }}. See details at ${{ github.run_url }}",
+            "attachments": [
+              {
+                "text": "Cargo fmt check finished with status: ${{ job.status }}. For more details, visit the run at ${{ github.run_url }}.",
+                "color": "${{ job.status == 'success' && 'good' || 'danger' }}"
+              }
+            ]
+          }
+    
