@@ -69,6 +69,7 @@ uplc = "0.0.29"
 uplc-pallas-codec = { package = "pallas-codec", version = "0.16" }
 uplc-pallas-traverse = { package = "pallas-traverse", version = "0.16" }
 uplc-pallas-primitives = { package = "pallas-primitives", version = "0.16" }
+num-bigint = "0.4.6"
 
 [dev-dependencies]
 rocksdb = "0.21.*"

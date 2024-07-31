@@ -15,14 +15,11 @@ use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::balance_pool::{BalancePool, BalancePoolRedeemer};
 use spectrum_offchain_cardano::data::cfmm_pool::ConstFnPoolVer::{FeeSwitch, FeeSwitchV2};
 use spectrum_offchain_cardano::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
+use spectrum_offchain_cardano::data::degen_quadratic_pool::{DegenQuadraticPool, DegenQuadraticPoolRedeemer};
 use spectrum_offchain_cardano::data::pool::{AnyPool, CFMMPoolAction, PoolAssetMapping};
 use spectrum_offchain_cardano::data::stable_pool_t2t::{StablePoolRedeemer, StablePoolT2T};
 use spectrum_offchain_cardano::data::{balance_pool, cfmm_pool, stable_pool_t2t};
-use spectrum_offchain_cardano::deployment::ProtocolValidator::{
-    BalanceFnPoolV1, BalanceFnPoolV2, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,
-    ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, GridOrderNative, LimitOrderV1, LimitOrderWitnessV1,
-    StableFnPoolT2T,
-};
+use spectrum_offchain_cardano::deployment::ProtocolValidator::{BalanceFnPoolV1, BalanceFnPoolV2, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, DegenQuadraticPoolV1, GridOrderNative, LimitOrderV1, LimitOrderWitnessV1, StableFnPoolT2T};
 use spectrum_offchain_cardano::deployment::{DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use spectrum_offchain_cardano::script::{
     delayed_cost, delayed_redeemer, ready_cost, ready_redeemer, ScriptWitness,
@@ -265,7 +262,8 @@ where
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolV2 as u8 }>>
-        + Has<DeployedValidator<{ StableFnPoolT2T as u8 }>>,
+        + Has<DeployedValidator<{ StableFnPoolT2T as u8 }>>
+        + Has<DeployedValidator<{ DegenQuadraticPoolV1 as u8 }>>,
 {
     fn exec(self, state: ExecutionState, context: Ctx) -> (ExecutionState, EffectPreview<AnyPool>, Ctx) {
         match self.0 {
@@ -311,6 +309,21 @@ where
                 (
                     st,
                     res.bimap(|c| c.map(AnyPool::StableCFMM), |p| p.map(AnyPool::StableCFMM)),
+                    ctx,
+                )
+            }
+            Trans {
+                target: Bundled(AnyPool::DegenPool(p), src),
+                result: Next::Succ(AnyPool::DegenPool(p2)),
+            } => {
+                let (st, res, ctx) = Magnet(Trans {
+                    target: Bundled(p, src),
+                    result: Next::Succ(p2),
+                })
+                .exec(state, context);
+                (
+                    st,
+                    res.bimap(|c| c.map(AnyPool::DegenPool), |p| p.map(AnyPool::DegenPool)),
                     ctx,
                 )
             }

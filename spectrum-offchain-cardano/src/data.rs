@@ -1,11 +1,10 @@
 use std::fmt::{Display, Formatter};
 
-use cml_chain::address::Address;
-use cml_chain::transaction::TransactionInput;
 use cml_chain::PolicyId;
+use cml_chain::transaction::TransactionInput;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use num_rational::Ratio;
-use rand::{thread_rng, RngCore};
+use rand::{RngCore, thread_rng};
 
 use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAssetClass, Token};
 
@@ -23,6 +22,7 @@ pub mod ref_scripts;
 pub mod balance_order;
 pub mod balance_pool;
 pub mod cfmm_pool;
+pub mod degen_quadratic_pool;
 pub mod fee_switch_bidirectional_fee;
 pub mod fee_switch_pool;
 pub mod pair;
