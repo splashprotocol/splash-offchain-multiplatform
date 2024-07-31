@@ -1,10 +1,10 @@
 use std::fmt::{Display, Formatter};
 
-use cml_chain::transaction::TransactionInput;
 use cml_chain::PolicyId;
+use cml_chain::transaction::TransactionInput;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use num_rational::Ratio;
-use rand::{thread_rng, RngCore};
+use rand::{RngCore, thread_rng};
 
 use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAssetClass, Token};
 

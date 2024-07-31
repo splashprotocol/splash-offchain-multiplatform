@@ -1,7 +1,5 @@
 use std::fmt::Debug;
-use std::ops::Div;
 
-use bignumber::BigNumber;
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
@@ -10,14 +8,11 @@ use cml_chain::transaction::{ConwayFormatTxOut, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_multi_era::babbage::BabbageTransactionOutput;
-use dashu_float::DBig;
-use num_rational::Ratio;
-use num_traits::{CheckedDiv, CheckedSub};
-use num_traits::real::Real;
 use type_equalities::IsEqual;
 
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
+    AbsoluteReserves, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
     AbsoluteReserves, Excess, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
 };
 use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
@@ -44,9 +39,7 @@ use crate::data::PoolId;
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::deployment::ProtocolValidator::DegenQuadraticPoolV1;
 use crate::fees::FeeExtension;
-use crate::pool_math::degen_quadratic_math::{
-    A_DENOM, B_DENOM, degen_quadratic_output_amount, TOKEN_EMISSION,
-};
+use crate::pool_math::degen_quadratic_math::{A_DENOM, B_DENOM, degen_quadratic_output_amount};
 
 pub struct DegenQuadraticPoolConfig {
     pub pool_nft: TaggedAssetClass<PoolNft>,
@@ -168,13 +161,13 @@ impl DegenQuadraticPool {
         }
     }
     fn create_redeemer(pool_in_idx: u64, pool_out_idx: u64) -> PlutusData {
-        let self_in_idx_pd = PlutusData::Integer(BigInteger::from(pool_in_idx));
-        let self_out_idx_pd = PlutusData::Integer(BigInteger::from(pool_out_idx));
+        let self_ix_pd = PlutusData::Integer(BigInteger::from(pool_in_idx));
+        let self_out_pd = PlutusData::Integer(BigInteger::from(pool_out_idx));
         let amm_action = PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, Vec::from([])));
 
         PlutusData::ConstrPlutusData(ConstrPlutusData::new(
             0,
-            Vec::from([self_in_idx_pd, self_out_idx_pd, amm_action]),
+            Vec::from([self_ix_pd, self_out_pd, amm_action]),
         ))
     }
 }
@@ -633,15 +626,13 @@ impl ApplyOrder<ClassicalOnChainLimitSwap> for DegenQuadraticPool {
 
 mod tests {
     use cml_crypto::ScriptHash;
-    use num_rational::Ratio;
     use rand::{Rng, SeedableRng};
     use rand::prelude::StdRng;
     use rand::seq::SliceRandom;
 
     use bloom_offchain::execution_engine::liquidity_book::core::Next;
-    use bloom_offchain::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker};
+    use bloom_offchain::execution_engine::liquidity_book::market_maker::MakerBehavior;
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
-    use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
     use spectrum_cardano_lib::ex_units::ExUnits;
 
@@ -664,7 +655,7 @@ mod tests {
             id: PoolId::from((
                 ScriptHash::from([
                     162, 206, 112, 95, 150, 240, 52, 167, 61, 102, 158, 92, 11, 47, 25, 41, 48, 224, 188,
-                    211, 138, 203, 27, 107, 246, 89, 115, 157,
+                    211, 138, 203, 127, 107, 246, 89, 115, 157,
                 ]),
                 AssetName::from((
                     3,
