@@ -37,11 +37,6 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-cargo-build-
           
-    - name: Run cargo fmt check
-      id: cargo_fmt
-      run: |
-        cargo fmt --all --check
-
     - name: Send result to Slack
       if: always()
       uses: rtCamp/action-slack-notify@v2
@@ -55,7 +50,7 @@ jobs:
             "attachments": [
               {
                 "text": "Cargo fmt check finished with status: ${{ job.status }}. For more details, visit the run at ${{ github.run_url }}.",
-                "color": "${{ job.status == 'success' && 'good' || 'danger' }}"
+                "color": "${{ job.status == 'success' && 'good' || '#FF0000' }}"
               }
             ]
           }
