@@ -19,7 +19,11 @@ use spectrum_offchain_cardano::data::degen_quadratic_pool::{DegenQuadraticPool, 
 use spectrum_offchain_cardano::data::pool::{AnyPool, CFMMPoolAction, PoolAssetMapping};
 use spectrum_offchain_cardano::data::stable_pool_t2t::{StablePoolRedeemer, StablePoolT2T};
 use spectrum_offchain_cardano::data::{balance_pool, cfmm_pool, stable_pool_t2t};
-use spectrum_offchain_cardano::deployment::ProtocolValidator::{BalanceFnPoolV1, BalanceFnPoolV2, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, DegenQuadraticPoolV1, GridOrderNative, LimitOrderV1, LimitOrderWitnessV1, StableFnPoolT2T};
+use spectrum_offchain_cardano::deployment::ProtocolValidator::{
+    BalanceFnPoolV1, BalanceFnPoolV2, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,
+    ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, DegenQuadraticPoolV1, GridOrderNative,
+    LimitOrderV1, LimitOrderWitnessV1, StableFnPoolT2T,
+};
 use spectrum_offchain_cardano::deployment::{DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use spectrum_offchain_cardano::script::{
     delayed_cost, delayed_redeemer, ready_cost, ready_redeemer, ScriptWitness,
@@ -550,6 +554,70 @@ where
                 transition.treasury_y.untag(),
             );
         }
+
+        let consumed = Bundled(pool, FinalizedTxOut(consumed_out, in_ref));
+        let produced = Bundled(transition, produced_out.clone());
+        let effect = ExecutionEff::Updated(consumed, produced);
+
+        state.tx_blueprint.add_io(input, produced_out);
+        state.tx_blueprint.add_ref_input(reference_utxo);
+        (state, effect, context)
+    }
+}
+
+impl<Ctx> BatchExec<ExecutionState, EffectPreview<DegenQuadraticPool>, Ctx>
+    for Magnet<Make<DegenQuadraticPool, FinalizedTxOut>>
+where
+    Ctx: Has<DeployedValidator<{ DegenQuadraticPoolV1 as u8 }>>,
+{
+    fn exec(
+        self,
+        mut state: ExecutionState,
+        context: Ctx,
+    ) -> (ExecutionState, EffectPreview<DegenQuadraticPool>, Ctx) {
+        let Magnet(trans) = self;
+        let side = trans.trade_side().expect("Empty swaps aren't allowed");
+        let removed_liquidity = trans.loss().expect("Something must be removed");
+        let added_liquidity = trans.gain().expect("Something must be added");
+        let Trans {
+            target: Bundled(pool, FinalizedTxOut(consumed_out, in_ref)),
+            result,
+        } = trans;
+        let mut produced_out = consumed_out.clone();
+        let PoolAssetMapping {
+            asset_to_deduct_from,
+            asset_to_add_to,
+        } = pool.asset_mapping(side);
+        produced_out.sub_asset(asset_to_deduct_from, removed_liquidity);
+        produced_out.add_asset(asset_to_add_to, added_liquidity);
+
+        let Next::Succ(transition) = result else {
+            panic!("Degen pool isn't supposed to terminate in result of a trade")
+        };
+
+        let DeployedValidatorErased {
+            reference_utxo,
+            hash,
+            ex_budget,
+            marginal_cost,
+        } = pool.get_validator(&context);
+        let input = ScriptInputBlueprint {
+            reference: in_ref,
+            utxo: consumed_out.clone(),
+            script: ScriptWitness {
+                hash,
+                cost: delayed_cost(move |ctx| ex_budget + marginal_cost.scale(ctx.self_index as u64)),
+            },
+            redeemer: delayed_redeemer(move |ordering| {
+                DegenQuadraticPoolRedeemer {
+                    pool_input_index: ordering.index_of(&in_ref) as u64,
+                    pool_output_index: ordering.index_of(&in_ref) as u64,
+                    action: CFMMPoolAction::Swap,
+                }
+                .to_plutus_data()
+            }),
+            required_signers: vec![],
+        };
 
         let consumed = Bundled(pool, FinalizedTxOut(consumed_out, in_ref));
         let produced = Bundled(transition, produced_out.clone());
