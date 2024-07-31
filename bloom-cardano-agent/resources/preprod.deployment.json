@@ -234,5 +234,16 @@
       "mem": 500000,
       "steps": 200000000
     }
+  },
+  "degenFnPoolV1": {
+    "hash": "55b2ab0b5b901ffff0a12b839cb00fdc8e4a4423f38c7eaaacff916c",
+    "referenceUtxo": {
+      "txHash": "d1f201203d9b54ce0e783e31c6564a62d71ca74be1bd596dabd96d39859e52ea",
+      "outputIndex": 1
+    },
+    "cost": {
+      "mem": 500000,
+      "steps": 200000000
+    }
   }
 }
