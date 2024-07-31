@@ -37,20 +37,36 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-cargo-build-
           
+    - name: Run cargo fmt check
+      id: cargo_fmt
+      run: |
+        cargo fmt --all --check
+
+    - name: Build bloom-cardano-agent
+      id: cargo_build
+      run: |
+        cargo build --package bloom-cardano-agent --bin bloom-cardano-agent
+        echo "cargo_build_result=$?" >> $GITHUB_ENV
+
     - name: Send result to Slack
       if: always()
       uses: rtCamp/action-slack-notify@v2
       env:
         SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL2 }}
-        STATUS: ${{ job.status }}
+        FMT_STATUS: ${{ steps.cargo_fmt.outcome }}
+        BUILD_STATUS: ${{ steps.cargo_build.outcome }}
       with:
         payload: |
           {
-            "text": "Cargo fmt check result: ${{ job.status }}. See details at ${{ github.run_url }}",
+            "text": "Cargo fmt and build check result. See details at ${{ github.run_url }}",
             "attachments": [
               {
-                "text": "Cargo fmt check finished with status: ${{ job.status }}. For more details, visit the run at ${{ github.run_url }}.",
-                "color": "${{ job.status == 'success' && 'good' || '#FF0000' }}"
+                "text": "Cargo fmt check finished with status: ${{ env.FMT_STATUS }}.",
+                "color": "${{ env.FMT_STATUS == 'success' && 'good' || '#FF0000' }}"
+              },
+              {
+                "text": "Cargo build finished with status: ${{ env.BUILD_STATUS }}.",
+                "color": "${{ env.BUILD_STATUS == 'success' && 'good' || '#FF0000' }}"
               }
             ]
           }
