@@ -8,15 +8,17 @@ use either::Either;
 use futures::channel::mpsc;
 use futures::stream::select_all;
 use futures::{stream_select, Stream, StreamExt};
-use log::info;
+use log::{info, trace};
 use tokio::sync::{broadcast, Mutex};
 use tracing_subscriber::fmt::Subscriber;
 
+use crate::config::AppConfig;
+use crate::context::{ExecutionContext, MakerContext};
+use crate::integrity::CheckIntegrity;
 use crate::partitioning::select_partition;
-use bloom_cardano_agent::config::AppConfig;
-use bloom_cardano_agent::context::ExecutionContext;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_part_stream;
+use bloom_offchain::execution_engine::funding_effect::FundingEvent;
 use bloom_offchain::execution_engine::liquidity_book::TLB;
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
 use bloom_offchain::execution_engine::storage::kv_store::InMemoryKvStore;
@@ -25,12 +27,13 @@ use bloom_offchain_cardano::bounds::Bounds;
 use bloom_offchain_cardano::event_sink::context::HandlerContextProto;
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
 use bloom_offchain_cardano::event_sink::handler::{
-    PairUpdateHandler, ProcessingTransaction, SpecializedHandler,
+    FundingEventHandler, PairUpdateHandler, ProcessingTransaction, SpecializedHandler,
 };
-use bloom_offchain_cardano::event_sink::order_index::InMemoryOrderIndex;
+use bloom_offchain_cardano::event_sink::order_index::InMemoryKvIndex;
 use bloom_offchain_cardano::event_sink::{AtomicCardanoEntity, EvolvingCardanoEntity};
 use bloom_offchain_cardano::execution_engine::backlog::interpreter::SpecializedInterpreterViaRunOrder;
 use bloom_offchain_cardano::execution_engine::interpreter::CardanoRecipeInterpreter;
+use bloom_offchain_cardano::funding::FundingAddresses;
 use bloom_offchain_cardano::orders::AnyOrder;
 use cardano_chain_sync::cache::LedgerCacheRocksDB;
 use cardano_chain_sync::chain_sync_stream;
@@ -67,15 +70,20 @@ use spectrum_streaming::StreamExt as StreamExt1;
 
 mod config;
 mod context;
+mod integrity;
 mod partitioning;
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 10)]
+#[tokio::main(flavor = "multi_thread", worker_threads = 8)]
 async fn main() {
     let subscriber = Subscriber::new();
     tracing::subscriber::set_global_default(subscriber).expect("setting tracing default failed");
     let args = AppArgs::parse();
     let raw_config = std::fs::read_to_string(args.config_path).expect("Cannot load configuration file");
     let config: AppConfig = serde_json::from_str(&raw_config).expect("Invalid configuration file");
+    let config_integrity_violations = config.check_integrity();
+    if !config_integrity_violations.is_empty() {
+        panic!("Malformed configuration: {}", config_integrity_violations);
+    }
 
     let raw_deployment = std::fs::read_to_string(args.deployment_path).expect("Cannot load deployment file");
     let deployment: DeployedValidators =
@@ -160,10 +168,29 @@ async fn main() {
     let partitioned_spec_upd_snd =
         Partitioned::new([spec_upd_snd_p1, spec_upd_snd_p2, spec_upd_snd_p3, spec_upd_snd_p4]);
 
+    let (funding_upd_snd_p1, funding_upd_recv_p1) =
+        mpsc::channel::<FundingEvent<FinalizedTxOut>>(config.channel_buffer_size);
+    let (funding_upd_snd_p2, funding_upd_recv_p2) =
+        mpsc::channel::<FundingEvent<FinalizedTxOut>>(config.channel_buffer_size);
+    let (funding_upd_snd_p3, funding_upd_recv_p3) =
+        mpsc::channel::<FundingEvent<FinalizedTxOut>>(config.channel_buffer_size);
+    let (funding_upd_snd_p4, funding_upd_recv_p4) =
+        mpsc::channel::<FundingEvent<FinalizedTxOut>>(config.channel_buffer_size);
+
+    let partitioned_funding_event_snd = Partitioned::new([
+        funding_upd_snd_p1,
+        funding_upd_snd_p2,
+        funding_upd_snd_p3,
+        funding_upd_snd_p4,
+    ]);
+
     let entity_index = Arc::new(Mutex::new(InMemoryEntityIndex::new(
         config.cardano_finalization_delay,
     )));
-    let spec_order_index = Arc::new(Mutex::new(InMemoryOrderIndex::new(
+    let spec_order_index = Arc::new(Mutex::new(InMemoryKvIndex::new(
+        config.cardano_finalization_delay,
+    )));
+    let funding_index = Arc::new(Mutex::new(InMemoryKvIndex::new(
         config.cardano_finalization_delay,
     )));
     let handler_context = HandlerContextProto {
@@ -180,31 +207,82 @@ async fn main() {
         PairUpdateHandler::new(partitioned_spec_upd_snd, entity_index, handler_context),
         spec_order_index,
     );
+    let funding_addresses: FundingAddresses<4> = config
+        .funding
+        .clone()
+        .into_funding_addresses(config.network_id, operator_cred.into());
+    let funding_event_handler = FundingEventHandler::new(
+        partitioned_funding_event_snd,
+        funding_addresses.clone(),
+        collateral.reference(), // collateral cannot be used for funding.
+        funding_index,
+    );
+
+    info!("Derived funding addresses: {}", funding_addresses);
 
     let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<ProcessingTransaction>>>> = vec![
         Box::new(general_upd_handler.clone()),
         Box::new(spec_upd_handler.clone()),
+        Box::new(funding_event_handler.clone()),
     ];
 
-    let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<ProcessingTransaction>>>> =
-        vec![Box::new(general_upd_handler), Box::new(spec_upd_handler.clone())];
+    let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<ProcessingTransaction>>>> = vec![
+        Box::new(general_upd_handler),
+        Box::new(spec_upd_handler),
+        Box::new(funding_event_handler),
+    ];
 
     let prover = OperatorProver::new(&operator_sk);
     let recipe_interpreter = CardanoRecipeInterpreter;
     let spec_interpreter = SpecializedInterpreterViaRunOrder;
-    let context = ExecutionContext {
+    let maker_context = MakerContext {
+        time: 0.into(),
+        execution_cap: config.execution_cap.into(),
+        backlog_capacity: BacklogCapacity::from(config.backlog_capacity),
+    };
+    let context_p1 = ExecutionContext {
+        time: 0.into(),
+        deployment: protocol_deployment.clone(),
+        execution_cap: config.execution_cap.into(),
+        reward_addr: funding_addresses[0].clone().into(),
+        backlog_capacity: BacklogCapacity::from(config.backlog_capacity),
+        collateral: collateral.clone(),
+        network_id: config.network_id,
+        operator_cred,
+    };
+    let context_p2 = ExecutionContext {
+        time: 0.into(),
+        deployment: protocol_deployment.clone(),
+        execution_cap: config.execution_cap.into(),
+        reward_addr: funding_addresses[1].clone().into(),
+        backlog_capacity: BacklogCapacity::from(config.backlog_capacity),
+        collateral: collateral.clone(),
+        network_id: config.network_id,
+        operator_cred,
+    };
+    let context_p3 = ExecutionContext {
+        time: 0.into(),
+        deployment: protocol_deployment.clone(),
+        execution_cap: config.execution_cap.into(),
+        reward_addr: funding_addresses[2].clone().into(),
+        backlog_capacity: BacklogCapacity::from(config.backlog_capacity),
+        collateral: collateral.clone(),
+        network_id: config.network_id,
+        operator_cred,
+    };
+    let context_p4 = ExecutionContext {
         time: 0.into(),
         deployment: protocol_deployment,
         execution_cap: config.execution_cap.into(),
-        reward_addr: config.operator_reward_address,
+        reward_addr: funding_addresses[3].clone().into(),
         backlog_capacity: BacklogCapacity::from(config.backlog_capacity),
         collateral,
         network_id: config.network_id,
         operator_cred,
     };
-    let multi_book = MultiPair::new::<TLB<AnyOrder, AnyPool, ExUnits>>(context.clone(), "Book");
+    let multi_book = MultiPair::new::<TLB<AnyOrder, AnyPool, ExUnits>>(maker_context.clone(), "Book");
     let multi_backlog = MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(
-        context.clone(),
+        maker_context,
         "Backlog",
     );
     let state_index = StateIndexTracing(InMemoryStateIndex::new());
@@ -217,7 +295,7 @@ async fn main() {
         state_cache.clone(),
         multi_book.clone(),
         multi_backlog.clone(),
-        context.clone(),
+        context_p1,
         recipe_interpreter,
         spec_interpreter,
         prover,
@@ -225,6 +303,7 @@ async fn main() {
             merge_upstreams(pair_upd_recv_p1, spec_upd_recv_p1),
             config.partitioning.clone(),
         ),
+        funding_upd_recv_p1,
         tx_submission_channel.clone(),
         signal_tip_reached_snd.subscribe(),
     );
@@ -233,7 +312,7 @@ async fn main() {
         state_cache.clone(),
         multi_book.clone(),
         multi_backlog.clone(),
-        context.clone(),
+        context_p2,
         recipe_interpreter,
         spec_interpreter,
         prover,
@@ -241,6 +320,7 @@ async fn main() {
             merge_upstreams(pair_upd_recv_p2, spec_upd_recv_p2),
             config.partitioning.clone(),
         ),
+        funding_upd_recv_p2,
         tx_submission_channel.clone(),
         signal_tip_reached_snd.subscribe(),
     );
@@ -249,7 +329,7 @@ async fn main() {
         state_cache.clone(),
         multi_book.clone(),
         multi_backlog.clone(),
-        context.clone(),
+        context_p3,
         recipe_interpreter,
         spec_interpreter,
         prover,
@@ -257,6 +337,7 @@ async fn main() {
             merge_upstreams(pair_upd_recv_p3, spec_upd_recv_p3),
             config.partitioning.clone(),
         ),
+        funding_upd_recv_p3,
         tx_submission_channel.clone(),
         signal_tip_reached_snd.subscribe(),
     );
@@ -265,7 +346,7 @@ async fn main() {
         state_cache,
         multi_book,
         multi_backlog,
-        context,
+        context_p4,
         recipe_interpreter,
         spec_interpreter,
         prover,
@@ -273,6 +354,7 @@ async fn main() {
             merge_upstreams(pair_upd_recv_p4, spec_upd_recv_p4),
             config.partitioning,
         ),
+        funding_upd_recv_p4,
         tx_submission_channel,
         signal_tip_reached_snd.subscribe(),
     );

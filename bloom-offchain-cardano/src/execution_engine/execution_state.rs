@@ -1,7 +1,9 @@
+use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter, Write};
 
+use bloom_offchain::execution_engine::funding_effect::FundingIO;
 use bloom_offchain::execution_engine::liquidity_book::types::Lovelace;
 use cml_chain::builders::input_builder::SingleInputBuilder;
 use cml_chain::builders::output_builder::SingleOutputBuilderResult;
@@ -12,14 +14,18 @@ use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWit
 use cml_chain::certs::Credential;
 use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::{RequiredSigners, TransactionInput, TransactionOutput};
-use cml_crypto::Ed25519KeyHash;
+use cml_chain::Value;
+use either::Either;
 use log::trace;
-
+use spectrum_cardano_lib::funding::OperatorFunding;
+use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::{NetworkId, OutputRef};
+use spectrum_offchain_cardano::constants::MIN_SAFE_LOVELACE_VALUE;
+use spectrum_offchain_cardano::creds::OperatorRewardAddress;
 use spectrum_offchain_cardano::deployment::DeployedValidatorErased;
 use spectrum_offchain_cardano::script::{
-    DelayedRedeemer, DelayedScriptCost, ScriptContextPreview, ScriptWitness, TxInputsOrdering,
+    DelayedRedeemer, ScriptContextPreview, ScriptWitness, TxInputsOrdering,
 };
 
 pub struct ScriptInputBlueprint {
@@ -32,13 +38,14 @@ pub struct ScriptInputBlueprint {
 
 pub type ScalingFactor = u64;
 
-/// Blueprint of DEX transaction.
+/// Blueprint of a DEX transaction.
 /// Accumulates information that is later used to create real transaction
 /// that executes a batch of DEX operations.
 pub struct TxBlueprint {
     pub script_io: Vec<(ScriptInputBlueprint, TransactionOutput)>,
     pub reference_inputs: HashSet<(TransactionInput, TransactionOutput)>,
     pub witness_scripts: HashMap<DeployedValidatorErased, (PlutusData, ScalingFactor)>,
+    pub operator_interest: u64,
 }
 
 impl Display for TxBlueprint {
@@ -76,6 +83,7 @@ impl TxBlueprint {
             script_io: Vec::new(),
             reference_inputs: HashSet::new(),
             witness_scripts: HashMap::new(),
+            operator_interest: 0,
         }
     }
 
@@ -103,50 +111,97 @@ impl TxBlueprint {
         self,
         mut txb: TransactionBuilder,
         network_id: NetworkId,
-    ) -> TransactionBuilder {
+        operator_address: OperatorRewardAddress,
+        operator_funding: FinalizedTxOut,
+    ) -> (TransactionBuilder, FundingIO<FinalizedTxOut, TransactionOutput>) {
         let TxBlueprint {
             mut script_io,
             reference_inputs,
             witness_scripts,
+            operator_interest,
         } = self;
-        script_io.sort_by(|(left_in, _), (right_in, _)| left_in.reference.cmp(&right_in.reference));
-        let enumerated_io = script_io.into_iter().enumerate().collect::<Vec<_>>();
-        let inputs_ordering = TxInputsOrdering::new(HashMap::from_iter(
-            enumerated_io.iter().map(|(ix, (i, _))| (i.reference, *ix)),
-        ));
+        let mut all_io = script_io.into_iter().map(Either::Left).collect::<Vec<_>>();
+        let funding_io = if operator_interest > 0 {
+            let operator_output = TransactionOutput::new(
+                operator_address.into(),
+                Value::from(operator_interest),
+                None,
+                None,
+            );
+            if operator_interest >= MIN_SAFE_LOVELACE_VALUE {
+                all_io.push(Either::Right((None, operator_output.clone())));
+                FundingIO::Added(operator_funding, operator_output)
+            } else {
+                all_io.push(Either::Right((
+                    Some(operator_funding.clone()),
+                    operator_output.clone(),
+                )));
+                FundingIO::Replaced(operator_funding, operator_output)
+            }
+        } else {
+            FundingIO::NotUsed(operator_funding)
+        };
+        all_io.sort_by(|lh, rh| match (lh, rh) {
+            (Either::Left((lh_in, _)), Either::Left((rh_in, _))) => lh_in.reference.cmp(&rh_in.reference),
+            (Either::Left((lh_in, _)), Either::Right((Some(rh_in), _))) => {
+                lh_in.reference.cmp(&rh_in.reference())
+            }
+            (Either::Right((Some(lh_in), _)), Either::Left((rh_in, _))) => {
+                lh_in.reference().cmp(&rh_in.reference)
+            }
+            (_, Either::Right((None, _))) => Ordering::Less,
+            _ => Ordering::Greater,
+        });
+        let enumerated_io = all_io.into_iter().enumerate().collect::<Vec<_>>();
+        let inputs_ordering = TxInputsOrdering::new(HashMap::from_iter(enumerated_io.iter().filter_map(
+            |(ix, io)| match io {
+                Either::Left((i, _)) => Some((i.reference, *ix)),
+                Either::Right((Some(i), _)) => Some((i.reference(), *ix)),
+                _ => None,
+            },
+        )));
         for (ref_in, ref_utxo) in reference_inputs {
             txb.add_reference_input(TransactionUnspentOutput::new(ref_in, ref_utxo));
         }
-        for (
-            ix,
-            (
-                ScriptInputBlueprint {
-                    reference,
-                    utxo,
-                    script,
-                    redeemer,
-                    required_signers,
-                },
-                output,
-            ),
-        ) in enumerated_io
-        {
-            let cml_script = PartialPlutusWitness::new(
-                PlutusScriptWitness::Ref(script.hash),
-                redeemer.compute(&inputs_ordering),
-            );
-            let input = SingleInputBuilder::new(reference.into(), utxo)
-                .plutus_script_inline_datum(cml_script, required_signers)
-                .unwrap();
-            let output = SingleOutputBuilderResult::new(output);
-            txb.add_input(input).expect("add_input ok");
-            txb.add_output(output.clone())
-                .expect(format!("add_output ok {:?}", output).as_str());
-            let ctx = ScriptContextPreview { self_index: ix };
-            txb.set_exunits(
-                RedeemerWitnessKey::new(RedeemerTag::Spend, ix as u64),
-                script.cost.compute(&ctx).into(),
-            );
+        for (ix, io) in enumerated_io {
+            match io {
+                Either::Left((
+                    ScriptInputBlueprint {
+                        reference,
+                        utxo,
+                        script,
+                        redeemer,
+                        required_signers,
+                    },
+                    output,
+                )) => {
+                    let cml_script = PartialPlutusWitness::new(
+                        PlutusScriptWitness::Ref(script.hash),
+                        redeemer.compute(&inputs_ordering),
+                    );
+                    let input = SingleInputBuilder::new(reference.into(), utxo)
+                        .plutus_script_inline_datum(cml_script, required_signers)
+                        .unwrap();
+                    let output = SingleOutputBuilderResult::new(output);
+                    txb.add_input(input).expect("add script input ok");
+                    txb.add_output(output).expect("add script output ok");
+                    let ctx = ScriptContextPreview { self_index: ix };
+                    txb.set_exunits(
+                        RedeemerWitnessKey::new(RedeemerTag::Spend, ix as u64),
+                        script.cost.compute(&ctx).into(),
+                    );
+                }
+                Either::Right((maybe_funding_input, funding_output)) => {
+                    if let Some(FinalizedTxOut(utxo, reference)) = maybe_funding_input {
+                        let input = SingleInputBuilder::new(reference.into(), utxo)
+                            .payment_key()
+                            .unwrap();
+                        txb.add_input(input).expect("add funding input ok");
+                    }
+                    let output = SingleOutputBuilderResult::new(funding_output);
+                    txb.add_output(output).expect("add funding output ok");
+                }
+            }
         }
         // Project common witness scripts.
         for (wit, (rdmr, scaling_factor)) in witness_scripts {
@@ -167,7 +222,7 @@ impl TxBlueprint {
             let ex_units = wit.ex_budget + wit.marginal_cost.scale(scaling_factor);
             txb.set_exunits(RedeemerWitnessKey::new(RedeemerTag::Reward, 0), ex_units.into());
         }
-        txb
+        (txb, funding_io)
     }
 }
 

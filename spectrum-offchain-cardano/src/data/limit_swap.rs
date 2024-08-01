@@ -13,7 +13,7 @@ use spectrum_offchain::data::order::UniqueOrder;
 use spectrum_offchain::data::Has;
 use spectrum_offchain::ledger::TryFromLedger;
 
-use crate::constants::MIN_SAFE_ADA_VALUE;
+use crate::constants::MIN_SAFE_LOVELACE_VALUE;
 use crate::data::order::{Base, ClassicalOrder, OrderType, PoolNft, Quote};
 use crate::data::pool::CFMMPoolAction;
 use crate::data::pool::CFMMPoolAction::Swap;
@@ -77,7 +77,7 @@ where
             } else {
                 (conf.base_amount.untag(), value.coin)
             };
-            if real_base_input < min_base || ada_deposit < MIN_SAFE_ADA_VALUE {
+            if real_base_input < min_base || ada_deposit < MIN_SAFE_LOVELACE_VALUE {
                 return None;
             }
             let swap = LimitSwap {

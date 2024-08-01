@@ -28,7 +28,7 @@ where
             let is_confirmed = matches!(upd_in_mode, Channel::Ledger(_));
             let (Channel::Ledger(Confirmed(upd))
             | Channel::Mempool(Unconfirmed(upd))
-            | Channel::TxSubmit(Predicted(upd))) = upd_in_mode;
+            | Channel::LocalTxSubmit(Predicted(upd))) = upd_in_mode;
             match upd {
                 StateUpdate::Transition(Ior::Right(new_state))
                 | StateUpdate::Transition(Ior::Both(_, new_state))

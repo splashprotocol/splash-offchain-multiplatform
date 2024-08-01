@@ -26,7 +26,7 @@ pub trait Identifier: Copy + Clone + Eq + PartialEq {
 
 pub trait Stable {
     /// Unique identifier of the underlying entity which persists among different versions.
-    type StableId: Copy + Eq + Hash + Debug + Display;
+    type StableId: Copy + Eq + Hash + Display;
     fn stable_id(&self) -> Self::StableId;
     /// Some entities are more stable than others. This flag marks these.
     fn is_quasi_permanent(&self) -> bool;

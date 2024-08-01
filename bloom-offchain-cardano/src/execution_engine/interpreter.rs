@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 
 use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionBuilder};
+use cml_chain::transaction::TransactionOutput;
 use either::Either;
 use log::trace;
 use num_rational::Ratio;
@@ -8,9 +9,10 @@ use tailcall::tailcall;
 
 use bloom_offchain::execution_engine::batch_exec::BatchExec;
 use bloom_offchain::execution_engine::bundled::Bundled;
+use bloom_offchain::execution_engine::funding_effect::FundingIO;
 use bloom_offchain::execution_engine::liquidity_book::core::{Execution, ExecutionRecipe, Make, Take};
 use bloom_offchain::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
-use bloom_offchain::execution_engine::liquidity_book::interpreter::RecipeInterpreter;
+use bloom_offchain::execution_engine::liquidity_book::interpreter::{ExecutionResult, RecipeInterpreter};
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
@@ -45,12 +47,10 @@ where
     fn run(
         &mut self,
         ExecutionRecipe(instructions): ExecutionRecipe<Fr, Pl, FinalizedTxOut>,
+        funding: FinalizedTxOut,
         ctx: Ctx,
-    ) -> (
-        SignedTxBuilder,
-        Vec<FinalizedEffect<Either<Baked<Fr, OutputRef>, Baked<Pl, OutputRef>>>>,
-    ) {
-        let (mut tx_builder, effects, ctx) = execute_recipe(ctx, instructions);
+    ) -> ExecutionResult<Fr, Pl, OutputRef, FinalizedTxOut, SignedTxBuilder> {
+        let (mut tx_builder, effects, funding_io_preview, ctx) = execute_recipe(funding, ctx, instructions);
         let execution_fee_address = ctx.select::<OperatorRewardAddress>().into();
         // Build tx, change is execution fee.
         let tx = tx_builder
@@ -86,16 +86,37 @@ where
                 },
             ))
         }
+
+        let finalized_funding_io = funding_io_preview.map_output(|o| {
+            let output_ix = tx_body_cloned
+                .outputs
+                .iter()
+                .position(|out| out == &o)
+                .expect("Tx.outputs must be coherent with funding IO!");
+            let out_ref = OutputRef::new(tx_hash, output_ix as u64);
+            FinalizedTxOut(o, out_ref)
+        });
+
         trace!("Finished Tx: {}", tx_hash);
-        (tx, finalized_effects)
+        ExecutionResult {
+            txc: tx,
+            matchmaking_effects: finalized_effects,
+            funding_io: finalized_funding_io,
+        }
     }
 }
 
 #[tailcall]
 fn execute_recipe<Fr, Pl, Ctx>(
+    funding: FinalizedTxOut,
     ctx: Ctx,
     instructions: Vec<Execution<Fr, Pl, FinalizedTxOut>>,
-) -> (TransactionBuilder, Vec<EffectPreview<Either<Fr, Pl>>>, Ctx)
+) -> (
+    TransactionBuilder,
+    Vec<EffectPreview<Either<Fr, Pl>>>,
+    FundingIO<FinalizedTxOut, TransactionOutput>,
+    Ctx,
+)
 where
     Fr: MarketTaker + TakerBehaviour + Copy,
     Pl: Copy,
@@ -118,7 +139,12 @@ where
         ctx,
     ) = execute(ctx, state, Vec::new(), instructions.clone());
     trace!("Going to interpret blueprint: {}", tx_blueprint);
-    let mut tx_builder = tx_blueprint.project_onto_builder(constant_tx_builder(), ctx.select::<NetworkId>());
+    let (mut tx_builder, funding_io) = tx_blueprint.project_onto_builder(
+        constant_tx_builder(),
+        ctx.select::<NetworkId>(),
+        ctx.select::<OperatorRewardAddress>(),
+        funding.clone(),
+    );
     tx_builder
         .add_collateral(ctx.select::<Collateral>().into())
         .unwrap();
@@ -134,9 +160,9 @@ where
     if fee_mismatch != 0 {
         let fee_rescale_factor = Ratio::new(estimated_fee, reserved_fee);
         let corrected_recipe = balance_fee(fee_mismatch, fee_rescale_factor, instructions);
-        execute_recipe(ctx, corrected_recipe)
+        execute_recipe(funding, ctx, corrected_recipe)
     } else {
-        (tx_builder, effects, ctx)
+        (tx_builder, effects, funding_io, ctx)
     }
 }
 

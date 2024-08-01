@@ -11,6 +11,7 @@ spectrum-streaming = { version = "0.1.0", path = "../spectrum-streaming" }
 bloom-offchain = { version = "1.0.0", path = "../bloom-offchain" }
 bloom-offchain-cardano = { version = "1.0.0", path = "../bloom-offchain-cardano" }
 spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain" }
+algebra-core = { version = "0.1.0", path = "../algebra-core" }
 spectrum-offchain-cardano = { version = "1.0.0", path = "../spectrum-offchain-cardano" }
 cardano-chain-sync = { version = "0.1.0", path = "../cardano-chain-sync" }
 cardano-explorer = { version = "0.1.0", path = "../cardano-explorer" }

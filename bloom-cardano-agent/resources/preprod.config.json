@@ -28,7 +28,6 @@
     "nanos": 0
   },
   "operatorKey": "",
-  "operatorRewardAddress": "",
   "maestroKeyPath": "bloom-cardano-agent/resources/preprod.maestro.key",
   "executionCap": {
     "soft": {
@@ -51,5 +50,27 @@
   "partitioning": {
     "numPartitionsTotal": 1,
     "assignedPartitions": [0]
+  },
+  "funding": {
+    "stakeCredentialPt1": {
+      "PubKey": {
+        "hash": ""
+      }
+    },
+    "stakeCredentialPt2": {
+      "PubKey": {
+        "hash": ""
+      }
+    },
+    "stakeCredentialPt3": {
+      "PubKey": {
+        "hash": ""
+      }
+    },
+    "stakeCredentialPt4": {
+      "PubKey": {
+        "hash": ""
+      }
+    }
   }
 }

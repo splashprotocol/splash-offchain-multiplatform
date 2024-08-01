@@ -21,7 +21,7 @@ use crate::execution_engine::liquidity_book::weight::Weighted;
 mod price_range;
 pub mod queries;
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 /// State with no uncommitted changes.
 pub struct IdleState<T, M: Stable> {
     takers: Chronology<T>,
@@ -70,7 +70,7 @@ where
 /// Changed state that reflects only consumption of fragments and full preview of pools.
 /// We use this one when no preview fragments/pools are generated to avoid
 /// overhead of copying active frontier projection.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct PartialPreviewState<T, M: Stable> {
     takers_preview: Chronology<T>,
     consumed_active_takers: Vec<T>,
@@ -158,7 +158,7 @@ where
 /// This state offers consistent projections of active frontier for both
 /// consumption and production of new fragments/pools.
 /// Comes with overhead of cloning active frontier/pools upon construction.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PreviewState<T, M: Stable> {
     /// Fragments before changes.
     takers_intact: Chronology<T>,
@@ -260,7 +260,7 @@ where
 }
 
 /// The idea of TLB state automata is to minimize overhead of maintaining preview of modified state.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum TLBState<T, M: Stable> {
     /// State with no uncommitted changes.
     ///

@@ -67,7 +67,7 @@ pub struct ExecutionCap<U> {
     pub hard: U,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct TLB<Taker, Maker: Stable, U> {
     state: TLBState<Taker, Maker>,
     execution_cap: ExecutionCap<U>,

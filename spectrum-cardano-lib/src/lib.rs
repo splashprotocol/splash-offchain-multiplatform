@@ -5,6 +5,7 @@ use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::str::FromStr;
 
 use cml_chain::assets::MultiAsset;
+use cml_chain::certs::Credential;
 use cml_chain::plutus::PlutusData;
 use cml_chain::transaction::TransactionInput;
 use cml_chain::{PolicyId, Value};
@@ -22,6 +23,7 @@ pub mod collateral;
 pub mod constants;
 pub mod credential;
 pub mod ex_units;
+pub mod funding;
 pub mod hash;
 pub mod output;
 pub mod plutus_data;
