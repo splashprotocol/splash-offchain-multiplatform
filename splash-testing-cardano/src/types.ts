@@ -30,6 +30,31 @@ export type DeployedValidator = BuiltValidator & {
     referenceUtxo: UTxO;
 };
 
-export type ScriptNames = "limitOrder" | "limitOrderWitness" | "gridOrderNative"; //"limitOrder" | "limitOrderWitness" | "gridOrderNative" | "balancePool" | "balanceDeposit" | "balanceRedeem" | "stablePoolT2T" | "stableDeposit" | "stableRedeem";
+export type ScriptNames = "admin" | "pool" | "factory" | "ammPool";
 export type BuiltValidators = Record<ScriptNames, BuiltValidator>;
 export type DeployedValidators = Record<ScriptNames, DeployedValidator>;
+
+
+export type MintingInfo = {
+    asset: Asset,
+    mintingValue: Record<Unit | "lovelace", bigint>,
+    mintingRedeemer: string
+}
+
+export type DegenPoolInfo = {
+    degenDatum: {
+        poolNft: { policy: string; name: string };
+        assetX: Asset;
+        assetY: Asset;
+        aNum: bigint;
+        bNum: bigint;
+        batcherPk: string;
+        adaCapThr: bigint;
+        adminWitness: string;
+        factoryWitness: string;
+    },
+    degenValue: Assets
+    txHash: TxHash;
+    outputIndex: number;
+    utxo: UTxO
+}

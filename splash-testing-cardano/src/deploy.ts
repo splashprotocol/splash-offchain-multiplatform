@@ -1,9 +1,13 @@
-import { Lucid, Script, TxComplete } from "https://deno.land/x/lucid@0.10.7/mod.ts";
-import { BuiltValidators, DeployedValidators, ScriptNames } from "./types.ts";
-import { getLucid } from "./lucid.ts";
-import { generateConfigJson } from "./config.ts";
-import { setupWallet } from "./wallet.ts";
-import { GridGridNative, LimitOrderBatchWitness, LimitOrderLimitOrder } from "../plutus.ts";
+import {Lucid, Script, TxComplete} from "https://deno.land/x/lucid@0.10.7/mod.ts";
+import {BuiltValidators, DeployedValidators, ScriptNames} from "./types.ts";
+import {
+  AdminValidateAdmin, AssetsMintIdentifier,
+  FactoryValidateFactory, PoolsAmm,
+  PoolValidatePool
+} from "./../plutus.ts";
+import {getLucid} from "./lucid.ts";
+import {generateConfigJson} from "./config.ts";
+import {setupWallet} from "./wallet.ts";
 
 export class Deployment {
   lucid: Lucid;
@@ -13,31 +17,42 @@ export class Deployment {
   }
 
   build(): BuiltValidators {
-    const witnessScript = new LimitOrderBatchWitness();
-    const witnessScriptHash = this.lucid.utils.validatorToScriptHash(witnessScript);
-    const orderScript = new LimitOrderLimitOrder({
-      Inline: [
-        {
-          ScriptCredential: [witnessScriptHash],
-        },
-      ],
-    });
-    const orderScriptHash = this.lucid.utils.validatorToScriptHash(orderScript);
-    const gridOrderNativeScript = new GridGridNative();
-    const gridOrderNativeHash = this.lucid.utils.validatorToScriptHash(gridOrderNativeScript);
+    const adminScript = new AdminValidateAdmin(
+        [
+          "3703634e3e34c0e7fd9a7348ad213f9272279535c73f4ec00efe00bd",
+          "f3a12554ca0ccd1a220b1de839a1940bc1006f08768b636fa98c66c9",
+          "518a9c32deedc0b82604972692a2b7eb6c10b020d77c3c72e764b156",
+          "68aa59a87dbdbf8f78386dc6b83e63149d8c13939a1b0cda39707f9a",
+          "1826edf8011dc6a084214b87a4ff690665692f4243e5bb5ff5aad536",
+          "d350803d45e327f8808469d5dde9e0f6fdc6e6637d85ed44cc37a12c"
+        ], 5n
+    );
+    const adminScriptHash = this.lucid.utils.validatorToScriptHash(adminScript);
+    const poolScript = new PoolValidatePool();
+    const poolHash = this.lucid.utils.validatorToScriptHash(poolScript);
+    const factoryScript = new FactoryValidateFactory();
+    const factoryHash = this.lucid.utils.validatorToScriptHash(factoryScript);
+    const assetsScript = new AssetsMintIdentifier();
+    const assetsHash = this.lucid.utils.validatorToScriptHash(assetsScript);
+    const ammPoolScript = new PoolsAmm();
+    const ammPoolHash = this.lucid.utils.validatorToScriptHash(ammPoolScript);
     return {
-      limitOrder: {
-        script: orderScript,
-        hash: orderScriptHash,
+      admin: {
+        script: adminScript,
+        hash: adminScriptHash,
       },
-      limitOrderWitness: {
-        script: witnessScript,
-        hash: witnessScriptHash,
+      pool: {
+        script: poolScript,
+        hash: poolHash,
       },
-      gridOrderNative: {
-        script: gridOrderNativeScript,
-        hash: gridOrderNativeHash,
+      factory: {
+        script: factoryScript,
+        hash: factoryHash,
       },
+      ammPool: {
+        script: ammPoolScript,
+        hash: ammPoolHash
+      }
     }
   }
 
@@ -47,38 +62,38 @@ export class Deployment {
       slot: 0,
     });
     const lockScript = this.lucid.utils.validatorToAddress(ns);
-    const witnessRewardAddress = this.lucid.utils.credentialToRewardAddress({
+    const factoryRewardAddress = this.lucid.utils.credentialToRewardAddress({
       type: "Script",
-      hash: builtValidators.limitOrderWitness.hash
+      hash: builtValidators.factory.hash
+    });
+    const adminRewardAddress = this.lucid.utils.credentialToRewardAddress({
+      type: "Script",
+      hash: builtValidators.admin.hash
     });
     const tx = await this.lucid
-      .newTx()
-      .payToAddressWithData(
-        lockScript,
-        { scriptRef: builtValidators.limitOrder.script },
-        {},
-      )
-      .payToAddressWithData(
-        lockScript,
-        { scriptRef: builtValidators.limitOrderWitness.script },
-        {},
-      )
-      .payToAddressWithData(
-        lockScript,
-        { scriptRef: builtValidators.gridOrderNative.script },
-        {},
-      )
-      .registerStake(witnessRewardAddress)
-      .complete();
+        .newTx()
+        .payToAddressWithData(
+            lockScript,
+            {scriptRef: builtValidators.pool.script},
+            {},
+        )
+        .payToAddressWithData(
+            lockScript,
+            {scriptRef: builtValidators.ammPool.script},
+            {},
+        )
+        // .registerStake(factoryRewardAddress)
+        // .registerStake(adminRewardAddress)
+        .complete();
 
     return tx;
   }
 }
 
 async function getDeployedValidators(
-  lucid: Lucid,
-  builtValidators: BuiltValidators,
-  deployedValidatorsTxId: string,
+    lucid: Lucid,
+    builtValidators: BuiltValidators,
+    deployedValidatorsTxId: string,
 ): Promise<DeployedValidators> {
   try {
     const builtValidatorsKeys = Object.keys(builtValidators) as ScriptNames[];
@@ -90,11 +105,11 @@ async function getDeployedValidators(
     const validatorsUtxos = await lucid.utxosByOutRef(utxosByOutRefsRequest);
 
     return builtValidatorsKeys.reduce((
-      acc,
-      key: ScriptNames,
-      index,
+        acc,
+        key: ScriptNames,
+        index,
     ) => {
-      const { script, hash } = builtValidators[key];
+      const {script, hash} = builtValidators[key];
       const referenceUtxo = validatorsUtxos[index];
 
       return {
