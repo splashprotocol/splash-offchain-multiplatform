@@ -1,8 +1,6 @@
 use std::fmt::Debug;
-use std::ops::Div;
 
-use bignumber::BigNumber;
-use bloom_offchain::execution_engine::liquidity_book::core::{MakeInProgress, Next, Trans, Unit};
+use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
@@ -11,10 +9,8 @@ use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_multi_era::babbage::BabbageTransactionOutput;
-use dashu_float::DBig;
 use num_integer::Roots;
 use num_rational::Ratio;
-use num_traits::ToPrimitive;
 use num_traits::{CheckedAdd, CheckedSub};
 use type_equalities::IsEqual;
 
@@ -351,10 +347,14 @@ impl MarketMaker for ConstFnPool {
         let [base, _] = order_canonical(x, y);
         let available_x_reserves = (self.reserves_x - self.treasury_x).untag();
         let available_y_reserves = (self.reserves_y - self.treasury_y).untag();
-        if x == base {
-            AbsolutePrice::new_unsafe(available_y_reserves, available_x_reserves).into()
+        if available_x_reserves == available_y_reserves {
+            AbsolutePrice::new_unsafe(1, 1).into()
         } else {
-            AbsolutePrice::new_unsafe(available_x_reserves, available_y_reserves).into()
+            if x == base {
+                AbsolutePrice::new_unsafe(available_y_reserves, available_x_reserves).into()
+            } else {
+                AbsolutePrice::new_unsafe(available_x_reserves, available_y_reserves).into()
+            }
         }
     }
 
@@ -497,12 +497,19 @@ where
                     let conf = FeeSwitchPoolConfig::try_from_pd(pd.clone())?;
                     let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
                     let lov = value.amount_of(Native)?;
-                    if conf.asset_x.is_native() || conf.asset_y.is_native() || bounds.min_t2t_lovelace <= lov
-                    {
+                    let reserves_x = value.amount_of(conf.asset_x.into())?;
+                    let reserves_y = value.amount_of(conf.asset_y.into())?;
+                    let pure_reserves_x = reserves_x - conf.treasury_x;
+                    let pure_reserves_y = reserves_y - conf.treasury_y;
+                    let non_empty_reserves = pure_reserves_x > 0 && pure_reserves_y > 0;
+                    let sufficient_lovelace = conf.asset_x.is_native()
+                        || conf.asset_y.is_native()
+                        || bounds.min_t2t_lovelace <= lov;
+                    if non_empty_reserves && sufficient_lovelace {
                         return Some(ConstFnPool {
                             id: PoolId::try_from(conf.pool_nft).ok()?,
-                            reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
-                            reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
+                            reserves_x: TaggedAmount::new(reserves_x),
+                            reserves_y: TaggedAmount::new(reserves_y),
                             liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
                             asset_x: conf.asset_x,
                             asset_y: conf.asset_y,
@@ -523,14 +530,19 @@ where
                     let conf = FeeSwitchBidirectionalPoolConfig::try_from_pd(pd.clone())?;
                     let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
                     let lov = value.amount_of(Native)?;
-                    if conf.asset_x.is_native() || conf.asset_y.is_native() || bounds.min_t2t_lovelace <= lov
-                    {
+                    let reserves_x = value.amount_of(conf.asset_x.into())?;
+                    let reserves_y = value.amount_of(conf.asset_y.into())?;
+                    let pure_reserves_x = reserves_x - conf.treasury_x;
+                    let pure_reserves_y = reserves_y - conf.treasury_y;
+                    let non_empty_reserves = pure_reserves_x > 0 && pure_reserves_y > 0;
+                    let sufficient_lovelace = conf.asset_x.is_native()
+                        || conf.asset_y.is_native()
+                        || bounds.min_t2t_lovelace <= lov;
+                    if non_empty_reserves && sufficient_lovelace {
                         return Some(ConstFnPool {
                             id: PoolId::try_from(conf.pool_nft).ok()?,
-                            reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?)
-                                - TaggedAmount::new(conf.treasury_x),
-                            reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?)
-                                - TaggedAmount::new(conf.treasury_y),
+                            reserves_x: TaggedAmount::new(reserves_x),
+                            reserves_y: TaggedAmount::new(reserves_y),
                             liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
                             asset_x: conf.asset_x,
                             asset_y: conf.asset_y,
@@ -766,18 +778,29 @@ impl ApplyOrder<ClassicalOnChainRedeem> for ConstFnPool {
 }
 
 mod tests {
-    use bloom_offchain::execution_engine::liquidity_book::core::{Next, Trans};
-    use cml_crypto::ScriptHash;
-    use num_rational::Ratio;
-
+    use crate::creds::OperatorCred;
     use crate::data::cfmm_pool::{ConstFnPool, ConstFnPoolVer};
     use crate::data::pool::PoolBounds;
     use crate::data::PoolId;
+    use crate::deployment::ProtocolValidator::{
+        ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolV1,
+        ConstFnPoolV2,
+    };
+    use crate::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
+    use crate::utxo::ConsumedInputs;
+    use bloom_offchain::execution_engine::liquidity_book::core::{Next, Trans};
     use bloom_offchain::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker};
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
     use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
+    use cml_core::serialization::Deserialize;
+    use cml_crypto::{Ed25519KeyHash, ScriptHash};
+    use cml_multi_era::babbage::BabbageTransactionOutput;
+    use num_rational::Ratio;
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
+    use spectrum_offchain::data::Has;
+    use spectrum_offchain::ledger::TryFromLedger;
+    use type_equalities::IsEqual;
 
     fn gen_ada_token_pool(
         reserves_x: u64,
@@ -864,4 +887,75 @@ mod tests {
         };
         assert_eq!(new_pool.treasury_x.untag(), correct_x_treasury)
     }
+
+    struct Ctx {
+        bounds: PoolBounds,
+        scripts: ProtocolScriptHashes,
+    }
+
+    impl Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>> for Ctx {
+        fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>>(
+            &self,
+        ) -> DeployedScriptInfo<{ ConstFnPoolV1 as u8 }> {
+            self.scripts.const_fn_pool_v1
+        }
+    }
+
+    impl Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>> for Ctx {
+        fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>>(
+            &self,
+        ) -> DeployedScriptInfo<{ ConstFnPoolV2 as u8 }> {
+            self.scripts.const_fn_pool_v2
+        }
+    }
+
+    impl Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>> for Ctx {
+        fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>>(
+            &self,
+        ) -> DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }> {
+            self.scripts.const_fn_pool_fee_switch
+        }
+    }
+
+    impl Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>> for Ctx {
+        fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>>(
+            &self,
+        ) -> DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }> {
+            self.scripts.const_fn_pool_fee_switch_v2
+        }
+    }
+
+    impl Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>> for Ctx {
+        fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>>(
+            &self,
+        ) -> DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }> {
+            self.scripts.const_fn_pool_fee_switch_bidir_fee
+        }
+    }
+
+    impl Has<PoolBounds> for Ctx {
+        fn select<U: IsEqual<PoolBounds>>(&self) -> PoolBounds {
+            self.bounds
+        }
+    }
+
+    #[test]
+    fn try_read_invalid_pool() {
+        let raw_deployment = std::fs::read_to_string("/Users/oskin/dev/spectrum/spectrum-offchain-multiplatform/bloom-cardano-agent/resources/mainnet.deployment.json").expect("Cannot load deployment file");
+        let deployment: DeployedValidators =
+            serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
+        let scripts = ProtocolScriptHashes::from(&deployment);
+        let ctx = Ctx {
+            scripts,
+            bounds: PoolBounds {
+                min_n2t_lovelace: 150_000_000,
+                min_t2t_lovelace: 10_000_000,
+            },
+        };
+        let bearer = BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(POOL_UTXO).unwrap()).unwrap();
+        let pool = ConstFnPool::try_from_ledger(&bearer, &ctx);
+        assert_eq!(pool, None);
+    }
+
+    const POOL_UTXO: &str = "a300583931f002facfd69d51b63e7046c6d40349b0b17c8dd775ee415c66af3cccb2f6abf60ccde92eae1a2f4fdf65f2eaf6208d872c6f0e597cc10b0701821a0115a2e9a3581cc881c20e49dbaca3ff6cef365969354150983230c39520b917f5cf7ca1444e696b65190962581c18bed14efe387074511e22c53e46433a43cbb0fdd61e3c5fbdea49f4a14b4e696b655f4144415f4c511b7fffffffffffffff581cc05d4f6397a95b48d0c8a54bf4f0d955f9638d26d7d77d02081c1591a14c4e696b655f4144415f4e465401028201d81858dcd8798bd87982581cc05d4f6397a95b48d0c8a54bf4f0d955f9638d26d7d77d02081c15914c4e696b655f4144415f4e4654d879824040d87982581cc881c20e49dbaca3ff6cef365969354150983230c39520b917f5cf7c444e696b65d87982581c18bed14efe387074511e22c53e46433a43cbb0fdd61e3c5fbdea49f44b4e696b655f4144415f4c511a00017f9818b41a0115a2e919096281d87981d87a81581cc24a311347be1bc3ebfa6f18cb14c7e6bbc2a245725fd9a8a1ccaaea00581c75c4570eb625ae881b32a34c52b159f6f3f3f2c7aaabf5bac4688133";
 }
