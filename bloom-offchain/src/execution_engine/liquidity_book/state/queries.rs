@@ -18,7 +18,7 @@ where
         (Some(ask), Some(bid)) => {
             let abs_price = AbsolutePrice::from(spot_price).to_signed();
             let distance_from_ask = abs_price - ask.price().to_signed();
-            let distance_from_bid = abs_price - bid.price().to_signed();
+            let distance_from_bid = (abs_price - bid.price().to_signed()) * -1;
             if distance_from_ask > distance_from_bid {
                 fragments.insert(bid);
                 Some(ask)
@@ -72,5 +72,28 @@ where
         }
         (Some(taker), _) | (_, Some(taker)) => Some(taker),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::execution_engine::liquidity_book::market_maker::SpotPrice;
+    use crate::execution_engine::liquidity_book::side::Side;
+    use crate::execution_engine::liquidity_book::state::MarketTakers;
+    use crate::execution_engine::liquidity_book::state::price_range::AllowedPriceRange;
+    use crate::execution_engine::liquidity_book::state::queries::max_by_distance_to_spot;
+    use crate::execution_engine::liquidity_book::state::tests::SimpleOrderPF;
+    use crate::execution_engine::liquidity_book::types::AbsolutePrice;
+
+    #[test]
+    fn select_by_max_distance() {
+        let mut mt: MarketTakers<SimpleOrderPF> = MarketTakers::new();
+        let ask = SimpleOrderPF::new(Side::Ask, 1000000, AbsolutePrice::new_unsafe(13964959385539833, 5000000000000000), 0);
+        let bid = SimpleOrderPF::new(Side::Bid, 6666700000, AbsolutePrice::new_unsafe(250000, 127183), 0);
+        let spot = SpotPrice::from(AbsolutePrice::new_unsafe(35953787, 11755056));
+        mt.asks.insert(ask);
+        mt.bids.insert(bid);
+        let choice = max_by_distance_to_spot(&mut mt, spot, AllowedPriceRange::default());
+        assert_eq!(choice.unwrap().side, Side::Ask);
     }
 }
