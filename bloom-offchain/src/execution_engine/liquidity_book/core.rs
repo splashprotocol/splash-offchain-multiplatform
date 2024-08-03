@@ -455,6 +455,8 @@ pub struct MatchmakingAttempt<Taker: Stable, Maker: Stable, U> {
     takes: HashMap<Taker::StableId, TakeInProgress<Taker>>,
     makes: HashMap<Maker::StableId, MakeInProgress<Maker>>,
     execution_units_consumed: U,
+    /// Number of distinct makes aggregated into one.
+    num_aggregated_makes: usize,
 }
 
 impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
@@ -466,11 +468,16 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
             takes: HashMap::new(),
             makes: HashMap::new(),
             execution_units_consumed: U::empty(),
+            num_aggregated_makes: 0,
         }
     }
 
     pub fn is_complete(&self) -> bool {
         self.takes.len() > 1 || self.takes.len() == 1 && self.makes.len() > 0
+    }
+
+    pub fn needs_rebalancing(&self) -> bool {
+        self.num_aggregated_makes > 0
     }
 
     pub fn execution_units_consumed(&self) -> U
@@ -549,6 +556,7 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
                 make
             }
             Some(accumulated_trans) => {
+                self.num_aggregated_makes += 1;
                 if accumulated_trans.trade_side() == make.trade_side() {
                     accumulated_trans.combine(make)
                 } else {
@@ -570,6 +578,7 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
             takes,
             makes,
             execution_units_consumed,
+            ..
         } = self;
         let mut balanced_makes = vec![];
         for (id, make) in makes {
@@ -608,6 +617,7 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
                 takes: HashMap::from_iter(balanced_takes),
                 makes: HashMap::from_iter(balanced_makes),
                 execution_units_consumed,
+                num_aggregated_makes: 0,
             });
         }
         None
@@ -639,18 +649,28 @@ impl<T: Display, M: Display> Display for MatchmakingRecipe<T, M> {
     }
 }
 
+pub struct Rebalanced<T>(pub T);
+
 impl<Taker, Maker> MatchmakingRecipe<Taker, Maker>
 where
     Taker: Stable,
     Maker: Stable,
 {
-    pub fn try_from<U>(attempt: MatchmakingAttempt<Taker, Maker, U>) -> Result<Self, Option<Vec<Taker>>>
+    pub fn try_from<U>(
+        attempt: MatchmakingAttempt<Taker, Maker, U>,
+    ) -> Result<Either<Rebalanced<Self>, Self>, Option<Vec<Taker>>>
     where
         Maker: MakerBalance,
         Taker: MarketTaker + TakerBalance + Copy,
     {
         if attempt.is_complete() {
-            if let Some(balanced_attempt) = attempt.try_balance() {
+            let needs_rebalancing = attempt.needs_rebalancing();
+            let attempt = if needs_rebalancing {
+                attempt.try_balance()
+            } else {
+                Some(attempt)
+            };
+            if let Some(balanced_attempt) = attempt {
                 let unsatisfied_fragments = balanced_attempt.unsatisfied_fragments();
                 return if unsatisfied_fragments.is_empty() {
                     let MatchmakingAttempt { takes, makes, .. } = balanced_attempt;
@@ -661,7 +681,12 @@ where
                     for make in makes.into_values() {
                         instructions.push(Either::Right(make));
                     }
-                    Ok(Self { instructions })
+                    let recipe = Self { instructions };
+                    Ok(if needs_rebalancing {
+                        Either::Left(Rebalanced(recipe))
+                    } else {
+                        Either::Right(recipe)
+                    })
                 } else {
                     Err(Some(unsatisfied_fragments))
                 };

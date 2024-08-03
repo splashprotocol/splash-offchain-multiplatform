@@ -938,7 +938,9 @@ pub mod tests {
 
     use crate::execution_engine::liquidity_book::core::{Next, TerminalTake, Trans, Unit};
     use crate::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBalance, TakerBehaviour};
-    use crate::execution_engine::liquidity_book::market_maker::{AbsoluteReserves, Excess, MakerBalance, MakerBehavior, MarketMaker, SpotPrice};
+    use crate::execution_engine::liquidity_book::market_maker::{
+        AbsoluteReserves, Excess, MakerBalance, MakerBehavior, MarketMaker, SpotPrice,
+    };
     use crate::execution_engine::liquidity_book::side::{OnSide, Side};
     use crate::execution_engine::liquidity_book::state::{
         AllowedPriceRange, Chronology, IdleState, MarketMakers, PartialPreviewState, PoolQuality,
@@ -1457,7 +1459,7 @@ pub mod tests {
             true
         }
     }
-    
+
     impl MakerBalance for SimpleCFMMPool {
         fn balance(&self, that: Self) -> Option<(Self, Excess)> {
             let drx = that.reserves_base.checked_sub(self.reserves_quote);
@@ -1478,7 +1480,7 @@ pub mod tests {
             } else {
                 // input is quote
                 let trade_input = that.reserves_quote.checked_sub(self.reserves_quote)?;
-                let side = Side::Bid ;
+                let side = Side::Bid;
                 let rebalanced = match self.swap(side.wrap(trade_input)) {
                     Next::Succ(pool) => Some(pool),
                     Next::Term(_) => None,

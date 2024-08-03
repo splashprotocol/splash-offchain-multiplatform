@@ -1,17 +1,19 @@
-use std::fmt::{Debug, Display};
-use std::ops::AddAssign;
-
 use algebra_core::monoid::Monoid;
+use either::Either;
 use log::{trace, warn};
 use num_rational::Ratio;
 use primitive_types::U256;
+use std::fmt::{Debug, Display};
+use std::ops::AddAssign;
 
 use crate::display::{display_option, display_tuple};
 use crate::execution_engine::liquidity_book::core::{
-    MakeInProgress, MatchmakingAttempt, MatchmakingRecipe, Next, TakeInProgress, Trans,
+    MakeInProgress, MatchmakingAttempt, MatchmakingRecipe, Next, Rebalanced, TakeInProgress, Trans,
 };
 use crate::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBalance, TakerBehaviour};
-use crate::execution_engine::liquidity_book::market_maker::{MakerBalance, MakerBehavior, MarketMaker, SpotPrice};
+use crate::execution_engine::liquidity_book::market_maker::{
+    MakerBalance, MakerBehavior, MarketMaker, SpotPrice,
+};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::maker::Maker;
 
@@ -199,8 +201,21 @@ where
             }
             match MatchmakingRecipe::try_from(batch) {
                 Ok(ex_recipe) => {
-                    trace!("Successfully formed a batch {}", ex_recipe);
-                    return Some(ex_recipe);
+                    let recipe = match ex_recipe {
+                        Either::Left(Rebalanced(recipe)) => {
+                            trace!("Recipe was rebalanced");
+                            for m in &recipe.instructions {
+                                match m {
+                                    Either::Left(take) => self.on_take(take.result),
+                                    Either::Right(make) => self.on_make(make.result),
+                                }
+                            }
+                            recipe
+                        }
+                        Either::Right(recipe) => recipe,
+                    };
+                    trace!("Successfully formed a batch {}", recipe);
+                    return Some(recipe);
                 }
                 Err(None) => {
                     trace!("Matchmaking attempt failed");
