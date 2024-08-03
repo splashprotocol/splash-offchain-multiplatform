@@ -14,6 +14,10 @@ pub trait TakerBehaviour: Sized {
     fn with_budget_corrected(self, delta: i64) -> (i64, Self);
 }
 
+pub trait TakerBalance: Sized {
+    fn balance(self, added_output: u64) -> Self;
+}
+
 /// Immutable discrete fragment of liquidity available at a specified timeframe at a specified price.
 /// MarketTaker is a projection of an order [TakerBehaviour] at a specific point on time axis.
 pub trait MarketTaker {

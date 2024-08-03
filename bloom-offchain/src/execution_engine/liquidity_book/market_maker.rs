@@ -45,6 +45,15 @@ pub trait MakerBehavior: Sized {
     fn swap(self, input: OnSide<u64>) -> Next<Self, Unit>;
 }
 
+pub struct Excess {
+    pub base: u64,
+    pub quote: u64,
+}
+
+pub trait MakerBalance: Sized {
+    fn balance(&self, that: Self) -> Option<(Self, Excess)>;
+}
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Into, From, Display)]
 pub struct PoolQuality(u128);
 

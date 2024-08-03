@@ -19,7 +19,7 @@ use primitive_types::U512;
 
 use bloom_offchain::execution_engine::liquidity_book::core::{MakeInProgress, Next, Trans, Unit};
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
-    AbsoluteReserves, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
+    AbsoluteReserves, Excess, MakerBalance, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
 };
 use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
@@ -406,6 +406,58 @@ impl AMMOps for BalancePool {
             self.liquidity,
             burned_lq,
         )
+    }
+}
+
+impl MakerBalance for BalancePool {
+    fn balance(&self, that: Self) -> Option<(Self, Excess)> {
+        let x = self.asset_x.untag();
+        let y = self.asset_y.untag();
+        let [base, _] = order_canonical(x, y);
+        let drx = that.reserves_x.checked_sub(&self.reserves_x).map(|x| x.untag());
+        if let Some(drx) = drx {
+            // input is X
+            let trade_input = drx;
+            let side = if x == base { Side::Ask } else { Side::Bid };
+            let rebalanced = match self.swap(side.wrap(trade_input)) {
+                Next::Succ(pool) => Some(pool),
+                Next::Term(_) => None,
+            }?;
+            let excess_y = rebalanced.reserves_y.checked_sub(&that.reserves_y)?.untag();
+            let delta = if x == base {
+                Excess {
+                    base: 0,
+                    quote: excess_y,
+                }
+            } else {
+                Excess {
+                    base: excess_y,
+                    quote: 0,
+                }
+            };
+            Some((rebalanced, delta))
+        } else {
+            // input is Y
+            let trade_input = that.reserves_y.untag().checked_sub(self.reserves_y.untag())?;
+            let side = if y == base { Side::Ask } else { Side::Bid };
+            let rebalanced = match self.swap(side.wrap(trade_input)) {
+                Next::Succ(pool) => Some(pool),
+                Next::Term(_) => None,
+            }?;
+            let excess_x = rebalanced.reserves_x.checked_sub(&that.reserves_x)?.untag();
+            let delta = if x == base {
+                Excess {
+                    base: excess_x,
+                    quote: 0,
+                }
+            } else {
+                Excess {
+                    base: 0,
+                    quote: excess_x,
+                }
+            };
+            Some((rebalanced, delta))
+        }
     }
 }
 

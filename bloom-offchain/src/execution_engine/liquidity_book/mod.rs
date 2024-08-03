@@ -10,8 +10,8 @@ use crate::display::{display_option, display_tuple};
 use crate::execution_engine::liquidity_book::core::{
     MakeInProgress, MatchmakingAttempt, MatchmakingRecipe, Next, TakeInProgress, Trans,
 };
-use crate::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
-use crate::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker, SpotPrice};
+use crate::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBalance, TakerBehaviour};
+use crate::execution_engine::liquidity_book::market_maker::{MakerBalance, MakerBehavior, MarketMaker, SpotPrice};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::maker::Maker;
 
@@ -126,8 +126,8 @@ where
 
 impl<Taker, Maker, U> TemporalLiquidityBook<Taker, Maker> for TLB<Taker, Maker, U>
 where
-    Taker: Stable + MarketTaker<U = U> + TakerBehaviour + Ord + Copy + Display,
-    Maker: Stable + MarketMaker<U = U> + MakerBehavior + Copy + Display,
+    Taker: Stable + MarketTaker<U = U> + TakerBehaviour + TakerBalance + Ord + Copy + Display,
+    Maker: Stable + MarketMaker<U = U> + MakerBehavior + MakerBalance + Copy + Display,
     U: Monoid + AddAssign + PartialOrd + Copy,
 {
     fn attempt(&mut self) -> Option<MatchmakingRecipe<Taker, Maker>> {
