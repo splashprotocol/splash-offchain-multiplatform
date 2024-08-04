@@ -133,7 +133,8 @@ where
     let (
         ExecutionState {
             tx_blueprint,
-            reserved_fee,
+            reserved_tx_fee,
+            operator_interest,
         },
         effects,
         ctx,
@@ -144,21 +145,22 @@ where
         ctx.select::<NetworkId>(),
         ctx.select::<OperatorRewardAddress>(),
         funding.clone(),
+        operator_interest,
     );
     tx_builder
         .add_collateral(ctx.select::<Collateral>().into())
         .unwrap();
 
     let estimated_fee = tx_builder.min_fee(true).unwrap();
-    let fee_mismatch = reserved_fee as i64 - estimated_fee as i64;
+    let fee_mismatch = reserved_tx_fee as i64 - estimated_fee as i64;
     trace!(
         "Est. fee: {}, reserved fee: {}, mismatch: {}",
         estimated_fee,
-        reserved_fee,
+        reserved_tx_fee,
         fee_mismatch
     );
     if fee_mismatch != 0 {
-        let fee_rescale_factor = Ratio::new(estimated_fee, reserved_fee);
+        let fee_rescale_factor = Ratio::new(estimated_fee, reserved_tx_fee);
         let corrected_recipe = balance_fee(fee_mismatch, fee_rescale_factor, instructions);
         execute_recipe(funding, ctx, corrected_recipe)
     } else {

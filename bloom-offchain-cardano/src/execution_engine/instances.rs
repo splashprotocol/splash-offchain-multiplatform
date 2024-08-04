@@ -167,7 +167,8 @@ where
             }
         };
         let witness = context.select::<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>();
-        state.add_fee(consumed_budget);
+        state.add_tx_fee(consumed_budget);
+        state.add_operator_interest(consumed_fee);
         state
             .tx_blueprint
             .add_witness(witness.erased(), PlutusData::new_list(vec![]));
@@ -246,7 +247,8 @@ where
                 (candidate, ExecutionEff::Eliminated(consumed_bundle))
             }
         };
-        state.add_fee(consumed_budget);
+        state.add_tx_fee(consumed_budget);
+        state.add_operator_interest(consumed_fee);
         state.tx_blueprint.add_io(input, residual_order);
         state.tx_blueprint.add_ref_input(reference_utxo);
         (state, effect, context)

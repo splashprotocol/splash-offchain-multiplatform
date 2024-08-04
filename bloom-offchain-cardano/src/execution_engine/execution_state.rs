@@ -45,7 +45,6 @@ pub struct TxBlueprint {
     pub script_io: Vec<(ScriptInputBlueprint, TransactionOutput)>,
     pub reference_inputs: HashSet<(TransactionInput, TransactionOutput)>,
     pub witness_scripts: HashMap<DeployedValidatorErased, (PlutusData, ScalingFactor)>,
-    pub operator_interest: u64,
 }
 
 impl Display for TxBlueprint {
@@ -83,7 +82,6 @@ impl TxBlueprint {
             script_io: Vec::new(),
             reference_inputs: HashSet::new(),
             witness_scripts: HashMap::new(),
-            operator_interest: 0,
         }
     }
 
@@ -113,12 +111,12 @@ impl TxBlueprint {
         network_id: NetworkId,
         operator_address: OperatorRewardAddress,
         operator_funding: FinalizedTxOut,
+        operator_interest: u64,
     ) -> (TransactionBuilder, FundingIO<FinalizedTxOut, TransactionOutput>) {
         let TxBlueprint {
-            mut script_io,
+            script_io,
             reference_inputs,
             witness_scripts,
-            operator_interest,
         } = self;
         let mut all_io = script_io.into_iter().map(Either::Left).collect::<Vec<_>>();
         let funding_io = if operator_interest > 0 {
@@ -228,19 +226,25 @@ impl TxBlueprint {
 
 pub struct ExecutionState {
     pub tx_blueprint: TxBlueprint,
-    pub reserved_fee: Lovelace,
+    pub reserved_tx_fee: Lovelace,
+    pub operator_interest: Lovelace,
 }
 
 impl ExecutionState {
     pub fn new() -> Self {
         Self {
             tx_blueprint: TxBlueprint::new(),
-            reserved_fee: 0,
+            reserved_tx_fee: 0,
+            operator_interest: 0,
         }
     }
 
-    pub fn add_fee(&mut self, amount: Lovelace) {
-        self.reserved_fee += amount;
+    pub fn add_tx_fee(&mut self, amount: Lovelace) {
+        self.reserved_tx_fee += amount;
+    }
+
+    pub fn add_operator_interest(&mut self, amount: Lovelace) {
+        self.operator_interest += amount;
     }
 }
 
