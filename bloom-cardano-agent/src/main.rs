@@ -130,9 +130,11 @@ async fn main() {
     // prepare upstreams
     let tx_submission_stream = tx_submission_agent_stream(tx_submission_agent);
 
-    let (operator_sk, operator_pkh, operator_cred) = operator_creds(config.operator_key);
+    let (operator_sk, collateral_address, operator_paycred) = operator_creds(config.operator_key, config.network_id);
 
-    let collateral = pull_collateral(operator_pkh, &explorer)
+    info!("Expecting collateral at {}", collateral_address.to_bech32(None).unwrap());
+    
+    let collateral = pull_collateral(collateral_address, &explorer)
         .await
         .expect("Couldn't retrieve collateral");
 
@@ -194,7 +196,7 @@ async fn main() {
         config.cardano_finalization_delay,
     )));
     let handler_context = HandlerContextProto {
-        executor_cred: operator_cred,
+        executor_cred: operator_paycred,
         scripts: ProtocolScriptHashes::from(&protocol_deployment),
         bounds,
     };
@@ -210,7 +212,7 @@ async fn main() {
     let funding_addresses: FundingAddresses<4> = config
         .funding
         .clone()
-        .into_funding_addresses(config.network_id, operator_cred.into());
+        .into_funding_addresses(config.network_id, operator_paycred.into());
     let funding_event_handler = FundingEventHandler::new(
         partitioned_funding_event_snd,
         funding_addresses.clone(),
@@ -248,7 +250,7 @@ async fn main() {
         backlog_capacity: BacklogCapacity::from(config.backlog_capacity),
         collateral: collateral.clone(),
         network_id: config.network_id,
-        operator_cred,
+        operator_cred: operator_paycred,
     };
     let context_p2 = ExecutionContext {
         time: 0.into(),
@@ -258,7 +260,7 @@ async fn main() {
         backlog_capacity: BacklogCapacity::from(config.backlog_capacity),
         collateral: collateral.clone(),
         network_id: config.network_id,
-        operator_cred,
+        operator_cred: operator_paycred,
     };
     let context_p3 = ExecutionContext {
         time: 0.into(),
@@ -268,7 +270,7 @@ async fn main() {
         backlog_capacity: BacklogCapacity::from(config.backlog_capacity),
         collateral: collateral.clone(),
         network_id: config.network_id,
-        operator_cred,
+        operator_cred: operator_paycred,
     };
     let context_p4 = ExecutionContext {
         time: 0.into(),
@@ -278,7 +280,7 @@ async fn main() {
         backlog_capacity: BacklogCapacity::from(config.backlog_capacity),
         collateral,
         network_id: config.network_id,
-        operator_cred,
+        operator_cred: operator_paycred,
     };
     let multi_book = MultiPair::new::<TLB<AnyOrder, AnyPool, ExUnits>>(maker_context.clone(), "Book");
     let multi_backlog = MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(

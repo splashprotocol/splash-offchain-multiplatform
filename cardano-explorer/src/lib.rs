@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 use std::io::Error;
 use std::path::Path;
-
+use cml_chain::address::Address;
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::transaction::{TransactionInput, TransactionOutput};
+use cml_core::DeserializeError;
 use cml_core::serialization::Deserialize;
 use cml_crypto::TransactionHash;
+use maestro::models::addresses::UtxosAtAddress;
 use maestro::utils::Parameters;
 use tokio::fs;
 
@@ -51,6 +53,10 @@ pub trait CardanoNetwork {
         offset: u32,
         limit: u16,
     ) -> Vec<TransactionUnspentOutput>;
+    async fn utxos_by_address(&self, address: Address,
+                              offset: u32,
+                              limit: u16,
+    ) -> Vec<TransactionUnspentOutput>;
 }
 
 pub struct Maestro(maestro::Maestro);
@@ -77,7 +83,7 @@ impl CardanoNetwork for Maestro {
             })
             .ok()
     }
-
+    
     async fn utxos_by_pay_cred(
         &self,
         payment_credential: PaymentCredential,
@@ -91,19 +97,34 @@ impl CardanoNetwork for Maestro {
         self.0
             .utxos_by_payment_credential(String::from(payment_credential).as_str(), Some(params))
             .await
-            .and_then(|resp| {
-                let mut utxos = vec![];
-                for utxo in resp.data {
-                    let tx_in = TransactionInput::new(
-                        TransactionHash::from_hex(utxo.tx_hash.as_str()).unwrap(),
-                        utxo.index as u64,
-                    );
-                    let tx_out = TransactionOutput::from_cbor_bytes(&*hex::decode(utxo.tx_out_cbor)?)?;
-                    utxos.push(TransactionUnspentOutput::new(tx_in, tx_out));
-                }
-                Ok(utxos)
-            })
+            .and_then(read_maestro_utxos)
             .ok()
             .unwrap_or(vec![])
     }
+
+    async fn utxos_by_address(&self, address: Address, offset: u32, limit: u16) -> Vec<TransactionUnspentOutput> {
+        let mut params = Parameters::new();
+        params.with_cbor();
+        params.from(offset as i64);
+        params.count(limit as i32);
+        self.0
+            .utxos_at_address(address.to_bech32(None).unwrap().as_str(), Some(params))
+            .await
+            .and_then(read_maestro_utxos)
+            .ok()
+            .unwrap_or(vec![])
+    }
+}
+
+fn read_maestro_utxos(resp: UtxosAtAddress) -> Result<Vec<TransactionUnspentOutput>, Box<dyn std::error::Error>> {
+    let mut utxos = vec![];
+    for utxo in resp.data {
+        let tx_in = TransactionInput::new(
+            TransactionHash::from_hex(utxo.tx_hash.as_str()).unwrap(),
+            utxo.index as u64,
+        );
+        let tx_out = TransactionOutput::from_cbor_bytes(&*hex::decode(utxo.tx_out_cbor)?)?;
+        utxos.push(TransactionUnspentOutput::new(tx_in, tx_out));
+    }
+    Ok(utxos)
 }

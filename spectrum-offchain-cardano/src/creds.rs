@@ -1,9 +1,9 @@
-use cml_chain::address::Address;
+use cml_chain::address::{Address, EnterpriseAddress};
 use cml_chain::certs::Credential;
 use cml_crypto::{Bip32PrivateKey, Ed25519KeyHash, PrivateKey};
 use derive_more::{From, Into};
 
-use spectrum_cardano_lib::PaymentCredential;
+use spectrum_cardano_lib::{NetworkId, PaymentCredential};
 
 #[derive(serde::Deserialize, Debug, Clone, Into, From)]
 pub struct OperatorRewardAddress(pub Address);
@@ -28,22 +28,22 @@ impl From<OperatorCred> for Credential {
     }
 }
 
-pub fn operator_creds(operator_sk_raw: &str) -> (PrivateKey, PaymentCredential, OperatorCred) {
+pub fn operator_creds(operator_sk_raw: &str, network_id: NetworkId) -> (PrivateKey, Address, OperatorCred) {
     let operator_prv_bip32 = Bip32PrivateKey::from_bech32(operator_sk_raw).expect("wallet error");
     let operator_prv = operator_prv_bip32.to_raw_key();
-    let operator_pk = operator_prv.to_public();
-    let operator_pkh = operator_pk.hash();
+    let operator_pkh = operator_prv.to_public().hash();
+    let main_address = Address::Enterprise(EnterpriseAddress::new(network_id.into(), Credential::new_pub_key(operator_pkh)));
     (
         operator_prv,
-        operator_pkh.to_bech32("addr_vkh").unwrap().into(),
+        main_address,
         operator_pkh.into(),
     )
 }
 
 #[cfg(test)]
 mod tests {
-    use cml_chain::address::{Address, EnterpriseAddress};
-    use cml_chain::certs::StakeCredential;
+    use cml_chain::address::{Address, BaseAddress, EnterpriseAddress};
+    use cml_chain::certs::{Credential, StakeCredential};
     use cml_chain::genesis::network_info::NetworkInfo;
     use cml_crypto::Bip32PrivateKey;
 
@@ -62,7 +62,12 @@ mod tests {
         let pkh_main = operator_pk_main.to_raw_key().hash();
         let main_paycred = StakeCredential::new_pub_key(pkh_main);
 
-        let main_address = Address::Enterprise(EnterpriseAddress::new(network, main_paycred));
+        let main_address = Address::Enterprise(EnterpriseAddress::new(network, main_paycred.clone()));
+
+        let funding_address_1 = Address::Base(BaseAddress::new(network, main_paycred.clone(), Credential::new_pub_key(child_pkh_1)));
+        let funding_address_2 = Address::Base(BaseAddress::new(network, main_paycred.clone(), Credential::new_pub_key(child_pkh_2)));
+        let funding_address_3 = Address::Base(BaseAddress::new(network, main_paycred.clone(), Credential::new_pub_key(child_pkh_3)));
+        let funding_address_4 = Address::Base(BaseAddress::new(network, main_paycred, Credential::new_pub_key(child_pkh_4)));
 
         println!("operator_prv_bip32: {}", operator_prv_bip32.to_bech32());
         println!("operator pkh (main): {}", pkh_main);
@@ -71,6 +76,10 @@ mod tests {
         println!("stake pkh (3): {}", child_pkh_3);
         println!("stake pkh (4): {}", child_pkh_4);
         println!("address (main): {}", main_address.to_bech32(None).unwrap());
+        println!("funding address (1): {}", funding_address_1.to_bech32(None).unwrap());
+        println!("funding address (2): {}", funding_address_2.to_bech32(None).unwrap());
+        println!("funding address (3): {}", funding_address_3.to_bech32(None).unwrap());
+        println!("funding address (4): {}", funding_address_4.to_bech32(None).unwrap());
 
         assert_eq!(1, 1);
     }
