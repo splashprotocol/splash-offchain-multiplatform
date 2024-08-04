@@ -7,7 +7,7 @@ use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
-use bloom_offchain::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
+use bloom_offchain::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBalance, TakerBehaviour};
 use bloom_offchain::execution_engine::liquidity_book::linear_output_relative;
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
@@ -114,6 +114,13 @@ impl Ord for LimitOrder {
         cmp_by_price
             .then(self.weight().cmp(&other.weight()))
             .then(self.stable_id().cmp(&other.stable_id()))
+    }
+}
+
+impl TakerBalance for LimitOrder {
+    fn balance(mut self, added_output: u64) -> Self {
+        self.output_amount += added_output;
+        self
     }
 }
 
@@ -402,15 +409,13 @@ pub struct LimitOrderBounds {
 
 #[cfg(test)]
 mod tests {
-    use cml_chain::address::{Address, EnterpriseAddress};
+    use cml_chain::address::Address;
     use cml_chain::assets::AssetBundle;
-    use cml_chain::certs::StakeCredential;
-    use cml_chain::genesis::network_info::NetworkInfo;
     use cml_chain::plutus::PlutusData;
     use cml_chain::transaction::DatumOption;
     use cml_chain::{PolicyId, Value};
     use cml_core::serialization::Deserialize;
-    use cml_crypto::{Bip32PrivateKey, Ed25519KeyHash, TransactionHash};
+    use cml_crypto::{Ed25519KeyHash, TransactionHash};
     use cml_multi_era::babbage::{BabbageFormatTxOut, BabbageTransactionOutput};
     use num_rational::Ratio;
     use type_equalities::IsEqual;

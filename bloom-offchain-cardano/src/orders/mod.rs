@@ -6,7 +6,7 @@ use crate::orders::grid::GridOrder;
 use crate::orders::limit::{LimitOrder, LimitOrderBounds};
 use bloom_derivation::{MarketTaker, Stable, Tradable};
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
-use bloom_offchain::execution_engine::liquidity_book::fragment::TakerBehaviour;
+use bloom_offchain::execution_engine::liquidity_book::fragment::{TakerBalance, TakerBehaviour};
 use bloom_offchain::execution_engine::liquidity_book::types::{InputAsset, OutputAsset};
 use spectrum_offchain::data::Has;
 use spectrum_offchain::ledger::TryFromLedger;
@@ -29,6 +29,15 @@ impl Display for AnyOrder {
         match self {
             AnyOrder::Limit(lo) => std::fmt::Display::fmt(&lo, f),
             AnyOrder::Grid(go) => std::fmt::Display::fmt(&go, f),
+        }
+    }
+}
+
+impl TakerBalance for AnyOrder {
+    fn balance(self, added_output: u64) -> Self {
+        match self {
+            AnyOrder::Limit(o) => AnyOrder::Limit(o.balance(added_output)),
+            AnyOrder::Grid(o) => AnyOrder::Grid(o.balance(added_output)),
         }
     }
 }
