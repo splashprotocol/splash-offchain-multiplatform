@@ -423,7 +423,7 @@ impl MakerBalance for BalancePool {
                 Next::Succ(pool) => Some(pool),
                 Next::Term(_) => None,
             }?;
-            let excess_y = rebalanced.reserves_y.checked_sub(&that.reserves_y)?.untag();
+            let excess_y = that.reserves_y.checked_sub(&rebalanced.reserves_y)?.untag();
             let delta = if x == base {
                 Excess {
                     base: 0,
@@ -444,7 +444,7 @@ impl MakerBalance for BalancePool {
                 Next::Succ(pool) => Some(pool),
                 Next::Term(_) => None,
             }?;
-            let excess_x = rebalanced.reserves_x.checked_sub(&that.reserves_x)?.untag();
+            let excess_x = that.reserves_x.checked_sub(&rebalanced.reserves_x)?.untag();
             let delta = if x == base {
                 Excess {
                     base: excess_x,

@@ -9,7 +9,6 @@ const MAX_VALUE_SIZE: u32 = 5000;
 
 const COINS_PER_UTXO_BYTE: u64 = 4310;
 
-//todo: check correctness
 pub fn constant_tx_builder() -> TransactionBuilder {
     create_tx_builder_full(
         LinearFee::new(44, 155381),

@@ -1471,7 +1471,7 @@ pub mod tests {
                     Next::Succ(pool) => Some(pool),
                     Next::Term(_) => None,
                 }?;
-                let excess_quote = rebalanced.reserves_quote.checked_sub(that.reserves_quote)?;
+                let excess_quote = that.reserves_quote.checked_sub(rebalanced.reserves_quote)?;
                 let delta = Excess {
                     base: 0,
                     quote: excess_quote,
@@ -1485,7 +1485,7 @@ pub mod tests {
                     Next::Succ(pool) => Some(pool),
                     Next::Term(_) => None,
                 }?;
-                let excess_base = rebalanced.reserves_base.checked_sub(that.reserves_base)?;
+                let excess_base = that.reserves_base.checked_sub(rebalanced.reserves_base)?;
                 let delta = Excess {
                     base: excess_base,
                     quote: 0,

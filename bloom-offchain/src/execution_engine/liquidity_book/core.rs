@@ -46,8 +46,9 @@ impl TerminalTake {
 }
 
 impl TakerBalance for TerminalTake {
-    fn balance(self, added_output: u64) -> Self {
-        todo!()
+    fn balance(mut self, added_output: u64) -> Self {
+        self.accumulated_output += added_output;
+        self
     }
 }
 

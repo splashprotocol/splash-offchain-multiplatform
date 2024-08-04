@@ -45,6 +45,7 @@ pub trait MakerBehavior: Sized {
     fn swap(self, input: OnSide<u64>) -> Next<Self, Unit>;
 }
 
+#[derive(Debug, Eq, PartialEq)]
 pub struct Excess {
     pub base: u64,
     pub quote: u64,

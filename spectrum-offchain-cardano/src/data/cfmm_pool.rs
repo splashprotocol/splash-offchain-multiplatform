@@ -305,7 +305,7 @@ impl MakerBalance for ConstFnPool {
                 Next::Succ(pool) => Some(pool),
                 Next::Term(_) => None,
             }?;
-            let excess_y = rebalanced.reserves_y.checked_sub(&that.reserves_y)?.untag();
+            let excess_y = that.reserves_y.checked_sub(&rebalanced.reserves_y)?.untag();
             let delta = if x == base {
                 Excess {
                     base: 0,
@@ -326,7 +326,7 @@ impl MakerBalance for ConstFnPool {
                 Next::Succ(pool) => Some(pool),
                 Next::Term(_) => None,
             }?;
-            let excess_x = rebalanced.reserves_x.checked_sub(&that.reserves_x)?.untag();
+            let excess_x = that.reserves_x.checked_sub(&rebalanced.reserves_x)?.untag();
             let delta = if x == base {
                 Excess {
                     base: excess_x,
@@ -841,7 +841,9 @@ mod tests {
     use crate::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
     use crate::utxo::ConsumedInputs;
     use bloom_offchain::execution_engine::liquidity_book::core::{Next, Trans};
-    use bloom_offchain::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker};
+    use bloom_offchain::execution_engine::liquidity_book::market_maker::{
+        Excess, MakerBalance, MakerBehavior, MarketMaker,
+    };
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
     use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
     use cml_core::serialization::Deserialize;
@@ -852,6 +854,7 @@ mod tests {
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
     use spectrum_offchain::data::Has;
     use spectrum_offchain::ledger::TryFromLedger;
+    use std::convert::identity;
     use type_equalities::IsEqual;
 
     fn gen_ada_token_pool(
@@ -924,8 +927,22 @@ mod tests {
     }
 
     #[test]
-    fn test_swap() {
-        let pool = gen_ada_token_pool(
+    fn aggregate_swap_balancing() {
+        let distinct_swaps = vec![
+            500000000u64,
+            10000000,
+            1631500000,
+            1000000,
+            26520388,
+            1000000000,
+            420000000,
+            10000000,
+            1000000000,
+            417494868,
+            55000000,
+        ];
+        let aggregate_swap: u64 = distinct_swaps.iter().sum();
+        let pool_0 = gen_ada_token_pool(
             1010938590871,
             3132939390433,
             0,
@@ -935,8 +952,21 @@ mod tests {
             405793826,
             1029672612,
         );
-        let resulted_pool = pool.swap(OnSide::Ask(5071515256));
-        dbg!(resulted_pool); // rx: 1016010106127 ry: 3117471090583 tx: 410865341 ty: 1029672612
+        let final_pool_distinct_swaps = distinct_swaps.iter().fold(pool_0, |acc, x| {
+            acc.swap(Ask(*x)).get().fold(identity, |_| panic!())
+        });
+        let final_pool_aggregate_swap = pool_0
+            .swap(Ask(aggregate_swap))
+            .get()
+            .fold(identity, |_| panic!());
+        assert_ne!(final_pool_distinct_swaps, final_pool_aggregate_swap);
+        let (balanced_pool_distinct_swaps, _) =
+            pool_0.balance(final_pool_distinct_swaps).unwrap();
+        let (balanced_pool_aggregate_swap, imbalance_aggregate_swap) =
+            pool_0.balance(final_pool_aggregate_swap).unwrap();
+        assert_eq!(imbalance_aggregate_swap, Excess { base: 0, quote: 0 });
+        assert_eq!(balanced_pool_distinct_swaps, final_pool_aggregate_swap);
+        assert_eq!(balanced_pool_aggregate_swap, final_pool_aggregate_swap);
     }
 
     #[test]
