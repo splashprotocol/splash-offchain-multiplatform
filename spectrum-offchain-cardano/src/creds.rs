@@ -1,10 +1,8 @@
-use cml_chain::address::{Address, EnterpriseAddress};
-use cml_chain::certs::{Credential, StakeCredential};
-use cml_chain::genesis::network_info::NetworkInfo;
+use cml_chain::address::Address;
+use cml_chain::certs::Credential;
 use cml_crypto::{Bip32PrivateKey, Ed25519KeyHash, PrivateKey};
 use derive_more::{From, Into};
 
-use cardano_explorer::constants::get_network_id;
 use spectrum_cardano_lib::PaymentCredential;
 
 #[derive(serde::Deserialize, Debug, Clone, Into, From)]
@@ -40,4 +38,40 @@ pub fn operator_creds(operator_sk_raw: &str) -> (PrivateKey, PaymentCredential, 
         operator_pkh.to_bech32("addr_vkh").unwrap().into(),
         operator_pkh.into(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use cml_chain::address::{Address, EnterpriseAddress};
+    use cml_chain::certs::StakeCredential;
+    use cml_chain::genesis::network_info::NetworkInfo;
+    use cml_crypto::Bip32PrivateKey;
+
+    #[test]
+    fn gen_operator_creds() {
+        let network = NetworkInfo::mainnet().network_id();
+
+        let operator_prv_bip32 = Bip32PrivateKey::generate_ed25519_bip32();
+        let operator_pk_main = operator_prv_bip32.to_public();
+
+        let child_pkh_1 = operator_pk_main.derive(1).unwrap().to_raw_key().hash();
+        let child_pkh_2 = operator_pk_main.derive(2).unwrap().to_raw_key().hash();
+        let child_pkh_3 = operator_pk_main.derive(3).unwrap().to_raw_key().hash();
+        let child_pkh_4 = operator_pk_main.derive(4).unwrap().to_raw_key().hash();
+
+        let pkh_main = operator_pk_main.to_raw_key().hash();
+        let main_paycred = StakeCredential::new_pub_key(pkh_main);
+
+        let main_address = Address::Enterprise(EnterpriseAddress::new(network, main_paycred));
+
+        println!("operator_prv_bip32: {}", operator_prv_bip32.to_bech32());
+        println!("operator pkh (main): {}", pkh_main);
+        println!("stake pkh (1): {}", child_pkh_1);
+        println!("stake pkh (2): {}", child_pkh_2);
+        println!("stake pkh (3): {}", child_pkh_3);
+        println!("stake pkh (4): {}", child_pkh_4);
+        println!("address (main): {}", main_address.to_bech32(None).unwrap());
+
+        assert_eq!(1, 1);
+    }
 }
