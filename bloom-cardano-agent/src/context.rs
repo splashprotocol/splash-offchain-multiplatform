@@ -18,6 +18,31 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
 use spectrum_offchain_cardano::deployment::{DeployedValidator, ProtocolDeployment};
 
 #[derive(Debug, Clone)]
+pub struct MakerContext {
+    pub time: Time,
+    pub execution_cap: ExecutionCap<ExUnits>,
+    pub backlog_capacity: BacklogCapacity,
+}
+
+impl Has<BacklogCapacity> for MakerContext {
+    fn select<U: IsEqual<BacklogCapacity>>(&self) -> BacklogCapacity {
+        self.backlog_capacity
+    }
+}
+
+impl Has<Time> for MakerContext {
+    fn select<U: IsEqual<Time>>(&self) -> Time {
+        self.time
+    }
+}
+
+impl Has<ExecutionCap<ExUnits>> for MakerContext {
+    fn select<U: IsEqual<ExecutionCap<ExUnits>>>(&self) -> ExecutionCap<ExUnits> {
+        self.execution_cap
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct ExecutionContext {
     pub time: Time,
     pub execution_cap: ExecutionCap<ExUnits>,

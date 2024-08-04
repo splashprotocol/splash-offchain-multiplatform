@@ -5,20 +5,24 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use crate::event_sink::context::{HandlerContext, HandlerContextProto};
+use crate::event_sink::entity_index::TradableEntityIndex;
+use crate::event_sink::order_index::KvIndex;
+use crate::funding::FundingAddresses;
 use async_trait::async_trait;
+use bloom_offchain::execution_engine::funding_effect::FundingEvent;
+use cardano_chain_sync::data::LedgerTxEvent;
+use cardano_mempool_sync::data::MempoolUpdate;
 use cml_crypto::TransactionHash;
 use cml_multi_era::babbage::{BabbageTransaction, BabbageTransactionOutput};
 use either::Either;
-use futures::{stream, Sink, SinkExt};
+use futures::{Sink, SinkExt};
 use log::trace;
-use tokio::sync::{Mutex, MutexGuard};
-
-use crate::event_sink::context::{HandlerContext, HandlerContextProto};
-use cardano_chain_sync::data::LedgerTxEvent;
-use cardano_mempool_sync::data::MempoolUpdate;
+use spectrum_cardano_lib::output::FinalizedTxOut;
+use spectrum_cardano_lib::transaction::{BabbageTransactionOutputExtension, TransactionOutputExtension};
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::combinators::Ior;
-use spectrum_offchain::data::event::{Channel, Confirmed, StateUpdate, Unconfirmed};
+use spectrum_offchain::data::event::{Channel, StateUpdate};
 use spectrum_offchain::data::order::{OrderUpdate, SpecializedOrder};
 use spectrum_offchain::data::EntitySnapshot;
 use spectrum_offchain::data::Tradable;
@@ -26,13 +30,243 @@ use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain_cardano::utxo::ConsumedInputs;
-
-use crate::event_sink::entity_index::TradableEntityIndex;
-use crate::event_sink::order_index::OrderIndex;
+use tokio::sync::{Mutex, MutexGuard};
 
 /// A Tx being processed.
-/// Outputs in [BabbageTransaction] may be partially consumed in the process.
+/// Outputs in [BabbageTransaction] may be partially consumed in the process
+/// while this structure preserves stable hash.
 pub type ProcessingTransaction = (TransactionHash, BabbageTransaction);
+
+#[derive(Clone)]
+pub struct FundingEventHandler<const N: usize, Topic, Index> {
+    pub topic: Partitioned<N, usize, Topic>,
+    pub funding_addresses: FundingAddresses<N>,
+    /// UTxO we should not use for funding.
+    pub skip_set: OutputRef,
+    pub index: Arc<Mutex<Index>>,
+}
+
+impl<const N: usize, Topic, Index> FundingEventHandler<N, Topic, Index> {
+    pub fn new(
+        topic: Partitioned<N, usize, Topic>,
+        funding_addresses: FundingAddresses<N>,
+        skip_set: OutputRef,
+        index: Arc<Mutex<Index>>,
+    ) -> Self {
+        Self {
+            topic,
+            funding_addresses,
+            skip_set,
+            index,
+        }
+    }
+}
+
+async fn extract_funding_events<const N: usize, Index>(
+    (tx_hash, mut tx): ProcessingTransaction,
+    funding_addresses: FundingAddresses<N>,
+    skip_set: OutputRef,
+    index: Arc<Mutex<Index>>,
+) -> Result<(Vec<(usize, FundingEvent<FinalizedTxOut>)>, ProcessingTransaction), ProcessingTransaction>
+where
+    Index: KvIndex<OutputRef, (usize, FinalizedTxOut)>,
+{
+    let num_outputs = tx.body.outputs.len();
+    if num_outputs == 0 {
+        return Err((tx_hash, tx));
+    }
+    let mut consumed_utxos = vec![];
+    for i in &tx.body.inputs {
+        let oref = OutputRef::from((i.transaction_id, i.index));
+        if let Some(utxo) = index.lock().await.get(&oref) {
+            consumed_utxos.push(utxo);
+        }
+    }
+    let mut ix = num_outputs - 1;
+    let mut non_processed_outputs = VecDeque::new();
+    let mut produced_utxos = vec![];
+    while let Some(o) = tx.body.outputs.pop() {
+        let o_ref = OutputRef::new(tx_hash, ix as u64);
+        if let Some(part) = funding_addresses.partition_by_address(o.address()) {
+            if o_ref != skip_set {
+                let txo = FinalizedTxOut(o.upcast(), o_ref);
+                produced_utxos.push((part, txo));
+            }
+        } else {
+            non_processed_outputs.push_front(o);
+        }
+        if let Some(next_ix) = ix.checked_sub(1) {
+            ix = next_ix;
+        }
+    }
+    // Preserve non-processed outputs in original ordering.
+    tx.body.outputs = non_processed_outputs.into();
+    let events = consumed_utxos
+        .into_iter()
+        .map(|(pt, utxo)| (pt, FundingEvent::Consumed(utxo)))
+        .chain(
+            produced_utxos
+                .into_iter()
+                .map(|(pt, utxo)| (pt, FundingEvent::Produced(utxo))),
+        )
+        .collect();
+    Ok((events, (tx_hash, tx)))
+}
+
+fn index_funding_event<Index>(index: &mut MutexGuard<Index>, part: usize, tr: &FundingEvent<FinalizedTxOut>)
+where
+    Index: KvIndex<OutputRef, (usize, FinalizedTxOut)>,
+{
+    match &tr {
+        FundingEvent::Consumed(consumed) => {
+            index.register_for_eviction(consumed.reference());
+        }
+        FundingEvent::Produced(produced) => {
+            index.put(produced.reference(), (part, produced.clone()));
+        }
+    }
+}
+
+#[async_trait(?Send)]
+impl<const N: usize, Topic, Index> EventHandler<LedgerTxEvent<ProcessingTransaction>>
+    for FundingEventHandler<N, Topic, Index>
+where
+    Topic: Sink<FundingEvent<FinalizedTxOut>> + Unpin,
+    Topic::Error: Debug,
+    Index: KvIndex<OutputRef, (usize, FinalizedTxOut)>,
+{
+    async fn try_handle(
+        &mut self,
+        ev: LedgerTxEvent<ProcessingTransaction>,
+    ) -> Option<LedgerTxEvent<ProcessingTransaction>> {
+        let mut events_by_part: HashMap<usize, Vec<FundingEvent<FinalizedTxOut>>> = HashMap::new();
+        let remainder = match ev {
+            LedgerTxEvent::TxApplied { tx, slot } => {
+                match extract_funding_events(
+                    tx,
+                    self.funding_addresses.clone(),
+                    self.skip_set,
+                    self.index.clone(),
+                )
+                .await
+                {
+                    Ok((events, tx)) => {
+                        let mut index = self.index.lock().await;
+                        index.run_eviction();
+                        for (pt, event) in events {
+                            index_funding_event(&mut index, pt, &event);
+                            match events_by_part.entry(pt) {
+                                Entry::Occupied(mut entry) => {
+                                    entry.get_mut().push(event);
+                                }
+                                Entry::Vacant(entry) => {
+                                    entry.insert(vec![event]);
+                                }
+                            }
+                        }
+                        Some(LedgerTxEvent::TxApplied { tx, slot })
+                    }
+                    Err(tx) => Some(LedgerTxEvent::TxApplied { tx, slot }),
+                }
+            }
+            LedgerTxEvent::TxUnapplied(tx) => {
+                match extract_funding_events(
+                    tx,
+                    self.funding_addresses.clone(),
+                    self.skip_set,
+                    self.index.clone(),
+                )
+                .await
+                {
+                    Ok((events, tx)) => {
+                        let mut index = self.index.lock().await;
+                        index.run_eviction();
+                        for (pt, event) in events {
+                            let event = event.inverse();
+                            index_funding_event(&mut index, pt, &event);
+                            match events_by_part.entry(pt) {
+                                Entry::Occupied(mut entry) => {
+                                    entry.get_mut().push(event);
+                                }
+                                Entry::Vacant(entry) => {
+                                    entry.insert(vec![event]);
+                                }
+                            }
+                        }
+                        Some(LedgerTxEvent::TxUnapplied(tx))
+                    }
+                    Err(tx) => Some(LedgerTxEvent::TxUnapplied(tx)),
+                }
+            }
+        };
+        for (pt, events) in events_by_part {
+            let num_updates = events.len();
+            let topic = self.topic.get_by_id_mut(pt);
+            for event in events {
+                topic.feed(event).await.expect("Channel is closed");
+            }
+            topic.flush().await.expect("Failed to commit updates");
+            trace!("{} funding events from ledger were commited", num_updates);
+        }
+        remainder
+    }
+}
+
+#[async_trait(?Send)]
+impl<const N: usize, Topic, Index> EventHandler<MempoolUpdate<ProcessingTransaction>>
+    for FundingEventHandler<N, Topic, Index>
+where
+    Topic: Sink<FundingEvent<FinalizedTxOut>> + Unpin,
+    Topic::Error: Debug,
+    Index: KvIndex<OutputRef, (usize, FinalizedTxOut)>,
+{
+    async fn try_handle(
+        &mut self,
+        ev: MempoolUpdate<ProcessingTransaction>,
+    ) -> Option<MempoolUpdate<ProcessingTransaction>> {
+        let mut events_by_part: HashMap<usize, Vec<FundingEvent<FinalizedTxOut>>> = HashMap::new();
+        let remainder = match ev {
+            MempoolUpdate::TxAccepted(tx) => {
+                match extract_funding_events(
+                    tx,
+                    self.funding_addresses.clone(),
+                    self.skip_set,
+                    self.index.clone(),
+                )
+                .await
+                {
+                    Ok((events, tx)) => {
+                        let mut index = self.index.lock().await;
+                        index.run_eviction();
+                        for (pt, event) in events {
+                            index_funding_event(&mut index, pt, &event);
+                            match events_by_part.entry(pt) {
+                                Entry::Occupied(mut entry) => {
+                                    entry.get_mut().push(event);
+                                }
+                                Entry::Vacant(entry) => {
+                                    entry.insert(vec![event]);
+                                }
+                            }
+                        }
+                        Some(MempoolUpdate::TxAccepted(tx))
+                    }
+                    Err(tx) => Some(MempoolUpdate::TxAccepted(tx)),
+                }
+            }
+        };
+        for (pt, events) in events_by_part {
+            let num_updates = events.len();
+            let topic = self.topic.get_by_id_mut(pt);
+            for event in events {
+                topic.feed(event).await.expect("Channel is closed");
+            }
+            topic.flush().await.expect("Failed to commit updates");
+            trace!("{} funding events from mempool were commited", num_updates);
+        }
+        remainder
+    }
+}
 
 /// A handler for updates that routes resulted [Entity] updates
 /// into different topics [Topic] according to partitioning key [PairId].
@@ -91,7 +325,7 @@ where
         + Clone
         + Debug,
     Order::TOrderId: From<OutputRef> + Display,
-    OrderIndex: crate::event_sink::order_index::OrderIndex<Order>,
+    OrderIndex: KvIndex<Order::TOrderId, Order>,
     PoolIndex: TradableEntityIndex<Pool>,
 {
     async fn try_handle(
@@ -193,7 +427,7 @@ where
         + Clone
         + Debug,
     Order::TOrderId: From<OutputRef> + Display,
-    OrderIndex: crate::event_sink::order_index::OrderIndex<Order>,
+    OrderIndex: KvIndex<Order::TOrderId, Order>,
     PoolIndex: TradableEntityIndex<Pool>,
 {
     async fn try_handle(
@@ -263,7 +497,7 @@ async fn extract_atomic_transitions<Order, Index>(
 where
     Order: SpecializedOrder + TryFromLedger<BabbageTransactionOutput, HandlerContext> + Clone,
     Order::TOrderId: From<OutputRef> + Display,
-    Index: OrderIndex<Order>,
+    Index: KvIndex<Order::TOrderId, Order>,
 {
     let num_outputs = tx.body.outputs.len();
     if num_outputs == 0 {
@@ -275,7 +509,7 @@ where
         let oref = OutputRef::from((i.transaction_id, i.index));
         consumed_utxos.push(oref);
         let state_id = Order::TOrderId::from(oref);
-        let mut index = index.lock().await;
+        let index = index.lock().await;
         if let Some(order) = index.get(&state_id) {
             let order_id = order.get_self_ref();
             trace!("Order {} eliminated by {}", order_id, tx_hash);
@@ -553,14 +787,14 @@ where
 fn index_atomic_transition<Index, T>(index: &mut MutexGuard<Index>, tr: &Either<T, T>)
 where
     T: SpecializedOrder + Clone,
-    Index: OrderIndex<T>,
+    Index: KvIndex<T::TOrderId, T>,
 {
     match &tr {
         Either::Left(consumed) => {
             index.register_for_eviction(consumed.get_self_ref());
         }
         Either::Right(produced) => {
-            index.put(produced.clone());
+            index.put(produced.get_self_ref(), produced.clone());
         }
     }
 }

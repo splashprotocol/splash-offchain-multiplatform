@@ -32,7 +32,21 @@ where
             pd: PhantomData::default(),
         }
     }
+}
 
+impl<const N: usize, R> Partitioned<N, usize, R> {
+    pub fn get_by_id(&mut self, id: usize) -> &R {
+        &self.inner[id % N]
+    }
+    pub fn get_by_id_mut(&mut self, id: usize) -> &mut R {
+        &mut self.inner[id % N]
+    }
+}
+
+impl<const N: usize, K, R> Partitioned<N, K, R>
+where
+    K: Hash,
+{
     pub fn get(&self, key: K) -> &R {
         &self.inner[(hash_partitioning_key(key) % N as u64) as usize]
     }

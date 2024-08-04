@@ -960,8 +960,7 @@ mod tests {
             .get()
             .fold(identity, |_| panic!());
         assert_ne!(final_pool_distinct_swaps, final_pool_aggregate_swap);
-        let (balanced_pool_distinct_swaps, _) =
-            pool_0.balance(final_pool_distinct_swaps).unwrap();
+        let (balanced_pool_distinct_swaps, _) = pool_0.balance(final_pool_distinct_swaps).unwrap();
         let (balanced_pool_aggregate_swap, imbalance_aggregate_swap) =
             pool_0.balance(final_pool_aggregate_swap).unwrap();
         assert_eq!(imbalance_aggregate_swap, Excess { base: 0, quote: 0 });

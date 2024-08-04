@@ -16,6 +16,6 @@ pub const MAX_LQ_CAP: u64 = 0x7fffffffffffffff;
 
 pub const CLASSIC_CFMM_ASSET_WEIGHT: u64 = 5;
 
-pub const MIN_SAFE_ADA_VALUE: Coin = 1000000;
+pub const MIN_SAFE_LOVELACE_VALUE: Coin = 1_000_000;
 
-pub const MIN_SAFE_COLLATERAL: Coin = 5000000;
+pub const MIN_SAFE_COLLATERAL: Coin = 5_000_000;

@@ -286,7 +286,7 @@ impl<T: EntitySnapshot> AnyMod<T> {
 pub enum Channel<T> {
     Ledger(Confirmed<T>),
     Mempool(Unconfirmed<T>),
-    TxSubmit(Predicted<T>),
+    LocalTxSubmit(Predicted<T>),
 }
 
 impl<T> Channel<T> {
@@ -298,15 +298,15 @@ impl<T> Channel<T> {
         Self::Mempool(Unconfirmed(t))
     }
 
-    pub fn tx_submit(t: T) -> Self {
-        Self::TxSubmit(Predicted(t))
+    pub fn local_tx_submit(t: T) -> Self {
+        Self::LocalTxSubmit(Predicted(t))
     }
 
     pub fn erased(&self) -> &T {
         match self {
             Channel::Ledger(Confirmed(t)) => t,
             Channel::Mempool(Unconfirmed(t)) => t,
-            Channel::TxSubmit(Predicted(t)) => t,
+            Channel::LocalTxSubmit(Predicted(t)) => t,
         }
     }
     pub fn map<B, F>(self, f: F) -> Channel<B>
@@ -316,7 +316,7 @@ impl<T> Channel<T> {
         match self {
             Channel::Ledger(Confirmed(x)) => Channel::Ledger(Confirmed(f(x))),
             Channel::Mempool(Unconfirmed(x)) => Channel::Mempool(Unconfirmed(f(x))),
-            Channel::TxSubmit(Predicted(x)) => Channel::TxSubmit(Predicted(f(x))),
+            Channel::LocalTxSubmit(Predicted(x)) => Channel::LocalTxSubmit(Predicted(f(x))),
         }
     }
 }
