@@ -8,7 +8,7 @@ use either::Either;
 use futures::channel::mpsc;
 use futures::stream::select_all;
 use futures::{stream_select, Stream, StreamExt};
-use log::{info, trace};
+use log::info;
 use tokio::sync::{broadcast, Mutex};
 use tracing_subscriber::fmt::Subscriber;
 
@@ -33,7 +33,6 @@ use bloom_offchain_cardano::event_sink::order_index::InMemoryKvIndex;
 use bloom_offchain_cardano::event_sink::{AtomicCardanoEntity, EvolvingCardanoEntity};
 use bloom_offchain_cardano::execution_engine::backlog::interpreter::SpecializedInterpreterViaRunOrder;
 use bloom_offchain_cardano::execution_engine::interpreter::CardanoRecipeInterpreter;
-use bloom_offchain_cardano::funding::FundingAddresses;
 use bloom_offchain_cardano::orders::AnyOrder;
 use cardano_chain_sync::cache::LedgerCacheRocksDB;
 use cardano_chain_sync::chain_sync_stream;
@@ -130,10 +129,14 @@ async fn main() {
     // prepare upstreams
     let tx_submission_stream = tx_submission_agent_stream(tx_submission_agent);
 
-    let (operator_sk, collateral_address, operator_paycred) = operator_creds(config.operator_key, config.network_id);
+    let (operator_sk, operator_paycred, collateral_address, funding_addresses) =
+        operator_creds(config.operator_key, config.network_id);
 
-    info!("Expecting collateral at {}", collateral_address.to_bech32(None).unwrap());
-    
+    info!(
+        "Expecting collateral at {}",
+        collateral_address.clone().address().to_bech32(None).unwrap()
+    );
+
     let collateral = pull_collateral(collateral_address, &explorer)
         .await
         .expect("Couldn't retrieve collateral");
@@ -209,10 +212,6 @@ async fn main() {
         PairUpdateHandler::new(partitioned_spec_upd_snd, entity_index, handler_context),
         spec_order_index,
     );
-    let funding_addresses: FundingAddresses<4> = config
-        .funding
-        .clone()
-        .into_funding_addresses(config.network_id, operator_paycred.into());
     let funding_event_handler = FundingEventHandler::new(
         partitioned_funding_event_snd,
         funding_addresses.clone(),

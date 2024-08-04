@@ -1,14 +1,14 @@
-use std::collections::HashMap;
-use std::io::Error;
-use std::path::Path;
 use cml_chain::address::Address;
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::transaction::{TransactionInput, TransactionOutput};
-use cml_core::DeserializeError;
 use cml_core::serialization::Deserialize;
+use cml_core::DeserializeError;
 use cml_crypto::TransactionHash;
 use maestro::models::addresses::UtxosAtAddress;
 use maestro::utils::Parameters;
+use std::collections::HashMap;
+use std::io::Error;
+use std::path::Path;
 use tokio::fs;
 
 use crate::constants::{MAINNET_PREFIX, PREPROD_PREFIX};
@@ -53,9 +53,11 @@ pub trait CardanoNetwork {
         offset: u32,
         limit: u16,
     ) -> Vec<TransactionUnspentOutput>;
-    async fn utxos_by_address(&self, address: Address,
-                              offset: u32,
-                              limit: u16,
+    async fn utxos_by_address(
+        &self,
+        address: Address,
+        offset: u32,
+        limit: u16,
     ) -> Vec<TransactionUnspentOutput>;
 }
 
@@ -83,7 +85,7 @@ impl CardanoNetwork for Maestro {
             })
             .ok()
     }
-    
+
     async fn utxos_by_pay_cred(
         &self,
         payment_credential: PaymentCredential,
@@ -102,7 +104,12 @@ impl CardanoNetwork for Maestro {
             .unwrap_or(vec![])
     }
 
-    async fn utxos_by_address(&self, address: Address, offset: u32, limit: u16) -> Vec<TransactionUnspentOutput> {
+    async fn utxos_by_address(
+        &self,
+        address: Address,
+        offset: u32,
+        limit: u16,
+    ) -> Vec<TransactionUnspentOutput> {
         let mut params = Parameters::new();
         params.with_cbor();
         params.from(offset as i64);
@@ -116,7 +123,9 @@ impl CardanoNetwork for Maestro {
     }
 }
 
-fn read_maestro_utxos(resp: UtxosAtAddress) -> Result<Vec<TransactionUnspentOutput>, Box<dyn std::error::Error>> {
+fn read_maestro_utxos(
+    resp: UtxosAtAddress,
+) -> Result<Vec<TransactionUnspentOutput>, Box<dyn std::error::Error>> {
     let mut utxos = vec![];
     for utxo in resp.data {
         let tx_in = TransactionInput::new(

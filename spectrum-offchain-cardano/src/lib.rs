@@ -5,6 +5,7 @@ pub mod data;
 pub mod deployment;
 pub mod event_sink;
 mod fees;
+pub mod funding;
 pub mod node;
 pub mod parametrized_validators;
 pub mod pool_math;

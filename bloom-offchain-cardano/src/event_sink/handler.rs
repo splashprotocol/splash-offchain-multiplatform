@@ -8,7 +8,6 @@ use std::sync::Arc;
 use crate::event_sink::context::{HandlerContext, HandlerContextProto};
 use crate::event_sink::entity_index::TradableEntityIndex;
 use crate::event_sink::order_index::KvIndex;
-use crate::funding::FundingAddresses;
 use async_trait::async_trait;
 use bloom_offchain::execution_engine::funding_effect::FundingEvent;
 use cardano_chain_sync::data::LedgerTxEvent;
@@ -29,6 +28,7 @@ use spectrum_offchain::data::Tradable;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain::partitioning::Partitioned;
+use spectrum_offchain_cardano::funding::FundingAddresses;
 use spectrum_offchain_cardano::utxo::ConsumedInputs;
 use tokio::sync::{Mutex, MutexGuard};
 
