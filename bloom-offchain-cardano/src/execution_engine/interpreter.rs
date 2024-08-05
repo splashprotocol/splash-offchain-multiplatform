@@ -58,14 +58,14 @@ where
             .unwrap();
         let tx_body_cloned = tx.body();
         let tx_hash = hash_transaction_canonical(&tx_body_cloned);
+        let tx_outputs = tx_body_cloned.outputs;
 
         // Map finalized outputs to states of corresponding domain entities.
         let mut finalized_effects = vec![];
         for eff in effects {
             finalized_effects.push(eff.bimap(
                 |p| {
-                    let output_ix = tx_body_cloned
-                        .outputs
+                    let output_ix = tx_outputs
                         .iter()
                         .position(|out| out == &p.1)
                         .expect("Tx.outputs must be coherent with effects!");
@@ -88,8 +88,7 @@ where
         }
 
         let finalized_funding_io = funding_io_preview.map_output(|o| {
-            let output_ix = tx_body_cloned
-                .outputs
+            let output_ix = tx_outputs
                 .iter()
                 .position(|out| out == &o)
                 .expect("Tx.outputs must be coherent with funding IO!");

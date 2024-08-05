@@ -14,7 +14,7 @@ pub fn process_events<'a, TUpstream, TEvent>(
 ) -> impl Stream<Item = ()> + 'a
 where
     TUpstream: Stream<Item = TEvent> + 'a,
-    TEvent: Clone + 'a,
+    TEvent: 'a,
 {
     let handlers_arc = Arc::new(Mutex::new(handlers));
     upstream.then(move |ev| {

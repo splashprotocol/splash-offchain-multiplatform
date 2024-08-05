@@ -26,12 +26,12 @@ use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
 use crate::orders::limit::LimitOrderBounds;
 use crate::orders::AnyOrder;
-use bloom_offchain::partitioning::Partitioning;
 
 pub mod context;
 pub mod entity_index;
 pub mod handler;
 pub mod order_index;
+pub mod processed_tx;
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
