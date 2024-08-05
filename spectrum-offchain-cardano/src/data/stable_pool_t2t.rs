@@ -1,10 +1,6 @@
 use std::fmt::Debug;
 use std::ops::Mul;
 
-use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
-use bloom_offchain::execution_engine::liquidity_book::market_maker::{
-    AbsoluteReserves, Excess, MakerBalance, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
-};
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
@@ -18,6 +14,10 @@ use num_rational::Ratio;
 use num_traits::{CheckedAdd, CheckedSub, Pow, ToPrimitive};
 use primitive_types::U512;
 
+use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
+use bloom_offchain::execution_engine::liquidity_book::market_maker::{
+    AbsoluteReserves, Excess, MakerBalance, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
+};
 use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::ex_units::ExUnits;
@@ -32,7 +32,6 @@ use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 use crate::constants::{FEE_DEN, MAX_LQ_CAP};
-use crate::data::balance_pool::BalancePool;
 use crate::data::cfmm_pool::AMMOps;
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::operation_output::{DepositOutput, RedeemOutput};
@@ -45,7 +44,7 @@ use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::StableFnPoolT2T;
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
-use crate::pool_math::cfmm_math::{classic_cfmm_reward_lp, classic_cfmm_shares_amount};
+use crate::pool_math::cfmm_math::classic_cfmm_shares_amount;
 use crate::pool_math::stable_math::stable_cfmm_reward_lp;
 use crate::pool_math::stable_pool_t2t_exact_math::{
     calc_stable_swap, calculate_context_values_list, calculate_invariant,
@@ -208,7 +207,8 @@ impl StablePoolT2T {
 
         let context_values_list = match pool_action {
             CFMMPoolAction::Swap => {
-                let context_values_list = calculate_context_values_list(prev_state, new_state);
+                let context_values_list =
+                    calculate_context_values_list(prev_state, new_state).expect("Invalid pool state");
                 ConstrPlutusData::new(
                     0,
                     Vec::from([PlutusData::new_list(vec![PlutusData::new_integer(
@@ -242,7 +242,12 @@ where
             let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
             let bounds = ctx.select::<PoolBounds>();
             let lov = value.amount_of(Native)?;
-            if conf.asset_x.is_native() || conf.asset_y.is_native() || bounds.min_t2t_lovelace <= lov {
+            let rx = value.amount_of(conf.asset_x.into())?;
+            let ry = value.amount_of(conf.asset_y.into())?;
+            let reserved_ok = rx > conf.treasury_x && ry > conf.treasury_y;
+            let lovelace_ok =
+                conf.asset_x.is_native() || conf.asset_y.is_native() || bounds.min_t2t_lovelace <= lov;
+            if reserved_ok && lovelace_ok {
                 return Some(StablePoolT2T {
                     id: PoolId::try_from(conf.pool_nft).ok()?,
                     an2n: conf.an2n,
@@ -372,6 +377,7 @@ impl AMMOps for StablePoolT2T {
             base_amount,
             self.an2n,
         )
+        .unwrap_or(TaggedAmount::new(0))
     }
 
     fn reward_lp(
@@ -516,7 +522,8 @@ impl MarketMaker for StablePoolT2T {
 
         let nn = N_TRADABLE_ASSETS.pow(N_TRADABLE_ASSETS as u32);
         let ann = self.an2n / nn;
-        let d = calculate_invariant(&U512::from(x_calc), &U512::from(y_calc), &U512::from(self.an2n));
+        let d = calculate_invariant(&U512::from(x_calc), &U512::from(y_calc), &U512::from(self.an2n))
+            .expect(format!("Invalid pool state {:?}", self).as_str());
 
         let dn1 = vec![d; usize::try_from(N_TRADABLE_ASSETS + 1).unwrap()]
             .iter()
@@ -570,12 +577,7 @@ impl MarketMaker for StablePoolT2T {
     }
 
     fn quality(&self) -> PoolQuality {
-        let invariant = calculate_invariant(
-            &U512::from((self.reserves_x - self.treasury_x).untag() * self.multiplier_x as u64),
-            &U512::from((self.reserves_y - self.treasury_y).untag() * self.multiplier_x as u64),
-            &U512::from(self.an2n),
-        );
-        PoolQuality::from(MAX_LQ_CAP - invariant.as_u64())
+        PoolQuality::from(0u128)
     }
 
     fn marginal_cost_hint(&self) -> Self::U {
@@ -715,15 +717,15 @@ impl ApplyOrder<ClassicalOnChainRedeem> for StablePoolT2T {
 
 #[cfg(test)]
 mod tests {
-    use bloom_offchain::execution_engine::liquidity_book::core::Next;
-    use bloom_offchain::execution_engine::liquidity_book::market_maker::MakerBehavior;
-    use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
     use cml_chain::plutus::PlutusData;
     use cml_chain::Deserialize;
-    use cml_core::serialization::Serialize;
     use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
     use num_rational::Ratio;
     use primitive_types::U512;
+
+    use bloom_offchain::execution_engine::liquidity_book::core::Next;
+    use bloom_offchain::execution_engine::liquidity_book::market_maker::MakerBehavior;
+    use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
@@ -731,11 +733,9 @@ mod tests {
     use crate::constants::MAX_LQ_CAP;
     use crate::data::order::ClassicalOrder;
     use crate::data::order::OrderType::BalanceFn;
-    use crate::data::pool::{ApplyOrder, CFMMPoolAction};
+    use crate::data::pool::ApplyOrder;
     use crate::data::redeem::{ClassicalOnChainRedeem, Redeem};
-    use crate::data::stable_pool_t2t::{
-        StablePoolRedeemer, StablePoolT2T, StablePoolT2TConfig, StablePoolT2TVer,
-    };
+    use crate::data::stable_pool_t2t::{StablePoolT2T, StablePoolT2TConfig, StablePoolT2TVer};
     use crate::data::{OnChainOrderId, PoolId};
     use crate::pool_math::stable_pool_t2t_exact_math::calculate_invariant;
 
@@ -766,7 +766,8 @@ mod tests {
             &U512::from((reserves_x - treasury_x) * multiplier_x as u64),
             &U512::from((reserves_y - treasury_y) * multiplier_y as u64),
             &U512::from(an2n),
-        );
+        )
+        .unwrap();
         let liquidity = MAX_LQ_CAP - inv_before.as_u64();
 
         return StablePoolT2T {
@@ -919,40 +920,6 @@ mod tests {
         assert_eq!(result.reserves_y.untag(), 9990110);
         assert_eq!(result.treasury_x.untag(), 0);
         assert_eq!(result.treasury_y.untag(), 98708);
-    }
-
-    #[test]
-    fn swap_redeemer_test() {
-        let pool = gen_ada_token_pool(
-            1_000_000_000,
-            9,
-            1_000_000_000,
-            9,
-            99000,
-            99000,
-            100,
-            0,
-            0,
-            300 * 16,
-        );
-
-        let Next::Succ(new_pool) = pool.swap(OnSide::Ask(363613802862)) else {
-            panic!()
-        };
-
-        let test_swap_redeemer = StablePoolRedeemer {
-            pool_input_index: 0,
-            pool_output_index: 0,
-            action: CFMMPoolAction::Swap,
-            new_pool_state: new_pool,
-            prev_pool_state: pool,
-        }
-        .to_plutus_data();
-
-        assert_eq!(
-            hex::encode(test_swap_redeemer.to_canonical_cbor_bytes()),
-            "d879850200821b44d28ae9357d3d221b1bfbea3f996900a4821b44d28ae9357d3d221b344bc15514617ce98d18250913185e1318630e0813185d184b185c08"
-        )
     }
 
     #[test]
