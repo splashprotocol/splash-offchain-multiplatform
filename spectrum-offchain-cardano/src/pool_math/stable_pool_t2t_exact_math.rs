@@ -44,8 +44,10 @@ pub fn calc_stable_swap<X, Y>(
     let d = calculate_invariant(&base_initial, &quote_calc, &an2n_calc)?;
     let b = s + d / ann;
     let dn1 = vec![d; N_TRADABLE_ASSETS + 1]
-        .into_iter()
-        .fold(U512::zero(), |a, b| a * b);
+        .iter()
+        .copied()
+        .reduce(|a, b| a * b)
+        .unwrap();
     let c = dn1 / nn / p / ann;
 
     let unit = U512::from(1);
@@ -110,16 +112,15 @@ pub fn calculate_invariant_error_sgn_from_totals(
     ann_total_sum_calc: &U512,
     d: &U512,
 ) -> Option<bool> {
-    if *nn_total_prod_calc > U512::zero() {
-        let inv_right = *d * *ann
-            + vec![*d; N_TRADABLE_ASSETS + 1]
-                .into_iter()
-                .fold(U512::zero(), |a, b| a * b)
-                / *nn_total_prod_calc;
-        let inv_left = *ann_total_sum_calc + *d;
-        return Some(inv_right >= inv_left);
-    }
-    None
+    let inv_right = *d * *ann
+        + vec![*d; N_TRADABLE_ASSETS + 1]
+            .iter()
+            .copied()
+            .reduce(|a, b| a * b)
+            .unwrap()
+            / *nn_total_prod_calc;
+    let inv_left = *ann_total_sum_calc + *d;
+    Some(inv_right >= inv_left)
 }
 
 pub fn calculate_invariant_error_sgn(
@@ -147,8 +148,10 @@ pub fn check_exact_invariant(
     let max_swap_err = U512::from(MAX_SWAP_ERROR);
     let an2n_nn = an2n - nn;
     let dn1 = vec![*d; N_TRADABLE_ASSETS + 1]
-        .into_iter()
-        .fold(U512::zero(), |a, b| a * b);
+        .iter()
+        .copied()
+        .reduce(|a, b| a * b)
+        .unwrap();
     let total_prod_calc_before = tradable_base_before * tradable_quote_before;
 
     let alpha_before = an2n_nn * total_prod_calc_before;
@@ -256,8 +259,10 @@ pub fn calculate_invariant(x_calc: &U512, y_calc: &U512, an2n: &U512) -> Option<
     while abs_err >= unit {
         let d_previous = d;
         let dn1 = vec![d_previous; N_TRADABLE_ASSETS + 1]
-            .into_iter()
-            .fold(zero, |a, b| a * b);
+            .iter()
+            .copied()
+            .reduce(|a, b| a * b)
+            .unwrap();
         let d_p = dn1 / nn / p;
         let d_num = (ann * s + n_calc * d_p) * d_previous;
         let d_den = (ann - unit) * d_previous + (n_calc + unit) * d_p;
@@ -287,14 +292,14 @@ mod test {
     use num_rational::Ratio;
     use primitive_types::U512;
 
-    use spectrum_cardano_lib::ex_units::ExUnits;
-    use spectrum_cardano_lib::AssetClass::Native;
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
+    use spectrum_cardano_lib::AssetClass::Native;
+    use spectrum_cardano_lib::ex_units::ExUnits;
 
     use crate::constants::MAX_LQ_CAP;
     use crate::data::order::{Base, Quote};
-    use crate::data::stable_pool_t2t::{StablePoolT2T, StablePoolT2TVer};
     use crate::data::PoolId;
+    use crate::data::stable_pool_t2t::{StablePoolT2T, StablePoolT2TVer};
     use crate::pool_math::stable_pool_t2t_exact_math::{
         calc_stable_swap, calculate_context_values_list, calculate_invariant, check_exact_invariant,
     };
