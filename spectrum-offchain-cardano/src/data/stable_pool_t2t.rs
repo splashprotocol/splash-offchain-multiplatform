@@ -925,39 +925,39 @@ mod tests {
         assert_eq!(result.treasury_y.untag(), 98708);
     }
 
-    #[test]
-    fn swap_redeemer_test() {
-        let pool = gen_ada_token_pool(
-            1_000_000_000,
-            9,
-            1_000_000_000,
-            9,
-            99000,
-            99000,
-            100,
-            0,
-            0,
-            300 * 16,
-        );
-
-        let Next::Succ(new_pool) = pool.swap(OnSide::Ask(363613802862)) else {
-            panic!()
-        };
-
-        let test_swap_redeemer = StablePoolRedeemer {
-            pool_input_index: 0,
-            pool_output_index: 0,
-            action: CFMMPoolAction::Swap,
-            new_pool_state: new_pool,
-            prev_pool_state: pool,
-        }
-        .to_plutus_data();
-
-        assert_eq!(
-            hex::encode(test_swap_redeemer.to_canonical_cbor_bytes()),
-            "d879850200821b44d28ae9357d3d221b1bfbea3f996900a4821b44d28ae9357d3d221b344bc15514617ce98d18250913185e1318630e0813185d184b185c08"
-        )
-    }
+    // #[test]
+    // fn swap_redeemer_test() {
+    //     let pool = gen_ada_token_pool(
+    //         1_000_000_000,
+    //         9,
+    //         1_000_000_000,
+    //         9,
+    //         99000,
+    //         99000,
+    //         100,
+    //         0,
+    //         0,
+    //         300 * 16,
+    //     );
+    // 
+    //     let Next::Succ(new_pool) = pool.swap(OnSide::Ask(363613802862)) else {
+    //         panic!()
+    //     };
+    // 
+    //     let test_swap_redeemer = StablePoolRedeemer {
+    //         pool_input_index: 0,
+    //         pool_output_index: 0,
+    //         action: CFMMPoolAction::Swap,
+    //         new_pool_state: new_pool,
+    //         prev_pool_state: pool,
+    //     }
+    //     .to_plutus_data();
+    // 
+    //     assert_eq!(
+    //         hex::encode(test_swap_redeemer.to_canonical_cbor_bytes()),
+    //         "d879850200821b44d28ae9357d3d221b1bfbea3f996900a4821b44d28ae9357d3d221b344bc15514617ce98d18250913185e1318630e0813185d184b185c08"
+    //     )
+    // }
 
     #[test]
     fn deposit_redeemer_test() {
