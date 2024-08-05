@@ -20,7 +20,8 @@ use log::trace;
 use spectrum_cardano_lib::funding::OperatorFunding;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
-use spectrum_cardano_lib::{NetworkId, OutputRef};
+use spectrum_cardano_lib::value::ValueExtension;
+use spectrum_cardano_lib::{AssetClass, NetworkId, OutputRef};
 use spectrum_offchain_cardano::constants::MIN_SAFE_LOVELACE_VALUE;
 use spectrum_offchain_cardano::creds::OperatorRewardAddress;
 use spectrum_offchain_cardano::deployment::DeployedValidatorErased;
@@ -120,16 +121,19 @@ impl TxBlueprint {
         } = self;
         let mut all_io = script_io.into_iter().map(Either::Left).collect::<Vec<_>>();
         let funding_io = if operator_interest > 0 {
-            let operator_output = TransactionOutput::new(
-                operator_address.into(),
-                Value::from(operator_interest),
-                None,
-                None,
-            );
             if operator_interest >= MIN_SAFE_LOVELACE_VALUE {
+                let operator_output = TransactionOutput::new(
+                    operator_address.into(),
+                    Value::from(operator_interest),
+                    None,
+                    None,
+                );
                 all_io.push(Either::Right((None, operator_output.clone())));
                 FundingIO::Added(operator_funding, operator_output)
             } else {
+                let mut value = operator_funding.0.value().clone();
+                value.add_unsafe(AssetClass::Native, operator_interest);
+                let operator_output = TransactionOutput::new(operator_address.into(), value, None, None);
                 all_io.push(Either::Right((
                     Some(operator_funding.clone()),
                     operator_output.clone(),
