@@ -65,7 +65,7 @@ pub fn calc_stable_swap<X, Y>(
     }
 
     let d_new = calculate_invariant(&base_calc, &asset_to, &an2n_calc)?;
-    let d_after = if { d_new > d } { d_new } else { d };
+    let d_after = if d_new > d { d_new } else { d };
 
     let mut valid_inv = check_exact_invariant(
         &U512::from(quote_mult),
@@ -157,7 +157,7 @@ pub fn check_exact_invariant(
     let alpha_after = an2n_nn * total_prod_calc_after;
     let beta_after = an2n * total_prod_calc_after * (tradable_base_after + tradable_quote_after);
     let max_quote_error = max_swap_err * quote_mult;
-    if max_quote_error > *tradable_quote_after {
+    if max_quote_error <= *tradable_quote_after {
         let total_prod_calc_after_shifter = tradable_base_after * (tradable_quote_after - max_quote_error);
         let alpha_after_shifted = an2n_nn * total_prod_calc_after_shifter;
         let beta_after_shifted = an2n
