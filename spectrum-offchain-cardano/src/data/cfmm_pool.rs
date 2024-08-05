@@ -430,8 +430,7 @@ impl MarketMaker for ConstFnPool {
     }
 
     fn quality(&self) -> PoolQuality {
-        let lq = self.reserves_x.untag() as u128 * self.reserves_y.untag() as u128;
-        PoolQuality::from(lq.sqrt())
+        PoolQuality::from(0u128)
     }
 
     fn marginal_cost_hint(&self) -> Self::U {

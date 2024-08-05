@@ -1548,7 +1548,7 @@ pub mod tests {
         }
 
         fn quality(&self) -> PoolQuality {
-            PoolQuality::from(self.reserves_quote + self.reserves_base)
+            PoolQuality::from(0u128)
         }
 
         fn liquidity(&self) -> AbsoluteReserves {

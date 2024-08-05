@@ -208,7 +208,8 @@ impl StablePoolT2T {
 
         let context_values_list = match pool_action {
             CFMMPoolAction::Swap => {
-                let context_values_list = calculate_context_values_list(prev_state, new_state);
+                let context_values_list =
+                    calculate_context_values_list(prev_state, new_state).expect("Invalid pool state");
                 ConstrPlutusData::new(
                     0,
                     Vec::from([PlutusData::new_list(vec![PlutusData::new_integer(
@@ -242,7 +243,12 @@ where
             let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
             let bounds = ctx.select::<PoolBounds>();
             let lov = value.amount_of(Native)?;
-            if conf.asset_x.is_native() || conf.asset_y.is_native() || bounds.min_t2t_lovelace <= lov {
+            let rx = value.amount_of(conf.asset_x.into())?;
+            let ry = value.amount_of(conf.asset_y.into())?;
+            let reserved_ok = rx > conf.treasury_x && ry > conf.treasury_y;
+            let lovelace_ok =
+                conf.asset_x.is_native() || conf.asset_y.is_native() || bounds.min_t2t_lovelace <= lov;
+            if reserved_ok && lovelace_ok {
                 return Some(StablePoolT2T {
                     id: PoolId::try_from(conf.pool_nft).ok()?,
                     an2n: conf.an2n,
@@ -372,6 +378,7 @@ impl AMMOps for StablePoolT2T {
             base_amount,
             self.an2n,
         )
+        .unwrap_or(TaggedAmount::new(0))
     }
 
     fn reward_lp(
@@ -516,7 +523,8 @@ impl MarketMaker for StablePoolT2T {
 
         let nn = N_TRADABLE_ASSETS.pow(N_TRADABLE_ASSETS as u32);
         let ann = self.an2n / nn;
-        let d = calculate_invariant(&U512::from(x_calc), &U512::from(y_calc), &U512::from(self.an2n));
+        let d = calculate_invariant(&U512::from(x_calc), &U512::from(y_calc), &U512::from(self.an2n))
+            .expect(format!("Invalid pool state {:?}", self).as_str());
 
         let dn1 = vec![d; usize::try_from(N_TRADABLE_ASSETS + 1).unwrap()]
             .iter()
@@ -570,12 +578,7 @@ impl MarketMaker for StablePoolT2T {
     }
 
     fn quality(&self) -> PoolQuality {
-        let invariant = calculate_invariant(
-            &U512::from((self.reserves_x - self.treasury_x).untag() * self.multiplier_x as u64),
-            &U512::from((self.reserves_y - self.treasury_y).untag() * self.multiplier_x as u64),
-            &U512::from(self.an2n),
-        );
-        PoolQuality::from(MAX_LQ_CAP - invariant.as_u64())
+        PoolQuality::from(0u128)
     }
 
     fn marginal_cost_hint(&self) -> Self::U {
@@ -766,7 +769,8 @@ mod tests {
             &U512::from((reserves_x - treasury_x) * multiplier_x as u64),
             &U512::from((reserves_y - treasury_y) * multiplier_y as u64),
             &U512::from(an2n),
-        );
+        )
+        .unwrap();
         let liquidity = MAX_LQ_CAP - inv_before.as_u64();
 
         return StablePoolT2T {
