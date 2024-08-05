@@ -1,8 +1,8 @@
 {
   "limitOrderWitness": {
-    "hash": "3f462bf2453b153c876783601af26259d0f0f25b2c66510eca0b654b",
+    "hash": "96f5c1bee23481335ff4aece32fe1dfa1aa40a944a66d2d6edc9a9a5",
     "referenceUtxo": {
-      "txHash": "9915e8d13eda409d58526a8196aec116177bfa3e6556fb7056d8100a56be0691",
+      "txHash": "b91eda29d145ab6c0bc0d6b7093cb24b131440b7b015033205476f39c690a51f",
       "outputIndex": 1
     },
     "cost": {
@@ -15,9 +15,9 @@
     }
   },
   "limitOrder": {
-    "hash": "2025463437ee5d64e89814a66ce7f98cb184a66ae85a2fbbfd750106",
+    "hash": "464eeee89f05aff787d40045af2a40a83fd96c513197d32fbc54ff02",
     "referenceUtxo": {
-      "txHash": "9915e8d13eda409d58526a8196aec116177bfa3e6556fb7056d8100a56be0691",
+      "txHash": "b91eda29d145ab6c0bc0d6b7093cb24b131440b7b015033205476f39c690a51f",
       "outputIndex": 0
     },
     "cost": {
