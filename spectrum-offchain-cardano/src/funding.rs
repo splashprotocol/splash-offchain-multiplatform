@@ -10,7 +10,7 @@ pub struct FundingAddresses<const N: usize>([Address; N]);
 impl<const N: usize> Display for FundingAddresses<N> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         for addr in &self.0 {
-            addr.fmt(f)?;
+            f.write_str(addr.to_bech32(None).unwrap().as_str())?;
             f.write_str(", ")?
         }
         Ok(())
