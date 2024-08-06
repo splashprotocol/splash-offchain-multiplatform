@@ -8,10 +8,12 @@ use cml_chain::transaction::{ConwayFormatTxOut, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_multi_era::babbage::BabbageTransactionOutput;
+use num_traits::CheckedSub;
 use type_equalities::IsEqual;
 
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
+    AbsoluteReserves, Excess, MakerBalance, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
     AbsoluteReserves, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
     AbsoluteReserves, Excess, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
 };
@@ -35,6 +37,7 @@ use crate::data::pair::order_canonical;
 use crate::data::pool::{
     ApplyOrder, ApplyOrderError, CFMMPoolAction, ImmutablePoolUtxo, PoolAssetMapping, PoolBounds, Rx, Ry,
 };
+use crate::data::stable_pool_t2t::StablePoolT2T;
 use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::DegenQuadraticPoolV1;
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
@@ -161,13 +164,13 @@ impl DegenQuadraticPool {
         }
     }
     fn create_redeemer(pool_in_idx: u64, pool_out_idx: u64) -> PlutusData {
-        let self_ix_pd = PlutusData::Integer(BigInteger::from(pool_in_idx));
-        let self_out_pd = PlutusData::Integer(BigInteger::from(pool_out_idx));
+        let self_in_idx_pd = PlutusData::Integer(BigInteger::from(pool_in_idx));
+        let self_out_idx_pd = PlutusData::Integer(BigInteger::from(pool_out_idx));
         let amm_action = PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, Vec::from([])));
 
         PlutusData::ConstrPlutusData(ConstrPlutusData::new(
             0,
-            Vec::from([self_ix_pd, self_out_pd, amm_action]),
+            Vec::from([self_in_idx_pd, self_out_idx_pd, amm_action]),
         ))
     }
 }
