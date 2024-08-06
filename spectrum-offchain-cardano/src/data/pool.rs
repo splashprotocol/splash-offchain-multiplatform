@@ -275,6 +275,24 @@ pub struct PoolAssetMapping {
     pub asset_to_add_to: AssetClass,
 }
 
+impl MakerBalance for AnyPool {
+    fn balance(&self, that: Self) -> Option<(Self, Excess)> {
+        match (self, that) {
+            (PureCFMM(p), PureCFMM(that)) => p.balance(that).map(|(that, excess)| (PureCFMM(that), excess)),
+            (BalancedCFMM(p), BalancedCFMM(that)) => {
+                p.balance(that).map(|(that, excess)| (BalancedCFMM(that), excess))
+            }
+            (StableCFMM(p), StableCFMM(that)) => {
+                p.balance(that).map(|(that, excess)| (StableCFMM(that), excess))
+            }
+            (DegenPool(p), DegenPool(that)) => {
+                p.balance(that).map(|(that, excess)| (DegenPool(that), excess))
+            }
+            _ => panic!(),
+        }
+    }
+}
+
 impl MakerBehavior for AnyPool {
     fn swap(mut self, input: OnSide<u64>) -> Next<Self, Void> {
         match self {

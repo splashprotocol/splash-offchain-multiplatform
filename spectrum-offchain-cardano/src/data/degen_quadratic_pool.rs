@@ -8,11 +8,12 @@ use cml_chain::transaction::{ConwayFormatTxOut, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_multi_era::babbage::BabbageTransactionOutput;
+use num_traits::CheckedSub;
 use type_equalities::IsEqual;
 
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
-    AbsoluteReserves, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
+    AbsoluteReserves, Excess, MakerBalance, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
 };
 use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
@@ -34,6 +35,7 @@ use crate::data::pair::order_canonical;
 use crate::data::pool::{
     ApplyOrder, ApplyOrderError, CFMMPoolAction, ImmutablePoolUtxo, PoolAssetMapping, PoolBounds, Rx, Ry,
 };
+use crate::data::stable_pool_t2t::StablePoolT2T;
 use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::DegenQuadraticPoolV1;
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
@@ -49,15 +51,33 @@ pub struct DegenQuadraticPoolConfig {
     pub ada_cup_thr: u64,
 }
 
+struct DatumMapping {
+    pub pool_nft: usize,
+    pub asset_x: usize,
+    pub asset_y: usize,
+    pub a_num: usize,
+    pub b_num: usize,
+    pub ada_cup_thr: usize,
+}
+
+const DATUM_MAPPING: DatumMapping = DatumMapping {
+    pool_nft: 0,
+    asset_x: 1,
+    asset_y: 2,
+    a_num: 3,
+    b_num: 4,
+    ada_cup_thr: 6,
+};
+
 impl TryFromPData for DegenQuadraticPoolConfig {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
-        let pool_nft = TaggedAssetClass::try_from_pd(cpd.take_field(0)?)?;
-        let asset_x = TaggedAssetClass::try_from_pd(cpd.take_field(1)?)?;
-        let asset_y = TaggedAssetClass::try_from_pd(cpd.take_field(2)?)?;
-        let a_num = cpd.take_field(3)?.into_u64()?;
-        let b_num = cpd.take_field(4)?.into_u64()?;
-        let ada_cup_thr = cpd.take_field(5)?.into_u64()?;
+        let pool_nft = TaggedAssetClass::try_from_pd(cpd.take_field(DATUM_MAPPING.pool_nft)?)?;
+        let asset_x = TaggedAssetClass::try_from_pd(cpd.take_field(DATUM_MAPPING.asset_x)?)?;
+        let asset_y = TaggedAssetClass::try_from_pd(cpd.take_field(DATUM_MAPPING.asset_y)?)?;
+        let a_num = cpd.take_field(DATUM_MAPPING.a_num)?.into_u64()?;
+        let b_num = cpd.take_field(DATUM_MAPPING.b_num)?.into_u64()?;
+        let ada_cup_thr = cpd.take_field(DATUM_MAPPING.ada_cup_thr)?.into_u64()?;
 
         Some(Self {
             pool_nft,
@@ -142,13 +162,13 @@ impl DegenQuadraticPool {
         }
     }
     fn create_redeemer(pool_in_idx: u64, pool_out_idx: u64) -> PlutusData {
-        let self_ix_pd = PlutusData::Integer(BigInteger::from(pool_in_idx));
-        let self_out_pd = PlutusData::Integer(BigInteger::from(pool_out_idx));
+        let self_in_idx_pd = PlutusData::Integer(BigInteger::from(pool_in_idx));
+        let self_out_idx_pd = PlutusData::Integer(BigInteger::from(pool_out_idx));
         let amm_action = PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, Vec::from([])));
 
         PlutusData::ConstrPlutusData(ConstrPlutusData::new(
             0,
-            Vec::from([self_ix_pd, self_out_pd, amm_action]),
+            Vec::from([self_in_idx_pd, self_out_idx_pd, amm_action]),
         ))
     }
 }
@@ -238,7 +258,7 @@ impl MakerBehavior for DegenQuadraticPool {
     }
 }
 
-impl MarketMaker for crate::data::degen_quadratic_pool::DegenQuadraticPool {
+impl MarketMaker for DegenQuadraticPool {
     type U = ExUnits;
 
     fn static_price(&self) -> SpotPrice {
@@ -247,7 +267,8 @@ impl MarketMaker for crate::data::degen_quadratic_pool::DegenQuadraticPool {
         let [base, _] = order_canonical(x, y);
         if x == base {
             AbsolutePrice::new_raw(
-                (self.reserves_y.untag() * self.reserves_y.untag() * self.a_num) as u128 * B_DENOM
+                (self.reserves_y.untag() as u128 * self.reserves_y.untag() as u128 * self.a_num as u128)
+                    * B_DENOM
                     + A_DENOM * self.b_num as u128,
                 A_DENOM * B_DENOM,
             )
@@ -276,7 +297,7 @@ impl MarketMaker for crate::data::degen_quadratic_pool::DegenQuadraticPool {
         AbsolutePrice::new(quote, base)
     }
     fn quality(&self) -> PoolQuality {
-        unimplemented!()
+        PoolQuality::from(self.reserves_x.untag() as u128)
     }
 
     fn marginal_cost_hint(&self) -> Self::U {
@@ -284,7 +305,7 @@ impl MarketMaker for crate::data::degen_quadratic_pool::DegenQuadraticPool {
     }
 
     fn is_active(&self) -> bool {
-        unimplemented!()
+        self.reserves_x.untag() < self.ada_cup_thr
     }
 
     fn liquidity(&self) -> AbsoluteReserves {
@@ -352,7 +373,7 @@ where
                         ver: pool_ver,
                         marginal_cost,
                         bounds,
-                        ada_cup_thr: 0,
+                        ada_cup_thr: conf.ada_cup_thr,
                     });
                 }
             };
@@ -392,10 +413,56 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for DegenQuadraticPool {
     }
 }
 
-pub fn unsafe_update_pd(data: &mut PlutusData, treasury_x: u64, treasury_y: u64) {
-    let cpd = data.get_constr_pd_mut().unwrap();
-    cpd.set_field(6, treasury_x.into_pd());
-    cpd.set_field(7, treasury_y.into_pd());
+impl MakerBalance for DegenQuadraticPool {
+    fn balance(&self, that: Self) -> Option<(Self, Excess)> {
+        let x = self.asset_x.untag();
+        let y = self.asset_y.untag();
+        let [base, _] = order_canonical(x, y);
+        let drx = that.reserves_x.checked_sub(&self.reserves_x).map(|x| x.untag());
+        if let Some(drx) = drx {
+            // input is X
+            let trade_input = drx;
+            let side = if x == base { Side::Ask } else { Side::Bid };
+            let rebalanced = match self.swap(side.wrap(trade_input)) {
+                Next::Succ(pool) => Some(pool),
+                Next::Term(_) => None,
+            }?;
+            let excess_y = that.reserves_y.checked_sub(&rebalanced.reserves_y)?.untag();
+            let delta = if x == base {
+                Excess {
+                    base: 0,
+                    quote: excess_y,
+                }
+            } else {
+                Excess {
+                    base: excess_y,
+                    quote: 0,
+                }
+            };
+            Some((rebalanced, delta))
+        } else {
+            // input is Y
+            let trade_input = that.reserves_y.untag().checked_sub(self.reserves_y.untag())?;
+            let side = if y == base { Side::Ask } else { Side::Bid };
+            let rebalanced = match self.swap(side.wrap(trade_input)) {
+                Next::Succ(pool) => Some(pool),
+                Next::Term(_) => None,
+            }?;
+            let excess_x = that.reserves_x.checked_sub(&rebalanced.reserves_x)?.untag();
+            let delta = if x == base {
+                Excess {
+                    base: excess_x,
+                    quote: 0,
+                }
+            } else {
+                Excess {
+                    base: 0,
+                    quote: excess_x,
+                }
+            };
+            Some((rebalanced, delta))
+        }
+    }
 }
 
 impl ApplyOrder<ClassicalOnChainLimitSwap> for DegenQuadraticPool {
