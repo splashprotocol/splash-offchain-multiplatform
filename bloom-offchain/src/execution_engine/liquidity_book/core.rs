@@ -545,7 +545,7 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
         self.takes.insert(sid, take_combined);
     }
 
-    pub fn add_make(&mut self, make: MakeInProgress<Maker>) -> Result<(), ()>
+    pub fn add_make(&mut self, make: MakeInProgress<Maker>)
     where
         Maker: MarketMaker<U = U>,
         U: AddAssign,
@@ -554,24 +554,14 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
         let aggregate_maker = match self.makes.remove(&sid) {
             None => {
                 self.execution_units_consumed += make.target.marginal_cost_hint();
-                Ok(make)
+                make
             }
             Some(accumulated_trans) => {
                 self.num_aggregated_makes += 1;
-                if accumulated_trans.trade_side() == make.trade_side() {
-                    Ok(accumulated_trans.combine(make))
-                } else {
-                    Err(accumulated_trans)
-                }
+                accumulated_trans.combine(make)
             }
         };
-        aggregate_maker
-            .map(|m| {
-                self.makes.insert(sid, m);
-            })
-            .map_err(|m| {
-                self.makes.insert(sid, m);
-            })
+        self.makes.insert(sid, aggregate_maker);
     }
 
     pub fn try_balance(self) -> Option<Self>

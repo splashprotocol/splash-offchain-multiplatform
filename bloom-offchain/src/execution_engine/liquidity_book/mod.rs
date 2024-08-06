@@ -178,16 +178,11 @@ where
                             if let Some(maker) = self.state.pick_maker_by_id(&maker_sid) {
                                 trace!("Taker {} matched with {}", target_taker, maker);
                                 let (take, make) = execute_with_maker(target_taker, maker, chunk_offered);
-                                if let Ok(_) = batch.add_make(make) {
-                                    batch.add_take(take);
-                                    self.on_take(take.result);
-                                    self.on_make(make.result);
-                                    continue;
-                                } else {
-                                    warn!("Maker {} caused an opposite swap", maker.stable_id());
-                                    self.state.pre_add_maker(maker);
-                                    self.state.pre_add_taker(target_taker);
-                                }
+                                batch.add_make(make);
+                                batch.add_take(take);
+                                self.on_take(take.result);
+                                self.on_make(make.result);
+                                continue;
                             }
                         }
                         _ => {}
