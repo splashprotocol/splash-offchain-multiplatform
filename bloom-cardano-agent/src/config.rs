@@ -23,7 +23,7 @@ pub struct AppConfig<'a> {
     pub backlog_capacity: u32,
     pub network_id: NetworkId,
     pub maestro_key_path: &'a str,
-    pub execution_cap: ExecutionCap,
+    pub execution: ExecutionConfig,
     pub channel_buffer_size: usize,
     pub mempool_buffering_duration: Duration,
     pub ledger_buffering_duration: Duration,
@@ -61,11 +61,28 @@ pub struct ExecutionCap {
     pub hard: ExUnits,
 }
 
-impl From<ExecutionCap> for liquidity_book::ExecutionCap<ExUnits> {
+impl From<ExecutionCap> for liquidity_book::config::ExecutionCap<ExUnits> {
     fn from(value: ExecutionCap) -> Self {
         Self {
             soft: value.soft,
             hard: value.hard,
+        }
+    }
+}
+
+#[derive(Copy, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecutionConfig {
+    pub execution_cap: ExecutionCap,
+    /// Order-order matchmaking allowed.
+    pub o2o_allowed: bool,
+}
+
+impl From<ExecutionConfig> for liquidity_book::config::ExecutionConfig<ExUnits> {
+    fn from(conf: ExecutionConfig) -> Self {
+        Self {
+            execution_cap: conf.execution_cap.into(),
+            o2o_allowed: conf.o2o_allowed,
         }
     }
 }

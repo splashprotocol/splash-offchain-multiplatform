@@ -1,6 +1,4 @@
-use type_equalities::IsEqual;
-
-use bloom_offchain::execution_engine::liquidity_book::ExecutionCap;
+use bloom_offchain::execution_engine::liquidity_book::config::ExecutionConfig;
 use bloom_offchain::execution_engine::types::Time;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::ex_units::ExUnits;
@@ -16,11 +14,12 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use spectrum_offchain_cardano::deployment::{DeployedValidator, ProtocolDeployment};
+use type_equalities::IsEqual;
 
 #[derive(Debug, Clone)]
 pub struct MakerContext {
     pub time: Time,
-    pub execution_cap: ExecutionCap<ExUnits>,
+    pub execution_conf: ExecutionConfig<ExUnits>,
     pub backlog_capacity: BacklogCapacity,
 }
 
@@ -36,16 +35,15 @@ impl Has<Time> for MakerContext {
     }
 }
 
-impl Has<ExecutionCap<ExUnits>> for MakerContext {
-    fn select<U: IsEqual<ExecutionCap<ExUnits>>>(&self) -> ExecutionCap<ExUnits> {
-        self.execution_cap
+impl Has<ExecutionConfig<ExUnits>> for MakerContext {
+    fn select<U: IsEqual<ExecutionConfig<ExUnits>>>(&self) -> ExecutionConfig<ExUnits> {
+        self.execution_conf
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct ExecutionContext {
     pub time: Time,
-    pub execution_cap: ExecutionCap<ExUnits>,
     pub deployment: ProtocolDeployment,
     pub collateral: Collateral,
     pub reward_addr: OperatorRewardAddress,
@@ -75,12 +73,6 @@ impl Has<BacklogCapacity> for ExecutionContext {
 impl Has<Time> for ExecutionContext {
     fn select<U: IsEqual<Time>>(&self) -> Time {
         self.time
-    }
-}
-
-impl Has<ExecutionCap<ExUnits>> for ExecutionContext {
-    fn select<U: IsEqual<ExecutionCap<ExUnits>>>(&self) -> ExecutionCap<ExUnits> {
-        self.execution_cap
     }
 }
 

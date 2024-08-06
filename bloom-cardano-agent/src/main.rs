@@ -239,13 +239,12 @@ async fn main() {
     let spec_interpreter = SpecializedInterpreterViaRunOrder;
     let maker_context = MakerContext {
         time: 0.into(),
-        execution_cap: config.execution_cap.into(),
+        execution_conf: config.execution.into(),
         backlog_capacity: BacklogCapacity::from(config.backlog_capacity),
     };
     let context_p1 = ExecutionContext {
         time: 0.into(),
         deployment: protocol_deployment.clone(),
-        execution_cap: config.execution_cap.into(),
         reward_addr: funding_addresses[0].clone().into(),
         backlog_capacity: BacklogCapacity::from(config.backlog_capacity),
         collateral: collateral.clone(),
@@ -255,7 +254,6 @@ async fn main() {
     let context_p2 = ExecutionContext {
         time: 0.into(),
         deployment: protocol_deployment.clone(),
-        execution_cap: config.execution_cap.into(),
         reward_addr: funding_addresses[1].clone().into(),
         backlog_capacity: BacklogCapacity::from(config.backlog_capacity),
         collateral: collateral.clone(),
@@ -265,7 +263,6 @@ async fn main() {
     let context_p3 = ExecutionContext {
         time: 0.into(),
         deployment: protocol_deployment.clone(),
-        execution_cap: config.execution_cap.into(),
         reward_addr: funding_addresses[2].clone().into(),
         backlog_capacity: BacklogCapacity::from(config.backlog_capacity),
         collateral: collateral.clone(),
@@ -275,7 +272,6 @@ async fn main() {
     let context_p4 = ExecutionContext {
         time: 0.into(),
         deployment: protocol_deployment,
-        execution_cap: config.execution_cap.into(),
         reward_addr: funding_addresses[3].clone().into(),
         backlog_capacity: BacklogCapacity::from(config.backlog_capacity),
         collateral,

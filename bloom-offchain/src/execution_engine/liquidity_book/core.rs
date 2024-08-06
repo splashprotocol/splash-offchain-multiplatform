@@ -551,22 +551,27 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
         U: AddAssign,
     {
         let sid = make.target.stable_id();
-        let maker_combined = match self.makes.remove(&sid) {
+        let aggregate_maker = match self.makes.remove(&sid) {
             None => {
                 self.execution_units_consumed += make.target.marginal_cost_hint();
-                make
+                Ok(make)
             }
             Some(accumulated_trans) => {
                 self.num_aggregated_makes += 1;
                 if accumulated_trans.trade_side() == make.trade_side() {
-                    accumulated_trans.combine(make)
+                    Ok(accumulated_trans.combine(make))
                 } else {
-                    return Err(());
+                    Err(accumulated_trans)
                 }
             }
         };
-        self.makes.insert(sid, maker_combined);
-        Ok(())
+        aggregate_maker
+            .map(|m| {
+                self.makes.insert(sid, m);
+            })
+            .map_err(|m| {
+                self.makes.insert(sid, m);
+            })
     }
 
     pub fn try_balance(self) -> Option<Self>

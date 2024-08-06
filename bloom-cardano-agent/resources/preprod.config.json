@@ -29,15 +29,18 @@
   },
   "operatorKey": "",
   "maestroKeyPath": "bloom-cardano-agent/resources/preprod.maestro.key",
-  "executionCap": {
-    "soft": {
-      "mem": 5000000,
-      "steps": 4000000000
+  "execution": {
+    "executionCap": {
+      "soft": {
+        "mem": 5000000,
+        "steps": 4000000000
+      },
+      "hard": {
+        "mem": 14000000,
+        "steps": 10000000000
+      }
     },
-    "hard": {
-      "mem": 14000000,
-      "steps": 10000000000
-    }
+    "o2oAllowed": true
   },
   "mempoolBufferingDuration": {
     "secs": 1,

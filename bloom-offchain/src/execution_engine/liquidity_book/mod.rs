@@ -7,6 +7,7 @@ use std::fmt::{Debug, Display};
 use std::ops::AddAssign;
 
 use crate::display::{display_option, display_tuple};
+use crate::execution_engine::liquidity_book::config::ExecutionConfig;
 use crate::execution_engine::liquidity_book::core::{
     MakeInProgress, MatchmakingAttempt, MatchmakingRecipe, Next, Rebalanced, TakeInProgress, Trans,
 };
@@ -14,9 +15,6 @@ use crate::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBalanc
 use crate::execution_engine::liquidity_book::market_maker::{
     MakerBalance, MakerBehavior, MarketMaker, SpotPrice,
 };
-use spectrum_offchain::data::{Has, Stable};
-use spectrum_offchain::maker::Maker;
-
 use crate::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
 use crate::execution_engine::liquidity_book::side::{OnSide, Side};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
@@ -24,7 +22,10 @@ use crate::execution_engine::liquidity_book::state::queries::{max_by_distance_to
 use crate::execution_engine::liquidity_book::state::{IdleState, TLBState};
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, RelativePrice};
 use crate::execution_engine::types::Time;
+use spectrum_offchain::data::{Has, Stable};
+use spectrum_offchain::maker::Maker;
 
+pub mod config;
 pub mod core;
 pub mod fragment;
 pub mod interpreter;
@@ -61,16 +62,10 @@ pub trait TLBFeedback<Fr, Pl> {
     fn on_recipe_failed(&mut self, stashing_opt: StashingOption<Fr>);
 }
 
-#[derive(Debug, Copy, Clone)]
-pub struct ExecutionCap<U> {
-    pub soft: U,
-    pub hard: U,
-}
-
 #[derive(Clone)]
 pub struct TLB<Taker, Maker: Stable, U> {
     state: TLBState<Taker, Maker>,
-    execution_cap: ExecutionCap<U>,
+    conf: ExecutionConfig<U>,
 }
 
 impl<Taker, Maker, U> TLBFeedback<Taker, Maker> for TLB<Taker, Maker, U>
@@ -91,10 +86,10 @@ impl<Taker, Maker, U> TLB<Taker, Maker, U>
 where
     Maker: Stable,
 {
-    pub fn new(time: u64, conf: ExecutionCap<U>) -> Self {
+    pub fn new(time: u64, conf: ExecutionConfig<U>) -> Self {
         Self {
             state: TLBState::new(time),
-            execution_cap: conf,
+            conf,
         }
     }
 
@@ -136,7 +131,7 @@ where
         loop {
             trace!("Attempting to matchmake");
             let mut batch: MatchmakingAttempt<Taker, Maker, U> = MatchmakingAttempt::empty();
-            while batch.execution_units_consumed() < self.execution_cap.soft {
+            while batch.execution_units_consumed() < self.conf.execution_cap.soft {
                 let spot_price = self.spot_price();
                 let price_range = self.state.allowed_price_range();
                 trace!("Spot price is: {}", display_option(spot_price));
@@ -160,7 +155,8 @@ where
                     );
                     match (maybe_price_counter_taker, maybe_price_maker) {
                         (Some(price_counter_taker), maybe_price_maker)
-                            if target_price.overlaps(price_counter_taker.unwrap())
+                            if self.conf.o2o_allowed
+                                && target_price.overlaps(price_counter_taker.unwrap())
                                 && maybe_price_maker
                                     .map(|(_, p)| price_counter_taker.better_than(p))
                                     .unwrap_or(true) =>
@@ -286,10 +282,10 @@ fn ok<T>(_: &T) -> bool {
 impl<Fr, Pl, Ctx, U> Maker<Ctx> for TLB<Fr, Pl, U>
 where
     Pl: Stable,
-    Ctx: Has<Time> + Has<ExecutionCap<U>>,
+    Ctx: Has<Time> + Has<ExecutionConfig<U>>,
 {
     fn make(ctx: &Ctx) -> Self {
-        Self::new(ctx.select::<Time>().into(), ctx.select::<ExecutionCap<U>>())
+        Self::new(ctx.select::<Time>().into(), ctx.select::<ExecutionConfig<U>>())
     }
 }
 
@@ -398,6 +394,7 @@ pub fn linear_output_unsafe(input: u64, price: OnSide<AbsolutePrice>) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use crate::execution_engine::liquidity_book::config::{ExecutionCap, ExecutionConfig};
     use crate::execution_engine::liquidity_book::fragment::MarketTaker;
     use crate::execution_engine::liquidity_book::market_maker::MarketMaker;
     use crate::execution_engine::liquidity_book::side::Side::{Ask, Bid};
@@ -406,8 +403,7 @@ mod tests {
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::AbsolutePrice;
     use crate::execution_engine::liquidity_book::{
-        execute_with_maker, execute_with_taker, settle_price, ExecutionCap, ExternalTLBEvents,
-        TemporalLiquidityBook, TLB,
+        execute_with_maker, execute_with_taker, settle_price, ExternalTLBEvents, TemporalLiquidityBook, TLB,
     };
     use crate::execution_engine::types::StableId;
 
@@ -432,9 +428,12 @@ mod tests {
         );
         let mut book = TLB::<_, SimpleCFMMPool, _>::new(
             0,
-            ExecutionCap {
-                soft: 1000000,
-                hard: 1600000,
+            ExecutionConfig {
+                execution_cap: ExecutionCap {
+                    soft: 1000000,
+                    hard: 1600000,
+                },
+                o2o_allowed: true,
             },
         );
         vec![o1, o2].into_iter().for_each(|o| book.add_fragment(o));
@@ -461,9 +460,12 @@ mod tests {
         };
         let mut book = TLB::new(
             0,
-            ExecutionCap {
-                soft: 1000000,
-                hard: 1600000,
+            ExecutionConfig {
+                execution_cap: ExecutionCap {
+                    soft: 1000000,
+                    hard: 1600000,
+                },
+                o2o_allowed: true,
             },
         );
         book.add_fragment(o1);
