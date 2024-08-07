@@ -67,8 +67,8 @@ where
     }
 }
 
-/// Changed state that reflects only consumption of fragments and full preview of pools.
-/// We use this one when no preview fragments/pools are generated to avoid
+/// Changed state that reflects only consumption of fragments and full preview of makers.
+/// We use this one when no preview takers/makers are generated to avoid
 /// overhead of copying active frontier projection.
 #[derive(Clone, Eq, PartialEq)]
 pub struct PartialPreviewState<T, M: Stable> {
@@ -230,7 +230,7 @@ where
         match stashing_opt {
             StashingOption::Stash(mut to_stash) => {
                 for fr in &to_stash {
-                    self.takers_intact.active.remove(&fr);
+                    self.takers_intact.active.remove(fr);
                 }
                 self.stashed_active_takers.append(&mut to_stash);
             }
@@ -371,23 +371,22 @@ where
         match self {
             // Transit into PartialPreview if state is untouched yet
             TLBState::Idle(st) => {
-                trace!(target: "state", "TLBState::move_into_partial_preview: MOVING FROM IDLE");
+                trace!("move Idle => PartialPreview");
                 // Move untouched fragments/pools sets into fresh state.
                 mem::swap(&mut target.takers_preview, &mut st.takers);
                 mem::swap(&mut target.makers_intact, &mut st.makers);
                 // Initialize pools preview with a copy of untouched pools.
                 target.makers_preview = target.makers_intact.clone();
             }
-            TLBState::PartialPreview(_) | TLBState::Preview(_) => {
-                trace!(target: "state", "TLBState::move_into_partial_preview: NO-OP");
-            }
+            TLBState::PartialPreview(_) => panic!("Attempt to move PartialPreview => PartialPreview"),
+            TLBState::Preview(_) => panic!("Attempt to move Preview => PartialPreview"),
         }
     }
 
     fn move_into_preview(&mut self, target: &mut PreviewState<T, M>) {
         match self {
             TLBState::Idle(st) => {
-                trace!(target: "state", "TLBState::move_into_preview from IDLE");
+                trace!("move Idle => Preview");
                 // Move untouched fragments/pools into preview state.
                 mem::swap(&mut target.takers_intact, &mut st.takers);
                 mem::swap(&mut target.makers_intact, &mut st.makers);
@@ -397,12 +396,13 @@ where
                 target.makers_preview = target.makers_intact.clone();
             }
             TLBState::PartialPreview(st) => {
-                trace!(target: "state", "TLBState::move_into_preview from PARTIAL_PREVIEW");
+                trace!("move PartialPreview => Preview");
                 // Copy active fragments/pools to use as a preview.
                 let mut active_fragments = st.takers_preview.active.clone();
                 mem::swap(&mut target.active_takers_preview, &mut active_fragments);
                 mem::swap(&mut target.makers_preview, &mut st.makers_preview);
-                // Return consumed fragments to reconstruct initial state.
+                mem::swap(&mut target.stashed_active_takers, &mut st.stashed_active_takers);
+                // Return consumed takers to reconstruct initial state.
                 while let Some(fr) = st.consumed_active_takers.pop() {
                     st.takers_preview.active.insert(fr);
                 }
@@ -410,7 +410,7 @@ where
                 mem::swap(&mut target.takers_intact, &mut st.takers_preview);
                 mem::swap(&mut target.makers_intact, &mut st.makers_intact);
             }
-            TLBState::Preview(_) => {}
+            TLBState::Preview(_) => panic!("Attempt to move Preview => Preview"),
         }
     }
 }
@@ -493,14 +493,14 @@ where
 
     /// Add preview fragment [T].
     pub fn pre_add_taker(&mut self, fr: T) {
-        trace!(target: "state", "pre_add_fragment");
+        trace!("pre_add_taker");
         let time = self.current_time();
         match (self, fr.time_bounds().lower_bound()) {
             // We have to transit to preview state.
             (this @ TLBState::Idle(_) | this @ TLBState::PartialPreview(_), lower_bound) => {
                 let mut preview_st = PreviewState::new(time);
                 this.move_into_preview(&mut preview_st);
-                // Add fr into preview.
+                // Add taker into preview.
                 match lower_bound {
                     Some(lower_bound) if lower_bound > time => {
                         preview_st.inactive_takers_changeset.push((lower_bound, fr));
