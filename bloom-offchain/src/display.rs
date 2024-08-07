@@ -36,7 +36,7 @@ pub struct DisplayVec<T>(Vec<T>);
 impl<T: Display> Display for DisplayVec<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str("[")?;
-        for x in self.0 {
+        for x in &self.0 {
             x.fmt(f)?;
             f.write_str(", ")?;
         }
