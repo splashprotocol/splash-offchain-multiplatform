@@ -242,6 +242,10 @@ impl TakerBehaviour for GridOrder {
         Next::Succ(self)
     }
 
+    fn try_terminate(self) -> Next<Self, TerminalTake> {
+        Next::Succ(self)
+    }
+
     fn with_budget_corrected(mut self, delta: i64) -> (i64, Self) {
         let budget_remainder = self.remaining_execution_budget as i64;
         let corrected_remainder = budget_remainder + delta;
