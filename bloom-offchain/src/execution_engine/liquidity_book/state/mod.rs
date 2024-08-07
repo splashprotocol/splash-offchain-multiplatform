@@ -492,10 +492,10 @@ where
     }
 
     /// Add preview fragment [T].
-    pub fn pre_add_taker(&mut self, fr: T) {
+    pub fn pre_add_taker(&mut self, taker: T) {
         trace!("pre_add_taker");
         let time = self.current_time();
-        match (self, fr.time_bounds().lower_bound()) {
+        match (self, taker.time_bounds().lower_bound()) {
             // We have to transit to preview state.
             (this @ TLBState::Idle(_) | this @ TLBState::PartialPreview(_), lower_bound) => {
                 let mut preview_st = PreviewState::new(time);
@@ -503,15 +503,15 @@ where
                 // Add taker into preview.
                 match lower_bound {
                     Some(lower_bound) if lower_bound > time => {
-                        preview_st.inactive_takers_changeset.push((lower_bound, fr));
+                        preview_st.inactive_takers_changeset.push((lower_bound, taker));
                     }
-                    _ => preview_st.active_takers_preview.insert(fr),
+                    _ => preview_st.active_takers_preview.insert(taker),
                 }
                 mem::swap(this, &mut TLBState::Preview(preview_st));
             }
             (TLBState::Preview(ref mut preview_st), lower_bound) => match lower_bound {
-                Some(lb) if lb > time => preview_st.inactive_takers_changeset.push((lb, fr)),
-                _ => preview_st.active_takers_preview.insert(fr),
+                Some(lb) if lb > time => preview_st.inactive_takers_changeset.push((lb, taker)),
+                _ => preview_st.active_takers_preview.insert(taker),
             },
         }
     }

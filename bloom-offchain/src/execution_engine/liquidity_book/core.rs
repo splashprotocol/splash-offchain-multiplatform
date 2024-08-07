@@ -9,10 +9,7 @@ use std::hash::Hash;
 use std::mem;
 use std::ops::AddAssign;
 
-use algebra_core::monoid::Monoid;
-use algebra_core::semigroup::Semigroup;
-use spectrum_offchain::data::Stable;
-
+use crate::display::display_vec;
 use crate::execution_engine::bundled::Bundled;
 use crate::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBalance, TakerBehaviour};
 use crate::execution_engine::liquidity_book::market_maker::{
@@ -20,6 +17,9 @@ use crate::execution_engine::liquidity_book::market_maker::{
 };
 use crate::execution_engine::liquidity_book::side::{OnSide, Side};
 use crate::execution_engine::liquidity_book::types::{FeeAsset, InputAsset, OutputAsset};
+use algebra_core::monoid::Monoid;
+use algebra_core::semigroup::Semigroup;
+use spectrum_offchain::data::Stable;
 
 /// Terminal state of a take that was fulfilled.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -458,6 +458,20 @@ pub struct MatchmakingAttempt<Taker: Stable, Maker: Stable, U> {
     execution_units_consumed: U,
     /// Number of distinct makes aggregated into one.
     num_aggregated_makes: usize,
+}
+
+impl<T: Stable + Display, M: Stable + Display, U> Display for MatchmakingAttempt<T, M, U> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            format!(
+                "MatchmakingAttempt(takes: {}, makes: {}, num_aggregated_makes: {})",
+                display_vec(self.takes.values().collect()),
+                display_vec(self.makes.values().collect()),
+                self.num_aggregated_makes
+            )
+            .as_str(),
+        )
+    }
 }
 
 impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {

@@ -162,11 +162,11 @@ where
                                     .unwrap_or(true) =>
                         {
                             if let Some(counter_taker) = self.state.try_pick_taker(!target_side, ok) {
-                                trace!("Taker {} matched with {}", target_taker, counter_taker);
                                 let make_match =
                                     |ask: &Taker, bid: &Taker| settle_price(ask, bid, spot_price);
                                 let (take_a, take_b) =
                                     execute_with_taker(target_taker, counter_taker, make_match);
+                                trace!("Taker {} matched with {}", target_taker, counter_taker);
                                 for take in vec![take_a, take_b] {
                                     batch.add_take(take);
                                     self.on_take(take.result);
@@ -190,6 +190,7 @@ where
                 }
                 break;
             }
+            trace!("Raw batch: {}", batch);
             match MatchmakingRecipe::try_from(batch) {
                 Ok(ex_recipe) => {
                     let recipe = match ex_recipe {
