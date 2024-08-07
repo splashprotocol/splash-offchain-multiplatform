@@ -64,14 +64,6 @@ impl TakerBehaviour for AnyOrder {
                 .map_succ(AnyOrder::Grid),
         }
     }
-
-    fn try_terminate(self) -> Next<Self, TerminalTake> {
-        match self {
-            AnyOrder::Limit(o) => o.try_terminate().map_succ(AnyOrder::Limit),
-            AnyOrder::Grid(o) => o.try_terminate().map_succ(AnyOrder::Grid),
-        }
-    }
-
     fn with_budget_corrected(self, delta: i64) -> (i64, Self) {
         match self {
             AnyOrder::Limit(o) => {

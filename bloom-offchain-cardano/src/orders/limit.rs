@@ -140,20 +140,7 @@ impl TakerBehaviour for LimitOrder {
         self.output_amount += added_output;
         let budget_used = self.max_cost_per_ex_step;
         self.execution_budget -= budget_used;
-        if self.input_amount == 0 {
-            Next::Term(TerminalTake {
-                remaining_input: self.input_amount,
-                accumulated_output: self.output_amount,
-                remaining_fee: self.fee,
-                remaining_budget: self.execution_budget,
-            })
-        } else {
-            Next::Succ(self)
-        }
-    }
-
-    fn try_terminate(self) -> Next<Self, TerminalTake> {
-        if self.execution_budget < self.max_cost_per_ex_step {
+        if self.execution_budget < self.max_cost_per_ex_step || self.input_amount == 0 {
             Next::Term(TerminalTake {
                 remaining_input: self.input_amount,
                 accumulated_output: self.output_amount,

@@ -478,7 +478,7 @@ where
 
     /// Pick best fragment from either side
     pub fn pick_best_fr_either(&mut self, index_price: Option<AbsolutePrice>) -> Option<T> {
-        trace!("pick_best_fr_either");
+        trace!(target: "state", "pick_best_fr_either");
         self.pick_active_taker(|fragments| pick_best_fr_either(fragments, index_price))
     }
 
@@ -487,7 +487,7 @@ where
     where
         F: FnOnce(&T) -> bool,
     {
-        trace!("try_pick_fr");
+        trace!(target: "state", "try_pick_fr");
         self.pick_active_taker(|af| try_pick_fr(af, side, test))
     }
 
@@ -1409,10 +1409,6 @@ pub mod tests {
             self.fee -= self.operator_fee(removed_input);
             self.input -= removed_input;
             self.accumulated_output += added_output;
-            self.try_terminate()
-        }
-
-        fn try_terminate(self) -> Next<Self, TerminalTake> {
             if self.input > 0 {
                 Next::Succ(self)
             } else {
@@ -1424,7 +1420,6 @@ pub mod tests {
                 })
             }
         }
-
         fn with_budget_corrected(mut self, delta: i64) -> (i64, Self) {
             let budget_remainder = self.ex_budget as i64;
             let corrected_remainder = budget_remainder + delta;

@@ -11,7 +11,6 @@ pub trait TakerBehaviour: Sized {
         removed_input: InputAsset<u64>,
         added_output: OutputAsset<u64>,
     ) -> Next<Self, TerminalTake>;
-    fn try_terminate(self) -> Next<Self, TerminalTake>;
     fn with_budget_corrected(self, delta: i64) -> (i64, Self);
 }
 

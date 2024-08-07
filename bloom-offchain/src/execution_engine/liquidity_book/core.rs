@@ -121,19 +121,6 @@ impl<Cont, Term> Trans<Cont, Cont, Term> {
             result: self.result.map_succ(f),
         }
     }
-
-    pub fn map_result<B, F>(self, f: F) -> Trans<Cont, B, Term>
-    where
-        F: Fn(Cont) -> Next<B, Term>,
-    {
-        Trans {
-            target: self.target,
-            result: match self.result {
-                Next::Succ(succ) => f(succ),
-                Next::Term(term) => Next::Term(term),
-            },
-        }
-    }
 }
 
 impl<Init, Cont, Term> Trans<Init, Cont, Term> {
@@ -676,7 +663,7 @@ pub struct Rebalanced<T>(pub T);
 
 impl<Taker, Maker> MatchmakingRecipe<Taker, Maker>
 where
-    Taker: Stable + TakerBehaviour,
+    Taker: Stable,
     Maker: Stable,
 {
     pub fn try_from<U>(
@@ -699,9 +686,7 @@ where
                     let MatchmakingAttempt { takes, makes, .. } = balanced_attempt;
                     let mut instructions = vec![];
                     for take in takes.into_values() {
-                        instructions.push(Either::Left(
-                            take.map_result(|resulted_taker| resulted_taker.try_terminate()),
-                        ));
+                        instructions.push(Either::Left(take));
                     }
                     for make in makes.into_values() {
                         instructions.push(Either::Right(make));
