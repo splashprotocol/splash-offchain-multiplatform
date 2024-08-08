@@ -1,7 +1,5 @@
 use std::fmt::Debug;
-use std::ops::Div;
 
-use bignumber::BigNumber;
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
@@ -10,9 +8,8 @@ use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_multi_era::babbage::BabbageTransactionOutput;
-use dashu_float::DBig;
-use num_integer::Roots;
 use num_rational::Ratio;
+use num_traits::{CheckedAdd, CheckedSub};
 use num_traits::ToPrimitive;
 use num_traits::{CheckedAdd, CheckedSub};
 use num_traits::{CheckedAdd, CheckedSub, ToPrimitive};
@@ -874,6 +871,20 @@ mod tests {
         Excess, Final, MakeInProgress, Next, Trans,
     use std::convert::identity;
 
+    use crate::data::cfmm_pool::{ConstFnPool, ConstFnPoolVer};
+    use crate::data::pool::PoolBounds;
+    use crate::data::PoolId;
+    use crate::deployment::ProtocolValidator::{
+        ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolV1,
+        ConstFnPoolV2,
+    };
+    use crate::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
+    use bloom_offchain::execution_engine::liquidity_book::core::{
+        Excess, Final, MakeInProgress, Next, Trans,
+    };
+    use bloom_offchain::execution_engine::liquidity_book::market_maker::MakerBehavior;
+    use bloom_offchain::execution_engine::liquidity_book::side::OnSide::Ask;
+    use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
     use cml_core::serialization::Deserialize;
     use cml_crypto::ScriptHash;
     use cml_multi_era::babbage::BabbageTransactionOutput;
@@ -911,15 +922,8 @@ mod tests {
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
     use spectrum_offchain::data::Has;
     use spectrum_offchain::ledger::TryFromLedger;
-
-    use crate::data::cfmm_pool::{ConstFnPool, ConstFnPoolVer};
-    use crate::data::pool::PoolBounds;
-    use crate::data::PoolId;
-    use crate::deployment::ProtocolValidator::{
-        ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolV1,
-        ConstFnPoolV2,
-    };
-    use crate::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
+    use std::convert::identity;
+    use type_equalities::IsEqual;
 
     use crate::data::cfmm_pool::{ConstFnPool, ConstFnPoolVer};
     use crate::data::pool::PoolBounds;
