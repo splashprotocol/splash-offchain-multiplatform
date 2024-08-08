@@ -6,7 +6,7 @@ use crate::orders::grid::GridOrder;
 use crate::orders::limit::{LimitOrder, LimitOrderBounds};
 use bloom_derivation::{MarketTaker, Stable, Tradable};
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
-use bloom_offchain::execution_engine::liquidity_book::market_taker::{TakerBalance, TakerBehaviour};
+use bloom_offchain::execution_engine::liquidity_book::market_taker::TakerBehaviour;
 use bloom_offchain::execution_engine::liquidity_book::types::{InputAsset, OutputAsset};
 use spectrum_offchain::data::Has;
 use spectrum_offchain::ledger::TryFromLedger;
@@ -55,7 +55,7 @@ impl TakerBehaviour for AnyOrder {
                 .map_succ(AnyOrder::Grid),
         }
     }
-    
+
     fn with_budget_corrected(self, delta: i64) -> (i64, Self) {
         match self {
             AnyOrder::Limit(o) => {
@@ -85,12 +85,8 @@ impl TakerBehaviour for AnyOrder {
 
     fn try_terminate(self) -> Next<Self, TerminalTake> {
         match self {
-            AnyOrder::Limit(o) => o
-                .try_terminate()
-                .map_succ(AnyOrder::Limit),
-            AnyOrder::Grid(o) => o
-                .try_terminate()
-                .map_succ(AnyOrder::Grid),
+            AnyOrder::Limit(o) => o.try_terminate().map_succ(AnyOrder::Limit),
+            AnyOrder::Grid(o) => o.try_terminate().map_succ(AnyOrder::Grid),
         }
     }
 }

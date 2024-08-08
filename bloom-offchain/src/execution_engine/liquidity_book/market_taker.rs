@@ -17,10 +17,6 @@ pub trait TakerBehaviour: Sized {
     fn try_terminate(self) -> Next<Self, TerminalTake>;
 }
 
-pub trait TakerBalance: Sized {
-    fn balance(self, added_output: u64) -> Next<Self, TerminalTake>;
-}
-
 /// Immutable discrete fragment of liquidity available at a specified timeframe at a specified price.
 /// MarketTaker is a projection of an order [TakerBehaviour] at a specific point on time axis.
 pub trait MarketTaker {

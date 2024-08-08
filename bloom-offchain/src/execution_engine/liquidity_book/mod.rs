@@ -1,6 +1,5 @@
 use algebra_core::monoid::Monoid;
-use either::Either;
-use log::{trace, warn};
+use log::trace;
 use num_rational::Ratio;
 use primitive_types::U256;
 use std::fmt::{Debug, Display};
@@ -11,10 +10,8 @@ use crate::execution_engine::liquidity_book::config::ExecutionConfig;
 use crate::execution_engine::liquidity_book::core::{
     MakeInProgress, MatchmakingAttempt, MatchmakingRecipe, Next, TakeInProgress, Trans,
 };
-use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBalance, TakerBehaviour};
-use crate::execution_engine::liquidity_book::market_maker::{
-    MakerBalance, MakerBehavior, MarketMaker, SpotPrice,
-};
+use crate::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker, SpotPrice};
+use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
 use crate::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
 use crate::execution_engine::liquidity_book::side::{OnSide, Side};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
@@ -27,9 +24,9 @@ use spectrum_offchain::maker::Maker;
 
 pub mod config;
 pub mod core;
-pub mod market_taker;
 pub mod interpreter;
 pub mod market_maker;
+pub mod market_taker;
 pub mod side;
 pub mod stashing_option;
 mod state;
@@ -57,9 +54,12 @@ pub trait ExternalTLBEvents<T, M> {
 }
 
 /// TLB API for feedback events affecting its state.
-pub trait TLBFeedback<Fr, Pl> {
+pub trait TLBFeedback<T, M> {
+    /// Recipe was successfully executed.
+    /// Finalized changes resulted from execution are provided with `execution_changeset`.
     fn on_recipe_succeeded(&mut self);
-    fn on_recipe_failed(&mut self, stashing_opt: StashingOption<Fr>);
+    /// Recipe failed.
+    fn on_recipe_failed(&mut self);
 }
 
 #[derive(Clone)]
@@ -77,8 +77,8 @@ where
         self.state.commit();
     }
 
-    fn on_recipe_failed(&mut self, stashing_opt: StashingOption<Taker>) {
-        self.state.rollback(stashing_opt);
+    fn on_recipe_failed(&mut self) {
+        self.state.rollback(StashingOption::Unstash);
     }
 }
 
@@ -198,11 +198,11 @@ where
                 }
                 Err(None) => {
                     trace!("Matchmaking attempt failed");
-                    self.on_recipe_failed(StashingOption::Unstash);
+                    self.state.rollback(StashingOption::Unstash);
                 }
                 Err(Some(unsatisfied_takers)) => {
                     trace!("Matchmaking attempt failed due to taker limits, retrying");
-                    self.on_recipe_failed(StashingOption::Stash(unsatisfied_takers));
+                    self.state.rollback(StashingOption::Stash(unsatisfied_takers));
                     continue;
                 }
             }
@@ -378,8 +378,8 @@ pub fn linear_output_unsafe(input: u64, price: OnSide<AbsolutePrice>) -> u64 {
 #[cfg(test)]
 mod tests {
     use crate::execution_engine::liquidity_book::config::{ExecutionCap, ExecutionConfig};
-    use crate::execution_engine::liquidity_book::market_taker::MarketTaker;
     use crate::execution_engine::liquidity_book::market_maker::MarketMaker;
+    use crate::execution_engine::liquidity_book::market_taker::MarketTaker;
     use crate::execution_engine::liquidity_book::side::Side::{Ask, Bid};
     use crate::execution_engine::liquidity_book::side::{OnSide, Side};
     use crate::execution_engine::liquidity_book::state::tests::{SimpleCFMMPool, SimpleOrderPF};

@@ -10,8 +10,8 @@ use log::trace;
 use spectrum_offchain::data::Stable;
 
 use crate::execution_engine::liquidity_book::core::Next;
-use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
 use crate::execution_engine::liquidity_book::market_maker::{MarketMaker, PoolQuality, SpotPrice};
+use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
 use crate::execution_engine::liquidity_book::side::{OnSide, Side};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
 use crate::execution_engine::liquidity_book::state::price_range::AllowedPriceRange;
@@ -937,10 +937,10 @@ pub mod tests {
     use spectrum_offchain::data::Stable;
 
     use crate::execution_engine::liquidity_book::core::{Next, TerminalTake, Trans, Unit};
-    use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBalance, TakerBehaviour};
     use crate::execution_engine::liquidity_book::market_maker::{
         AbsoluteReserves, Excess, MakerBalance, MakerBehavior, MarketMaker, SpotPrice,
     };
+    use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBalance, TakerBehaviour};
     use crate::execution_engine::liquidity_book::side::{OnSide, Side};
     use crate::execution_engine::liquidity_book::state::{
         AllowedPriceRange, Chronology, IdleState, MarketMakers, PartialPreviewState, PoolQuality,
@@ -1408,7 +1408,7 @@ pub mod tests {
             self.accumulated_output += added_output;
             self.try_terminate()
         }
-        
+
         fn with_budget_corrected(mut self, delta: i64) -> (i64, Self) {
             let budget_remainder = self.ex_budget as i64;
             let corrected_remainder = budget_remainder + delta;

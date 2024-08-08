@@ -18,9 +18,9 @@ use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
-use bloom_offchain::execution_engine::liquidity_book::core::{MakeInProgress, Next, Unit};
+use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
-    AbsoluteReserves, Excess, MakerBalance, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
+    AbsoluteReserves, Excess, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
 };
 use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
@@ -260,21 +260,6 @@ impl Display for AnyPool {
 pub struct PoolAssetMapping {
     pub asset_to_deduct_from: AssetClass,
     pub asset_to_add_to: AssetClass,
-}
-
-impl MakerBalance for AnyPool {
-    fn balance(&self, that: Self) -> Option<(Self, Excess)> {
-        match (self, that) {
-            (PureCFMM(p), PureCFMM(that)) => p.balance(that).map(|(that, excess)| (PureCFMM(that), excess)),
-            (BalancedCFMM(p), BalancedCFMM(that)) => {
-                p.balance(that).map(|(that, excess)| (BalancedCFMM(that), excess))
-            }
-            (StableCFMM(p), StableCFMM(that)) => {
-                p.balance(that).map(|(that, excess)| (StableCFMM(that), excess))
-            }
-            _ => None,
-        }
-    }
 }
 
 impl MakerBehavior for AnyPool {

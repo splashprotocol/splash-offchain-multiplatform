@@ -1,20 +1,18 @@
-use derive_more::Display;
+use derive_more::{Display, Into};
 use either::Either;
 use log::trace;
 use num_rational::Ratio;
-use std::cmp::{max, min, Ordering};
+use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
-use std::fmt::{Display, Formatter, Write};
+use std::fmt::{Display, Formatter};
 use std::hash::Hash;
 use std::mem;
 use std::ops::AddAssign;
 
 use crate::display::display_vec;
 use crate::execution_engine::bundled::Bundled;
-use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBalance, TakerBehaviour};
-use crate::execution_engine::liquidity_book::market_maker::{
-    AbsoluteReserves, MakerBalance, MakerBehavior, MarketMaker,
-};
+use crate::execution_engine::liquidity_book::market_maker::{AbsoluteReserves, MakerBehavior, MarketMaker};
+use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
 use crate::execution_engine::liquidity_book::side::{OnSide, Side};
 use crate::execution_engine::liquidity_book::types::{FeeAsset, InputAsset, OutputAsset};
 use algebra_core::monoid::Monoid;
@@ -177,7 +175,7 @@ pub type FinalMake<Maker> = Final<MakeInProgress<Maker>>;
 pub type Make<Maker, Bearer> = Trans<Bundled<Maker, Bearer>, Maker, Unit>;
 
 #[derive(Debug, Clone)]
-pub struct Final<T>(T);
+pub struct Final<T>(pub T);
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Excess {

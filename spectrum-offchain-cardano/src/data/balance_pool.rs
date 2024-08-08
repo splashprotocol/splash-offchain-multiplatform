@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use std::ops::{Mul, Neg};
+use std::ops::Mul;
 
 use bignumber::BigNumber;
 use cml_chain::address::Address;
@@ -12,14 +12,13 @@ use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_core::serialization::LenEncoding::{Canonical, Indefinite};
 use cml_multi_era::babbage::BabbageTransactionOutput;
-use num_integer::Roots;
 use num_rational::Ratio;
 use num_traits::{CheckedAdd, CheckedSub};
 use primitive_types::U512;
 
-use bloom_offchain::execution_engine::liquidity_book::core::{MakeInProgress, Next, Trans, Unit};
+use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
-    AbsoluteReserves, Excess, MakerBalance, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
+    AbsoluteReserves, Excess, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
 };
 use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
@@ -409,58 +408,6 @@ impl AMMOps for BalancePool {
     }
 }
 
-impl MakerBalance for BalancePool {
-    fn balance(&self, that: Self) -> Option<(Self, Excess)> {
-        let x = self.asset_x.untag();
-        let y = self.asset_y.untag();
-        let [base, _] = order_canonical(x, y);
-        let drx = that.reserves_x.checked_sub(&self.reserves_x).map(|x| x.untag());
-        if let Some(drx) = drx {
-            // input is X
-            let trade_input = drx;
-            let side = if x == base { Side::Ask } else { Side::Bid };
-            let rebalanced = match self.swap(side.wrap(trade_input)) {
-                Next::Succ(pool) => Some(pool),
-                Next::Term(_) => None,
-            }?;
-            let excess_y = that.reserves_y.checked_sub(&rebalanced.reserves_y)?.untag();
-            let delta = if x == base {
-                Excess {
-                    base: 0,
-                    quote: excess_y,
-                }
-            } else {
-                Excess {
-                    base: excess_y,
-                    quote: 0,
-                }
-            };
-            Some((rebalanced, delta))
-        } else {
-            // input is Y
-            let trade_input = that.reserves_y.untag().checked_sub(self.reserves_y.untag())?;
-            let side = if y == base { Side::Ask } else { Side::Bid };
-            let rebalanced = match self.swap(side.wrap(trade_input)) {
-                Next::Succ(pool) => Some(pool),
-                Next::Term(_) => None,
-            }?;
-            let excess_x = that.reserves_x.checked_sub(&rebalanced.reserves_x)?.untag();
-            let delta = if x == base {
-                Excess {
-                    base: excess_x,
-                    quote: 0,
-                }
-            } else {
-                Excess {
-                    base: 0,
-                    quote: excess_x,
-                }
-            };
-            Some((rebalanced, delta))
-        }
-    }
-}
-
 impl MakerBehavior for BalancePool {
     fn swap(mut self, input: OnSide<u64>) -> Next<Self, Unit> {
         let x = self.asset_x.untag();
@@ -695,20 +642,22 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
 
 #[cfg(test)]
 mod tests {
-    use algebra_core::semigroup::Semigroup;
-    use bloom_offchain::execution_engine::liquidity_book::core::{Next, Trans, Unit};
-    use bloom_offchain::execution_engine::liquidity_book::market_maker::MakerBehavior;
-    use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
-    use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
+    use std::cmp::min;
+
     use cml_chain::plutus::PlutusData;
     use cml_chain::Deserialize;
     use cml_core::serialization::Serialize;
     use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
     use num_rational::Ratio;
+
+    use algebra_core::semigroup::Semigroup;
+    use bloom_offchain::execution_engine::liquidity_book::core::{Next, Trans, Unit};
+    use bloom_offchain::execution_engine::liquidity_book::market_maker::MakerBehavior;
+    use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
+    use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
-    use std::cmp::min;
 
     use crate::data::balance_pool::{BalancePool, BalancePoolConfig, BalancePoolRedeemer, BalancePoolVer};
     use crate::data::order::ClassicalOrder;

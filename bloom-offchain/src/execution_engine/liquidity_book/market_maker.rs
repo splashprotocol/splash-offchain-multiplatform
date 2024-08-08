@@ -51,10 +51,6 @@ pub struct Excess {
     pub quote: u64,
 }
 
-pub trait MakerBalance: Sized {
-    fn balance(&self, that: Self) -> Option<(Self, Excess)>;
-}
-
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Into, From, Display)]
 pub struct PoolQuality(u128);
 

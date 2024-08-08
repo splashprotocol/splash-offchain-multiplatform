@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 
-use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
@@ -9,13 +8,13 @@ use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_multi_era::babbage::BabbageTransactionOutput;
-use num_integer::Roots;
 use num_rational::Ratio;
 use num_traits::{CheckedAdd, CheckedSub};
 use type_equalities::IsEqual;
 
+use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
-    AbsoluteReserves, Excess, MakerBalance, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
+    AbsoluteReserves, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
 };
 use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
@@ -287,58 +286,6 @@ where
             _ => ctx
                 .select::<DeployedValidator<{ ConstFnPoolV2 as u8 }>>()
                 .erased(),
-        }
-    }
-}
-
-impl MakerBalance for ConstFnPool {
-    fn balance(&self, that: Self) -> Option<(Self, Excess)> {
-        let x = self.asset_x.untag();
-        let y = self.asset_y.untag();
-        let [base, _] = order_canonical(x, y);
-        let drx = that.reserves_x.checked_sub(&self.reserves_x).map(|x| x.untag());
-        if let Some(drx) = drx {
-            // input is X
-            let trade_input = drx;
-            let side = if x == base { Side::Ask } else { Side::Bid };
-            let rebalanced = match self.swap(side.wrap(trade_input)) {
-                Next::Succ(pool) => Some(pool),
-                Next::Term(_) => None,
-            }?;
-            let excess_y = that.reserves_y.checked_sub(&rebalanced.reserves_y)?.untag();
-            let delta = if x == base {
-                Excess {
-                    base: 0,
-                    quote: excess_y,
-                }
-            } else {
-                Excess {
-                    base: excess_y,
-                    quote: 0,
-                }
-            };
-            Some((rebalanced, delta))
-        } else {
-            // input is Y
-            let trade_input = that.reserves_y.untag().checked_sub(self.reserves_y.untag())?;
-            let side = if y == base { Side::Ask } else { Side::Bid };
-            let rebalanced = match self.swap(side.wrap(trade_input)) {
-                Next::Succ(pool) => Some(pool),
-                Next::Term(_) => None,
-            }?;
-            let excess_x = that.reserves_x.checked_sub(&rebalanced.reserves_x)?.untag();
-            let delta = if x == base {
-                Excess {
-                    base: excess_x,
-                    quote: 0,
-                }
-            } else {
-                Excess {
-                    base: 0,
-                    quote: excess_x,
-                }
-            };
-            Some((rebalanced, delta))
         }
     }
 }
@@ -828,8 +775,8 @@ impl ApplyOrder<ClassicalOnChainRedeem> for ConstFnPool {
     }
 }
 
+#[cfg(test)]
 mod tests {
-    use crate::creds::OperatorCred;
     use crate::data::cfmm_pool::{ConstFnPool, ConstFnPoolVer};
     use crate::data::pool::PoolBounds;
     use crate::data::PoolId;
@@ -838,15 +785,14 @@ mod tests {
         ConstFnPoolV2,
     };
     use crate::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
-    use crate::utxo::ConsumedInputs;
-    use bloom_offchain::execution_engine::liquidity_book::core::{Next, Trans};
-    use bloom_offchain::execution_engine::liquidity_book::market_maker::{
-        Excess, MakerBalance, MakerBehavior, MarketMaker,
+    use bloom_offchain::execution_engine::liquidity_book::core::{
+        Excess, Final, MakeInProgress, Next, Trans,
     };
-    use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
+    use bloom_offchain::execution_engine::liquidity_book::market_maker::MakerBehavior;
+    use bloom_offchain::execution_engine::liquidity_book::side::OnSide::Ask;
     use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
     use cml_core::serialization::Deserialize;
-    use cml_crypto::{Ed25519KeyHash, ScriptHash};
+    use cml_crypto::ScriptHash;
     use cml_multi_era::babbage::BabbageTransactionOutput;
     use num_rational::Ratio;
     use spectrum_cardano_lib::ex_units::ExUnits;
@@ -959,12 +905,19 @@ mod tests {
             .get()
             .fold(identity, |_| panic!());
         assert_ne!(final_pool_distinct_swaps, final_pool_aggregate_swap);
-        let (balanced_pool_distinct_swaps, _) = pool_0.balance(final_pool_distinct_swaps).unwrap();
+        let (balanced_pool_distinct_swaps, _) =
+            MakeInProgress::finalized(Trans::new(pool_0, Next::Succ(final_pool_distinct_swaps))).unwrap();
         let (balanced_pool_aggregate_swap, imbalance_aggregate_swap) =
-            pool_0.balance(final_pool_aggregate_swap).unwrap();
+            MakeInProgress::finalized(Trans::new(pool_0, Next::Succ(final_pool_aggregate_swap))).unwrap();
         assert_eq!(imbalance_aggregate_swap, Excess { base: 0, quote: 0 });
-        assert_eq!(balanced_pool_distinct_swaps, final_pool_aggregate_swap);
-        assert_eq!(balanced_pool_aggregate_swap, final_pool_aggregate_swap);
+        assert_eq!(
+            balanced_pool_distinct_swaps.0.result.fold(identity, |_| panic!()),
+            final_pool_aggregate_swap
+        );
+        assert_eq!(
+            balanced_pool_aggregate_swap.0.result.fold(identity, |_| panic!()),
+            final_pool_aggregate_swap
+        );
     }
 
     #[test]

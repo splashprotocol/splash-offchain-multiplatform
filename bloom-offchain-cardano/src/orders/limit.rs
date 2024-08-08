@@ -7,8 +7,8 @@ use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
-use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBalance, TakerBehaviour};
 use bloom_offchain::execution_engine::liquidity_book::linear_output_relative;
+use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
 use bloom_offchain::execution_engine::liquidity_book::types::{
@@ -436,11 +436,9 @@ mod tests {
     use num_rational::Ratio;
     use type_equalities::IsEqual;
 
-    use bloom_offchain::execution_engine::liquidity_book::market_taker::MarketTaker;
-    use bloom_offchain::execution_engine::liquidity_book::{
-        ExternalTLBEvents, TemporalLiquidityBook, TLB,
-    };
     use bloom_offchain::execution_engine::liquidity_book::config::{ExecutionCap, ExecutionConfig};
+    use bloom_offchain::execution_engine::liquidity_book::market_taker::MarketTaker;
+    use bloom_offchain::execution_engine::liquidity_book::{ExternalTLBEvents, TemporalLiquidityBook, TLB};
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_cardano_lib::{AssetName, OutputRef};

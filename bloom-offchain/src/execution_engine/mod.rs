@@ -31,10 +31,10 @@ use crate::execution_engine::backlog::SpecializedInterpreter;
 use crate::execution_engine::bundled::Bundled;
 use crate::execution_engine::execution_effect::ExecutionEff;
 use crate::execution_engine::focus_set::FocusSet;
-use crate::execution_engine::funding_effect::{FundingEvent, FundingIO};
+use crate::execution_engine::funding_effect::FundingEvent;
 use crate::execution_engine::liquidity_book::core::ExecutionRecipe;
-use crate::execution_engine::liquidity_book::market_taker::MarketTaker;
 use crate::execution_engine::liquidity_book::interpreter::ExecutionResult;
+use crate::execution_engine::liquidity_book::market_taker::MarketTaker;
 use crate::execution_engine::liquidity_book::{ExternalTLBEvents, TLBFeedback, TemporalLiquidityBook};
 use crate::execution_engine::multi_pair::MultiPair;
 use crate::execution_engine::resolver::resolve_source_state;
@@ -530,9 +530,7 @@ impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR
         if let Ok(missing_bearers) = err.try_into() {
             match pending_effects {
                 ExecutionEffects::FromLiquidityBook(_) => {
-                    self.multi_book
-                        .get_mut(&pair)
-                        .on_recipe_failed(StashingOption::Unstash);
+                    self.multi_book.get_mut(&pair).on_recipe_failed();
                 }
                 ExecutionEffects::FromBacklog(_, order) => {
                     let order_ref = order.get_self_ref();
@@ -553,9 +551,7 @@ impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR
             warn!("Unknown Tx submission error!");
             match pending_effects {
                 ExecutionEffects::FromLiquidityBook(_) => {
-                    self.multi_book
-                        .get_mut(&pair)
-                        .on_recipe_failed(StashingOption::Unstash);
+                    self.multi_book.get_mut(&pair).on_recipe_failed();
                 }
                 ExecutionEffects::FromBacklog(_, order) => {
                     self.multi_backlog.get_mut(&pair).put(order);
@@ -754,9 +750,7 @@ where
                         return Poll::Ready(Some(tx));
                     } else {
                         warn!("Cannot matchmake without funding box");
-                        self.multi_book
-                            .get_mut(&focus_pair)
-                            .on_recipe_failed(StashingOption::Unstash);
+                        self.multi_book.get_mut(&focus_pair).on_recipe_failed();
                     }
                 }
                 // Try Backlog:
