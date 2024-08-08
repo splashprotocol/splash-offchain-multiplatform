@@ -445,7 +445,9 @@ impl<Maker> MakeInProgress<Maker> {
         match result {
             Next::Succ(next) => {
                 let target_reserves = target.liquidity();
+                trace!("R_target {:?}", target_reserves);
                 let next_reserves = next.liquidity();
+                trace!("R_next {:?}", next_reserves);
                 let d_base = next_reserves.base.checked_sub(target_reserves.base);
                 if let Some(d_base) = d_base {
                     let trade_input = d_base;
@@ -454,11 +456,13 @@ impl<Maker> MakeInProgress<Maker> {
                         Next::Term(_) => unreachable!(),
                     };
                     let rebalanced_reserves = rebalanced.liquidity();
+                    trace!("R_rebalanced {:?}", rebalanced_reserves);
                     let excess_quote = next_reserves.quote.checked_sub(rebalanced_reserves.quote)?;
                     let delta = Excess {
                         base: 0,
                         quote: excess_quote,
                     };
+                    trace!("Rebalanced ok");
                     Some((Final(Trans::new(target, Next::Succ(rebalanced))), delta))
                 } else {
                     let trade_input = next_reserves.quote.checked_sub(target_reserves.quote)?;
@@ -467,11 +471,13 @@ impl<Maker> MakeInProgress<Maker> {
                         Next::Term(_) => unreachable!(),
                     };
                     let rebalanced_reserves = rebalanced.liquidity();
+                    trace!("R_rebalanced {:?}", rebalanced_reserves);
                     let excess_base = next_reserves.base.checked_sub(rebalanced_reserves.base)?;
                     let delta = Excess {
                         base: excess_base,
                         quote: 0,
                     };
+                    trace!("Rebalanced ok");
                     Some((Final(Trans::new(target, Next::Succ(rebalanced))), delta))
                 }
             }
@@ -692,6 +698,7 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
                 Side::Ask => &mut excess_quote,
             };
             balanced_takes.push((id, take.finalized(*excess)));
+            *excess = 0;
         }
         if excess_base == 0 && excess_quote == 0 {
             return Some(FinalRecipe {

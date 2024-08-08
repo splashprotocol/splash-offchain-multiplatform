@@ -46,7 +46,6 @@ use cardano_mempool_sync::data::MempoolUpdate;
 use cardano_mempool_sync::mempool_stream;
 use spectrum_cardano_lib::constants::BABBAGE_ERA_ID;
 use spectrum_cardano_lib::ex_units::ExUnits;
-use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::OutboundTransaction;
 use spectrum_cardano_lib::OutputRef;
