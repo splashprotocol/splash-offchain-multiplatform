@@ -6,10 +6,10 @@ use proc_macro::TokenStream;
 use derive_utils::quick_derive;
 
 #[proc_macro_derive(MarketTaker)]
-pub fn derive_fragment(input: TokenStream) -> TokenStream {
+pub fn derive_market_taker(input: TokenStream) -> TokenStream {
     quick_derive! {
         input,
-        bloom_offchain::execution_engine::liquidity_book::fragment::MarketTaker,
+        bloom_offchain::execution_engine::liquidity_book::market_taker::MarketTaker,
         pub trait MarketTaker {
             type U;
             fn side(&self) -> bloom_offchain::execution_engine::liquidity_book::side::Side;
@@ -19,6 +19,7 @@ pub fn derive_fragment(input: TokenStream) -> TokenStream {
             fn operator_fee(&self, input_consumed: bloom_offchain::execution_engine::liquidity_book::types::InputAsset<u64>) -> bloom_offchain::execution_engine::liquidity_book::types::FeeAsset<u64>;
             fn fee(&self) -> bloom_offchain::execution_engine::liquidity_book::types::FeeAsset<u64>;
             fn budget(&self) -> bloom_offchain::execution_engine::liquidity_book::types::FeeAsset<u64>;
+            fn consumable_budget(&self) -> bloom_offchain::execution_engine::liquidity_book::types::FeeAsset<u64>;
             fn marginal_cost_hint(&self) -> Self::U;
             fn time_bounds(&self) -> bloom_offchain::execution_engine::liquidity_book::time::TimeBounds<u64>;
             fn min_marginal_output(&self) -> bloom_offchain::execution_engine::liquidity_book::types::OutputAsset<u64>;

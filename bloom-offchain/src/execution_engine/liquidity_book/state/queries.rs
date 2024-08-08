@@ -1,4 +1,4 @@
-use crate::execution_engine::liquidity_book::fragment::MarketTaker;
+use crate::execution_engine::liquidity_book::market_taker::MarketTaker;
 use crate::execution_engine::liquidity_book::market_maker::SpotPrice;
 use crate::execution_engine::liquidity_book::state::{AllowedPriceRange, MarketTakers};
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;

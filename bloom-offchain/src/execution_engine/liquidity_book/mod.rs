@@ -9,9 +9,9 @@ use std::ops::AddAssign;
 use crate::display::{display_option, display_tuple};
 use crate::execution_engine::liquidity_book::config::ExecutionConfig;
 use crate::execution_engine::liquidity_book::core::{
-    MakeInProgress, MatchmakingAttempt, MatchmakingRecipe, Next, Rebalanced, TakeInProgress, Trans,
+    MakeInProgress, MatchmakingAttempt, MatchmakingRecipe, Next, TakeInProgress, Trans,
 };
-use crate::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBalance, TakerBehaviour};
+use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBalance, TakerBehaviour};
 use crate::execution_engine::liquidity_book::market_maker::{
     MakerBalance, MakerBehavior, MarketMaker, SpotPrice,
 };
@@ -27,7 +27,7 @@ use spectrum_offchain::maker::Maker;
 
 pub mod config;
 pub mod core;
-pub mod fragment;
+pub mod market_taker;
 pub mod interpreter;
 pub mod market_maker;
 pub mod side;
@@ -50,10 +50,10 @@ pub trait TemporalLiquidityBook<Taker, Maker> {
 /// TLB API for external events affecting its state.
 pub trait ExternalTLBEvents<T, M> {
     fn advance_clocks(&mut self, new_time: u64);
-    fn add_fragment(&mut self, fr: T);
-    fn remove_fragment(&mut self, fr: T);
-    fn update_pool(&mut self, pool: M);
-    fn remove_pool(&mut self, pool: M);
+    fn update_taker(&mut self, fr: T);
+    fn remove_taker(&mut self, fr: T);
+    fn update_maker(&mut self, pool: M);
+    fn remove_maker(&mut self, pool: M);
 }
 
 /// TLB API for feedback events affecting its state.
@@ -123,8 +123,8 @@ where
 
 impl<Taker, Maker, U> TemporalLiquidityBook<Taker, Maker> for TLB<Taker, Maker, U>
 where
-    Taker: Stable + MarketTaker<U = U> + TakerBehaviour + TakerBalance + Ord + Copy + Display,
-    Maker: Stable + MarketMaker<U = U> + MakerBehavior + MakerBalance + Copy + Display,
+    Taker: Stable + MarketTaker<U = U> + TakerBehaviour + Ord + Copy + Display,
+    Maker: Stable + MarketMaker<U = U> + MakerBehavior + Copy + Display,
     U: Monoid + AddAssign + PartialOrd + Copy,
 {
     fn attempt(&mut self) -> Option<MatchmakingRecipe<Taker, Maker>> {
@@ -193,21 +193,8 @@ where
             trace!("Raw batch: {}", batch);
             match MatchmakingRecipe::try_from(batch) {
                 Ok(ex_recipe) => {
-                    let recipe = match ex_recipe {
-                        Either::Left(Rebalanced(recipe)) => {
-                            trace!("Recipe was rebalanced");
-                            for m in &recipe.instructions {
-                                match m {
-                                    Either::Left(take) => self.on_take(take.result),
-                                    Either::Right(make) => self.on_make(make.result),
-                                }
-                            }
-                            recipe
-                        }
-                        Either::Right(recipe) => recipe,
-                    };
-                    trace!("Successfully formed a batch {}", recipe);
-                    return Some(recipe);
+                    trace!("Successfully formed a batch {}", ex_recipe);
+                    return Some(ex_recipe);
                 }
                 Err(None) => {
                     trace!("Matchmaking attempt failed");
@@ -309,19 +296,19 @@ where
         requiring_settled_state(self, |st| st.advance_clocks(new_time))
     }
 
-    fn add_fragment(&mut self, fr: Fr) {
+    fn update_taker(&mut self, fr: Fr) {
         requiring_settled_state(self, |st| st.add_fragment(fr))
     }
 
-    fn remove_fragment(&mut self, fr: Fr) {
+    fn remove_taker(&mut self, fr: Fr) {
         requiring_settled_state(self, |st| st.remove_fragment(fr))
     }
 
-    fn update_pool(&mut self, pool: Pl) {
+    fn update_maker(&mut self, pool: Pl) {
         requiring_settled_state(self, |st| st.update_pool(pool))
     }
 
-    fn remove_pool(&mut self, pool: Pl) {
+    fn remove_maker(&mut self, pool: Pl) {
         requiring_settled_state(self, |st| st.remove_pool(pool))
     }
 }
@@ -391,7 +378,7 @@ pub fn linear_output_unsafe(input: u64, price: OnSide<AbsolutePrice>) -> u64 {
 #[cfg(test)]
 mod tests {
     use crate::execution_engine::liquidity_book::config::{ExecutionCap, ExecutionConfig};
-    use crate::execution_engine::liquidity_book::fragment::MarketTaker;
+    use crate::execution_engine::liquidity_book::market_taker::MarketTaker;
     use crate::execution_engine::liquidity_book::market_maker::MarketMaker;
     use crate::execution_engine::liquidity_book::side::Side::{Ask, Bid};
     use crate::execution_engine::liquidity_book::side::{OnSide, Side};
@@ -432,7 +419,7 @@ mod tests {
                 o2o_allowed: true,
             },
         );
-        vec![o1, o2].into_iter().for_each(|o| book.add_fragment(o));
+        vec![o1, o2].into_iter().for_each(|o| book.update_taker(o));
         let recipe = book.attempt();
         dbg!(recipe);
     }
@@ -464,10 +451,10 @@ mod tests {
                 o2o_allowed: true,
             },
         );
-        book.add_fragment(o1);
-        book.add_fragment(o2);
-        book.update_pool(p1);
-        book.update_pool(p2);
+        book.update_taker(o1);
+        book.update_taker(o2);
+        book.update_maker(p1);
+        book.update_maker(p2);
         let recipe = book.attempt();
         dbg!(recipe);
     }

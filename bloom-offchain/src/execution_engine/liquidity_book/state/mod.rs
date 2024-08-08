@@ -10,7 +10,7 @@ use log::trace;
 use spectrum_offchain::data::Stable;
 
 use crate::execution_engine::liquidity_book::core::Next;
-use crate::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
+use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
 use crate::execution_engine::liquidity_book::market_maker::{MarketMaker, PoolQuality, SpotPrice};
 use crate::execution_engine::liquidity_book::side::{OnSide, Side};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
@@ -937,7 +937,7 @@ pub mod tests {
     use spectrum_offchain::data::Stable;
 
     use crate::execution_engine::liquidity_book::core::{Next, TerminalTake, Trans, Unit};
-    use crate::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBalance, TakerBehaviour};
+    use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBalance, TakerBehaviour};
     use crate::execution_engine::liquidity_book::market_maker::{
         AbsoluteReserves, Excess, MakerBalance, MakerBehavior, MarketMaker, SpotPrice,
     };
@@ -1340,13 +1340,6 @@ pub mod tests {
         }
     }
 
-    impl TakerBalance for SimpleOrderPF {
-        fn balance(mut self, added_output: u64) -> Self {
-            self.accumulated_output += added_output;
-            self
-        }
-    }
-
     impl MarketTaker for SimpleOrderPF {
         type U = u64;
 
@@ -1389,6 +1382,10 @@ pub mod tests {
         fn budget(&self) -> FeeAsset<u64> {
             self.ex_budget
         }
+
+        fn consumable_budget(&self) -> FeeAsset<u64> {
+            self.ex_budget
+        }
     }
 
     impl TakerBehaviour for SimpleOrderPF {
@@ -1409,6 +1406,29 @@ pub mod tests {
             self.fee -= self.operator_fee(removed_input);
             self.input -= removed_input;
             self.accumulated_output += added_output;
+            self.try_terminate()
+        }
+        
+        fn with_budget_corrected(mut self, delta: i64) -> (i64, Self) {
+            let budget_remainder = self.ex_budget as i64;
+            let corrected_remainder = budget_remainder + delta;
+            let updated_budget_remainder = max(corrected_remainder, 0);
+            let real_delta = budget_remainder - updated_budget_remainder;
+            self.ex_budget = updated_budget_remainder as u64;
+            (real_delta, self)
+        }
+
+        fn with_fee_charged(mut self, fee: u64) -> Self {
+            self.fee -= fee;
+            self
+        }
+
+        fn with_output_added(mut self, added_output: u64) -> Self {
+            self.accumulated_output += added_output;
+            self
+        }
+
+        fn try_terminate(self) -> Next<Self, TerminalTake> {
             if self.input > 0 {
                 Next::Succ(self)
             } else {
@@ -1419,14 +1439,6 @@ pub mod tests {
                     remaining_budget: self.ex_budget,
                 })
             }
-        }
-        fn with_budget_corrected(mut self, delta: i64) -> (i64, Self) {
-            let budget_remainder = self.ex_budget as i64;
-            let corrected_remainder = budget_remainder + delta;
-            let updated_budget_remainder = max(corrected_remainder, 0);
-            let real_delta = budget_remainder - updated_budget_remainder;
-            self.ex_budget = updated_budget_remainder as u64;
-            (real_delta, self)
         }
     }
 

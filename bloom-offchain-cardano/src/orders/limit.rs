@@ -7,7 +7,7 @@ use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
-use bloom_offchain::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBalance, TakerBehaviour};
+use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBalance, TakerBehaviour};
 use bloom_offchain::execution_engine::liquidity_book::linear_output_relative;
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
@@ -117,13 +117,6 @@ impl Ord for LimitOrder {
     }
 }
 
-impl TakerBalance for LimitOrder {
-    fn balance(mut self, added_output: u64) -> Self {
-        self.output_amount += added_output;
-        self
-    }
-}
-
 impl TakerBehaviour for LimitOrder {
     fn with_updated_time(self, _: u64) -> Next<Self, Unit> {
         Next::Succ(self)
@@ -134,13 +127,9 @@ impl TakerBehaviour for LimitOrder {
         removed_input: InputAsset<u64>,
         added_output: OutputAsset<u64>,
     ) -> Next<Self, TerminalTake> {
-        let fee_used = self.operator_fee(removed_input);
-        self.fee -= fee_used;
         self.input_amount -= removed_input;
         self.output_amount += added_output;
-        let budget_used = self.max_cost_per_ex_step;
-        self.execution_budget -= budget_used;
-        if self.execution_budget < self.max_cost_per_ex_step || self.input_amount == 0 {
+        if self.input_amount == 0 {
             Next::Term(TerminalTake {
                 remaining_input: self.input_amount,
                 accumulated_output: self.output_amount,
@@ -159,6 +148,29 @@ impl TakerBehaviour for LimitOrder {
         let real_delta = updated_budget_remainder - budget_remainder;
         self.execution_budget = updated_budget_remainder as u64;
         (real_delta, self)
+    }
+
+    fn with_fee_charged(mut self, fee: u64) -> Self {
+        self.fee -= fee;
+        self
+    }
+
+    fn with_output_added(mut self, added_output: u64) -> Self {
+        self.output_amount += added_output;
+        self
+    }
+
+    fn try_terminate(self) -> Next<Self, TerminalTake> {
+        if self.execution_budget < self.max_cost_per_ex_step {
+            Next::Term(TerminalTake {
+                remaining_input: self.input_amount,
+                accumulated_output: self.output_amount,
+                remaining_fee: self.fee,
+                remaining_budget: self.execution_budget,
+            })
+        } else {
+            Next::Succ(self)
+        }
     }
 }
 
@@ -194,6 +206,10 @@ impl MarketTaker for LimitOrder {
 
     fn budget(&self) -> FeeAsset<u64> {
         self.execution_budget
+    }
+
+    fn consumable_budget(&self) -> FeeAsset<u64> {
+        self.max_cost_per_ex_step
     }
 
     fn marginal_cost_hint(&self) -> ExUnits {
@@ -420,10 +436,11 @@ mod tests {
     use num_rational::Ratio;
     use type_equalities::IsEqual;
 
-    use bloom_offchain::execution_engine::liquidity_book::fragment::MarketTaker;
+    use bloom_offchain::execution_engine::liquidity_book::market_taker::MarketTaker;
     use bloom_offchain::execution_engine::liquidity_book::{
-        ExecutionCap, ExternalTLBEvents, TemporalLiquidityBook, TLB,
+        ExternalTLBEvents, TemporalLiquidityBook, TLB,
     };
+    use bloom_offchain::execution_engine::liquidity_book::config::{ExecutionCap, ExecutionConfig};
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_cardano_lib::{AssetName, OutputRef};
@@ -592,21 +609,24 @@ mod tests {
         dbg!(LimitOrder::try_from_ledger(&o1, &ctx));
         let mut book = TLB::<LimitOrder, AnyPool, ExUnits>::new(
             0,
-            ExecutionCap {
-                soft: ExUnits {
-                    mem: 5000000,
-                    steps: 4000000000,
+            ExecutionConfig {
+                execution_cap: ExecutionCap {
+                    soft: ExUnits {
+                        mem: 5000000,
+                        steps: 4000000000,
+                    },
+                    hard: ExUnits {
+                        mem: 14000000,
+                        steps: 10000000000,
+                    },
                 },
-                hard: ExUnits {
-                    mem: 14000000,
-                    steps: 10000000000,
-                },
+                o2o_allowed: true,
             },
         );
         vec![o0, o1]
             .into_iter()
             .filter_map(|o| LimitOrder::try_from_ledger(&o, &ctx))
-            .for_each(|o| book.add_fragment(o));
+            .for_each(|o| book.update_taker(o));
         let recipe = book.attempt();
         dbg!(recipe);
     }
