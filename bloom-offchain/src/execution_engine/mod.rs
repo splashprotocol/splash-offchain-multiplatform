@@ -589,7 +589,7 @@ impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR
             match effect {
                 FundingEvent::Produced(_) => {}
                 FundingEvent::Consumed(funding) => {
-                    if missing_bearers.contains(&funding.select::<V>()) {
+                    if !missing_bearers.contains(&funding.select::<V>()) {
                         self.funding_pool.insert(funding);
                     }
                 }
