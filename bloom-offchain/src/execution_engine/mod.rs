@@ -33,7 +33,7 @@ use crate::execution_engine::execution_effect::ExecutionEff;
 use crate::execution_engine::focus_set::FocusSet;
 use crate::execution_engine::funding_effect::{FundingEvent, FundingIO};
 use crate::execution_engine::liquidity_book::core::ExecutionRecipe;
-use crate::execution_engine::liquidity_book::fragment::MarketTaker;
+use crate::execution_engine::liquidity_book::market_taker::MarketTaker;
 use crate::execution_engine::liquidity_book::interpreter::ExecutionResult;
 use crate::execution_engine::liquidity_book::{ExternalTLBEvents, TLBFeedback, TemporalLiquidityBook};
 use crate::execution_engine::multi_pair::MultiPair;
@@ -322,22 +322,22 @@ impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR
         trace!(target: "executor", "syncing book pair: {}", pair);
         match transition {
             Ior::Left(e) => match e {
-                Either::Left(o) => self.multi_book.get_mut(pair).remove_fragment(o.entity),
-                Either::Right(p) => self.multi_book.get_mut(pair).remove_pool(p.entity),
+                Either::Left(o) => self.multi_book.get_mut(pair).remove_taker(o.entity),
+                Either::Right(p) => self.multi_book.get_mut(pair).remove_maker(p.entity),
             },
             Ior::Both(old, new) => match (old, new) {
                 (Either::Left(old), Either::Left(new)) => {
-                    self.multi_book.get_mut(pair).remove_fragment(old.entity);
-                    self.multi_book.get_mut(pair).add_fragment(new.entity);
+                    self.multi_book.get_mut(pair).remove_taker(old.entity);
+                    self.multi_book.get_mut(pair).update_taker(new.entity);
                 }
                 (_, Either::Right(new)) => {
-                    self.multi_book.get_mut(pair).update_pool(new.entity);
+                    self.multi_book.get_mut(pair).update_maker(new.entity);
                 }
                 _ => unreachable!(),
             },
             Ior::Right(new) => match new {
-                Either::Left(new) => self.multi_book.get_mut(pair).add_fragment(new.entity),
-                Either::Right(new) => self.multi_book.get_mut(pair).update_pool(new.entity),
+                Either::Left(new) => self.multi_book.get_mut(pair).update_taker(new.entity),
+                Either::Right(new) => self.multi_book.get_mut(pair).update_maker(new.entity),
             },
         }
     }
@@ -449,8 +449,8 @@ impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR
         ExecutionEffectsByPair {
             pair,
             tx_hash,
-            consumed_versions,
             pending_effects,
+            ..
         }: ExecutionEffectsByPair<PR, TH, CO, SO, P, V, B>,
     ) where
         SID: Eq + Hash + Copy + Display + Debug,
@@ -470,23 +470,27 @@ impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR
         trace!("TX {} succeeded", tx_hash);
         match pending_effects {
             ExecutionEffects::FromLiquidityBook(mut pending_effects) => {
+                self.multi_book.get_mut(&pair).on_recipe_succeeded();
                 while let Some(effect) = pending_effects.pop() {
-                    match effect {
+                    let tr = match effect {
                         ExecutionEff::Updated(elim, upd) => {
                             self.on_entity_processed(elim.version());
                             self.update_state(Channel::local_tx_submit(StateUpdate::Transition(Ior::Both(
                                 elim, upd,
-                            ))));
+                            ))))
                         }
                         ExecutionEff::Eliminated(elim) => {
                             self.on_entity_processed(elim.version());
                             self.update_state(Channel::local_tx_submit(StateUpdate::Transition(Ior::Left(
                                 elim,
-                            ))));
+                            ))))
                         }
+                    };
+                    if let Some(tr) = tr {
+                        // todo: finalize TLB state before commiting. CORE-407
+                        self.sync_book(&pair, tr);
                     }
                 }
-                self.multi_book.get_mut(&pair).on_recipe_succeeded();
             }
             ExecutionEffects::FromBacklog(new_pool, consumed_ord) => {
                 self.on_entity_processed(consumed_ord.get_self_ref());

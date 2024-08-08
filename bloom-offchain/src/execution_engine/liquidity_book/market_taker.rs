@@ -12,10 +12,13 @@ pub trait TakerBehaviour: Sized {
         added_output: OutputAsset<u64>,
     ) -> Next<Self, TerminalTake>;
     fn with_budget_corrected(self, delta: i64) -> (i64, Self);
+    fn with_fee_charged(self, fee: u64) -> Self;
+    fn with_output_added(self, added_output: u64) -> Self;
+    fn try_terminate(self) -> Next<Self, TerminalTake>;
 }
 
 pub trait TakerBalance: Sized {
-    fn balance(self, added_output: u64) -> Self;
+    fn balance(self, added_output: u64) -> Next<Self, TerminalTake>;
 }
 
 /// Immutable discrete fragment of liquidity available at a specified timeframe at a specified price.
@@ -37,6 +40,7 @@ pub trait MarketTaker {
     fn fee(&self) -> FeeAsset<u64>;
     /// Amount of fee asset reserved to pay for execution.
     fn budget(&self) -> FeeAsset<u64>;
+    fn consumable_budget(&self) -> FeeAsset<u64>;
     /// How much (approximately) execution of this fragment will cost.
     fn marginal_cost_hint(&self) -> Self::U;
     /// Minimal amount of output per execution step.

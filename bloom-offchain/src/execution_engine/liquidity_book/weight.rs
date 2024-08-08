@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use num_rational::Ratio;
 
-use crate::execution_engine::liquidity_book::fragment::MarketTaker;
+use crate::execution_engine::liquidity_book::market_taker::MarketTaker;
 use crate::execution_engine::liquidity_book::types::{ExCostUnits, FeeAsset};
 
 #[derive(Copy, Clone, Eq, PartialEq)]

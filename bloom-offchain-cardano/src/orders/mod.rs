@@ -6,7 +6,7 @@ use crate::orders::grid::GridOrder;
 use crate::orders::limit::{LimitOrder, LimitOrderBounds};
 use bloom_derivation::{MarketTaker, Stable, Tradable};
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
-use bloom_offchain::execution_engine::liquidity_book::fragment::{TakerBalance, TakerBehaviour};
+use bloom_offchain::execution_engine::liquidity_book::market_taker::{TakerBalance, TakerBehaviour};
 use bloom_offchain::execution_engine::liquidity_book::types::{InputAsset, OutputAsset};
 use spectrum_offchain::data::Has;
 use spectrum_offchain::ledger::TryFromLedger;
@@ -33,15 +33,6 @@ impl Display for AnyOrder {
     }
 }
 
-impl TakerBalance for AnyOrder {
-    fn balance(self, added_output: u64) -> Self {
-        match self {
-            AnyOrder::Limit(o) => AnyOrder::Limit(o.balance(added_output)),
-            AnyOrder::Grid(o) => AnyOrder::Grid(o.balance(added_output)),
-        }
-    }
-}
-
 impl TakerBehaviour for AnyOrder {
     fn with_updated_time(self, time: u64) -> Next<Self, Unit> {
         match self {
@@ -64,6 +55,7 @@ impl TakerBehaviour for AnyOrder {
                 .map_succ(AnyOrder::Grid),
         }
     }
+    
     fn with_budget_corrected(self, delta: i64) -> (i64, Self) {
         match self {
             AnyOrder::Limit(o) => {
@@ -74,6 +66,31 @@ impl TakerBehaviour for AnyOrder {
                 let (d, s) = o.with_budget_corrected(delta);
                 (d, AnyOrder::Grid(s))
             }
+        }
+    }
+
+    fn with_fee_charged(self, fee: u64) -> Self {
+        match self {
+            AnyOrder::Limit(o) => AnyOrder::Limit(o.with_fee_charged(fee)),
+            AnyOrder::Grid(o) => AnyOrder::Grid(o.with_fee_charged(fee)),
+        }
+    }
+
+    fn with_output_added(self, added_output: u64) -> Self {
+        match self {
+            AnyOrder::Limit(o) => AnyOrder::Limit(o.with_output_added(added_output)),
+            AnyOrder::Grid(o) => AnyOrder::Grid(o.with_output_added(added_output)),
+        }
+    }
+
+    fn try_terminate(self) -> Next<Self, TerminalTake> {
+        match self {
+            AnyOrder::Limit(o) => o
+                .try_terminate()
+                .map_succ(AnyOrder::Limit),
+            AnyOrder::Grid(o) => o
+                .try_terminate()
+                .map_succ(AnyOrder::Grid),
         }
     }
 }

@@ -9,7 +9,7 @@ use derive_more::{From, Into};
 use num_rational::Ratio;
 
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
-use bloom_offchain::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBalance, TakerBehaviour};
+use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBalance, TakerBehaviour};
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
 use bloom_offchain::execution_engine::liquidity_book::types::{
@@ -148,28 +148,6 @@ impl Ord for GridOrder {
     }
 }
 
-impl TakerBalance for GridOrder {
-    fn balance(mut self, added_output: u64) -> Self {
-        let relative_side = self.side.value();
-        let absolute_side = self.side();
-        let mut mock = <u64>::MAX;
-        let (output_reserves, output_offer) = if relative_side == absolute_side {
-            match relative_side {
-                Side::Bid => (&mut self.base_reserves, &mut self.quote_offer),
-                Side::Ask => (&mut self.quote_reserves, &mut mock),
-            }
-        } else {
-            match relative_side {
-                Side::Ask => (&mut self.base_reserves, &mut self.quote_offer),
-                Side::Bid => (&mut self.quote_reserves, &mut mock),
-            }
-        };
-        *output_reserves += added_output;
-        *output_offer += added_output;
-        self
-    }
-}
-
 impl TakerBehaviour for GridOrder {
     fn with_updated_time(self, _: u64) -> Next<Self, Unit> {
         Next::Succ(self)
@@ -250,6 +228,34 @@ impl TakerBehaviour for GridOrder {
         self.remaining_execution_budget = updated_budget_remainder as u64;
         (real_delta, self)
     }
+
+    fn with_fee_charged(self, _: u64) -> Self {
+        self
+    }
+
+    fn with_output_added(mut self, added_output: u64) -> Self {
+        let relative_side = self.side.value();
+        let absolute_side = self.side();
+        let mut mock = <u64>::MAX;
+        let (output_reserves, output_offer) = if relative_side == absolute_side {
+            match relative_side {
+                Side::Bid => (&mut self.base_reserves, &mut self.quote_offer),
+                Side::Ask => (&mut self.quote_reserves, &mut mock),
+            }
+        } else {
+            match relative_side {
+                Side::Ask => (&mut self.base_reserves, &mut self.quote_offer),
+                Side::Bid => (&mut self.quote_reserves, &mut mock),
+            }
+        };
+        *output_reserves += added_output;
+        *output_offer += added_output;
+        self
+    }
+
+    fn try_terminate(self) -> Next<Self, TerminalTake> {
+        Next::Succ(self)
+    }
 }
 
 impl MarketTaker for GridOrder {
@@ -294,6 +300,10 @@ impl MarketTaker for GridOrder {
     }
 
     fn budget(&self) -> FeeAsset<u64> {
+        self.max_execution_budget_per_step
+    }
+
+    fn consumable_budget(&self) -> FeeAsset<u64> {
         self.max_execution_budget_per_step
     }
 
@@ -497,7 +507,7 @@ mod tests {
     use cml_multi_era::babbage::BabbageTransactionOutput;
     use type_equalities::IsEqual;
 
-    use bloom_offchain::execution_engine::liquidity_book::fragment::MarketTaker;
+    use bloom_offchain::execution_engine::liquidity_book::market_taker::MarketTaker;
     use bloom_offchain::execution_engine::liquidity_book::linear_output_unsafe;
     use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use spectrum_cardano_lib::ex_units::ExUnits;

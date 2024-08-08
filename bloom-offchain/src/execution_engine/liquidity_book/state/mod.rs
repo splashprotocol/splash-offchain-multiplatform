@@ -10,7 +10,7 @@ use log::trace;
 use spectrum_offchain::data::Stable;
 
 use crate::execution_engine::liquidity_book::core::Next;
-use crate::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
+use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
 use crate::execution_engine::liquidity_book::market_maker::{MarketMaker, PoolQuality, SpotPrice};
 use crate::execution_engine::liquidity_book::side::{OnSide, Side};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
@@ -67,8 +67,8 @@ where
     }
 }
 
-/// Changed state that reflects only consumption of fragments and full preview of pools.
-/// We use this one when no preview fragments/pools are generated to avoid
+/// Changed state that reflects only consumption of fragments and full preview of makers.
+/// We use this one when no preview takers/makers are generated to avoid
 /// overhead of copying active frontier projection.
 #[derive(Clone, Eq, PartialEq)]
 pub struct PartialPreviewState<T, M: Stable> {
@@ -230,7 +230,7 @@ where
         match stashing_opt {
             StashingOption::Stash(mut to_stash) => {
                 for fr in &to_stash {
-                    self.takers_intact.active.remove(&fr);
+                    self.takers_intact.active.remove(fr);
                 }
                 self.stashed_active_takers.append(&mut to_stash);
             }
@@ -371,23 +371,22 @@ where
         match self {
             // Transit into PartialPreview if state is untouched yet
             TLBState::Idle(st) => {
-                trace!(target: "state", "TLBState::move_into_partial_preview: MOVING FROM IDLE");
+                trace!("move Idle => PartialPreview");
                 // Move untouched fragments/pools sets into fresh state.
                 mem::swap(&mut target.takers_preview, &mut st.takers);
                 mem::swap(&mut target.makers_intact, &mut st.makers);
                 // Initialize pools preview with a copy of untouched pools.
                 target.makers_preview = target.makers_intact.clone();
             }
-            TLBState::PartialPreview(_) | TLBState::Preview(_) => {
-                trace!(target: "state", "TLBState::move_into_partial_preview: NO-OP");
-            }
+            TLBState::PartialPreview(_) => panic!("Attempt to move PartialPreview => PartialPreview"),
+            TLBState::Preview(_) => panic!("Attempt to move Preview => PartialPreview"),
         }
     }
 
     fn move_into_preview(&mut self, target: &mut PreviewState<T, M>) {
         match self {
             TLBState::Idle(st) => {
-                trace!(target: "state", "TLBState::move_into_preview from IDLE");
+                trace!("move Idle => Preview");
                 // Move untouched fragments/pools into preview state.
                 mem::swap(&mut target.takers_intact, &mut st.takers);
                 mem::swap(&mut target.makers_intact, &mut st.makers);
@@ -397,12 +396,13 @@ where
                 target.makers_preview = target.makers_intact.clone();
             }
             TLBState::PartialPreview(st) => {
-                trace!(target: "state", "TLBState::move_into_preview from PARTIAL_PREVIEW");
+                trace!("move PartialPreview => Preview");
                 // Copy active fragments/pools to use as a preview.
                 let mut active_fragments = st.takers_preview.active.clone();
                 mem::swap(&mut target.active_takers_preview, &mut active_fragments);
                 mem::swap(&mut target.makers_preview, &mut st.makers_preview);
-                // Return consumed fragments to reconstruct initial state.
+                mem::swap(&mut target.stashed_active_takers, &mut st.stashed_active_takers);
+                // Return consumed takers to reconstruct initial state.
                 while let Some(fr) = st.consumed_active_takers.pop() {
                     st.takers_preview.active.insert(fr);
                 }
@@ -410,7 +410,7 @@ where
                 mem::swap(&mut target.takers_intact, &mut st.takers_preview);
                 mem::swap(&mut target.makers_intact, &mut st.makers_intact);
             }
-            TLBState::Preview(_) => {}
+            TLBState::Preview(_) => panic!("Attempt to move Preview => Preview"),
         }
     }
 }
@@ -492,26 +492,26 @@ where
     }
 
     /// Add preview fragment [T].
-    pub fn pre_add_taker(&mut self, fr: T) {
-        trace!(target: "state", "pre_add_fragment");
+    pub fn pre_add_taker(&mut self, taker: T) {
+        trace!("pre_add_taker");
         let time = self.current_time();
-        match (self, fr.time_bounds().lower_bound()) {
+        match (self, taker.time_bounds().lower_bound()) {
             // We have to transit to preview state.
             (this @ TLBState::Idle(_) | this @ TLBState::PartialPreview(_), lower_bound) => {
                 let mut preview_st = PreviewState::new(time);
                 this.move_into_preview(&mut preview_st);
-                // Add fr into preview.
+                // Add taker into preview.
                 match lower_bound {
                     Some(lower_bound) if lower_bound > time => {
-                        preview_st.inactive_takers_changeset.push((lower_bound, fr));
+                        preview_st.inactive_takers_changeset.push((lower_bound, taker));
                     }
-                    _ => preview_st.active_takers_preview.insert(fr),
+                    _ => preview_st.active_takers_preview.insert(taker),
                 }
                 mem::swap(this, &mut TLBState::Preview(preview_st));
             }
             (TLBState::Preview(ref mut preview_st), lower_bound) => match lower_bound {
-                Some(lb) if lb > time => preview_st.inactive_takers_changeset.push((lb, fr)),
-                _ => preview_st.active_takers_preview.insert(fr),
+                Some(lb) if lb > time => preview_st.inactive_takers_changeset.push((lb, taker)),
+                _ => preview_st.active_takers_preview.insert(taker),
             },
         }
     }
@@ -937,7 +937,7 @@ pub mod tests {
     use spectrum_offchain::data::Stable;
 
     use crate::execution_engine::liquidity_book::core::{Next, TerminalTake, Trans, Unit};
-    use crate::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBalance, TakerBehaviour};
+    use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBalance, TakerBehaviour};
     use crate::execution_engine::liquidity_book::market_maker::{
         AbsoluteReserves, Excess, MakerBalance, MakerBehavior, MarketMaker, SpotPrice,
     };
@@ -1340,13 +1340,6 @@ pub mod tests {
         }
     }
 
-    impl TakerBalance for SimpleOrderPF {
-        fn balance(mut self, added_output: u64) -> Self {
-            self.accumulated_output += added_output;
-            self
-        }
-    }
-
     impl MarketTaker for SimpleOrderPF {
         type U = u64;
 
@@ -1389,6 +1382,10 @@ pub mod tests {
         fn budget(&self) -> FeeAsset<u64> {
             self.ex_budget
         }
+
+        fn consumable_budget(&self) -> FeeAsset<u64> {
+            self.ex_budget
+        }
     }
 
     impl TakerBehaviour for SimpleOrderPF {
@@ -1409,6 +1406,29 @@ pub mod tests {
             self.fee -= self.operator_fee(removed_input);
             self.input -= removed_input;
             self.accumulated_output += added_output;
+            self.try_terminate()
+        }
+        
+        fn with_budget_corrected(mut self, delta: i64) -> (i64, Self) {
+            let budget_remainder = self.ex_budget as i64;
+            let corrected_remainder = budget_remainder + delta;
+            let updated_budget_remainder = max(corrected_remainder, 0);
+            let real_delta = budget_remainder - updated_budget_remainder;
+            self.ex_budget = updated_budget_remainder as u64;
+            (real_delta, self)
+        }
+
+        fn with_fee_charged(mut self, fee: u64) -> Self {
+            self.fee -= fee;
+            self
+        }
+
+        fn with_output_added(mut self, added_output: u64) -> Self {
+            self.accumulated_output += added_output;
+            self
+        }
+
+        fn try_terminate(self) -> Next<Self, TerminalTake> {
             if self.input > 0 {
                 Next::Succ(self)
             } else {
@@ -1419,14 +1439,6 @@ pub mod tests {
                     remaining_budget: self.ex_budget,
                 })
             }
-        }
-        fn with_budget_corrected(mut self, delta: i64) -> (i64, Self) {
-            let budget_remainder = self.ex_budget as i64;
-            let corrected_remainder = budget_remainder + delta;
-            let updated_budget_remainder = max(corrected_remainder, 0);
-            let real_delta = budget_remainder - updated_budget_remainder;
-            self.ex_budget = updated_budget_remainder as u64;
-            (real_delta, self)
         }
     }
 

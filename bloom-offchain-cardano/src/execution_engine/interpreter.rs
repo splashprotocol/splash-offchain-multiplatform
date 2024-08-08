@@ -11,7 +11,7 @@ use bloom_offchain::execution_engine::batch_exec::BatchExec;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::funding_effect::FundingIO;
 use bloom_offchain::execution_engine::liquidity_book::core::{Execution, ExecutionRecipe, Make, Take};
-use bloom_offchain::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
+use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
 use bloom_offchain::execution_engine::liquidity_book::interpreter::{ExecutionResult, RecipeInterpreter};
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
@@ -236,7 +236,7 @@ mod tests {
 
     use bloom_offchain::execution_engine::bundled::Bundled;
     use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Trans, Unit};
-    use bloom_offchain::execution_engine::liquidity_book::fragment::{MarketTaker, TakerBehaviour};
+    use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
     use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
     use bloom_offchain::execution_engine::liquidity_book::types::{
