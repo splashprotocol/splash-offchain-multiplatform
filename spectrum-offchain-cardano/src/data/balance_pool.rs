@@ -605,22 +605,7 @@ impl MarketMaker for BalancePool {
         let input_amount_val =  <u64>::try_from(input_amount.value.to_int().value()).ok()?;
         let output_amount_val =  <u64>::try_from(output_amount.value.to_int().value()).ok()?;
 
-        let x = self.asset_x.untag();
-        let y = self.asset_y.untag();
-
-        let [base, quote] = order_canonical(x, y);
-        let (base, quote) = match worst_price {
-            OnSide::Bid(_) => (
-                output_amount_val,
-                input_amount_val,
-            ),
-            OnSide::Ask(_) => (
-                input_amount_val,
-                output_amount_val,
-            ),
-        };
-
-        return Some(AvailableLiquidity {input: input_amount_val, output: output_amount_val, price: AbsolutePrice::new(quote, base)?
+        return Some(AvailableLiquidity {input: input_amount_val, output: output_amount_val, price: AbsolutePrice::new(output_amount_val, input_amount_val)?
 
         }
         );
