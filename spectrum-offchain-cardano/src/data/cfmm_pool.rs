@@ -425,13 +425,13 @@ impl MarketMaker for ConstFnPool {
                 BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
                 BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
                 BigNumber::from((self.lp_fee_y - self.treasury_fee).to_f64()?),
-                BigNumber::from(*price.numer() as f64) / BigNumber::from(*price.denom() as f64),
+                BigNumber::from(*price.denom() as f64) / BigNumber::from(*price.numer() as f64),
             ),
             OnSide::Ask(price) => (
                 BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
                 BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
                 BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64()?),
-                BigNumber::from(*price.denom() as f64) / BigNumber::from(*price.numer() as f64),
+                BigNumber::from(*price.numer() as f64) / BigNumber::from(*price.denom() as f64),
             ),
         };
 
@@ -1063,7 +1063,7 @@ mod tests {
 
         let pool = gen_ada_token_pool(reserves_x, reserves_y, 0, fee_num, fee_num, 0, 0, 0);
 
-        let worst_price = AbsolutePrice::new(1125899906842624, 4524831899687659).unwrap();
+        let worst_price = AbsolutePrice::new(4524831899687659, 1125899906842624).unwrap();
         let Some(AvailableLiquidity {
             input: _,
             output: quote_qty_ask_spot,
@@ -1072,7 +1072,7 @@ mod tests {
             !panic!()
         };
 
-        let worst_price = AbsolutePrice::new(2113163007279601, 9007199254740992).unwrap();
+        let worst_price = AbsolutePrice::new(9007199254740992, 2113163007279601).unwrap();
         let Some(AvailableLiquidity {
             input: _,
             output: quote_qty_bid_spot,
