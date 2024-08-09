@@ -821,6 +821,7 @@ mod tests {
     use num_rational::Ratio;
     use void::Void;
 
+    use void::Void;
     use algebra_core::semigroup::Semigroup;
     use bloom_offchain::execution_engine::liquidity_book::core::{Next, Trans};
     use bloom_offchain::execution_engine::liquidity_book::market_maker::{
