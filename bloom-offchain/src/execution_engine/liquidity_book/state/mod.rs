@@ -941,6 +941,7 @@ pub mod tests {
     use crate::execution_engine::liquidity_book::core::{Next, TerminalTake, Trans, Unit};
     use crate::execution_engine::liquidity_book::market_maker::{
         AbsoluteReserves, AvailableLiquidity, MakerBehavior, MarketMaker, SpotPrice,
+        AbsoluteReserves, Excess, MakerBehavior, MarketMaker, SpotPrice,
     };
     use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
     use crate::execution_engine::liquidity_book::side::{OnSide, Side};
