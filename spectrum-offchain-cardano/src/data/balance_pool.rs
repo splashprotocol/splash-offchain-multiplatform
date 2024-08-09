@@ -649,7 +649,7 @@ mod tests {
     use cml_core::serialization::Serialize;
     use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
     use num_rational::Ratio;
-
+    use void::Void;
     use algebra_core::semigroup::Semigroup;
     use bloom_offchain::execution_engine::liquidity_book::core::{Next, Trans, Unit};
     use bloom_offchain::execution_engine::liquidity_book::market_maker::MakerBehavior;
@@ -782,7 +782,7 @@ mod tests {
         let atomic_swap_result = pool.swap(Bid(input));
         let atomic_swap_trans = Trans::new(pool, atomic_swap_result);
 
-        let mut iterative_swap_result: Option<Trans<BalancePool, BalancePool, Unit>> = None;
+        let mut iterative_swap_result: Option<Trans<BalancePool, BalancePool, Void>> = None;
         let mut remaining_input = input;
         let mut pool_in_progress = pool;
         loop {
