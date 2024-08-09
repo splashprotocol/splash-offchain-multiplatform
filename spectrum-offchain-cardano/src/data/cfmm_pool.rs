@@ -1,6 +1,6 @@
-use std::fmt::Debug;
-
+use bignumber::BigNumber;
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
+use bloom_offchain::execution_engine::liquidity_book::market_maker::AvailableLiquidity;
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
     AbsoluteReserves, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
 };
@@ -15,6 +15,7 @@ use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
+use num_traits::ToPrimitive;
 use num_traits::{CheckedAdd, CheckedSub};
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{
@@ -27,6 +28,8 @@ use spectrum_cardano_lib::AssetClass::Native;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
+use std::fmt::Debug;
+use std::ops::Div;
 use type_equalities::IsEqual;
 use void::Void;
 
@@ -412,6 +415,57 @@ impl MarketMaker for ConstFnPool {
             }
         }
     }
+    fn available_liquidity_on_side(&self, worst_price: OnSide<AbsolutePrice>) -> Option<AvailableLiquidity> {
+        let sqrt_degree = BigNumber::from(0.5);
+
+        let (tradable_reserves_base, tradable_reserves_quote, total_fee_mult, price) = match worst_price {
+            OnSide::Bid(price) => (
+                BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
+                BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
+                BigNumber::from((self.lp_fee_y - self.treasury_fee).to_f64()?),
+                price,
+            ),
+            OnSide::Ask(price) => (
+                BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
+                BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
+                BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64()?),
+                price,
+            ),
+        };
+
+        let lq_balance = (tradable_reserves_base.clone() * tradable_reserves_quote.clone()).pow(&sqrt_degree);
+
+        let avg_price = BigNumber::from(*price.numer() as f64)
+            .div(BigNumber::from(*price.denom() as f64))
+            .div(total_fee_mult.clone());
+
+        let p1 =
+            (avg_price * lq_balance.clone() / tradable_reserves_quote.clone()).pow(&(BigNumber::from(2)));
+        let p1_sqrt = p1.clone().pow(&sqrt_degree);
+        let x1 = lq_balance.clone() / p1_sqrt.clone();
+        let y1 = lq_balance.clone() * p1_sqrt.clone();
+
+        let input_amount = (x1.clone() - tradable_reserves_base.clone()) / total_fee_mult;
+        let output_amount = tradable_reserves_quote - y1.clone();
+
+        let input_amount_val = <u64>::try_from(input_amount.value.to_int().value()).ok()?;
+        let output_amount_val = <u64>::try_from(output_amount.value.to_int().value()).ok()?;
+
+        let x = self.asset_x.untag();
+        let y = self.asset_y.untag();
+
+        let [base, quote] = order_canonical(x, y);
+        let (base, quote) = match worst_price {
+            OnSide::Bid(_) => (output_amount_val, input_amount_val),
+            OnSide::Ask(_) => (input_amount_val, output_amount_val),
+        };
+
+        return Some(AvailableLiquidity {
+            input: input_amount_val,
+            output: output_amount_val,
+            price: AbsolutePrice::new(quote, base)?,
+        });
+    }
 }
 
 impl Has<ConstFnPoolVer> for ConstFnPool {
@@ -777,15 +831,11 @@ impl ApplyOrder<ClassicalOnChainRedeem> for ConstFnPool {
 
 #[cfg(test)]
 mod tests {
-    use crate::data::cfmm_pool::{ConstFnPool, ConstFnPoolVer};
-    use crate::data::pool::PoolBounds;
-    use crate::data::PoolId;
-    use crate::deployment::ProtocolValidator::{
-        ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolV1,
-        ConstFnPoolV2,
-    };
-    use crate::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
-    use bloom_offchain::execution_engine::liquidity_book::core::{
+    use crate::data::cfmm_pool::Side::Bid;
+use crate::data::cfmm_pool::OnSide::Bid;
+use bloom_offchain::execution_engine::liquidity_book::side::Side::Bid;
+use bloom_offchain::execution_engine::liquidity_book::side::OnSide::Bid;
+use bloom_offchain::execution_engine::liquidity_book::core::{
         Excess, Final, MakeInProgress, Next, Trans,
     };
     use bloom_offchain::execution_engine::liquidity_book::market_maker::MakerBehavior;
@@ -801,6 +851,15 @@ mod tests {
     use spectrum_offchain::ledger::TryFromLedger;
     use std::convert::identity;
     use type_equalities::IsEqual;
+
+    use crate::data::cfmm_pool::{ConstFnPool, ConstFnPoolVer};
+    use crate::data::pool::PoolBounds;
+    use crate::data::PoolId;
+    use crate::deployment::ProtocolValidator::{
+        ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolV1,
+        ConstFnPoolV2,
+    };
+    use crate::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
 
     fn gen_ada_token_pool(
         reserves_x: u64,

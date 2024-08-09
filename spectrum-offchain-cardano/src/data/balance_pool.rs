@@ -1,36 +1,39 @@
-use std::fmt::Debug;
-use std::ops::Mul;
-
 use bignumber::BigNumber;
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
     AbsoluteReserves, Excess, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
 };
+use bloom_offchain::execution_engine::liquidity_book::market_maker::AvailableLiquidity;
 use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
-use cml_chain::plutus::utils::ConstrPlutusDataEncoding;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
+use cml_chain::plutus::utils::ConstrPlutusDataEncoding;
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_core::serialization::LenEncoding::{Canonical, Indefinite};
 use cml_multi_era::babbage::BabbageTransactionOutput;
+use dashu_float::DBig;
 use num_rational::Ratio;
 use num_traits::{CheckedAdd, CheckedSub};
+use num_traits::ToPrimitive;
 use primitive_types::U512;
+use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
+use spectrum_cardano_lib::AssetClass::Native;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension};
 use spectrum_cardano_lib::plutus_data::{IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::AssetClass::Native;
-use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
+use std::fmt::Debug;
+use std::ops::Div;
+use std::ops::Mul;
 use void::Void;
 
 use crate::constants::{ADA_WEIGHT, FEE_DEN, MAX_LQ_CAP, TOKEN_WEIGHT, WEIGHT_FEE_DEN};
@@ -42,10 +45,10 @@ use crate::data::pair::order_canonical;
 use crate::data::pool::{
     ApplyOrder, ApplyOrderError, CFMMPoolAction, ImmutablePoolUtxo, Lq, PoolAssetMapping, PoolBounds, Rx, Ry,
 };
-use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
-use crate::deployment::ProtocolValidator::{BalanceFnPoolV1, BalanceFnPoolV2};
+use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
+use crate::deployment::ProtocolValidator::{BalanceFnPoolV1, BalanceFnPoolV2};
 use crate::pool_math::balance_math::balance_cfmm_output_amount;
 use crate::pool_math::cfmm_math::{classic_cfmm_reward_lp, classic_cfmm_shares_amount};
 
@@ -531,6 +534,97 @@ impl MarketMaker for BalancePool {
             }
         }
     }
+    fn available_liquidity_on_side(&self,  worst_price: OnSide<AbsolutePrice>) -> Option<AvailableLiquidity> {
+        const BN_ONE: BigNumber = BigNumber { value: DBig::ONE };
+
+        const MAX_ERR: i32 = 1;
+        const MAX_ITERS: u32 = 25;
+
+        let (tradable_reserves_base, w_base, tradable_reserves_quote, w_quote, total_fee_mult, price) =
+            match worst_price {
+                OnSide::Bid(price) => (
+                    BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
+                    BigNumber::from(self.weight_y as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
+                    BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
+                    BigNumber::from(self.weight_x as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
+                    BigNumber::from((self.lp_fee_y - self.treasury_fee).to_f64()?),
+                    price,
+                ),
+                OnSide::Ask(price) => (
+                    BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
+                    BigNumber::from(self.weight_x as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
+                    BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
+                    BigNumber::from(self.weight_y as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
+                    BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64()?),
+                    price,
+                ),
+            };
+        let lq_balance =
+            tradable_reserves_base.pow(&w_base.clone()) * tradable_reserves_quote.pow(&w_quote.clone());
+
+        let avg_sell_price =
+            BigNumber::from(*price.numer() as f64).div(BigNumber::from(*price.denom() as f64));
+
+        //# Constants for calculations:
+        let a = (w_base.clone() + w_quote.clone()) / w_quote.clone();
+        let b = BN_ONE - a.clone();
+        let c = lq_balance.pow(&BN_ONE.div(w_quote.clone())) * w_base.clone() / w_quote.clone();
+        let k = c.clone() / b.clone();
+        //
+        let x0 = tradable_reserves_base.clone();
+        let mut x1 = x0.clone().mul(BigNumber::from(1.1)).to_precision(0); //int(1.1 * x0);
+        let mut err = tradable_reserves_base.clone();
+        let mut counter = 0;
+        // // # Numerical calculation procedure (usual less than 5 iterations).
+        // // # You can increase 'maxErr' value to decrease number of iters.
+        while err.to_precision(10).value.ge(&DBig::from(MAX_ERR)) && counter < MAX_ITERS {
+            let f_x = (avg_sell_price.clone().div(total_fee_mult.clone()))
+                - k.clone() * (x1.clone().pow(&b.clone()) - x0.clone().pow(&b.clone()))
+                / (x1.clone() - x0.clone());
+            let f_x_der = k.clone()
+                * ((b.clone() - BN_ONE) * x1.clone().pow(&(b.clone() + BN_ONE))
+                + x1.clone() * x0.clone().pow(&b.clone())
+                - b.clone() * x0.clone() * x1.clone().pow(&b.clone()))
+                / (x1.clone() * (x1.clone() - x0.clone()).powi(2));
+            let add = f_x.clone().div(f_x_der.clone());
+
+            if (x1.clone() + add.clone()).value.to_f64().value() > 0_f64 {
+                x1 = x1.clone() + add.clone();
+                err = BigNumber::from(add.clone().value.to_f32().value().abs());
+                counter += 1;
+            } else {
+                break;
+            }
+        }
+        let input_amount = (x1.clone() - tradable_reserves_base.clone()) / total_fee_mult;
+
+        let tradable_reserves_quote_final =
+            (lq_balance / x1.clone().pow(&w_base.clone())).pow(&BN_ONE.div(&w_quote));
+        let output_amount = tradable_reserves_quote - tradable_reserves_quote_final;
+
+        let input_amount_val =  <u64>::try_from(input_amount.value.to_int().value()).ok()?;
+        let output_amount_val =  <u64>::try_from(output_amount.value.to_int().value()).ok()?;
+
+        let x = self.asset_x.untag();
+        let y = self.asset_y.untag();
+
+        let [base, quote] = order_canonical(x, y);
+        let (base, quote) = match worst_price {
+            OnSide::Bid(_) => (
+                output_amount_val,
+                input_amount_val,
+            ),
+            OnSide::Ask(_) => (
+                input_amount_val,
+                output_amount_val,
+            ),
+        };
+
+        return Some(AvailableLiquidity {input: input_amount_val, output: output_amount_val, price: AbsolutePrice::new(quote, base)?
+
+        }
+        );
+    }
 }
 
 impl ApplyOrder<ClassicalOnChainDeposit> for BalancePool {
@@ -642,29 +736,28 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
 
 #[cfg(test)]
 mod tests {
-    use std::cmp::min;
-
-    use cml_chain::plutus::PlutusData;
-    use cml_chain::Deserialize;
-    use cml_core::serialization::Serialize;
-    use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
-    use num_rational::Ratio;
-    use void::Void;
     use algebra_core::semigroup::Semigroup;
     use bloom_offchain::execution_engine::liquidity_book::core::{Next, Trans, Unit};
     use bloom_offchain::execution_engine::liquidity_book::market_maker::MakerBehavior;
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
+    use cml_chain::Deserialize;
+    use cml_chain::plutus::PlutusData;
+    use cml_core::serialization::Serialize;
+    use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
+    use num_rational::Ratio;
+    use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
-    use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
+    use std::cmp::min;
+    use void::Void;
 
+    use crate::data::{OnChainOrderId, PoolId};
     use crate::data::balance_pool::{BalancePool, BalancePoolConfig, BalancePoolRedeemer, BalancePoolVer};
     use crate::data::order::ClassicalOrder;
     use crate::data::order::OrderType::BalanceFn;
     use crate::data::pool::{ApplyOrder, CFMMPoolAction};
     use crate::data::redeem::{ClassicalOnChainRedeem, Redeem};
-    use crate::data::{OnChainOrderId, PoolId};
 
     const DATUM_SAMPLE: &str = "d8799fd8799f581c5df8fe3f9f0e10855f930e0ea6c227e3bba0aba54d39f9d55b95e21c436e6674ffd8799f4040ff01d8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737443ff04d8799f581c0df79145b95580c14ef4baf8d022d7f0cbb08f3bed43bf97a2ddd8cb426c71ff1a000186820a00009fd8799fd87a9f581cb046b660db0eaf9be4f4300180ccf277e4209dada77c48fbd37ba81dffffff581c8d4be10d934b60a22f267699ea3f7ebdade1f8e535d1bd0ef7ce18b61a0501bced08ff";
 
