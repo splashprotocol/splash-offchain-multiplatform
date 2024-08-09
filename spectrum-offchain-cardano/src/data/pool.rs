@@ -1,3 +1,5 @@
+use bloom_offchain::execution_engine::liquidity_book::market_maker::AvailableLiquidity;
+use num_rational::Ratio;
 use std::fmt::{Debug, Display, Formatter};
 
 use cml_chain::address::Address;
@@ -313,13 +315,20 @@ impl MarketMaker for AnyPool {
             StableCFMM(p) => p.liquidity(),
         }
     }
-
+    fn available_liquidity_on_side(&self, worst_price: OnSide<AbsolutePrice>) -> Option<AvailableLiquidity> {
+        match self {
+            PureCFMM(p) => p.available_liquidity_on_side(worst_price),
+            BalancedCFMM(p) => p.available_liquidity_on_side(worst_price),
+            StableCFMM(p) => p.available_liquidity_on_side(worst_price),
+        }
+    }
     fn is_active(&self) -> bool {
         match self {
             PureCFMM(p) => p.is_active(),
             BalancedCFMM(p) => p.is_active(),
             StableCFMM(p) => p.is_active(),
         }
+
     }
 }
 
