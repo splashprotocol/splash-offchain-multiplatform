@@ -1,5 +1,7 @@
 use std::fmt::Debug;
+use std::ops::Div;
 
+use bignumber::BigNumber;
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
@@ -8,17 +10,19 @@ use cml_chain::transaction::{ConwayFormatTxOut, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_multi_era::babbage::BabbageTransactionOutput;
-use num_traits::CheckedSub;
+use dashu_float::DBig;
+use num_traits::{CheckedDiv, CheckedSub};
+use num_traits::real::Real;
 use type_equalities::IsEqual;
+use void::Void;
 
-use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
+use bloom_offchain::execution_engine::liquidity_book::core::Next;
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
-    AbsoluteReserves, Excess, MakerBalance, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
-    AbsoluteReserves, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
-    AbsoluteReserves, Excess, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
+    AbsoluteReserves, AvailableLiquidity, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
 };
 use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
@@ -26,23 +30,21 @@ use spectrum_cardano_lib::plutus_data::{
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
-use crate::data::limit_swap::ClassicalOnChainLimitSwap;
-use crate::data::operation_output::SwapOutput;
-use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
+use crate::data::order::{Base, PoolNft, Quote};
 use crate::data::pair::order_canonical;
 use crate::data::pool::{
-    ApplyOrder, ApplyOrderError, CFMMPoolAction, ImmutablePoolUtxo, PoolAssetMapping, PoolBounds, Rx, Ry,
+    ApplyOrder, CFMMPoolAction, ImmutablePoolUtxo, PoolAssetMapping, PoolBounds, Rx, Ry,
 };
-use crate::data::stable_pool_t2t::StablePoolT2T;
 use crate::data::PoolId;
-use crate::deployment::ProtocolValidator::DegenQuadraticPoolV1;
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
+use crate::deployment::ProtocolValidator::DegenQuadraticPoolV1;
 use crate::fees::FeeExtension;
-use crate::pool_math::degen_quadratic_math::{degen_quadratic_output_amount, A_DENOM, B_DENOM};
+use crate::pool_math::degen_quadratic_math::{
+    A_DENOM, B_DENOM, degen_quadratic_output_amount, TOKEN_EMISSION,
+};
 
 pub struct DegenQuadraticPoolConfig {
     pub pool_nft: TaggedAssetClass<PoolNft>,
@@ -226,7 +228,7 @@ where
 }
 
 impl MakerBehavior for DegenQuadraticPool {
-    fn swap(mut self, input: OnSide<u64>) -> Next<Self, Unit> {
+    fn swap(mut self, input: OnSide<u64>) -> Next<Self, Void> {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, quote] = order_canonical(x, y);
@@ -284,17 +286,20 @@ impl MarketMaker for DegenQuadraticPool {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, quote] = order_canonical(x, y);
+        // Verification that current swap wouldn't overfill ada_cap_thr
         let (base, quote) = match input {
             OnSide::Bid(input) => (
                 self.output_amount(TaggedAssetClass::new(quote), TaggedAmount::new(input))
                     .untag(),
                 input,
             ),
-            OnSide::Ask(input) => (
+            OnSide::Ask(input) if self.reserves_x.untag() + input <= self.ada_cup_thr => (
                 input,
                 self.output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
                     .untag(),
             ),
+            // Swap will overfill ada_cap_thr with corresponding input. So, we couldn't execute it
+            OnSide::Ask(_) => return None,
         };
         AbsolutePrice::new(quote, base)
     }
@@ -523,19 +528,24 @@ where
             match pool_ver {
                 DegenQuadraticPoolVer::V1 => {
                     let conf = DegenQuadraticPoolConfig::try_from_pd(pd.clone())?;
-                    return Some(DegenQuadraticPool {
-                        id: PoolId::try_from(conf.pool_nft).ok()?,
-                        reserves_x: TaggedAmount::new(value.amount_of(conf.asset_x.into())?),
-                        reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
-                        asset_x: conf.asset_x,
-                        asset_y: conf.asset_y,
-                        a_num: conf.a_num,
-                        b_num: conf.b_num,
-                        ver: pool_ver,
-                        marginal_cost,
-                        bounds,
-                        ada_cup_thr: conf.ada_cup_thr,
-                    });
+                    let reserves_x: TaggedAmount<Rx> =
+                        TaggedAmount::new(value.amount_of(conf.asset_x.into())?);
+
+                    if conf.asset_x.is_native() && reserves_x.untag() < conf.ada_cup_thr {
+                        return Some(DegenQuadraticPool {
+                            id: PoolId::try_from(conf.pool_nft).ok()?,
+                            reserves_x,
+                            reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
+                            asset_x: conf.asset_x,
+                            asset_y: conf.asset_y,
+                            a_num: conf.a_num,
+                            b_num: conf.b_num,
+                            ver: pool_ver,
+                            marginal_cost,
+                            bounds,
+                            ada_cup_thr: conf.ada_cup_thr,
+                        });
+                    }
                 }
             };
         };
@@ -574,75 +584,26 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for DegenQuadraticPool {
     }
 }
 
-impl ApplyOrder<ClassicalOnChainLimitSwap> for DegenQuadraticPool {
-    type Result = SwapOutput;
-
-    fn apply_order(
-        mut self,
-        ClassicalOrder { id, pool_id, order }: ClassicalOnChainLimitSwap,
-    ) -> Result<(Self, SwapOutput), ApplyOrderError<ClassicalOnChainLimitSwap>> {
-        let quote_amount = self.output_amount(order.base_asset, order.base_amount);
-        if quote_amount < order.min_expected_quote_amount {
-            return Err(ApplyOrderError::slippage(
-                ClassicalOrder {
-                    id,
-                    pool_id,
-                    order: order.clone(),
-                },
-                quote_amount,
-                order.clone().min_expected_quote_amount,
-            ));
-        }
-        // Adjust pool value.
-        if order.quote_asset.untag() == self.asset_x.untag() {
-            self.reserves_x = self.reserves_x - quote_amount.retag();
-            self.reserves_y = self.reserves_y + order.base_amount.retag();
-        } else {
-            self.reserves_y = self.reserves_y - quote_amount.retag();
-            self.reserves_x = self.reserves_x + order.base_amount.retag();
-        }
-        // Prepare user output.
-        let batcher_fee = order.fee.value().linear_fee(quote_amount.untag());
-        if batcher_fee > order.ada_deposit {
-            return Err(ApplyOrderError::low_batcher_fee(
-                ClassicalOrder {
-                    id,
-                    pool_id,
-                    order: order.clone(),
-                },
-                batcher_fee,
-                order.clone().ada_deposit,
-            ));
-        }
-        let ada_residue = order.ada_deposit - batcher_fee;
-        let swap_output = SwapOutput {
-            quote_asset: order.quote_asset,
-            quote_amount,
-            ada_residue,
-            redeemer_pkh: order.redeemer_pkh,
-            redeemer_stake_pkh: order.redeemer_stake_pkh,
-        };
-        // Prepare batcher fee.
-        Ok((self, swap_output))
-    }
-}
-
 mod tests {
     use cml_crypto::ScriptHash;
+    use rand::{Rng, SeedableRng};
     use rand::prelude::StdRng;
     use rand::seq::SliceRandom;
-    use rand::{Rng, SeedableRng};
 
     use bloom_offchain::execution_engine::liquidity_book::core::Next;
-    use bloom_offchain::execution_engine::liquidity_book::market_maker::MakerBehavior;
+    use bloom_offchain::execution_engine::liquidity_book::market_maker::{
+        AvailableLiquidity, MakerBehavior, MarketMaker,
+    };
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
-    use spectrum_cardano_lib::ex_units::ExUnits;
+    use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
+    use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
+    use spectrum_cardano_lib::ex_units::ExUnits;
 
     use crate::data::degen_quadratic_pool::{DegenQuadraticPool, DegenQuadraticPoolVer};
     use crate::data::pool::PoolBounds;
     use crate::data::PoolId;
-    use crate::pool_math::degen_quadratic_math::{calculate_a_num, A_DENOM, TOKEN_EMISSION};
+    use crate::pool_math::degen_quadratic_math::{A_DENOM, calculate_a_num, TOKEN_EMISSION};
 
     const LOVELACE: u64 = 1_000_000;
     const DEC: u64 = 1_000;
@@ -658,7 +619,7 @@ mod tests {
             id: PoolId::from((
                 ScriptHash::from([
                     162, 206, 112, 95, 150, 240, 52, 167, 61, 102, 158, 92, 11, 47, 25, 41, 48, 224, 188,
-                    211, 138, 203, 127, 107, 246, 89, 115, 157,
+                    211, 138, 203, 27, 107, 246, 89, 115, 157,
                 ]),
                 AssetName::from((
                     3,
@@ -818,38 +779,44 @@ mod tests {
         let to_dep: u64 = 123_010_079;
         let pool0 = gen_ada_token_pool(min_utxo, TOKEN_EMISSION, a, b, ada_cap);
 
-        let Next::Succ(pool1) = pool0.swap(OnSide::Ask(to_dep)) else {
+        let Next::Succ(pool1) = pool0.swap(Ask(to_dep)) else {
             panic!()
         };
         let y_rec = pool0.reserves_y.untag() - pool1.reserves_y.untag();
 
-        let w_price = Ratio::new_raw(y_rec as u128, to_dep as u128);
-        let Some((b, q)) = pool0.available_liquidity_on_side(Ask(w_price)) else {
+        let worst_price = AbsolutePrice::new(y_rec, to_dep).unwrap();
+        let Some(AvailableLiquidity { input: b, output: q }) =
+            pool0.available_liquidity_on_side(Ask(worst_price))
+        else {
             panic!()
         };
         assert_eq!(q, 56319924);
         assert_eq!(b, 123010091);
 
-        let Next::Succ(pool2) = pool1.swap(OnSide::Bid(y_rec / 2)) else {
+        let Next::Succ(pool2) = pool1.swap(Bid(y_rec / 2)) else {
             panic!()
         };
 
         let x_rec = pool1.reserves_x.untag() - pool2.reserves_x.untag();
 
-        let w_price = Ratio::new_raw(x_rec as u128, (y_rec / 2) as u128);
+        let w_price = AbsolutePrice::new(x_rec, y_rec / 2).unwrap();
 
-        let Some((b, q)) = pool1.available_liquidity_on_side(Bid(w_price)) else {
+        let Some(AvailableLiquidity { input: b, output: q }) =
+            pool1.available_liquidity_on_side(Bid(w_price))
+        else {
             panic!()
         };
         assert_eq!(q, 65393878);
         assert_eq!(b, 28159959);
 
-        let too_high_ask_price = Ratio::new_raw(1u128, 200u128);
+        let too_high_ask_price = AbsolutePrice::new(1, 200).unwrap();
 
-        let Some((b, q)) = pool1.available_liquidity_on_side(Ask(too_high_ask_price)) else {
+        let Some(AvailableLiquidity { input: b, output: q }) =
+            pool1.available_liquidity_on_side(Ask(too_high_ask_price))
+        else {
             panic!()
         };
-        let Next::Succ(pool3) = pool1.swap(OnSide::Ask(pool1.ada_cup_thr - pool1.reserves_x.untag())) else {
+        let Next::Succ(pool3) = pool1.swap(Ask(pool1.ada_cup_thr - pool1.reserves_x.untag())) else {
             panic!()
         };
         let y_max = pool1.reserves_y.untag() - pool3.reserves_y.untag();
