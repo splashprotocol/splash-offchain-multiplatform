@@ -348,6 +348,7 @@ impl MarketMaker for AnyPool {
             StableCFMM(p) => p.is_active(),
             DegenPool(p) => p.is_active(),
         }
+
     }
 }
 

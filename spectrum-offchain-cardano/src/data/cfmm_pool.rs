@@ -1,11 +1,7 @@
 use std::fmt::Debug;
+use std::ops::Div;
 
-use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
-use bloom_offchain::execution_engine::liquidity_book::market_maker::{
-    AbsoluteReserves, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
-};
-use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
-use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+use bignumber::BigNumber;
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
@@ -15,6 +11,7 @@ use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
+use num_traits::ToPrimitive;
 use num_traits::{CheckedAdd, CheckedSub};
 use num_traits::ToPrimitive;
 use num_traits::{CheckedAdd, CheckedSub};
@@ -40,8 +37,6 @@ use spectrum_cardano_lib::AssetClass::Native;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
-use type_equalities::IsEqual;
-use void::Void;
 
 use crate::constants::{FEE_DEN, LEGACY_FEE_NUM_MULTIPLIER, MAX_LQ_CAP};
 use crate::data::deposit::ClassicalOnChainDeposit;
@@ -893,10 +888,21 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::market_maker::MakerBehavior;
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide::Ask;
     use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
+    use std::convert::identity;
+
     use cml_core::serialization::Deserialize;
     use cml_crypto::ScriptHash;
     use cml_multi_era::babbage::BabbageTransactionOutput;
     use num_rational::Ratio;
+    use type_equalities::IsEqual;
+
+    use bloom_offchain::execution_engine::liquidity_book::core::{Excess, MakeInProgress, Next, Trans};
+    use bloom_offchain::execution_engine::liquidity_book::market_maker::{
+        AvailableLiquidity, MakerBehavior, MarketMaker,
+    };
+    use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
+    use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
+    use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
     use type_equalities::IsEqual;
 
     use bloom_offchain::execution_engine::liquidity_book::core::{Next, Trans};
@@ -930,8 +936,15 @@ mod tests {
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
     use spectrum_offchain::data::Has;
     use spectrum_offchain::ledger::TryFromLedger;
-    use std::convert::identity;
-    use type_equalities::IsEqual;
+
+    use crate::data::cfmm_pool::{ConstFnPool, ConstFnPoolVer};
+    use crate::data::pool::PoolBounds;
+    use crate::data::PoolId;
+    use crate::deployment::ProtocolValidator::{
+        ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolV1,
+        ConstFnPoolV2,
+    };
+    use crate::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
 
     use crate::data::cfmm_pool::{ConstFnPool, ConstFnPoolVer};
     use crate::data::pool::PoolBounds;

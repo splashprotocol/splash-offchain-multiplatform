@@ -4,12 +4,6 @@ use std::ops::{Div, Mul, Neg};
 use std::ops::Mul;
 
 use bignumber::BigNumber;
-use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
-use bloom_offchain::execution_engine::liquidity_book::market_maker::{
-    AbsoluteReserves, Excess, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
-};
-use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
-use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
@@ -22,12 +16,23 @@ use cml_core::serialization::LenEncoding::{Canonical, Indefinite};
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use dashu_float::DBig;
 use dashu_float::DBig;
+use dashu_float::DBig;
 use num_integer::Roots;
 use num_rational::Ratio;
+use num_traits::ToPrimitive;
 use num_traits::{CheckedAdd, CheckedSub};
 use num_traits::ToPrimitive;
 use num_traits::{CheckedAdd, CheckedSub, ToPrimitive};
 use primitive_types::U512;
+use void::Void;
+
+use bloom_offchain::execution_engine::liquidity_book::core::Next;
+use bloom_offchain::execution_engine::liquidity_book::market_maker::AvailableLiquidity;
+use bloom_offchain::execution_engine::liquidity_book::market_maker::{
+    AbsoluteReserves, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
+};
+use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
+use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use void::Void;
 
 use bloom_offchain::execution_engine::liquidity_book::core::Next;
@@ -47,7 +52,6 @@ use spectrum_cardano_lib::AssetClass::Native;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
-use void::Void;
 
 use crate::constants::{ADA_WEIGHT, FEE_DEN, MAX_LQ_CAP, TOKEN_WEIGHT, WEIGHT_FEE_DEN};
 use crate::data::cfmm_pool::AMMOps;
@@ -547,81 +551,6 @@ impl MarketMaker for BalancePool {
             }
         }
     }
-
-    fn available_liquidity_on_side(&self, worst_price: OnSide<Ratio<u128>>) -> Option<(u64, u64)> {
-        const BN_ONE: BigNumber = BigNumber { value: DBig::ONE };
-
-        const MAX_ERR: i32 = 1;
-        const MAX_ITERS: u32 = 25;
-
-        let (tradable_reserves_base, w_base, tradable_reserves_quote, w_quote, total_fee_mult, price) =
-            match worst_price {
-                OnSide::Bid(price) => (
-                    BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
-                    BigNumber::from(self.weight_y as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
-                    BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
-                    BigNumber::from(self.weight_x as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
-                    BigNumber::from((self.lp_fee_y - self.treasury_fee).to_f64()?),
-                    price,
-                ),
-                OnSide::Ask(price) => (
-                    BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
-                    BigNumber::from(self.weight_x as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
-                    BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
-                    BigNumber::from(self.weight_y as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
-                    BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64()?),
-                    price,
-                ),
-            };
-        let lq_balance =
-            tradable_reserves_base.pow(&w_base.clone()) * tradable_reserves_quote.pow(&w_quote.clone());
-
-        let avg_sell_price =
-            BigNumber::from(*price.numer() as f64).div(BigNumber::from(*price.denom() as f64));
-
-        //# Constants for calculations:
-        let a = (w_base.clone() + w_quote.clone()) / w_quote.clone();
-        let b = BN_ONE - a.clone();
-        let c = lq_balance.pow(&BN_ONE.div(w_quote.clone())) * w_base.clone() / w_quote.clone();
-        let k = c.clone() / b.clone();
-        //
-        let x0 = tradable_reserves_base.clone();
-        let mut x1 = x0.clone().mul(BigNumber::from(1.1)).to_precision(0); //int(1.1 * x0);
-        let mut err = tradable_reserves_base.clone();
-        let mut counter = 0;
-        // // # Numerical calculation procedure (usual less than 5 iterations).
-        // // # You can increase 'maxErr' value to decrease number of iters.
-        while err.to_precision(10).value.ge(&DBig::from(MAX_ERR)) && counter < MAX_ITERS {
-            let f_x = (avg_sell_price.clone().div(total_fee_mult.clone()))
-                - k.clone() * (x1.clone().pow(&b.clone()) - x0.clone().pow(&b.clone()))
-                    / (x1.clone() - x0.clone());
-            let f_x_der = k.clone()
-                * ((b.clone() - BN_ONE) * x1.clone().pow(&(b.clone() + BN_ONE))
-                    + x1.clone() * x0.clone().pow(&b.clone())
-                    - b.clone() * x0.clone() * x1.clone().pow(&b.clone()))
-                / (x1.clone() * (x1.clone() - x0.clone()).powi(2));
-            let add = f_x.clone().div(f_x_der.clone());
-
-            if (x1.clone() + add.clone()).value.to_f64().value() > 0_f64 {
-                x1 = x1.clone() + add.clone();
-                err = BigNumber::from(add.clone().value.to_f32().value().abs());
-                counter += 1;
-            } else {
-                break;
-            }
-        }
-        let input_amount = (x1.clone() - tradable_reserves_base.clone()) / total_fee_mult;
-
-        let tradable_reserves_quote_final =
-            (lq_balance / x1.clone().pow(&w_base.clone())).pow(&BN_ONE.div(&w_quote));
-        let output_amount = tradable_reserves_quote - tradable_reserves_quote_final;
-
-        return Some((
-            <u64>::try_from(input_amount.value.to_int().value()).ok()?,
-            <u64>::try_from(output_amount.value.to_int().value()).ok()?,
-        ));
-    }
-
     fn available_liquidity_on_side(&self, worst_price: OnSide<AbsolutePrice>) -> Option<AvailableLiquidity> {
         const BN_ONE: BigNumber = BigNumber { value: DBig::ONE };
 
@@ -642,7 +571,7 @@ impl MarketMaker for BalancePool {
                 BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
                 BigNumber::from(self.weight_x as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
                 BigNumber::from((self.lp_fee_y - self.treasury_fee).to_f64()?),
-                BigNumber::from(*price.denom() as f64) / BigNumber::from(*price.numer() as f64),
+                BigNumber::from(*price.numer() as f64) / BigNumber::from(*price.denom() as f64),
             ),
             OnSide::Ask(price) => (
                 BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
@@ -650,7 +579,8 @@ impl MarketMaker for BalancePool {
                 BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
                 BigNumber::from(self.weight_y as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
                 BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64()?),
-                BigNumber::from(*price.numer() as f64) / BigNumber::from(*price.denom() as f64),
+                BigNumber::from(*price.denom() as f64) / BigNumber::from(*price.numer() as f64),
+
             ),
         };
         let lq_balance =
@@ -822,6 +752,7 @@ mod tests {
     use void::Void;
 
     use void::Void;
+
     use algebra_core::semigroup::Semigroup;
     use bloom_offchain::execution_engine::liquidity_book::core::{Next, Trans};
     use bloom_offchain::execution_engine::liquidity_book::market_maker::{
@@ -839,13 +770,16 @@ mod tests {
     use num_rational::Ratio;
 
     use algebra_core::semigroup::Semigroup;
-    use bloom_offchain::execution_engine::liquidity_book::core::{Next, Trans, Unit};
-    use bloom_offchain::execution_engine::liquidity_book::market_maker::MakerBehavior;
+    use bloom_offchain::execution_engine::liquidity_book::core::{Next, Trans};
+    use bloom_offchain::execution_engine::liquidity_book::market_maker::{
+        AvailableLiquidity, MakerBehavior, MarketMaker,
+    };
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
     use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
     use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
     use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
+    use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
 
