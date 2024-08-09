@@ -1,5 +1,11 @@
 use std::fmt::Debug;
 
+use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
+use bloom_offchain::execution_engine::liquidity_book::market_maker::{
+    AbsoluteReserves, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
+};
+use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
+use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
@@ -34,6 +40,8 @@ use spectrum_cardano_lib::AssetClass::Native;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
+use type_equalities::IsEqual;
+use void::Void;
 
 use crate::constants::{FEE_DEN, LEGACY_FEE_NUM_MULTIPLIER, MAX_LQ_CAP};
 use crate::data::deposit::ClassicalOnChainDeposit;
