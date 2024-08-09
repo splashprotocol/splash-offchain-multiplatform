@@ -933,14 +933,14 @@ pub mod tests {
     use std::fmt::{Debug, Display, Formatter};
 
     use either::Left;
-
     use spectrum_offchain::data::Stable;
+    use void::Void;
 
     use crate::execution_engine::liquidity_book::core::{Next, TerminalTake, Trans, Unit};
     use crate::execution_engine::liquidity_book::market_maker::{
-        AbsoluteReserves, Excess, MakerBalance, MakerBehavior, MarketMaker, SpotPrice,
+        AbsoluteReserves, MakerBehavior, MarketMaker, SpotPrice,
     };
-    use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBalance, TakerBehaviour};
+    use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
     use crate::execution_engine::liquidity_book::side::{OnSide, Side};
     use crate::execution_engine::liquidity_book::state::{
         AllowedPriceRange, Chronology, IdleState, MarketMakers, PartialPreviewState, PoolQuality,
@@ -1472,43 +1472,8 @@ pub mod tests {
         }
     }
 
-    impl MakerBalance for SimpleCFMMPool {
-        fn balance(&self, that: Self) -> Option<(Self, Excess)> {
-            let drx = that.reserves_base.checked_sub(self.reserves_quote);
-            if let Some(drx) = drx {
-                // input is base
-                let trade_input = drx;
-                let side = Side::Ask;
-                let rebalanced = match self.swap(side.wrap(trade_input)) {
-                    Next::Succ(pool) => Some(pool),
-                    Next::Term(_) => None,
-                }?;
-                let excess_quote = that.reserves_quote.checked_sub(rebalanced.reserves_quote)?;
-                let delta = Excess {
-                    base: 0,
-                    quote: excess_quote,
-                };
-                Some((rebalanced, delta))
-            } else {
-                // input is quote
-                let trade_input = that.reserves_quote.checked_sub(self.reserves_quote)?;
-                let side = Side::Bid;
-                let rebalanced = match self.swap(side.wrap(trade_input)) {
-                    Next::Succ(pool) => Some(pool),
-                    Next::Term(_) => None,
-                }?;
-                let excess_base = that.reserves_base.checked_sub(rebalanced.reserves_base)?;
-                let delta = Excess {
-                    base: excess_base,
-                    quote: 0,
-                };
-                Some((rebalanced, delta))
-            }
-        }
-    }
-
     impl MakerBehavior for SimpleCFMMPool {
-        fn swap(mut self, input: OnSide<u64>) -> Next<Self, Unit> {
+        fn swap(mut self, input: OnSide<u64>) -> Next<Self, Void> {
             let result = match input {
                 OnSide::Bid(quote_input) => {
                     let base_output =

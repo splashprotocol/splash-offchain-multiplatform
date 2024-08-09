@@ -14,9 +14,6 @@ use cml_chain::utils::BigInteger;
 use cml_chain::{Coin, PolicyId};
 use cml_core::serialization::Serialize;
 
-use cml_multi_era::babbage::BabbageTransactionOutput;
-use log::info;
-
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
@@ -24,6 +21,8 @@ use bloom_offchain::execution_engine::liquidity_book::market_maker::{
 };
 use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+use cml_multi_era::babbage::BabbageTransactionOutput;
+use log::info;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
@@ -34,6 +33,7 @@ use spectrum_offchain::data::event::Predicted;
 use spectrum_offchain::data::{Has, Stable, Tradable};
 use spectrum_offchain::executor::RunOrderError;
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
+use void::Void;
 
 use crate::creds::OperatorRewardAddress;
 use crate::data::balance_pool::{BalancePool, BalancePoolRedeemer};
@@ -263,7 +263,7 @@ pub struct PoolAssetMapping {
 }
 
 impl MakerBehavior for AnyPool {
-    fn swap(mut self, input: OnSide<u64>) -> Next<Self, Unit> {
+    fn swap(mut self, input: OnSide<u64>) -> Next<Self, Void> {
         match self {
             PureCFMM(p) => p.swap(input).map_succ(PureCFMM),
             BalancedCFMM(p) => p.swap(input).map_succ(BalancedCFMM),

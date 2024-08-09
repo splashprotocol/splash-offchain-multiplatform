@@ -1,6 +1,12 @@
 use std::fmt::Debug;
 use std::ops::Mul;
 
+use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
+use bloom_offchain::execution_engine::liquidity_book::market_maker::{
+    AbsoluteReserves, Excess, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
+};
+use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
+use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
@@ -12,13 +18,6 @@ use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
 use num_traits::{CheckedAdd, CheckedSub, Pow, ToPrimitive};
 use primitive_types::U512;
-
-use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
-use bloom_offchain::execution_engine::liquidity_book::market_maker::{
-    AbsoluteReserves, Excess, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
-};
-use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
-use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension};
 use spectrum_cardano_lib::plutus_data::{IntoPlutusData, PlutusDataExtension};
@@ -29,6 +28,7 @@ use spectrum_cardano_lib::AssetClass::Native;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
+use void::Void;
 
 use crate::constants::{FEE_DEN, MAX_LQ_CAP};
 use crate::data::cfmm_pool::AMMOps;
@@ -404,7 +404,7 @@ impl AMMOps for StablePoolT2T {
 }
 
 impl MakerBehavior for StablePoolT2T {
-    fn swap(mut self, input: OnSide<u64>) -> Next<Self, Unit> {
+    fn swap(mut self, input: OnSide<u64>) -> Next<Self, Void> {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, quote] = order_canonical(x, y);

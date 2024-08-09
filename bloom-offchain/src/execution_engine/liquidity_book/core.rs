@@ -1,14 +1,3 @@
-use derive_more::{Display, Into};
-use either::Either;
-use log::trace;
-use num_rational::Ratio;
-use std::cmp::{max, min};
-use std::collections::{HashMap, HashSet};
-use std::fmt::{Display, Formatter};
-use std::hash::Hash;
-use std::mem;
-use std::ops::AddAssign;
-
 use crate::display::display_vec;
 use crate::execution_engine::bundled::Bundled;
 use crate::execution_engine::liquidity_book::market_maker::{AbsoluteReserves, MakerBehavior, MarketMaker};
@@ -17,7 +6,18 @@ use crate::execution_engine::liquidity_book::side::{OnSide, Side};
 use crate::execution_engine::liquidity_book::types::{FeeAsset, InputAsset, OutputAsset};
 use algebra_core::monoid::Monoid;
 use algebra_core::semigroup::Semigroup;
+use derive_more::{Display, Into};
+use either::Either;
+use log::trace;
+use num_rational::Ratio;
 use spectrum_offchain::data::Stable;
+use std::cmp::{max, min};
+use std::collections::{HashMap, HashSet};
+use std::fmt::{Display, Formatter};
+use std::hash::Hash;
+use std::mem;
+use std::ops::AddAssign;
+use void::Void;
 
 /// Terminal state of a take that was fulfilled.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -168,11 +168,11 @@ pub type FinalTake<Taker> = Final<TakeInProgress<Taker>>;
 
 pub type Take<Taker, Bearer> = Trans<Bundled<Taker, Bearer>, Taker, TerminalTake>;
 
-pub type MakeInProgress<Maker> = Trans<Maker, Maker, Unit>;
+pub type MakeInProgress<Maker> = Trans<Maker, Maker, Void>;
 
 pub type FinalMake<Maker> = Final<MakeInProgress<Maker>>;
 
-pub type Make<Maker, Bearer> = Trans<Bundled<Maker, Bearer>, Maker, Unit>;
+pub type Make<Maker, Bearer> = Trans<Bundled<Maker, Bearer>, Maker, Void>;
 
 #[derive(Debug, Clone)]
 pub struct Final<T>(pub T);
@@ -460,7 +460,6 @@ impl<Maker> MakeInProgress<Maker> {
                         base: 0,
                         quote: excess_quote,
                     };
-                    trace!("Rebalanced ok");
                     Some((Final(Trans::new(target, Next::Succ(rebalanced))), delta))
                 } else {
                     let trade_input = next_reserves.quote.checked_sub(target_reserves.quote)?;
@@ -475,7 +474,6 @@ impl<Maker> MakeInProgress<Maker> {
                         base: excess_base,
                         quote: 0,
                     };
-                    trace!("Rebalanced ok");
                     Some((Final(Trans::new(target, Next::Succ(rebalanced))), delta))
                 }
             }
