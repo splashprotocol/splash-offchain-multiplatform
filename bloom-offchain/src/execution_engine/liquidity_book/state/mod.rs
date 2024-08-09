@@ -622,11 +622,20 @@ where
             .values()
             .filter(|pool| pool.is_active())
             .filter_map(|p| {
-                let AvailableLiquidity { input,.. } =
-                    p.available_liquidity_on_side(side.wrap(price))?;
+                let AvailableLiquidity { input, output } = p.available_liquidity_on_side(side.wrap(price))?;
+                let absolute_price = match side {
+                    Side::Bid => AbsolutePrice::new(input, output)?,
+                    Side::Ask => AbsolutePrice::new(output, input)?,
+                };
                 if input > 0 {
                     if demand >= input {
-                        Some((p.stable_id(), FillPreview { price, input }))
+                        Some((
+                            p.stable_id(),
+                            FillPreview {
+                                price: absolute_price,
+                                input,
+                            },
+                        ))
                     } else {
                         let real_price = p.real_price(side.wrap(demand))?;
                         Some((
@@ -645,22 +654,6 @@ where
             Side::Bid => pools.min_by_key(|(_, rp)| rp.price),
             Side::Ask => pools.max_by_key(|(_, rp)| rp.price),
         }
-    }
-
-    pub fn try_pick_pool<F>(&mut self, test: F) -> Option<M>
-    where
-        T: MarketTaker + Ord + Copy,
-        F: Fn(&M) -> bool,
-    {
-        self.pick_maker(|pools| {
-            for id in pools.quality_index.values() {
-                match pools.values.entry(*id) {
-                    Entry::Occupied(pl) if test(pl.get()) => return Some(pl.remove()),
-                    _ => {}
-                }
-            }
-            None
-        })
     }
 
     pub fn pick_maker_by_id(&mut self, pid: &M::StableId) -> Option<M>
