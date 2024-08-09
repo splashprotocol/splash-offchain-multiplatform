@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 use std::ops::Div;
+use std::ops::{Div, Mul, Neg};
 use std::ops::Mul;
 
 use bignumber::BigNumber;
@@ -14,9 +15,12 @@ use cml_chain::Value;
 use cml_core::serialization::LenEncoding::{Canonical, Indefinite};
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use dashu_float::DBig;
+use dashu_float::DBig;
+use num_integer::Roots;
 use num_rational::Ratio;
 use num_traits::{CheckedAdd, CheckedSub};
 use num_traits::ToPrimitive;
+use num_traits::{CheckedAdd, CheckedSub, ToPrimitive};
 use primitive_types::U512;
 use void::Void;
 
@@ -536,6 +540,55 @@ impl MarketMaker for BalancePool {
             }
         }
     }
+
+    fn available_liquidity_on_side(&self, worst_price: OnSide<Ratio<u128>>) -> Option<(u64, u64)> {
+        const BN_ONE: BigNumber = BigNumber { value: DBig::ONE };
+
+        let (tradable_reserves_base, w_base, tradable_reserves_quote, w_quote, total_fee_mult) =
+            match worst_price {
+                OnSide::Bid(_) => (
+                    BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
+                    BigNumber::from(self.weight_y as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
+                    BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
+                    BigNumber::from(self.weight_x as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
+                    BigNumber::from((self.lp_fee_y - self.treasury_fee).to_f64().unwrap()),
+                ),
+                OnSide::Ask(_) => (
+                    BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
+                    BigNumber::from(self.weight_x as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
+                    BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
+                    BigNumber::from(self.weight_y as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
+                    BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64().unwrap()),
+                ),
+            };
+        let lq_balance =
+            tradable_reserves_base.pow(&w_base.clone()) * tradable_reserves_quote.pow(&w_quote.clone());
+
+        let market_price = tradable_reserves_quote
+            .clone()
+            .div(w_quote.clone())
+            .div(tradable_reserves_base.clone().div(w_base.clone()))
+            * total_fee_mult.clone();
+
+        let impact_price = market_price.clone()
+            * (BN_ONE
+                - BigNumber::from(*worst_price.unwrap().numer() as f64)
+                    .div(BigNumber::from(*worst_price.unwrap().denom() as f64)));
+        //# Constants for calculations:
+        let x1 = (market_price.clone() / impact_price.clone()).pow(&w_quote.clone())
+            * tradable_reserves_base.clone();
+        let base_delta = (x1.clone() - tradable_reserves_base.clone()) / total_fee_mult;
+
+        let tradable_reserves_quote_final =
+            (lq_balance / x1.clone().pow(&w_base.clone())).pow(&BN_ONE.div(&w_quote));
+        let quote_delta = tradable_reserves_quote - tradable_reserves_quote_final;
+
+        return Some((
+            <u64>::try_from(quote_delta.value.to_int().value()).unwrap(),
+            <u64>::try_from(base_delta.value.to_int().value()).unwrap(),
+        ));
+    }
+
     fn available_liquidity_on_side(&self, worst_price: OnSide<AbsolutePrice>) -> Option<AvailableLiquidity> {
         const BN_ONE: BigNumber = BigNumber { value: DBig::ONE };
 
@@ -742,6 +795,20 @@ mod tests {
     };
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
+    use std::cmp::min;
+
+    use cml_chain::Deserialize;
+    use cml_chain::plutus::PlutusData;
+    use cml_core::serialization::Serialize;
+    use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
+    use num_rational::Ratio;
+
+    use algebra_core::semigroup::Semigroup;
+    use bloom_offchain::execution_engine::liquidity_book::core::{Next, Trans, Unit};
+    use bloom_offchain::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker};
+    use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
+    use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
+    use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
     use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
     use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
     use spectrum_cardano_lib::ex_units::ExUnits;
@@ -986,5 +1053,20 @@ mod tests {
 
         assert_eq!(quote_qty_ask_spot, 2813733);
         assert_eq!(quote_qty_bid_spot, 14477946)
+    }
+
+    #[test]
+    fn available_liquidity_test() {
+        let pool = gen_ada_token_pool(2105999997, 1981759952, 9223372036854587823, 99000, 99000, 0, 0, 0);
+
+        // Repair available volumes from pool spot price impact.
+        let price_impact = Ratio::new(355981766792995, 9007199254740992);
+
+        let (quote_qty_ask_spot, _) = pool.available_liquidity_on_side(Ask(price_impact)).unwrap();
+
+        let (quote_qty_bid_spot, _) = pool.available_liquidity_on_side(Bid(price_impact)).unwrap();
+
+        assert_eq!(quote_qty_ask_spot, 15918267);
+        assert_eq!(quote_qty_bid_spot, 66853939)
     }
 }

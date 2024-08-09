@@ -1,5 +1,7 @@
 use std::fmt::Debug;
+use std::ops::Div;
 
+use bignumber::BigNumber;
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
@@ -8,7 +10,10 @@ use cml_chain::transaction::{ConwayFormatTxOut, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_multi_era::babbage::BabbageTransactionOutput;
+use dashu_float::DBig;
+use num_rational::Ratio;
 use num_traits::CheckedSub;
+use num_traits::real::Real;
 use type_equalities::IsEqual;
 
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
@@ -17,6 +22,7 @@ use bloom_offchain::execution_engine::liquidity_book::market_maker::{
 };
 use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
@@ -24,7 +30,6 @@ use spectrum_cardano_lib::plutus_data::{
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
@@ -35,12 +40,13 @@ use crate::data::pair::order_canonical;
 use crate::data::pool::{
     ApplyOrder, ApplyOrderError, CFMMPoolAction, ImmutablePoolUtxo, PoolAssetMapping, PoolBounds, Rx, Ry,
 };
-use crate::data::stable_pool_t2t::StablePoolT2T;
 use crate::data::PoolId;
-use crate::deployment::ProtocolValidator::DegenQuadraticPoolV1;
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
+use crate::deployment::ProtocolValidator::DegenQuadraticPoolV1;
 use crate::fees::FeeExtension;
-use crate::pool_math::degen_quadratic_math::{degen_quadratic_output_amount, A_DENOM, B_DENOM};
+use crate::pool_math::degen_quadratic_math::{
+    A_DENOM, B_DENOM, degen_quadratic_output_amount, TOKEN_EMISSION,
+};
 
 pub struct DegenQuadraticPoolConfig {
     pub pool_nft: TaggedAssetClass<PoolNft>,
@@ -324,6 +330,160 @@ impl MarketMaker for DegenQuadraticPool {
             }
         }
     }
+
+    fn available_liquidity_on_side(&self, worst_price: OnSide<Ratio<u128>>) -> Option<(u64, u64)> {
+        const BN_ZERO: BigNumber = BigNumber { value: DBig::ZERO };
+
+        let n_27 = BigNumber::from(27f64);
+        let n_2916 = BigNumber::from(2916f64);
+
+        let sqrt_degree = BigNumber::from(0.5f64);
+        let cbrt_degree = BigNumber::from(1f64 / 3f64);
+
+        let target_price = worst_price.unwrap();
+
+        let x0_val = self.reserves_x.untag() as f64;
+        let x0 = BigNumber::from(x0_val);
+        let supply_y0 = BigNumber::from((TOKEN_EMISSION - self.reserves_y.untag()) as f64);
+        let supply_y0_x3 = supply_y0.clone() * supply_y0.clone() * supply_y0.clone();
+
+        let a = BigNumber::from(self.a_num as f64) / BigNumber::from(A_DENOM as f64);
+        let a_x2 = a.clone() * a.clone();
+        let a_x3 = a.clone() * a_x2.clone();
+        let b = BigNumber::from(self.b_num as f64 / B_DENOM as f64);
+        let b_x2 = b.clone() * b.clone();
+        let b_x3 = b.clone() * b_x2.clone();
+
+        let mut err = 2i64;
+        let mut counter = 0usize;
+
+        let (delta_quote, delta_base) = match worst_price {
+            OnSide::Ask(_) => {
+                const COEFF_DENOM: u64 = 100000000000000;
+                const COEFF_1_NUM: u64 = 26456684199470;
+                const COEFF_0_NUM: u64 = 377976314968462;
+
+                let n_81 = BigNumber::from(81f64);
+
+                let coeff_denom = BigNumber::from(COEFF_DENOM as f64);
+                let coeff_0 = BigNumber::from(COEFF_0_NUM as f64) / coeff_denom.clone();
+                let coeff_1 = BigNumber::from(COEFF_1_NUM as f64) / coeff_denom;
+
+                let p = BigNumber::from(*target_price.numer() as f64)
+                    / BigNumber::from(*target_price.denom() as f64);
+                let mut x1 = BigNumber::from(self.ada_cup_thr as f64);
+                while (err >= 1 || err <= -1) && counter < 255 {
+                    let a_coeff = n_27.clone() * a_x3.clone() * supply_y0_x3.clone()
+                        + n_81.clone() * a_x2.clone() * b.clone() * supply_y0.clone()
+                        + n_81.clone() * a_x2.clone() * (x1.clone() - x0.clone());
+                    let a_coeff_x2 = a_coeff.clone() * a_coeff.clone();
+                    let b_coeff = a_coeff.clone()
+                        + (n_2916.clone() * a_x3.clone() * b_x3.clone() + a_coeff_x2.clone())
+                            .pow(&sqrt_degree.clone());
+                    let b_coeff_1_3 = b_coeff.pow(&cbrt_degree.clone());
+                    let b_coeff_2_3 = b_coeff_1_3.clone() * b_coeff_1_3.clone();
+                    let b_coeff_4_3 = b_coeff_2_3.clone() * b_coeff_2_3.clone();
+                    let c_coeff = n_27.clone() * a_x2.clone() * a_coeff
+                        / (n_2916.clone() * a_x3.clone() * b_x3.clone() + a_coeff_x2)
+                            .pow(&sqrt_degree.clone())
+                        + n_27.clone() * a_x2.clone();
+                    let add_num = (coeff_1.clone() * b_coeff_1_3.clone()).div(a.clone())
+                        - (coeff_0.clone() * b.clone()).div(b_coeff_1_3)
+                        - p.clone() * (x1.clone() - x0.clone())
+                        - supply_y0.clone();
+                    let add_denom = (coeff_0.clone() * b.clone() * c_coeff.clone()).div(b_coeff_4_3)
+                        - p.clone()
+                        + (coeff_1.clone() * c_coeff.clone()).div(a.clone() * b_coeff_2_3);
+                    let additional = add_num.div(add_denom);
+
+                    let x_new =
+                        <i64>::try_from((x1.clone() - additional.clone()).value.to_int().value()).unwrap();
+
+                    if x_new < self.ada_cup_thr as i64 && x_new as f64 > x0_val {
+                        x1 = x1.clone() - additional.clone()
+                    } else {
+                        return Some((self.reserves_y.untag(), self.ada_cup_thr - x0_val as u64));
+                    }
+                    err = <i64>::try_from(additional.value.to_int().value()).unwrap();
+                }
+                let delta_x = x1 - x0;
+                let delta_y = delta_x.clone() * p;
+                (delta_y, delta_x)
+            }
+            OnSide::Bid(_) => {
+                let n_2 = BigNumber::from(2f64);
+                let n_3 = BigNumber::from(3f64);
+                let n_4 = BigNumber::from(4f64);
+                let n_6 = BigNumber::from(6f64);
+                let n_18 = BigNumber::from(18f64);
+                let n_243 = BigNumber::from(243f64);
+                let n_729 = BigNumber::from(729f64);
+
+                let mut err = 2i64;
+                let mut counter = 0usize;
+                let p = BigNumber::from(*target_price.denom() as f64)
+                    / BigNumber::from(*target_price.numer() as f64);
+                let mut x1 = BN_ZERO;
+                while (err >= 1 || err <= -1) && counter < 255 {
+                    let a_coeff = n_27.clone()
+                        * (n_3.clone() * x0.clone()
+                            - a.clone() * supply_y0_x3.clone()
+                            - n_3.clone() * b.clone() * supply_y0.clone()
+                            - n_3.clone() * x1.clone())
+                        / (n_2.clone() * a.clone());
+                    let b_coeff_base = (n_3.clone() * x0.clone()
+                        - a.clone() * supply_y0_x3.clone()
+                        - n_3.clone() * b.clone() * supply_y0.clone()
+                        - n_3.clone() * x1.clone());
+                    let b_coeff_base_ = (n_729.clone() * b_coeff_base.clone() * b_coeff_base.clone())
+                        .div(a_x2.clone())
+                        + (n_2916.clone() * b_x3.clone()).div(a_x3.clone());
+
+                    let b_coeff = b_coeff_base_.clone().pow(&sqrt_degree.clone());
+                    let c_coeff = b_coeff.clone() / n_2.clone() + a_coeff.clone();
+                    let c_coeff_1_3 = c_coeff.pow(&cbrt_degree.clone());
+                    let c_coeff_2_3 = c_coeff_1_3.clone() * c_coeff_1_3.clone();
+                    let c_coeff_4_3 = c_coeff_2_3.clone() * c_coeff_2_3.clone();
+
+                    let d_coeff = n_27.clone() / (n_2.clone() * a.clone())
+                        - n_243.clone()
+                            * (n_6.clone() * a.clone() * supply_y0_x3.clone()
+                                + n_18.clone() * b.clone() * supply_y0.clone()
+                                - n_18.clone() * x0.clone()
+                                + n_18.clone() * x1.clone())
+                            / (n_4.clone() * a_x2.clone() * b_coeff);
+                    let add_num = supply_y0.clone() - p.clone() * (x0.clone() - x1.clone())
+                        + c_coeff_1_3.clone() / n_3.clone()
+                        - n_3.clone() * b.clone() / (a.clone() * c_coeff_1_3);
+                    let add_denom = p.clone()
+                        - d_coeff.clone() / (n_3.clone() * c_coeff_2_3)
+                        - n_3.clone() * b.clone() * d_coeff / (a.clone() * c_coeff_4_3);
+                    let additional = add_num.div(add_denom);
+
+                    let add_val = <i64>::try_from(additional.value.to_int().value()).unwrap();
+                    let x_new =
+                        <i64>::try_from((x1.clone() - additional.clone()).value.to_int().value()).unwrap();
+
+                    if x_new < self.ada_cup_thr as i64 && x_new as f64 > 0.0 {
+                        x1 = x1.clone() - additional.clone()
+                    } else {
+                        return Some((
+                            x0_val as u64,
+                            <u64>::try_from(supply_y0.value.to_int().value()).unwrap(),
+                        ));
+                    }
+                    err = add_val;
+                }
+                let delta_x = x0 - x1;
+                let delta_y = delta_x.clone() * p;
+                (delta_x, delta_y)
+            }
+        };
+        Some((
+            <u64>::try_from(delta_quote.value.to_int().value()).unwrap(),
+            <u64>::try_from(delta_base.value.to_int().value()).unwrap(),
+        ))
+    }
 }
 
 impl Has<DegenQuadraticPoolVer> for DegenQuadraticPool {
@@ -468,20 +628,22 @@ impl ApplyOrder<ClassicalOnChainLimitSwap> for DegenQuadraticPool {
 
 mod tests {
     use cml_crypto::ScriptHash;
+    use num_rational::Ratio;
+    use rand::{Rng, SeedableRng};
     use rand::prelude::StdRng;
     use rand::seq::SliceRandom;
-    use rand::{Rng, SeedableRng};
 
     use bloom_offchain::execution_engine::liquidity_book::core::Next;
-    use bloom_offchain::execution_engine::liquidity_book::market_maker::MakerBehavior;
+    use bloom_offchain::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker};
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
-    use spectrum_cardano_lib::ex_units::ExUnits;
+    use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
+    use spectrum_cardano_lib::ex_units::ExUnits;
 
     use crate::data::degen_quadratic_pool::{DegenQuadraticPool, DegenQuadraticPoolVer};
     use crate::data::pool::PoolBounds;
     use crate::data::PoolId;
-    use crate::pool_math::degen_quadratic_math::{calculate_a_num, A_DENOM, TOKEN_EMISSION};
+    use crate::pool_math::degen_quadratic_math::{A_DENOM, calculate_a_num, TOKEN_EMISSION};
 
     const LOVELACE: u64 = 1_000_000;
     const DEC: u64 = 1_000;
@@ -497,7 +659,7 @@ mod tests {
             id: PoolId::from((
                 ScriptHash::from([
                     162, 206, 112, 95, 150, 240, 52, 167, 61, 102, 158, 92, 11, 47, 25, 41, 48, 224, 188,
-                    211, 138, 203, 127, 107, 246, 89, 115, 157,
+                    211, 138, 203, 27, 107, 246, 89, 115, 157,
                 ]),
                 AssetName::from((
                     3,
@@ -646,5 +808,49 @@ mod tests {
         assert_eq!(y_rec, 107295192);
         assert_eq!(x_rec, 123010076);
         assert_eq!(y_real_delta, y_rec);
+    }
+
+    #[test]
+    fn test_available_lq() {
+        let min_utxo = 0;
+        let ada_cap: u64 = 25_240 * LOVELACE;
+        let a: u64 = 174_150_190_999;
+        let b: u64 = 2_000_000;
+        let to_dep: u64 = 123_010_079;
+        let pool0 = gen_ada_token_pool(min_utxo, TOKEN_EMISSION, a, b, ada_cap);
+
+        let Next::Succ(pool1) = pool0.swap(OnSide::Ask(to_dep)) else {
+            panic!()
+        };
+        let y_rec = pool0.reserves_y.untag() - pool1.reserves_y.untag();
+
+        let w_price = Ratio::new_raw(y_rec as u128, to_dep as u128);
+        let Some((q, b)) = pool0.available_liquidity_on_side(Ask(w_price)) else {
+            panic!()
+        };
+        assert_eq!(q, 56319924);
+        assert_eq!(b, 123010091);
+
+        let Next::Succ(pool2) = pool1.swap(OnSide::Bid(y_rec / 2)) else {
+            panic!()
+        };
+
+        let x_rec = pool1.reserves_x.untag() - pool2.reserves_x.untag();
+
+        let w_price = Ratio::new_raw(x_rec as u128, (y_rec / 2) as u128);
+
+        let Some((q, b)) = pool1.available_liquidity_on_side(Bid(w_price)) else {
+            panic!()
+        };
+        assert_eq!(q, 65393878);
+        assert_eq!(b, 28159959);
+
+        let too_high_ask_price = Ratio::new_raw(1u128, 200u128);
+
+        let Some((q, b)) = pool1.available_liquidity_on_side(Ask(too_high_ask_price)) else {
+            panic!()
+        };
+        assert_eq!(q, pool1.reserves_y.untag());
+        assert_eq!(b, pool1.ada_cup_thr - pool1.reserves_x.untag());
     }
 }
