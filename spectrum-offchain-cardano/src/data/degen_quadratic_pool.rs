@@ -12,7 +12,7 @@ use cml_chain::Value;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use dashu_float::DBig;
 use num_rational::Ratio;
-use num_traits::CheckedSub;
+use num_traits::{CheckedDiv, CheckedSub};
 use num_traits::real::Real;
 use type_equalities::IsEqual;
 
@@ -357,7 +357,7 @@ impl MarketMaker for DegenQuadraticPool {
         let mut err = 2i64;
         let mut counter = 0usize;
 
-        let (delta_quote, delta_base) = match worst_price {
+        let (output_amount, input_amount) = match worst_price {
             OnSide::Ask(_) => {
                 const COEFF_DENOM: u64 = 100000000000000;
                 const COEFF_1_NUM: u64 = 26456684199470;
@@ -397,14 +397,21 @@ impl MarketMaker for DegenQuadraticPool {
                     let additional = add_num.div(add_denom);
 
                     let x_new =
-                        <i64>::try_from((x1.clone() - additional.clone()).value.to_int().value()).unwrap();
+                        <i64>::try_from((x1.clone() - additional.clone()).value.to_int().value()).ok()?;
 
                     if x_new < self.ada_cup_thr as i64 && x_new as f64 > x0_val {
                         x1 = x1.clone() - additional.clone()
                     } else {
-                        return Some((self.reserves_y.untag(), self.ada_cup_thr - x0_val as u64));
+                        let token_delta = self.ada_cup_thr - x0_val as u64;
+                        let ada_delta = self
+                            .output_amount(
+                                TaggedAssetClass::new(self.asset_x.into()),
+                                TaggedAmount::new(token_delta),
+                            )
+                            .untag();
+                        return Some((token_delta, ada_delta));
                     }
-                    err = <i64>::try_from(additional.value.to_int().value()).unwrap();
+                    err = <i64>::try_from(additional.value.to_int().value()).ok()?;
                 }
                 let delta_x = x1 - x0;
                 let delta_y = delta_x.clone() * p;
@@ -460,16 +467,16 @@ impl MarketMaker for DegenQuadraticPool {
                         - n_3.clone() * b.clone() * d_coeff / (a.clone() * c_coeff_4_3);
                     let additional = add_num.div(add_denom);
 
-                    let add_val = <i64>::try_from(additional.value.to_int().value()).unwrap();
+                    let add_val = <i64>::try_from(additional.value.to_int().value()).ok()?;
                     let x_new =
-                        <i64>::try_from((x1.clone() - additional.clone()).value.to_int().value()).unwrap();
+                        <i64>::try_from((x1.clone() - additional.clone()).value.to_int().value()).ok()?;
 
                     if x_new < self.ada_cup_thr as i64 && x_new as f64 > 0.0 {
                         x1 = x1.clone() - additional.clone()
                     } else {
                         return Some((
+                            <u64>::try_from(supply_y0.value.to_int().value()).ok()?,
                             x0_val as u64,
-                            <u64>::try_from(supply_y0.value.to_int().value()).unwrap(),
                         ));
                     }
                     err = add_val;
@@ -480,8 +487,8 @@ impl MarketMaker for DegenQuadraticPool {
             }
         };
         Some((
-            <u64>::try_from(delta_quote.value.to_int().value()).unwrap(),
-            <u64>::try_from(delta_base.value.to_int().value()).unwrap(),
+            <u64>::try_from(input_amount.value.to_int().value()).ok()?,
+            <u64>::try_from(output_amount.value.to_int().value()).ok()?,
         ))
     }
 }
@@ -825,7 +832,7 @@ mod tests {
         let y_rec = pool0.reserves_y.untag() - pool1.reserves_y.untag();
 
         let w_price = Ratio::new_raw(y_rec as u128, to_dep as u128);
-        let Some((q, b)) = pool0.available_liquidity_on_side(Ask(w_price)) else {
+        let Some((b, q)) = pool0.available_liquidity_on_side(Ask(w_price)) else {
             panic!()
         };
         assert_eq!(q, 56319924);
@@ -839,7 +846,7 @@ mod tests {
 
         let w_price = Ratio::new_raw(x_rec as u128, (y_rec / 2) as u128);
 
-        let Some((q, b)) = pool1.available_liquidity_on_side(Bid(w_price)) else {
+        let Some((b, q)) = pool1.available_liquidity_on_side(Bid(w_price)) else {
             panic!()
         };
         assert_eq!(q, 65393878);
@@ -847,10 +854,9 @@ mod tests {
 
         let too_high_ask_price = Ratio::new_raw(1u128, 200u128);
 
-        let Some((q, b)) = pool1.available_liquidity_on_side(Ask(too_high_ask_price)) else {
+        let Some((b, q)) = pool1.available_liquidity_on_side(Ask(too_high_ask_price)) else {
             panic!()
         };
-        assert_eq!(q, pool1.reserves_y.untag());
         assert_eq!(b, pool1.ada_cup_thr - pool1.reserves_x.untag());
     }
 }

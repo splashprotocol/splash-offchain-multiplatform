@@ -551,14 +551,14 @@ impl MarketMaker for BalancePool {
                     BigNumber::from(self.weight_y as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
                     BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
                     BigNumber::from(self.weight_x as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
-                    BigNumber::from((self.lp_fee_y - self.treasury_fee).to_f64().unwrap()),
+                    BigNumber::from((self.lp_fee_y - self.treasury_fee).to_f64()?),
                 ),
                 OnSide::Ask(_) => (
                     BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
                     BigNumber::from(self.weight_x as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
                     BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
                     BigNumber::from(self.weight_y as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
-                    BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64().unwrap()),
+                    BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64()?),
                 ),
             };
         let lq_balance =
@@ -577,15 +577,15 @@ impl MarketMaker for BalancePool {
         //# Constants for calculations:
         let x1 = (market_price.clone() / impact_price.clone()).pow(&w_quote.clone())
             * tradable_reserves_base.clone();
-        let base_delta = (x1.clone() - tradable_reserves_base.clone()) / total_fee_mult;
+        let input_amount = (x1.clone() - tradable_reserves_base.clone()) / total_fee_mult;
 
         let tradable_reserves_quote_final =
             (lq_balance / x1.clone().pow(&w_base.clone())).pow(&BN_ONE.div(&w_quote));
-        let quote_delta = tradable_reserves_quote - tradable_reserves_quote_final;
+        let output_amount = tradable_reserves_quote - tradable_reserves_quote_final;
 
         return Some((
-            <u64>::try_from(quote_delta.value.to_int().value()).unwrap(),
-            <u64>::try_from(base_delta.value.to_int().value()).unwrap(),
+            <u64>::try_from(input_amount.value.to_int().value()).ok()?,
+            <u64>::try_from(output_amount.value.to_int().value()).ok()?,
         ));
     }
 
@@ -1062,9 +1062,9 @@ mod tests {
         // Repair available volumes from pool spot price impact.
         let price_impact = Ratio::new(355981766792995, 9007199254740992);
 
-        let (quote_qty_ask_spot, _) = pool.available_liquidity_on_side(Ask(price_impact)).unwrap();
+        let (_, quote_qty_ask_spot) = pool.available_liquidity_on_side(Ask(price_impact)).unwrap();
 
-        let (quote_qty_bid_spot, _) = pool.available_liquidity_on_side(Bid(price_impact)).unwrap();
+        let (_, quote_qty_bid_spot) = pool.available_liquidity_on_side(Bid(price_impact)).unwrap();
 
         assert_eq!(quote_qty_ask_spot, 15918267);
         assert_eq!(quote_qty_bid_spot, 66853939)
