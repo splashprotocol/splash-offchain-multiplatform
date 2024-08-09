@@ -27,7 +27,6 @@ pub struct AbsoluteReserves {
 pub struct AvailableLiquidity {
     pub input: u64,
     pub output: u64,
-    pub price: AbsolutePrice,
 }
 
 /// Pooled liquidity.

@@ -622,7 +622,7 @@ where
             .values()
             .filter(|pool| pool.is_active())
             .filter_map(|p| {
-                let AvailableLiquidity { input, price, .. } =
+                let AvailableLiquidity { input,.. } =
                     p.available_liquidity_on_side(side.wrap(price))?;
                 if input > 0 {
                     if demand >= input {
