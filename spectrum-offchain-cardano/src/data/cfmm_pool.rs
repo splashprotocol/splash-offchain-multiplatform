@@ -26,8 +26,6 @@ use bloom_offchain::execution_engine::liquidity_book::market_maker::{
 };
 use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
-use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
-use spectrum_cardano_lib::AssetClass::Native;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
@@ -35,6 +33,8 @@ use spectrum_cardano_lib::plutus_data::{
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
+use spectrum_cardano_lib::AssetClass::Native;
+use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
@@ -49,12 +49,12 @@ use crate::data::pair::order_canonical;
 use crate::data::pool::{
     ApplyOrder, ApplyOrderError, ImmutablePoolUtxo, Lq, PoolAssetMapping, PoolBounds, Rx, Ry,
 };
-use crate::data::PoolId;
 use crate::data::redeem::ClassicalOnChainRedeem;
-use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
+use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::{
     ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2,
 };
+use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::fees::FeeExtension;
 use crate::pool_math::cfmm_math::{
     classic_cfmm_output_amount, classic_cfmm_reward_lp, classic_cfmm_shares_amount,
@@ -460,26 +460,27 @@ impl MarketMaker for ConstFnPool {
     }
 
     fn available_liquidity_on_side(&self, worst_price: OnSide<Ratio<u128>>) -> Option<(u64, u64)> {
-        const BN_ONE: BigNumber = BigNumber { value: DBig::ONE };
         let sqrt_degree = BigNumber::from(0.5);
 
-        let (tradable_reserves_base, tradable_reserves_quote, total_fee_mult) = match worst_price {
-            OnSide::Bid(_) => (
+        let (tradable_reserves_base, tradable_reserves_quote, total_fee_mult, price) = match worst_price {
+            OnSide::Bid(price) => (
                 BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
                 BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
-                BigNumber::from((self.lp_fee_y - self.treasury_fee).to_f64().unwrap()),
+                BigNumber::from((self.lp_fee_y - self.treasury_fee).to_f64()?),
+                price,
             ),
-            OnSide::Ask(_) => (
+            OnSide::Ask(price) => (
                 BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
                 BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
-                BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64().unwrap()),
+                BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64()?),
+                price,
             ),
         };
 
         let lq_balance = (tradable_reserves_base.clone() * tradable_reserves_quote.clone()).pow(&sqrt_degree);
 
-        let impact_price = BigNumber::from(*worst_price.unwrap().numer() as f64)
-            .div(BigNumber::from(*worst_price.unwrap().denom() as f64))
+        let avg_price = BigNumber::from(*price.numer() as f64)
+            .div(BigNumber::from(*price.denom() as f64))
             .div(total_fee_mult.clone());
 
         let p1 =
@@ -905,8 +906,9 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
     use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
-    use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
+    use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
     use spectrum_cardano_lib::ex_units::ExUnits;
+    use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
     use spectrum_offchain::data::Has;
     use spectrum_offchain::ledger::TryFromLedger;
 
@@ -922,11 +924,11 @@ mod tests {
     use crate::data::cfmm_pool::{ConstFnPool, ConstFnPoolVer};
     use crate::data::pool::PoolBounds;
     use crate::data::PoolId;
-    use crate::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
     use crate::deployment::ProtocolValidator::{
         ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolV1,
         ConstFnPoolV2,
     };
+    use crate::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
 
     fn gen_ada_token_pool(
         reserves_x: u64,

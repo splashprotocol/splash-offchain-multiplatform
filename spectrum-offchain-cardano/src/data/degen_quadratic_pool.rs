@@ -340,8 +340,6 @@ impl MarketMaker for DegenQuadraticPool {
         let sqrt_degree = BigNumber::from(0.5f64);
         let cbrt_degree = BigNumber::from(1f64 / 3f64);
 
-        let target_price = worst_price.unwrap();
-
         let x0_val = self.reserves_x.untag() as f64;
         let x0 = BigNumber::from(x0_val);
         let supply_y0 = BigNumber::from((TOKEN_EMISSION - self.reserves_y.untag()) as f64);
@@ -358,7 +356,7 @@ impl MarketMaker for DegenQuadraticPool {
         let mut counter = 0usize;
 
         let (output_amount, input_amount) = match worst_price {
-            OnSide::Ask(_) => {
+            OnSide::Ask(price) => {
                 const COEFF_DENOM: u64 = 100000000000000;
                 const COEFF_1_NUM: u64 = 26456684199470;
                 const COEFF_0_NUM: u64 = 377976314968462;
@@ -369,8 +367,8 @@ impl MarketMaker for DegenQuadraticPool {
                 let coeff_0 = BigNumber::from(COEFF_0_NUM as f64) / coeff_denom.clone();
                 let coeff_1 = BigNumber::from(COEFF_1_NUM as f64) / coeff_denom;
 
-                let p = BigNumber::from(*target_price.numer() as f64)
-                    / BigNumber::from(*target_price.denom() as f64);
+                let p = BigNumber::from(*price.numer() as f64)
+                    / BigNumber::from(*price.denom() as f64);
                 let mut x1 = BigNumber::from(self.ada_cup_thr as f64);
                 while (err >= 1 || err <= -1) && counter < 255 {
                     let a_coeff = n_27.clone() * a_x3.clone() * supply_y0_x3.clone()
@@ -417,7 +415,7 @@ impl MarketMaker for DegenQuadraticPool {
                 let delta_y = delta_x.clone() * p;
                 (delta_y, delta_x)
             }
-            OnSide::Bid(_) => {
+            OnSide::Bid(price) => {
                 let n_2 = BigNumber::from(2f64);
                 let n_3 = BigNumber::from(3f64);
                 let n_4 = BigNumber::from(4f64);
@@ -428,8 +426,8 @@ impl MarketMaker for DegenQuadraticPool {
 
                 let mut err = 2i64;
                 let mut counter = 0usize;
-                let p = BigNumber::from(*target_price.denom() as f64)
-                    / BigNumber::from(*target_price.numer() as f64);
+                let p = BigNumber::from(*price.denom() as f64)
+                    / BigNumber::from(*price.numer() as f64);
                 let mut x1 = BN_ZERO;
                 while (err >= 1 || err <= -1) && counter < 255 {
                     let a_coeff = n_27.clone()
