@@ -857,6 +857,11 @@ mod tests {
         let Some((b, q)) = pool1.available_liquidity_on_side(Ask(too_high_ask_price)) else {
             panic!()
         };
+        let Next::Succ(pool3) = pool1.swap(OnSide::Ask(pool1.ada_cup_thr - pool1.reserves_x.untag())) else {
+            panic!()
+        };
+        let y_max = pool1.reserves_y.untag() - pool3.reserves_y.untag();
+        assert_eq!(q, y_max);
         assert_eq!(b, pool1.ada_cup_thr - pool1.reserves_x.untag());
     }
 }

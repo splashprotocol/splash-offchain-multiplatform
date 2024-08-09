@@ -544,6 +544,9 @@ impl MarketMaker for BalancePool {
     fn available_liquidity_on_side(&self, worst_price: OnSide<Ratio<u128>>) -> Option<(u64, u64)> {
         const BN_ONE: BigNumber = BigNumber { value: DBig::ONE };
 
+        const MAX_ERR: i32 = 1;
+        const MAX_ITERS: u32 = 25;
+
         let (tradable_reserves_base, w_base, tradable_reserves_quote, w_quote, total_fee_mult) =
             match worst_price {
                 OnSide::Bid(_) => (
@@ -564,19 +567,40 @@ impl MarketMaker for BalancePool {
         let lq_balance =
             tradable_reserves_base.pow(&w_base.clone()) * tradable_reserves_quote.pow(&w_quote.clone());
 
-        let market_price = tradable_reserves_quote
-            .clone()
-            .div(w_quote.clone())
-            .div(tradable_reserves_base.clone().div(w_base.clone()))
-            * total_fee_mult.clone();
+        let avg_sell_price = BigNumber::from(*worst_price.unwrap().numer() as f64)
+            .div(BigNumber::from(*worst_price.unwrap().denom() as f64));
 
-        let impact_price = market_price.clone()
-            * (BN_ONE
-                - BigNumber::from(*worst_price.unwrap().numer() as f64)
-                    .div(BigNumber::from(*worst_price.unwrap().denom() as f64)));
         //# Constants for calculations:
-        let x1 = (market_price.clone() / impact_price.clone()).pow(&w_quote.clone())
-            * tradable_reserves_base.clone();
+        let a = (w_base.clone() + w_quote.clone()) / w_quote.clone();
+        let b = BN_ONE - a.clone();
+        let c = lq_balance.pow(&BN_ONE.div(w_quote.clone())) * w_base.clone() / w_quote.clone();
+        let k = c.clone() / b.clone();
+        //
+        let x0 = tradable_reserves_base.clone();
+        let mut x1 = x0.clone().mul(BigNumber::from(1.1)).to_precision(0); //int(1.1 * x0);
+        let mut err = tradable_reserves_base.clone();
+        let mut counter = 0;
+        // // # Numerical calculation procedure (usual less than 5 iterations).
+        // // # You can increase 'maxErr' value to decrease number of iters.
+        while err.to_precision(10).value.ge(&DBig::from(MAX_ERR)) && counter < MAX_ITERS {
+            let f_x = (avg_sell_price.clone().div(total_fee_mult.clone()))
+                - k.clone() * (x1.clone().pow(&b.clone()) - x0.clone().pow(&b.clone()))
+                    / (x1.clone() - x0.clone());
+            let f_x_der = k.clone()
+                * ((b.clone() - BN_ONE) * x1.clone().pow(&(b.clone() + BN_ONE))
+                    + x1.clone() * x0.clone().pow(&b.clone())
+                    - b.clone() * x0.clone() * x1.clone().pow(&b.clone()))
+                / (x1.clone() * (x1.clone() - x0.clone()).powi(2));
+            let add = f_x.clone().div(f_x_der.clone());
+
+            if (x1.clone() + add.clone()).value.to_f64().value() > 0_f64 {
+                x1 = x1.clone() + add.clone();
+                err = BigNumber::from(add.clone().value.to_f32().value().abs());
+                counter += 1;
+            } else {
+                break;
+            }
+        }
         let input_amount = (x1.clone() - tradable_reserves_base.clone()) / total_fee_mult;
 
         let tradable_reserves_quote_final =
@@ -1062,11 +1086,10 @@ mod tests {
         // Repair available volumes from pool spot price impact.
         let price_impact = Ratio::new(355981766792995, 9007199254740992);
 
-        let (_, quote_qty_ask_spot) = pool.available_liquidity_on_side(Ask(price_impact)).unwrap();
+        let worst_price = Ratio::new(4717703533773517, 1125899906842624);
+        let (_, quote_qty_bid_spot) = pool.available_liquidity_on_side(Bid(worst_price)).unwrap();
 
-        let (_, quote_qty_bid_spot) = pool.available_liquidity_on_side(Bid(price_impact)).unwrap();
-
-        assert_eq!(quote_qty_ask_spot, 15918267);
-        assert_eq!(quote_qty_bid_spot, 66853939)
+        assert_eq!(quote_qty_ask_spot, 2813733);
+        assert_eq!(quote_qty_bid_spot, 14477946)
     }
 }

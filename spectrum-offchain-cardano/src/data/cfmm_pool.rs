@@ -26,6 +26,8 @@ use bloom_offchain::execution_engine::liquidity_book::market_maker::{
 };
 use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
+use spectrum_cardano_lib::AssetClass::Native;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
@@ -33,8 +35,6 @@ use spectrum_cardano_lib::plutus_data::{
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::AssetClass::Native;
-use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
@@ -49,12 +49,12 @@ use crate::data::pair::order_canonical;
 use crate::data::pool::{
     ApplyOrder, ApplyOrderError, ImmutablePoolUtxo, Lq, PoolAssetMapping, PoolBounds, Rx, Ry,
 };
-use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
+use crate::data::redeem::ClassicalOnChainRedeem;
+use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::deployment::ProtocolValidator::{
     ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2,
 };
-use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::fees::FeeExtension;
 use crate::pool_math::cfmm_math::{
     classic_cfmm_output_amount, classic_cfmm_reward_lp, classic_cfmm_shares_amount,
@@ -478,18 +478,13 @@ impl MarketMaker for ConstFnPool {
 
         let lq_balance = (tradable_reserves_base.clone() * tradable_reserves_quote.clone()).pow(&sqrt_degree);
 
-        let market_price = tradable_reserves_quote
-            .clone()
-            .div(tradable_reserves_base.clone())
-            * total_fee_mult.clone();
-
-        let impact_price = market_price
-            * (BN_ONE
-                - BigNumber::from(*worst_price.unwrap().numer() as f64)
-                    .div(BigNumber::from(*worst_price.unwrap().denom() as f64)))
+        let impact_price = BigNumber::from(*worst_price.unwrap().numer() as f64)
+            .div(BigNumber::from(*worst_price.unwrap().denom() as f64))
             .div(total_fee_mult.clone());
 
-        let p1_sqrt = impact_price.clone().pow(&sqrt_degree);
+        let p1 =
+            (impact_price * lq_balance.clone() / tradable_reserves_quote.clone()).pow(&(BigNumber::from(2)));
+        let p1_sqrt = p1.clone().pow(&sqrt_degree);
         let x1 = lq_balance.clone() / p1_sqrt.clone();
         let y1 = lq_balance.clone() * p1_sqrt.clone();
 
@@ -909,8 +904,9 @@ mod tests {
     use spectrum_cardano_lib::ex_units::ExUnits;
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
     use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
-    use spectrum_cardano_lib::ex_units::ExUnits;
+    use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
+    use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_offchain::data::Has;
     use spectrum_offchain::ledger::TryFromLedger;
 
@@ -926,11 +922,11 @@ mod tests {
     use crate::data::cfmm_pool::{ConstFnPool, ConstFnPoolVer};
     use crate::data::pool::PoolBounds;
     use crate::data::PoolId;
+    use crate::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
     use crate::deployment::ProtocolValidator::{
         ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolV1,
         ConstFnPoolV2,
     };
-    use crate::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
 
     fn gen_ada_token_pool(
         reserves_x: u64,
@@ -1176,14 +1172,13 @@ mod tests {
 
         let pool = gen_ada_token_pool(reserves_x, reserves_y, 0, fee_num, fee_num, 0, 0, 0);
 
-        // Repair available volumes from pool spot price impact.
-        let price_impact = Ratio::new(179243265169347, 9007199254740992);
+        let worst_price = Ratio::new(4524831899687659, 1125899906842624);
+        let (_, quote_qty_ask_spot) = pool.available_liquidity_on_side(Ask(worst_price)).unwrap();
 
-        let (_, quote_qty_ask_spot) = pool.available_liquidity_on_side(Ask(price_impact)).unwrap();
-
-        let (_, quote_qty_bid_spot) = pool.available_liquidity_on_side(Bid(price_impact)).unwrap();
+        let worst_price = Ratio::new(2113163007279601, 9007199254740992);
+        let (_, quote_qty_bid_spot) = pool.available_liquidity_on_side(Bid(worst_price)).unwrap();
 
         assert_eq!(quote_qty_ask_spot, 46028591130);
-        assert_eq!(quote_qty_bid_spot, 11168540945)
+        assert_eq!(quote_qty_bid_spot, 20540799965)
     }
 }
