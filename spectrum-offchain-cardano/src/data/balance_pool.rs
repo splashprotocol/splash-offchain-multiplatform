@@ -565,7 +565,6 @@ impl MarketMaker for BalancePool {
                 BigNumber::from(self.weight_y as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
                 BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64()?),
                 BigNumber::from(*price.denom() as f64) / BigNumber::from(*price.numer() as f64),
-
             ),
         };
         let lq_balance =
