@@ -16,7 +16,7 @@ use crate::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
 use crate::execution_engine::liquidity_book::side::{OnSide, Side};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
 use crate::execution_engine::liquidity_book::state::queries::{max_by_distance_to_spot, max_by_volume};
-use crate::execution_engine::liquidity_book::state::{IdleState, TLBState};
+use crate::execution_engine::liquidity_book::state::{FillPreview, IdleState, TLBState};
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, RelativePrice};
 use crate::execution_engine::types::Time;
 use spectrum_offchain::data::{Has, Stable};
@@ -145,20 +145,23 @@ where
                     let target_side = target_taker.side();
                     let target_price = target_side.wrap(target_taker.price());
                     let maybe_price_counter_taker = self.state.best_taker_price(!target_side);
-                    let chunk_offered = batch.next_offered_chunk(&target_taker);
-                    let maybe_price_maker = self.state.preselect_market_maker(chunk_offered);
+                    let maybe_price_maker = self.state.preselect_market_maker(
+                        target_taker.price(),
+                        target_taker.input(),
+                        target_side,
+                    );
                     trace!(
                         "P_target: {}, P_counter: {}, P_amm: {}",
                         target_price.unwrap(),
                         display_option(maybe_price_counter_taker),
-                        display_option(maybe_price_maker.map(display_tuple))
+                        display_option(maybe_price_maker.map(|(id, fp)| display_tuple((id, fp.price))))
                     );
                     match (maybe_price_counter_taker, maybe_price_maker) {
                         (Some(price_counter_taker), maybe_price_maker)
                             if self.conf.o2o_allowed
                                 && target_price.overlaps(price_counter_taker.unwrap())
                                 && maybe_price_maker
-                                    .map(|(_, p)| price_counter_taker.better_than(p))
+                                    .map(|(_, fp)| price_counter_taker.better_than(fp.price))
                                     .unwrap_or(true) =>
                         {
                             if let Some(counter_taker) = self.state.try_pick_taker(!target_side, ok) {
@@ -174,10 +177,13 @@ where
                                 continue;
                             }
                         }
-                        (_, Some((maker_sid, price_maker))) if target_price.overlaps(price_maker) => {
+                        (_, Some((maker_sid, FillPreview { price, input })))
+                            if target_price.overlaps(price) =>
+                        {
                             if let Some(maker) = self.state.pick_maker_by_id(&maker_sid) {
                                 trace!("Taker {} matched with {}", target_taker, maker);
-                                let (take, make) = execute_with_maker(target_taker, maker, chunk_offered);
+                                let (take, make) =
+                                    execute_with_maker(target_taker, maker, target_side.wrap(input));
                                 batch.add_make(make);
                                 batch.add_take(take);
                                 self.on_take(take.result);

@@ -4,6 +4,7 @@ use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 use derive_more::{Display, Div, From, Into, Mul};
 use num_rational::Ratio;
 use std::cmp::Ordering;
+use void::Void;
 
 /// Price of a theoretical 0-swap in pool.
 #[repr(transparent)]
@@ -22,6 +23,13 @@ pub struct AbsoluteReserves {
     pub quote: u64,
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct AvailableLiquidity {
+    pub input: u64,
+    pub output: u64,
+    pub price: AbsolutePrice,
+}
+
 /// Pooled liquidity.
 pub trait MarketMaker {
     type U;
@@ -35,6 +43,8 @@ pub trait MarketMaker {
     fn marginal_cost_hint(&self) -> Self::U;
     /// How much base and quote asset is available.
     fn liquidity(&self) -> AbsoluteReserves;
+    /// How much base/quote asset is available at 'worst_price' or better.
+    fn available_liquidity_on_side(&self, worst_price: OnSide<AbsolutePrice>) -> Option<AvailableLiquidity>;
     /// Is this MM active at the moment or not.
     fn is_active(&self) -> bool;
 }
@@ -42,7 +52,7 @@ pub trait MarketMaker {
 /// Pooled liquidity.
 pub trait MakerBehavior: Sized {
     /// Output of a swap.
-    fn swap(self, input: OnSide<u64>) -> Next<Self, Unit>;
+    fn swap(self, input: OnSide<u64>) -> Next<Self, Void>;
 }
 
 #[derive(Debug, Eq, PartialEq)]
