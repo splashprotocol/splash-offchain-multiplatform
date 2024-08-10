@@ -1,17 +1,10 @@
 use std::cmp::Ordering;
 
-use derive_more::{Display, Div, From, Into, Mul};
-use num_rational::Ratio;
-use std::cmp::Ordering;
-use void::Void;
-
 use crate::execution_engine::liquidity_book::core::{Next, Unit};
-use crate::execution_engine::liquidity_book::core::{MakeInProgress, Next, Unit};
 use crate::execution_engine::liquidity_book::side::OnSide;
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 use derive_more::{Display, Div, From, Into, Mul};
 use num_rational::Ratio;
-use std::cmp::Ordering;
 use void::Void;
 
 /// Price of a theoretical 0-swap in pool.

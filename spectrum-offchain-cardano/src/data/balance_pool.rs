@@ -1,7 +1,5 @@
 use std::fmt::Debug;
-use std::ops::Div;
 use std::ops::{Div, Mul, Neg};
-use std::ops::Mul;
 
 use bignumber::BigNumber;
 use cml_chain::address::Address;
@@ -15,33 +13,20 @@ use cml_chain::Value;
 use cml_core::serialization::LenEncoding::{Canonical, Indefinite};
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use dashu_float::DBig;
-use dashu_float::DBig;
-use dashu_float::DBig;
 use num_integer::Roots;
 use num_rational::Ratio;
-use num_traits::ToPrimitive;
-use num_traits::{CheckedAdd, CheckedSub};
-use num_traits::ToPrimitive;
 use num_traits::{CheckedAdd, CheckedSub, ToPrimitive};
 use primitive_types::U512;
 use void::Void;
 
-use bloom_offchain::execution_engine::liquidity_book::core::Next;
-use bloom_offchain::execution_engine::liquidity_book::market_maker::AvailableLiquidity;
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
     AbsoluteReserves, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
 };
 use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
-use void::Void;
 
 use bloom_offchain::execution_engine::liquidity_book::core::Next;
-use bloom_offchain::execution_engine::liquidity_book::market_maker::{
-    AbsoluteReserves, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
-};
 use bloom_offchain::execution_engine::liquidity_book::market_maker::AvailableLiquidity;
-use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
-use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension};
 use spectrum_cardano_lib::plutus_data::{IntoPlutusData, PlutusDataExtension};
@@ -580,7 +565,6 @@ impl MarketMaker for BalancePool {
                 BigNumber::from(self.weight_y as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
                 BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64()?),
                 BigNumber::from(*price.denom() as f64) / BigNumber::from(*price.numer() as f64),
-
             ),
         };
         let lq_balance =
@@ -744,13 +728,11 @@ impl ApplyOrder<ClassicalOnChainRedeem> for BalancePool {
 mod tests {
     use std::cmp::min;
 
-    use cml_chain::Deserialize;
     use cml_chain::plutus::PlutusData;
+    use cml_chain::Deserialize;
     use cml_core::serialization::Serialize;
     use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
     use num_rational::Ratio;
-    use void::Void;
-
     use void::Void;
 
     use algebra_core::semigroup::Semigroup;
@@ -760,28 +742,10 @@ mod tests {
     };
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
-    use std::cmp::min;
-
-    use cml_chain::Deserialize;
-    use cml_chain::plutus::PlutusData;
-    use cml_chain::Deserialize;
-    use cml_core::serialization::Serialize;
-    use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
-    use num_rational::Ratio;
-
-    use algebra_core::semigroup::Semigroup;
-    use bloom_offchain::execution_engine::liquidity_book::core::{Next, Trans};
-    use bloom_offchain::execution_engine::liquidity_book::market_maker::{
-        AvailableLiquidity, MakerBehavior, MarketMaker,
-    };
-    use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
-    use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
-    use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
-    use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
-    use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
     use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
+    use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
 
     use crate::data::balance_pool::{BalancePool, BalancePoolConfig, BalancePoolRedeemer, BalancePoolVer};
     use crate::data::order::ClassicalOrder;
@@ -1019,20 +983,6 @@ mod tests {
         else {
             !panic!()
         };
-
-        assert_eq!(quote_qty_ask_spot, 2813733);
-        assert_eq!(quote_qty_bid_spot, 14477946)
-    }
-
-    #[test]
-    fn available_liquidity_test() {
-        let pool = gen_ada_token_pool(2105999997, 1981759952, 9223372036854587823, 99000, 99000, 0, 0, 0);
-
-        // Repair available volumes from pool spot price impact.
-        let price_impact = Ratio::new(355981766792995, 9007199254740992);
-
-        let worst_price = Ratio::new(4717703533773517, 1125899906842624);
-        let (_, quote_qty_bid_spot) = pool.available_liquidity_on_side(Bid(worst_price)).unwrap();
 
         assert_eq!(quote_qty_ask_spot, 2813733);
         assert_eq!(quote_qty_bid_spot, 14477946)

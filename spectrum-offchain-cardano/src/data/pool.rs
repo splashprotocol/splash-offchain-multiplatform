@@ -19,7 +19,6 @@ use cml_core::serialization::Serialize;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
 
-
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
@@ -27,10 +26,6 @@ use bloom_offchain::execution_engine::liquidity_book::market_maker::{
 };
 use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
-use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, Token};
-use cml_multi_era::babbage::BabbageTransactionOutput;
-use log::info;
-use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, Token};
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
@@ -46,9 +41,10 @@ use void::Void;
 use crate::creds::OperatorRewardAddress;
 use crate::data::balance_pool::{BalancePool, BalancePoolRedeemer};
 use crate::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
+use crate::data::degen_quadratic_pool::DegenQuadraticPool;
 use crate::data::order::{ClassicalOrderAction, ClassicalOrderRedeemer, Quote};
 use crate::data::pair::PairId;
-use crate::data::pool::AnyPool::{BalancedCFMM, PureCFMM, StableCFMM};
+use crate::data::pool::AnyPool::{BalancedCFMM, DegenPool, PureCFMM, StableCFMM};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::value::ValueExtension;
 
@@ -56,7 +52,7 @@ use crate::data::stable_pool_t2t::{StablePoolRedeemer, StablePoolT2T as StablePo
 use crate::data::OnChainOrderId;
 use crate::deployment::ProtocolValidator::{
     BalanceFnPoolV1, BalanceFnPoolV2, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,
-    ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, StableFnPoolT2T,
+    ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, DegenQuadraticPoolV1, StableFnPoolT2T,
 };
 use crate::deployment::{DeployedScriptInfo, RequiresValidator};
 
@@ -339,6 +335,7 @@ impl MarketMaker for AnyPool {
             PureCFMM(p) => p.available_liquidity_on_side(worst_price),
             BalancedCFMM(p) => p.available_liquidity_on_side(worst_price),
             StableCFMM(p) => p.available_liquidity_on_side(worst_price),
+            DegenPool(p) => p.available_liquidity_on_side(worst_price),
         }
     }
     fn is_active(&self) -> bool {
@@ -348,7 +345,6 @@ impl MarketMaker for AnyPool {
             StableCFMM(p) => p.is_active(),
             DegenPool(p) => p.is_active(),
         }
-
     }
 }
 
