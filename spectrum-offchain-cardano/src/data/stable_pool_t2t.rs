@@ -1,10 +1,7 @@
-use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
-use bloom_offchain::execution_engine::liquidity_book::market_maker::AvailableLiquidity;
-use bloom_offchain::execution_engine::liquidity_book::market_maker::{
-    AbsoluteReserves, Excess, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
-};
-use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
-use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+use std::fmt::Debug;
+use std::ops::Mul;
+
+use bignumber::BigNumber;
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
@@ -16,19 +13,25 @@ use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
 use num_traits::{CheckedAdd, CheckedSub, Pow, ToPrimitive};
 use primitive_types::U512;
+use void::Void;
+
+use bloom_offchain::execution_engine::liquidity_book::core::Next;
+use bloom_offchain::execution_engine::liquidity_book::market_maker::{
+    AbsoluteReserves, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
+};
+use bloom_offchain::execution_engine::liquidity_book::market_maker::AvailableLiquidity;
+use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
+use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
+use spectrum_cardano_lib::AssetClass::Native;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension};
 use spectrum_cardano_lib::plutus_data::{IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::AssetClass::Native;
-use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
-use std::fmt::Debug;
-use std::ops::Mul;
-use void::Void;
 
 use crate::constants::{FEE_DEN, MAX_LQ_CAP};
 use crate::data::cfmm_pool::AMMOps;
@@ -39,10 +42,10 @@ use crate::data::pair::order_canonical;
 use crate::data::pool::{
     ApplyOrder, ApplyOrderError, CFMMPoolAction, ImmutablePoolUtxo, Lq, PoolAssetMapping, PoolBounds, Rx, Ry,
 };
-use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
-use crate::deployment::ProtocolValidator::StableFnPoolT2T;
+use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
+use crate::deployment::ProtocolValidator::StableFnPoolT2T;
 use crate::pool_math::cfmm_math::classic_cfmm_shares_amount;
 use crate::pool_math::stable_math::stable_cfmm_reward_lp;
 use crate::pool_math::stable_pool_t2t_exact_math::{
@@ -548,7 +551,151 @@ impl MarketMaker for StablePoolT2T {
         }
     }
     fn available_liquidity_on_side(&self, worst_price: OnSide<AbsolutePrice>) -> Option<AvailableLiquidity> {
-        None
+        let (
+            tradable_reserves_base,
+            tradable_reserves_quote,
+            multiplier_base,
+            multiplier_quote,
+            total_fee_mult,
+            avg_price,
+        ) = match worst_price {
+            OnSide::Bid(price) => (
+                (self.reserves_y - self.treasury_y).untag(),
+                (self.reserves_x - self.treasury_x).untag(),
+                self.multiplier_y,
+                self.multiplier_x,
+                BigNumber::from((self.lp_fee_y - self.treasury_fee).to_f64()?),
+                BigNumber::from(*price.denom() as f64) / BigNumber::from(*price.numer() as f64),
+            ),
+            OnSide::Ask(price) => (
+                (self.reserves_x - self.treasury_x).untag(),
+                (self.reserves_y - self.treasury_y).untag(),
+                self.multiplier_x,
+                self.multiplier_y,
+                BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64()?),
+                BigNumber::from(*price.numer() as f64) / BigNumber::from(*price.denom() as f64),
+            ),
+        };
+
+        const N2N: f32 = 16.0;
+        let sqrt_degree = BigNumber::from(0.5);
+        let n_1 = BigNumber::from(1);
+        let n_2 = BigNumber::from(2);
+        let n_4 = BigNumber::from(4);
+        let n_8 = BigNumber::from(8);
+        let n_16 = BigNumber::from(16);
+        let n_32 = BigNumber::from(32);
+        let n_48 = BigNumber::from(48);
+        let n_64 = BigNumber::from(64);
+
+        let x0_orig = tradable_reserves_base * multiplier_base;
+        let y0_orig = tradable_reserves_quote * multiplier_quote;
+        let x0 = BigNumber::from(x0_orig as f64);
+        let y0 = BigNumber::from(y0_orig as f64);
+        let ampl_coeff = BigNumber::from(self.an2n as f64) / BigNumber::from(N2N);
+        let ampl_coeff2 = ampl_coeff.clone() * ampl_coeff.clone();
+        let d = BigNumber::from(calculate_invariant(
+            &U512::from(x0_orig),
+            &U512::from(y0_orig),
+            &U512::from(self.an2n),
+        )?);
+
+        let d2 = d.clone() * d.clone();
+        let ampl_coeff_d = ampl_coeff.clone() * d.clone();
+        let ampl_coeff2_d2 = ampl_coeff2.clone() * d2.clone();
+
+        let x_init = x0.clone();
+        let mut x = n_2.clone() * x_init.clone();
+        let mut k = n_1.clone();
+
+        let mut counter = 0;
+        let mut err = x0_orig as i64;
+        while err.abs() > 1 && counter < 255 {
+            let x2 = x.clone() * x.clone();
+            let x3 = x2.clone() * x.clone();
+            let d2_x = d2.clone() * x.clone();
+            let ampl_coeff2_d2_x = ampl_coeff2.clone() * d2_x.clone();
+            let c = n_16.clone() * ampl_coeff2_d2_x.clone()
+                - n_32.clone() * ampl_coeff2.clone() * d.clone() * x2.clone()
+                + n_16.clone() * ampl_coeff2.clone() * x3.clone()
+                + n_4.clone() * ampl_coeff_d.clone() * d2.clone()
+                - n_8.clone() * ampl_coeff.clone() * d2.clone() * x.clone()
+                + n_8.clone() * ampl_coeff_d.clone() * x2.clone()
+                + d2.clone() * x.clone();
+            k = n_4.clone() * (x.clone() * c.clone()).pow(&sqrt_degree);
+            let l =
+                d.clone() - n_4.clone() * ampl_coeff_d.clone() + n_4.clone() * ampl_coeff.clone() * x.clone();
+            let twice_cx = n_2.clone() * c.clone() * x.clone();
+            let add_num = twice_cx.clone()
+                * (x0.clone() - x.clone())
+                * (n_32.clone()
+                    * ampl_coeff.clone()
+                    * avg_price.clone()
+                    * x.clone()
+                    * (x.clone() - x0.clone())
+                    + (total_fee_mult.clone() - n_1.clone())
+                        * (n_32.clone() * ampl_coeff.clone() * x.clone() * y0.clone() - k.clone()
+                            + n_4.clone() * l.clone() * x.clone()));
+            let add_denom = (total_fee_mult.clone() - n_1.clone())
+                * (twice_cx.clone()
+                    * (n_32.clone() * ampl_coeff.clone() * x.clone() * y0.clone() - k.clone()
+                        + n_4.clone() * l.clone() * x.clone())
+                    + (x.clone() - x0.clone())
+                        * (k.clone()
+                            * (n_16.clone() * ampl_coeff2_d2_x.clone()
+                                - n_32.clone() * ampl_coeff2.clone() * d.clone() * x2.clone()
+                                + n_16.clone() * ampl_coeff2.clone() * x3.clone()
+                                + n_4.clone() * ampl_coeff_d.clone() * d2.clone()
+                                - n_8.clone() * ampl_coeff.clone() * d2_x.clone()
+                                + n_8.clone() * ampl_coeff_d.clone() * x2.clone()
+                                + d2_x.clone()
+                                + x.clone()
+                                    * (n_16.clone() * ampl_coeff2_d2.clone()
+                                        - n_64.clone() * ampl_coeff2.clone() * d.clone() * x.clone()
+                                        + n_48.clone() * ampl_coeff2.clone() * x2.clone()
+                                        - n_8.clone() * ampl_coeff.clone() * d2.clone()
+                                        + n_16.clone() * ampl_coeff_d.clone() * x.clone()
+                                        + d2.clone()))
+                            - n_8.clone()
+                                * c.clone()
+                                * x.clone()
+                                * (n_8.clone() * ampl_coeff.clone() * x.clone()
+                                    - n_4.clone() * ampl_coeff_d.clone()
+                                    + d.clone())
+                            + c.clone() * (n_8.clone() * l.clone() * x.clone() - n_2.clone() * k.clone())));
+            let add = add_num / add_denom;
+
+            err = <i64>::try_from(add.value.to_int().value()).ok()?;
+            let x_new = <i64>::try_from(x.value.to_int().value()).ok()? - err;
+            if x_new > 0 {
+                x = BigNumber::from(x_new as f64);
+            } else {
+                break;
+            }
+            counter += 1
+        }
+
+        let base_delta = x.clone() - x0.clone();
+        let input_amount_val = <u64>::try_from(base_delta.value.to_int().value()).ok()?;
+
+        let y1 = (n_4.clone()
+            * x.clone()
+            * (n_4.clone() * ampl_coeff.clone() * d.clone() - n_4 * ampl_coeff.clone() * x.clone() - d)
+            + k)
+            / (n_32 * ampl_coeff * x.clone());
+
+        let pure_quote_delta = y0 - y1;
+        let quote_delta_ = pure_quote_delta.clone() - pure_quote_delta.clone() * total_fee_mult;
+        let suppose_quote_delta = <u64>::try_from(quote_delta_.value.to_int().value()).ok()?;
+        let output_amount_val = if suppose_quote_delta > y0_orig {
+            y0_orig
+        } else {
+            suppose_quote_delta
+        };
+        return Some(AvailableLiquidity {
+            input: input_amount_val,
+            output: output_amount_val,
+        });
     }
 
     fn is_active(&self) -> bool {
@@ -667,25 +814,31 @@ impl ApplyOrder<ClassicalOnChainRedeem> for StablePoolT2T {
 
 #[cfg(test)]
 mod tests {
-    use bloom_offchain::execution_engine::liquidity_book::core::Next;
-    use bloom_offchain::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker};
-    use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
-    use cml_chain::plutus::PlutusData;
     use cml_chain::Deserialize;
+    use cml_chain::plutus::PlutusData;
     use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
     use num_rational::Ratio;
+    use num_traits::ToPrimitive;
     use primitive_types::U512;
+
+    use bloom_offchain::execution_engine::liquidity_book::core::Next;
+    use bloom_offchain::execution_engine::liquidity_book::market_maker::{
+        AvailableLiquidity, MakerBehavior, MarketMaker,
+    };
+    use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
+    use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
+    use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+    use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
-    use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
 
     use crate::constants::MAX_LQ_CAP;
+    use crate::data::{OnChainOrderId, PoolId};
     use crate::data::order::ClassicalOrder;
     use crate::data::order::OrderType::BalanceFn;
     use crate::data::pool::ApplyOrder;
     use crate::data::redeem::{ClassicalOnChainRedeem, Redeem};
     use crate::data::stable_pool_t2t::{StablePoolT2T, StablePoolT2TConfig, StablePoolT2TVer};
-    use crate::data::{OnChainOrderId, PoolId};
     use crate::pool_math::stable_pool_t2t_exact_math::calculate_invariant;
 
     const DATUM_SAMPLE: &str = "d8799fd8799f581c7dbe6f0c7849e2dae806cd4681910bfe1bbc0d5fd4e370e8e2f7bd4a436e6674ff190c80d8799f4040ffd8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737443ff0000d8799f581c6abe65f6adc8301ff4dbfcfcec1a187075639d21f85cae3c1cf2a060426c71ffd87980d879801a000186820a581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba260000ff";
@@ -912,16 +1065,89 @@ mod tests {
     }
 
     #[test]
-    fn swap0() {
-        // Swap to min decimals;
-        let pool = gen_ada_token_pool(1000000000000, 6, 1000000000000, 6, 100, 100, 0, 0, 0, 200 * 16);
+    fn available_liquidity_test() {
+        let pool = gen_ada_token_pool(3730031816494, 1, 3701037440628, 1, 100, 100, 0, 0, 0, 200 * 16);
 
-        let Next::Succ(result) = pool.swap(OnSide::Ask(100000000)) else {
+        let worst_price = AbsolutePrice::new(87, 100).unwrap();
+        let Some(AvailableLiquidity {
+            input: inp,
+            output: out,
+        }) = pool.available_liquidity_on_side(Ask(worst_price))
+        else {
+            !panic!()
+        };
+        assert_eq!(inp, 4216348326046);
+        assert_eq!(out, 3668223043660);
+
+        let pool = gen_ada_token_pool(3701037440628, 1, 3730031816494, 1, 100, 100, 0, 0, 0, 200 * 16);
+
+        let worst_price = AbsolutePrice::new(100, 87).unwrap();
+        let Some(AvailableLiquidity {
+            input: inp,
+            output: out,
+        }) = pool.available_liquidity_on_side(Bid(worst_price))
+        else {
+            !panic!()
+        };
+        assert_eq!(inp, 4216348326046);
+        assert_eq!(out, 3668223043660)
+    }
+
+    #[test]
+    fn safe_pool_ratio_test() {
+        // This test calculates what swap needs to be made to bring the pool to a state
+        // in which one of the assets is available for sale at a price no better than the specified one.
+
+        // Set initial pool state:
+        let mut pool = gen_ada_token_pool(
+            6850000000000000,
+            6,
+            10000000000000000,
+            6,
+            100,
+            100,
+            0,
+            0,
+            0,
+            200 * 16,
+        );
+
+        // Let's say we want to calculate how much of an asset Y is available for less than 1X (including fees):
+        let mut price = 2f64;
+        let in_x = 10000000; // 1ADA step;
+        let target_p = 1f64;
+        while price > target_p {
+            let Next::Succ(mut pool0) = pool.swap(OnSide::Ask(in_x)) else {
+                panic!()
+            };
+            let out_y = pool.reserves_y.untag() - pool0.reserves_y.untag();
+            price = out_y as f64 / in_x as f64;
+            pool = pool0;
+        }
+        // Here is the safe ratio:
+        let safe_reserves_ratio = pool.reserves_x.untag() as f64 / pool.reserves_y.untag() as f64;
+        assert_eq!(safe_reserves_ratio, 0.6850000067400003);
+
+        let reserves_y = 10000000000000000;
+        let safe_pool = gen_ada_token_pool(
+            (reserves_y as f64 * safe_reserves_ratio) as u64,
+            6,
+            reserves_y,
+            6,
+            100,
+            100,
+            0,
+            0,
+            0,
+            200 * 16,
+        );
+
+        let in_x = 1000000;
+        let Next::Succ(pool_fin) = safe_pool.swap(OnSide::Ask(in_x)) else {
             panic!()
         };
-        let spot = pool.static_price().unwrap();
-        // if spot == Ratio::new_raw(1, 1) { println!("{:?}", pool.reserves_x.untag()) }
-        // assert_eq!(spot, Ratio::new_raw(1, 1));
-        assert_eq!(pool.reserves_y.untag() - result.reserves_y.untag(), 100000000);
+        let out_y = safe_pool.reserves_y.untag() - pool_fin.reserves_y.untag();
+        assert!(out_y < in_x);
+        assert!(safe_pool.static_price().unwrap().to_f64().unwrap() > target_p);
     }
 }

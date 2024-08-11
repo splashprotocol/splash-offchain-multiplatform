@@ -38,9 +38,6 @@ pub fn calc_stable_swap<X, Y>(
     let nn = U512::from(N_TRADABLE_ASSETS.pow(N_TRADABLE_ASSETS as u32));
     let ann = an2n_calc / nn;
 
-    println!("base_initial: {}", base_initial);
-    println!("quote_calc: {}", quote_calc);
-
     let d = calculate_invariant(&base_initial, &quote_calc, &an2n_calc)?;
     let b = s + d / ann;
     let dn1 = vec![d; N_TRADABLE_ASSETS + 1]
@@ -95,9 +92,6 @@ pub fn calc_stable_swap<X, Y>(
             counter += 1;
         }
     }
-
-    println!("asset_to_initial: {}", asset_to_initial);
-    println!("asset_to: {}", asset_to);
 
     let quote_amount_pure_delta = asset_to_initial - asset_to;
     let output = (quote_amount_pure_delta / quote_mult).as_u64();
