@@ -11,8 +11,8 @@ use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use dashu_float::DBig;
-use num_traits::real::Real;
 use num_traits::{CheckedDiv, CheckedSub};
+use num_traits::real::Real;
 use type_equalities::IsEqual;
 use void::Void;
 
@@ -22,6 +22,7 @@ use bloom_offchain::execution_engine::liquidity_book::market_maker::{
 };
 use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
@@ -29,7 +30,6 @@ use spectrum_cardano_lib::plutus_data::{
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
@@ -39,11 +39,11 @@ use crate::data::pool::{
     ApplyOrder, CFMMPoolAction, ImmutablePoolUtxo, PoolAssetMapping, PoolBounds, Rx, Ry,
 };
 use crate::data::PoolId;
-use crate::deployment::ProtocolValidator::DegenQuadraticPoolV1;
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
+use crate::deployment::ProtocolValidator::DegenQuadraticPoolV1;
 use crate::fees::FeeExtension;
 use crate::pool_math::degen_quadratic_math::{
-    degen_quadratic_output_amount, A_DENOM, B_DENOM, TOKEN_EMISSION,
+    A_DENOM, B_DENOM, degen_quadratic_output_amount, TOKEN_EMISSION,
 };
 
 pub struct DegenQuadraticPoolConfig {
@@ -334,6 +334,8 @@ impl MarketMaker for DegenQuadraticPool {
 
     fn available_liquidity_on_side(&self, worst_price: OnSide<AbsolutePrice>) -> Option<AvailableLiquidity> {
         const BN_ZERO: BigNumber = BigNumber { value: DBig::ZERO };
+        const MAX_EXCESS_PERC: u64 = 1;
+        const PERC: u64 = 100;
 
         let n_27 = BigNumber::from(27f64);
         let n_2916 = BigNumber::from(2916f64);
@@ -356,6 +358,10 @@ impl MarketMaker for DegenQuadraticPool {
         let mut err = 2i64;
         let mut counter = 0usize;
 
+        let max_ada = self.ada_cup_thr * (PERC + MAX_EXCESS_PERC) / PERC;
+        if x0_val >= self.ada_cup_thr as f64 {
+            return None;
+        };
         let (output_amount, input_amount) = match worst_price {
             OnSide::Ask(price) => {
                 const COEFF_DENOM: u64 = 100000000000000;
@@ -397,7 +403,7 @@ impl MarketMaker for DegenQuadraticPool {
                     let x_new =
                         <i64>::try_from((x1.clone() - additional.clone()).value.to_int().value()).ok()?;
 
-                    if x_new < self.ada_cup_thr as i64 && x_new as f64 > x0_val {
+                    if x_new < max_ada as i64 && x_new as f64 > x0_val {
                         x1 = x1.clone() - additional.clone()
                     } else {
                         let token_delta = self.ada_cup_thr - x0_val as u64;
@@ -466,12 +472,10 @@ impl MarketMaker for DegenQuadraticPool {
                         - d_coeff.clone() / (n_3.clone() * c_coeff_2_3)
                         - n_3.clone() * b.clone() * d_coeff / (a.clone() * c_coeff_4_3);
                     let additional = add_num.div(add_denom);
-
-                    let add_val = <i64>::try_from(additional.value.to_int().value()).ok()?;
                     let x_new =
                         <i64>::try_from((x1.clone() - additional.clone()).value.to_int().value()).ok()?;
 
-                    if x_new < self.ada_cup_thr as i64 && x_new as f64 > 0.0 {
+                    if x_new < max_ada as i64 && x_new as f64 > 0.0 {
                         x1 = x1.clone() - additional.clone()
                     } else {
                         return Some(AvailableLiquidity {
@@ -479,7 +483,11 @@ impl MarketMaker for DegenQuadraticPool {
                             output: x0_val as u64,
                         });
                     }
-                    err = add_val;
+                    err = if x0_val > 0f64 {
+                        <f64>::try_from(additional.value.to_f64().value()).ok()? as i64
+                    } else {
+                        2i64
+                    };
                 }
                 let delta_x = x0 - x1;
                 let delta_y = delta_x.clone() * p;
@@ -587,9 +595,9 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for DegenQuadraticPool {
 
 mod tests {
     use cml_crypto::ScriptHash;
+    use rand::{Rng, SeedableRng};
     use rand::prelude::StdRng;
     use rand::seq::SliceRandom;
-    use rand::{Rng, SeedableRng};
 
     use bloom_offchain::execution_engine::liquidity_book::core::Next;
     use bloom_offchain::execution_engine::liquidity_book::market_maker::{
@@ -598,13 +606,13 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
     use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
-    use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
+    use spectrum_cardano_lib::ex_units::ExUnits;
 
     use crate::data::degen_quadratic_pool::{DegenQuadraticPool, DegenQuadraticPoolVer};
     use crate::data::pool::PoolBounds;
     use crate::data::PoolId;
-    use crate::pool_math::degen_quadratic_math::{calculate_a_num, A_DENOM, TOKEN_EMISSION};
+    use crate::pool_math::degen_quadratic_math::{A_DENOM, calculate_a_num, TOKEN_EMISSION};
 
     const LOVELACE: u64 = 1_000_000;
     const DEC: u64 = 1_000;
@@ -823,5 +831,27 @@ mod tests {
         let y_max = pool1.reserves_y.untag() - pool3.reserves_y.untag();
         assert_eq!(q, y_max);
         assert_eq!(b, pool1.ada_cup_thr - pool1.reserves_x.untag());
+    }
+
+    #[test]
+    fn test_available_lq_gen() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let ada_cap: u64 = 25_240 * LOVELACE;
+        let a: u64 = 174_150_190_999;
+        let b: u64 = 2_000_000;
+        let mut pool = gen_ada_token_pool(0, TOKEN_EMISSION, a, b, ada_cap);
+
+        for _ in 0..100 {
+            let num = rng.gen_range(0..ada_cap);
+            let denom = rng.gen_range(0..TOKEN_EMISSION);
+
+            let worst_price = AbsolutePrice::new(num, denom).unwrap();
+            let _ = pool.available_liquidity_on_side(Ask(worst_price));
+            let _ = pool.available_liquidity_on_side(Bid(worst_price));
+            let Next::Succ(pool1) = pool.swap(Ask(num / 100)) else {
+                panic!()
+            };
+            pool = pool1;
+        }
     }
 }
