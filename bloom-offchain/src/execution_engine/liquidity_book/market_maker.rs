@@ -4,6 +4,7 @@ use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 use derive_more::{Display, Div, From, Into, Mul};
 use num_rational::Ratio;
 use std::cmp::Ordering;
+use void::Void;
 
 /// Price of a theoretical 0-swap in pool.
 #[repr(transparent)]
@@ -42,7 +43,7 @@ pub trait MarketMaker {
 /// Pooled liquidity.
 pub trait MakerBehavior: Sized {
     /// Output of a swap.
-    fn swap(self, input: OnSide<u64>) -> Next<Self, Unit>;
+    fn swap(self, input: OnSide<u64>) -> Next<Self, Void>;
 }
 
 #[derive(Debug, Eq, PartialEq)]

@@ -138,9 +138,26 @@ impl<T: EntitySnapshot> InMemoryStateIndex<T> {
         }
     }
 
-    fn put(&mut self, index_key: InMemoryIndexKey, value: T) {
+    fn put(&mut self, prefix: u8, sid: T::StableId, value: T)
+    where
+        T::StableId: Into<[u8; 28]>,
+    {
+        let mut bound_versions = vec![];
+        for p in PREFIXES {
+            if p != prefix {
+                let index_key = index_key(p, sid);
+                if let Some(bound_ver) = self.index.get(&index_key) {
+                    bound_versions.push(*bound_ver);
+                }
+            }
+        }
+        let index_key = index_key(prefix, sid);
         if let Some(old_ver) = self.index.get(&index_key) {
-            self.store.remove(old_ver);
+            // We remove version from store only in case
+            // it is not bound to some other index.
+            if !bound_versions.contains(old_ver) {
+                self.store.remove(old_ver);
+            }
         }
         let new_ver = value.version();
         self.index.insert(index_key, new_ver);
@@ -153,6 +170,12 @@ type InMemoryIndexKey = [u8; 29];
 const LAST_CONFIRMED_PREFIX: u8 = 3u8;
 const LAST_UNCONFIRMED_PREFIX: u8 = 4u8;
 const LAST_PREDICTED_PREFIX: u8 = 5u8;
+
+const PREFIXES: [u8; 3] = [
+    LAST_CONFIRMED_PREFIX,
+    LAST_UNCONFIRMED_PREFIX,
+    LAST_PREDICTED_PREFIX,
+];
 
 impl<T> StateIndex<T> for InMemoryStateIndex<T>
 where
@@ -186,20 +209,17 @@ where
 
     fn put_confirmed(&mut self, Confirmed(entity): Confirmed<T>) {
         let sid = entity.stable_id();
-        let index_key = index_key(LAST_CONFIRMED_PREFIX, sid);
-        self.put(index_key, entity);
+        self.put(LAST_CONFIRMED_PREFIX, sid, entity);
     }
 
     fn put_unconfirmed(&mut self, Unconfirmed(entity): Unconfirmed<T>) {
         let sid = entity.stable_id();
-        let index_key = index_key(LAST_UNCONFIRMED_PREFIX, sid);
-        self.put(index_key, entity);
+        self.put(LAST_UNCONFIRMED_PREFIX, sid, entity);
     }
 
     fn put_predicted(&mut self, Predicted(entity): Predicted<T>) {
         let sid = entity.stable_id();
-        let index_key = index_key(LAST_PREDICTED_PREFIX, sid);
-        self.put(index_key, entity);
+        self.put(LAST_PREDICTED_PREFIX, sid, entity);
     }
 
     fn invalidate_version(&mut self, ver: T::Version) -> Option<T::StableId> {
@@ -253,4 +273,96 @@ pub fn index_key<T: Into<[u8; 28]>>(prefix: u8, id: T) -> InMemoryIndexKey {
         arr[ix + 1] = byte;
     }
     arr
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::execution_engine::storage::{InMemoryStateIndex, StateIndex, StateIndexTracing};
+    use derive_more::{From, Into};
+    use spectrum_offchain::data::event::{Confirmed, Predicted, Unconfirmed};
+    use spectrum_offchain::data::{Baked, EntitySnapshot, Stable};
+    use std::fmt::{Display, Formatter, Write};
+
+    #[derive(Copy, Clone, Hash, Ord, PartialOrd, PartialEq, Eq, Debug, Into, From)]
+    struct StableId([u8; 28]);
+    impl StableId {
+        fn from_str(s: &str) -> Self {
+            Self(<[u8; 28]>::try_from(hex::decode(s).unwrap()).unwrap())
+        }
+    }
+    impl Display for StableId {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            f.write_str("")
+        }
+    }
+
+    #[derive(Copy, Clone, Hash, Ord, PartialOrd, PartialEq, Eq, Debug, Into, From)]
+    struct Ver([u8; 32]);
+    impl Ver {
+        fn from_str(s: &str) -> Self {
+            Self(<[u8; 32]>::try_from(hex::decode(s).unwrap()).unwrap())
+        }
+    }
+    impl Display for Ver {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            f.write_str("")
+        }
+    }
+
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    struct Ent {
+        stable_id: StableId,
+        ver: Ver,
+    }
+
+    impl Display for Ent {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            f.write_str(format!("Ent({})", hex::encode(&self.ver.0)).as_str())
+        }
+    }
+
+    impl Stable for Ent {
+        type StableId = StableId;
+        fn stable_id(&self) -> Self::StableId {
+            self.stable_id
+        }
+        fn is_quasi_permanent(&self) -> bool {
+            true
+        }
+    }
+
+    impl EntitySnapshot for Ent {
+        type Version = Ver;
+        fn version(&self) -> Self::Version {
+            self.ver
+        }
+    }
+
+    #[test]
+    fn normal_index_cycle() {
+        let nft = "42019269344f20974cc563179e392a78dd3a3e9fe90adf30322abf8d";
+        let utxo1 = "9bdfa9a985ed742d70fe896868c50e97be3c8759b90d3c7f979e5becb75f8d86";
+        let ver1 = Ver::from_str(utxo1);
+        let utxo2 = "1af7822454e4e3286b8c59c3adbed84a7e4aa9467ae9741807d24de501ed48c2";
+        let ver2 = Ver::from_str(utxo2);
+        let mut store = StateIndexTracing(InMemoryStateIndex::<Ent>::new());
+        let stable_id = StableId::from_str(nft);
+        store.put_unconfirmed(Unconfirmed(Ent { stable_id, ver: ver1 }));
+        store.put_confirmed(Confirmed(Ent { stable_id, ver: ver1 }));
+        store.put_predicted(Predicted(Ent { stable_id, ver: ver2 }));
+        store.put_unconfirmed(Unconfirmed(Ent { stable_id, ver: ver2 }));
+        let conf0 = store.get_last_confirmed(stable_id).unwrap().0;
+        assert_eq!(conf0.ver, ver1);
+        let pred1 = store.get_last_predicted(stable_id).unwrap().0;
+        assert_eq!(pred1.ver, ver2);
+        let unconf1 = store.get_last_unconfirmed(stable_id).unwrap().0;
+        assert_eq!(unconf1.ver, ver2);
+        store.invalidate_version(ver2);
+        let conf1 = store.get_last_confirmed(stable_id).unwrap().0;
+        assert_eq!(conf0.ver, ver1);
+        let pred2 = store.get_last_predicted(stable_id);
+        assert!(pred2.is_none());
+        let unconf2 = store.get_last_unconfirmed(stable_id);
+        assert!(unconf2.is_none());
+    }
 }
