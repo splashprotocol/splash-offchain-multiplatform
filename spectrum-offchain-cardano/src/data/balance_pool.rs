@@ -1,5 +1,6 @@
 use std::fmt::Debug;
-use std::ops::{Div, Mul, Neg};
+use std::ops::Div;
+use std::ops::Mul;
 
 use bignumber::BigNumber;
 use cml_chain::address::Address;
@@ -13,20 +14,19 @@ use cml_chain::Value;
 use cml_core::serialization::LenEncoding::{Canonical, Indefinite};
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use dashu_float::DBig;
-use num_integer::Roots;
 use num_rational::Ratio;
-use num_traits::{CheckedAdd, CheckedSub, ToPrimitive};
+use num_traits::ToPrimitive;
+use num_traits::{CheckedAdd, CheckedSub};
 use primitive_types::U512;
 use void::Void;
 
+use bloom_offchain::execution_engine::liquidity_book::core::Next;
+use bloom_offchain::execution_engine::liquidity_book::market_maker::AvailableLiquidity;
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
     AbsoluteReserves, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
 };
 use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
-
-use bloom_offchain::execution_engine::liquidity_book::core::Next;
-use bloom_offchain::execution_engine::liquidity_book::market_maker::AvailableLiquidity;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension};
 use spectrum_cardano_lib::plutus_data::{IntoPlutusData, PlutusDataExtension};
@@ -556,7 +556,7 @@ impl MarketMaker for BalancePool {
                 BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
                 BigNumber::from(self.weight_x as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
                 BigNumber::from((self.lp_fee_y - self.treasury_fee).to_f64()?),
-                BigNumber::from(*price.numer() as f64) / BigNumber::from(*price.denom() as f64),
+                BigNumber::from(*price.denom() as f64) / BigNumber::from(*price.numer() as f64),
             ),
             OnSide::Ask(price) => (
                 BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
@@ -564,7 +564,7 @@ impl MarketMaker for BalancePool {
                 BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
                 BigNumber::from(self.weight_y as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
                 BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64()?),
-                BigNumber::from(*price.denom() as f64) / BigNumber::from(*price.numer() as f64),
+                BigNumber::from(*price.numer() as f64) / BigNumber::from(*price.denom() as f64),
             ),
         };
         let lq_balance =
