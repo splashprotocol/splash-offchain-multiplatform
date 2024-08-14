@@ -378,14 +378,14 @@ mod test {
     use num_rational::Ratio;
     use primitive_types::U512;
 
-    use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
-    use spectrum_cardano_lib::AssetClass::Native;
     use spectrum_cardano_lib::ex_units::ExUnits;
+    use spectrum_cardano_lib::AssetClass::Native;
+    use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
 
     use crate::constants::MAX_LQ_CAP;
     use crate::data::order::{Base, Quote};
-    use crate::data::PoolId;
     use crate::data::stable_pool_t2t::{StablePoolT2T, StablePoolT2TVer};
+    use crate::data::PoolId;
     use crate::pool_math::stable_pool_t2t_exact_math::{
         calc_stable_swap, calculate_context_values_list, calculate_invariant,
         calculate_safe_price_ratio_x_y_swap, calculate_y_given_x, check_exact_invariant,
