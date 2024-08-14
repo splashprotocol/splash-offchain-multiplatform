@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::collections::hash_map::Entry;
 use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
 use std::fmt::{Debug, Display, Formatter};
@@ -6,11 +7,13 @@ use std::ops::Add;
 
 use either::{Either, Left, Right};
 use log::trace;
-
+use num_rational::Ratio;
 use spectrum_offchain::data::Stable;
 
 use crate::execution_engine::liquidity_book::core::Next;
-use crate::execution_engine::liquidity_book::market_maker::{MarketMaker, PoolQuality, SpotPrice};
+use crate::execution_engine::liquidity_book::market_maker::{
+    AvailableLiquidity, MarketMaker, PoolQuality, SpotPrice,
+};
 use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
 use crate::execution_engine::liquidity_book::side::{OnSide, Side};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
@@ -594,31 +597,22 @@ where
     }
 }
 
+#[derive(Copy, Clone)]
+pub struct FillPreview {
+    pub price: AbsolutePrice,
+    pub input: u64,
+}
+
 impl<T, M> TLBState<T, M>
 where
     M: Stable + Copy,
 {
     pub fn preselect_market_maker(
         &self,
-        offered_amount: OnSide<InputAsset<u64>>,
-    ) -> Option<(M::StableId, AbsolutePrice)>
-    where
-        M: MarketMaker,
-    {
-        let pools = self
-            .pools()
-            .values
-            .values()
-            .filter(|pool| pool.is_active())
-            .filter_map(|p| p.real_price(offered_amount).map(|rp| (p.stable_id(), rp)))
-            .collect::<Vec<_>>();
-        match offered_amount {
-            OnSide::Bid(_) => pools.into_iter().min_by_key(|(_, rp)| *rp),
-            OnSide::Ask(_) => pools.into_iter().max_by_key(|(_, rp)| *rp),
-        }
-    }
-
-    pub fn try_select_pool(&self, trade_hint: OnSide<u64>) -> Option<(AbsolutePrice, SpotPrice, M::StableId)>
+        price: AbsolutePrice,
+        demand: u64,
+        side: Side,
+    ) -> Option<(M::StableId, FillPreview)>
     where
         M: MarketMaker,
     {
@@ -628,30 +622,38 @@ where
             .values()
             .filter(|pool| pool.is_active())
             .filter_map(|p| {
-                let sp = p.static_price();
-                p.real_price(trade_hint).map(|rp| (rp, sp, p.stable_id()))
-            })
-            .collect::<Vec<_>>();
-        match trade_hint {
-            OnSide::Bid(_) => pools.into_iter().min_by_key(|(rp, _, _)| *rp),
-            OnSide::Ask(_) => pools.into_iter().max_by_key(|(rp, _, _)| *rp),
-        }
-    }
-
-    pub fn try_pick_pool<F>(&mut self, test: F) -> Option<M>
-    where
-        T: MarketTaker + Ord + Copy,
-        F: Fn(&M) -> bool,
-    {
-        self.pick_maker(|pools| {
-            for id in pools.quality_index.values() {
-                match pools.values.entry(*id) {
-                    Entry::Occupied(pl) if test(pl.get()) => return Some(pl.remove()),
-                    _ => {}
+                let AvailableLiquidity { input, output } = p.available_liquidity_on_side(side.wrap(price))?;
+                let absolute_price = match side {
+                    Side::Bid => AbsolutePrice::new(input, output)?,
+                    Side::Ask => AbsolutePrice::new(output, input)?,
+                };
+                if input > 0 {
+                    if demand >= input {
+                        Some((
+                            p.stable_id(),
+                            FillPreview {
+                                price: absolute_price,
+                                input,
+                            },
+                        ))
+                    } else {
+                        let real_price = p.real_price(side.wrap(demand))?;
+                        Some((
+                            p.stable_id(),
+                            FillPreview {
+                                input: demand,
+                                price: real_price,
+                            },
+                        ))
+                    }
+                } else {
+                    None
                 }
-            }
-            None
-        })
+            });
+        match side {
+            Side::Bid => pools.min_by_key(|(_, rp)| rp.price),
+            Side::Ask => pools.max_by_key(|(_, rp)| rp.price),
+        }
     }
 
     pub fn pick_maker_by_id(&mut self, pid: &M::StableId) -> Option<M>
@@ -938,7 +940,7 @@ pub mod tests {
 
     use crate::execution_engine::liquidity_book::core::{Next, TerminalTake, Trans, Unit};
     use crate::execution_engine::liquidity_book::market_maker::{
-        AbsoluteReserves, MakerBehavior, MarketMaker, SpotPrice,
+        AbsoluteReserves, AvailableLiquidity, MakerBehavior, MarketMaker, SpotPrice,
     };
     use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
     use crate::execution_engine::liquidity_book::side::{OnSide, Side};
@@ -1533,6 +1535,13 @@ pub mod tests {
                 base: self.reserves_base,
                 quote: self.reserves_quote,
             }
+        }
+
+        fn available_liquidity_on_side(
+            &self,
+            worst_price: OnSide<AbsolutePrice>,
+        ) -> Option<AvailableLiquidity> {
+            None
         }
 
         fn marginal_cost_hint(&self) -> Self::U {

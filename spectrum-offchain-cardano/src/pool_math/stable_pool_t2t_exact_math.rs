@@ -1,3 +1,7 @@
+use std::ops::Add;
+
+use bignumber::BigNumber;
+use dashu_base::UnsignedAbs;
 use primitive_types::U512;
 
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
@@ -37,9 +41,6 @@ pub fn calc_stable_swap<X, Y>(
 
     let nn = U512::from(N_TRADABLE_ASSETS.pow(N_TRADABLE_ASSETS as u32));
     let ann = an2n_calc / nn;
-
-    println!("base_initial: {}", base_initial);
-    println!("quote_calc: {}", quote_calc);
 
     let d = calculate_invariant(&base_initial, &quote_calc, &an2n_calc)?;
     let b = s + d / ann;
@@ -95,9 +96,6 @@ pub fn calc_stable_swap<X, Y>(
             counter += 1;
         }
     }
-
-    println!("asset_to_initial: {}", asset_to_initial);
-    println!("asset_to: {}", asset_to);
 
     let quote_amount_pure_delta = asset_to_initial - asset_to;
     let output = (quote_amount_pure_delta / quote_mult).as_u64();
@@ -278,8 +276,104 @@ pub fn calculate_invariant(x_calc: &U512, y_calc: &U512, an2n: &U512) -> Option<
     Some(d)
 }
 
+pub fn calculate_y_given_x(x: &BigNumber, d: &BigNumber, an2n: &BigNumber) -> BigNumber {
+    let sqrt_degree = BigNumber::from(0.5);
+    let n_2 = BigNumber::from(2);
+    let n_4 = BigNumber::from(4);
+    let n = BigNumber::from(N_TRADABLE_ASSETS);
+    let nn = n.pow(&n.clone());
+    let n2n = n.pow(&(n_2.clone() * n.clone()));
+
+    let dn = d.pow(&n_2.clone());
+    let dn1 = dn.clone() * d.clone();
+    let d2n = d.pow(&(n_2.clone() * n.clone()));
+    let a = an2n.clone() / n2n.clone();
+
+    let x2 = x.pow(&n_2);
+    let br_val = a.clone() * d.clone() * nn.clone() - d.clone() - a.clone() * nn.clone() * x.clone();
+    let br = <u64>::try_from(br_val.value.to_int().value().unsigned_abs()).unwrap();
+    let br_square = BigNumber::from(br as f64).pow(&n_2);
+    let c = dn.clone()
+        * ((br_square.clone() * x.clone() + n_4 * a.clone() * dn1.clone()) * x.clone() * n2n.clone()
+            / d2n.clone())
+        .pow(&sqrt_degree);
+
+    (an2n.clone() * d.clone() * x.clone() - d.clone() * nn.clone() * x.clone() - an2n.clone() * x2.clone()
+        + c)
+        / (n_2.clone() * an2n * x)
+}
+
+pub fn calculate_safe_price_ratio_x_y_swap(
+    target_price: &f64,
+    d_value: &u128,
+    x_initial: &u64,
+    an2n_value: &u64,
+    total_fee: &f64,
+    alpha: &u64,
+) -> (u64, u64) {
+    // Relative price: out/input i.e. delta y / delta x:
+    const PRICE_PREC: f64 = 1_000_000f64;
+    let p = BigNumber::from(*target_price);
+    let total_fee_mult = BigNumber::from(1f64 - total_fee);
+
+    let n_2 = BigNumber::from(2);
+    let an2n = BigNumber::from(*an2n_value as f64);
+
+    let d = BigNumber::from(*d_value as f64);
+    let dn1 = d.pow(&BigNumber::from(N_TRADABLE_ASSETS + 1));
+
+    let b = dn1 + an2n.clone();
+
+    let alpha = BigNumber::from(*alpha as f64);
+
+    let mut x_f64: f64 = *x_initial as f64;
+    let x_step = BigNumber::from(1);
+
+    let mut add: f64 = 2.0;
+    let mut counter = 0;
+    let mut current_spot_price_val = 0f64;
+    while !(current_spot_price_val >= *target_price
+        && (current_spot_price_val - target_price).abs() < target_price / PRICE_PREC)
+        && counter < 1000
+    {
+        counter += 1;
+        let x = BigNumber::from(x_f64);
+        let x2 = x.pow(&n_2);
+        let y = calculate_y_given_x(&x, &d, &an2n);
+        let y2 = y.pow(&n_2);
+
+        let current_spot_price = ((x.clone() * (b.clone() + an2n.clone() * x.clone() * y2.clone()))
+            / (y.clone() * (b.clone() + an2n.clone() * x2.clone() * y.clone())))
+            / total_fee_mult.clone();
+
+        current_spot_price_val = <f64>::try_from(current_spot_price.value.to_f64().value()).unwrap();
+
+        let f = p.clone() - current_spot_price.clone();
+        let x_1 = x.clone() + x_step.clone();
+        let y_1 = calculate_y_given_x(&x_1, &d, &an2n);
+        let y_12 = y_1.pow(&n_2);
+        let f_1 = p.clone()
+            - ((x_1.clone() * (b.clone() + an2n.clone() * x_1 * y_12))
+                / (y_1.clone() * (b.clone() + an2n.clone() * x2.clone() * y_1.clone())))
+                / total_fee_mult.clone();
+
+        let f_x = (f_1.clone() - f.clone()) / x_step.clone();
+
+        let add_value = alpha.clone() * f.clone() / f_x.clone();
+        add = <f64>::try_from(add_value.value.to_f64().value()).unwrap();
+        x_f64 -= add;
+    }
+    x_f64 += add;
+    let y_safe = calculate_y_given_x(&BigNumber::from(x_f64), &d, &an2n);
+    (
+        x_f64 as u64,
+        <f64>::try_from(y_safe.value.to_f64().value()).unwrap() as u64,
+    )
+}
+
 #[cfg(test)]
 mod test {
+    use bignumber::BigNumber;
     use cml_crypto::ScriptHash;
     use num_rational::Ratio;
     use primitive_types::U512;
@@ -293,7 +387,8 @@ mod test {
     use crate::data::stable_pool_t2t::{StablePoolT2T, StablePoolT2TVer};
     use crate::data::PoolId;
     use crate::pool_math::stable_pool_t2t_exact_math::{
-        calc_stable_swap, calculate_context_values_list, calculate_invariant, check_exact_invariant,
+        calc_stable_swap, calculate_context_values_list, calculate_invariant,
+        calculate_safe_price_ratio_x_y_swap, calculate_y_given_x, check_exact_invariant,
     };
 
     fn gen_ada_token_pool(
@@ -487,5 +582,24 @@ mod test {
         );
         let inv = calculate_context_values_list(prev, new).unwrap();
         assert_eq!(U512::from(510000000), inv);
+    }
+    #[test]
+    fn calculate_y_given_x_test() {
+        let x = BigNumber::from(1_000_000 as f64);
+        let d = BigNumber::from(2_000_000 as f64);
+        let an2n = BigNumber::from((200 * 16) as f64);
+
+        let y = calculate_y_given_x(&x, &d, &an2n);
+        assert_eq!(
+            <f64>::try_from(y.value.to_f64().value()).unwrap() as u64,
+            1_000_000u64
+        );
+    }
+    #[test]
+    fn calculate_safe_price_ratio_test() {
+        let (x_safe, y_safe) =
+            calculate_safe_price_ratio_x_y_swap(&1.0, &2089992, &990000, &(200 * 16), &0f64, &200);
+        assert_eq!(x_safe, 1044995);
+        assert_eq!(y_safe, 1044996);
     }
 }
