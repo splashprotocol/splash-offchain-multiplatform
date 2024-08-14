@@ -10,8 +10,8 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2, ConstFnFeeSwitchPoolDeposit,
     ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
     ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1,
-    ConstFnPoolV2, LimitOrderV1, LimitOrderWitnessV1, StableFnPoolT2T, StableFnPoolT2TDeposit,
-    StableFnPoolT2TRedeem,
+    ConstFnPoolV2, DegenQuadraticPoolV1, LimitOrderV1, LimitOrderWitnessV1, StableFnPoolT2T,
+    StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHashes};
 use spectrum_offchain_cardano::utxo::ConsumedInputs;
@@ -224,7 +224,13 @@ impl Has<DeployedScriptInfo<{ StableFnPoolT2TRedeem as u8 }>> for HandlerContext
         self.scripts.stable_fn_pool_t2t_redeem.clone()
     }
 }
-
+impl Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>> for HandlerContext {
+    fn select<U: IsEqual<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }> {
+        self.scripts.degen_fn_pool_v1.clone()
+    }
+}
 impl HandlerContext {
     pub fn new(
         output_ref: OutputRef,
