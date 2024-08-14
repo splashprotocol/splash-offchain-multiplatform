@@ -16,6 +16,9 @@ use cml_chain::utils::BigInteger;
 use cml_chain::{Coin, PolicyId};
 use cml_core::serialization::Serialize;
 
+use cml_multi_era::babbage::BabbageTransactionOutput;
+use log::info;
+
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
@@ -23,8 +26,6 @@ use bloom_offchain::execution_engine::liquidity_book::market_maker::{
 };
 use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
-use cml_multi_era::babbage::BabbageTransactionOutput;
-use log::info;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
@@ -40,9 +41,10 @@ use void::Void;
 use crate::creds::OperatorRewardAddress;
 use crate::data::balance_pool::{BalancePool, BalancePoolRedeemer};
 use crate::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
+use crate::data::degen_quadratic_pool::DegenQuadraticPool;
 use crate::data::order::{ClassicalOrderAction, ClassicalOrderRedeemer, Quote};
 use crate::data::pair::PairId;
-use crate::data::pool::AnyPool::{BalancedCFMM, PureCFMM, StableCFMM};
+use crate::data::pool::AnyPool::{BalancedCFMM, DegenPool, PureCFMM, StableCFMM};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::value::ValueExtension;
 
@@ -50,7 +52,7 @@ use crate::data::stable_pool_t2t::{StablePoolRedeemer, StablePoolT2T as StablePo
 use crate::data::OnChainOrderId;
 use crate::deployment::ProtocolValidator::{
     BalanceFnPoolV1, BalanceFnPoolV2, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,
-    ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, StableFnPoolT2T,
+    ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, DegenQuadraticPoolV1, StableFnPoolT2T,
 };
 use crate::deployment::{DeployedScriptInfo, RequiresValidator};
 
@@ -223,6 +225,7 @@ pub enum AnyPool {
     PureCFMM(ConstFnPool),
     BalancedCFMM(BalancePool),
     StableCFMM(StablePoolT2TData),
+    DegenPool(DegenQuadraticPool),
 }
 
 impl Display for AnyPool {
@@ -255,6 +258,12 @@ impl Display for AnyPool {
                 p.treasury_x,
                 p.treasury_y,
             )),
+            DegenPool(p) => f.write_str(&*format!(
+                "DegenPool(id: {}, static_price: {}, quality: {})",
+                p.id,
+                p.static_price(),
+                p.quality()
+            )),
         }
     }
 }
@@ -270,6 +279,7 @@ impl MakerBehavior for AnyPool {
             PureCFMM(p) => p.swap(input).map_succ(PureCFMM),
             BalancedCFMM(p) => p.swap(input).map_succ(BalancedCFMM),
             StableCFMM(p) => p.swap(input).map_succ(StableCFMM),
+            DegenPool(p) => p.swap(input).map_succ(DegenPool),
         }
     }
 }
@@ -281,6 +291,7 @@ impl MarketMaker for AnyPool {
             PureCFMM(p) => p.static_price(),
             BalancedCFMM(p) => p.static_price(),
             StableCFMM(p) => p.static_price(),
+            DegenPool(p) => p.static_price(),
         }
     }
 
@@ -289,6 +300,7 @@ impl MarketMaker for AnyPool {
             PureCFMM(p) => p.real_price(input),
             BalancedCFMM(p) => p.real_price(input),
             StableCFMM(p) => p.real_price(input),
+            DegenPool(p) => p.real_price(input),
         }
     }
 
@@ -297,6 +309,7 @@ impl MarketMaker for AnyPool {
             PureCFMM(p) => p.quality(),
             BalancedCFMM(p) => p.quality(),
             StableCFMM(p) => p.quality(),
+            DegenPool(p) => p.quality(),
         }
     }
 
@@ -305,6 +318,7 @@ impl MarketMaker for AnyPool {
             PureCFMM(p) => p.marginal_cost_hint(),
             BalancedCFMM(p) => p.marginal_cost_hint(),
             StableCFMM(p) => p.marginal_cost_hint(),
+            DegenPool(p) => p.marginal_cost_hint(),
         }
     }
 
@@ -313,6 +327,7 @@ impl MarketMaker for AnyPool {
             PureCFMM(p) => p.liquidity(),
             BalancedCFMM(p) => p.liquidity(),
             StableCFMM(p) => p.liquidity(),
+            DegenPool(p) => p.liquidity(),
         }
     }
     fn available_liquidity_on_side(&self, worst_price: OnSide<AbsolutePrice>) -> Option<AvailableLiquidity> {
@@ -320,6 +335,7 @@ impl MarketMaker for AnyPool {
             PureCFMM(p) => p.available_liquidity_on_side(worst_price),
             BalancedCFMM(p) => p.available_liquidity_on_side(worst_price),
             StableCFMM(p) => p.available_liquidity_on_side(worst_price),
+            DegenPool(p) => p.available_liquidity_on_side(worst_price),
         }
     }
     fn is_active(&self) -> bool {
@@ -327,6 +343,7 @@ impl MarketMaker for AnyPool {
             PureCFMM(p) => p.is_active(),
             BalancedCFMM(p) => p.is_active(),
             StableCFMM(p) => p.is_active(),
+            DegenPool(p) => p.is_active(),
         }
     }
 }
@@ -341,6 +358,7 @@ where
         + Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
+        + Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>>
         + Has<PoolBounds>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
@@ -348,6 +366,7 @@ where
             .map(PureCFMM)
             .or_else(|| BalancePool::try_from_ledger(repr, ctx).map(BalancedCFMM))
             .or_else(|| StablePoolT2TData::try_from_ledger(repr, ctx).map(StableCFMM))
+            .or_else(|| DegenQuadraticPool::try_from_ledger(repr, ctx).map(DegenPool))
     }
 }
 
@@ -358,6 +377,7 @@ impl Stable for AnyPool {
             PureCFMM(p) => Token::from(p.id).0,
             BalancedCFMM(p) => Token::from(p.id).0,
             StableCFMM(p) => Token::from(p.id).0,
+            DegenPool(p) => Token::from(p.id).0,
         }
     }
     fn is_quasi_permanent(&self) -> bool {
@@ -372,6 +392,7 @@ impl Tradable for AnyPool {
             PureCFMM(p) => PairId::canonical(p.asset_x.untag(), p.asset_y.untag()),
             BalancedCFMM(p) => PairId::canonical(p.asset_x.untag(), p.asset_y.untag()),
             StableCFMM(p) => PairId::canonical(p.asset_x.untag(), p.asset_y.untag()),
+            DegenPool(p) => PairId::canonical(p.asset_x.untag(), p.asset_y.untag()),
         }
     }
 }
