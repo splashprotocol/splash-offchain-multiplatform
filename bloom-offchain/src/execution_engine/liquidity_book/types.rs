@@ -49,6 +49,10 @@ impl AbsolutePrice {
     pub fn new_unsafe(numer: u64, denom: u64) -> AbsolutePrice {
         Self(Ratio::new_raw(numer as u128, denom as u128))
     }
+    #[inline]
+    pub fn new_raw(numer: u128, denom: u128) -> AbsolutePrice {
+        Self(Ratio::new_raw(numer, denom))
+    }
 
     #[inline]
     pub fn new(numer: u64, denom: u64) -> Option<AbsolutePrice> {

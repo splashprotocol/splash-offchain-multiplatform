@@ -23,6 +23,7 @@ pub mod ref_scripts;
 pub mod balance_order;
 pub mod balance_pool;
 pub mod cfmm_pool;
+pub mod degen_quadratic_pool;
 pub mod fee_switch_bidirectional_fee;
 pub mod fee_switch_pool;
 pub mod pair;
