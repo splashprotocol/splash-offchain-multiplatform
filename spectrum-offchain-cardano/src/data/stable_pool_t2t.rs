@@ -16,20 +16,20 @@ use primitive_types::U512;
 use void::Void;
 
 use bloom_offchain::execution_engine::liquidity_book::core::Next;
-use bloom_offchain::execution_engine::liquidity_book::market_maker::AvailableLiquidity;
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
     AbsoluteReserves, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
 };
+use bloom_offchain::execution_engine::liquidity_book::market_maker::AvailableLiquidity;
 use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
+use spectrum_cardano_lib::AssetClass::Native;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension};
 use spectrum_cardano_lib::plutus_data::{IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::AssetClass::Native;
-use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
@@ -42,10 +42,10 @@ use crate::data::pair::order_canonical;
 use crate::data::pool::{
     ApplyOrder, ApplyOrderError, CFMMPoolAction, ImmutablePoolUtxo, Lq, PoolAssetMapping, PoolBounds, Rx, Ry,
 };
-use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
-use crate::deployment::ProtocolValidator::StableFnPoolT2T;
+use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
+use crate::deployment::ProtocolValidator::StableFnPoolT2T;
 use crate::pool_math::cfmm_math::classic_cfmm_shares_amount;
 use crate::pool_math::stable_math::stable_cfmm_reward_lp;
 use crate::pool_math::stable_pool_t2t_exact_math::{
@@ -814,8 +814,8 @@ impl ApplyOrder<ClassicalOnChainRedeem> for StablePoolT2T {
 
 #[cfg(test)]
 mod tests {
-    use cml_chain::plutus::PlutusData;
     use cml_chain::Deserialize;
+    use cml_chain::plutus::PlutusData;
     use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
     use num_rational::Ratio;
     use num_traits::ToPrimitive;
@@ -828,18 +828,20 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
     use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+    use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
-    use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
 
     use crate::constants::MAX_LQ_CAP;
+    use crate::data::{OnChainOrderId, PoolId};
     use crate::data::order::ClassicalOrder;
     use crate::data::order::OrderType::BalanceFn;
     use crate::data::pool::ApplyOrder;
     use crate::data::redeem::{ClassicalOnChainRedeem, Redeem};
     use crate::data::stable_pool_t2t::{StablePoolT2T, StablePoolT2TConfig, StablePoolT2TVer};
-    use crate::data::{OnChainOrderId, PoolId};
-    use crate::pool_math::stable_pool_t2t_exact_math::calculate_invariant;
+    use crate::pool_math::stable_pool_t2t_exact_math::{
+        calculate_invariant, calculate_safe_price_ratio_x_y_swap,
+    };
 
     const DATUM_SAMPLE: &str = "d8799fd8799f581c7dbe6f0c7849e2dae806cd4681910bfe1bbc0d5fd4e370e8e2f7bd4a436e6674ff190c80d8799f4040ffd8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737443ff0000d8799f581c6abe65f6adc8301ff4dbfcfcec1a187075639d21f85cae3c1cf2a060426c71ffd87980d879801a000186820a581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba260000ff";
 
@@ -1095,59 +1097,64 @@ mod tests {
 
     #[test]
     fn safe_pool_ratio_test() {
-        // This test calculates what swap needs to be made to bring the pool to a state
-        // in which one of the assets is available for sale at a price no better than the specified one.
+        // This test calculates the asset ratio in which one of the assets is available for sale
+        // at a price no better than the specified one.
 
-        // Set initial pool state:
-        let mut pool = gen_ada_token_pool(
-            6850000000000000,
-            6,
-            10000000000000000,
-            6,
-            100,
-            100,
-            0,
-            0,
-            0,
-            200 * 16,
+        // Set initial pool state (should be noticeably disbalanced to the lower price than the target):
+        let pool = gen_ada_token_pool(590973688007, 6, 984457846729, 6, 100, 100, 0, 0, 0, 200 * 16);
+
+        // Let's say we want to calculate pool in which an asset Y is available for less than 1X (including fees):
+        let x_calc_value = pool.reserves_x.untag() * pool.multiplier_x;
+        let x_calc = U512::from(x_calc_value);
+        let y_calc = U512::from(pool.reserves_y.untag() * pool.multiplier_y);
+        let an2n_value = pool.an2n;
+        let an2n = U512::from(pool.an2n);
+
+        let d = calculate_invariant(&x_calc, &y_calc, &an2n).unwrap();
+
+        // Set the target price:
+        let target_spot = 1f64;
+
+        let total_fee = pool.lp_fee_y.to_f64().unwrap();
+
+        // Calculate the safe ratio:
+        // NB: "alpha" can be > 1 only if target_spot == 1. Recommended to set alpha in range 1 <= alpha <= ampl_coeff.
+        let (x_safe, y_safe) = calculate_safe_price_ratio_x_y_swap(
+            &target_spot,
+            &d.as_u128(),
+            &x_calc_value,
+            &an2n_value,
+            &total_fee,
+            &200,
         );
+        assert_eq!(x_safe, 640474309905);
+        assert_eq!(y_safe, 934897647163);
+    }
 
-        // Let's say we want to calculate how much of an asset Y is available for less than 1X (including fees):
-        let mut price = 2f64;
-        let in_x = 10000000; // 1ADA step;
-        let target_p = 1f64;
-        while price > target_p {
-            let Next::Succ(mut pool0) = pool.swap(OnSide::Ask(in_x)) else {
-                panic!()
-            };
-            let out_y = pool.reserves_y.untag() - pool0.reserves_y.untag();
-            price = out_y as f64 / in_x as f64;
-            pool = pool0;
-        }
-        // Here is the safe ratio:
-        let safe_reserves_ratio = pool.reserves_x.untag() as f64 / pool.reserves_y.untag() as f64;
-        assert_eq!(safe_reserves_ratio, 0.6850000067400003);
+    #[test]
+    fn safe_pool_ratio_validation_test() {
+        // This test calculates the asset ratio in which one of the assets is available for sale
+        // at a price no better than the specified one.
 
-        let reserves_y = 10000000000000000;
-        let safe_pool = gen_ada_token_pool(
-            (reserves_y as f64 * safe_reserves_ratio) as u64,
-            6,
-            reserves_y,
-            6,
-            100,
-            100,
-            0,
-            0,
-            0,
-            200 * 16,
-        );
+        // Set initial pool state.
+        // Assume x reserves is ADA and y reserves is OADA.
+        let pool0 = gen_ada_token_pool(590973688007, 6, 984457846729, 6, 100, 100, 0, 0, 0, 200 * 16);
 
-        let in_x = 1000000;
-        let Next::Succ(pool_fin) = safe_pool.swap(OnSide::Ask(in_x)) else {
+        let x_safe = 640474309905;
+        let x_balance_swap = x_safe - pool0.reserves_x.untag();
+        let Next::Succ(pool) = pool0.swap(OnSide::Ask(x_balance_swap)) else {
             panic!()
         };
-        let out_y = safe_pool.reserves_y.untag() - pool_fin.reserves_y.untag();
-        assert!(out_y < in_x);
-        assert!(safe_pool.static_price().unwrap().to_f64().unwrap() > target_p);
+        assert_eq!(pool.reserves_x.untag(), x_safe);
+
+        // ADA -> OADA swap:
+        let ada_in = 1_000_000; // 1 ADA
+        let Next::Succ(result) = pool.swap(OnSide::Ask(ada_in)) else {
+            panic!()
+        };
+        let oada_rec = pool.reserves_y.untag() - result.reserves_y.untag();
+        let spot = pool.static_price().unwrap();
+        assert!(spot.to_f64().unwrap() > 1f64);
+        assert!(oada_rec < ada_in);
     }
 }
