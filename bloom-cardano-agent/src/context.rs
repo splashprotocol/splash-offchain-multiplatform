@@ -10,7 +10,7 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2, ConstFnFeeSwitchPoolDeposit,
     ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
     ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1,
-    ConstFnPoolV2, GridOrderNative, LimitOrderV1, LimitOrderWitnessV1, StableFnPoolT2T,
+    ConstFnPoolV2, DegenQuadraticPoolV1, GridOrderNative, LimitOrderV1, LimitOrderWitnessV1, StableFnPoolT2T,
     StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use spectrum_offchain_cardano::deployment::{DeployedValidator, ProtocolDeployment};
@@ -253,5 +253,13 @@ impl Has<DeployedValidator<{ GridOrderNative as u8 }>> for ExecutionContext {
         &self,
     ) -> DeployedValidator<{ GridOrderNative as u8 }> {
         self.deployment.grid_order_native.clone()
+    }
+}
+
+impl Has<DeployedValidator<{ DegenQuadraticPoolV1 as u8 }>> for ExecutionContext {
+    fn select<U: IsEqual<DeployedValidator<{ DegenQuadraticPoolV1 as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ DegenQuadraticPoolV1 as u8 }> {
+        self.deployment.degen_fn_pool_v1.clone()
     }
 }

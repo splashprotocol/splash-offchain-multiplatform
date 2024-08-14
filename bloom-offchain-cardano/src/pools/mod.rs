@@ -1,6 +1,6 @@
-use bloom_offchain::execution_engine::bundled::Bundled;
 use cml_chain::builders::tx_builder::SignedTxBuilder;
 
+use bloom_offchain::execution_engine::bundled::Bundled;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::NetworkId;
@@ -9,11 +9,9 @@ use spectrum_offchain::data::Has;
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain_cardano::creds::OperatorRewardAddress;
 use spectrum_offchain_cardano::data::balance_order::RunBalanceAMMOrderOverPool;
-
 use spectrum_offchain_cardano::data::order::{ClassicalAMMOrder, RunClassicalAMMOrderOverPool};
-
 use spectrum_offchain_cardano::data::pool::AnyPool;
-use spectrum_offchain_cardano::data::pool::AnyPool::{BalancedCFMM, PureCFMM, StableCFMM};
+use spectrum_offchain_cardano::data::pool::AnyPool::{BalancedCFMM, DegenPool, PureCFMM, StableCFMM};
 use spectrum_offchain_cardano::data::stable_order::RunStableAMMOrderOverPool;
 use spectrum_offchain_cardano::deployment::DeployedValidator;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
@@ -70,6 +68,7 @@ where
             StableCFMM(stable_pool) => RunStableAMMOrderOverPool(Bundled(stable_pool, bearer))
                 .try_run(order, ctx)
                 .map(|(txb, Predicted(bundle))| (txb, Predicted(PoolMagnet(bundle.0.map(StableCFMM))))),
+            DegenPool(_) => unreachable!(),
         }
     }
 }
