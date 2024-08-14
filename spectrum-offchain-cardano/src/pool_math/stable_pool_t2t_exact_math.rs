@@ -312,6 +312,7 @@ pub fn calculate_safe_price_ratio_x_y_swap(
     alpha: &u64,
 ) -> (u64, u64) {
     // Relative price: out/input i.e. delta y / delta x:
+    const PRICE_PREC: f64 = 1_000_000f64;
     let p = BigNumber::from(*target_price);
     let total_fee_mult = BigNumber::from(1f64 - total_fee);
 
@@ -331,7 +332,10 @@ pub fn calculate_safe_price_ratio_x_y_swap(
     let mut add: f64 = 2.0;
     let mut counter = 0;
     let mut current_spot_price_val = 0f64;
-    while current_spot_price_val < *target_price && counter < 1000 {
+    while !(current_spot_price_val >= *target_price
+        && (current_spot_price_val - target_price).abs() < target_price / PRICE_PREC)
+        && counter < 1000
+    {
         counter += 1;
         let x = BigNumber::from(x_f64);
         let x2 = x.pow(&n_2);
@@ -594,7 +598,7 @@ mod test {
     #[test]
     fn calculate_safe_price_ratio_test() {
         let (x_safe, y_safe) =
-            calculate_safe_price_ratio_x_y_swap(&1.0, &2089992, &990000, &(200 * 16), &0f64, &300);
+            calculate_safe_price_ratio_x_y_swap(&1.0, &2089992, &990000, &(200 * 16), &0f64, &200);
         assert_eq!(x_safe, 1044995);
         assert_eq!(y_safe, 1044996);
     }

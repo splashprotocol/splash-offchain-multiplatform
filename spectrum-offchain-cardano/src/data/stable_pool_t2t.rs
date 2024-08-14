@@ -16,20 +16,20 @@ use primitive_types::U512;
 use void::Void;
 
 use bloom_offchain::execution_engine::liquidity_book::core::Next;
-use bloom_offchain::execution_engine::liquidity_book::market_maker::AvailableLiquidity;
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
     AbsoluteReserves, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
 };
+use bloom_offchain::execution_engine::liquidity_book::market_maker::AvailableLiquidity;
 use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
+use spectrum_cardano_lib::AssetClass::Native;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension};
 use spectrum_cardano_lib::plutus_data::{IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::AssetClass::Native;
-use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
@@ -42,10 +42,10 @@ use crate::data::pair::order_canonical;
 use crate::data::pool::{
     ApplyOrder, ApplyOrderError, CFMMPoolAction, ImmutablePoolUtxo, Lq, PoolAssetMapping, PoolBounds, Rx, Ry,
 };
-use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
-use crate::deployment::ProtocolValidator::StableFnPoolT2T;
+use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
+use crate::deployment::ProtocolValidator::StableFnPoolT2T;
 use crate::pool_math::cfmm_math::classic_cfmm_shares_amount;
 use crate::pool_math::stable_math::stable_cfmm_reward_lp;
 use crate::pool_math::stable_pool_t2t_exact_math::{
@@ -814,8 +814,8 @@ impl ApplyOrder<ClassicalOnChainRedeem> for StablePoolT2T {
 
 #[cfg(test)]
 mod tests {
-    use cml_chain::plutus::PlutusData;
     use cml_chain::Deserialize;
+    use cml_chain::plutus::PlutusData;
     use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
     use num_rational::Ratio;
     use num_traits::ToPrimitive;
@@ -828,17 +828,17 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
     use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+    use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
-    use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass};
 
     use crate::constants::MAX_LQ_CAP;
+    use crate::data::{OnChainOrderId, PoolId};
     use crate::data::order::ClassicalOrder;
     use crate::data::order::OrderType::BalanceFn;
     use crate::data::pool::ApplyOrder;
     use crate::data::redeem::{ClassicalOnChainRedeem, Redeem};
     use crate::data::stable_pool_t2t::{StablePoolT2T, StablePoolT2TConfig, StablePoolT2TVer};
-    use crate::data::{OnChainOrderId, PoolId};
     use crate::pool_math::stable_pool_t2t_exact_math::{
         calculate_invariant, calculate_safe_price_ratio_x_y_swap,
     };
@@ -1101,7 +1101,7 @@ mod tests {
         // at a price no better than the specified one.
 
         // Set initial pool state (should be noticeably disbalanced to the lower price than the target):
-        let pool = gen_ada_token_pool(576397645224, 6, 898857369257, 6, 100, 100, 0, 0, 0, 200 * 16);
+        let pool = gen_ada_token_pool(590973688007, 6, 984457846729, 6, 100, 100, 0, 0, 0, 200 * 16);
 
         // Let's say we want to calculate pool in which an asset Y is available for less than 1X (including fees):
         let x_calc_value = pool.reserves_x.untag() * pool.multiplier_x;
@@ -1118,7 +1118,7 @@ mod tests {
         let total_fee = pool.lp_fee_y.to_f64().unwrap();
 
         // Calculate the safe ratio:
-        // NB: "alpha" can be > 1 only if target_spot == 1.
+        // NB: "alpha" can be > 1 only if target_spot == 1. Recommended to set alpha in range 1 <= alpha <= ampl_coeff.
         let (x_safe, y_safe) = calculate_safe_price_ratio_x_y_swap(
             &target_spot,
             &d.as_u128(),
@@ -1127,8 +1127,8 @@ mod tests {
             &total_fee,
             &200,
         );
-        assert_eq!(x_safe, 599760879140);
-        assert_eq!(y_safe, 875468424099);
+        assert_eq!(x_safe, 640474309905);
+        assert_eq!(y_safe, 934897647163);
     }
 
     #[test]
@@ -1138,7 +1138,14 @@ mod tests {
 
         // Set initial pool state.
         // Assume x reserves is ADA and y reserves is OADA.
-        let pool = gen_ada_token_pool(599760879140, 6, 875468424099, 6, 100, 100, 0, 0, 0, 200 * 16);
+        let pool0 = gen_ada_token_pool(590973688007, 6, 984457846729, 6, 100, 100, 0, 0, 0, 200 * 16);
+
+        let x_safe = 640474309905;
+        let x_balance_swap = x_safe - pool0.reserves_x.untag();
+        let Next::Succ(pool) = pool0.swap(OnSide::Ask(x_balance_swap)) else {
+            panic!()
+        };
+        assert_eq!(pool.reserves_x.untag(), x_safe);
 
         // ADA -> OADA swap:
         let ada_in = 1_000_000; // 1 ADA
