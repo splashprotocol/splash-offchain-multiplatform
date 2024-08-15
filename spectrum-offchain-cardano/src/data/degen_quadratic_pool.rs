@@ -21,7 +21,6 @@ use bloom_offchain::execution_engine::liquidity_book::market_maker::{
 };
 use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
-use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
@@ -30,6 +29,7 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass, Token};
+use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
@@ -39,11 +39,11 @@ use crate::data::pool::{
     ApplyOrder, CFMMPoolAction, ImmutablePoolUtxo, PoolAssetMapping, PoolBounds, Rx, Ry,
 };
 use crate::data::PoolId;
-use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::deployment::ProtocolValidator::DegenQuadraticPoolV1;
+use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::fees::FeeExtension;
 use crate::pool_math::degen_quadratic_math::{
-    A_DENOM, B_DENOM, degen_quadratic_output_amount, MIN_ADA, TOKEN_EMISSION,
+    degen_quadratic_output_amount, A_DENOM, B_DENOM, MIN_ADA, TOKEN_EMISSION,
 };
 
 pub struct DegenQuadraticPoolConfig {
@@ -593,9 +593,9 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for DegenQuadraticPool {
 
 mod tests {
     use cml_crypto::ScriptHash;
-    use rand::{Rng, SeedableRng};
     use rand::prelude::StdRng;
     use rand::seq::SliceRandom;
+    use rand::{Rng, SeedableRng};
 
     use bloom_offchain::execution_engine::liquidity_book::core::Next;
     use bloom_offchain::execution_engine::liquidity_book::market_maker::{
@@ -608,11 +608,12 @@ mod tests {
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass, Token};
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
     use spectrum_cardano_lib::ex_units::ExUnits;
+    use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
 
     use crate::data::degen_quadratic_pool::{DegenQuadraticPool, DegenQuadraticPoolVer};
     use crate::data::pool::PoolBounds;
     use crate::data::PoolId;
-    use crate::pool_math::degen_quadratic_math::{A_DENOM, calculate_a_num, MIN_ADA, TOKEN_EMISSION};
+    use crate::pool_math::degen_quadratic_math::{calculate_a_num, A_DENOM, MIN_ADA, TOKEN_EMISSION};
 
     const LOVELACE: u64 = 1_000_000;
     const DEC: u64 = 1_000;
