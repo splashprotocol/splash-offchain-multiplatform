@@ -1,4 +1,6 @@
-use bloom_offchain::execution_engine::liquidity_book::market_maker::AvailableLiquidity;
+use bloom_offchain::execution_engine::liquidity_book::market_maker::{
+    AvailableLiquidity, FullPriceDerivative,
+};
 use num_rational::Ratio;
 use std::fmt::{Debug, Display, Formatter};
 
@@ -338,6 +340,16 @@ impl MarketMaker for AnyPool {
             DegenPool(p) => p.available_liquidity_on_side(worst_price),
         }
     }
+
+    fn full_price_derivative(&self) -> Option<FullPriceDerivative> {
+        match self {
+            PureCFMM(p) => p.full_price_derivative(),
+            BalancedCFMM(p) => p.full_price_derivative(),
+            StableCFMM(p) => p.full_price_derivative(),
+            DegenPool(p) => p.full_price_derivative(),
+        }
+    }
+
     fn is_active(&self) -> bool {
         match self {
             PureCFMM(p) => p.is_active(),

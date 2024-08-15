@@ -17,9 +17,11 @@ use type_equalities::IsEqual;
 use void::Void;
 
 use bloom_offchain::execution_engine::liquidity_book::core::Next;
-use bloom_offchain::execution_engine::liquidity_book::market_maker::AvailableLiquidity;
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
     AbsoluteReserves, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
+};
+use bloom_offchain::execution_engine::liquidity_book::market_maker::{
+    AvailableLiquidity, FullPriceDerivative,
 };
 use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
@@ -454,6 +456,10 @@ impl MarketMaker for ConstFnPool {
             input: input_amount_val,
             output: output_amount_val,
         });
+    }
+
+    fn full_price_derivative(&self) -> Option<FullPriceDerivative> {
+        unimplemented!()
     }
 }
 

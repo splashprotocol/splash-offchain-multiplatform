@@ -1,7 +1,7 @@
 use crate::execution_engine::liquidity_book::core::{MakeInProgress, Next, Unit};
 use crate::execution_engine::liquidity_book::side::OnSide;
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;
-use derive_more::{Display, Div, From, Into, Mul};
+use derive_more::{Add, Display, Div, From, Into, Mul, Sub};
 use num_rational::Ratio;
 use std::cmp::Ordering;
 use void::Void;
@@ -28,6 +28,9 @@ pub struct AvailableLiquidity {
     pub input: u64,
     pub output: u64,
 }
+/// Full derivative of the absolute price p, i,e, dp/dq - dp/db * p, where q - quote, b - base.
+#[derive(Debug, Copy, Clone)]
+pub struct FullPriceDerivative(Ratio<i128>);
 
 /// Pooled liquidity.
 pub trait MarketMaker {
@@ -44,6 +47,7 @@ pub trait MarketMaker {
     fn liquidity(&self) -> AbsoluteReserves;
     /// How much base/quote asset is available at 'worst_price' or better.
     fn available_liquidity_on_side(&self, worst_price: OnSide<AbsolutePrice>) -> Option<AvailableLiquidity>;
+    fn full_price_derivative(&self) -> Option<FullPriceDerivative>;
     /// Is this MM active at the moment or not.
     fn is_active(&self) -> bool;
 }
