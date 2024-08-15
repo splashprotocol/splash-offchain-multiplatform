@@ -55,18 +55,22 @@ impl Display for TxBlueprint {
             f.write_str("[")?;
             f.write_str(
                 format!(
-                    "I#{}: [{}, {}],",
+                    "Input{}(ref: {}, addr: {}, value: {}), ",
                     ix,
-                    i.utxo.address().to_hex(),
+                    i.reference,
+                    i.utxo
+                        .address()
+                        .to_bech32(None)
+                        .unwrap_or_else(|_| "_".to_string()),
                     serde_json::to_string(i.utxo.value()).unwrap_or_else(|_| "-".to_string())
                 )
                 .as_str(),
             )?;
             f.write_str(
                 format!(
-                    "O#{}: [{}, {}]",
+                    "Output{}(addr: {}, value: {})",
                     ix,
-                    o.address().to_hex(),
+                    o.address().to_bech32(None).unwrap_or_else(|_| "-".to_string()),
                     serde_json::to_string(o.value()).unwrap_or_else(|_| "-".to_string())
                 )
                 .as_str(),
