@@ -44,8 +44,8 @@ impl Display for AllowedPriceRange {
         f.write_str(
             format!(
                 "AllowedPriceRange(max_ask={}, min_bid={})",
-                display_option(self.max_ask_price),
-                display_option(self.min_bid_price)
+                display_option(&self.max_ask_price),
+                display_option(&self.min_bid_price)
             )
             .as_str(),
         )

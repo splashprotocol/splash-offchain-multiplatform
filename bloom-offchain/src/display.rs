@@ -1,12 +1,12 @@
-use std::fmt::{Display, Formatter, Pointer, Write};
+use std::fmt::{Display, Formatter};
 
-pub fn display_option<T>(opt: Option<T>) -> DisplayOption<T> {
+pub fn display_option<T>(opt: &Option<T>) -> DisplayOption<T> {
     DisplayOption(opt)
 }
 
-pub struct DisplayOption<T>(Option<T>);
+pub struct DisplayOption<'a, T>(&'a Option<T>);
 
-impl<T: Display> Display for DisplayOption<T> {
+impl<'a, T: Display> Display for DisplayOption<'a, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self.0 {
             None => f.write_str("null"),

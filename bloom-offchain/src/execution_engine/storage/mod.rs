@@ -4,6 +4,7 @@ use std::fmt::{Debug, Display, Formatter, Write};
 
 use log::trace;
 
+use crate::execution_engine::storage::kv_store::KvStoreWithTracing;
 use spectrum_offchain::data::event::{Confirmed, Predicted, Unconfirmed};
 use spectrum_offchain::data::{EntitySnapshot, Stable};
 
@@ -29,7 +30,7 @@ pub trait StateIndex<T: EntitySnapshot> {
 }
 
 #[derive(Clone)]
-pub struct StateIndexTracing<In>(pub In);
+pub struct StateIndexWithTracing<In>(pub In);
 
 struct Displayed<'a, T>(&'a Option<T>);
 
@@ -44,7 +45,7 @@ impl<'a, T: EntitySnapshot> Display for Displayed<'a, T> {
     }
 }
 
-impl<In, T> StateIndex<T> for StateIndexTracing<In>
+impl<In, T> StateIndex<T> for StateIndexWithTracing<In>
 where
     In: StateIndex<T>,
     T: EntitySnapshot,
@@ -136,6 +137,10 @@ impl<T: EntitySnapshot> InMemoryStateIndex<T> {
             store: HashMap::new(),
             index: HashMap::new(),
         }
+    }
+
+    pub fn with_tracing() -> StateIndexWithTracing<Self> {
+        StateIndexWithTracing(Self::new())
     }
 
     fn put(&mut self, prefix: u8, sid: T::StableId, value: T)
@@ -277,7 +282,7 @@ pub fn index_key<T: Into<[u8; 28]>>(prefix: u8, id: T) -> InMemoryIndexKey {
 
 #[cfg(test)]
 mod tests {
-    use crate::execution_engine::storage::{InMemoryStateIndex, StateIndex, StateIndexTracing};
+    use crate::execution_engine::storage::{InMemoryStateIndex, StateIndex, StateIndexWithTracing};
     use derive_more::{From, Into};
     use spectrum_offchain::data::event::{Confirmed, Predicted, Unconfirmed};
     use spectrum_offchain::data::{Baked, EntitySnapshot, Stable};
@@ -345,7 +350,7 @@ mod tests {
         let ver1 = Ver::from_str(utxo1);
         let utxo2 = "1af7822454e4e3286b8c59c3adbed84a7e4aa9467ae9741807d24de501ed48c2";
         let ver2 = Ver::from_str(utxo2);
-        let mut store = StateIndexTracing(InMemoryStateIndex::<Ent>::new());
+        let mut store = StateIndexWithTracing(InMemoryStateIndex::<Ent>::new());
         let stable_id = StableId::from_str(nft);
         store.put_unconfirmed(Unconfirmed(Ent { stable_id, ver: ver1 }));
         store.put_confirmed(Confirmed(Ent { stable_id, ver: ver1 }));
