@@ -123,8 +123,6 @@ where
     }
 }
 
-const MAX_ROLLBACK_DEPTH: usize = 32;
-
 #[derive(Clone)]
 pub struct InMemoryStateIndex<T: EntitySnapshot> {
     store: HashMap<T::Version, T>,
@@ -230,13 +228,8 @@ where
     fn invalidate_version(&mut self, ver: T::Version) -> Option<T::StableId> {
         if let Some(entity) = self.store.remove(&ver) {
             let sid = entity.stable_id();
-            let indexes = vec![
-                LAST_PREDICTED_PREFIX,
-                LAST_UNCONFIRMED_PREFIX,
-                LAST_CONFIRMED_PREFIX,
-            ];
-            for index in indexes {
-                if let Entry::Occupied(index_ver) = self.index.entry(index_key(index, sid)) {
+            for prefix in PREFIXES {
+                if let Entry::Occupied(index_ver) = self.index.entry(index_key(prefix, sid)) {
                     if *index_ver.get() == ver {
                         index_ver.remove();
                     }
