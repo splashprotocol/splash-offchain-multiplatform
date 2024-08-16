@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::ops::Div;
 
@@ -354,13 +355,21 @@ impl MarketMaker for DegenQuadraticPool {
         let b_x2 = b.clone() * b.clone();
         let b_x3 = b.clone() * b_x2.clone();
 
-        let mut err = 2i64;
         let mut counter = 0usize;
 
-        let max_ada = (self.ada_cup_thr - MIN_ADA) * (PERC + MAX_EXCESS_PERC) / PERC;
+        let max_ada =
+            BigNumber::from(((self.ada_cup_thr - MIN_ADA) * (PERC + MAX_EXCESS_PERC) / PERC) as f64);
+        let min_ada = BigNumber::from(MIN_ADA as f64);
         if x0_val >= (self.ada_cup_thr - MIN_ADA) as f64 {
             return None;
         };
+
+        let n_0 = BigNumber::from(0f64);
+        let n_1_minus = BigNumber::from(-1f64);
+        let n_1 = BigNumber::from(1f64);
+        let n_2 = BigNumber::from(2f64);
+        let mut err = n_2.clone();
+
         let (output_amount, input_amount) = match worst_price {
             OnSide::Ask(price) => {
                 const COEFF_DENOM: u64 = 100000000000000;
@@ -375,7 +384,13 @@ impl MarketMaker for DegenQuadraticPool {
 
                 let p = BigNumber::from(*price.numer() as f64) / BigNumber::from(*price.denom() as f64);
                 let mut x1 = BigNumber::from((self.ada_cup_thr - MIN_ADA) as f64);
-                while (err >= 1 || err <= -1) && counter < 255 {
+                let mut err_n1 = err.value.clone().cmp(&n_1.value.clone());
+                let mut err_n1_minus = err.value.clone().cmp(&n_1_minus.value.clone());
+
+                while ((err_n1 == Ordering::Greater || err_n1 == Ordering::Equal)
+                    || (err_n1_minus == Ordering::Less || err_n1_minus == Ordering::Equal))
+                    && counter < 255
+                {
                     let a_coeff = n_27.clone() * a_x3.clone() * supply_y0_x3.clone()
                         + n_81.clone() * a_x2.clone() * b.clone() * supply_y0.clone()
                         + n_81.clone() * a_x2.clone() * (x1.clone() - x0.clone());
@@ -399,9 +414,10 @@ impl MarketMaker for DegenQuadraticPool {
                         + (coeff_1.clone() * c_coeff.clone()).div(a.clone() * b_coeff_2_3);
                     let additional = add_num.div(add_denom);
 
-                    let x_new = (x1.clone() - additional.clone()).value.to_f64().value() as i64;
-
-                    if x_new < max_ada as i64 && x_new as f64 > x0_val {
+                    let x_new = x1.clone() - additional.clone();
+                    let x_new_max_ada = x_new.value.clone().cmp(&max_ada.value.clone());
+                    let x_new_x0 = x_new.value.clone().cmp(&min_ada.value.clone());
+                    if x_new_max_ada == Ordering::Less && x_new_x0 == Ordering::Greater {
                         x1 = x1.clone() - additional.clone()
                     } else {
                         let ada_delta = self.ada_cup_thr - x0_val as u64 - MIN_ADA;
@@ -416,14 +432,16 @@ impl MarketMaker for DegenQuadraticPool {
                             output: token_delta,
                         });
                     }
-                    err = additional.value.to_f64().value() as i64;
+                    err = additional.clone();
+                    err_n1 = err.value.clone().cmp(&n_1.value.clone());
+                    err_n1_minus = err.value.clone().cmp(&n_1_minus.value.clone());
+                    counter += 1;
                 }
                 let delta_x = x1 - x0;
                 let delta_y = delta_x.clone() * p;
                 (delta_y, delta_x)
             }
             OnSide::Bid(price) => {
-                let n_2 = BigNumber::from(2f64);
                 let n_3 = BigNumber::from(3f64);
                 let n_4 = BigNumber::from(4f64);
                 let n_6 = BigNumber::from(6f64);
@@ -431,11 +449,16 @@ impl MarketMaker for DegenQuadraticPool {
                 let n_243 = BigNumber::from(243f64);
                 let n_729 = BigNumber::from(729f64);
 
-                let mut err = 2i64;
                 let mut counter = 0usize;
                 let p = BigNumber::from(*price.denom() as f64) / BigNumber::from(*price.numer() as f64);
                 let mut x1 = BN_ZERO;
-                while (err >= 1 || err <= -1) && counter < 255 {
+                let mut err_n1 = err.value.clone().cmp(&n_1.value.clone());
+                let mut err_n1_minus = err.value.clone().cmp(&n_1_minus.value.clone());
+
+                while ((err_n1 == Ordering::Greater || err_n1 == Ordering::Equal)
+                    || (err_n1_minus == Ordering::Less || err_n1_minus == Ordering::Equal))
+                    && counter < 255
+                {
                     let a_coeff = n_27.clone()
                         * (n_3.clone() * x0.clone()
                             - a.clone() * supply_y0_x3.clone()
@@ -470,13 +493,14 @@ impl MarketMaker for DegenQuadraticPool {
                         - d_coeff.clone() / (n_3.clone() * c_coeff_2_3)
                         - n_3.clone() * b.clone() * d_coeff / (a.clone() * c_coeff_4_3);
                     let additional = add_num.div(add_denom);
-                    let x_new = (x1.clone() - additional.clone()).value.to_f64().value() as i64;
-                    err = if x0_val > 0f64 {
-                        additional.value.to_f64().value() as i64
-                    } else {
-                        2i64
-                    };
-                    if x_new < max_ada as i64 && x_new as f64 > MIN_ADA as f64 && x_new != x0_val as i64 {
+                    let x_new = x1.clone() - additional.clone();
+                    let x_new_max_ada = x_new.value.clone().cmp(&max_ada.value.clone());
+                    let x_new_min_ada = x_new.value.clone().cmp(&min_ada.value.clone());
+                    let x_new_x0 = x_new.value.round().clone().cmp(&x0.value.clone());
+                    if x_new_max_ada == Ordering::Less
+                        && x_new_min_ada == Ordering::Greater
+                        && x_new_x0 != Ordering::Equal
+                    {
                         x1 = x1.clone() - additional.clone()
                     } else {
                         let supply_y0_val = supply_y0.value.to_f64().value() as u64;
@@ -486,6 +510,14 @@ impl MarketMaker for DegenQuadraticPool {
                             input: supply_y0.value.to_f64().value() as u64,
                         });
                     }
+                    err = if x0.value.cmp(&n_0.value.clone()) == Ordering::Greater {
+                        additional.clone()
+                    } else {
+                        n_2.clone()
+                    };
+                    err_n1 = err.value.clone().cmp(&n_1.value.clone());
+                    err_n1_minus = err.value.clone().cmp(&n_1_minus.value.clone());
+                    counter += 1;
                 }
                 let delta_x = x0 - x1;
                 let delta_y = delta_x.clone() * p;
@@ -703,7 +735,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
         let min_redeem = 10u64;
         let b: u64 = 0;
-        for _ in 0..3 {
+        for _ in 0..10 {
             let ada_cap: u64 = rng.gen_range(1_000..100_000 * LOVELACE);
             let a: u64 = calculate_a_num(&ada_cap);
             let to_dep_init: u64 = rng.gen_range(LOVELACE..100 * LOVELACE);
@@ -930,5 +962,21 @@ mod tests {
             assert_eq!(q, y_max);
             assert_eq!(pool3.reserves_x.untag(), pool3.ada_cup_thr)
         }
+    }
+    #[test]
+    fn test_available_lq_bug() {
+        let ada_cap: u64 = 25_240 * LOVELACE;
+        let a: u64 = 174_150_190_999;
+        let b: u64 = 2_000_000;
+        let pool0 = gen_ada_token_pool(150000000, 933525758, a, b, ada_cap);
+
+        let worst_price = AbsolutePrice::new(66474242, 904253).unwrap();
+        let Some(AvailableLiquidity { input: b, output: q }) =
+            pool0.available_liquidity_on_side(Bid(worst_price))
+        else {
+            panic!()
+        };
+        assert_eq!(b, 66474242);
+        assert_eq!(q, 150000000);
     }
 }
