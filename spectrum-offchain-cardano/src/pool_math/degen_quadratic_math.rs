@@ -1,7 +1,7 @@
 use std::ops::Div;
 
+use bigdecimal::num_bigint::ToBigInt;
 use bigdecimal::BigDecimal;
-use num_bigint::ToBigInt;
 use num_traits::{Pow, ToPrimitive};
 
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
@@ -65,8 +65,7 @@ pub fn degen_quadratic_output_amount<X, Y>(
             * (token_supply0_x3.clone()
                 - token_supply1.clone() * token_supply1.clone() * token_supply1.clone())
             .div(const_3 * a_denom.clone())
-            + b_num.to_bigint().unwrap()
-                * (token_supply0.clone() - token_supply1.clone()).div(b_denom.clone())
+            + b_num * (token_supply0.clone() - token_supply1.clone()).div(b_denom.clone())
     };
     TaggedAmount::new(quote_amount.to_u64().unwrap().into())
 }
