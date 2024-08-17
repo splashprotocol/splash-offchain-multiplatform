@@ -144,24 +144,20 @@ where
                     trace!("Selected taker is: {}", target_taker);
                     let target_side = target_taker.side();
                     let target_price = target_side.wrap(target_taker.price());
-                    let maybe_price_counter_taker = self.state.best_taker_price(!target_side);
-                    let maybe_price_maker = self.state.preselect_market_maker(
-                        target_taker.price(),
-                        target_taker.input(),
-                        target_side,
-                    );
+                    let best_price_counter_taker = self.state.best_taker_price(!target_side);
+                    let best_price_maker = self.state.best_maker_price(target_side);
                     trace!(
                         "P_target: {}, P_counter: {}, P_amm: {}",
                         target_price.unwrap(),
-                        display_option(&maybe_price_counter_taker),
-                        display_option(&maybe_price_maker.map(|(id, fp)| display_tuple((id, fp.price))))
+                        display_option(&best_price_counter_taker),
+                        display_option(&best_price_maker)
                     );
-                    match (maybe_price_counter_taker, maybe_price_maker) {
+                    match (best_price_counter_taker, best_price_maker) {
                         (Some(price_counter_taker), maybe_price_maker)
                             if self.conf.o2o_allowed
                                 && target_price.overlaps(price_counter_taker.unwrap())
                                 && maybe_price_maker
-                                    .map(|(_, fp)| price_counter_taker.better_than(fp.price))
+                                    .map(|p| price_counter_taker.better_than(p.into()))
                                     .unwrap_or(true) =>
                         {
                             if let Some(counter_taker) = self.state.try_pick_taker(!target_side, ok) {
@@ -177,22 +173,28 @@ where
                                 continue;
                             }
                         }
-                        (_, Some((maker_sid, FillPreview { price, input })))
-                            if target_price.overlaps(price) =>
-                        {
-                            if let Some(maker) = self.state.pick_maker_by_id(&maker_sid) {
-                                trace!("Taker {} matched with {}", target_taker, maker);
-                                let (take, make) =
-                                    execute_with_maker(target_taker, maker, target_side.wrap(input));
-                                batch.add_make(make);
-                                batch.add_take(take);
-                                self.on_take(take.result);
-                                self.on_make(make.result);
-                                continue;
-                            }
+                        (_, Some(best_static_price_maker)) if target_price.overlaps(best_static_price_maker.into()) => {
+                            
                         }
-                        _ => {}
+                        _ => (),
                     }
+                    // match (maybe_price_counter_taker, maybe_price_maker) {
+                    //     (_, Some((maker_sid, FillPreview { price, input })))
+                    //         if target_price.overlaps(price) =>
+                    //     {
+                    //         if let Some(maker) = self.state.pick_maker_by_id(&maker_sid) {
+                    //             trace!("Taker {} matched with {}", target_taker, maker);
+                    //             let (take, make) =
+                    //                 execute_with_maker(target_taker, maker, target_side.wrap(input));
+                    //             batch.add_make(make);
+                    //             batch.add_take(take);
+                    //             self.on_take(take.result);
+                    //             self.on_make(make.result);
+                    //             continue;
+                    //         }
+                    //     }
+                    //     _ => {}
+                    // }
                 }
                 break;
             }

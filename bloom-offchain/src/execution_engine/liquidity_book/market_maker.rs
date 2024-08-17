@@ -34,6 +34,8 @@ pub trait MarketMaker {
     type U;
     /// Static price (regardless swap vol) in this pool.
     fn static_price(&self) -> SpotPrice;
+    // Price derivative based on the current state of the pool
+    fn price_derivative(&self) -> AbsolutePrice;
     /// Real price of swap.
     fn real_price(&self, input: OnSide<u64>) -> Option<AbsolutePrice>;
     /// Quality of the pool.

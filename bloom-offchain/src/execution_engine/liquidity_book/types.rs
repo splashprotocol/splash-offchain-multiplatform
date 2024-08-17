@@ -46,12 +46,8 @@ impl Display for AbsolutePrice {
 
 impl AbsolutePrice {
     #[inline]
-    pub fn new_unsafe(numer: u64, denom: u64) -> AbsolutePrice {
-        Self(Ratio::new_raw(numer as u128, denom as u128))
-    }
-    #[inline]
-    pub fn new_raw(numer: u128, denom: u128) -> AbsolutePrice {
-        Self(Ratio::new_raw(numer, denom))
+    pub fn new_unsafe<N: Into<u128>>(numer: N, denom: N) -> AbsolutePrice {
+        Self(Ratio::new_raw(numer.into(), denom.into()))
     }
 
     #[inline]
@@ -65,7 +61,7 @@ impl AbsolutePrice {
 
     #[inline]
     pub fn zero() -> AbsolutePrice {
-        Self::new_unsafe(0, 1)
+        Self::new_unsafe(0u128, 1)
     }
 
     pub fn from_price(side: Side, price: RelativePrice) -> Self {

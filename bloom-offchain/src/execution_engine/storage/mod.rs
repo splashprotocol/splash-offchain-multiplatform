@@ -1,10 +1,9 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::fmt::{Debug, Display, Formatter, Write};
+use std::fmt::{Debug, Display, Formatter};
 
 use log::trace;
 
-use crate::execution_engine::storage::kv_store::KvStoreWithTracing;
 use spectrum_offchain::data::event::{Confirmed, Predicted, Unconfirmed};
 use spectrum_offchain::data::{EntitySnapshot, Stable};
 

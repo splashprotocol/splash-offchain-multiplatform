@@ -430,7 +430,7 @@ where
         M: Display,
         T: Display,
     {
-        let pools = self.pools().show_state();
+        let pools = self.makers().show_state();
         let fragments = self.active_fragments().show_state();
         format!("Fragments(active): {}, Pools: {}", fragments, pools)
     }
@@ -593,7 +593,7 @@ where
         T: MarketTaker,
         M: MarketMaker + Stable + Copy,
     {
-        self.pools().values.values().max_by_key(|p| p.quality())
+        self.makers().values.values().max_by_key(|p| p.quality())
     }
 }
 
@@ -607,6 +607,23 @@ impl<T, M> TLBState<T, M>
 where
     M: Stable + Copy,
 {
+    pub fn best_maker_price(&self, side: Side) -> Option<SpotPrice>
+    where
+        M: MarketMaker,
+    {
+        let prices = self.makers().values.values().filter_map(|pool| {
+            if pool.is_active() {
+                Some(pool.static_price())
+            } else {
+                None
+            }
+        });
+        match side {
+            Side::Bid => prices.min(),
+            Side::Ask => prices.max(),
+        }
+    }
+
     pub fn preselect_market_maker(
         &self,
         price: AbsolutePrice,
@@ -617,7 +634,7 @@ where
         M: MarketMaker,
     {
         let pools = self
-            .pools()
+            .makers()
             .values
             .values()
             .filter(|pool| pool.is_active())
@@ -656,13 +673,6 @@ where
         }
     }
 
-    pub fn pick_maker_by_id(&mut self, pid: &M::StableId) -> Option<M>
-    where
-        T: MarketTaker + Ord + Copy,
-    {
-        self.pick_maker(|pools| pools.values.remove(pid))
-    }
-
     /// Pick pool ensuring TLB is in proper state.
     fn pick_maker<F>(&mut self, f: F) -> Option<M>
     where
@@ -690,7 +700,7 @@ where
         }
     }
 
-    fn pools(&self) -> &MarketMakers<M> {
+    fn makers(&self) -> &MarketMakers<M> {
         match self {
             TLBState::Idle(st) => &st.makers,
             TLBState::PartialPreview(st) => &st.makers_preview,
@@ -1237,11 +1247,11 @@ pub mod tests {
         state.commit();
         assert_eq!(state.pick_best_fr_either(None), Some(o2));
         state.rollback(StashingOption::Stash(vec![o2]));
-        assert_eq!(state.pools().values.get(&p0.pool_id).copied(), Some(p0));
+        assert_eq!(state.makers().values.get(&p0.pool_id).copied(), Some(p0));
         assert_eq!(state.pick_best_fr_either(None), None);
         state.rollback(StashingOption::Unstash);
         assert_eq!(state.pick_best_fr_either(None), Some(o2));
-        assert_eq!(state.pools().values.get(&p0.pool_id).copied(), Some(p0));
+        assert_eq!(state.makers().values.get(&p0.pool_id).copied(), Some(p0));
     }
 
     /// Order that supports partial filling.
