@@ -191,7 +191,10 @@ where
                                 continue;
                             }
                         }
-                        _ => {}
+                        _ => {
+                            trace!("Failed to match taker {}", target_taker);
+                            self.state.pre_add_taker(target_taker);
+                        }
                     }
                 }
                 break;

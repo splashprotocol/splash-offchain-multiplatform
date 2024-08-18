@@ -1037,6 +1037,10 @@ mod tests {
                     script_hash: ScriptHash::from([0u8; 28]),
                     marginal_cost: ExUnits::empty(),
                 },
+                degen_fn_pool_v1: DeployedScriptInfo {
+                    script_hash: ScriptHash::from([0u8; 28]),
+                    marginal_cost: ExUnits::empty(),
+                },
             },
         };
         let mut handler = PairUpdateHandler::new(Partitioned::new([snd]), index, context);
