@@ -37,7 +37,7 @@ impl Display for AbsolutePrice {
             .unwrap()
             .div(BigNumber::from_str(self.0.denom().to_string().as_str()).unwrap());
         f.write_str(&*format!(
-            "AbsPrice(decimal={}, ratio={})",
+            "AbsPrice(decimal: {}, ratio: {})",
             price.to_precision(5).to_string(),
             self.0
         ))

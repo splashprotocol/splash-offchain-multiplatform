@@ -5,7 +5,7 @@ use primitive_types::U256;
 use std::fmt::{Debug, Display};
 use std::ops::AddAssign;
 
-use crate::display::{display_option, display_tuple};
+use crate::display::display_option;
 use crate::execution_engine::liquidity_book::config::ExecutionConfig;
 use crate::execution_engine::liquidity_book::core::{
     MakeInProgress, MatchmakingAttempt, MatchmakingRecipe, Next, TakeInProgress, Trans,
@@ -404,7 +404,7 @@ mod tests {
         let o1 = SimpleOrderPF::make(
             Side::Ask,
             35000000,
-            AbsolutePrice::new_unsafe(11989509179467966, 1000000000000000),
+            AbsolutePrice::new_unsafe(11989509179467966u128, 1000000000000000),
             0,
             0,
             5994754,
@@ -412,7 +412,7 @@ mod tests {
         let o2 = SimpleOrderPF::make(
             Side::Bid,
             103471165,
-            AbsolutePrice::new_unsafe(103471165, 6634631),
+            AbsolutePrice::new_unsafe(103471165u128, 6634631),
             0,
             0,
             6634631,
@@ -435,8 +435,8 @@ mod tests {
     #[test]
     fn recipe_fill_fragment_from_fragment() {
         // Assuming pair ADA/USDT @ 0.37
-        let o1 = SimpleOrderPF::new(Ask, 20000, AbsolutePrice::new_unsafe(36, 100), 1000);
-        let o2 = SimpleOrderPF::new(Bid, 3700, AbsolutePrice::new_unsafe(37, 100), 990);
+        let o1 = SimpleOrderPF::new(Ask, 20000, AbsolutePrice::new_unsafe(36u128, 100), 1000);
+        let o2 = SimpleOrderPF::new(Bid, 3700, AbsolutePrice::new_unsafe(37u128, 100), 990);
         let p1 = SimpleCFMMPool {
             pool_id: StableId::random(),
             reserves_base: 1000000,
@@ -476,7 +476,7 @@ mod tests {
             input: 1000,
             accumulated_output: 0,
             min_marginal_output: 0,
-            price: AbsolutePrice::new_unsafe(37, 100),
+            price: AbsolutePrice::new_unsafe(37u128, 100),
             fee: 0,
             ex_budget: 0,
             cost_hint: 100,
@@ -488,14 +488,14 @@ mod tests {
             input: 370,
             accumulated_output: 0,
             min_marginal_output: 0,
-            price: AbsolutePrice::new_unsafe(37, 100),
+            price: AbsolutePrice::new_unsafe(37u128, 100),
             fee: 0,
             ex_budget: 0,
             cost_hint: 100,
             bounds: TimeBounds::None,
         };
         let make_match = |x: &SimpleOrderPF, y: &SimpleOrderPF| {
-            settle_price(x, y, Some(AbsolutePrice::new_unsafe(37, 100).into()))
+            settle_price(x, y, Some(AbsolutePrice::new_unsafe(37u128, 100).into()))
         };
         let (t1, t2) = execute_with_taker(fr1, fr2, make_match);
         assert_eq!(t1.added_output(), fr2.input);
@@ -505,7 +505,7 @@ mod tests {
     #[test]
     fn match_taker_with_taker_partial() {
         // Assuming pair ADA/USDT @ 0.37
-        let p = AbsolutePrice::new_unsafe(37, 100);
+        let p = AbsolutePrice::new_unsafe(37u128, 100);
         let fr1 = SimpleOrderPF {
             source: StableId::random(),
             side: Ask,
@@ -548,7 +548,7 @@ mod tests {
             input: 1000,
             accumulated_output: 0,
             min_marginal_output: 0,
-            price: AbsolutePrice::new_unsafe(36, 100),
+            price: AbsolutePrice::new_unsafe(36u128, 100),
             fee: 1000,
             ex_budget: 0,
             cost_hint: 100,
@@ -574,7 +574,7 @@ mod tests {
             input: 8851624528,
             accumulated_output: 2512730,
             min_marginal_output: 0,
-            price: AbsolutePrice::new_unsafe(8851624528, 2114025439),
+            price: AbsolutePrice::new_unsafe(8851624528u128, 2114025439),
             fee: 0,
             ex_budget: 0,
             cost_hint: 0,
@@ -594,9 +594,9 @@ mod tests {
 
     #[test]
     fn match_price_biased_towards_best_fee() {
-        let ask_price = AbsolutePrice::new_unsafe(30, 100);
-        let bid_price = AbsolutePrice::new_unsafe(50, 100);
-        let index_price = AbsolutePrice::new_unsafe(40, 100);
+        let ask_price = AbsolutePrice::new_unsafe(30u128, 100);
+        let bid_price = AbsolutePrice::new_unsafe(50u128, 100);
+        let index_price = AbsolutePrice::new_unsafe(40u128, 100);
         let ask_fr = SimpleOrderPF {
             source: StableId::random(),
             side: Ask,
@@ -628,9 +628,9 @@ mod tests {
 
     #[test]
     fn match_price_biased_towards_best_fee_() {
-        let ask_price = AbsolutePrice::new_unsafe(30, 100);
-        let bid_price = AbsolutePrice::new_unsafe(50, 100);
-        let index_price = AbsolutePrice::new_unsafe(51, 100);
+        let ask_price = AbsolutePrice::new_unsafe(30u128, 100);
+        let bid_price = AbsolutePrice::new_unsafe(50u128, 100);
+        let index_price = AbsolutePrice::new_unsafe(51u128, 100);
         let ask_fr = SimpleOrderPF {
             source: StableId::random(),
             side: Ask,
@@ -662,9 +662,9 @@ mod tests {
 
     #[test]
     fn match_price_always_stays_within_bounds() {
-        let ask_price = AbsolutePrice::new_unsafe(37, 100);
-        let bid_price = AbsolutePrice::new_unsafe(37, 100);
-        let index_price = AbsolutePrice::new_unsafe(40, 100);
+        let ask_price = AbsolutePrice::new_unsafe(37u128, 100);
+        let bid_price = AbsolutePrice::new_unsafe(37u128, 100);
+        let index_price = AbsolutePrice::new_unsafe(40u128, 100);
         let ask_fr = SimpleOrderPF {
             source: StableId::random(),
             side: Side::Ask,
@@ -697,8 +697,8 @@ mod tests {
     #[test]
     fn price_overlap() {
         let rem_side = Bid;
-        let rem_price = AbsolutePrice::new_unsafe(12692989795594245882, 12061765702237861555);
-        let other_fr_price = AbsolutePrice::new_unsafe(1, 1);
+        let rem_price = AbsolutePrice::new_unsafe(12692989795594245882u128, 12061765702237861555);
+        let other_fr_price = AbsolutePrice::new_unsafe(1u128, 1);
         assert!(rem_side.wrap(rem_price).overlaps(other_fr_price))
     }
 }
