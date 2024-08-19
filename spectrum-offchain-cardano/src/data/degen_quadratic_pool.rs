@@ -30,7 +30,6 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass, Token};
-use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
@@ -638,9 +637,6 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass, Token};
-    use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
-    use spectrum_cardano_lib::ex_units::ExUnits;
-    use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
 
     use crate::data::degen_quadratic_pool::{DegenQuadraticPool, DegenQuadraticPoolVer};
     use crate::data::pool::PoolBounds;
