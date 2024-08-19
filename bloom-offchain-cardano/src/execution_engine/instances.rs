@@ -610,9 +610,10 @@ where
                 cost: delayed_cost(move |ctx| ex_budget + marginal_cost.scale(ctx.self_index as u64)),
             },
             redeemer: delayed_redeemer(move |ordering| {
+                let pool_index = ordering.index_of(&in_ref) as u64;
                 DegenQuadraticPoolRedeemer {
-                    pool_input_index: ordering.index_of(&in_ref) as u64,
-                    pool_output_index: ordering.index_of(&in_ref) as u64,
+                    pool_input_index: pool_index,
+                    pool_output_index: pool_index,
                     action: CFMMPoolAction::Swap,
                 }
                 .to_plutus_data()

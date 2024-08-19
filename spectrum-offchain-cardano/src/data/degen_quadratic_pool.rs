@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::ops::Div;
 
@@ -385,11 +384,9 @@ impl MarketMaker for DegenQuadraticPool {
 
                 let p = BigNumber::from(*price.numer() as f64) / BigNumber::from(*price.denom() as f64);
                 let mut x1 = BigNumber::from((self.ada_cap_thr - MIN_ADA) as f64);
-                let mut err_n1 = err.value.clone().cmp(&n_1.value.clone());
-                let mut err_n1_minus = err.value.clone().cmp(&n_1_minus.value.clone());
 
-                while ((err_n1 == Ordering::Greater || err_n1 == Ordering::Equal)
-                    || (err_n1_minus == Ordering::Less || err_n1_minus == Ordering::Equal))
+                while ((err.value.clone() >= n_1.value.clone())
+                    || (err.value.clone() <= n_1_minus.value.clone()))
                     && counter < 255
                 {
                     let a_coeff = n_27.clone() * a_x3.clone() * supply_y0_x3.clone()
@@ -416,9 +413,9 @@ impl MarketMaker for DegenQuadraticPool {
                     let additional = add_num.div(add_denom);
 
                     let x_new = x1.clone() - additional.clone();
-                    let x_new_max_ada = x_new.value.clone().cmp(&max_ada.value.clone());
-                    let x_new_x0 = x_new.value.clone().cmp(&min_ada.value.clone());
-                    if x_new_max_ada == Ordering::Less && x_new_x0 == Ordering::Greater {
+                    if x_new.value.clone() < max_ada.value.clone()
+                        && x_new.value.clone() > min_ada.value.clone()
+                    {
                         x1 = x1.clone() - additional.clone()
                     } else {
                         let ada_delta = self.ada_cap_thr - x0_val as u64 - MIN_ADA;
@@ -434,8 +431,6 @@ impl MarketMaker for DegenQuadraticPool {
                         });
                     }
                     err = additional.clone();
-                    err_n1 = err.value.clone().cmp(&n_1.value.clone());
-                    err_n1_minus = err.value.clone().cmp(&n_1_minus.value.clone());
                     counter += 1;
                 }
                 let delta_x = x1 - x0;
@@ -453,11 +448,9 @@ impl MarketMaker for DegenQuadraticPool {
                 let mut counter = 0usize;
                 let p = BigNumber::from(*price.denom() as f64) / BigNumber::from(*price.numer() as f64);
                 let mut x1 = BN_ZERO;
-                let mut err_n1 = err.value.clone().cmp(&n_1.value.clone());
-                let mut err_n1_minus = err.value.clone().cmp(&n_1_minus.value.clone());
 
-                while ((err_n1 == Ordering::Greater || err_n1 == Ordering::Equal)
-                    || (err_n1_minus == Ordering::Less || err_n1_minus == Ordering::Equal))
+                while ((err.value.clone() >= n_1.value.clone())
+                    || (err.value.clone() <= n_1_minus.value.clone()))
                     && counter < 255
                 {
                     let a_coeff = n_27.clone()
@@ -495,12 +488,9 @@ impl MarketMaker for DegenQuadraticPool {
                         - n_3.clone() * b.clone() * d_coeff / (a.clone() * c_coeff_4_3);
                     let additional = add_num.div(add_denom);
                     let x_new = x1.clone() - additional.clone();
-                    let x_new_max_ada = x_new.value.clone().cmp(&max_ada.value.clone());
-                    let x_new_min_ada = x_new.value.clone().cmp(&min_ada.value.clone());
-                    let x_new_x0 = x_new.value.round().clone().cmp(&x0.value.clone());
-                    if x_new_max_ada == Ordering::Less
-                        && x_new_min_ada == Ordering::Greater
-                        && x_new_x0 != Ordering::Equal
+                    if x_new.value.clone() < max_ada.value.clone()
+                        && x_new.value.clone() > min_ada.value.clone()
+                        && x_new.value.round().clone() != x0.value.clone()
                     {
                         x1 = x1.clone() - additional.clone()
                     } else {
@@ -511,13 +501,11 @@ impl MarketMaker for DegenQuadraticPool {
                             input: supply_y0.value.to_f64().value() as u64,
                         });
                     }
-                    err = if x0.value.cmp(&n_0.value.clone()) == Ordering::Greater {
+                    err = if x0.value.clone() > n_0.value.clone() {
                         additional.clone()
                     } else {
                         n_2.clone()
                     };
-                    err_n1 = err.value.clone().cmp(&n_1.value.clone());
-                    err_n1_minus = err.value.clone().cmp(&n_1_minus.value.clone());
                     counter += 1;
                 }
                 let delta_x = x0 - x1;
