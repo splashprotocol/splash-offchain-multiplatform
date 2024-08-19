@@ -8,6 +8,9 @@ use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 
 use crate::data::order::{Base, Quote};
 
+pub const MAX_ALLOWED_ADA_EXTRAS_PERCENTILE: u64 = 1;
+pub const FULL_PERCENTILE: u64 = 1000;
+
 pub const MIN_ADA: u64 = 3_000_000;
 
 pub const A_DENOM: u128 = 1_000_000_000_000_000_000_000_000_000;
@@ -101,8 +104,8 @@ mod tests {
 
     #[test]
     fn calc_a_num_test() {
-        let ada_cup = (42_069_000_000u64) * 75 / 100;
-        let a_num = calculate_a_num(&ada_cup);
+        let ada_cap = (42_069_000_000u64) * 75 / 100;
+        let a_num = calculate_a_num(&ada_cap);
         assert_eq!(a_num, 224360888888)
     }
 }

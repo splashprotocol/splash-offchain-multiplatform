@@ -43,7 +43,8 @@ use crate::deployment::ProtocolValidator::DegenQuadraticPoolV1;
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::fees::FeeExtension;
 use crate::pool_math::degen_quadratic_math::{
-    degen_quadratic_output_amount, A_DENOM, B_DENOM, MIN_ADA, TOKEN_EMISSION,
+    degen_quadratic_output_amount, A_DENOM, B_DENOM, FULL_PERCENTILE, MAX_ALLOWED_ADA_EXTRAS_PERCENTILE,
+    MIN_ADA, TOKEN_EMISSION,
 };
 
 pub struct DegenQuadraticPoolConfig {
@@ -52,7 +53,7 @@ pub struct DegenQuadraticPoolConfig {
     pub asset_y: TaggedAssetClass<Ry>,
     pub a_num: u64,
     pub b_num: u64,
-    pub ada_cup_thr: u64,
+    pub ada_cap_thr: u64,
 }
 
 struct DatumMapping {
@@ -61,7 +62,7 @@ struct DatumMapping {
     pub asset_y: usize,
     pub a_num: usize,
     pub b_num: usize,
-    pub ada_cup_thr: usize,
+    pub ada_cap_thr: usize,
 }
 
 const DATUM_MAPPING: DatumMapping = DatumMapping {
@@ -70,7 +71,7 @@ const DATUM_MAPPING: DatumMapping = DatumMapping {
     asset_y: 2,
     a_num: 3,
     b_num: 4,
-    ada_cup_thr: 6,
+    ada_cap_thr: 6,
 };
 
 impl TryFromPData for DegenQuadraticPoolConfig {
@@ -81,7 +82,7 @@ impl TryFromPData for DegenQuadraticPoolConfig {
         let asset_y = TaggedAssetClass::try_from_pd(cpd.take_field(DATUM_MAPPING.asset_y)?)?;
         let a_num = cpd.take_field(DATUM_MAPPING.a_num)?.into_u64()?;
         let b_num = cpd.take_field(DATUM_MAPPING.b_num)?.into_u64()?;
-        let ada_cup_thr = cpd.take_field(DATUM_MAPPING.ada_cup_thr)?.into_u64()?;
+        let ada_cap_thr = cpd.take_field(DATUM_MAPPING.ada_cap_thr)?.into_u64()?;
 
         Some(Self {
             pool_nft,
@@ -89,7 +90,7 @@ impl TryFromPData for DegenQuadraticPoolConfig {
             asset_y,
             a_num,
             b_num,
-            ada_cup_thr,
+            ada_cap_thr,
         })
     }
 }
@@ -130,7 +131,7 @@ pub struct DegenQuadraticPool {
     pub asset_y: TaggedAssetClass<Ry>,
     pub a_num: u64,
     pub b_num: u64,
-    pub ada_cup_thr: u64,
+    pub ada_cap_thr: u64,
     pub ver: DegenQuadraticPoolVer,
     pub marginal_cost: ExUnits,
     pub bounds: PoolBounds,
@@ -292,7 +293,7 @@ impl MarketMaker for DegenQuadraticPool {
                     .untag(),
                 input,
             ),
-            OnSide::Ask(input) if self.reserves_x.untag() + input <= self.ada_cup_thr => (
+            OnSide::Ask(input) if self.reserves_x.untag() + input <= self.ada_cap_thr => (
                 input,
                 self.output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
                     .untag(),
@@ -311,7 +312,8 @@ impl MarketMaker for DegenQuadraticPool {
     }
 
     fn is_active(&self) -> bool {
-        self.reserves_x.untag() < self.ada_cup_thr
+        self.reserves_x.untag()
+            < self.ada_cap_thr * (MAX_ALLOWED_ADA_EXTRAS_PERCENTILE + FULL_PERCENTILE) / FULL_PERCENTILE
     }
 
     fn liquidity(&self) -> AbsoluteReserves {
@@ -357,9 +359,9 @@ impl MarketMaker for DegenQuadraticPool {
         let mut counter = 0usize;
 
         let max_ada =
-            BigNumber::from(((self.ada_cup_thr - MIN_ADA) * (PERC + MAX_EXCESS_PERC) / PERC) as f64);
+            BigNumber::from(((self.ada_cap_thr - MIN_ADA) * (PERC + MAX_EXCESS_PERC) / PERC) as f64);
         let min_ada = BigNumber::from(MIN_ADA as f64);
-        if x0_val >= (self.ada_cup_thr - MIN_ADA) as f64 {
+        if x0_val >= (self.ada_cap_thr - MIN_ADA) as f64 {
             return None;
         };
 
@@ -382,7 +384,7 @@ impl MarketMaker for DegenQuadraticPool {
                 let coeff_1 = BigNumber::from(COEFF_1_NUM as f64) / coeff_denom;
 
                 let p = BigNumber::from(*price.numer() as f64) / BigNumber::from(*price.denom() as f64);
-                let mut x1 = BigNumber::from((self.ada_cup_thr - MIN_ADA) as f64);
+                let mut x1 = BigNumber::from((self.ada_cap_thr - MIN_ADA) as f64);
                 let mut err_n1 = err.value.clone().cmp(&n_1.value.clone());
                 let mut err_n1_minus = err.value.clone().cmp(&n_1_minus.value.clone());
 
@@ -419,7 +421,7 @@ impl MarketMaker for DegenQuadraticPool {
                     if x_new_max_ada == Ordering::Less && x_new_x0 == Ordering::Greater {
                         x1 = x1.clone() - additional.clone()
                     } else {
-                        let ada_delta = self.ada_cup_thr - x0_val as u64 - MIN_ADA;
+                        let ada_delta = self.ada_cap_thr - x0_val as u64 - MIN_ADA;
                         let token_delta = self
                             .output_amount(
                                 TaggedAssetClass::new(self.asset_x.into()),
@@ -569,7 +571,7 @@ where
                     let reserves_x: TaggedAmount<Rx> =
                         TaggedAmount::new(value.amount_of(conf.asset_x.into())?);
 
-                    if conf.asset_x.is_native() && reserves_x.untag() < conf.ada_cup_thr {
+                    if conf.asset_x.is_native() && reserves_x.untag() < conf.ada_cap_thr {
                         return Some(DegenQuadraticPool {
                             id: PoolId::try_from(conf.pool_nft).ok()?,
                             reserves_x,
@@ -581,7 +583,7 @@ where
                             ver: pool_ver,
                             marginal_cost,
                             bounds,
-                            ada_cup_thr: conf.ada_cup_thr,
+                            ada_cap_thr: conf.ada_cap_thr,
                         });
                     }
                 }
@@ -691,7 +693,7 @@ mod tests {
                 min_n2t_lovelace: 10000000,
                 min_t2t_lovelace: 10000000,
             },
-            ada_cup_thr: ada_thr + MIN_ADA,
+            ada_cap_thr: ada_thr + MIN_ADA,
         };
     }
 
@@ -853,12 +855,12 @@ mod tests {
         else {
             panic!()
         };
-        let Next::Succ(pool3) = pool1.swap(Ask(pool1.ada_cup_thr - pool1.reserves_x.untag())) else {
+        let Next::Succ(pool3) = pool1.swap(Ask(pool1.ada_cap_thr - pool1.reserves_x.untag())) else {
             panic!()
         };
         let y_max = pool1.reserves_y.untag() - pool3.reserves_y.untag();
         assert_eq!(q, y_max);
-        assert_eq!(b, pool1.ada_cup_thr - pool1.reserves_x.untag());
+        assert_eq!(b, pool1.ada_cap_thr - pool1.reserves_x.untag());
     }
 
     #[test]
@@ -950,13 +952,13 @@ mod tests {
             else {
                 panic!()
             };
-            let Next::Succ(pool3) = pool2.swap(Ask(pool2.ada_cup_thr - pool2.reserves_x.untag())) else {
+            let Next::Succ(pool3) = pool2.swap(Ask(pool2.ada_cap_thr - pool2.reserves_x.untag())) else {
                 panic!()
             };
             let y_max = pool2.reserves_y.untag() - pool3.reserves_y.untag();
-            assert_eq!(b, pool2.ada_cup_thr - pool2.reserves_x.untag());
+            assert_eq!(b, pool2.ada_cap_thr - pool2.reserves_x.untag());
             assert_eq!(q, y_max);
-            assert_eq!(pool3.reserves_x.untag(), pool3.ada_cup_thr)
+            assert_eq!(pool3.reserves_x.untag(), pool3.ada_cap_thr)
         }
     }
     #[test]
