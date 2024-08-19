@@ -5,7 +5,7 @@ use either::Either;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use spectrum_cardano_lib::output::FinalizedTxOut;
-use spectrum_cardano_lib::OutputRef;
+use spectrum_cardano_lib::{AssetClass, OutputRef, Token};
 use spectrum_offchain::data::order::SpecializedOrder;
 use spectrum_offchain::data::{Baked, EntitySnapshot, Has, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
@@ -40,7 +40,7 @@ pub struct AtomicCardanoEntity(pub Bundled<ClassicalAMMOrder, FinalizedTxOut>);
 
 impl SpecializedOrder for AtomicCardanoEntity {
     type TOrderId = OutputRef;
-    type TPoolId = ScriptHash;
+    type TPoolId = Token;
 
     fn get_self_ref(&self) -> Self::TOrderId {
         self.0.get_self_ref()
@@ -86,7 +86,7 @@ pub struct EvolvingCardanoEntity(
 );
 
 impl Stable for EvolvingCardanoEntity {
-    type StableId = PolicyId;
+    type StableId = Token;
     fn stable_id(&self) -> Self::StableId {
         self.0.stable_id()
     }

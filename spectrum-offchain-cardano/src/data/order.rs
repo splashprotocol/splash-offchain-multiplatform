@@ -34,7 +34,7 @@ use crate::deployment::ProtocolValidator::{
     ConstFnPoolV2, StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use crate::deployment::{DeployedScriptInfo, DeployedValidator};
-use spectrum_cardano_lib::{NetworkId, OutputRef};
+use spectrum_cardano_lib::{AssetClass, NetworkId, OutputRef, Token};
 use spectrum_offchain::executor::RunOrderError::Fatal;
 
 pub struct Input;
@@ -139,7 +139,7 @@ impl Hash for ClassicalAMMOrder {
 
 impl SpecializedOrder for ClassicalAMMOrder {
     type TOrderId = OutputRef;
-    type TPoolId = ScriptHash;
+    type TPoolId = Token;
 
     fn get_self_ref(&self) -> Self::TOrderId {
         match self {
@@ -151,9 +151,9 @@ impl SpecializedOrder for ClassicalAMMOrder {
 
     fn get_pool_ref(&self) -> Self::TPoolId {
         match self {
-            ClassicalAMMOrder::Swap(swap) => swap.pool_id.0 .0,
-            ClassicalAMMOrder::Deposit(dep) => dep.pool_id.0 .0,
-            ClassicalAMMOrder::Redeem(red) => red.pool_id.0 .0,
+            ClassicalAMMOrder::Swap(swap) => swap.pool_id.into(),
+            ClassicalAMMOrder::Deposit(dep) => dep.pool_id.into(),
+            ClassicalAMMOrder::Redeem(red) => red.pool_id.into(),
         }
     }
 }

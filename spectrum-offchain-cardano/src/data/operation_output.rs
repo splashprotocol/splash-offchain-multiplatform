@@ -5,7 +5,7 @@ use cml_chain::transaction::{ConwayFormatTxOut, TransactionOutput};
 use cml_chain::{Coin, Value};
 use cml_crypto::Ed25519KeyHash;
 
-use spectrum_cardano_lib::{NetworkId, TaggedAmount, TaggedAssetClass};
+use spectrum_cardano_lib::{NetworkId, TaggedAmount, TaggedAssetClass, Token};
 use spectrum_offchain::data::Has;
 use spectrum_offchain::ledger::IntoLedger;
 
@@ -43,7 +43,7 @@ where
         let ada_from_quote = if self.quote_asset.is_native() {
             self.quote_amount.untag()
         } else {
-            let (policy, name) = self.quote_asset.untag().into_token().unwrap();
+            let Token(policy, name) = self.quote_asset.untag().into_token().unwrap();
             ma.set(policy, name.into(), self.quote_amount.untag());
             0
         };
@@ -94,19 +94,19 @@ where
 
         let ada_from_charge_pair = match (self.token_x_asset.is_native(), self.token_y_asset.is_native()) {
             (true, false) => {
-                let (policy, name) = self.token_y_asset.untag().into_token().unwrap();
+                let Token(policy, name) = self.token_y_asset.untag().into_token().unwrap();
                 ma.set(policy, name.into(), self.token_y_charge_amount.untag());
                 self.token_x_charge_amount.untag()
             }
             (false, true) => {
-                let (policy, name) = self.token_x_asset.untag().into_token().unwrap();
+                let Token(policy, name) = self.token_x_asset.untag().into_token().unwrap();
                 ma.set(policy, name.into(), self.token_x_charge_amount.untag());
                 self.token_y_charge_amount.untag()
             }
             (false, false) => {
-                let (policy_x, name_x) = self.token_x_asset.untag().into_token().unwrap();
+                let Token(policy_x, name_x) = self.token_x_asset.untag().into_token().unwrap();
                 ma.set(policy_x, name_x.into(), self.token_x_charge_amount.untag());
-                let (policy_y, name_y) = self.token_y_asset.untag().into_token().unwrap();
+                let Token(policy_y, name_y) = self.token_y_asset.untag().into_token().unwrap();
                 ma.set(policy_y, name_y.into(), self.token_y_charge_amount.untag());
                 0
             }
@@ -116,7 +116,7 @@ where
 
         let ada = self.ada_residue + ada_from_charge_pair;
 
-        let (policy_lq, name_lq) = self.token_lq_asset.untag().into_token().unwrap();
+        let Token(policy_lq, name_lq) = self.token_lq_asset.untag().into_token().unwrap();
 
         ma.set(policy_lq, name_lq.into(), self.token_lq_amount.untag());
 
@@ -162,19 +162,19 @@ where
 
         let ada_from_charge_pair = match (self.token_x_asset.is_native(), self.token_y_asset.is_native()) {
             (true, false) => {
-                let (policy, name) = self.token_y_asset.untag().into_token().unwrap();
+                let Token(policy, name) = self.token_y_asset.untag().into_token().unwrap();
                 ma.set(policy, name.into(), self.token_y_amount.untag());
                 self.token_x_amount.untag()
             }
             (false, true) => {
-                let (policy, name) = self.token_x_asset.untag().into_token().unwrap();
+                let Token(policy, name) = self.token_x_asset.untag().into_token().unwrap();
                 ma.set(policy, name.into(), self.token_x_amount.untag());
                 self.token_y_amount.untag()
             }
             (false, false) => {
-                let (policy_x, name_x) = self.token_x_asset.untag().into_token().unwrap();
+                let Token(policy_x, name_x) = self.token_x_asset.untag().into_token().unwrap();
                 ma.set(policy_x, name_x.into(), self.token_x_amount.untag());
-                let (policy_y, name_y) = self.token_y_asset.untag().into_token().unwrap();
+                let Token(policy_y, name_y) = self.token_y_asset.untag().into_token().unwrap();
                 ma.set(policy_y, name_y.into(), self.token_y_amount.untag());
                 0
             }

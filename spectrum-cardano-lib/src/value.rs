@@ -2,7 +2,7 @@ use cml_chain::Value;
 use cml_core::ordered_hash_map::OrderedHashMap;
 use linked_hash_map::Entry;
 
-use crate::AssetClass;
+use crate::{AssetClass, Token};
 
 pub trait ValueExtension {
     fn amount_of(&self, ac: AssetClass) -> Option<u64>;
@@ -14,14 +14,14 @@ impl ValueExtension for Value {
     fn amount_of(&self, ac: AssetClass) -> Option<u64> {
         match ac {
             AssetClass::Native => Some(self.coin),
-            AssetClass::Token((policy, an)) => self.multiasset.get(&policy, &an.into()),
+            AssetClass::Token(Token(policy, an)) => self.multiasset.get(&policy, &an.into()),
         }
     }
 
     fn sub_unsafe(&mut self, ac: AssetClass, amt: u64) {
         match ac {
             AssetClass::Native => self.coin = self.coin - amt,
-            AssetClass::Token((policy, an)) => {
+            AssetClass::Token(Token(policy, an)) => {
                 if let Entry::Occupied(mut bundle) = self.multiasset.entry(policy) {
                     if let Entry::Occupied(mut asset) = bundle.get_mut().entry(an.into()) {
                         let value = *asset.get();
@@ -43,7 +43,7 @@ impl ValueExtension for Value {
     fn add_unsafe(&mut self, ac: AssetClass, amt: u64) {
         match ac {
             AssetClass::Native => self.coin = self.coin + amt,
-            AssetClass::Token((policy, an)) => match self.multiasset.entry(policy) {
+            AssetClass::Token(Token(policy, an)) => match self.multiasset.entry(policy) {
                 Entry::Occupied(mut bundle) => {
                     if let Some(asset) = bundle.get_mut().get_mut(&an.into()) {
                         *asset += amt;
@@ -67,15 +67,15 @@ mod tests {
     use cml_chain::{PolicyId, Value};
 
     use crate::value::ValueExtension;
-    use crate::{AssetClass, AssetName};
+    use crate::{AssetClass, AssetName, Token};
 
     #[test]
     fn add_subtract_token() {
-        let ac1 = AssetClass::Token((PolicyId::from([1u8; 28]), AssetName::from((32, [1u8; 32]))));
+        let ac1 = AssetClass::Token(Token(PolicyId::from([1u8; 28]), AssetName::from((32, [1u8; 32]))));
         let ac1_amt = 100;
-        let ac2 = AssetClass::Token((PolicyId::from([2u8; 28]), AssetName::from((32, [2u8; 32]))));
+        let ac2 = AssetClass::Token(Token(PolicyId::from([2u8; 28]), AssetName::from((32, [2u8; 32]))));
         let ac2_amt = 200;
-        let ac3 = AssetClass::Token((PolicyId::from([2u8; 28]), AssetName::from((32, [3u8; 32]))));
+        let ac3 = AssetClass::Token(Token(PolicyId::from([2u8; 28]), AssetName::from((32, [3u8; 32]))));
         let ac3_amt = 300;
         let mut value = Value::new(1, MultiAsset::new());
         value.add_unsafe(ac1, ac1_amt);

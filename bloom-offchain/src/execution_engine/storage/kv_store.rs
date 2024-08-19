@@ -1,10 +1,8 @@
 use crate::display::display_option;
 use log::trace;
-use spectrum_offchain::data::Has;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::hash::Hash;
-use std::marker::PhantomData;
 
 pub trait KvStore<K, V> {
     fn insert(&mut self, key: K, value: V) -> Option<V>;

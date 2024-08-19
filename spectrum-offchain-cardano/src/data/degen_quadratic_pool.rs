@@ -29,7 +29,7 @@ use spectrum_cardano_lib::plutus_data::{
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
+use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass, Token};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
@@ -566,21 +566,21 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for DegenQuadraticPool {
     fn into_ledger(self, mut immut_pool: ImmutablePoolUtxo) -> TransactionOutput {
         let mut ma = MultiAsset::new();
         let coins = if self.asset_x.is_native() {
-            let (policy, name) = self.asset_y.untag().into_token().unwrap();
+            let Token(policy, name) = self.asset_y.untag().into_token().unwrap();
             ma.set(policy, name.into(), self.reserves_y.untag());
             self.reserves_x.untag()
         } else if self.asset_y.is_native() {
-            let (policy, name) = self.asset_x.untag().into_token().unwrap();
+            let Token(policy, name) = self.asset_x.untag().into_token().unwrap();
             ma.set(policy, name.into(), self.reserves_x.untag());
             self.reserves_y.untag()
         } else {
-            let (policy_x, name_x) = self.asset_x.untag().into_token().unwrap();
+            let Token(policy_x, name_x) = self.asset_x.untag().into_token().unwrap();
             ma.set(policy_x, name_x.into(), self.reserves_x.untag());
-            let (policy_y, name_y) = self.asset_y.untag().into_token().unwrap();
+            let Token(policy_y, name_y) = self.asset_y.untag().into_token().unwrap();
             ma.set(policy_y, name_y.into(), self.reserves_y.untag());
             immut_pool.value
         };
-        let (nft_lq, name_nft) = self.id.into();
+        let Token(nft_lq, name_nft) = self.id.into();
         ma.set(nft_lq, name_nft.into(), 1);
 
         TransactionOutput::new_conway_format_tx_out(ConwayFormatTxOut {
@@ -607,7 +607,7 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
     use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
     use spectrum_cardano_lib::ex_units::ExUnits;
-    use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
+    use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass, Token};
 
     use crate::data::degen_quadratic_pool::{DegenQuadraticPool, DegenQuadraticPoolVer};
     use crate::data::pool::PoolBounds;
@@ -625,7 +625,7 @@ mod tests {
         ada_thr: u64,
     ) -> DegenQuadraticPool {
         return DegenQuadraticPool {
-            id: PoolId::from((
+            id: PoolId::from(Token(
                 ScriptHash::from([
                     162, 206, 112, 95, 150, 240, 52, 167, 61, 102, 158, 92, 11, 47, 25, 41, 48, 224, 188,
                     211, 138, 203, 27, 107, 246, 89, 115, 157,
@@ -641,7 +641,7 @@ mod tests {
             reserves_x: TaggedAmount::new(reserves_x + MIN_ADA),
             reserves_y: TaggedAmount::new(reserves_y),
             asset_x: TaggedAssetClass::new(AssetClass::Native),
-            asset_y: TaggedAssetClass::new(AssetClass::Token((
+            asset_y: TaggedAssetClass::new(AssetClass::Token(Token(
                 ScriptHash::from([
                     75, 52, 89, 253, 24, 161, 219, 171, 226, 7, 205, 25, 201, 149, 26, 159, 172, 159, 92, 15,
                     156, 56, 78, 61, 151, 239, 186, 38,
