@@ -380,7 +380,7 @@ mod test {
 
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::AssetClass::Native;
-    use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
+    use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass, Token};
 
     use crate::constants::MAX_LQ_CAP;
     use crate::data::order::{Base, Quote};
@@ -422,7 +422,7 @@ mod test {
         let liquidity = MAX_LQ_CAP - inv_before.as_u64();
 
         return StablePoolT2T {
-            id: PoolId::from((
+            id: PoolId::from(Token(
                 ScriptHash::from([
                     162, 206, 112, 95, 150, 240, 52, 167, 61, 102, 158, 92, 11, 47, 25, 41, 48, 224, 188,
                     211, 138, 203, 127, 107, 246, 89, 115, 157,
@@ -442,7 +442,7 @@ mod test {
             multiplier_y: multiplier_y as u64,
             liquidity: TaggedAmount::new(liquidity),
             asset_x: TaggedAssetClass::new(AssetClass::Native),
-            asset_y: TaggedAssetClass::new(AssetClass::Token((
+            asset_y: TaggedAssetClass::new(AssetClass::Token(Token(
                 ScriptHash::from([
                     75, 52, 89, 253, 24, 161, 219, 171, 226, 7, 205, 25, 201, 149, 26, 159, 172, 159, 92, 15,
                     156, 56, 78, 61, 151, 239, 186, 38,
@@ -455,7 +455,7 @@ mod test {
                     ],
                 )),
             ))),
-            asset_lq: TaggedAssetClass::new(AssetClass::Token((
+            asset_lq: TaggedAssetClass::new(AssetClass::Token(Token(
                 ScriptHash::from([
                     114, 191, 27, 172, 195, 20, 1, 41, 111, 158, 228, 210, 254, 123, 132, 165, 36, 56, 38,
                     251, 3, 233, 206, 25, 51, 218, 254, 192,
