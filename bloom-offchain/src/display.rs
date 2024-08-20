@@ -31,12 +31,12 @@ impl<A: Display, B: Display> Display for DisplayTuple<A, B> {
     }
 }
 
-pub struct DisplayVec<T>(Vec<T>);
+pub struct DisplayVec<'a, T>(&'a Vec<T>);
 
-impl<T: Display> Display for DisplayVec<T> {
+impl<'a, T: Display> Display for DisplayVec<'a, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str("[")?;
-        for x in &self.0 {
+        for x in self.0 {
             x.fmt(f)?;
             f.write_str(", ")?;
         }
@@ -44,6 +44,6 @@ impl<T: Display> Display for DisplayVec<T> {
     }
 }
 
-pub fn display_vec<T>(vec: Vec<T>) -> DisplayVec<T> {
+pub fn display_vec<T>(vec: &Vec<T>) -> DisplayVec<T> {
     DisplayVec(vec)
 }

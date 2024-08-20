@@ -577,8 +577,8 @@ impl<T: Stable + Display, M: Stable + Display, U> Display for MatchmakingAttempt
         f.write_str(
             format!(
                 "MatchmakingAttempt(takes: {}, makes: {}, num_aggregated_makes: {})",
-                display_vec(self.takes.values().collect()),
-                display_vec(self.makes.values().collect()),
+                display_vec(&self.takes.values().collect()),
+                display_vec(&self.makes.values().collect()),
                 self.num_aggregated_makes
             )
             .as_str(),

@@ -12,32 +12,28 @@ pub fn max_by_distance_to_spot<Fr>(
 where
     Fr: MarketTaker + Ord + Copy,
 {
-    let best_bid = fragments.bids.pop_first().and_then(|tk| range.test_bid(tk));
-    let best_ask = fragments.asks.pop_first().and_then(|tk| range.test_ask(tk));
-    match (best_ask, best_bid) {
+    let best_bid = fragments.bids.first().and_then(|tk| range.test_bid(*tk));
+    let best_ask = fragments.asks.first().and_then(|tk| range.test_ask(*tk));
+    let choice = match (best_ask, best_bid) {
         (Some(ask), Some(bid)) => {
             let abs_price = AbsolutePrice::from(spot_price).to_signed();
             let distance_from_ask = abs_price - ask.price().to_signed();
             let distance_from_bid = (abs_price - bid.price().to_signed()) * -1;
             if distance_from_ask > distance_from_bid {
-                fragments.insert(bid);
                 Some(ask)
             } else if distance_from_ask < distance_from_bid {
-                fragments.insert(ask);
                 Some(bid)
             } else {
-                let choice = _max_by_volume(ask, bid, Some(spot_price));
-                if choice == ask {
-                    fragments.insert(bid);
-                } else {
-                    fragments.insert(ask);
-                }
-                Some(choice)
+                Some(_max_by_volume(ask, bid, Some(spot_price)))
             }
         }
         (Some(taker), _) | (_, Some(taker)) => Some(taker),
         _ => None,
+    };
+    if let Some(taker) = &choice {
+        fragments.remove(taker);
     }
+    choice
 }
 
 fn _max_by_volume<Fr>(ask: Fr, bid: Fr, spot_price: Option<SpotPrice>) -> Fr

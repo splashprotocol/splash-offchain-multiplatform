@@ -5,11 +5,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::mem;
 use std::ops::Add;
 
-use either::{Either, Left, Right};
-use log::trace;
-use num_rational::Ratio;
-use spectrum_offchain::data::Stable;
-
+use crate::display::display_vec;
 use crate::execution_engine::liquidity_book::core::Next;
 use crate::execution_engine::liquidity_book::market_maker::{
     AvailableLiquidity, MarketMaker, PoolQuality, SpotPrice,
@@ -20,6 +16,10 @@ use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
 use crate::execution_engine::liquidity_book::state::price_range::AllowedPriceRange;
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, InputAsset};
 use crate::execution_engine::liquidity_book::weight::Weighted;
+use either::{Either, Left, Right};
+use log::trace;
+use num_rational::Ratio;
+use spectrum_offchain::data::Stable;
 
 mod price_range;
 pub mod queries;
@@ -161,7 +161,7 @@ where
 /// This state offers consistent projections of active frontier for both
 /// consumption and production of new fragments/pools.
 /// Comes with overhead of cloning active frontier/pools upon construction.
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct PreviewState<T, M: Stable> {
     /// Fragments before changes.
     takers_intact: Chronology<T>,
@@ -263,7 +263,7 @@ where
 }
 
 /// The idea of TLB state automata is to minimize overhead of maintaining preview of modified state.
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq)]
 pub enum TLBState<T, M: Stable> {
     /// State with no uncommitted changes.
     ///
@@ -285,24 +285,53 @@ pub enum TLBState<T, M: Stable> {
     Preview(PreviewState<T, M>),
 }
 
-impl<T, M: Stable> Display for TLBState<T, M> {
+impl<T: Stable, M: Stable> Display for TLBState<T, M> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(
             match self {
-                TLBState::Idle(inner) => format!(
-                    "TLBState::Idle(active: {} asks, {} bids)",
-                    inner.takers.active.asks.len(),
-                    inner.takers.active.bids.len()
+                TLBState::Idle(st) => format!(
+                    "TLBState::Idle(active_asks: {}, active_bids: {}, active_mms: {})",
+                    display_vec(&st.takers.active.asks.iter().map(|tk| tk.stable_id()).collect()),
+                    display_vec(&st.takers.active.bids.iter().map(|tk| tk.stable_id()).collect()),
+                    display_vec(&st.makers.values.keys().collect())
                 ),
-                TLBState::PartialPreview(inner) => format!(
-                    "TLBState::PartialPreview(active: {} asks, {} bids)",
-                    inner.takers_preview.active.asks.len(),
-                    inner.takers_preview.active.bids.len()
+                TLBState::PartialPreview(st) => format!(
+                    "TLBState::PartialPreview(active_asks: {}, active_bids: {}, active_mms: {})",
+                    display_vec(
+                        &st.takers_preview
+                            .active
+                            .asks
+                            .iter()
+                            .map(|tk| tk.stable_id())
+                            .collect()
+                    ),
+                    display_vec(
+                        &st.takers_preview
+                            .active
+                            .bids
+                            .iter()
+                            .map(|tk| tk.stable_id())
+                            .collect()
+                    ),
+                    display_vec(&st.makers_preview.values.keys().collect())
                 ),
-                TLBState::Preview(inner) => format!(
-                    "TLBState::Preview(active: {} asks, {} bids)",
-                    inner.active_takers_preview.asks.len(),
-                    inner.active_takers_preview.bids.len()
+                TLBState::Preview(st) => format!(
+                    "TLBState::Preview(active_asks: {}, active_bids: {}, active_mms: {})",
+                    display_vec(
+                        &st.active_takers_preview
+                            .asks
+                            .iter()
+                            .map(|tk| tk.stable_id())
+                            .collect()
+                    ),
+                    display_vec(
+                        &st.active_takers_preview
+                            .bids
+                            .iter()
+                            .map(|tk| tk.stable_id())
+                            .collect()
+                    ),
+                    display_vec(&st.makers_preview.values.keys().collect())
                 ),
             }
             .as_str(),
@@ -375,10 +404,10 @@ where
             // Transit into PartialPreview if state is untouched yet
             TLBState::Idle(st) => {
                 trace!("move Idle => PartialPreview");
-                // Move untouched fragments/pools sets into fresh state.
+                // Move untouched takers/makers into fresh state.
                 mem::swap(&mut target.takers_preview, &mut st.takers);
                 mem::swap(&mut target.makers_intact, &mut st.makers);
-                // Initialize pools preview with a copy of untouched pools.
+                // Initialize pools preview with a copy of untouched makers.
                 target.makers_preview = target.makers_intact.clone();
             }
             TLBState::PartialPreview(_) => panic!("Attempt to move PartialPreview => PartialPreview"),
@@ -401,8 +430,7 @@ where
             TLBState::PartialPreview(st) => {
                 trace!("move PartialPreview => Preview");
                 // Copy active fragments/pools to use as a preview.
-                let mut active_fragments = st.takers_preview.active.clone();
-                mem::swap(&mut target.active_takers_preview, &mut active_fragments);
+                target.active_takers_preview = st.takers_preview.active.clone();
                 mem::swap(&mut target.makers_preview, &mut st.makers_preview);
                 mem::swap(&mut target.stashed_active_takers, &mut st.stashed_active_takers);
                 // Return consumed takers to reconstruct initial state.
@@ -943,7 +971,9 @@ pub mod tests {
         AbsoluteReserves, AvailableLiquidity, MakerBehavior, MarketMaker, SpotPrice,
     };
     use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
+    use crate::execution_engine::liquidity_book::ok;
     use crate::execution_engine::liquidity_book::side::{OnSide, Side};
+    use crate::execution_engine::liquidity_book::state::queries::{max_by_distance_to_spot, max_by_volume};
     use crate::execution_engine::liquidity_book::state::{
         AllowedPriceRange, Chronology, IdleState, MarketMakers, PartialPreviewState, PoolQuality,
         StashingOption, TLBState,
@@ -953,6 +983,96 @@ pub mod tests {
         AbsolutePrice, ExCostUnits, FeeAsset, InputAsset, OutputAsset,
     };
     use crate::execution_engine::types::StableId;
+
+    #[test]
+    fn tlb_lifecycle_rollback() {
+        let mut idle_st: IdleState<SimpleOrderPF, SimpleCFMMPool> = IdleState {
+            takers: Chronology::new(0),
+            makers: MarketMakers::new(),
+        };
+        idle_st.add_fragment(SimpleOrderPF::new_tagged(
+            "a28a8849b08a026a19b4b0dc75d1b7f79f99d9d27ef155016bb17f30",
+            Side::Bid,
+            25880000000,
+            AbsolutePrice::new_unsafe(6470000000, 935895089),
+            0,
+        ));
+        idle_st.add_fragment(SimpleOrderPF::new_tagged(
+            "7c20ab10fdce979f02cb361837445637d42f501dfa0c5f3a4e5a2e85",
+            Side::Ask,
+            1000000000,
+            AbsolutePrice::new_unsafe(1724137931, 250000000),
+            0,
+        ));
+        idle_st.add_fragment(SimpleOrderPF::new_tagged(
+            "418c8d82e393c1136b30dd8ad743ec8b331941f032f69dc829655fef",
+            Side::Ask,
+            282500001,
+            AbsolutePrice::new_unsafe(1948275869, 282500001),
+            0,
+        ));
+        idle_st.add_fragment(SimpleOrderPF::new_tagged(
+            "345fe68eef783ab857427d2d058ef71242304bfd79b64ee3d532d66a",
+            Side::Ask,
+            2500000000,
+            AbsolutePrice::new_unsafe(19841269841, 2500000000),
+            0,
+        ));
+        let amm = SimpleCFMMPool {
+            pool_id: StableId::random(),
+            reserves_base: 1149079050982,
+            reserves_quote: 164214639686,
+            fee_num: 995,
+        };
+        idle_st.update_pool(amm);
+        let mut st = TLBState::Idle(idle_st);
+
+        let intact_st = st.clone();
+
+        println!("TLB: {}", st);
+
+        let spot_price = st.best_market_maker().map(|mm| mm.static_price());
+        let price_range = st.allowed_price_range();
+        let xa2 = st.pick_active_taker(|fs| {
+            spot_price
+                .map(|sp| max_by_distance_to_spot(fs, sp, price_range))
+                .unwrap_or_else(|| max_by_volume(fs, price_range))
+        });
+        let x7c = st.try_pick_taker(Side::Ask, ok);
+        dbg!(xa2);
+        dbg!(x7c);
+        st.pre_add_taker(xa2.unwrap());
+        let xa2_2 = st.pick_active_taker(|fs| {
+            spot_price
+                .map(|sp| max_by_distance_to_spot(fs, sp, price_range))
+                .unwrap_or_else(|| max_by_volume(fs, price_range))
+        });
+        dbg!(xa2_2);
+        let pool = st.pick_maker_by_id(&amm.pool_id);
+        dbg!(pool);
+        st.pre_add_maker(amm);
+        let x418 = st.pick_active_taker(|fs| {
+            spot_price
+                .map(|sp| max_by_distance_to_spot(fs, sp, price_range))
+                .unwrap_or_else(|| max_by_volume(fs, price_range))
+        });
+        dbg!(x418);
+        let pool_2 = st.pick_maker_by_id(&amm.pool_id);
+        dbg!(pool_2);
+        st.pre_add_maker(amm);
+        let x345 = st.pick_active_taker(|fs| {
+            spot_price
+                .map(|sp| max_by_distance_to_spot(fs, sp, price_range))
+                .unwrap_or_else(|| max_by_volume(fs, price_range))
+        });
+        dbg!(x345);
+        st.pre_add_taker(x345.unwrap());
+        st.rollback(StashingOption::Unstash);
+
+        println!("TLB: {}", st);
+
+        assert!(st == intact_st);
+    }
 
     #[test]
     fn get_allowed_price_range_both_sides() {
@@ -1305,6 +1425,22 @@ pub mod tests {
                 bounds: TimeBounds::None,
             }
         }
+
+        pub fn new_tagged(tag: &str, side: Side, input: u64, price: AbsolutePrice, fee: u64) -> Self {
+            Self {
+                source: StableId::from(<[u8; 28]>::try_from(hex::decode(tag).unwrap()).unwrap()),
+                side,
+                input,
+                accumulated_output: 0,
+                min_marginal_output: 0,
+                price,
+                fee,
+                ex_budget: 0,
+                cost_hint: 10,
+                bounds: TimeBounds::None,
+            }
+        }
+
         pub fn make(
             side: Side,
             input: u64,
