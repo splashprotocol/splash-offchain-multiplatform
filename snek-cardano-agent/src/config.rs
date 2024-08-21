@@ -32,12 +32,6 @@ pub struct AppConfig<'a> {
     pub adhoc_fee: AdhocFeeConfig,
 }
 
-impl<'a> AppConfig<'a> {
-    pub(crate) fn check_integrity(&self) -> _ {
-        todo!()
-    }
-}
-
 impl<'a> CheckIntegrity for AppConfig<'a> {
     fn check_integrity(&self) -> IntegrityViolations {
         let partitioning_violations = if self

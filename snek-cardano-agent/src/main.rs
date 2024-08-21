@@ -30,6 +30,7 @@ use bloom_offchain_cardano::event_sink::order_index::InMemoryKvIndex;
 use bloom_offchain_cardano::event_sink::processed_tx::ProcessedTransaction;
 use bloom_offchain_cardano::execution_engine::backlog::interpreter::SpecializedInterpreterViaRunOrder;
 use bloom_offchain_cardano::execution_engine::interpreter::CardanoRecipeInterpreter;
+use bloom_offchain_cardano::integrity::CheckIntegrity;
 use bloom_offchain_cardano::orders::adhoc::AdhocOrder;
 use bloom_offchain_cardano::partitioning::select_partition;
 use cardano_chain_sync::cache::LedgerCacheRocksDB;
@@ -149,19 +150,19 @@ async fn main() {
     let partitioned_pair_upd_snd =
         Partitioned::new([pair_upd_snd_p1, pair_upd_snd_p2, pair_upd_snd_p3, pair_upd_snd_p4]);
 
-    let (spec_upd_snd_p1, spec_upd_recv_p1) = mpsc::channel::<(
+    let (_, spec_upd_recv_p1) = mpsc::channel::<(
         PairId,
         Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
     )>(config.channel_buffer_size);
-    let (spec_upd_snd_p2, spec_upd_recv_p2) = mpsc::channel::<(
+    let (_, spec_upd_recv_p2) = mpsc::channel::<(
         PairId,
         Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
     )>(config.channel_buffer_size);
-    let (spec_upd_snd_p3, spec_upd_recv_p3) = mpsc::channel::<(
+    let (_, spec_upd_recv_p3) = mpsc::channel::<(
         PairId,
         Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
     )>(config.channel_buffer_size);
-    let (spec_upd_snd_p4, spec_upd_recv_p4) = mpsc::channel::<(
+    let (_, spec_upd_recv_p4) = mpsc::channel::<(
         PairId,
         Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
     )>(config.channel_buffer_size);
@@ -192,6 +193,7 @@ async fn main() {
         executor_cred: operator_paycred,
         scripts: ProtocolScriptHashes::from(&protocol_deployment),
         bounds,
+        adhoc_fee_structure: config.adhoc_fee.into(),
     };
     let general_upd_handler = PairUpdateHandler::new(
         partitioned_pair_upd_snd,

@@ -2,9 +2,8 @@ use cml_multi_era::babbage::BabbageTransactionOutput;
 use either::Either;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
-use bloom_offchain_cardano::orders::adhoc::AdhocOrder;
+use bloom_offchain_cardano::orders::adhoc::{AdhocFeeStructure, AdhocOrder};
 use bloom_offchain_cardano::orders::limit::LimitOrderBounds;
-use bloom_offchain_cardano::orders::AnyOrder;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::{OutputRef, Token};
 use spectrum_offchain::data::order::SpecializedOrder;
@@ -15,15 +14,13 @@ use spectrum_offchain_cardano::data::degen_quadratic_pool::DegenQuadraticPool;
 use spectrum_offchain_cardano::data::deposit::DepositOrderBounds;
 use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
 use spectrum_offchain_cardano::data::pair::PairId;
-use spectrum_offchain_cardano::data::pool::{AnyPool, PoolBounds};
+use spectrum_offchain_cardano::data::pool::PoolBounds;
 use spectrum_offchain_cardano::data::redeem::RedeemOrderBounds;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
-    BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2, ConstFnFeeSwitchPoolDeposit,
-    ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
-    ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1,
-    ConstFnPoolV2, DegenQuadraticPoolV1, LimitOrderV1, StableFnPoolT2T, StableFnPoolT2TDeposit,
-    StableFnPoolT2TRedeem,
+    BalanceFnPoolDeposit, BalanceFnPoolRedeem, ConstFnFeeSwitchPoolDeposit, ConstFnFeeSwitchPoolRedeem,
+    ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolRedeem, ConstFnPoolSwap, DegenQuadraticPoolV1,
+    LimitOrderV1, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
@@ -108,28 +105,22 @@ where
         + Has<OperatorCred>
         + Has<OutputRef>
         + Has<ConsumedInputs>
-        + Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
-        + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
-        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
-        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>
-        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
-        + Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>
-        + Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
-        + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
         + Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>>
         + Has<LimitOrderBounds>
         + Has<DepositOrderBounds>
-        + Has<PoolBounds>,
+        + Has<PoolBounds>
+        + Has<AdhocFeeStructure>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
-        <Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>>::try_from_ledger(repr, ctx).map(
-            |inner| {
-                Self(Bundled(
-                    inner,
-                    FinalizedTxOut::new(repr.clone(), ctx.select::<OutputRef>()),
-                ))
-            },
+        <Either<Baked<AdhocOrder, OutputRef>, Baked<DegenQuadraticPool, OutputRef>>>::try_from_ledger(
+            repr, ctx,
         )
+        .map(|inner| {
+            Self(Bundled(
+                inner,
+                FinalizedTxOut::new(repr.clone(), ctx.select::<OutputRef>()),
+            ))
+        })
     }
 }

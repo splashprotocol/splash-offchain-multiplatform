@@ -17,6 +17,7 @@ use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHa
 use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
 use crate::bounds::Bounds;
+use crate::orders::adhoc::AdhocFeeStructure;
 use crate::orders::limit::LimitOrderBounds;
 
 #[derive(Copy, Clone, Debug)]
@@ -24,6 +25,7 @@ pub struct HandlerContextProto {
     pub executor_cred: OperatorCred,
     pub scripts: ProtocolScriptHashes,
     pub bounds: Bounds,
+    pub adhoc_fee_structure: AdhocFeeStructure,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -33,6 +35,7 @@ pub struct HandlerContext {
     pub executor_cred: OperatorCred,
     pub scripts: ProtocolScriptHashes,
     pub bounds: Bounds,
+    pub adhoc_fee_structure: AdhocFeeStructure,
 }
 
 impl Has<LimitOrderBounds> for HandlerContext {
@@ -231,6 +234,13 @@ impl Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>> for HandlerContext 
         self.scripts.degen_fn_pool_v1.clone()
     }
 }
+
+impl Has<AdhocFeeStructure> for HandlerContext {
+    fn select<U: IsEqual<AdhocFeeStructure>>(&self) -> AdhocFeeStructure {
+        self.adhoc_fee_structure
+    }
+}
+
 impl HandlerContext {
     pub fn new(
         output_ref: OutputRef,
@@ -243,6 +253,7 @@ impl HandlerContext {
             executor_cred: prototype.executor_cred,
             scripts: prototype.scripts,
             bounds: prototype.bounds,
+            adhoc_fee_structure: prototype.adhoc_fee_structure,
         }
     }
 }

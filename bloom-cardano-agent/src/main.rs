@@ -1,6 +1,4 @@
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
-
+use bounded_integer::BoundedU64;
 use clap::Parser;
 use cml_chain::transaction::Transaction;
 use cml_multi_era::babbage::BabbageTransaction;
@@ -9,6 +7,8 @@ use futures::channel::mpsc;
 use futures::stream::select_all;
 use futures::{stream_select, Stream, StreamExt};
 use log::info;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
 use tracing_subscriber::fmt::Subscriber;
 
@@ -33,6 +33,7 @@ use bloom_offchain_cardano::event_sink::processed_tx::ProcessedTransaction;
 use bloom_offchain_cardano::execution_engine::backlog::interpreter::SpecializedInterpreterViaRunOrder;
 use bloom_offchain_cardano::execution_engine::interpreter::CardanoRecipeInterpreter;
 use bloom_offchain_cardano::integrity::CheckIntegrity;
+use bloom_offchain_cardano::orders::adhoc::AdhocFeeStructure;
 use bloom_offchain_cardano::orders::AnyOrder;
 use bloom_offchain_cardano::partitioning::select_partition;
 use cardano_chain_sync::cache::LedgerCacheRocksDB;
@@ -200,6 +201,7 @@ async fn main() {
     let handler_context = HandlerContextProto {
         executor_cred: operator_paycred,
         scripts: ProtocolScriptHashes::from(&protocol_deployment),
+        adhoc_fee_structure: AdhocFeeStructure::empty(),
         bounds,
     };
     let general_upd_handler = PairUpdateHandler::new(

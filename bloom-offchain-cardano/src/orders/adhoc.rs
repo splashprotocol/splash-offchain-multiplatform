@@ -25,6 +25,15 @@ pub struct AdhocFeeStructure {
     pub relative_fee_percent: BoundedU64<0, 100>,
 }
 
+impl AdhocFeeStructure {
+    pub fn empty() -> Self {
+        Self {
+            fixed_fee_lovelace: 0,
+            relative_fee_percent: BoundedU64::new_saturating(0),
+        }
+    }
+}
+
 /// A version of [LimitOrder] with ad-hoc fee algorithm.
 /// Fee is charged as % of the trade from the side that contains ADA.
 #[derive(Debug, Copy, Clone)]
