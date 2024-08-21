@@ -1,7 +1,3 @@
-use bloom_offchain::execution_engine::liquidity_book::market_maker::{
-    AvailableLiquidity, FullPriceDerivative,
-};
-use num_rational::Ratio;
 use std::fmt::{Debug, Display, Formatter};
 
 use cml_chain::address::Address;
@@ -17,28 +13,33 @@ use cml_chain::transaction::{DatumOption, ScriptRef, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::{Coin, PolicyId};
 use cml_core::serialization::Serialize;
-
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
+use num_rational::Ratio;
+use void::Void;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, Unit};
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
     AbsoluteReserves, Excess, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
 };
-use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
+use bloom_offchain::execution_engine::liquidity_book::market_maker::{
+    AvailableLiquidity, FullPriceDerivative,
+};
+use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::protocol_params::constant_tx_builder;
+use spectrum_cardano_lib::transaction::TransactionOutputExtension;
+use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, Token};
 use spectrum_offchain::data::event::Predicted;
 use spectrum_offchain::data::{Has, Stable, Tradable};
 use spectrum_offchain::executor::RunOrderError;
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
-use void::Void;
 
 use crate::creds::OperatorRewardAddress;
 use crate::data::balance_pool::{BalancePool, BalancePoolRedeemer};
@@ -47,9 +48,6 @@ use crate::data::degen_quadratic_pool::DegenQuadraticPool;
 use crate::data::order::{ClassicalOrderAction, ClassicalOrderRedeemer, Quote};
 use crate::data::pair::PairId;
 use crate::data::pool::AnyPool::{BalancedCFMM, DegenPool, PureCFMM, StableCFMM};
-use spectrum_cardano_lib::transaction::TransactionOutputExtension;
-use spectrum_cardano_lib::value::ValueExtension;
-
 use crate::data::stable_pool_t2t::{StablePoolRedeemer, StablePoolT2T as StablePoolT2TData};
 use crate::data::OnChainOrderId;
 use crate::deployment::ProtocolValidator::{
@@ -341,12 +339,12 @@ impl MarketMaker for AnyPool {
         }
     }
 
-    fn full_price_derivative(&self) -> Option<FullPriceDerivative> {
+    fn full_price_derivative(&self, side: Side) -> Option<FullPriceDerivative> {
         match self {
-            PureCFMM(p) => p.full_price_derivative(),
-            BalancedCFMM(p) => p.full_price_derivative(),
-            StableCFMM(p) => p.full_price_derivative(),
-            DegenPool(p) => p.full_price_derivative(),
+            PureCFMM(p) => p.full_price_derivative(side),
+            BalancedCFMM(p) => p.full_price_derivative(side),
+            StableCFMM(p) => p.full_price_derivative(side),
+            DegenPool(p) => p.full_price_derivative(side),
         }
     }
 

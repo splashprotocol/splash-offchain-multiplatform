@@ -618,7 +618,7 @@ impl MarketMaker for BalancePool {
         });
     }
 
-    fn full_price_derivative(&self) -> Option<FullPriceDerivative> {
+    fn full_price_derivative(&self, side: Side) -> Option<FullPriceDerivative> {
         unimplemented!()
     }
 }

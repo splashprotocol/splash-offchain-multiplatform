@@ -1,7 +1,6 @@
 use std::fmt::Debug;
 use std::ops::Div;
 
-use bignumber::BigNumber;
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
@@ -13,6 +12,7 @@ use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
 use num_traits::ToPrimitive;
 use num_traits::{CheckedAdd, CheckedSub};
+use primitive_types::U512;
 use type_equalities::IsEqual;
 use void::Void;
 
@@ -420,46 +420,110 @@ impl MarketMaker for ConstFnPool {
         }
     }
     fn available_liquidity_on_side(&self, worst_price: OnSide<AbsolutePrice>) -> Option<AvailableLiquidity> {
-        let sqrt_degree = BigNumber::from(0.5);
-
-        let (tradable_reserves_base, tradable_reserves_quote, total_fee_mult, avg_price) = match worst_price {
-            OnSide::Bid(price) => (
-                BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
-                BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
-                BigNumber::from((self.lp_fee_y - self.treasury_fee).to_f64()?),
-                BigNumber::from(*price.denom() as f64) / BigNumber::from(*price.numer() as f64),
-            ),
-            OnSide::Ask(price) => (
-                BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
-                BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
-                BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64()?),
-                BigNumber::from(*price.numer() as f64) / BigNumber::from(*price.denom() as f64),
-            ),
+        let (
+            in_balance,
+            out_balance,
+            total_fee_mult_num,
+            total_fee_mult_denom,
+            avg_price_num,
+            avg_price_denom,
+        ) = match worst_price {
+            OnSide::Ask(price) => {
+                let ask_total_fee = self.lp_fee_x - self.treasury_fee;
+                (
+                    U512::from((self.reserves_x - self.treasury_x).untag()),
+                    U512::from((self.reserves_y - self.treasury_y).untag()),
+                    U512::from(*ask_total_fee.numer()),
+                    U512::from(*ask_total_fee.denom()),
+                    U512::from(*price.numer()),
+                    U512::from(*price.denom()),
+                )
+            }
+            OnSide::Bid(price) => {
+                let bid_total_fee = self.lp_fee_y - self.treasury_fee;
+                (
+                    U512::from((self.reserves_y - self.treasury_y).untag()),
+                    U512::from((self.reserves_x - self.treasury_x).untag()),
+                    U512::from(*bid_total_fee.numer()),
+                    U512::from(*bid_total_fee.denom()),
+                    U512::from(*price.denom()),
+                    U512::from(*price.numer()),
+                )
+            }
         };
 
-        let lq_balance = (tradable_reserves_base.clone() * tradable_reserves_quote.clone()).pow(&sqrt_degree);
+        let base_balance_x_total_fee_mult_denom = in_balance.checked_mul(total_fee_mult_denom)?;
+        let a_const = base_balance_x_total_fee_mult_denom
+            .checked_mul(out_balance)?
+            .checked_mul(out_balance)?
+            .checked_mul(total_fee_mult_denom)?;
+        let b_const = base_balance_x_total_fee_mult_denom
+            .checked_mul(avg_price_denom)?
+            .checked_mul(total_fee_mult_num)?
+            .checked_mul(out_balance)?;
 
-        let p1 = (avg_price.div(total_fee_mult.clone()) * lq_balance.clone()
-            / tradable_reserves_quote.clone())
-        .pow(&(BigNumber::from(2)));
-        let p1_sqrt = p1.clone().pow(&sqrt_degree);
-        let x1 = lq_balance.clone() / p1_sqrt.clone();
-        let y1 = lq_balance.clone() * p1_sqrt.clone();
+        let available_quote_amount_num = total_fee_mult_num
+            .checked_mul(out_balance)?
+            .checked_mul(avg_price_denom)?
+            .checked_sub(base_balance_x_total_fee_mult_denom.checked_mul(avg_price_num)?)?;
 
-        let input_amount = (x1.clone() - tradable_reserves_base.clone()) / total_fee_mult;
-        let output_amount = tradable_reserves_quote - y1.clone();
+        let available_quote_amount_denom = out_balance
+            .checked_mul(total_fee_mult_denom)?
+            .checked_sub(total_fee_mult_num)?;
 
-        let input_amount_val = <u64>::try_from(input_amount.value.to_int().value()).ok()?;
-        let output_amount_val = <u64>::try_from(output_amount.value.to_int().value()).ok()?;
+        let available_out_amount = available_quote_amount_num
+            .checked_mul(a_const)?
+            .checked_div(available_quote_amount_denom.checked_mul(b_const)?)?;
+
+        let required_in_amount = available_out_amount * avg_price_denom / avg_price_num;
 
         return Some(AvailableLiquidity {
-            input: input_amount_val,
-            output: output_amount_val,
+            input: required_in_amount.as_u64(),
+            output: available_out_amount.as_u64(),
         });
     }
 
-    fn full_price_derivative(&self) -> Option<FullPriceDerivative> {
-        unimplemented!()
+    fn full_price_derivative(&self, side: Side) -> Option<FullPriceDerivative> {
+        let (side_a_balance, side_b_balance, total_fee_mult_num, total_fee_mult_denom) = match side {
+            Side::Ask => {
+                let bid_total_fee = self.lp_fee_y - self.treasury_fee;
+                (
+                    U512::from((self.reserves_y - self.treasury_y).untag()),
+                    U512::from((self.reserves_x - self.treasury_x).untag()),
+                    U512::from(*bid_total_fee.numer()),
+                    U512::from(*bid_total_fee.denom()),
+                )
+            }
+            Side::Bid => {
+                let ask_total_fee = self.lp_fee_x - self.treasury_fee;
+                (
+                    U512::from((self.reserves_x - self.treasury_x).untag()),
+                    U512::from((self.reserves_y - self.treasury_y).untag()),
+                    U512::from(*ask_total_fee.numer()),
+                    U512::from(*ask_total_fee.denom()),
+                )
+            }
+        };
+
+        // Calculations:
+        // quote_available = (p - q)/dp, where:
+        // p = quote_balance / base_balance * total_fee_mult_num / total_fee_mult_denom,
+        // q = avg_price_num / avg_price_denom,
+        // dp = (pdb - p * pdq) * total_fee_mult_num / total_fee_mult_denom,
+        // pdb = 1 / base_balance,
+        // pdq = - 1 / quote_balance ^ 2
+
+        let derivative_num = side_a_balance
+            .checked_mul(total_fee_mult_num)?
+            .checked_add(total_fee_mult_num)?;
+        let derivative_denom = side_b_balance
+            .checked_mul(side_a_balance)?
+            .checked_mul(total_fee_mult_denom)?;
+
+        Some(FullPriceDerivative(Ratio::new_raw(
+            derivative_num.as_u128(),
+            derivative_denom.as_u128(),
+        )))
     }
 }
 
@@ -832,11 +896,12 @@ mod tests {
     use cml_crypto::ScriptHash;
     use cml_multi_era::babbage::BabbageTransactionOutput;
     use num_rational::Ratio;
+    use num_traits::ToPrimitive;
     use type_equalities::IsEqual;
 
     use bloom_offchain::execution_engine::liquidity_book::core::{Excess, MakeInProgress, Next, Trans};
     use bloom_offchain::execution_engine::liquidity_book::market_maker::{
-        AvailableLiquidity, MakerBehavior, MarketMaker,
+        AvailableLiquidity, FullPriceDerivative, MakerBehavior, MarketMaker,
     };
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
     use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
@@ -1089,5 +1154,23 @@ mod tests {
 
         assert_eq!(quote_qty_ask_spot, 46028591130);
         assert_eq!(quote_qty_bid_spot, 20540799965)
+    }
+
+    #[test]
+    fn full_price_derivative_test0() {
+        let fee_num = 100000;
+        let reserves_x = 1000000000;
+        let reserves_y = 2000000000;
+
+        let pool = gen_ada_token_pool(reserves_x, reserves_y, 0, fee_num, fee_num, 0, 0, 0);
+
+        let Some(FullPriceDerivative(ask_d)) = pool.full_price_derivative(Side::Ask) else {
+            !panic!()
+        };
+        let Some(FullPriceDerivative(bid_d)) = pool.full_price_derivative(Side::Bid) else {
+            !panic!()
+        };
+        assert_eq!(ask_d.to_f64().unwrap(), 1.0000000005e-9);
+        assert_eq!(bid_d.to_f64().unwrap(), 5.000000005e-10);
     }
 }
