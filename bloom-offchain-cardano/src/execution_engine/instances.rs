@@ -32,7 +32,7 @@ use spectrum_offchain_cardano::script::{
 };
 
 use crate::execution_engine::execution_state::{ExecutionState, ScriptInputBlueprint};
-use crate::orders::adhoc::{subtract_adhoc_fee, AdhocFeeStructure, AdhocOrder};
+use crate::orders::adhoc::{AdhocFeeStructure, AdhocOrder};
 use crate::orders::grid::GridOrder;
 use crate::orders::limit::LimitOrder;
 use crate::orders::{grid, limit, AnyOrder};
@@ -237,10 +237,7 @@ where
         };
         let full_adhoc_fee = match (ord.input_asset, ord.output_asset) {
             (AssetClass::Native, _) => adhoc_fee_input,
-            (_, AssetClass::Native) => {
-                added_output
-                    - subtract_adhoc_fee(added_output, context.get()).expect("Added output must include fee")
-            }
+            (_, AssetClass::Native) => context.select::<AdhocFeeStructure>().fee(added_output),
             _ => 0,
         };
         let proportional_fee = (full_adhoc_fee as u128 * removed_input as u128 / ord.input() as u128) as u64;

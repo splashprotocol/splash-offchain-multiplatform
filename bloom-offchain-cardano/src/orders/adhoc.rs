@@ -21,16 +21,18 @@ use std::fmt::{Display, Formatter};
 
 #[derive(Copy, Clone, Debug)]
 pub struct AdhocFeeStructure {
-    pub fixed_fee_lovelace: Lovelace,
     pub relative_fee_percent: BoundedU64<0, 100>,
 }
 
 impl AdhocFeeStructure {
     pub fn empty() -> Self {
         Self {
-            fixed_fee_lovelace: 0,
             relative_fee_percent: BoundedU64::new_saturating(0),
         }
+    }
+
+    pub fn fee(&self, body: u64) -> u64 {
+        body * self.relative_fee_percent.get() / 100
     }
 }
 
@@ -168,10 +170,8 @@ impl Tradable for AdhocOrder {
     }
 }
 
-pub(crate) fn subtract_adhoc_fee(target: u64, fee_structure: AdhocFeeStructure) -> Option<u64> {
-    let body_without_fixed_fee = target.checked_sub(fee_structure.fixed_fee_lovelace)?;
-    let relative_fee = body_without_fixed_fee * fee_structure.relative_fee_percent.get() / 100;
-    Some(body_without_fixed_fee.checked_sub(relative_fee)?)
+fn subtract_adhoc_fee(body: u64, fee_structure: AdhocFeeStructure) -> u64 {
+    body - fee_structure.fee(body)
 }
 
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for AdhocOrder
@@ -185,7 +185,7 @@ where
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         LimitOrder::try_from_ledger(repr, ctx).and_then(|lo| {
             let virtual_input_amount = match (lo.input_asset, lo.output_asset) {
-                (AssetClass::Native, _) => subtract_adhoc_fee(lo.input_amount, ctx.get()),
+                (AssetClass::Native, _) => Some(subtract_adhoc_fee(lo.input_amount, ctx.get())),
                 (_, AssetClass::Native) => Some(lo.input_amount),
                 _ => None,
             }?;

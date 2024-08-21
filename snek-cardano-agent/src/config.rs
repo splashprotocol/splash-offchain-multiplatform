@@ -1,6 +1,4 @@
-use algebra_core::semigroup::Semigroup;
 use bloom_offchain::execution_engine::liquidity_book;
-use bloom_offchain::execution_engine::liquidity_book::types::Lovelace;
 use bloom_offchain::partitioning::Partitioning;
 use bloom_offchain_cardano::integrity::{CheckIntegrity, IntegrityViolations};
 use bloom_offchain_cardano::orders::adhoc::AdhocFeeStructure;
@@ -44,26 +42,19 @@ impl<'a> CheckIntegrity for AppConfig<'a> {
         } else {
             IntegrityViolations::one("Bad partitioning".to_string())
         };
-        let o2o_violations = if self.execution.o2o_allowed {
-            IntegrityViolations::one("O2O allowed".to_string())
-        } else {
-            IntegrityViolations::empty()
-        };
-        partitioning_violations.combine(o2o_violations)
+        partitioning_violations
     }
 }
 
 #[derive(Copy, Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdhocFeeConfig {
-    pub fixed_fee_lovelace: Lovelace,
     pub relative_fee_percent: BoundedU64<0, 100>,
 }
 
 impl From<AdhocFeeConfig> for AdhocFeeStructure {
     fn from(value: AdhocFeeConfig) -> Self {
         Self {
-            fixed_fee_lovelace: value.fixed_fee_lovelace,
             relative_fee_percent: value.relative_fee_percent,
         }
     }
@@ -97,15 +88,13 @@ impl From<ExecutionCap> for liquidity_book::config::ExecutionCap<ExUnits> {
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionConfig {
     pub execution_cap: ExecutionCap,
-    /// Order-order matchmaking allowed.
-    pub o2o_allowed: bool,
 }
 
 impl From<ExecutionConfig> for liquidity_book::config::ExecutionConfig<ExUnits> {
     fn from(conf: ExecutionConfig) -> Self {
         Self {
             execution_cap: conf.execution_cap.into(),
-            o2o_allowed: conf.o2o_allowed,
+            o2o_allowed: false,
         }
     }
 }
