@@ -24,7 +24,7 @@ use spectrum_cardano_lib::plutus_data::{
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::AssetClass;
+use spectrum_cardano_lib::{AssetClass, AssetName, Token};
 use spectrum_offchain::data::{Has, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::data::pair::{side_of, PairId};
@@ -321,9 +321,9 @@ impl MarketTaker for GridOrder {
 }
 
 impl Stable for GridOrder {
-    type StableId = PolicyId;
+    type StableId = Token;
     fn stable_id(&self) -> Self::StableId {
-        self.beacon
+        Token(self.beacon, AssetName::zero())
     }
     fn is_quasi_permanent(&self) -> bool {
         false

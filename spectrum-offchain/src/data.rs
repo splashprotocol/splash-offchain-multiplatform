@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 
 use either::Either;
@@ -108,6 +108,12 @@ pub struct Baked<T, V> {
 impl<T, V> Baked<T, V> {
     pub fn new(entity: T, version: V) -> Self {
         Self { entity, version }
+    }
+}
+
+impl<T: Display, V: Display> Display for Baked<T, V> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(format!("Baked({}, version: {})", self.entity, self.version).as_str())
     }
 }
 

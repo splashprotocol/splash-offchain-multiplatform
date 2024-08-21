@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
+use std::io::Read;
 use std::marker::PhantomData;
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::str::FromStr;
@@ -37,6 +38,10 @@ pub mod value;
 pub struct AssetName(u8, [u8; 32]);
 
 impl AssetName {
+    pub const fn zero() -> Self {
+        AssetName(1, [0u8; 32])
+    }
+
     pub fn padded_bytes(&self) -> [u8; 32] {
         self.1
     }
@@ -179,7 +184,30 @@ impl TryFrom<&str> for OutputRef {
     }
 }
 
-pub type Token = (PolicyId, AssetName);
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct Token(pub PolicyId, pub AssetName);
+
+impl From<Token> for [u8; 60] {
+    fn from(value: Token) -> Self {
+        let mut arr = [0u8; 60];
+        for (ix, b) in value
+            .0
+            .to_raw_bytes()
+            .iter()
+            .chain(value.1.padded_bytes().as_slice())
+            .enumerate()
+        {
+            arr[ix] = *b;
+        }
+        arr
+    }
+}
+
+impl Display for Token {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(format!("{}:{}", self.0.to_hex()[0..6].to_string(), self.1).as_str())
+    }
+}
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum AssetClass {
@@ -199,7 +227,7 @@ impl AssetClass {
         let mut value = Value::zero();
         match self {
             AssetClass::Native => value.coin += amount,
-            AssetClass::Token((policy, an)) => {
+            AssetClass::Token(Token(policy, an)) => {
                 let mut ma = MultiAsset::new();
                 ma.set(policy, an.into(), amount);
                 value.multiasset = ma;
@@ -209,13 +237,17 @@ impl AssetClass {
     }
 }
 
+impl From<Token> for AssetClass {
+    fn from(value: Token) -> Self {
+        Self::Token(value)
+    }
+}
+
 impl Display for AssetClass {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             AssetClass::Native => f.write_str("Native"),
-            AssetClass::Token((pol, tn)) => {
-                f.write_str(format!("{}:{}", pol.to_hex()[0..6].to_string(), tn).as_str())
-            }
+            AssetClass::Token(tkn) => Display::fmt(tkn, f),
         }
     }
 }
@@ -235,7 +267,7 @@ impl TryFromPData for AssetClass {
         } else {
             let policy_id = PolicyId::from_raw_bytes(&*policy_bytes).ok()?;
             let asset_name = AssetName::try_from(cpd.take_field(1)?.into_bytes()?).ok()?;
-            Some(AssetClass::Token((policy_id, asset_name)))
+            Some(AssetClass::Token(Token(policy_id, asset_name)))
         }
     }
 }

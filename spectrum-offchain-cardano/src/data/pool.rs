@@ -381,13 +381,13 @@ where
 }
 
 impl Stable for AnyPool {
-    type StableId = PolicyId;
+    type StableId = Token;
     fn stable_id(&self) -> Self::StableId {
         match self {
-            PureCFMM(p) => Token::from(p.id).0,
-            BalancedCFMM(p) => Token::from(p.id).0,
-            StableCFMM(p) => Token::from(p.id).0,
-            DegenPool(p) => Token::from(p.id).0,
+            PureCFMM(p) => Token::from(p.id),
+            BalancedCFMM(p) => Token::from(p.id),
+            StableCFMM(p) => Token::from(p.id),
+            DegenPool(p) => Token::from(p.id),
         }
     }
     fn is_quasi_permanent(&self) -> bool {

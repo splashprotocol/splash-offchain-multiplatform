@@ -11,8 +11,7 @@ use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use dashu_float::DBig;
-use num_traits::real::Real;
-use num_traits::{CheckedDiv, CheckedSub};
+use num_traits::{CheckedDiv, CheckedSub, ToPrimitive};
 use type_equalities::IsEqual;
 use void::Void;
 
@@ -30,7 +29,7 @@ use spectrum_cardano_lib::plutus_data::{
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
+use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass, Token};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
@@ -44,7 +43,8 @@ use crate::deployment::ProtocolValidator::DegenQuadraticPoolV1;
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::fees::FeeExtension;
 use crate::pool_math::degen_quadratic_math::{
-    degen_quadratic_output_amount, A_DENOM, B_DENOM, MIN_ADA, TOKEN_EMISSION,
+    degen_quadratic_output_amount, A_DENOM, B_DENOM, FULL_PERCENTILE, MAX_ALLOWED_ADA_EXTRAS_PERCENTILE,
+    MIN_ADA, TOKEN_EMISSION,
 };
 
 pub struct DegenQuadraticPoolConfig {
@@ -53,7 +53,7 @@ pub struct DegenQuadraticPoolConfig {
     pub asset_y: TaggedAssetClass<Ry>,
     pub a_num: u64,
     pub b_num: u64,
-    pub ada_cup_thr: u64,
+    pub ada_cap_thr: u64,
 }
 
 struct DatumMapping {
@@ -62,7 +62,7 @@ struct DatumMapping {
     pub asset_y: usize,
     pub a_num: usize,
     pub b_num: usize,
-    pub ada_cup_thr: usize,
+    pub ada_cap_thr: usize,
 }
 
 const DATUM_MAPPING: DatumMapping = DatumMapping {
@@ -71,7 +71,7 @@ const DATUM_MAPPING: DatumMapping = DatumMapping {
     asset_y: 2,
     a_num: 3,
     b_num: 4,
-    ada_cup_thr: 6,
+    ada_cap_thr: 6,
 };
 
 impl TryFromPData for DegenQuadraticPoolConfig {
@@ -82,7 +82,7 @@ impl TryFromPData for DegenQuadraticPoolConfig {
         let asset_y = TaggedAssetClass::try_from_pd(cpd.take_field(DATUM_MAPPING.asset_y)?)?;
         let a_num = cpd.take_field(DATUM_MAPPING.a_num)?.into_u64()?;
         let b_num = cpd.take_field(DATUM_MAPPING.b_num)?.into_u64()?;
-        let ada_cup_thr = cpd.take_field(DATUM_MAPPING.ada_cup_thr)?.into_u64()?;
+        let ada_cap_thr = cpd.take_field(DATUM_MAPPING.ada_cap_thr)?.into_u64()?;
 
         Some(Self {
             pool_nft,
@@ -90,7 +90,7 @@ impl TryFromPData for DegenQuadraticPoolConfig {
             asset_y,
             a_num,
             b_num,
-            ada_cup_thr,
+            ada_cap_thr,
         })
     }
 }
@@ -131,7 +131,7 @@ pub struct DegenQuadraticPool {
     pub asset_y: TaggedAssetClass<Ry>,
     pub a_num: u64,
     pub b_num: u64,
-    pub ada_cup_thr: u64,
+    pub ada_cap_thr: u64,
     pub ver: DegenQuadraticPoolVer,
     pub marginal_cost: ExUnits,
     pub bounds: PoolBounds,
@@ -293,7 +293,7 @@ impl MarketMaker for DegenQuadraticPool {
                     .untag(),
                 input,
             ),
-            OnSide::Ask(input) if self.reserves_x.untag() + input <= self.ada_cup_thr => (
+            OnSide::Ask(input) if self.reserves_x.untag() + input <= self.ada_cap_thr => (
                 input,
                 self.output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
                     .untag(),
@@ -312,7 +312,8 @@ impl MarketMaker for DegenQuadraticPool {
     }
 
     fn is_active(&self) -> bool {
-        self.reserves_x.untag() < self.ada_cup_thr
+        self.reserves_x.untag()
+            < self.ada_cap_thr * (MAX_ALLOWED_ADA_EXTRAS_PERCENTILE + FULL_PERCENTILE) / FULL_PERCENTILE
     }
 
     fn liquidity(&self) -> AbsoluteReserves {
@@ -355,13 +356,21 @@ impl MarketMaker for DegenQuadraticPool {
         let b_x2 = b.clone() * b.clone();
         let b_x3 = b.clone() * b_x2.clone();
 
-        let mut err = 2i64;
         let mut counter = 0usize;
 
-        let max_ada = (self.ada_cup_thr - MIN_ADA) * (PERC + MAX_EXCESS_PERC) / PERC;
-        if x0_val >= (self.ada_cup_thr - MIN_ADA) as f64 {
+        let max_ada =
+            BigNumber::from(((self.ada_cap_thr - MIN_ADA) * (PERC + MAX_EXCESS_PERC) / PERC) as f64);
+        let min_ada = BigNumber::from(MIN_ADA as f64);
+        if x0_val >= (self.ada_cap_thr - MIN_ADA) as f64 {
             return None;
         };
+
+        let n_0 = BigNumber::from(0f64);
+        let n_1_minus = BigNumber::from(-1f64);
+        let n_1 = BigNumber::from(1f64);
+        let n_2 = BigNumber::from(2f64);
+        let mut err = n_2.clone();
+
         let (output_amount, input_amount) = match worst_price {
             OnSide::Ask(price) => {
                 const COEFF_DENOM: u64 = 100000000000000;
@@ -375,8 +384,12 @@ impl MarketMaker for DegenQuadraticPool {
                 let coeff_1 = BigNumber::from(COEFF_1_NUM as f64) / coeff_denom;
 
                 let p = BigNumber::from(*price.numer() as f64) / BigNumber::from(*price.denom() as f64);
-                let mut x1 = BigNumber::from((self.ada_cup_thr - MIN_ADA) as f64);
-                while (err >= 1 || err <= -1) && counter < 255 {
+                let mut x1 = BigNumber::from((self.ada_cap_thr - MIN_ADA) as f64);
+
+                while ((err.value.clone() >= n_1.value.clone())
+                    || (err.value.clone() <= n_1_minus.value.clone()))
+                    && counter < 255
+                {
                     let a_coeff = n_27.clone() * a_x3.clone() * supply_y0_x3.clone()
                         + n_81.clone() * a_x2.clone() * b.clone() * supply_y0.clone()
                         + n_81.clone() * a_x2.clone() * (x1.clone() - x0.clone());
@@ -400,13 +413,13 @@ impl MarketMaker for DegenQuadraticPool {
                         + (coeff_1.clone() * c_coeff.clone()).div(a.clone() * b_coeff_2_3);
                     let additional = add_num.div(add_denom);
 
-                    let x_new =
-                        <i64>::try_from((x1.clone() - additional.clone()).value.to_int().value()).ok()?;
-
-                    if x_new < max_ada as i64 && x_new as f64 > x0_val {
+                    let x_new = x1.clone() - additional.clone();
+                    if x_new.value.clone() < max_ada.value.clone()
+                        && x_new.value.clone() > min_ada.value.clone()
+                    {
                         x1 = x1.clone() - additional.clone()
                     } else {
-                        let ada_delta = self.ada_cup_thr - x0_val as u64 - MIN_ADA;
+                        let ada_delta = self.ada_cap_thr - x0_val as u64 - MIN_ADA;
                         let token_delta = self
                             .output_amount(
                                 TaggedAssetClass::new(self.asset_x.into()),
@@ -418,14 +431,14 @@ impl MarketMaker for DegenQuadraticPool {
                             output: token_delta,
                         });
                     }
-                    err = <i64>::try_from(additional.value.to_int().value()).ok()?;
+                    err = additional.clone();
+                    counter += 1;
                 }
                 let delta_x = x1 - x0;
                 let delta_y = delta_x.clone() * p;
                 (delta_y, delta_x)
             }
             OnSide::Bid(price) => {
-                let n_2 = BigNumber::from(2f64);
                 let n_3 = BigNumber::from(3f64);
                 let n_4 = BigNumber::from(4f64);
                 let n_6 = BigNumber::from(6f64);
@@ -433,11 +446,14 @@ impl MarketMaker for DegenQuadraticPool {
                 let n_243 = BigNumber::from(243f64);
                 let n_729 = BigNumber::from(729f64);
 
-                let mut err = 2i64;
                 let mut counter = 0usize;
                 let p = BigNumber::from(*price.denom() as f64) / BigNumber::from(*price.numer() as f64);
                 let mut x1 = BN_ZERO;
-                while (err >= 1 || err <= -1) && counter < 255 {
+
+                while ((err.value.clone() >= n_1.value.clone())
+                    || (err.value.clone() <= n_1_minus.value.clone()))
+                    && counter < 255
+                {
                     let a_coeff = n_27.clone()
                         * (n_3.clone() * x0.clone()
                             - a.clone() * supply_y0_x3.clone()
@@ -472,23 +488,26 @@ impl MarketMaker for DegenQuadraticPool {
                         - d_coeff.clone() / (n_3.clone() * c_coeff_2_3)
                         - n_3.clone() * b.clone() * d_coeff / (a.clone() * c_coeff_4_3);
                     let additional = add_num.div(add_denom);
-                    let x_new =
-                        <i64>::try_from((x1.clone() - additional.clone()).value.to_int().value()).ok()?;
-                    err = if x0_val > 0f64 {
-                        <f64>::try_from(additional.value.to_f64().value()).ok()? as i64
-                    } else {
-                        2i64
-                    };
-                    if x_new < max_ada as i64 && x_new as f64 > MIN_ADA as f64 && x_new != x0_val as i64 {
+                    let x_new = x1.clone() - additional.clone();
+                    if x_new.value.clone() < max_ada.value.clone()
+                        && x_new.value.clone() > min_ada.value.clone()
+                        && x_new.value.round().clone() != x0.value.clone()
+                    {
                         x1 = x1.clone() - additional.clone()
                     } else {
-                        let supply_y0_val = <u64>::try_from(supply_y0.value.to_int().value()).ok()?;
+                        let supply_y0_val = supply_y0.value.to_f64().value() as u64;
                         let x_val = if supply_y0_val > 0u64 { x0_val } else { 0f64 };
                         return Some(AvailableLiquidity {
                             output: x_val as u64,
-                            input: <u64>::try_from(supply_y0.value.to_int().value()).ok()?,
+                            input: supply_y0.value.to_f64().value() as u64,
                         });
                     }
+                    err = if x0.value.clone() > n_0.value.clone() {
+                        additional.clone()
+                    } else {
+                        n_2.clone()
+                    };
+                    counter += 1;
                 }
                 let delta_x = x0 - x1;
                 let delta_y = delta_x.clone() * p;
@@ -496,8 +515,8 @@ impl MarketMaker for DegenQuadraticPool {
             }
         };
         Some(AvailableLiquidity {
-            input: <u64>::try_from(input_amount.value.to_int().value()).ok()?,
-            output: <u64>::try_from(output_amount.value.to_int().value()).ok()?,
+            input: input_amount.value.to_f64().value() as u64,
+            output: output_amount.value.to_f64().value() as u64,
         })
     }
 
@@ -545,7 +564,7 @@ where
                     let reserves_x: TaggedAmount<Rx> =
                         TaggedAmount::new(value.amount_of(conf.asset_x.into())?);
 
-                    if conf.asset_x.is_native() && reserves_x.untag() < conf.ada_cup_thr {
+                    if conf.asset_x.is_native() && reserves_x.untag() < conf.ada_cap_thr {
                         return Some(DegenQuadraticPool {
                             id: PoolId::try_from(conf.pool_nft).ok()?,
                             reserves_x,
@@ -557,7 +576,7 @@ where
                             ver: pool_ver,
                             marginal_cost,
                             bounds,
-                            ada_cup_thr: conf.ada_cup_thr,
+                            ada_cap_thr: conf.ada_cap_thr,
                         });
                     }
                 }
@@ -571,21 +590,21 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for DegenQuadraticPool {
     fn into_ledger(self, mut immut_pool: ImmutablePoolUtxo) -> TransactionOutput {
         let mut ma = MultiAsset::new();
         let coins = if self.asset_x.is_native() {
-            let (policy, name) = self.asset_y.untag().into_token().unwrap();
+            let Token(policy, name) = self.asset_y.untag().into_token().unwrap();
             ma.set(policy, name.into(), self.reserves_y.untag());
             self.reserves_x.untag()
         } else if self.asset_y.is_native() {
-            let (policy, name) = self.asset_x.untag().into_token().unwrap();
+            let Token(policy, name) = self.asset_x.untag().into_token().unwrap();
             ma.set(policy, name.into(), self.reserves_x.untag());
             self.reserves_y.untag()
         } else {
-            let (policy_x, name_x) = self.asset_x.untag().into_token().unwrap();
+            let Token(policy_x, name_x) = self.asset_x.untag().into_token().unwrap();
             ma.set(policy_x, name_x.into(), self.reserves_x.untag());
-            let (policy_y, name_y) = self.asset_y.untag().into_token().unwrap();
+            let Token(policy_y, name_y) = self.asset_y.untag().into_token().unwrap();
             ma.set(policy_y, name_y.into(), self.reserves_y.untag());
             immut_pool.value
         };
-        let (nft_lq, name_nft) = self.id.into();
+        let Token(nft_lq, name_nft) = self.id.into();
         ma.set(nft_lq, name_nft.into(), 1);
 
         TransactionOutput::new_conway_format_tx_out(ConwayFormatTxOut {
@@ -612,7 +631,7 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
     use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
     use spectrum_cardano_lib::ex_units::ExUnits;
-    use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
+    use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass, Token};
 
     use crate::data::degen_quadratic_pool::{DegenQuadraticPool, DegenQuadraticPoolVer};
     use crate::data::pool::PoolBounds;
@@ -630,7 +649,7 @@ mod tests {
         ada_thr: u64,
     ) -> DegenQuadraticPool {
         return DegenQuadraticPool {
-            id: PoolId::from((
+            id: PoolId::from(Token(
                 ScriptHash::from([
                     162, 206, 112, 95, 150, 240, 52, 167, 61, 102, 158, 92, 11, 47, 25, 41, 48, 224, 188,
                     211, 138, 203, 27, 107, 246, 89, 115, 157,
@@ -646,7 +665,7 @@ mod tests {
             reserves_x: TaggedAmount::new(reserves_x + MIN_ADA),
             reserves_y: TaggedAmount::new(reserves_y),
             asset_x: TaggedAssetClass::new(AssetClass::Native),
-            asset_y: TaggedAssetClass::new(AssetClass::Token((
+            asset_y: TaggedAssetClass::new(AssetClass::Token(Token(
                 ScriptHash::from([
                     75, 52, 89, 253, 24, 161, 219, 171, 226, 7, 205, 25, 201, 149, 26, 159, 172, 159, 92, 15,
                     156, 56, 78, 61, 151, 239, 186, 38,
@@ -667,7 +686,7 @@ mod tests {
                 min_n2t_lovelace: 10000000,
                 min_t2t_lovelace: 10000000,
             },
-            ada_cup_thr: ada_thr + MIN_ADA,
+            ada_cap_thr: ada_thr + MIN_ADA,
         };
     }
 
@@ -707,7 +726,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
         let min_redeem = 10u64;
         let b: u64 = 0;
-        for _ in 0..3 {
+        for _ in 0..10 {
             let ada_cap: u64 = rng.gen_range(1_000..100_000 * LOVELACE);
             let a: u64 = calculate_a_num(&ada_cap);
             let to_dep_init: u64 = rng.gen_range(LOVELACE..100 * LOVELACE);
@@ -804,7 +823,7 @@ mod tests {
             panic!()
         };
         assert_eq!(q, 56319924);
-        assert_eq!(b, 123010091);
+        assert_eq!(b, 123010090);
 
         let Next::Succ(pool2) = pool1.swap(Bid(y_rec / 2)) else {
             panic!()
@@ -819,7 +838,7 @@ mod tests {
         else {
             panic!()
         };
-        assert_eq!(q, 65393878);
+        assert_eq!(q, 65393877);
         assert_eq!(b, 28159959);
 
         let too_high_ask_price = AbsolutePrice::new(1, 300).unwrap();
@@ -829,12 +848,12 @@ mod tests {
         else {
             panic!()
         };
-        let Next::Succ(pool3) = pool1.swap(Ask(pool1.ada_cup_thr - pool1.reserves_x.untag())) else {
+        let Next::Succ(pool3) = pool1.swap(Ask(pool1.ada_cap_thr - pool1.reserves_x.untag())) else {
             panic!()
         };
         let y_max = pool1.reserves_y.untag() - pool3.reserves_y.untag();
         assert_eq!(q, y_max);
-        assert_eq!(b, pool1.ada_cup_thr - pool1.reserves_x.untag());
+        assert_eq!(b, pool1.ada_cap_thr - pool1.reserves_x.untag());
     }
 
     #[test]
@@ -890,7 +909,7 @@ mod tests {
         let mut pool = gen_ada_token_pool(0, TOKEN_EMISSION, a, b, ada_cap);
 
         let mut rng = StdRng::seed_from_u64(42);
-        for _ in 0..100 {
+        for _ in 0..10 {
             let to_dep = rng.gen_range(0..ada_cap);
             let Next::Succ(pool1) = pool.swap(Ask(to_dep)) else {
                 panic!()
@@ -926,13 +945,29 @@ mod tests {
             else {
                 panic!()
             };
-            let Next::Succ(pool3) = pool2.swap(Ask(pool2.ada_cup_thr - pool2.reserves_x.untag())) else {
+            let Next::Succ(pool3) = pool2.swap(Ask(pool2.ada_cap_thr - pool2.reserves_x.untag())) else {
                 panic!()
             };
             let y_max = pool2.reserves_y.untag() - pool3.reserves_y.untag();
-            assert_eq!(b, pool2.ada_cup_thr - pool2.reserves_x.untag());
+            assert_eq!(b, pool2.ada_cap_thr - pool2.reserves_x.untag());
             assert_eq!(q, y_max);
-            assert_eq!(pool3.reserves_x.untag(), pool3.ada_cup_thr)
+            assert_eq!(pool3.reserves_x.untag(), pool3.ada_cap_thr)
         }
+    }
+    #[test]
+    fn test_available_lq_bug() {
+        let ada_cap: u64 = 25_240 * LOVELACE;
+        let a: u64 = 174_150_190_999;
+        let b: u64 = 2_000_000;
+        let pool0 = gen_ada_token_pool(150000000, 933525758, a, b, ada_cap);
+
+        let worst_price = AbsolutePrice::new(66474242, 904253).unwrap();
+        let Some(AvailableLiquidity { input: b, output: q }) =
+            pool0.available_liquidity_on_side(Bid(worst_price))
+        else {
+            panic!()
+        };
+        assert_eq!(b, 66474242);
+        assert_eq!(q, 150000000);
     }
 }

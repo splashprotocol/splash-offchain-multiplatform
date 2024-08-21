@@ -4,6 +4,7 @@ use std::fmt::{Debug, Display, Formatter, Write};
 
 use log::trace;
 
+use crate::execution_engine::storage::kv_store::KvStoreWithTracing;
 use spectrum_offchain::data::event::{Confirmed, Predicted, Unconfirmed};
 use spectrum_offchain::data::{EntitySnapshot, Stable};
 
@@ -29,7 +30,7 @@ pub trait StateIndex<T: EntitySnapshot> {
 }
 
 #[derive(Clone)]
-pub struct StateIndexTracing<In>(pub In);
+pub struct StateIndexWithTracing<In>(pub In);
 
 struct Displayed<'a, T>(&'a Option<T>);
 
@@ -44,7 +45,7 @@ impl<'a, T: EntitySnapshot> Display for Displayed<'a, T> {
     }
 }
 
-impl<In, T> StateIndex<T> for StateIndexTracing<In>
+impl<In, T> StateIndex<T> for StateIndexWithTracing<In>
 where
     In: StateIndex<T>,
     T: EntitySnapshot,
@@ -122,8 +123,6 @@ where
     }
 }
 
-const MAX_ROLLBACK_DEPTH: usize = 32;
-
 #[derive(Clone)]
 pub struct InMemoryStateIndex<T: EntitySnapshot> {
     store: HashMap<T::Version, T>,
@@ -138,9 +137,13 @@ impl<T: EntitySnapshot> InMemoryStateIndex<T> {
         }
     }
 
+    pub fn with_tracing() -> StateIndexWithTracing<Self> {
+        StateIndexWithTracing(Self::new())
+    }
+
     fn put(&mut self, prefix: u8, sid: T::StableId, value: T)
     where
-        T::StableId: Into<[u8; 28]>,
+        T::StableId: Into<[u8; 60]>,
     {
         let mut bound_versions = vec![];
         for p in PREFIXES {
@@ -165,7 +168,7 @@ impl<T: EntitySnapshot> InMemoryStateIndex<T> {
     }
 }
 
-type InMemoryIndexKey = [u8; 29];
+type InMemoryIndexKey = [u8; 61];
 
 const LAST_CONFIRMED_PREFIX: u8 = 3u8;
 const LAST_UNCONFIRMED_PREFIX: u8 = 4u8;
@@ -181,7 +184,7 @@ impl<T> StateIndex<T> for InMemoryStateIndex<T>
 where
     T: EntitySnapshot + Clone,
     <T as EntitySnapshot>::Version: Copy + Debug + Eq,
-    <T as Stable>::StableId: Copy + Into<[u8; 28]>,
+    <T as Stable>::StableId: Copy + Into<[u8; 60]>,
 {
     fn get_last_confirmed(&self, id: T::StableId) -> Option<Confirmed<T>> {
         let index_key = index_key(LAST_CONFIRMED_PREFIX, id);
@@ -225,13 +228,8 @@ where
     fn invalidate_version(&mut self, ver: T::Version) -> Option<T::StableId> {
         if let Some(entity) = self.store.remove(&ver) {
             let sid = entity.stable_id();
-            let indexes = vec![
-                LAST_PREDICTED_PREFIX,
-                LAST_UNCONFIRMED_PREFIX,
-                LAST_CONFIRMED_PREFIX,
-            ];
-            for index in indexes {
-                if let Entry::Occupied(index_ver) = self.index.entry(index_key(index, sid)) {
+            for prefix in PREFIXES {
+                if let Entry::Occupied(index_ver) = self.index.entry(index_key(prefix, sid)) {
                     if *index_ver.get() == ver {
                         index_ver.remove();
                     }
@@ -266,9 +264,9 @@ where
     }
 }
 
-pub fn index_key<T: Into<[u8; 28]>>(prefix: u8, id: T) -> InMemoryIndexKey {
-    let mut arr = [prefix; 29];
-    let raw_id: [u8; 28] = id.into();
+pub fn index_key<T: Into<[u8; 60]>>(prefix: u8, id: T) -> InMemoryIndexKey {
+    let mut arr = [prefix; 61];
+    let raw_id: [u8; 60] = id.into();
     for (ix, byte) in raw_id.into_iter().enumerate() {
         arr[ix + 1] = byte;
     }
@@ -277,17 +275,17 @@ pub fn index_key<T: Into<[u8; 28]>>(prefix: u8, id: T) -> InMemoryIndexKey {
 
 #[cfg(test)]
 mod tests {
-    use crate::execution_engine::storage::{InMemoryStateIndex, StateIndex, StateIndexTracing};
+    use crate::execution_engine::storage::{InMemoryStateIndex, StateIndex, StateIndexWithTracing};
     use derive_more::{From, Into};
     use spectrum_offchain::data::event::{Confirmed, Predicted, Unconfirmed};
     use spectrum_offchain::data::{Baked, EntitySnapshot, Stable};
     use std::fmt::{Display, Formatter, Write};
 
     #[derive(Copy, Clone, Hash, Ord, PartialOrd, PartialEq, Eq, Debug, Into, From)]
-    struct StableId([u8; 28]);
+    struct StableId([u8; 60]);
     impl StableId {
         fn from_str(s: &str) -> Self {
-            Self(<[u8; 28]>::try_from(hex::decode(s).unwrap()).unwrap())
+            Self(<[u8; 60]>::try_from(hex::decode(s).unwrap()).unwrap())
         }
     }
     impl Display for StableId {
@@ -340,12 +338,12 @@ mod tests {
 
     #[test]
     fn normal_index_cycle() {
-        let nft = "42019269344f20974cc563179e392a78dd3a3e9fe90adf30322abf8d";
+        let nft = "42019269344f20974cc563179e392a78dd3a3e9fe90adf30322abf8d1af7822454e4e3286b8c59c3adbed84a7e4aa9467ae9741807d24de501ed48c2";
         let utxo1 = "9bdfa9a985ed742d70fe896868c50e97be3c8759b90d3c7f979e5becb75f8d86";
         let ver1 = Ver::from_str(utxo1);
         let utxo2 = "1af7822454e4e3286b8c59c3adbed84a7e4aa9467ae9741807d24de501ed48c2";
         let ver2 = Ver::from_str(utxo2);
-        let mut store = StateIndexTracing(InMemoryStateIndex::<Ent>::new());
+        let mut store = StateIndexWithTracing(InMemoryStateIndex::<Ent>::new());
         let stable_id = StableId::from_str(nft);
         store.put_unconfirmed(Unconfirmed(Ent { stable_id, ver: ver1 }));
         store.put_confirmed(Confirmed(Ent { stable_id, ver: ver1 }));

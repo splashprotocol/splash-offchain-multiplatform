@@ -410,6 +410,10 @@ mod tests {
         fn budget(&self) -> FeeAsset<u64> {
             self.ex_budget
         }
+
+        fn consumable_budget(&self) -> FeeAsset<u64> {
+            0
+        }
     }
 
     impl TakerBehaviour for SimpleOrderPF {
@@ -432,6 +436,18 @@ mod tests {
             let real_delta = updated_budget_remainder - budget_remainder;
             self.ex_budget = updated_budget_remainder as u64;
             (real_delta, self)
+        }
+
+        fn with_fee_charged(self, fee: u64) -> Self {
+            self
+        }
+
+        fn with_output_added(self, added_output: u64) -> Self {
+            self
+        }
+
+        fn try_terminate(self) -> Next<Self, TerminalTake> {
+            Next::Succ(self)
         }
     }
 }

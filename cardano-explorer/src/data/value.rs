@@ -41,7 +41,10 @@ impl TryInto<Value> for ExplorerValue {
             } else {
                 let policy_id = PolicyId::from_hex(entity.policy_id.as_str()).unwrap();
                 let token_name = AssetName::try_from(entity.name.clone()).unwrap();
-                value.add_unsafe(Token((policy_id, token_name)), entity.quantity);
+                value.add_unsafe(
+                    Token(spectrum_cardano_lib::Token(policy_id, token_name)),
+                    entity.quantity,
+                );
             }
         });
         Ok(value)

@@ -33,7 +33,7 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::AssetClass::Native;
-use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
+use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass, Token};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
@@ -680,22 +680,22 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for ConstFnPool {
     fn into_ledger(self, mut immut_pool: ImmutablePoolUtxo) -> TransactionOutput {
         let mut ma = MultiAsset::new();
         let coins = if self.asset_x.is_native() {
-            let (policy, name) = self.asset_y.untag().into_token().unwrap();
+            let Token(policy, name) = self.asset_y.untag().into_token().unwrap();
             ma.set(policy, name.into(), self.reserves_y.untag());
             self.reserves_x.untag()
         } else if self.asset_y.is_native() {
-            let (policy, name) = self.asset_x.untag().into_token().unwrap();
+            let Token(policy, name) = self.asset_x.untag().into_token().unwrap();
             ma.set(policy, name.into(), self.reserves_x.untag());
             self.reserves_y.untag()
         } else {
-            let (policy_x, name_x) = self.asset_x.untag().into_token().unwrap();
+            let Token(policy_x, name_x) = self.asset_x.untag().into_token().unwrap();
             ma.set(policy_x, name_x.into(), self.reserves_x.untag());
-            let (policy_y, name_y) = self.asset_y.untag().into_token().unwrap();
+            let Token(policy_y, name_y) = self.asset_y.untag().into_token().unwrap();
             ma.set(policy_y, name_y.into(), self.reserves_y.untag());
             immut_pool.value
         };
-        let (policy_lq, name_lq) = self.asset_lq.untag().into_token().unwrap();
-        let (nft_lq, name_nft) = self.id.into();
+        let Token(policy_lq, name_lq) = self.asset_lq.untag().into_token().unwrap();
+        let Token(nft_lq, name_nft) = self.id.into();
         ma.set(policy_lq, name_lq.into(), MAX_LQ_CAP - self.liquidity.untag());
         ma.set(nft_lq, name_nft.into(), 1);
 
@@ -907,7 +907,7 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
     use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
     use spectrum_cardano_lib::ex_units::ExUnits;
-    use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass};
+    use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass, Token};
     use spectrum_offchain::data::Has;
     use spectrum_offchain::ledger::TryFromLedger;
 
@@ -931,7 +931,7 @@ mod tests {
         treasury_y: u64,
     ) -> ConstFnPool {
         return ConstFnPool {
-            id: PoolId::from((
+            id: PoolId::from(Token(
                 ScriptHash::from([
                     162, 206, 112, 95, 150, 240, 52, 167, 61, 102, 158, 92, 11, 47, 25, 41, 48, 224, 188,
                     211, 138, 203, 127, 107, 246, 89, 115, 157,
@@ -948,7 +948,7 @@ mod tests {
             reserves_y: TaggedAmount::new(reserves_y),
             liquidity: TaggedAmount::new(liquidity),
             asset_x: TaggedAssetClass::new(AssetClass::Native),
-            asset_y: TaggedAssetClass::new(AssetClass::Token((
+            asset_y: TaggedAssetClass::new(AssetClass::Token(Token(
                 ScriptHash::from([
                     75, 52, 89, 253, 24, 161, 219, 171, 226, 7, 205, 25, 201, 149, 26, 159, 172, 159, 92, 15,
                     156, 56, 78, 61, 151, 239, 186, 38,
@@ -961,7 +961,7 @@ mod tests {
                     ],
                 )),
             ))),
-            asset_lq: TaggedAssetClass::new(AssetClass::Token((
+            asset_lq: TaggedAssetClass::new(AssetClass::Token(Token(
                 ScriptHash::from([
                     114, 191, 27, 172, 195, 20, 1, 41, 111, 158, 228, 210, 254, 123, 132, 165, 36, 56, 38,
                     251, 3, 233, 206, 25, 51, 218, 254, 192,

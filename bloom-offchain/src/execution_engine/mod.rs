@@ -15,7 +15,6 @@ use log::{trace, warn};
 use tokio::sync::broadcast;
 
 use liquidity_book::interpreter::RecipeInterpreter;
-use liquidity_book::stashing_option::StashingOption;
 use spectrum_offchain::backlog::HotBacklog;
 use spectrum_offchain::circular_filter::CircularFilter;
 use spectrum_offchain::combinators::Ior;
@@ -526,7 +525,7 @@ impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR
         L: HotBacklog<Bundled<SO, B>> + Maker<MC>,
         E: TryInto<HashSet<V>> + Unpin + Debug + Display,
     {
-        warn!("TX {} failed {:?}", tx_hash, err);
+        warn!("TX {} failed", tx_hash);
         if let Ok(missing_bearers) = err.try_into() {
             match pending_effects {
                 ExecutionEffects::FromLiquidityBook(_) => {

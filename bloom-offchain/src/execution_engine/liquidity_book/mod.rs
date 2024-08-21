@@ -134,8 +134,9 @@ where
             while batch.execution_units_consumed() < self.conf.execution_cap.soft {
                 let spot_price = self.spot_price();
                 let price_range = self.state.allowed_price_range();
-                trace!("Spot price is: {}", display_option(spot_price));
+                trace!("Spot price is: {}", display_option(&spot_price));
                 trace!("Price range is: {}", price_range);
+                trace!("TLB state is: {}", self.state);
                 if let Some(target_taker) = self.state.pick_active_taker(|fs| {
                     spot_price
                         .map(|sp| max_by_distance_to_spot(fs, sp, price_range))
@@ -153,8 +154,8 @@ where
                     trace!(
                         "P_target: {}, P_counter: {}, P_amm: {}",
                         target_price.unwrap(),
-                        display_option(maybe_price_counter_taker),
-                        display_option(maybe_price_maker.map(|(id, fp)| display_tuple((id, fp.price))))
+                        display_option(&maybe_price_counter_taker),
+                        display_option(&maybe_price_maker.map(|(id, fp)| display_tuple((id, fp.price))))
                     );
                     match (maybe_price_counter_taker, maybe_price_maker) {
                         (Some(price_counter_taker), maybe_price_maker)
@@ -191,7 +192,10 @@ where
                                 continue;
                             }
                         }
-                        _ => {}
+                        _ => {
+                            trace!("Failed to match taker {}", target_taker);
+                            self.state.pre_add_taker(target_taker);
+                        }
                     }
                 }
                 break;
