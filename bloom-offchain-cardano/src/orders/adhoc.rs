@@ -37,7 +37,7 @@ impl AdhocFeeStructure {
 /// A version of [LimitOrder] with ad-hoc fee algorithm.
 /// Fee is charged as % of the trade from the side that contains ADA.
 #[derive(Debug, Copy, Clone)]
-pub struct AdhocOrder(pub(crate) LimitOrder);
+pub struct AdhocOrder(pub(crate) LimitOrder, /*adhoc_fee_input*/ pub(crate) u64);
 
 impl Display for AdhocOrder {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -77,24 +77,24 @@ impl TakerBehaviour for AdhocOrder {
     ) -> Next<Self, TerminalTake> {
         self.0
             .with_applied_trade(removed_input, added_output)
-            .map_succ(AdhocOrder)
+            .map_succ(|s| AdhocOrder(s, self.1))
     }
 
     fn with_budget_corrected(mut self, delta: i64) -> (i64, Self) {
         let (real_delta, order) = self.0.with_budget_corrected(delta);
-        (real_delta, AdhocOrder(order))
+        (real_delta, AdhocOrder(order, self.1))
     }
 
     fn with_fee_charged(mut self, fee: u64) -> Self {
-        AdhocOrder(self.0.with_fee_charged(fee))
+        AdhocOrder(self.0.with_fee_charged(fee), self.1)
     }
 
     fn with_output_added(mut self, added_output: u64) -> Self {
-        AdhocOrder(self.0.with_output_added(added_output))
+        AdhocOrder(self.0.with_output_added(added_output), self.1)
     }
 
     fn try_terminate(self) -> Next<Self, TerminalTake> {
-        self.0.try_terminate().map_succ(AdhocOrder)
+        self.0.try_terminate().map_succ(|s| AdhocOrder(s, self.1))
     }
 }
 
@@ -188,25 +188,29 @@ where
                 (AssetClass::Native, _) => subtract_adhoc_fee(lo.input_amount, ctx.get()),
                 (_, AssetClass::Native) => Some(lo.input_amount),
                 _ => None,
-            };
-            Some(Self(LimitOrder {
-                beacon: lo.beacon,
-                input_asset: lo.input_asset,
-                input_amount: virtual_input_amount?,
-                output_asset: lo.output_asset,
-                output_amount: lo.output_amount,
-                base_price: lo.base_price,
-                fee_asset: lo.fee_asset,
-                execution_budget: lo.execution_budget,
-                fee: lo.fee,
-                max_cost_per_ex_step: lo.max_cost_per_ex_step,
-                min_marginal_output: lo.min_marginal_output,
-                redeemer_address: lo.redeemer_address,
-                cancellation_pkh: lo.cancellation_pkh,
-                requires_executor_sig: lo.requires_executor_sig,
-                virgin: lo.virgin,
-                marginal_cost: lo.marginal_cost,
-            }))
+            }?;
+            let adhoc_fee_input = lo.input_amount.checked_sub(virtual_input_amount)?;
+            Some(Self(
+                LimitOrder {
+                    beacon: lo.beacon,
+                    input_asset: lo.input_asset,
+                    input_amount: virtual_input_amount,
+                    output_asset: lo.output_asset,
+                    output_amount: lo.output_amount,
+                    base_price: lo.base_price,
+                    fee_asset: lo.fee_asset,
+                    execution_budget: lo.execution_budget,
+                    fee: lo.fee,
+                    max_cost_per_ex_step: lo.max_cost_per_ex_step,
+                    min_marginal_output: lo.min_marginal_output,
+                    redeemer_address: lo.redeemer_address,
+                    cancellation_pkh: lo.cancellation_pkh,
+                    requires_executor_sig: lo.requires_executor_sig,
+                    virgin: lo.virgin,
+                    marginal_cost: lo.marginal_cost,
+                },
+                adhoc_fee_input,
+            ))
         })
     }
 }

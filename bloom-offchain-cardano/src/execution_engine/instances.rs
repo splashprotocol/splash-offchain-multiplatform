@@ -210,7 +210,7 @@ where
             consumed_fee
         );
         let Trans {
-            target: Bundled(AdhocOrder(ord), FinalizedTxOut(consumed_utxo, in_ref)),
+            target: Bundled(AdhocOrder(ord, adhoc_fee_input), FinalizedTxOut(consumed_utxo, in_ref)),
             result,
         } = trans;
         let DeployedValidatorErased {
@@ -235,34 +235,41 @@ where
                 vec![]
             },
         };
-        let adhoc_fee = match (ord.input_asset, ord.output_asset) {
-            (AssetClass::Native, _) => consumed_utxo
-                .value()
-                .amount_of(AssetClass::Native)
-                .map(|init_lov| init_lov - ord.input())
-                .expect("Input UTxO must contain fee in input"),
+        let full_adhoc_fee = match (ord.input_asset, ord.output_asset) {
+            (AssetClass::Native, _) => adhoc_fee_input,
             (_, AssetClass::Native) => {
                 added_output
                     - subtract_adhoc_fee(added_output, context.get()).expect("Added output must include fee")
             }
             _ => 0,
         };
+        let proportional_fee = (full_adhoc_fee as u128 * removed_input as u128 / ord.input() as u128) as u64;
+        trace!(
+            "consumed_budget: {}, consumed_fee: {}, full_adhoc_fee: {}, proportional_fee: {}",
+            consumed_budget,
+            consumed_fee,
+            full_adhoc_fee,
+            proportional_fee
+        );
         let mut candidate = consumed_utxo.clone();
         // Subtract tradable input used in exchange.
         candidate.sub_asset(ord.input_asset, removed_input);
         // Add output resulted from exchange.
         candidate.add_asset(ord.output_asset, added_output);
         // Subtract budget + fee used to facilitate execution + adhoc fee.
-        candidate.sub_asset(ord.fee_asset, consumed_budget + consumed_fee + adhoc_fee);
-        let consumed_bundle = Bundled(AdhocOrder(ord), FinalizedTxOut(consumed_utxo, in_ref));
+        candidate.sub_asset(ord.fee_asset, consumed_budget + consumed_fee + proportional_fee);
+        let consumed_bundle = Bundled(
+            AdhocOrder(ord, adhoc_fee_input),
+            FinalizedTxOut(consumed_utxo, in_ref),
+        );
         let (residual_order, effect) = match result {
-            Next::Succ(AdhocOrder(next)) => {
+            Next::Succ(AdhocOrder(next, fee)) => {
                 if let Some(data) = candidate.data_mut() {
                     limit::unsafe_update_datum(data, next.input_amount, next.fee);
                 }
                 (
                     candidate.clone(),
-                    ExecutionEff::Updated(consumed_bundle, Bundled(AdhocOrder(next), candidate)),
+                    ExecutionEff::Updated(consumed_bundle, Bundled(AdhocOrder(next, fee), candidate)),
                 )
             }
             Next::Term(_) => {
@@ -273,7 +280,7 @@ where
         };
         let witness = context.select::<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>();
         state.add_tx_fee(consumed_budget);
-        state.add_operator_interest(consumed_fee + adhoc_fee);
+        state.add_operator_interest(consumed_fee + full_adhoc_fee);
         state
             .tx_blueprint
             .add_witness(witness.erased(), PlutusData::new_list(vec![]));
