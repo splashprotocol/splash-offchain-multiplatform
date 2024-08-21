@@ -1,0 +1,61 @@
+{
+  "channelBufferSize": 1024,
+  "chainSync": {
+    "startingPoint": {
+      "Specific": [
+        122422297,
+        "62629dcb0f7708eea1efcbf94229ce95adde99e95fa3cc53bd0177e3254727e4"
+      ]
+    },
+    "replayFromPoint": {
+      "Specific": [
+        122422297,
+        "62629dcb0f7708eea1efcbf94229ce95adde99e95fa3cc53bd0177e3254727e4"
+      ]
+    },
+    "disableRollbacksUntil": 122422297,
+    "dbPath": "state"
+  },
+  "node": {
+    "path": "/data/cardano-node/ipc/node.socket",
+    "magic": 764824073
+  },
+  "txSubmissionBufferSize": 64,
+  "backlogCapacity": 512,
+  "networkId": 1,
+  "cardanoFinalizationDelay": {
+    "secs": 120,
+    "nanos": 0
+  },
+  "operatorKey": "",
+  "maestroKeyPath": "bloom-cardano-agent/resources/maestro.key",
+  "execution": {
+    "executionCap": {
+      "soft": {
+        "mem": 5000000,
+        "steps": 4000000000
+      },
+      "hard": {
+        "mem": 14000000,
+        "steps": 10000000000
+      }
+    },
+    "o2o_allowed": false
+  },
+  "mempoolBufferingDuration": {
+    "secs": 1,
+    "nanos": 0
+  },
+  "ledgerBufferingDuration": {
+    "secs": 0,
+    "nanos": 50000
+  },
+  "partitioning": {
+    "numPartitionsTotal": 1,
+    "assignedPartitions": [0]
+  },
+  "adhocFee": {
+    "fixedFeeLovelace": 1000000,
+    "relativeFeePercent": 1
+  }
+}

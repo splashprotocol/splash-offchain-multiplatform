@@ -1,0 +1,32 @@
+refresh_rate: 30 seconds
+appenders:
+  file:
+    kind: rolling_file
+    path: "/var/bot/logs/bot.log"
+    encoder:
+      pattern: "{d(%Y-%m-%d %H:%M:%S)} {h({l}):5.5} {({T}):4.10} — {m}{n}"
+    policy:
+      # Identifies which policy is to be used. If no kind is specified, it will
+      # default to "compound".
+      kind: compound
+      # The remainder of the configuration is passed along to the policy's
+      # deserializer, and will vary based on the kind of policy.
+      trigger:
+        kind: size
+        limit: 200mb
+      roller:
+        kind: fixed_window
+        base: 1
+        count: 50
+        pattern: "/var/bot/logs/bot.{}.log"
+root:
+  level: trace
+  appenders:
+    - file
+
+loggers:
+  agent_main:
+    level: trace
+    appenders:
+      - file
+    additive: false

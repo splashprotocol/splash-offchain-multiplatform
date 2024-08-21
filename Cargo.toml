@@ -10,6 +10,7 @@ members = [
     "bloom-offchain",
     "bloom-offchain-cardano",
     "bloom-cardano-agent",
+    "snek-cardano-agent",
     "bloom-derivation",
     "cardano-offchain-stableswap",
     "algebra-core",

@@ -1,15 +1,16 @@
-use std::time::Duration;
-
-use cml_core::Slot;
-
+use algebra_core::semigroup::Semigroup;
 use bloom_offchain::execution_engine::liquidity_book;
+use bloom_offchain::execution_engine::liquidity_book::types::Lovelace;
 use bloom_offchain::partitioning::Partitioning;
+use bloom_offchain_cardano::integrity::{CheckIntegrity, IntegrityViolations};
+use bloom_offchain_cardano::orders::adhoc::AdhocFeeStructure;
+use bounded_integer::BoundedU64;
 use cardano_chain_sync::client::Point;
+use cml_core::Slot;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain_cardano::node::NodeConfig;
-
-use bloom_offchain_cardano::integrity::{CheckIntegrity, IntegrityViolations};
+use std::time::Duration;
 
 #[derive(serde::Deserialize)]
 #[serde(bound = "'de: 'a")]
@@ -28,6 +29,13 @@ pub struct AppConfig<'a> {
     pub mempool_buffering_duration: Duration,
     pub ledger_buffering_duration: Duration,
     pub partitioning: Partitioning,
+    pub adhoc_fee: AdhocFeeConfig,
+}
+
+impl<'a> AppConfig<'a> {
+    pub(crate) fn check_integrity(&self) -> _ {
+        todo!()
+    }
 }
 
 impl<'a> CheckIntegrity for AppConfig<'a> {
@@ -42,7 +50,28 @@ impl<'a> CheckIntegrity for AppConfig<'a> {
         } else {
             IntegrityViolations::one("Bad partitioning".to_string())
         };
-        partitioning_violations
+        let o2o_violations = if self.execution.o2o_allowed {
+            IntegrityViolations::one("O2O allowed".to_string())
+        } else {
+            IntegrityViolations::empty()
+        };
+        partitioning_violations.combine(o2o_violations)
+    }
+}
+
+#[derive(Copy, Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdhocFeeConfig {
+    pub fixed_fee_lovelace: Lovelace,
+    pub relative_fee_percent: BoundedU64<0, 100>,
+}
+
+impl From<AdhocFeeConfig> for AdhocFeeStructure {
+    fn from(value: AdhocFeeConfig) -> Self {
+        Self {
+            fixed_fee_lovelace: value.fixed_fee_lovelace,
+            relative_fee_percent: value.relative_fee_percent,
+        }
     }
 }
 
