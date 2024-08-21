@@ -1,10 +1,12 @@
-use crate::execution_engine::liquidity_book::core::{MakeInProgress, Next, Unit};
-use crate::execution_engine::liquidity_book::side::OnSide;
-use crate::execution_engine::liquidity_book::types::AbsolutePrice;
+use std::cmp::Ordering;
+
 use derive_more::{Display, Div, From, Into, Mul};
 use num_rational::Ratio;
-use std::cmp::Ordering;
 use void::Void;
+
+use crate::execution_engine::liquidity_book::core::Next;
+use crate::execution_engine::liquidity_book::side::{OnSide, Side};
+use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 
 /// Price of a theoretical 0-swap in pool.
 #[repr(transparent)]
@@ -28,6 +30,9 @@ pub struct AvailableLiquidity {
     pub input: u64,
     pub output: u64,
 }
+/// Full derivative of the absolute price p, i,e, dp/dq - dp/db * p, where q - quote, b - base.
+#[derive(Debug, Copy, Clone)]
+pub struct FullPriceDerivative(pub Ratio<u128>);
 
 /// Pooled liquidity.
 pub trait MarketMaker {
@@ -44,6 +49,7 @@ pub trait MarketMaker {
     fn liquidity(&self) -> AbsoluteReserves;
     /// How much base/quote asset is available at 'worst_price' or better.
     fn available_liquidity_on_side(&self, worst_price: OnSide<AbsolutePrice>) -> Option<AvailableLiquidity>;
+    fn full_price_derivative(&self, side: Side) -> Option<FullPriceDerivative>;
     /// Is this MM active at the moment or not.
     fn is_active(&self) -> bool;
 }

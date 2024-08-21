@@ -17,7 +17,8 @@ use void::Void;
 
 use bloom_offchain::execution_engine::liquidity_book::core::Next;
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
-    AbsoluteReserves, AvailableLiquidity, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
+    AbsoluteReserves, AvailableLiquidity, FullPriceDerivative, MakerBehavior, MarketMaker, PoolQuality,
+    SpotPrice,
 };
 use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
@@ -517,6 +518,10 @@ impl MarketMaker for DegenQuadraticPool {
             input: input_amount.value.to_f64().value() as u64,
             output: output_amount.value.to_f64().value() as u64,
         })
+    }
+
+    fn full_price_derivative(&self, side: Side) -> Option<FullPriceDerivative> {
+        unimplemented!()
     }
 }
 
