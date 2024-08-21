@@ -55,7 +55,6 @@
     "assignedPartitions": [0]
   },
   "adhocFee": {
-    "fixedFeeLovelace": 1000000,
     "relativeFeePercent": 1
   }
 }
