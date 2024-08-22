@@ -1,4 +1,6 @@
-use bounded_integer::BoundedU64;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+
 use clap::Parser;
 use cml_chain::transaction::Transaction;
 use cml_multi_era::babbage::BabbageTransaction;
@@ -7,8 +9,6 @@ use futures::channel::mpsc;
 use futures::stream::select_all;
 use futures::{stream_select, Stream, StreamExt};
 use log::info;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
 use tracing_subscriber::fmt::Subscriber;
 
@@ -20,21 +20,18 @@ use bloom_offchain::execution_engine::execution_part_stream;
 use bloom_offchain::execution_engine::funding_effect::FundingEvent;
 use bloom_offchain::execution_engine::liquidity_book::TLB;
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
-use bloom_offchain::execution_engine::storage::kv_store::{InMemoryKvStore, KvStoreWithTracing};
-use bloom_offchain::execution_engine::storage::{InMemoryStateIndex, StateIndexWithTracing};
+use bloom_offchain::execution_engine::storage::kv_store::InMemoryKvStore;
+use bloom_offchain::execution_engine::storage::InMemoryStateIndex;
 use bloom_offchain_cardano::bounds::Bounds;
 use bloom_offchain_cardano::event_sink::context::HandlerContextProto;
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
-use bloom_offchain_cardano::event_sink::handler::{
-    FundingEventHandler, PairUpdateHandler, SpecializedHandler,
-};
+use bloom_offchain_cardano::event_sink::handler::{FundingEventHandler, PairUpdateHandler};
 use bloom_offchain_cardano::event_sink::order_index::InMemoryKvIndex;
 use bloom_offchain_cardano::event_sink::processed_tx::ProcessedTransaction;
 use bloom_offchain_cardano::execution_engine::backlog::interpreter::SpecializedInterpreterViaRunOrder;
 use bloom_offchain_cardano::execution_engine::interpreter::CardanoRecipeInterpreter;
 use bloom_offchain_cardano::integrity::CheckIntegrity;
-use bloom_offchain_cardano::orders::adhoc::AdhocFeeStructure;
-use bloom_offchain_cardano::orders::AnyOrder;
+use bloom_offchain_cardano::orders::adhoc::AdhocOrder;
 use bloom_offchain_cardano::partitioning::select_partition;
 use cardano_chain_sync::cache::LedgerCacheRocksDB;
 use cardano_chain_sync::chain_sync_stream;
@@ -60,9 +57,9 @@ use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::streaming::boxed;
 use spectrum_offchain_cardano::collateral::pull_collateral;
 use spectrum_offchain_cardano::creds::operator_creds;
+use spectrum_offchain_cardano::data::degen_quadratic_pool::DegenQuadraticPool;
 use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
 use spectrum_offchain_cardano::data::pair::PairId;
-use spectrum_offchain_cardano::data::pool::AnyPool;
 use spectrum_offchain_cardano::deployment::{DeployedValidators, ProtocolDeployment, ProtocolScriptHashes};
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
@@ -93,7 +90,7 @@ async fn main() {
 
     log4rs::init_file(args.log4rs_path, Default::default()).unwrap();
 
-    info!("Starting Off-Chain Agent ..");
+    info!("Starting Snek Agent ..");
 
     let rollback_in_progress = Arc::new(AtomicBool::new(false));
 
@@ -153,25 +150,22 @@ async fn main() {
     let partitioned_pair_upd_snd =
         Partitioned::new([pair_upd_snd_p1, pair_upd_snd_p2, pair_upd_snd_p3, pair_upd_snd_p4]);
 
-    let (spec_upd_snd_p1, spec_upd_recv_p1) = mpsc::channel::<(
+    let (_, spec_upd_recv_p1) = mpsc::channel::<(
         PairId,
         Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
     )>(config.channel_buffer_size);
-    let (spec_upd_snd_p2, spec_upd_recv_p2) = mpsc::channel::<(
+    let (_, spec_upd_recv_p2) = mpsc::channel::<(
         PairId,
         Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
     )>(config.channel_buffer_size);
-    let (spec_upd_snd_p3, spec_upd_recv_p3) = mpsc::channel::<(
+    let (_, spec_upd_recv_p3) = mpsc::channel::<(
         PairId,
         Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
     )>(config.channel_buffer_size);
-    let (spec_upd_snd_p4, spec_upd_recv_p4) = mpsc::channel::<(
+    let (_, spec_upd_recv_p4) = mpsc::channel::<(
         PairId,
         Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
     )>(config.channel_buffer_size);
-
-    let partitioned_spec_upd_snd =
-        Partitioned::new([spec_upd_snd_p1, spec_upd_snd_p2, spec_upd_snd_p3, spec_upd_snd_p4]);
 
     let (funding_upd_snd_p1, funding_upd_recv_p1) =
         mpsc::channel::<FundingEvent<FinalizedTxOut>>(config.channel_buffer_size);
@@ -192,26 +186,19 @@ async fn main() {
     let entity_index = Arc::new(Mutex::new(InMemoryEntityIndex::new(
         config.cardano_finalization_delay,
     )));
-    let spec_order_index = Arc::new(Mutex::new(InMemoryKvIndex::new(
-        config.cardano_finalization_delay,
-    )));
     let funding_index = Arc::new(Mutex::new(InMemoryKvIndex::new(
         config.cardano_finalization_delay,
     )));
     let handler_context = HandlerContextProto {
         executor_cred: operator_paycred,
         scripts: ProtocolScriptHashes::from(&protocol_deployment),
-        adhoc_fee_structure: AdhocFeeStructure::empty(),
         bounds,
+        adhoc_fee_structure: config.adhoc_fee.into(),
     };
     let general_upd_handler = PairUpdateHandler::new(
         partitioned_pair_upd_snd,
         Arc::clone(&entity_index),
         handler_context,
-    );
-    let spec_upd_handler = SpecializedHandler::new(
-        PairUpdateHandler::new(partitioned_spec_upd_snd, entity_index, handler_context),
-        spec_order_index,
     );
     let funding_event_handler = FundingEventHandler::new(
         partitioned_funding_event_snd,
@@ -224,15 +211,11 @@ async fn main() {
 
     let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<ProcessedTransaction>>>> = vec![
         Box::new(general_upd_handler.clone()),
-        Box::new(spec_upd_handler.clone()),
         Box::new(funding_event_handler.clone()),
     ];
 
-    let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<ProcessedTransaction>>>> = vec![
-        Box::new(general_upd_handler),
-        Box::new(spec_upd_handler),
-        Box::new(funding_event_handler),
-    ];
+    let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<ProcessedTransaction>>>> =
+        vec![Box::new(general_upd_handler), Box::new(funding_event_handler)];
 
     let prover = OperatorProver::new(&operator_sk);
     let recipe_interpreter = CardanoRecipeInterpreter;
@@ -250,6 +233,7 @@ async fn main() {
         collateral: collateral.clone(),
         network_id: config.network_id,
         operator_cred: operator_paycred,
+        adhoc_fee_structure: config.adhoc_fee.into(),
     };
     let context_p2 = ExecutionContext {
         time: 0.into(),
@@ -259,6 +243,7 @@ async fn main() {
         collateral: collateral.clone(),
         network_id: config.network_id,
         operator_cred: operator_paycred,
+        adhoc_fee_structure: config.adhoc_fee.into(),
     };
     let context_p3 = ExecutionContext {
         time: 0.into(),
@@ -268,6 +253,7 @@ async fn main() {
         collateral: collateral.clone(),
         network_id: config.network_id,
         operator_cred: operator_paycred,
+        adhoc_fee_structure: config.adhoc_fee.into(),
     };
     let context_p4 = ExecutionContext {
         time: 0.into(),
@@ -277,8 +263,10 @@ async fn main() {
         collateral,
         network_id: config.network_id,
         operator_cred: operator_paycred,
+        adhoc_fee_structure: config.adhoc_fee.into(),
     };
-    let multi_book = MultiPair::new::<TLB<AnyOrder, AnyPool, ExUnits>>(maker_context.clone(), "Book");
+    let multi_book =
+        MultiPair::new::<TLB<AdhocOrder, DegenQuadraticPool, ExUnits>>(maker_context.clone(), "Book");
     let multi_backlog = MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(
         maker_context,
         "Backlog",
@@ -410,7 +398,10 @@ fn merge_upstreams(
         Either<
             Channel<
                 StateUpdate<
-                    Bundled<Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>, FinalizedTxOut>,
+                    Bundled<
+                        Either<Baked<AdhocOrder, OutputRef>, Baked<DegenQuadraticPool, OutputRef>>,
+                        FinalizedTxOut,
+                    >,
                 >,
             >,
             Channel<OrderUpdate<Bundled<ClassicalAMMOrder, FinalizedTxOut>, ClassicalAMMOrder>>,

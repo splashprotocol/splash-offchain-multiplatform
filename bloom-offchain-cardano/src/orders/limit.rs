@@ -6,6 +6,7 @@ use cml_chain::PolicyId;
 use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
+use crate::orders::harden_price;
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
 use bloom_offchain::execution_engine::liquidity_book::linear_output_relative;
 use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
@@ -410,11 +411,6 @@ where
         }
         None
     }
-}
-
-fn harden_price(p: RelativePrice, input: u64) -> RelativePrice {
-    let min_output = (input as u128 * *p.numer()).div_ceil(*p.denom());
-    RelativePrice::new(min_output, input as u128)
 }
 
 #[derive(Copy, Clone, Debug, serde::Deserialize)]

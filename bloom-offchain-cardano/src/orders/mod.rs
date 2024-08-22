@@ -7,7 +7,7 @@ use crate::orders::limit::{LimitOrder, LimitOrderBounds};
 use bloom_derivation::{MarketTaker, Stable, Tradable};
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
 use bloom_offchain::execution_engine::liquidity_book::market_taker::TakerBehaviour;
-use bloom_offchain::execution_engine::liquidity_book::types::{InputAsset, OutputAsset};
+use bloom_offchain::execution_engine::liquidity_book::types::{InputAsset, OutputAsset, RelativePrice};
 use spectrum_offchain::data::Has;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::creds::OperatorCred;
@@ -15,6 +15,7 @@ use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
 use spectrum_offchain_cardano::utxo::ConsumedInputs;
 
+pub mod adhoc;
 pub mod grid;
 pub mod limit;
 
@@ -101,4 +102,9 @@ where
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         LimitOrder::try_from_ledger(repr, ctx).map(AnyOrder::Limit)
     }
+}
+
+pub(crate) fn harden_price(p: RelativePrice, input: u64) -> RelativePrice {
+    let min_output = (input as u128 * *p.numer()).div_ceil(*p.denom());
+    RelativePrice::new(min_output, input as u128)
 }

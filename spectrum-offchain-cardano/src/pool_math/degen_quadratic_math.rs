@@ -70,7 +70,7 @@ pub fn degen_quadratic_output_amount<X, Y>(
             .div(const_3 * a_denom.clone())
             + b_num * (token_supply0.clone() - token_supply1.clone()).div(b_denom.clone())
     };
-    TaggedAmount::new(quote_amount.to_u64().unwrap().into())
+    TaggedAmount::new(quote_amount.to_u64().unwrap_or_else(|| 0u64).into())
 }
 
 pub fn calculate_a_num(ada_cap_thr: &u64) -> u64 {

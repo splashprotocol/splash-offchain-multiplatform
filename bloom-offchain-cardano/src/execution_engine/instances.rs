@@ -7,8 +7,10 @@ use bloom_offchain::execution_engine::batch_exec::BatchExec;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_effect::ExecutionEff;
 use bloom_offchain::execution_engine::liquidity_book::core::{Make, Next, Take, Trans};
+use bloom_offchain::execution_engine::liquidity_book::market_taker::MarketTaker;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
+use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{AssetClass, NetworkId};
 use spectrum_offchain::data::Has;
 use spectrum_offchain_cardano::creds::OperatorCred;
@@ -30,6 +32,7 @@ use spectrum_offchain_cardano::script::{
 };
 
 use crate::execution_engine::execution_state::{ExecutionState, ScriptInputBlueprint};
+use crate::orders::adhoc::{AdhocFeeStructure, AdhocOrder};
 use crate::orders::grid::GridOrder;
 use crate::orders::limit::LimitOrder;
 use crate::orders::{grid, limit, AnyOrder};
@@ -179,6 +182,111 @@ where
     }
 }
 
+impl<Ctx> BatchExec<ExecutionState, EffectPreview<AdhocOrder>, Ctx>
+    for Magnet<Take<AdhocOrder, FinalizedTxOut>>
+where
+    Ctx: Has<NetworkId>
+        + Has<OperatorCred>
+        + Has<DeployedValidator<{ LimitOrderV1 as u8 }>>
+        + Has<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>
+        + Has<AdhocFeeStructure>,
+{
+    fn exec(
+        self,
+        mut state: ExecutionState,
+        context: Ctx,
+    ) -> (ExecutionState, EffectPreview<AdhocOrder>, Ctx) {
+        let Magnet(trans) = self;
+        trace!("Running transition: {}", trans);
+        let removed_input = trans.removed_input();
+        let added_output = trans.added_output();
+        let consumed_budget = trans.consumed_budget();
+        let consumed_fee = trans.consumed_fee();
+        trace!(
+            "AdhocOrder::exec(removed_input={}, added_output={}, consumed_budget={}, consumed_fee={})",
+            removed_input,
+            added_output,
+            consumed_budget,
+            consumed_fee
+        );
+        let Trans {
+            target: Bundled(AdhocOrder(ord, adhoc_fee_input), FinalizedTxOut(consumed_utxo, in_ref)),
+            result,
+        } = trans;
+        let DeployedValidatorErased {
+            reference_utxo,
+            hash,
+            ex_budget,
+            ..
+        } = context
+            .select::<DeployedValidator<{ LimitOrderV1 as u8 }>>()
+            .erased();
+        let input = ScriptInputBlueprint {
+            reference: in_ref,
+            utxo: consumed_utxo.clone(),
+            script: ScriptWitness {
+                hash,
+                cost: ready_cost(ex_budget),
+            },
+            redeemer: ready_redeemer(limit::EXEC_REDEEMER),
+            required_signers: if ord.requires_executor_sig {
+                vec![Ed25519KeyHash::from(context.select::<OperatorCred>())]
+            } else {
+                vec![]
+            },
+        };
+        let full_adhoc_fee = match (ord.input_asset, ord.output_asset) {
+            (AssetClass::Native, _) => adhoc_fee_input,
+            (_, AssetClass::Native) => context.select::<AdhocFeeStructure>().fee(added_output),
+            _ => 0,
+        };
+        let proportional_fee = (full_adhoc_fee as u128 * removed_input as u128 / ord.input() as u128) as u64;
+        trace!(
+            "consumed_budget: {}, consumed_fee: {}, full_adhoc_fee: {}, proportional_fee: {}",
+            consumed_budget,
+            consumed_fee,
+            full_adhoc_fee,
+            proportional_fee
+        );
+        let mut candidate = consumed_utxo.clone();
+        // Subtract tradable input used in exchange.
+        candidate.sub_asset(ord.input_asset, removed_input);
+        // Add output resulted from exchange.
+        candidate.add_asset(ord.output_asset, added_output);
+        // Subtract budget + fee used to facilitate execution + adhoc fee.
+        candidate.sub_asset(ord.fee_asset, consumed_budget + consumed_fee + proportional_fee);
+        let consumed_bundle = Bundled(
+            AdhocOrder(ord, adhoc_fee_input),
+            FinalizedTxOut(consumed_utxo, in_ref),
+        );
+        let (residual_order, effect) = match result {
+            Next::Succ(AdhocOrder(next, fee)) => {
+                if let Some(data) = candidate.data_mut() {
+                    limit::unsafe_update_datum(data, next.input_amount, next.fee);
+                }
+                (
+                    candidate.clone(),
+                    ExecutionEff::Updated(consumed_bundle, Bundled(AdhocOrder(next, fee), candidate)),
+                )
+            }
+            Next::Term(_) => {
+                candidate.null_datum();
+                candidate.update_address(ord.redeemer_address.to_address(context.select::<NetworkId>()));
+                (candidate, ExecutionEff::Eliminated(consumed_bundle))
+            }
+        };
+        let witness = context.select::<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>();
+        state.add_tx_fee(consumed_budget);
+        state.add_operator_interest(consumed_fee + full_adhoc_fee);
+        state
+            .tx_blueprint
+            .add_witness(witness.erased(), PlutusData::new_list(vec![]));
+        state.tx_blueprint.add_io(input, residual_order);
+        state.tx_blueprint.add_ref_input(reference_utxo);
+        (state, effect, context)
+    }
+}
+
 impl<Ctx> BatchExec<ExecutionState, EffectPreview<GridOrder>, Ctx> for Magnet<Take<GridOrder, FinalizedTxOut>>
 where
     Ctx: Has<NetworkId> + Has<DeployedValidator<{ GridOrderNative as u8 }>>,
@@ -313,21 +421,6 @@ where
                 (
                     st,
                     res.bimap(|c| c.map(AnyPool::StableCFMM), |p| p.map(AnyPool::StableCFMM)),
-                    ctx,
-                )
-            }
-            Trans {
-                target: Bundled(AnyPool::DegenPool(p), src),
-                result: Next::Succ(AnyPool::DegenPool(p2)),
-            } => {
-                let (st, res, ctx) = Magnet(Trans {
-                    target: Bundled(p, src),
-                    result: Next::Succ(p2),
-                })
-                .exec(state, context);
-                (
-                    st,
-                    res.bimap(|c| c.map(AnyPool::DegenPool), |p| p.map(AnyPool::DegenPool)),
                     ctx,
                 )
             }

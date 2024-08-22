@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
 use std::ops::Div;
 
 use bignumber::BigNumber;
@@ -29,11 +29,11 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass, Token};
-use spectrum_offchain::data::{Has, Stable};
+use spectrum_offchain::data::{Has, Stable, Tradable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 use crate::data::order::{Base, PoolNft, Quote};
-use crate::data::pair::order_canonical;
+use crate::data::pair::{order_canonical, PairId};
 use crate::data::pool::{
     ApplyOrder, CFMMPoolAction, ImmutablePoolUtxo, PoolAssetMapping, PoolBounds, Rx, Ry,
 };
@@ -134,6 +134,17 @@ pub struct DegenQuadraticPool {
     pub ver: DegenQuadraticPoolVer,
     pub marginal_cost: ExUnits,
     pub bounds: PoolBounds,
+}
+
+impl Display for DegenQuadraticPool {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&*format!(
+            "DegenPool(id: {}, static_price: {}, quality: {})",
+            self.id,
+            self.static_price(),
+            self.quality()
+        ))
+    }
 }
 
 impl DegenQuadraticPool {
@@ -521,20 +532,25 @@ impl MarketMaker for DegenQuadraticPool {
 }
 
 impl Has<DegenQuadraticPoolVer> for DegenQuadraticPool {
-    fn select<U: IsEqual<DegenQuadraticPoolVer>>(
-        &self,
-    ) -> crate::data::degen_quadratic_pool::DegenQuadraticPoolVer {
+    fn select<U: IsEqual<DegenQuadraticPoolVer>>(&self) -> DegenQuadraticPoolVer {
         self.ver
     }
 }
 
-impl Stable for crate::data::degen_quadratic_pool::DegenQuadraticPool {
-    type StableId = PoolId;
+impl Stable for DegenQuadraticPool {
+    type StableId = Token;
     fn stable_id(&self) -> Self::StableId {
-        self.id
+        self.id.into()
     }
     fn is_quasi_permanent(&self) -> bool {
         true
+    }
+}
+
+impl Tradable for DegenQuadraticPool {
+    type PairId = PairId;
+    fn pair_id(&self) -> Self::PairId {
+        PairId::canonical(self.asset_x.untag(), self.asset_y.untag())
     }
 }
 

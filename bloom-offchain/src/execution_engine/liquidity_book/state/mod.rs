@@ -1,5 +1,4 @@
 use std::cmp::min;
-use std::collections::hash_map::Entry;
 use std::collections::{btree_map, BTreeMap, BTreeSet, HashMap};
 use std::fmt::{Debug, Display, Formatter};
 use std::mem;
@@ -7,18 +6,15 @@ use std::ops::Add;
 
 use crate::display::display_vec;
 use crate::execution_engine::liquidity_book::core::Next;
-use crate::execution_engine::liquidity_book::market_maker::{
-    AvailableLiquidity, MarketMaker, PoolQuality, SpotPrice,
-};
+use crate::execution_engine::liquidity_book::market_maker::{AvailableLiquidity, MarketMaker, PoolQuality};
 use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
 use crate::execution_engine::liquidity_book::side::{OnSide, Side};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
 use crate::execution_engine::liquidity_book::state::price_range::AllowedPriceRange;
-use crate::execution_engine::liquidity_book::types::{AbsolutePrice, InputAsset};
+use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 use crate::execution_engine::liquidity_book::weight::Weighted;
 use either::{Either, Left, Right};
 use log::trace;
-use num_rational::Ratio;
 use spectrum_offchain::data::Stable;
 
 mod price_range;

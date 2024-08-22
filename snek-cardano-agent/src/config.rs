@@ -1,15 +1,14 @@
-use std::time::Duration;
-
-use cml_core::Slot;
-
 use bloom_offchain::execution_engine::liquidity_book;
 use bloom_offchain::partitioning::Partitioning;
+use bloom_offchain_cardano::integrity::{CheckIntegrity, IntegrityViolations};
+use bloom_offchain_cardano::orders::adhoc::AdhocFeeStructure;
+use bounded_integer::BoundedU64;
 use cardano_chain_sync::client::Point;
+use cml_core::Slot;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain_cardano::node::NodeConfig;
-
-use bloom_offchain_cardano::integrity::{CheckIntegrity, IntegrityViolations};
+use std::time::Duration;
 
 #[derive(serde::Deserialize)]
 #[serde(bound = "'de: 'a")]
@@ -28,6 +27,7 @@ pub struct AppConfig<'a> {
     pub mempool_buffering_duration: Duration,
     pub ledger_buffering_duration: Duration,
     pub partitioning: Partitioning,
+    pub adhoc_fee: AdhocFeeConfig,
 }
 
 impl<'a> CheckIntegrity for AppConfig<'a> {
@@ -43,6 +43,20 @@ impl<'a> CheckIntegrity for AppConfig<'a> {
             IntegrityViolations::one("Bad partitioning".to_string())
         };
         partitioning_violations
+    }
+}
+
+#[derive(Copy, Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdhocFeeConfig {
+    pub relative_fee_percent: BoundedU64<0, 100>,
+}
+
+impl From<AdhocFeeConfig> for AdhocFeeStructure {
+    fn from(value: AdhocFeeConfig) -> Self {
+        Self {
+            relative_fee_percent: value.relative_fee_percent,
+        }
     }
 }
 
@@ -74,15 +88,13 @@ impl From<ExecutionCap> for liquidity_book::config::ExecutionCap<ExUnits> {
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionConfig {
     pub execution_cap: ExecutionCap,
-    /// Order-order matchmaking allowed.
-    pub o2o_allowed: bool,
 }
 
 impl From<ExecutionConfig> for liquidity_book::config::ExecutionConfig<ExUnits> {
     fn from(conf: ExecutionConfig) -> Self {
         Self {
             execution_cap: conf.execution_cap.into(),
-            o2o_allowed: conf.o2o_allowed,
+            o2o_allowed: false,
         }
     }
 }
