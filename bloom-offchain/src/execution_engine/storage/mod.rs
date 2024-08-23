@@ -2,7 +2,7 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter, Write};
 
-use log::trace;
+use log::{trace, warn};
 
 use crate::execution_engine::storage::kv_store::KvStoreWithTracing;
 use spectrum_offchain::data::event::{Confirmed, Predicted, Unconfirmed};
@@ -146,7 +146,7 @@ impl<T: EntitySnapshot> InMemoryStateIndex<T> {
         T::StableId: Into<[u8; 60]>,
     {
         let mut bound_versions = vec![];
-        for p in PREFIXES {
+        for p in EPHEMERAL_STATE_KEYS {
             if p != prefix {
                 let index_key = index_key(p, sid);
                 if let Some(bound_ver) = self.index.get(&index_key) {
@@ -174,11 +174,7 @@ const LAST_CONFIRMED_PREFIX: u8 = 3u8;
 const LAST_UNCONFIRMED_PREFIX: u8 = 4u8;
 const LAST_PREDICTED_PREFIX: u8 = 5u8;
 
-const PREFIXES: [u8; 3] = [
-    LAST_CONFIRMED_PREFIX,
-    LAST_UNCONFIRMED_PREFIX,
-    LAST_PREDICTED_PREFIX,
-];
+const EPHEMERAL_STATE_KEYS: [u8; 2] = [LAST_UNCONFIRMED_PREFIX, LAST_PREDICTED_PREFIX];
 
 impl<T> StateIndex<T> for InMemoryStateIndex<T>
 where
@@ -228,7 +224,17 @@ where
     fn invalidate_version(&mut self, ver: T::Version) -> Option<T::StableId> {
         if let Some(entity) = self.store.remove(&ver) {
             let sid = entity.stable_id();
-            for prefix in PREFIXES {
+            if let Entry::Occupied(index_ver) = self.index.entry(index_key(LAST_CONFIRMED_PREFIX, sid)) {
+                if *index_ver.get() == ver {
+                    if entity.is_quasi_permanent() {
+                        // Confirmed state of quasi permanent entities cannot be dropped.
+                        self.store.insert(ver, entity);
+                    } else {
+                        index_ver.remove();
+                    }
+                }
+            }
+            for prefix in EPHEMERAL_STATE_KEYS {
                 if let Entry::Occupied(index_ver) = self.index.entry(index_key(prefix, sid)) {
                     if *index_ver.get() == ver {
                         index_ver.remove();
@@ -243,7 +249,7 @@ where
     fn eliminate(&mut self, sid: T::StableId) {
         let predicted_ver = self.index.remove(&index_key(LAST_PREDICTED_PREFIX, sid));
         let unconfirmed_ver = self.index.remove(&index_key(LAST_UNCONFIRMED_PREFIX, sid));
-        let confirmed_ver = self.index.remove(&index_key(LAST_PREDICTED_PREFIX, sid));
+        let confirmed_ver = self.index.remove(&index_key(LAST_CONFIRMED_PREFIX, sid));
         if let Some(ver) = predicted_ver {
             self.store.remove(&ver);
         }

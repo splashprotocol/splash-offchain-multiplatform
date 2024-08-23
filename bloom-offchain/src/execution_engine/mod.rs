@@ -11,7 +11,7 @@ use futures::channel::mpsc;
 use futures::stream::FusedStream;
 use futures::{FutureExt, Stream};
 use futures::{SinkExt, StreamExt};
-use log::{trace, warn};
+use log::{error, trace, warn};
 use tokio::sync::broadcast;
 
 use liquidity_book::interpreter::RecipeInterpreter;
@@ -383,7 +383,18 @@ impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR
                     Some(latest_state) => self.cache(latest_state),
                 };
                 if let Some(tr) = maybe_transition {
-                    trace!("Resulting transition is {}", tr);
+                    match &tr {
+                        Ior::Left(Either::Right(mm)) if mm.is_quasi_permanent() => {
+                            error!(
+                                "Quasi permanent entity id: {} ver: {} was eliminated",
+                                mm.stable_id(),
+                                mm.version()
+                            );
+                        }
+                        _ => {
+                            trace!("Resulting transition is {}", tr);
+                        }
+                    }
                     self.sync_book(pair, tr);
                 }
             }
@@ -526,14 +537,14 @@ impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR
         E: TryInto<HashSet<V>> + Unpin + Debug + Display,
     {
         warn!("TX {} failed", tx_hash);
-        if let Ok(missing_bearers) = err.try_into() {
+        if let Ok(missing_inputs) = err.try_into() {
             match pending_effects {
                 ExecutionEffects::FromLiquidityBook(_) => {
                     self.multi_book.get_mut(&pair).on_recipe_failed();
                 }
                 ExecutionEffects::FromBacklog(_, order) => {
                     let order_ref = order.get_self_ref();
-                    if missing_bearers.contains(&order_ref) {
+                    if missing_inputs.contains(&order_ref) {
                         self.multi_backlog.get_mut(&pair).soft_evict(order_ref);
                     } else {
                         self.multi_backlog.get_mut(&pair).put(order);
@@ -541,10 +552,10 @@ impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR
                 }
             }
             // Defensive programming against node sending error for an irrelevant TX.
-            let has_relevant_bearers = missing_bearers.intersection(&consumed_versions).next().is_some();
+            let has_relevant_bearers = missing_inputs.intersection(&consumed_versions).next().is_some();
             if has_relevant_bearers {
-                trace!("Going to process missing bearers");
-                self.invalidate_versions(&pair, missing_bearers.clone());
+                trace!("Going to process missing inputs");
+                self.invalidate_versions(&pair, missing_inputs.clone());
             }
         } else {
             warn!("Unknown Tx submission error!");
