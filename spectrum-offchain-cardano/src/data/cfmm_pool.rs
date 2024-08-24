@@ -382,7 +382,7 @@ impl MarketMaker for ConstFnPool {
     }
 
     fn quality(&self) -> PoolQuality {
-        PoolQuality::from(self.liquidity)
+        PoolQuality::from(self.liquidity.untag())
     }
 
     fn marginal_cost_hint(&self) -> Self::U {

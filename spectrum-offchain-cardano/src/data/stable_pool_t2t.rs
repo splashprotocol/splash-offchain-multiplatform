@@ -527,7 +527,7 @@ impl MarketMaker for StablePoolT2T {
     }
 
     fn quality(&self) -> PoolQuality {
-        PoolQuality::from(self.liquidity)
+        PoolQuality::from(self.liquidity.untag())
     }
 
     fn marginal_cost_hint(&self) -> Self::U {
