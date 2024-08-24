@@ -318,7 +318,7 @@ impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR
         CH: KvStore<SID, EvolvingEntity<CO, P, V, B>>,
         TLB: ExternalTLBEvents<CO, P> + Maker<MC>,
     {
-        trace!(target: "executor", "syncing book pair: {}", pair);
+        trace!("Syncing TLB pair: {}", pair);
         match transition {
             Ior::Left(e) => match e {
                 Either::Left(o) => self.multi_book.get_mut(pair).remove_taker(o.entity),

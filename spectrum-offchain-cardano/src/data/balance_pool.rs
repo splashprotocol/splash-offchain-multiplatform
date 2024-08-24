@@ -503,7 +503,7 @@ impl MarketMaker for BalancePool {
     }
 
     fn quality(&self) -> PoolQuality {
-        PoolQuality::from(0u128)
+        PoolQuality::from(self.liquidity)
     }
 
     fn marginal_cost_hint(&self) -> Self::U {
