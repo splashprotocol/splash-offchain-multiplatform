@@ -427,11 +427,18 @@ impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR
             | StateUpdate::Transition(Ior::Both(_, new_state))
             | StateUpdate::TransitionRollback(Ior::Right(new_state))
             | StateUpdate::TransitionRollback(Ior::Both(_, new_state)) => {
+                let id = new_state.stable_id();
                 if self.skip_filter.contains(&new_state.version()) {
-                    trace!("State transition of {} is skipped", new_state.stable_id());
+                    trace!(
+                        "State transition (-> {}) of {} is skipped",
+                        new_state.version(),
+                        new_state.stable_id()
+                    );
+                    if from_ledger {
+                        self.index.put_confirmed(Confirmed(new_state));
+                    }
                     return None;
                 }
-                let id = new_state.stable_id();
                 if from_ledger {
                     trace!("Observing new confirmed state {}", id);
                     self.index.put_confirmed(Confirmed(new_state));
