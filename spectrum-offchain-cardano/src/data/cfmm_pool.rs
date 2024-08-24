@@ -450,10 +450,10 @@ impl MarketMaker for ConstFnPool {
         let input_amount_val = <u64>::try_from(input_amount.value.to_int().value()).ok()?;
         let output_amount_val = <u64>::try_from(output_amount.value.to_int().value()).ok()?;
 
-        return Some(AvailableLiquidity {
+        Some(AvailableLiquidity {
             input: input_amount_val,
             output: output_amount_val,
-        });
+        })
     }
 }
 

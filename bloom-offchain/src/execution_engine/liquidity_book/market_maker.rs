@@ -77,6 +77,6 @@ impl From<u64> for PoolQuality {
 
 impl Ord for PoolQuality {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.0.cmp(&other.0).reverse()
+        self.0.cmp(&other.0)
     }
 }
