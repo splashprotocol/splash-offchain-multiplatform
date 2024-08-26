@@ -1,11 +1,6 @@
 use std::cmp::{max, min, Ordering};
 use std::fmt::{Display, Formatter};
 
-use cml_chain::plutus::{ConstrPlutusData, PlutusData};
-use cml_chain::PolicyId;
-use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
-use cml_multi_era::babbage::BabbageTransactionOutput;
-
 use crate::orders::harden_price;
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
 use bloom_offchain::execution_engine::liquidity_book::linear_output_relative;
@@ -16,6 +11,11 @@ use bloom_offchain::execution_engine::liquidity_book::types::{
     AbsolutePrice, FeeAsset, InputAsset, OutputAsset, RelativePrice,
 };
 use bloom_offchain::execution_engine::liquidity_book::weight::Weighted;
+use cml_chain::plutus::{ConstrPlutusData, PlutusData};
+use cml_chain::PolicyId;
+use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
+use cml_multi_era::babbage::BabbageTransactionOutput;
+use log::trace;
 use spectrum_cardano_lib::address::PlutusAddress;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{
@@ -31,7 +31,7 @@ use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::pair::{side_of, PairId};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
-use spectrum_offchain_cardano::utxo::ConsumedInputs;
+use spectrum_offchain_cardano::handler_context::{ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers};
 
 pub const EXEC_REDEEMER: PlutusData = PlutusData::ConstrPlutusData(ConstrPlutusData {
     alternative: 1,
@@ -71,8 +71,6 @@ pub struct LimitOrder {
     pub cancellation_pkh: Ed25519KeyHash,
     /// Is executor's signature required.
     pub requires_executor_sig: bool,
-    /// Whether the order has just been created.
-    pub virgin: bool,
     /// How many execution units each order consumes.
     pub marginal_cost: ExUnits,
 }
@@ -330,21 +328,47 @@ impl TryFromPData for Datum {
     }
 }
 
-fn beacon_from_oref(oref: OutputRef) -> PolicyId {
+fn beacon_from_oref(input_oref: OutputRef, order_index: u64) -> PolicyId {
     let mut bf = vec![];
-    bf.append(&mut oref.tx_hash().to_raw_bytes().to_vec());
-    bf.append(&mut oref.index().to_string().as_bytes().to_vec());
+    bf.append(&mut input_oref.tx_hash().to_raw_bytes().to_vec());
+    bf.append(&mut input_oref.index().to_be_bytes().to_vec());
+    bf.append(&mut order_index.to_be_bytes().to_vec());
     blake2b224(&*bf).into()
 }
 
 const MIN_LOVELACE: u64 = 1_500_000;
 
+fn is_valid_beacon<C>(beacon: PolicyId, ctx: &C) -> bool
+where
+    C: Has<ConsumedInputs>
+        + Has<ConsumedIdentifiers<Token>>
+        + Has<ProducedIdentifiers<Token>>
+        + Has<OutputRef>,
+{
+    let order_index = ctx.select::<OutputRef>().index();
+    let valid_fresh_beacon = || {
+        ctx.select::<ConsumedInputs>()
+            .0
+            .find(|o| beacon_from_oref(*o, order_index) == beacon)
+    };
+    let consumed_ids = ctx.select::<ConsumedIdentifiers<Token>>().0;
+    let consumed_beacons = consumed_ids.count(|b| b.0 == beacon);
+    let produced_beacons = ctx
+        .select::<ProducedIdentifiers<Token>>()
+        .0
+        .count(|b| b.0 == beacon);
+    consumed_beacons == 1 && produced_beacons == 1 || valid_fresh_beacon() && consumed_ids.is_empty()
+}
+
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for LimitOrder
 where
     C: Has<OperatorCred>
+        + Has<OutputRef>
+        + Has<ConsumedIdentifiers<Token>>
+        + Has<ProducedIdentifiers<Token>>
         + Has<ConsumedInputs>
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
-        + Has<LimitOrderBounds>,
+        + Has<LimitOrderValidation>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
@@ -376,35 +400,45 @@ where
                         || conf
                             .permitted_executors
                             .contains(&ctx.select::<OperatorCred>().into());
-                    if sufficient_input && sufficient_execution_budget && executable {
-                        let bounds = ctx.select::<LimitOrderBounds>();
-                        let valid_configuration = conf.cost_per_ex_step >= bounds.min_cost_per_ex_step
-                            && execution_budget >= conf.cost_per_ex_step;
-                        if valid_configuration {
-                            // Fresh beacon must be derived from one of consumed utxos.
-                            let valid_fresh_beacon = ctx
-                                .select::<ConsumedInputs>()
-                                .find(|o| beacon_from_oref(*o) == conf.beacon);
-                            let script_info = ctx.select::<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>();
-                            return Some(LimitOrder {
-                                beacon: conf.beacon,
-                                input_asset: conf.input,
-                                input_amount: conf.tradable_input,
-                                output_asset: conf.output,
-                                output_amount: value.amount_of(conf.output).unwrap_or(0),
-                                base_price: harden_price(conf.base_price, conf.tradable_input),
-                                execution_budget,
-                                fee_asset: AssetClass::Native,
-                                fee: conf.fee,
-                                min_marginal_output,
-                                max_cost_per_ex_step: conf.cost_per_ex_step,
-                                redeemer_address: conf.redeemer_address,
-                                cancellation_pkh: conf.cancellation_pkh,
-                                requires_executor_sig: !is_permissionless,
-                                virgin: valid_fresh_beacon,
-                                marginal_cost: script_info.marginal_cost,
-                            });
-                        }
+                    let validation = ctx.select::<LimitOrderValidation>();
+                    let valid_configuration = conf.cost_per_ex_step >= validation.min_cost_per_ex_step
+                        && execution_budget >= conf.cost_per_ex_step;
+                    let valid_beacon = || !validation.strict_beacon || is_valid_beacon(conf.beacon, ctx);
+                    if sufficient_input
+                        && sufficient_execution_budget
+                        && executable
+                        && valid_configuration
+                        && valid_beacon()
+                    {
+                        // Fresh beacon must be derived from one of consumed utxos.
+                        let script_info = ctx.select::<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>();
+                        return Some(LimitOrder {
+                            beacon: conf.beacon,
+                            input_asset: conf.input,
+                            input_amount: conf.tradable_input,
+                            output_asset: conf.output,
+                            output_amount: value.amount_of(conf.output).unwrap_or(0),
+                            base_price: harden_price(conf.base_price, conf.tradable_input),
+                            execution_budget,
+                            fee_asset: AssetClass::Native,
+                            fee: conf.fee,
+                            min_marginal_output,
+                            max_cost_per_ex_step: conf.cost_per_ex_step,
+                            redeemer_address: conf.redeemer_address,
+                            cancellation_pkh: conf.cancellation_pkh,
+                            requires_executor_sig: !is_permissionless,
+                            marginal_cost: script_info.marginal_cost,
+                        });
+                    } else {
+                        trace!(
+                            "Order {}: sufficient_input: {}, sufficient_execution_budget: {}, executable: {}, valid_configuration: {}, is_valid_beacon: {}", 
+                            conf.beacon,
+                            sufficient_input,
+                            sufficient_execution_budget,
+                            executable,
+                            valid_configuration,
+                            valid_beacon()
+                        );
                     }
                 }
             }
@@ -415,8 +449,9 @@ where
 
 #[derive(Copy, Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LimitOrderBounds {
+pub struct LimitOrderValidation {
     pub min_cost_per_ex_step: u64,
+    pub strict_beacon: bool,
 }
 
 #[cfg(test)]
@@ -446,9 +481,11 @@ mod tests {
     use spectrum_offchain_cardano::deployment::{
         DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes,
     };
-    use spectrum_offchain_cardano::utxo::ConsumedInputs;
+    use spectrum_offchain_cardano::handler_context::ConsumedInputs;
 
-    use crate::orders::limit::{beacon_from_oref, unsafe_update_datum, Datum, LimitOrder, LimitOrderBounds};
+    use crate::orders::limit::{
+        beacon_from_oref, unsafe_update_datum, Datum, LimitOrder, LimitOrderValidation,
+    };
 
     struct Context {
         limit_order: DeployedScriptInfo<{ LimitOrderV1 as u8 }>,
@@ -456,10 +493,11 @@ mod tests {
         consumed_inputs: ConsumedInputs,
     }
 
-    impl Has<LimitOrderBounds> for Context {
-        fn select<U: IsEqual<LimitOrderBounds>>(&self) -> LimitOrderBounds {
-            LimitOrderBounds {
+    impl Has<LimitOrderValidation> for Context {
+        fn select<U: IsEqual<LimitOrderValidation>>(&self) -> LimitOrderValidation {
+            LimitOrderValidation {
                 min_cost_per_ex_step: 0,
+                strict_beacon: true,
             }
         }
     }
@@ -488,7 +526,7 @@ mod tests {
     fn beacon_derivation_eqv() {
         let oref = OutputRef::new(TransactionHash::from_hex(TX).unwrap(), IX);
         assert_eq!(
-            beacon_from_oref(oref).to_hex(),
+            beacon_from_oref(oref, 0).to_hex(),
             "eb9575d907ac66f8f0c75c44ad51189a4b41756e8543cd59e331bc02"
         )
     }

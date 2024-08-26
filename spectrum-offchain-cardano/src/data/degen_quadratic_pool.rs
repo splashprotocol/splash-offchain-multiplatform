@@ -35,7 +35,7 @@ use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 use crate::data::order::{Base, PoolNft, Quote};
 use crate::data::pair::{order_canonical, PairId};
 use crate::data::pool::{
-    ApplyOrder, CFMMPoolAction, ImmutablePoolUtxo, PoolAssetMapping, PoolBounds, Rx, Ry,
+    ApplyOrder, CFMMPoolAction, ImmutablePoolUtxo, PoolAssetMapping, PoolValidation, Rx, Ry,
 };
 use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::DegenQuadraticPoolV1;
@@ -102,7 +102,7 @@ pub enum DegenQuadraticPoolVer {
 impl DegenQuadraticPoolVer {
     pub fn try_from_address<Ctx>(pool_addr: &Address, ctx: &Ctx) -> Option<DegenQuadraticPoolVer>
     where
-        Ctx: Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>> + Has<PoolBounds>,
+        Ctx: Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>> + Has<PoolValidation>,
     {
         let maybe_hash = pool_addr.payment_cred().and_then(|c| match c {
             StakeCredential::PubKey { .. } => None,
@@ -133,7 +133,7 @@ pub struct DegenQuadraticPool {
     pub ada_cap_thr: u64,
     pub ver: DegenQuadraticPoolVer,
     pub marginal_cost: ExUnits,
-    pub bounds: PoolBounds,
+    pub bounds: PoolValidation,
 }
 
 impl Display for DegenQuadraticPool {
@@ -556,13 +556,13 @@ impl Tradable for DegenQuadraticPool {
 
 impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for DegenQuadraticPool
 where
-    Ctx: Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>> + Has<PoolBounds>,
+    Ctx: Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>> + Has<PoolValidation>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         if let Some(pool_ver) = DegenQuadraticPoolVer::try_from_address(repr.address(), ctx) {
             let value = repr.value();
             let pd = repr.datum().clone()?.into_pd()?;
-            let bounds = ctx.select::<PoolBounds>();
+            let bounds = ctx.select::<PoolValidation>();
             let marginal_cost = match pool_ver {
                 DegenQuadraticPoolVer::V1 => {
                     ctx.select::<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>>()
@@ -645,7 +645,7 @@ mod tests {
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass, Token};
 
     use crate::data::degen_quadratic_pool::{DegenQuadraticPool, DegenQuadraticPoolVer};
-    use crate::data::pool::PoolBounds;
+    use crate::data::pool::PoolValidation;
     use crate::data::PoolId;
     use crate::pool_math::degen_quadratic_math::{calculate_a_num, A_DENOM, MIN_ADA, TOKEN_EMISSION};
 
@@ -693,7 +693,7 @@ mod tests {
             b_num,
             ver: DegenQuadraticPoolVer::V1,
             marginal_cost: ExUnits { mem: 100, steps: 100 },
-            bounds: PoolBounds {
+            bounds: PoolValidation {
                 min_n2t_lovelace: 10000000,
                 min_t2t_lovelace: 10000000,
             },

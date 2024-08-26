@@ -1,8 +1,9 @@
+use cml_chain::PolicyId;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use either::Either;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
-use bloom_offchain_cardano::orders::limit::LimitOrderBounds;
+use bloom_offchain_cardano::orders::limit::LimitOrderValidation;
 use bloom_offchain_cardano::orders::AnyOrder;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::{OutputRef, Token};
@@ -10,11 +11,11 @@ use spectrum_offchain::data::order::SpecializedOrder;
 use spectrum_offchain::data::{Baked, EntitySnapshot, Has, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::creds::OperatorCred;
-use spectrum_offchain_cardano::data::deposit::DepositOrderBounds;
+use spectrum_offchain_cardano::data::deposit::DepositOrderValidation;
 use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
 use spectrum_offchain_cardano::data::pair::PairId;
-use spectrum_offchain_cardano::data::pool::{AnyPool, PoolBounds};
-use spectrum_offchain_cardano::data::redeem::RedeemOrderBounds;
+use spectrum_offchain_cardano::data::pool::{AnyPool, PoolValidation};
+use spectrum_offchain_cardano::data::redeem::RedeemOrderValidation;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2, ConstFnFeeSwitchPoolDeposit,
@@ -23,7 +24,7 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     ConstFnPoolV2, DegenQuadraticPoolV1, LimitOrderV1, StableFnPoolT2T, StableFnPoolT2TDeposit,
     StableFnPoolT2TRedeem,
 };
-use spectrum_offchain_cardano::utxo::ConsumedInputs;
+use spectrum_offchain_cardano::handler_context::{ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers};
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
@@ -57,8 +58,8 @@ where
         + Has<DeployedScriptInfo<{ BalanceFnPoolRedeem as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2TDeposit as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2TRedeem as u8 }>>
-        + Has<DepositOrderBounds>
-        + Has<RedeemOrderBounds>,
+        + Has<DepositOrderValidation>
+        + Has<RedeemOrderValidation>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         ClassicalAMMOrder::try_from_ledger(repr, ctx).map(|inner| {
@@ -106,6 +107,8 @@ where
         + Has<OperatorCred>
         + Has<OutputRef>
         + Has<ConsumedInputs>
+        + Has<ConsumedIdentifiers<Token>>
+        + Has<ProducedIdentifiers<Token>>
         + Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
@@ -116,9 +119,9 @@ where
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
         + Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>>
-        + Has<LimitOrderBounds>
-        + Has<DepositOrderBounds>
-        + Has<PoolBounds>,
+        + Has<LimitOrderValidation>
+        + Has<DepositOrderValidation>
+        + Has<PoolValidation>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         <Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>>::try_from_ledger(repr, ctx).map(

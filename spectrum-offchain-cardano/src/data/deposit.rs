@@ -39,7 +39,7 @@ pub struct Deposit {
 
 #[derive(Copy, Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DepositOrderBounds {
+pub struct DepositOrderValidation {
     pub min_collateral_ada: u64,
 }
 
@@ -94,7 +94,7 @@ where
         + Has<DeployedScriptInfo<{ ConstFnPoolDeposit as u8 }>>
         + Has<DeployedScriptInfo<{ BalanceFnPoolDeposit as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2TDeposit as u8 }>>
-        + Has<DepositOrderBounds>,
+        + Has<DepositOrderValidation>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         let is_const_fee_switch_pool_deposit =
@@ -136,7 +136,7 @@ where
                 order_type,
             };
 
-            let bounds = ctx.select::<DepositOrderBounds>();
+            let bounds = ctx.select::<DepositOrderValidation>();
 
             if conf.collateral_ada >= bounds.min_collateral_ada {
                 return Some(ClassicalOrder {

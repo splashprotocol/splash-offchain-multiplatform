@@ -1,21 +1,22 @@
-use crate::orders::limit::{LimitOrder, LimitOrderBounds};
+use crate::orders::limit::{LimitOrder, LimitOrderValidation};
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
 use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
 use bloom_offchain::execution_engine::liquidity_book::types::{
-    AbsolutePrice, FeeAsset, InputAsset, Lovelace, OutputAsset,
+    AbsolutePrice, FeeAsset, InputAsset, OutputAsset,
 };
 use bounded_integer::BoundedU64;
+use cml_chain::PolicyId;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use spectrum_cardano_lib::ex_units::ExUnits;
-use spectrum_cardano_lib::AssetClass;
+use spectrum_cardano_lib::{AssetClass, OutputRef, Token};
 use spectrum_offchain::data::{Has, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
-use spectrum_offchain_cardano::utxo::ConsumedInputs;
+use spectrum_offchain_cardano::handler_context::{ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 
@@ -177,9 +178,12 @@ fn subtract_adhoc_fee(body: u64, fee_structure: AdhocFeeStructure) -> u64 {
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for AdhocOrder
 where
     C: Has<OperatorCred>
+        + Has<OutputRef>
+        + Has<ConsumedIdentifiers<Token>>
+        + Has<ProducedIdentifiers<Token>>
         + Has<ConsumedInputs>
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
-        + Has<LimitOrderBounds>
+        + Has<LimitOrderValidation>
         + Has<AdhocFeeStructure>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
@@ -206,7 +210,6 @@ where
                     redeemer_address: lo.redeemer_address,
                     cancellation_pkh: lo.cancellation_pkh,
                     requires_executor_sig: lo.requires_executor_sig,
-                    virgin: lo.virgin,
                     marginal_cost: lo.marginal_cost,
                 },
                 adhoc_fee_input,

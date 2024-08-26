@@ -3,9 +3,9 @@ use type_equalities::IsEqual;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::Has;
 use spectrum_offchain_cardano::creds::OperatorCred;
-use spectrum_offchain_cardano::data::deposit::DepositOrderBounds;
-use spectrum_offchain_cardano::data::pool::PoolBounds;
-use spectrum_offchain_cardano::data::redeem::RedeemOrderBounds;
+use spectrum_offchain_cardano::data::deposit::DepositOrderValidation;
+use spectrum_offchain_cardano::data::pool::PoolValidation;
+use spectrum_offchain_cardano::data::redeem::RedeemOrderValidation;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2, ConstFnFeeSwitchPoolDeposit,
     ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
@@ -14,61 +14,75 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHashes};
-use spectrum_offchain_cardano::utxo::ConsumedInputs;
+use spectrum_offchain_cardano::handler_context::{ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers};
 
-use crate::bounds::Bounds;
+use crate::bounds::Validation;
 use crate::orders::adhoc::AdhocFeeStructure;
-use crate::orders::limit::LimitOrderBounds;
+use crate::orders::limit::LimitOrderValidation;
 
 #[derive(Copy, Clone, Debug)]
 pub struct HandlerContextProto {
     pub executor_cred: OperatorCred,
     pub scripts: ProtocolScriptHashes,
-    pub bounds: Bounds,
+    pub bounds: Validation,
     pub adhoc_fee_structure: AdhocFeeStructure,
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct HandlerContext {
+pub struct HandlerContext<I: Copy> {
     pub output_ref: OutputRef,
     pub consumed_utxos: ConsumedInputs,
+    pub consumed_identifiers: ConsumedIdentifiers<I>,
+    pub produced_identifiers: ProducedIdentifiers<I>,
     pub executor_cred: OperatorCred,
     pub scripts: ProtocolScriptHashes,
-    pub bounds: Bounds,
+    pub bounds: Validation,
     pub adhoc_fee_structure: AdhocFeeStructure,
 }
 
-impl Has<LimitOrderBounds> for HandlerContext {
-    fn select<U: IsEqual<LimitOrderBounds>>(&self) -> LimitOrderBounds {
+impl<I: Copy> Has<LimitOrderValidation> for HandlerContext<I> {
+    fn select<U: IsEqual<LimitOrderValidation>>(&self) -> LimitOrderValidation {
         self.bounds.limit_order
     }
 }
 
-impl Has<DepositOrderBounds> for HandlerContext {
-    fn select<U: IsEqual<DepositOrderBounds>>(&self) -> DepositOrderBounds {
+impl<I: Copy> Has<DepositOrderValidation> for HandlerContext<I> {
+    fn select<U: IsEqual<DepositOrderValidation>>(&self) -> DepositOrderValidation {
         self.bounds.deposit_order
     }
 }
 
-impl Has<RedeemOrderBounds> for HandlerContext {
-    fn select<U: IsEqual<RedeemOrderBounds>>(&self) -> RedeemOrderBounds {
+impl<I: Copy> Has<RedeemOrderValidation> for HandlerContext<I> {
+    fn select<U: IsEqual<RedeemOrderValidation>>(&self) -> RedeemOrderValidation {
         self.bounds.redeem_order
     }
 }
 
-impl Has<PoolBounds> for HandlerContext {
-    fn select<U: IsEqual<PoolBounds>>(&self) -> PoolBounds {
+impl<I: Copy> Has<PoolValidation> for HandlerContext<I> {
+    fn select<U: IsEqual<PoolValidation>>(&self) -> PoolValidation {
         self.bounds.pool
     }
 }
 
-impl Has<ConsumedInputs> for HandlerContext {
+impl<I: Copy> Has<ConsumedInputs> for HandlerContext<I> {
     fn select<U: IsEqual<ConsumedInputs>>(&self) -> ConsumedInputs {
         self.consumed_utxos
     }
 }
 
-impl Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>> for HandlerContext {
+impl<I: Copy> Has<ConsumedIdentifiers<I>> for HandlerContext<I> {
+    fn select<U: IsEqual<ConsumedIdentifiers<I>>>(&self) -> ConsumedIdentifiers<I> {
+        self.consumed_identifiers
+    }
+}
+
+impl<I: Copy> Has<ProducedIdentifiers<I>> for HandlerContext<I> {
+    fn select<U: IsEqual<ProducedIdentifiers<I>>>(&self) -> ProducedIdentifiers<I> {
+        self.produced_identifiers
+    }
+}
+
+impl<I: Copy> Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>> for HandlerContext<I> {
     fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ ConstFnPoolV1 as u8 }> {
@@ -76,7 +90,7 @@ impl Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>> for HandlerContext {
     }
 }
 
-impl Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>> for HandlerContext {
+impl<I: Copy> Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>> for HandlerContext<I> {
     fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ ConstFnPoolV2 as u8 }> {
@@ -84,7 +98,7 @@ impl Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>> for HandlerContext {
     }
 }
 
-impl Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>> for HandlerContext {
+impl<I: Copy> Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>> for HandlerContext<I> {
     fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }> {
@@ -92,7 +106,7 @@ impl Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>> for HandlerContext 
     }
 }
 
-impl Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>> for HandlerContext {
+impl<I: Copy> Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>> for HandlerContext<I> {
     fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }> {
@@ -100,7 +114,7 @@ impl Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>> for HandlerContex
     }
 }
 
-impl Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>> for HandlerContext {
+impl<I: Copy> Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>> for HandlerContext<I> {
     fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }> {
@@ -108,7 +122,7 @@ impl Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>> for Handler
     }
 }
 
-impl Has<DeployedScriptInfo<{ ConstFnPoolSwap as u8 }>> for HandlerContext {
+impl<I: Copy> Has<DeployedScriptInfo<{ ConstFnPoolSwap as u8 }>> for HandlerContext<I> {
     fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolSwap as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ ConstFnPoolSwap as u8 }> {
@@ -116,7 +130,7 @@ impl Has<DeployedScriptInfo<{ ConstFnPoolSwap as u8 }>> for HandlerContext {
     }
 }
 
-impl Has<DeployedScriptInfo<{ ConstFnPoolDeposit as u8 }>> for HandlerContext {
+impl<I: Copy> Has<DeployedScriptInfo<{ ConstFnPoolDeposit as u8 }>> for HandlerContext<I> {
     fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolDeposit as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ ConstFnPoolDeposit as u8 }> {
@@ -124,7 +138,7 @@ impl Has<DeployedScriptInfo<{ ConstFnPoolDeposit as u8 }>> for HandlerContext {
     }
 }
 
-impl Has<DeployedScriptInfo<{ ConstFnPoolRedeem as u8 }>> for HandlerContext {
+impl<I: Copy> Has<DeployedScriptInfo<{ ConstFnPoolRedeem as u8 }>> for HandlerContext<I> {
     fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnPoolRedeem as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ ConstFnPoolRedeem as u8 }> {
@@ -132,7 +146,7 @@ impl Has<DeployedScriptInfo<{ ConstFnPoolRedeem as u8 }>> for HandlerContext {
     }
 }
 
-impl Has<DeployedScriptInfo<{ ConstFnFeeSwitchPoolSwap as u8 }>> for HandlerContext {
+impl<I: Copy> Has<DeployedScriptInfo<{ ConstFnFeeSwitchPoolSwap as u8 }>> for HandlerContext<I> {
     fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnFeeSwitchPoolSwap as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ ConstFnFeeSwitchPoolSwap as u8 }> {
@@ -140,7 +154,7 @@ impl Has<DeployedScriptInfo<{ ConstFnFeeSwitchPoolSwap as u8 }>> for HandlerCont
     }
 }
 
-impl Has<DeployedScriptInfo<{ ConstFnFeeSwitchPoolDeposit as u8 }>> for HandlerContext {
+impl<I: Copy> Has<DeployedScriptInfo<{ ConstFnFeeSwitchPoolDeposit as u8 }>> for HandlerContext<I> {
     fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnFeeSwitchPoolDeposit as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ ConstFnFeeSwitchPoolDeposit as u8 }> {
@@ -148,7 +162,7 @@ impl Has<DeployedScriptInfo<{ ConstFnFeeSwitchPoolDeposit as u8 }>> for HandlerC
     }
 }
 
-impl Has<DeployedScriptInfo<{ ConstFnFeeSwitchPoolRedeem as u8 }>> for HandlerContext {
+impl<I: Copy> Has<DeployedScriptInfo<{ ConstFnFeeSwitchPoolRedeem as u8 }>> for HandlerContext<I> {
     fn select<U: IsEqual<DeployedScriptInfo<{ ConstFnFeeSwitchPoolRedeem as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ ConstFnFeeSwitchPoolRedeem as u8 }> {
@@ -156,7 +170,7 @@ impl Has<DeployedScriptInfo<{ ConstFnFeeSwitchPoolRedeem as u8 }>> for HandlerCo
     }
 }
 
-impl Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>> for HandlerContext {
+impl<I: Copy> Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>> for HandlerContext<I> {
     fn select<U: IsEqual<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }> {
@@ -164,7 +178,7 @@ impl Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>> for HandlerContext {
     }
 }
 
-impl Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>> for HandlerContext {
+impl<I: Copy> Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>> for HandlerContext<I> {
     fn select<U: IsEqual<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }> {
@@ -172,7 +186,7 @@ impl Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>> for HandlerContext {
     }
 }
 
-impl Has<DeployedScriptInfo<{ BalanceFnPoolRedeem as u8 }>> for HandlerContext {
+impl<I: Copy> Has<DeployedScriptInfo<{ BalanceFnPoolRedeem as u8 }>> for HandlerContext<I> {
     fn select<U: IsEqual<DeployedScriptInfo<{ BalanceFnPoolRedeem as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ BalanceFnPoolRedeem as u8 }> {
@@ -180,7 +194,7 @@ impl Has<DeployedScriptInfo<{ BalanceFnPoolRedeem as u8 }>> for HandlerContext {
     }
 }
 
-impl Has<DeployedScriptInfo<{ BalanceFnPoolDeposit as u8 }>> for HandlerContext {
+impl<I: Copy> Has<DeployedScriptInfo<{ BalanceFnPoolDeposit as u8 }>> for HandlerContext<I> {
     fn select<U: IsEqual<DeployedScriptInfo<{ BalanceFnPoolDeposit as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ BalanceFnPoolDeposit as u8 }> {
@@ -188,7 +202,7 @@ impl Has<DeployedScriptInfo<{ BalanceFnPoolDeposit as u8 }>> for HandlerContext 
     }
 }
 
-impl Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>> for HandlerContext {
+impl<I: Copy> Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>> for HandlerContext<I> {
     fn select<U: IsEqual<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ LimitOrderV1 as u8 }> {
@@ -196,7 +210,7 @@ impl Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>> for HandlerContext {
     }
 }
 
-impl Has<DeployedScriptInfo<{ LimitOrderWitnessV1 as u8 }>> for HandlerContext {
+impl<I: Copy> Has<DeployedScriptInfo<{ LimitOrderWitnessV1 as u8 }>> for HandlerContext<I> {
     fn select<U: IsEqual<DeployedScriptInfo<{ LimitOrderWitnessV1 as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ LimitOrderWitnessV1 as u8 }> {
@@ -204,7 +218,7 @@ impl Has<DeployedScriptInfo<{ LimitOrderWitnessV1 as u8 }>> for HandlerContext {
     }
 }
 
-impl Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>> for HandlerContext {
+impl<I: Copy> Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>> for HandlerContext<I> {
     fn select<U: IsEqual<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ StableFnPoolT2T as u8 }> {
@@ -212,7 +226,7 @@ impl Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>> for HandlerContext {
     }
 }
 
-impl Has<DeployedScriptInfo<{ StableFnPoolT2TDeposit as u8 }>> for HandlerContext {
+impl<I: Copy> Has<DeployedScriptInfo<{ StableFnPoolT2TDeposit as u8 }>> for HandlerContext<I> {
     fn select<U: IsEqual<DeployedScriptInfo<{ StableFnPoolT2TDeposit as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ StableFnPoolT2TDeposit as u8 }> {
@@ -220,14 +234,14 @@ impl Has<DeployedScriptInfo<{ StableFnPoolT2TDeposit as u8 }>> for HandlerContex
     }
 }
 
-impl Has<DeployedScriptInfo<{ StableFnPoolT2TRedeem as u8 }>> for HandlerContext {
+impl<I: Copy> Has<DeployedScriptInfo<{ StableFnPoolT2TRedeem as u8 }>> for HandlerContext<I> {
     fn select<U: IsEqual<DeployedScriptInfo<{ StableFnPoolT2TRedeem as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ StableFnPoolT2TRedeem as u8 }> {
         self.scripts.stable_fn_pool_t2t_redeem.clone()
     }
 }
-impl Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>> for HandlerContext {
+impl<I: Copy> Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>> for HandlerContext<I> {
     fn select<U: IsEqual<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>>>(
         &self,
     ) -> DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }> {
@@ -235,21 +249,25 @@ impl Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>> for HandlerContext 
     }
 }
 
-impl Has<AdhocFeeStructure> for HandlerContext {
+impl<I: Copy> Has<AdhocFeeStructure> for HandlerContext<I> {
     fn select<U: IsEqual<AdhocFeeStructure>>(&self) -> AdhocFeeStructure {
         self.adhoc_fee_structure
     }
 }
 
-impl HandlerContext {
+impl<I: Copy> HandlerContext<I> {
     pub fn new(
         output_ref: OutputRef,
         consumed_utxos: ConsumedInputs,
+        consumed_identifiers: ConsumedIdentifiers<I>,
+        produced_identifiers: ProducedIdentifiers<I>,
         prototype: HandlerContextProto,
     ) -> Self {
         Self {
             output_ref,
             consumed_utxos,
+            consumed_identifiers,
+            produced_identifiers,
             executor_cred: prototype.executor_cred,
             scripts: prototype.scripts,
             bounds: prototype.bounds,
@@ -258,13 +276,13 @@ impl HandlerContext {
     }
 }
 
-impl Has<OutputRef> for HandlerContext {
+impl<I: Copy> Has<OutputRef> for HandlerContext<I> {
     fn select<U: IsEqual<OutputRef>>(&self) -> OutputRef {
         self.output_ref
     }
 }
 
-impl Has<OperatorCred> for HandlerContext {
+impl<I: Copy> Has<OperatorCred> for HandlerContext<I> {
     fn select<U: IsEqual<OperatorCred>>(&self) -> OperatorCred {
         self.executor_cred
     }

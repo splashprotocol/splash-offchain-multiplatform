@@ -44,7 +44,7 @@ use crate::data::operation_output::{DepositOutput, RedeemOutput, SwapOutput};
 use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
 use crate::data::pair::order_canonical;
 use crate::data::pool::{
-    ApplyOrder, ApplyOrderError, ImmutablePoolUtxo, Lq, PoolAssetMapping, PoolBounds, Rx, Ry,
+    ApplyOrder, ApplyOrderError, ImmutablePoolUtxo, Lq, PoolAssetMapping, PoolValidation, Rx, Ry,
 };
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
@@ -162,7 +162,7 @@ pub struct ConstFnPool {
     pub lq_lower_bound: TaggedAmount<Rx>,
     pub ver: ConstFnPoolVer,
     pub marginal_cost: ExUnits,
-    pub bounds: PoolBounds,
+    pub bounds: PoolValidation,
 }
 
 impl ConstFnPool {
@@ -480,13 +480,13 @@ where
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
-        + Has<PoolBounds>,
+        + Has<PoolValidation>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         if let Some(pool_ver) = ConstFnPoolVer::try_from_address(repr.address(), ctx) {
             let value = repr.value();
             let pd = repr.datum().clone()?.into_pd()?;
-            let bounds = ctx.select::<PoolBounds>();
+            let bounds = ctx.select::<PoolValidation>();
             let marginal_cost = match pool_ver {
                 ConstFnPoolVer::V1 => {
                     ctx.select::<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>()
@@ -841,7 +841,7 @@ mod tests {
     use spectrum_offchain::ledger::TryFromLedger;
 
     use crate::data::cfmm_pool::{ConstFnPool, ConstFnPoolVer};
-    use crate::data::pool::PoolBounds;
+    use crate::data::pool::PoolValidation;
     use crate::data::PoolId;
     use crate::deployment::ProtocolValidator::{
         ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolV1,
@@ -911,7 +911,7 @@ mod tests {
             lq_lower_bound: TaggedAmount::new(0),
             ver: ConstFnPoolVer::FeeSwitch,
             marginal_cost: ExUnits { mem: 100, steps: 100 },
-            bounds: PoolBounds {
+            bounds: PoolValidation {
                 min_n2t_lovelace: 10000000,
                 min_t2t_lovelace: 10000000,
             },
@@ -985,7 +985,7 @@ mod tests {
     }
 
     struct Ctx {
-        bounds: PoolBounds,
+        bounds: PoolValidation,
         scripts: ProtocolScriptHashes,
     }
 
@@ -1029,8 +1029,8 @@ mod tests {
         }
     }
 
-    impl Has<PoolBounds> for Ctx {
-        fn select<U: IsEqual<PoolBounds>>(&self) -> PoolBounds {
+    impl Has<PoolValidation> for Ctx {
+        fn select<U: IsEqual<PoolValidation>>(&self) -> PoolValidation {
             self.bounds
         }
     }
@@ -1043,7 +1043,7 @@ mod tests {
         let scripts = ProtocolScriptHashes::from(&deployment);
         let ctx = Ctx {
             scripts,
-            bounds: PoolBounds {
+            bounds: PoolValidation {
                 min_n2t_lovelace: 150_000_000,
                 min_t2t_lovelace: 10_000_000,
             },
