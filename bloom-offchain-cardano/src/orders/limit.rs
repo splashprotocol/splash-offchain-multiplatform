@@ -8,7 +8,7 @@ use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
 use bloom_offchain::execution_engine::liquidity_book::types::{
-    AbsolutePrice, FeeAsset, InputAsset, OutputAsset, RelativePrice,
+    AbsolutePrice, FeeAsset, InputAsset, Lovelace, OutputAsset, RelativePrice,
 };
 use bloom_offchain::execution_engine::liquidity_book::weight::Weighted;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
@@ -401,11 +401,13 @@ where
                             .permitted_executors
                             .contains(&ctx.select::<OperatorCred>().into());
                     let validation = ctx.select::<LimitOrderValidation>();
+                    let sufficient_fee = conf.fee >= validation.min_fee_lovelace;
                     let valid_configuration = conf.cost_per_ex_step >= validation.min_cost_per_ex_step
                         && execution_budget >= conf.cost_per_ex_step;
                     let valid_beacon = || !validation.strict_beacon || is_valid_beacon(conf.beacon, ctx);
                     if sufficient_input
                         && sufficient_execution_budget
+                        && sufficient_fee
                         && executable
                         && valid_configuration
                         && valid_beacon()
@@ -431,10 +433,11 @@ where
                         });
                     } else {
                         trace!(
-                            "Order {}: sufficient_input: {}, sufficient_execution_budget: {}, executable: {}, valid_configuration: {}, is_valid_beacon: {}", 
+                            "Order {}: sufficient_input: {}, sufficient_execution_budget: {}, sufficient_fee: {}, executable: {}, valid_configuration: {}, is_valid_beacon: {}", 
                             conf.beacon,
                             sufficient_input,
                             sufficient_execution_budget,
+                            sufficient_fee,
                             executable,
                             valid_configuration,
                             valid_beacon()
@@ -451,6 +454,7 @@ where
 #[serde(rename_all = "camelCase")]
 pub struct LimitOrderValidation {
     pub min_cost_per_ex_step: u64,
+    pub min_fee_lovelace: Lovelace,
     pub strict_beacon: bool,
 }
 
