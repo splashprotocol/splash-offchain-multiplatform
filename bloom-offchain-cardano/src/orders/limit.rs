@@ -464,7 +464,6 @@ mod tests {
     use cml_core::serialization::Deserialize;
     use cml_crypto::{Ed25519KeyHash, TransactionHash};
     use cml_multi_era::babbage::{BabbageFormatTxOut, BabbageTransactionOutput};
-    use num_rational::Ratio;
     use type_equalities::IsEqual;
 
     use bloom_offchain::execution_engine::liquidity_book::config::{ExecutionCap, ExecutionConfig};
@@ -472,25 +471,49 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::{ExternalTLBEvents, TemporalLiquidityBook, TLB};
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
-    use spectrum_cardano_lib::{AssetName, OutputRef};
+    use spectrum_cardano_lib::{AssetName, OutputRef, Token};
     use spectrum_offchain::data::Has;
     use spectrum_offchain::ledger::TryFromLedger;
+    use spectrum_offchain::small_set::SmallVec;
     use spectrum_offchain_cardano::creds::OperatorCred;
     use spectrum_offchain_cardano::data::pool::AnyPool;
     use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
     use spectrum_offchain_cardano::deployment::{
         DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes,
     };
-    use spectrum_offchain_cardano::handler_context::ConsumedInputs;
+    use spectrum_offchain_cardano::handler_context::{
+        ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers,
+    };
 
     use crate::orders::limit::{
         beacon_from_oref, unsafe_update_datum, Datum, LimitOrder, LimitOrderValidation,
     };
 
     struct Context {
+        oref: OutputRef,
         limit_order: DeployedScriptInfo<{ LimitOrderV1 as u8 }>,
         cred: OperatorCred,
         consumed_inputs: ConsumedInputs,
+        consumed_identifiers: ConsumedIdentifiers<Token>,
+        produced_identifiers: ProducedIdentifiers<Token>,
+    }
+
+    impl Has<OutputRef> for Context {
+        fn select<U: IsEqual<OutputRef>>(&self) -> OutputRef {
+            self.oref
+        }
+    }
+
+    impl Has<ConsumedIdentifiers<Token>> for Context {
+        fn select<U: IsEqual<ConsumedIdentifiers<Token>>>(&self) -> ConsumedIdentifiers<Token> {
+            self.consumed_identifiers
+        }
+    }
+
+    impl Has<ProducedIdentifiers<Token>> for Context {
+        fn select<U: IsEqual<ProducedIdentifiers<Token>>>(&self) -> ProducedIdentifiers<Token> {
+            self.produced_identifiers
+        }
     }
 
     impl Has<LimitOrderValidation> for Context {
@@ -524,19 +547,14 @@ mod tests {
 
     #[test]
     fn beacon_derivation_eqv() {
+        const TX: &str = "d90ff0194f2ca8dc832ab0550375ef688a74748d963be33cd08622dd0ba65af6";
+        const IX: u64 = 0;
+        const ORDER_IX: u64 = 0;
         let oref = OutputRef::new(TransactionHash::from_hex(TX).unwrap(), IX);
         assert_eq!(
-            beacon_from_oref(oref, 0).to_hex(),
-            "eb9575d907ac66f8f0c75c44ad51189a4b41756e8543cd59e331bc02"
+            beacon_from_oref(oref, ORDER_IX).to_hex(),
+            "355e042fc2397adf5a5fc731a54853b4831facc28a256c1df67263bd"
         )
-    }
-
-    const TX: &str = "6c038a69587061acd5611507e68b1fd3a7e7d189367b7853f3bb5079a118b880";
-    const IX: u64 = 1;
-
-    #[test]
-    fn foo() {
-        dbg!(Ratio::new(3, 5).cmp(&Ratio::new(1, 6)));
     }
 
     #[test]
@@ -561,14 +579,21 @@ mod tests {
 
     #[test]
     fn try_read() {
+        const TX: &str = "a035c1cb245735680dcb3c46a9a3e692fbf550c8a5d7c4ada1471f97cc92dc55";
+        const IX: u64 = 0;
+        const ORDER_IX: u64 = 0;
+        let oref = OutputRef::new(TransactionHash::from_hex(TX).unwrap(), IX);
         let raw_deployment = std::fs::read_to_string("/Users/oskin/dev/spectrum/spectrum-offchain-multiplatform/bloom-cardano-agent/resources/mainnet.deployment.json").expect("Cannot load deployment file");
         let deployment: DeployedValidators =
             serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
         let scripts = ProtocolScriptHashes::from(&deployment);
         let ctx = Context {
+            oref,
             limit_order: scripts.limit_order,
             cred: OperatorCred(Ed25519KeyHash::from([0u8; 28])),
-            consumed_inputs: ConsumedInputs::new(vec![].into_iter()),
+            consumed_inputs: SmallVec::new(vec![oref].into_iter()).into(),
+            consumed_identifiers: Default::default(),
+            produced_identifiers: Default::default(),
         };
         let bearer = BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(ORDER_UTXO).unwrap()).unwrap();
         let ord = LimitOrder::try_from_ledger(&bearer, &ctx).expect("LimitOrder expected");
@@ -576,7 +601,7 @@ mod tests {
         println!("P_abs: {}", ord.price());
     }
 
-    const ORDER_UTXO: &str = "a300583911dbe7a3d8a1d82990992a38eea1a2efaa68e931e252fc92ca1383809bde7866fe5068ebf3c87dcdb568da528da5dcb5f659d9b60010e7450f01821a0024b274a1581cecc0c71e1eb2d5d51b76cd918693550858a8fa5fb5f937901ec5eb8aa1464d41524b455402028201d818590118d8798c4100581cf8903c25300f894f83566921d9f84b02515775a99734ededa771113bd87982581cecc0c71e1eb2d5d51b76cd918693550858a8fa5fb5f937901ec5eb8a464d41524b4554021a0007a12001d87982581c4dba80a853a7791030e470024314c7bccd4a249a87f44f78ff5a3ec746536f6c616e61d879821b000358869b0242cd1b00038d7ea4c6800000d87982d87981581c74104cd5ca6288c1dd2e22ee5c874fdcfc1b81897462d91153496430d87981d87981d87981581cde7866fe5068ebf3c87dcdb568da528da5dcb5f659d9b60010e7450f581c74104cd5ca6288c1dd2e22ee5c874fdcfc1b81897462d9115349643081581c2f9ff04d8914bf64d671a03d34ab7937eb417831ea6b9f7fbcab96f5";
+    const ORDER_UTXO: &str = "a300583911464eeee89f05aff787d40045af2a40a83fd96c513197d32fbc54ff027846f6bb07f5b2825885e4502679e699b4e60a0c4609a46bc35454cd011a002f4d60028201d81858fed8798c4100581c91290a058a4b2d706a14abf94deda7bb4bf486f42e50f777004b8429d8798240401a000f42401a000557301a00012174d87982581c3417226aaa4bd7391a7a7f86d7b140b14a35388080b929550d0badab4b4c6f616420546573742031d879821a000b4e8d1a009896801a0003d090d87982d87981581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b25d87981d87981d87981581c7846f6bb07f5b2825885e4502679e699b4e60a0c4609a46bc35454cd581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b2581581c2f9ff04d8914bf64d671a03d34ab7937eb417831ea6b9f7fbcab96f5";
 
     #[test]
     fn read_config() {
@@ -592,16 +617,23 @@ mod tests {
 
     #[test]
     fn recipe_fill_fragment_from_fragment_batch() {
+        const TX: &str = "d90ff0194f2ca8dc832ab0550375ef688a74748d963be33cd08622dd0ba65af6";
+        const IX: u64 = 0;
+        const ORDER_IX: u64 = 0;
+        let oref = OutputRef::new(TransactionHash::from_hex(TX).unwrap(), IX);
         let raw_deployment = std::fs::read_to_string("/Users/oskin/dev/spectrum/spectrum-offchain-multiplatform/bloom-cardano-agent/resources/mainnet.deployment.json").expect("Cannot load deployment file");
         let deployment: DeployedValidators =
             serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
         let scripts = ProtocolScriptHashes::from(&deployment);
         let ctx = Context {
+            oref,
             limit_order: scripts.limit_order,
             cred: OperatorCred(
                 Ed25519KeyHash::from_hex("17979109209d255917b8563d1e50a5be8123d5e283fbc6fbb04550c6").unwrap(),
             ),
-            consumed_inputs: ConsumedInputs::new(vec![].into_iter()),
+            consumed_inputs: SmallVec::new(vec![].into_iter()).into(),
+            consumed_identifiers: Default::default(),
+            produced_identifiers: Default::default(),
         };
         let d0 = PlutusData::from_cbor_bytes(&*hex::decode(D0).unwrap()).unwrap();
         let o0 = BabbageTransactionOutput::new_babbage_format_tx_out(BabbageFormatTxOut {

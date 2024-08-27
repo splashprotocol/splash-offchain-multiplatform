@@ -21,7 +21,7 @@ impl<T> SmallVec<T> {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.0.iter().all(|e| e.is_none())
     }
 
     pub fn find<F>(&self, f: F) -> bool
