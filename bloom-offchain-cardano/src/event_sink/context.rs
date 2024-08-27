@@ -16,7 +16,7 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
 use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHashes};
 use spectrum_offchain_cardano::handler_context::{ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers};
 
-use crate::bounds::Validation;
+use crate::bounds::ValidationRules;
 use crate::orders::adhoc::AdhocFeeStructure;
 use crate::orders::limit::LimitOrderValidation;
 
@@ -24,7 +24,7 @@ use crate::orders::limit::LimitOrderValidation;
 pub struct HandlerContextProto {
     pub executor_cred: OperatorCred,
     pub scripts: ProtocolScriptHashes,
-    pub bounds: Validation,
+    pub validation_rules: ValidationRules,
     pub adhoc_fee_structure: AdhocFeeStructure,
 }
 
@@ -36,7 +36,7 @@ pub struct HandlerContext<I: Copy> {
     pub produced_identifiers: ProducedIdentifiers<I>,
     pub executor_cred: OperatorCred,
     pub scripts: ProtocolScriptHashes,
-    pub bounds: Validation,
+    pub bounds: ValidationRules,
     pub adhoc_fee_structure: AdhocFeeStructure,
 }
 
@@ -270,7 +270,7 @@ impl<I: Copy> HandlerContext<I> {
             produced_identifiers,
             executor_cred: prototype.executor_cred,
             scripts: prototype.scripts,
-            bounds: prototype.bounds,
+            bounds: prototype.validation_rules,
             adhoc_fee_structure: prototype.adhoc_fee_structure,
         }
     }

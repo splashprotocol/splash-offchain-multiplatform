@@ -1,0 +1,16 @@
+{
+  "limitOrder": {
+    "minCostPerExStep": 350000,
+    "strictBeacon": true
+  },
+  "depositOrder": {
+    "minCollateralAda": 1500000
+  },
+  "redeemOrder": {
+    "minCollateralAda": 1500000
+  },
+  "pool": {
+    "minN2tLovelace": 150000000,
+    "minT2tLovelace": 10000000
+  }
+}

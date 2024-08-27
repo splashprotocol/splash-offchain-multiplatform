@@ -22,7 +22,7 @@ use bloom_offchain::execution_engine::liquidity_book::TLB;
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
 use bloom_offchain::execution_engine::storage::kv_store::{InMemoryKvStore, KvStoreWithTracing};
 use bloom_offchain::execution_engine::storage::{InMemoryStateIndex, StateIndexWithTracing};
-use bloom_offchain_cardano::bounds::Validation;
+use bloom_offchain_cardano::bounds::ValidationRules;
 use bloom_offchain_cardano::event_sink::context::HandlerContextProto;
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
 use bloom_offchain_cardano::event_sink::handler::{
@@ -90,7 +90,8 @@ async fn main() {
 
     let raw_validation_rules =
         std::fs::read_to_string(args.validation_rules_path).expect("Cannot load bounds file");
-    let bounds: Validation = serde_json::from_str(&raw_validation_rules).expect("Invalid bounds file");
+    let validation_rules: ValidationRules =
+        serde_json::from_str(&raw_validation_rules).expect("Invalid bounds file");
 
     log4rs::init_file(args.log4rs_path, Default::default()).unwrap();
 
@@ -203,7 +204,7 @@ async fn main() {
         executor_cred: operator_paycred,
         scripts: ProtocolScriptHashes::from(&protocol_deployment),
         adhoc_fee_structure: AdhocFeeStructure::empty(),
-        bounds,
+        validation_rules,
     };
     let general_upd_handler = PairUpdateHandler::new(
         partitioned_pair_upd_snd,

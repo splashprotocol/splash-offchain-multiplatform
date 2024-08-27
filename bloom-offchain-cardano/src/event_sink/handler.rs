@@ -850,7 +850,7 @@ mod tests {
     use futures::StreamExt;
     use tokio::sync::Mutex;
 
-    use crate::bounds::Validation;
+    use crate::bounds::ValidationRules;
     use crate::event_sink::context::HandlerContextProto;
     use algebra_core::monoid::Monoid;
     use cardano_chain_sync::data::LedgerTxEvent;
@@ -966,7 +966,7 @@ mod tests {
         let (snd, mut recv) = mpsc::channel::<(u8, Channel<StateUpdate<TrivialEntity>>)>(100);
         let ex_cred = OperatorCred(Ed25519KeyHash::from([0u8; 28]));
         let context = HandlerContextProto {
-            bounds: Validation {
+            validation_rules: ValidationRules {
                 limit_order: LimitOrderValidation {
                     min_cost_per_ex_step: 1000,
                     strict_beacon: true,

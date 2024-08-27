@@ -6,7 +6,7 @@ use spectrum_offchain_cardano::data::redeem::RedeemOrderValidation;
 
 #[derive(Copy, Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Validation {
+pub struct ValidationRules {
     pub limit_order: LimitOrderValidation,
     pub deposit_order: DepositOrderValidation,
     pub redeem_order: RedeemOrderValidation,
