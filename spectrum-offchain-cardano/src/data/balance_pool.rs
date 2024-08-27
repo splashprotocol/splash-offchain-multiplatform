@@ -45,7 +45,8 @@ use crate::data::operation_output::{DepositOutput, RedeemOutput};
 use crate::data::order::{Base, PoolNft, Quote};
 use crate::data::pair::order_canonical;
 use crate::data::pool::{
-    ApplyOrder, ApplyOrderError, CFMMPoolAction, ImmutablePoolUtxo, Lq, PoolAssetMapping, PoolBounds, Rx, Ry,
+    ApplyOrder, ApplyOrderError, CFMMPoolAction, ImmutablePoolUtxo, Lq, PoolAssetMapping, PoolValidation, Rx,
+    Ry,
 };
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
@@ -233,7 +234,7 @@ impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for BalancePool
 where
     Ctx: Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>
-        + Has<PoolBounds>,
+        + Has<PoolValidation>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         if let Some(pool_ver) = BalancePoolVer::try_from_address(repr.address(), ctx) {
@@ -241,7 +242,7 @@ where
             let pd = repr.datum().clone()?.into_pd()?;
             let conf = BalancePoolConfig::try_from_pd(pd.clone())?;
             let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
-            let bounds = ctx.select::<PoolBounds>();
+            let bounds = ctx.select::<PoolValidation>();
             let lov = value.amount_of(Native)?;
             if conf.asset_x.is_native() || conf.asset_y.is_native() || bounds.min_t2t_lovelace <= lov {
                 return Some(BalancePool {

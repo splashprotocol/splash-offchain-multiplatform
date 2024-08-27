@@ -22,7 +22,7 @@ use bloom_offchain::execution_engine::liquidity_book::TLB;
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
 use bloom_offchain::execution_engine::storage::kv_store::InMemoryKvStore;
 use bloom_offchain::execution_engine::storage::InMemoryStateIndex;
-use bloom_offchain_cardano::bounds::Bounds;
+use bloom_offchain_cardano::bounds::ValidationRules;
 use bloom_offchain_cardano::event_sink::context::HandlerContextProto;
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
 use bloom_offchain_cardano::event_sink::handler::{FundingEventHandler, PairUpdateHandler};
@@ -85,8 +85,10 @@ async fn main() {
     let deployment: DeployedValidators =
         serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
 
-    let raw_bounds = std::fs::read_to_string(args.bounds_path).expect("Cannot load bounds file");
-    let bounds: Bounds = serde_json::from_str(&raw_bounds).expect("Invalid bounds file");
+    let raw_validation_rules =
+        std::fs::read_to_string(args.validation_rules_path).expect("Cannot load bounds file");
+    let validation_rules: ValidationRules =
+        serde_json::from_str(&raw_validation_rules).expect("Invalid bounds file");
 
     log4rs::init_file(args.log4rs_path, Default::default()).unwrap();
 
@@ -192,7 +194,7 @@ async fn main() {
     let handler_context = HandlerContextProto {
         executor_cred: operator_paycred,
         scripts: ProtocolScriptHashes::from(&protocol_deployment),
-        bounds,
+        validation_rules,
         adhoc_fee_structure: config.adhoc_fee.into(),
     };
     let general_upd_handler = PairUpdateHandler::new(
@@ -434,7 +436,7 @@ struct AppArgs {
     deployment_path: String,
     /// Path to the bounds JSON configuration file .
     #[arg(long, short)]
-    bounds_path: String,
+    validation_rules_path: String,
     /// Path to the log4rs YAML configuration file.
     #[arg(long, short)]
     log4rs_path: String,

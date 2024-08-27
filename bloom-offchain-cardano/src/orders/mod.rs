@@ -1,19 +1,20 @@
+use cml_chain::PolicyId;
+use cml_multi_era::babbage::BabbageTransactionOutput;
 use std::fmt::{Debug, Display, Formatter};
 
-use cml_multi_era::babbage::BabbageTransactionOutput;
-
 use crate::orders::grid::GridOrder;
-use crate::orders::limit::{LimitOrder, LimitOrderBounds};
+use crate::orders::limit::{LimitOrder, LimitOrderValidation};
 use bloom_derivation::{MarketTaker, Stable, Tradable};
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
 use bloom_offchain::execution_engine::liquidity_book::market_taker::TakerBehaviour;
 use bloom_offchain::execution_engine::liquidity_book::types::{InputAsset, OutputAsset, RelativePrice};
+use spectrum_cardano_lib::{OutputRef, Token};
 use spectrum_offchain::data::Has;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
-use spectrum_offchain_cardano::utxo::ConsumedInputs;
+use spectrum_offchain_cardano::handler_context::{ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers};
 
 pub mod adhoc;
 pub mod grid;
@@ -95,9 +96,12 @@ impl TakerBehaviour for AnyOrder {
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for AnyOrder
 where
     C: Has<OperatorCred>
+        + Has<OutputRef>
+        + Has<ConsumedIdentifiers<Token>>
+        + Has<ProducedIdentifiers<Token>>
         + Has<ConsumedInputs>
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
-        + Has<LimitOrderBounds>,
+        + Has<LimitOrderValidation>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         LimitOrder::try_from_ledger(repr, ctx).map(AnyOrder::Limit)

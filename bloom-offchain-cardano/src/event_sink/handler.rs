@@ -30,8 +30,9 @@ use spectrum_offchain::data::Tradable;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain::partitioning::Partitioned;
+use spectrum_offchain::small_set::SmallVec;
 use spectrum_offchain_cardano::funding::FundingAddresses;
-use spectrum_offchain_cardano::utxo::ConsumedInputs;
+use spectrum_offchain_cardano::handler_context::ConsumedInputs;
 use tokio::sync::{Mutex, MutexGuard};
 
 #[derive(Clone)]
@@ -288,38 +289,41 @@ impl<const N: usize, PairId, Topic, Entity, Index> PairUpdateHandler<N, PairId, 
 }
 
 #[derive(Clone)]
-pub struct SpecializedHandler<H, OrderIndex, Pool> {
+pub struct SpecializedHandler<H, OrderIndex, Pool, K> {
     general_handler: H,
     order_index: Arc<Mutex<OrderIndex>>,
-    pd: PhantomData<Pool>,
+    pd0: PhantomData<Pool>,
+    pd1: PhantomData<K>,
 }
 
-impl<H, OrderIndex, Pool> SpecializedHandler<H, OrderIndex, Pool> {
+impl<H, OrderIndex, Pool, Ctx> SpecializedHandler<H, OrderIndex, Pool, Ctx> {
     pub fn new(general_handler: H, order_index: Arc<Mutex<OrderIndex>>) -> Self {
         Self {
             general_handler,
             order_index,
-            pd: PhantomData,
+            pd0: PhantomData,
+            pd1: PhantomData,
         }
     }
 }
 
 #[async_trait(?Send)]
-impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex>
+impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex, K>
     EventHandler<LedgerTxEvent<ProcessedTransaction>>
-    for SpecializedHandler<PairUpdateHandler<N, PairId, Topic, Order, PoolIndex>, OrderIndex, Pool>
+    for SpecializedHandler<PairUpdateHandler<N, PairId, Topic, Order, PoolIndex>, OrderIndex, Pool, K>
 where
     PairId: Copy + Hash + Eq,
     Topic: Sink<(PairId, Channel<OrderUpdate<Order, Order>>)> + Unpin,
     Topic::Error: Debug,
     Pool: EntitySnapshot + Tradable<PairId = PairId>,
     Order: SpecializedOrder<TPoolId = Pool::StableId>
-        + TryFromLedger<BabbageTransactionOutput, HandlerContext>
+        + TryFromLedger<BabbageTransactionOutput, HandlerContext<K>>
         + Clone
         + Debug,
     Order::TOrderId: From<OutputRef> + Display,
     OrderIndex: KvIndex<Order::TOrderId, Order>,
     PoolIndex: TradableEntityIndex<Pool>,
+    K: Copy,
 {
     async fn try_handle(
         &mut self,
@@ -407,21 +411,22 @@ where
 }
 
 #[async_trait(?Send)]
-impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex>
+impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex, K>
     EventHandler<MempoolUpdate<ProcessedTransaction>>
-    for SpecializedHandler<PairUpdateHandler<N, PairId, Topic, Order, PoolIndex>, OrderIndex, Pool>
+    for SpecializedHandler<PairUpdateHandler<N, PairId, Topic, Order, PoolIndex>, OrderIndex, Pool, K>
 where
     PairId: Copy + Hash + Eq,
     Topic: Sink<(PairId, Channel<OrderUpdate<Order, Order>>)> + Unpin,
     Topic::Error: Debug,
     Pool: EntitySnapshot + Tradable<PairId = PairId>,
     Order: SpecializedOrder<TPoolId = Pool::StableId>
-        + TryFromLedger<BabbageTransactionOutput, HandlerContext>
+        + TryFromLedger<BabbageTransactionOutput, HandlerContext<K>>
         + Clone
         + Debug,
     Order::TOrderId: From<OutputRef> + Display,
     OrderIndex: KvIndex<Order::TOrderId, Order>,
     PoolIndex: TradableEntityIndex<Pool>,
+    K: Copy,
 {
     async fn try_handle(
         &mut self,
@@ -482,15 +487,16 @@ fn pool_ref_of<T: SpecializedOrder>(tr: &Either<T, T>) -> T::TPoolId {
     }
 }
 
-async fn extract_atomic_transitions<Order, Index>(
+async fn extract_atomic_transitions<Order, Index, K>(
     index: Arc<Mutex<Index>>,
     context: HandlerContextProto,
     mut tx: ProcessedTransaction,
 ) -> Result<(Vec<Either<Order, Order>>, ProcessedTransaction), ProcessedTransaction>
 where
-    Order: SpecializedOrder + TryFromLedger<BabbageTransactionOutput, HandlerContext> + Clone,
+    Order: SpecializedOrder + TryFromLedger<BabbageTransactionOutput, HandlerContext<K>> + Clone,
     Order::TOrderId: From<OutputRef> + Display,
     Index: KvIndex<Order::TOrderId, Order>,
+    K: Copy,
 {
     let num_outputs = tx.outputs.len();
     if num_outputs == 0 {
@@ -510,11 +516,20 @@ where
         }
     }
     let mut produced_orders = HashMap::<Order::TOrderId, Order>::new();
-    let consumed_utxos = ConsumedInputs::new(consumed_utxos.into_iter());
+    let consumed_utxos = SmallVec::new(consumed_utxos.into_iter());
     let mut non_processed_outputs = VecDeque::new();
     while let Some((ix, o)) = tx.outputs.pop() {
         let o_ref = OutputRef::new(tx.hash, ix as u64);
-        match Order::try_from_ledger(&o, &HandlerContext::new(o_ref, consumed_utxos, context)) {
+        match Order::try_from_ledger(
+            &o,
+            &HandlerContext::new(
+                o_ref,
+                consumed_utxos.into(),
+                Default::default(),
+                Default::default(),
+                context,
+            ),
+        ) {
             Some(order) => {
                 let order_id = order.get_self_ref();
                 trace!("Order {} created by {}", order_id, tx.hash);
@@ -550,13 +565,16 @@ where
     Ok((transitions, tx))
 }
 
-async fn extract_persistent_transitions<Entity, Index>(
+async fn extract_continuous_transitions<Entity, Index>(
     index: Arc<Mutex<Index>>,
     context: HandlerContextProto,
     mut tx: ProcessedTransaction,
 ) -> Result<(Vec<Ior<Entity, Entity>>, ProcessedTransaction), ProcessedTransaction>
 where
-    Entity: EntitySnapshot + Tradable + TryFromLedger<BabbageTransactionOutput, HandlerContext> + Clone,
+    Entity: EntitySnapshot
+        + Tradable
+        + TryFromLedger<BabbageTransactionOutput, HandlerContext<Entity::StableId>>
+        + Clone,
     Entity::Version: From<OutputRef>,
     Index: TradableEntityIndex<Entity>,
 {
@@ -581,10 +599,21 @@ where
     }
     let mut produced_entities = HashMap::<Entity::StableId, Entity>::new();
     let mut non_processed_outputs = VecDeque::new();
-    let consumed_utxos = ConsumedInputs::new(consumed_utxos.into_iter());
+    let consumed_utxos = SmallVec::new(consumed_utxos.into_iter());
+    let consumed_identifiers = SmallVec::new(consumed_entities.keys().cloned());
     while let Some((ix, o)) = tx.outputs.pop() {
         let o_ref = OutputRef::new(tx.hash, ix as u64);
-        match Entity::try_from_ledger(&o, &HandlerContext::new(o_ref, consumed_utxos, context)) {
+        let produced_identifiers = SmallVec::new(produced_entities.keys().cloned());
+        match Entity::try_from_ledger(
+            &o,
+            &HandlerContext::new(
+                o_ref,
+                consumed_utxos.into(),
+                consumed_identifiers.into(),
+                produced_identifiers.into(),
+                context,
+            ),
+        ) {
             Some(entity) => {
                 let entity_id = entity.stable_id();
                 trace!("Entity {} created by {}", entity_id, tx.hash);
@@ -635,7 +664,7 @@ where
     Topic::Error: Debug,
     Entity: EntitySnapshot
         + Tradable<PairId = PairId>
-        + TryFromLedger<BabbageTransactionOutput, HandlerContext>
+        + TryFromLedger<BabbageTransactionOutput, HandlerContext<Entity::StableId>>
         + Clone
         + Debug,
     Entity::Version: From<OutputRef>,
@@ -648,7 +677,7 @@ where
         let mut updates: HashMap<PairId, Vec<Channel<StateUpdate<Entity>>>> = HashMap::new();
         let remainder = match ev {
             LedgerTxEvent::TxApplied { tx, slot } => {
-                match extract_persistent_transitions(Arc::clone(&self.index), self.context, tx).await {
+                match extract_continuous_transitions(Arc::clone(&self.index), self.context, tx).await {
                     Ok((transitions, tx)) => {
                         trace!("{} transitions found in applied TX", transitions.len());
                         let mut index = self.index.lock().await;
@@ -672,7 +701,7 @@ where
                 }
             }
             LedgerTxEvent::TxUnapplied(tx) => {
-                match extract_persistent_transitions(Arc::clone(&self.index), self.context, tx).await {
+                match extract_continuous_transitions(Arc::clone(&self.index), self.context, tx).await {
                     Ok((transitions, tx)) => {
                         trace!("{} entities found in unapplied TX", transitions.len());
                         let mut index = self.index.lock().await;
@@ -719,7 +748,7 @@ where
     Topic::Error: Debug,
     Entity: EntitySnapshot
         + Tradable<PairId = PairId>
-        + TryFromLedger<BabbageTransactionOutput, HandlerContext>
+        + TryFromLedger<BabbageTransactionOutput, HandlerContext<Entity::StableId>>
         + Clone
         + Debug,
     Entity::Version: From<OutputRef>,
@@ -732,7 +761,7 @@ where
         let mut updates: HashMap<PairId, Vec<Channel<StateUpdate<Entity>>>> = HashMap::new();
         let remainder = match ev {
             MempoolUpdate::TxAccepted(tx) => {
-                match extract_persistent_transitions(Arc::clone(&self.index), self.context, tx).await {
+                match extract_continuous_transitions(Arc::clone(&self.index), self.context, tx).await {
                     Ok((transitions, tx)) => {
                         trace!("{} entities found in accepted TX", transitions.len());
                         let mut index = self.index.lock().await;
@@ -821,7 +850,7 @@ mod tests {
     use futures::StreamExt;
     use tokio::sync::Mutex;
 
-    use crate::bounds::Bounds;
+    use crate::bounds::ValidationRules;
     use crate::event_sink::context::HandlerContextProto;
     use algebra_core::monoid::Monoid;
     use cardano_chain_sync::data::LedgerTxEvent;
@@ -836,14 +865,15 @@ mod tests {
     use spectrum_offchain::ledger::TryFromLedger;
     use spectrum_offchain::partitioning::Partitioned;
     use spectrum_offchain_cardano::creds::OperatorCred;
-    use spectrum_offchain_cardano::data::deposit::DepositOrderBounds;
-    use spectrum_offchain_cardano::data::pool::PoolBounds;
-    use spectrum_offchain_cardano::data::redeem::RedeemOrderBounds;
+    use spectrum_offchain_cardano::data::deposit::DepositOrderValidation;
+    use spectrum_offchain_cardano::data::pool::PoolValidation;
+    use spectrum_offchain_cardano::data::redeem::RedeemOrderValidation;
     use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHashes};
 
     use crate::event_sink::entity_index::InMemoryEntityIndex;
     use crate::event_sink::handler::{PairUpdateHandler, ProcessedTransaction};
-    use crate::orders::limit::LimitOrderBounds;
+    use crate::orders::adhoc::AdhocFeeStructure;
+    use crate::orders::limit::LimitOrderValidation;
 
     #[derive(Clone, Eq, PartialEq)]
     struct TrivialEntity(OutputRef, u64);
@@ -936,17 +966,18 @@ mod tests {
         let (snd, mut recv) = mpsc::channel::<(u8, Channel<StateUpdate<TrivialEntity>>)>(100);
         let ex_cred = OperatorCred(Ed25519KeyHash::from([0u8; 28]));
         let context = HandlerContextProto {
-            bounds: Bounds {
-                limit_order: LimitOrderBounds {
+            validation_rules: ValidationRules {
+                limit_order: LimitOrderValidation {
                     min_cost_per_ex_step: 1000,
+                    strict_beacon: true,
                 },
-                deposit_order: DepositOrderBounds {
+                deposit_order: DepositOrderValidation {
                     min_collateral_ada: 1000,
                 },
-                redeem_order: RedeemOrderBounds {
+                redeem_order: RedeemOrderValidation {
                     min_collateral_ada: 1000,
                 },
-                pool: PoolBounds {
+                pool: PoolValidation {
                     min_n2t_lovelace: 1000,
                     min_t2t_lovelace: 1000,
                 },
@@ -1042,6 +1073,7 @@ mod tests {
                     marginal_cost: ExUnits::empty(),
                 },
             },
+            adhoc_fee_structure: AdhocFeeStructure::empty(),
         };
         let mut handler = PairUpdateHandler::new(Partitioned::new([snd]), index, context);
         // Handle tx application

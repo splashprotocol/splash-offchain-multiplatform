@@ -22,7 +22,7 @@ use bloom_offchain::execution_engine::liquidity_book::TLB;
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
 use bloom_offchain::execution_engine::storage::kv_store::{InMemoryKvStore, KvStoreWithTracing};
 use bloom_offchain::execution_engine::storage::{InMemoryStateIndex, StateIndexWithTracing};
-use bloom_offchain_cardano::bounds::Bounds;
+use bloom_offchain_cardano::bounds::ValidationRules;
 use bloom_offchain_cardano::event_sink::context::HandlerContextProto;
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
 use bloom_offchain_cardano::event_sink::handler::{
@@ -49,7 +49,7 @@ use spectrum_cardano_lib::constants::BABBAGE_ERA_ID;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::OutboundTransaction;
-use spectrum_cardano_lib::OutputRef;
+use spectrum_cardano_lib::{OutputRef, Token};
 use spectrum_offchain::backlog::{BacklogCapacity, HotPriorityBacklog};
 use spectrum_offchain::data::event::{Channel, StateUpdate};
 use spectrum_offchain::data::order::OrderUpdate;
@@ -88,8 +88,10 @@ async fn main() {
     let deployment: DeployedValidators =
         serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
 
-    let raw_bounds = std::fs::read_to_string(args.bounds_path).expect("Cannot load bounds file");
-    let bounds: Bounds = serde_json::from_str(&raw_bounds).expect("Invalid bounds file");
+    let raw_validation_rules =
+        std::fs::read_to_string(args.validation_rules_path).expect("Cannot load bounds file");
+    let validation_rules: ValidationRules =
+        serde_json::from_str(&raw_validation_rules).expect("Invalid bounds file");
 
     log4rs::init_file(args.log4rs_path, Default::default()).unwrap();
 
@@ -202,14 +204,14 @@ async fn main() {
         executor_cred: operator_paycred,
         scripts: ProtocolScriptHashes::from(&protocol_deployment),
         adhoc_fee_structure: AdhocFeeStructure::empty(),
-        bounds,
+        validation_rules,
     };
     let general_upd_handler = PairUpdateHandler::new(
         partitioned_pair_upd_snd,
         Arc::clone(&entity_index),
         handler_context,
     );
-    let spec_upd_handler = SpecializedHandler::new(
+    let spec_upd_handler = SpecializedHandler::<_, _, _, Token>::new(
         PairUpdateHandler::new(partitioned_spec_upd_snd, entity_index, handler_context),
         spec_order_index,
     );
@@ -443,7 +445,7 @@ struct AppArgs {
     deployment_path: String,
     /// Path to the bounds JSON configuration file .
     #[arg(long, short)]
-    bounds_path: String,
+    validation_rules_path: String,
     /// Path to the log4rs YAML configuration file.
     #[arg(long, short)]
     log4rs_path: String,

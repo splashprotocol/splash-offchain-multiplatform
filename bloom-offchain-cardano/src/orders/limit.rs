@@ -1,11 +1,6 @@
 use std::cmp::{max, min, Ordering};
 use std::fmt::{Display, Formatter};
 
-use cml_chain::plutus::{ConstrPlutusData, PlutusData};
-use cml_chain::PolicyId;
-use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
-use cml_multi_era::babbage::BabbageTransactionOutput;
-
 use crate::orders::harden_price;
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
 use bloom_offchain::execution_engine::liquidity_book::linear_output_relative;
@@ -16,6 +11,11 @@ use bloom_offchain::execution_engine::liquidity_book::types::{
     AbsolutePrice, FeeAsset, InputAsset, OutputAsset, RelativePrice,
 };
 use bloom_offchain::execution_engine::liquidity_book::weight::Weighted;
+use cml_chain::plutus::{ConstrPlutusData, PlutusData};
+use cml_chain::PolicyId;
+use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
+use cml_multi_era::babbage::BabbageTransactionOutput;
+use log::trace;
 use spectrum_cardano_lib::address::PlutusAddress;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{
@@ -31,7 +31,7 @@ use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::pair::{side_of, PairId};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
-use spectrum_offchain_cardano::utxo::ConsumedInputs;
+use spectrum_offchain_cardano::handler_context::{ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers};
 
 pub const EXEC_REDEEMER: PlutusData = PlutusData::ConstrPlutusData(ConstrPlutusData {
     alternative: 1,
@@ -71,8 +71,6 @@ pub struct LimitOrder {
     pub cancellation_pkh: Ed25519KeyHash,
     /// Is executor's signature required.
     pub requires_executor_sig: bool,
-    /// Whether the order has just been created.
-    pub virgin: bool,
     /// How many execution units each order consumes.
     pub marginal_cost: ExUnits,
 }
@@ -330,21 +328,47 @@ impl TryFromPData for Datum {
     }
 }
 
-fn beacon_from_oref(oref: OutputRef) -> PolicyId {
+fn beacon_from_oref(input_oref: OutputRef, order_index: u64) -> PolicyId {
     let mut bf = vec![];
-    bf.append(&mut oref.tx_hash().to_raw_bytes().to_vec());
-    bf.append(&mut oref.index().to_string().as_bytes().to_vec());
+    bf.append(&mut input_oref.tx_hash().to_raw_bytes().to_vec());
+    bf.append(&mut input_oref.index().to_be_bytes().to_vec());
+    bf.append(&mut order_index.to_be_bytes().to_vec());
     blake2b224(&*bf).into()
 }
 
 const MIN_LOVELACE: u64 = 1_500_000;
 
+fn is_valid_beacon<C>(beacon: PolicyId, ctx: &C) -> bool
+where
+    C: Has<ConsumedInputs>
+        + Has<ConsumedIdentifiers<Token>>
+        + Has<ProducedIdentifiers<Token>>
+        + Has<OutputRef>,
+{
+    let order_index = ctx.select::<OutputRef>().index();
+    let valid_fresh_beacon = || {
+        ctx.select::<ConsumedInputs>()
+            .0
+            .find(|o| beacon_from_oref(*o, order_index) == beacon)
+    };
+    let consumed_ids = ctx.select::<ConsumedIdentifiers<Token>>().0;
+    let consumed_beacons = consumed_ids.count(|b| b.0 == beacon);
+    let produced_beacons = ctx
+        .select::<ProducedIdentifiers<Token>>()
+        .0
+        .count(|b| b.0 == beacon);
+    consumed_beacons == 1 && produced_beacons == 1 || valid_fresh_beacon() && consumed_ids.is_empty()
+}
+
 impl<C> TryFromLedger<BabbageTransactionOutput, C> for LimitOrder
 where
     C: Has<OperatorCred>
+        + Has<OutputRef>
+        + Has<ConsumedIdentifiers<Token>>
+        + Has<ProducedIdentifiers<Token>>
         + Has<ConsumedInputs>
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
-        + Has<LimitOrderBounds>,
+        + Has<LimitOrderValidation>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
@@ -376,35 +400,45 @@ where
                         || conf
                             .permitted_executors
                             .contains(&ctx.select::<OperatorCred>().into());
-                    if sufficient_input && sufficient_execution_budget && executable {
-                        let bounds = ctx.select::<LimitOrderBounds>();
-                        let valid_configuration = conf.cost_per_ex_step >= bounds.min_cost_per_ex_step
-                            && execution_budget >= conf.cost_per_ex_step;
-                        if valid_configuration {
-                            // Fresh beacon must be derived from one of consumed utxos.
-                            let valid_fresh_beacon = ctx
-                                .select::<ConsumedInputs>()
-                                .find(|o| beacon_from_oref(*o) == conf.beacon);
-                            let script_info = ctx.select::<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>();
-                            return Some(LimitOrder {
-                                beacon: conf.beacon,
-                                input_asset: conf.input,
-                                input_amount: conf.tradable_input,
-                                output_asset: conf.output,
-                                output_amount: value.amount_of(conf.output).unwrap_or(0),
-                                base_price: harden_price(conf.base_price, conf.tradable_input),
-                                execution_budget,
-                                fee_asset: AssetClass::Native,
-                                fee: conf.fee,
-                                min_marginal_output,
-                                max_cost_per_ex_step: conf.cost_per_ex_step,
-                                redeemer_address: conf.redeemer_address,
-                                cancellation_pkh: conf.cancellation_pkh,
-                                requires_executor_sig: !is_permissionless,
-                                virgin: valid_fresh_beacon,
-                                marginal_cost: script_info.marginal_cost,
-                            });
-                        }
+                    let validation = ctx.select::<LimitOrderValidation>();
+                    let valid_configuration = conf.cost_per_ex_step >= validation.min_cost_per_ex_step
+                        && execution_budget >= conf.cost_per_ex_step;
+                    let valid_beacon = || !validation.strict_beacon || is_valid_beacon(conf.beacon, ctx);
+                    if sufficient_input
+                        && sufficient_execution_budget
+                        && executable
+                        && valid_configuration
+                        && valid_beacon()
+                    {
+                        // Fresh beacon must be derived from one of consumed utxos.
+                        let script_info = ctx.select::<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>();
+                        return Some(LimitOrder {
+                            beacon: conf.beacon,
+                            input_asset: conf.input,
+                            input_amount: conf.tradable_input,
+                            output_asset: conf.output,
+                            output_amount: value.amount_of(conf.output).unwrap_or(0),
+                            base_price: harden_price(conf.base_price, conf.tradable_input),
+                            execution_budget,
+                            fee_asset: AssetClass::Native,
+                            fee: conf.fee,
+                            min_marginal_output,
+                            max_cost_per_ex_step: conf.cost_per_ex_step,
+                            redeemer_address: conf.redeemer_address,
+                            cancellation_pkh: conf.cancellation_pkh,
+                            requires_executor_sig: !is_permissionless,
+                            marginal_cost: script_info.marginal_cost,
+                        });
+                    } else {
+                        trace!(
+                            "Order {}: sufficient_input: {}, sufficient_execution_budget: {}, executable: {}, valid_configuration: {}, is_valid_beacon: {}", 
+                            conf.beacon,
+                            sufficient_input,
+                            sufficient_execution_budget,
+                            executable,
+                            valid_configuration,
+                            valid_beacon()
+                        );
                     }
                 }
             }
@@ -415,8 +449,9 @@ where
 
 #[derive(Copy, Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LimitOrderBounds {
+pub struct LimitOrderValidation {
     pub min_cost_per_ex_step: u64,
+    pub strict_beacon: bool,
 }
 
 #[cfg(test)]
@@ -429,7 +464,6 @@ mod tests {
     use cml_core::serialization::Deserialize;
     use cml_crypto::{Ed25519KeyHash, TransactionHash};
     use cml_multi_era::babbage::{BabbageFormatTxOut, BabbageTransactionOutput};
-    use num_rational::Ratio;
     use type_equalities::IsEqual;
 
     use bloom_offchain::execution_engine::liquidity_book::config::{ExecutionCap, ExecutionConfig};
@@ -437,29 +471,56 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::{ExternalTLBEvents, TemporalLiquidityBook, TLB};
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
-    use spectrum_cardano_lib::{AssetName, OutputRef};
+    use spectrum_cardano_lib::{AssetName, OutputRef, Token};
     use spectrum_offchain::data::Has;
     use spectrum_offchain::ledger::TryFromLedger;
+    use spectrum_offchain::small_set::SmallVec;
     use spectrum_offchain_cardano::creds::OperatorCred;
     use spectrum_offchain_cardano::data::pool::AnyPool;
     use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
     use spectrum_offchain_cardano::deployment::{
         DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes,
     };
-    use spectrum_offchain_cardano::utxo::ConsumedInputs;
+    use spectrum_offchain_cardano::handler_context::{
+        ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers,
+    };
 
-    use crate::orders::limit::{beacon_from_oref, unsafe_update_datum, Datum, LimitOrder, LimitOrderBounds};
+    use crate::orders::limit::{
+        beacon_from_oref, unsafe_update_datum, Datum, LimitOrder, LimitOrderValidation,
+    };
 
     struct Context {
+        oref: OutputRef,
         limit_order: DeployedScriptInfo<{ LimitOrderV1 as u8 }>,
         cred: OperatorCred,
         consumed_inputs: ConsumedInputs,
+        consumed_identifiers: ConsumedIdentifiers<Token>,
+        produced_identifiers: ProducedIdentifiers<Token>,
     }
 
-    impl Has<LimitOrderBounds> for Context {
-        fn select<U: IsEqual<LimitOrderBounds>>(&self) -> LimitOrderBounds {
-            LimitOrderBounds {
+    impl Has<OutputRef> for Context {
+        fn select<U: IsEqual<OutputRef>>(&self) -> OutputRef {
+            self.oref
+        }
+    }
+
+    impl Has<ConsumedIdentifiers<Token>> for Context {
+        fn select<U: IsEqual<ConsumedIdentifiers<Token>>>(&self) -> ConsumedIdentifiers<Token> {
+            self.consumed_identifiers
+        }
+    }
+
+    impl Has<ProducedIdentifiers<Token>> for Context {
+        fn select<U: IsEqual<ProducedIdentifiers<Token>>>(&self) -> ProducedIdentifiers<Token> {
+            self.produced_identifiers
+        }
+    }
+
+    impl Has<LimitOrderValidation> for Context {
+        fn select<U: IsEqual<LimitOrderValidation>>(&self) -> LimitOrderValidation {
+            LimitOrderValidation {
                 min_cost_per_ex_step: 0,
+                strict_beacon: true,
             }
         }
     }
@@ -486,19 +547,14 @@ mod tests {
 
     #[test]
     fn beacon_derivation_eqv() {
+        const TX: &str = "d90ff0194f2ca8dc832ab0550375ef688a74748d963be33cd08622dd0ba65af6";
+        const IX: u64 = 0;
+        const ORDER_IX: u64 = 0;
         let oref = OutputRef::new(TransactionHash::from_hex(TX).unwrap(), IX);
         assert_eq!(
-            beacon_from_oref(oref).to_hex(),
-            "eb9575d907ac66f8f0c75c44ad51189a4b41756e8543cd59e331bc02"
+            beacon_from_oref(oref, ORDER_IX).to_hex(),
+            "355e042fc2397adf5a5fc731a54853b4831facc28a256c1df67263bd"
         )
-    }
-
-    const TX: &str = "6c038a69587061acd5611507e68b1fd3a7e7d189367b7853f3bb5079a118b880";
-    const IX: u64 = 1;
-
-    #[test]
-    fn foo() {
-        dbg!(Ratio::new(3, 5).cmp(&Ratio::new(1, 6)));
     }
 
     #[test]
@@ -523,14 +579,21 @@ mod tests {
 
     #[test]
     fn try_read() {
+        const TX: &str = "a035c1cb245735680dcb3c46a9a3e692fbf550c8a5d7c4ada1471f97cc92dc55";
+        const IX: u64 = 0;
+        const ORDER_IX: u64 = 0;
+        let oref = OutputRef::new(TransactionHash::from_hex(TX).unwrap(), IX);
         let raw_deployment = std::fs::read_to_string("/Users/oskin/dev/spectrum/spectrum-offchain-multiplatform/bloom-cardano-agent/resources/mainnet.deployment.json").expect("Cannot load deployment file");
         let deployment: DeployedValidators =
             serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
         let scripts = ProtocolScriptHashes::from(&deployment);
         let ctx = Context {
+            oref,
             limit_order: scripts.limit_order,
             cred: OperatorCred(Ed25519KeyHash::from([0u8; 28])),
-            consumed_inputs: ConsumedInputs::new(vec![].into_iter()),
+            consumed_inputs: SmallVec::new(vec![oref].into_iter()).into(),
+            consumed_identifiers: Default::default(),
+            produced_identifiers: Default::default(),
         };
         let bearer = BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(ORDER_UTXO).unwrap()).unwrap();
         let ord = LimitOrder::try_from_ledger(&bearer, &ctx).expect("LimitOrder expected");
@@ -538,7 +601,7 @@ mod tests {
         println!("P_abs: {}", ord.price());
     }
 
-    const ORDER_UTXO: &str = "a300583911dbe7a3d8a1d82990992a38eea1a2efaa68e931e252fc92ca1383809bde7866fe5068ebf3c87dcdb568da528da5dcb5f659d9b60010e7450f01821a0024b274a1581cecc0c71e1eb2d5d51b76cd918693550858a8fa5fb5f937901ec5eb8aa1464d41524b455402028201d818590118d8798c4100581cf8903c25300f894f83566921d9f84b02515775a99734ededa771113bd87982581cecc0c71e1eb2d5d51b76cd918693550858a8fa5fb5f937901ec5eb8a464d41524b4554021a0007a12001d87982581c4dba80a853a7791030e470024314c7bccd4a249a87f44f78ff5a3ec746536f6c616e61d879821b000358869b0242cd1b00038d7ea4c6800000d87982d87981581c74104cd5ca6288c1dd2e22ee5c874fdcfc1b81897462d91153496430d87981d87981d87981581cde7866fe5068ebf3c87dcdb568da528da5dcb5f659d9b60010e7450f581c74104cd5ca6288c1dd2e22ee5c874fdcfc1b81897462d9115349643081581c2f9ff04d8914bf64d671a03d34ab7937eb417831ea6b9f7fbcab96f5";
+    const ORDER_UTXO: &str = "a300583911464eeee89f05aff787d40045af2a40a83fd96c513197d32fbc54ff027846f6bb07f5b2825885e4502679e699b4e60a0c4609a46bc35454cd011a002f4d60028201d81858fed8798c4100581c91290a058a4b2d706a14abf94deda7bb4bf486f42e50f777004b8429d8798240401a000f42401a000557301a00012174d87982581c3417226aaa4bd7391a7a7f86d7b140b14a35388080b929550d0badab4b4c6f616420546573742031d879821a000b4e8d1a009896801a0003d090d87982d87981581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b25d87981d87981d87981581c7846f6bb07f5b2825885e4502679e699b4e60a0c4609a46bc35454cd581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b2581581c2f9ff04d8914bf64d671a03d34ab7937eb417831ea6b9f7fbcab96f5";
 
     #[test]
     fn read_config() {
@@ -554,16 +617,23 @@ mod tests {
 
     #[test]
     fn recipe_fill_fragment_from_fragment_batch() {
+        const TX: &str = "d90ff0194f2ca8dc832ab0550375ef688a74748d963be33cd08622dd0ba65af6";
+        const IX: u64 = 0;
+        const ORDER_IX: u64 = 0;
+        let oref = OutputRef::new(TransactionHash::from_hex(TX).unwrap(), IX);
         let raw_deployment = std::fs::read_to_string("/Users/oskin/dev/spectrum/spectrum-offchain-multiplatform/bloom-cardano-agent/resources/mainnet.deployment.json").expect("Cannot load deployment file");
         let deployment: DeployedValidators =
             serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
         let scripts = ProtocolScriptHashes::from(&deployment);
         let ctx = Context {
+            oref,
             limit_order: scripts.limit_order,
             cred: OperatorCred(
                 Ed25519KeyHash::from_hex("17979109209d255917b8563d1e50a5be8123d5e283fbc6fbb04550c6").unwrap(),
             ),
-            consumed_inputs: ConsumedInputs::new(vec![].into_iter()),
+            consumed_inputs: SmallVec::new(vec![].into_iter()).into(),
+            consumed_identifiers: Default::default(),
+            produced_identifiers: Default::default(),
         };
         let d0 = PlutusData::from_cbor_bytes(&*hex::decode(D0).unwrap()).unwrap();
         let o0 = BabbageTransactionOutput::new_babbage_format_tx_out(BabbageFormatTxOut {

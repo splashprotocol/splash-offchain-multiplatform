@@ -210,7 +210,7 @@ impl CFMMPoolAction {
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PoolBounds {
+pub struct PoolValidation {
     pub min_n2t_lovelace: u64,
     pub min_t2t_lovelace: u64,
 }
@@ -339,7 +339,7 @@ where
         + Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
         + Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>>
-        + Has<PoolBounds>,
+        + Has<PoolValidation>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
         ConstFnPool::try_from_ledger(repr, ctx)

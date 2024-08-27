@@ -38,7 +38,7 @@ pub struct Redeem {
 
 #[derive(Copy, Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RedeemOrderBounds {
+pub struct RedeemOrderValidation {
     pub min_collateral_ada: u64,
 }
 
@@ -103,7 +103,7 @@ where
         + Has<DeployedScriptInfo<{ ConstFnPoolRedeem as u8 }>>
         + Has<DeployedScriptInfo<{ BalanceFnPoolRedeem as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2TRedeem as u8 }>>
-        + Has<RedeemOrderBounds>,
+        + Has<RedeemOrderValidation>,
 {
     fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
         let is_const_fee_switch_pool_deposit =
@@ -142,7 +142,7 @@ where
                 order_type,
             };
 
-            let bounds = ctx.select::<RedeemOrderBounds>();
+            let bounds = ctx.select::<RedeemOrderValidation>();
 
             if collateral_ada >= bounds.min_collateral_ada {
                 return Some(ClassicalOrder {
