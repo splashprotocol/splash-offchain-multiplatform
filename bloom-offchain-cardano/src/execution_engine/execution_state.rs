@@ -126,18 +126,23 @@ impl TxBlueprint {
         let mut all_io = script_io.into_iter().map(Either::Left).collect::<Vec<_>>();
         let funding_io = if operator_interest > 0 {
             if operator_interest >= MIN_SAFE_LOVELACE_VALUE {
-                let operator_output = TransactionOutput::new(
-                    operator_address.into(),
-                    Value::from(operator_interest),
-                    None,
-                    None,
-                );
+                let reward_dest_address = operator_address.address();
+                let reward_dest_coincides_with_funding = reward_dest_address == *operator_funding.0.address();
+                let operator_output =
+                    TransactionOutput::new(reward_dest_address, Value::from(operator_interest), None, None);
                 all_io.push(Either::Right((None, operator_output.clone())));
-                FundingIO::Added(operator_funding, operator_output)
+                if reward_dest_coincides_with_funding {
+                    // If reward dest address coincide with funding address then it can be used as funding.
+                    FundingIO::Added(operator_funding, operator_output)
+                } else {
+                    FundingIO::NotUsed(operator_funding)
+                }
             } else {
+                // If funding utxo has to be used it is replaced with `operator_output`.
+                let reward_dest_address = operator_funding.0.address().clone();
                 let mut value = operator_funding.0.value().clone();
                 value.add_unsafe(AssetClass::Native, operator_interest);
-                let operator_output = TransactionOutput::new(operator_address.into(), value, None, None);
+                let operator_output = TransactionOutput::new(reward_dest_address, value, None, None);
                 all_io.push(Either::Right((
                     Some(operator_funding.clone()),
                     operator_output.clone(),

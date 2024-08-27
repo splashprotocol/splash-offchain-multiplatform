@@ -28,6 +28,7 @@
     "nanos": 0
   },
   "operatorKey": "",
+  "serviceFeeAddress": "",
   "maestroKeyPath": "bloom-cardano-agent/resources/maestro.key",
   "execution": {
     "executionCap": {

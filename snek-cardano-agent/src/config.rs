@@ -7,6 +7,7 @@ use cardano_chain_sync::client::Point;
 use cml_core::Slot;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::NetworkId;
+use spectrum_offchain_cardano::creds::OperatorRewardAddress;
 use spectrum_offchain_cardano::node::NodeConfig;
 use std::time::Duration;
 
@@ -17,7 +18,8 @@ pub struct AppConfig<'a> {
     pub chain_sync: ChainSyncConfig<'a>,
     pub node: NodeConfig<'a>,
     pub tx_submission_buffer_size: usize,
-    pub operator_key: &'a str, //todo: store encrypted
+    pub operator_key: &'a str,
+    pub service_fee_address: OperatorRewardAddress,
     pub cardano_finalization_delay: Duration,
     pub backlog_capacity: u32,
     pub network_id: NetworkId,

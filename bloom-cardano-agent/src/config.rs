@@ -18,7 +18,7 @@ pub struct AppConfig<'a> {
     pub chain_sync: ChainSyncConfig<'a>,
     pub node: NodeConfig<'a>,
     pub tx_submission_buffer_size: usize,
-    pub operator_key: &'a str, //todo: store encrypted
+    pub operator_key: &'a str,
     pub cardano_finalization_delay: Duration,
     pub backlog_capacity: u32,
     pub network_id: NetworkId,
