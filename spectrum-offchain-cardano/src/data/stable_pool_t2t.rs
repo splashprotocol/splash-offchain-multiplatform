@@ -22,7 +22,7 @@ use bloom_offchain::execution_engine::liquidity_book::market_maker::{
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
     AvailableLiquidity, FullPriceDerivative,
 };
-use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
+use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side, SwapAssetSide};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension};
@@ -700,7 +700,7 @@ impl MarketMaker for StablePoolT2T {
         });
     }
 
-    fn full_price_derivative(&self, side: Side) -> Option<FullPriceDerivative> {
+    fn full_price_derivative(&self, side: OnSide<SwapAssetSide>) -> Option<FullPriceDerivative> {
         unimplemented!()
     }
 

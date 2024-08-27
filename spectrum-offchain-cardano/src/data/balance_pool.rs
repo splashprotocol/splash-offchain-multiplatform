@@ -27,7 +27,7 @@ use bloom_offchain::execution_engine::liquidity_book::market_maker::{
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
     AvailableLiquidity, FullPriceDerivative,
 };
-use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
+use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side, SwapAssetSide};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension};
@@ -449,13 +449,13 @@ impl MakerBehavior for BalancePool {
                 // pool reserves of base decreases while reserves of quote increase.
                 *quote_reserves += input;
                 *base_reserves -= output;
-                *quote_treasury += (input * self.treasury_fee.numer() / self.treasury_fee.denom());
+                *quote_treasury += input * self.treasury_fee.numer() / self.treasury_fee.denom();
             }
             OnSide::Ask(input) => {
                 // User ask is the opposite; sell the base asset for the quote asset.
                 *base_reserves += input;
                 *quote_reserves -= output;
-                *base_treasury += (input * self.treasury_fee.numer() / self.treasury_fee.denom());
+                *base_treasury += input * self.treasury_fee.numer() / self.treasury_fee.denom();
             }
         }
         Next::Succ(self)
@@ -617,9 +617,58 @@ impl MarketMaker for BalancePool {
             output: output_amount_val,
         });
     }
+    fn full_price_derivative(&self, side: OnSide<SwapAssetSide>) -> Option<FullPriceDerivative> {
+        let (
+            side_a_balance,
+            side_b_balance,
+            w_a_num,
+            w_b_num,
+            lp_fee_mult_num,
+            lp_fee_mult_denom,
+            swap_asset_side,
+        ) = match side {
+            OnSide::Ask(swap_asset_side) => (
+                U512::from((self.reserves_y - self.treasury_y).untag()),
+                U512::from((self.reserves_x - self.treasury_x).untag()),
+                U512::from(self.weight_y),
+                U512::from(self.weight_x),
+                U512::from(*self.lp_fee_y.numer()),
+                U512::from(*self.lp_fee_y.denom()),
+                swap_asset_side,
+            ),
+            OnSide::Bid(swap_asset_side) => (
+                U512::from((self.reserves_x - self.treasury_x).untag()),
+                U512::from((self.reserves_y - self.treasury_y).untag()),
+                U512::from(self.weight_x),
+                U512::from(self.weight_y),
+                U512::from(*self.lp_fee_x.numer()),
+                U512::from(*self.lp_fee_x.denom()),
+                swap_asset_side,
+            ),
+        };
 
-    fn full_price_derivative(&self, side: Side) -> Option<FullPriceDerivative> {
-        unimplemented!()
+        let out_num = w_b_num
+            .checked_mul(lp_fee_mult_num)?
+            .checked_add(w_a_num.checked_mul(lp_fee_mult_denom)?)?;
+        let out_denom = lp_fee_mult_denom
+            .checked_mul(w_a_num)?
+            .checked_mul(side_b_balance)?;
+
+        let (derivative_num, derivative_denom) = match swap_asset_side {
+            SwapAssetSide::Output => (out_num, out_denom),
+            SwapAssetSide::Input => (
+                w_b_num
+                    .checked_mul(side_a_balance)?
+                    .checked_mul(lp_fee_mult_num)?
+                    .checked_mul(out_num)?,
+                out_denom.checked_mul(out_denom)?,
+            ),
+        };
+
+        Some(FullPriceDerivative(Ratio::new_raw(
+            derivative_num.as_u128(),
+            derivative_denom.as_u128(),
+        )))
     }
 }
 
@@ -739,15 +788,16 @@ mod tests {
     use cml_core::serialization::Serialize;
     use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
     use num_rational::Ratio;
+    use num_traits::ToPrimitive;
     use void::Void;
 
     use algebra_core::semigroup::Semigroup;
     use bloom_offchain::execution_engine::liquidity_book::core::{Next, Trans};
     use bloom_offchain::execution_engine::liquidity_book::market_maker::{
-        AvailableLiquidity, MakerBehavior, MarketMaker,
+        AvailableLiquidity, FullPriceDerivative, MakerBehavior, MarketMaker,
     };
-    use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
+    use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, SwapAssetSide};
     use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
@@ -983,14 +1033,51 @@ mod tests {
 
         let worst_price = AbsolutePrice::new(1125899906842624, 4717703533773517).unwrap();
         let Some(AvailableLiquidity {
-            input: _,
+            input: inp,
             output: quote_qty_bid_spot,
         }) = pool.available_liquidity_on_side(Bid(worst_price))
         else {
             !panic!()
         };
 
+        let Next::Succ(new_pool) = pool.swap(Bid(93189583)) else {
+            panic!()
+        };
         assert_eq!(quote_qty_ask_spot, 2813733);
         assert_eq!(quote_qty_bid_spot, 14477946)
+    }
+    #[test]
+    fn full_price_derivative_test() {
+        let lp_fee_num = 80000;
+        let reserves_x = 10000000000;
+        let reserves_y = 340000000000;
+
+        let pool = gen_ada_token_pool(reserves_x, reserves_y, 0, lp_fee_num, lp_fee_num, 0, 0, 0);
+
+        // Input:
+        let Some(FullPriceDerivative(ask_in_d)) = pool.full_price_derivative(Ask(SwapAssetSide::Input))
+        else {
+            !panic!()
+        };
+        let Some(FullPriceDerivative(bid_in_d)) = pool.full_price_derivative(Bid(SwapAssetSide::Input))
+        else {
+            !panic!()
+        };
+
+        // Output:
+        let Some(FullPriceDerivative(ask_out_d)) = pool.full_price_derivative(Ask(SwapAssetSide::Output))
+        else {
+            !panic!()
+        };
+        let Some(FullPriceDerivative(bid_out_d)) = pool.full_price_derivative(Bid(SwapAssetSide::Output))
+        else {
+            !panic!()
+        };
+
+        assert_eq!(ask_out_d.to_f64().unwrap(), 1.2e-10);
+        assert_eq!(bid_out_d.to_f64().unwrap(), 1.2352941176470589e-11);
+
+        assert_eq!(ask_in_d.to_f64().unwrap(), 8.16e-10);
+        assert_eq!(bid_in_d.to_f64().unwrap(), 1.162629757785467e-12);
     }
 }
