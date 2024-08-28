@@ -554,8 +554,8 @@ impl MarketMaker for DegenQuadraticPool {
     }
 
     fn output_estimation(&self, input: OnSide<u64>) -> Option<AvailableLiquidity> {
-        const MAX_EXCESS_PERC: u64 = 1;
-        const PERC: u64 = 100;
+        const MAX_EXCESS_PERC: u64 = 5;
+        const PERC: u64 = 1000;
 
         let (input_amount, output_amount) = match input {
             OnSide::Bid(input) => (
@@ -568,8 +568,7 @@ impl MarketMaker for DegenQuadraticPool {
             ),
             OnSide::Ask(input_candidate) => {
                 let reserves_ada = self.reserves_x.untag();
-                let max_ada_required =
-                    (self.ada_cap_thr - MIN_ADA) * (PERC + MAX_EXCESS_PERC) / PERC - reserves_ada;
+                let max_ada_required = self.ada_cap_thr * (PERC + MAX_EXCESS_PERC) / PERC - reserves_ada;
                 let max_token_available = self
                     .output_amount(
                         TaggedAssetClass::new(self.asset_x.into()),
@@ -1082,7 +1081,7 @@ mod tests {
         assert_eq!(b, y_rec);
 
         let too_bid_ask_input = 2 * ada_cap.clone();
-        let max_ask_input = (pool2.ada_cap_thr - MIN_ADA) * 101 / 100 - pool2.reserves_x.untag();
+        let max_ask_input = (pool2.ada_cap_thr) * 1005 / 1000 - pool2.reserves_x.untag();
         let Some(AvailableLiquidity { input: b, output: q }) =
             pool2.output_estimation(Ask(too_bid_ask_input))
         else {
@@ -1094,5 +1093,6 @@ mod tests {
         let y_max = pool2.reserves_y.untag() - pool3.reserves_y.untag();
         assert_eq!(q, y_max);
         assert_eq!(b, max_ask_input);
+        assert!(pool3.reserves_x.untag() >= pool3.ada_cap_thr)
     }
 }
