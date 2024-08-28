@@ -455,6 +455,10 @@ impl MarketMaker for ConstFnPool {
             output: output_amount_val,
         })
     }
+
+    fn output_estimation(&self, input: OnSide<u64>) -> Option<AvailableLiquidity> {
+        todo!()
+    }
 }
 
 impl Has<ConstFnPoolVer> for ConstFnPool {
