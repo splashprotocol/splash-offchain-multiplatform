@@ -61,8 +61,10 @@ impl<T: Stable, M> StateView<T, M> {
     }
 }
 
+#[derive(Clone)]
 struct IdleState<T: Stable, M>(StateView<T, M>);
 
+#[derive(Clone)]
 struct PreviewState<T: Stable, M>(/*preview*/ StateView<T, M>, /*backup*/ StateView<T, M>);
 
 impl<T: Stable, M> PreviewState<T, M> {
@@ -83,6 +85,7 @@ impl<T: Stable, M> PreviewState<T, M> {
     }
 }
 
+#[derive(Clone)]
 enum State<T: Stable, M> {
     Idle(IdleState<T, M>),
     Preview(PreviewState<T, M>),
@@ -192,6 +195,7 @@ impl<T: Stable, M> PreviewState<T, M> {
     }
 }
 
+#[derive(Clone)]
 pub struct HotLB<T: Stable, M, U> {
     state: State<T, M>,
     execution_cap: ExecutionCap<U>,
@@ -208,6 +212,7 @@ impl<T: Stable, M, U> HotLB<T, M, U> {
 
 impl<T, M, Ctx, U> Maker<Ctx> for HotLB<T, M, U>
 where
+    T: Stable,
     M: Stable,
     Ctx: Has<ExecutionConfig<U>>,
 {

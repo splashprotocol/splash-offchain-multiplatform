@@ -239,7 +239,7 @@ async fn main() {
         adhoc_fee_structure: config.adhoc_fee.into(),
     };
     let (signal_tip_reached_snd, signal_tip_reached_recv) = broadcast::channel(1);
-    let (execution_stream_p1, execution_stream_p2, execution_stream_p3, execution_stream_p4) = if args.hot {
+    if args.hot {
         let multi_book =
             MultiPair::new::<HotLB<AdhocOrder, DegenQuadraticPool, ExUnits>>(maker_context.clone(), "Book");
         let multi_backlog = MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(
@@ -317,12 +317,43 @@ async fn main() {
             tx_submission_channel,
             signal_tip_reached_snd.subscribe(),
         );
-        (
-            execution_stream_p1,
-            execution_stream_p2,
-            execution_stream_p3,
-            execution_stream_p4,
-        )
+        let ledger_stream = Box::pin(ledger_transactions(
+            chain_sync_cache,
+            chain_sync_stream(chain_sync, signal_tip_reached_snd),
+            config.chain_sync.disable_rollbacks_until,
+            config.chain_sync.replay_from_point,
+            rollback_in_progress,
+        ))
+        .await
+        .map(|ev| match ev {
+            LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
+                tx: ProcessedTransaction::from(tx),
+                slot,
+            },
+            LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(ProcessedTransaction::from(tx)),
+        });
+        let mempool_stream = mempool_stream(&mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
+            MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(ProcessedTransaction::from(tx)),
+        });
+
+        let process_ledger_events_stream =
+            process_events(ledger_stream, handlers_ledger).buffered_within(config.ledger_buffering_duration);
+        let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool)
+            .buffered_within(config.mempool_buffering_duration);
+
+        let mut app = select_all(vec![
+            boxed(process_ledger_events_stream),
+            boxed(process_mempool_events_stream),
+            boxed(execution_stream_p1),
+            boxed(execution_stream_p2),
+            boxed(execution_stream_p3),
+            boxed(execution_stream_p4),
+            boxed(tx_submission_stream),
+        ]);
+
+        loop {
+            app.select_next_some().await;
+        }
     } else {
         let multi_book =
             MultiPair::new::<TLB<AdhocOrder, DegenQuadraticPool, ExUnits>>(maker_context.clone(), "Book");
@@ -401,50 +432,43 @@ async fn main() {
             tx_submission_channel,
             signal_tip_reached_snd.subscribe(),
         );
-        (
-            execution_stream_p1,
-            execution_stream_p2,
-            execution_stream_p3,
-            execution_stream_p4,
-        )
-    };
+        let ledger_stream = Box::pin(ledger_transactions(
+            chain_sync_cache,
+            chain_sync_stream(chain_sync, signal_tip_reached_snd),
+            config.chain_sync.disable_rollbacks_until,
+            config.chain_sync.replay_from_point,
+            rollback_in_progress,
+        ))
+        .await
+        .map(|ev| match ev {
+            LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
+                tx: ProcessedTransaction::from(tx),
+                slot,
+            },
+            LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(ProcessedTransaction::from(tx)),
+        });
+        let mempool_stream = mempool_stream(&mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
+            MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(ProcessedTransaction::from(tx)),
+        });
 
-    let ledger_stream = Box::pin(ledger_transactions(
-        chain_sync_cache,
-        chain_sync_stream(chain_sync, signal_tip_reached_snd),
-        config.chain_sync.disable_rollbacks_until,
-        config.chain_sync.replay_from_point,
-        rollback_in_progress,
-    ))
-    .await
-    .map(|ev| match ev {
-        LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
-            tx: ProcessedTransaction::from(tx),
-            slot,
-        },
-        LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(ProcessedTransaction::from(tx)),
-    });
-    let mempool_stream = mempool_stream(&mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
-        MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(ProcessedTransaction::from(tx)),
-    });
+        let process_ledger_events_stream =
+            process_events(ledger_stream, handlers_ledger).buffered_within(config.ledger_buffering_duration);
+        let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool)
+            .buffered_within(config.mempool_buffering_duration);
 
-    let process_ledger_events_stream =
-        process_events(ledger_stream, handlers_ledger).buffered_within(config.ledger_buffering_duration);
-    let process_mempool_events_stream =
-        process_events(mempool_stream, handlers_mempool).buffered_within(config.mempool_buffering_duration);
+        let mut app = select_all(vec![
+            boxed(process_ledger_events_stream),
+            boxed(process_mempool_events_stream),
+            boxed(execution_stream_p1),
+            boxed(execution_stream_p2),
+            boxed(execution_stream_p3),
+            boxed(execution_stream_p4),
+            boxed(tx_submission_stream),
+        ]);
 
-    let mut app = select_all(vec![
-        boxed(process_ledger_events_stream),
-        boxed(process_mempool_events_stream),
-        boxed(execution_stream_p1),
-        boxed(execution_stream_p2),
-        boxed(execution_stream_p3),
-        boxed(execution_stream_p4),
-        boxed(tx_submission_stream),
-    ]);
-
-    loop {
-        app.select_next_some().await;
+        loop {
+            app.select_next_some().await;
+        }
     }
 }
 
