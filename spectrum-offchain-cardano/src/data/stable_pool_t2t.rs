@@ -699,7 +699,7 @@ impl MarketMaker for StablePoolT2T {
         });
     }
 
-    fn output_estimation(&self, input: OnSide<u64>) -> Option<AvailableLiquidity> {
+    fn estimated_trade(&self, input: OnSide<u64>) -> Option<AvailableLiquidity> {
         todo!()
     }
 

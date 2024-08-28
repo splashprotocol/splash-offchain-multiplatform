@@ -18,6 +18,7 @@ use crate::entity::{AtomicCardanoEntity, EvolvingCardanoEntity};
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_part_stream;
 use bloom_offchain::execution_engine::funding_effect::FundingEvent;
+use bloom_offchain::execution_engine::liquidity_book::hot::HotLB;
 use bloom_offchain::execution_engine::liquidity_book::TLB;
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
 use bloom_offchain::execution_engine::storage::kv_store::InMemoryKvStore;
@@ -237,85 +238,176 @@ async fn main() {
         operator_cred: operator_paycred,
         adhoc_fee_structure: config.adhoc_fee.into(),
     };
-    let multi_book =
-        MultiPair::new::<TLB<AdhocOrder, DegenQuadraticPool, ExUnits>>(maker_context.clone(), "Book");
-    let multi_backlog = MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(
-        maker_context,
-        "Backlog",
-    );
-    let state_index = InMemoryStateIndex::with_tracing();
-    let state_cache = InMemoryKvStore::with_tracing();
-
     let (signal_tip_reached_snd, signal_tip_reached_recv) = broadcast::channel(1);
+    let (execution_stream_p1, execution_stream_p2, execution_stream_p3, execution_stream_p4) = if args.hot {
+        let multi_book =
+            MultiPair::new::<HotLB<AdhocOrder, DegenQuadraticPool, ExUnits>>(maker_context.clone(), "Book");
+        let multi_backlog = MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(
+            maker_context,
+            "Backlog",
+        );
+        let state_index = InMemoryStateIndex::with_tracing();
+        let state_cache = InMemoryKvStore::with_tracing();
 
-    let execution_stream_p1 = execution_part_stream(
-        state_index.clone(),
-        state_cache.clone(),
-        multi_book.clone(),
-        multi_backlog.clone(),
-        context.clone(),
-        recipe_interpreter,
-        spec_interpreter,
-        prover,
-        select_partition(
-            merge_upstreams(pair_upd_recv_p1, spec_upd_recv_p1),
-            config.partitioning.clone(),
-        ),
-        funding_upd_recv_p1,
-        tx_submission_channel.clone(),
-        signal_tip_reached_snd.subscribe(),
-    );
-    let execution_stream_p2 = execution_part_stream(
-        state_index.clone(),
-        state_cache.clone(),
-        multi_book.clone(),
-        multi_backlog.clone(),
-        context.clone(),
-        recipe_interpreter,
-        spec_interpreter,
-        prover,
-        select_partition(
-            merge_upstreams(pair_upd_recv_p2, spec_upd_recv_p2),
-            config.partitioning.clone(),
-        ),
-        funding_upd_recv_p2,
-        tx_submission_channel.clone(),
-        signal_tip_reached_snd.subscribe(),
-    );
-    let execution_stream_p3 = execution_part_stream(
-        state_index.clone(),
-        state_cache.clone(),
-        multi_book.clone(),
-        multi_backlog.clone(),
-        context.clone(),
-        recipe_interpreter,
-        spec_interpreter,
-        prover,
-        select_partition(
-            merge_upstreams(pair_upd_recv_p3, spec_upd_recv_p3),
-            config.partitioning.clone(),
-        ),
-        funding_upd_recv_p3,
-        tx_submission_channel.clone(),
-        signal_tip_reached_snd.subscribe(),
-    );
-    let execution_stream_p4 = execution_part_stream(
-        state_index,
-        state_cache,
-        multi_book,
-        multi_backlog,
-        context,
-        recipe_interpreter,
-        spec_interpreter,
-        prover,
-        select_partition(
-            merge_upstreams(pair_upd_recv_p4, spec_upd_recv_p4),
-            config.partitioning,
-        ),
-        funding_upd_recv_p4,
-        tx_submission_channel,
-        signal_tip_reached_snd.subscribe(),
-    );
+        let execution_stream_p1 = execution_part_stream(
+            state_index.clone(),
+            state_cache.clone(),
+            multi_book.clone(),
+            multi_backlog.clone(),
+            context.clone(),
+            recipe_interpreter,
+            spec_interpreter,
+            prover,
+            select_partition(
+                merge_upstreams(pair_upd_recv_p1, spec_upd_recv_p1),
+                config.partitioning.clone(),
+            ),
+            funding_upd_recv_p1,
+            tx_submission_channel.clone(),
+            signal_tip_reached_snd.subscribe(),
+        );
+        let execution_stream_p2 = execution_part_stream(
+            state_index.clone(),
+            state_cache.clone(),
+            multi_book.clone(),
+            multi_backlog.clone(),
+            context.clone(),
+            recipe_interpreter,
+            spec_interpreter,
+            prover,
+            select_partition(
+                merge_upstreams(pair_upd_recv_p2, spec_upd_recv_p2),
+                config.partitioning.clone(),
+            ),
+            funding_upd_recv_p2,
+            tx_submission_channel.clone(),
+            signal_tip_reached_snd.subscribe(),
+        );
+        let execution_stream_p3 = execution_part_stream(
+            state_index.clone(),
+            state_cache.clone(),
+            multi_book.clone(),
+            multi_backlog.clone(),
+            context.clone(),
+            recipe_interpreter,
+            spec_interpreter,
+            prover,
+            select_partition(
+                merge_upstreams(pair_upd_recv_p3, spec_upd_recv_p3),
+                config.partitioning.clone(),
+            ),
+            funding_upd_recv_p3,
+            tx_submission_channel.clone(),
+            signal_tip_reached_snd.subscribe(),
+        );
+        let execution_stream_p4 = execution_part_stream(
+            state_index,
+            state_cache,
+            multi_book,
+            multi_backlog,
+            context,
+            recipe_interpreter,
+            spec_interpreter,
+            prover,
+            select_partition(
+                merge_upstreams(pair_upd_recv_p4, spec_upd_recv_p4),
+                config.partitioning,
+            ),
+            funding_upd_recv_p4,
+            tx_submission_channel,
+            signal_tip_reached_snd.subscribe(),
+        );
+        (
+            execution_stream_p1,
+            execution_stream_p2,
+            execution_stream_p3,
+            execution_stream_p4,
+        )
+    } else {
+        let multi_book =
+            MultiPair::new::<TLB<AdhocOrder, DegenQuadraticPool, ExUnits>>(maker_context.clone(), "Book");
+        let multi_backlog = MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(
+            maker_context,
+            "Backlog",
+        );
+        let state_index = InMemoryStateIndex::with_tracing();
+        let state_cache = InMemoryKvStore::with_tracing();
+
+        let execution_stream_p1 = execution_part_stream(
+            state_index.clone(),
+            state_cache.clone(),
+            multi_book.clone(),
+            multi_backlog.clone(),
+            context.clone(),
+            recipe_interpreter,
+            spec_interpreter,
+            prover,
+            select_partition(
+                merge_upstreams(pair_upd_recv_p1, spec_upd_recv_p1),
+                config.partitioning.clone(),
+            ),
+            funding_upd_recv_p1,
+            tx_submission_channel.clone(),
+            signal_tip_reached_snd.subscribe(),
+        );
+        let execution_stream_p2 = execution_part_stream(
+            state_index.clone(),
+            state_cache.clone(),
+            multi_book.clone(),
+            multi_backlog.clone(),
+            context.clone(),
+            recipe_interpreter,
+            spec_interpreter,
+            prover,
+            select_partition(
+                merge_upstreams(pair_upd_recv_p2, spec_upd_recv_p2),
+                config.partitioning.clone(),
+            ),
+            funding_upd_recv_p2,
+            tx_submission_channel.clone(),
+            signal_tip_reached_snd.subscribe(),
+        );
+        let execution_stream_p3 = execution_part_stream(
+            state_index.clone(),
+            state_cache.clone(),
+            multi_book.clone(),
+            multi_backlog.clone(),
+            context.clone(),
+            recipe_interpreter,
+            spec_interpreter,
+            prover,
+            select_partition(
+                merge_upstreams(pair_upd_recv_p3, spec_upd_recv_p3),
+                config.partitioning.clone(),
+            ),
+            funding_upd_recv_p3,
+            tx_submission_channel.clone(),
+            signal_tip_reached_snd.subscribe(),
+        );
+        let execution_stream_p4 = execution_part_stream(
+            state_index,
+            state_cache,
+            multi_book,
+            multi_backlog,
+            context,
+            recipe_interpreter,
+            spec_interpreter,
+            prover,
+            select_partition(
+                merge_upstreams(pair_upd_recv_p4, spec_upd_recv_p4),
+                config.partitioning,
+            ),
+            funding_upd_recv_p4,
+            tx_submission_channel,
+            signal_tip_reached_snd.subscribe(),
+        );
+        (
+            execution_stream_p1,
+            execution_stream_p2,
+            execution_stream_p3,
+            execution_stream_p4,
+        )
+    };
 
     let ledger_stream = Box::pin(ledger_transactions(
         chain_sync_cache,
@@ -393,10 +485,10 @@ fn merge_upstreams(
 }
 
 #[derive(Parser)]
-#[command(name = "bloom-cardano-agent")]
+#[command(name = "snek-cardano-agent")]
 #[command(author = "Spectrum Labs")]
 #[command(version = "1.0.0")]
-#[command(about = "Bloom Off-Chain Agent", long_about = None)]
+#[command(about = "Snek Off-Chain Agent", long_about = None)]
 struct AppArgs {
     /// Path to the JSON configuration file.
     #[arg(long, short)]
@@ -410,4 +502,6 @@ struct AppArgs {
     /// Path to the log4rs YAML configuration file.
     #[arg(long, short)]
     log4rs_path: String,
+    #[arg(long, short)]
+    hot: bool,
 }

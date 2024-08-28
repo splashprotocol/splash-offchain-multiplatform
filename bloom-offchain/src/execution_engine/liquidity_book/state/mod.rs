@@ -1676,6 +1676,10 @@ pub mod tests {
             None
         }
 
+        fn estimated_trade(&self, input: OnSide<u64>) -> Option<AvailableLiquidity> {
+            None
+        }
+
         fn marginal_cost_hint(&self) -> Self::U {
             10
         }

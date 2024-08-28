@@ -617,7 +617,7 @@ impl MarketMaker for BalancePool {
         });
     }
 
-    fn output_estimation(&self, input: OnSide<u64>) -> Option<AvailableLiquidity> {
+    fn estimated_trade(&self, input: OnSide<u64>) -> Option<AvailableLiquidity> {
         todo!()
     }
 }

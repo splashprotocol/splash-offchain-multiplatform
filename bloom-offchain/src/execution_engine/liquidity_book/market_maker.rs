@@ -47,7 +47,7 @@ pub trait MarketMaker {
     /// How much base/quote asset is available at 'worst_price' or better.
     fn available_liquidity_on_side(&self, worst_price: OnSide<AbsolutePrice>) -> Option<AvailableLiquidity>;
     /// How much base/quote asset is available for the given input.
-    fn output_estimation(&self, input: OnSide<u64>) -> Option<AvailableLiquidity>;
+    fn estimated_trade(&self, input: OnSide<u64>) -> Option<AvailableLiquidity>;
     /// Is this MM active at the moment or not.
     fn is_active(&self) -> bool;
 }

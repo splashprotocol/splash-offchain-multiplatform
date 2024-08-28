@@ -24,6 +24,7 @@ use spectrum_offchain::maker::Maker;
 
 pub mod config;
 pub mod core;
+pub mod hot;
 pub mod interpreter;
 pub mod market_maker;
 pub mod market_taker;
@@ -34,18 +35,13 @@ pub mod time;
 pub mod types;
 pub mod weight;
 
-/// TLB is a Universal Liquidity Aggregator (ULA), it is able to aggregate every piece of composable
-/// liquidity available in the market.
-///
-/// Composable liquidity falls into two essential categories:
-/// (1.) Discrete Fragments of liquidity;
-/// (2.) Pooled (according to some AMM formula) liquidity;
-pub trait TemporalLiquidityBook<Taker, Maker> {
+/// Liquidity aggregator.
+pub trait LiquidityBook<Taker, Maker> {
     fn attempt(&mut self) -> Option<MatchmakingRecipe<Taker, Maker>>;
 }
 
 /// TLB API for external events affecting its state.
-pub trait ExternalTLBEvents<T, M> {
+pub trait ExternalLBEvents<T, M> {
     fn advance_clocks(&mut self, new_time: u64);
     fn update_taker(&mut self, fr: T);
     fn remove_taker(&mut self, fr: T);
@@ -54,7 +50,7 @@ pub trait ExternalTLBEvents<T, M> {
 }
 
 /// TLB API for feedback events affecting its state.
-pub trait TLBFeedback<T, M> {
+pub trait LBFeedback<T, M> {
     /// Recipe was successfully executed.
     /// Finalized changes resulted from execution are provided with `execution_changeset`.
     fn on_recipe_succeeded(&mut self);
@@ -62,13 +58,19 @@ pub trait TLBFeedback<T, M> {
     fn on_recipe_failed(&mut self);
 }
 
+/// TLB is a Universal Liquidity Aggregator (ULA), it is able to aggregate every piece of composable
+/// liquidity available in the market.
+///
+/// Composable liquidity falls into two essential categories:
+/// (1.) Discrete Fragments of liquidity;
+/// (2.) Pooled (according to some AMM formula) liquidity;
 #[derive(Clone)]
 pub struct TLB<Taker, Maker: Stable, U> {
     state: TLBState<Taker, Maker>,
     conf: ExecutionConfig<U>,
 }
 
-impl<Taker, Maker, U> TLBFeedback<Taker, Maker> for TLB<Taker, Maker, U>
+impl<Taker, Maker, U> LBFeedback<Taker, Maker> for TLB<Taker, Maker, U>
 where
     Taker: MarketTaker + Ord + Copy,
     Maker: MarketMaker + Stable + Copy,
@@ -121,7 +123,7 @@ where
     }
 }
 
-impl<Taker, Maker, U> TemporalLiquidityBook<Taker, Maker> for TLB<Taker, Maker, U>
+impl<Taker, Maker, U> LiquidityBook<Taker, Maker> for TLB<Taker, Maker, U>
 where
     Taker: Stable + MarketTaker<U = U> + TakerBehaviour + Ord + Copy + Display,
     Maker: Stable + MarketMaker<U = U> + MakerBehavior + Copy + Display,
@@ -297,7 +299,7 @@ where
     }
 }
 
-impl<Fr, Pl, U> ExternalTLBEvents<Fr, Pl> for TLB<Fr, Pl, U>
+impl<Fr, Pl, U> ExternalLBEvents<Fr, Pl> for TLB<Fr, Pl, U>
 where
     Fr: MarketTaker + TakerBehaviour + Ord + Copy + Display,
     Pl: MarketMaker + Stable + Copy + Display + Debug,
@@ -396,7 +398,7 @@ mod tests {
     use crate::execution_engine::liquidity_book::time::TimeBounds;
     use crate::execution_engine::liquidity_book::types::AbsolutePrice;
     use crate::execution_engine::liquidity_book::{
-        execute_with_maker, execute_with_taker, settle_price, ExternalTLBEvents, TemporalLiquidityBook, TLB,
+        execute_with_maker, execute_with_taker, settle_price, ExternalLBEvents, LiquidityBook, TLB,
     };
     use crate::execution_engine::types::StableId;
 

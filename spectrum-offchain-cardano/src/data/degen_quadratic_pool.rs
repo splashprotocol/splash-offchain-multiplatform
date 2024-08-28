@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Div;
 
@@ -134,6 +135,21 @@ pub struct DegenQuadraticPool {
     pub ver: DegenQuadraticPoolVer,
     pub marginal_cost: ExUnits,
     pub bounds: PoolValidation,
+}
+
+impl PartialOrd for DegenQuadraticPool {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(&other))
+    }
+}
+
+impl Ord for DegenQuadraticPool {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.quality()
+            .cmp(&other.quality())
+            .reverse()
+            .then(self.stable_id().cmp(&other.stable_id()))
+    }
 }
 
 impl Display for DegenQuadraticPool {
@@ -553,7 +569,7 @@ impl MarketMaker for DegenQuadraticPool {
         })
     }
 
-    fn output_estimation(&self, input: OnSide<u64>) -> Option<AvailableLiquidity> {
+    fn estimated_trade(&self, input: OnSide<u64>) -> Option<AvailableLiquidity> {
         const MAX_EXCESS_PERC: u64 = 5;
         const PERC: u64 = 1000;
 
@@ -1062,7 +1078,7 @@ mod tests {
         };
         let y_rec = pool0.reserves_y.untag() - pool1.reserves_y.untag();
 
-        let Some(AvailableLiquidity { input: b, output: q }) = pool0.output_estimation(Ask(to_dep)) else {
+        let Some(AvailableLiquidity { input: b, output: q }) = pool0.estimated_trade(Ask(to_dep)) else {
             panic!()
         };
         assert_eq!(q, y_rec);
@@ -1074,7 +1090,7 @@ mod tests {
 
         let x_rec = pool1.reserves_x.untag() - pool2.reserves_x.untag();
 
-        let Some(AvailableLiquidity { input: b, output: q }) = pool1.output_estimation(Bid(y_rec)) else {
+        let Some(AvailableLiquidity { input: b, output: q }) = pool1.estimated_trade(Bid(y_rec)) else {
             panic!()
         };
         assert_eq!(q, x_rec);
@@ -1082,8 +1098,7 @@ mod tests {
 
         let too_bid_ask_input = 2 * ada_cap.clone();
         let max_ask_input = (pool2.ada_cap_thr) * 1005 / 1000 - pool2.reserves_x.untag();
-        let Some(AvailableLiquidity { input: b, output: q }) =
-            pool2.output_estimation(Ask(too_bid_ask_input))
+        let Some(AvailableLiquidity { input: b, output: q }) = pool2.estimated_trade(Ask(too_bid_ask_input))
         else {
             panic!()
         };
