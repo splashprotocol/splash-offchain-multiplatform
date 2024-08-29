@@ -616,6 +616,10 @@ impl MarketMaker for BalancePool {
             output: output_amount_val,
         });
     }
+
+    fn estimated_trade(&self, input: OnSide<u64>) -> Option<AvailableLiquidity> {
+        todo!()
+    }
 }
 
 impl ApplyOrder<ClassicalOnChainDeposit> for BalancePool {

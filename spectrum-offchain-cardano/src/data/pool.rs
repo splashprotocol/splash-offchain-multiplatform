@@ -1,4 +1,3 @@
-use bloom_offchain::execution_engine::liquidity_book::market_maker::AvailableLiquidity;
 use std::fmt::{Debug, Display, Formatter};
 
 use cml_chain::address::Address;
@@ -13,12 +12,13 @@ use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::{DatumOption, ScriptRef, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Coin;
-
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
+use void::Void;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::liquidity_book::core::Next;
+use bloom_offchain::execution_engine::liquidity_book::market_maker::AvailableLiquidity;
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
     AbsoluteReserves, Excess, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
 };
@@ -34,7 +34,6 @@ use spectrum_offchain::data::event::Predicted;
 use spectrum_offchain::data::{Has, Stable, Tradable};
 use spectrum_offchain::executor::RunOrderError;
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
-use void::Void;
 
 use crate::creds::OperatorRewardAddress;
 use crate::data::balance_pool::{BalancePool, BalancePoolRedeemer};
@@ -42,7 +41,6 @@ use crate::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
 use crate::data::order::{ClassicalOrderAction, ClassicalOrderRedeemer, Quote};
 use crate::data::pair::PairId;
 use crate::data::pool::AnyPool::{BalancedCFMM, PureCFMM, StableCFMM};
-
 use crate::data::stable_pool_t2t::{StablePoolRedeemer, StablePoolT2T as StablePoolT2TData};
 use crate::data::OnChainOrderId;
 use crate::deployment::ProtocolValidator::{
@@ -319,6 +317,11 @@ impl MarketMaker for AnyPool {
             StableCFMM(p) => p.available_liquidity_on_side(worst_price),
         }
     }
+
+    fn estimated_trade(&self, input: OnSide<u64>) -> Option<AvailableLiquidity> {
+        todo!()
+    }
+
     fn is_active(&self) -> bool {
         match self {
             PureCFMM(p) => p.is_active(),
@@ -495,7 +498,7 @@ where
         order_redeemer.to_plutus_data(),
     );
     let order_in = SingleInputBuilder::new(order_ref.into(), order_utxo.clone())
-        .plutus_script_inline_datum(order_script, Vec::new())
+        .plutus_script_inline_datum(order_script, Vec::new().into())
         .unwrap();
     let (next_pool, user_out) = match pool.clone().apply_order(order.clone()) {
         Ok(res) => res,
@@ -516,7 +519,7 @@ where
     );
 
     let pool_in = SingleInputBuilder::new(pool_ref.into(), pool_utxo.clone())
-        .plutus_script_inline_datum(pool_script, Vec::new())
+        .plutus_script_inline_datum(pool_script, Vec::new().into())
         .unwrap();
 
     let mut tx_builder = constant_tx_builder();

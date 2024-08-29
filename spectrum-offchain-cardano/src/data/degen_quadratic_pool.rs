@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Div;
 
@@ -134,6 +135,21 @@ pub struct DegenQuadraticPool {
     pub ver: DegenQuadraticPoolVer,
     pub marginal_cost: ExUnits,
     pub bounds: PoolValidation,
+}
+
+impl PartialOrd for DegenQuadraticPool {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(&other))
+    }
+}
+
+impl Ord for DegenQuadraticPool {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.quality()
+            .cmp(&other.quality())
+            .reverse()
+            .then(self.stable_id().cmp(&other.stable_id()))
+    }
 }
 
 impl Display for DegenQuadraticPool {
@@ -550,6 +566,50 @@ impl MarketMaker for DegenQuadraticPool {
         Some(AvailableLiquidity {
             input: input_amount.value.to_f64().value() as u64,
             output: output_amount.value.to_f64().value() as u64,
+        })
+    }
+
+    fn estimated_trade(&self, input: OnSide<u64>) -> Option<AvailableLiquidity> {
+        const MAX_EXCESS_PERC: u64 = 5;
+        const PERC: u64 = 1000;
+
+        let (input_amount, output_amount) = match input {
+            OnSide::Bid(input) => (
+                input,
+                self.output_amount(
+                    TaggedAssetClass::new(self.asset_y.into()),
+                    TaggedAmount::new(input),
+                )
+                .untag(),
+            ),
+            OnSide::Ask(input_candidate) => {
+                let reserves_ada = self.reserves_x.untag();
+                let max_ada_required = self.ada_cap_thr * (PERC + MAX_EXCESS_PERC) / PERC - reserves_ada;
+                let max_token_available = self
+                    .output_amount(
+                        TaggedAssetClass::new(self.asset_x.into()),
+                        TaggedAmount::new(max_ada_required),
+                    )
+                    .untag();
+
+                let output_candidate = self
+                    .output_amount(
+                        TaggedAssetClass::new(self.asset_x.into()),
+                        TaggedAmount::new(input_candidate),
+                    )
+                    .untag();
+                let (input_final, output_final) = if output_candidate <= max_token_available {
+                    (input_candidate, output_candidate)
+                } else {
+                    (max_ada_required, max_token_available)
+                };
+                (input_final, output_final)
+            }
+        };
+
+        Some(AvailableLiquidity {
+            input: input_amount,
+            output: output_amount,
         })
     }
 }
@@ -1003,5 +1063,51 @@ mod tests {
         };
         assert_eq!(b, 66474242);
         assert_eq!(q, 150000000);
+    }
+
+    #[test]
+    fn test_output_estimation() {
+        let ada_cap: u64 = 25_240 * LOVELACE;
+        let a: u64 = 174_150_190_999;
+        let b: u64 = 2_000_000;
+        let to_dep: u64 = 123_010_079;
+        let pool0 = gen_ada_token_pool(0, TOKEN_EMISSION, a, b, ada_cap);
+
+        let Next::Succ(pool1) = pool0.swap(Ask(to_dep)) else {
+            panic!()
+        };
+        let y_rec = pool0.reserves_y.untag() - pool1.reserves_y.untag();
+
+        let Some(AvailableLiquidity { input: b, output: q }) = pool0.estimated_trade(Ask(to_dep)) else {
+            panic!()
+        };
+        assert_eq!(q, y_rec);
+        assert_eq!(b, to_dep);
+
+        let Next::Succ(pool2) = pool1.swap(Bid(y_rec)) else {
+            panic!()
+        };
+
+        let x_rec = pool1.reserves_x.untag() - pool2.reserves_x.untag();
+
+        let Some(AvailableLiquidity { input: b, output: q }) = pool1.estimated_trade(Bid(y_rec)) else {
+            panic!()
+        };
+        assert_eq!(q, x_rec);
+        assert_eq!(b, y_rec);
+
+        let too_bid_ask_input = 2 * ada_cap.clone();
+        let max_ask_input = (pool2.ada_cap_thr) * 1005 / 1000 - pool2.reserves_x.untag();
+        let Some(AvailableLiquidity { input: b, output: q }) = pool2.estimated_trade(Ask(too_bid_ask_input))
+        else {
+            panic!()
+        };
+        let Next::Succ(pool3) = pool2.swap(Ask(max_ask_input)) else {
+            panic!()
+        };
+        let y_max = pool2.reserves_y.untag() - pool3.reserves_y.untag();
+        assert_eq!(q, y_max);
+        assert_eq!(b, max_ask_input);
+        assert!(pool3.reserves_x.untag() >= pool3.ada_cap_thr)
     }
 }

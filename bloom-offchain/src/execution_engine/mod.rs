@@ -34,7 +34,7 @@ use crate::execution_engine::funding_effect::FundingEvent;
 use crate::execution_engine::liquidity_book::core::ExecutionRecipe;
 use crate::execution_engine::liquidity_book::interpreter::ExecutionResult;
 use crate::execution_engine::liquidity_book::market_taker::MarketTaker;
-use crate::execution_engine::liquidity_book::{ExternalTLBEvents, TLBFeedback, TemporalLiquidityBook};
+use crate::execution_engine::liquidity_book::{ExternalLBEvents, LBFeedback, LiquidityBook};
 use crate::execution_engine::multi_pair::MultiPair;
 use crate::execution_engine::resolver::resolve_source_state;
 use crate::execution_engine::storage::kv_store::KvStore;
@@ -142,9 +142,9 @@ where
     MakerCtx: Clone + Unpin + 'a,
     Index: StateIndex<EvolvingEntity<CompOrd, Pool, Ver, Bearer>> + Unpin + 'a,
     Cache: KvStore<StableId, EvolvingEntity<CompOrd, Pool, Ver, Bearer>> + Unpin + 'a,
-    Book: TemporalLiquidityBook<CompOrd, Pool>
-        + ExternalTLBEvents<CompOrd, Pool>
-        + TLBFeedback<CompOrd, Pool>
+    Book: LiquidityBook<CompOrd, Pool>
+        + ExternalLBEvents<CompOrd, Pool>
+        + LBFeedback<CompOrd, Pool>
         + Maker<MakerCtx>
         + Unpin
         + 'a,
@@ -316,7 +316,7 @@ impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR
         P: Stable<StableId = SID> + Clone,
         IX: StateIndex<EvolvingEntity<CO, P, V, B>>,
         CH: KvStore<SID, EvolvingEntity<CO, P, V, B>>,
-        TLB: ExternalTLBEvents<CO, P> + Maker<MC>,
+        TLB: ExternalLBEvents<CO, P> + Maker<MC>,
     {
         trace!("Syncing TLB pair: {}", pair);
         match transition {
@@ -370,7 +370,7 @@ impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR
         P: Stable<StableId = SID> + Clone,
         IX: StateIndex<EvolvingEntity<CO, P, V, B>>,
         CH: KvStore<SID, EvolvingEntity<CO, P, V, B>>,
-        TLB: ExternalTLBEvents<CO, P> + Maker<MC>,
+        TLB: ExternalLBEvents<CO, P> + Maker<MC>,
     {
         for ver in versions {
             if let Some(stable_id) = self.index.invalidate_version(ver) {
@@ -481,7 +481,7 @@ impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR
         CH: KvStore<SID, EvolvingEntity<CO, P, V, B>>,
         TH: Display,
         IX: StateIndex<EvolvingEntity<CO, P, V, B>>,
-        TLB: ExternalTLBEvents<CO, P> + TLBFeedback<CO, P> + Maker<MC>,
+        TLB: ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<MC>,
         L: HotBacklog<Bundled<SO, B>> + Maker<MC>,
     {
         trace!("TX {} succeeded", tx_hash);
@@ -539,7 +539,7 @@ impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR
         CH: KvStore<SID, EvolvingEntity<CO, P, V, B>>,
         TH: Display,
         IX: StateIndex<EvolvingEntity<CO, P, V, B>>,
-        TLB: ExternalTLBEvents<CO, P> + TLBFeedback<CO, P> + Maker<MC>,
+        TLB: ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<MC>,
         L: HotBacklog<Bundled<SO, B>> + Maker<MC>,
         E: TryInto<HashSet<V>> + Unpin + Debug + Display,
     {
@@ -630,7 +630,7 @@ impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR
         P: Stable<StableId = SID> + Copy,
         CH: KvStore<SID, EvolvingEntity<CO, P, V, B>>,
         IX: StateIndex<EvolvingEntity<CO, P, V, B>>,
-        TLB: ExternalTLBEvents<CO, P> + Maker<MC>,
+        TLB: ExternalLBEvents<CO, P> + Maker<MC>,
         L: HotBacklog<Bundled<SO, B>> + Maker<MC>,
     {
         match event {
@@ -678,7 +678,7 @@ where
     MC: Clone + Unpin,
     IX: StateIndex<EvolvingEntity<CO, P, V, B>> + Unpin,
     CH: KvStore<SID, EvolvingEntity<CO, P, V, B>> + Unpin,
-    TLB: TemporalLiquidityBook<CO, P> + ExternalTLBEvents<CO, P> + TLBFeedback<CO, P> + Maker<MC> + Unpin,
+    TLB: LiquidityBook<CO, P> + ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<MC> + Unpin,
     L: HotBacklog<Bundled<SO, B>> + Maker<MC> + Unpin,
     RIR: RecipeInterpreter<CO, P, C, V, B, TC> + Unpin,
     SIR: SpecializedInterpreter<P, SO, V, TC, B, C> + Unpin,
@@ -821,7 +821,7 @@ where
     MC: Clone + Unpin,
     IX: StateIndex<EvolvingEntity<CO, P, V, B>> + Unpin,
     CH: KvStore<ST, EvolvingEntity<CO, P, V, B>> + Unpin,
-    TLB: TemporalLiquidityBook<CO, P> + ExternalTLBEvents<CO, P> + TLBFeedback<CO, P> + Maker<MC> + Unpin,
+    TLB: LiquidityBook<CO, P> + ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<MC> + Unpin,
     L: HotBacklog<Bundled<SO, B>> + Maker<MC> + Unpin,
     RIR: RecipeInterpreter<CO, P, C, V, B, TC> + Unpin,
     SIR: SpecializedInterpreter<P, SO, V, TC, B, C> + Unpin,

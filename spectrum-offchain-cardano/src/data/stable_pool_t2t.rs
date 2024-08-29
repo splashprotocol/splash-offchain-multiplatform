@@ -699,6 +699,10 @@ impl MarketMaker for StablePoolT2T {
         });
     }
 
+    fn estimated_trade(&self, input: OnSide<u64>) -> Option<AvailableLiquidity> {
+        todo!()
+    }
+
     fn is_active(&self) -> bool {
         // balance pools do not support lq bound, so
         // swaps allowed all time

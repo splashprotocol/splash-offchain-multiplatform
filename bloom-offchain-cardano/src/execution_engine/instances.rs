@@ -141,9 +141,9 @@ where
             },
             redeemer: ready_redeemer(limit::EXEC_REDEEMER),
             required_signers: if ord.requires_executor_sig {
-                vec![Ed25519KeyHash::from(context.select::<OperatorCred>())]
+                vec![Ed25519KeyHash::from(context.select::<OperatorCred>())].into()
             } else {
-                vec![]
+                vec![].into()
             },
         };
         let mut candidate = consumed_out.clone();
@@ -230,9 +230,9 @@ where
             },
             redeemer: ready_redeemer(limit::EXEC_REDEEMER),
             required_signers: if ord.requires_executor_sig {
-                vec![Ed25519KeyHash::from(context.select::<OperatorCred>())]
+                vec![Ed25519KeyHash::from(context.select::<OperatorCred>())].into()
             } else {
-                vec![]
+                vec![].into()
             },
         };
         let full_adhoc_fee = match (ord.input_asset, ord.output_asset) {
@@ -329,7 +329,7 @@ where
                 cost: ready_cost(ex_budget),
             },
             redeemer: ready_redeemer(limit::EXEC_REDEEMER),
-            required_signers: vec![],
+            required_signers: vec![].into(),
         };
         let mut candidate = consumed_out.clone();
         let (input_asset, output_asset) = ord.absolute_io();
@@ -481,7 +481,7 @@ where
                 }
                 .to_plutus_data()
             }),
-            required_signers: vec![],
+            required_signers: vec![].into(),
         };
 
         let Next::Succ(transition) = result else {
@@ -563,7 +563,7 @@ where
                 }
                 .to_plutus_data()
             }),
-            required_signers: vec![],
+            required_signers: vec![].into(),
         };
 
         if let Some(data) = produced_out.data_mut() {
@@ -638,7 +638,7 @@ where
                 }
                 .to_plutus_data()
             }),
-            required_signers: vec![],
+            required_signers: vec![].into(),
         };
 
         if let Some(data) = produced_out.data_mut() {
@@ -711,7 +711,7 @@ where
                 }
                 .to_plutus_data()
             }),
-            required_signers: vec![],
+            required_signers: vec![].into(),
         };
 
         let consumed = Bundled(pool, FinalizedTxOut(consumed_out, in_ref));

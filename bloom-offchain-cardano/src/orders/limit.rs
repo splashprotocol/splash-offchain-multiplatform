@@ -472,7 +472,7 @@ mod tests {
 
     use bloom_offchain::execution_engine::liquidity_book::config::{ExecutionCap, ExecutionConfig};
     use bloom_offchain::execution_engine::liquidity_book::market_taker::MarketTaker;
-    use bloom_offchain::execution_engine::liquidity_book::{ExternalTLBEvents, TemporalLiquidityBook, TLB};
+    use bloom_offchain::execution_engine::liquidity_book::{ExternalLBEvents, LiquidityBook, TLB};
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_cardano_lib::{AssetName, OutputRef, Token};
@@ -524,6 +524,7 @@ mod tests {
         fn select<U: IsEqual<LimitOrderValidation>>(&self) -> LimitOrderValidation {
             LimitOrderValidation {
                 min_cost_per_ex_step: 0,
+                min_fee_lovelace: 0,
                 strict_beacon: true,
             }
         }
