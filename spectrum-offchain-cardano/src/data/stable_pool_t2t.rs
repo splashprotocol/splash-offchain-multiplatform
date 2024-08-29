@@ -10,8 +10,10 @@ use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_multi_era::babbage::BabbageTransactionOutput;
+use num_bigint::BigInt;
+use num_rational::BigRational;
 use num_rational::Ratio;
-use num_traits::{CheckedAdd, CheckedSub, Pow, ToPrimitive};
+use num_traits::{CheckedAdd, CheckedEuclid, CheckedSub, FromPrimitive, One, Pow, ToPrimitive};
 use primitive_types::U512;
 use void::Void;
 
@@ -701,7 +703,93 @@ impl MarketMaker for StablePoolT2T {
     }
 
     fn full_price_derivative(&self, side: OnSide<SwapAssetSide>) -> Option<FullPriceDerivative> {
-        unimplemented!()
+        let (
+            side_a_balance,
+            side_b_balance,
+            side_a_mult,
+            side_b_mult,
+            lp_fee_mult_num,
+            lp_fee_mult_denom,
+            swap_asset_side,
+        ) = match side {
+            OnSide::Ask(swap_asset_side) => {
+                let ask_lp_fee = self.lp_fee_x;
+                (
+                    BigInt::from((self.reserves_y - self.treasury_y).untag()),
+                    BigInt::from((self.reserves_x - self.treasury_x).untag()),
+                    BigInt::from(self.multiplier_y),
+                    BigInt::from(self.multiplier_x),
+                    BigInt::from(*ask_lp_fee.denom() - *ask_lp_fee.numer()),
+                    BigInt::from(*ask_lp_fee.denom()),
+                    swap_asset_side,
+                )
+            }
+            OnSide::Bid(swap_asset_side) => {
+                let bid_lp_fee = self.lp_fee_y;
+                (
+                    BigInt::from((self.reserves_x - self.treasury_x).untag()),
+                    BigInt::from((self.reserves_y - self.treasury_y).untag()),
+                    BigInt::from(self.multiplier_x),
+                    BigInt::from(self.multiplier_y),
+                    BigInt::from(*bid_lp_fee.denom() - *bid_lp_fee.numer()),
+                    BigInt::from(*bid_lp_fee.denom()),
+                    swap_asset_side,
+                )
+            }
+        };
+
+        let x_calc = side_a_balance.checked_mul(&side_a_mult)?;
+        let y_calc = side_b_balance.checked_mul(&side_b_mult)?;
+        let n_2 = BigInt::from(2);
+        let x2 = x_calc.checked_mul(&x_calc)?;
+        let x2y_2 = n_2.checked_mul(&x2)?.checked_mul(&y_calc)?;
+        let y2 = y_calc.checked_mul(&y_calc)?;
+        let y2x_2 = n_2.checked_mul(&y2)?.checked_mul(&x_calc)?;
+        let b = x2.checked_mul(&y2)?;
+        let an2n = BigInt::from(self.an2n);
+        let d = BigInt::from(
+            calculate_invariant(
+                &U512::from(x_calc.to_u64().unwrap()),
+                &U512::from(y_calc.to_u64().unwrap()),
+                &U512::from(an2n.to_u64().unwrap()),
+            )?
+            .as_u128(),
+        );
+        let dn1 = vec![d; (N_TRADABLE_ASSETS + 1) as usize]
+            .into_iter()
+            .fold(BigInt::one(), |a, b| a * b);
+        let alpha = dn1.checked_div(&an2n)?;
+        let c = alpha.checked_mul(&x_calc)?.checked_add(&b)?;
+        let d = alpha.checked_mul(&y_calc)?.checked_add(&b)?;
+        let cd = c.checked_mul(&d)?;
+        let omega = cd
+            .checked_mul(&alpha.checked_add(&x2y_2)?)?
+            .checked_sub(&x2y_2.checked_mul(&d)?.checked_mul(&d)?)?
+            .checked_mul(&lp_fee_mult_denom)?;
+
+        let gamma = cd
+            .checked_mul(&alpha.checked_add(&y2x_2)?)?
+            .checked_sub(&y2x_2.checked_mul(&c)?.checked_mul(&c)?)?
+            .checked_mul(&lp_fee_mult_num)?;
+
+        let out_num = omega.checked_add(&gamma)?;
+        let out_denom = cd.checked_mul(&lp_fee_mult_denom)?.checked_mul(&d)?;
+
+        let (derivative_num, derivative_denom) = match swap_asset_side {
+            SwapAssetSide::Output => (out_num, out_denom),
+            SwapAssetSide::Input => (
+                lp_fee_mult_num.checked_mul(&omega.checked_mul(&d)?.checked_add(&gamma.checked_mul(&c)?)?)?,
+                out_denom.checked_mul(&lp_fee_mult_denom)?.checked_mul(&d)?,
+            ),
+        };
+
+        let big_der = BigRational::new_raw(derivative_num.into(), derivative_denom.into());
+        let u128_der = Ratio::<u128>::from_f64(big_der.to_f64()?)?;
+
+        Some(FullPriceDerivative(Ratio::new_raw(
+            *u128_der.numer(),
+            *u128_der.denom(),
+        )))
     }
 
     fn is_active(&self) -> bool {
@@ -829,10 +917,10 @@ mod tests {
 
     use bloom_offchain::execution_engine::liquidity_book::core::Next;
     use bloom_offchain::execution_engine::liquidity_book::market_maker::{
-        AvailableLiquidity, MakerBehavior, MarketMaker,
+        AvailableLiquidity, FullPriceDerivative, MakerBehavior, MarketMaker,
     };
-    use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
+    use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, SwapAssetSide};
     use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
@@ -1162,5 +1250,34 @@ mod tests {
         let spot = pool.static_price().unwrap();
         assert!(spot.to_f64().unwrap() > 1f64);
         assert!(oada_rec < ada_in);
+    }
+    #[test]
+    fn full_price_derivative_test() {
+        let pool = gen_ada_token_pool(1000000000, 1, 1200000000, 1, 4500, 4500, 0, 0, 0, 200 * 16);
+
+        // Input:
+        let Some(FullPriceDerivative(ask_in_d)) = pool.full_price_derivative(Ask(SwapAssetSide::Input))
+        else {
+            !panic!()
+        };
+        let Some(FullPriceDerivative(bid_in_d)) = pool.full_price_derivative(Bid(SwapAssetSide::Input))
+        else {
+            !panic!()
+        };
+
+        // Output:
+        let Some(FullPriceDerivative(ask_out_d)) = pool.full_price_derivative(Ask(SwapAssetSide::Output))
+        else {
+            !panic!()
+        };
+        let Some(FullPriceDerivative(bid_out_d)) = pool.full_price_derivative(Bid(SwapAssetSide::Output))
+        else {
+            !panic!()
+        };
+
+        assert_eq!(ask_out_d.to_f64().unwrap(), 4.694401760666852e-12);
+        assert_eq!(bid_out_d.to_f64().unwrap(), 4.616390692169021e-12);
+        assert_eq!(ask_in_d.to_f64().unwrap(), 4.4838007124958665e-12);
+        assert_eq!(bid_in_d.to_f64().unwrap(), 4.407298232114253e-12);
     }
 }
