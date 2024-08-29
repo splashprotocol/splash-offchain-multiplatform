@@ -73,14 +73,14 @@ impl PartialOrd for PoolQuality {
     }
 }
 
-impl From<u64> for PoolQuality {
-    fn from(value: u64) -> Self {
-        PoolQuality(value as u128)
-    }
-}
-
 impl Ord for PoolQuality {
     fn cmp(&self, other: &Self) -> Ordering {
         self.0.cmp(&other.0)
+    }
+}
+
+impl From<u64> for PoolQuality {
+    fn from(value: u64) -> Self {
+        PoolQuality(value as u128)
     }
 }

@@ -16,22 +16,23 @@ use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::maker::Maker;
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::fmt::Display;
+use std::hash::Hash;
 use std::mem;
 use std::ops::AddAssign;
 
 #[derive(Clone, Debug)]
-struct StateView<T: Stable, M> {
+struct StateView<T: Stable, M: Stable> {
     takers: HashMap<T::StableId, T>,
     takers_queue: VecDeque<T::StableId>,
-    makers: BTreeSet<M>,
+    makers: HashMap<M::StableId, M>,
 }
 
-impl<T: Stable, M> StateView<T, M> {
+impl<T: Stable, M: Stable> StateView<T, M> {
     fn new() -> Self {
         Self {
             takers: HashMap::new(),
             takers_queue: VecDeque::new(),
-            makers: BTreeSet::new(),
+            makers: HashMap::new(),
         }
     }
     fn enqueue_taker(&mut self, taker: T) {
@@ -49,31 +50,23 @@ impl<T: Stable, M> StateView<T, M> {
     }
     fn update_maker(&mut self, maker: M)
     where
-        M: Ord,
+        M: Copy + Display,
     {
-        self.makers.insert(maker);
+        let old = self.makers.insert(maker.stable_id(), maker);
+        trace!("Updating maker {} -> {}", display_option(&old), maker);
     }
-    fn remove_maker(&mut self, maker: M)
-    where
-        M: Ord,
-    {
-        self.makers.remove(&maker);
+    fn remove_maker(&mut self, maker: M) {
+        self.makers.remove(&maker.stable_id());
     }
 }
 
 #[derive(Clone)]
-struct IdleState<T: Stable, M>(StateView<T, M>);
+struct IdleState<T: Stable, M: Stable>(StateView<T, M>);
 
 #[derive(Clone)]
-struct PreviewState<T: Stable, M>(/*preview*/ StateView<T, M>, /*backup*/ StateView<T, M>);
+struct PreviewState<T: Stable, M: Stable>(/*preview*/ StateView<T, M>, /*backup*/ StateView<T, M>);
 
-impl<T: Stable, M> PreviewState<T, M> {
-    fn update_maker(&mut self, maker: M)
-    where
-        M: Ord,
-    {
-        self.0.makers.insert(maker);
-    }
+impl<T: Stable, M: Stable> PreviewState<T, M> {
     fn move_from(idle_state: &mut IdleState<T, M>) -> Self
     where
         T: Clone,
@@ -86,12 +79,12 @@ impl<T: Stable, M> PreviewState<T, M> {
 }
 
 #[derive(Clone)]
-enum State<T: Stable, M> {
+enum State<T: Stable, M: Stable> {
     Idle(IdleState<T, M>),
     Preview(PreviewState<T, M>),
 }
 
-impl<T: Stable, M> State<T, M> {
+impl<T: Stable, M: Stable> State<T, M> {
     fn new() -> Self {
         State::Idle(IdleState(StateView::new()))
     }
@@ -143,24 +136,33 @@ impl<T: Stable, M> State<T, M> {
     }
 }
 
-impl<T: Stable, M> PreviewState<T, M> {
+impl<T: Stable, M: Stable> PreviewState<T, M> {
     fn take_best_maker(&mut self) -> Option<M>
     where
-        M: MarketMaker + Ord,
+        M: MarketMaker,
     {
-        self.0.makers.pop_first()
+        if let Some(sid) = self
+            .0
+            .makers
+            .iter()
+            .max_by_key(|(_, m)| m.quality())
+            .map(|(sid, _)| *sid)
+        {
+            return self.0.makers.remove(&sid);
+        }
+        None
     }
 
     fn return_maker(&mut self, maker: M)
     where
-        M: Ord,
+        M: Copy + Display,
     {
         self.0.update_maker(maker);
     }
 
     fn on_make<Any>(&mut self, tx: Next<M, Any>)
     where
-        M: Ord,
+        M: Copy + Display,
     {
         if let Next::Succ(next) = tx {
             self.0.update_maker(next);
@@ -196,12 +198,12 @@ impl<T: Stable, M> PreviewState<T, M> {
 }
 
 #[derive(Clone)]
-pub struct HotLB<T: Stable, M, U> {
+pub struct HotLB<T: Stable, M: Stable, U> {
     state: State<T, M>,
     execution_cap: ExecutionCap<U>,
 }
 
-impl<T: Stable, M, U> HotLB<T, M, U> {
+impl<T: Stable, M: Stable, U> HotLB<T, M, U> {
     fn new(execution_cap: ExecutionCap<U>) -> Self {
         Self {
             state: State::new(),
@@ -221,7 +223,7 @@ where
     }
 }
 
-impl<T: Stable, M: Stable + Ord, U> ExternalLBEvents<T, M> for HotLB<T, M, U> {
+impl<T: Stable, M: Stable + Copy + Display, U> ExternalLBEvents<T, M> for HotLB<T, M, U> {
     fn advance_clocks(&mut self, _: u64) {}
 
     fn update_taker(&mut self, taker: T) {
@@ -266,7 +268,7 @@ impl<T: Stable, M: Stable, U> LBFeedback<T, M> for HotLB<T, M, U> {
 impl<T, M, U> LiquidityBook<T, M> for HotLB<T, M, U>
 where
     T: Stable + MarketTaker<U = U> + TakerBehaviour + Copy + Display,
-    M: Stable + MarketMaker<U = U> + MakerBehavior + Ord + Copy + Display,
+    M: Stable + MarketMaker<U = U> + MakerBehavior + Copy + Display,
     U: Monoid + AddAssign + PartialOrd + Copy,
 {
     fn attempt(&mut self) -> Option<MatchmakingRecipe<T, M>> {
