@@ -13,8 +13,8 @@ use cml_chain::builders::withdrawal_builder::SingleWithdrawalBuilder;
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
 use cml_chain::certs::Credential;
 use cml_chain::plutus::{PlutusData, RedeemerTag};
-use cml_chain::transaction::{RequiredSigners, TransactionInput, TransactionOutput};
-use cml_chain::Value;
+use cml_chain::transaction::{TransactionInput, TransactionOutput};
+use cml_chain::{RequiredSigners, Value};
 use either::Either;
 use log::trace;
 use spectrum_cardano_lib::funding::OperatorFunding;
@@ -220,7 +220,7 @@ impl TxBlueprint {
                 cml_chain::address::RewardAddress::new(network_id.into(), Credential::new_script(wit.hash));
             let partial_witness = PartialPlutusWitness::new(PlutusScriptWitness::Ref(wit.hash), rdmr);
             let withdrawal_result = SingleWithdrawalBuilder::new(reward_address, 0)
-                .plutus_script(partial_witness, vec![])
+                .plutus_script(partial_witness, vec![].into())
                 .unwrap();
             txb.add_reference_input(wit.reference_utxo);
             txb.add_withdrawal(withdrawal_result);

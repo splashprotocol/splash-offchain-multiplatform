@@ -2,7 +2,7 @@ use cml_chain::builders::tx_builder::{TransactionBuilder, TransactionBuilderConf
 use cml_chain::fees::LinearFee;
 use cml_chain::plutus::{CostModels, ExUnitPrices};
 use cml_chain::SubCoin;
-use cml_core::Int;
+use cml_core::ordered_hash_map::OrderedHashMap;
 
 const MAX_TX_SIZE: u32 = 16384;
 const MAX_VALUE_SIZE: u32 = 5000;
@@ -11,7 +11,7 @@ const COINS_PER_UTXO_BYTE: u64 = 4310;
 
 pub fn constant_tx_builder() -> TransactionBuilder {
     create_tx_builder_full(
-        LinearFee::new(44, 155381),
+        LinearFee::new(44, 155381, 15),
         500000000,
         2000000,
         MAX_VALUE_SIZE,
@@ -20,7 +20,7 @@ pub fn constant_tx_builder() -> TransactionBuilder {
 }
 
 pub fn constant_cost_models() -> CostModels {
-    let ops_v1: [u64; 166] = [
+    let ops_v1 = [
         205665, 812, 1, 1, 1000, 571, 0, 1, 1000, 24177, 4, 1, 1000, 32, 117366, 10475, 4, 23000, 100, 23000,
         100, 23000, 100, 23000, 100, 23000, 100, 23000, 100, 100, 100, 23000, 100, 19537, 32, 175354, 32,
         46417, 4, 221973, 511, 0, 1, 89141, 32, 497525, 14068, 4, 2, 196500, 453240, 220, 0, 1, 1, 1000,
@@ -32,7 +32,7 @@ pub fn constant_cost_models() -> CostModels {
         212342, 32, 31220, 32, 32696, 32, 43357, 32, 32247, 32, 38314, 32, 57996947, 18975, 10,
     ];
 
-    let ops_v2: [u64; 175] = [
+    let ops_v2 = [
         205665, 812, 1, 1, 1000, 571, 0, 1, 1000, 24177, 4, 1, 1000, 32, 117366, 10475, 4, 23000, 100, 23000,
         100, 23000, 100, 23000, 100, 23000, 100, 23000, 100, 100, 100, 23000, 100, 19537, 32, 175354, 32,
         46417, 4, 221973, 511, 0, 1, 89141, 32, 497525, 14068, 4, 2, 196500, 453240, 220, 0, 1, 1, 1000,
@@ -45,9 +45,11 @@ pub fn constant_cost_models() -> CostModels {
         10, 57996947, 18975, 10, 38887044, 32947, 10,
     ];
 
-    let mut res = CostModels::new();
-    res.plutus_v1 = Some(ops_v1.iter().map(|&i| Int::from(i)).collect());
-    res.plutus_v2 = Some(ops_v2.iter().map(|&i| Int::from(i)).collect());
+    let mut cost_models_map: OrderedHashMap<u64, Vec<i64>> = OrderedHashMap::new();
+    cost_models_map.insert(0, ops_v1.into());
+    cost_models_map.insert(1, ops_v2.into());
+
+    let mut res = CostModels::new(cost_models_map);
     res
 }
 

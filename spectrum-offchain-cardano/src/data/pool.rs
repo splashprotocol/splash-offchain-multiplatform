@@ -498,7 +498,7 @@ where
         order_redeemer.to_plutus_data(),
     );
     let order_in = SingleInputBuilder::new(order_ref.into(), order_utxo.clone())
-        .plutus_script_inline_datum(order_script, Vec::new())
+        .plutus_script_inline_datum(order_script, Vec::new().into())
         .unwrap();
     let (next_pool, user_out) = match pool.clone().apply_order(order.clone()) {
         Ok(res) => res,
@@ -519,7 +519,7 @@ where
     );
 
     let pool_in = SingleInputBuilder::new(pool_ref.into(), pool_utxo.clone())
-        .plutus_script_inline_datum(pool_script, Vec::new())
+        .plutus_script_inline_datum(pool_script, Vec::new().into())
         .unwrap();
 
     let mut tx_builder = constant_tx_builder();
