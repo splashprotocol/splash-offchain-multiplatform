@@ -49,8 +49,7 @@ pub fn constant_cost_models() -> CostModels {
     cost_models_map.insert(0, ops_v1.into());
     cost_models_map.insert(1, ops_v2.into());
 
-    let mut res = CostModels::new(cost_models_map);
-    res
+    CostModels::new(cost_models_map)
 }
 
 fn create_tx_builder_full(
