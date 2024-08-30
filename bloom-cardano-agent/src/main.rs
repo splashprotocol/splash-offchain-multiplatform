@@ -1,7 +1,7 @@
 use bounded_integer::BoundedU64;
 use clap::Parser;
 use cml_chain::transaction::Transaction;
-use cml_multi_era::babbage::{BabbageBlock, BabbageTransaction};
+use cml_multi_era::babbage::{Block, BabbageTransaction};
 use either::Either;
 use futures::channel::mpsc;
 use futures::stream::select_all;
@@ -106,7 +106,7 @@ async fn main() {
     let protocol_deployment = ProtocolDeployment::unsafe_pull(deployment, &explorer).await;
 
     let chain_sync_cache = Arc::new(Mutex::new(LedgerCacheRocksDB::new(config.chain_sync.db_path)));
-    let chain_sync: ChainSyncClient<BabbageBlock> = ChainSyncClient::init(
+    let chain_sync: ChainSyncClient<Block> = ChainSyncClient::init(
         Arc::clone(&chain_sync_cache),
         config.node.path,
         config.node.magic,

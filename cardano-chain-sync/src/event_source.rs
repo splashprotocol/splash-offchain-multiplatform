@@ -4,15 +4,18 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use async_stream::stream;
+use cml_chain::block::Block;
+use cml_chain::transaction::Transaction;
 use cml_core::serialization::Deserialize;
 use cml_core::Slot;
-use cml_multi_era::babbage::{BabbageBlock, BabbageTransaction};
+use cml_multi_era::babbage::{BabbageTransaction};
+use cml_multi_era::MultiEraBlock;
 use futures::stream::StreamExt;
 use futures::{stream, Stream};
 use log::{info, trace, warn};
 use tokio::sync::Mutex;
 
-use spectrum_cardano_lib::hash::hash_block_header_canonical;
+use spectrum_cardano_lib::hash::{hash_block_header_canonical, hash_block_header_canonical_multi_era};
 
 use crate::cache::{LedgerCache, LinkedBlock};
 use crate::client::Point;
@@ -27,9 +30,9 @@ pub async fn ledger_transactions<'a, S, Cache>(
     // Reapply known blocks before pulling new ones.
     replay_from: Option<Point>,
     rollback_in_progress: Arc<AtomicBool>,
-) -> impl Stream<Item = LedgerTxEvent<BabbageTransaction>> + 'a
+) -> impl Stream<Item = LedgerTxEvent<Transaction>> + 'a
 where
-    S: Stream<Item = ChainUpgrade<BabbageBlock>> + 'a,
+    S: Stream<Item = ChainUpgrade<MultiEraBlock>> + 'a,
     Cache: LedgerCache + 'a,
 {
     let raw_replayed_blocks = match replay_from {
@@ -41,7 +44,7 @@ where
     };
     let replayed_blocks = raw_replayed_blocks
         .map(|LinkedBlock(raw_blk, _)| {
-            BabbageBlock::from_cbor_bytes(&raw_blk)
+            MultiEraBlock::from_cbor_bytes(&raw_blk)
                 .ok()
                 .map(|blk| ChainUpgrade::RollForward {
                     blk,
@@ -70,9 +73,9 @@ pub fn ledger_blocks<'a, S, Cache>(
     // Rollbacks will not be handled until the specified slot is reached.
     handle_rollbacks_after: Slot,
     rollback_in_progress: Arc<AtomicBool>,
-) -> impl Stream<Item = LedgerBlockEvent<BabbageBlock>> + 'a
+) -> impl Stream<Item = LedgerBlockEvent<MultiEraBlock>> + 'a
 where
-    S: Stream<Item = ChainUpgrade<BabbageBlock>> + 'a,
+    S: Stream<Item = ChainUpgrade<MultiEraBlock>> + 'a,
     Cache: LedgerCache + 'a,
 {
     upstream.flat_map(move |u| {
@@ -87,10 +90,10 @@ where
 
 async fn process_upstream_by_txs<'a, Cache>(
     cache: Arc<Mutex<Cache>>,
-    upgr: ChainUpgrade<BabbageBlock>,
+    upgr: ChainUpgrade<MultiEraBlock>,
     handle_rollbacks_after: Slot,
     rollback_in_progress: Arc<AtomicBool>,
-) -> Pin<Box<dyn Stream<Item = LedgerTxEvent<BabbageTransaction>> + 'a>>
+) -> Pin<Box<dyn Stream<Item = LedgerTxEvent<Transaction>> + 'a>>
 where
     Cache: LedgerCache + 'a,
 {
@@ -101,7 +104,7 @@ where
             replayed,
         } => {
             if !replayed {
-                if blk.header.header_body.slot > handle_rollbacks_after {
+                if blk.header().slot() > handle_rollbacks_after {
                     cache_block(cache, &blk, blk_bytes).await;
                 } else {
                     cache_point(cache, &blk).await;
@@ -109,7 +112,7 @@ where
             }
             info!(
                 "Scanning Block {}",
-                hash_block_header_canonical(&blk.header).to_hex()
+                hash_block_header_canonical_multi_era(&blk.header()).to_hex()
             );
             let applied_txs: Vec<_> = unpack_valid_transactions(blk)
                 .map(|(tx, slot)| LedgerTxEvent::TxApplied { tx, slot })
@@ -135,62 +138,65 @@ where
     }
 }
 
-async fn cache_block<Cache: LedgerCache>(cache: Arc<Mutex<Cache>>, blk: &BabbageBlock, blk_bytes: Vec<u8>) {
+async fn cache_block<Cache: LedgerCache>(cache: Arc<Mutex<Cache>>, blk: &MultiEraBlock, blk_bytes: Vec<u8>) {
     let cache = cache.lock().await;
     let point = Point::Specific(
-        blk.header.header_body.slot,
-        hash_block_header_canonical(&blk.header),
+        blk.header().slot(),
+        hash_block_header_canonical_multi_era(&blk.header()),
     );
     let prev_point = cache.get_tip().await.unwrap_or(Point::Origin);
     cache.set_tip(point).await;
     cache.put_block(point, LinkedBlock(blk_bytes, prev_point)).await;
 }
 
-async fn cache_point<Cache: LedgerCache>(cache: Arc<Mutex<Cache>>, blk: &BabbageBlock) {
+async fn cache_point<Cache: LedgerCache>(cache: Arc<Mutex<Cache>>, blk: &MultiEraBlock) {
     let cache = cache.lock().await;
     let point = Point::Specific(
-        blk.header.header_body.slot,
-        hash_block_header_canonical(&blk.header),
+        blk.header().slot(),
+        hash_block_header_canonical_multi_era(&blk.header()),
     );
     cache.set_tip(point).await;
 }
 
 fn unpack_valid_transactions(
-    block: BabbageBlock,
-) -> impl DoubleEndedIterator<Item = (BabbageTransaction, u64)> {
-    let BabbageBlock {
-        header,
-        transaction_bodies,
-        transaction_witness_sets,
-        mut auxiliary_data_set,
-        invalid_transactions,
-        ..
-    } = block;
-    let invalid_indices: HashSet<u16> = HashSet::from_iter(invalid_transactions);
-    transaction_bodies
+    block: MultiEraBlock,
+) -> impl DoubleEndedIterator<Item = (Transaction, u64)> {
+    // let Block {
+    //     header,
+    //     transaction_bodies,
+    //     transaction_witness_sets,
+    //     mut auxiliary_data_set,
+    //     invalid_transactions,
+    //     ..
+    // } = block;
+    //let transaction_bodies = block.transaction_bodies();
+    //let
+    let invalid_indices: HashSet<u16> = HashSet::from_iter(block.invalid_transactions());
+    let mut auxiliary_data_set= block.auxiliary_data_set();
+    block.transaction_bodies()
         .into_iter()
-        .zip(transaction_witness_sets)
+        .zip(block.transaction_witness_sets())
         .enumerate()
         .filter(move |(ix, _)| !invalid_indices.contains(&(*ix as u16)))
         .map(move |(ix, (tb, tw))| {
             let tx_ix = &(ix as u16);
-            let tx = BabbageTransaction {
-                body: tb,
+            let tx = Transaction {
+                body: tb.into(),
                 witness_set: tw,
                 is_valid: true,
                 auxiliary_data: auxiliary_data_set.remove(tx_ix),
                 encodings: None,
             };
-            (tx, header.header_body.slot)
+            (tx, block.header().slot())
         })
 }
 
 fn process_upstream_by_blocks<'a, Cache>(
     cache: Arc<Mutex<Cache>>,
-    upgr: ChainUpgrade<BabbageBlock>,
+    upgr: ChainUpgrade<MultiEraBlock>,
     handle_rollbacks_after: Slot,
     rollback_in_progress: Arc<AtomicBool>,
-) -> Pin<Box<dyn Stream<Item = LedgerBlockEvent<BabbageBlock>> + 'a>>
+) -> Pin<Box<dyn Stream<Item = LedgerBlockEvent<MultiEraBlock>> + 'a>>
 where
     Cache: LedgerCache + 'a,
 {
@@ -201,7 +207,7 @@ where
             replayed,
         } => Box::pin(stream::once(async move {
             if !replayed {
-                if blk.header.header_body.slot > handle_rollbacks_after {
+                if blk.header().slot() > handle_rollbacks_after {
                     cache_block(cache, &blk, blk_bytes).await;
                 } else {
                     cache_point(cache, &blk).await;
@@ -224,7 +230,7 @@ fn rollback<Cache>(
     cache: Arc<Mutex<Cache>>,
     to_point: Point,
     rollback_in_progress: Arc<AtomicBool>,
-) -> impl Stream<Item = BabbageBlock>
+) -> impl Stream<Item = MultiEraBlock>
 where
     Cache: LedgerCache,
 {
@@ -238,7 +244,7 @@ where
                     if let Some(LinkedBlock(block_bytes, prev_point)) = cache.get_block(tip.clone()).await {
                         cache.delete(tip).await;
                         cache.set_tip(prev_point).await;
-                        let block = BabbageBlock::from_cbor_bytes(&block_bytes).expect("Block deserialization failed");
+                        let block = MultiEraBlock::from_cbor_bytes(&block_bytes).expect("Block deserialization failed");
                         yield block;
                         continue;
                     }

@@ -2,8 +2,10 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use clap::Parser;
+use cml_chain::block::Block;
 use cml_chain::transaction::Transaction;
-use cml_multi_era::babbage::BabbageTransaction;
+use cml_multi_era::babbage::{Block, BabbageTransaction};
+use cml_multi_era::MultiEraBlock;
 use either::Either;
 use futures::channel::mpsc;
 use futures::stream::select_all;
@@ -43,7 +45,7 @@ use cardano_explorer::Maestro;
 use cardano_mempool_sync::client::LocalTxMonitorClient;
 use cardano_mempool_sync::data::MempoolUpdate;
 use cardano_mempool_sync::mempool_stream;
-use spectrum_cardano_lib::constants::BABBAGE_ERA_ID;
+use spectrum_cardano_lib::constants::CONWAY_ERA_ID;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::OutboundTransaction;
@@ -104,7 +106,7 @@ async fn main() {
     let protocol_deployment = ProtocolDeployment::unsafe_pull(deployment, &explorer).await;
 
     let chain_sync_cache = Arc::new(Mutex::new(LedgerCacheRocksDB::new(config.chain_sync.db_path)));
-    let chain_sync = ChainSyncClient::init(
+    let chain_sync: ChainSyncClient<MultiEraBlock> = ChainSyncClient::init(
         Arc::clone(&chain_sync_cache),
         config.node.path,
         config.node.magic,
@@ -115,11 +117,11 @@ async fn main() {
 
     // n2c clients:
     let mempool_sync =
-        LocalTxMonitorClient::<BabbageTransaction>::connect(config.node.path, config.node.magic)
+        LocalTxMonitorClient::<Transaction>::connect(config.node.path, config.node.magic)
             .await
             .expect("MempoolSync initialization failed");
     let (tx_submission_agent, tx_submission_channel) =
-        TxSubmissionAgent::<BABBAGE_ERA_ID, OutboundTransaction<Transaction>, Transaction>::new(
+        TxSubmissionAgent::<CONWAY_ERA_ID, OutboundTransaction<Transaction>, Transaction>::new(
             config.node,
             config.tx_submission_buffer_size,
         )
