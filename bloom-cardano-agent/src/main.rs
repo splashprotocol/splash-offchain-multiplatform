@@ -1,7 +1,7 @@
 use bounded_integer::BoundedU64;
 use clap::Parser;
 use cml_chain::transaction::Transaction;
-use cml_multi_era::babbage::{Block, BabbageTransaction};
+use cml_multi_era::babbage::{BabbageTransaction, Block};
 use either::Either;
 use futures::channel::mpsc;
 use futures::stream::select_all;

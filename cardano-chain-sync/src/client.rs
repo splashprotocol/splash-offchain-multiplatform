@@ -12,8 +12,8 @@ use pallas_network::miniprotocols::handshake::RefuseReason;
 use pallas_network::miniprotocols::{chainsync, handshake, PROTOCOL_N2C_CHAIN_SYNC, PROTOCOL_N2C_HANDSHAKE};
 use pallas_network::multiplexer;
 use pallas_network::multiplexer::{Bearer, RunningPlexer};
-use tokio::sync::Mutex;
 use spectrum_cardano_lib::hash::hash_block_header_canonical_multi_era;
+use tokio::sync::Mutex;
 
 use crate::cache::LedgerCache;
 use crate::client::Point::Specific;

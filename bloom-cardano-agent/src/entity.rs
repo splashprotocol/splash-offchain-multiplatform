@@ -43,7 +43,7 @@ impl SpecializedOrder for AtomicCardanoEntity {
     }
 }
 
-impl<C> TryFromLedger<BabbageTransactionOutput, C> for AtomicCardanoEntity
+impl<C> TryFromLedger<TransactionOutput, C> for AtomicCardanoEntity
 where
     C: Copy
         + Has<OperatorCred>
@@ -61,7 +61,7 @@ where
         + Has<DepositOrderValidation>
         + Has<RedeemOrderValidation>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+    fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         ClassicalAMMOrder::try_from_ledger(repr, ctx).map(|inner| {
             Self(Bundled(
                 inner,
@@ -101,7 +101,7 @@ impl Tradable for EvolvingCardanoEntity {
     }
 }
 
-impl<C> TryFromLedger<BabbageTransactionOutput, C> for EvolvingCardanoEntity
+impl<C> TryFromLedger<TransactionOutput, C> for EvolvingCardanoEntity
 where
     C: Copy
         + Has<OperatorCred>
@@ -123,7 +123,7 @@ where
         + Has<DepositOrderValidation>
         + Has<PoolValidation>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+    fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         <Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>>::try_from_ledger(repr, ctx).map(
             |inner| {
                 Self(Bundled(

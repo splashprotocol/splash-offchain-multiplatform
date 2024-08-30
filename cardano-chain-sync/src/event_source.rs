@@ -8,8 +8,8 @@ use cml_chain::block::Block;
 use cml_chain::transaction::Transaction;
 use cml_core::serialization::Deserialize;
 use cml_core::Slot;
-use cml_multi_era::babbage::{BabbageTransaction};
-use cml_multi_era::MultiEraBlock;
+use cml_multi_era::babbage::BabbageTransaction;
+use cml_multi_era::{MultiEraBlock, MultiEraTransactionBody};
 use futures::stream::StreamExt;
 use futures::{stream, Stream};
 use log::{info, trace, warn};
@@ -158,9 +158,7 @@ async fn cache_point<Cache: LedgerCache>(cache: Arc<Mutex<Cache>>, blk: &MultiEr
     cache.set_tip(point).await;
 }
 
-fn unpack_valid_transactions(
-    block: MultiEraBlock,
-) -> impl DoubleEndedIterator<Item = (Transaction, u64)> {
+fn unpack_valid_transactions(block: MultiEraBlock) -> impl DoubleEndedIterator<Item = (Transaction, u64)> {
     // let Block {
     //     header,
     //     transaction_bodies,
@@ -172,16 +170,21 @@ fn unpack_valid_transactions(
     //let transaction_bodies = block.transaction_bodies();
     //let
     let invalid_indices: HashSet<u16> = HashSet::from_iter(block.invalid_transactions());
-    let mut auxiliary_data_set= block.auxiliary_data_set();
-    block.transaction_bodies()
+    let mut auxiliary_data_set = block.auxiliary_data_set();
+    block
+        .transaction_bodies()
         .into_iter()
         .zip(block.transaction_witness_sets())
         .enumerate()
         .filter(move |(ix, _)| !invalid_indices.contains(&(*ix as u16)))
         .map(move |(ix, (tb, tw))| {
             let tx_ix = &(ix as u16);
+            let body = match tb {
+                MultiEraTransactionBody::Conway(body) => body,
+                _ => panic!("impossible to cast non conway era body. panic just for test"),
+            };
             let tx = Transaction {
-                body: tb.into(),
+                body: body,
                 witness_set: tw,
                 is_valid: true,
                 auxiliary_data: auxiliary_data_set.remove(tx_ix),

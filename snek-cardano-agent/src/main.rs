@@ -2,9 +2,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use clap::Parser;
-use cml_chain::block::Block;
 use cml_chain::transaction::Transaction;
-use cml_multi_era::babbage::{Block, BabbageTransaction};
 use cml_multi_era::MultiEraBlock;
 use either::Either;
 use futures::channel::mpsc;
@@ -116,10 +114,9 @@ async fn main() {
     .expect("ChainSync initialization failed");
 
     // n2c clients:
-    let mempool_sync =
-        LocalTxMonitorClient::<Transaction>::connect(config.node.path, config.node.magic)
-            .await
-            .expect("MempoolSync initialization failed");
+    let mempool_sync = LocalTxMonitorClient::<Transaction>::connect(config.node.path, config.node.magic)
+        .await
+        .expect("MempoolSync initialization failed");
     let (tx_submission_agent, tx_submission_channel) =
         TxSubmissionAgent::<CONWAY_ERA_ID, OutboundTransaction<Transaction>, Transaction>::new(
             config.node,

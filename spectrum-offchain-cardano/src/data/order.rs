@@ -3,6 +3,7 @@ use std::hash::{Hash, Hasher};
 
 use cml_chain::builders::tx_builder::SignedTxBuilder;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
+use cml_chain::transaction::TransactionOutput;
 use cml_chain::utils::BigInteger;
 use cml_crypto::ScriptHash;
 use cml_multi_era::babbage::BabbageTransactionOutput;
@@ -158,7 +159,7 @@ impl SpecializedOrder for ClassicalAMMOrder {
     }
 }
 
-impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for ClassicalAMMOrder
+impl<Ctx> TryFromLedger<TransactionOutput, Ctx> for ClassicalAMMOrder
 where
     Ctx: Has<OutputRef>
         + Has<DeployedScriptInfo<{ ConstFnFeeSwitchPoolSwap as u8 }>>
@@ -174,7 +175,7 @@ where
         + Has<DepositOrderValidation>
         + Has<RedeemOrderValidation>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
+    fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
         ClassicalOnChainLimitSwap::try_from_ledger(repr, ctx)
             .map(|swap| ClassicalAMMOrder::Swap(swap))
             .or_else(|| {

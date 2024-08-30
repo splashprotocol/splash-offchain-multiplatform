@@ -7,8 +7,7 @@ use bloom_offchain::execution_engine::liquidity_book::types::{
     AbsolutePrice, FeeAsset, InputAsset, OutputAsset,
 };
 use bounded_integer::BoundedU64;
-use cml_chain::PolicyId;
-use cml_multi_era::babbage::BabbageTransactionOutput;
+use cml_chain::transaction::TransactionOutput;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::{AssetClass, OutputRef, Token};
 use spectrum_offchain::data::{Has, Stable, Tradable};
@@ -175,7 +174,7 @@ fn subtract_adhoc_fee(body: u64, fee_structure: AdhocFeeStructure) -> u64 {
     body - fee_structure.fee(body)
 }
 
-impl<C> TryFromLedger<BabbageTransactionOutput, C> for AdhocOrder
+impl<C> TryFromLedger<TransactionOutput, C> for AdhocOrder
 where
     C: Has<OperatorCred>
         + Has<OutputRef>
@@ -186,7 +185,7 @@ where
         + Has<LimitOrderValidation>
         + Has<AdhocFeeStructure>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+    fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         LimitOrder::try_from_ledger(repr, ctx).and_then(|lo| {
             let virtual_input_amount = match (lo.input_asset, lo.output_asset) {
                 (AssetClass::Native, _) => Some(subtract_adhoc_fee(lo.input_amount, ctx.get())),

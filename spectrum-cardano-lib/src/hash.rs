@@ -14,9 +14,15 @@ pub fn hash_block_header_canonical_multi_era(header: &MultiEraBlockHeader) -> Bl
     let header_bytes = match header {
         MultiEraBlockHeader::Shelley(header) => Some(header.to_cbor_bytes()),
         MultiEraBlockHeader::Babbage(header) => Some(header.to_cbor_bytes()),
-        _ => None
+        _ => None,
     };
     header_bytes
         .map(|bytes| BlockHeaderHash::from(blake2b256(bytes.as_ref())))
-        .expect(format!("Impossible to calculate BlockHeaderHash for block at slot {}", header.slot()).as_str())
+        .expect(
+            format!(
+                "Impossible to calculate BlockHeaderHash for block at slot {}",
+                header.slot()
+            )
+            .as_str(),
+        )
 }

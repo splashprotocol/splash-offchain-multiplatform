@@ -12,9 +12,9 @@ use bloom_offchain::execution_engine::liquidity_book::types::{
 };
 use bloom_offchain::execution_engine::liquidity_book::weight::Weighted;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
+use cml_chain::transaction::TransactionOutput;
 use cml_chain::PolicyId;
 use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
-use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::trace;
 use spectrum_cardano_lib::address::PlutusAddress;
 use spectrum_cardano_lib::ex_units::ExUnits;
@@ -360,7 +360,7 @@ where
     consumed_beacons == 1 && produced_beacons == 1 || valid_fresh_beacon() && consumed_ids.is_empty()
 }
 
-impl<C> TryFromLedger<BabbageTransactionOutput, C> for LimitOrder
+impl<C> TryFromLedger<TransactionOutput, C> for LimitOrder
 where
     C: Has<OperatorCred>
         + Has<OutputRef>
@@ -370,7 +370,7 @@ where
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
         + Has<LimitOrderValidation>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+    fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
             let value = repr.value().clone();
             let conf = Datum::try_from_pd(repr.datum()?.into_pd()?)?;
@@ -463,7 +463,7 @@ mod tests {
     use cml_chain::address::Address;
     use cml_chain::assets::AssetBundle;
     use cml_chain::plutus::PlutusData;
-    use cml_chain::transaction::DatumOption;
+    use cml_chain::transaction::{DatumOption, TransactionOutput};
     use cml_chain::{PolicyId, Value};
     use cml_core::serialization::Deserialize;
     use cml_crypto::{Ed25519KeyHash, TransactionHash};
@@ -600,7 +600,7 @@ mod tests {
             consumed_identifiers: Default::default(),
             produced_identifiers: Default::default(),
         };
-        let bearer = BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(ORDER_UTXO).unwrap()).unwrap();
+        let bearer = TransactionOutput::from_cbor_bytes(&*hex::decode(ORDER_UTXO).unwrap()).unwrap();
         let ord = LimitOrder::try_from_ledger(&bearer, &ctx).expect("LimitOrder expected");
         println!("Order: {:?}", ord);
         println!("P_abs: {}", ord.price());

@@ -1,4 +1,5 @@
 use cml_chain::plutus::PlutusData;
+use cml_chain::transaction::TransactionOutput;
 use cml_crypto::Ed25519KeyHash;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
@@ -96,7 +97,7 @@ struct OnChainRedeemConfig {
     reward_stake_pkh: Option<Ed25519KeyHash>,
 }
 
-impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for ClassicalOnChainRedeem
+impl<Ctx> TryFromLedger<TransactionOutput, Ctx> for ClassicalOnChainRedeem
 where
     Ctx: Has<OutputRef>
         + Has<DeployedScriptInfo<{ ConstFnFeeSwitchPoolRedeem as u8 }>>
@@ -105,7 +106,7 @@ where
         + Has<DeployedScriptInfo<{ StableFnPoolT2TRedeem as u8 }>>
         + Has<RedeemOrderValidation>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
+    fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
         let is_const_fee_switch_pool_deposit =
             test_address::<{ ConstFnFeeSwitchPoolRedeem as u8 }, Ctx>(repr.address(), ctx);
         let is_const_pool_redeem = test_address::<{ ConstFnPoolRedeem as u8 }, Ctx>(repr.address(), ctx);

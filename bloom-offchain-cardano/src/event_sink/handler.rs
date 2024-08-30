@@ -13,14 +13,13 @@ use async_trait::async_trait;
 use bloom_offchain::execution_engine::funding_effect::FundingEvent;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_mempool_sync::data::MempoolUpdate;
-use cml_chain::transaction::TransactionInput;
+use cml_chain::transaction::{TransactionInput, TransactionOutput};
 use cml_crypto::TransactionHash;
-use cml_multi_era::babbage::{BabbageTransaction, BabbageTransactionOutput};
 use either::Either;
 use futures::{Sink, SinkExt};
 use log::trace;
 use spectrum_cardano_lib::output::FinalizedTxOut;
-use spectrum_cardano_lib::transaction::{BabbageTransactionOutputExtension, TransactionOutputExtension};
+use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::combinators::Ior;
 use spectrum_offchain::data::event::{Channel, StateUpdate};
@@ -86,7 +85,7 @@ where
         let o_ref = OutputRef::new(tx.hash, ix as u64);
         if let Some(part) = funding_addresses.partition_by_address(o.address()) {
             if o_ref != skip_set {
-                let txo = FinalizedTxOut(o.upcast(), o_ref);
+                let txo = FinalizedTxOut(o, o_ref);
                 produced_utxos.push((part, txo));
             }
         } else {
@@ -317,7 +316,7 @@ where
     Topic::Error: Debug,
     Pool: EntitySnapshot + Tradable<PairId = PairId>,
     Order: SpecializedOrder<TPoolId = Pool::StableId>
-        + TryFromLedger<BabbageTransactionOutput, HandlerContext<K>>
+        + TryFromLedger<TransactionOutput, HandlerContext<K>>
         + Clone
         + Debug,
     Order::TOrderId: From<OutputRef> + Display,
@@ -420,7 +419,7 @@ where
     Topic::Error: Debug,
     Pool: EntitySnapshot + Tradable<PairId = PairId>,
     Order: SpecializedOrder<TPoolId = Pool::StableId>
-        + TryFromLedger<BabbageTransactionOutput, HandlerContext<K>>
+        + TryFromLedger<TransactionOutput, HandlerContext<K>>
         + Clone
         + Debug,
     Order::TOrderId: From<OutputRef> + Display,
@@ -493,7 +492,7 @@ async fn extract_atomic_transitions<Order, Index, K>(
     mut tx: ProcessedTransaction,
 ) -> Result<(Vec<Either<Order, Order>>, ProcessedTransaction), ProcessedTransaction>
 where
-    Order: SpecializedOrder + TryFromLedger<BabbageTransactionOutput, HandlerContext<K>> + Clone,
+    Order: SpecializedOrder + TryFromLedger<TransactionOutput, HandlerContext<K>> + Clone,
     Order::TOrderId: From<OutputRef> + Display,
     Index: KvIndex<Order::TOrderId, Order>,
     K: Copy,
@@ -573,7 +572,7 @@ async fn extract_continuous_transitions<Entity, Index>(
 where
     Entity: EntitySnapshot
         + Tradable
-        + TryFromLedger<BabbageTransactionOutput, HandlerContext<Entity::StableId>>
+        + TryFromLedger<TransactionOutput, HandlerContext<Entity::StableId>>
         + Clone,
     Entity::Version: From<OutputRef>,
     Index: TradableEntityIndex<Entity>,
@@ -664,7 +663,7 @@ where
     Topic::Error: Debug,
     Entity: EntitySnapshot
         + Tradable<PairId = PairId>
-        + TryFromLedger<BabbageTransactionOutput, HandlerContext<Entity::StableId>>
+        + TryFromLedger<TransactionOutput, HandlerContext<Entity::StableId>>
         + Clone
         + Debug,
     Entity::Version: From<OutputRef>,
@@ -748,7 +747,7 @@ where
     Topic::Error: Debug,
     Entity: EntitySnapshot
         + Tradable<PairId = PairId>
-        + TryFromLedger<BabbageTransactionOutput, HandlerContext<Entity::StableId>>
+        + TryFromLedger<TransactionOutput, HandlerContext<Entity::StableId>>
         + Clone
         + Debug,
     Entity::Version: From<OutputRef>,
@@ -908,11 +907,11 @@ mod tests {
         }
     }
 
-    impl<C> TryFromLedger<BabbageTransactionOutput, C> for TrivialEntity
+    impl<C> TryFromLedger<TransactionOutput, C> for TrivialEntity
     where
         C: Has<OutputRef>,
     {
-        fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+        fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
             Some(TrivialEntity(ctx.select::<OutputRef>(), repr.value().coin))
         }
     }

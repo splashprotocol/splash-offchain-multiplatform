@@ -331,7 +331,7 @@ impl MarketMaker for AnyPool {
     }
 }
 
-impl<C> TryFromLedger<BabbageTransactionOutput, C> for AnyPool
+impl<C> TryFromLedger<TransactionOutput, C> for AnyPool
 where
     C: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
@@ -344,7 +344,7 @@ where
         + Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>>
         + Has<PoolValidation>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+    fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         ConstFnPool::try_from_ledger(repr, ctx)
             .map(PureCFMM)
             .or_else(|| BalancePool::try_from_ledger(repr, ctx).map(BalancedCFMM))
