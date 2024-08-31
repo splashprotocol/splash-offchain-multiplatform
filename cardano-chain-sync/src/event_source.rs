@@ -286,8 +286,7 @@ fn rollback<Cache>(
                         cache.delete(tip).await;
                         cache.set_tip(prev_point).await;
                         info!("block_bytes in rollback: {}", hex::encode(block_bytes.clone()));
-                        let original_bytes = block_bytes[BLK_START..].to_vec();
-                        let block = MultiEraBlock::from_cbor_bytes(&original_bytes).expect("Block deserialization failed");
+                        let block = MultiEraBlock::from_cbor_bytes(&block_bytes).expect("Block deserialization failed");
                         yield block;
                         continue;
                     }

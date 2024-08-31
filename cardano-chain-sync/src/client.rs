@@ -93,13 +93,13 @@ impl<Block> ChainSyncClient<Block> {
                 match Block::from_cbor_bytes(&original_bytes) {
                     Ok(blk) => Some(ChainUpgrade::RollForward {
                         blk,
-                        blk_bytes: raw,
+                        blk_bytes: original_bytes,
                         replayed: false,
                     }),
                     Err(err) => panic!(
                         "Block deserialization failed: {}, bytes: {}",
                         err,
-                        hex::encode(raw)
+                        hex::encode(original_bytes)
                     ),
                 }
             }
