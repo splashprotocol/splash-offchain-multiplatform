@@ -20,7 +20,7 @@ use spectrum_cardano_lib::hash::{hash_block_header_canonical, hash_block_header_
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 
 use crate::cache::{LedgerCache, LinkedBlock};
-use crate::client::Point;
+use crate::client::{BLK_START, Point};
 use crate::data::{ChainUpgrade, LedgerBlockEvent, LedgerTxEvent};
 
 /// Stream ledger updates as individual transactions.
@@ -286,7 +286,8 @@ fn rollback<Cache>(
                         cache.delete(tip).await;
                         cache.set_tip(prev_point).await;
                         info!("block_bytes in rollback: {}", hex::encode(block_bytes.clone()));
-                        let block = MultiEraBlock::from_cbor_bytes(&block_bytes).expect("Block deserialization failed");
+                        let original_bytes = block_bytes[BLK_START..].to_vec();
+                        let block = MultiEraBlock::from_cbor_bytes(&original_bytes).expect("Block deserialization failed");
                         yield block;
                         continue;
                     }

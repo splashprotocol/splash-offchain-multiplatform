@@ -113,7 +113,7 @@ impl<Block> ChainSyncClient<Block> {
     }
 }
 
-const BLK_START: usize = 2;
+pub const BLK_START: usize = 2;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
