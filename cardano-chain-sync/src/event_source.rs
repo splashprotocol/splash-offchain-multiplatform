@@ -289,7 +289,6 @@ where
                     if let Some(LinkedBlock(block_bytes, prev_point)) = cache.get_block(tip.clone()).await {
                         cache.delete(tip).await;
                         cache.set_tip(prev_point).await;
-                        info!("block_bytes in rollback: {}", hex::encode(block_bytes.clone()));
                         let block = MultiEraBlock::from_cbor_bytes(&block_bytes).expect("Block deserialization failed");
                         yield block;
                         continue;
