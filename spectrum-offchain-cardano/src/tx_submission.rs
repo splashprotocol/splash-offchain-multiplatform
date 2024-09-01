@@ -107,7 +107,7 @@ where
                         on_resp.send(SubmissionResult::TxRejected{errors:  RejectReasons(errors)}).expect("Responder was dropped");
                     },
                     Err(Error::TxSubmissionProtocol(err)) => {
-                        trace!("Failed to submit TX {}: {}", tx_hash, hex::encode(tx.to_cbor_bytes()));
+                        trace!("Failed to submit TX {}: {}", tx_hash, hex::encode(tx.to_canonical_cbor_bytes()));
                         match err {
                             localtxsubmission::Error::ChannelError(multiplexer::Error::Decoding(_)) => {
                                 warn!("TX {} was likely rejected, reason unknown. Trying to recover.", tx_hash);
