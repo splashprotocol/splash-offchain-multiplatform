@@ -1,5 +1,4 @@
-use cml_chain::PolicyId;
-use cml_multi_era::babbage::BabbageTransactionOutput;
+use cml_chain::transaction::TransactionOutput;
 use std::fmt::{Debug, Display, Formatter};
 
 use crate::orders::grid::GridOrder;
@@ -93,7 +92,7 @@ impl TakerBehaviour for AnyOrder {
     }
 }
 
-impl<C> TryFromLedger<BabbageTransactionOutput, C> for AnyOrder
+impl<C> TryFromLedger<TransactionOutput, C> for AnyOrder
 where
     C: Has<OperatorCred>
         + Has<OutputRef>
@@ -103,7 +102,7 @@ where
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
         + Has<LimitOrderValidation>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+    fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         LimitOrder::try_from_ledger(repr, ctx).map(AnyOrder::Limit)
     }
 }

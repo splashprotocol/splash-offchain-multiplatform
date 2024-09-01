@@ -11,9 +11,9 @@ async-trait = "0.1.72"
 async-stream = "0.3.3"
 base16 = "0.2"
 pallas-network = { git = "https://github.com/kettlebell/pallas.git", branch = "decode_local_tx_err_rebase" }
-cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/fix-bigint-conversion" }
-cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/fix-bigint-conversion" }
-cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/fix-bigint-conversion" }
+cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
+cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
+cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
 futures = "0.3.28"
 futures-timer = "3.0.2"
 futures-util = "0.3.28"

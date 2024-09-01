@@ -622,11 +622,11 @@ impl Tradable for DegenQuadraticPool {
     }
 }
 
-impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for DegenQuadraticPool
+impl<Ctx> TryFromLedger<TransactionOutput, Ctx> for DegenQuadraticPool
 where
     Ctx: Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>> + Has<PoolValidation>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
+    fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
         if let Some(pool_ver) = DegenQuadraticPoolVer::try_from_address(repr.address(), ctx) {
             let value = repr.value();
             let pd = repr.datum().clone()?.into_pd()?;

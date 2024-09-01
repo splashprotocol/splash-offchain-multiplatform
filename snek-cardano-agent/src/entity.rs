@@ -1,4 +1,4 @@
-use cml_multi_era::babbage::BabbageTransactionOutput;
+use cml_chain::transaction::TransactionOutput;
 use either::Either;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
@@ -41,7 +41,7 @@ impl SpecializedOrder for AtomicCardanoEntity {
     }
 }
 
-impl<C> TryFromLedger<BabbageTransactionOutput, C> for AtomicCardanoEntity
+impl<C> TryFromLedger<TransactionOutput, C> for AtomicCardanoEntity
 where
     C: Copy
         + Has<OperatorCred>
@@ -59,7 +59,7 @@ where
         + Has<DepositOrderValidation>
         + Has<RedeemOrderValidation>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+    fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         ClassicalAMMOrder::try_from_ledger(repr, ctx).map(|inner| {
             Self(Bundled(
                 inner,
@@ -99,7 +99,7 @@ impl Tradable for EvolvingCardanoEntity {
     }
 }
 
-impl<C> TryFromLedger<BabbageTransactionOutput, C> for EvolvingCardanoEntity
+impl<C> TryFromLedger<TransactionOutput, C> for EvolvingCardanoEntity
 where
     C: Copy
         + Has<OperatorCred>
@@ -114,7 +114,7 @@ where
         + Has<PoolValidation>
         + Has<AdhocFeeStructure>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+    fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         <Either<Baked<AdhocOrder, OutputRef>, Baked<DegenQuadraticPool, OutputRef>>>::try_from_ledger(
             repr, ctx,
         )

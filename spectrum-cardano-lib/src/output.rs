@@ -34,7 +34,7 @@ impl FinalizedTxOut {
 }
 
 impl FinalizedTxOut {
-    pub fn new(out: BabbageTransactionOutput, out_ref: OutputRef) -> Self {
-        Self(out.upcast(), out_ref)
+    pub fn new(out: TransactionOutput, out_ref: OutputRef) -> Self {
+        Self(out, out_ref)
     }
 }

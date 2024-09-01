@@ -233,11 +233,11 @@ impl StablePoolT2T {
     }
 }
 
-impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for StablePoolT2T
+impl<Ctx> TryFromLedger<TransactionOutput, Ctx> for StablePoolT2T
 where
     Ctx: Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>> + Has<PoolValidation>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
+    fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
         if let Some(pool_ver) = StablePoolT2TVer::try_from_address(repr.address(), ctx) {
             let value = repr.value();
             let pd = repr.datum().clone()?.into_pd()?;

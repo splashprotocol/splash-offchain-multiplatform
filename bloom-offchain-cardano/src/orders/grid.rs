@@ -2,9 +2,9 @@ use std::cmp::{max, Ordering};
 use std::fmt::{Display, Formatter};
 
 use cml_chain::plutus::PlutusData;
+use cml_chain::transaction::TransactionOutput;
 use cml_chain::PolicyId;
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding};
-use cml_multi_era::babbage::BabbageTransactionOutput;
 use derive_more::{From, Into};
 use num_rational::Ratio;
 
@@ -446,11 +446,11 @@ pub fn unsafe_update_datum(
     cpd.set_field(DATUM_NATIVE_MAPPING.side, relative_side.into_pd());
 }
 
-impl<C> TryFromLedger<BabbageTransactionOutput, C> for GridOrder
+impl<C> TryFromLedger<TransactionOutput, C> for GridOrder
 where
     C: Has<DeployedScriptInfo<{ GridOrderNative as u8 }>>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+    fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
             let value = repr.value().clone();
             let conf = DatumNative::try_from_pd(repr.datum()?.into_pd()?)?;

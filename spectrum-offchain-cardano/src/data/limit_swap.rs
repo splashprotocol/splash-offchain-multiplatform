@@ -1,4 +1,5 @@
 use cml_chain::plutus::PlutusData;
+use cml_chain::transaction::TransactionOutput;
 use cml_chain::Coin;
 use cml_crypto::Ed25519KeyHash;
 use cml_multi_era::babbage::BabbageTransactionOutput;
@@ -59,11 +60,11 @@ impl UniqueOrder for ClassicalOnChainLimitSwap {
     }
 }
 
-impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for ClassicalOnChainLimitSwap
+impl<Ctx> TryFromLedger<TransactionOutput, Ctx> for ClassicalOnChainLimitSwap
 where
     Ctx: Has<OutputRef> + Has<DeployedScriptInfo<{ ConstFnFeeSwitchPoolSwap as u8 }>>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
+    fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
         if test_address(repr.address(), ctx) {
             let value = repr.value().clone();
             let conf = OnChainLimitSwapConfig::try_from_pd(repr.datum()?.into_pd()?)?;

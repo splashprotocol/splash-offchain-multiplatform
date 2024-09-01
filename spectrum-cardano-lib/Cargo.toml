@@ -10,10 +10,10 @@ rust-version = "1.75.0"
 spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain" }
 algebra-core = { version = "0.1.0", path = "../algebra-core" }
 base16 = "0.2"
-cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/fix-bigint-conversion" }
-cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/fix-bigint-conversion" }
-cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/fix-bigint-conversion" }
-cml-multi-era = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/fix-bigint-conversion" }
+cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
+cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
+cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
+cml-multi-era = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
 serde = { version = "1.0", features = ["derive"] }
 hex = "0.4.3"
 thiserror = "1.0.47"

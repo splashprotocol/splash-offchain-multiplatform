@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use clap::Parser;
 use cml_chain::transaction::Transaction;
-use cml_multi_era::babbage::BabbageTransaction;
+use cml_multi_era::MultiEraBlock;
 use either::Either;
 use futures::channel::mpsc;
 use futures::stream::select_all;
@@ -28,7 +28,7 @@ use bloom_offchain_cardano::event_sink::context::HandlerContextProto;
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
 use bloom_offchain_cardano::event_sink::handler::{FundingEventHandler, PairUpdateHandler};
 use bloom_offchain_cardano::event_sink::order_index::InMemoryKvIndex;
-use bloom_offchain_cardano::event_sink::processed_tx::ProcessedTransaction;
+use bloom_offchain_cardano::event_sink::processed_tx::TxViewAtEraBoundary;
 use bloom_offchain_cardano::execution_engine::backlog::interpreter::SpecializedInterpreterViaRunOrder;
 use bloom_offchain_cardano::execution_engine::interpreter::CardanoRecipeInterpreter;
 use bloom_offchain_cardano::integrity::CheckIntegrity;
@@ -43,7 +43,7 @@ use cardano_explorer::Maestro;
 use cardano_mempool_sync::client::LocalTxMonitorClient;
 use cardano_mempool_sync::data::MempoolUpdate;
 use cardano_mempool_sync::mempool_stream;
-use spectrum_cardano_lib::constants::BABBAGE_ERA_ID;
+use spectrum_cardano_lib::constants::CONWAY_ERA_ID;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::OutboundTransaction;
@@ -104,7 +104,7 @@ async fn main() {
     let protocol_deployment = ProtocolDeployment::unsafe_pull(deployment, &explorer).await;
 
     let chain_sync_cache = Arc::new(Mutex::new(LedgerCacheRocksDB::new(config.chain_sync.db_path)));
-    let chain_sync = ChainSyncClient::init(
+    let chain_sync: ChainSyncClient<MultiEraBlock> = ChainSyncClient::init(
         Arc::clone(&chain_sync_cache),
         config.node.path,
         config.node.magic,
@@ -114,12 +114,11 @@ async fn main() {
     .expect("ChainSync initialization failed");
 
     // n2c clients:
-    let mempool_sync =
-        LocalTxMonitorClient::<BabbageTransaction>::connect(config.node.path, config.node.magic)
-            .await
-            .expect("MempoolSync initialization failed");
+    let mempool_sync = LocalTxMonitorClient::<Transaction>::connect(config.node.path, config.node.magic)
+        .await
+        .expect("MempoolSync initialization failed");
     let (tx_submission_agent, tx_submission_channel) =
-        TxSubmissionAgent::<BABBAGE_ERA_ID, OutboundTransaction<Transaction>, Transaction>::new(
+        TxSubmissionAgent::<CONWAY_ERA_ID, OutboundTransaction<Transaction>, Transaction>::new(
             config.node,
             config.tx_submission_buffer_size,
         )
@@ -212,12 +211,12 @@ async fn main() {
 
     info!("Derived funding addresses: {}", funding_addresses);
 
-    let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<ProcessedTransaction>>>> = vec![
+    let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<TxViewAtEraBoundary>>>> = vec![
         Box::new(general_upd_handler.clone()),
         Box::new(funding_event_handler.clone()),
     ];
 
-    let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<ProcessedTransaction>>>> =
+    let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<TxViewAtEraBoundary>>>> =
         vec![Box::new(general_upd_handler), Box::new(funding_event_handler)];
 
     let prover = OperatorProver::new(&operator_sk);
@@ -327,13 +326,13 @@ async fn main() {
         .await
         .map(|ev| match ev {
             LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
-                tx: ProcessedTransaction::from(tx),
+                tx: TxViewAtEraBoundary::from(tx),
                 slot,
             },
-            LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(ProcessedTransaction::from(tx)),
+            LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary::from(tx)),
         });
         let mempool_stream = mempool_stream(&mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
-            MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(ProcessedTransaction::from(tx)),
+            MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewAtEraBoundary::from(tx)),
         });
 
         let process_ledger_events_stream =
@@ -442,13 +441,13 @@ async fn main() {
         .await
         .map(|ev| match ev {
             LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
-                tx: ProcessedTransaction::from(tx),
+                tx: TxViewAtEraBoundary::from(tx),
                 slot,
             },
-            LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(ProcessedTransaction::from(tx)),
+            LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary::from(tx)),
         });
         let mempool_stream = mempool_stream(&mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
-            MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(ProcessedTransaction::from(tx)),
+            MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewAtEraBoundary::from(tx)),
         });
 
         let process_ledger_events_stream =

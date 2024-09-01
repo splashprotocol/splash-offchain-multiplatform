@@ -1,4 +1,5 @@
 use cml_chain::plutus::PlutusData;
+use cml_chain::transaction::TransactionOutput;
 use cml_crypto::Ed25519KeyHash;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 
@@ -87,7 +88,7 @@ impl UniqueOrder for ClassicalOnChainDeposit {
     }
 }
 
-impl<Ctx> TryFromLedger<BabbageTransactionOutput, Ctx> for ClassicalOnChainDeposit
+impl<Ctx> TryFromLedger<TransactionOutput, Ctx> for ClassicalOnChainDeposit
 where
     Ctx: Has<OutputRef>
         + Has<DeployedScriptInfo<{ ConstFnFeeSwitchPoolDeposit as u8 }>>
@@ -96,7 +97,7 @@ where
         + Has<DeployedScriptInfo<{ StableFnPoolT2TDeposit as u8 }>>
         + Has<DepositOrderValidation>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &Ctx) -> Option<Self> {
+    fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
         let is_const_fee_switch_pool_deposit =
             test_address::<{ ConstFnFeeSwitchPoolDeposit as u8 }, Ctx>(repr.address(), ctx);
         let is_const_fn_pool_deposit = test_address::<{ ConstFnPoolDeposit as u8 }, Ctx>(repr.address(), ctx);
