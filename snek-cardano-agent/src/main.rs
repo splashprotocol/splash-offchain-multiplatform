@@ -28,7 +28,7 @@ use bloom_offchain_cardano::event_sink::context::HandlerContextProto;
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
 use bloom_offchain_cardano::event_sink::handler::{FundingEventHandler, PairUpdateHandler};
 use bloom_offchain_cardano::event_sink::order_index::InMemoryKvIndex;
-use bloom_offchain_cardano::event_sink::processed_tx::ProcessedTransaction;
+use bloom_offchain_cardano::event_sink::processed_tx::TxViewAtEraBoundary;
 use bloom_offchain_cardano::execution_engine::backlog::interpreter::SpecializedInterpreterViaRunOrder;
 use bloom_offchain_cardano::execution_engine::interpreter::CardanoRecipeInterpreter;
 use bloom_offchain_cardano::integrity::CheckIntegrity;
@@ -211,12 +211,12 @@ async fn main() {
 
     info!("Derived funding addresses: {}", funding_addresses);
 
-    let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<ProcessedTransaction>>>> = vec![
+    let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<TxViewAtEraBoundary>>>> = vec![
         Box::new(general_upd_handler.clone()),
         Box::new(funding_event_handler.clone()),
     ];
 
-    let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<ProcessedTransaction>>>> =
+    let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<TxViewAtEraBoundary>>>> =
         vec![Box::new(general_upd_handler), Box::new(funding_event_handler)];
 
     let prover = OperatorProver::new(&operator_sk);
@@ -326,13 +326,13 @@ async fn main() {
         .await
         .map(|ev| match ev {
             LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
-                tx: ProcessedTransaction::from(tx),
+                tx: TxViewAtEraBoundary::from(tx),
                 slot,
             },
-            LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(ProcessedTransaction::from(tx)),
+            LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary::from(tx)),
         });
         let mempool_stream = mempool_stream(&mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
-            MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(ProcessedTransaction::from(tx)),
+            MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewAtEraBoundary::from(tx)),
         });
 
         let process_ledger_events_stream =
@@ -441,13 +441,13 @@ async fn main() {
         .await
         .map(|ev| match ev {
             LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
-                tx: ProcessedTransaction::from(tx),
+                tx: TxViewAtEraBoundary::from(tx),
                 slot,
             },
-            LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(ProcessedTransaction::from(tx)),
+            LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary::from(tx)),
         });
         let mempool_stream = mempool_stream(&mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
-            MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(ProcessedTransaction::from(tx)),
+            MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewAtEraBoundary::from(tx)),
         });
 
         let process_ledger_events_stream =

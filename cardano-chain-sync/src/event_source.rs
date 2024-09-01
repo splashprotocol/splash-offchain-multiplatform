@@ -1,16 +1,18 @@
 use std::collections::HashSet;
+use std::iter;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use async_stream::stream;
 use cml_chain::block::Block;
-use cml_chain::transaction::{ConwayFormatTxOut, Transaction, TransactionBody};
 use cml_chain::transaction::TransactionOutput::ConwayFormatTxOut as OtherConwayFormatTxOut;
+use cml_chain::transaction::{ConwayFormatTxOut, Transaction, TransactionBody};
 use cml_core::serialization::Deserialize;
 use cml_core::Slot;
-use cml_multi_era::babbage::{BabbageTransaction, BabbageTransactionBody};
+use cml_multi_era::babbage::{BabbageBlock, BabbageTransaction, BabbageTransactionBody};
 use cml_multi_era::{MultiEraBlock, MultiEraTransactionBody};
+use either::Either;
 use futures::stream::StreamExt;
 use futures::{stream, Stream};
 use log::{info, trace, warn};
@@ -20,7 +22,7 @@ use spectrum_cardano_lib::hash::{hash_block_header_canonical, hash_block_header_
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 
 use crate::cache::{LedgerCache, LinkedBlock};
-use crate::client::{BLK_START, Point};
+use crate::client::{Point, BLK_START};
 use crate::data::{ChainUpgrade, LedgerBlockEvent, LedgerTxEvent};
 
 /// Stream ledger updates as individual transactions.
@@ -32,10 +34,10 @@ pub async fn ledger_transactions<'a, S, Cache>(
     // Reapply known blocks before pulling new ones.
     replay_from: Option<Point>,
     rollback_in_progress: Arc<AtomicBool>,
-) -> impl Stream<Item=LedgerTxEvent<Transaction>> + 'a
-    where
-        S: Stream<Item=ChainUpgrade<MultiEraBlock>> + 'a,
-        Cache: LedgerCache + 'a,
+) -> impl Stream<Item = LedgerTxEvent<Either<BabbageTransaction, Transaction>>> + 'a
+where
+    S: Stream<Item = ChainUpgrade<MultiEraBlock>> + 'a,
+    Cache: LedgerCache + 'a,
 {
     let raw_replayed_blocks = match replay_from {
         None => stream::empty().boxed(),
@@ -75,10 +77,10 @@ pub fn ledger_blocks<'a, S, Cache>(
     // Rollbacks will not be handled until the specified slot is reached.
     handle_rollbacks_after: Slot,
     rollback_in_progress: Arc<AtomicBool>,
-) -> impl Stream<Item=LedgerBlockEvent<MultiEraBlock>> + 'a
-    where
-        S: Stream<Item=ChainUpgrade<MultiEraBlock>> + 'a,
-        Cache: LedgerCache + 'a,
+) -> impl Stream<Item = LedgerBlockEvent<MultiEraBlock>> + 'a
+where
+    S: Stream<Item = ChainUpgrade<MultiEraBlock>> + 'a,
+    Cache: LedgerCache + 'a,
 {
     upstream.flat_map(move |u| {
         process_upstream_by_blocks(
@@ -95,9 +97,9 @@ async fn process_upstream_by_txs<'a, Cache>(
     upgr: ChainUpgrade<MultiEraBlock>,
     handle_rollbacks_after: Slot,
     rollback_in_progress: Arc<AtomicBool>,
-) -> Pin<Box<dyn Stream<Item=LedgerTxEvent<Transaction>> + 'a>>
-    where
-        Cache: LedgerCache + 'a,
+) -> Pin<Box<dyn Stream<Item = LedgerTxEvent<Either<BabbageTransaction, Transaction>>> + 'a>>
+where
+    Cache: LedgerCache + 'a,
 {
     match upgr {
         ChainUpgrade::RollForward {
@@ -116,7 +118,8 @@ async fn process_upstream_by_txs<'a, Cache>(
                 "Scanning Block {}",
                 hash_block_header_canonical_multi_era(&blk.header()).to_hex()
             );
-            let applied_txs: Vec<_> = unpack_valid_transactions(blk)
+            let applied_txs: Vec<_> = unpack_valid_transactions_multi_era(blk)
+                .into_iter()
                 .map(|(tx, slot)| LedgerTxEvent::TxApplied { tx, slot })
                 .collect();
             Box::pin(stream::iter(applied_txs))
@@ -125,7 +128,8 @@ async fn process_upstream_by_txs<'a, Cache>(
             info!("Node requested rollback to point {:?}", point);
             Box::pin(
                 rollback(cache, point.into(), rollback_in_progress).flat_map(|blk| {
-                    let unapplied_txs: Vec<_> = unpack_valid_transactions(blk)
+                    let unapplied_txs: Vec<_> = unpack_valid_transactions_multi_era(blk)
+                        .into_iter()
                         .map(|(tx, _)| LedgerTxEvent::TxUnapplied(tx))
                         .rev()
                         .collect();
@@ -160,75 +164,75 @@ async fn cache_point<Cache: LedgerCache>(cache: Arc<Mutex<Cache>>, blk: &MultiEr
     cache.set_tip(point).await;
 }
 
-fn unpack_valid_transactions(block: MultiEraBlock) -> impl DoubleEndedIterator<Item=(Transaction, u64)> {
-    // let Block {
-    //     header,
-    //     transaction_bodies,
-    //     transaction_witness_sets,
-    //     mut auxiliary_data_set,
-    //     invalid_transactions,
-    //     ..
-    // } = block;
-    //let transaction_bodies = block.transaction_bodies();
-    //let
-    let invalid_indices: HashSet<u16> = HashSet::from_iter(block.invalid_transactions());
-    let mut auxiliary_data_set = block.auxiliary_data_set();
-    block
-        .transaction_bodies()
+fn unpack_valid_transactions_multi_era(
+    block: MultiEraBlock,
+) -> Vec<(Either<BabbageTransaction, Transaction>, u64)> {
+    match block {
+        MultiEraBlock::Babbage(blk) => unpack_valid_transactions_babbage(blk)
+            .map(|(tx, ix)| (Either::Left(tx), ix))
+            .collect(),
+        MultiEraBlock::Conway(blk) => unpack_valid_transactions_conway(blk)
+            .map(|(tx, ix)| (Either::Right(tx), ix))
+            .collect(),
+        _ => vec![],
+    }
+}
+
+fn unpack_valid_transactions_babbage(
+    block: BabbageBlock,
+) -> impl DoubleEndedIterator<Item = (BabbageTransaction, u64)> {
+    let BabbageBlock {
+        header,
+        transaction_bodies,
+        transaction_witness_sets,
+        mut auxiliary_data_set,
+        invalid_transactions,
+        ..
+    } = block;
+    let invalid_indices: HashSet<u16> = HashSet::from_iter(invalid_transactions);
+    transaction_bodies
         .into_iter()
-        .zip(block.transaction_witness_sets())
+        .zip(transaction_witness_sets)
         .enumerate()
         .filter(move |(ix, _)| !invalid_indices.contains(&(*ix as u16)))
         .map(move |(ix, (tb, tw))| {
             let tx_ix = &(ix as u16);
-            let body = match tb {
-                MultiEraTransactionBody::Conway(conway_body) => conway_body,
-                MultiEraTransactionBody::Babbage(babbage_body) => {
-                    let tx_outputs = babbage_body.outputs.iter().map(|output| {
-                        let tx_output = OtherConwayFormatTxOut(ConwayFormatTxOut {
-                            address: output.address().clone(),
-                            amount: output.value().clone(),
-                            datum_option: output.datum(),
-                            script_reference: None,
-                            encodings: None,
-                        });
-                        tx_output
-                    }
-                    ).collect();
-                    TransactionBody {
-                        inputs: babbage_body.inputs.into(),
-                        outputs: tx_outputs,
-                        fee: babbage_body.fee,
-                        ttl: babbage_body.ttl,
-                        certs: None, //babbage_body.certs.map(|certs| certs.into()),
-                        withdrawals: None,
-                        auxiliary_data_hash: None,
-                        validity_interval_start: None,
-                        mint: None,
-                        script_data_hash: babbage_body.script_data_hash,
-                        collateral_inputs: None,
-                        required_signers: babbage_body.required_signers,
-                        network_id: babbage_body.network_id,
-                        collateral_return: None,
-                        total_collateral: None,
-                        reference_inputs: None,
-                        voting_procedures: None,
-                        proposal_procedures: None,
-                        current_treasury_value: None,
-                        donation: None,
-                        encodings: None,
-                    }
-                }
-                _ => panic!("impossible to cast non conway era body. panic just for test"),
-            };
-            let tx = Transaction {
-                body: body,
+            let tx = BabbageTransaction {
+                body: tb,
                 witness_set: tw,
                 is_valid: true,
                 auxiliary_data: auxiliary_data_set.remove(tx_ix),
                 encodings: None,
             };
-            (tx, block.header().slot())
+            (tx, header.header_body.slot)
+        })
+}
+
+fn unpack_valid_transactions_conway(block: Block) -> impl DoubleEndedIterator<Item = (Transaction, u64)> {
+    let Block {
+        header,
+        transaction_bodies,
+        transaction_witness_sets,
+        mut auxiliary_data_set,
+        invalid_transactions,
+        ..
+    } = block;
+    let invalid_indices: HashSet<u16> = HashSet::from_iter(invalid_transactions);
+    transaction_bodies
+        .into_iter()
+        .zip(transaction_witness_sets)
+        .enumerate()
+        .filter(move |(ix, _)| !invalid_indices.contains(&(*ix as u16)))
+        .map(move |(ix, (tb, tw))| {
+            let tx_ix = &(ix as u16);
+            let tx = Transaction {
+                body: tb,
+                witness_set: tw,
+                is_valid: true,
+                auxiliary_data: auxiliary_data_set.remove(tx_ix),
+                encodings: None,
+            };
+            (tx, header.header_body.slot)
         })
 }
 
@@ -237,9 +241,9 @@ fn process_upstream_by_blocks<'a, Cache>(
     upgr: ChainUpgrade<MultiEraBlock>,
     handle_rollbacks_after: Slot,
     rollback_in_progress: Arc<AtomicBool>,
-) -> Pin<Box<dyn Stream<Item=LedgerBlockEvent<MultiEraBlock>> + 'a>>
-    where
-        Cache: LedgerCache + 'a,
+) -> Pin<Box<dyn Stream<Item = LedgerBlockEvent<MultiEraBlock>> + 'a>>
+where
+    Cache: LedgerCache + 'a,
 {
     match upgr {
         ChainUpgrade::RollForward {
@@ -271,9 +275,9 @@ fn rollback<Cache>(
     cache: Arc<Mutex<Cache>>,
     to_point: Point,
     rollback_in_progress: Arc<AtomicBool>,
-) -> impl Stream<Item=MultiEraBlock>
-    where
-        Cache: LedgerCache,
+) -> impl Stream<Item = MultiEraBlock>
+where
+    Cache: LedgerCache,
 {
     stream! {
         loop {
