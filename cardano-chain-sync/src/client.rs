@@ -88,7 +88,6 @@ impl<Block> ChainSyncClient<Block> {
         };
         match response {
             Ok(NextResponse::RollForward(BlockContent(raw), _)) => {
-                //info!("Block bytes: {}", hex::encode(raw.clone()));
                 let original_bytes = raw[BLK_START..].to_vec();
                 match Block::from_cbor_bytes(&original_bytes) {
                     Ok(blk) => Some(ChainUpgrade::RollForward {
@@ -113,7 +112,7 @@ impl<Block> ChainSyncClient<Block> {
     }
 }
 
-pub const BLK_START: usize = 2;
+const BLK_START: usize = 2;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

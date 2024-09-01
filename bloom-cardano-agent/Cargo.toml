@@ -19,10 +19,10 @@ cbor_event = "2.4.0"
 cardano-mempool-sync = { version = "0.1.0", path = "../cardano-mempool-sync" }
 cardano-submit-api = { version = "0.1.0", path = "../cardano-submit-api" }
 spectrum-cardano-lib = { version = "0.1.0", path = "../spectrum-cardano-lib" }
-cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/fix-bigint-conversion" }
-cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/fix-bigint-conversion" }
-cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/fix-bigint-conversion" }
-cml-multi-era = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/fix-bigint-conversion" }
+cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
+cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
+cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
+cml-multi-era = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
 pallas-network = { git = "https://github.com/kettlebell/pallas.git", branch = "decode_local_tx_err_rebase" }
 pallas-primitives = { git = "https://github.com/kettlebell/pallas.git", branch = "decode_local_tx_err_rebase" }
 isahc = { version = "1.7.2", features = ["json"] }

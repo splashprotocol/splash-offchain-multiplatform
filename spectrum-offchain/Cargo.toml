@@ -11,7 +11,7 @@ isahc = { version = "1.7.2", features = ["json"] }
 futures = "0.3.25"
 tokio = { version = "1.22.0", features = ["full"] }
 log = "0.4.17"
-cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/fix-bigint-conversion" }
+cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
 tracing = "0.1.37"
 log4rs = "1.2.0"
 async-trait = "0.1.58"
@@ -37,7 +37,7 @@ num-rational = { version = "0.4.1", features = ["serde"] }
 either = "1.9.0"
 hex = "0.4.3"
 circular-buffer = "0.1.7"
-cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "i.oskin/fix-bigint-conversion" }
+cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
 
 [dev-dependencies]
 rocksdb = "0.21.*"

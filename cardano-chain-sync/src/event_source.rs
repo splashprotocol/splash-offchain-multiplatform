@@ -22,7 +22,7 @@ use spectrum_cardano_lib::hash::{hash_block_header_canonical, hash_block_header_
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 
 use crate::cache::{LedgerCache, LinkedBlock};
-use crate::client::{Point, BLK_START};
+use crate::client::Point;
 use crate::data::{ChainUpgrade, LedgerBlockEvent, LedgerTxEvent};
 
 /// Stream ledger updates as individual transactions.
