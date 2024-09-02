@@ -19,6 +19,7 @@ use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_cardano_lib::{NetworkId, OutputRef};
 use spectrum_offchain::data::{Baked, Has};
+use spectrum_offchain_cardano::constants::ADDITIONAL_FEE;
 use spectrum_offchain_cardano::creds::{OperatorCred, OperatorRewardAddress};
 use spectrum_offchain_cardano::deployment::DeployedValidator;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{GridOrderNative, LimitOrderWitnessV1};
@@ -150,7 +151,7 @@ where
         .add_collateral(ctx.select::<Collateral>().into())
         .unwrap();
 
-    let estimated_fee = tx_builder.min_fee(true).unwrap();
+    let estimated_fee = tx_builder.min_fee(true).unwrap() + ADDITIONAL_FEE;
     let fee_mismatch = reserved_tx_fee as i64 - estimated_fee as i64;
     trace!(
         "Est. fee: {}, reserved fee: {}, mismatch: {}",

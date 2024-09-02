@@ -19,3 +19,5 @@ pub const CLASSIC_CFMM_ASSET_WEIGHT: u64 = 5;
 pub const MIN_SAFE_LOVELACE_VALUE: Coin = 1_000_000;
 
 pub const MIN_SAFE_COLLATERAL: Coin = 5_000_000;
+
+pub const ADDITIONAL_FEE: Coin = 20_000;
