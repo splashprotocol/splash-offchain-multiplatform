@@ -18,8 +18,9 @@ impl<'a> OperatorProver<'a> {
 
 impl<'a> TxProver<SignedTxBuilder, OutboundTransaction<Transaction>> for OperatorProver<'a> {
     fn prove(&self, mut candidate: SignedTxBuilder) -> OutboundTransaction<Transaction> {
-        let body = candidate.clone().build_unchecked().body;
-        let signature = make_vkey_witness(&hash_transaction_canonical(&body), self.0);
+        let body = candidate.body();
+        let tx_hash = hash_transaction_canonical(&body);
+        let signature = make_vkey_witness(&tx_hash, self.0);
         candidate.add_vkey(signature);
         match candidate.build_checked() {
             Ok(tx) => tx.into(),

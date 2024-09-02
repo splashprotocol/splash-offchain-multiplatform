@@ -6,12 +6,12 @@
       "outputIndex": 1
     },
     "cost": {
-      "mem": 520000,
-      "steps": 200000000
+      "mem": 210000,
+      "steps": 80000000
     },
     "marginalCost": {
-      "mem": 240000,
-      "steps": 85000000
+      "mem": 210000,
+      "steps": 80000000
     }
   },
   "limitOrder": {
@@ -21,12 +21,12 @@
       "outputIndex": 0
     },
     "cost": {
-      "mem": 170000,
-      "steps": 65000000
+      "mem": 100000,
+      "steps": 30000000
     },
     "marginalCost": {
-      "mem": 410000,
-      "steps": 91500000
+      "mem": 20000,
+      "steps": 10000000
     }
   },
   "gridOrderNative": {
