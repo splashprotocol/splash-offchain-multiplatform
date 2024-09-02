@@ -58,7 +58,7 @@ impl<'a, const ERA: u16, Tx> LocalTxSubmissionClient<'a, ERA, Tx> {
     {
         let tx_bytes = tx.to_cbor_bytes();
         let hash = hex::encode(&blake2b256(&tx_bytes)[0..8]);
-        trace!("[{}] Going to submit TX: {}", hash, hex::encode(&tx_bytes));
+        trace!("[{}] Going to submit TX", hash);
         let result = self
             .tx_submission
             .submit_tx(EraTx(ERA, tx_bytes))
