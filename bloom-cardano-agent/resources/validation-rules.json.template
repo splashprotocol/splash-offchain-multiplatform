@@ -1,6 +1,6 @@
 {
   "limitOrder": {
-    "minCostPerExStep": 350000,
+    "minCostPerExStep": 600000,
     "minFeeLovelace": 0,
     "strictBeacon": true
   },
