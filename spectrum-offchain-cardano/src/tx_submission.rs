@@ -9,8 +9,7 @@ use futures::{SinkExt, Stream, StreamExt};
 use log::{trace, warn};
 use pallas_network::miniprotocols::localtxsubmission;
 use pallas_network::miniprotocols::localtxsubmission::cardano_node_errors::{
-    AlonzoUtxoPredFailure, ApplyTxError, BabbageUtxoPredFailure, BabbageUtxowPredFailure,
-    ShelleyLedgerPredFailure, TxInput,
+    ApplyTxError, ConwayLedgerPredFailure, ConwayUtxoPredFailure, ConwayUtxowPredFailure, TxInput,
 };
 use pallas_network::miniprotocols::localtxsubmission::Response;
 use pallas_network::multiplexer;
@@ -142,10 +141,8 @@ impl TryFrom<RejectReasons> for HashSet<OutputRef> {
 
         for ApplyTxError { node_errors } in value.0 {
             for error in node_errors {
-                if let ShelleyLedgerPredFailure::UtxowFailure(BabbageUtxowPredFailure::UtxoFailure(
-                    BabbageUtxoPredFailure::AlonzoInBabbageUtxoPredFailure(
-                        AlonzoUtxoPredFailure::BadInputsUtxo(inputs),
-                    ),
+                if let ConwayLedgerPredFailure::UtxowFailure(ConwayUtxowPredFailure::UtxoFailure(
+                    ConwayUtxoPredFailure::BadInputsUtxo(inputs),
                 )) = error
                 {
                     missing_utxos.extend(inputs.into_iter().map(|TxInput { tx_hash, index }| {
