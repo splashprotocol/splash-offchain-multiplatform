@@ -543,6 +543,19 @@ impl MarketMaker for BalancePool {
         const MAX_ERR: i32 = 1;
         const MAX_ITERS: u32 = 25;
 
+        let [base, _] = order_canonical(self.asset_x.untag(), self.asset_y.untag());
+
+        let tradable_x_reserves = BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64);
+        let weight_x = BigNumber::from(self.weight_x as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64));
+        let tradable_y_reserves = BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64);
+        let weight_y = BigNumber::from(self.weight_y as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64));
+        let fee_x = BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64()?);
+        let fee_y = BigNumber::from((self.lp_fee_y - self.treasury_fee).to_f64()?);
+        let bid_price = BigNumber::from(*worst_price.unwrap().denom() as f64)
+            / BigNumber::from(*worst_price.unwrap().numer() as f64);
+        let ask_price = BigNumber::from(*worst_price.unwrap().numer() as f64)
+            / BigNumber::from(*worst_price.unwrap().denom() as f64);
+
         let (
             tradable_reserves_base,
             w_base,
@@ -551,23 +564,40 @@ impl MarketMaker for BalancePool {
             total_fee_mult,
             avg_sell_price,
         ) = match worst_price {
-            OnSide::Bid(price) => (
-                BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
-                BigNumber::from(self.weight_y as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
-                BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
-                BigNumber::from(self.weight_x as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
-                BigNumber::from((self.lp_fee_y - self.treasury_fee).to_f64()?),
-                BigNumber::from(*price.denom() as f64) / BigNumber::from(*price.numer() as f64),
+            OnSide::Bid(_) if base == self.asset_x.untag() => (
+                tradable_y_reserves,
+                weight_y,
+                tradable_x_reserves,
+                weight_x,
+                fee_y,
+                bid_price,
             ),
-            OnSide::Ask(price) => (
-                BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64),
-                BigNumber::from(self.weight_x as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
-                BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64),
-                BigNumber::from(self.weight_y as f64).div(BigNumber::from(WEIGHT_FEE_DEN as f64)),
-                BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64()?),
-                BigNumber::from(*price.numer() as f64) / BigNumber::from(*price.denom() as f64),
+            OnSide::Bid(_) => (
+                tradable_x_reserves,
+                weight_x,
+                tradable_y_reserves,
+                weight_y,
+                fee_x,
+                bid_price,
+            ),
+            OnSide::Ask(_) if base == self.asset_x.untag() => (
+                tradable_x_reserves,
+                weight_x,
+                tradable_y_reserves,
+                weight_y,
+                fee_x,
+                ask_price,
+            ),
+            OnSide::Ask(_) => (
+                tradable_y_reserves,
+                weight_y,
+                tradable_x_reserves,
+                weight_x,
+                fee_y,
+                ask_price,
             ),
         };
+
         let lq_balance =
             tradable_reserves_base.pow(&w_base.clone()) * tradable_reserves_quote.pow(&w_quote.clone());
 
