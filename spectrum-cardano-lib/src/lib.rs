@@ -20,6 +20,7 @@ use crate::plutus_data::{ConstrPlutusDataExtension, PlutusDataExtension};
 use crate::types::TryFromPData;
 
 pub mod address;
+pub mod asset_bundle;
 pub mod collateral;
 pub mod constants;
 pub mod credential;

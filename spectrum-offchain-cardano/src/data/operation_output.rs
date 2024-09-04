@@ -5,6 +5,7 @@ use cml_chain::transaction::{ConwayFormatTxOut, TransactionOutput};
 use cml_chain::{Coin, Value};
 use cml_crypto::Ed25519KeyHash;
 
+use spectrum_cardano_lib::asset_bundle::SafeAssetBundleOps;
 use spectrum_cardano_lib::{NetworkId, TaggedAmount, TaggedAssetClass, Token};
 use spectrum_offchain::data::Has;
 use spectrum_offchain::ledger::IntoLedger;
@@ -44,7 +45,7 @@ where
             self.quote_amount.untag()
         } else {
             let Token(policy, name) = self.quote_asset.untag().into_token().unwrap();
-            ma.set(policy, name.into(), self.quote_amount.untag());
+            ma.safe_set(policy, name.into(), self.quote_amount.untag());
             0
         };
 
@@ -95,19 +96,19 @@ where
         let ada_from_charge_pair = match (self.token_x_asset.is_native(), self.token_y_asset.is_native()) {
             (true, false) => {
                 let Token(policy, name) = self.token_y_asset.untag().into_token().unwrap();
-                ma.set(policy, name.into(), self.token_y_charge_amount.untag());
+                ma.safe_set(policy, name.into(), self.token_y_charge_amount.untag());
                 self.token_x_charge_amount.untag()
             }
             (false, true) => {
                 let Token(policy, name) = self.token_x_asset.untag().into_token().unwrap();
-                ma.set(policy, name.into(), self.token_x_charge_amount.untag());
+                ma.safe_set(policy, name.into(), self.token_x_charge_amount.untag());
                 self.token_y_charge_amount.untag()
             }
             (false, false) => {
                 let Token(policy_x, name_x) = self.token_x_asset.untag().into_token().unwrap();
-                ma.set(policy_x, name_x.into(), self.token_x_charge_amount.untag());
+                ma.safe_set(policy_x, name_x.into(), self.token_x_charge_amount.untag());
                 let Token(policy_y, name_y) = self.token_y_asset.untag().into_token().unwrap();
-                ma.set(policy_y, name_y.into(), self.token_y_charge_amount.untag());
+                ma.safe_set(policy_y, name_y.into(), self.token_y_charge_amount.untag());
                 0
             }
             // todo: basically this is unreachable point. Throw error?
@@ -163,19 +164,19 @@ where
         let ada_from_charge_pair = match (self.token_x_asset.is_native(), self.token_y_asset.is_native()) {
             (true, false) => {
                 let Token(policy, name) = self.token_y_asset.untag().into_token().unwrap();
-                ma.set(policy, name.into(), self.token_y_amount.untag());
+                ma.safe_set(policy, name.into(), self.token_y_amount.untag());
                 self.token_x_amount.untag()
             }
             (false, true) => {
                 let Token(policy, name) = self.token_x_asset.untag().into_token().unwrap();
-                ma.set(policy, name.into(), self.token_x_amount.untag());
+                ma.safe_set(policy, name.into(), self.token_x_amount.untag());
                 self.token_y_amount.untag()
             }
             (false, false) => {
                 let Token(policy_x, name_x) = self.token_x_asset.untag().into_token().unwrap();
-                ma.set(policy_x, name_x.into(), self.token_x_amount.untag());
+                ma.safe_set(policy_x, name_x.into(), self.token_x_amount.untag());
                 let Token(policy_y, name_y) = self.token_y_asset.untag().into_token().unwrap();
-                ma.set(policy_y, name_y.into(), self.token_y_amount.untag());
+                ma.safe_set(policy_y, name_y.into(), self.token_y_amount.untag());
                 0
             }
             // todo: basically this is unreachable point. Throw error?
