@@ -1,6 +1,4 @@
 use cml_chain::transaction::TransactionOutput;
-use cml_chain::PolicyId;
-use cml_multi_era::babbage::BabbageTransactionOutput;
 use either::Either;
 
 use bloom_offchain::execution_engine::bundled::Bundled;

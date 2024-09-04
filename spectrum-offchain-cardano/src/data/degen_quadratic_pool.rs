@@ -710,9 +710,9 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
     use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+    use cml_chain::transaction::TransactionOutput;
     use cml_core::serialization::Deserialize;
     use cml_crypto::ScriptHash;
-    use cml_multi_era::babbage::BabbageTransactionOutput;
     use rand::prelude::StdRng;
     use rand::seq::SliceRandom;
     use rand::{Rng, SeedableRng};
@@ -1133,7 +1133,7 @@ mod tests {
                 min_t2t_lovelace: 10_000_000,
             },
         };
-        let bearer = BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(POOL_UTXO).unwrap()).unwrap();
+        let bearer = TransactionOutput::from_cbor_bytes(&*hex::decode(POOL_UTXO).unwrap()).unwrap();
         let pool = DegenQuadraticPool::try_from_ledger(&bearer, &ctx);
         println!("Pool: {}", pool.unwrap());
     }

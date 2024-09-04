@@ -11,9 +11,8 @@ where
 {
     fn safe_set(&mut self, policy_id: PolicyId, asset_name: AssetName, value: T) {
         if value.is_zero() {
-            self.get_mut(&policy_id.clone()).and_then(|assets| {
-                assets.remove(&asset_name)
-            });
+            self.get_mut(&policy_id.clone())
+                .and_then(|assets| assets.remove(&asset_name));
         } else {
             self.set(policy_id, asset_name, value);
         }

@@ -824,12 +824,11 @@ impl ApplyOrder<ClassicalOnChainRedeem> for ConstFnPool {
 
 #[cfg(test)]
 mod tests {
-    use std::convert::identity;
-
+    use cml_chain::transaction::TransactionOutput;
     use cml_core::serialization::Deserialize;
     use cml_crypto::ScriptHash;
-    use cml_multi_era::babbage::BabbageTransactionOutput;
     use num_rational::Ratio;
+    use std::convert::identity;
     use type_equalities::IsEqual;
 
     use bloom_offchain::execution_engine::liquidity_book::core::{Excess, MakeInProgress, Next, Trans};
@@ -1052,7 +1051,7 @@ mod tests {
                 min_t2t_lovelace: 10_000_000,
             },
         };
-        let bearer = BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(POOL_UTXO).unwrap()).unwrap();
+        let bearer = TransactionOutput::from_cbor_bytes(&*hex::decode(POOL_UTXO).unwrap()).unwrap();
         let pool = ConstFnPool::try_from_ledger(&bearer, &ctx);
         assert_eq!(pool, None);
     }

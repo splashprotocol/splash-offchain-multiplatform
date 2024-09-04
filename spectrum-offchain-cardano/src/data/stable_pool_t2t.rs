@@ -9,7 +9,6 @@ use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
-use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
 use num_traits::{CheckedAdd, CheckedSub, Pow, ToPrimitive};
 use primitive_types::U512;
@@ -247,10 +246,10 @@ where
             let lov = value.amount_of(Native)?;
             let rx = value.amount_of(conf.asset_x.into())?;
             let ry = value.amount_of(conf.asset_y.into())?;
-            let reserved_ok = rx > conf.treasury_x && ry > conf.treasury_y;
+            let reserves_ok = rx > conf.treasury_x && ry > conf.treasury_y;
             let lovelace_ok =
                 conf.asset_x.is_native() || conf.asset_y.is_native() || bounds.min_t2t_lovelace <= lov;
-            if reserved_ok && lovelace_ok {
+            if reserves_ok && lovelace_ok {
                 return Some(StablePoolT2T {
                     id: PoolId::try_from(conf.pool_nft).ok()?,
                     an2n: conf.an2n,
@@ -693,10 +692,10 @@ impl MarketMaker for StablePoolT2T {
         } else {
             suppose_quote_delta
         };
-        return Some(AvailableLiquidity {
+        Some(AvailableLiquidity {
             input: input_amount_val,
             output: output_amount_val,
-        });
+        })
     }
 
     fn estimated_trade(&self, input: OnSide<u64>) -> Option<AvailableLiquidity> {
@@ -819,24 +818,6 @@ impl ApplyOrder<ClassicalOnChainRedeem> for StablePoolT2T {
 
 #[cfg(test)]
 mod tests {
-    use cml_chain::plutus::PlutusData;
-    use cml_chain::Deserialize;
-    use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
-    use num_rational::Ratio;
-    use num_traits::ToPrimitive;
-    use primitive_types::U512;
-
-    use bloom_offchain::execution_engine::liquidity_book::core::Next;
-    use bloom_offchain::execution_engine::liquidity_book::market_maker::{
-        AvailableLiquidity, MakerBehavior, MarketMaker,
-    };
-    use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
-    use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
-    use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
-    use spectrum_cardano_lib::ex_units::ExUnits;
-    use spectrum_cardano_lib::types::TryFromPData;
-    use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass, Token};
-
     use crate::constants::MAX_LQ_CAP;
     use crate::data::order::ClassicalOrder;
     use crate::data::order::OrderType::BalanceFn;
@@ -847,6 +828,22 @@ mod tests {
     use crate::pool_math::stable_pool_t2t_exact_math::{
         calculate_invariant, calculate_safe_price_ratio_x_y_swap,
     };
+    use bloom_offchain::execution_engine::liquidity_book::core::Next;
+    use bloom_offchain::execution_engine::liquidity_book::market_maker::{
+        AvailableLiquidity, MakerBehavior, MarketMaker,
+    };
+    use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
+    use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
+    use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+    use cml_chain::plutus::PlutusData;
+    use cml_chain::Deserialize;
+    use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
+    use num_rational::Ratio;
+    use num_traits::ToPrimitive;
+    use primitive_types::U512;
+    use spectrum_cardano_lib::ex_units::ExUnits;
+    use spectrum_cardano_lib::types::TryFromPData;
+    use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass, Token};
 
     const DATUM_SAMPLE: &str = "d8799fd8799f581c7dbe6f0c7849e2dae806cd4681910bfe1bbc0d5fd4e370e8e2f7bd4a436e6674ff190c80d8799f4040ffd8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737443ff0000d8799f581c6abe65f6adc8301ff4dbfcfcec1a187075639d21f85cae3c1cf2a060426c71ffd87980d879801a000186820a581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba260000ff";
 
