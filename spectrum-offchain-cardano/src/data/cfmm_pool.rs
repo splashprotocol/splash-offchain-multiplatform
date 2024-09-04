@@ -835,8 +835,8 @@ mod tests {
     use cml_core::serialization::Deserialize;
     use cml_crypto::ScriptHash;
     use num_rational::Ratio;
-    use std::convert::identity;
     use num_traits::ToPrimitive;
+    use std::convert::identity;
     use type_equalities::IsEqual;
 
     use bloom_offchain::execution_engine::liquidity_book::core::{Excess, MakeInProgress, Next, Trans};

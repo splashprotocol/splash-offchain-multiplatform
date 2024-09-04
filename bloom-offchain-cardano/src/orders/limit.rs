@@ -433,7 +433,8 @@ where
                         });
                     } else {
                         trace!(
-                            "Order {}: sufficient_input: {}, sufficient_execution_budget: {}, sufficient_fee: {}, executable: {}, valid_configuration: {}, is_valid_beacon: {}", 
+                            "UTxO {}, Order {} :: sufficient_input: {}, sufficient_execution_budget: {}, sufficient_fee: {}, executable: {}, valid_configuration: {}, is_valid_beacon: {}",
+                            ctx.select::<OutputRef>(),
                             conf.beacon,
                             sufficient_input,
                             sufficient_execution_budget,
