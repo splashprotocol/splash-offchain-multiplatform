@@ -551,6 +551,17 @@ impl MarketMaker for StablePoolT2T {
         }
     }
     fn available_liquidity_on_side(&self, worst_price: OnSide<AbsolutePrice>) -> Option<AvailableLiquidity> {
+        let [base, _] = order_canonical(self.asset_x.untag(), self.asset_y.untag());
+
+        let tradable_x_reserves = (self.reserves_x - self.treasury_x).untag();
+        let tradable_y_reserves = (self.reserves_y - self.treasury_y).untag();
+        let fee_x = BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64()?);
+        let fee_y = BigNumber::from((self.lp_fee_y - self.treasury_fee).to_f64()?);
+        let bid_price = BigNumber::from(*worst_price.unwrap().denom() as f64)
+            / BigNumber::from(*worst_price.unwrap().numer() as f64);
+        let ask_price = BigNumber::from(*worst_price.unwrap().numer() as f64)
+            / BigNumber::from(*worst_price.unwrap().denom() as f64);
+
         let (
             tradable_reserves_base,
             tradable_reserves_quote,
@@ -559,21 +570,37 @@ impl MarketMaker for StablePoolT2T {
             total_fee_mult,
             avg_price,
         ) = match worst_price {
-            OnSide::Bid(price) => (
-                (self.reserves_y - self.treasury_y).untag(),
-                (self.reserves_x - self.treasury_x).untag(),
+            OnSide::Bid(_) if base == self.asset_x.untag() => (
+                tradable_y_reserves,
+                tradable_x_reserves,
                 self.multiplier_y,
                 self.multiplier_x,
-                BigNumber::from((self.lp_fee_y - self.treasury_fee).to_f64()?),
-                BigNumber::from(*price.denom() as f64) / BigNumber::from(*price.numer() as f64),
+                fee_x,
+                bid_price,
             ),
-            OnSide::Ask(price) => (
-                (self.reserves_x - self.treasury_x).untag(),
-                (self.reserves_y - self.treasury_y).untag(),
+            OnSide::Bid(_) => (
+                tradable_x_reserves,
+                tradable_y_reserves,
                 self.multiplier_x,
                 self.multiplier_y,
-                BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64()?),
-                BigNumber::from(*price.numer() as f64) / BigNumber::from(*price.denom() as f64),
+                fee_y,
+                bid_price,
+            ),
+            OnSide::Ask(_) if base == self.asset_x.untag() => (
+                tradable_x_reserves,
+                tradable_y_reserves,
+                self.multiplier_x,
+                self.multiplier_y,
+                fee_y,
+                ask_price,
+            ),
+            OnSide::Ask(_) => (
+                tradable_y_reserves,
+                tradable_x_reserves,
+                self.multiplier_y,
+                self.multiplier_x,
+                fee_x,
+                ask_price,
             ),
         };
 
