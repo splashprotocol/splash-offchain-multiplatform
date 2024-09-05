@@ -283,6 +283,7 @@ async fn main() {
         operator_cred: operator_paycred,
     };
     if args.hot {
+        info!("Running in Hot mode!");
         let multi_book = MultiPair::new::<HotLB<AnyOrder, AnyPool, ExUnits>>(maker_context.clone(), "Book");
         let multi_backlog = MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(
             maker_context,
