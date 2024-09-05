@@ -294,7 +294,7 @@ where
             trace!("Attempting to matchmake");
             let mut batch: MatchmakingAttempt<T, M, U> = MatchmakingAttempt::empty();
             if let Some(preview_state) = self.state.preview() {
-                while batch.execution_units_consumed() < self.execution_cap.soft {
+                while batch.execution_units_consumed() < self.execution_cap.soft && batch.num_takes() < 15 {
                     if let Some(taker) = preview_state.pop_taker() {
                         if let Some(maker) = preview_state.take_best_maker() {
                             let side = taker.side();

@@ -607,6 +607,10 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
         self.num_aggregated_makes > 0
     }
 
+    pub fn num_takes(&self) -> usize {
+        self.takes.len()
+    }
+
     pub fn execution_units_consumed(&self) -> U
     where
         U: Copy,
