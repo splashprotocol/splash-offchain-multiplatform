@@ -148,7 +148,7 @@ where
             let SubmitTx(tx, on_resp) = mailbox.select_next_some().await;
             let tx_hash = tx.canonical_hash();
             loop {
-                match maestro.submit_tx((*tx).clone().to_cbor_bytes()).await {
+                match maestro.submit_tx((*tx).clone().to_canonical_cbor_bytes()).await {
                     Ok(_) => on_resp.send(SubmissionResult::Ok).expect("Responder was dropped"),
                     Err(_) => on_resp.send(SubmissionResult::TxRejected{errors: vec![].into()}).expect("Responder was dropped"),
                 }
