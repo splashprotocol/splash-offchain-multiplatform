@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Div;
 
@@ -10,7 +9,6 @@ use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::{ConwayFormatTxOut, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
-use cml_multi_era::babbage::BabbageTransactionOutput;
 use dashu_float::DBig;
 use num_traits::{CheckedDiv, CheckedSub, ToPrimitive};
 use type_equalities::IsEqual;
@@ -244,7 +242,7 @@ impl MakerBehavior for DegenQuadraticPool {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, quote] = order_canonical(x, y);
-        let output = match input {
+        let output_candidate = match input {
             OnSide::Bid(input) => self
                 .output_amount(TaggedAssetClass::new(quote), TaggedAmount::new(input))
                 .untag(),
@@ -257,17 +255,34 @@ impl MakerBehavior for DegenQuadraticPool {
         } else {
             (self.reserves_y.as_mut(), self.reserves_x.as_mut())
         };
+        let safe_output = match input {
+            OnSide::Bid(_) => {
+                if output_candidate <= *base_reserves {
+                    output_candidate
+                } else {
+                    *base_reserves
+                }
+            }
+
+            OnSide::Ask(_) => {
+                if output_candidate <= *quote_reserves {
+                    output_candidate
+                } else {
+                    *quote_reserves
+                }
+            }
+        };
         match input {
             OnSide::Bid(input) => {
                 // A user bid means that they wish to buy the base asset for the quote asset, hence
                 // pool reserves of base decreases while reserves of quote increase.
                 *quote_reserves += input;
-                *base_reserves -= output;
+                *base_reserves -= safe_output;
             }
             OnSide::Ask(input) => {
                 // User ask is the opposite; sell the base asset for the quote asset.
                 *base_reserves += input;
-                *quote_reserves -= output;
+                *quote_reserves -= safe_output;
             }
         }
         Next::Succ(self)
@@ -697,12 +712,14 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for DegenQuadraticPool {
 }
 
 mod tests {
-    use crate::data::degen_quadratic_pool::{DegenQuadraticPool, DegenQuadraticPoolVer};
-    use crate::data::pool::PoolValidation;
-    use crate::data::PoolId;
-    use crate::deployment::ProtocolValidator::DegenQuadraticPoolV1;
-    use crate::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
-    use crate::pool_math::degen_quadratic_math::{calculate_a_num, A_DENOM, MIN_ADA, TOKEN_EMISSION};
+    use cml_chain::transaction::TransactionOutput;
+    use cml_core::serialization::Deserialize;
+    use cml_crypto::ScriptHash;
+    use rand::prelude::StdRng;
+    use rand::seq::SliceRandom;
+    use rand::{Rng, SeedableRng};
+    use type_equalities::IsEqual;
+
     use bloom_offchain::execution_engine::liquidity_book::core::Next;
     use bloom_offchain::execution_engine::liquidity_book::market_maker::{
         AvailableLiquidity, MakerBehavior, MarketMaker,
@@ -710,17 +727,17 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
     use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
-    use cml_chain::transaction::TransactionOutput;
-    use cml_core::serialization::Deserialize;
-    use cml_crypto::ScriptHash;
-    use rand::prelude::StdRng;
-    use rand::seq::SliceRandom;
-    use rand::{Rng, SeedableRng};
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass, Token};
     use spectrum_offchain::data::Has;
     use spectrum_offchain::ledger::TryFromLedger;
-    use type_equalities::IsEqual;
+
+    use crate::data::degen_quadratic_pool::{DegenQuadraticPool, DegenQuadraticPoolVer};
+    use crate::data::pool::PoolValidation;
+    use crate::data::PoolId;
+    use crate::deployment::ProtocolValidator::DegenQuadraticPoolV1;
+    use crate::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
+    use crate::pool_math::degen_quadratic_math::{calculate_a_num, A_DENOM, MIN_ADA, TOKEN_EMISSION};
 
     const LOVELACE: u64 = 1_000_000;
     const DEC: u64 = 1_000;
