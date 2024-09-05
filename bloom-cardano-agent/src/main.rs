@@ -20,6 +20,7 @@ use crate::entity::{AtomicCardanoEntity, EvolvingCardanoEntity};
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_part_stream;
 use bloom_offchain::execution_engine::funding_effect::FundingEvent;
+use bloom_offchain::execution_engine::liquidity_book::hot::HotLB;
 use bloom_offchain::execution_engine::liquidity_book::TLB;
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
 use bloom_offchain::execution_engine::storage::kv_store::{InMemoryKvStore, KvStoreWithTracing};
@@ -281,121 +282,240 @@ async fn main() {
         network_id: config.network_id,
         operator_cred: operator_paycred,
     };
-    let multi_book = MultiPair::new::<TLB<AnyOrder, AnyPool, ExUnits>>(maker_context.clone(), "Book");
-    let multi_backlog = MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(
-        maker_context,
-        "Backlog",
-    );
-    let state_index = InMemoryStateIndex::with_tracing();
-    let state_cache = InMemoryKvStore::with_tracing();
+    if args.hot {
+        let multi_book = MultiPair::new::<HotLB<AnyOrder, AnyPool, ExUnits>>(maker_context.clone(), "Book");
+        let multi_backlog = MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(
+            maker_context,
+            "Backlog",
+        );
+        let state_index = InMemoryStateIndex::with_tracing();
+        let state_cache = InMemoryKvStore::with_tracing();
 
-    let (signal_tip_reached_snd, signal_tip_reached_recv) = broadcast::channel(1);
+        let (signal_tip_reached_snd, signal_tip_reached_recv) = broadcast::channel(1);
 
-    let execution_stream_p1 = execution_part_stream(
-        state_index.clone(),
-        state_cache.clone(),
-        multi_book.clone(),
-        multi_backlog.clone(),
-        context_p1,
-        recipe_interpreter,
-        spec_interpreter,
-        prover,
-        select_partition(
-            merge_upstreams(pair_upd_recv_p1, spec_upd_recv_p1),
-            config.partitioning.clone(),
-        ),
-        funding_upd_recv_p1,
-        tx_submission_channel.clone(),
-        signal_tip_reached_snd.subscribe(),
-    );
-    let execution_stream_p2 = execution_part_stream(
-        state_index.clone(),
-        state_cache.clone(),
-        multi_book.clone(),
-        multi_backlog.clone(),
-        context_p2,
-        recipe_interpreter,
-        spec_interpreter,
-        prover,
-        select_partition(
-            merge_upstreams(pair_upd_recv_p2, spec_upd_recv_p2),
-            config.partitioning.clone(),
-        ),
-        funding_upd_recv_p2,
-        tx_submission_channel.clone(),
-        signal_tip_reached_snd.subscribe(),
-    );
-    let execution_stream_p3 = execution_part_stream(
-        state_index.clone(),
-        state_cache.clone(),
-        multi_book.clone(),
-        multi_backlog.clone(),
-        context_p3,
-        recipe_interpreter,
-        spec_interpreter,
-        prover,
-        select_partition(
-            merge_upstreams(pair_upd_recv_p3, spec_upd_recv_p3),
-            config.partitioning.clone(),
-        ),
-        funding_upd_recv_p3,
-        tx_submission_channel.clone(),
-        signal_tip_reached_snd.subscribe(),
-    );
-    let execution_stream_p4 = execution_part_stream(
-        state_index,
-        state_cache,
-        multi_book,
-        multi_backlog,
-        context_p4,
-        recipe_interpreter,
-        spec_interpreter,
-        prover,
-        select_partition(
-            merge_upstreams(pair_upd_recv_p4, spec_upd_recv_p4),
-            config.partitioning,
-        ),
-        funding_upd_recv_p4,
-        tx_submission_channel,
-        signal_tip_reached_snd.subscribe(),
-    );
+        let execution_stream_p1 = execution_part_stream(
+            state_index.clone(),
+            state_cache.clone(),
+            multi_book.clone(),
+            multi_backlog.clone(),
+            context_p1,
+            recipe_interpreter,
+            spec_interpreter,
+            prover,
+            select_partition(
+                merge_upstreams(pair_upd_recv_p1, spec_upd_recv_p1),
+                config.partitioning.clone(),
+            ),
+            funding_upd_recv_p1,
+            tx_submission_channel.clone(),
+            signal_tip_reached_snd.subscribe(),
+        );
+        let execution_stream_p2 = execution_part_stream(
+            state_index.clone(),
+            state_cache.clone(),
+            multi_book.clone(),
+            multi_backlog.clone(),
+            context_p2,
+            recipe_interpreter,
+            spec_interpreter,
+            prover,
+            select_partition(
+                merge_upstreams(pair_upd_recv_p2, spec_upd_recv_p2),
+                config.partitioning.clone(),
+            ),
+            funding_upd_recv_p2,
+            tx_submission_channel.clone(),
+            signal_tip_reached_snd.subscribe(),
+        );
+        let execution_stream_p3 = execution_part_stream(
+            state_index.clone(),
+            state_cache.clone(),
+            multi_book.clone(),
+            multi_backlog.clone(),
+            context_p3,
+            recipe_interpreter,
+            spec_interpreter,
+            prover,
+            select_partition(
+                merge_upstreams(pair_upd_recv_p3, spec_upd_recv_p3),
+                config.partitioning.clone(),
+            ),
+            funding_upd_recv_p3,
+            tx_submission_channel.clone(),
+            signal_tip_reached_snd.subscribe(),
+        );
+        let execution_stream_p4 = execution_part_stream(
+            state_index,
+            state_cache,
+            multi_book,
+            multi_backlog,
+            context_p4,
+            recipe_interpreter,
+            spec_interpreter,
+            prover,
+            select_partition(
+                merge_upstreams(pair_upd_recv_p4, spec_upd_recv_p4),
+                config.partitioning,
+            ),
+            funding_upd_recv_p4,
+            tx_submission_channel,
+            signal_tip_reached_snd.subscribe(),
+        );
 
-    let ledger_stream = Box::pin(ledger_transactions(
-        chain_sync_cache,
-        chain_sync_stream(chain_sync, signal_tip_reached_snd),
-        config.chain_sync.disable_rollbacks_until,
-        config.chain_sync.replay_from_point,
-        rollback_in_progress,
-    ))
-    .await
-    .map(|ev| match ev {
-        LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
-            tx: TxViewAtEraBoundary::from(tx),
-            slot,
-        },
-        LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary::from(tx)),
-    });
-    let mempool_stream = mempool_stream(&mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
-        MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewAtEraBoundary::from(tx)),
-    });
+        let ledger_stream = Box::pin(ledger_transactions(
+            chain_sync_cache,
+            chain_sync_stream(chain_sync, signal_tip_reached_snd),
+            config.chain_sync.disable_rollbacks_until,
+            config.chain_sync.replay_from_point,
+            rollback_in_progress,
+        ))
+            .await
+            .map(|ev| match ev {
+                LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
+                    tx: TxViewAtEraBoundary::from(tx),
+                    slot,
+                },
+                LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary::from(tx)),
+            });
+        let mempool_stream = mempool_stream(&mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
+            MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewAtEraBoundary::from(tx)),
+        });
 
-    let process_ledger_events_stream =
-        process_events(ledger_stream, handlers_ledger).buffered_within(config.ledger_buffering_duration);
-    let process_mempool_events_stream =
-        process_events(mempool_stream, handlers_mempool).buffered_within(config.mempool_buffering_duration);
+        let process_ledger_events_stream =
+            process_events(ledger_stream, handlers_ledger).buffered_within(config.ledger_buffering_duration);
+        let process_mempool_events_stream =
+            process_events(mempool_stream, handlers_mempool).buffered_within(config.mempool_buffering_duration);
 
-    let mut app = select_all(vec![
-        boxed(process_ledger_events_stream),
-        boxed(process_mempool_events_stream),
-        boxed(execution_stream_p1),
-        boxed(execution_stream_p2),
-        boxed(execution_stream_p3),
-        boxed(execution_stream_p4),
-        boxed(tx_submission_stream),
-    ]);
+        let mut app = select_all(vec![
+            boxed(process_ledger_events_stream),
+            boxed(process_mempool_events_stream),
+            boxed(execution_stream_p1),
+            boxed(execution_stream_p2),
+            boxed(execution_stream_p3),
+            boxed(execution_stream_p4),
+            boxed(tx_submission_stream),
+        ]);
 
-    loop {
-        app.select_next_some().await;
+        loop {
+            app.select_next_some().await;
+        }
+    } else {
+        let multi_book = MultiPair::new::<TLB<AnyOrder, AnyPool, ExUnits>>(maker_context.clone(), "Book");
+        let multi_backlog = MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(
+            maker_context,
+            "Backlog",
+        );
+        let state_index = InMemoryStateIndex::with_tracing();
+        let state_cache = InMemoryKvStore::with_tracing();
+
+        let (signal_tip_reached_snd, signal_tip_reached_recv) = broadcast::channel(1);
+
+        let execution_stream_p1 = execution_part_stream(
+            state_index.clone(),
+            state_cache.clone(),
+            multi_book.clone(),
+            multi_backlog.clone(),
+            context_p1,
+            recipe_interpreter,
+            spec_interpreter,
+            prover,
+            select_partition(
+                merge_upstreams(pair_upd_recv_p1, spec_upd_recv_p1),
+                config.partitioning.clone(),
+            ),
+            funding_upd_recv_p1,
+            tx_submission_channel.clone(),
+            signal_tip_reached_snd.subscribe(),
+        );
+        let execution_stream_p2 = execution_part_stream(
+            state_index.clone(),
+            state_cache.clone(),
+            multi_book.clone(),
+            multi_backlog.clone(),
+            context_p2,
+            recipe_interpreter,
+            spec_interpreter,
+            prover,
+            select_partition(
+                merge_upstreams(pair_upd_recv_p2, spec_upd_recv_p2),
+                config.partitioning.clone(),
+            ),
+            funding_upd_recv_p2,
+            tx_submission_channel.clone(),
+            signal_tip_reached_snd.subscribe(),
+        );
+        let execution_stream_p3 = execution_part_stream(
+            state_index.clone(),
+            state_cache.clone(),
+            multi_book.clone(),
+            multi_backlog.clone(),
+            context_p3,
+            recipe_interpreter,
+            spec_interpreter,
+            prover,
+            select_partition(
+                merge_upstreams(pair_upd_recv_p3, spec_upd_recv_p3),
+                config.partitioning.clone(),
+            ),
+            funding_upd_recv_p3,
+            tx_submission_channel.clone(),
+            signal_tip_reached_snd.subscribe(),
+        );
+        let execution_stream_p4 = execution_part_stream(
+            state_index,
+            state_cache,
+            multi_book,
+            multi_backlog,
+            context_p4,
+            recipe_interpreter,
+            spec_interpreter,
+            prover,
+            select_partition(
+                merge_upstreams(pair_upd_recv_p4, spec_upd_recv_p4),
+                config.partitioning,
+            ),
+            funding_upd_recv_p4,
+            tx_submission_channel,
+            signal_tip_reached_snd.subscribe(),
+        );
+
+        let ledger_stream = Box::pin(ledger_transactions(
+            chain_sync_cache,
+            chain_sync_stream(chain_sync, signal_tip_reached_snd),
+            config.chain_sync.disable_rollbacks_until,
+            config.chain_sync.replay_from_point,
+            rollback_in_progress,
+        ))
+            .await
+            .map(|ev| match ev {
+                LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
+                    tx: TxViewAtEraBoundary::from(tx),
+                    slot,
+                },
+                LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary::from(tx)),
+            });
+        let mempool_stream = mempool_stream(&mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
+            MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewAtEraBoundary::from(tx)),
+        });
+
+        let process_ledger_events_stream =
+            process_events(ledger_stream, handlers_ledger).buffered_within(config.ledger_buffering_duration);
+        let process_mempool_events_stream =
+            process_events(mempool_stream, handlers_mempool).buffered_within(config.mempool_buffering_duration);
+
+        let mut app = select_all(vec![
+            boxed(process_ledger_events_stream),
+            boxed(process_mempool_events_stream),
+            boxed(execution_stream_p1),
+            boxed(execution_stream_p2),
+            boxed(execution_stream_p3),
+            boxed(execution_stream_p4),
+            boxed(tx_submission_stream),
+        ]);
+
+        loop {
+            app.select_next_some().await;
+        }
     }
 }
 
@@ -450,4 +570,6 @@ struct AppArgs {
     /// Path to the log4rs YAML configuration file.
     #[arg(long, short)]
     log4rs_path: String,
+    #[arg(long)]
+    hot: bool,
 }

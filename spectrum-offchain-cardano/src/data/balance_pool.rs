@@ -648,7 +648,21 @@ impl MarketMaker for BalancePool {
     }
 
     fn estimated_trade(&self, input: OnSide<u64>) -> Option<AvailableLiquidity> {
-        todo!()
+        let x = self.asset_x.untag();
+        let y = self.asset_y.untag();
+        let [base, quote] = order_canonical(x, y);
+        let output = match input {
+            OnSide::Bid(input) => self
+                .output_amount(TaggedAssetClass::new(quote), TaggedAmount::new(input))
+                .untag(),
+            OnSide::Ask(input) => self
+                .output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
+                .untag(),
+        };
+        Some(AvailableLiquidity {
+            input: input.unwrap(),
+            output,
+        })
     }
 }
 
