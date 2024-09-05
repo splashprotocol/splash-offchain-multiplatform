@@ -839,7 +839,10 @@ mod tests {
 
     use cml_chain::address::{Address, RewardAddress};
     use cml_chain::certs::Credential;
-    use cml_chain::transaction::{TransactionInput, TransactionOutput};
+    use cml_chain::transaction::{
+        ConwayFormatTxOut, Transaction, TransactionBody, TransactionInput, TransactionOutput,
+        TransactionWitnessSet,
+    };
     use cml_crypto::{Ed25519KeyHash, ScriptHash};
     use cml_multi_era::babbage::{
         BabbageFormatTxOut, BabbageTransaction, BabbageTransactionBody, BabbageTransactionOutput,
@@ -920,7 +923,7 @@ mod tests {
     async fn apply_unapply_transaction() {
         let (amt_1, amt_2) = (1000u64, 98000u64);
         let fee = 1000;
-        let utxo_1 = BabbageTransactionOutput::BabbageFormatTxOut(BabbageFormatTxOut::new(
+        let utxo_1 = TransactionOutput::new_conway_format_tx_out(ConwayFormatTxOut::new(
             Address::Reward(RewardAddress::new(
                 0,
                 Credential::PubKey {
@@ -932,7 +935,7 @@ mod tests {
             )),
             amt_1.into(),
         ));
-        let utxo_2 = BabbageTransactionOutput::BabbageFormatTxOut(BabbageFormatTxOut::new(
+        let utxo_2 = TransactionOutput::new_conway_format_tx_out(ConwayFormatTxOut::new(
             Address::Reward(RewardAddress::new(
                 0,
                 Credential::PubKey {
@@ -944,16 +947,20 @@ mod tests {
             )),
             amt_2.into(),
         ));
-        let tx_1 = BabbageTransaction::new(
-            BabbageTransactionBody::new(vec![], vec![utxo_1], fee),
-            BabbageTransactionWitnessSet::new(),
+        let tx_1 = Transaction::new(
+            TransactionBody::new(vec![].into(), vec![utxo_1], fee),
+            TransactionWitnessSet::new(),
             true,
             None,
         );
         let tx_1_hash = hash_transaction_canonical(&tx_1.body);
-        let tx_2 = BabbageTransaction::new(
-            BabbageTransactionBody::new(vec![TransactionInput::new(tx_1_hash, 0)], vec![utxo_2], 1000),
-            BabbageTransactionWitnessSet::new(),
+        let tx_2 = Transaction::new(
+            TransactionBody::new(
+                vec![TransactionInput::new(tx_1_hash, 0)].into(),
+                vec![utxo_2].into(),
+                1000,
+            ),
+            TransactionWitnessSet::new(),
             true,
             None,
         );

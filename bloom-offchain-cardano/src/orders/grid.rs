@@ -503,6 +503,7 @@ fn harden_price(p: GridPrice, side: RelativeSide) -> GridPrice {
 #[cfg(test)]
 mod tests {
     use cml_chain::plutus::PlutusData;
+    use cml_chain::transaction::TransactionOutput;
     use cml_core::serialization::Deserialize;
     use cml_multi_era::babbage::BabbageTransactionOutput;
     use type_equalities::IsEqual;
@@ -595,7 +596,7 @@ mod tests {
         let ctx = Context {
             grid_order: scripts.grid_order_native,
         };
-        let bearer = BabbageTransactionOutput::from_cbor_bytes(&*hex::decode(UTXO).unwrap()).unwrap();
+        let bearer = TransactionOutput::from_cbor_bytes(&*hex::decode(UTXO).unwrap()).unwrap();
         let ord = GridOrder::try_from_ledger(&bearer, &ctx).unwrap();
         println!("Order: {:?}", ord);
         println!("P_abs: {}", ord.price());

@@ -464,7 +464,7 @@ mod tests {
     use cml_chain::address::Address;
     use cml_chain::assets::AssetBundle;
     use cml_chain::plutus::PlutusData;
-    use cml_chain::transaction::{DatumOption, TransactionOutput};
+    use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
     use cml_chain::{PolicyId, Value};
     use cml_core::serialization::Deserialize;
     use cml_crypto::{Ed25519KeyHash, TransactionHash};
@@ -642,7 +642,7 @@ mod tests {
             produced_identifiers: Default::default(),
         };
         let d0 = PlutusData::from_cbor_bytes(&*hex::decode(D0).unwrap()).unwrap();
-        let o0 = BabbageTransactionOutput::new_babbage_format_tx_out(BabbageFormatTxOut {
+        let o0 = TransactionOutput::new_conway_format_tx_out(ConwayFormatTxOut {
             address: Address::from_bech32("addr1z8d70g7c58vznyye9guwagdza74x36f3uff0eyk2zwpcpxmha8dg8af2w4umay478pg92nzy3643k89rwd8dyqd5sjgspt95mw").unwrap(),
             amount: Value::new(37000000, AssetBundle::new()),
             datum_option: Some(DatumOption::Datum {
@@ -662,7 +662,7 @@ mod tests {
             AssetName::try_from_hex("535155495254").unwrap().into(),
             103471165,
         );
-        let o1 = BabbageTransactionOutput::new_babbage_format_tx_out(BabbageFormatTxOut {
+        let o1 = TransactionOutput::new_conway_format_tx_out(ConwayFormatTxOut {
             address: Address::from_bech32("addr1z8d70g7c58vznyye9guwagdza74x36f3uff0eyk2zwpcpx6c96rgsm7p0hmwrj8e28qny5yxwya63e8gjj8s2ugfglhsxedx9j").unwrap(),
             amount: Value::new(3000000, asset1),
             datum_option: Some(DatumOption::Datum {
