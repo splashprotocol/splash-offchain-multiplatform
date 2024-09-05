@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::io::Error;
 use std::path::Path;
 use tokio::fs;
-
+use tracing::trace;
 use crate::constants::{MAINNET_PREFIX, PREPROD_PREFIX};
 use spectrum_cardano_lib::{NetworkId, OutputRef, PaymentCredential};
 
@@ -69,6 +69,7 @@ pub struct Maestro(maestro::Maestro);
 impl Maestro {
     pub async fn new<P: AsRef<Path>>(path: P, network: Network) -> Result<Self, Error> {
         let token = fs::read_to_string(path).await?.replace("\n", "");
+        trace!("Using API key: {}, len: {}", token, token.len());
         Ok(Self(maestro::Maestro::new(token, network.into())))
     }
 }
