@@ -352,15 +352,21 @@ impl MarketMaker for DegenQuadraticPool {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, _] = order_canonical(x, y);
+        let reserves_x_candidate = self.reserves_x.untag();
+        let reserves_x = if reserves_x_candidate >= MIN_ADA {
+            reserves_x_candidate - MIN_ADA
+        } else {
+            0
+        };
         if base == x {
             AbsoluteReserves {
-                base: self.reserves_x.untag() - MIN_ADA,
+                base: reserves_x,
                 quote: self.reserves_y.untag(),
             }
         } else {
             AbsoluteReserves {
                 base: self.reserves_y.untag(),
-                quote: self.reserves_x.untag() - MIN_ADA,
+                quote: reserves_x,
             }
         }
     }
