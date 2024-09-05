@@ -257,7 +257,7 @@ impl MakerBehavior for DegenQuadraticPool {
         };
         let safe_output = match input {
             OnSide::Bid(_) => {
-                if output_candidate <= *base_reserves {
+                if output_candidate + MIN_ADA <= *base_reserves {
                     output_candidate
                 } else {
                     *base_reserves
@@ -330,7 +330,13 @@ impl MarketMaker for DegenQuadraticPool {
         AbsolutePrice::new(quote, base)
     }
     fn quality(&self) -> PoolQuality {
-        PoolQuality::from((self.reserves_x.untag() - MIN_ADA) as u128)
+        let reserves_x = self.reserves_x.untag();
+        let quality = if reserves_x >= MIN_ADA {
+            reserves_x - MIN_ADA
+        } else {
+            0
+        };
+        PoolQuality::from(quality as u128)
     }
 
     fn marginal_cost_hint(&self) -> Self::U {
