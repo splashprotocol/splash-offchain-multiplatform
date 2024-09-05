@@ -302,9 +302,9 @@ impl MarketMaker for DegenQuadraticPool {
                 + A_DENOM * self.b_num as u128;
         let price_denom = A_DENOM * B_DENOM;
         if x == base {
-            AbsolutePrice::new_raw(price_num, price_denom).into()
-        } else {
             AbsolutePrice::new_raw(price_denom, price_num).into()
+        } else {
+            AbsolutePrice::new_raw(price_num, price_denom).into()
         }
     }
 
