@@ -4,7 +4,9 @@ use cml_chain::transaction::{TransactionInput, TransactionOutput};
 use cml_core::serialization::Deserialize;
 use cml_core::DeserializeError;
 use cml_crypto::TransactionHash;
+use log::warn;
 use maestro::models::addresses::UtxosAtAddress;
+use maestro::models::common::BasicResponse;
 use maestro::utils::Parameters;
 use std::collections::HashMap;
 use std::io::Error;
@@ -59,6 +61,7 @@ pub trait CardanoNetwork {
         offset: u32,
         limit: u16,
     ) -> Vec<TransactionUnspentOutput>;
+    async fn submit_tx(&self, tx_cbor: Vec<u8>) -> Result<(), ()>;
 }
 
 pub struct Maestro(maestro::Maestro);
@@ -120,6 +123,20 @@ impl CardanoNetwork for Maestro {
             .and_then(read_maestro_utxos)
             .ok()
             .unwrap_or(vec![])
+    }
+
+    async fn submit_tx(&self, tx_cbor: Vec<u8>) -> Result<(), ()> {
+        match self
+            .0
+            .tx_manager_submit_turbo(hex::encode(tx_cbor).as_str())
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(err) => {
+                warn!("Maestro submission failed: {}", err);
+                Err(())
+            }
+        }
     }
 }
 

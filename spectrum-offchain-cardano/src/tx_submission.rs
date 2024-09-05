@@ -3,6 +3,8 @@ use std::fmt::Display;
 use std::ops::Deref;
 
 use async_stream::stream;
+use cardano_explorer::{CardanoNetwork, Maestro};
+use cardano_submit_api::client::{Error, LocalTxSubmissionClient};
 use cml_core::serialization::Serialize;
 use futures::channel::{mpsc, oneshot};
 use futures::{SinkExt, Stream, StreamExt};
@@ -13,8 +15,6 @@ use pallas_network::miniprotocols::localtxsubmission::cardano_node_errors::{
 };
 use pallas_network::miniprotocols::localtxsubmission::Response;
 use pallas_network::multiplexer;
-
-use cardano_submit_api::client::{Error, LocalTxSubmissionClient};
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_hash::CanonicalHash;
@@ -64,7 +64,7 @@ impl<'a, const ERA: u16, TxAdapter, Tx> TxSubmissionAgent<'a, ERA, TxAdapter, Tx
 }
 
 #[derive(Clone)]
-pub struct TxSubmissionChannel<const ERA: u16, Tx>(mpsc::Sender<SubmitTx<Tx>>);
+pub struct TxSubmissionChannel<const ERA: u16, Tx>(pub mpsc::Sender<SubmitTx<Tx>>);
 
 pub struct SubmitTx<Tx>(Tx, oneshot::Sender<SubmissionResult>);
 
@@ -127,6 +127,30 @@ where
                         };
                     },
                     Err(err) => panic!("Cannot submit TX {} due to {}", tx_hash, err),
+                }
+                break;
+            }
+        }
+    }
+}
+
+pub fn tx_submission_maestro_stream<'a, const ERA: u16, TxAdapter, Tx>(
+    mut mailbox: mpsc::Receiver<SubmitTx<TxAdapter>>,
+    maestro: Maestro,
+) -> impl Stream<Item = ()> + 'a
+where
+    TxAdapter: Deref<Target = Tx> + CanonicalHash + 'a,
+    TxAdapter::Hash: Display,
+    Tx: Serialize + Clone + 'a,
+{
+    stream! {
+        loop {
+            let SubmitTx(tx, on_resp) = mailbox.select_next_some().await;
+            let tx_hash = tx.canonical_hash();
+            loop {
+                match maestro.submit_tx((*tx).clone().to_cbor_bytes()).await {
+                    Ok(_) => on_resp.send(SubmissionResult::Ok).expect("Responder was dropped"),
+                    Err(_) => on_resp.send(SubmissionResult::TxRejected{errors: vec![].into()}).expect("Responder was dropped"),
                 }
                 break;
             }

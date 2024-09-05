@@ -68,7 +68,9 @@ use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::data::pool::AnyPool;
 use spectrum_offchain_cardano::deployment::{DeployedValidators, ProtocolDeployment, ProtocolScriptHashes};
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
-use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
+use spectrum_offchain_cardano::tx_submission::{
+    tx_submission_agent_stream, tx_submission_maestro_stream, TxSubmissionAgent, TxSubmissionChannel,
+};
 use spectrum_streaming::StreamExt as StreamExt1;
 
 mod config;
@@ -122,16 +124,11 @@ async fn main() {
     let mempool_sync = LocalTxMonitorClient::<Transaction>::connect(config.node.path, config.node.magic)
         .await
         .expect("MempoolSync initialization failed");
-    let (tx_submission_agent, tx_submission_channel) =
-        TxSubmissionAgent::<CONWAY_ERA_ID, OutboundTransaction<Transaction>, Transaction>::new(
-            config.node,
-            config.tx_submission_buffer_size,
-        )
-        .await
-        .expect("LocalTxSubmission initialization failed");
 
     // prepare upstreams
-    let tx_submission_stream = tx_submission_agent_stream(tx_submission_agent);
+    let (snd, recv) = mpsc::channel(1024);
+    let tx_submission_channel = TxSubmissionChannel(snd);
+    let tx_submission_stream = tx_submission_maestro_stream(recv, explorer);
 
     let (operator_sk, operator_paycred, collateral_address, funding_addresses) =
         operator_creds(config.operator_key, config.network_id);
