@@ -134,9 +134,9 @@ where
     }
 }
 
-pub fn tx_submission_maestro_stream<'a, const ERA: u16, TxAdapter, Tx>(
+pub fn tx_submission_maestro_stream<'a, TxAdapter, Tx>(
     mut mailbox: mpsc::Receiver<SubmitTx<TxAdapter>>,
-    maestro: Maestro,
+    maestro: &'a Maestro,
 ) -> impl Stream<Item = ()> + 'a
 where
     TxAdapter: Deref<Target = Tx> + CanonicalHash + 'a,

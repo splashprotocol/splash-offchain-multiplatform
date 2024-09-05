@@ -122,8 +122,8 @@ async fn main() {
 
     // prepare upstreams
     let (snd, recv) = mpsc::channel(1024);
-    let tx_submission_channel = TxSubmissionChannel(snd);
-    let tx_submission_stream = tx_submission_maestro_stream(recv, explorer);
+    let tx_submission_channel: TxSubmissionChannel<CONWAY_ERA_ID, OutboundTransaction<Transaction>> = TxSubmissionChannel(snd);
+    let tx_submission_stream = tx_submission_maestro_stream::<OutboundTransaction<Transaction>, Transaction>(recv, explorer);
 
     let (operator_sk, operator_paycred, collateral_address, funding_addresses) =
         operator_creds(config.operator_key, config.network_id);
