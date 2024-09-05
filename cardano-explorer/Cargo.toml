@@ -5,7 +5,7 @@ edition = "2021"
 rust-version = "1.75.0"
 
 [dependencies]
-maestro = { git = "https://github.com/oskin1/rust-sdk.git" }
+maestro-rust-sdk = { git = "https://github.com/oskin1/rust-sdk.git" }
 reqwest = { version = "0.11.22", features = ["blocking", "json"] }
 spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain" }
 cardano-chain-sync = { version = "0.1.0", path = "../cardano-chain-sync" }
