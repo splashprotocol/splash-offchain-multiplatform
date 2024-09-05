@@ -4,7 +4,7 @@ use cml_chain::transaction::{TransactionInput, TransactionOutput};
 use cml_core::serialization::Deserialize;
 use cml_core::DeserializeError;
 use cml_crypto::TransactionHash;
-use log::warn;
+use log::{trace, warn};
 use std::collections::HashMap;
 use std::io::Error;
 use std::path::Path;
@@ -12,7 +12,6 @@ use maestro_rust_sdk::client::maestro;
 use maestro_rust_sdk::models::addresses::UtxosAtAddress;
 use maestro_rust_sdk::utils::Parameters;
 use tokio::fs;
-use tracing::trace;
 use crate::constants::{MAINNET_PREFIX, PREPROD_PREFIX};
 use spectrum_cardano_lib::{NetworkId, OutputRef, PaymentCredential};
 
