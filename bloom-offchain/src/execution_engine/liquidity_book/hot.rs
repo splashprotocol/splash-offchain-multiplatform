@@ -113,6 +113,7 @@ impl<T: Stable, M: Stable> State<T, M> {
         match self {
             State::Idle(_) => (),
             State::Preview(in_progress) => {
+                trace!("Preview => Idle");
                 let mut preview = StateView::new();
                 // InProgress.preview => preview
                 mem::swap(&mut in_progress.0, &mut preview);
@@ -126,6 +127,7 @@ impl<T: Stable, M: Stable> State<T, M> {
         match self {
             State::Idle(_) => (),
             State::Preview(in_progress) => {
+                trace!("Preview => Idle");
                 let mut backup_view = StateView::new();
                 // InProgress.backup => backup_view
                 mem::swap(&mut in_progress.1, &mut backup_view);
