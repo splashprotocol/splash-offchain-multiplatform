@@ -370,22 +370,22 @@ async fn main() {
             config.chain_sync.replay_from_point,
             rollback_in_progress,
         ))
-            .await
-            .map(|ev| match ev {
-                LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
-                    tx: TxViewAtEraBoundary::from(tx),
-                    slot,
-                },
-                LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary::from(tx)),
-            });
+        .await
+        .map(|ev| match ev {
+            LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
+                tx: TxViewAtEraBoundary::from(tx),
+                slot,
+            },
+            LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary::from(tx)),
+        });
         let mempool_stream = mempool_stream(&mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
             MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewAtEraBoundary::from(tx)),
         });
 
         let process_ledger_events_stream =
             process_events(ledger_stream, handlers_ledger).buffered_within(config.ledger_buffering_duration);
-        let process_mempool_events_stream =
-            process_events(mempool_stream, handlers_mempool).buffered_within(config.mempool_buffering_duration);
+        let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool)
+            .buffered_within(config.mempool_buffering_duration);
 
         let mut app = select_all(vec![
             boxed(process_ledger_events_stream),
@@ -487,22 +487,22 @@ async fn main() {
             config.chain_sync.replay_from_point,
             rollback_in_progress,
         ))
-            .await
-            .map(|ev| match ev {
-                LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
-                    tx: TxViewAtEraBoundary::from(tx),
-                    slot,
-                },
-                LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary::from(tx)),
-            });
+        .await
+        .map(|ev| match ev {
+            LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
+                tx: TxViewAtEraBoundary::from(tx),
+                slot,
+            },
+            LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary::from(tx)),
+        });
         let mempool_stream = mempool_stream(&mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
             MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewAtEraBoundary::from(tx)),
         });
 
         let process_ledger_events_stream =
             process_events(ledger_stream, handlers_ledger).buffered_within(config.ledger_buffering_duration);
-        let process_mempool_events_stream =
-            process_events(mempool_stream, handlers_mempool).buffered_within(config.mempool_buffering_duration);
+        let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool)
+            .buffered_within(config.mempool_buffering_duration);
 
         let mut app = select_all(vec![
             boxed(process_ledger_events_stream),

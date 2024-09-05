@@ -319,7 +319,11 @@ impl MarketMaker for AnyPool {
     }
 
     fn estimated_trade(&self, input: OnSide<u64>) -> Option<AvailableLiquidity> {
-        todo!()
+        match self {
+            PureCFMM(p) => p.estimated_trade(input),
+            BalancedCFMM(p) => p.estimated_trade(input),
+            StableCFMM(_) => None,
+        }
     }
 
     fn is_active(&self) -> bool {
