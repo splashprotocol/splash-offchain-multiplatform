@@ -235,7 +235,7 @@ impl<T: Stable, M: Stable + Copy + Display, U> ExternalLBEvents<T, M> for HotLB<
                 error!("Attempt to update InProgress state externally");
                 self.on_recipe_failed();
                 self.update_taker(taker);
-            },
+            }
         }
     }
 
@@ -246,7 +246,7 @@ impl<T: Stable, M: Stable + Copy + Display, U> ExternalLBEvents<T, M> for HotLB<
                 error!("Attempt to update InProgress state externally");
                 self.on_recipe_failed();
                 self.remove_taker(taker);
-            },
+            }
         }
     }
 
@@ -257,7 +257,7 @@ impl<T: Stable, M: Stable + Copy + Display, U> ExternalLBEvents<T, M> for HotLB<
                 error!("Attempt to update InProgress state externally");
                 self.on_recipe_failed();
                 self.update_maker(maker);
-            },
+            }
         }
     }
 
@@ -268,7 +268,7 @@ impl<T: Stable, M: Stable + Copy + Display, U> ExternalLBEvents<T, M> for HotLB<
                 error!("Attempt to update InProgress state externally");
                 self.on_recipe_failed();
                 self.remove_maker(maker);
-            },
+            }
         }
     }
 }
@@ -337,9 +337,12 @@ where
                     trace!("Matchmaking attempt failed");
                     self.state.rollback();
                 }
-                Err(Some(_)) => {
+                Err(Some(failed_takers)) => {
                     trace!("Matchmaking attempt failed due to taker limits, retrying");
                     self.state.rollback();
+                    for taker in failed_takers {
+                        self.remove_taker(taker);
+                    }
                     continue;
                 }
             }
