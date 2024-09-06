@@ -221,7 +221,7 @@ async fn main() {
     let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<TxViewAtEraBoundary>> + Send>> =
         vec![Box::new(general_upd_handler), Box::new(funding_event_handler)];
 
-    let prover = OperatorProver::new(operator_sk.to_bech32());
+    let prover = OperatorProver::new(&operator_sk);
     let recipe_interpreter = CardanoRecipeInterpreter;
     let spec_interpreter = SpecializedInterpreterViaRunOrder;
     let maker_context = MakerContext {
