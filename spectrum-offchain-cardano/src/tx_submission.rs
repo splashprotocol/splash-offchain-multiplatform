@@ -32,7 +32,8 @@ impl<'a, const ERA: u16, TxAdapter, Tx> TxSubmissionAgent<'a, ERA, TxAdapter, Tx
         node_config: NodeConfig,
         buffer_size: usize,
     ) -> Result<(Self, TxSubmissionChannel<ERA, TxAdapter>), Error> {
-        let tx_submission_client = LocalTxSubmissionClient::init(node_config.path.clone(), node_config.magic).await?;
+        let tx_submission_client =
+            LocalTxSubmissionClient::init(node_config.path.clone(), node_config.magic).await?;
         let (snd, recv) = mpsc::channel(buffer_size);
         let agent = Self {
             client: tx_submission_client,

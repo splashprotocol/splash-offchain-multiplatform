@@ -318,7 +318,8 @@ where
     Order: SpecializedOrder<TPoolId = Pool::StableId>
         + TryFromLedger<TransactionOutput, HandlerContext<K>>
         + Clone
-        + Debug + Send,
+        + Debug
+        + Send,
     Order::TOrderId: From<OutputRef> + Display,
     OrderIndex: KvIndex<Order::TOrderId, Order> + Send,
     PoolIndex: TradableEntityIndex<Pool> + Send,
@@ -421,7 +422,8 @@ where
     Order: SpecializedOrder<TPoolId = Pool::StableId>
         + TryFromLedger<TransactionOutput, HandlerContext<K>>
         + Clone
-        + Debug + Send,
+        + Debug
+        + Send,
     Order::TOrderId: From<OutputRef> + Display,
     OrderIndex: KvIndex<Order::TOrderId, Order> + Send,
     PoolIndex: TradableEntityIndex<Pool> + Send,
@@ -665,7 +667,8 @@ where
         + Tradable<PairId = PairId>
         + TryFromLedger<TransactionOutput, HandlerContext<Entity::StableId>>
         + Clone
-        + Debug + Send,
+        + Debug
+        + Send,
     Entity::Version: From<OutputRef>,
     Index: TradableEntityIndex<Entity> + Send,
 {
@@ -749,7 +752,8 @@ where
         + Tradable<PairId = PairId>
         + TryFromLedger<TransactionOutput, HandlerContext<Entity::StableId>>
         + Clone
-        + Debug + Send,
+        + Debug
+        + Send,
     Entity::Version: From<OutputRef>,
     Index: TradableEntityIndex<Entity> + Send,
 {

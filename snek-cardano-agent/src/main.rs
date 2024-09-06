@@ -1,7 +1,3 @@
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
-use std::thread;
-use std::time::Duration;
 use clap::Parser;
 use cml_chain::transaction::Transaction;
 use cml_core::serialization::RawBytesEncoding;
@@ -11,6 +7,10 @@ use futures::channel::mpsc;
 use futures::stream::select_all;
 use futures::{stream_select, Stream, StreamExt};
 use log::info;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 use tokio::sync::{broadcast, Mutex};
 use tracing_subscriber::fmt::Subscriber;
 
@@ -116,9 +116,10 @@ async fn main() {
     .expect("ChainSync initialization failed");
 
     // n2c clients:
-    let mempool_sync = LocalTxMonitorClient::<Transaction>::connect(config.node.path.as_str(), config.node.magic)
-        .await
-        .expect("MempoolSync initialization failed");
+    let mempool_sync =
+        LocalTxMonitorClient::<Transaction>::connect(config.node.path.as_str(), config.node.magic)
+            .await
+            .expect("MempoolSync initialization failed");
     let (tx_submission_agent, tx_submission_channel) =
         TxSubmissionAgent::<CONWAY_ERA_ID, OutboundTransaction<Transaction>, Transaction>::new(
             config.node.clone(),
@@ -333,23 +334,49 @@ async fn main() {
         LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary::from(tx)),
     });
 
-    let process_ledger_events_stream =
-        process_events(ledger_stream, handlers_ledger);
-
     tokio_scoped::scope(|scope| {
         let mempool_stream = mempool_stream(&mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
             MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewAtEraBoundary::from(tx)),
         });
-        let process_mempool_events_stream =
-            process_events(mempool_stream, handlers_mempool);
 
-        scope.spawn( { async move { process_ledger_events_stream.collect::<Vec<_>>().await; } });
-        scope.spawn({ async move { process_mempool_events_stream.collect::<Vec<_>>().await; } });
-        scope.spawn({ async move { execution_stream_p1.collect::<Vec<_>>().await; } });
-        scope.spawn({ async move { execution_stream_p2.collect::<Vec<_>>().await; } });
-        scope.spawn({ async move { execution_stream_p3.collect::<Vec<_>>().await; } });
-        scope.spawn({ async move { execution_stream_p4.collect::<Vec<_>>().await; } });
-        scope.spawn({ async move { tx_submission_stream.collect::<Vec<_>>().await; } });
+        let process_ledger_events_stream = process_events(ledger_stream, handlers_ledger);
+        let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool);
+
+        scope.spawn({
+            async move {
+                process_ledger_events_stream.collect::<Vec<_>>().await;
+            }
+        });
+        scope.spawn({
+            async move {
+                process_mempool_events_stream.collect::<Vec<_>>().await;
+            }
+        });
+        scope.spawn({
+            async move {
+                execution_stream_p1.collect::<Vec<_>>().await;
+            }
+        });
+        scope.spawn({
+            async move {
+                execution_stream_p2.collect::<Vec<_>>().await;
+            }
+        });
+        scope.spawn({
+            async move {
+                execution_stream_p3.collect::<Vec<_>>().await;
+            }
+        });
+        scope.spawn({
+            async move {
+                execution_stream_p4.collect::<Vec<_>>().await;
+            }
+        });
+        scope.spawn({
+            async move {
+                tx_submission_stream.collect::<Vec<_>>().await;
+            }
+        });
     });
 
     loop {

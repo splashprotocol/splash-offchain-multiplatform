@@ -12,17 +12,16 @@ use spectrum_offchain_cardano::node::NodeConfig;
 use bloom_offchain_cardano::integrity::{CheckIntegrity, IntegrityViolations};
 
 #[derive(serde::Deserialize)]
-#[serde(bound = "'de: 'a")]
 #[serde(rename_all = "camelCase")]
-pub struct AppConfig<'a> {
-    pub chain_sync: ChainSyncConfig<'a>,
-    pub node: NodeConfig<'a>,
+pub struct AppConfig {
+    pub chain_sync: ChainSyncConfig,
+    pub node: NodeConfig,
     pub tx_submission_buffer_size: usize,
-    pub operator_key: &'a str,
+    pub operator_key: String,
     pub cardano_finalization_delay: Duration,
     pub backlog_capacity: u32,
     pub network_id: NetworkId,
-    pub maestro_key_path: &'a str,
+    pub maestro_key_path: String,
     pub execution: ExecutionConfig,
     pub channel_buffer_size: usize,
     pub mempool_buffering_duration: Duration,
@@ -30,7 +29,7 @@ pub struct AppConfig<'a> {
     pub partitioning: Partitioning,
 }
 
-impl<'a> CheckIntegrity for AppConfig<'a> {
+impl CheckIntegrity for AppConfig {
     fn check_integrity(&self) -> IntegrityViolations {
         let partitioning_violations = if self
             .partitioning
@@ -48,11 +47,11 @@ impl<'a> CheckIntegrity for AppConfig<'a> {
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ChainSyncConfig<'a> {
+pub struct ChainSyncConfig {
     pub starting_point: Point,
     pub replay_from_point: Option<Point>,
     pub disable_rollbacks_until: Slot,
-    pub db_path: &'a str,
+    pub db_path: String,
 }
 
 #[derive(Copy, Clone, serde::Deserialize)]

@@ -11,6 +11,7 @@ use futures::{stream_select, Stream, StreamExt};
 use log::info;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{broadcast, Mutex};
 use tracing_subscriber::fmt::Subscriber;
 
@@ -111,7 +112,7 @@ async fn main() {
     let chain_sync_cache = Arc::new(Mutex::new(LedgerCacheRocksDB::new(config.chain_sync.db_path)));
     let chain_sync: ChainSyncClient<MultiEraBlock> = ChainSyncClient::init(
         Arc::clone(&chain_sync_cache),
-        config.node.path,
+        config.node.path.clone(),
         config.node.magic,
         config.chain_sync.starting_point,
     )
@@ -119,12 +120,13 @@ async fn main() {
     .expect("ChainSync initialization failed");
 
     // n2c clients:
-    let mempool_sync = LocalTxMonitorClient::<Transaction>::connect(config.node.path, config.node.magic)
-        .await
-        .expect("MempoolSync initialization failed");
+    let mempool_sync =
+        LocalTxMonitorClient::<Transaction>::connect(config.node.path.clone(), config.node.magic)
+            .await
+            .expect("MempoolSync initialization failed");
     let (tx_submission_agent, tx_submission_channel) =
         TxSubmissionAgent::<CONWAY_ERA_ID, OutboundTransaction<Transaction>, Transaction>::new(
-            config.node,
+            config.node.clone(),
             config.tx_submission_buffer_size,
         )
         .await
@@ -134,7 +136,7 @@ async fn main() {
     let tx_submission_stream = tx_submission_agent_stream(tx_submission_agent);
 
     let (operator_sk, operator_paycred, collateral_address, funding_addresses) =
-        operator_creds(config.operator_key, config.network_id);
+        operator_creds(config.operator_key.as_str(), config.network_id);
 
     info!(
         "Expecting collateral at {}",
@@ -226,13 +228,13 @@ async fn main() {
 
     info!("Derived funding addresses: {}", funding_addresses);
 
-    let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<TxViewAtEraBoundary>>>> = vec![
+    let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<TxViewAtEraBoundary>> + Send>> = vec![
         Box::new(general_upd_handler.clone()),
         Box::new(spec_upd_handler.clone()),
         Box::new(funding_event_handler.clone()),
     ];
 
-    let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<TxViewAtEraBoundary>>>> = vec![
+    let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<TxViewAtEraBoundary>> + Send>> = vec![
         Box::new(general_upd_handler),
         Box::new(spec_upd_handler),
         Box::new(funding_event_handler),
@@ -282,241 +284,150 @@ async fn main() {
         network_id: config.network_id,
         operator_cred: operator_paycred,
     };
-    if args.hot {
-        info!("Running in Hot mode!");
-        let multi_book = MultiPair::new::<HotLB<AnyOrder, AnyPool, ExUnits>>(maker_context.clone(), "Book");
-        let multi_backlog = MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(
-            maker_context,
-            "Backlog",
-        );
-        let state_index = InMemoryStateIndex::with_tracing();
-        let state_cache = InMemoryKvStore::with_tracing();
 
-        let (signal_tip_reached_snd, signal_tip_reached_recv) = broadcast::channel(1);
+    let multi_book = MultiPair::new::<TLB<AnyOrder, AnyPool, ExUnits>>(maker_context.clone(), "Book");
+    let multi_backlog = MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(
+        maker_context,
+        "Backlog",
+    );
+    let state_index = InMemoryStateIndex::with_tracing();
+    let state_cache = InMemoryKvStore::with_tracing();
 
-        let execution_stream_p1 = execution_part_stream(
-            state_index.clone(),
-            state_cache.clone(),
-            multi_book.clone(),
-            multi_backlog.clone(),
-            context_p1,
-            recipe_interpreter,
-            spec_interpreter,
-            prover,
-            select_partition(
-                merge_upstreams(pair_upd_recv_p1, spec_upd_recv_p1),
-                config.partitioning.clone(),
-            ),
-            funding_upd_recv_p1,
-            tx_submission_channel.clone(),
-            signal_tip_reached_snd.subscribe(),
-        );
-        let execution_stream_p2 = execution_part_stream(
-            state_index.clone(),
-            state_cache.clone(),
-            multi_book.clone(),
-            multi_backlog.clone(),
-            context_p2,
-            recipe_interpreter,
-            spec_interpreter,
-            prover,
-            select_partition(
-                merge_upstreams(pair_upd_recv_p2, spec_upd_recv_p2),
-                config.partitioning.clone(),
-            ),
-            funding_upd_recv_p2,
-            tx_submission_channel.clone(),
-            signal_tip_reached_snd.subscribe(),
-        );
-        let execution_stream_p3 = execution_part_stream(
-            state_index.clone(),
-            state_cache.clone(),
-            multi_book.clone(),
-            multi_backlog.clone(),
-            context_p3,
-            recipe_interpreter,
-            spec_interpreter,
-            prover,
-            select_partition(
-                merge_upstreams(pair_upd_recv_p3, spec_upd_recv_p3),
-                config.partitioning.clone(),
-            ),
-            funding_upd_recv_p3,
-            tx_submission_channel.clone(),
-            signal_tip_reached_snd.subscribe(),
-        );
-        let execution_stream_p4 = execution_part_stream(
-            state_index,
-            state_cache,
-            multi_book,
-            multi_backlog,
-            context_p4,
-            recipe_interpreter,
-            spec_interpreter,
-            prover,
-            select_partition(
-                merge_upstreams(pair_upd_recv_p4, spec_upd_recv_p4),
-                config.partitioning,
-            ),
-            funding_upd_recv_p4,
-            tx_submission_channel,
-            signal_tip_reached_snd.subscribe(),
-        );
+    let (signal_tip_reached_snd, signal_tip_reached_recv) = broadcast::channel(1);
 
-        let ledger_stream = Box::pin(ledger_transactions(
-            chain_sync_cache,
-            chain_sync_stream(chain_sync, signal_tip_reached_snd),
-            config.chain_sync.disable_rollbacks_until,
-            config.chain_sync.replay_from_point,
-            rollback_in_progress,
-        ))
-        .await
-        .map(|ev| match ev {
-            LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
-                tx: TxViewAtEraBoundary::from(tx),
-                slot,
-            },
-            LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary::from(tx)),
-        });
+    let execution_stream_p1 = execution_part_stream(
+        state_index.clone(),
+        state_cache.clone(),
+        multi_book.clone(),
+        multi_backlog.clone(),
+        context_p1,
+        recipe_interpreter,
+        spec_interpreter,
+        prover,
+        select_partition(
+            merge_upstreams(pair_upd_recv_p1, spec_upd_recv_p1),
+            config.partitioning.clone(),
+        ),
+        funding_upd_recv_p1,
+        tx_submission_channel.clone(),
+        signal_tip_reached_snd.subscribe(),
+    );
+    let execution_stream_p2 = execution_part_stream(
+        state_index.clone(),
+        state_cache.clone(),
+        multi_book.clone(),
+        multi_backlog.clone(),
+        context_p2,
+        recipe_interpreter,
+        spec_interpreter,
+        prover,
+        select_partition(
+            merge_upstreams(pair_upd_recv_p2, spec_upd_recv_p2),
+            config.partitioning.clone(),
+        ),
+        funding_upd_recv_p2,
+        tx_submission_channel.clone(),
+        signal_tip_reached_snd.subscribe(),
+    );
+    let execution_stream_p3 = execution_part_stream(
+        state_index.clone(),
+        state_cache.clone(),
+        multi_book.clone(),
+        multi_backlog.clone(),
+        context_p3,
+        recipe_interpreter,
+        spec_interpreter,
+        prover,
+        select_partition(
+            merge_upstreams(pair_upd_recv_p3, spec_upd_recv_p3),
+            config.partitioning.clone(),
+        ),
+        funding_upd_recv_p3,
+        tx_submission_channel.clone(),
+        signal_tip_reached_snd.subscribe(),
+    );
+    let execution_stream_p4 = execution_part_stream(
+        state_index,
+        state_cache,
+        multi_book,
+        multi_backlog,
+        context_p4,
+        recipe_interpreter,
+        spec_interpreter,
+        prover,
+        select_partition(
+            merge_upstreams(pair_upd_recv_p4, spec_upd_recv_p4),
+            config.partitioning,
+        ),
+        funding_upd_recv_p4,
+        tx_submission_channel,
+        signal_tip_reached_snd.subscribe(),
+    );
+
+    let ledger_stream = Box::pin(ledger_transactions(
+        chain_sync_cache,
+        chain_sync_stream(chain_sync, signal_tip_reached_snd),
+        config.chain_sync.disable_rollbacks_until,
+        config.chain_sync.replay_from_point,
+        rollback_in_progress,
+    ))
+    .await
+    .map(|ev| match ev {
+        LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
+            tx: TxViewAtEraBoundary::from(tx),
+            slot,
+        },
+        LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary::from(tx)),
+    });
+
+    tokio_scoped::scope(|scope| {
         let mempool_stream = mempool_stream(&mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
             MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewAtEraBoundary::from(tx)),
         });
 
-        let process_ledger_events_stream =
-            process_events(ledger_stream, handlers_ledger).buffered_within(config.ledger_buffering_duration);
-        let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool)
-            .buffered_within(config.mempool_buffering_duration);
+        let process_ledger_events_stream = process_events(ledger_stream, handlers_ledger);
+        let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool);
 
-        let mut app = select_all(vec![
-            boxed(process_ledger_events_stream),
-            boxed(process_mempool_events_stream),
-            boxed(execution_stream_p1),
-            boxed(execution_stream_p2),
-            boxed(execution_stream_p3),
-            boxed(execution_stream_p4),
-            boxed(tx_submission_stream),
-        ]);
-
-        loop {
-            app.select_next_some().await;
-        }
-    } else {
-        let multi_book = MultiPair::new::<TLB<AnyOrder, AnyPool, ExUnits>>(maker_context.clone(), "Book");
-        let multi_backlog = MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(
-            maker_context,
-            "Backlog",
-        );
-        let state_index = InMemoryStateIndex::with_tracing();
-        let state_cache = InMemoryKvStore::with_tracing();
-
-        let (signal_tip_reached_snd, signal_tip_reached_recv) = broadcast::channel(1);
-
-        let execution_stream_p1 = execution_part_stream(
-            state_index.clone(),
-            state_cache.clone(),
-            multi_book.clone(),
-            multi_backlog.clone(),
-            context_p1,
-            recipe_interpreter,
-            spec_interpreter,
-            prover,
-            select_partition(
-                merge_upstreams(pair_upd_recv_p1, spec_upd_recv_p1),
-                config.partitioning.clone(),
-            ),
-            funding_upd_recv_p1,
-            tx_submission_channel.clone(),
-            signal_tip_reached_snd.subscribe(),
-        );
-        let execution_stream_p2 = execution_part_stream(
-            state_index.clone(),
-            state_cache.clone(),
-            multi_book.clone(),
-            multi_backlog.clone(),
-            context_p2,
-            recipe_interpreter,
-            spec_interpreter,
-            prover,
-            select_partition(
-                merge_upstreams(pair_upd_recv_p2, spec_upd_recv_p2),
-                config.partitioning.clone(),
-            ),
-            funding_upd_recv_p2,
-            tx_submission_channel.clone(),
-            signal_tip_reached_snd.subscribe(),
-        );
-        let execution_stream_p3 = execution_part_stream(
-            state_index.clone(),
-            state_cache.clone(),
-            multi_book.clone(),
-            multi_backlog.clone(),
-            context_p3,
-            recipe_interpreter,
-            spec_interpreter,
-            prover,
-            select_partition(
-                merge_upstreams(pair_upd_recv_p3, spec_upd_recv_p3),
-                config.partitioning.clone(),
-            ),
-            funding_upd_recv_p3,
-            tx_submission_channel.clone(),
-            signal_tip_reached_snd.subscribe(),
-        );
-        let execution_stream_p4 = execution_part_stream(
-            state_index,
-            state_cache,
-            multi_book,
-            multi_backlog,
-            context_p4,
-            recipe_interpreter,
-            spec_interpreter,
-            prover,
-            select_partition(
-                merge_upstreams(pair_upd_recv_p4, spec_upd_recv_p4),
-                config.partitioning,
-            ),
-            funding_upd_recv_p4,
-            tx_submission_channel,
-            signal_tip_reached_snd.subscribe(),
-        );
-
-        let ledger_stream = Box::pin(ledger_transactions(
-            chain_sync_cache,
-            chain_sync_stream(chain_sync, signal_tip_reached_snd),
-            config.chain_sync.disable_rollbacks_until,
-            config.chain_sync.replay_from_point,
-            rollback_in_progress,
-        ))
-        .await
-        .map(|ev| match ev {
-            LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
-                tx: TxViewAtEraBoundary::from(tx),
-                slot,
-            },
-            LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary::from(tx)),
+        scope.spawn({
+            async move {
+                process_ledger_events_stream.collect::<Vec<_>>().await;
+            }
         });
-        let mempool_stream = mempool_stream(&mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
-            MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewAtEraBoundary::from(tx)),
+        scope.spawn({
+            async move {
+                process_mempool_events_stream.collect::<Vec<_>>().await;
+            }
         });
+        scope.spawn({
+            async move {
+                execution_stream_p1.collect::<Vec<_>>().await;
+            }
+        });
+        scope.spawn({
+            async move {
+                execution_stream_p2.collect::<Vec<_>>().await;
+            }
+        });
+        scope.spawn({
+            async move {
+                execution_stream_p3.collect::<Vec<_>>().await;
+            }
+        });
+        scope.spawn({
+            async move {
+                execution_stream_p4.collect::<Vec<_>>().await;
+            }
+        });
+        scope.spawn({
+            async move {
+                tx_submission_stream.collect::<Vec<_>>().await;
+            }
+        });
+    });
 
-        let process_ledger_events_stream =
-            process_events(ledger_stream, handlers_ledger).buffered_within(config.ledger_buffering_duration);
-        let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool)
-            .buffered_within(config.mempool_buffering_duration);
-
-        let mut app = select_all(vec![
-            boxed(process_ledger_events_stream),
-            boxed(process_mempool_events_stream),
-            boxed(execution_stream_p1),
-            boxed(execution_stream_p2),
-            boxed(execution_stream_p3),
-            boxed(execution_stream_p4),
-            boxed(tx_submission_stream),
-        ]);
-
-        loop {
-            app.select_next_some().await;
-        }
+    loop {
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        info!("Heartbeat");
     }
 }
 

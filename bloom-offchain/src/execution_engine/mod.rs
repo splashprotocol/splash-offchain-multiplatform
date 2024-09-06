@@ -237,7 +237,10 @@ pub struct Executor<
 }
 
 impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR, PRV, E>
-    Executor<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR, PRV, E> where V: Send + std::marker::Sync, SID: std::marker::Send + std::marker::Sync
+    Executor<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR, PRV, E>
+where
+    V: Send + std::marker::Sync,
+    SID: std::marker::Send + std::marker::Sync,
 {
     fn new(
         index: IX,
