@@ -18,6 +18,7 @@ use std::hash::Hash;
 use std::mem;
 use std::ops::AddAssign;
 use void::Void;
+use crate::execution_engine::liquidity_book::config::ExecutionLimits;
 
 /// Terminal state of a take that was fulfilled.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -567,7 +568,7 @@ impl<T: Stable, M: Stable> FinalRecipe<T, M> {
 pub struct MatchmakingAttempt<Taker: Stable, Maker: Stable, U> {
     takes: HashMap<Taker::StableId, TakeInProgress<Taker>>,
     makes: HashMap<Maker::StableId, MakeInProgress<Maker>>,
-    execution_units_consumed: U,
+    resources: BatchResourceStats<U>,
     /// Number of distinct makes aggregated into one.
     num_aggregated_makes: usize,
 }
@@ -587,14 +588,12 @@ impl<T: Stable + Display, M: Stable + Display, U> Display for MatchmakingAttempt
 }
 
 impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
-    pub fn empty() -> Self
-    where
-        U: Monoid,
+    pub fn new(resource_acc: BatchResourceStats<U>) -> Self
     {
         Self {
             takes: HashMap::new(),
             makes: HashMap::new(),
-            execution_units_consumed: U::empty(),
+            resources: resource_acc,
             num_aggregated_makes: 0,
         }
     }
@@ -607,15 +606,15 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
         self.num_aggregated_makes > 0
     }
 
-    pub fn num_takes(&self) -> usize {
-        self.takes.len()
+    pub fn has_space(&self, limits: ExecutionLimits<U>) -> bool {
+        self.resources.ex_units_consumed < limits.ex_units.soft && self.resources.num_takes < limits.max_trades_in_batch
     }
 
     pub fn execution_units_consumed(&self) -> U
     where
         U: Copy,
     {
-        self.execution_units_consumed
+        self.resources.ex_units_consumed
     }
 
     pub fn next_offered_chunk(&self, taker: &Taker) -> OnSide<u64>
@@ -650,7 +649,7 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
         let sid = take.target.stable_id();
         let take_combined = match self.takes.remove(&sid) {
             None => {
-                self.execution_units_consumed += take.target.marginal_cost_hint();
+                self.resources.account_take(&take);
                 take
             }
             Some(existing_transition) => existing_transition.combine(take),
@@ -666,7 +665,7 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
         let sid = make.target.stable_id();
         let aggregate_maker = match self.makes.remove(&sid) {
             None => {
-                self.execution_units_consumed += make.target.marginal_cost_hint();
+                self.resources.account_make(&make);
                 make
             }
             Some(accumulated_trans) => {
@@ -717,12 +716,60 @@ pub struct Applied<Action, Subject: Stable> {
     pub result: Next<Subject, ()>,
 }
 
-#[derive(Debug, Clone)]
-pub struct MatchmakingRecipe<Taker, Maker> {
-    pub(crate) instructions: Vec<Either<TakeInProgress<Taker>, MakeInProgress<Maker>>>,
+#[derive(Debug, Copy, Clone)]
+pub struct BatchResourceStats<U> {
+    pub ex_units_consumed: U,
+    pub num_takes: usize,
 }
 
-impl<T: Display, M: Display> Display for MatchmakingRecipe<T, M> {
+impl<U: Semigroup> Semigroup for BatchResourceStats<U> {
+    fn combine(self, other: Self) -> Self {
+        Self {
+            ex_units_consumed: self.ex_units_consumed.combine(other.ex_units_consumed),
+            num_takes: self.num_takes + other.num_takes,
+        }
+    }
+}
+
+impl<U: Monoid> Monoid for BatchResourceStats<U> {
+    fn empty() -> Self {
+        Self {
+            ex_units_consumed: U::empty(),
+            num_takes: 0,
+        }
+    }
+}
+
+impl<U> BatchResourceStats<U> {
+    pub fn account_take<Taker: MarketTaker>(&mut self, take: &TakeInProgress<Taker>) {
+        self.ex_units_consumed += take.target.marginal_cost_hint();
+        self.num_takes += 1;
+    }
+
+    pub fn account_make<Maker: MarketMaker>(&mut self, make: &MakeInProgress<Maker>) {
+        self.ex_units_consumed += make.target.marginal_cost_hint();
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MatchmakingRecipe<Taker, Maker, U> {
+    pub(crate) instructions: Vec<Either<TakeInProgress<Taker>, MakeInProgress<Maker>>>,
+    pub(crate) resources: BatchResourceStats<U>,
+}
+
+impl<Taker, Maker, U: Semigroup> Semigroup for MatchmakingRecipe<Taker, Maker, U> {
+    fn combine(self, other: Self) -> Self {
+        Self { instructions: self.instructions.into_iter().chain(other.instructions).collect(), resources: self.resources.combine(other.resources) }
+    }
+}
+
+impl<Taker, Maker, U: Monoid> Monoid for MatchmakingRecipe<Taker, Maker, U> {
+    fn empty() -> Self {
+        Self { instructions: vec![], resources: BatchResourceStats::empty() }
+    }
+}
+
+impl<T: Display, M: Display, U: Display> Display for MatchmakingRecipe<T, M, U> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str("MatchmakingRecipe(")?;
         for i in &self.instructions {
@@ -735,7 +782,7 @@ impl<T: Display, M: Display> Display for MatchmakingRecipe<T, M> {
     }
 }
 
-impl<Taker, Maker> MatchmakingRecipe<Taker, Maker>
+impl<Taker, Maker, U> MatchmakingRecipe<Taker, Maker, U>
 where
     Taker: Stable,
     Maker: Stable,
@@ -746,24 +793,35 @@ where
         Taker: MarketTaker + TakerBehaviour + Copy,
     {
         if attempt.is_complete() {
+            let ex_units_consumed = attempt.execution_units_consumed();
             if let Some(final_recipe) = attempt.finalized() {
                 let unsatisfied_fragments = final_recipe.unsatisfied_fragments();
                 return if unsatisfied_fragments.is_empty() {
                     let FinalRecipe { takes, makes } = final_recipe;
                     let mut instructions = vec![];
+                    let mut num_takes = 0;
                     for Final(take) in takes.into_values() {
+                        num_takes += 1;
                         instructions.push(Either::Left(take));
                     }
                     for Final(make) in makes.into_values() {
                         instructions.push(Either::Right(make));
                     }
-                    Ok(Self { instructions })
+                    let resources = BatchResourceStats {
+                        ex_units_consumed,
+                        num_takes,
+                    };
+                    Ok(Self { instructions, resources })
                 } else {
                     Err(Some(unsatisfied_fragments))
                 };
             }
         }
         Err(None)
+    }
+
+    pub fn has_space(&self, limits: ExecutionLimits<U>) -> bool {
+        self.resources.ex_units_consumed < limits.ex_units.soft && self.resources.num_takes < limits.max_trades_in_batch
     }
 }
 
@@ -774,8 +832,8 @@ pub type Execution<T, M, B> = Either<Take<T, B>, Make<M, B>>;
 pub struct ExecutionRecipe<Taker, Maker, B>(pub Vec<Execution<Taker, Maker, B>>);
 
 impl<T, M, B> ExecutionRecipe<T, M, B> {
-    pub fn link<I, F, V>(
-        MatchmakingRecipe { instructions }: MatchmakingRecipe<T, M>,
+    pub fn link<I, F, V, U>(
+        MatchmakingRecipe { instructions, .. }: MatchmakingRecipe<T, M, U>,
         link: F,
     ) -> Result<(Self, HashSet<V>), ()>
     where

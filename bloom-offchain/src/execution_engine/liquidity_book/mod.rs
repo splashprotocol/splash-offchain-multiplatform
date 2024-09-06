@@ -7,9 +7,7 @@ use std::ops::AddAssign;
 
 use crate::display::{display_option, display_tuple};
 use crate::execution_engine::liquidity_book::config::ExecutionConfig;
-use crate::execution_engine::liquidity_book::core::{
-    MakeInProgress, MatchmakingAttempt, MatchmakingRecipe, Next, TakeInProgress, Trans,
-};
+use crate::execution_engine::liquidity_book::core::{BatchResourceStats, MakeInProgress, MatchmakingAttempt, MatchmakingRecipe, Next, TakeInProgress, Trans};
 use crate::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker, SpotPrice};
 use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
 use crate::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
@@ -36,8 +34,8 @@ pub mod types;
 pub mod weight;
 
 /// Liquidity aggregator.
-pub trait LiquidityBook<Taker, Maker> {
-    fn attempt(&mut self) -> Option<MatchmakingRecipe<Taker, Maker>>;
+pub trait LiquidityBook<Taker, Maker, U> {
+    fn attempt(&mut self, global_resources: BatchResourceStats<U>) -> Option<MatchmakingRecipe<Taker, Maker, U>>;
 }
 
 /// TLB API for external events affecting its state.
@@ -123,17 +121,17 @@ where
     }
 }
 
-impl<Taker, Maker, U> LiquidityBook<Taker, Maker> for TLB<Taker, Maker, U>
+impl<Taker, Maker, U> LiquidityBook<Taker, Maker, U> for TLB<Taker, Maker, U>
 where
     Taker: Stable + MarketTaker<U = U> + TakerBehaviour + Ord + Copy + Display,
     Maker: Stable + MarketMaker<U = U> + MakerBehavior + Copy + Display,
     U: Monoid + AddAssign + PartialOrd + Copy,
 {
-    fn attempt(&mut self) -> Option<MatchmakingRecipe<Taker, Maker>> {
+    fn attempt(&mut self, global_resources: BatchResourceStats<U>) -> Option<MatchmakingRecipe<Taker, Maker, U>> {
         loop {
             trace!("Attempting to matchmake");
-            let mut batch: MatchmakingAttempt<Taker, Maker, U> = MatchmakingAttempt::empty();
-            while batch.execution_units_consumed() < self.conf.execution_cap.soft && batch.num_takes() < 15 {
+            let mut batch: MatchmakingAttempt<Taker, Maker, U> = MatchmakingAttempt::new(global_resources);
+            while batch.has_space(self.conf.ex_limits) {
                 let spot_price = self.spot_price();
                 let price_range = self.state.allowed_price_range();
                 trace!("Spot price is: {}", display_option(&spot_price));
@@ -389,7 +387,8 @@ pub fn linear_output_unsafe(input: u64, price: OnSide<AbsolutePrice>) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::execution_engine::liquidity_book::config::{ExecutionCap, ExecutionConfig};
+    use algebra_core::monoid::Monoid;
+    use crate::execution_engine::liquidity_book::config::{ExecutionCap, ExecutionConfig, ExecutionLimits};
     use crate::execution_engine::liquidity_book::market_maker::MarketMaker;
     use crate::execution_engine::liquidity_book::market_taker::MarketTaker;
     use crate::execution_engine::liquidity_book::side::Side::{Ask, Bid};
@@ -400,6 +399,7 @@ mod tests {
     use crate::execution_engine::liquidity_book::{
         execute_with_maker, execute_with_taker, settle_price, ExternalLBEvents, LiquidityBook, TLB,
     };
+    use crate::execution_engine::liquidity_book::core::BatchResourceStats;
     use crate::execution_engine::types::StableId;
 
     #[test]
@@ -424,15 +424,18 @@ mod tests {
         let mut book = TLB::<_, SimpleCFMMPool, _>::new(
             0,
             ExecutionConfig {
-                execution_cap: ExecutionCap {
-                    soft: 1000000,
-                    hard: 1600000,
+                ex_limits: ExecutionLimits {
+                    ex_units: ExecutionCap {
+                        soft: 1000000,
+                        hard: 1600000,
+                    },
+                    max_trades_in_batch: 20,
                 },
                 o2o_allowed: true,
             },
         );
         vec![o1, o2].into_iter().for_each(|o| book.update_taker(o));
-        let recipe = book.attempt();
+        let recipe = book.attempt(BatchResourceStats::empty());
         dbg!(recipe);
     }
 
@@ -456,9 +459,12 @@ mod tests {
         let mut book = TLB::new(
             0,
             ExecutionConfig {
-                execution_cap: ExecutionCap {
-                    soft: 1000000,
-                    hard: 1600000,
+                ex_limits: ExecutionLimits {
+                    ex_units: ExecutionCap {
+                        soft: 1000000,
+                        hard: 1600000,
+                    },
+                    max_trades_in_batch: 20,
                 },
                 o2o_allowed: true,
             },
@@ -467,7 +473,7 @@ mod tests {
         book.update_taker(o2);
         book.update_maker(p1);
         book.update_maker(p2);
-        let recipe = book.attempt();
+        let recipe = book.attempt(BatchResourceStats::empty());
         dbg!(recipe);
     }
 

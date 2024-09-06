@@ -13,7 +13,8 @@ use futures::{FutureExt, Stream};
 use futures::{SinkExt, StreamExt};
 use log::{error, trace, warn};
 use tokio::sync::broadcast;
-
+use algebra_core::monoid::Monoid;
+use algebra_core::semigroup::Semigroup;
 use liquidity_book::interpreter::RecipeInterpreter;
 use spectrum_offchain::backlog::HotBacklog;
 use spectrum_offchain::circular_filter::CircularFilter;
@@ -31,10 +32,11 @@ use crate::execution_engine::bundled::Bundled;
 use crate::execution_engine::execution_effect::ExecutionEff;
 use crate::execution_engine::focus_set::FocusSet;
 use crate::execution_engine::funding_effect::FundingEvent;
-use crate::execution_engine::liquidity_book::core::ExecutionRecipe;
+use crate::execution_engine::liquidity_book::core::{ExecutionRecipe, MatchmakingRecipe};
 use crate::execution_engine::liquidity_book::interpreter::ExecutionResult;
 use crate::execution_engine::liquidity_book::market_taker::MarketTaker;
 use crate::execution_engine::liquidity_book::{ExternalLBEvents, LBFeedback, LiquidityBook};
+use crate::execution_engine::liquidity_book::config::ExecutionConfig;
 use crate::execution_engine::multi_pair::MultiPair;
 use crate::execution_engine::resolver::resolve_source_state;
 use crate::execution_engine::storage::kv_store::KvStore;
@@ -111,6 +113,7 @@ pub fn execution_part_stream<
     Prover,
     Net,
     Err,
+    U,
 >(
     index: Index,
     cache: Cache,
@@ -142,7 +145,7 @@ where
     MakerCtx: Clone + Unpin + 'a,
     Index: StateIndex<EvolvingEntity<CompOrd, Pool, Ver, Bearer>> + Unpin + 'a,
     Cache: KvStore<StableId, EvolvingEntity<CompOrd, Pool, Ver, Bearer>> + Unpin + 'a,
-    Book: LiquidityBook<CompOrd, Pool>
+    Book: LiquidityBook<CompOrd, Pool, U>
         + ExternalLBEvents<CompOrd, Pool>
         + LBFeedback<CompOrd, Pool>
         + Maker<MakerCtx>
@@ -678,7 +681,7 @@ where
     MC: Clone + Unpin,
     IX: StateIndex<EvolvingEntity<CO, P, V, B>> + Unpin,
     CH: KvStore<SID, EvolvingEntity<CO, P, V, B>> + Unpin,
-    TLB: LiquidityBook<CO, P> + ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<MC> + Unpin,
+    TLB: LiquidityBook<CO, P, U> + ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<MC> + Unpin,
     L: HotBacklog<Bundled<SO, B>> + Maker<MC> + Unpin,
     RIR: RecipeInterpreter<CO, P, C, V, B, TC> + Unpin,
     SIR: SpecializedInterpreter<P, SO, V, TC, B, C> + Unpin,
@@ -733,10 +736,14 @@ where
                 continue;
             }
             // Finally attempt to matchmake.
+            let mut cross_pair_recipe = MatchmakingRecipe::empty();
             while let Some(focus_pair) = self.focus_set.pop_front() {
                 // Try TLB:
-                if let Some(recipe) = self.multi_book.get_mut(&focus_pair).attempt() {
-                    let (linked_recipe, consumed_versions) = ExecutionRecipe::link(recipe, |id| {
+                if let Some(local_recipe) = self.multi_book.get_mut(&focus_pair).attempt(cross_pair_recipe.resources) {
+                    if local_recipe.has_space(self.context.select::<ExecutionConfig<U>>()) {
+                        cross_pair_recipe = cross_pair_recipe.combine(local_recipe);
+                    }
+                    let (linked_recipe, consumed_versions) = ExecutionRecipe::link(local_recipe, |id| {
                         self.cache
                             .get(id)
                             .map(|Bundled(t, bearer)| (t.either(|b| b.version, |b| b.version), bearer))
