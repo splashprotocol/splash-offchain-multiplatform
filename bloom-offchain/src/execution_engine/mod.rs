@@ -129,8 +129,8 @@ where
     Upstream: Stream<Item = (Pair, Event<CompOrd, SpecOrd, Pool, Bearer, Ver>)> + Unpin + 'a,
     Funding: Stream<Item = FundingEvent<Bearer>> + Unpin + 'a,
     Pair: Copy + Eq + Ord + Hash + Display + Unpin + 'a,
-    StableId: Copy + Eq + Hash + Debug + Display + Unpin + 'a,
-    Ver: Copy + Eq + Hash + Display + Unpin + 'a,
+    StableId: Copy + Eq + Hash + Debug + Display + Unpin + Send + Sync + 'a,
+    Ver: Copy + Eq + Hash + Display + Unpin + Send + Sync + 'a,
     Pool: Stable<StableId = StableId> + Copy + Debug + Unpin + Display + 'a,
     CompOrd: Stable<StableId = StableId> + MarketTaker<U = ExUnits> + Copy + Debug + Unpin + Display + 'a,
     SpecOrd: SpecializedOrder<TPoolId = StableId, TOrderId = Ver> + Debug + Unpin + 'a,
@@ -237,7 +237,7 @@ pub struct Executor<
 }
 
 impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR, PRV, E>
-    Executor<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR, PRV, E>
+    Executor<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR, PRV, E> where V: Send + std::marker::Sync, SID: std::marker::Send + std::marker::Sync
 {
     fn new(
         index: IX,
@@ -665,8 +665,8 @@ where
     S: Stream<Item = (PR, Event<CO, SO, P, B, V>)> + Unpin,
     F: Stream<Item = FundingEvent<B>> + Unpin,
     PR: Copy + Eq + Ord + Hash + Display + Unpin,
-    SID: Copy + Eq + Hash + Debug + Display + Unpin,
-    V: Copy + Eq + Hash + Display + Unpin,
+    SID: Copy + Eq + Hash + Debug + Display + Unpin + Send + Sync,
+    V: Copy + Eq + Hash + Display + Unpin + Send + Sync,
     P: Stable<StableId = SID> + Copy + Debug + Unpin + Display,
     CO: Stable<StableId = SID> + MarketTaker<U = U> + Copy + Debug + Unpin + Display,
     SO: SpecializedOrder<TPoolId = SID, TOrderId = V> + Unpin,
@@ -808,8 +808,8 @@ where
     S: Stream<Item = (PR, Event<CO, SO, P, B, V>)> + Unpin,
     F: Stream<Item = FundingEvent<B>> + Unpin,
     PR: Copy + Eq + Ord + Hash + Display + Unpin,
-    ST: Copy + Eq + Hash + Debug + Display + Unpin,
-    V: Copy + Eq + Hash + Display + Unpin,
+    ST: Copy + Eq + Hash + Debug + Display + Unpin + Send + std::marker::Sync,
+    V: Copy + Eq + Hash + Display + Unpin + Send + std::marker::Sync,
     P: Stable<StableId = ST> + Copy + Debug + Unpin + Display,
     CO: Stable<StableId = ST> + MarketTaker<U = U> + Copy + Debug + Unpin + Display,
     SO: SpecializedOrder<TPoolId = ST, TOrderId = V> + Unpin,

@@ -1,6 +1,6 @@
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct NodeConfig<'a> {
-    pub path: &'a str,
+pub struct NodeConfig {
+    pub path: String,
     pub magic: u64,
 }

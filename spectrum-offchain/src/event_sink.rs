@@ -10,11 +10,11 @@ pub mod event_handler;
 
 pub fn process_events<'a, TUpstream, TEvent>(
     upstream: TUpstream,
-    handlers: Vec<Box<dyn EventHandler<TEvent>>>,
-) -> impl Stream<Item = ()> + 'a
+    handlers: Vec<Box<dyn EventHandler<TEvent> + Send>>,
+) -> impl Stream<Item = ()> + Send + 'a
 where
-    TUpstream: Stream<Item = TEvent> + 'a,
-    TEvent: 'a,
+    TUpstream: Stream<Item = TEvent> + Send + 'a,
+    TEvent: Send + 'a,
 {
     let handlers_arc = Arc::new(Mutex::new(handlers));
     upstream.then(move |ev| {

@@ -13,7 +13,7 @@ pub mod rocksdb;
 
 /// Stores on-chain entities.
 /// Operations are atomic.
-#[async_trait(? Send)]
+#[async_trait]
 pub trait EntityRepo<TEntity: EntitySnapshot> {
     /// Get state id preceding given predicted state.
     async fn get_prediction_predecessor<'a>(&self, id: TEntity::Version) -> Option<TEntity::Version>
@@ -71,13 +71,13 @@ impl<R> EntityRepoTracing<R> {
     }
 }
 
-#[async_trait(? Send)]
+#[async_trait]
 impl<TEntity, R> EntityRepo<TEntity> for EntityRepoTracing<R>
 where
-    TEntity: EntitySnapshot,
+    TEntity: EntitySnapshot + Send,
     TEntity::StableId: Debug + Copy,
     TEntity::Version: Debug + Copy,
-    R: EntityRepo<TEntity>,
+    R: EntityRepo<TEntity> + Send + Sync,
 {
     async fn get_prediction_predecessor<'a>(&self, id: TEntity::Version) -> Option<TEntity::Version>
     where

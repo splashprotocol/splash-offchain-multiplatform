@@ -120,13 +120,13 @@ where
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl<const N: usize, Topic, Index> EventHandler<LedgerTxEvent<TxViewAtEraBoundary>>
     for FundingEventHandler<N, Topic, Index>
 where
-    Topic: Sink<FundingEvent<FinalizedTxOut>> + Unpin,
+    Topic: Sink<FundingEvent<FinalizedTxOut>> + Unpin + Send,
     Topic::Error: Debug,
-    Index: KvIndex<OutputRef, (usize, FinalizedTxOut)>,
+    Index: KvIndex<OutputRef, (usize, FinalizedTxOut)> + Send,
 {
     async fn try_handle(
         &mut self,
@@ -205,13 +205,13 @@ where
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl<const N: usize, Topic, Index> EventHandler<MempoolUpdate<TxViewAtEraBoundary>>
     for FundingEventHandler<N, Topic, Index>
 where
-    Topic: Sink<FundingEvent<FinalizedTxOut>> + Unpin,
+    Topic: Sink<FundingEvent<FinalizedTxOut>> + Unpin + Send,
     Topic::Error: Debug,
-    Index: KvIndex<OutputRef, (usize, FinalizedTxOut)>,
+    Index: KvIndex<OutputRef, (usize, FinalizedTxOut)> + Send,
 {
     async fn try_handle(
         &mut self,
@@ -306,23 +306,23 @@ impl<H, OrderIndex, Pool, Ctx> SpecializedHandler<H, OrderIndex, Pool, Ctx> {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex, K>
     EventHandler<LedgerTxEvent<TxViewAtEraBoundary>>
     for SpecializedHandler<PairUpdateHandler<N, PairId, Topic, Order, PoolIndex>, OrderIndex, Pool, K>
 where
-    PairId: Copy + Hash + Eq,
-    Topic: Sink<(PairId, Channel<OrderUpdate<Order, Order>>)> + Unpin,
+    PairId: Copy + Hash + Eq + Send,
+    Topic: Sink<(PairId, Channel<OrderUpdate<Order, Order>>)> + Send + Unpin,
     Topic::Error: Debug,
-    Pool: EntitySnapshot + Tradable<PairId = PairId>,
+    Pool: EntitySnapshot + Tradable<PairId = PairId> + Send,
     Order: SpecializedOrder<TPoolId = Pool::StableId>
         + TryFromLedger<TransactionOutput, HandlerContext<K>>
         + Clone
-        + Debug,
+        + Debug + Send,
     Order::TOrderId: From<OutputRef> + Display,
-    OrderIndex: KvIndex<Order::TOrderId, Order>,
-    PoolIndex: TradableEntityIndex<Pool>,
-    K: Copy,
+    OrderIndex: KvIndex<Order::TOrderId, Order> + Send,
+    PoolIndex: TradableEntityIndex<Pool> + Send,
+    K: Send + Copy,
 {
     async fn try_handle(
         &mut self,
@@ -409,23 +409,23 @@ where
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex, K>
     EventHandler<MempoolUpdate<TxViewAtEraBoundary>>
     for SpecializedHandler<PairUpdateHandler<N, PairId, Topic, Order, PoolIndex>, OrderIndex, Pool, K>
 where
-    PairId: Copy + Hash + Eq,
-    Topic: Sink<(PairId, Channel<OrderUpdate<Order, Order>>)> + Unpin,
+    PairId: Copy + Hash + Eq + Send,
+    Topic: Sink<(PairId, Channel<OrderUpdate<Order, Order>>)> + Send + Unpin,
     Topic::Error: Debug,
-    Pool: EntitySnapshot + Tradable<PairId = PairId>,
+    Pool: EntitySnapshot + Tradable<PairId = PairId> + Send,
     Order: SpecializedOrder<TPoolId = Pool::StableId>
         + TryFromLedger<TransactionOutput, HandlerContext<K>>
         + Clone
-        + Debug,
+        + Debug + Send,
     Order::TOrderId: From<OutputRef> + Display,
-    OrderIndex: KvIndex<Order::TOrderId, Order>,
-    PoolIndex: TradableEntityIndex<Pool>,
-    K: Copy,
+    OrderIndex: KvIndex<Order::TOrderId, Order> + Send,
+    PoolIndex: TradableEntityIndex<Pool> + Send,
+    K: Copy + Send,
 {
     async fn try_handle(
         &mut self,
@@ -654,20 +654,20 @@ fn pair_id_of<T: Tradable>(xa: &Ior<T, T>) -> T::PairId {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl<const N: usize, PairId, Topic, Entity, Index> EventHandler<LedgerTxEvent<TxViewAtEraBoundary>>
     for PairUpdateHandler<N, PairId, Topic, Entity, Index>
 where
-    PairId: Copy + Hash + Eq,
-    Topic: Sink<(PairId, Channel<StateUpdate<Entity>>)> + Unpin,
+    PairId: Copy + Hash + Eq + Send,
+    Topic: Sink<(PairId, Channel<StateUpdate<Entity>>)> + Unpin + Send,
     Topic::Error: Debug,
     Entity: EntitySnapshot
         + Tradable<PairId = PairId>
         + TryFromLedger<TransactionOutput, HandlerContext<Entity::StableId>>
         + Clone
-        + Debug,
+        + Debug + Send,
     Entity::Version: From<OutputRef>,
-    Index: TradableEntityIndex<Entity>,
+    Index: TradableEntityIndex<Entity> + Send,
 {
     async fn try_handle(
         &mut self,
@@ -738,20 +738,20 @@ where
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl<const N: usize, PairId, Topic, Entity, Index> EventHandler<MempoolUpdate<TxViewAtEraBoundary>>
     for PairUpdateHandler<N, PairId, Topic, Entity, Index>
 where
-    PairId: Copy + Hash + Eq,
-    Topic: Sink<(PairId, Channel<StateUpdate<Entity>>)> + Unpin,
+    PairId: Copy + Hash + Eq + Send,
+    Topic: Sink<(PairId, Channel<StateUpdate<Entity>>)> + Unpin + Send,
     Topic::Error: Debug,
     Entity: EntitySnapshot
         + Tradable<PairId = PairId>
         + TryFromLedger<TransactionOutput, HandlerContext<Entity::StableId>>
         + Clone
-        + Debug,
+        + Debug + Send,
     Entity::Version: From<OutputRef>,
-    Index: TradableEntityIndex<Entity>,
+    Index: TradableEntityIndex<Entity> + Send,
 {
     async fn try_handle(
         &mut self,

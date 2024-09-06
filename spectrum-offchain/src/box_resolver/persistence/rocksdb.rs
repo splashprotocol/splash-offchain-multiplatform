@@ -32,7 +32,7 @@ const LAST_PREDICTED_PREFIX: &str = "predicted:last";
 const LAST_CONFIRMED_PREFIX: &str = "confirmed:last";
 const LAST_UNCONFIRMED_PREFIX: &str = "unconfirmed:last";
 
-#[async_trait(?Send)]
+#[async_trait]
 impl<TEntity> EntityRepo<TEntity> for EntityRepoRocksDB
 where
     TEntity: EntitySnapshot + Clone + Serialize + DeserializeOwned + Send + 'static,

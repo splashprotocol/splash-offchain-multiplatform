@@ -33,10 +33,10 @@ const LAST_PREDICTED_PREFIX: u8 = 2u8;
 const LAST_CONFIRMED_PREFIX: u8 = 3u8;
 const LAST_UNCONFIRMED_PREFIX: u8 = 4u8;
 
-#[async_trait(?Send)]
+#[async_trait]
 impl<T> EntityRepo<T> for InMemoryEntityRepo<T>
 where
-    T: EntitySnapshot + Clone + Send + 'static,
+    T: EntitySnapshot + Clone + Send + Sync + 'static,
     <T as EntitySnapshot>::Version: Copy + Send + Debug + 'static,
     <T as Stable>::StableId: Copy + Send + Into<[u8; 60]> + 'static,
 {

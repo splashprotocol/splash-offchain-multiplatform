@@ -28,8 +28,8 @@ impl<T: Clone> Has<T> for T {
 
 /// An order specialized for a concrete pool.
 pub trait SpecializedOrder {
-    type TOrderId: Copy + Eq + Hash;
-    type TPoolId: Copy + Eq + Hash;
+    type TOrderId: Copy + Eq + Hash + Send + Sync;
+    type TPoolId: Copy + Eq + Hash + Send + Sync;
 
     fn get_self_ref(&self) -> Self::TOrderId;
     fn get_pool_ref(&self) -> Self::TPoolId;

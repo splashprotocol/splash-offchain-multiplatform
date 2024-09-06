@@ -12,9 +12,9 @@ pub mod data;
 pub fn mempool_stream<'a, Tx>(
     client: &'a LocalTxMonitorClient<Tx>,
     mut tip_reached_signal: broadcast::Receiver<bool>,
-) -> impl Stream<Item = MempoolUpdate<Tx>> + 'a
+) -> impl Stream<Item = MempoolUpdate<Tx>> + Send + 'a
 where
-    Tx: Deserialize + 'a,
+    Tx: Deserialize + Send + Sync + 'a,
 {
     let wait_signal = async move {
         let _ = tip_reached_signal.recv().await;

@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-#[async_trait(?Send)]
+#[async_trait]
 pub trait EventHandler<TEvent> {
     /// Tries to handle the given event if applicable.
     /// Returns `Some(TEvent)` if further processing is needed.
