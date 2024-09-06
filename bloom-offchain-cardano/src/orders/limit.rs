@@ -432,17 +432,18 @@ where
                             marginal_cost: script_info.marginal_cost,
                         });
                     } else {
-                        trace!(
-                            "UTxO {}, Order {} :: sufficient_input: {}, sufficient_execution_budget: {}, sufficient_fee: {}, executable: {}, valid_configuration: {}, is_valid_beacon: {}",
-                            ctx.select::<OutputRef>(),
-                            conf.beacon,
-                            sufficient_input,
-                            sufficient_execution_budget,
-                            sufficient_fee,
-                            executable,
-                            valid_configuration,
-                            valid_beacon()
-                        );
+
+                        // trace!(
+                        //     "UTxO {}, Order {} :: sufficient_input: {}, sufficient_execution_budget: {}, sufficient_fee: {}, executable: {}, valid_configuration: {}, is_valid_beacon: {}",
+                        //     ctx.select::<OutputRef>(),
+                        //     conf.beacon,
+                        //     sufficient_input,
+                        //     sufficient_execution_budget,
+                        //     sufficient_fee,
+                        //     executable,
+                        //     valid_configuration,
+                        //     valid_beacon()
+                        // );
                     }
                 }
             }
