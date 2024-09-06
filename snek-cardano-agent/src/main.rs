@@ -1,6 +1,7 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-
+use std::thread;
+use std::time::Duration;
 use clap::Parser;
 use cml_chain::transaction::Transaction;
 use cml_core::serialization::RawBytesEncoding;
@@ -342,6 +343,7 @@ async fn main() {
         let process_mempool_events_stream =
             process_events(mempool_stream, handlers_mempool);
 
+        scope.spawn( { async move { process_ledger_events_stream.collect::<Vec<_>>().await; } });
         scope.spawn({ async move { process_mempool_events_stream.collect::<Vec<_>>().await; } });
         scope.spawn({ async move { execution_stream_p1.collect::<Vec<_>>().await; } });
         scope.spawn({ async move { execution_stream_p2.collect::<Vec<_>>().await; } });
@@ -349,8 +351,11 @@ async fn main() {
         scope.spawn({ async move { execution_stream_p4.collect::<Vec<_>>().await; } });
         scope.spawn({ async move { tx_submission_stream.collect::<Vec<_>>().await; } });
     });
-    
-    let _res = process_ledger_events_stream.collect::<Vec<_>>().await;
+
+    loop {
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        info!("Heartbeat");
+    }
 }
 
 fn merge_upstreams(
