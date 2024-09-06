@@ -133,7 +133,7 @@ where
         loop {
             trace!("Attempting to matchmake");
             let mut batch: MatchmakingAttempt<Taker, Maker, U> = MatchmakingAttempt::empty();
-            while batch.execution_units_consumed() < self.conf.execution_cap.soft {
+            while batch.execution_units_consumed() < self.conf.execution_cap.soft && batch.num_takes() < 15 {
                 let spot_price = self.spot_price();
                 let price_range = self.state.allowed_price_range();
                 trace!("Spot price is: {}", display_option(&spot_price));

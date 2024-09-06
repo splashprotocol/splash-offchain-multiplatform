@@ -257,7 +257,7 @@ impl MakerBehavior for DegenQuadraticPool {
         };
         let safe_output = match input {
             OnSide::Bid(_) => {
-                if output_candidate <= *base_reserves {
+                if output_candidate + MIN_ADA <= *base_reserves {
                     output_candidate
                 } else {
                     *base_reserves
@@ -302,9 +302,9 @@ impl MarketMaker for DegenQuadraticPool {
                 + A_DENOM * self.b_num as u128;
         let price_denom = A_DENOM * B_DENOM;
         if x == base {
-            AbsolutePrice::new_raw(price_num, price_denom).into()
-        } else {
             AbsolutePrice::new_raw(price_denom, price_num).into()
+        } else {
+            AbsolutePrice::new_raw(price_num, price_denom).into()
         }
     }
 
@@ -330,7 +330,13 @@ impl MarketMaker for DegenQuadraticPool {
         AbsolutePrice::new(quote, base)
     }
     fn quality(&self) -> PoolQuality {
-        PoolQuality::from((self.reserves_x.untag() - MIN_ADA) as u128)
+        let reserves_x = self.reserves_x.untag();
+        let quality = if reserves_x >= MIN_ADA {
+            reserves_x - MIN_ADA
+        } else {
+            0
+        };
+        PoolQuality::from(quality as u128)
     }
 
     fn marginal_cost_hint(&self) -> Self::U {
@@ -346,15 +352,21 @@ impl MarketMaker for DegenQuadraticPool {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, _] = order_canonical(x, y);
+        let reserves_x_candidate = self.reserves_x.untag();
+        let reserves_x = if reserves_x_candidate >= MIN_ADA {
+            reserves_x_candidate - MIN_ADA
+        } else {
+            0
+        };
         if base == x {
             AbsoluteReserves {
-                base: self.reserves_x.untag() - MIN_ADA,
+                base: reserves_x,
                 quote: self.reserves_y.untag(),
             }
         } else {
             AbsoluteReserves {
                 base: self.reserves_y.untag(),
-                quote: self.reserves_x.untag() - MIN_ADA,
+                quote: reserves_x,
             }
         }
     }

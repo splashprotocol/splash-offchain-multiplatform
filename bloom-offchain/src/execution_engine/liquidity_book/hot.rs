@@ -11,7 +11,7 @@ use crate::execution_engine::liquidity_book::{
 };
 use crate::execution_engine::types::Time;
 use algebra_core::monoid::Monoid;
-use log::{info, trace, warn};
+use log::{error, info, trace, warn};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::maker::Maker;
 use std::collections::{BTreeSet, HashMap, VecDeque};
@@ -231,28 +231,44 @@ impl<T: Stable, M: Stable + Copy + Display, U> ExternalLBEvents<T, M> for HotLB<
     fn update_taker(&mut self, taker: T) {
         match &mut self.state {
             State::Idle(IdleState(ref mut idle)) => idle.enqueue_taker(taker),
-            State::Preview(_) => panic!("Attempt to update InProgress state externally"),
+            State::Preview(_) => {
+                error!("Attempt to update InProgress state externally");
+                self.on_recipe_failed();
+                self.update_taker(taker);
+            }
         }
     }
 
     fn remove_taker(&mut self, taker: T) {
         match &mut self.state {
             State::Idle(IdleState(ref mut idle)) => idle.remove_taker(taker),
-            State::Preview(_) => panic!("Attempt to update InProgress state externally"),
+            State::Preview(_) => {
+                error!("Attempt to update InProgress state externally");
+                self.on_recipe_failed();
+                self.remove_taker(taker);
+            }
         }
     }
 
     fn update_maker(&mut self, maker: M) {
         match &mut self.state {
             State::Idle(IdleState(ref mut idle)) => idle.update_maker(maker),
-            State::Preview(_) => panic!("Attempt to update InProgress state externally"),
+            State::Preview(_) => {
+                error!("Attempt to update InProgress state externally");
+                self.on_recipe_failed();
+                self.update_maker(maker);
+            }
         }
     }
 
     fn remove_maker(&mut self, maker: M) {
         match &mut self.state {
             State::Idle(IdleState(ref mut idle)) => idle.remove_maker(maker),
-            State::Preview(_) => panic!("Attempt to update InProgress state externally"),
+            State::Preview(_) => {
+                error!("Attempt to update InProgress state externally");
+                self.on_recipe_failed();
+                self.remove_maker(maker);
+            }
         }
     }
 }
@@ -278,7 +294,7 @@ where
             trace!("Attempting to matchmake");
             let mut batch: MatchmakingAttempt<T, M, U> = MatchmakingAttempt::empty();
             if let Some(preview_state) = self.state.preview() {
-                while batch.execution_units_consumed() < self.execution_cap.soft {
+                while batch.execution_units_consumed() < self.execution_cap.soft && batch.num_takes() < 15 {
                     if let Some(taker) = preview_state.pop_taker() {
                         if let Some(maker) = preview_state.take_best_maker() {
                             let side = taker.side();
@@ -321,9 +337,12 @@ where
                     trace!("Matchmaking attempt failed");
                     self.state.rollback();
                 }
-                Err(Some(_)) => {
+                Err(Some(failed_takers)) => {
                     trace!("Matchmaking attempt failed due to taker limits, retrying");
                     self.state.rollback();
+                    for taker in failed_takers {
+                        self.remove_taker(taker);
+                    }
                     continue;
                 }
             }
