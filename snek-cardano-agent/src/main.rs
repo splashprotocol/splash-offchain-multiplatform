@@ -336,9 +336,9 @@ async fn main() {
         });
 
         let process_ledger_events_stream =
-            process_events(ledger_stream, handlers_ledger).buffered_within(config.ledger_buffering_duration);
-        let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool)
-            .buffered_within(config.mempool_buffering_duration);
+            process_events(ledger_stream, handlers_ledger);//.buffered_within(config.ledger_buffering_duration);
+        let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool);
+            //.buffered_within(config.mempool_buffering_duration);
 
         let mut app = select_all(vec![
             boxed(process_ledger_events_stream),
@@ -451,9 +451,9 @@ async fn main() {
         });
 
         let process_ledger_events_stream =
-            process_events(ledger_stream, handlers_ledger).buffered_within(config.ledger_buffering_duration);
-        let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool)
-            .buffered_within(config.mempool_buffering_duration);
+            process_events(ledger_stream, handlers_ledger);//.buffered_within(config.ledger_buffering_duration);
+        let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool);
+            //.buffered_within(config.mempool_buffering_duration);
 
         let mut app = select_all(vec![
             boxed(process_ledger_events_stream),
