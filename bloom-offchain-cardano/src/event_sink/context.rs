@@ -16,9 +16,9 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
 use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHashes};
 use spectrum_offchain_cardano::handler_context::{ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers};
 
-use crate::bounds::ValidationRules;
 use crate::orders::adhoc::AdhocFeeStructure;
 use crate::orders::limit::LimitOrderValidation;
+use crate::validation_rules::ValidationRules;
 
 #[derive(Copy, Clone, Debug)]
 pub struct HandlerContextProto {
