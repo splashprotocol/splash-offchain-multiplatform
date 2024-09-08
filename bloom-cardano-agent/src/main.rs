@@ -26,7 +26,6 @@ use bloom_offchain::execution_engine::liquidity_book::TLB;
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
 use bloom_offchain::execution_engine::storage::kv_store::{InMemoryKvStore, KvStoreWithTracing};
 use bloom_offchain::execution_engine::storage::{InMemoryStateIndex, StateIndexWithTracing};
-use bloom_offchain_cardano::bounds::ValidationRules;
 use bloom_offchain_cardano::event_sink::context::HandlerContextProto;
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
 use bloom_offchain_cardano::event_sink::handler::{
@@ -40,6 +39,7 @@ use bloom_offchain_cardano::integrity::CheckIntegrity;
 use bloom_offchain_cardano::orders::adhoc::AdhocFeeStructure;
 use bloom_offchain_cardano::orders::AnyOrder;
 use bloom_offchain_cardano::partitioning::select_partition;
+use bloom_offchain_cardano::validation_rules::ValidationRules;
 use cardano_chain_sync::cache::LedgerCacheRocksDB;
 use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::ChainSyncClient;

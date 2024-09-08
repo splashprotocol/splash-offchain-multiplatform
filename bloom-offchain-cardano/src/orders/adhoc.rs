@@ -11,6 +11,7 @@ use cml_chain::transaction::TransactionOutput;
 use cml_chain::PolicyId;
 use cml_core::serialization::RawBytesEncoding;
 use cml_crypto::blake2b224;
+use log::trace;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::{AssetClass, OutputRef, Token};
 use spectrum_offchain::data::{Has, Stable, Tradable};
@@ -233,8 +234,9 @@ where
             }?;
             let adhoc_fee_input = lo.input_amount.checked_sub(virtual_input_amount)?;
             let has_stake_part = lo.redeemer_address.stake_cred.is_some();
-            if has_stake_part && is_valid_beacon(lo.beacon, lo.min_marginal_output, ctx) {
-                return Some(Self(
+            let is_valid_beacon = is_valid_beacon(lo.beacon, lo.min_marginal_output, ctx);
+            if has_stake_part && is_valid_beacon {
+                Some(Self(
                     LimitOrder {
                         beacon: lo.beacon,
                         input_asset: lo.input_asset,
@@ -253,9 +255,17 @@ where
                         marginal_cost: lo.marginal_cost,
                     },
                     adhoc_fee_input,
-                ));
+                ))
+            } else {
+                trace!(
+                    "UTxO {}, AdhocOrder {} :: has_stake_part: {}, is_valid_beacon: {}",
+                    ctx.select::<OutputRef>(),
+                    lo.beacon,
+                    has_stake_part,
+                    is_valid_beacon,
+                );
+                None
             }
-            None
         })
     }
 }
