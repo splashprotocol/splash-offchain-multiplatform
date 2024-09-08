@@ -4,10 +4,13 @@ use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
 use bloom_offchain::execution_engine::liquidity_book::types::{
-    AbsolutePrice, FeeAsset, InputAsset, OutputAsset,
+    AbsolutePrice, FeeAsset, InputAsset, Lovelace, OutputAsset,
 };
 use bounded_integer::BoundedU64;
 use cml_chain::transaction::TransactionOutput;
+use cml_chain::PolicyId;
+use cml_core::serialization::RawBytesEncoding;
+use cml_crypto::blake2b224;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::{AssetClass, OutputRef, Token};
 use spectrum_offchain::data::{Has, Stable, Tradable};
@@ -174,6 +177,42 @@ fn subtract_adhoc_fee(body: u64, fee_structure: AdhocFeeStructure) -> u64 {
     body - fee_structure.fee(body)
 }
 
+const MAGIC_NUM: u64 = 3;
+const MAGIC_WORD: &str = "spaghetti";
+
+fn beacon_from_oref(input_oref: OutputRef, order_index: u64, min_marginal_output: u64) -> PolicyId {
+    let mut bf = vec![];
+    bf.append(&mut input_oref.tx_hash().to_raw_bytes().to_vec());
+    bf.append(&mut input_oref.index().to_be_bytes().to_vec());
+    bf.append(&mut order_index.to_be_bytes().to_vec());
+    let salt = min_marginal_output / MAGIC_NUM;
+    bf.append(&mut salt.to_be_bytes().to_vec());
+    bf.append(&mut MAGIC_WORD.as_bytes().to_vec());
+    blake2b224(&*bf).into()
+}
+
+fn is_valid_beacon<C>(beacon: PolicyId, min_marginal_output: u64, ctx: &C) -> bool
+where
+    C: Has<ConsumedInputs>
+        + Has<ConsumedIdentifiers<Token>>
+        + Has<ProducedIdentifiers<Token>>
+        + Has<OutputRef>,
+{
+    let order_index = ctx.select::<OutputRef>().index();
+    let valid_fresh_beacon = || {
+        ctx.select::<ConsumedInputs>()
+            .0
+            .find(|o| beacon_from_oref(*o, order_index, min_marginal_output) == beacon)
+    };
+    let consumed_ids = ctx.select::<ConsumedIdentifiers<Token>>().0;
+    let consumed_beacons = consumed_ids.count(|b| b.0 == beacon);
+    let produced_beacons = ctx
+        .select::<ProducedIdentifiers<Token>>()
+        .0
+        .count(|b| b.0 == beacon);
+    consumed_beacons == 1 && produced_beacons == 1 || valid_fresh_beacon() && consumed_ids.is_empty()
+}
+
 impl<C> TryFromLedger<TransactionOutput, C> for AdhocOrder
 where
     C: Has<OperatorCred>
@@ -193,26 +232,30 @@ where
                 _ => None,
             }?;
             let adhoc_fee_input = lo.input_amount.checked_sub(virtual_input_amount)?;
-            Some(Self(
-                LimitOrder {
-                    beacon: lo.beacon,
-                    input_asset: lo.input_asset,
-                    input_amount: virtual_input_amount,
-                    output_asset: lo.output_asset,
-                    output_amount: lo.output_amount,
-                    base_price: lo.base_price,
-                    fee_asset: lo.fee_asset,
-                    execution_budget: lo.execution_budget,
-                    fee: lo.fee,
-                    max_cost_per_ex_step: lo.max_cost_per_ex_step,
-                    min_marginal_output: lo.min_marginal_output,
-                    redeemer_address: lo.redeemer_address,
-                    cancellation_pkh: lo.cancellation_pkh,
-                    requires_executor_sig: lo.requires_executor_sig,
-                    marginal_cost: lo.marginal_cost,
-                },
-                adhoc_fee_input,
-            ))
+            let has_stake_part = lo.redeemer_address.stake_cred.is_some();
+            if has_stake_part && is_valid_beacon(lo.beacon, lo.min_marginal_output, ctx) {
+                return Some(Self(
+                    LimitOrder {
+                        beacon: lo.beacon,
+                        input_asset: lo.input_asset,
+                        input_amount: virtual_input_amount,
+                        output_asset: lo.output_asset,
+                        output_amount: lo.output_amount,
+                        base_price: lo.base_price,
+                        fee_asset: lo.fee_asset,
+                        execution_budget: lo.execution_budget,
+                        fee: lo.fee,
+                        max_cost_per_ex_step: lo.max_cost_per_ex_step,
+                        min_marginal_output: lo.min_marginal_output,
+                        redeemer_address: lo.redeemer_address,
+                        cancellation_pkh: lo.cancellation_pkh,
+                        requires_executor_sig: lo.requires_executor_sig,
+                        marginal_cost: lo.marginal_cost,
+                    },
+                    adhoc_fee_input,
+                ));
+            }
+            None
         })
     }
 }
