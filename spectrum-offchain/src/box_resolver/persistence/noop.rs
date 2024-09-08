@@ -7,7 +7,7 @@ use crate::data::{EntitySnapshot, Stable};
 #[derive(Debug)]
 pub struct NoopEntityRepo;
 
-#[async_trait(?Send)]
+#[async_trait]
 impl<T> EntityRepo<T> for NoopEntityRepo
 where
     T: EntitySnapshot + Clone + Send + 'static,

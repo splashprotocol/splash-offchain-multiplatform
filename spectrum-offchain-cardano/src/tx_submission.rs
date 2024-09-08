@@ -24,15 +24,16 @@ use crate::node::NodeConfig;
 pub struct TxSubmissionAgent<'a, const ERA: u16, TxAdapter, Tx> {
     client: LocalTxSubmissionClient<'a, ERA, Tx>,
     mailbox: mpsc::Receiver<SubmitTx<TxAdapter>>,
-    node_config: NodeConfig<'a>,
+    node_config: NodeConfig,
 }
 
 impl<'a, const ERA: u16, TxAdapter, Tx> TxSubmissionAgent<'a, ERA, TxAdapter, Tx> {
     pub async fn new(
-        node_config: NodeConfig<'a>,
+        node_config: NodeConfig,
         buffer_size: usize,
     ) -> Result<(Self, TxSubmissionChannel<ERA, TxAdapter>), Error> {
-        let tx_submission_client = LocalTxSubmissionClient::init(node_config.path, node_config.magic).await?;
+        let tx_submission_client =
+            LocalTxSubmissionClient::init(node_config.path.clone(), node_config.magic).await?;
         let (snd, recv) = mpsc::channel(buffer_size);
         let agent = Self {
             client: tx_submission_client,
@@ -54,7 +55,7 @@ impl<'a, const ERA: u16, TxAdapter, Tx> TxSubmissionAgent<'a, ERA, TxAdapter, Tx
         } = self;
         client.close().await;
         let new_tx_submission_client =
-            LocalTxSubmissionClient::init(node_config.path, node_config.magic).await?;
+            LocalTxSubmissionClient::init(node_config.path.clone(), node_config.magic).await?;
         Ok(Self {
             client: new_tx_submission_client,
             mailbox,

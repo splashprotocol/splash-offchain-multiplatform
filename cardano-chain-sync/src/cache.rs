@@ -1,14 +1,14 @@
 use async_std::stream::Stream;
+use async_trait::async_trait;
 use cml_crypto::RawBytesEncoding;
 use futures::channel::mpsc;
 use futures::executor::block_on;
 use futures::SinkExt;
 use log::trace;
 use rocksdb::{Direction, IteratorMode};
+use serde::Serialize;
 use std::path::Path;
 use std::sync::Arc;
-
-use serde::Serialize;
 use tokio::task::spawn_blocking;
 
 use crate::client::Point;
@@ -18,6 +18,7 @@ pub struct LinkedBlock(/*block bytes*/ pub Vec<u8>, /*prev point*/ pub Point);
 
 pub type Inclusive<T> = T;
 
+#[async_trait]
 pub trait LedgerCache {
     async fn set_tip(&self, point: Point);
     async fn get_tip(&self) -> Option<Point>;
@@ -42,6 +43,7 @@ impl LedgerCacheRocksDB {
 const LATEST_POINT: &str = "a:";
 const POINT_PREFIX: &str = "b:";
 
+#[async_trait]
 impl LedgerCache for LedgerCacheRocksDB {
     async fn set_tip(&self, point: Point) {
         let db = self.db.clone();

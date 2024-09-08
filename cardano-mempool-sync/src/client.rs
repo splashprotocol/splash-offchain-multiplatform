@@ -20,7 +20,7 @@ pub struct LocalTxMonitorClient<Tx> {
     tx: PhantomData<Tx>,
 }
 
-impl<Tx> LocalTxMonitorClient<Tx> {
+impl<Tx: Send + Sync> LocalTxMonitorClient<Tx> {
     #[cfg(not(target_os = "windows"))]
     pub async fn connect(path: impl AsRef<Path>, magic: u64) -> Result<Self, Error> {
         let bearer = Bearer::connect_unix(path).await.map_err(Error::ConnectFailure)?;
@@ -56,7 +56,7 @@ impl<Tx> LocalTxMonitorClient<Tx> {
         })
     }
 
-    pub fn stream_updates<'a>(&'a self) -> impl Stream<Item = MempoolUpdate<Tx>> + 'a
+    pub fn stream_updates<'a>(&'a self) -> impl Stream<Item = MempoolUpdate<Tx>> + Send + 'a
     where
         Tx: Deserialize,
     {
@@ -68,7 +68,7 @@ impl<Tx> LocalTxMonitorClient<Tx> {
                         if let Ok(Some(raw_tx)) = tx_monitor.client.query_next_tx().await {
                             let bytes = &*raw_tx.1;
                             if !tx_monitor.filter.register(hash_tx_bytes(bytes)) {
-                                if let Ok(tx) = Tx::from_cbor_bytes(bytes) {
+                                if let Some(tx) = Tx::from_cbor_bytes(bytes).ok() {
                                     yield MempoolUpdate::TxAccepted(tx);
                                 }
                             }

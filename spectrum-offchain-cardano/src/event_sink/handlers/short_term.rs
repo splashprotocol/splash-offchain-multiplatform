@@ -111,14 +111,14 @@ impl<TSink, TOrd, TRegistry> ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry
     }
 }
 
-#[async_trait(? Send)]
+#[async_trait]
 impl<TSink, TOrd, TRegistry> EventHandler<LedgerTxEvent<Transaction>>
     for ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry>
 where
-    TSink: Sink<OrderUpdate<TOrd, OrderLink<TOrd>>> + Unpin,
-    TOrd: SpecializedOrder + TryFromLedger<TransactionOutput, OutputRef>,
+    TSink: Sink<OrderUpdate<TOrd, OrderLink<TOrd>>> + Unpin + Send,
+    TOrd: SpecializedOrder + TryFromLedger<TransactionOutput, OutputRef> + Send,
     TOrd::TOrderId: From<OutputRef> + Copy,
-    TRegistry: HotOrderRegistry<TOrd>,
+    TRegistry: HotOrderRegistry<TOrd> + Send,
 {
     async fn try_handle(&mut self, ev: LedgerTxEvent<Transaction>) -> Option<LedgerTxEvent<Transaction>> {
         let res = match ev {
@@ -133,14 +133,14 @@ where
     }
 }
 
-#[async_trait(? Send)]
+#[async_trait]
 impl<TSink, TOrd, TRegistry> EventHandler<MempoolUpdate<Transaction>>
     for ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry>
 where
-    TSink: Sink<OrderUpdate<TOrd, OrderLink<TOrd>>> + Unpin,
-    TOrd: SpecializedOrder + TryFromLedger<TransactionOutput, OutputRef>,
+    TSink: Sink<OrderUpdate<TOrd, OrderLink<TOrd>>> + Unpin + Send,
+    TOrd: SpecializedOrder + TryFromLedger<TransactionOutput, OutputRef> + Send,
     TOrd::TOrderId: From<OutputRef> + Copy,
-    TRegistry: HotOrderRegistry<TOrd>,
+    TRegistry: HotOrderRegistry<TOrd> + Send,
 {
     async fn try_handle(&mut self, ev: MempoolUpdate<Transaction>) -> Option<MempoolUpdate<Transaction>> {
         let res = match ev {

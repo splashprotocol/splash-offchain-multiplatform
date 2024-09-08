@@ -34,10 +34,10 @@ pub async fn ledger_transactions<'a, S, Cache>(
     // Reapply known blocks before pulling new ones.
     replay_from: Option<Point>,
     rollback_in_progress: Arc<AtomicBool>,
-) -> impl Stream<Item = LedgerTxEvent<Either<BabbageTransaction, Transaction>>> + 'a
+) -> impl Stream<Item = LedgerTxEvent<Either<BabbageTransaction, Transaction>>> + Send + 'a
 where
-    S: Stream<Item = ChainUpgrade<MultiEraBlock>> + 'a,
-    Cache: LedgerCache + 'a,
+    S: Stream<Item = ChainUpgrade<MultiEraBlock>> + Send + 'a,
+    Cache: LedgerCache + Send + 'a,
 {
     let raw_replayed_blocks = match replay_from {
         None => stream::empty().boxed(),
@@ -97,9 +97,9 @@ async fn process_upstream_by_txs<'a, Cache>(
     upgr: ChainUpgrade<MultiEraBlock>,
     handle_rollbacks_after: Slot,
     rollback_in_progress: Arc<AtomicBool>,
-) -> Pin<Box<dyn Stream<Item = LedgerTxEvent<Either<BabbageTransaction, Transaction>>> + 'a>>
+) -> Pin<Box<dyn Stream<Item = LedgerTxEvent<Either<BabbageTransaction, Transaction>>> + Send + 'a>>
 where
-    Cache: LedgerCache + 'a,
+    Cache: LedgerCache + Send + 'a,
 {
     match upgr {
         ChainUpgrade::RollForward {

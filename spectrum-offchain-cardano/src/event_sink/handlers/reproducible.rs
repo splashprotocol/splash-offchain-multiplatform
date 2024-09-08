@@ -87,15 +87,15 @@ where
         .collect()
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl<TSink, TEntity, TRepo> EventHandler<LedgerTxEvent<Transaction>>
     for ConfirmedUpdateHandler<TSink, TEntity, TRepo>
 where
-    TSink: Sink<Channel<StateUpdate<TEntity>>> + Unpin,
-    TEntity: EntitySnapshot + TryFromLedger<TransactionOutput, OutputRef> + Clone + Debug,
+    TSink: Sink<Channel<StateUpdate<TEntity>>> + Send + Unpin,
+    TEntity: EntitySnapshot + TryFromLedger<TransactionOutput, OutputRef> + Clone + Send + Debug,
     TEntity::StableId: Clone,
     TEntity::Version: From<OutputRef> + Copy,
-    TRepo: EntityRepo<TEntity>,
+    TRepo: EntityRepo<TEntity> + Send,
 {
     async fn try_handle(&mut self, ev: LedgerTxEvent<Transaction>) -> Option<LedgerTxEvent<Transaction>> {
         let res = match ev {
@@ -163,15 +163,15 @@ where
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl<TSink, TEntity, TRepo> EventHandler<MempoolUpdate<Transaction>>
     for UnconfirmedUpdateHandler<TSink, TEntity, TRepo>
 where
-    TSink: Sink<Channel<StateUpdate<TEntity>>> + Unpin,
-    TEntity: EntitySnapshot + TryFromLedger<TransactionOutput, OutputRef> + Clone + Debug,
+    TSink: Sink<Channel<StateUpdate<TEntity>>> + Unpin + Send,
+    TEntity: EntitySnapshot + TryFromLedger<TransactionOutput, OutputRef> + Clone + Send + Debug,
     TEntity::StableId: Clone,
     TEntity::Version: From<OutputRef> + Copy,
-    TRepo: EntityRepo<TEntity>,
+    TRepo: EntityRepo<TEntity> + Send,
 {
     async fn try_handle(&mut self, ev: MempoolUpdate<Transaction>) -> Option<MempoolUpdate<Transaction>> {
         let res = match ev {

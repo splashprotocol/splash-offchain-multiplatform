@@ -26,7 +26,7 @@ pub trait Identifier: Copy + Clone + Eq + PartialEq {
 
 pub trait Stable {
     /// Unique identifier of the underlying entity which persists among different versions.
-    type StableId: Copy + Eq + Hash + Display;
+    type StableId: Copy + Eq + Hash + Send + Sync + Display;
     fn stable_id(&self) -> Self::StableId;
     /// Some entities are more stable than others. This flag marks these.
     fn is_quasi_permanent(&self) -> bool;
@@ -34,7 +34,7 @@ pub trait Stable {
 
 pub trait EntitySnapshot: Stable {
     /// Unique version of the [EntitySnapshot].
-    type Version: Copy + Eq + Hash + Display;
+    type Version: Copy + Eq + Hash + Send + Sync + Display;
 
     fn version(&self) -> Self::Version;
 }
@@ -43,7 +43,7 @@ impl<StableId, A, B> Stable for Either<A, B>
 where
     A: Stable<StableId = StableId>,
     B: Stable<StableId = StableId>,
-    StableId: Copy + Eq + Hash + Debug + Display,
+    StableId: Copy + Eq + Hash + Send + Sync + Debug + Display,
 {
     type StableId = StableId;
     fn stable_id(&self) -> Self::StableId {
@@ -64,8 +64,8 @@ impl<StableId, EntityVersion, A, B> EntitySnapshot for Either<A, B>
 where
     A: EntitySnapshot<StableId = StableId, Version = EntityVersion>,
     B: EntitySnapshot<StableId = StableId, Version = EntityVersion>,
-    StableId: Copy + Eq + Hash + Debug + Display,
-    EntityVersion: Copy + Eq + Hash + Display,
+    StableId: Copy + Eq + Hash + Send + Sync + Debug + Display,
+    EntityVersion: Copy + Eq + Hash + Send + Sync + Display,
 {
     type Version = EntityVersion;
     fn version(&self) -> Self::Version {
@@ -129,8 +129,8 @@ where
 impl<StableId, Version, T> Stable for Baked<T, Version>
 where
     T: Stable<StableId = StableId>,
-    StableId: Copy + Eq + Hash + Debug + Display,
-    Version: Copy + Eq + Hash + Display,
+    StableId: Copy + Eq + Hash + Send + Sync + Debug + Display,
+    Version: Copy + Eq + Hash + Send + Sync + Display,
 {
     type StableId = StableId;
 
@@ -145,8 +145,8 @@ where
 impl<StableId, BakedVersion, T> EntitySnapshot for Baked<T, BakedVersion>
 where
     T: Stable<StableId = StableId>,
-    StableId: Copy + Eq + Hash + Debug + Display,
-    BakedVersion: Copy + Eq + Hash + Display,
+    StableId: Copy + Eq + Hash + Send + Sync + Debug + Display,
+    BakedVersion: Copy + Eq + Hash + Send + Sync + Display,
 {
     type Version = BakedVersion;
 
