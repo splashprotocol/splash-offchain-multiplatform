@@ -405,6 +405,12 @@ async fn main() {
     let tx_submission_stream_handle = tokio::spawn(run_stream(tx_submission_stream));
     processes.push(tx_submission_stream_handle);
 
+    let default_panic = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        default_panic(info);
+        std::process::exit(1);
+    }));
+
     run_stream(processes).await;
 }
 
