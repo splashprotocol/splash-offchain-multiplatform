@@ -1,3 +1,4 @@
+use std::future::Future;
 use bounded_integer::BoundedU64;
 use clap::Parser;
 use cml_chain::block::Block;
@@ -6,12 +7,13 @@ use cml_multi_era::babbage::BabbageTransaction;
 use cml_multi_era::MultiEraBlock;
 use either::Either;
 use futures::channel::mpsc;
-use futures::stream::select_all;
+use futures::stream::{select_all, FuturesUnordered};
 use futures::{stream_select, Stream, StreamExt};
 use log::info;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
+use async_std::prelude::FutureExt;
 use tokio::sync::{broadcast, Mutex};
 use tracing_subscriber::fmt::Subscriber;
 
@@ -380,54 +382,57 @@ async fn main() {
         LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary::from(tx)),
     });
 
-    tokio_scoped::scope(|scope| {
-        let mempool_stream = mempool_stream(&mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
+        let mempool_stream = mempool_stream(mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
             MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewAtEraBoundary::from(tx)),
         });
 
         let process_ledger_events_stream = process_events(ledger_stream, handlers_ledger);
         let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool);
+        
+        let subprocesses = FuturesUnordered::new();
 
-        scope.spawn({
-            async move {
-                process_ledger_events_stream.collect::<Vec<_>>().await;
-            }
-        });
-        scope.spawn({
+        let process_ledger_events_stream_handle = tokio::spawn(run_stream(process_ledger_events_stream));
+        subprocesses.push(process_ledger_events_stream_handle);
+    tokio::spawn({
             async move {
                 process_mempool_events_stream.collect::<Vec<_>>().await;
             }
         });
-        scope.spawn({
+    tokio::spawn({
             async move {
                 execution_stream_p1.collect::<Vec<_>>().await;
             }
         });
-        scope.spawn({
+    tokio::spawn({
             async move {
                 execution_stream_p2.collect::<Vec<_>>().await;
             }
         });
-        scope.spawn({
+    tokio::spawn({
             async move {
                 execution_stream_p3.collect::<Vec<_>>().await;
             }
         });
-        scope.spawn({
+    tokio::spawn({
             async move {
                 execution_stream_p4.collect::<Vec<_>>().await;
             }
         });
-        scope.spawn({
+    tokio::spawn({
             async move {
                 tx_submission_stream.collect::<Vec<_>>().await;
             }
         });
-    });
-
+    
     loop {
         tokio::time::sleep(Duration::from_secs(10)).await;
         info!("Heartbeat");
+    }
+}
+
+fn run_stream<S: Stream>(stream: S) -> impl Future<Output = ()> {
+    async move {
+        stream.collect::<Vec<_>>().await;
     }
 }
 

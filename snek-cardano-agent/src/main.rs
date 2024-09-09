@@ -335,7 +335,7 @@ async fn main() {
     });
 
     tokio_scoped::scope(|scope| {
-        let mempool_stream = mempool_stream(&mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
+        let mempool_stream = mempool_stream(mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
             MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewAtEraBoundary::from(tx)),
         });
 
