@@ -1,19 +1,13 @@
-use std::future::Future;
-use bounded_integer::BoundedU64;
 use clap::Parser;
-use cml_chain::block::Block;
 use cml_chain::transaction::Transaction;
-use cml_multi_era::babbage::BabbageTransaction;
 use cml_multi_era::MultiEraBlock;
 use either::Either;
 use futures::channel::mpsc;
-use futures::stream::{select_all, FuturesUnordered};
+use futures::stream::FuturesUnordered;
 use futures::{stream_select, Stream, StreamExt};
 use log::info;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::time::Duration;
-use async_std::prelude::FutureExt;
 use tokio::sync::{broadcast, Mutex};
 use tracing_subscriber::fmt::Subscriber;
 
@@ -23,11 +17,10 @@ use crate::entity::{AtomicCardanoEntity, EvolvingCardanoEntity};
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_part_stream;
 use bloom_offchain::execution_engine::funding_effect::FundingEvent;
-use bloom_offchain::execution_engine::liquidity_book::hot::HotLB;
 use bloom_offchain::execution_engine::liquidity_book::TLB;
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
-use bloom_offchain::execution_engine::storage::kv_store::{InMemoryKvStore, KvStoreWithTracing};
-use bloom_offchain::execution_engine::storage::{InMemoryStateIndex, StateIndexWithTracing};
+use bloom_offchain::execution_engine::storage::kv_store::InMemoryKvStore;
+use bloom_offchain::execution_engine::storage::InMemoryStateIndex;
 use bloom_offchain_cardano::bounds::ValidationRules;
 use bloom_offchain_cardano::event_sink::context::HandlerContextProto;
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
@@ -63,7 +56,7 @@ use spectrum_offchain::data::Baked;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::partitioning::Partitioned;
-use spectrum_offchain::streaming::boxed;
+use spectrum_offchain::streaming::{boxed, run_stream};
 use spectrum_offchain_cardano::collateral::pull_collateral;
 use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
@@ -72,7 +65,6 @@ use spectrum_offchain_cardano::data::pool::AnyPool;
 use spectrum_offchain_cardano::deployment::{DeployedValidators, ProtocolDeployment, ProtocolScriptHashes};
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
-use spectrum_streaming::StreamExt as StreamExt1;
 
 mod config;
 mod context;
@@ -242,7 +234,7 @@ async fn main() {
         Box::new(funding_event_handler),
     ];
 
-    let prover = OperatorProver::new(&operator_sk);
+    let prover = OperatorProver::new(operator_sk.to_bech32());
     let recipe_interpreter = CardanoRecipeInterpreter;
     let spec_interpreter = SpecializedInterpreterViaRunOrder;
     let maker_context = MakerContext {
@@ -305,7 +297,7 @@ async fn main() {
         context_p1,
         recipe_interpreter,
         spec_interpreter,
-        prover,
+        prover.clone(),
         select_partition(
             merge_upstreams(pair_upd_recv_p1, spec_upd_recv_p1),
             config.partitioning.clone(),
@@ -322,7 +314,7 @@ async fn main() {
         context_p2,
         recipe_interpreter,
         spec_interpreter,
-        prover,
+        prover.clone(),
         select_partition(
             merge_upstreams(pair_upd_recv_p2, spec_upd_recv_p2),
             config.partitioning.clone(),
@@ -339,7 +331,7 @@ async fn main() {
         context_p3,
         recipe_interpreter,
         spec_interpreter,
-        prover,
+        prover.clone(),
         select_partition(
             merge_upstreams(pair_upd_recv_p3, spec_upd_recv_p3),
             config.partitioning.clone(),
@@ -382,58 +374,37 @@ async fn main() {
         LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary::from(tx)),
     });
 
-        let mempool_stream = mempool_stream(mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
-            MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewAtEraBoundary::from(tx)),
-        });
+    let mempool_stream = mempool_stream(mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
+        MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewAtEraBoundary::from(tx)),
+    });
 
-        let process_ledger_events_stream = process_events(ledger_stream, handlers_ledger);
-        let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool);
-        
-        let subprocesses = FuturesUnordered::new();
+    let process_ledger_events_stream = process_events(ledger_stream, handlers_ledger);
+    let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool);
 
-        let process_ledger_events_stream_handle = tokio::spawn(run_stream(process_ledger_events_stream));
-        subprocesses.push(process_ledger_events_stream_handle);
-    tokio::spawn({
-            async move {
-                process_mempool_events_stream.collect::<Vec<_>>().await;
-            }
-        });
-    tokio::spawn({
-            async move {
-                execution_stream_p1.collect::<Vec<_>>().await;
-            }
-        });
-    tokio::spawn({
-            async move {
-                execution_stream_p2.collect::<Vec<_>>().await;
-            }
-        });
-    tokio::spawn({
-            async move {
-                execution_stream_p3.collect::<Vec<_>>().await;
-            }
-        });
-    tokio::spawn({
-            async move {
-                execution_stream_p4.collect::<Vec<_>>().await;
-            }
-        });
-    tokio::spawn({
-            async move {
-                tx_submission_stream.collect::<Vec<_>>().await;
-            }
-        });
-    
-    loop {
-        tokio::time::sleep(Duration::from_secs(10)).await;
-        info!("Heartbeat");
-    }
-}
+    let processes = FuturesUnordered::new();
 
-fn run_stream<S: Stream>(stream: S) -> impl Future<Output = ()> {
-    async move {
-        stream.collect::<Vec<_>>().await;
-    }
+    let process_ledger_events_stream_handle = tokio::spawn(run_stream(process_ledger_events_stream));
+    processes.push(process_ledger_events_stream_handle);
+
+    let process_mempool_events_stream_handle = tokio::spawn(run_stream(process_mempool_events_stream));
+    processes.push(process_mempool_events_stream_handle);
+
+    let execution_stream_p1_handle = tokio::spawn(run_stream(execution_stream_p1));
+    processes.push(execution_stream_p1_handle);
+
+    let execution_stream_p2_handle = tokio::spawn(run_stream(execution_stream_p2));
+    processes.push(execution_stream_p2_handle);
+
+    let execution_stream_p3_handle = tokio::spawn(run_stream(execution_stream_p3));
+    processes.push(execution_stream_p3_handle);
+
+    let execution_stream_p4_handle = tokio::spawn(run_stream(execution_stream_p4));
+    processes.push(execution_stream_p4_handle);
+
+    let tx_submission_stream_handle = tokio::spawn(run_stream(tx_submission_stream));
+    processes.push(tx_submission_stream_handle);
+
+    run_stream(processes).await;
 }
 
 fn merge_upstreams(
