@@ -404,7 +404,7 @@ where
                     let sufficient_fee = conf.fee >= validation.min_fee_lovelace;
                     let valid_configuration = conf.cost_per_ex_step >= validation.min_cost_per_ex_step
                         && execution_budget >= conf.cost_per_ex_step;
-                    let valid_beacon = || !validation.strict_beacon || is_valid_beacon(conf.beacon, ctx);
+                    let valid_beacon = || is_valid_beacon(conf.beacon, ctx);
                     if sufficient_input
                         && sufficient_execution_budget
                         && sufficient_fee
@@ -456,7 +456,6 @@ where
 pub struct LimitOrderValidation {
     pub min_cost_per_ex_step: u64,
     pub min_fee_lovelace: Lovelace,
-    pub strict_beacon: bool,
 }
 
 #[cfg(test)]
@@ -525,7 +524,6 @@ mod tests {
             LimitOrderValidation {
                 min_cost_per_ex_step: 0,
                 min_fee_lovelace: 0,
-                strict_beacon: true,
             }
         }
     }
