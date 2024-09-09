@@ -48,7 +48,7 @@ impl<'a, const ERA: u16, TxAdapter, Tx> TxSubmissionAgent<'a, ERA, TxAdapter, Tx
     }
 
     pub async fn restarted(self) -> Result<Self, Error> {
-        trace!("Restarting TxSubmissionProtocol");
+        trace!("Recovering TxSubmissionProtocol");
         let TxSubmissionAgent {
             client,
             mailbox,
@@ -85,8 +85,6 @@ impl From<SubmissionResult> for Result<(), RejectReasons> {
     }
 }
 
-const MAX_SUBMIT_ATTEMPTS: usize = 3;
-
 pub fn tx_submission_agent_stream<'a, const ERA: u16, TxAdapter, Tx>(
     mut agent: TxSubmissionAgent<'a, ERA, TxAdapter, Tx>,
 ) -> impl Stream<Item = ()> + 'a
@@ -98,7 +96,6 @@ where
     stream! {
         loop {
             let SubmitTx(tx, on_resp) = agent.mailbox.select_next_some().await;
-            let mut attempts_done = 0;
             let tx_hash = tx.canonical_hash();
             loop {
                 match agent.client.submit_tx((*tx).clone()).await {
