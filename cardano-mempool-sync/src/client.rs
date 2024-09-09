@@ -56,9 +56,9 @@ impl<Tx: Send + Sync> LocalTxMonitorClient<Tx> {
         })
     }
 
-    pub fn stream_updates<'a>(&'a self) -> impl Stream<Item = MempoolUpdate<Tx>> + Send + 'a
+    pub fn stream_updates<'a>(self) -> impl Stream<Item = MempoolUpdate<Tx>> + Send + 'a
     where
-        Tx: Deserialize,
+        Tx: Deserialize + 'a,
     {
         stream! {
             loop {

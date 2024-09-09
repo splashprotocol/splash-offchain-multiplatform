@@ -468,7 +468,6 @@ mod tests {
     use cml_chain::{PolicyId, Value};
     use cml_core::serialization::Deserialize;
     use cml_crypto::{Ed25519KeyHash, TransactionHash};
-    use cml_multi_era::babbage::{BabbageFormatTxOut, BabbageTransactionOutput};
     use type_equalities::IsEqual;
 
     use bloom_offchain::execution_engine::liquidity_book::config::{ExecutionCap, ExecutionConfig};

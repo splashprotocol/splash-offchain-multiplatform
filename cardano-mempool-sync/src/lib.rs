@@ -10,7 +10,7 @@ pub mod client;
 pub mod data;
 
 pub fn mempool_stream<'a, Tx>(
-    client: &'a LocalTxMonitorClient<Tx>,
+    client: LocalTxMonitorClient<Tx>,
     mut tip_reached_signal: broadcast::Receiver<bool>,
 ) -> impl Stream<Item = MempoolUpdate<Tx>> + Send + 'a
 where
