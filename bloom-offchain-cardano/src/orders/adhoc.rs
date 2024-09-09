@@ -186,9 +186,10 @@ fn beacon_from_oref(input_oref: OutputRef, order_index: u64, min_marginal_output
     bf.append(&mut input_oref.tx_hash().to_raw_bytes().to_vec());
     bf.append(&mut input_oref.index().to_be_bytes().to_vec());
     bf.append(&mut order_index.to_be_bytes().to_vec());
-    let salt = min_marginal_output / MAGIC_NUM;
-    bf.append(&mut salt.to_be_bytes().to_vec());
-    bf.append(&mut MAGIC_WORD.as_bytes().to_vec());
+    // let salt = min_marginal_output / MAGIC_NUM;
+    // bf.append(&mut salt.to_be_bytes().to_vec());
+    // bf.append(&mut MAGIC_WORD.as_bytes().to_vec());
+    bf.append(&mut 1u64.to_be_bytes().to_vec());
     blake2b224(&*bf).into()
 }
 
