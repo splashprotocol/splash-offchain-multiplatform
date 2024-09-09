@@ -9,11 +9,28 @@ use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::{ConwayFormatTxOut, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
+use cml_core::serialization::RawBytesEncoding;
+use cml_crypto::Ed25519KeyHash;
 use dashu_float::DBig;
+use log::trace;
 use num_traits::{CheckedDiv, CheckedSub, ToPrimitive};
 use type_equalities::IsEqual;
 use void::Void;
 
+use crate::creds::OperatorCred;
+use crate::data::order::{Base, PoolNft, Quote};
+use crate::data::pair::{order_canonical, PairId};
+use crate::data::pool::{
+    ApplyOrder, CFMMPoolAction, ImmutablePoolUtxo, PoolAssetMapping, PoolValidation, Rx, Ry,
+};
+use crate::data::PoolId;
+use crate::deployment::ProtocolValidator::DegenQuadraticPoolV1;
+use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
+use crate::fees::FeeExtension;
+use crate::pool_math::degen_quadratic_math::{
+    degen_quadratic_output_amount, A_DENOM, B_DENOM, FULL_PERCENTILE, MAX_ALLOWED_ADA_EXTRAS_PERCENTILE,
+    MIN_ADA, TOKEN_EMISSION,
+};
 use bloom_offchain::execution_engine::liquidity_book::core::Next;
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
     AbsoluteReserves, AvailableLiquidity, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
@@ -31,26 +48,13 @@ use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass, Token};
 use spectrum_offchain::data::{Has, Stable, Tradable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
-use crate::data::order::{Base, PoolNft, Quote};
-use crate::data::pair::{order_canonical, PairId};
-use crate::data::pool::{
-    ApplyOrder, CFMMPoolAction, ImmutablePoolUtxo, PoolAssetMapping, PoolValidation, Rx, Ry,
-};
-use crate::data::PoolId;
-use crate::deployment::ProtocolValidator::DegenQuadraticPoolV1;
-use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
-use crate::fees::FeeExtension;
-use crate::pool_math::degen_quadratic_math::{
-    degen_quadratic_output_amount, A_DENOM, B_DENOM, FULL_PERCENTILE, MAX_ALLOWED_ADA_EXTRAS_PERCENTILE,
-    MIN_ADA, TOKEN_EMISSION,
-};
-
 pub struct DegenQuadraticPoolConfig {
     pub pool_nft: TaggedAssetClass<PoolNft>,
     pub asset_x: TaggedAssetClass<Rx>,
     pub asset_y: TaggedAssetClass<Ry>,
     pub a_num: u64,
     pub b_num: u64,
+    pub operator_pkh: Ed25519KeyHash,
     pub ada_cap_thr: u64,
 }
 
@@ -60,6 +64,7 @@ struct DatumMapping {
     pub asset_y: usize,
     pub a_num: usize,
     pub b_num: usize,
+    pub operator_pkh: usize,
     pub ada_cap_thr: usize,
 }
 
@@ -69,6 +74,7 @@ const DATUM_MAPPING: DatumMapping = DatumMapping {
     asset_y: 2,
     a_num: 3,
     b_num: 4,
+    operator_pkh: 5,
     ada_cap_thr: 6,
 };
 
@@ -80,14 +86,17 @@ impl TryFromPData for DegenQuadraticPoolConfig {
         let asset_y = TaggedAssetClass::try_from_pd(cpd.take_field(DATUM_MAPPING.asset_y)?)?;
         let a_num = cpd.take_field(DATUM_MAPPING.a_num)?.into_u64()?;
         let b_num = cpd.take_field(DATUM_MAPPING.b_num)?.into_u64()?;
+        let operator_pkh =
+            Ed25519KeyHash::from_raw_bytes(&*cpd.take_field(DATUM_MAPPING.operator_pkh)?.into_bytes()?)
+                .ok()?;
         let ada_cap_thr = cpd.take_field(DATUM_MAPPING.ada_cap_thr)?.into_u64()?;
-
         Some(Self {
             pool_nft,
             asset_x,
             asset_y,
             a_num,
             b_num,
+            operator_pkh,
             ada_cap_thr,
         })
     }
@@ -651,7 +660,7 @@ impl Tradable for DegenQuadraticPool {
 
 impl<Ctx> TryFromLedger<TransactionOutput, Ctx> for DegenQuadraticPool
 where
-    Ctx: Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>> + Has<PoolValidation>,
+    Ctx: Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>> + Has<PoolValidation> + Has<OperatorCred>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
         if let Some(pool_ver) = DegenQuadraticPoolVer::try_from_address(repr.address(), ctx) {
@@ -669,8 +678,10 @@ where
                     let conf = DegenQuadraticPoolConfig::try_from_pd(pd.clone())?;
                     let reserves_x: TaggedAmount<Rx> =
                         TaggedAmount::new(value.amount_of(conf.asset_x.into())?);
-
-                    if conf.asset_x.is_native() && reserves_x.untag() < conf.ada_cap_thr {
+                    let executable = conf.operator_pkh == ctx.select::<OperatorCred>().into();
+                    let x_is_native = conf.asset_x.is_native();
+                    let reserves_in_bounds = reserves_x.untag() < conf.ada_cap_thr;
+                    if executable && x_is_native && reserves_in_bounds {
                         return Some(DegenQuadraticPool {
                             id: PoolId::try_from(conf.pool_nft).ok()?,
                             reserves_x,
@@ -684,6 +695,14 @@ where
                             bounds,
                             ada_cap_thr: conf.ada_cap_thr,
                         });
+                    } else {
+                        trace!(
+                            "QuadraticPool: {}, executable: {}, x_is_native: {}, reserves_in_bounds: {}",
+                            conf.pool_nft.untag(),
+                            executable,
+                            x_is_native,
+                            reserves_in_bounds
+                        );
                     }
                 }
             };
@@ -726,12 +745,19 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for DegenQuadraticPool {
 mod tests {
     use cml_chain::transaction::TransactionOutput;
     use cml_core::serialization::Deserialize;
-    use cml_crypto::ScriptHash;
+    use cml_crypto::{Ed25519KeyHash, ScriptHash};
     use rand::prelude::StdRng;
     use rand::seq::SliceRandom;
     use rand::{Rng, SeedableRng};
     use type_equalities::IsEqual;
 
+    use crate::creds::OperatorCred;
+    use crate::data::degen_quadratic_pool::{DegenQuadraticPool, DegenQuadraticPoolVer};
+    use crate::data::pool::PoolValidation;
+    use crate::data::PoolId;
+    use crate::deployment::ProtocolValidator::DegenQuadraticPoolV1;
+    use crate::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
+    use crate::pool_math::degen_quadratic_math::{calculate_a_num, A_DENOM, MIN_ADA, TOKEN_EMISSION};
     use bloom_offchain::execution_engine::liquidity_book::core::Next;
     use bloom_offchain::execution_engine::liquidity_book::market_maker::{
         AvailableLiquidity, MakerBehavior, MarketMaker,
@@ -743,13 +769,6 @@ mod tests {
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass, Token};
     use spectrum_offchain::data::Has;
     use spectrum_offchain::ledger::TryFromLedger;
-
-    use crate::data::degen_quadratic_pool::{DegenQuadraticPool, DegenQuadraticPoolVer};
-    use crate::data::pool::PoolValidation;
-    use crate::data::PoolId;
-    use crate::deployment::ProtocolValidator::DegenQuadraticPoolV1;
-    use crate::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
-    use crate::pool_math::degen_quadratic_math::{calculate_a_num, A_DENOM, MIN_ADA, TOKEN_EMISSION};
 
     const LOVELACE: u64 = 1_000_000;
     const DEC: u64 = 1_000;
@@ -1133,6 +1152,7 @@ mod tests {
     struct Ctx {
         bounds: PoolValidation,
         scripts: ProtocolScriptHashes,
+        operator_cred: OperatorCred,
     }
 
     impl Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>> for Ctx {
@@ -1149,6 +1169,12 @@ mod tests {
         }
     }
 
+    impl Has<OperatorCred> for Ctx {
+        fn select<U: IsEqual<OperatorCred>>(&self) -> OperatorCred {
+            self.operator_cred
+        }
+    }
+
     #[test]
     fn try_read_pool() {
         let raw_deployment = std::fs::read_to_string("/Users/oskin/dev/spectrum/spectrum-offchain-multiplatform/bloom-cardano-agent/resources/mainnet.deployment.json").expect("Cannot load deployment file");
@@ -1157,6 +1183,9 @@ mod tests {
         let scripts = ProtocolScriptHashes::from(&deployment);
         let ctx = Ctx {
             scripts,
+            operator_cred: OperatorCred(
+                Ed25519KeyHash::from_hex("e8d7a0d650a2dc2f6dde52f056d171f4cbcc0719951c42e2df9892a8").unwrap(),
+            ),
             bounds: PoolValidation {
                 min_n2t_lovelace: 150_000_000,
                 min_t2t_lovelace: 10_000_000,
