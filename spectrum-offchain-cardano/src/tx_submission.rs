@@ -48,6 +48,7 @@ impl<'a, const ERA: u16, TxAdapter, Tx> TxSubmissionAgent<'a, ERA, TxAdapter, Tx
     }
 
     pub async fn restarted(self) -> Result<Self, Error> {
+        trace!("Restarting TxSubmissionProtocol");
         let TxSubmissionAgent {
             client,
             mailbox,
@@ -116,14 +117,7 @@ where
                             }
                             retryable_err => {
                                 trace!("Failed to submit TX {}: protocol returned error: {}", tx_hash, retryable_err);
-                                if attempts_done < MAX_SUBMIT_ATTEMPTS {
-                                    trace!("Retrying");
-                                    attempts_done += 1;
-                                } else {
-                                    trace!("Restarting TxSubmissionProtocol");
-                                    agent = agent.restarted().await.expect("Failed to restart TxSubmissionProtocol");
-                                }
-                                continue;
+                                agent = agent.restarted().await.expect("Failed to restart TxSubmissionProtocol");
                             },
                         };
                     },
