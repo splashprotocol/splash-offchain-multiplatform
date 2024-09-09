@@ -1,6 +1,7 @@
 use cml_chain::builders::tx_builder::SignedTxBuilder;
 use cml_chain::crypto::utils::make_vkey_witness;
 use cml_chain::transaction::Transaction;
+use cml_core::serialization::RawBytesEncoding;
 use cml_crypto::Bip32PrivateKey;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::transaction::OutboundTransaction;
@@ -11,8 +12,8 @@ use spectrum_offchain::tx_prover::TxProver;
 pub struct OperatorProver(String);
 
 impl OperatorProver {
-    pub fn new(sk_bech32: String) -> Self {
-        Self(sk_bech32)
+    pub fn new(sk_hex: String) -> Self {
+        Self(sk_hex)
     }
 }
 
@@ -20,7 +21,7 @@ impl<'a> TxProver<SignedTxBuilder, OutboundTransaction<Transaction>> for Operato
     fn prove(&self, mut candidate: SignedTxBuilder) -> OutboundTransaction<Transaction> {
         let body = candidate.body();
         let tx_hash = hash_transaction_canonical(&body);
-        let sk = Bip32PrivateKey::from_bech32(self.0.as_str())
+        let sk = Bip32PrivateKey::from_raw_hex(self.0.as_str())
             .unwrap()
             .to_raw_key();
         let signature = make_vkey_witness(&tx_hash, &sk);
