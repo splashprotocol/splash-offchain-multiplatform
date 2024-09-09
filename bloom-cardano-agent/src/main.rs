@@ -1,5 +1,6 @@
 use clap::Parser;
 use cml_chain::transaction::Transaction;
+use cml_core::serialization::RawBytesEncoding;
 use cml_multi_era::MultiEraBlock;
 use either::Either;
 use futures::channel::mpsc;
@@ -8,7 +9,6 @@ use futures::{stream_select, Stream, StreamExt};
 use log::info;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use cml_core::serialization::RawBytesEncoding;
 use tokio::sync::{broadcast, Mutex};
 use tracing_subscriber::fmt::Subscriber;
 
@@ -130,7 +130,7 @@ async fn main() {
     // prepare upstreams
     let tx_submission_stream = tx_submission_agent_stream(tx_submission_agent);
 
-    let (operator_sk, operator_paycred, collateral_address, funding_addresses) =
+    let (operator_paycred, collateral_address, funding_addresses) =
         operator_creds(config.operator_key.as_str(), config.network_id);
 
     info!(
@@ -235,7 +235,7 @@ async fn main() {
         Box::new(funding_event_handler),
     ];
 
-    let prover = OperatorProver::new(operator_sk.to_raw_hex());
+    let prover = OperatorProver::new(config.operator_key);
     let recipe_interpreter = CardanoRecipeInterpreter;
     let spec_interpreter = SpecializedInterpreterViaRunOrder;
     let maker_context = MakerContext {

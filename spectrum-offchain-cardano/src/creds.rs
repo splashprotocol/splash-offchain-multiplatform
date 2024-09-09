@@ -41,7 +41,7 @@ impl From<OperatorCred> for Credential {
 pub fn operator_creds(
     operator_sk_raw: &str,
     network_id: NetworkId,
-) -> (PrivateKey, OperatorCred, CollateralAddress, FundingAddresses<4>) {
+) -> (OperatorCred, CollateralAddress, FundingAddresses<4>) {
     let operator_prv_bip32 = Bip32PrivateKey::from_bech32(operator_sk_raw).expect("wallet error");
     let operator_pk_main = operator_prv_bip32.to_public();
 
@@ -78,19 +78,13 @@ pub fn operator_creds(
         Credential::new_pub_key(child_pkh_4),
     ));
 
-    let operator_prv = operator_prv_bip32.to_raw_key();
     let funding_addresses = [
         funding_address_1,
         funding_address_2,
         funding_address_3,
         funding_address_4,
     ];
-    (
-        operator_prv,
-        main_pkh.into(),
-        main_address.into(),
-        funding_addresses.into(),
-    )
+    (main_pkh.into(), main_address.into(), funding_addresses.into())
 }
 
 #[cfg(test)]
