@@ -170,7 +170,7 @@ impl<Repr, T, C, Version> TryFromLedger<Repr, C> for Baked<T, Version>
 where
     T: TryFromLedger<Repr, C>,
     Version: Copy,
-    C: Copy + Has<Version>,
+    C: Clone + Has<Version>,
 {
     fn try_from_ledger(repr: &Repr, ctx: &C) -> Option<Self> {
         T::try_from_ledger(repr, ctx).map(|r| Baked::new(r, ctx.select::<Version>()))

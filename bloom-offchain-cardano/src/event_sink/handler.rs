@@ -525,6 +525,7 @@ where
             &o,
             &HandlerContext::new(
                 o_ref,
+                tx.metadata.clone(),
                 consumed_utxos.into(),
                 Default::default(),
                 Default::default(),
@@ -609,6 +610,7 @@ where
             &o,
             &HandlerContext::new(
                 o_ref,
+                tx.metadata.clone(),
                 consumed_utxos.into(),
                 consumed_identifiers.into(),
                 produced_identifiers.into(),
@@ -857,6 +859,10 @@ mod tests {
     use tokio::sync::Mutex;
 
     use crate::event_sink::context::HandlerContextProto;
+    use crate::event_sink::entity_index::InMemoryEntityIndex;
+    use crate::event_sink::handler::{PairUpdateHandler, TxViewAtEraBoundary};
+    use crate::orders::adhoc::AdhocFeeStructure;
+    use crate::orders::limit::LimitOrderValidation;
     use crate::validation_rules::ValidationRules;
     use algebra_core::monoid::Monoid;
     use cardano_chain_sync::data::LedgerTxEvent;
@@ -875,11 +881,7 @@ mod tests {
     use spectrum_offchain_cardano::data::pool::PoolValidation;
     use spectrum_offchain_cardano::data::redeem::RedeemOrderValidation;
     use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHashes};
-
-    use crate::event_sink::entity_index::InMemoryEntityIndex;
-    use crate::event_sink::handler::{PairUpdateHandler, TxViewAtEraBoundary};
-    use crate::orders::adhoc::AdhocFeeStructure;
-    use crate::orders::limit::LimitOrderValidation;
+    use spectrum_offchain_cardano::handler_context::AuthVerificationKey;
 
     #[derive(Clone, Eq, PartialEq)]
     struct TrivialEntity(OutputRef, u64);
@@ -1085,6 +1087,7 @@ mod tests {
                 },
             },
             adhoc_fee_structure: AdhocFeeStructure::empty(),
+            auth_verification_key: AuthVerificationKey::from([0u8; 32]),
         };
         let mut handler = PairUpdateHandler::new(Partitioned::new([snd]), index, context);
         // Handle tx application

@@ -167,5 +167,5 @@ where
 }
 
 #[derive(Debug, Clone, derive_more::Display, derive_more::From)]
-#[display(fmt = "RejectReasons: {:?}", "_0")]
+#[display("RejectReasons: {:?}", "_0")]
 pub struct RejectReasons(pub Option<ApplyTxError>);

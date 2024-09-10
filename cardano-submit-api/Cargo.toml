@@ -2,7 +2,7 @@
 name = "cardano-submit-api"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.75.0"
+rust-version = "1.80.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -17,7 +17,7 @@ cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", 
 futures = "0.3.28"
 futures-timer = "3.0.2"
 futures-util = "0.3.28"
-rocksdb = "0.21.*"
+rocksdb = "0.22.*"
 tokio = { version = "1", features = ["full"] }
 async-std = "1.12.0"
 serde = { version = "1.0", features = ["derive"] }

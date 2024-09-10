@@ -1,3 +1,4 @@
+use cml_chain::auxdata::Metadata;
 use type_equalities::IsEqual;
 
 use spectrum_cardano_lib::OutputRef;
@@ -14,7 +15,9 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHashes};
-use spectrum_offchain_cardano::handler_context::{ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers};
+use spectrum_offchain_cardano::handler_context::{
+    AuthVerificationKey, ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers,
+};
 
 use crate::orders::adhoc::AdhocFeeStructure;
 use crate::orders::limit::LimitOrderValidation;
@@ -26,11 +29,13 @@ pub struct HandlerContextProto {
     pub scripts: ProtocolScriptHashes,
     pub validation_rules: ValidationRules,
     pub adhoc_fee_structure: AdhocFeeStructure,
+    pub auth_verification_key: AuthVerificationKey,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct HandlerContext<I: Copy> {
     pub output_ref: OutputRef,
+    pub metadata: Option<Metadata>,
     pub consumed_utxos: ConsumedInputs,
     pub consumed_identifiers: ConsumedIdentifiers<I>,
     pub produced_identifiers: ProducedIdentifiers<I>,
@@ -38,6 +43,19 @@ pub struct HandlerContext<I: Copy> {
     pub scripts: ProtocolScriptHashes,
     pub bounds: ValidationRules,
     pub adhoc_fee_structure: AdhocFeeStructure,
+    pub auth_verification_key: AuthVerificationKey,
+}
+
+impl<I: Copy> Has<AuthVerificationKey> for HandlerContext<I> {
+    fn select<U: IsEqual<AuthVerificationKey>>(&self) -> AuthVerificationKey {
+        self.auth_verification_key
+    }
+}
+
+impl<I: Copy> Has<Option<Metadata>> for HandlerContext<I> {
+    fn select<U: IsEqual<Option<Metadata>>>(&self) -> Option<Metadata> {
+        self.metadata.clone()
+    }
 }
 
 impl<I: Copy> Has<LimitOrderValidation> for HandlerContext<I> {
@@ -258,6 +276,7 @@ impl<I: Copy> Has<AdhocFeeStructure> for HandlerContext<I> {
 impl<I: Copy> HandlerContext<I> {
     pub fn new(
         output_ref: OutputRef,
+        metadata: Option<Metadata>,
         consumed_utxos: ConsumedInputs,
         consumed_identifiers: ConsumedIdentifiers<I>,
         produced_identifiers: ProducedIdentifiers<I>,
@@ -265,6 +284,7 @@ impl<I: Copy> HandlerContext<I> {
     ) -> Self {
         Self {
             output_ref,
+            metadata,
             consumed_utxos,
             consumed_identifiers,
             produced_identifiers,
@@ -272,6 +292,7 @@ impl<I: Copy> HandlerContext<I> {
             scripts: prototype.scripts,
             bounds: prototype.validation_rules,
             adhoc_fee_structure: prototype.adhoc_fee_structure,
+            auth_verification_key: prototype.auth_verification_key,
         }
     }
 }
