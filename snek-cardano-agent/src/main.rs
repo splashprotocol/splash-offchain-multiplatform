@@ -1,6 +1,5 @@
 use clap::Parser;
 use cml_chain::transaction::Transaction;
-use cml_core::serialization::RawBytesEncoding;
 use cml_multi_era::MultiEraBlock;
 use either::Either;
 use futures::channel::mpsc;
@@ -54,7 +53,7 @@ use spectrum_offchain::data::Baked;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::partitioning::Partitioned;
-use spectrum_offchain::streaming::{boxed, run_stream};
+use spectrum_offchain::streaming::run_stream;
 use spectrum_offchain_cardano::collateral::pull_collateral;
 use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::data::degen_quadratic_pool::DegenQuadraticPool;
