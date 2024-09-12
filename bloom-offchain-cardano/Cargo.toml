@@ -21,8 +21,8 @@ spectrum-cardano-lib = { version = "0.1.0", path = "../spectrum-cardano-lib" }
 cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
 cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
 cml-multi-era = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
-pallas-network = { git = "https://github.com/kettlebell/pallas.git", branch = "conway_update_1" }
-pallas-primitives = { git = "https://github.com/kettlebell/pallas.git", branch = "conway_update_1" }
+pallas-network = { git = "https://github.com/kettlebell/pallas.git", branch = "conway_update" }
+pallas-primitives = { git = "https://github.com/kettlebell/pallas.git", branch = "conway_update" }
 isahc = { version = "1.7.2", features = ["json"] }
 futures = "0.3.25"
 tokio = { version = "1.22.0", features = ["full"] }
