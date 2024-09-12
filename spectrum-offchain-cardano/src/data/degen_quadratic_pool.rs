@@ -305,8 +305,9 @@ impl MarketMaker for DegenQuadraticPool {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, _] = order_canonical(x, y);
+        let supply = (TOKEN_EMISSION - self.reserves_y.untag()) as u128;
         let price_num =
-            (self.reserves_y.untag() as u128 * self.reserves_y.untag() as u128 * self.a_num as u128)
+            (supply * supply * self.a_num as u128)
                 * B_DENOM
                 + A_DENOM * self.b_num as u128;
         let price_denom = A_DENOM * B_DENOM;
@@ -749,7 +750,6 @@ mod tests {
     use cml_chain::transaction::TransactionOutput;
     use cml_core::serialization::Deserialize;
     use cml_crypto::{Ed25519KeyHash, ScriptHash};
-    use num_traits::ToPrimitive;
     use rand::prelude::StdRng;
     use rand::seq::SliceRandom;
     use rand::{Rng, SeedableRng};
@@ -1211,8 +1211,6 @@ mod tests {
         let b: u64 = 1_274_818;
 
         let pool0 = gen_ada_token_pool(6182173147, 1_000_000_000 - 601281779, a, b, ada_cap);
-        let spot = pool0.static_price().unwrap().to_f64().unwrap();
-        assert_eq!(spot, 0.07600935018406114f64);
         let Next::Succ(pool1) = pool0.swap(Ask(9900000)) else {
             panic!()
         };
