@@ -26,7 +26,7 @@ where
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
         match cpd.alternative {
-            0 => Some(Some(T::try_from_pd(cpd.take_field(0)?))?),
+            0 => Some(Some(T::try_from_pd(cpd.take_field(0)?)?)),
             1 => Some(None),
             _ => None,
         }
