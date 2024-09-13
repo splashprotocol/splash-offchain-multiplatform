@@ -433,7 +433,7 @@ where
                         });
                     } else {
                         trace!(
-                            "UTxO {}, Order {} :: sufficient_input: {}, sufficient_execution_budget: {}, sufficient_fee: {}, executable: {}, valid_configuration: {}, is_valid_beacon: {}",
+                            "UTxO {}, LimitOrder {} :: sufficient_input: {}, sufficient_execution_budget: {}, sufficient_fee: {}, executable: {}, valid_configuration: {}, is_valid_beacon: {}",
                             ctx.select::<OutputRef>(),
                             conf.beacon,
                             sufficient_input,
@@ -610,8 +610,7 @@ mod tests {
 
     #[test]
     fn invalid_address() {
-        let conf =
-            Datum::try_from_pd(PlutusData::from_cbor_bytes(&*hex::decode(DATUM).unwrap()).unwrap());
+        let conf = Datum::try_from_pd(PlutusData::from_cbor_bytes(&*hex::decode(DATUM).unwrap()).unwrap());
         assert!(conf.is_none());
     }
 

@@ -1,6 +1,5 @@
 use clap::Parser;
 use cml_chain::transaction::Transaction;
-use cml_core::serialization::RawBytesEncoding;
 use cml_multi_era::MultiEraBlock;
 use either::Either;
 use futures::channel::mpsc;
@@ -18,11 +17,11 @@ use crate::entity::{AtomicCardanoEntity, EvolvingCardanoEntity};
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_part_stream;
 use bloom_offchain::execution_engine::funding_effect::FundingEvent;
+use bloom_offchain::execution_engine::liquidity_book::hot::HotLB;
 use bloom_offchain::execution_engine::liquidity_book::TLB;
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
 use bloom_offchain::execution_engine::storage::kv_store::InMemoryKvStore;
 use bloom_offchain::execution_engine::storage::InMemoryStateIndex;
-use bloom_offchain_cardano::bounds::ValidationRules;
 use bloom_offchain_cardano::event_sink::context::HandlerContextProto;
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
 use bloom_offchain_cardano::event_sink::handler::{FundingEventHandler, PairUpdateHandler};
@@ -33,6 +32,7 @@ use bloom_offchain_cardano::execution_engine::interpreter::CardanoRecipeInterpre
 use bloom_offchain_cardano::integrity::CheckIntegrity;
 use bloom_offchain_cardano::orders::adhoc::AdhocOrder;
 use bloom_offchain_cardano::partitioning::select_partition;
+use bloom_offchain_cardano::validation_rules::ValidationRules;
 use cardano_chain_sync::cache::LedgerCacheRocksDB;
 use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::ChainSyncClient;
@@ -54,7 +54,7 @@ use spectrum_offchain::data::Baked;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::partitioning::Partitioned;
-use spectrum_offchain::streaming::{boxed, run_stream};
+use spectrum_offchain::streaming::run_stream;
 use spectrum_offchain_cardano::collateral::pull_collateral;
 use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::data::degen_quadratic_pool::DegenQuadraticPool;
@@ -237,130 +237,257 @@ async fn main() {
         adhoc_fee_structure: config.adhoc_fee.into(),
     };
     let (signal_tip_reached_snd, signal_tip_reached_recv) = broadcast::channel(1);
-    let multi_book =
-        MultiPair::new::<TLB<AdhocOrder, DegenQuadraticPool, ExUnits>>(maker_context.clone(), "Book");
-    let multi_backlog = MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(
-        maker_context,
-        "Backlog",
-    );
-    let state_index = InMemoryStateIndex::with_tracing();
-    let state_cache = InMemoryKvStore::with_tracing();
+    if args.hot {
+        let multi_book =
+            MultiPair::new::<HotLB<AdhocOrder, DegenQuadraticPool, ExUnits>>(maker_context.clone(), "Book");
+        let multi_backlog = MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(
+            maker_context,
+            "Backlog",
+        );
+        let state_index = InMemoryStateIndex::with_tracing();
+        let state_cache = InMemoryKvStore::with_tracing();
 
-    let execution_stream_p1 = execution_part_stream(
-        state_index.clone(),
-        state_cache.clone(),
-        multi_book.clone(),
-        multi_backlog.clone(),
-        context.clone(),
-        recipe_interpreter,
-        spec_interpreter,
-        prover.clone(),
-        select_partition(
-            merge_upstreams(pair_upd_recv_p1, spec_upd_recv_p1),
-            config.partitioning.clone(),
-        ),
-        funding_upd_recv_p1,
-        tx_submission_channel.clone(),
-        signal_tip_reached_snd.subscribe(),
-    );
-    let execution_stream_p2 = execution_part_stream(
-        state_index.clone(),
-        state_cache.clone(),
-        multi_book.clone(),
-        multi_backlog.clone(),
-        context.clone(),
-        recipe_interpreter,
-        spec_interpreter,
-        prover.clone(),
-        select_partition(
-            merge_upstreams(pair_upd_recv_p2, spec_upd_recv_p2),
-            config.partitioning.clone(),
-        ),
-        funding_upd_recv_p2,
-        tx_submission_channel.clone(),
-        signal_tip_reached_snd.subscribe(),
-    );
-    let execution_stream_p3 = execution_part_stream(
-        state_index.clone(),
-        state_cache.clone(),
-        multi_book.clone(),
-        multi_backlog.clone(),
-        context.clone(),
-        recipe_interpreter,
-        spec_interpreter,
-        prover.clone(),
-        select_partition(
-            merge_upstreams(pair_upd_recv_p3, spec_upd_recv_p3),
-            config.partitioning.clone(),
-        ),
-        funding_upd_recv_p3,
-        tx_submission_channel.clone(),
-        signal_tip_reached_snd.subscribe(),
-    );
-    let execution_stream_p4 = execution_part_stream(
-        state_index,
-        state_cache,
-        multi_book,
-        multi_backlog,
-        context,
-        recipe_interpreter,
-        spec_interpreter,
-        prover,
-        select_partition(
-            merge_upstreams(pair_upd_recv_p4, spec_upd_recv_p4),
-            config.partitioning,
-        ),
-        funding_upd_recv_p4,
-        tx_submission_channel,
-        signal_tip_reached_snd.subscribe(),
-    );
-    let ledger_stream = Box::pin(ledger_transactions(
-        chain_sync_cache,
-        chain_sync_stream(chain_sync, signal_tip_reached_snd),
-        config.chain_sync.disable_rollbacks_until,
-        config.chain_sync.replay_from_point,
-        rollback_in_progress,
-    ))
-    .await
-    .map(|ev| match ev {
-        LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
-            tx: TxViewAtEraBoundary::from(tx),
-            slot,
-        },
-        LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary::from(tx)),
-    });
+        let execution_stream_p1 = execution_part_stream(
+            state_index.clone(),
+            state_cache.clone(),
+            multi_book.clone(),
+            multi_backlog.clone(),
+            context.clone(),
+            recipe_interpreter,
+            spec_interpreter,
+            prover.clone(),
+            select_partition(
+                merge_upstreams(pair_upd_recv_p1, spec_upd_recv_p1),
+                config.partitioning.clone(),
+            ),
+            funding_upd_recv_p1,
+            tx_submission_channel.clone(),
+            signal_tip_reached_snd.subscribe(),
+        );
+        let execution_stream_p2 = execution_part_stream(
+            state_index.clone(),
+            state_cache.clone(),
+            multi_book.clone(),
+            multi_backlog.clone(),
+            context.clone(),
+            recipe_interpreter,
+            spec_interpreter,
+            prover.clone(),
+            select_partition(
+                merge_upstreams(pair_upd_recv_p2, spec_upd_recv_p2),
+                config.partitioning.clone(),
+            ),
+            funding_upd_recv_p2,
+            tx_submission_channel.clone(),
+            signal_tip_reached_snd.subscribe(),
+        );
+        let execution_stream_p3 = execution_part_stream(
+            state_index.clone(),
+            state_cache.clone(),
+            multi_book.clone(),
+            multi_backlog.clone(),
+            context.clone(),
+            recipe_interpreter,
+            spec_interpreter,
+            prover.clone(),
+            select_partition(
+                merge_upstreams(pair_upd_recv_p3, spec_upd_recv_p3),
+                config.partitioning.clone(),
+            ),
+            funding_upd_recv_p3,
+            tx_submission_channel.clone(),
+            signal_tip_reached_snd.subscribe(),
+        );
+        let execution_stream_p4 = execution_part_stream(
+            state_index,
+            state_cache,
+            multi_book,
+            multi_backlog,
+            context,
+            recipe_interpreter,
+            spec_interpreter,
+            prover,
+            select_partition(
+                merge_upstreams(pair_upd_recv_p4, spec_upd_recv_p4),
+                config.partitioning,
+            ),
+            funding_upd_recv_p4,
+            tx_submission_channel,
+            signal_tip_reached_snd.subscribe(),
+        );
+        let ledger_stream = Box::pin(ledger_transactions(
+            chain_sync_cache,
+            chain_sync_stream(chain_sync, signal_tip_reached_snd),
+            config.chain_sync.disable_rollbacks_until,
+            config.chain_sync.replay_from_point,
+            rollback_in_progress,
+        ))
+        .await
+        .map(|ev| match ev {
+            LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
+                tx: TxViewAtEraBoundary::from(tx),
+                slot,
+            },
+            LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary::from(tx)),
+        });
 
-    let mempool_stream = mempool_stream(mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
-        MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewAtEraBoundary::from(tx)),
-    });
+        let mempool_stream = mempool_stream(mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
+            MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewAtEraBoundary::from(tx)),
+        });
 
-    let process_ledger_events_stream = process_events(ledger_stream, handlers_ledger);
-    let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool);
+        let process_ledger_events_stream = process_events(ledger_stream, handlers_ledger);
+        let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool);
 
-    let processes = FuturesUnordered::new();
+        let processes = FuturesUnordered::new();
 
-    let process_ledger_events_stream_handle = tokio::spawn(run_stream(process_ledger_events_stream));
-    processes.push(process_ledger_events_stream_handle);
+        let process_ledger_events_stream_handle = tokio::spawn(run_stream(process_ledger_events_stream));
+        processes.push(process_ledger_events_stream_handle);
 
-    let process_mempool_events_stream_handle = tokio::spawn(run_stream(process_mempool_events_stream));
-    processes.push(process_mempool_events_stream_handle);
+        let process_mempool_events_stream_handle = tokio::spawn(run_stream(process_mempool_events_stream));
+        processes.push(process_mempool_events_stream_handle);
 
-    let execution_stream_p1_handle = tokio::spawn(run_stream(execution_stream_p1));
-    processes.push(execution_stream_p1_handle);
+        let execution_stream_p1_handle = tokio::spawn(run_stream(execution_stream_p1));
+        processes.push(execution_stream_p1_handle);
 
-    let execution_stream_p2_handle = tokio::spawn(run_stream(execution_stream_p2));
-    processes.push(execution_stream_p2_handle);
+        let execution_stream_p2_handle = tokio::spawn(run_stream(execution_stream_p2));
+        processes.push(execution_stream_p2_handle);
 
-    let execution_stream_p3_handle = tokio::spawn(run_stream(execution_stream_p3));
-    processes.push(execution_stream_p3_handle);
+        let execution_stream_p3_handle = tokio::spawn(run_stream(execution_stream_p3));
+        processes.push(execution_stream_p3_handle);
 
-    let execution_stream_p4_handle = tokio::spawn(run_stream(execution_stream_p4));
-    processes.push(execution_stream_p4_handle);
+        let execution_stream_p4_handle = tokio::spawn(run_stream(execution_stream_p4));
+        processes.push(execution_stream_p4_handle);
 
-    let tx_submission_stream_handle = tokio::spawn(run_stream(tx_submission_stream));
-    processes.push(tx_submission_stream_handle);
+        let tx_submission_stream_handle = tokio::spawn(run_stream(tx_submission_stream));
+        processes.push(tx_submission_stream_handle);
 
-    run_stream(processes).await;
+        run_stream(processes).await;
+    } else {
+        let multi_book =
+            MultiPair::new::<TLB<AdhocOrder, DegenQuadraticPool, ExUnits>>(maker_context.clone(), "Book");
+        let multi_backlog = MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(
+            maker_context,
+            "Backlog",
+        );
+        let state_index = InMemoryStateIndex::with_tracing();
+        let state_cache = InMemoryKvStore::with_tracing();
+
+        let execution_stream_p1 = execution_part_stream(
+            state_index.clone(),
+            state_cache.clone(),
+            multi_book.clone(),
+            multi_backlog.clone(),
+            context.clone(),
+            recipe_interpreter,
+            spec_interpreter,
+            prover.clone(),
+            select_partition(
+                merge_upstreams(pair_upd_recv_p1, spec_upd_recv_p1),
+                config.partitioning.clone(),
+            ),
+            funding_upd_recv_p1,
+            tx_submission_channel.clone(),
+            signal_tip_reached_snd.subscribe(),
+        );
+        let execution_stream_p2 = execution_part_stream(
+            state_index.clone(),
+            state_cache.clone(),
+            multi_book.clone(),
+            multi_backlog.clone(),
+            context.clone(),
+            recipe_interpreter,
+            spec_interpreter,
+            prover.clone(),
+            select_partition(
+                merge_upstreams(pair_upd_recv_p2, spec_upd_recv_p2),
+                config.partitioning.clone(),
+            ),
+            funding_upd_recv_p2,
+            tx_submission_channel.clone(),
+            signal_tip_reached_snd.subscribe(),
+        );
+        let execution_stream_p3 = execution_part_stream(
+            state_index.clone(),
+            state_cache.clone(),
+            multi_book.clone(),
+            multi_backlog.clone(),
+            context.clone(),
+            recipe_interpreter,
+            spec_interpreter,
+            prover.clone(),
+            select_partition(
+                merge_upstreams(pair_upd_recv_p3, spec_upd_recv_p3),
+                config.partitioning.clone(),
+            ),
+            funding_upd_recv_p3,
+            tx_submission_channel.clone(),
+            signal_tip_reached_snd.subscribe(),
+        );
+        let execution_stream_p4 = execution_part_stream(
+            state_index,
+            state_cache,
+            multi_book,
+            multi_backlog,
+            context,
+            recipe_interpreter,
+            spec_interpreter,
+            prover,
+            select_partition(
+                merge_upstreams(pair_upd_recv_p4, spec_upd_recv_p4),
+                config.partitioning,
+            ),
+            funding_upd_recv_p4,
+            tx_submission_channel,
+            signal_tip_reached_snd.subscribe(),
+        );
+        let ledger_stream = Box::pin(ledger_transactions(
+            chain_sync_cache,
+            chain_sync_stream(chain_sync, signal_tip_reached_snd),
+            config.chain_sync.disable_rollbacks_until,
+            config.chain_sync.replay_from_point,
+            rollback_in_progress,
+        ))
+        .await
+        .map(|ev| match ev {
+            LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
+                tx: TxViewAtEraBoundary::from(tx),
+                slot,
+            },
+            LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary::from(tx)),
+        });
+
+        let mempool_stream = mempool_stream(mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
+            MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewAtEraBoundary::from(tx)),
+        });
+
+        let process_ledger_events_stream = process_events(ledger_stream, handlers_ledger);
+        let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool);
+
+        let processes = FuturesUnordered::new();
+
+        let process_ledger_events_stream_handle = tokio::spawn(run_stream(process_ledger_events_stream));
+        processes.push(process_ledger_events_stream_handle);
+
+        let process_mempool_events_stream_handle = tokio::spawn(run_stream(process_mempool_events_stream));
+        processes.push(process_mempool_events_stream_handle);
+
+        let execution_stream_p1_handle = tokio::spawn(run_stream(execution_stream_p1));
+        processes.push(execution_stream_p1_handle);
+
+        let execution_stream_p2_handle = tokio::spawn(run_stream(execution_stream_p2));
+        processes.push(execution_stream_p2_handle);
+
+        let execution_stream_p3_handle = tokio::spawn(run_stream(execution_stream_p3));
+        processes.push(execution_stream_p3_handle);
+
+        let execution_stream_p4_handle = tokio::spawn(run_stream(execution_stream_p4));
+        processes.push(execution_stream_p4_handle);
+
+        let tx_submission_stream_handle = tokio::spawn(run_stream(tx_submission_stream));
+        processes.push(tx_submission_stream_handle);
+
+        run_stream(processes).await;
+    }
 }
 
 fn merge_upstreams(

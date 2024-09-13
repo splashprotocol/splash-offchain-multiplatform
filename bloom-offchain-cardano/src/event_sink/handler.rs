@@ -856,8 +856,8 @@ mod tests {
     use futures::StreamExt;
     use tokio::sync::Mutex;
 
-    use crate::bounds::ValidationRules;
     use crate::event_sink::context::HandlerContextProto;
+    use crate::validation_rules::ValidationRules;
     use algebra_core::monoid::Monoid;
     use cardano_chain_sync::data::LedgerTxEvent;
     use spectrum_cardano_lib::ex_units::ExUnits;
