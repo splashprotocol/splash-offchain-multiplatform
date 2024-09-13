@@ -610,8 +610,7 @@ mod tests {
 
     #[test]
     fn invalid_address() {
-        let conf =
-            Datum::try_from_pd(PlutusData::from_cbor_bytes(&*hex::decode(DATUM).unwrap()).unwrap());
+        let conf = Datum::try_from_pd(PlutusData::from_cbor_bytes(&*hex::decode(DATUM).unwrap()).unwrap());
         assert!(conf.is_none());
     }
 
