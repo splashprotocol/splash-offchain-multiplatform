@@ -97,7 +97,6 @@ where
         loop {
             let SubmitTx(tx, on_resp) = agent.mailbox.select_next_some().await;
             let tx_hash = tx.canonical_hash();
-            #[allow(clippy::never_loop)]
             loop {
                 match agent.client.submit_tx((*tx).clone()).await {
                     Ok(Response::Accepted) => on_resp.send(SubmissionResult::Ok).expect("Responder was dropped"),
