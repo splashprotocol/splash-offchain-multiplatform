@@ -102,7 +102,7 @@ where
                     Ok(Response::Accepted) => on_resp.send(SubmissionResult::Ok).expect("Responder was dropped"),
                     Ok(Response::Rejected(errors)) => {
                         trace!("TX {} was rejected due to error: {:?}", tx_hash, errors);
-                        on_resp.send(SubmissionResult::TxRejected{errors:  RejectReasons(errors)}).expect("Responder was dropped");
+                        on_resp.send(SubmissionResult::TxRejected{errors:  RejectReasons(Some(errors))}).expect("Responder was dropped");
                     },
                     Err(Error::TxSubmissionProtocol(err)) => {
                         trace!("Failed to submit TX {}: {}", tx_hash, hex::encode(tx.to_cbor_bytes()));
@@ -110,12 +110,12 @@ where
                             localtxsubmission::Error::ChannelError(multiplexer::Error::Decoding(_)) => {
                                 warn!("TX {} was likely rejected, reason unknown. Trying to recover.", tx_hash);
                                 agent.recover();
-                                on_resp.send(SubmissionResult::TxRejected{errors: vec![].into()}).expect("Responder was dropped");
+                                on_resp.send(SubmissionResult::TxRejected{errors: RejectReasons(None)}).expect("Responder was dropped");
                             }
                             retryable_err => {
                                 trace!("Failed to submit TX {}: protocol returned error: {}", tx_hash, retryable_err);
                                 agent = agent.restarted().await.expect("Failed to restart TxSubmissionProtocol");
-                                on_resp.send(SubmissionResult::TxRejected{errors: vec![].into()}).expect("Responder was dropped");
+                                on_resp.send(SubmissionResult::TxRejected{errors: RejectReasons(None)}).expect("Responder was dropped");
                             },
                         };
                     },
@@ -132,7 +132,7 @@ impl TryFrom<RejectReasons> for HashSet<OutputRef> {
     fn try_from(value: RejectReasons) -> Result<Self, Self::Error> {
         let mut missing_utxos = HashSet::new();
 
-        for ApplyTxError { node_errors } in value.0 {
+        if let Some(ApplyTxError { node_errors }) = value.0 {
             for error in node_errors {
                 if let ConwayLedgerPredFailure::UtxowFailure(ConwayUtxowPredFailure::UtxoFailure(
                     ConwayUtxoPredFailure::BadInputsUtxo(inputs),
@@ -168,4 +168,4 @@ where
 
 #[derive(Debug, Clone, derive_more::Display, derive_more::From)]
 #[display(fmt = "RejectReasons: {:?}", "_0")]
-pub struct RejectReasons(pub Vec<ApplyTxError>);
+pub struct RejectReasons(pub Option<ApplyTxError>);
