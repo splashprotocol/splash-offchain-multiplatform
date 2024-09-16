@@ -52,7 +52,7 @@ impl<'a, const ERA: u16, Tx> LocalTxSubmissionClient<'a, ERA, Tx> {
         })
     }
 
-    pub async fn submit_tx(&mut self, tx: Tx) -> Result<Response<Vec<ApplyTxError>>, Error>
+    pub async fn submit_tx(&mut self, tx: Tx) -> Result<Response<ApplyTxError>, Error>
     where
         Tx: Serialize,
     {
