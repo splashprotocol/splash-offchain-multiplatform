@@ -1,13 +1,12 @@
 use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData};
 
+use cml_chain::transaction::TransactionOutput;
 use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, ScriptHash};
-use cml_multi_era::babbage::BabbageTransactionOutput;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
 };
-use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::{AssetName, OutputRef, TaggedAmount};
 use spectrum_offchain::data::{Has, HasIdentifier, Identifier, Stable};
@@ -71,13 +70,13 @@ impl HasIdentifier for PollFactorySnapshot {
     }
 }
 
-impl<C> TryFromLedger<BabbageTransactionOutput, C> for PollFactorySnapshot
+impl<C> TryFromLedger<TransactionOutput, C> for PollFactorySnapshot
 where
     C: Has<MintWPAuthPolicy>
         + Has<OutputRef>
         + Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+    fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
             let output_ref = ctx.select::<OutputRef>();
             let datum = repr.datum()?;

@@ -84,7 +84,7 @@ async fn main() {
     let chain_sync_cache = Arc::new(Mutex::new(LedgerCacheRocksDB::new(config.chain_sync.db_path)));
     let chain_sync = ChainSyncClient::init(
         Arc::clone(&chain_sync_cache),
-        config.node.path,
+        config.node.path.clone(),
         config.node.magic,
         config.chain_sync.starting_point,
     )
@@ -168,7 +168,7 @@ async fn main() {
         signal_tip_reached_recv,
     );
 
-    let handlers: Vec<Box<dyn EventHandler<LedgerTxEvent<TxViewAtEraBoundary>>>> =
+    let handlers: Vec<Box<dyn EventHandler<LedgerTxEvent<TxViewAtEraBoundary>> + Send>> =
         vec![Box::new(DaoHandler::new(ledger_event_snd))];
     let process_ledger_events_stream = process_events(ledger_stream, handlers);
 

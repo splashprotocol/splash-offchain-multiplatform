@@ -6,7 +6,6 @@ use cml_chain::transaction::{DatumOption, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::{OrderedHashMap, PolicyId, Value};
 use cml_crypto::RawBytesEncoding;
-use cml_multi_era::babbage::BabbageTransactionOutput;
 use derive_more::From;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
@@ -206,13 +205,13 @@ impl WeightingPoll {
     }
 }
 
-impl<C> TryFromLedger<BabbageTransactionOutput, C> for WeightingPollSnapshot
+impl<C> TryFromLedger<TransactionOutput, C> for WeightingPollSnapshot
 where
     C: Has<CurrentEpoch>
         + Has<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
         + Has<OutputRef>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+    fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
             println!("FOUND WEIGHTING_POLL ADDRESS");
             let value = repr.value().clone();

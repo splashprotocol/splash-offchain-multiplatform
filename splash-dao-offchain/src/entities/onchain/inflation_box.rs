@@ -1,9 +1,9 @@
 use cml_chain::assets::AssetName;
 use cml_chain::plutus::{ExUnits, PlutusData};
 
+use cml_chain::transaction::TransactionOutput;
 use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, ScriptHash};
-use cml_multi_era::babbage::BabbageTransactionOutput;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::plutus_data::{DatumExtension, IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
@@ -90,14 +90,14 @@ impl Stable for InflationBox {
     }
 }
 
-impl<C> TryFromLedger<BabbageTransactionOutput, C> for InflationBoxSnapshot
+impl<C> TryFromLedger<TransactionOutput, C> for InflationBoxSnapshot
 where
     C: Has<SplashPolicy>
         + Has<SplashAssetName>
         + Has<DeployedScriptInfo<{ ProtocolValidator::Inflation as u8 }>>
         + Has<OutputRef>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+    fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
             println!("INFLATION_BOX ADDR OK!!");
             let value = repr.value().clone();

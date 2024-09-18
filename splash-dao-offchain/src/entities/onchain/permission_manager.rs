@@ -1,6 +1,5 @@
-use cml_chain::{plutus::ExUnits, PolicyId};
+use cml_chain::{plutus::ExUnits, transaction::TransactionOutput, PolicyId};
 use cml_crypto::RawBytesEncoding;
-use cml_multi_era::babbage::BabbageTransactionOutput;
 use derive_more::From;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
@@ -64,14 +63,14 @@ impl Stable for PermManager {
     }
 }
 
-impl<C> TryFromLedger<BabbageTransactionOutput, C> for PermManagerSnapshot
+impl<C> TryFromLedger<TransactionOutput, C> for PermManagerSnapshot
 where
     C: Has<PermManagerAuthPolicy>
         + Has<PermManagerAuthName>
         + Has<OutputRef>
         + Has<DeployedScriptInfo<{ ProtocolValidator::PermManager as u8 }>>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+    fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
             let perm_manager_auth_policy = ctx.select::<PermManagerAuthPolicy>().0;
             let auth_token_cml_asset_name = ctx.select::<PermManagerAuthName>().0;

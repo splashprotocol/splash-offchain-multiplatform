@@ -1,3 +1,4 @@
+use cml_chain::transaction::TransactionOutput;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use funding_box::FundingBox;
 use inflation_box::{InflationBox, InflationBoxSnapshot};
@@ -42,7 +43,7 @@ pub enum DaoEntity {
 
 pub type DaoEntitySnapshot = Snapshot<DaoEntity, OutputRef>;
 
-impl<C> TryFromLedger<BabbageTransactionOutput, C> for DaoEntitySnapshot
+impl<C> TryFromLedger<TransactionOutput, C> for DaoEntitySnapshot
 where
     C: Has<SplashPolicy>
         + Has<SplashAssetName>
@@ -62,7 +63,7 @@ where
         + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
         + Has<OutputRef>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+    fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if let Some(Snapshot(inflation_box, output_ref)) = InflationBoxSnapshot::try_from_ledger(repr, ctx) {
             Some(Snapshot(DaoEntity::Inflation(inflation_box), output_ref))
         } else if let Some(Snapshot(perm_manager, output_ref)) =

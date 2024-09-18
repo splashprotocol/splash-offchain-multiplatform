@@ -9,7 +9,6 @@ use cml_chain::{
     PolicyId, Value,
 };
 use cml_crypto::{PublicKey, RawBytesEncoding, ScriptHash};
-use cml_multi_era::babbage::BabbageTransactionOutput;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::plutus_data::DatumExtension;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
@@ -92,7 +91,7 @@ impl HasIdentifier for VotingEscrowSnapshot {
     }
 }
 
-impl<C> TryFromLedger<BabbageTransactionOutput, C> for VotingEscrowSnapshot
+impl<C> TryFromLedger<TransactionOutput, C> for VotingEscrowSnapshot
 where
     C: Has<VEFactoryAuthPolicy>
         + Has<VEFactoryAuthName>
@@ -101,7 +100,7 @@ where
         + Has<OutputRef>
         + Has<DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }>>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+    fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
             let value = repr.value().clone();
             let VotingEscrowConfig {

@@ -1,16 +1,15 @@
 use cml_chain::certs::Credential;
+use cml_chain::transaction::TransactionOutput;
 use cml_chain::utils::BigInteger;
 use cml_chain::{
     plutus::{ConstrPlutusData, ExUnits, PlutusData},
     PolicyId,
 };
 use cml_crypto::RawBytesEncoding;
-use cml_multi_era::babbage::BabbageTransactionOutput;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
 };
-use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::{AssetName, OutputRef};
 use spectrum_offchain::data::{Has, HasIdentifier, Identifier, Stable};
@@ -106,13 +105,13 @@ impl IntoPlutusData for Action {
     }
 }
 
-impl<C> TryFromLedger<BabbageTransactionOutput, C> for SmartFarmSnapshot
+impl<C> TryFromLedger<TransactionOutput, C> for SmartFarmSnapshot
 where
     C: Has<PermManagerAuthPolicy>
         + Has<OutputRef>
         + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>,
 {
-    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+    fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         let addr = repr.address();
         if test_address(addr, ctx) {
             if let Ok(auth_policy) = PolicyId::from_raw_bytes(&repr.datum()?.into_pd()?.into_bytes()?) {

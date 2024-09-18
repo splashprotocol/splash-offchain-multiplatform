@@ -7,6 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_stream::stream;
 use bloom_offchain::execution_engine::bundled::Bundled;
+use bloom_offchain_cardano::event_sink::processed_tx::TxViewAtEraBoundary;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cml_chain::transaction::{Transaction, TransactionOutput};
 use cml_crypto::{PrivateKey, TransactionHash};
@@ -71,7 +72,7 @@ pub struct Behaviour<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer,
     pd: PhantomData<Bearer>,
     network: Net,
     operator_sk: PrivateKey,
-    ledger_upstream: Receiver<LedgerTxEvent<(TransactionHash, BabbageTransaction)>>,
+    ledger_upstream: Receiver<LedgerTxEvent<TxViewAtEraBoundary>>,
     chain_tip_reached: Arc<Mutex<bool>>,
     signal_tip_reached_recv: Option<tokio::sync::broadcast::Receiver<bool>>,
 }
@@ -154,7 +155,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         pd: PhantomData<Bearer>,
         network: Net,
         operator_sk: PrivateKey,
-        ledger_upstream: Receiver<LedgerTxEvent<(TransactionHash, BabbageTransaction)>>,
+        ledger_upstream: Receiver<LedgerTxEvent<TxViewAtEraBoundary>>,
         signal_tip_reached_recv: tokio::sync::broadcast::Receiver<bool>,
     ) -> Self {
         Self {
@@ -616,33 +617,42 @@ where
     Actions: InflationActions<TransactionOutput> + Send + Sync,
     Net: Network<OutboundTransaction<Transaction>, RejectReasons> + Clone + Sync + Send,
 {
-    async fn process_ledger_event(&mut self, ev: LedgerTxEvent<(TransactionHash, BabbageTransaction)>) {
+    async fn process_ledger_event(&mut self, ev: LedgerTxEvent<TxViewAtEraBoundary>) {
         match ev {
             LedgerTxEvent::TxApplied {
-                tx: (tx_hash, tx), ..
+                tx:
+                    TxViewAtEraBoundary {
+                        hash,
+                        inputs,
+                        mut outputs,
+                    },
+                ..
             } => {
-                let mut outputs = tx.body.outputs;
                 let num_outputs = outputs.len();
                 if num_outputs > 0 {
                     let mut ix = num_outputs - 1;
                     while let Some(output) = outputs.pop() {
-                        let output_ref = OutputRef::new(tx_hash, ix as u64);
+                        let output_ref = OutputRef::new(hash, ix as u64);
                         let ctx = WithOutputRef {
                             behaviour: self,
                             output_ref,
                         };
-                        if let Some(entity) = DaoEntitySnapshot::try_from_ledger(&output, &ctx) {
+                        if let Some(entity) = DaoEntitySnapshot::try_from_ledger(&output.1, &ctx) {
                             println!("entity found: {:?}", entity);
-                            self.confirm_entity(Bundled(entity, output.upcast())).await;
+                            self.confirm_entity(Bundled(entity, output.1)).await;
                         }
 
                         ix = ix.saturating_sub(1);
                     }
                 }
             }
-            LedgerTxEvent::TxUnapplied((tx_hash, tx)) => {
-                for ix in 0..tx.body.inputs.len() {
-                    let ver = OutputRef::new(tx_hash, ix as u64);
+            LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary {
+                hash,
+                inputs,
+                outputs,
+            }) => {
+                for ix in 0..inputs.len() {
+                    let ver = OutputRef::new(hash, ix as u64);
                     if let Some(id) = self.inflation_box.get_id(ver).await {
                         self.inflation_box.remove(id).await;
                     } else if let Some(id) = self.poll_factory.get_id(ver).await {
