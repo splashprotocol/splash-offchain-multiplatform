@@ -15,6 +15,7 @@ members = [
     "bloom-derivation",
     "cardano-offchain-stableswap",
     "algebra-core",
+    "splash-dao-agent",
     "splash-dao-offchain",
     "spectrum-streaming",
 ]

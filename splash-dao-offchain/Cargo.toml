@@ -9,14 +9,15 @@ rust-version = "1.80.0"
 [dependencies]
 spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain" }
 spectrum-offchain-cardano = { version = "1.0.0", path = "../spectrum-offchain-cardano" }
+bloom-offchain-cardano = { version = "1.0.0", path = "../bloom-offchain-cardano" }
 bloom-offchain = { version = "1.0.0", path = "../bloom-offchain" }
 cardano-chain-sync = { version = "0.1.0", path = "../cardano-chain-sync" }
 cardano-explorer = { version = "0.1.0", path = "../cardano-explorer" }
 cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
 cardano-submit-api = { version = "0.1.0", path = "../cardano-submit-api" }
 spectrum-cardano-lib = { version = "0.1.0", path = "../spectrum-cardano-lib" }
-cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
-cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
+cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch =    "fix-datum-hash" }
+cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch =     "fix-datum-hash" }
 cml-multi-era = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
 pallas-network = { git = "https://github.com/kettlebell/pallas.git", branch = "conway_update" }
 pallas-primitives = { git = "https://github.com/kettlebell/pallas.git", branch = "conway_update" }
@@ -25,6 +26,7 @@ futures = "0.3.25"
 tokio = { version = "1.22.0", features = ["full"] }
 log = "0.4.17"
 log4rs = "1.2.0"
+num-bigint = "0.4.4"
 rand = { version = "0.8.5", features = ["small_rng"] }
 rand_chacha = "0.3.1"
 async-trait = "0.1.58"
@@ -33,6 +35,7 @@ type-equalities = "0.3.1"
 tailcall = "1.0.*"
 parallel-stream = "2.1.3"
 serde = { version = "1.0.147", features = ["derive"] }
+rmp-serde = "1.2.0"
 priority-queue = "1.3.0"
 bounded-integer = { version = "0.5.7", features = ["types", "serde1"] }
 parking_lot = "0.12.1"
@@ -62,3 +65,4 @@ uplc-pallas-primitives = { package = "pallas-primitives", version = "0.16" }
 
 [dev-dependencies]
 rocksdb = "0.22.*"
+cbor_event = "2.4.0"

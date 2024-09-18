@@ -1,10 +1,12 @@
 use std::{fmt::Display, hash::Hash};
 
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use spectrum_offchain::data::{EntitySnapshot, Stable};
 
 pub mod offchain;
 pub mod onchain;
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Snapshot<T, V>(T, V);
 impl<T, V> Snapshot<T, V> {
     pub fn new(t: T, v: V) -> Self {
@@ -41,7 +43,7 @@ where
 impl<T, V> EntitySnapshot for Snapshot<T, V>
 where
     T: Stable,
-    V: Display + Hash + Eq + Copy,
+    V: Display + Hash + Eq + Copy + Serialize + DeserializeOwned + Sync + Send,
 {
     type Version = V;
 

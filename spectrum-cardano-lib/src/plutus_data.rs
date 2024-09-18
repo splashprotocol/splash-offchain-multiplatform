@@ -57,6 +57,7 @@ pub trait PlutusDataExtension {
     fn get_constr_pd_mut(&mut self) -> Option<&mut ConstrPlutusData>;
     fn into_bytes(self) -> Option<Vec<u8>>;
     fn into_u64(self) -> Option<u64>;
+    fn into_i128(self) -> Option<i128>;
     fn into_u128(self) -> Option<u128>;
     fn into_u512(self) -> Option<U512>;
     fn into_vec_pd<T>(self, f: fn(PlutusData) -> Option<T>) -> Option<Vec<T>>;
@@ -88,6 +89,13 @@ impl PlutusDataExtension for PlutusData {
     fn into_u64(self) -> Option<u64> {
         match self {
             PlutusData::Integer(big_int) => Some(big_int.as_u64()?),
+            _ => None,
+        }
+    }
+
+    fn into_i128(self) -> Option<i128> {
+        match self {
+            PlutusData::Integer(big_int) => Some(i128::from(&big_int.as_int()?)),
             _ => None,
         }
     }

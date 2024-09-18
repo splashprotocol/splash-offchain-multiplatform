@@ -2,6 +2,8 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 
 use either::Either;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 use type_equalities::IsEqual;
 
 use crate::ledger::TryFromLedger;
@@ -24,6 +26,11 @@ pub trait Identifier: Copy + Clone + Eq + PartialEq {
     type For;
 }
 
+pub trait HasIdentifier {
+    type Id: Identifier<For = Self>;
+    fn identifier(&self) -> Self::Id;
+}
+
 pub trait Stable {
     /// Unique identifier of the underlying entity which persists among different versions.
     type StableId: Copy + Eq + Hash + Send + Sync + Display;
@@ -34,7 +41,7 @@ pub trait Stable {
 
 pub trait EntitySnapshot: Stable {
     /// Unique version of the [EntitySnapshot].
-    type Version: Copy + Eq + Hash + Send + Sync + Display;
+    type Version: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned;
 
     fn version(&self) -> Self::Version;
 }
@@ -65,7 +72,7 @@ where
     A: EntitySnapshot<StableId = StableId, Version = EntityVersion>,
     B: EntitySnapshot<StableId = StableId, Version = EntityVersion>,
     StableId: Copy + Eq + Hash + Send + Sync + Debug + Display,
-    EntityVersion: Copy + Eq + Hash + Send + Sync + Display,
+    EntityVersion: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned,
 {
     type Version = EntityVersion;
     fn version(&self) -> Self::Version {
@@ -146,7 +153,7 @@ impl<StableId, BakedVersion, T> EntitySnapshot for Baked<T, BakedVersion>
 where
     T: Stable<StableId = StableId>,
     StableId: Copy + Eq + Hash + Send + Sync + Debug + Display,
-    BakedVersion: Copy + Eq + Hash + Send + Sync + Display,
+    BakedVersion: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned,
 {
     type Version = BakedVersion;
 

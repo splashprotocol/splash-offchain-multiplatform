@@ -1,49 +1,94 @@
-use std::fmt::Formatter;
-
 use cml_chain::{plutus::ExUnits, PolicyId};
 use cml_crypto::RawBytesEncoding;
+use cml_multi_era::babbage::BabbageTransactionOutput;
 use derive_more::From;
-use spectrum_cardano_lib::Token;
-use spectrum_offchain::data::{Identifier, Stable};
-use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
+use serde::{Deserialize, Serialize};
+use spectrum_cardano_lib::{
+    plutus_data::{ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension},
+    transaction::TransactionOutputExtension,
+    types::TryFromPData,
+    AssetName, OutputRef, Token,
+};
+use spectrum_offchain::{
+    data::{Has, HasIdentifier, Identifier, Stable},
+    ledger::TryFromLedger,
+};
+use spectrum_offchain_cardano::{
+    deployment::{test_address, DeployedScriptInfo},
+    parametrized_validators::apply_params_validator,
+};
 
-use crate::{constants::PERM_MANAGER_SCRIPT, routines::inflation::PermManagerSnapshot};
+use crate::{
+    constants::PERM_MANAGER_SCRIPT,
+    deployment::ProtocolValidator,
+    entities::Snapshot,
+    protocol_config::{PermManagerAuthName, PermManagerAuthPolicy},
+};
 
-#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, From)]
-pub struct PermManagerId(Token);
+#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, From, Serialize, Deserialize)]
+pub struct PermManagerId;
 
 impl Identifier for PermManagerId {
     type For = PermManagerSnapshot;
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+pub type PermManagerSnapshot = Snapshot<PermManager, OutputRef>;
+
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct PermManager {
-    pub stable_id: PermManagerStableId,
+    pub perm_manager_auth_policy: PolicyId,
+    pub auth_token_asset_name: AssetName,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct PermManagerStableId {
-    edao_msig_policy: PolicyId,
-    /// An NFT mint once on setup.
-    perm_manager_auth_policy: PolicyId,
+impl PermManager {
+    pub fn get_token(&self) -> Token {
+        Token(self.perm_manager_auth_policy, self.auth_token_asset_name)
+    }
 }
 
-impl std::fmt::Display for PermManagerStableId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&format!(
-            "PermManagerStableId: edao_msig_policy: {}, perm_manager_auth_policy: {}",
-            self.edao_msig_policy, self.perm_manager_auth_policy
-        ))
+impl HasIdentifier for PermManagerSnapshot {
+    type Id = PermManagerId;
+
+    fn identifier(&self) -> Self::Id {
+        PermManagerId
     }
 }
 
 impl Stable for PermManager {
-    type StableId = PermManagerStableId;
+    type StableId = PolicyId;
     fn stable_id(&self) -> Self::StableId {
-        self.stable_id
+        self.perm_manager_auth_policy
     }
     fn is_quasi_permanent(&self) -> bool {
         true
+    }
+}
+
+impl<C> TryFromLedger<BabbageTransactionOutput, C> for PermManagerSnapshot
+where
+    C: Has<PermManagerAuthPolicy>
+        + Has<PermManagerAuthName>
+        + Has<OutputRef>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::PermManager as u8 }>>,
+{
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+        if test_address(repr.address(), ctx) {
+            let perm_manager_auth_policy = ctx.select::<PermManagerAuthPolicy>().0;
+            let auth_token_cml_asset_name = ctx.select::<PermManagerAuthName>().0;
+            let auth_token_qty = repr
+                .value()
+                .multiasset
+                .get(&perm_manager_auth_policy, &auth_token_cml_asset_name)?;
+            assert_eq!(auth_token_qty, 1);
+            let output_ref = ctx.select::<OutputRef>();
+            let perm_manager = PermManager {
+                perm_manager_auth_policy,
+                auth_token_asset_name: AssetName::from(auth_token_cml_asset_name),
+            };
+
+            return Some(Snapshot::new(perm_manager, output_ref));
+        }
+        None
     }
 }
 

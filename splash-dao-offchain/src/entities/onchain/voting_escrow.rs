@@ -9,6 +9,15 @@ use cml_chain::{
     PolicyId, Value,
 };
 use cml_crypto::{PublicKey, RawBytesEncoding, ScriptHash};
+use cml_multi_era::babbage::BabbageTransactionOutput;
+use serde::{Deserialize, Serialize};
+use spectrum_cardano_lib::plutus_data::DatumExtension;
+use spectrum_cardano_lib::transaction::TransactionOutputExtension;
+use spectrum_cardano_lib::types::TryFromPData;
+use spectrum_cardano_lib::{AssetName, OutputRef};
+use spectrum_offchain::data::HasIdentifier;
+use spectrum_offchain::ledger::TryFromLedger;
+use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use uplc_pallas_codec::utils::{Int, PlutusBytes};
 
 use spectrum_cardano_lib::{
@@ -21,28 +30,39 @@ use spectrum_offchain::{
 };
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 
+use crate::constants::{MINT_WEIGHTING_POWER_SCRIPT, VOTING_ESCROW_SCRIPT};
+use crate::deployment::ProtocolValidator;
+use crate::entities::Snapshot;
+use crate::protocol_config::{GTAuthName, GTAuthPolicy, VEFactoryAuthName};
 use crate::{
-    constants::{MAX_LOCK_TIME_SECONDS, MINT_WEIGHTING_POWER_SCRIPT, VOTING_ESCROW_SCRIPT},
+    constants::MAX_LOCK_TIME_SECONDS,
     protocol_config::{NodeMagic, OperatorCreds, VEFactoryAuthPolicy},
-    routines::inflation::VotingEscrowSnapshot,
     time::{NetworkTime, ProtocolEpoch},
 };
 
-#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Debug)]
+pub type VotingEscrowSnapshot = Snapshot<VotingEscrow, OutputRef>;
+
+/// Identified by GT Token
+#[derive(
+    Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize, derive_more::From,
+)]
 pub struct VotingEscrowId(Token);
 
 impl Identifier for VotingEscrowId {
     type For = VotingEscrowSnapshot;
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct VotingEscrow {
     pub gov_token_amount: u64,
     pub gt_policy: PolicyId,
+    pub gt_auth_name: AssetName,
     pub locked_until: Lock,
-    pub stable_id: VotingEscrowStableId,
+    pub ve_factory_auth_policy: PolicyId,
     pub max_ex_fee: u32,
     pub version: u32,
+    pub last_wp_epoch: u32,
+    pub last_gp_deadline: u32,
 }
 
 impl VotingEscrow {
@@ -59,63 +79,109 @@ impl VotingEscrow {
         }
     }
 
-    fn create_datum(&self, pk: PublicKey) -> PlutusData {
-        PlutusData::ConstrPlutusData(ConstrPlutusData::new(
-            0,
-            vec![
-                self.locked_until.into_pd(),
-                PlutusData::new_bytes(pk.to_raw_bytes().to_vec()),
-                PlutusData::new_integer(self.max_ex_fee.into()),
-                PlutusData::new_integer(self.version.into()),
-                PlutusData::new_integer(0_u32.into()), // last_wp_epoch == 0
-                PlutusData::new_integer(0_u32.into()), // last_gp_deadline == 0
-            ],
-        ))
+    pub fn get_token(&self) -> Token {
+        Token(self.gt_policy, self.gt_auth_name)
     }
 }
 
-impl<Ctx> IntoLedger<TransactionOutput, Ctx> for VotingEscrow
+impl HasIdentifier for VotingEscrowSnapshot {
+    type Id = VotingEscrowId;
+
+    fn identifier(&self) -> Self::Id {
+        VotingEscrowId(Token(self.0.gt_policy, self.0.gt_auth_name))
+    }
+}
+
+impl<C> TryFromLedger<BabbageTransactionOutput, C> for VotingEscrowSnapshot
 where
-    Ctx: Has<VEFactoryAuthPolicy> + Has<OperatorCreds> + Has<NodeMagic>,
+    C: Has<VEFactoryAuthPolicy>
+        + Has<VEFactoryAuthName>
+        + Has<GTAuthPolicy>
+        + Has<GTAuthName>
+        + Has<OutputRef>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }>>,
 {
-    fn into_ledger(self, ctx: Ctx) -> TransactionOutput {
-        let OperatorCreds(operator_sk, _, _) = ctx.select::<OperatorCreds>();
-        let voting_escrow_policy = compute_voting_escrow_policy_id(ctx.select::<VEFactoryAuthPolicy>().0);
-        let datum = self.create_datum(operator_sk.to_public());
+    fn try_from_ledger(repr: &BabbageTransactionOutput, ctx: &C) -> Option<Self> {
+        if test_address(repr.address(), ctx) {
+            let value = repr.value().clone();
+            let VotingEscrowConfig {
+                locked_until,
+                owner: _,
+                max_ex_fee,
+                version,
+                last_wp_epoch,
+                last_gp_deadline,
+            } = VotingEscrowConfig::try_from_pd(repr.datum()?.into_pd()?)?;
 
-        let cred = StakeCredential::new_script(voting_escrow_policy);
-        let address = EnterpriseAddress::new(ctx.select::<NodeMagic>().0 as u8, cred).to_address();
+            let ve_factory_auth_policy = ctx.select::<VEFactoryAuthPolicy>().0;
+            let ve_factory_auth_qty = value
+                .multiasset
+                .get(&ve_factory_auth_policy, &ctx.select::<VEFactoryAuthName>().0)?;
+            assert_eq!(ve_factory_auth_qty, 1);
+            let gt_policy = ctx.select::<GTAuthPolicy>().0;
+            let cml_gt_policy_name = ctx.select::<GTAuthName>().0;
+            let gov_token_amount = value.multiasset.get(&gt_policy, &cml_gt_policy_name)?;
+            let gt_auth_name = AssetName::from(cml_gt_policy_name);
 
-        let amount = Value::from(MIN_ADA_IN_BOX);
-        TransactionOutput::new(address, amount, Some(DatumOption::new_datum(datum)), None)
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub struct VotingEscrowStableId {
-    ve_factory_auth_policy: PolicyId,
-}
-
-impl std::fmt::Display for VotingEscrowStableId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&format!(
-            "VotingEscrowStableId: ve_factory_auth_policy: {}",
-            self.ve_factory_auth_policy,
-        ))
+            let voting_escrow = VotingEscrow {
+                gov_token_amount,
+                gt_policy,
+                gt_auth_name,
+                locked_until,
+                ve_factory_auth_policy,
+                max_ex_fee,
+                version,
+                last_wp_epoch,
+                last_gp_deadline,
+            };
+            let output_ref = ctx.select::<OutputRef>();
+            return Some(Snapshot::new(voting_escrow, output_ref));
+        }
+        None
     }
 }
 
 impl Stable for VotingEscrow {
-    type StableId = VotingEscrowStableId;
+    type StableId = PolicyId;
     fn stable_id(&self) -> Self::StableId {
-        self.stable_id
+        self.ve_factory_auth_policy
     }
     fn is_quasi_permanent(&self) -> bool {
         true
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+pub struct VotingEscrowConfig {
+    pub locked_until: Lock,
+    pub owner: Owner,
+    pub max_ex_fee: u32,
+    pub version: u32,
+    pub last_wp_epoch: u32,
+    pub last_gp_deadline: u32,
+}
+
+impl TryFromPData for VotingEscrowConfig {
+    fn try_from_pd(data: PlutusData) -> Option<Self> {
+        let mut cpd = data.into_constr_pd()?;
+        let locked_until = Lock::try_from_pd(cpd.take_field(0)?)?;
+        let owner = Owner::try_from_pd(cpd.take_field(1)?)?;
+        let max_ex_fee = cpd.take_field(2)?.into_u64()? as u32;
+        let version = cpd.take_field(3)?.into_u64()? as u32;
+        let last_wp_epoch = cpd.take_field(4)?.into_u64()? as u32;
+        let last_gp_deadline = cpd.take_field(5)?.into_u64()? as u32;
+
+        Some(Self {
+            locked_until,
+            owner,
+            max_ex_fee,
+            version,
+            last_wp_epoch,
+            last_gp_deadline,
+        })
+    }
+}
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum Lock {
     Def(NetworkTime),
     Indef(Duration),
@@ -133,6 +199,45 @@ impl IntoPlutusData for Lock {
                 vec![PlutusData::new_integer(d.as_millis().into())],
             )),
         }
+    }
+}
+
+impl TryFromPData for Lock {
+    fn try_from_pd(data: PlutusData) -> Option<Self> {
+        let mut cpd = data.into_constr_pd()?;
+        if cpd.alternative == 0 {
+            let pd = cpd.take_field(0)?;
+            let n = pd.into_u64()?;
+            return Some(Lock::Def(n));
+        } else if cpd.alternative == 1 {
+            let pd = cpd.take_field(0)?;
+            let millis = pd.clone().into_u64()?;
+            return Some(Lock::Indef(Duration::from_millis(millis)));
+        }
+        None
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum Owner {
+    PubKey(Vec<u8>),
+    Script(ScriptHash),
+}
+
+impl TryFromPData for Owner {
+    fn try_from_pd(data: PlutusData) -> Option<Self> {
+        let mut cpd = data.into_constr_pd()?;
+        if cpd.alternative == 0 {
+            let pd = cpd.take_field(0)?;
+            let bytes = pd.clone().into_bytes()?;
+            return Some(Owner::PubKey(bytes));
+        } else if cpd.alternative == 1 {
+            let pd = cpd.take_field(0)?;
+            if let Ok(script_hash) = ScriptHash::from_raw_bytes(&pd.clone().into_bytes()?) {
+                return Some(Owner::Script(script_hash));
+            }
+        }
+        None
     }
 }
 
@@ -252,7 +357,7 @@ impl IntoPlutusData for MintAction {
                     PlutusData::Integer(BigInteger::from(proposal_in_ix)),
                 ],
             )),
-            MintAction::Burn => PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![])),
+            MintAction::Burn => PlutusData::ConstrPlutusData(ConstrPlutusData::new(1, vec![])),
         }
     }
 }
@@ -277,4 +382,25 @@ pub fn compute_voting_escrow_policy_id(ve_factory_auth_policy: PolicyId) -> Poli
         ve_factory_auth_policy.to_raw_bytes().to_vec(),
     ))]);
     apply_params_validator(params_pd, VOTING_ESCROW_SCRIPT)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use cbor_event::de::Deserializer;
+    use cml_chain::{plutus::PlutusData, Deserialize};
+    use spectrum_cardano_lib::types::TryFromPData;
+
+    use crate::entities::onchain::voting_escrow::VotingEscrowConfig;
+
+    #[test]
+    fn test_ve_datum_deserialization() {
+        // Hex-encoded datum from preprod deployment TX
+        let bytes = hex::decode("d8799fd8799f01ffd8799f5820d129974b472a9ca1148791369969572e0db24075649211b60472e52a3fb3401aff01010101ff").unwrap();
+        let mut raw = Deserializer::from(Cursor::new(bytes));
+
+        let data = PlutusData::deserialize(&mut raw).unwrap();
+        assert!(VotingEscrowConfig::try_from_pd(data).is_some());
+    }
 }
