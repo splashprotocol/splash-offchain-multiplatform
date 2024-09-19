@@ -126,7 +126,7 @@ impl TryFrom<Vec<u8>> for AssetName {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Deserialize, SerializeDisplay)]
-#[serde(try_from = "String")]
+#[serde(try_from = "String", into = "String")]
 pub struct OutputRef(TransactionHash, u64);
 
 impl OutputRef {
@@ -188,6 +188,12 @@ impl TryFrom<&str> for OutputRef {
             ));
         }
         Err("Invalid OutputRef")
+    }
+}
+
+impl From<OutputRef> for String {
+    fn from(value: OutputRef) -> Self {
+        format!("{}#{}", value.0.to_hex(), value.1)
     }
 }
 
