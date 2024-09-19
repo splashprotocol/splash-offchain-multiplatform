@@ -1,8 +1,12 @@
+use cml_chain::{transaction::TransactionOutput, Value};
 use serde::{Deserialize, Serialize};
-use spectrum_cardano_lib::OutputRef;
-use spectrum_offchain::data::{HasIdentifier, Identifier, Stable};
+use spectrum_cardano_lib::{transaction::TransactionOutputExtension, OutputRef};
+use spectrum_offchain::{
+    data::{Has, HasIdentifier, Identifier, Stable},
+    ledger::TryFromLedger,
+};
 
-use crate::entities::Snapshot;
+use crate::{entities::Snapshot, protocol_config::OperatorCreds};
 
 pub type FundingBoxSnapshot = Snapshot<FundingBox, OutputRef>;
 
@@ -48,6 +52,27 @@ impl Stable for FundingBox {
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct FundingBox {
-    pub lovelaces: u64,
+    pub value: Value,
     pub id: FundingBoxId,
+}
+
+impl<C> TryFromLedger<TransactionOutput, C> for FundingBoxSnapshot
+where
+    C: Has<OperatorCreds> + Has<OutputRef>,
+{
+    fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
+        let OperatorCreds(_, addr) = ctx.select::<OperatorCreds>();
+        if addr == *repr.address() {
+            let value = repr.value().clone();
+            let output_ref = ctx.select::<OutputRef>();
+            return Some(Snapshot(
+                FundingBox {
+                    value,
+                    id: FundingBoxId(output_ref),
+                },
+                output_ref,
+            ));
+        }
+        None
+    }
 }

@@ -10,6 +10,7 @@ mod assets;
 pub mod constants;
 pub mod deployment;
 pub mod entities;
+pub mod funding;
 pub mod handler;
 pub mod protocol_config;
 mod routine;

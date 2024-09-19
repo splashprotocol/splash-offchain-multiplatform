@@ -1,8 +1,6 @@
 use async_trait::async_trait;
 use bloom_offchain_cardano::event_sink::processed_tx::TxViewAtEraBoundary;
 use cardano_chain_sync::data::LedgerTxEvent;
-use cml_crypto::TransactionHash;
-use cml_multi_era::babbage::BabbageTransaction;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 
 /// This event handler simply forwards the [`LedgerTxEvent`] to the `Behaviour` since the

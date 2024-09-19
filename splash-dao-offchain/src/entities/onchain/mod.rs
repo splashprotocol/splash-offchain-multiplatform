@@ -1,6 +1,6 @@
 use cml_chain::transaction::TransactionOutput;
 use cml_multi_era::babbage::BabbageTransactionOutput;
-use funding_box::FundingBox;
+use funding_box::{FundingBox, FundingBoxSnapshot};
 use inflation_box::{InflationBox, InflationBoxSnapshot};
 use permission_manager::{PermManager, PermManagerSnapshot};
 use poll_factory::{PollFactory, PollFactorySnapshot};
@@ -14,8 +14,8 @@ use weighting_poll::{WeightingPoll, WeightingPollSnapshot};
 use crate::{
     deployment::ProtocolValidator,
     protocol_config::{
-        GTAuthName, GTAuthPolicy, MintWPAuthPolicy, PermManagerAuthName, PermManagerAuthPolicy,
-        SplashAssetName, SplashPolicy, VEFactoryAuthName, VEFactoryAuthPolicy,
+        GTAuthName, GTAuthPolicy, MintWPAuthPolicy, OperatorCreds, PermManagerAuthName,
+        PermManagerAuthPolicy, SplashAssetName, SplashPolicy, VEFactoryAuthName, VEFactoryAuthPolicy,
     },
     CurrentEpoch,
 };
@@ -61,6 +61,7 @@ where
         + Has<DeployedScriptInfo<{ ProtocolValidator::PermManager as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
+        + Has<OperatorCreds>
         + Has<OutputRef>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
@@ -87,6 +88,9 @@ where
             WeightingPollSnapshot::try_from_ledger(repr, ctx)
         {
             Some(Snapshot(DaoEntity::WeightingPoll(weighting_poll), output_ref))
+        } else if let Some(Snapshot(funding_box, output_ref)) = FundingBoxSnapshot::try_from_ledger(repr, ctx)
+        {
+            Some(Snapshot(DaoEntity::FundingBox(funding_box), output_ref))
         } else {
             None
         }

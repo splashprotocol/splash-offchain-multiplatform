@@ -46,7 +46,7 @@ use crate::entities::onchain::{DaoEntity, DaoEntitySnapshot};
 use crate::entities::Snapshot;
 use crate::protocol_config::{
     GTAuthName, GTAuthPolicy, MintVECompositionPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy,
-    PermManagerAuthName, PermManagerAuthPolicy, ProtocolConfig, SplashAssetName, SplashPolicy,
+    OperatorCreds, PermManagerAuthName, PermManagerAuthPolicy, ProtocolConfig, SplashAssetName, SplashPolicy,
     VEFactoryAuthName, VEFactoryAuthPolicy,
 };
 use crate::routine::{retry_in, RoutineBehaviour, ToRoutine};
@@ -730,6 +730,14 @@ impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net> Has<Ou
 {
     fn select<U: IsEqual<OutputRef>>(&self) -> OutputRef {
         self.output_ref
+    }
+}
+
+impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net> Has<OperatorCreds>
+    for WithOutputRef<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
+{
+    fn select<U: IsEqual<OperatorCreds>>(&self) -> OperatorCreds {
+        self.behaviour.conf.get()
     }
 }
 
