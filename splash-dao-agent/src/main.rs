@@ -46,6 +46,7 @@ use spectrum_offchain_cardano::{
 use splash_dao_offchain::{
     deployment::{DaoDeployment, ProtocolDeployment},
     entities::offchain::voting_order::VotingOrder,
+    funding::FundingRepoRocksDB,
     handler::DaoHandler,
     protocol_config::{ProtocolConfig, ProtocolTokens},
     routines::inflation::{actions::CardanoInflationActions, Behaviour},
@@ -156,7 +157,7 @@ async fn main() {
         StateProjectionRocksDB::new(config.voting_escrow_persistence_config),
         StateProjectionRocksDB::new(config.smart_farm_persistence_config),
         StateProjectionRocksDB::new(config.perm_manager_persistence_config),
-        StateProjectionRocksDB::new(config.funding_box_config),
+        FundingRepoRocksDB::new(config.funding_box_config.db_path),
         setup_order_backlog(config.order_backlog_config).await,
         NetworkTimeSource {},
         inflation_actions,

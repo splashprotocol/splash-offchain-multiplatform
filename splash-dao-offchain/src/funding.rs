@@ -13,16 +13,26 @@ pub trait FundingRepo {
     async fn collect(&mut self) -> Result<Vec<FundingBox>, ()>;
     async fn put_confirmed(&mut self, f: Confirmed<FundingBox>);
     async fn put_predicted(&mut self, f: Predicted<FundingBox>);
-    async fn remove(&mut self, fid: FundingBoxId);
+    async fn remove(&mut self, f_id: FundingBoxId);
+    async fn restore_box(&mut self, f_id: FundingBoxId);
 }
 
 const STATE_PREFIX: &str = "s:";
 const CONFIRMED_PRIORITY: u8 = 0;
 const PREDICTED_PRIORITY: u8 = 5;
+const DELETED_PRIORITY: u8 = 15;
 
 #[derive(Clone)]
 pub struct FundingRepoRocksDB {
     pub db: Arc<rocksdb::OptimisticTransactionDB>,
+}
+
+impl FundingRepoRocksDB {
+    pub fn new(db_path: String) -> Self {
+        Self {
+            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(db_path).unwrap()),
+        }
+    }
 }
 
 #[async_trait::async_trait]
@@ -75,8 +85,31 @@ impl FundingRepo for FundingRepoRocksDB {
         let predicted_key = funding_key(STATE_PREFIX, PREDICTED_PRIORITY, &f_id);
         let confirmed_key = funding_key(STATE_PREFIX, CONFIRMED_PRIORITY, &f_id);
         spawn_blocking(move || {
-            db.delete(&predicted_key).unwrap();
-            db.delete(&confirmed_key).unwrap();
+            if db.get(&predicted_key).unwrap().is_some() {
+                assert!(db.get(&confirmed_key).unwrap().is_none());
+                db.delete(&predicted_key).unwrap();
+            } else if let Some(confirmed_bytes) = db.get(&confirmed_key).unwrap() {
+                let tx = db.transaction();
+                tx.delete(&confirmed_key).unwrap();
+                let deleted_key = funding_key(STATE_PREFIX, DELETED_PRIORITY, &f_id);
+                tx.put(deleted_key, confirmed_bytes).unwrap();
+                tx.commit().unwrap();
+            }
+        })
+        .await
+    }
+
+    async fn restore_box(&mut self, f_id: FundingBoxId) {
+        let db = self.db.clone();
+        let deleted_key = funding_key(STATE_PREFIX, DELETED_PRIORITY, &f_id);
+        spawn_blocking(move || {
+            if let Some(deleted_bytes) = db.get(&deleted_key).unwrap() {
+                let tx = db.transaction();
+                tx.delete(&deleted_key).unwrap();
+                let confirmed_key = funding_key(STATE_PREFIX, CONFIRMED_PRIORITY, &f_id);
+                tx.put(confirmed_key, deleted_bytes).unwrap();
+                tx.commit().unwrap();
+            }
         })
         .await
     }
@@ -138,6 +171,35 @@ mod tests {
         for _ in 0..5 {
             let f = funding_boxes.pop().unwrap();
             db.remove(f.id).await;
+        }
+
+        funding_boxes.sort_by(|f0, f1| f0.id.cmp(&f1.id));
+        let mut collected = db.collect().await.unwrap();
+        collected.sort_by(|f0, f1| f0.id.cmp(&f1.id));
+        assert_eq!(collected, funding_boxes);
+    }
+
+    #[tokio::test]
+    async fn test_funding_deletion_and_restoration() {
+        let mut db = spawn_db();
+        let mut funding_boxes: Vec<_> = std::iter::repeat_with(gen_funding_box).take(20).collect();
+
+        for f in &funding_boxes {
+            db.put_confirmed(Confirmed(f.clone())).await;
+        }
+
+        let mut rng = rand::thread_rng();
+        funding_boxes.shuffle(&mut rng);
+
+        let mut removed_ids = vec![];
+        for f in funding_boxes.iter().rev().take(5) {
+            removed_ids.push(f.id);
+            db.remove(f.id).await;
+        }
+
+        // Now restore them
+        for id in removed_ids {
+            db.restore_box(id).await;
         }
 
         funding_boxes.sort_by(|f0, f1| f0.id.cmp(&f1.id));

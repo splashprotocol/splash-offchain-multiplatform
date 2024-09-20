@@ -44,6 +44,7 @@ use crate::entities::onchain::weighting_poll::{
 };
 use crate::entities::onchain::{DaoEntity, DaoEntitySnapshot};
 use crate::entities::Snapshot;
+use crate::funding::FundingRepo;
 use crate::protocol_config::{
     GTAuthName, GTAuthPolicy, MintVECompositionPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy,
     OperatorCreds, PermManagerAuthName, PermManagerAuthPolicy, ProtocolConfig, SplashAssetName, SplashPolicy,
@@ -108,10 +109,7 @@ where
         + StateProjectionWrite<PermManagerSnapshot, Bearer>
         + Send
         + Sync,
-    FB: StateProjectionRead<FundingBoxSnapshot, Bearer>
-        + StateProjectionWrite<FundingBoxSnapshot, Bearer>
-        + Send
-        + Sync,
+    FB: FundingRepo + Send + Sync,
     Time: NetworkTimeProvider + Send + Sync,
     Actions: InflationActions<Bearer> + Send + Sync,
     Bearer: Send + Sync,
@@ -341,10 +339,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
             + StateProjectionWrite<PermManagerSnapshot, Bearer>
             + Send
             + Sync,
-        FB: StateProjectionRead<FundingBoxSnapshot, Bearer>
-            + StateProjectionWrite<FundingBoxSnapshot, Bearer>
-            + Send
-            + Sync,
+        FB: FundingRepo + Send + Sync,
     {
         match entity.get() {
             DaoEntity::Inflation(ib) => {
@@ -445,19 +440,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
             }
 
             DaoEntity::FundingBox(fb) => {
-                let confirmed_snapshot =
-                    Confirmed(Bundled(Snapshot::new(fb.clone(), *entity.version()), bearer));
-                let prev_state_id = if let Some(state) = self.funding_box.read(fb.id).await {
-                    let bundled = state.erased();
-                    Some(bundled.version())
-                } else {
-                    None
-                };
-                let traced = Traced {
-                    state: confirmed_snapshot,
-                    prev_state_id,
-                };
-                self.funding_box.write_confirmed(traced).await;
+                self.funding_box.put_confirmed(Confirmed(fb.clone())).await;
             }
         }
     }
@@ -609,10 +592,7 @@ where
         + StateProjectionWrite<PermManagerSnapshot, TransactionOutput>
         + Send
         + Sync,
-    FB: StateProjectionRead<FundingBoxSnapshot, TransactionOutput>
-        + StateProjectionWrite<FundingBoxSnapshot, TransactionOutput>
-        + Send
-        + Sync,
+    FB: FundingRepo + Send + Sync,
     Time: NetworkTimeProvider + Send + Sync,
     Actions: InflationActions<TransactionOutput> + Send + Sync,
     Net: Network<OutboundTransaction<Transaction>, RejectReasons> + Clone + Sync + Send,
@@ -645,13 +625,18 @@ where
                         ix = ix.saturating_sub(1);
                     }
                 }
+
+                for input in inputs {
+                    let id = FundingBoxId::from(OutputRef::from(input));
+                    self.funding_box.remove(id).await;
+                }
             }
             LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary {
                 hash,
                 inputs,
                 outputs,
             }) => {
-                for ix in 0..inputs.len() {
+                for ix in 0..outputs.len() {
                     let ver = OutputRef::new(hash, ix as u64);
                     if let Some(id) = self.inflation_box.get_id(ver).await {
                         self.inflation_box.remove(id).await;
@@ -665,10 +650,14 @@ where
                         self.smart_farm.remove(id).await;
                     } else if let Some(id) = self.perm_manager.get_id(ver).await {
                         self.perm_manager.remove(id).await;
+                    } else {
+                        self.funding_box.remove(FundingBoxId::from(ver)).await;
                     }
-                    //else if let Some(id) = self.behaviour.backlog.get_id(ver).await {
-                    //    self.behaviour.backlog.remove(id).await;
-                    //}
+                }
+
+                for input in inputs {
+                    let id = FundingBoxId::from(OutputRef::from(input));
+                    self.funding_box.restore_box(id).await;
                 }
             }
         }
