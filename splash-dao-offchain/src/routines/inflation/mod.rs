@@ -628,7 +628,7 @@ where
 
                 for input in inputs {
                     let id = FundingBoxId::from(OutputRef::from(input));
-                    self.funding_box.remove(id).await;
+                    self.funding_box.spend_confirmed(id).await;
                 }
             }
             LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary {
@@ -651,13 +651,13 @@ where
                     } else if let Some(id) = self.perm_manager.get_id(ver).await {
                         self.perm_manager.remove(id).await;
                     } else {
-                        self.funding_box.remove(FundingBoxId::from(ver)).await;
+                        self.funding_box.spend_confirmed(FundingBoxId::from(ver)).await;
                     }
                 }
 
                 for input in inputs {
                     let id = FundingBoxId::from(OutputRef::from(input));
-                    self.funding_box.restore_box(id).await;
+                    self.funding_box.unspend_confirmed(id).await;
                 }
             }
         }

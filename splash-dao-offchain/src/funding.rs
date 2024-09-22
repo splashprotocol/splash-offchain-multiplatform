@@ -13,14 +13,17 @@ pub trait FundingRepo {
     async fn collect(&mut self) -> Result<Vec<FundingBox>, ()>;
     async fn put_confirmed(&mut self, f: Confirmed<FundingBox>);
     async fn put_predicted(&mut self, f: Predicted<FundingBox>);
-    async fn remove(&mut self, f_id: FundingBoxId);
-    async fn restore_box(&mut self, f_id: FundingBoxId);
+    async fn spend_confirmed(&mut self, f_id: FundingBoxId);
+    async fn unspend_confirmed(&mut self, f_id: FundingBoxId);
+    async fn spend_predicted(&mut self, f_id: FundingBoxId);
+    async fn unspend_predicted(&mut self, f_id: FundingBoxId);
 }
 
 const STATE_PREFIX: &str = "s:";
-const CONFIRMED_PRIORITY: u8 = 0;
-const PREDICTED_PRIORITY: u8 = 5;
-const DELETED_PRIORITY: u8 = 15;
+const CONFIRMED_AVAILABLE: u8 = 0;
+const PREDICTED_AVAILABLE: u8 = 5;
+const CONFIRMED_SPENT: u8 = 15;
+const PREDICTED_SPENT: u8 = 20;
 
 #[derive(Clone)]
 pub struct FundingRepoRocksDB {
@@ -41,7 +44,7 @@ impl FundingRepo for FundingRepoRocksDB {
         let db = Arc::clone(&self.db);
         let mut res = vec![];
         spawn_blocking(move || {
-            let prefix = funding_key_prefix(STATE_PREFIX, CONFIRMED_PRIORITY);
+            let prefix = funding_key_prefix(STATE_PREFIX, CONFIRMED_AVAILABLE);
             let mut readopts = ReadOptions::default();
             readopts.set_iterate_range(rocksdb::PrefixRange(prefix.clone()));
             let mut iter = db.iterator_opt(IteratorMode::From(&prefix, Direction::Forward), readopts);
@@ -56,8 +59,8 @@ impl FundingRepo for FundingRepoRocksDB {
 
     async fn put_confirmed(&mut self, Confirmed(f): Confirmed<FundingBox>) {
         let db = self.db.clone();
-        let predicted_key = funding_key(STATE_PREFIX, PREDICTED_PRIORITY, &f.id);
-        let confirmed_key = funding_key(STATE_PREFIX, CONFIRMED_PRIORITY, &f.id);
+        let predicted_key = funding_key(STATE_PREFIX, PREDICTED_AVAILABLE, &f.id);
+        let confirmed_key = funding_key(STATE_PREFIX, CONFIRMED_AVAILABLE, &f.id);
         spawn_blocking(move || {
             let tx = db.transaction();
             if db.get(&predicted_key).unwrap().is_some() {
@@ -72,7 +75,7 @@ impl FundingRepo for FundingRepoRocksDB {
 
     async fn put_predicted(&mut self, Predicted(f): Predicted<FundingBox>) {
         let db = self.db.clone();
-        let predicted_key = funding_key(STATE_PREFIX, PREDICTED_PRIORITY, &f.id);
+        let predicted_key = funding_key(STATE_PREFIX, PREDICTED_AVAILABLE, &f.id);
         spawn_blocking(move || {
             db.put(predicted_key, rmp_serde::to_vec_named(&f).unwrap())
                 .unwrap();
@@ -80,36 +83,68 @@ impl FundingRepo for FundingRepoRocksDB {
         .await
     }
 
-    async fn remove(&mut self, f_id: FundingBoxId) {
+    async fn spend_confirmed(&mut self, f_id: FundingBoxId) {
         let db = self.db.clone();
-        let predicted_key = funding_key(STATE_PREFIX, PREDICTED_PRIORITY, &f_id);
-        let confirmed_key = funding_key(STATE_PREFIX, CONFIRMED_PRIORITY, &f_id);
+        let predicted_key = funding_key(STATE_PREFIX, PREDICTED_AVAILABLE, &f_id);
+        let confirmed_key = funding_key(STATE_PREFIX, CONFIRMED_AVAILABLE, &f_id);
         spawn_blocking(move || {
-            if db.get(&predicted_key).unwrap().is_some() {
-                assert!(db.get(&confirmed_key).unwrap().is_none());
-                db.delete(&predicted_key).unwrap();
-            } else if let Some(confirmed_bytes) = db.get(&confirmed_key).unwrap() {
-                let tx = db.transaction();
-                tx.delete(&confirmed_key).unwrap();
-                let deleted_key = funding_key(STATE_PREFIX, DELETED_PRIORITY, &f_id);
-                tx.put(deleted_key, confirmed_bytes).unwrap();
-                tx.commit().unwrap();
-            }
+            assert!(db.get(&predicted_key).unwrap().is_none());
+            let confirmed_bytes = db.get(&confirmed_key).unwrap().unwrap();
+
+            let tx = db.transaction();
+            tx.delete(&confirmed_key).unwrap();
+            let spent_key = funding_key(STATE_PREFIX, CONFIRMED_SPENT, &f_id);
+            tx.put(spent_key, confirmed_bytes).unwrap();
+            tx.commit().unwrap();
         })
         .await
     }
 
-    async fn restore_box(&mut self, f_id: FundingBoxId) {
+    async fn unspend_confirmed(&mut self, f_id: FundingBoxId) {
         let db = self.db.clone();
-        let deleted_key = funding_key(STATE_PREFIX, DELETED_PRIORITY, &f_id);
+        let spent_key = funding_key(STATE_PREFIX, CONFIRMED_SPENT, &f_id);
         spawn_blocking(move || {
-            if let Some(deleted_bytes) = db.get(&deleted_key).unwrap() {
-                let tx = db.transaction();
-                tx.delete(&deleted_key).unwrap();
-                let confirmed_key = funding_key(STATE_PREFIX, CONFIRMED_PRIORITY, &f_id);
-                tx.put(confirmed_key, deleted_bytes).unwrap();
-                tx.commit().unwrap();
-            }
+            let spent_box_bytes = db.get(&spent_key).unwrap().unwrap();
+            let tx = db.transaction();
+            tx.delete(&spent_key).unwrap();
+            let confirmed_key = funding_key(STATE_PREFIX, CONFIRMED_AVAILABLE, &f_id);
+            tx.put(confirmed_key, spent_box_bytes).unwrap();
+            tx.commit().unwrap();
+        })
+        .await
+    }
+
+    async fn spend_predicted(&mut self, f_id: FundingBoxId) {
+        let db = self.db.clone();
+        let predicted_key = funding_key(STATE_PREFIX, PREDICTED_AVAILABLE, &f_id);
+        let confirmed_key = funding_key(STATE_PREFIX, CONFIRMED_AVAILABLE, &f_id);
+        spawn_blocking(move || {
+            // Can only spend a confirmed UTxO
+            assert!(db.get(&predicted_key).unwrap().is_none());
+            let predicted_bytes = db.get(&confirmed_key).unwrap().unwrap();
+
+            let tx = db.transaction();
+            tx.delete(&confirmed_key).unwrap();
+            let spent_key = funding_key(STATE_PREFIX, PREDICTED_SPENT, &f_id);
+            tx.put(spent_key, predicted_bytes).unwrap();
+            tx.commit().unwrap();
+        })
+        .await
+    }
+
+    async fn unspend_predicted(&mut self, f_id: FundingBoxId) {
+        let db = self.db.clone();
+        let spent_key = funding_key(STATE_PREFIX, PREDICTED_SPENT, &f_id);
+        spawn_blocking(move || {
+            let spent_box_bytes = db.get(&spent_key).unwrap().unwrap();
+            let tx = db.transaction();
+            tx.delete(&spent_key).unwrap();
+
+            // We only form a TX to spend confirmed UTxOs, so if we unspend a predicted UTxO it will
+            // revert back to a confirmed-available state.
+            let confirmed_key = funding_key(STATE_PREFIX, CONFIRMED_AVAILABLE, &f_id);
+            tx.put(confirmed_key, spent_box_bytes).unwrap();
+            tx.commit().unwrap();
         })
         .await
     }
@@ -170,7 +205,7 @@ mod tests {
         funding_boxes.shuffle(&mut rng);
         for _ in 0..5 {
             let f = funding_boxes.pop().unwrap();
-            db.remove(f.id).await;
+            db.spend_confirmed(f.id).await;
         }
 
         funding_boxes.sort_by(|f0, f1| f0.id.cmp(&f1.id));
@@ -180,28 +215,38 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_funding_deletion_and_restoration() {
+    async fn test_funding_spending_and_unspending() {
         let mut db = spawn_db();
         let mut funding_boxes: Vec<_> = std::iter::repeat_with(gen_funding_box).take(20).collect();
+        funding_boxes.sort_by(|f0, f1| f0.id.cmp(&f1.id));
 
         for f in &funding_boxes {
             db.put_confirmed(Confirmed(f.clone())).await;
         }
 
-        let mut rng = rand::thread_rng();
-        funding_boxes.shuffle(&mut rng);
-
-        let mut removed_ids = vec![];
+        // Confirmed-spend the last 5 boxes
+        let mut spent_confirmed_ids = vec![];
         for f in funding_boxes.iter().rev().take(5) {
-            removed_ids.push(f.id);
-            db.remove(f.id).await;
+            spent_confirmed_ids.push(f.id);
+            db.spend_confirmed(f.id).await;
         }
 
-        // Now restore them
-        for id in removed_ids {
-            db.restore_box(id).await;
+        // Predicted-spend the boxes from index 5 to 9
+        let mut spent_predicted_ids = vec![];
+        for f in funding_boxes.iter().rev().skip(5).take(5) {
+            spent_predicted_ids.push(f.id);
+            db.spend_predicted(f.id).await;
         }
 
+        for id in spent_confirmed_ids {
+            db.unspend_confirmed(id).await;
+        }
+
+        for id in spent_predicted_ids {
+            db.unspend_predicted(id).await;
+        }
+
+        // After unspending, we have all the original boxes available again.
         funding_boxes.sort_by(|f0, f1| f0.id.cmp(&f1.id));
         let mut collected = db.collect().await.unwrap();
         collected.sort_by(|f0, f1| f0.id.cmp(&f1.id));
