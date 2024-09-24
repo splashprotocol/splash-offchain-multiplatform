@@ -44,7 +44,7 @@ impl SpecializedOrder for AtomicCardanoEntity {
 
 impl<C> TryFromLedger<TransactionOutput, C> for AtomicCardanoEntity
 where
-    C: Copy
+    C: Clone
         + Has<OperatorCred>
         + Has<OutputRef>
         + Has<DeployedScriptInfo<{ ConstFnPoolSwap as u8 }>>
@@ -102,7 +102,7 @@ impl Tradable for EvolvingCardanoEntity {
 
 impl<C> TryFromLedger<TransactionOutput, C> for EvolvingCardanoEntity
 where
-    C: Copy
+    C: Clone
         + Has<OperatorCred>
         + Has<OutputRef>
         + Has<ConsumedInputs>

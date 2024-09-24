@@ -66,7 +66,7 @@ async fn auth(
     );
     if !captcha.verify(req.token.clone()).await {
         info!("Captcha verification failed");
-        return HttpResponse::Ok().body("Verification failed")
+        return HttpResponse::Ok().body("Verification failed");
     }
     match token_opt {
         None => HttpResponse::BadRequest().body("ADA/ADA request"),
@@ -80,15 +80,21 @@ async fn auth(
                             let pool_created_time = pool_info.created_on.as_secs();
 
                             let diff_between_order_and_pool_creation_in_mins =
-                                (since_the_epoch.as_secs() as i64 - pool_info.created_on.as_secs() as i64) / 60;
+                                (since_the_epoch.as_secs() as i64 - pool_info.created_on.as_secs() as i64)
+                                    / 60;
 
-                            info!("Difference between pool creation {} and request time is {} min.", pool_created_time, diff_between_order_and_pool_creation_in_mins);
+                            info!(
+                                "Difference between pool creation {} and request time is {} min.",
+                                pool_created_time, diff_between_order_and_pool_creation_in_mins
+                            );
 
                             match diff_between_order_and_pool_creation_in_mins {
                                 less_than_3_min if less_than_3_min < 3 => {
                                     req.input_amount <= limits.three_min_limit
                                 }
-                                less_than_6_min if less_than_6_min < 6 => req.input_amount <= limits.six_min_limit,
+                                less_than_6_min if less_than_6_min < 6 => {
+                                    req.input_amount <= limits.six_min_limit
+                                }
                                 less_than_9_min if less_than_9_min < 9 => {
                                     req.input_amount <= limits.nine_min_limit
                                 }
@@ -114,7 +120,10 @@ async fn auth(
                     let body = serde_json::to_string(&response).unwrap();
                     HttpResponse::Ok().content_type(ContentType::json()).body(body)
                 } else {
-                    error!("pool_verification_result_is_success {} for request {:?}", pool_verification_result_is_success, req);
+                    error!(
+                        "pool_verification_result_is_success {} for request {:?}",
+                        pool_verification_result_is_success, req
+                    );
                     HttpResponse::Ok().body("Verification failed")
                 };
                 Ok(response)
@@ -142,7 +151,7 @@ struct AppConfig {
     re_captcha_secret: ReCaptchaSecret,
     secret_bech32: String,
     analytics_snek_url: String,
-    limits: Limits
+    limits: Limits,
 }
 
 #[actix_web::main]

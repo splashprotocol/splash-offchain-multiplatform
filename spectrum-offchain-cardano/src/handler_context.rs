@@ -30,6 +30,9 @@ impl<I: Copy> Default for ProducedIdentifiers<I> {
 #[derive(Debug, Copy, Clone, From, Into)]
 pub struct AuthVerificationKey([u8; 32]);
 impl AuthVerificationKey {
+    pub fn from_bytes(pk_bytes: [u8; 32]) -> Self {
+        AuthVerificationKey(pk_bytes)
+    }
     pub fn get_verification_key(&self) -> PublicKey {
         PublicKey::from_raw_bytes(&self.0).unwrap()
     }

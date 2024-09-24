@@ -64,6 +64,7 @@ use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
 use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::data::pool::AnyPool;
 use spectrum_offchain_cardano::deployment::{DeployedValidators, ProtocolDeployment, ProtocolScriptHashes};
+use spectrum_offchain_cardano::handler_context::AuthVerificationKey;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
 
@@ -204,6 +205,7 @@ async fn main() {
         scripts: ProtocolScriptHashes::from(&protocol_deployment),
         adhoc_fee_structure: AdhocFeeStructure::empty(),
         validation_rules,
+        auth_verification_key: AuthVerificationKey::from_bytes([0u8; 32]),
     };
     let general_upd_handler = PairUpdateHandler::new(
         partitioned_pair_upd_snd,
