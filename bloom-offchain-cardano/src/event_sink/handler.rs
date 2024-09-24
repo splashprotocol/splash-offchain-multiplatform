@@ -5,7 +5,7 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use crate::event_sink::context::{HandlerContext, HandlerContextProto};
+use crate::event_sink::context::{ContextCreator, HandlerContext, HandlerContextProto};
 use crate::event_sink::entity_index::TradableEntityIndex;
 use crate::event_sink::order_index::KvIndex;
 use crate::event_sink::processed_tx::TxViewAtEraBoundary;
@@ -264,20 +264,18 @@ where
 /// A handler for updates that routes resulted [Entity] updates
 /// into different topics [Topic] according to partitioning key [PairId].
 #[derive(Clone)]
-pub struct PairUpdateHandler<const N: usize, PairId, Topic, Entity, Index> {
+pub struct PairUpdateHandler<const N: usize, PairId, Topic, Entity, Index, Proto> {
     pub topic: Partitioned<N, PairId, Topic>,
     /// Index of all non-consumed states of [Entity].
     pub index: Arc<Mutex<Index>>,
-    pub context: HandlerContextProto,
+    pub context: Proto,
     pub pd: PhantomData<Entity>,
 }
 
-impl<const N: usize, PairId, Topic, Entity, Index> PairUpdateHandler<N, PairId, Topic, Entity, Index> {
-    pub fn new(
-        topic: Partitioned<N, PairId, Topic>,
-        index: Arc<Mutex<Index>>,
-        context: HandlerContextProto,
-    ) -> Self {
+impl<const N: usize, PairId, Topic, Entity, Index, Proto>
+    PairUpdateHandler<N, PairId, Topic, Entity, Index, Proto>
+{
+    pub fn new(topic: Partitioned<N, PairId, Topic>, index: Arc<Mutex<Index>>, context: Proto) -> Self {
         Self {
             topic,
             index,
@@ -307,16 +305,17 @@ impl<H, OrderIndex, Pool, Ctx> SpecializedHandler<H, OrderIndex, Pool, Ctx> {
 }
 
 #[async_trait]
-impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex, K>
+impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex, K, Proto>
     EventHandler<LedgerTxEvent<TxViewAtEraBoundary>>
-    for SpecializedHandler<PairUpdateHandler<N, PairId, Topic, Order, PoolIndex>, OrderIndex, Pool, K>
+    for SpecializedHandler<PairUpdateHandler<N, PairId, Topic, Order, PoolIndex, Proto>, OrderIndex, Pool, K>
 where
+    Proto: Copy + Send + ContextCreator<K>,
     PairId: Copy + Hash + Eq + Send,
     Topic: Sink<(PairId, Channel<OrderUpdate<Order, Order>>)> + Send + Unpin,
     Topic::Error: Debug,
     Pool: EntitySnapshot + Tradable<PairId = PairId> + Send,
     Order: SpecializedOrder<TPoolId = Pool::StableId>
-        + TryFromLedger<TransactionOutput, HandlerContext<K>>
+        + TryFromLedger<TransactionOutput, Proto::Ctx>
         + Clone
         + Debug
         + Send,
@@ -411,16 +410,17 @@ where
 }
 
 #[async_trait]
-impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex, K>
+impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex, K, Proto>
     EventHandler<MempoolUpdate<TxViewAtEraBoundary>>
-    for SpecializedHandler<PairUpdateHandler<N, PairId, Topic, Order, PoolIndex>, OrderIndex, Pool, K>
+    for SpecializedHandler<PairUpdateHandler<N, PairId, Topic, Order, PoolIndex, Proto>, OrderIndex, Pool, K>
 where
+    Proto: Copy + Send + ContextCreator<K>,
     PairId: Copy + Hash + Eq + Send,
     Topic: Sink<(PairId, Channel<OrderUpdate<Order, Order>>)> + Send + Unpin,
     Topic::Error: Debug,
     Pool: EntitySnapshot + Tradable<PairId = PairId> + Send,
     Order: SpecializedOrder<TPoolId = Pool::StableId>
-        + TryFromLedger<TransactionOutput, HandlerContext<K>>
+        + TryFromLedger<TransactionOutput, Proto::Ctx>
         + Clone
         + Debug
         + Send,
@@ -488,13 +488,14 @@ fn pool_ref_of<T: SpecializedOrder>(tr: &Either<T, T>) -> T::TPoolId {
     }
 }
 
-async fn extract_atomic_transitions<Order, Index, K>(
+async fn extract_atomic_transitions<Order, Index, K, Proto>(
     index: Arc<Mutex<Index>>,
-    context: HandlerContextProto,
+    context_proto: Proto,
     mut tx: TxViewAtEraBoundary,
 ) -> Result<(Vec<Either<Order, Order>>, TxViewAtEraBoundary), TxViewAtEraBoundary>
 where
-    Order: SpecializedOrder + TryFromLedger<TransactionOutput, HandlerContext<K>> + Clone,
+    Proto: Copy + ContextCreator<K>,
+    Order: SpecializedOrder + TryFromLedger<TransactionOutput, Proto::Ctx> + Clone,
     Order::TOrderId: From<OutputRef> + Display,
     Index: KvIndex<Order::TOrderId, Order>,
     K: Copy,
@@ -523,13 +524,13 @@ where
         let o_ref = OutputRef::new(tx.hash, ix as u64);
         match Order::try_from_ledger(
             &o,
-            &HandlerContext::new(
+            &Proto::create_ctx(
+                context_proto,
                 o_ref,
                 tx.metadata.clone(),
                 consumed_utxos.into(),
                 Default::default(),
                 Default::default(),
-                context,
             ),
         ) {
             Some(order) => {
@@ -567,16 +568,14 @@ where
     Ok((transitions, tx))
 }
 
-async fn extract_continuous_transitions<Entity, Index>(
+async fn extract_continuous_transitions<Entity, Index, Proto>(
     index: Arc<Mutex<Index>>,
-    context: HandlerContextProto,
+    context_proto: Proto,
     mut tx: TxViewAtEraBoundary,
 ) -> Result<(Vec<Ior<Entity, Entity>>, TxViewAtEraBoundary), TxViewAtEraBoundary>
 where
-    Entity: EntitySnapshot
-        + Tradable
-        + TryFromLedger<TransactionOutput, HandlerContext<Entity::StableId>>
-        + Clone,
+    Proto: Copy + ContextCreator<Entity::StableId>,
+    Entity: EntitySnapshot + Tradable + TryFromLedger<TransactionOutput, Proto::Ctx> + Clone,
     Entity::Version: From<OutputRef>,
     Index: TradableEntityIndex<Entity>,
 {
@@ -608,13 +607,13 @@ where
         let produced_identifiers = SmallVec::new(produced_entities.keys().cloned());
         match Entity::try_from_ledger(
             &o,
-            &HandlerContext::new(
+            &Proto::create_ctx(
+                context_proto,
                 o_ref,
                 tx.metadata.clone(),
                 consumed_utxos.into(),
                 consumed_identifiers.into(),
                 produced_identifiers.into(),
-                context,
             ),
         ) {
             Some(entity) => {
@@ -659,15 +658,16 @@ fn pair_id_of<T: Tradable>(xa: &Ior<T, T>) -> T::PairId {
 }
 
 #[async_trait]
-impl<const N: usize, PairId, Topic, Entity, Index> EventHandler<LedgerTxEvent<TxViewAtEraBoundary>>
-    for PairUpdateHandler<N, PairId, Topic, Entity, Index>
+impl<const N: usize, PairId, Topic, Entity, Index, Proto> EventHandler<LedgerTxEvent<TxViewAtEraBoundary>>
+    for PairUpdateHandler<N, PairId, Topic, Entity, Index, Proto>
 where
+    Proto: Copy + Send + ContextCreator<Entity::StableId>,
     PairId: Copy + Hash + Eq + Send,
     Topic: Sink<(PairId, Channel<StateUpdate<Entity>>)> + Unpin + Send,
     Topic::Error: Debug,
     Entity: EntitySnapshot
         + Tradable<PairId = PairId>
-        + TryFromLedger<TransactionOutput, HandlerContext<Entity::StableId>>
+        + TryFromLedger<TransactionOutput, Proto::Ctx>
         + Clone
         + Debug
         + Send,
@@ -744,15 +744,16 @@ where
 }
 
 #[async_trait]
-impl<const N: usize, PairId, Topic, Entity, Index> EventHandler<MempoolUpdate<TxViewAtEraBoundary>>
-    for PairUpdateHandler<N, PairId, Topic, Entity, Index>
+impl<const N: usize, PairId, Topic, Entity, Index, Proto> EventHandler<MempoolUpdate<TxViewAtEraBoundary>>
+    for PairUpdateHandler<N, PairId, Topic, Entity, Index, Proto>
 where
+    Proto: Copy + Send + ContextCreator<Entity::StableId>,
     PairId: Copy + Hash + Eq + Send,
     Topic: Sink<(PairId, Channel<StateUpdate<Entity>>)> + Unpin + Send,
     Topic::Error: Debug,
     Entity: EntitySnapshot
         + Tradable<PairId = PairId>
-        + TryFromLedger<TransactionOutput, HandlerContext<Entity::StableId>>
+        + TryFromLedger<TransactionOutput, Proto::Ctx>
         + Clone
         + Debug
         + Send,
@@ -1087,7 +1088,6 @@ mod tests {
                 },
             },
             adhoc_fee_structure: AdhocFeeStructure::empty(),
-            auth_verification_key: AuthVerificationKey::from([0u8; 32]),
         };
         let mut handler = PairUpdateHandler::new(Partitioned::new([snd]), index, context);
         // Handle tx application

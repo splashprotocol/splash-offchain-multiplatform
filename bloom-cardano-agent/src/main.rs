@@ -205,7 +205,6 @@ async fn main() {
         scripts: ProtocolScriptHashes::from(&protocol_deployment),
         adhoc_fee_structure: AdhocFeeStructure::empty(),
         validation_rules,
-        auth_verification_key: AuthVerificationKey::from_bytes([0u8; 32]),
     };
     let general_upd_handler = PairUpdateHandler::new(
         partitioned_pair_upd_snd,

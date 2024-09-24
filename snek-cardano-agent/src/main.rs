@@ -14,6 +14,7 @@ use tracing_subscriber::fmt::Subscriber;
 use crate::config::AppConfig;
 use crate::context::{ExecutionContext, MakerContext};
 use crate::entity::{AtomicCardanoEntity, EvolvingCardanoEntity};
+use crate::snek_handler_context::SnekHandlerContextProto;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_part_stream;
 use bloom_offchain::execution_engine::funding_effect::FundingEvent;
@@ -67,6 +68,7 @@ use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSub
 mod config;
 mod context;
 mod entity;
+mod snek_handler_context;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 8)]
 async fn main() {
@@ -190,7 +192,7 @@ async fn main() {
     let funding_index = Arc::new(Mutex::new(InMemoryKvIndex::new(
         config.cardano_finalization_delay,
     )));
-    let handler_context = HandlerContextProto {
+    let handler_context = SnekHandlerContextProto {
         executor_cred: operator_paycred,
         scripts: ProtocolScriptHashes::from(&protocol_deployment),
         validation_rules,
