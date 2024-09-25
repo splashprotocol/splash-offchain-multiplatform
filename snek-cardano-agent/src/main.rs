@@ -14,6 +14,11 @@ use tracing_subscriber::fmt::Subscriber;
 use crate::config::AppConfig;
 use crate::context::{ExecutionContext, MakerContext};
 use crate::entity::{AtomicCardanoEntity, EvolvingCardanoEntity};
+use crate::snek_handler_context::{SnekHandlerContext, SnekHandlerContextProto};
+use crate::snek_protocol_deployment::{
+    SnekDeployedValidators, SnekProtocolDeployment, SnekProtocolScriptHashes,
+};
+use crate::snek_validation_rules::SnekValidationRules;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_part_stream;
 use bloom_offchain::execution_engine::funding_effect::FundingEvent;
@@ -22,7 +27,6 @@ use bloom_offchain::execution_engine::liquidity_book::TLB;
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
 use bloom_offchain::execution_engine::storage::kv_store::InMemoryKvStore;
 use bloom_offchain::execution_engine::storage::InMemoryStateIndex;
-use bloom_offchain_cardano::event_sink::context::HandlerContextProto;
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
 use bloom_offchain_cardano::event_sink::handler::{FundingEventHandler, PairUpdateHandler};
 use bloom_offchain_cardano::event_sink::order_index::InMemoryKvIndex;
@@ -32,7 +36,6 @@ use bloom_offchain_cardano::execution_engine::interpreter::CardanoRecipeInterpre
 use bloom_offchain_cardano::integrity::CheckIntegrity;
 use bloom_offchain_cardano::orders::adhoc::AdhocOrder;
 use bloom_offchain_cardano::partitioning::select_partition;
-use bloom_offchain_cardano::validation_rules::ValidationRules;
 use cardano_chain_sync::cache::LedgerCacheRocksDB;
 use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::ChainSyncClient;
@@ -46,7 +49,7 @@ use spectrum_cardano_lib::constants::CONWAY_ERA_ID;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::OutboundTransaction;
-use spectrum_cardano_lib::OutputRef;
+use spectrum_cardano_lib::{OutputRef, Token};
 use spectrum_offchain::backlog::{BacklogCapacity, HotPriorityBacklog};
 use spectrum_offchain::data::event::{Channel, StateUpdate};
 use spectrum_offchain::data::order::OrderUpdate;
@@ -60,13 +63,16 @@ use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::data::degen_quadratic_pool::DegenQuadraticPool;
 use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
 use spectrum_offchain_cardano::data::pair::PairId;
-use spectrum_offchain_cardano::deployment::{DeployedValidators, ProtocolDeployment, ProtocolScriptHashes};
+use spectrum_offchain_cardano::deployment::DeployedValidators;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
 
 mod config;
 mod context;
 mod entity;
+mod snek_handler_context;
+mod snek_protocol_deployment;
+mod snek_validation_rules;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 8)]
 async fn main() {
@@ -81,12 +87,12 @@ async fn main() {
     }
 
     let raw_deployment = std::fs::read_to_string(args.deployment_path).expect("Cannot load deployment file");
-    let deployment: DeployedValidators =
+    let deployment: SnekDeployedValidators =
         serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
 
     let raw_validation_rules =
         std::fs::read_to_string(args.validation_rules_path).expect("Cannot load bounds file");
-    let validation_rules: ValidationRules =
+    let validation_rules: SnekValidationRules =
         serde_json::from_str(&raw_validation_rules).expect("Invalid bounds file");
 
     log4rs::init_file(args.log4rs_path, Default::default()).unwrap();
@@ -99,7 +105,7 @@ async fn main() {
         .await
         .expect("Maestro instantiation failed");
 
-    let protocol_deployment = ProtocolDeployment::unsafe_pull(deployment, &explorer).await;
+    let protocol_deployment = SnekProtocolDeployment::unsafe_pull(deployment, &explorer).await;
 
     let chain_sync_cache = Arc::new(Mutex::new(LedgerCacheRocksDB::new(config.chain_sync.db_path)));
     let chain_sync: ChainSyncClient<MultiEraBlock> = ChainSyncClient::init(
@@ -190,14 +196,22 @@ async fn main() {
     let funding_index = Arc::new(Mutex::new(InMemoryKvIndex::new(
         config.cardano_finalization_delay,
     )));
-    let handler_context = HandlerContextProto {
+    let handler_context = SnekHandlerContextProto {
         executor_cred: operator_paycred,
-        scripts: ProtocolScriptHashes::from(&protocol_deployment),
+        scripts: SnekProtocolScriptHashes::from(&protocol_deployment),
         validation_rules,
         adhoc_fee_structure: config.adhoc_fee.into(),
         auth_verification_key: config.auth_verification_key,
     };
-    let general_upd_handler = PairUpdateHandler::new(
+    let general_upd_handler: PairUpdateHandler<
+        4,
+        _,
+        _,
+        _,
+        _,
+        SnekHandlerContextProto,
+        SnekHandlerContext<Token>,
+    > = PairUpdateHandler::new(
         partitioned_pair_upd_snd,
         Arc::clone(&entity_index),
         handler_context,

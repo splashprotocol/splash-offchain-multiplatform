@@ -1,6 +1,5 @@
 use clap::Parser;
 use cml_chain::transaction::Transaction;
-use cml_core::serialization::RawBytesEncoding;
 use cml_multi_era::MultiEraBlock;
 use either::Either;
 use futures::channel::mpsc;
@@ -22,7 +21,7 @@ use bloom_offchain::execution_engine::liquidity_book::TLB;
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
 use bloom_offchain::execution_engine::storage::kv_store::InMemoryKvStore;
 use bloom_offchain::execution_engine::storage::InMemoryStateIndex;
-use bloom_offchain_cardano::event_sink::context::HandlerContextProto;
+use bloom_offchain_cardano::event_sink::context::{HandlerContext, HandlerContextProto};
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
 use bloom_offchain_cardano::event_sink::handler::{
     FundingEventHandler, PairUpdateHandler, SpecializedHandler,
@@ -57,14 +56,13 @@ use spectrum_offchain::data::Baked;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::partitioning::Partitioned;
-use spectrum_offchain::streaming::{boxed, run_stream};
+use spectrum_offchain::streaming::run_stream;
 use spectrum_offchain_cardano::collateral::pull_collateral;
 use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
 use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::data::pool::AnyPool;
 use spectrum_offchain_cardano::deployment::{DeployedValidators, ProtocolDeployment, ProtocolScriptHashes};
-use spectrum_offchain_cardano::handler_context::AuthVerificationKey;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
 
@@ -205,14 +203,14 @@ async fn main() {
         scripts: ProtocolScriptHashes::from(&protocol_deployment),
         adhoc_fee_structure: AdhocFeeStructure::empty(),
         validation_rules,
-        auth_verification_key: AuthVerificationKey::from_bytes([0u8; 32]),
     };
-    let general_upd_handler = PairUpdateHandler::new(
-        partitioned_pair_upd_snd,
-        Arc::clone(&entity_index),
-        handler_context,
-    );
-    let spec_upd_handler = SpecializedHandler::<_, _, _, Token>::new(
+    let general_upd_handler: PairUpdateHandler<4, _, _, _, _, HandlerContextProto, HandlerContext<Token>> =
+        PairUpdateHandler::new(
+            partitioned_pair_upd_snd,
+            Arc::clone(&entity_index),
+            handler_context,
+        );
+    let spec_upd_handler = SpecializedHandler::<_, _, _, Token, HandlerContext<Token>>::new(
         PairUpdateHandler::new(partitioned_spec_upd_snd, entity_index, handler_context),
         spec_order_index,
     );

@@ -235,17 +235,6 @@
       "steps": 200000000
     }
   },
-  "degenFnPoolV1": {
-    "hash": "905ab869961b094f1b8197278cfe15b45cbe49fa8f32c6b014f85a2d",
-    "referenceUtxo": {
-      "txHash": "1efd2976a3c07355533f3e317cf5178d558947b11a6584c0714af97609915cfb",
-      "outputIndex": 0
-    },
-    "cost": {
-      "mem": 500000,
-      "steps": 200000000
-    }
-  },
   "gridOrderNative": {
     "hash": "6eff899ca605c05c115f0d7b0d0397e2dd886cd366d77bcb4ac65922",
     "referenceUtxo": {
