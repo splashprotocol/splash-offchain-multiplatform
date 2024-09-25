@@ -113,7 +113,6 @@ where
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
         + Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>>
         + Has<LimitOrderValidation>
-        + Has<DepositOrderValidation>
         + Has<PoolValidation>
         + Has<AdhocFeeStructure>
         + Has<Option<Metadata>>

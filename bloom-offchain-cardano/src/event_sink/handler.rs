@@ -545,7 +545,7 @@ where
             consumed_identifiers: Default::default(),
             produced_identifiers: Default::default(),
         };
-        match Order::try_from_ledger(&o, &(context_proto, event_context).into()) {
+        match Order::try_from_ledger(&o, &Ctx::from((context_proto, event_context))) {
             Some(order) => {
                 let order_id = order.get_self_ref();
                 trace!("Order {} created by {}", order_id, tx.hash);
@@ -626,7 +626,7 @@ where
             consumed_identifiers: consumed_identifiers.into(),
             produced_identifiers: produced_identifiers.into(),
         };
-        match Entity::try_from_ledger(&o, &(context_proto, event_context).into()) {
+        match Entity::try_from_ledger(&o, &Ctx::from((context_proto, event_context))) {
             Some(entity) => {
                 let entity_id = entity.stable_id();
                 trace!("Entity {} created by {}", entity_id, tx.hash);

@@ -1,3 +1,4 @@
+use crate::snek_protocol_deployment::SnekProtocolDeployment;
 use bloom_offchain::execution_engine::liquidity_book::config::ExecutionConfig;
 use bloom_offchain::execution_engine::types::Time;
 use bloom_offchain_cardano::orders::adhoc::AdhocFeeStructure;
@@ -7,10 +8,10 @@ use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::backlog::BacklogCapacity;
 use spectrum_offchain::data::Has;
 use spectrum_offchain_cardano::creds::{OperatorCred, OperatorRewardAddress};
+use spectrum_offchain_cardano::deployment::DeployedValidator;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     DegenQuadraticPoolV1, LimitOrderV1, LimitOrderWitnessV1,
 };
-use spectrum_offchain_cardano::deployment::{DeployedValidator, ProtocolDeployment};
 use type_equalities::IsEqual;
 
 #[derive(Debug, Clone)]
@@ -41,7 +42,7 @@ impl Has<ExecutionConfig<ExUnits>> for MakerContext {
 #[derive(Debug, Clone)]
 pub struct ExecutionContext {
     pub time: Time,
-    pub deployment: ProtocolDeployment,
+    pub deployment: SnekProtocolDeployment,
     pub collateral: Collateral,
     pub reward_addr: OperatorRewardAddress,
     pub backlog_capacity: BacklogCapacity,
