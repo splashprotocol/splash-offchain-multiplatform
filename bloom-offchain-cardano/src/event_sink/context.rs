@@ -15,25 +15,18 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHashes};
-use spectrum_offchain_cardano::handler_context::{
-    AuthVerificationKey, ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers,
-};
+use spectrum_offchain_cardano::handler_context::{ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers};
 
 use crate::orders::adhoc::AdhocFeeStructure;
 use crate::orders::limit::LimitOrderValidation;
 use crate::validation_rules::ValidationRules;
 
-pub trait ContextCreator<I: Copy> {
-    type Ctx;
-
-    fn create_ctx(
-        self,
-        output_ref: OutputRef,
-        metadata: Option<Metadata>,
-        consumed_utxos: ConsumedInputs,
-        consumed_identifiers: ConsumedIdentifiers<I>,
-        produced_identifiers: ProducedIdentifiers<I>,
-    ) -> Self::Ctx;
+pub struct EventContext<I: Copy> {
+    pub output_ref: OutputRef,
+    pub metadata: Option<Metadata>,
+    pub consumed_utxos: ConsumedInputs,
+    pub consumed_identifiers: ConsumedIdentifiers<I>,
+    pub produced_identifiers: ProducedIdentifiers<I>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -54,6 +47,22 @@ pub struct HandlerContext<I: Copy> {
     pub scripts: ProtocolScriptHashes,
     pub bounds: ValidationRules,
     pub adhoc_fee_structure: AdhocFeeStructure,
+}
+
+impl<I: Copy> From<(HandlerContextProto, EventContext<I>)> for HandlerContext<I> {
+    fn from(value: (HandlerContextProto, EventContext<I>)) -> Self {
+        let (ctx_proto, event_ctx) = value;
+        HandlerContext {
+            output_ref: event_ctx.output_ref,
+            consumed_utxos: event_ctx.consumed_utxos,
+            consumed_identifiers: event_ctx.consumed_identifiers,
+            produced_identifiers: event_ctx.produced_identifiers,
+            executor_cred: ctx_proto.executor_cred,
+            scripts: ctx_proto.scripts,
+            bounds: ctx_proto.validation_rules,
+            adhoc_fee_structure: ctx_proto.adhoc_fee_structure,
+        }
+    }
 }
 
 impl<I: Copy> Has<LimitOrderValidation> for HandlerContext<I> {
@@ -269,48 +278,6 @@ impl<I: Copy> Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>> for Handle
 impl<I: Copy> Has<AdhocFeeStructure> for HandlerContext<I> {
     fn select<U: IsEqual<AdhocFeeStructure>>(&self) -> AdhocFeeStructure {
         self.adhoc_fee_structure
-    }
-}
-
-impl<I: Copy> ContextCreator<I> for HandlerContextProto {
-    type Ctx = HandlerContext<I>;
-
-    fn create_ctx(
-        self,
-        output_ref: OutputRef,
-        _metadata: Option<Metadata>,
-        consumed_utxos: ConsumedInputs,
-        consumed_identifiers: ConsumedIdentifiers<I>,
-        produced_identifiers: ProducedIdentifiers<I>,
-    ) -> HandlerContext<I> {
-        HandlerContext::new(
-            output_ref,
-            consumed_utxos,
-            consumed_identifiers,
-            produced_identifiers,
-            self,
-        )
-    }
-}
-
-impl<I: Copy> HandlerContext<I> {
-    pub fn new(
-        output_ref: OutputRef,
-        consumed_utxos: ConsumedInputs,
-        consumed_identifiers: ConsumedIdentifiers<I>,
-        produced_identifiers: ProducedIdentifiers<I>,
-        prototype: HandlerContextProto,
-    ) -> Self {
-        Self {
-            output_ref,
-            consumed_utxos,
-            consumed_identifiers,
-            produced_identifiers,
-            executor_cred: prototype.executor_cred,
-            scripts: prototype.scripts,
-            bounds: prototype.validation_rules,
-            adhoc_fee_structure: prototype.adhoc_fee_structure,
-        }
     }
 }
 

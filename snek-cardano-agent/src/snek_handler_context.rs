@@ -1,4 +1,4 @@
-use bloom_offchain_cardano::event_sink::context::ContextCreator;
+use bloom_offchain_cardano::event_sink::context::EventContext;
 use bloom_offchain_cardano::orders::adhoc::AdhocFeeStructure;
 use bloom_offchain_cardano::orders::limit::LimitOrderValidation;
 use bloom_offchain_cardano::validation_rules::ValidationRules;
@@ -46,25 +46,21 @@ pub struct SnekHandlerContext<I: Copy> {
     pub auth_verification_key: AuthVerificationKey,
 }
 
-impl<I: Copy> ContextCreator<I> for SnekHandlerContextProto {
-    type Ctx = SnekHandlerContext<I>;
-
-    fn create_ctx(
-        self,
-        output_ref: OutputRef,
-        metadata: Option<Metadata>,
-        consumed_utxos: ConsumedInputs,
-        consumed_identifiers: ConsumedIdentifiers<I>,
-        produced_identifiers: ProducedIdentifiers<I>,
-    ) -> Self::Ctx {
-        SnekHandlerContext::new(
-            output_ref,
-            metadata,
-            consumed_utxos,
-            consumed_identifiers,
-            produced_identifiers,
-            self,
-        )
+impl<I: Copy> From<(SnekHandlerContextProto, EventContext<I>)> for SnekHandlerContext<I> {
+    fn from(value: (SnekHandlerContextProto, EventContext<I>)) -> Self {
+        let (ctx_proto, event_ctx) = value;
+        SnekHandlerContext {
+            output_ref: event_ctx.output_ref,
+            metadata: event_ctx.metadata,
+            consumed_utxos: event_ctx.consumed_utxos,
+            consumed_identifiers: event_ctx.consumed_identifiers,
+            produced_identifiers: event_ctx.produced_identifiers,
+            executor_cred: ctx_proto.executor_cred,
+            scripts: ctx_proto.scripts,
+            bounds: ctx_proto.validation_rules,
+            adhoc_fee_structure: ctx_proto.adhoc_fee_structure,
+            auth_verification_key: ctx_proto.auth_verification_key,
+        }
     }
 }
 
@@ -292,30 +288,6 @@ impl<I: Copy> Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>> for SnekHa
 impl<I: Copy> Has<AdhocFeeStructure> for SnekHandlerContext<I> {
     fn select<U: IsEqual<AdhocFeeStructure>>(&self) -> AdhocFeeStructure {
         self.adhoc_fee_structure
-    }
-}
-
-impl<I: Copy> SnekHandlerContext<I> {
-    pub fn new(
-        output_ref: OutputRef,
-        metadata: Option<Metadata>,
-        consumed_utxos: ConsumedInputs,
-        consumed_identifiers: ConsumedIdentifiers<I>,
-        produced_identifiers: ProducedIdentifiers<I>,
-        prototype: SnekHandlerContextProto,
-    ) -> Self {
-        Self {
-            output_ref,
-            metadata,
-            consumed_utxos,
-            consumed_identifiers,
-            produced_identifiers,
-            executor_cred: prototype.executor_cred,
-            scripts: prototype.scripts,
-            bounds: prototype.validation_rules,
-            adhoc_fee_structure: prototype.adhoc_fee_structure,
-            auth_verification_key: prototype.auth_verification_key,
-        }
     }
 }
 
