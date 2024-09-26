@@ -1157,14 +1157,6 @@ mod tests {
         operator_cred: OperatorCred,
     }
 
-    impl Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>> for Ctx {
-        fn select<U: IsEqual<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>>>(
-            &self,
-        ) -> DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }> {
-            self.scripts.degen_fn_pool_v1
-        }
-    }
-
     impl Has<PoolValidation> for Ctx {
         fn select<U: IsEqual<PoolValidation>>(&self) -> PoolValidation {
             self.bounds

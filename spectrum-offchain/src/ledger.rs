@@ -9,7 +9,7 @@ impl<A, B, Repr, Ctx> TryFromLedger<Repr, Ctx> for Either<A, B>
 where
     A: TryFromLedger<Repr, Ctx>,
     B: TryFromLedger<Repr, Ctx>,
-    Ctx: Copy,
+    Ctx: Clone,
 {
     fn try_from_ledger(repr: &Repr, ctx: &Ctx) -> Option<Self> {
         A::try_from_ledger(repr, ctx)

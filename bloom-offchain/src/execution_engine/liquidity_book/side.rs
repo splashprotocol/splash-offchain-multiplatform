@@ -1,7 +1,6 @@
-use std::fmt::{Display, Formatter};
+use derive_more::Display;
+use std::fmt::Formatter;
 use std::ops::Not;
-
-use derive_more::{Display, From, Into};
 
 /// Side marker.
 #[derive(Debug, Display, Copy, Clone, PartialEq, Eq, Hash)]

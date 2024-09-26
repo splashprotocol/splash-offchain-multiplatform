@@ -1,20 +1,20 @@
 use std::cmp::Ordering;
-use std::fmt::{Debug, Display, Formatter};
-use std::io::Read;
+use std::fmt::{format, Debug, Display, Formatter};
 use std::marker::PhantomData;
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::str::FromStr;
 
 use cml_chain::assets::MultiAsset;
-use cml_chain::certs::Credential;
 use cml_chain::plutus::PlutusData;
 use cml_chain::transaction::TransactionInput;
 use cml_chain::{PolicyId, Value};
+use cml_core::serialization::ToBytes;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
 use derive_more::{From, Into};
 use num::{CheckedAdd, CheckedSub};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use serde_with::SerializeDisplay;
 
 use crate::plutus_data::{ConstrPlutusDataExtension, PlutusDataExtension};
 use crate::types::TryFromPData;
@@ -36,7 +36,7 @@ pub mod value;
 
 /// Asset name bytes padded to 32-byte fixed array and tupled with the len of the original asset name.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, derive_more::From)]
-pub struct AssetName(u8, [u8; 32]);
+pub struct AssetName(pub u8, pub [u8; 32]);
 
 impl AssetName {
     pub const fn zero() -> Self {
@@ -45,6 +45,10 @@ impl AssetName {
 
     pub fn padded_bytes(&self) -> [u8; 32] {
         self.1
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.1[0..self.0 as usize]
     }
 
     pub fn try_from_hex(s: &str) -> Option<AssetName> {
@@ -119,7 +123,7 @@ impl TryFrom<Vec<u8>> for AssetName {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Deserialize, SerializeDisplay)]
 #[serde(try_from = "String")]
 pub struct OutputRef(TransactionHash, u64);
 
@@ -210,13 +214,38 @@ impl Display for Token {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Serialize, Deserialize)]
+struct AssetClassFromHex(String);
+
+impl TryFrom<AssetClassFromHex> for AssetClass {
+    type Error = String;
+    fn try_from(AssetClassFromHex(str): AssetClassFromHex) -> Result<Self, Self::Error> {
+        hex::decode(str)
+            .ok()
+            .and_then(|bs| AssetClass::from_bytes(&*bs))
+            .ok_or("".to_string())
+    }
+}
+
+impl From<AssetClass> for AssetClassFromHex {
+    fn from(value: AssetClass) -> Self {
+        AssetClassFromHex(hex::encode(value.to_bytes()))
+    }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[serde(try_from = "AssetClassFromHex")]
+#[serde(into = "AssetClassFromHex")]
 pub enum AssetClass {
     Native,
     Token(Token),
 }
 
 impl AssetClass {
+    pub fn is_native(&self) -> bool {
+        matches!(self, AssetClass::Native)
+    }
+
     pub fn into_token(self) -> Option<Token> {
         match self {
             AssetClass::Token(tkn) => Some(tkn),
@@ -235,6 +264,32 @@ impl AssetClass {
             }
         }
         value
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bf = vec![];
+        match self {
+            AssetClass::Native => {
+                bf.push(0u8);
+            }
+            AssetClass::Token(Token(pol, an)) => {
+                bf.append(&mut pol.to_raw_bytes().to_vec());
+                bf.append(&mut an.as_bytes().to_vec());
+            }
+        }
+        bf
+    }
+
+    pub fn from_bytes(bs: &[u8]) -> Option<Self> {
+        let n = PolicyId::BYTE_COUNT;
+        match bs {
+            [0] => Some(AssetClass::Native),
+            bs if bs.len() >= PolicyId::BYTE_COUNT => Some(AssetClass::Token(Token(
+                PolicyId::from(<[u8; PolicyId::BYTE_COUNT]>::try_from(&bs[0..n]).ok()?),
+                AssetName::from(cml_chain::assets::AssetName::new(bs[n..].to_vec()).ok()?),
+            ))),
+            _ => None,
+        }
     }
 }
 
@@ -409,7 +464,8 @@ pub struct PaymentCredential(String);
 
 #[cfg(test)]
 mod tests {
-    use crate::AssetName;
+    use crate::{AssetClass, AssetName, Token};
+    use cml_chain::PolicyId;
 
     #[test]
     fn asset_name_is_isomorphic_to_cml() {
@@ -418,5 +474,13 @@ mod tests {
         let spectrum_an = AssetName::from(cml_an.clone());
         let cml_an_reconstructed = cml_chain::assets::AssetName::from(spectrum_an);
         assert_eq!(cml_an, cml_an_reconstructed);
+    }
+
+    #[test]
+    fn asset_class_encoding() {
+        let ac = AssetClass::Token(Token(PolicyId::from([9u8; 28]), AssetName(2, [0u8; 32])));
+        let encoded = ac.to_bytes();
+        let decoded = AssetClass::from_bytes(&*encoded);
+        assert_eq!(decoded, Some(ac));
     }
 }

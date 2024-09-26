@@ -4,14 +4,15 @@ use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
 use bloom_offchain::execution_engine::liquidity_book::types::{
-    AbsolutePrice, FeeAsset, InputAsset, Lovelace, OutputAsset,
+    AbsolutePrice, FeeAsset, InputAsset, Lovelace, OutputAsset, RelativePrice,
 };
 use bounded_integer::BoundedU64;
+use cml_chain::auxdata::Metadata;
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::PolicyId;
 use cml_core::serialization::RawBytesEncoding;
-use cml_crypto::blake2b224;
-use log::trace;
+use cml_crypto::{blake2b224, Ed25519Signature};
+use log::{info, trace};
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::{AssetClass, OutputRef, Token};
 use spectrum_offchain::data::{Has, Stable, Tradable};
@@ -19,7 +20,9 @@ use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
-use spectrum_offchain_cardano::handler_context::{ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers};
+use spectrum_offchain_cardano::handler_context::{
+    AuthVerificationKey, ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers,
+};
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
 
@@ -178,21 +181,30 @@ fn subtract_adhoc_fee(body: u64, fee_structure: AdhocFeeStructure) -> u64 {
     body - fee_structure.fee(body)
 }
 
-const MAGIC_NUM: u64 = 3;
-const MAGIC_WORD: &str = "spaghetti";
-
-fn beacon_from_oref(input_oref: OutputRef, order_index: u64, min_marginal_output: u64) -> PolicyId {
+pub fn beacon_from_oref(
+    input_oref: OutputRef,
+    order_index: u64,
+    input_amount: OutputAsset<u64>,
+    input_asset: AssetClass,
+    output_asset: AssetClass,
+) -> PolicyId {
     let mut bf = vec![];
     bf.append(&mut input_oref.tx_hash().to_raw_bytes().to_vec());
     bf.append(&mut input_oref.index().to_be_bytes().to_vec());
     bf.append(&mut order_index.to_be_bytes().to_vec());
-    let salt = min_marginal_output / MAGIC_NUM;
-    bf.append(&mut salt.to_be_bytes().to_vec());
-    bf.append(&mut MAGIC_WORD.as_bytes().to_vec());
+    bf.append(&mut input_amount.to_be_bytes().to_vec());
+    bf.append(&mut input_asset.to_bytes());
+    bf.append(&mut output_asset.to_bytes());
     blake2b224(&*bf).into()
 }
 
-fn is_valid_beacon<C>(beacon: PolicyId, min_marginal_output: u64, ctx: &C) -> bool
+fn is_valid_beacon<C>(
+    beacon: PolicyId,
+    input_amount: InputAsset<u64>,
+    input_asset: AssetClass,
+    output_asset: AssetClass,
+    ctx: &C,
+) -> bool
 where
     C: Has<ConsumedInputs>
         + Has<ConsumedIdentifiers<Token>>
@@ -203,7 +215,7 @@ where
     let valid_fresh_beacon = || {
         ctx.select::<ConsumedInputs>()
             .0
-            .find(|o| beacon_from_oref(*o, order_index, min_marginal_output) == beacon)
+            .find(|o| beacon_from_oref(*o, order_index, input_amount, input_asset, output_asset) == beacon)
     };
     let consumed_ids = ctx.select::<ConsumedIdentifiers<Token>>().0;
     let consumed_beacons = consumed_ids.count(|b| b.0 == beacon);
@@ -214,6 +226,36 @@ where
     consumed_beacons == 1 && produced_beacons == 1 || valid_fresh_beacon() && consumed_ids.is_empty()
 }
 
+pub fn check_auth<C>(beacon: PolicyId, ctx: &C) -> bool
+where
+    C: Has<Option<Metadata>> + Has<AuthVerificationKey>,
+{
+    if let Some(signature) = ctx.select::<Option<Metadata>>().and_then(|md| {
+        // Signature splitted into several parts
+        md.get(AUTH_MD_KEY)
+            .and_then(|d| d.as_list())
+            .and_then(|signature_parts| {
+                let mut signature = vec![];
+                signature_parts.iter().for_each(|entry| {
+                    if let Some(bytes_to_add) = (*entry).as_bytes() {
+                        let mut bytes_t = bytes_to_add.clone();
+                        signature.append(&mut bytes_t)
+                    }
+                });
+                Some(signature)
+            })
+            .and_then(|raw_sig| Ed25519Signature::from_raw_bytes(&raw_sig).ok())
+    }) {
+        return ctx
+            .select::<AuthVerificationKey>()
+            .get_verification_key()
+            .verify(beacon.to_raw_bytes(), &signature);
+    }
+    false
+}
+
+const AUTH_MD_KEY: u64 = 7;
+
 impl<C> TryFromLedger<TransactionOutput, C> for AdhocOrder
 where
     C: Has<OperatorCred>
@@ -223,7 +265,9 @@ where
         + Has<ConsumedInputs>
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
         + Has<LimitOrderValidation>
-        + Has<AdhocFeeStructure>,
+        + Has<AdhocFeeStructure>
+        + Has<Option<Metadata>>
+        + Has<AuthVerificationKey>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         LimitOrder::try_from_ledger(repr, ctx).and_then(|lo| {
@@ -234,8 +278,10 @@ where
             }?;
             let adhoc_fee_input = lo.input_amount.checked_sub(virtual_input_amount)?;
             let has_stake_part = lo.redeemer_address.stake_cred.is_some();
-            let is_valid_beacon = is_valid_beacon(lo.beacon, lo.min_marginal_output, ctx);
-            if has_stake_part && is_valid_beacon {
+            let is_valid_beacon =
+                is_valid_beacon(lo.beacon, lo.input_amount, lo.input_asset, lo.output_asset, ctx);
+            let is_valid_auth = check_auth(lo.beacon, ctx);
+            if has_stake_part && is_valid_beacon && is_valid_auth {
                 Some(Self(
                     LimitOrder {
                         beacon: lo.beacon,
@@ -258,11 +304,12 @@ where
                 ))
             } else {
                 trace!(
-                    "UTxO {}, AdhocOrder {} :: has_stake_part: {}, is_valid_beacon: {}",
+                    "UTxO {}, AdhocOrder {} :: has_stake_part: {}, is_valid_beacon: {}, is_valid_auth: {}",
                     ctx.select::<OutputRef>(),
                     lo.beacon,
                     has_stake_part,
                     is_valid_beacon,
+                    is_valid_auth
                 );
                 None
             }

@@ -1,7 +1,6 @@
 use algebra_core::monoid::Monoid;
 use algebra_core::semigroup::Semigroup;
 use derive_more::{Add, AddAssign, Sub, SubAssign};
-use std::ops::Add;
 
 #[derive(
     serde::Deserialize, Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Add, Sub, AddAssign, SubAssign,

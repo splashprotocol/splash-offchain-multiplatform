@@ -374,8 +374,7 @@ where
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolV2 as u8 }>>
-        + Has<DeployedValidator<{ StableFnPoolT2T as u8 }>>
-        + Has<DeployedValidator<{ DegenQuadraticPoolV1 as u8 }>>,
+        + Has<DeployedValidator<{ StableFnPoolT2T as u8 }>>,
 {
     fn exec(self, state: ExecutionState, context: Ctx) -> (ExecutionState, EffectPreview<AnyPool>, Ctx) {
         match self.0 {

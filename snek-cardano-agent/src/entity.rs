@@ -1,3 +1,4 @@
+use cml_chain::auxdata::Metadata;
 use cml_chain::transaction::TransactionOutput;
 use either::Either;
 
@@ -22,7 +23,9 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolRedeem, ConstFnPoolSwap, DegenQuadraticPoolV1,
     LimitOrderV1, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
-use spectrum_offchain_cardano::handler_context::{ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers};
+use spectrum_offchain_cardano::handler_context::{
+    AuthVerificationKey, ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers,
+};
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
@@ -101,7 +104,7 @@ impl Tradable for EvolvingCardanoEntity {
 
 impl<C> TryFromLedger<TransactionOutput, C> for EvolvingCardanoEntity
 where
-    C: Copy
+    C: Clone
         + Has<OperatorCred>
         + Has<OutputRef>
         + Has<ConsumedInputs>
@@ -110,9 +113,10 @@ where
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
         + Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>>
         + Has<LimitOrderValidation>
-        + Has<DepositOrderValidation>
         + Has<PoolValidation>
-        + Has<AdhocFeeStructure>,
+        + Has<AdhocFeeStructure>
+        + Has<Option<Metadata>>
+        + Has<AuthVerificationKey>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         <Either<Baked<AdhocOrder, OutputRef>, Baked<DegenQuadraticPool, OutputRef>>>::try_from_ledger(

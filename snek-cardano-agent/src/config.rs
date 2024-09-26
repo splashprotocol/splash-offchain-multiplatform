@@ -8,6 +8,7 @@ use cml_core::Slot;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain_cardano::creds::OperatorRewardAddress;
+use spectrum_offchain_cardano::handler_context::AuthVerificationKey;
 use spectrum_offchain_cardano::node::NodeConfig;
 use std::time::Duration;
 
@@ -18,6 +19,7 @@ pub struct AppConfig {
     pub node: NodeConfig,
     pub tx_submission_buffer_size: usize,
     pub operator_key: String,
+    pub auth_verification_key: AuthVerificationKey,
     pub service_fee_address: OperatorRewardAddress,
     pub cardano_finalization_delay: Duration,
     pub backlog_capacity: u32,
