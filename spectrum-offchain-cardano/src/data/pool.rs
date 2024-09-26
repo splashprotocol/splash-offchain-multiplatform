@@ -18,11 +18,11 @@ use void::Void;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::liquidity_book::core::Next;
-use bloom_offchain::execution_engine::liquidity_book::market_maker::AvailableLiquidity;
+use bloom_offchain::execution_engine::liquidity_book::market_maker::{AvailableLiquidity, FullPriceDerivative};
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
     AbsoluteReserves, Excess, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
 };
-use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
+use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, SwapAssetSide};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::ex_units::ExUnits;
@@ -318,12 +318,16 @@ impl MarketMaker for AnyPool {
         }
     }
 
-    fn estimated_trade(&self, input: OnSide<u64>) -> Option<AvailableLiquidity> {
+    fn full_price_derivative(&self, side: OnSide<SwapAssetSide>) -> Option<FullPriceDerivative> {
         match self {
-            PureCFMM(p) => p.estimated_trade(input),
-            BalancedCFMM(p) => p.estimated_trade(input),
-            StableCFMM(_) => None,
+            PureCFMM(p) => p.full_price_derivative(side),
+            BalancedCFMM(p) => p.full_price_derivative(side),
+            StableCFMM(p) => p.full_price_derivative(side),
         }
+    }
+
+    fn estimated_trade(&self, input: OnSide<u64>) -> Option<AvailableLiquidity> {
+        unimplemented!()
     }
 
     fn is_active(&self) -> bool {

@@ -5,7 +5,7 @@ use num_rational::Ratio;
 use void::Void;
 
 use crate::execution_engine::liquidity_book::core::Next;
-use crate::execution_engine::liquidity_book::side::OnSide;
+use crate::execution_engine::liquidity_book::side::{OnSide, SwapAssetSide};
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 
 /// Price of a theoretical 0-swap in pool.
@@ -31,6 +31,10 @@ pub struct AvailableLiquidity {
     pub output: u64,
 }
 
+/// Full derivative of the spot price func.
+#[derive(Debug, Copy, Clone)]
+pub struct FullPriceDerivative(pub Ratio<u128>);
+
 /// Pooled liquidity.
 pub trait MarketMaker {
     type U;
@@ -46,6 +50,8 @@ pub trait MarketMaker {
     fn liquidity(&self) -> AbsoluteReserves;
     /// How much base/quote asset is available at 'worst_price' or better.
     fn available_liquidity_on_side(&self, worst_price: OnSide<AbsolutePrice>) -> Option<AvailableLiquidity>;
+    /// Full derivative of the spot price func.
+    fn full_price_derivative(&self, side: OnSide<SwapAssetSide>) -> Option<FullPriceDerivative>;
     /// How much base/quote asset is available for the given input.
     fn estimated_trade(&self, input: OnSide<u64>) -> Option<AvailableLiquidity>;
     /// Is this MM active at the moment or not.

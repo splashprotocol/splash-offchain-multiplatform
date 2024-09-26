@@ -65,7 +65,8 @@ impl<'a, const ERA: u16, Tx> LocalTxSubmissionClient<'a, ERA, Tx> {
             .await
             .map_err(Error::TxSubmissionProtocol);
         trace!("[{}] Submit attempt finished", hash);
-        result
+        // result
+        unimplemented!()
     }
 
     pub async fn close(self) {

@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter};
 use std::ops::Not;
 
-use derive_more::{Display, From, Into};
+use derive_more::Display;
 
 /// Side marker.
 #[derive(Debug, Display, Copy, Clone, PartialEq, Eq, Hash)]
@@ -72,4 +72,10 @@ impl<T> OnSide<T> {
             OnSide::Ask(t) => OnSide::Ask(f(t)),
         }
     }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum SwapAssetSide {
+    Input,
+    Output,
 }
