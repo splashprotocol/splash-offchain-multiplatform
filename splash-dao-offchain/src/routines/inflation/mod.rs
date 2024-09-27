@@ -33,7 +33,7 @@ use type_equalities::IsEqual;
 
 use crate::deployment::ProtocolValidator;
 use crate::entities::offchain::voting_order::VotingOrder;
-use crate::entities::onchain::funding_box::{FundingBoxId, FundingBoxSnapshot};
+use crate::entities::onchain::funding_box::{FundingBox, FundingBoxId, FundingBoxSnapshot};
 use crate::entities::onchain::inflation_box::{InflationBoxId, InflationBoxSnapshot};
 use crate::entities::onchain::permission_manager::{PermManager, PermManagerId, PermManagerSnapshot};
 use crate::entities::onchain::poll_factory::{PollFactory, PollFactoryId, PollFactorySnapshot};
@@ -458,14 +458,16 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         IB: StateProjectionWrite<InflationBoxSnapshot, Bearer> + Send + Sync,
         PF: StateProjectionWrite<PollFactorySnapshot, Bearer> + Send + Sync,
         WP: StateProjectionWrite<WeightingPollSnapshot, Bearer> + Send + Sync,
+        FB: FundingRepo + Send + Sync,
     {
         println!("try_create_wpoll");
         if let (AnyMod::Confirmed(inflation_box), AnyMod::Confirmed(factory)) = (inflation_box, poll_factory)
         {
             println!("try_create_wpoll: confirmed!");
-            let (signed_tx, next_inflation_box, next_factory, next_wpoll) = self
+            let funding_boxes = AvailableFundingBoxes(self.funding_box.collect().await.unwrap());
+            let (signed_tx, next_inflation_box, next_factory, next_wpoll, funding_box_changes) = self
                 .actions
-                .create_wpoll(inflation_box.state.0, factory.state.0)
+                .create_wpoll(inflation_box.state.0, factory.state.0, funding_boxes)
                 .await;
             println!("try_create_wpoll: formed wpoll TX!");
             let prover = OperatorProver::new(self.operator_sk.to_bech32());
@@ -476,6 +478,15 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
             self.inflation_box.write_predicted(next_inflation_box).await;
             self.poll_factory.write_predicted(next_factory).await;
             self.weighting_poll.write_predicted(next_wpoll).await;
+
+            for p in funding_box_changes.spent {
+                self.funding_box.spend_predicted(p).await;
+            }
+
+            for fb in funding_box_changes.created {
+                self.funding_box.put_predicted(fb).await;
+            }
+
             return None;
         }
         retry_in(DEF_DELAY)
@@ -493,11 +504,13 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         Net: Network<OutboundTransaction<Transaction>, RejectReasons> + Clone + Sync + Send,
         WP: StateProjectionWrite<WeightingPollSnapshot, Bearer> + Send + Sync,
         VE: StateProjectionWrite<VotingEscrowSnapshot, Bearer> + Send + Sync,
+        FB: FundingRepo + Send + Sync,
     {
         if let Some(next_order) = next_pending_order {
+            let funding_boxes = AvailableFundingBoxes(self.funding_box.collect().await.unwrap());
             let (signed_tx, next_wpoll, next_ve) = self
                 .actions
-                .execute_order(weighting_poll.erased(), next_order)
+                .execute_order(weighting_poll.erased(), next_order, funding_boxes)
                 .await;
             let prover = OperatorProver::new(self.operator_sk.to_bech32());
             let tx = prover.prove(signed_tx);
@@ -523,7 +536,9 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         WP: StateProjectionWrite<WeightingPollSnapshot, Bearer> + Send + Sync,
         SF: StateProjectionWrite<SmartFarmSnapshot, Bearer> + Send + Sync,
         PM: StateProjectionWrite<PermManagerSnapshot, Bearer> + Send + Sync,
+        FB: FundingRepo + Send + Sync,
     {
+        let funding_boxes = AvailableFundingBoxes(self.funding_box.collect().await.unwrap());
         let (signed_tx, next_wpoll, next_sf, next_pm) = self
             .actions
             .distribute_inflation(
@@ -531,6 +546,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                 next_farm.erased(),
                 perm_manager.erased(),
                 next_farm_weight,
+                funding_boxes,
             )
             .await;
         let prover = OperatorProver::new(self.operator_sk.to_bech32());
@@ -548,13 +564,15 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
     where
         Actions: InflationActions<Bearer> + Send + Sync,
         Net: Network<OutboundTransaction<Transaction>, RejectReasons> + Clone + Sync + Send,
+        FB: FundingRepo + Send + Sync,
     {
         if let AnyMod::Confirmed(Traced {
             state: Confirmed(weighting_poll),
             ..
         }) = weighting_poll
         {
-            let signed_tx = self.actions.eliminate_wpoll(weighting_poll).await;
+            let funding_boxes = AvailableFundingBoxes(self.funding_box.collect().await.unwrap());
+            let signed_tx = self.actions.eliminate_wpoll(weighting_poll, funding_boxes).await;
             let prover = OperatorProver::new(self.operator_sk.to_bech32());
             let tx = prover.prove(signed_tx);
             self.network.submit_tx(tx).await.unwrap();
@@ -951,6 +969,15 @@ pub struct DistributionInProgress<Out> {
 pub struct PendingEliminatePoll<Out> {
     weighting_poll: AnyMod<Bundled<WeightingPollSnapshot, Out>>,
 }
+
+/// Changes to operator funding boxes resulting from inflation action TXs.
+pub struct FundingBoxChanges {
+    pub spent: Vec<FundingBoxId>,
+    pub created: Vec<Predicted<FundingBox>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AvailableFundingBoxes(pub Vec<FundingBox>);
 
 #[cfg(test)]
 mod tests {

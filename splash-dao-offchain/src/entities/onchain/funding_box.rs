@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{transaction::TransactionOutputExtension, OutputRef};
 use spectrum_offchain::{
     data::{Has, HasIdentifier, Identifier, Stable},
-    ledger::TryFromLedger,
+    ledger::{IntoLedger, TryFromLedger},
 };
 
 use crate::{entities::Snapshot, protocol_config::OperatorCreds};
@@ -18,6 +18,7 @@ pub type FundingBoxSnapshot = Snapshot<FundingBox, OutputRef>;
     Ord,
     PartialOrd,
     derive_more::From,
+    derive_more::Into,
     Serialize,
     Deserialize,
     Hash,
@@ -74,5 +75,15 @@ where
             ));
         }
         None
+    }
+}
+
+impl<Ctx> IntoLedger<TransactionOutput, Ctx> for FundingBox
+where
+    Ctx: Has<OperatorCreds>,
+{
+    fn into_ledger(self, ctx: Ctx) -> TransactionOutput {
+        let OperatorCreds(_, address) = ctx.select::<OperatorCreds>();
+        TransactionOutput::new(address, self.value, None, None)
     }
 }
