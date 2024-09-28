@@ -4,7 +4,9 @@ use cml_chain::{
     plutus::{ConstrPlutusData, PlutusData},
     transaction::TransactionOutput,
     utils::BigInteger,
+    PolicyId,
 };
+use cml_crypto::{RawBytesEncoding, ScriptHash};
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
     plutus_data::{ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension},
@@ -16,7 +18,11 @@ use spectrum_offchain::{
     data::{Has, HasIdentifier, Identifier},
     ledger::TryFromLedger,
 };
-use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
+use spectrum_offchain_cardano::{
+    deployment::{test_address, DeployedScriptInfo},
+    parametrized_validators::apply_params_validator,
+};
+use uplc_pallas_codec::utils::PlutusBytes;
 
 use crate::{
     constants, deployment::ProtocolValidator, entities::Snapshot, protocol_config::FarmFactoryAuthPolicy,
@@ -128,6 +134,23 @@ impl TryFromPData for FarmFactoryDatum {
             farm_seed_data,
         })
     }
+}
+
+pub fn unsafe_update_farm_factory_datum(data: &mut PlutusData, last_farm_id: i64) {
+    let cpd = data.get_constr_pd_mut().unwrap();
+    cpd.set_field(0, PlutusData::Integer(BigInteger::from(last_farm_id)));
+}
+
+pub fn compute_farm_factory_script_hash(
+    script: &str,
+    farm_auth_policy: PolicyId,
+    gov_witness_script_hash: PolicyId,
+) -> ScriptHash {
+    let params_pd = uplc::PlutusData::Array(vec![
+        uplc::PlutusData::BoundedBytes(PlutusBytes::from(farm_auth_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(PlutusBytes::from(gov_witness_script_hash.to_raw_bytes().to_vec())),
+    ]);
+    apply_params_validator(params_pd, script)
 }
 
 #[cfg(test)]
