@@ -114,7 +114,7 @@ pub struct FarmAuthPolicy(pub PolicyId);
 pub struct FarmAuthRefScriptOutput(pub TransactionUnspentOutput);
 
 #[derive(Debug, Clone)]
-pub struct FactoryAuthPolicy(pub PolicyId);
+pub struct FarmFactoryAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
 pub struct WPFactoryAuthPolicy(pub PolicyId);
@@ -266,9 +266,9 @@ impl Has<FarmAuthRefScriptOutput> for ProtocolConfig {
     }
 }
 
-impl Has<FactoryAuthPolicy> for ProtocolConfig {
-    fn select<U: IsEqual<FactoryAuthPolicy>>(&self) -> FactoryAuthPolicy {
-        FactoryAuthPolicy(self.tokens.factory_auth_policy)
+impl Has<FarmFactoryAuthPolicy> for ProtocolConfig {
+    fn select<U: IsEqual<FarmFactoryAuthPolicy>>(&self) -> FarmFactoryAuthPolicy {
+        FarmFactoryAuthPolicy(self.tokens.factory_auth_policy)
     }
 }
 

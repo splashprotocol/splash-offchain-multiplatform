@@ -51,7 +51,7 @@ use crate::entities::onchain::weighting_poll::{
 };
 use crate::entities::Snapshot;
 use crate::protocol_config::{
-    EDaoMSigAuthPolicy, FactoryAuthPolicy, FarmAuthPolicy, FarmAuthRefScriptOutput, GTAuthPolicy,
+    EDaoMSigAuthPolicy, FarmAuthPolicy, FarmAuthRefScriptOutput, FarmFactoryAuthPolicy, GTAuthPolicy,
     GovProxyRefScriptOutput, InflationAuthPolicy, InflationBoxRefScriptOutput, MintWPAuthPolicy,
     MintWPAuthRefScriptOutput, NodeMagic, OperatorCreds, PermManagerAuthPolicy,
     PermManagerBoxRefScriptOutput, PollFactoryRefScriptOutput, Reward, SplashPolicy, VEFactoryAuthPolicy,
@@ -132,7 +132,7 @@ where
         + Has<MintWPAuthRefScriptOutput>
         + Has<FarmAuthPolicy>
         + Has<FarmAuthRefScriptOutput>
-        + Has<FactoryAuthPolicy>
+        + Has<FarmFactoryAuthPolicy>
         + Has<WPFactoryAuthPolicy>
         + Has<VEFactoryAuthPolicy>
         + Has<VotingEscrowRefScriptOutput>
@@ -469,7 +469,7 @@ where
         let splash_policy = self.ctx.select::<SplashPolicy>().0;
         let genesis_time = self.ctx.select::<GenesisEpochStartTime>().0;
         let farm_auth_policy = self.ctx.select::<FarmAuthPolicy>().0;
-        let factory_auth_policy = self.ctx.select::<FactoryAuthPolicy>().0;
+        let factory_auth_policy = self.ctx.select::<FarmFactoryAuthPolicy>().0;
         let inflation_box_auth_policy = self.ctx.select::<InflationAuthPolicy>().0;
         let wpoll_auth_ref_script = self.ctx.select::<MintWPAuthRefScriptOutput>().0;
 
@@ -566,7 +566,7 @@ where
         let ve_factory_auth_policy = self.ctx.select::<VEFactoryAuthPolicy>().0;
         let voting_escrow_ref_script = self.ctx.select::<VotingEscrowRefScriptOutput>().0;
         let wpoll_auth_policy = self.ctx.select::<MintWPAuthPolicy>().0;
-        let factory_auth_policy = self.ctx.select::<FactoryAuthPolicy>().0;
+        let factory_auth_policy = self.ctx.select::<FarmFactoryAuthPolicy>().0;
         let inflation_box_auth_policy = self.ctx.select::<InflationAuthPolicy>().0;
         let wpoll_auth_ref_script = self.ctx.select::<MintWPAuthRefScriptOutput>().0;
         let weighting_power_ref_script = self.ctx.select::<WeightingPowerRefScriptOutput>().0;
@@ -776,7 +776,7 @@ where
         let genesis_time = self.ctx.select::<GenesisEpochStartTime>().0;
         let farm_auth_policy = self.ctx.select::<FarmAuthPolicy>().0;
         let splash_policy = self.ctx.select::<SplashPolicy>().0;
-        let factory_auth_policy = self.ctx.select::<FactoryAuthPolicy>().0;
+        let factory_auth_policy = self.ctx.select::<FarmFactoryAuthPolicy>().0;
         let inflation_box_auth_policy = self.ctx.select::<InflationAuthPolicy>().0;
         let wpoll_auth_ref_script = self.ctx.select::<MintWPAuthRefScriptOutput>().0;
         let smart_farm_ref_script = self.ctx.select::<FarmAuthRefScriptOutput>().0;
@@ -1069,7 +1069,7 @@ mod tests {
         address::{Address, EnterpriseAddress},
         certs::StakeCredential,
         transaction::{DatumOption, Transaction},
-        Deserialize,
+        Deserialize, Serialize,
     };
     use cml_crypto::ScriptHash;
 
@@ -1109,8 +1109,14 @@ mod tests {
         }
         println!("\n\n");
 
-        let ff_datum = tx.body.outputs[1].datum().unwrap();
-        if let DatumOption::Datum { datum, .. } = ff_datum {
+        let ff_datum = tx.body.outputs[0].datum().unwrap();
+        if let DatumOption::Datum {
+            datum,
+            datum_bytes_encoding,
+            ..
+        } = ff_datum
+        {
+            println!("farm_factory datum CBOR: {}", hex::encode(datum.to_cbor_bytes()));
             dbg!(datum);
         } else {
             panic!("");

@@ -22,6 +22,7 @@ use crate::{
 
 use super::Snapshot;
 
+pub mod farm_factory;
 pub mod funding_box;
 pub mod inflation_box;
 pub mod permission_manager;

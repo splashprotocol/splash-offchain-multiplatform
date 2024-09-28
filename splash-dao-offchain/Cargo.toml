@@ -16,6 +16,7 @@ cardano-explorer = { version = "0.1.0", path = "../cardano-explorer" }
 cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
 cardano-submit-api = { version = "0.1.0", path = "../cardano-submit-api" }
 spectrum-cardano-lib = { version = "0.1.0", path = "../spectrum-cardano-lib" }
+cbor_event = "2.4.0"
 cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch =    "fix-datum-hash" }
 cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch =     "fix-datum-hash" }
 cml-multi-era = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
