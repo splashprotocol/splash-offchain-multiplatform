@@ -1,5 +1,5 @@
 use cml_chain::assets::AssetName;
-use cml_chain::plutus::{ExUnits, PlutusData};
+use cml_chain::plutus::{ExUnits, PlutusData, PlutusV2Script};
 
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::PolicyId;
@@ -137,13 +137,13 @@ pub const INFLATION_BOX_EX_UNITS: ExUnits = ExUnits {
     encodings: None,
 };
 
-pub fn compute_inflation_box_script_hash(
+pub fn compute_inflation_box_validator(
     script: &str,
     splash_policy: PolicyId,
     wp_auth_policy: PolicyId,
     weighting_power_policy: PolicyId,
     zeroth_epoch_start: u64,
-) -> ScriptHash {
+) -> PlutusV2Script {
     let params_pd = uplc::PlutusData::Array(vec![
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(splash_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(wp_auth_policy.to_raw_bytes().to_vec())),

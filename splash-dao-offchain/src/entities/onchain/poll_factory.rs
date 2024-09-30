@@ -1,4 +1,4 @@
-use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData};
+use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData, PlutusV2Script};
 
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::PolicyId;
@@ -177,11 +177,11 @@ pub const GOV_PROXY_EX_UNITS: ExUnits = ExUnits {
     encodings: None,
 };
 
-pub fn compute_wp_factory_script_hash(
+pub fn compute_wp_factory_validator(
     script: &str,
     wp_auth_policy: PolicyId,
     gov_witness_script_hash: ScriptHash,
-) -> ScriptHash {
+) -> PlutusV2Script {
     let params_pd = uplc::PlutusData::Array(vec![
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(wp_auth_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(gov_witness_script_hash.to_raw_bytes().to_vec())),

@@ -1,7 +1,7 @@
 use std::ops::Deref;
 
 use cml_chain::{
-    plutus::{ConstrPlutusData, PlutusData, PlutusMap},
+    plutus::{ConstrPlutusData, PlutusData, PlutusMap, PlutusV2Script},
     transaction::TransactionOutput,
     utils::BigInteger,
     PolicyId,
@@ -109,7 +109,7 @@ where
     }
 }
 
-pub fn compute_ve_factory_script_hash(
+pub fn compute_ve_factory_validator(
     script: &str,
     ve_factory_auth_policy: PolicyId,
     ve_identifier_policy: PolicyId,
@@ -117,7 +117,7 @@ pub fn compute_ve_factory_script_hash(
     gt_policy: PolicyId,
     voting_escrow_scripthash: ScriptHash,
     gov_proxy_scripthash: ScriptHash,
-) -> ScriptHash {
+) -> PlutusV2Script {
     let params_pd = uplc::PlutusData::Array(vec![
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(ve_factory_auth_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(ve_identifier_policy.to_raw_bytes().to_vec())),

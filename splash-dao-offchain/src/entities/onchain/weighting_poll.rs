@@ -1,7 +1,7 @@
 use cml_chain::address::EnterpriseAddress;
 use cml_chain::assets::AssetName;
 use cml_chain::certs::StakeCredential;
-use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData};
+use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData, PlutusV2Script};
 use cml_chain::transaction::{DatumOption, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::{OrderedHashMap, PolicyId, Value};
@@ -405,13 +405,13 @@ pub const MIN_ADA_IN_BOX: u64 = 1_000_000;
 
 /// Note that the this is a multivalidator, and can serve as the script that guards the
 /// weighting_poll.
-pub fn compute_mint_wp_auth_token_policy_id(
+pub fn compute_mint_wp_auth_token_validator(
     splash_policy: PolicyId,
     farm_auth_policy: PolicyId,
     factory_auth_policy: PolicyId,
     inflation_box_auth_policy: PolicyId,
     zeroth_epoch_start: u64,
-) -> PolicyId {
+) -> PlutusV2Script {
     let params_pd = uplc::PlutusData::Array(vec![
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(splash_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(farm_auth_policy.to_raw_bytes().to_vec())),

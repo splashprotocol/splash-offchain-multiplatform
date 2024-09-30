@@ -1,7 +1,7 @@
 use cbor_event::Sz;
 use cml_chain::{
     assets::AssetName,
-    plutus::{ConstrPlutusData, PlutusData},
+    plutus::{ConstrPlutusData, PlutusData, PlutusV2Script},
     transaction::TransactionOutput,
     utils::BigInteger,
     PolicyId,
@@ -139,11 +139,11 @@ pub fn unsafe_update_farm_factory_datum(data: &mut PlutusData, last_farm_id: i64
     cpd.set_field(0, PlutusData::Integer(BigInteger::from(last_farm_id)));
 }
 
-pub fn compute_farm_factory_script_hash(
+pub fn compute_farm_factory_validator(
     script: &str,
     farm_auth_policy: PolicyId,
     gov_witness_script_hash: PolicyId,
-) -> ScriptHash {
+) -> PlutusV2Script {
     let params_pd = uplc::PlutusData::Array(vec![
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(farm_auth_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(gov_witness_script_hash.to_raw_bytes().to_vec())),

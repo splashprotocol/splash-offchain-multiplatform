@@ -1,4 +1,8 @@
-use cml_chain::{plutus::ExUnits, transaction::TransactionOutput, PolicyId};
+use cml_chain::{
+    plutus::{ExUnits, PlutusV2Script},
+    transaction::TransactionOutput,
+    PolicyId,
+};
 use cml_crypto::RawBytesEncoding;
 use derive_more::From;
 use serde::{Deserialize, Serialize};
@@ -91,10 +95,10 @@ where
     }
 }
 
-pub fn compute_perm_manager_policy_id(
+pub fn compute_perm_manager_validator(
     edao_msig_policy: PolicyId,
     perm_manager_auth_policy: PolicyId,
-) -> PolicyId {
+) -> PlutusV2Script {
     let params_pd = uplc::PlutusData::Array(vec![
         uplc::PlutusData::BoundedBytes(uplc_pallas_codec::utils::PlutusBytes::from(
             edao_msig_policy.to_raw_bytes().to_vec(),

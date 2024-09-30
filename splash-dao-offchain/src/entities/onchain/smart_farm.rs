@@ -1,4 +1,5 @@
 use cml_chain::certs::Credential;
+use cml_chain::plutus::PlutusV2Script;
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::utils::BigInteger;
 use cml_chain::{
@@ -131,11 +132,11 @@ where
     }
 }
 
-pub fn compute_mint_farm_auth_token_policy_id(
+pub fn compute_mint_farm_auth_token_validator(
     script: &str,
     splash_policy: PolicyId,
     factory_auth_policy: PolicyId,
-) -> PolicyId {
+) -> PlutusV2Script {
     let params_pd = uplc::PlutusData::Array(vec![
         uplc::PlutusData::BoundedBytes(uplc_pallas_codec::utils::PlutusBytes::from(
             splash_policy.to_raw_bytes().to_vec(),

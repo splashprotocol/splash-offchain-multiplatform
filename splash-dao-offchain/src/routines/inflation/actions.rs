@@ -35,18 +35,18 @@ use crate::deployment::ProtocolValidator;
 use crate::entities::offchain::voting_order::VotingOrder;
 use crate::entities::onchain::funding_box::{FundingBox, FundingBoxId, FundingBoxSnapshot};
 use crate::entities::onchain::inflation_box::{unsafe_update_ibox_state, INFLATION_BOX_EX_UNITS};
-use crate::entities::onchain::permission_manager::{compute_perm_manager_policy_id, PERM_MANAGER_EX_UNITS};
+use crate::entities::onchain::permission_manager::{compute_perm_manager_validator, PERM_MANAGER_EX_UNITS};
 use crate::entities::onchain::poll_factory::{
     unsafe_update_factory_state, FactoryRedeemer, PollFactoryAction, GOV_PROXY_EX_UNITS, WP_FACTORY_EX_UNITS,
 };
-use crate::entities::onchain::smart_farm::{self, compute_mint_farm_auth_token_policy_id, FARM_EX_UNITS};
+use crate::entities::onchain::smart_farm::{self, compute_mint_farm_auth_token_validator, FARM_EX_UNITS};
 use crate::entities::onchain::voting_escrow::{
-    self, compute_mint_weighting_power_policy_id, compute_voting_escrow_policy_id, unsafe_update_ve_state,
+    self, compute_mint_weighting_power_policy_id, compute_voting_escrow_validator, unsafe_update_ve_state,
     VotingEscrowAction, VotingEscrowAuthorizedAction, ORDER_WITNESS_EX_UNITS, VOTING_ESCROW_EX_UNITS,
     WEIGHTING_POWER_EX_UNITS,
 };
 use crate::entities::onchain::weighting_poll::{
-    self, compute_mint_wp_auth_token_policy_id, unsafe_update_wp_state, MintAction, WeightingPoll,
+    self, compute_mint_wp_auth_token_validator, unsafe_update_wp_state, MintAction, WeightingPoll,
     MINT_WP_AUTH_EX_UNITS,
 };
 use crate::entities::Snapshot;
@@ -296,13 +296,14 @@ where
         };
 
         // Mint wp_auth token TODO: don't need to compute, it's in deployment
-        let mint_wp_auth_token_script_hash = compute_mint_wp_auth_token_policy_id(
+        let mint_wp_auth_token_script_hash = compute_mint_wp_auth_token_validator(
             splash_policy,
             farm_auth_policy,
             self.ctx.select::<WPFactoryAuthPolicy>().0,
             self.ctx.select::<InflationAuthPolicy>().0,
             genesis_time,
-        );
+        )
+        .hash();
         println!(
             "mint_wp_auth_token_script_hash: {}",
             mint_wp_auth_token_script_hash.to_hex()
@@ -473,13 +474,14 @@ where
         let inflation_box_auth_policy = self.ctx.select::<InflationAuthPolicy>().0;
         let wpoll_auth_ref_script = self.ctx.select::<MintWPAuthRefScriptOutput>().0;
 
-        let weighting_poll_script_hash = compute_mint_wp_auth_token_policy_id(
+        let weighting_poll_script_hash = compute_mint_wp_auth_token_validator(
             splash_policy,
             farm_auth_policy,
             factory_auth_policy,
             inflation_box_auth_policy,
             genesis_time,
-        );
+        )
+        .hash();
 
         let redeemer = weighting_poll::PollAction::Destroy;
         let weighting_poll_script = PartialPlutusWitness::new(
@@ -571,7 +573,7 @@ where
         let wpoll_auth_ref_script = self.ctx.select::<MintWPAuthRefScriptOutput>().0;
         let weighting_power_ref_script = self.ctx.select::<WeightingPowerRefScriptOutput>().0;
 
-        let voting_escrow_script_hash = compute_voting_escrow_policy_id(ve_factory_auth_policy);
+        let voting_escrow_script_hash = compute_voting_escrow_validator(ve_factory_auth_policy).hash();
         let voting_escrow_script = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(voting_escrow_script_hash),
             authorized_action.into_pd(),
@@ -590,13 +592,14 @@ where
         tx_builder.add_input(voting_escrow_input).unwrap();
 
         // weighting_poll
-        let weighting_poll_script_hash = compute_mint_wp_auth_token_policy_id(
+        let weighting_poll_script_hash = compute_mint_wp_auth_token_validator(
             splash_policy,
             farm_auth_policy,
             factory_auth_policy,
             inflation_box_auth_policy,
             genesis_time,
-        );
+        )
+        .hash();
         let weighting_poll_script = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(weighting_poll_script_hash),
             weighting_poll::PollAction::Vote.into_pd(),
@@ -620,7 +623,8 @@ where
             self.ctx.select::<GenesisEpochStartTime>().0,
             wpoll_auth_policy,
             voting_escrow.get().gt_policy,
-        );
+        )
+        .hash();
         let weighting_power_asset_name = compute_epoch_asset_name(weighting_poll.get().epoch);
         let current_posix_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
@@ -793,13 +797,14 @@ where
         let old_weight = next_weighting_poll.distribution[ix].1;
         next_weighting_poll.distribution[ix].1 = old_weight + farm_weight;
 
-        let weighting_poll_script_hash = compute_mint_wp_auth_token_policy_id(
+        let weighting_poll_script_hash = compute_mint_wp_auth_token_validator(
             splash_policy,
             farm_auth_policy,
             factory_auth_policy,
             inflation_box_auth_policy,
             genesis_time,
-        );
+        )
+        .hash();
 
         // Setting TX inputs
         enum InputType {
@@ -866,11 +871,12 @@ where
                         },
                     };
                     let farm_auth_policy = self.ctx.select::<FarmAuthPolicy>().0.to_hex();
-                    let smart_farm_script_hash = compute_mint_farm_auth_token_policy_id(
+                    let smart_farm_script_hash = compute_mint_farm_auth_token_validator(
                         &farm_auth_policy,
                         splash_policy,
                         factory_auth_policy,
-                    );
+                    )
+                    .hash();
                     let smart_farm_script = PartialPlutusWitness::new(
                         PlutusScriptWitness::Ref(smart_farm_script_hash),
                         redeemer.into_pd(),
@@ -891,7 +897,7 @@ where
                 }
                 InputType::PermManager => {
                     let perm_manager_script_hash =
-                        compute_perm_manager_policy_id(edao_msig_policy, perm_manager_auth_policy);
+                        compute_perm_manager_validator(edao_msig_policy, perm_manager_auth_policy).hash();
 
                     let perm_manager_script = PartialPlutusWitness::new(
                         PlutusScriptWitness::Ref(perm_manager_script_hash),
@@ -1073,7 +1079,7 @@ mod tests {
     };
     use cml_crypto::ScriptHash;
 
-    use super::compute_mint_wp_auth_token_policy_id;
+    use super::compute_mint_wp_auth_token_validator;
 
     #[test]
     fn test_parametrised_validator() {
@@ -1082,7 +1088,7 @@ mod tests {
         let factory_auth_policy = create_dummy_policy_id(2);
         let inflation_box_auth_policy = create_dummy_policy_id(3);
         let zeroth_epoch_start = 100;
-        let _ = compute_mint_wp_auth_token_policy_id(
+        let _ = compute_mint_wp_auth_token_validator(
             splash_policy,
             farm_auth_policy,
             factory_auth_policy,

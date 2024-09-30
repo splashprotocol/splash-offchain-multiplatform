@@ -1,5 +1,6 @@
 use std::{fmt::Formatter, time::Duration};
 
+use cml_chain::plutus::PlutusV2Script;
 use cml_chain::utils::BigInteger;
 use cml_chain::{
     address::EnterpriseAddress,
@@ -367,7 +368,7 @@ pub fn compute_mint_weighting_power_policy_id(
     zeroth_epoch_start: u64,
     proposal_auth_policy: PolicyId,
     gt_policy: PolicyId,
-) -> PolicyId {
+) -> PlutusV2Script {
     let params_pd = uplc::PlutusData::Array(vec![
         uplc::PlutusData::BigInt(uplc::BigInt::Int(Int::from(zeroth_epoch_start as i64))),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(proposal_auth_policy.to_raw_bytes().to_vec())),
@@ -376,7 +377,7 @@ pub fn compute_mint_weighting_power_policy_id(
     apply_params_validator(params_pd, MINT_WEIGHTING_POWER_SCRIPT)
 }
 
-pub fn compute_voting_escrow_policy_id(ve_factory_auth_policy: PolicyId) -> PolicyId {
+pub fn compute_voting_escrow_validator(ve_factory_auth_policy: PolicyId) -> PlutusV2Script {
     let params_pd = uplc::PlutusData::Array(vec![uplc::PlutusData::BoundedBytes(PlutusBytes::from(
         ve_factory_auth_policy.to_raw_bytes().to_vec(),
     ))]);
