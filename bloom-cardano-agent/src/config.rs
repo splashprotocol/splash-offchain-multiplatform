@@ -1,7 +1,11 @@
+use cml_core::serialization::RawBytesEncoding;
 use std::net::SocketAddr;
 use std::time::Duration;
 
 use cml_core::Slot;
+use cml_crypto::chain_crypto::ed25519;
+use cml_crypto::chain_crypto::ed25519::Pub;
+use cml_crypto::PublicKey;
 
 use bloom_offchain::execution_engine::liquidity_book;
 use bloom_offchain::execution_engine::liquidity_book::core::BaseStepBudget;
@@ -12,6 +16,9 @@ use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain_cardano::node::NodeConfig;
 
 use bloom_offchain_cardano::integrity::{CheckIntegrity, IntegrityViolations};
+use spectrum_offchain::data::small_set::SmallVec;
+use spectrum_offchain_cardano::data::dao_request::DAOContext;
+use spectrum_offchain_cardano::data::royalty_withdraw_request::RoyaltyWithdrawContext;
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,6 +38,8 @@ pub struct AppConfig {
     pub event_feed_buffer_size: usize,
     pub event_feed_buffering_duration: Duration,
     pub partitioning: Partitioning,
+    pub dao_config: DAOConfig,
+    pub royalty_withdraw: RoyaltyWithdrawContext,
 }
 
 impl CheckIntegrity for AppConfig {
@@ -90,6 +99,37 @@ impl ExecutionConfig {
             execution_cap: self.execution_cap.into(),
             o2o_allowed: self.o2o_allowed,
             base_step_budget,
+        }
+    }
+}
+
+#[derive(Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DAOConfig {
+    pub public_keys: Vec<String>,
+    pub threshold: u64,
+    pub ex_fee: u64,
+}
+
+impl Into<DAOContext> for DAOConfig {
+    fn into(self) -> DAOContext {
+        let parsed_public_keys: Vec<[u8; 32]> = self
+            .public_keys
+            .iter()
+            .try_fold(vec![], |mut acc, key_to_parse| {
+                PublicKey::from_raw_bytes(&hex::decode(key_to_parse).unwrap()).map(|parsed_key| {
+                    let mut buf = [0; 32];
+                    buf[0..32].clone_from_slice(parsed_key.to_raw_bytes());
+                    acc.push(buf);
+                    acc
+                })
+            })
+            .unwrap();
+
+        DAOContext {
+            public_keys: SmallVec::new(parsed_public_keys.into_iter()),
+            signature_threshold: self.threshold,
+            execution_fee: self.ex_fee,
         }
     }
 }

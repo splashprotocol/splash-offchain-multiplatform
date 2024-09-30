@@ -21,3 +21,5 @@ pub const MIN_SAFE_LOVELACE_VALUE: Coin = 1_000_000;
 pub const MIN_SAFE_COLLATERAL: Coin = 5_000_000;
 
 pub const ADDITIONAL_FEE: Coin = 40_000;
+
+pub const POOL_OUT_IDX_IN: u64 = 0;

@@ -70,6 +70,7 @@ num-bigint = "0.4.6"
 uplc-pallas-codec = { package = "pallas-codec", version = "0.16" }
 uplc-pallas-traverse = { package = "pallas-traverse", version = "0.16" }
 uplc-pallas-primitives = { package = "pallas-primitives", version = "0.16" }
+strum_macros = "0.24.3"
 
 [dev-dependencies]
 rocksdb = "0.22.*"

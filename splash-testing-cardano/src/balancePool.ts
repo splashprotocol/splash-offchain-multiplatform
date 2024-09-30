@@ -3,7 +3,7 @@ import { getConfig } from "./config.ts";
 import { getLucid } from "./lucid.ts";
 import { Asset, BuiltValidators, PubKeyHash, asUnit } from "./types.ts";
 import { setupWallet } from "./wallet.ts";
-import { Unit, Datum, MintingPolicy, UTxO, Script, PlutusVersion, Assets, Data, Lucid, C, fromHex} from "https://deno.land/x/lucid@0.10.7/mod.ts";
+import { Unit, Datum, MintingPolicy, UTxO, Script, PlutusVersion, Assets, Data, Lucid, C, fromHex} from "@lucid-evolution/lucid";
 import { encoder } from 'npm:js-encoding-utils';
 
 export const stringToHex = (str: string): string =>

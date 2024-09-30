@@ -35,7 +35,8 @@ use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 use crate::constants::{FEE_DEN, MAX_LQ_CAP};
 use crate::data::cfmm_pool::AMMOps;
 use crate::data::deposit::ClassicalOnChainDeposit;
-use crate::data::operation_output::{DepositOutput, RedeemOutput};
+use crate::data::operation_output::OperationResultOutputs::SingleOutput;
+use crate::data::operation_output::{DepositOutput, OperationResultBlueprint, RedeemOutput};
 use crate::data::order::{Base, PoolNft, Quote};
 use crate::data::pair::order_canonical;
 use crate::data::pool::{
@@ -44,7 +45,11 @@ use crate::data::pool::{
 };
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
-use crate::deployment::ProtocolValidator::StableFnPoolT2T;
+use crate::deployment::ProtocolValidator::{
+    BalanceFnPoolDeposit, BalanceFnPoolRedeem, ConstFnFeeSwitchPoolDeposit, ConstFnFeeSwitchPoolRedeem,
+    ConstFnPoolDeposit, ConstFnPoolRedeem, RoyaltyPoolV1Deposit, RoyaltyPoolV1Redeem, StableFnPoolT2T,
+    StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
+};
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::pool_math::cfmm_math::classic_cfmm_shares_amount;
 use crate::pool_math::stable_math::stable_cfmm_reward_lp;
@@ -555,8 +560,10 @@ impl MarketMaker for StablePoolT2T {
 
         let tradable_x_reserves = (self.reserves_x - self.treasury_x).untag();
         let tradable_y_reserves = (self.reserves_y - self.treasury_y).untag();
-        let fee_x = BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64()?);
-        let fee_y = BigNumber::from((self.lp_fee_y - self.treasury_fee).to_f64()?);
+        let raw_fee_x = self.lp_fee_x.checked_sub(&self.treasury_fee)?;
+        let fee_x = BigNumber::from(raw_fee_x.to_f64()?);
+        let raw_fee_y = self.lp_fee_y.checked_sub(&self.treasury_fee)?;
+        let fee_y = BigNumber::from(raw_fee_y.to_f64()?);
         let bid_price = BigNumber::from(*worst_price.unwrap().denom() as f64)
             / BigNumber::from(*worst_price.unwrap().numer() as f64);
         let ask_price = BigNumber::from(*worst_price.unwrap().numer() as f64)
@@ -736,14 +743,24 @@ impl MarketMaker for StablePoolT2T {
     }
 }
 
-impl ApplyOrder<ClassicalOnChainDeposit> for StablePoolT2T {
+impl<Ctx> ApplyOrder<ClassicalOnChainDeposit, Ctx> for StablePoolT2T
+where
+    Ctx: Has<DeployedValidator<{ ConstFnFeeSwitchPoolDeposit as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolDeposit as u8 }>>
+        + Has<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>>
+        + Has<DeployedValidator<{ StableFnPoolT2TDeposit as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }>>,
+{
     type Result = DepositOutput;
 
     fn apply_order(
         mut self,
         deposit: ClassicalOnChainDeposit,
-    ) -> Result<(Self, DepositOutput), ApplyOrderError<ClassicalOnChainDeposit>> {
+        ctx: Ctx,
+    ) -> Result<(Self, OperationResultBlueprint<DepositOutput>), ApplyOrderError<ClassicalOnChainDeposit>>
+    {
         let order = deposit.order;
+        let validator = deposit.get_validator(&ctx);
         let net_x = if order.token_x.is_native() {
             order
                 .token_x_amount
@@ -796,21 +813,33 @@ impl ApplyOrder<ClassicalOnChainDeposit> for StablePoolT2T {
                     redeemer_stake_pkh: order.reward_stake_pkh,
                 };
 
-                Ok((self, deposit_output))
+                Ok((
+                    self,
+                    OperationResultBlueprint::single_output(deposit_output, validator),
+                ))
             }
             None => Err(ApplyOrderError::incompatible(deposit)),
         }
     }
 }
 
-impl ApplyOrder<ClassicalOnChainRedeem> for StablePoolT2T {
+impl<Ctx> ApplyOrder<ClassicalOnChainRedeem, Ctx> for StablePoolT2T
+where
+    Ctx: Has<DeployedValidator<{ ConstFnFeeSwitchPoolRedeem as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolRedeem as u8 }>>
+        + Has<DeployedValidator<{ BalanceFnPoolRedeem as u8 }>>
+        + Has<DeployedValidator<{ StableFnPoolT2TRedeem as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>>,
+{
     type Result = RedeemOutput;
 
     fn apply_order(
         mut self,
         redeem: ClassicalOnChainRedeem,
-    ) -> Result<(Self, RedeemOutput), ApplyOrderError<ClassicalOnChainRedeem>> {
+        ctx: Ctx,
+    ) -> Result<(Self, OperationResultBlueprint<RedeemOutput>), ApplyOrderError<ClassicalOnChainRedeem>> {
         let order = redeem.order;
+        let validator = redeem.get_validator(&ctx);
         match self.shares_amount(order.token_lq_amount) {
             Some((x_amount, y_amount)) => {
                 self.reserves_x = self
@@ -836,7 +865,10 @@ impl ApplyOrder<ClassicalOnChainRedeem> for StablePoolT2T {
                     redeemer_stake_pkh: order.reward_stake_pkh,
                 };
 
-                Ok((self, redeem_output))
+                Ok((
+                    self,
+                    OperationResultBlueprint::single_output(redeem_output, validator),
+                ))
             }
             None => Err(ApplyOrderError::incompatible(redeem)),
         }

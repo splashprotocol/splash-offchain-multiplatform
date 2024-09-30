@@ -24,7 +24,7 @@ impl<T> SmallVec<T> {
         self.0.iter().all(|e| e.is_none())
     }
 
-    pub fn find<F>(&self, f: F) -> bool
+    pub fn exists<F>(&self, f: F) -> bool
     where
         F: Fn(&T) -> bool,
     {
@@ -45,6 +45,18 @@ impl<T> SmallVec<T> {
             Some(elt) if f(elt) => t + 1,
             _ => t,
         })
+    }
+}
+
+impl<T: Copy> Into<Vec<T>> for SmallVec<T> {
+    fn into(self) -> Vec<T> {
+        let mut acc = vec![];
+        self.0.iter().for_each(|opt_elem| {
+            if let Some(elem) = opt_elem {
+                acc.push(*elem)
+            }
+        });
+        acc
     }
 }
 

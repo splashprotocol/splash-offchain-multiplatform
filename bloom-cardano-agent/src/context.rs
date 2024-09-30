@@ -6,12 +6,16 @@ use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::backlog::BacklogCapacity;
 use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::creds::{OperatorCred, OperatorRewardAddress};
+use spectrum_offchain_cardano::data::dao_request::DAOContext;
+use spectrum_offchain_cardano::data::royalty_withdraw_request::RoyaltyWithdrawContext;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2, ConstFnFeeSwitchPoolDeposit,
     ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
     ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1,
-    ConstFnPoolV2, GridOrderNative, LimitOrderV1, LimitOrderWitnessV1, StableFnPoolT2T,
-    StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
+    ConstFnPoolV2, GridOrderNative, LimitOrderV1, LimitOrderWitnessV1, RoyaltyPoolDAOV1,
+    RoyaltyPoolDAOV1Request, RoyaltyPoolRoyaltyWithdraw, RoyaltyPoolV1, RoyaltyPoolV1Deposit,
+    RoyaltyPoolV1Redeem, RoyaltyPoolV1RoyaltyWithdrawRequest, StableFnPoolT2T, StableFnPoolT2TDeposit,
+    StableFnPoolT2TRedeem,
 };
 use spectrum_offchain_cardano::deployment::{DeployedValidator, ProtocolDeployment};
 use type_equalities::IsEqual;
@@ -50,6 +54,8 @@ pub struct ExecutionContext {
     pub backlog_capacity: BacklogCapacity,
     pub network_id: NetworkId,
     pub operator_cred: OperatorCred,
+    pub dao_ctx: DAOContext,
+    pub royalty_context: RoyaltyWithdrawContext,
 }
 
 impl Has<NetworkId> for ExecutionContext {
@@ -253,5 +259,73 @@ impl Has<DeployedValidator<{ GridOrderNative as u8 }>> for ExecutionContext {
         &self,
     ) -> DeployedValidator<{ GridOrderNative as u8 }> {
         self.deployment.grid_order_native.clone()
+    }
+}
+
+impl Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>> for ExecutionContext {
+    fn select<U: IsEqual<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ RoyaltyPoolV1 as u8 }> {
+        self.deployment.royalty_pool.clone()
+    }
+}
+
+impl Has<DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }>> for ExecutionContext {
+    fn select<U: IsEqual<DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }> {
+        self.deployment.royalty_pool_deposit.clone()
+    }
+}
+
+impl Has<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>> for ExecutionContext {
+    fn select<U: IsEqual<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }> {
+        self.deployment.royalty_pool_redeem.clone()
+    }
+}
+
+impl Has<DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>> for ExecutionContext {
+    fn select<U: IsEqual<DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }> {
+        self.deployment.royalty_pool_royalty_withdraw_request.clone()
+    }
+}
+
+impl Has<DeployedValidator<{ RoyaltyPoolDAOV1Request as u8 }>> for ExecutionContext {
+    fn select<U: IsEqual<DeployedValidator<{ RoyaltyPoolDAOV1Request as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ RoyaltyPoolDAOV1Request as u8 }> {
+        self.deployment.royalty_pool_dao_request.clone()
+    }
+}
+
+impl Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdraw as u8 }>> for ExecutionContext {
+    fn select<U: IsEqual<DeployedValidator<{ RoyaltyPoolRoyaltyWithdraw as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ RoyaltyPoolRoyaltyWithdraw as u8 }> {
+        self.deployment.royalty_pool_withdraw.clone()
+    }
+}
+
+impl Has<DeployedValidator<{ RoyaltyPoolDAOV1 as u8 }>> for ExecutionContext {
+    fn select<U: IsEqual<DeployedValidator<{ RoyaltyPoolDAOV1 as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ RoyaltyPoolDAOV1 as u8 }> {
+        self.deployment.royalty_pool_dao.clone()
+    }
+}
+
+impl Has<DAOContext> for ExecutionContext {
+    fn select<U: IsEqual<DAOContext>>(&self) -> DAOContext {
+        self.dao_ctx.clone()
+    }
+}
+
+impl Has<RoyaltyWithdrawContext> for ExecutionContext {
+    fn select<U: IsEqual<RoyaltyWithdrawContext>>(&self) -> RoyaltyWithdrawContext {
+        self.royalty_context.clone()
     }
 }

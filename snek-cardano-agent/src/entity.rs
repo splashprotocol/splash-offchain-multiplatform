@@ -13,7 +13,7 @@ use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::degen_quadratic_pool::DegenQuadraticPool;
 use spectrum_offchain_cardano::data::deposit::DepositOrderValidation;
-use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
+use spectrum_offchain_cardano::data::order::Order;
 use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::data::pool::PoolValidation;
 use spectrum_offchain_cardano::data::redeem::RedeemOrderValidation;
@@ -21,7 +21,8 @@ use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, ConstFnFeeSwitchPoolDeposit, ConstFnFeeSwitchPoolRedeem,
     ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolRedeem, ConstFnPoolSwap, DegenQuadraticPoolV1,
-    LimitOrderV1, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
+    LimitOrderV1, RoyaltyPoolDAOV1Request, RoyaltyPoolV1Deposit, RoyaltyPoolV1Redeem,
+    RoyaltyPoolV1RoyaltyWithdrawRequest, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use spectrum_offchain_cardano::handler_context::{
     AuthVerificationKey, ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers,
@@ -29,7 +30,7 @@ use spectrum_offchain_cardano::handler_context::{
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct AtomicCardanoEntity(pub Bundled<ClassicalAMMOrder, FinalizedTxOut>);
+pub struct AtomicCardanoEntity(pub Bundled<Order, FinalizedTxOut>);
 
 impl SpecializedOrder for AtomicCardanoEntity {
     type TOrderId = OutputRef;
@@ -59,11 +60,15 @@ where
         + Has<DeployedScriptInfo<{ BalanceFnPoolRedeem as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2TDeposit as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2TRedeem as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV1Deposit as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV1Redeem as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolDAOV1Request as u8 }>>
         + Has<DepositOrderValidation>
         + Has<RedeemOrderValidation>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
-        ClassicalAMMOrder::try_from_ledger(repr, ctx).map(|inner| {
+        Order::try_from_ledger(repr, ctx).map(|inner| {
             Self(Bundled(
                 inner,
                 FinalizedTxOut::new(repr.clone(), ctx.select::<OutputRef>()),

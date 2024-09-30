@@ -3,7 +3,7 @@ import { getLucid } from "../lucid.ts";
 import { Asset, BuiltValidator, BuiltValidators } from "../types.ts";
 import { setupWallet } from "../wallet.ts";
 import { PubKeyHash } from "../types.ts";
-import { Data, Datum, Lucid, TxComplete } from "https://deno.land/x/lucid@0.10.7/mod.ts";
+import { Data, Datum, Lucid, TxComplete } from "@lucid-evolution/lucid";
 import { StabledepositContract, StableredeemContract } from "../../plutus.ts";
 import { asUnit } from "../types.ts";
 

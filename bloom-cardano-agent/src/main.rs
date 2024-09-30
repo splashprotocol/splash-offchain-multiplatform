@@ -62,7 +62,8 @@ use spectrum_offchain::tracing::WithTracing;
 use spectrum_offchain::tx_tracker::{new_tx_tracker_bundle, TxTrackerChannel};
 use spectrum_offchain_cardano::collateral::pull_collateral;
 use spectrum_offchain_cardano::creds::operator_creds;
-use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
+use spectrum_offchain_cardano::data::dao_request::DAOContext;
+use spectrum_offchain_cardano::data::order::Order;
 use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::data::pool::AnyPool;
 use spectrum_offchain_cardano::deployment::{DeployedValidators, ProtocolDeployment, ProtocolScriptHashes};
@@ -220,11 +221,13 @@ async fn main() {
         config.event_cache_ttl,
         SystemClock,
     )));
+    let dao_ctx: DAOContext = config.dao_config.clone().into();
     let handler_context = HandlerContextProto {
         executor_cred: operator_paycred,
         scripts: ProtocolScriptHashes::from(&protocol_deployment),
         adhoc_fee_structure: AdhocFeeStructure::empty(),
         validation_rules,
+        dao_context: dao_ctx,
     };
     let general_upd_handler: PairUpdateHandler<4, _, _, _, _, HandlerContextProto, HandlerContext<Token>> =
         PairUpdateHandler::new(
@@ -276,6 +279,8 @@ async fn main() {
         collateral: collateral.clone(),
         network_id: config.network_id,
         operator_cred: operator_paycred,
+        dao_ctx,
+        royalty_context: config.royalty_withdraw,
     };
     let context_p2 = ExecutionContext {
         time: 0.into(),
@@ -285,6 +290,8 @@ async fn main() {
         collateral: collateral.clone(),
         network_id: config.network_id,
         operator_cred: operator_paycred,
+        dao_ctx,
+        royalty_context: config.royalty_withdraw,
     };
     let context_p3 = ExecutionContext {
         time: 0.into(),
@@ -294,6 +301,8 @@ async fn main() {
         collateral: collateral.clone(),
         network_id: config.network_id,
         operator_cred: operator_paycred,
+        dao_ctx,
+        royalty_context: config.royalty_withdraw,
     };
     let context_p4 = ExecutionContext {
         time: 0.into(),
@@ -303,12 +312,15 @@ async fn main() {
         collateral,
         network_id: config.network_id,
         operator_cred: operator_paycred,
+        dao_ctx,
+        royalty_context: config.royalty_withdraw,
     };
 
     let multi_book = MultiPair::new::<TLB<AnyOrder, AnyPool, PairId, ExUnits>>(maker_context.clone(), "Book");
-    let multi_backlog = MultiPair::new::<
-        WithTracing<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>,
-    >(maker_context, "Backlog");
+    let multi_backlog = MultiPair::new::<WithTracing<HotPriorityBacklog<Bundled<Order, FinalizedTxOut>>>>(
+        maker_context,
+        "Backlog",
+    );
     let state_index = InMemoryStateIndex::with_tracing();
 
     let (signal_tip_reached_snd, signal_tip_reached_recv) = broadcast::channel(1);
@@ -493,7 +505,7 @@ fn merge_upstreams(
                     Bundled<Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>, FinalizedTxOut>,
                 >,
             >,
-            Channel<OrderUpdate<Bundled<ClassicalAMMOrder, FinalizedTxOut>, ClassicalAMMOrder>>,
+            Channel<OrderUpdate<Bundled<Order, FinalizedTxOut>, Order>>,
         >,
     ),
 > {

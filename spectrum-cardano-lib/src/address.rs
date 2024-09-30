@@ -1,9 +1,11 @@
-use crate::plutus_data::{ConstrPlutusDataExtension, PlutusDataExtension};
+use crate::plutus_data::{ConstrPlutusDataExtension, IntoPlutusData, PlutusDataExtension};
 use crate::types::TryFromPData;
 use crate::NetworkId;
 use cml_chain::address::{Address, BaseAddress, EnterpriseAddress};
 use cml_chain::certs::{Credential, StakeCredential};
-use cml_chain::plutus::PlutusData;
+use cml_chain::plutus::utils::ConstrPlutusDataEncoding;
+use cml_chain::plutus::{ConstrPlutusData, PlutusData};
+use cml_core::serialization::LenEncoding::{Canonical, Indefinite};
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, ScriptHash};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -26,6 +28,35 @@ impl TryFromPData for PlutusCredential {
     }
 }
 
+impl IntoPlutusData for PlutusCredential {
+    fn into_pd(self) -> PlutusData {
+        match self {
+            PlutusCredential::PubKey(pub_key_hash) => PlutusData::new_constr_plutus_data(ConstrPlutusData {
+                alternative: 0,
+                fields: vec![PlutusData::new_bytes(pub_key_hash.to_raw_bytes().to_vec())],
+                encodings: Some(ConstrPlutusDataEncoding {
+                    len_encoding: Canonical,
+                    tag_encoding: Some(cbor_event::Sz::One),
+                    alternative_encoding: None,
+                    fields_encoding: Indefinite,
+                    prefer_compact: true,
+                }),
+            }),
+            PlutusCredential::Script(script_hash) => PlutusData::new_constr_plutus_data(ConstrPlutusData {
+                alternative: 1,
+                fields: vec![PlutusData::new_bytes(script_hash.to_raw_bytes().to_vec())],
+                encodings: Some(ConstrPlutusDataEncoding {
+                    len_encoding: Canonical,
+                    tag_encoding: Some(cbor_event::Sz::One),
+                    alternative_encoding: None,
+                    fields_encoding: Indefinite,
+                    prefer_compact: true,
+                }),
+            }),
+        }
+    }
+}
+
 impl From<PlutusCredential> for Credential {
     fn from(value: PlutusCredential) -> Self {
         match value {
@@ -37,6 +68,22 @@ impl From<PlutusCredential> for Credential {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct InlineCredential(PlutusCredential);
+
+impl InlineCredential {
+    pub fn script_hash(self) -> Option<ScriptHash> {
+        match self {
+            InlineCredential(PlutusCredential::Script(script_hash)) => Some(script_hash),
+            _ => None,
+        }
+    }
+}
+
+impl From<ScriptHash> for InlineCredential {
+    fn from(value: ScriptHash) -> Self {
+        Self(PlutusCredential::Script(value))
+    }
+}
+
 impl TryFromPData for InlineCredential {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
@@ -46,6 +93,22 @@ impl TryFromPData for InlineCredential {
             )?)),
             _ => None,
         }
+    }
+}
+
+impl IntoPlutusData for InlineCredential {
+    fn into_pd(self) -> PlutusData {
+        PlutusData::new_constr_plutus_data(ConstrPlutusData {
+            alternative: 0,
+            fields: vec![self.0.into_pd()],
+            encodings: Some(ConstrPlutusDataEncoding {
+                len_encoding: Canonical,
+                tag_encoding: Some(cbor_event::Sz::One),
+                alternative_encoding: None,
+                fields_encoding: Indefinite,
+                prefer_compact: true,
+            }),
+        })
     }
 }
 
@@ -82,8 +145,26 @@ impl TryFromPData for PlutusAddress {
     }
 }
 
+impl IntoPlutusData for PlutusAddress {
+    fn into_pd(self) -> PlutusData {
+        PlutusData::new_constr_plutus_data(ConstrPlutusData {
+            alternative: 0,
+            fields: vec![self.payment_cred.into_pd(), self.stake_cred.into_pd()],
+            encodings: Some(ConstrPlutusDataEncoding {
+                len_encoding: Canonical,
+                tag_encoding: Some(cbor_event::Sz::One),
+                alternative_encoding: None,
+                fields_encoding: Indefinite,
+                prefer_compact: true,
+            }),
+        })
+    }
+}
+
 pub trait AddressExtension {
     fn script_hash(&self) -> Option<ScriptHash>;
+    fn update_staking_cred(&mut self, cred: Credential);
+
     fn update_payment_cred(&mut self, cred: Credential);
 }
 
@@ -94,6 +175,15 @@ impl AddressExtension for Address {
             StakeCredential::Script { hash, .. } => Some(*hash),
         }
     }
+    fn update_staking_cred(&mut self, cred: Credential) {
+        match self {
+            Self::Base(ref mut a) => {
+                a.stake = cred;
+            }
+            _ => {}
+        }
+    }
+
     fn update_payment_cred(&mut self, cred: Credential) {
         match self {
             Self::Base(ref mut a) => {

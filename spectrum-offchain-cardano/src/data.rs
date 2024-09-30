@@ -23,10 +23,13 @@ pub mod ref_scripts;
 pub mod balance_order;
 pub mod balance_pool;
 pub mod cfmm_pool;
+pub mod dao_request;
 pub mod degen_quadratic_pool;
 pub mod fee_switch_bidirectional_fee;
 pub mod fee_switch_pool;
 pub mod pair;
+pub mod royalty_pool;
+pub mod royalty_withdraw_request;
 pub mod stable_order;
 pub mod stable_pool_t2t;
 

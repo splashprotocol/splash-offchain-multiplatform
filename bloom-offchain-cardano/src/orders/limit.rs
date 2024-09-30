@@ -361,7 +361,7 @@ where
     let valid_fresh_beacon = || {
         ctx.select::<ConsumedInputs>()
             .0
-            .find(|o| beacon_from_oref(*o, datum_hash, order_index) == beacon)
+            .exists(|o| beacon_from_oref(*o, datum_hash, order_index) == beacon)
     };
     let consumed_ids = ctx.select::<ConsumedIdentifiers<Token>>().0;
     let consumed_beacons = consumed_ids.count(|b| b.0 == beacon);

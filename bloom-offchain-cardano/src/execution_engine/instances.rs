@@ -16,7 +16,7 @@ use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::balance_pool::{BalancePool, BalancePoolRedeemer};
 use spectrum_offchain_cardano::data::cfmm_pool::ConstFnPoolVer::{FeeSwitch, FeeSwitchV2};
-use spectrum_offchain_cardano::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
+use spectrum_offchain_cardano::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool, ConstFnPoolVer};
 use spectrum_offchain_cardano::data::degen_quadratic_pool::{DegenQuadraticPool, DegenQuadraticPoolRedeemer};
 use spectrum_offchain_cardano::data::pool::{AnyPool, CFMMPoolAction, PoolAssetMapping};
 use spectrum_offchain_cardano::data::stable_pool_t2t::{StablePoolRedeemer, StablePoolT2T};
@@ -24,7 +24,7 @@ use spectrum_offchain_cardano::data::{balance_pool, cfmm_pool, stable_pool_t2t};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolV1, BalanceFnPoolV2, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,
     ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, DegenQuadraticPoolV1, GridOrderNative,
-    LimitOrderV1, LimitOrderWitnessV1, StableFnPoolT2T,
+    LimitOrderV1, LimitOrderWitnessV1, RoyaltyPoolV1, StableFnPoolT2T,
 };
 use spectrum_offchain_cardano::deployment::{DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use spectrum_offchain_cardano::script::{
@@ -374,7 +374,8 @@ where
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolV2 as u8 }>>
-        + Has<DeployedValidator<{ StableFnPoolT2T as u8 }>>,
+        + Has<DeployedValidator<{ StableFnPoolT2T as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>,
 {
     fn exec(self, state: ExecutionState, context: Ctx) -> (ExecutionState, EffectPreview<AnyPool>, Ctx) {
         match self.0 {
@@ -436,7 +437,8 @@ where
         + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchV2 as u8 }>>
-        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>,
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>,
 {
     fn exec(
         self,
@@ -489,10 +491,27 @@ where
 
         if transition.ver == FeeSwitch || transition.ver == FeeSwitchV2 {
             if let Some(data) = produced_out.data_mut() {
-                cfmm_pool::unsafe_update_pd(
+                cfmm_pool::unsafe_update_pd_fee_switch(
                     data,
                     transition.treasury_x.untag(),
                     transition.treasury_y.untag(),
+                );
+            }
+        } else if transition.ver == ConstFnPoolVer::RoyaltyPoolV1 {
+            if let Some(data) = produced_out.data_mut() {
+                cfmm_pool::unsafe_update_pd_royalty(
+                    data,
+                    // royalty pool have the same lp_fee_x and lp_fee_y values
+                    *transition.lp_fee_x.numer(),
+                    *transition.treasury_fee.numer(),
+                    *transition.royalty_fee.numer(),
+                    transition.treasury_x.untag(),
+                    transition.treasury_y.untag(),
+                    transition.royalty_x.untag(),
+                    transition.royalty_y.untag(),
+                    transition.treasury_address,
+                    transition.admin_address,
+                    transition.nonce,
                 );
             }
         }

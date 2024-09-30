@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use cml_chain::builders::tx_builder::TxBuilderError;
+use cml_chain::builders::withdrawal_builder::WithdrawalBuilderError;
 use futures::{stream, Stream};
 use futures_timer::Delay;
 use log::{info, trace, warn};
@@ -34,8 +35,16 @@ pub enum RunOrderError<TOrd> {
 }
 
 impl<O> RunOrderError<O> {
-    pub fn from_cml_error(cml_error: TxBuilderError, order: O) -> RunOrderError<O> {
+    pub fn from_tx_builder_error(cml_error: TxBuilderError, order: O) -> RunOrderError<O> {
         Fatal(cml_error.to_string(), order)
+    }
+
+    pub fn from_withdrawal_builder_error(cml_error: WithdrawalBuilderError, order: O) -> RunOrderError<O> {
+        Fatal(cml_error.to_string(), order)
+    }
+
+    pub fn raw_builder_error(description: String, order: O) -> RunOrderError<O> {
+        Fatal(description, order)
     }
 
     pub fn map<F, O2>(self, f: F) -> RunOrderError<O2>
