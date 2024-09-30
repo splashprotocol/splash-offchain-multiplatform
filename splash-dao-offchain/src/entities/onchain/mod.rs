@@ -29,6 +29,7 @@ pub mod permission_manager;
 pub mod poll_factory;
 pub mod smart_farm;
 pub mod voting_escrow;
+pub mod voting_escrow_factory;
 pub mod weighting_poll;
 
 #[derive(Debug)]

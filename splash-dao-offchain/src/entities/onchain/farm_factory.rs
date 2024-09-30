@@ -66,9 +66,7 @@ where
             let FarmFactoryDatum {
                 last_farm_id,
                 farm_seed_data,
-            } = datum
-                .into_pd()
-                .map(|pd| FarmFactoryDatum::try_from_pd(pd).unwrap())?;
+            } = datum.into_pd().and_then(FarmFactoryDatum::try_from_pd)?;
 
             let auth_token_policy_id = ctx.select::<FarmFactoryAuthPolicy>().0;
 

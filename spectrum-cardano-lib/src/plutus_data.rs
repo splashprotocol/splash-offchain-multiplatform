@@ -62,6 +62,7 @@ pub trait PlutusDataExtension {
     fn into_u512(self) -> Option<U512>;
     fn into_vec_pd<T>(self, f: fn(PlutusData) -> Option<T>) -> Option<Vec<T>>;
     fn into_vec(self) -> Option<Vec<PlutusData>>;
+    fn into_pd_map(self) -> Option<Vec<(PlutusData, PlutusData)>>;
 }
 
 impl PlutusDataExtension for PlutusData {
@@ -124,6 +125,13 @@ impl PlutusDataExtension for PlutusData {
     fn into_vec_pd<T>(self, f: fn(PlutusData) -> Option<T>) -> Option<Vec<T>> {
         match self {
             PlutusData::List { list, .. } => Some(list.into_iter().flat_map(f).collect()),
+            _ => None,
+        }
+    }
+
+    fn into_pd_map(self) -> Option<Vec<(PlutusData, PlutusData)>> {
+        match self {
+            PlutusData::Map(m) => Some(m.entries),
             _ => None,
         }
     }
