@@ -117,6 +117,7 @@ pub struct DeployedValidators {
     pub stable_fn_pool_t2t: DeployedValidatorRef,
     pub stable_fn_pool_t2t_deposit: DeployedValidatorRef,
     pub stable_fn_pool_t2t_redeem: DeployedValidatorRef,
+    pub royalty_pool: DeployedValidatorRef,
 }
 
 impl From<&DeployedValidators> for ProtocolScriptHashes {
@@ -143,6 +144,7 @@ impl From<&DeployedValidators> for ProtocolScriptHashes {
             stable_fn_pool_t2t: From::from(&deployment.stable_fn_pool_t2t),
             stable_fn_pool_t2t_deposit: From::from(&deployment.stable_fn_pool_t2t_deposit),
             stable_fn_pool_t2t_redeem: From::from(&deployment.stable_fn_pool_t2t_redeem),
+            royalty_pool_v1: From::from(&deployment.royalty_pool),
         }
     }
 }
@@ -283,6 +285,7 @@ pub enum ProtocolValidator {
     StableFnPoolT2TDeposit,
     StableFnPoolT2TRedeem,
     DegenQuadraticPoolV1,
+    RoyaltyPoolV1,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -312,6 +315,7 @@ pub struct ProtocolScriptHashes {
     pub stable_fn_pool_t2t: DeployedScriptInfo<{ ProtocolValidator::StableFnPoolT2T as u8 }>,
     pub stable_fn_pool_t2t_deposit: DeployedScriptInfo<{ ProtocolValidator::StableFnPoolT2TDeposit as u8 }>,
     pub stable_fn_pool_t2t_redeem: DeployedScriptInfo<{ ProtocolValidator::StableFnPoolT2TRedeem as u8 }>,
+    pub royalty_pool_v1: DeployedScriptInfo<{ ProtocolValidator::RoyaltyPoolV1 as u8 }>,
 }
 
 impl From<&ProtocolDeployment> for ProtocolScriptHashes {
@@ -338,6 +342,7 @@ impl From<&ProtocolDeployment> for ProtocolScriptHashes {
             stable_fn_pool_t2t: From::from(&deployment.stable_fn_pool_t2t),
             stable_fn_pool_t2t_deposit: From::from(&deployment.stable_fn_pool_t2t_deposit),
             stable_fn_pool_t2t_redeem: From::from(&deployment.stable_fn_pool_t2t_redeem),
+            royalty_pool_v1: From::from(&deployment.royalty_pool),
         }
     }
 }
@@ -369,6 +374,7 @@ pub struct ProtocolDeployment {
     pub stable_fn_pool_t2t: DeployedValidator<{ ProtocolValidator::StableFnPoolT2T as u8 }>,
     pub stable_fn_pool_t2t_deposit: DeployedValidator<{ ProtocolValidator::StableFnPoolT2TDeposit as u8 }>,
     pub stable_fn_pool_t2t_redeem: DeployedValidator<{ ProtocolValidator::StableFnPoolT2TRedeem as u8 }>,
+    pub royalty_pool: DeployedValidator<{ ProtocolValidator::RoyaltyPoolV1 as u8 }>,
 }
 
 impl ProtocolDeployment {
@@ -438,6 +444,7 @@ impl ProtocolDeployment {
                 explorer,
             )
             .await,
+            royalty_pool: DeployedValidator::unsafe_pull(validators.royalty_pool, explorer).await,
         }
     }
 }

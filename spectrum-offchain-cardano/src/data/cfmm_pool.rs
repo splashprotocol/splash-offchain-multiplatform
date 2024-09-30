@@ -36,6 +36,7 @@ use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 use crate::constants::{FEE_DEN, LEGACY_FEE_NUM_MULTIPLIER, MAX_LQ_CAP};
+use crate::data::cfmm_pool::ConstFnPoolVer::RoyaltyPoolV1;
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::fee_switch_bidirectional_fee::FeeSwitchBidirectionalPoolConfig;
 use crate::data::fee_switch_pool::FeeSwitchPoolConfig;
@@ -47,6 +48,7 @@ use crate::data::pool::{
     ApplyOrder, ApplyOrderError, ImmutablePoolUtxo, Lq, PoolAssetMapping, PoolValidation, Rx, Ry,
 };
 use crate::data::redeem::ClassicalOnChainRedeem;
+use crate::data::royalty_pool::{RoyaltyPoolConfig, RoyaltyPoolDatumMapping, ROYALTY_DATUM_MAPPING};
 use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::{
     ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2,
@@ -93,6 +95,7 @@ pub enum ConstFnPoolVer {
     FeeSwitch,
     FeeSwitchV2,
     FeeSwitchBiDirFee,
+    RoyaltyPoolV1,
 }
 
 impl ConstFnPoolVer {
@@ -102,7 +105,8 @@ impl ConstFnPoolVer {
             + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
             + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
             + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>
-            + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>,
+            + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+            + Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>,
     {
         let maybe_hash = pool_addr.payment_cred().and_then(|c| match c {
             StakeCredential::PubKey { .. } => None,
@@ -139,6 +143,12 @@ impl ConstFnPoolVer {
                 == *this_hash
             {
                 return Some(ConstFnPoolVer::FeeSwitchBiDirFee);
+            } else if ctx
+                .select::<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>()
+                .script_hash
+                == *this_hash
+            {
+                return Some(ConstFnPoolVer::RoyaltyPoolV1);
             }
         };
         None
@@ -159,6 +169,9 @@ pub struct ConstFnPool {
     pub treasury_fee: Ratio<u64>,
     pub treasury_x: TaggedAmount<Rx>,
     pub treasury_y: TaggedAmount<Ry>,
+    pub royalty_fee: Ratio<u64>,
+    pub royalty_x: TaggedAmount<Rx>,
+    pub royalty_y: TaggedAmount<Ry>,
     pub lq_lower_bound: TaggedAmount<Rx>,
     pub ver: ConstFnPoolVer,
     pub marginal_cost: ExUnits,
@@ -233,12 +246,12 @@ impl AMMOps for ConstFnPool {
     ) -> TaggedAmount<Quote> {
         classic_cfmm_output_amount(
             self.asset_x,
-            self.reserves_x - self.treasury_x,
-            self.reserves_y - self.treasury_y,
+            self.reserves_x - self.treasury_x - self.royalty_x,
+            self.reserves_y - self.treasury_y - self.royalty_y,
             base_asset,
             base_amount,
-            self.lp_fee_x - self.treasury_fee,
-            self.lp_fee_y - self.treasury_fee,
+            self.lp_fee_x - self.treasury_fee - self.royalty_fee,
+            self.lp_fee_y - self.treasury_fee - self.royalty_fee,
         )
     }
 
@@ -248,8 +261,8 @@ impl AMMOps for ConstFnPool {
         in_y_amount: u64,
     ) -> Option<(TaggedAmount<Lq>, TaggedAmount<Rx>, TaggedAmount<Ry>)> {
         classic_cfmm_reward_lp(
-            self.reserves_x - self.treasury_x,
-            self.reserves_y - self.treasury_y,
+            self.reserves_x - self.treasury_x - self.royalty_x,
+            self.reserves_y - self.treasury_y - self.royalty_y,
             self.liquidity,
             in_x_amount,
             in_y_amount,
@@ -258,8 +271,8 @@ impl AMMOps for ConstFnPool {
 
     fn shares_amount(&self, burned_lq: TaggedAmount<Lq>) -> Option<(TaggedAmount<Rx>, TaggedAmount<Ry>)> {
         classic_cfmm_shares_amount(
-            self.reserves_x - self.treasury_x,
-            self.reserves_y - self.treasury_y,
+            self.reserves_x - self.treasury_x - self.royalty_x,
+            self.reserves_y - self.treasury_y - self.royalty_y,
             self.liquidity,
             burned_lq,
         )
@@ -272,7 +285,8 @@ where
         + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchV2 as u8 }>>
-        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>,
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self.ver {
@@ -287,6 +301,9 @@ where
                 .erased(),
             ConstFnPoolVer::FeeSwitchBiDirFee => ctx
                 .select::<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>()
+                .erased(),
+            ConstFnPoolVer::RoyaltyPoolV1 => ctx
+                .select::<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>()
                 .erased(),
             _ => ctx
                 .select::<DeployedValidator<{ ConstFnPoolV2 as u8 }>>()
@@ -308,21 +325,26 @@ impl MakerBehavior for ConstFnPool {
                 .output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
                 .untag(),
         };
-        let (base_reserves, base_treasury, quote_reserves, quote_treasury) = if x == base {
-            (
-                self.reserves_x.as_mut(),
-                self.treasury_x.as_mut(),
-                self.reserves_y.as_mut(),
-                self.treasury_y.as_mut(),
-            )
-        } else {
-            (
-                self.reserves_y.as_mut(),
-                self.treasury_y.as_mut(),
-                self.reserves_x.as_mut(),
-                self.treasury_x.as_mut(),
-            )
-        };
+        let (base_reserves, base_treasury, base_royalty, quote_reserves, quote_treasury, quote_royalty) =
+            if x == base {
+                (
+                    self.reserves_x.as_mut(),
+                    self.treasury_x.as_mut(),
+                    self.royalty_x.as_mut(),
+                    self.reserves_y.as_mut(),
+                    self.treasury_y.as_mut(),
+                    self.royalty_y.as_mut(),
+                )
+            } else {
+                (
+                    self.reserves_y.as_mut(),
+                    self.treasury_y.as_mut(),
+                    self.royalty_y.as_mut(),
+                    self.reserves_x.as_mut(),
+                    self.treasury_x.as_mut(),
+                    self.royalty_x.as_mut(),
+                )
+            };
         match input {
             OnSide::Bid(input) => {
                 // A user bid means that they wish to buy the base asset for the quote asset, hence
@@ -330,12 +352,14 @@ impl MakerBehavior for ConstFnPool {
                 *quote_reserves += input;
                 *base_reserves -= output;
                 *quote_treasury += (input * self.treasury_fee.numer()) / self.treasury_fee.denom();
+                *quote_royalty += (input * self.royalty_fee.numer()) / self.royalty_fee.denom();
             }
             OnSide::Ask(input) => {
                 // User ask is the opposite; sell the base asset for the quote asset.
                 *base_reserves += input;
                 *quote_reserves -= output;
                 *base_treasury += (input * self.treasury_fee.numer()) / self.treasury_fee.denom();
+                *base_royalty += (input * self.royalty_fee.numer()) / self.royalty_fee.denom();
             }
         }
         Next::Succ(self)
@@ -349,8 +373,8 @@ impl MarketMaker for ConstFnPool {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, _] = order_canonical(x, y);
-        let available_x_reserves = (self.reserves_x - self.treasury_x).untag();
-        let available_y_reserves = (self.reserves_y - self.treasury_y).untag();
+        let available_x_reserves = (self.reserves_x - self.treasury_x - self.royalty_x).untag();
+        let available_y_reserves = (self.reserves_y - self.treasury_y - self.royalty_y).untag();
         if available_x_reserves == available_y_reserves {
             AbsolutePrice::new_unsafe(1, 1).into()
         } else {
@@ -422,10 +446,12 @@ impl MarketMaker for ConstFnPool {
 
         let [base, _] = order_canonical(self.asset_x.untag(), self.asset_y.untag());
 
-        let tradable_x_reserves = BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64);
-        let tradable_y_reserves = BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64);
-        let fee_x = BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64()?);
-        let fee_y = BigNumber::from((self.lp_fee_y - self.treasury_fee).to_f64()?);
+        let tradable_x_reserves =
+            BigNumber::from((self.reserves_x - self.treasury_x - self.royalty_x).untag() as f64);
+        let tradable_y_reserves =
+            BigNumber::from((self.reserves_y - self.treasury_y - self.royalty_y).untag() as f64);
+        let fee_x = BigNumber::from((self.lp_fee_x - self.treasury_fee - self.royalty_fee).to_f64()?);
+        let fee_y = BigNumber::from((self.lp_fee_y - self.treasury_fee - self.royalty_fee).to_f64()?);
         let bid_price = BigNumber::from(*worst_price.unwrap().denom() as f64)
             / BigNumber::from(*worst_price.unwrap().numer() as f64);
         let ask_price = BigNumber::from(*worst_price.unwrap().numer() as f64)
@@ -505,6 +531,7 @@ where
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
         + Has<PoolValidation>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
@@ -533,6 +560,10 @@ where
                     ctx.select::<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>()
                         .marginal_cost
                 }
+                ConstFnPoolVer::RoyaltyPoolV1 => {
+                    ctx.select::<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>()
+                        .marginal_cost
+                }
             };
             match pool_ver {
                 ConstFnPoolVer::V1 | ConstFnPoolVer::V2 => {
@@ -553,6 +584,9 @@ where
                         treasury_fee: Ratio::new_raw(0, 1),
                         treasury_x: TaggedAmount::new(0),
                         treasury_y: TaggedAmount::new(0),
+                        royalty_fee: Ratio::new_raw(0, 100),
+                        royalty_x: TaggedAmount::new(0),
+                        royalty_y: TaggedAmount::new(0),
                         lq_lower_bound: conf.lq_lower_bound,
                         ver: pool_ver,
                         marginal_cost,
@@ -585,6 +619,9 @@ where
                             treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
                             treasury_x: TaggedAmount::new(conf.treasury_x),
                             treasury_y: TaggedAmount::new(conf.treasury_y),
+                            royalty_fee: Ratio::new_raw(0, 100),
+                            royalty_x: TaggedAmount::new(0),
+                            royalty_y: TaggedAmount::new(0),
                             lq_lower_bound: conf.lq_lower_bound,
                             ver: pool_ver,
                             marginal_cost,
@@ -618,7 +655,46 @@ where
                             treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
                             treasury_x: TaggedAmount::new(conf.treasury_x),
                             treasury_y: TaggedAmount::new(conf.treasury_y),
+                            royalty_fee: Ratio::new_raw(0, 100),
+                            royalty_x: TaggedAmount::new(0),
+                            royalty_y: TaggedAmount::new(0),
                             lq_lower_bound: conf.lq_lower_bound,
+                            ver: pool_ver,
+                            marginal_cost,
+                            bounds,
+                        });
+                    }
+                }
+                RoyaltyPoolV1 => {
+                    let conf = RoyaltyPoolConfig::try_from_pd(pd.clone())?;
+                    let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
+                    let lov = value.amount_of(Native)?;
+                    let reserves_x = value.amount_of(conf.asset_x.into())?;
+                    let reserves_y = value.amount_of(conf.asset_y.into())?;
+                    let pure_reserves_x = reserves_x - conf.treasury_x - conf.royalty_x;
+                    let pure_reserves_y = reserves_y - conf.treasury_y - conf.royalty_y;
+                    let non_empty_reserves = pure_reserves_x > 0 && pure_reserves_y > 0;
+                    let sufficient_lovelace = conf.asset_x.is_native()
+                        || conf.asset_y.is_native()
+                        || bounds.min_t2t_lovelace <= lov;
+                    if non_empty_reserves && sufficient_lovelace {
+                        return Some(ConstFnPool {
+                            id: PoolId::try_from(conf.pool_nft).ok()?,
+                            reserves_x: TaggedAmount::new(reserves_x),
+                            reserves_y: TaggedAmount::new(reserves_y),
+                            liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
+                            asset_x: conf.asset_x,
+                            asset_y: conf.asset_y,
+                            asset_lq: conf.asset_lq,
+                            lp_fee_x: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
+                            lp_fee_y: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
+                            treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
+                            treasury_x: TaggedAmount::new(conf.treasury_x),
+                            treasury_y: TaggedAmount::new(conf.treasury_y),
+                            royalty_fee: Ratio::new_raw(conf.royalty_fee_num, FEE_DEN),
+                            royalty_x: TaggedAmount::new(conf.royalty_x),
+                            royalty_y: TaggedAmount::new(conf.royalty_y),
+                            lq_lower_bound: TaggedAmount::new(0),
                             ver: pool_ver,
                             marginal_cost,
                             bounds,
@@ -656,7 +732,17 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for ConstFnPool {
 
         if self.ver == ConstFnPoolVer::FeeSwitch || self.ver == ConstFnPoolVer::FeeSwitchV2 {
             if let Some(DatumOption::Datum { datum, .. }) = &mut immut_pool.datum_option {
-                unsafe_update_pd(datum, self.treasury_x.untag(), self.treasury_y.untag());
+                unsafe_update_pd_fee_switch(datum, self.treasury_x.untag(), self.treasury_y.untag());
+            }
+        } else if self.ver == ConstFnPoolVer::RoyaltyPoolV1 {
+            if let Some(DatumOption::Datum { datum, .. }) = &mut immut_pool.datum_option {
+                unsafe_update_pd_royalty(
+                    datum,
+                    self.treasury_x.untag(),
+                    self.treasury_y.untag(),
+                    self.royalty_x.untag(),
+                    self.royalty_y.untag(),
+                );
             }
         }
 
@@ -670,10 +756,24 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for ConstFnPool {
     }
 }
 
-pub fn unsafe_update_pd(data: &mut PlutusData, treasury_x: u64, treasury_y: u64) {
+pub fn unsafe_update_pd_fee_switch(data: &mut PlutusData, treasury_x: u64, treasury_y: u64) {
     let cpd = data.get_constr_pd_mut().unwrap();
     cpd.set_field(6, treasury_x.into_pd());
     cpd.set_field(7, treasury_y.into_pd());
+}
+
+pub fn unsafe_update_pd_royalty(
+    data: &mut PlutusData,
+    treasury_x: u64,
+    treasury_y: u64,
+    royalty_x: u64,
+    royalty_y: u64,
+) {
+    let cpd = data.get_constr_pd_mut().unwrap();
+    cpd.set_field(ROYALTY_DATUM_MAPPING.treasury_x, treasury_x.into_pd());
+    cpd.set_field(ROYALTY_DATUM_MAPPING.treasury_y, treasury_y.into_pd());
+    cpd.set_field(ROYALTY_DATUM_MAPPING.royalty_x, royalty_x.into_pd());
+    cpd.set_field(ROYALTY_DATUM_MAPPING.royalty_y, royalty_y.into_pd());
 }
 
 impl ApplyOrder<ClassicalOnChainLimitSwap> for ConstFnPool {
@@ -933,6 +1033,9 @@ mod tests {
             treasury_fee: Ratio::new_raw(treasury_fee, 100000),
             treasury_x: TaggedAmount::new(treasury_x),
             treasury_y: TaggedAmount::new(treasury_y),
+            royalty_fee: Ratio::new_raw(0, 100000),
+            royalty_x: TaggedAmount::new(0),
+            royalty_y: TaggedAmount::new(0),
             lq_lower_bound: TaggedAmount::new(0),
             ver: ConstFnPoolVer::FeeSwitch,
             marginal_cost: ExUnits { mem: 100, steps: 100 },

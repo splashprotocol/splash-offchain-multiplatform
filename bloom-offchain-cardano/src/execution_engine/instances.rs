@@ -15,7 +15,7 @@ use spectrum_cardano_lib::{AssetClass, NetworkId};
 use spectrum_offchain::data::Has;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::balance_pool::{BalancePool, BalancePoolRedeemer};
-use spectrum_offchain_cardano::data::cfmm_pool::ConstFnPoolVer::{FeeSwitch, FeeSwitchV2};
+use spectrum_offchain_cardano::data::cfmm_pool::ConstFnPoolVer::{FeeSwitch, FeeSwitchV2, RoyaltyPoolV1};
 use spectrum_offchain_cardano::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
 use spectrum_offchain_cardano::data::degen_quadratic_pool::{DegenQuadraticPool, DegenQuadraticPoolRedeemer};
 use spectrum_offchain_cardano::data::pool::{AnyPool, CFMMPoolAction, PoolAssetMapping};
@@ -436,7 +436,8 @@ where
         + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchV2 as u8 }>>
-        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>,
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>,
 {
     fn exec(
         self,
@@ -489,10 +490,20 @@ where
 
         if transition.ver == FeeSwitch || transition.ver == FeeSwitchV2 {
             if let Some(data) = produced_out.data_mut() {
-                cfmm_pool::unsafe_update_pd(
+                cfmm_pool::unsafe_update_pd_fee_switch(
                     data,
                     transition.treasury_x.untag(),
                     transition.treasury_y.untag(),
+                );
+            }
+        } else if transition.ver == RoyaltyPoolV1 {
+            if let Some(data) = produced_out.data_mut() {
+                cfmm_pool::unsafe_update_pd_royalty(
+                    data,
+                    transition.treasury_x.untag(),
+                    transition.treasury_y.untag(),
+                    transition.royalty_x.untag(),
+                    transition.royalty_y.untag()
                 );
             }
         }
