@@ -12,7 +12,7 @@ use cml_chain::Value;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use futures::TryFutureExt;
 use num_rational::Ratio;
-use num_traits::ToPrimitive;
+use num_traits::{One, ToPrimitive, Zero};
 use num_bigint::BigInt;
 use num_traits::{CheckedAdd, CheckedSub};
 use primitive_types::U512;
@@ -442,7 +442,7 @@ impl MarketMaker for ConstFnPool {
             final_spot_price_num,
             final_spot_price_denom,
             side_in,
-            side_out
+            side_out,
         ) =
             match worst_price {
                 OnSide::Ask(_) => {
@@ -497,32 +497,127 @@ impl MarketMaker for ConstFnPool {
                 }
             };
 
-        let derivative_in = self.full_price_derivative(side_in)?.0;
-        let derivative_in_num = BigInt::try_from(*derivative_in.numer()).ok()?;
-        let derivative_in_denom = BigInt::try_from(*derivative_in.denom()).ok()?;
+        let mut pool = self.clone();
+        let spot_init = self.static_price().unwrap();
+        let spot_init_num = BigInt::from(*spot_init.numer()).checked_mul(&total_fee_mul_num)?;
+        let spot_init_denom = BigInt::from(*spot_init.denom()).checked_mul(&total_fee_mul_denom)?;
 
-        let derivative_out = self.full_price_derivative(side_out)?.0;
-        let derivative_out_num = BigInt::try_from(*derivative_out.numer()).ok()?;
+        let mut price_delta_num = spot_init_num.checked_mul(&final_spot_price_denom)?.checked_sub(&final_spot_price_num.checked_mul(&spot_init_denom)?)?;
+        let target_price_denom = spot_init_denom.checked_mul(&final_spot_price_denom)?;
+        let orig_target_price_num = spot_init_num.checked_mul(&final_spot_price_denom)?.checked_sub(&price_delta_num)?;
 
-        let derivative_out_denom = BigInt::try_from(*derivative_out.denom()).ok()?;
+        let mut target_price_num = spot_init_num.checked_mul(&final_spot_price_denom)?.checked_sub(&price_delta_num)?;
 
-        let in_b_mul_fee_denom = in_balance.checked_mul(&total_fee_mul_denom)?;
-        let const_a_left = out_balance.checked_mul(&total_fee_mul_num)?.checked_mul(&final_spot_price_denom)?;
-        let const_a_right = in_b_mul_fee_denom.checked_mul(&final_spot_price_num)?;
-        let const_a = const_a_left.checked_sub(&const_a_right)?;
-        let const_b = in_b_mul_fee_denom.checked_mul(&final_spot_price_denom)?;
+        let mut error = u64::one();
 
-        let required_in_amount_num =
-            derivative_in_denom.checked_mul(&const_a)?;
-        let required_in_amount_denom = derivative_in_num.checked_mul(&const_b)?;
+        let mut div_factor: u32 = 2;
+        let mut counter = u32::zero();
+        while error >= u64::one() {
+            let div = BigInt::from(div_factor.pow(counter));
+            let price_delta_num_on_step = price_delta_num.checked_div(&div)?;
+            target_price_num = spot_init_num.checked_mul(&final_spot_price_denom)?.checked_sub(&price_delta_num_on_step)?;
+            let derivative_in = pool.full_price_derivative(side_in)?.0;
+            let derivative_in_num = BigInt::try_from(*derivative_in.numer()).ok()?;
+            let derivative_in_denom = BigInt::try_from(*derivative_in.denom()).ok()?;
 
-        let required_in_amount = required_in_amount_num.checked_div(&required_in_amount_denom)?;
+            let derivative_out = pool.full_price_derivative(side_out)?.0;
+            let derivative_out_num = BigInt::try_from(*derivative_out.numer()).ok()?;
 
-        let available_out_amount_num =
-            derivative_out_denom.checked_mul(&const_a)?;
-        let available_out_amount_denom = derivative_out_num.checked_mul(&const_b)?;
+            let derivative_out_denom = BigInt::try_from(*derivative_out.denom()).ok()?;
 
-        let available_out_amount = available_out_amount_num.checked_div(&available_out_amount_denom)?;
+            let in_b_mul_fee_denom = in_balance.checked_mul(&total_fee_mul_denom)?;
+            let const_a_left = out_balance.checked_mul(&total_fee_mul_num)?.checked_mul(&target_price_denom)?;
+            let const_a_right = in_b_mul_fee_denom.checked_mul(&target_price_num)?;
+            let const_a = const_a_left.checked_sub(&const_a_right)?;
+            let const_b = in_b_mul_fee_denom.checked_mul(&target_price_denom)?;
+
+            let required_in_amount_num =
+                derivative_in_denom.checked_mul(&const_a)?;
+            let required_in_amount_denom = derivative_in_num.checked_mul(&const_b)?;
+
+            let required_in_amount = required_in_amount_num.checked_div(&required_in_amount_denom)?;
+
+            let available_out_amount_num =
+                derivative_out_denom.checked_mul(&const_a)?;
+            let available_out_amount_denom = derivative_out_num.checked_mul(&const_b)?;
+
+            let available_out_amount = available_out_amount_num.checked_div(&available_out_amount_denom)?;
+
+            let inp = match side_out {
+                OnSide::Ask(_) => OnSide::Ask(required_in_amount.to_u64()?),
+                OnSide::Bid(_) => OnSide::Bid(required_in_amount.to_u64()?),
+            };
+            let estimated_output = pool.estimated_trade(inp)?.output;
+            error = (available_out_amount.to_u64()? - estimated_output) * 10000u64 / estimated_output;
+            counter += 1;
+            // println!("error {:?}", error);
+        }
+        let mut required_in_amount = BigInt::zero();
+        let mut available_out_amount = BigInt::zero();
+
+        let n_iters = div_factor.pow(counter) + 1;
+
+        let min_step = price_delta_num.checked_div(&BigInt::from(n_iters))?;
+        println!("num {:?}", price_delta_num.to_f64().unwrap());
+        println!("min_step {:?}", min_step.to_f64().unwrap());
+        println!("n_iters {:?}", counter);
+        let mut stop_spot: f64 = pool.static_price().unwrap().to_f64().unwrap() * total_fee_mul_num.to_f64().unwrap() / total_fee_mul_denom.to_f64().unwrap();
+        let worst_price_v = final_spot_price_num.to_f64().unwrap() / final_spot_price_denom.to_f64().unwrap();
+        let mut cc = 0;
+        println!("worst_price_v {:?}",worst_price_v);
+        let min_step_f = min_step.to_f64().unwrap() / target_price_denom.to_f64().unwrap();
+        println!("min_step_f {:?}",min_step_f);
+
+        while stop_spot > worst_price_v + min_step_f {
+            let spot_actual = pool.static_price().unwrap();
+            // println!("spot_actual {:?}", spot_actual.to_f64().unwrap());
+            let spot_actual_num = BigInt::from(*spot_actual.numer()).checked_mul(&total_fee_mul_num)?;
+            let spot_actual_denom = BigInt::from(*spot_actual.denom()).checked_mul(&total_fee_mul_denom)?;
+            let target_price_denom = spot_actual_denom.checked_mul(&final_spot_price_denom)?;
+            let actual_min_step = min_step.checked_mul(&spot_init_denom)?.checked_div(&spot_actual_denom)?;
+
+            let derivative_in = pool.full_price_derivative(side_in)?.0;
+            let derivative_in_num = BigInt::try_from(*derivative_in.numer()).ok()?;
+            let derivative_in_denom = BigInt::try_from(*derivative_in.denom()).ok()?;
+            // println!("Deriv in {:?}", derivative_in.to_f64().unwrap());
+            // println!("target {:?}", target_price_num.to_f64().unwrap() * total_fee_mul_denom.to_f64().unwrap() / target_price_denom.to_f64().unwrap() / total_fee_mul_num.to_f64().unwrap());
+            // println!("actual_min_step {:?}", actual_min_step.to_f64().unwrap() / target_price_denom.to_f64().unwrap());
+
+            let derivative_out = pool.full_price_derivative(side_out)?.0;
+            let derivative_out_num = BigInt::try_from(*derivative_out.numer()).ok()?;
+
+            let derivative_out_denom = BigInt::try_from(*derivative_out.denom()).ok()?;
+
+
+            let required_in_amount_num =
+                derivative_in_denom.checked_mul(&actual_min_step)?;
+            let required_in_amount_denom = derivative_in_num.checked_mul(&target_price_denom)?;
+
+            let required_in_amount_step = required_in_amount_num.checked_div(&required_in_amount_denom)?;
+
+            let available_out_amount_num =
+                derivative_out_denom.checked_mul(&actual_min_step)?;
+            let available_out_amount_denom = derivative_out_num.checked_mul(&target_price_denom)?;
+
+            let available_out_amount_step = available_out_amount_num.checked_div(&available_out_amount_denom)?;
+
+            let inp = match side_out {
+                OnSide::Ask(_) => OnSide::Ask(required_in_amount_step.to_u64()?),
+                OnSide::Bid(_) => OnSide::Bid(required_in_amount_step.to_u64()?),
+            };
+            required_in_amount += required_in_amount_step;
+            available_out_amount += available_out_amount_step.clone();
+            let estimated_output = pool.estimated_trade(inp)?.output;
+            error = (available_out_amount_step.to_u64()? - estimated_output) * 10000u64 / estimated_output;
+            let Next::Succ(pool_new) = pool.swap(inp) else { todo!() };
+            pool = pool_new;
+            cc +=1;
+            stop_spot = pool.static_price().unwrap().to_f64().unwrap() * total_fee_mul_num.to_f64().unwrap() / total_fee_mul_denom.to_f64().unwrap();
+            // println!("Inp {:?}", inp);
+            // println!("CC: {:?}", cc);
+        }
+        println!("Final error {:?}", error);
+        println!("Last spot w fee {:?}", pool.static_price().unwrap().to_f64().unwrap() * total_fee_mul_num.to_f64().unwrap() / total_fee_mul_denom.to_f64().unwrap());
 
         Some(AvailableLiquidity {
             input: required_in_amount.to_u64()?,
@@ -1213,6 +1308,61 @@ mod tests {
 
     #[test]
     fn available_liquidity_test() {
+        let fee_num = 100000;
+        let reserves_x = 1_000_000_000;
+        let reserves_y = 8_000_000_000;
+        let base_in = 1_000_000_000;
+
+        let pool = gen_ada_token_pool(
+            reserves_x, reserves_y, 0, fee_num, fee_num, 0, 0, 0,
+        );
+        let spot = pool.static_price().unwrap().to_f64().unwrap();
+        // ASK:
+        let Next::Succ(pool1) = pool.swap(OnSide::Ask(base_in)) else {
+            panic!()
+        };
+        let y_rec = pool.reserves_y.untag() - pool1.reserves_y.untag();
+
+        let final_ask_spot = pool1.static_price().unwrap();
+        let worst_ask_price = AbsolutePrice::new_raw(final_ask_spot.numer() * fee_num as u128, final_ask_spot.denom() * *pool.treasury_fee.denom() as u128);
+
+        let Some(AvailableLiquidity {
+                     input: inp_ask,
+                     output: out_ask,
+                 }) = pool.available_liquidity_on_side(Ask(worst_ask_price))
+            else {
+                !panic!();
+            };
+        // BID:
+        let Next::Succ(pool2) = pool.swap(OnSide::Bid(base_in)) else {
+            panic!()
+        };
+        let x_rec = pool.reserves_x.untag() - pool2.reserves_x.untag();
+        let final_bid_spot = pool2.static_price().unwrap();
+
+        let worst_bid_price = AbsolutePrice::new_raw(final_bid_spot.numer() * *pool.treasury_fee.denom() as u128, final_bid_spot.denom() * fee_num as u128);
+
+        let Some(AvailableLiquidity {
+                     input: inp_bid,
+                     output: out_bid,
+                 }) = pool.available_liquidity_on_side(Bid(worst_bid_price))
+            else {
+                !panic!();
+            };
+
+
+        assert_eq!(y_rec, 4000000000);
+        assert_eq!(inp_ask, 1000425197);
+        assert_eq!(out_ask, 4001060839);
+
+        assert_eq!(x_rec, 1235970);
+        // assert_eq!(inp_bid, 999810);
+        // assert_eq!(out_bid, 123726);
+        assert_eq!(1, 2);
+    }
+
+    #[test]
+    fn available_liquidity_precision_tolerance_test() {
         let fee_num = 99000;
         let reserves_x = 1_000_000_000;
         let reserves_y = 8_000_000_000;
