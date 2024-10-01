@@ -57,10 +57,10 @@ const { definitions } = plutusJson;
 const denoVersion = "0.10.7"
 
 const imports = `// deno-lint-ignore-file
-import { applyParamsToScript, Data, Validator } from "${
+import { applyParamsToScript, Data, Validator, applyDoubleCborEncoding } from "${
   flags.npm
-    ? 'lucid-cardano'
-    : `https://deno.land/x/lucid@${denoVersion}/mod.ts`
+    ? '@lucid-evolution/lucid'
+    : '@lucid-evolution/lucid'
 }"`;
 
 const validators = plutusJson.validators.map((validator) => {
@@ -102,7 +102,7 @@ const validators = plutusJson.validators.map((validator) => {
   export const ${name} = Object.assign(
     function (${paramsArgs.map((param) => param.join(':')).join(',')}) {${
   (paramsArgs.length > 0 && !plutarchScript)
-    ? `return { type: "${plutusVersion}", script: applyParamsToScript("${script}", [${
+    ? `return { type: "${plutusVersion}", script: applyParamsToScript(applyDoubleCborEncoding("${script}"), [${
       paramsArgs.map((param) => param[0]).join(',')
     }], ${JSON.stringify(paramsSchema)}) };`
     : `return {type: "${plutusVersion}", script: "${script}"};`

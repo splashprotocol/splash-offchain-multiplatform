@@ -4,7 +4,7 @@ import { getConfig } from "../config.ts";
 import { getLucid } from "../lucid.ts";
 import { Asset, BuiltValidators, asUnit } from "../types.ts";
 import { setupWallet } from "../wallet.ts";
-import { Unit, Datum, MintingPolicy, Data, Lucid} from "https://deno.land/x/lucid@0.10.7/mod.ts";
+import { Unit, Datum, MintingPolicy, Data, Lucid} from "@lucid-evolution/lucid";
 import { encoder } from 'npm:js-encoding-utils';
 
 export const TokenB   = ""

@@ -1,4 +1,12 @@
-import { Lucid, Script, TxComplete } from "https://deno.land/x/lucid@0.10.7/mod.ts";
+import {
+  credentialToRewardAddress,
+  Lucid,
+  Script,
+  scriptFromNative,
+  TxComplete,
+  validatorToAddress
+} from "@lucid-evolution/lucid";
+import { validatorToScriptHash,  } from "@lucid-evolution/utils";
 import { BuiltValidators, DeployedValidators, ScriptNames } from "./types.ts";
 import { getLucid } from "./lucid.ts";
 import { generateConfigJson } from "./config.ts";
@@ -14,7 +22,7 @@ export class Deployment {
 
   build(): BuiltValidators {
     const witnessScript = new LimitOrderBatchWitness();
-    const witnessScriptHash = this.lucid.utils.validatorToScriptHash(witnessScript);
+    const witnessScriptHash = validatorToScriptHash(witnessScript);
     const orderScript = new LimitOrderLimitOrder({
       Inline: [
         {
@@ -22,9 +30,9 @@ export class Deployment {
         },
       ],
     });
-    const orderScriptHash = this.lucid.utils.validatorToScriptHash(orderScript);
+    const orderScriptHash = validatorToScriptHash(orderScript);
     const gridOrderNativeScript = new GridGridNative();
-    const gridOrderNativeHash = this.lucid.utils.validatorToScriptHash(gridOrderNativeScript);
+    const gridOrderNativeHash = validatorToScriptHash(gridOrderNativeScript);
     return {
       limitOrder: {
         script: orderScript,
@@ -42,33 +50,34 @@ export class Deployment {
   }
 
   async deploy(builtValidators: BuiltValidators): Promise<TxComplete> {
-    const ns: Script = this.lucid.utils.nativeScriptFromJson({
+    const ns: Script = scriptFromNative({
       type: 'before',
       slot: 0,
     });
-    const lockScript = this.lucid.utils.validatorToAddress(ns);
-    const witnessRewardAddress = this.lucid.utils.credentialToRewardAddress({
+    const lockScript = validatorToAddress("Preprod", ns);
+    const witnessRewardAddress = credentialToRewardAddress("Preprod", {
       type: "Script",
       hash: builtValidators.limitOrderWitness.hash
     });
     const tx = await this.lucid
       .newTx()
-      .payToAddressWithData(
+      .pay.ToAddressWithData(
         lockScript,
-        { scriptRef: builtValidators.limitOrder.script },
-        {},
+            { kind: "inline", value: "00"},
+         undefined,
+         builtValidators.limitOrderWitness.script,
       )
-      .payToAddressWithData(
-        lockScript,
-        { scriptRef: builtValidators.limitOrderWitness.script },
-        {},
-      )
-      .payToAddressWithData(
-        lockScript,
-        { scriptRef: builtValidators.gridOrderNative.script },
-        {},
-      )
-      .registerStake(witnessRewardAddress)
+      // .pay.ToAddressWithData(
+      //   lockScript,
+      //   { scriptRef: builtValidators.limitOrderWitness.script },
+      //   {},
+      // )
+      // .pay.ToAddressWithData(
+      //   lockScript,
+      //   { scriptRef: builtValidators.gridOrderNative.script },
+      //   {},
+      // )
+      //.registerStake(witnessRewardAddress)
       .complete();
 
     return tx;
@@ -118,7 +127,7 @@ async function main() {
   const deployment = new Deployment(lucid);
   const builtValidators = deployment.build();
   const deployTx = await deployment.deploy(builtValidators);
-  const deployTxId = await (await deployTx.sign().complete()).submit();
+  const deployTxId = await (await deployTx.sign.withWallet().complete()).submit();
   console.log('Deployment Tx ID:', deployTxId);
   // Here we need to wait until contracts are deployed
   await lucid.awaitTx(deployTxId);

@@ -1,4 +1,4 @@
-import { PolicyId, Script, UTxO, Unit } from "https://deno.land/x/lucid@0.10.7/mod.ts";
+import { PolicyId, Script, UTxO, Unit } from "@lucid-evolution/lucid";
 
 export type PubKeyHash = string
 
