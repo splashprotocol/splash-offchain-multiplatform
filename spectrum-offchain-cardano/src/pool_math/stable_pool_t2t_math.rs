@@ -2,17 +2,21 @@ use std::ops::Add;
 
 use bignumber::BigNumber;
 use dashu_base::UnsignedAbs;
+use num_bigint::BigInt;
+use num_traits::{One, ToPrimitive};
 use primitive_types::U512;
 
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 
 use crate::data::order::{Base, Quote};
-use crate::data::stable_pool_t2t::StablePoolT2T;
+use crate::data::stable_pool_t2t::{StablePoolT2T, StablePoolT2TVer};
 
 const MAX_SWAP_ERROR: u64 = 2;
-const N_TRADABLE_ASSETS: usize = 2;
+// Number of assets in the pool:
+const N: usize = 2;
+const NN: u32 = 4;
 
-pub fn calc_stable_swap<X, Y>(
+pub fn calc_stable_swap_t2t_exact<X, Y>(
     asset_x: TaggedAssetClass<X>,
     reserves_x: TaggedAmount<X>,
     x_mult: u64,
@@ -39,14 +43,12 @@ pub fn calc_stable_swap<X, Y>(
     let s = base_calc;
     let p = base_calc;
 
-    let nn = U512::from(N_TRADABLE_ASSETS.pow(N_TRADABLE_ASSETS as u32));
+    let nn = U512::from(NN);
     let ann = an2n_calc / nn;
 
     let d = calculate_invariant(&base_initial, &quote_calc, &an2n_calc)?;
     let b = s + d / ann;
-    let dn1 = vec![d; N_TRADABLE_ASSETS + 1]
-        .into_iter()
-        .fold(U512::one(), |a, b| a * b);
+    let dn1 = vec![d; N + 1].into_iter().fold(U512::one(), |a, b| a * b);
     let c = dn1 / nn / p / ann;
 
     let unit = U512::from(1);
@@ -102,17 +104,82 @@ pub fn calc_stable_swap<X, Y>(
     Some(TaggedAmount::new(output))
 }
 
+pub fn calc_stable_swap_t2t<X, Y>(
+    asset_x: TaggedAssetClass<X>,
+    reserves_x: TaggedAmount<X>,
+    x_mult: u64,
+    reserves_y: TaggedAmount<Y>,
+    y_mult: u64,
+    base_asset: TaggedAssetClass<Base>,
+    base_amount: TaggedAmount<Base>,
+    an2n: u64,
+) -> Option<TaggedAmount<Quote>> {
+    if an2n == 0 && x_mult == 0 && y_mult == 0 {
+        return None;
+    }
+    let an2n_calc = BigInt::from(an2n);
+    let (base_reserves, base_mult, quote_reserves, quote_mult) = if asset_x.untag() == base_asset.untag() {
+        (reserves_x.untag(), x_mult, reserves_y.untag(), y_mult)
+    } else {
+        (reserves_y.untag(), y_mult, reserves_x.untag(), x_mult)
+    };
+
+    let quote_calc = BigInt::from(quote_reserves * quote_mult);
+    let base_initial = BigInt::from(base_reserves * base_mult.clone());
+    let base_calc = base_initial.clone() + BigInt::from(base_amount.untag() * base_mult);
+
+    let s = base_calc.clone();
+    let p = base_calc;
+
+    let nn = BigInt::from(NN);
+    let ann = an2n_calc.clone() / nn;
+    let an2n = BigInt::from(an2n);
+    let const_2 = BigInt::from(2);
+    let const_4 = BigInt::from(4);
+
+    let d_v = calculate_invariant(
+        &U512::from(base_initial.clone().to_u128()?),
+        &U512::from(quote_calc.clone().to_u128()?),
+        &U512::from(an2n_calc.clone().to_u128()?),
+    )?;
+    let dn1 = BigInt::try_from(
+        vec![d_v; N + 1]
+            .into_iter()
+            .fold(U512::one(), |a, b| a * b)
+            .as_u128(),
+    )
+        .unwrap();
+
+    let d = BigInt::from(d_v.as_u128());
+    let b = s
+        .checked_mul(&ann)?
+        .checked_add(&d)?
+        .checked_sub(&d.checked_mul(&ann)?)?;
+    let an2np = an2n.checked_mul(&p)?;
+    let b2 = b.checked_mul(&b)?;
+
+    let discriminant = an2np
+        .checked_mul(&b2)?
+        .checked_add(&const_4.checked_mul(&dn1)?.checked_mul(&ann)?.checked_mul(&ann)?)?;
+    let d_sqrt = discriminant.checked_div(&an2np)?.sqrt();
+
+    let asset_to = d_sqrt.checked_sub(&b)?.checked_div(&const_2.checked_mul(&ann)?)?;
+    let quote_amount_pure_delta = quote_calc.checked_sub(&asset_to)?;
+    let output = quote_amount_pure_delta
+        .checked_div(&BigInt::from(quote_mult))?
+        .to_u64()?;
+
+    Some(TaggedAmount::new(output))
+}
+
 pub fn calculate_invariant_error_sgn_from_totals(
     ann: &U512,
     nn_total_prod_calc: &U512,
     ann_total_sum_calc: &U512,
     d: &U512,
 ) -> Option<bool> {
-    let inv_right = *d * *ann
-        + vec![*d; N_TRADABLE_ASSETS + 1]
-            .into_iter()
-            .fold(U512::one(), |a, b| a * b)
-            / *nn_total_prod_calc;
+    let inv_right =
+        *d * *ann + vec![*d; N + 1].into_iter().fold(U512::one(), |a, b| a * b) / *nn_total_prod_calc;
     let inv_left = *ann_total_sum_calc + *d;
     Some(inv_right >= inv_left)
 }
@@ -141,9 +208,7 @@ pub fn check_exact_invariant(
 ) -> Option<bool> {
     let max_swap_err = U512::from(MAX_SWAP_ERROR);
     let an2n_nn = an2n - nn;
-    let dn1 = vec![*d; N_TRADABLE_ASSETS + 1]
-        .into_iter()
-        .fold(U512::one(), |a, b| a * b);
+    let dn1 = vec![*d; N + 1].into_iter().fold(U512::one(), |a, b| a * b);
     let total_prod_calc_before = tradable_base_before * tradable_quote_before;
 
     let alpha_before = an2n_nn * total_prod_calc_before;
@@ -206,42 +271,48 @@ pub fn calculate_context_values_list(prev_state: StablePoolT2T, new_state: Stabl
     let quote_no_lp_fees = quote - quote_delta * quote_lp_fee / (denom - quote_lp_fee) - unit;
     let quote_after_calc = quote_no_lp_fees * quote_mult;
 
-    let mut inv = calculate_invariant(&base_init, &quote_init, &an2n_calc)?;
+    match prev_state.ver {
+        StablePoolT2TVer::V1Exact => {
+            let mut inv = calculate_invariant(&base_init, &quote_init, &an2n_calc)?;
 
-    let mut valid_inv = check_exact_invariant(
-        &quote_mult,
-        &base_init,
-        &quote_init,
-        &base_after_calc,
-        &quote_after_calc,
-        &inv,
-        &nn,
-        &an2n_calc,
-    )?;
+            let mut valid_inv = check_exact_invariant(
+                &quote_mult,
+                &base_init,
+                &quote_init,
+                &base_after_calc,
+                &quote_after_calc,
+                &inv,
+                &nn,
+                &an2n_calc,
+            )?;
 
-    while !valid_inv {
-        inv += unit;
-        valid_inv = check_exact_invariant(
-            &quote_mult,
-            &base_init,
-            &quote_init,
-            &base_after_calc,
-            &quote_after_calc,
-            &inv,
-            &nn,
-            &an2n_calc,
-        )?
+            while !valid_inv {
+                inv += unit;
+                valid_inv = check_exact_invariant(
+                    &quote_mult,
+                    &base_init,
+                    &quote_init,
+                    &base_after_calc,
+                    &quote_after_calc,
+                    &inv,
+                    &nn,
+                    &an2n_calc,
+                )?
+            }
+            Some(inv)
+        }
+        StablePoolT2TVer::V1 => Some(calculate_invariant(&base_init, &quote_init, &an2n_calc)?),
     }
-    Some(inv)
 }
+
 pub fn calculate_invariant(x_calc: &U512, y_calc: &U512, an2n: &U512) -> Option<U512> {
     let unit = U512::from(1);
     let zero = U512::from(0);
     if *x_calc == zero || *y_calc == zero || *an2n == zero {
         return None;
     }
-    let nn = U512::from(N_TRADABLE_ASSETS.pow(N_TRADABLE_ASSETS as u32));
-    let n_calc = U512::from(N_TRADABLE_ASSETS);
+    let nn = U512::from(NN);
+    let n_calc = U512::from(N);
     let ann = an2n / nn;
     let s = x_calc + y_calc;
     let p = x_calc * y_calc;
@@ -250,7 +321,7 @@ pub fn calculate_invariant(x_calc: &U512, y_calc: &U512, an2n: &U512) -> Option<
     let mut abs_err = unit;
     while abs_err >= unit {
         let d_previous = d;
-        let dn1 = vec![d_previous; N_TRADABLE_ASSETS + 1]
+        let dn1 = vec![d_previous; N + 1]
             .into_iter()
             .fold(U512::one(), |a, b| a * b);
         let d_p = dn1 / nn / p;
@@ -280,7 +351,7 @@ pub fn calculate_y_given_x(x: &BigNumber, d: &BigNumber, an2n: &BigNumber) -> Bi
     let sqrt_degree = BigNumber::from(0.5);
     let n_2 = BigNumber::from(2);
     let n_4 = BigNumber::from(4);
-    let n = BigNumber::from(N_TRADABLE_ASSETS);
+    let n = BigNumber::from(N);
     let nn = n.pow(&n.clone());
     let n2n = n.pow(&(n_2.clone() * n.clone()));
 
@@ -295,7 +366,7 @@ pub fn calculate_y_given_x(x: &BigNumber, d: &BigNumber, an2n: &BigNumber) -> Bi
     let br_square = BigNumber::from(br as f64).pow(&n_2);
     let c = dn.clone()
         * ((br_square.clone() * x.clone() + n_4 * a.clone() * dn1.clone()) * x.clone() * n2n.clone()
-            / d2n.clone())
+        / d2n.clone())
         .pow(&sqrt_degree);
 
     (an2n.clone() * d.clone() * x.clone() - d.clone() * nn.clone() * x.clone() - an2n.clone() * x2.clone()
@@ -320,7 +391,7 @@ pub fn calculate_safe_price_ratio_x_y_swap(
     let an2n = BigNumber::from(*an2n_value as f64);
 
     let d = BigNumber::from(*d_value as f64);
-    let dn1 = d.pow(&BigNumber::from(N_TRADABLE_ASSETS + 1));
+    let dn1 = d.pow(&BigNumber::from(N + 1));
 
     let b = dn1 + an2n.clone();
 
@@ -354,8 +425,8 @@ pub fn calculate_safe_price_ratio_x_y_swap(
         let y_12 = y_1.pow(&n_2);
         let f_1 = p.clone()
             - ((x_1.clone() * (b.clone() + an2n.clone() * x_1 * y_12))
-                / (y_1.clone() * (b.clone() + an2n.clone() * x2.clone() * y_1.clone())))
-                / total_fee_mult.clone();
+            / (y_1.clone() * (b.clone() + an2n.clone() * x2.clone() * y_1.clone())))
+            / total_fee_mult.clone();
 
         let f_x = (f_1.clone() - f.clone()) / x_step.clone();
 
@@ -386,8 +457,8 @@ mod test {
     use crate::data::order::{Base, Quote};
     use crate::data::stable_pool_t2t::{StablePoolT2T, StablePoolT2TVer};
     use crate::data::PoolId;
-    use crate::pool_math::stable_pool_t2t_exact_math::{
-        calc_stable_swap, calculate_context_values_list, calculate_invariant,
+    use crate::pool_math::stable_pool_t2t_math::{
+        calc_stable_swap_t2t_exact, calculate_context_values_list, calculate_invariant,
         calculate_safe_price_ratio_x_y_swap, calculate_y_given_x, check_exact_invariant,
     };
 
@@ -418,7 +489,7 @@ mod test {
             &U512::from((reserves_y - treasury_y) * multiplier_x as u64),
             &U512::from(an2n),
         )
-        .unwrap();
+            .unwrap();
         let liquidity = MAX_LQ_CAP - inv_before.as_u64();
 
         return StablePoolT2T {
@@ -515,7 +586,7 @@ mod test {
         let reserves_y = TaggedAmount::<Quote>::new(3002434231u64);
         let base_amount = TaggedAmount::new(7110241u64);
         let an2n: u64 = 220 * 16;
-        let quote_final = calc_stable_swap(
+        let quote_final = calc_stable_swap_t2t_exact(
             TaggedAssetClass::new(Native),
             reserves_x,
             1,
@@ -525,7 +596,7 @@ mod test {
             base_amount,
             an2n,
         )
-        .unwrap();
+            .unwrap();
         assert_eq!(quote_final.untag(), 8790136)
     }
 
@@ -583,6 +654,7 @@ mod test {
         let inv = calculate_context_values_list(prev, new).unwrap();
         assert_eq!(U512::from(510000000), inv);
     }
+
     #[test]
     fn calculate_y_given_x_test() {
         let x = BigNumber::from(1_000_000 as f64);
@@ -595,6 +667,7 @@ mod test {
             1_000_000u64
         );
     }
+
     #[test]
     fn calculate_safe_price_ratio_test() {
         let (x_safe, y_safe) =

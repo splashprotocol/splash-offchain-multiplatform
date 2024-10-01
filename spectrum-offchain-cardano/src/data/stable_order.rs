@@ -7,7 +7,7 @@ use crate::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, ConstFnFeeSwitchPoolDeposit,
     ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolRedeem,
     ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2, StableFnPoolT2T, StableFnPoolT2TDeposit,
-    StableFnPoolT2TRedeem,
+    StableFnPoolT2TExact, StableFnPoolT2TRedeem,
 };
 use bloom_offchain::execution_engine::bundled::Bundled;
 use cml_chain::builders::tx_builder::SignedTxBuilder;
@@ -40,6 +40,7 @@ where
         + Has<DeployedValidator<{ ConstFnFeeSwitchPoolDeposit as u8 }>>
         + Has<DeployedValidator<{ ConstFnFeeSwitchPoolRedeem as u8 }>>
         + Has<DeployedValidator<{ StableFnPoolT2T as u8 }>>
+        + Has<DeployedValidator<{ StableFnPoolT2TExact as u8 }>>
         + Has<DeployedValidator<{ StableFnPoolT2TDeposit as u8 }>>
         + Has<DeployedValidator<{ StableFnPoolT2TRedeem as u8 }>>,
 {

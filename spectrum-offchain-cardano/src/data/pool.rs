@@ -46,6 +46,7 @@ use crate::data::OnChainOrderId;
 use crate::deployment::ProtocolValidator::{
     BalanceFnPoolV1, BalanceFnPoolV2, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,
     ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, DegenQuadraticPoolV1, StableFnPoolT2T,
+    StableFnPoolT2TExact,
 };
 use crate::deployment::{DeployedScriptInfo, RequiresValidator};
 
@@ -345,6 +346,7 @@ where
         + Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
+        + Has<DeployedScriptInfo<{ StableFnPoolT2TExact as u8 }>>
         + Has<PoolValidation>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
