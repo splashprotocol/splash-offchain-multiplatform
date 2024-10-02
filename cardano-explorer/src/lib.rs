@@ -2,6 +2,7 @@ use cml_chain::address::Address;
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::transaction::{TransactionInput, TransactionOutput};
 use cml_core::serialization::Deserialize;
+use cml_crypto::chain_core::property::TransactionId;
 use cml_crypto::TransactionHash;
 use isahc::{AsyncReadResponseExt, Request};
 use maestro_rust_sdk::client::maestro;
@@ -64,6 +65,10 @@ pub trait CardanoNetwork {
     ) -> Vec<TransactionUnspentOutput>;
     async fn submit_tx(&self, cbor: &[u8]) -> Result<(), Box<dyn std::error::Error>>;
     async fn chain_tip_slot_number(&self) -> Result<u64, Box<dyn std::error::Error>>;
+    async fn wait_for_transaction_confirmation(
+        &self,
+        tx_id: TransactionHash,
+    ) -> Result<(), Box<dyn std::error::Error>>;
     async fn evaluate_tx(&self, cbor: &str) -> Result<Vec<RedeemerEvaluation>, Box<dyn std::error::Error>>;
 }
 
@@ -154,6 +159,22 @@ impl CardanoNetwork for Maestro {
 
     async fn evaluate_tx(&self, cbor: &str) -> Result<Vec<RedeemerEvaluation>, Box<dyn std::error::Error>> {
         self.0.evaluate_tx(cbor, vec![]).await
+    }
+
+    async fn wait_for_transaction_confirmation(
+        &self,
+        tx_id: TransactionHash,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        while self
+            .0
+            .transaction_cbor(&tx_id.to_hex())
+            .await
+            .map(|_| ())
+            .is_err()
+        {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        }
+        Ok(())
     }
 }
 
