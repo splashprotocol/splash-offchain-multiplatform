@@ -30,6 +30,8 @@
     "typescript": "^5.4.2"
   },
   "dependencies": {
+    "@lucid-evolution/lucid": "^0.3.44",
+    "@lucid-evolution/utils": "^0.1.49",
     "@noble/ed25519": "^2.0.0",
     "blakejs": "^1.2.1"
   }
