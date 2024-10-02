@@ -28,8 +28,6 @@ pub fn mint_token(
 ) -> SignedTxBuilder {
     let valid_until = current_slot_number + 10001;
 
-    println!("estimate_slot: {}, valid_until: {}", estimated_slot, valid_until);
-
     let script_pk = NativeScript::new_script_pubkey(pk_hash);
     let script_before = NativeScript::ScriptInvalidHereafter(
         cml_chain::transaction::ScriptInvalidHereafter::new(valid_until),
@@ -43,7 +41,7 @@ pub fn mint_token(
         .native_script(script_all, NativeScriptWitnessInfo::Vkeys(vec![pk_hash]));
     tx_builder.add_mint(mint_token_result).unwrap();
     tx_builder.add_input(input_result).unwrap();
-    tx_builder.set_validity_start_interval(estimated_slot);
+    tx_builder.set_validity_start_interval(current_slot_number - 5);
     tx_builder.set_ttl(valid_until);
 
     let mut output_multiasset = MultiAsset::new();
