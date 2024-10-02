@@ -3,8 +3,10 @@ use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::transaction::{TransactionInput, TransactionOutput};
 use cml_core::serialization::Deserialize;
 use cml_crypto::TransactionHash;
+use isahc::{AsyncReadResponseExt, Request};
 use maestro_rust_sdk::client::maestro;
 use maestro_rust_sdk::models::addresses::UtxosAtAddress;
+use maestro_rust_sdk::models::transactions::RedeemerEvaluation;
 use maestro_rust_sdk::utils::Parameters;
 use std::collections::HashMap;
 use std::io::Error;
@@ -60,6 +62,9 @@ pub trait CardanoNetwork {
         offset: u32,
         limit: u16,
     ) -> Vec<TransactionUnspentOutput>;
+    async fn submit_tx(&self, cbor: &[u8]) -> Result<(), Box<dyn std::error::Error>>;
+    async fn chain_tip_slot_number(&self) -> Result<u64, Box<dyn std::error::Error>>;
+    async fn evaluate_tx(&self, cbor: &str) -> Result<Vec<RedeemerEvaluation>, Box<dyn std::error::Error>>;
 }
 
 pub struct Maestro(maestro::Maestro);
@@ -134,6 +139,21 @@ impl CardanoNetwork for Maestro {
         .and_then(read_maestro_utxos)
         .ok()
         .unwrap_or(vec![])
+    }
+
+    async fn submit_tx(&self, cbor_bytes: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+        let result = self.0.tx_manager_submit(cbor_bytes.to_vec()).await?;
+        println!("TX submit result: {}", result);
+        Ok(())
+    }
+
+    async fn chain_tip_slot_number(&self) -> Result<u64, Box<dyn std::error::Error>> {
+        let r = self.0.chain_tip().await?;
+        Ok(r.last_updated.block_slot as u64)
+    }
+
+    async fn evaluate_tx(&self, cbor: &str) -> Result<Vec<RedeemerEvaluation>, Box<dyn std::error::Error>> {
+        self.0.evaluate_tx(cbor, vec![]).await
     }
 }
 
