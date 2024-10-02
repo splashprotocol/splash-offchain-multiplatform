@@ -30,6 +30,8 @@ pub mod pair;
 pub mod royalty_pool;
 pub mod stable_order;
 pub mod stable_pool_t2t;
+pub mod stable_pool_t2t_exact;
+pub mod stable_pool_t2t_pure;
 
 #[repr(transparent)]
 #[derive(
