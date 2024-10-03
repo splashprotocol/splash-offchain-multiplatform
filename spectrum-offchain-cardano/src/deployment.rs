@@ -17,7 +17,7 @@ use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::Has;
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ScriptType {
     PlutusV1,
@@ -25,8 +25,8 @@ pub enum ScriptType {
     PlutusV3,
 }
 
-#[derive(serde::Deserialize, Into, From)]
-#[serde(try_from = "String")]
+#[derive(serde::Serialize, serde::Deserialize, Into, From, Clone)]
+#[serde(try_from = "String", into = "String")]
 pub struct RawCBORScript(Vec<u8>);
 
 impl TryFrom<String> for RawCBORScript {
@@ -36,7 +36,13 @@ impl TryFrom<String> for RawCBORScript {
     }
 }
 
-#[derive(serde::Deserialize)]
+impl From<RawCBORScript> for String {
+    fn from(value: RawCBORScript) -> Self {
+        hex::encode(&value.0)
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Script {
     #[serde(rename = "type")]
@@ -61,7 +67,7 @@ impl TryFrom<Script> for cml_chain::Script {
     }
 }
 
-#[derive(Copy, Clone, serde::Deserialize)]
+#[derive(Copy, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReferenceUTxO {
     pub tx_hash: TransactionHash,
@@ -80,7 +86,7 @@ impl From<ReferenceUTxO> for OutputRef {
     }
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeployedValidatorRef {
     pub hash: ScriptHash,

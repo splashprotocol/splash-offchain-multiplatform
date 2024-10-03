@@ -16,7 +16,10 @@ use cml_crypto::Ed25519KeyHash;
 use spectrum_cardano_lib::{
     protocol_params::{constant_tx_builder, COINS_PER_UTXO_BYTE},
     transaction::TransactionOutputExtension,
+    Token,
 };
+
+use crate::ExternallyMintedToken;
 
 pub fn mint_token(
     token_name: &str,
@@ -25,7 +28,7 @@ pub fn mint_token(
     input_result: InputBuilderResult,
     change_address: &Address,
     current_slot_number: u64,
-) -> SignedTxBuilder {
+) -> (SignedTxBuilder, ExternallyMintedToken) {
     let valid_until = current_slot_number + 10001;
 
     let script_pk = NativeScript::new_script_pubkey(pk_hash);
@@ -45,7 +48,7 @@ pub fn mint_token(
     tx_builder.set_ttl(valid_until);
 
     let mut output_multiasset = MultiAsset::new();
-    output_multiasset.set(script_all_hash, asset_name, quantity as u64);
+    output_multiasset.set(script_all_hash, asset_name.clone(), quantity as u64);
 
     let mut output_result = TransactionOutputBuilder::new()
         .with_address(change_address.clone())
@@ -59,9 +62,15 @@ pub fn mint_token(
     output_result.output.update_value(updated_value);
     tx_builder.add_output(output_result).unwrap();
 
-    tx_builder
+    let signed_tx_builder = tx_builder
         .build(ChangeSelectionAlgo::Default, change_address)
-        .unwrap()
+        .unwrap();
+    let token = Token(script_all_hash, spectrum_cardano_lib::AssetName::from(asset_name));
+    let minted_token = ExternallyMintedToken {
+        token,
+        quantity: quantity as u64,
+    };
+    (signed_tx_builder, minted_token)
 }
 
 fn create_minting_tx_inputs() {}

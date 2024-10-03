@@ -13,3 +13,4 @@ seed.txt
 token.txt
 node_modules/
 state_data/
+splash-dao-administration/resources/preprod_deployment.json

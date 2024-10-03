@@ -12,7 +12,7 @@ pub struct DaoDeployment {
     pub nfts: MintedTokens,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeployedValidators {
     pub inflation: DeployedValidatorRef,
@@ -32,7 +32,7 @@ pub struct DeployedValidators {
     pub weighting_power: DeployedValidatorRef,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BuiltPolicy {
     pub script: Script,
@@ -41,7 +41,7 @@ pub struct BuiltPolicy {
     pub quantity: BigInteger,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct MintedTokens {
     pub factory_auth: BuiltPolicy,
     pub wp_factory_auth: BuiltPolicy,
