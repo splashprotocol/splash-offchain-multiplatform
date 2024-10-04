@@ -25,8 +25,6 @@ pub struct DeployedValidators {
     pub perm_manager: DeployedValidatorRef,
     #[serde(rename(deserialize = "mintWPAuthToken"))]
     pub mint_wpauth_token: DeployedValidatorRef,
-    //#[serde(rename(deserialize = "mintVEIdentifierToken"))]
-    //pub mint_ve_identifier_token: DeployedValidatorRef,
     #[serde(rename(deserialize = "mintVECompositionToken"))]
     pub mint_ve_composition_token: DeployedValidatorRef,
     pub weighting_power: DeployedValidatorRef,
@@ -49,7 +47,6 @@ pub struct MintedTokens {
     pub perm_auth: BuiltPolicy,
     pub proposal_auth: BuiltPolicy,
     pub edao_msig: BuiltPolicy,
-    pub ve_identifier: BuiltPolicy,
     pub inflation_auth: BuiltPolicy,
     pub gt: BuiltPolicy,
 }
@@ -88,7 +85,6 @@ pub struct ProtocolScriptHashes {
     pub gov_proxy: DeployedScriptInfo<{ ProtocolValidator::GovProxy as u8 }>,
     pub perm_manager: DeployedScriptInfo<{ ProtocolValidator::PermManager as u8 }>,
     pub mint_wpauth_token: DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>,
-    //pub mint_ve_identifier_token: DeployedScriptInfo<{ ProtocolValidator::MintVeIdentifierToken as u8 }>,
     pub mint_ve_composition_token: DeployedScriptInfo<{ ProtocolValidator::MintVeCompositionToken as u8 }>,
 }
 
@@ -104,7 +100,6 @@ impl From<&ProtocolDeployment> for ProtocolScriptHashes {
             gov_proxy: DeployedScriptInfo::from(&deployment.gov_proxy),
             perm_manager: DeployedScriptInfo::from(&deployment.perm_manager),
             mint_wpauth_token: DeployedScriptInfo::from(&deployment.mint_wpauth_token),
-            // mint_ve_identifier_token: DeployedScriptInfo::from(&deployment.mint_ve_identifier_token),
             mint_ve_composition_token: DeployedScriptInfo::from(&deployment.mint_ve_composition_token),
         }
     }
@@ -121,7 +116,6 @@ pub struct ProtocolDeployment {
     pub gov_proxy: DeployedValidator<{ ProtocolValidator::GovProxy as u8 }>,
     pub perm_manager: DeployedValidator<{ ProtocolValidator::PermManager as u8 }>,
     pub mint_wpauth_token: DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>,
-    //pub mint_ve_identifier_token: DeployedValidator<{ ProtocolValidator::MintVeIdentifierToken as u8 }>,
     pub mint_ve_composition_token: DeployedValidator<{ ProtocolValidator::MintVeCompositionToken as u8 }>,
     pub weighting_power: DeployedValidator<{ ProtocolValidator::WeightingPower as u8 }>,
 }
@@ -138,11 +132,6 @@ impl ProtocolDeployment {
             gov_proxy: DeployedValidator::unsafe_pull(validators.gov_proxy, explorer).await,
             perm_manager: DeployedValidator::unsafe_pull(validators.perm_manager, explorer).await,
             mint_wpauth_token: DeployedValidator::unsafe_pull(validators.mint_wpauth_token, explorer).await,
-            //mint_ve_identifier_token: DeployedValidator::unsafe_pull(
-            //    validators.mint_ve_identifier_token,
-            //    explorer,
-            //)
-            //.await,
             mint_ve_composition_token: DeployedValidator::unsafe_pull(
                 validators.mint_ve_composition_token,
                 explorer,
