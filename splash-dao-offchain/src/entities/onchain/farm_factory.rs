@@ -25,7 +25,10 @@ use spectrum_offchain_cardano::{
 use uplc_pallas_codec::utils::PlutusBytes;
 
 use crate::{
-    constants, deployment::ProtocolValidator, entities::Snapshot, protocol_config::FarmFactoryAuthPolicy,
+    constants::{self, FARM_FACTORY_SCRIPT},
+    deployment::ProtocolValidator,
+    entities::Snapshot,
+    protocol_config::FarmFactoryAuthPolicy,
 };
 
 pub type FarmFactorySnapshot = Snapshot<FarmFactory, OutputRef>;
@@ -140,7 +143,6 @@ pub fn unsafe_update_farm_factory_datum(data: &mut PlutusData, last_farm_id: i64
 }
 
 pub fn compute_farm_factory_validator(
-    script: &str,
     farm_auth_policy: PolicyId,
     gov_witness_script_hash: PolicyId,
 ) -> PlutusV2Script {
@@ -148,7 +150,7 @@ pub fn compute_farm_factory_validator(
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(farm_auth_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(gov_witness_script_hash.to_raw_bytes().to_vec())),
     ]);
-    apply_params_validator(params_pd, script)
+    apply_params_validator(params_pd, FARM_FACTORY_SCRIPT)
 }
 
 #[cfg(test)]

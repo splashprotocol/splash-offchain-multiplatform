@@ -18,6 +18,7 @@ use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 
+use crate::constants::MINT_FARM_AUTH_TOKEN_SCRIPT;
 use crate::deployment::ProtocolValidator;
 use crate::entities::Snapshot;
 use crate::protocol_config::PermManagerAuthPolicy;
@@ -133,7 +134,6 @@ where
 }
 
 pub fn compute_mint_farm_auth_token_validator(
-    script: &str,
     splash_policy: PolicyId,
     factory_auth_policy: PolicyId,
 ) -> PlutusV2Script {
@@ -145,7 +145,7 @@ pub fn compute_mint_farm_auth_token_validator(
             factory_auth_policy.to_raw_bytes().to_vec(),
         )),
     ]);
-    apply_params_validator(params_pd, script)
+    apply_params_validator(params_pd, MINT_FARM_AUTH_TOKEN_SCRIPT)
 }
 
 pub const FARM_EX_UNITS: ExUnits = ExUnits {

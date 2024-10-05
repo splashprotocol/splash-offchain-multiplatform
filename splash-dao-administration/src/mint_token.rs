@@ -189,6 +189,7 @@ pub fn mint_deployment_tokens(
     let updated_value = Value::from(min_ada);
     output_result.output.update_value(updated_value);
 
+    // Even though we've specified it, the tokens do not appear in this output.
     tx_builder.add_output(output_result).unwrap();
 
     tx_builder

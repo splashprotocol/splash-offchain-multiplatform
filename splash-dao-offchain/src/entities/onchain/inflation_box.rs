@@ -15,7 +15,7 @@ use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 use uplc_pallas_codec::utils::{Int, PlutusBytes};
 
 use crate::assets::Splash;
-use crate::constants::SPLASH_NAME;
+use crate::constants::{INFLATION_SCRIPT, SPLASH_NAME};
 use crate::deployment::ProtocolValidator;
 use crate::entities::Snapshot;
 use crate::protocol_config::{SplashAssetName, SplashPolicy};
@@ -138,7 +138,6 @@ pub const INFLATION_BOX_EX_UNITS: ExUnits = ExUnits {
 };
 
 pub fn compute_inflation_box_validator(
-    script: &str,
     splash_policy: PolicyId,
     wp_auth_policy: PolicyId,
     weighting_power_policy: PolicyId,
@@ -150,7 +149,7 @@ pub fn compute_inflation_box_validator(
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(weighting_power_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BigInt(uplc::BigInt::Int(Int::from(zeroth_epoch_start as i64))),
     ]);
-    apply_params_validator(params_pd, script)
+    apply_params_validator(params_pd, INFLATION_SCRIPT)
 }
 
 #[cfg(test)]

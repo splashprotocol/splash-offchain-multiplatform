@@ -871,12 +871,8 @@ where
                         },
                     };
                     let farm_auth_policy = self.ctx.select::<FarmAuthPolicy>().0.to_hex();
-                    let smart_farm_script_hash = compute_mint_farm_auth_token_validator(
-                        &farm_auth_policy,
-                        splash_policy,
-                        factory_auth_policy,
-                    )
-                    .hash();
+                    let smart_farm_script_hash =
+                        compute_mint_farm_auth_token_validator(splash_policy, factory_auth_policy).hash();
                     let smart_farm_script = PartialPlutusWitness::new(
                         PlutusScriptWitness::Ref(smart_farm_script_hash),
                         redeemer.into_pd(),

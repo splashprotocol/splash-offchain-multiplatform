@@ -27,6 +27,7 @@ use spectrum_offchain_cardano::{
 use uplc_pallas_codec::utils::PlutusBytes;
 
 use crate::{
+    constants::VE_FACTORY_SCRIPT,
     deployment::ProtocolValidator,
     entities::Snapshot,
     protocol_config::{GTAuthName, GTAuthPolicy, VEFactoryAuthName, VEFactoryAuthPolicy},
@@ -110,7 +111,6 @@ where
 }
 
 pub fn compute_ve_factory_validator(
-    script: &str,
     ve_factory_auth_policy: PolicyId,
     ve_identifier_policy: PolicyId,
     ve_composition_policy: PolicyId,
@@ -128,7 +128,7 @@ pub fn compute_ve_factory_validator(
         )),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(gov_proxy_scripthash.to_raw_bytes().to_vec())),
     ]);
-    apply_params_validator(params_pd, script)
+    apply_params_validator(params_pd, VE_FACTORY_SCRIPT)
 }
 
 fn is_token_accepted(token: Token, accepted_assets: &[(Token, Ratio<u128>)]) -> bool {
