@@ -30,7 +30,7 @@ use spectrum_offchain::{
 };
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 
-use crate::constants::{MINT_WEIGHTING_POWER_SCRIPT, VOTING_ESCROW_SCRIPT};
+use crate::constants::{MINT_GOVERNANCE_POWER_SCRIPT, MINT_WEIGHTING_POWER_SCRIPT, VOTING_ESCROW_SCRIPT};
 use crate::deployment::ProtocolValidator;
 use crate::entities::Snapshot;
 use crate::protocol_config::{GTAuthName, GTAuthPolicy, VEFactoryAuthName};
@@ -364,7 +364,7 @@ impl IntoPlutusData for MintAction {
 
 pub const MIN_ADA_IN_BOX: u64 = 1_000_000;
 
-pub fn compute_mint_weighting_power_policy_id(
+pub fn compute_mint_weighting_power_validator(
     zeroth_epoch_start: u64,
     proposal_auth_policy: PolicyId,
     gt_policy: PolicyId,
@@ -377,11 +377,26 @@ pub fn compute_mint_weighting_power_policy_id(
     apply_params_validator(params_pd, MINT_WEIGHTING_POWER_SCRIPT)
 }
 
-pub fn compute_voting_escrow_validator(ve_factory_auth_policy: PolicyId) -> PlutusV2Script {
-    let params_pd = uplc::PlutusData::Array(vec![uplc::PlutusData::BoundedBytes(PlutusBytes::from(
-        ve_factory_auth_policy.to_raw_bytes().to_vec(),
-    ))]);
+pub fn compute_voting_escrow_validator(
+    ve_factory_auth_policy: PolicyId,
+    ve_composition_policy: PolicyId,
+) -> PlutusV2Script {
+    let params_pd = uplc::PlutusData::Array(vec![
+        uplc::PlutusData::BoundedBytes(PlutusBytes::from(ve_factory_auth_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(PlutusBytes::from(ve_composition_policy.to_raw_bytes().to_vec())),
+    ]);
     apply_params_validator(params_pd, VOTING_ESCROW_SCRIPT)
+}
+
+pub fn compute_mint_governance_power_validator(
+    proposal_auth_policy: PolicyId,
+    gt_policy: PolicyId,
+) -> PlutusV2Script {
+    let params_pd = uplc::PlutusData::Array(vec![
+        uplc::PlutusData::BoundedBytes(PlutusBytes::from(proposal_auth_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(PlutusBytes::from(gt_policy.to_raw_bytes().to_vec())),
+    ]);
+    apply_params_validator(params_pd, MINT_GOVERNANCE_POWER_SCRIPT)
 }
 
 #[cfg(test)]

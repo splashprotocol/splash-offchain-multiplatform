@@ -6,32 +6,28 @@ use spectrum_offchain_cardano::deployment::{
 };
 
 #[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct DaoDeployment {
     pub validators: DeployedValidators,
     pub nfts: MintedTokens,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct DeployedValidators {
     pub inflation: DeployedValidatorRef,
     pub voting_escrow: DeployedValidatorRef,
-    pub smart_farm: DeployedValidatorRef,
     pub farm_factory: DeployedValidatorRef,
     pub wp_factory: DeployedValidatorRef,
     pub ve_factory: DeployedValidatorRef,
     pub gov_proxy: DeployedValidatorRef,
     pub perm_manager: DeployedValidatorRef,
-    #[serde(rename(deserialize = "mintWPAuthToken"))]
     pub mint_wpauth_token: DeployedValidatorRef,
-    #[serde(rename(deserialize = "mintVECompositionToken"))]
+    pub mint_identifier: DeployedValidatorRef,
     pub mint_ve_composition_token: DeployedValidatorRef,
     pub weighting_power: DeployedValidatorRef,
+    pub smart_farm: DeployedValidatorRef,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct BuiltPolicy {
     pub script: Script,
     pub policy_id: ScriptHash,

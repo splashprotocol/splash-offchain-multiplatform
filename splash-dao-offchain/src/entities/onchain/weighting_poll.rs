@@ -25,7 +25,7 @@ use crate::assets::Splash;
 use crate::constants::{MINT_WP_AUTH_TOKEN_SCRIPT, SPLASH_NAME};
 use crate::deployment::ProtocolValidator;
 use crate::entities::onchain::smart_farm::FarmId;
-use crate::entities::onchain::voting_escrow::compute_mint_weighting_power_policy_id;
+use crate::entities::onchain::voting_escrow::compute_mint_weighting_power_validator;
 use crate::entities::Snapshot;
 use crate::protocol_config::{GTAuthPolicy, MintWPAuthPolicy, NodeMagic, SplashPolicy, WeightingPowerPolicy};
 use crate::routines::inflation::actions::compute_epoch_asset_name;

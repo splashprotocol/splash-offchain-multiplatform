@@ -9,19 +9,20 @@ use cml_chain::{
     builders::{
         input_builder::{InputBuilderResult, SingleInputBuilder},
         output_builder::TransactionOutputBuilder,
-        tx_builder::{ChangeSelectionAlgo, TransactionUnspentOutput},
+        tx_builder::{ChangeSelectionAlgo, TransactionBuilder, TransactionUnspentOutput},
     },
     Serialize, Value,
 };
 use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
 use mint_token::LQ_NAME;
 use spectrum_cardano_lib::{
-    collateral::Collateral, protocol_params::constant_tx_builder, transaction::TransactionOutputExtension,
-    NetworkId, OutputRef, Token,
+    collateral::Collateral, ex_units::ExUnits, protocol_params::constant_tx_builder,
+    transaction::TransactionOutputExtension, NetworkId, OutputRef, Token,
 };
 use spectrum_offchain::tx_prover::TxProver;
 use spectrum_offchain_cardano::{
     creds::{operator_creds_base_address, CollateralAddress},
+    deployment::{DeployedValidatorRef, ReferenceUTxO},
     prover::operator::OperatorProver,
 };
 use splash_dao_offchain::{
@@ -194,6 +195,140 @@ async fn deploy<'a>(config: AppConfig<'a>) {
             .inputs_consumed = true;
         write_deployment_to_disk(&deployment_config, config.deployment_json_path).await;
     }
+    if deployment_config.deployed_validators.is_none() {
+        let (tx_builder_0, tx_builder_1, tx_builder_2, reference_input_script_hashes) =
+            mint_token::create_dao_reference_input_utxos(&deployment_config, 1000);
+
+        println!("Creating reference inputs (batch #0) ---------------------------------------");
+        let tx_hash_0 = deploy_dao_reference_inputs(tx_builder_0, &explorer, &addr, &prover).await;
+        println!("Creating reference inputs (batch #1) ---------------------------------------");
+        let tx_hash_1 = deploy_dao_reference_inputs(tx_builder_1, &explorer, &addr, &prover).await;
+        println!("Creating reference inputs (batch #2) ---------------------------------------");
+        let tx_hash_2 = deploy_dao_reference_inputs(tx_builder_2, &explorer, &addr, &prover).await;
+
+        const EX_UNITS: ExUnits = ExUnits {
+            mem: 500_000,
+            steps: 200_000_000,
+        };
+        let make_ref_utxo = |batch_num: usize, output_index: u64| {
+            if batch_num == 0 {
+                ReferenceUTxO {
+                    tx_hash: tx_hash_0,
+                    output_index,
+                }
+            } else if batch_num == 1 {
+                ReferenceUTxO {
+                    tx_hash: tx_hash_1,
+                    output_index,
+                }
+            } else {
+                ReferenceUTxO {
+                    tx_hash: tx_hash_2,
+                    output_index,
+                }
+            }
+        };
+        // --------
+        let d = DeployedValidators {
+            inflation: DeployedValidatorRef {
+                hash: reference_input_script_hashes.inflation,
+                reference_utxo: make_ref_utxo(0, 0),
+                cost: EX_UNITS,
+                marginal_cost: None,
+            },
+            voting_escrow: DeployedValidatorRef {
+                hash: reference_input_script_hashes.voting_escrow,
+                reference_utxo: make_ref_utxo(0, 1),
+                cost: EX_UNITS,
+                marginal_cost: None,
+            },
+            farm_factory: DeployedValidatorRef {
+                hash: reference_input_script_hashes.farm_factory,
+                reference_utxo: make_ref_utxo(0, 2),
+                cost: EX_UNITS,
+                marginal_cost: None,
+            },
+            wp_factory: DeployedValidatorRef {
+                hash: reference_input_script_hashes.wp_factory,
+                reference_utxo: make_ref_utxo(0, 3),
+                cost: EX_UNITS,
+                marginal_cost: None,
+            },
+            ve_factory: DeployedValidatorRef {
+                hash: reference_input_script_hashes.ve_factory,
+                reference_utxo: make_ref_utxo(0, 4),
+                cost: EX_UNITS,
+                marginal_cost: None,
+            },
+            gov_proxy: DeployedValidatorRef {
+                hash: reference_input_script_hashes.gov_proxy,
+                reference_utxo: make_ref_utxo(1, 0),
+                cost: EX_UNITS,
+                marginal_cost: None,
+            },
+            perm_manager: DeployedValidatorRef {
+                hash: reference_input_script_hashes.perm_manager,
+                reference_utxo: make_ref_utxo(1, 1),
+                cost: EX_UNITS,
+                marginal_cost: None,
+            },
+            mint_wpauth_token: DeployedValidatorRef {
+                hash: reference_input_script_hashes.mint_wpauth_token,
+                reference_utxo: make_ref_utxo(1, 2),
+                cost: EX_UNITS,
+                marginal_cost: None,
+            },
+            mint_identifier: DeployedValidatorRef {
+                hash: reference_input_script_hashes.mint_identifier,
+                reference_utxo: make_ref_utxo(1, 3),
+                cost: EX_UNITS,
+                marginal_cost: None,
+            },
+            mint_ve_composition_token: DeployedValidatorRef {
+                hash: reference_input_script_hashes.mint_ve_composition_token,
+                reference_utxo: make_ref_utxo(2, 0),
+                cost: EX_UNITS,
+                marginal_cost: None,
+            },
+            weighting_power: DeployedValidatorRef {
+                hash: reference_input_script_hashes.weighting_power,
+                reference_utxo: make_ref_utxo(2, 1),
+                cost: EX_UNITS,
+                marginal_cost: None,
+            },
+            smart_farm: DeployedValidatorRef {
+                hash: reference_input_script_hashes.smart_farm,
+                reference_utxo: make_ref_utxo(2, 2),
+                cost: EX_UNITS,
+                marginal_cost: None,
+            },
+        };
+
+        deployment_config.deployed_validators = Some(d);
+
+        write_deployment_to_disk(&deployment_config, config.deployment_json_path).await;
+    }
+}
+
+async fn deploy_dao_reference_inputs(
+    mut tx_builder: TransactionBuilder,
+    explorer: &Maestro,
+    addr: &Address,
+    prover: &OperatorProver,
+) -> TransactionHash {
+    let input_result = get_largest_utxo(explorer, addr).await;
+    tx_builder.add_input(input_result).unwrap();
+    let signed_tx_builder = tx_builder.build(ChangeSelectionAlgo::Default, addr).unwrap();
+    let tx = prover.prove(signed_tx_builder);
+    let tx_hash = TransactionHash::from_hex(&tx.deref().body.hash().to_hex()).unwrap();
+    println!("tx_hash: {:?}", tx_hash);
+    let tx_bytes = tx.deref().to_cbor_bytes();
+    println!("tx_bytes: {}", hex::encode(&tx_bytes));
+
+    explorer.submit_tx(&tx_bytes).await.unwrap();
+    explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
+
+    tx_hash
 }
 
 pub async fn get_largest_utxo(explorer: &Maestro, addr: &Address) -> InputBuilderResult {
@@ -243,6 +378,7 @@ struct PreprodDeploymentProgress {
     nft_utxo_inputs: Option<NFTUtxoInputs>,
     minted_deployment_tokens: Option<MintedTokens>,
     deployed_validators: Option<DeployedValidators>,
+    network_id: NetworkId,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]

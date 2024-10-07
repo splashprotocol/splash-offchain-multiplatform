@@ -463,7 +463,7 @@ impl<T> TryFromPData for TaggedAmount<T> {
 
 pub type NetworkTime = u64;
 
-#[derive(serde::Deserialize, Debug, Copy, Clone, From, Into)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Copy, Clone, From, Into)]
 pub struct NetworkId(u8);
 
 /// Payment credential in bech32.

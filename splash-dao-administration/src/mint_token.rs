@@ -1,23 +1,24 @@
 use std::collections::VecDeque;
 
 use cml_chain::{
-    address::Address,
+    address::{Address, BaseAddress, EnterpriseAddress},
     assets::{AssetName, MultiAsset},
     builders::{
         input_builder::InputBuilderResult,
         mint_builder::SingleMintBuilder,
         output_builder::TransactionOutputBuilder,
         redeemer_builder::RedeemerWitnessKey,
-        tx_builder::{ChangeSelectionAlgo, SignedTxBuilder},
+        tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionBuilder},
         witness_builder::{NativeScriptWitnessInfo, PartialPlutusWitness},
     },
+    certs::StakeCredential,
     min_ada::min_ada_required,
     plutus::{ConstrPlutusData, ExUnits, PlutusData, PlutusScript, PlutusV2Script, RedeemerTag},
     transaction::NativeScript,
     utils::BigInteger,
-    Serialize, Value,
+    NetworkId, PolicyId, Serialize, Value,
 };
-use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, TransactionHash};
+use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, ScriptHash, TransactionHash};
 use spectrum_cardano_lib::{
     collateral::Collateral,
     plutus_data::PlutusDataExtension,
@@ -31,12 +32,28 @@ use spectrum_offchain_cardano::{
     parametrized_validators::apply_params_validator,
 };
 use splash_dao_offchain::{
-    constants::{DEFAULT_AUTH_TOKEN_NAME, GT_NAME, MAX_GT_SUPPLY, ONE_TIME_MINT_SCRIPT},
+    constants::{
+        DEFAULT_AUTH_TOKEN_NAME, GOV_PROXY_SCRIPT, GT_NAME, MAX_GT_SUPPLY, MINT_IDENTIFIER_SCRIPT,
+        MINT_VE_COMPOSITION_TOKEN_SCRIPT, ONE_TIME_MINT_SCRIPT,
+    },
     deployment::{BuiltPolicy, MintedTokens},
+    entities::onchain::{
+        farm_factory::compute_farm_factory_validator,
+        inflation_box::compute_inflation_box_validator,
+        permission_manager::compute_perm_manager_validator,
+        poll_factory::compute_wp_factory_validator,
+        smart_farm::compute_mint_farm_auth_token_validator,
+        voting_escrow::{
+            compute_mint_governance_power_validator, compute_mint_weighting_power_validator,
+            compute_voting_escrow_validator,
+        },
+        voting_escrow_factory::compute_ve_factory_validator,
+        weighting_poll::compute_mint_wp_auth_token_validator,
+    },
 };
-use uplc_pallas_codec::minicbor::Encode;
+use uplc_pallas_codec::{minicbor::Encode, utils::PlutusBytes};
 
-use crate::ExternallyMintedToken;
+use crate::{ExternallyMintedToken, PreprodDeploymentProgress};
 
 pub fn mint_token(
     token_name: &str,
@@ -253,6 +270,180 @@ fn compute_one_time_mint_validator(tx_hash: TransactionHash, index: usize, quant
     //assert_eq!(cml, *pallas_bytes);
 }
 
+/// Computes the scripts of all DAO reference inputs, and forms `TransactionBuilder` instances containing
+/// the necessary outputs for reference input UTxOs.
+pub fn create_dao_reference_input_utxos(
+    config: &PreprodDeploymentProgress,
+    zeroth_epoch_start: u64,
+) -> (
+    TransactionBuilder,
+    TransactionBuilder,
+    TransactionBuilder,
+    ReferenceInputScriptHashes,
+) {
+    let minted_tokens = config.minted_deployment_tokens.as_ref().unwrap();
+    let gt_policy = minted_tokens.gt.policy_id;
+    let ve_factory_auth_policy = minted_tokens.ve_factory_auth.policy_id;
+    let proposal_auth_policy = minted_tokens.proposal_auth.policy_id;
+    let perm_manager_auth_policy = minted_tokens.perm_auth.policy_id;
+    let edao_msig = minted_tokens.edao_msig.policy_id;
+    let inflation_auth_policy = minted_tokens.inflation_auth.policy_id;
+
+    let governance_power_script = compute_mint_governance_power_validator(proposal_auth_policy, gt_policy);
+
+    let gov_proxy_script = compute_gov_proxy_script(
+        ve_factory_auth_policy,
+        proposal_auth_policy,
+        governance_power_script.hash(),
+        gt_policy,
+    );
+
+    let mint_ve_composition_token_script = compute_mint_ve_composition_token_script(ve_factory_auth_policy);
+
+    let voting_escrow_script =
+        compute_voting_escrow_validator(ve_factory_auth_policy, mint_ve_composition_token_script.hash());
+
+    let farm_factory_auth_policy = minted_tokens.factory_auth.policy_id;
+
+    let splash_policy = config.splash_tokens.as_ref().unwrap().token.0;
+
+    let mint_farm_auth_token_script =
+        compute_mint_farm_auth_token_validator(splash_policy, farm_factory_auth_policy);
+
+    let wp_factory_auth_policy = minted_tokens.wp_factory_auth.policy_id;
+    let mint_wp_auth_token_script = compute_mint_wp_auth_token_validator(
+        splash_policy,
+        mint_farm_auth_token_script.hash(),
+        wp_factory_auth_policy,
+        inflation_auth_policy,
+        zeroth_epoch_start,
+    );
+
+    let mint_identifier_script = PlutusV2Script::new(hex::decode(MINT_IDENTIFIER_SCRIPT).unwrap());
+
+    let ve_factory_script = compute_ve_factory_validator(
+        ve_factory_auth_policy,
+        mint_identifier_script.hash(),
+        mint_ve_composition_token_script.hash(),
+        gt_policy,
+        voting_escrow_script.hash(),
+        gov_proxy_script.hash(),
+    );
+
+    let wp_factory_script =
+        compute_wp_factory_validator(mint_wp_auth_token_script.hash(), gov_proxy_script.hash());
+
+    let farm_factory_script =
+        compute_farm_factory_validator(mint_farm_auth_token_script.hash(), gov_proxy_script.hash());
+
+    let mint_weighting_power_script =
+        compute_mint_weighting_power_validator(zeroth_epoch_start, proposal_auth_policy, gt_policy);
+
+    let inflation_script = compute_inflation_box_validator(
+        splash_policy,
+        mint_wp_auth_token_script.hash(),
+        mint_weighting_power_script.hash(),
+        zeroth_epoch_start,
+    );
+
+    let perm_manager_script = compute_perm_manager_validator(edao_msig, perm_manager_auth_policy);
+
+    let reference_input_script_hashes = ReferenceInputScriptHashes {
+        inflation: inflation_script.hash(),
+        voting_escrow: voting_escrow_script.hash(),
+        farm_factory: farm_factory_script.hash(),
+        wp_factory: wp_factory_script.hash(),
+        ve_factory: ve_factory_script.hash(),
+        gov_proxy: gov_proxy_script.hash(),
+        perm_manager: perm_manager_script.hash(),
+        mint_wpauth_token: mint_wp_auth_token_script.hash(),
+        mint_identifier: mint_identifier_script.hash(),
+        mint_ve_composition_token: mint_ve_composition_token_script.hash(),
+        weighting_power: mint_weighting_power_script.hash(),
+        smart_farm: mint_farm_auth_token_script.hash(),
+    };
+
+    let script_before =
+        NativeScript::ScriptInvalidHereafter(cml_chain::transaction::ScriptInvalidHereafter::new(0));
+
+    let network_info = config.network_id;
+    let script_address = EnterpriseAddress::new(
+        u8::from(network_info),
+        StakeCredential::new_script(script_before.hash()),
+    )
+    .to_address();
+
+    let make_output = |script| {
+        TransactionOutputBuilder::new()
+            .with_address(script_address.clone())
+            .with_reference_script(cml_chain::Script::new_plutus_v2(script))
+            .next()
+            .unwrap()
+            .with_asset_and_min_required_coin(MultiAsset::default(), COINS_PER_UTXO_BYTE)
+            .unwrap()
+            .build()
+            .unwrap()
+    };
+
+    let mut tx_builder_0 = constant_tx_builder();
+    tx_builder_0.add_output(make_output(inflation_script)).unwrap();
+    tx_builder_0
+        .add_output(make_output(voting_escrow_script))
+        .unwrap();
+    tx_builder_0.add_output(make_output(farm_factory_script)).unwrap();
+    tx_builder_0.add_output(make_output(wp_factory_script)).unwrap();
+    tx_builder_0.add_output(make_output(ve_factory_script)).unwrap();
+
+    let mut tx_builder_1 = constant_tx_builder();
+    tx_builder_1.add_output(make_output(gov_proxy_script)).unwrap();
+    tx_builder_1.add_output(make_output(perm_manager_script)).unwrap();
+    tx_builder_1
+        .add_output(make_output(mint_wp_auth_token_script))
+        .unwrap();
+    tx_builder_1
+        .add_output(make_output(mint_identifier_script))
+        .unwrap();
+    let mut tx_builder_2 = constant_tx_builder();
+    tx_builder_2
+        .add_output(make_output(mint_ve_composition_token_script))
+        .unwrap();
+    tx_builder_2
+        .add_output(make_output(mint_weighting_power_script))
+        .unwrap();
+    tx_builder_2
+        .add_output(make_output(mint_farm_auth_token_script))
+        .unwrap();
+
+    (
+        tx_builder_0,
+        tx_builder_1,
+        tx_builder_2,
+        reference_input_script_hashes,
+    )
+}
+
+fn compute_gov_proxy_script(
+    ve_factory_auth_policy: PolicyId,
+    proposal_auth_policy: PolicyId,
+    governance_power_policy: PolicyId,
+    gt_policy: PolicyId,
+) -> PlutusV2Script {
+    let params_pd = uplc::PlutusData::Array(vec![
+        uplc::PlutusData::BoundedBytes(PlutusBytes::from(ve_factory_auth_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(PlutusBytes::from(proposal_auth_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(PlutusBytes::from(governance_power_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(PlutusBytes::from(gt_policy.to_raw_bytes().to_vec())),
+    ]);
+    apply_params_validator(params_pd, GOV_PROXY_SCRIPT)
+}
+
+fn compute_mint_ve_composition_token_script(ve_factory_auth_policy: PolicyId) -> PlutusV2Script {
+    let params_pd = uplc::PlutusData::Array(vec![uplc::PlutusData::BoundedBytes(PlutusBytes::from(
+        ve_factory_auth_policy.to_raw_bytes().to_vec(),
+    ))]);
+    apply_params_validator(params_pd, MINT_VE_COMPOSITION_TOKEN_SCRIPT)
+}
+
 pub const LQ_NAME: &str = "SPLASH/ADA LQ*";
 pub const SPLASH_NAME: &str = "SPLASH";
 pub const NUMBER_TOKEN_MINTS_NEEDED: usize = 9;
@@ -261,6 +452,21 @@ const EX_UNITS: ExUnits = ExUnits {
     steps: 200_000_000,
     encodings: None,
 };
+
+pub struct ReferenceInputScriptHashes {
+    pub inflation: ScriptHash,
+    pub voting_escrow: ScriptHash,
+    pub farm_factory: ScriptHash,
+    pub wp_factory: ScriptHash,
+    pub ve_factory: ScriptHash,
+    pub gov_proxy: ScriptHash,
+    pub perm_manager: ScriptHash,
+    pub mint_wpauth_token: ScriptHash,
+    pub mint_identifier: ScriptHash,
+    pub mint_ve_composition_token: ScriptHash,
+    pub weighting_power: ScriptHash,
+    pub smart_farm: ScriptHash,
+}
 
 #[cfg(test)]
 mod tests {

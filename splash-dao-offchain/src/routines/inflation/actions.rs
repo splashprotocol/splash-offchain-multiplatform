@@ -41,7 +41,7 @@ use crate::entities::onchain::poll_factory::{
 };
 use crate::entities::onchain::smart_farm::{self, compute_mint_farm_auth_token_validator, FARM_EX_UNITS};
 use crate::entities::onchain::voting_escrow::{
-    self, compute_mint_weighting_power_policy_id, compute_voting_escrow_validator, unsafe_update_ve_state,
+    self, compute_mint_weighting_power_validator, compute_voting_escrow_validator, unsafe_update_ve_state,
     VotingEscrowAction, VotingEscrowAuthorizedAction, ORDER_WITNESS_EX_UNITS, VOTING_ESCROW_EX_UNITS,
     WEIGHTING_POWER_EX_UNITS,
 };
@@ -52,8 +52,8 @@ use crate::entities::onchain::weighting_poll::{
 use crate::entities::Snapshot;
 use crate::protocol_config::{
     EDaoMSigAuthPolicy, FarmAuthPolicy, FarmAuthRefScriptOutput, FarmFactoryAuthPolicy, GTAuthPolicy,
-    GovProxyRefScriptOutput, InflationAuthPolicy, InflationBoxRefScriptOutput, MintWPAuthPolicy,
-    MintWPAuthRefScriptOutput, NodeMagic, OperatorCreds, PermManagerAuthPolicy,
+    GovProxyRefScriptOutput, InflationAuthPolicy, InflationBoxRefScriptOutput, MintVECompositionPolicy,
+    MintWPAuthPolicy, MintWPAuthRefScriptOutput, NodeMagic, OperatorCreds, PermManagerAuthPolicy,
     PermManagerBoxRefScriptOutput, PollFactoryRefScriptOutput, Reward, SplashPolicy, VEFactoryAuthPolicy,
     VotingEscrowPolicy, VotingEscrowRefScriptOutput, WPFactoryAuthPolicy, WeightingPowerPolicy,
     WeightingPowerRefScriptOutput, TX_FEE_CORRECTION,
@@ -135,6 +135,7 @@ where
         + Has<FarmFactoryAuthPolicy>
         + Has<WPFactoryAuthPolicy>
         + Has<VEFactoryAuthPolicy>
+        + Has<MintVECompositionPolicy>
         + Has<VotingEscrowRefScriptOutput>
         + Has<WeightingPowerPolicy>
         + Has<WeightingPowerRefScriptOutput>
@@ -566,6 +567,7 @@ where
         let farm_auth_policy = self.ctx.select::<FarmAuthPolicy>().0;
         let splash_policy = self.ctx.select::<SplashPolicy>().0;
         let ve_factory_auth_policy = self.ctx.select::<VEFactoryAuthPolicy>().0;
+        let mint_ve_composition_token_policy = self.ctx.select::<MintVECompositionPolicy>().0;
         let voting_escrow_ref_script = self.ctx.select::<VotingEscrowRefScriptOutput>().0;
         let wpoll_auth_policy = self.ctx.select::<MintWPAuthPolicy>().0;
         let factory_auth_policy = self.ctx.select::<FarmFactoryAuthPolicy>().0;
@@ -573,7 +575,8 @@ where
         let wpoll_auth_ref_script = self.ctx.select::<MintWPAuthRefScriptOutput>().0;
         let weighting_power_ref_script = self.ctx.select::<WeightingPowerRefScriptOutput>().0;
 
-        let voting_escrow_script_hash = compute_voting_escrow_validator(ve_factory_auth_policy).hash();
+        let voting_escrow_script_hash =
+            compute_voting_escrow_validator(ve_factory_auth_policy, mint_ve_composition_token_policy).hash();
         let voting_escrow_script = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(voting_escrow_script_hash),
             authorized_action.into_pd(),
@@ -619,7 +622,7 @@ where
 
         // Compute the policy for `mint_weighting_power`, to allow us to add the weighting power to WeightingPoll's
         // UTxO.
-        let mint_weighting_power_policy = compute_mint_weighting_power_policy_id(
+        let mint_weighting_power_policy = compute_mint_weighting_power_validator(
             self.ctx.select::<GenesisEpochStartTime>().0,
             wpoll_auth_policy,
             voting_escrow.get().gt_policy,
