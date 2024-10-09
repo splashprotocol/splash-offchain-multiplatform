@@ -903,12 +903,12 @@ impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
 }
 
 impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-    Has<DeployedScriptInfo<{ ProtocolValidator::MintVeIdentifierToken as u8 }>>
+    Has<DeployedScriptInfo<{ ProtocolValidator::MintIdentifier as u8 }>>
     for WithOutputRef<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
 {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::MintVeIdentifierToken as u8 }>>>(
+    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::MintIdentifier as u8 }>>>(
         &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::MintVeIdentifierToken as u8 }> {
+    ) -> DeployedScriptInfo<{ ProtocolValidator::MintIdentifier as u8 }> {
         self.behaviour.conf.get()
     }
 }

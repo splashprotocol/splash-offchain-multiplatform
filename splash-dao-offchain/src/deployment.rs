@@ -11,7 +11,7 @@ pub struct DaoDeployment {
     pub nfts: MintedTokens,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct DeployedValidators {
     pub inflation: DeployedValidatorRef,
     pub voting_escrow: DeployedValidatorRef,
@@ -27,9 +27,8 @@ pub struct DeployedValidators {
     pub smart_farm: DeployedValidatorRef,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct BuiltPolicy {
-    pub script: Script,
     pub policy_id: ScriptHash,
     pub asset_name: cml_chain::assets::AssetName,
     pub quantity: BigInteger,
@@ -65,7 +64,7 @@ pub enum ProtocolValidator {
     GovProxy,
     PermManager,
     MintWpAuthPolicy,
-    MintVeIdentifierToken,
+    MintIdentifier,
     MintVeCompositionToken,
     WeightingPower,
 }
@@ -74,14 +73,16 @@ pub enum ProtocolValidator {
 pub struct ProtocolScriptHashes {
     pub inflation: DeployedScriptInfo<{ ProtocolValidator::Inflation as u8 }>,
     pub voting_escrow: DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }>,
-    pub smart_farm: DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>,
     pub farm_factory: DeployedScriptInfo<{ ProtocolValidator::FarmFactory as u8 }>,
     pub wp_factory: DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>,
     pub ve_factory: DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }>,
     pub gov_proxy: DeployedScriptInfo<{ ProtocolValidator::GovProxy as u8 }>,
     pub perm_manager: DeployedScriptInfo<{ ProtocolValidator::PermManager as u8 }>,
     pub mint_wpauth_token: DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>,
+    pub mint_identifier: DeployedScriptInfo<{ ProtocolValidator::MintIdentifier as u8 }>,
     pub mint_ve_composition_token: DeployedScriptInfo<{ ProtocolValidator::MintVeCompositionToken as u8 }>,
+    pub weighting_power: DeployedScriptInfo<{ ProtocolValidator::WeightingPower as u8 }>,
+    pub smart_farm: DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>,
 }
 
 impl From<&ProtocolDeployment> for ProtocolScriptHashes {
@@ -89,14 +90,16 @@ impl From<&ProtocolDeployment> for ProtocolScriptHashes {
         Self {
             inflation: DeployedScriptInfo::from(&deployment.inflation),
             voting_escrow: DeployedScriptInfo::from(&deployment.voting_escrow),
-            smart_farm: DeployedScriptInfo::from(&deployment.smart_farm),
             farm_factory: DeployedScriptInfo::from(&deployment.farm_factory),
             wp_factory: DeployedScriptInfo::from(&deployment.wp_factory),
             ve_factory: DeployedScriptInfo::from(&deployment.ve_factory),
             gov_proxy: DeployedScriptInfo::from(&deployment.gov_proxy),
             perm_manager: DeployedScriptInfo::from(&deployment.perm_manager),
             mint_wpauth_token: DeployedScriptInfo::from(&deployment.mint_wpauth_token),
+            mint_identifier: DeployedScriptInfo::from(&deployment.mint_identifier),
             mint_ve_composition_token: DeployedScriptInfo::from(&deployment.mint_ve_composition_token),
+            weighting_power: DeployedScriptInfo::from(&deployment.weighting_power),
+            smart_farm: DeployedScriptInfo::from(&deployment.smart_farm),
         }
     }
 }
@@ -105,15 +108,16 @@ impl From<&ProtocolDeployment> for ProtocolScriptHashes {
 pub struct ProtocolDeployment {
     pub inflation: DeployedValidator<{ ProtocolValidator::Inflation as u8 }>,
     pub voting_escrow: DeployedValidator<{ ProtocolValidator::VotingEscrow as u8 }>,
-    pub smart_farm: DeployedValidator<{ ProtocolValidator::SmartFarm as u8 }>,
     pub farm_factory: DeployedValidator<{ ProtocolValidator::FarmFactory as u8 }>,
     pub wp_factory: DeployedValidator<{ ProtocolValidator::WpFactory as u8 }>,
     pub ve_factory: DeployedValidator<{ ProtocolValidator::VeFactory as u8 }>,
     pub gov_proxy: DeployedValidator<{ ProtocolValidator::GovProxy as u8 }>,
     pub perm_manager: DeployedValidator<{ ProtocolValidator::PermManager as u8 }>,
     pub mint_wpauth_token: DeployedValidator<{ ProtocolValidator::MintWpAuthPolicy as u8 }>,
+    pub mint_identifier: DeployedValidator<{ ProtocolValidator::MintIdentifier as u8 }>,
     pub mint_ve_composition_token: DeployedValidator<{ ProtocolValidator::MintVeCompositionToken as u8 }>,
     pub weighting_power: DeployedValidator<{ ProtocolValidator::WeightingPower as u8 }>,
+    pub smart_farm: DeployedValidator<{ ProtocolValidator::SmartFarm as u8 }>,
 }
 
 impl ProtocolDeployment {
@@ -128,6 +132,7 @@ impl ProtocolDeployment {
             gov_proxy: DeployedValidator::unsafe_pull(validators.gov_proxy, explorer).await,
             perm_manager: DeployedValidator::unsafe_pull(validators.perm_manager, explorer).await,
             mint_wpauth_token: DeployedValidator::unsafe_pull(validators.mint_wpauth_token, explorer).await,
+            mint_identifier: DeployedValidator::unsafe_pull(validators.mint_identifier, explorer).await,
             mint_ve_composition_token: DeployedValidator::unsafe_pull(
                 validators.mint_ve_composition_token,
                 explorer,

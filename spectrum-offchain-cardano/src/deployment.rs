@@ -17,7 +17,7 @@ use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::Has;
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub enum ScriptType {
     PlutusV1,
@@ -42,7 +42,7 @@ impl From<RawCBORScript> for String {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Script {
     #[serde(rename = "type")]
@@ -86,7 +86,7 @@ impl From<ReferenceUTxO> for OutputRef {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DeployedValidatorRef {
     pub hash: ScriptHash,

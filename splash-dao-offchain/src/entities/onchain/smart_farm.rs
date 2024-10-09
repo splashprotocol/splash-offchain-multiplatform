@@ -133,6 +133,22 @@ where
     }
 }
 
+pub enum MintAction {
+    MintAuthToken { factory_in_ix: u32 },
+    BurnAuthToken,
+}
+
+impl IntoPlutusData for MintAction {
+    fn into_pd(self) -> PlutusData {
+        match self {
+            MintAction::MintAuthToken { factory_in_ix } => PlutusData::ConstrPlutusData(
+                ConstrPlutusData::new(0, vec![PlutusData::Integer(BigInteger::from(factory_in_ix))]),
+            ),
+            MintAction::BurnAuthToken => PlutusData::ConstrPlutusData(ConstrPlutusData::new(1, vec![])),
+        }
+    }
+}
+
 pub fn compute_mint_farm_auth_token_validator(
     splash_policy: PolicyId,
     factory_auth_policy: PolicyId,

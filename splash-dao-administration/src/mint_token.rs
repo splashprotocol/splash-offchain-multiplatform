@@ -16,7 +16,7 @@ use cml_chain::{
     plutus::{ConstrPlutusData, ExUnits, PlutusData, PlutusScript, PlutusV2Script, RedeemerTag},
     transaction::NativeScript,
     utils::BigInteger,
-    NetworkId, PolicyId, Serialize, Value,
+    PolicyId, Serialize, Value,
 };
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, ScriptHash, TransactionHash};
 use spectrum_cardano_lib::{
@@ -24,7 +24,7 @@ use spectrum_cardano_lib::{
     plutus_data::PlutusDataExtension,
     protocol_params::{constant_tx_builder, COINS_PER_UTXO_BYTE},
     transaction::TransactionOutputExtension,
-    Token,
+    NetworkId, Token,
 };
 use spectrum_offchain::tx_hash;
 use spectrum_offchain_cardano::{
@@ -41,11 +41,11 @@ use splash_dao_offchain::{
         farm_factory::compute_farm_factory_validator,
         inflation_box::compute_inflation_box_validator,
         permission_manager::compute_perm_manager_validator,
-        poll_factory::compute_wp_factory_validator,
+        poll_factory::{compute_wp_factory_validator, PollFactoryConfig},
         smart_farm::compute_mint_farm_auth_token_validator,
         voting_escrow::{
             compute_mint_governance_power_validator, compute_mint_weighting_power_validator,
-            compute_voting_escrow_validator,
+            compute_voting_escrow_validator, VotingEscrow, VotingEscrowConfig,
         },
         voting_escrow_factory::compute_ve_factory_validator,
         weighting_poll::compute_mint_wp_auth_token_validator,
@@ -169,7 +169,6 @@ pub fn mint_deployment_tokens(
         };
         let asset_name = AssetName::new(inner).unwrap();
         let bp = BuiltPolicy {
-            script,
             policy_id,
             asset_name: asset_name.clone(),
             quantity: BigInteger::from(quantity),
@@ -366,16 +365,11 @@ pub fn create_dao_reference_input_utxos(
     let script_before =
         NativeScript::ScriptInvalidHereafter(cml_chain::transaction::ScriptInvalidHereafter::new(0));
 
-    let network_info = config.network_id;
-    let script_address = EnterpriseAddress::new(
-        u8::from(network_info),
-        StakeCredential::new_script(script_before.hash()),
-    )
-    .to_address();
+    let script_addr = script_address(script_before.hash(), config.network_id);
 
     let make_output = |script| {
         TransactionOutputBuilder::new()
-            .with_address(script_address.clone())
+            .with_address(script_addr.clone())
             .with_reference_script(cml_chain::Script::new_plutus_v2(script))
             .next()
             .unwrap()
@@ -444,6 +438,10 @@ fn compute_mint_ve_composition_token_script(ve_factory_auth_policy: PolicyId) ->
     apply_params_validator(params_pd, MINT_VE_COMPOSITION_TOKEN_SCRIPT)
 }
 
+pub fn script_address(script_hash: ScriptHash, network_id: NetworkId) -> Address {
+    EnterpriseAddress::new(u8::from(network_id), StakeCredential::new_script(script_hash)).to_address()
+}
+
 pub const LQ_NAME: &str = "SPLASH/ADA LQ*";
 pub const SPLASH_NAME: &str = "SPLASH";
 pub const NUMBER_TOKEN_MINTS_NEEDED: usize = 9;
@@ -466,6 +464,12 @@ pub struct ReferenceInputScriptHashes {
     pub mint_ve_composition_token: ScriptHash,
     pub weighting_power: ScriptHash,
     pub smart_farm: ScriptHash,
+}
+
+pub struct DaoDeploymentParameters {
+    zeroth_epoch_start: u64,
+    wp_factory_config: PollFactoryConfig,
+    voting_escrow: VotingEscrowConfig,
 }
 
 #[cfg(test)]

@@ -391,12 +391,11 @@ impl Has<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>> for 
     }
 }
 
-impl Has<DeployedScriptInfo<{ ProtocolValidator::MintVeIdentifierToken as u8 }>> for ProtocolConfig {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::MintVeIdentifierToken as u8 }>>>(
+impl Has<DeployedScriptInfo<{ ProtocolValidator::MintIdentifier as u8 }>> for ProtocolConfig {
+    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::MintIdentifier as u8 }>>>(
         &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::MintVeIdentifierToken as u8 }> {
-        // DeployedScriptInfo::from(&self.deployed_validators.mint_ve_identifier_token)
-        todo!()
+    ) -> DeployedScriptInfo<{ ProtocolValidator::MintIdentifier as u8 }> {
+        DeployedScriptInfo::from(&self.deployed_validators.mint_identifier)
     }
 }
 

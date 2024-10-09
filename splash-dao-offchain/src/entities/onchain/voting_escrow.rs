@@ -160,6 +160,28 @@ pub struct VotingEscrowConfig {
     pub last_gp_deadline: u32,
 }
 
+impl IntoPlutusData for VotingEscrowConfig {
+    fn into_pd(self) -> PlutusData {
+        let locked_until = self.locked_until.into_pd();
+        let owner = self.owner.into_pd();
+        let max_ex_fee = PlutusData::new_integer(BigInteger::from(self.max_ex_fee));
+        let version = PlutusData::new_integer(BigInteger::from(self.version));
+        let last_wp_epoch = PlutusData::new_integer(BigInteger::from(self.last_wp_epoch));
+        let last_gp_deadline = PlutusData::new_integer(BigInteger::from(self.last_gp_deadline));
+        PlutusData::new_constr_plutus_data(ConstrPlutusData::new(
+            0,
+            vec![
+                locked_until,
+                owner,
+                max_ex_fee,
+                version,
+                last_wp_epoch,
+                last_gp_deadline,
+            ],
+        ))
+    }
+}
+
 impl TryFromPData for VotingEscrowConfig {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
@@ -222,6 +244,18 @@ impl TryFromPData for Lock {
 pub enum Owner {
     PubKey(Vec<u8>),
     Script(ScriptHash),
+}
+
+impl IntoPlutusData for Owner {
+    fn into_pd(self) -> PlutusData {
+        PlutusData::new_constr_plutus_data(match self {
+            Owner::PubKey(vec) => ConstrPlutusData::new(0, vec![PlutusData::new_bytes(vec)]),
+            Owner::Script(script_hash) => {
+                let bytes = script_hash.to_raw_bytes().to_vec();
+                ConstrPlutusData::new(1, vec![PlutusData::new_bytes(bytes)])
+            }
+        })
+    }
 }
 
 impl TryFromPData for Owner {
@@ -401,13 +435,13 @@ pub fn compute_mint_governance_power_validator(
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
+    use std::{io::Cursor, time::Duration};
 
     use cbor_event::de::Deserializer;
     use cml_chain::{plutus::PlutusData, Deserialize};
     use spectrum_cardano_lib::types::TryFromPData;
 
-    use crate::entities::onchain::voting_escrow::VotingEscrowConfig;
+    use crate::entities::onchain::voting_escrow::{Lock, VotingEscrowConfig};
 
     #[test]
     fn test_ve_datum_deserialization() {
@@ -417,5 +451,14 @@ mod tests {
 
         let data = PlutusData::deserialize(&mut raw).unwrap();
         assert!(VotingEscrowConfig::try_from_pd(data).is_some());
+    }
+
+    #[test]
+    fn as_json() {
+        println!("{}", serde_json::to_string_pretty(&Lock::Def(1000)).unwrap());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&Lock::Indef(Duration::from_secs(123))).unwrap()
+        );
     }
 }

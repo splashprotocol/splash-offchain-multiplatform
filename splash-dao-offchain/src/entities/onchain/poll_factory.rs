@@ -1,6 +1,7 @@
 use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData, PlutusV2Script};
 
 use cml_chain::transaction::TransactionOutput;
+use cml_chain::utils::BigInteger;
 use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, ScriptHash};
 use serde::{Deserialize, Serialize};
@@ -191,9 +192,28 @@ pub fn compute_wp_factory_validator(
 
 pub struct PollFactoryConfig {
     /// Epoch of the last WP.
-    last_poll_epoch: i32,
+    pub last_poll_epoch: i32,
     /// Active farms.
-    active_farms: Vec<FarmId>,
+    pub active_farms: Vec<FarmId>,
+}
+
+impl IntoPlutusData for PollFactoryConfig {
+    fn into_pd(self) -> PlutusData {
+        let last_poll_epoch = PlutusData::new_integer(BigInteger::from(self.last_poll_epoch));
+        let active_farms: Vec<_> = self
+            .active_farms
+            .into_iter()
+            .map(|FarmId(id)| {
+                let bytes = cml_chain::assets::AssetName::from(id).to_raw_bytes().to_vec();
+                PlutusData::new_bytes(bytes)
+            })
+            .collect();
+
+        PlutusData::ConstrPlutusData(ConstrPlutusData::new(
+            0,
+            vec![last_poll_epoch, PlutusData::new_list(active_farms)],
+        ))
+    }
 }
 
 impl TryFromPData for PollFactoryConfig {
