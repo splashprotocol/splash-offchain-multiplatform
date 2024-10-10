@@ -4,17 +4,18 @@ use cml_chain::{
     plutus::{ConstrPlutusData, PlutusData, PlutusMap, PlutusV2Script},
     transaction::TransactionOutput,
     utils::BigInteger,
-    PolicyId,
+    PolicyId, Value,
 };
 use cml_core::serialization::RawBytesEncoding;
-use cml_crypto::ScriptHash;
+use cml_crypto::{blake2b256, ScriptHash};
 use num_rational::Ratio;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
     plutus_data::{ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension},
     transaction::TransactionOutputExtension,
     types::TryFromPData,
-    OutputRef, Token,
+    value::ValueExtension,
+    AssetClass, AssetName, OutputRef, Token,
 };
 use spectrum_offchain::{
     data::{Has, Identifier},
@@ -190,6 +191,36 @@ impl TryFromPData for VEFactoryDatum {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct AcceptedAsset {
+    pub asset_name_utf8: String,
+    pub policy_id: ScriptHash,
+    pub exchange_rate: Ratio<u128>,
+}
+
+impl From<Vec<AcceptedAsset>> for VEFactoryDatum {
+    fn from(value: Vec<AcceptedAsset>) -> Self {
+        let accepted_assets = value
+            .into_iter()
+            .map(
+                |AcceptedAsset {
+                     asset_name_utf8,
+                     policy_id,
+                     exchange_rate,
+                 }| {
+                    let asset_name = AssetName::utf8_unsafe(asset_name_utf8);
+                    (Token(policy_id, asset_name), exchange_rate)
+                },
+            )
+            .collect();
+
+        Self {
+            accepted_assets,
+            legacy_accepted_assets: vec![],
+        }
+    }
+}
+
 pub enum FactoryAction {
     /// Deposit LQ* for a desirable period and get voting power locked in VE in exchange.
     Deposit,
@@ -253,6 +284,36 @@ fn pd_to_accepted_asset((key_pd, value_pd): (PlutusData, PlutusData)) -> Option<
     let denom = ratio_cpd.take_field(1)?.into_u128()?;
     let ratio = Ratio::new_raw(numer, denom);
     Some((token, ratio))
+}
+
+/// Compute total ve_composition based on changes in balances of accepted assets and expected minted
+/// value of individual ve_composition tokens.
+pub fn exchange_outputs(
+    self_value: &Value,
+    succ_value: &Value,
+    accepted_deposits: Vec<(Token, Ratio<u128>)>,
+    ve_composition_policy: PolicyId,
+    expect_redeem: bool,
+) -> (u64, Value) {
+    let mut ve_composition_qty = 0;
+    let mut mint_value = Value::zero();
+    for (token, ratio) in accepted_deposits {
+        let asset_class = AssetClass::from(token);
+        let pred = self_value.amount_of(asset_class).unwrap_or(0) as i128;
+        let succ = succ_value.amount_of(asset_class).unwrap_or(0) as i128;
+        let delta = succ - pred;
+        assert!(expect_redeem && delta < 0 || delta > 0);
+        if delta != 0 {
+            let mut bytes = token.0.to_raw_bytes().to_vec();
+            bytes.extend(cml_chain::assets::AssetName::from(token.1).to_raw_bytes());
+            let ve_composition_tn = AssetName::try_from(blake2b256(&bytes).to_vec()).unwrap();
+            let ve_comp_token = AssetClass::from(Token(ve_composition_policy, ve_composition_tn));
+            mint_value.add_unsafe(ve_comp_token, delta as u64);
+        }
+        ve_composition_qty += (delta * (*ratio.numer() as i128) / (*ratio.denom() as i128)) as u64;
+    }
+
+    (ve_composition_qty, mint_value)
 }
 
 #[cfg(test)]

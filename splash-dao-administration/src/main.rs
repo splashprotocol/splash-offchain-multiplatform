@@ -27,13 +27,13 @@ use cml_chain::{
 };
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, ScriptHash, TransactionHash};
 use create_change_output::{ChangeOutputCreator, CreateChangeOutput};
-use mint_token::{script_address, LQ_NAME};
+use mint_token::{script_address, DaoDeploymentParameters, LQ_NAME};
 use spectrum_cardano_lib::{
     collateral::Collateral,
     ex_units::ExUnits,
     protocol_params::{constant_tx_builder, COINS_PER_UTXO_BYTE},
     transaction::TransactionOutputExtension,
-    NetworkId, OutputRef, Token,
+    NetworkId, OutputRef,
 };
 use spectrum_cardano_lib::{plutus_data::IntoPlutusData, types::TryFromPData};
 use spectrum_offchain::tx_prover::TxProver;
@@ -54,6 +54,8 @@ use splash_dao_offchain::{
         voting_escrow::{Lock, Owner, VotingEscrowConfig},
         voting_escrow_factory::VEFactoryDatum,
     },
+    time::NetworkTimeProvider,
+    NetworkTimeSource,
 };
 use tokio::io::AsyncWriteExt;
 use uplc_pallas_traverse::output;
@@ -94,6 +96,11 @@ async fn deploy<'a>(config: AppConfig<'a>) {
     let pk_hash = Ed25519KeyHash::from_bech32(&operator_pkh_str).unwrap();
 
     let input_result = get_largest_utxo(&explorer, &addr).await;
+
+    let dao_parameters_str =
+        std::fs::read_to_string(config.parameters_json_path).expect("Cannot load dao parameters file");
+    let dao_parameters: DaoDeploymentParameters =
+        serde_json::from_str(&dao_parameters_str).expect("Invalid parameters file");
 
     let raw_deployment_config =
         std::fs::read_to_string(config.deployment_json_path).expect("Cannot load configuration file");
@@ -151,11 +158,12 @@ async fn deploy<'a>(config: AppConfig<'a>) {
     }
 
     let need_create_token_inputs = deployment_config.nft_utxo_inputs.is_none()
-        || deployment_config
-            .nft_utxo_inputs
-            .as_ref()
-            .unwrap()
-            .inputs_consumed;
+        || (deployment_config.minted_deployment_tokens.is_none()
+            && deployment_config
+                .nft_utxo_inputs
+                .as_ref()
+                .unwrap()
+                .inputs_consumed);
 
     if need_create_token_inputs {
         println!("Creating inputs to mint deployment tokens ---------------------------------------");
@@ -221,8 +229,12 @@ async fn deploy<'a>(config: AppConfig<'a>) {
         write_deployment_to_disk(&deployment_config, config.deployment_json_path).await;
     }
     if deployment_config.deployed_validators.is_none() {
+        let time_source = NetworkTimeSource;
         let (tx_builder_0, tx_builder_1, tx_builder_2, reference_input_script_hashes) =
-            mint_token::create_dao_reference_input_utxos(&deployment_config, 1000);
+            mint_token::create_dao_reference_input_utxos(
+                &deployment_config,
+                time_source.network_time().await + dao_parameters.zeroth_epoch_start_offset,
+            );
 
         println!("Creating reference inputs (batch #0) ---------------------------------------");
         let tx_hash_0 = deploy_dao_reference_inputs(tx_builder_0, &explorer, &addr, &prover).await;
@@ -329,8 +341,16 @@ async fn deploy<'a>(config: AppConfig<'a>) {
 
         write_deployment_to_disk(&deployment_config, config.deployment_json_path).await;
     }
-    //create_dao_entities(&explorer, &addr, collateral, &prover, &deployment_config).await;
-    create_initial_farms(&explorer, &addr, collateral, &prover, &deployment_config).await;
+    create_dao_entities(
+        &explorer,
+        &addr,
+        collateral,
+        &prover,
+        &deployment_config,
+        dao_parameters,
+    )
+    .await;
+    //create_initial_farms(&explorer, &addr, collateral, &prover, &deployment_config).await;
 }
 
 /// Note: need about 120 ADA to create these entities.
@@ -361,6 +381,7 @@ async fn create_dao_entities(
     collateral: Collateral,
     prover: &OperatorProver,
     deployment_config: &PreprodDeploymentProgress,
+    deployment_params: DaoDeploymentParameters,
 ) {
     let minted_tokens = deployment_config.minted_deployment_tokens.as_ref().unwrap();
     let required_tokens = vec![
@@ -497,11 +518,7 @@ async fn create_dao_entities(
     output_coin += wp_factory_out.output.amount().coin;
     tx_builder.add_output(wp_factory_out).unwrap();
 
-    // ve_factory (TODO)
-    let ve_factory_datum = VEFactoryDatum {
-        accepted_assets: vec![],
-        legacy_accepted_assets: vec![],
-    };
+    let ve_factory_datum = VEFactoryDatum::from(deployment_params.accepted_assets);
     let mut ve_factory_assets = MultiAsset::default();
     ve_factory_assets.set(
         minted_tokens.ve_factory_auth.policy_id,
@@ -883,12 +900,12 @@ struct AppArgs {
 
 #[derive(serde::Deserialize)]
 #[serde(bound = "'de: 'a")]
-#[serde(rename_all = "camelCase")]
 pub struct AppConfig<'a> {
     pub network_id: NetworkId,
     pub maestro_key_path: &'a str,
     pub batcher_private_key: &'a str, //todo: store encrypted
     pub deployment_json_path: &'a str,
+    pub parameters_json_path: &'a str,
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -903,7 +920,8 @@ struct PreprodDeploymentProgress {
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 struct ExternallyMintedToken {
-    token: Token,
+    policy_id: ScriptHash,
+    asset_name: cml_chain::assets::AssetName,
     quantity: u64,
 }
 

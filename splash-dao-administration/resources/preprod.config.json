@@ -1,6 +1,7 @@
 {
-  "maestroKeyPath": "splash-dao-administration/resources/preprod.maestro.key",
-  "networkId": 0,
-  "batcherPrivateKey": "",
-  "deploymentJsonPath": "splash-dao-administration/resources/preprod_deployment.json"
+  "maestro_key_path": "splash-dao-administration/resources/preprod.maestro.key",
+  "network_id": 0,
+  "batcher_private_key": "",
+  "deployment_json_path": "splash-dao-administration/resources/preprod_deployment.json",
+  "parameters_json_path": "splash-dao-administration/resources/preprod_parameters.json"
 }

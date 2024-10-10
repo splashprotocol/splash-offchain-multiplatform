@@ -1,0 +1,10 @@
+{
+  "zeroth_epoch_start_offset": 60,
+  "accepted_assets": [
+    {
+      "asset_name_utf8": "SPLASH",
+      "policy_id": "7876492e3b82a31b1ce97a8f454cec653a0f6be5c09b90e62d24c152",
+      "exchange_rate": [1, 100]
+    }
+  ]
+}

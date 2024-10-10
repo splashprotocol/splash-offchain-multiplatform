@@ -19,6 +19,7 @@ use cml_chain::{
     PolicyId, Serialize, Value,
 };
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, ScriptHash, TransactionHash};
+use serde::Deserialize;
 use spectrum_cardano_lib::{
     collateral::Collateral,
     plutus_data::PlutusDataExtension,
@@ -47,7 +48,7 @@ use splash_dao_offchain::{
             compute_mint_governance_power_validator, compute_mint_weighting_power_validator,
             compute_voting_escrow_validator, VotingEscrow, VotingEscrowConfig,
         },
-        voting_escrow_factory::compute_ve_factory_validator,
+        voting_escrow_factory::{compute_ve_factory_validator, AcceptedAsset, VEFactoryDatum},
         weighting_poll::compute_mint_wp_auth_token_validator,
     },
 };
@@ -99,9 +100,9 @@ pub fn mint_token(
     let signed_tx_builder = tx_builder
         .build(ChangeSelectionAlgo::Default, change_address)
         .unwrap();
-    let token = Token(script_all_hash, spectrum_cardano_lib::AssetName::from(asset_name));
     let minted_token = ExternallyMintedToken {
-        token,
+        policy_id: script_all_hash,
+        asset_name,
         quantity: quantity as u64,
     };
     (signed_tx_builder, minted_token)
@@ -304,7 +305,7 @@ pub fn create_dao_reference_input_utxos(
 
     let farm_factory_auth_policy = minted_tokens.factory_auth.policy_id;
 
-    let splash_policy = config.splash_tokens.as_ref().unwrap().token.0;
+    let splash_policy = config.splash_tokens.as_ref().unwrap().policy_id;
 
     let mint_farm_auth_token_script =
         compute_mint_farm_auth_token_validator(splash_policy, farm_factory_auth_policy);
@@ -466,10 +467,11 @@ pub struct ReferenceInputScriptHashes {
     pub smart_farm: ScriptHash,
 }
 
+#[derive(Deserialize)]
 pub struct DaoDeploymentParameters {
-    zeroth_epoch_start: u64,
-    wp_factory_config: PollFactoryConfig,
-    voting_escrow: VotingEscrowConfig,
+    /// Posix timestamp when first emission occurs.
+    pub zeroth_epoch_start_offset: u64,
+    pub accepted_assets: Vec<AcceptedAsset>,
 }
 
 #[cfg(test)]
