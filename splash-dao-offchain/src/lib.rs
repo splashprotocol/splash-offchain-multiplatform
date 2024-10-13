@@ -7,7 +7,9 @@ use time::NetworkTimeProvider;
 use crate::time::NetworkTime;
 
 mod assets;
+pub mod collect_utxos;
 pub mod constants;
+pub mod create_change_output;
 pub mod deployment;
 pub mod entities;
 pub mod funding;

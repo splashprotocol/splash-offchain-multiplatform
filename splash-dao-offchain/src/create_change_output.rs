@@ -1,3 +1,6 @@
+//! Code to manually compute a change output for a TX where the fee is explicitly set (here CML will
+//! not compute the change output for us). This is necessary for some DAO TXs because CML improperly
+//! computes an insufficient TX fee.
 use std::collections::HashMap;
 
 use cml_chain::{
