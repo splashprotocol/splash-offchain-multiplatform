@@ -486,7 +486,7 @@ async fn create_dao_entities(
     );
     let inflation_out = make_output(
         protocol_deployment.inflation.hash,
-        DatumOption::new_datum(PlutusData::new_integer(BigInteger::from(100_u64))),
+        DatumOption::new_datum(PlutusData::new_integer(BigInteger::from(0_u64))),
         inflation_assets,
     );
     output_coin += inflation_out.output.value().coin;
@@ -808,9 +808,10 @@ async fn make_deposit(
     change_output_creator.add_output(&ve_factory_output);
     tx_builder.add_output(ve_factory_output).unwrap();
 
+    let time_source = NetworkTimeSource;
     let voting_escrow_datum = DatumOption::new_datum(
         VotingEscrowConfig {
-            locked_until: Lock::Def((1728743924 + 10000) * 1000),
+            locked_until: Lock::Def((time_source.network_time().await + 10000) * 1000),
             owner: Owner::PubKey(vec![1, 2, 3]),
             max_ex_fee: 300_000,
             version: 0,
@@ -844,7 +845,7 @@ async fn make_deposit(
         .add_collateral(InputBuilderResult::from(collateral))
         .unwrap();
 
-    let start_slot = 73031120; //67580376;
+    let start_slot = explorer.chain_tip_slot_number().await.unwrap();
     tx_builder.set_validity_start_interval(start_slot);
     tx_builder.set_ttl(start_slot + 43200);
 

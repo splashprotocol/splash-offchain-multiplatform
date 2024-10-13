@@ -16,6 +16,7 @@ pub fn epoch_end(gen_epoch_start: GenesisEpochStartTime, epoch: ProtocolEpoch) -
 
 #[async_trait]
 pub trait NetworkTimeProvider {
+    /// Provides current time in seconds
     async fn network_time(&self) -> NetworkTime;
 }
 
