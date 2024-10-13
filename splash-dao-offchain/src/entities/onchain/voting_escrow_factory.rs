@@ -28,7 +28,7 @@ use spectrum_offchain_cardano::{
 use uplc_pallas_codec::utils::PlutusBytes;
 
 use crate::{
-    constants::VE_FACTORY_SCRIPT,
+    constants::{DEFAULT_AUTH_TOKEN_NAME, GT_NAME, VE_FACTORY_SCRIPT},
     deployment::ProtocolValidator,
     entities::Snapshot,
     protocol_config::{GTAuthName, GTAuthPolicy, VEFactoryAuthName, VEFactoryAuthPolicy},
@@ -58,9 +58,7 @@ impl<C> TryFromLedger<TransactionOutput, C> for VEFactorySnapshot
 where
     C: Has<OutputRef>
         + Has<VEFactoryAuthPolicy>
-        + Has<VEFactoryAuthName>
         + Has<GTAuthPolicy>
-        + Has<GTAuthName>
         + Has<DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }>>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
@@ -72,11 +70,17 @@ where
             } = datum.into_pd().and_then(VEFactoryDatum::try_from_pd)?;
 
             let gt_policy_id = ctx.select::<GTAuthPolicy>().0;
-            let gt_asset_name = ctx.select::<GTAuthName>().0;
+            let gt_asset_name = cml_chain::assets::AssetName::new(GT_NAME.to_be_bytes().to_vec()).unwrap();
 
+            let auth_token_policy_id = ctx.select::<VEFactoryAuthPolicy>().0;
+            let auth_token_name =
+                spectrum_cardano_lib::AssetName::try_from(DEFAULT_AUTH_TOKEN_NAME.to_be_bytes().to_vec())
+                    .unwrap();
+            let expected_auth_token = Token(auth_token_policy_id, auth_token_name);
             let mut accepted_assets_inventory = vec![];
             let mut legacy_assets_inventory = vec![];
             let mut gt_tokens_available = None;
+            let mut auth_token_present = false;
             let value = repr.value();
             for (policy_id, by_names) in value.multiasset.iter() {
                 if gt_tokens_available.is_none() && *policy_id == gt_policy_id && by_names.len() == 1 {
@@ -85,7 +89,9 @@ where
                     for (token_name, qty) in by_names.iter() {
                         let token_name = spectrum_cardano_lib::AssetName::from(token_name.clone());
                         let token = Token(*policy_id, token_name);
-                        if is_token_accepted(token, &accepted_assets) {
+                        if token == expected_auth_token {
+                            auth_token_present = true;
+                        } else if is_token_accepted(token, &accepted_assets) {
                             accepted_assets_inventory.push((token, *qty));
                         } else if is_token_accepted(token, &legacy_accepted_assets) {
                             legacy_assets_inventory.push((token, *qty));
@@ -95,6 +101,9 @@ where
                         }
                     }
                 }
+            }
+            if !auth_token_present {
+                return None;
             }
             let gt_tokens_available = gt_tokens_available?;
             let ve_factory = VEFactory {
@@ -191,7 +200,7 @@ impl TryFromPData for VEFactoryDatum {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct AcceptedAsset {
     pub asset_name_utf8: String,
     pub policy_id: ScriptHash,
