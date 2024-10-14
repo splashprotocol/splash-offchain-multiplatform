@@ -76,6 +76,7 @@ pub struct Behaviour<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer,
     ledger_upstream: Receiver<LedgerTxEvent<TxViewAtEraBoundary>>,
     chain_tip_reached: Arc<Mutex<bool>>,
     signal_tip_reached_recv: Option<tokio::sync::broadcast::Receiver<bool>>,
+    current_slot: u64,
 }
 
 const DEF_DELAY: Duration = Duration::new(5, 0);
@@ -174,6 +175,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
             ledger_upstream,
             chain_tip_reached: Arc::new(Mutex::new(false)),
             signal_tip_reached_recv: Some(signal_tip_reached_recv),
+            current_slot: 0,
         }
     }
 
@@ -507,10 +509,9 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         FB: FundingRepo + Send + Sync,
     {
         if let Some(next_order) = next_pending_order {
-            let funding_boxes = AvailableFundingBoxes(self.funding_box.collect().await.unwrap());
             let (signed_tx, next_wpoll, next_ve) = self
                 .actions
-                .execute_order(weighting_poll.erased(), next_order, funding_boxes)
+                .execute_order(weighting_poll.erased(), next_order)
                 .await;
             let prover = OperatorProver::new(self.operator_sk.to_bech32());
             let tx = prover.prove(signed_tx);
@@ -624,8 +625,9 @@ where
                         inputs,
                         mut outputs,
                     },
-                ..
+                slot,
             } => {
+                self.current_slot = slot;
                 let num_outputs = outputs.len();
                 if num_outputs > 0 {
                     let mut ix = num_outputs - 1;
@@ -634,6 +636,7 @@ where
                         let ctx = WithOutputRef {
                             behaviour: self,
                             output_ref,
+                            current_slot: Slot(slot),
                         };
                         if let Some(entity) = DaoEntitySnapshot::try_from_ledger(&output.1, &ctx) {
                             println!("entity found: {:?}", entity);
@@ -727,211 +730,72 @@ where
     }
 }
 
-struct WithOutputRef<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net> {
-    behaviour: &'a Behaviour<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>,
+trait NotOutputRefNorSlotNumber {}
+
+impl NotOutputRefNorSlotNumber for OperatorCreds {}
+impl NotOutputRefNorSlotNumber for CurrentEpoch {}
+impl NotOutputRefNorSlotNumber for SplashPolicy {}
+impl NotOutputRefNorSlotNumber for SplashAssetName {}
+impl NotOutputRefNorSlotNumber for PermManagerAuthPolicy {}
+impl NotOutputRefNorSlotNumber for PermManagerAuthName {}
+impl NotOutputRefNorSlotNumber for MintWPAuthPolicy {}
+impl NotOutputRefNorSlotNumber for MintVEIdentifierPolicy {}
+impl NotOutputRefNorSlotNumber for MintVECompositionPolicy {}
+impl NotOutputRefNorSlotNumber for VEFactoryAuthPolicy {}
+impl NotOutputRefNorSlotNumber for VEFactoryAuthName {}
+impl NotOutputRefNorSlotNumber for GTAuthPolicy {}
+impl NotOutputRefNorSlotNumber for GTAuthName {}
+impl<const TYP: u8> NotOutputRefNorSlotNumber for DeployedScriptInfo<TYP> {}
+
+#[derive(Clone, Copy)]
+pub struct Slot(pub u64);
+
+struct WithOutputRef<'a, D> {
+    behaviour: &'a D,
     output_ref: OutputRef,
+    current_slot: Slot,
 }
 
-impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net> Has<OutputRef>
-    for WithOutputRef<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-{
+impl<'a, D> Has<OutputRef> for WithOutputRef<'a, D> {
     fn select<U: IsEqual<OutputRef>>(&self) -> OutputRef {
         self.output_ref
     }
 }
 
-impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net> Has<OperatorCreds>
-    for WithOutputRef<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-{
-    fn select<U: IsEqual<OperatorCreds>>(&self) -> OperatorCreds {
-        self.behaviour.conf.get()
+impl<'a, D> Has<Slot> for WithOutputRef<'a, D> {
+    fn select<U: IsEqual<Slot>>(&self) -> Slot {
+        self.current_slot
     }
 }
 
-impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net> Has<CurrentEpoch>
-    for WithOutputRef<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
+impl<'a, D, H> Has<H> for WithOutputRef<'a, D>
 where
-    IB: StateProjectionRead<InflationBoxSnapshot, Bearer> + Send + Sync,
+    D: Has<H>,
+    H: NotOutputRefNorSlotNumber,
+{
+    fn select<U: IsEqual<H>>(&self) -> H {
+        self.behaviour.select::<U>()
+    }
+}
+
+impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Net, H> Has<H>
+    for Behaviour<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, TransactionOutput, Net>
+where
+    ProtocolConfig: Has<H>,
+{
+    fn select<U: IsEqual<H>>(&self) -> H {
+        self.conf.select::<U>()
+    }
+}
+
+impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Net> Has<CurrentEpoch>
+    for Behaviour<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, TransactionOutput, Net>
+where
+    IB: StateProjectionRead<InflationBoxSnapshot, TransactionOutput> + Send + Sync,
 {
     fn select<U: IsEqual<CurrentEpoch>>(&self) -> CurrentEpoch {
         let rt = Runtime::new().unwrap();
-        rt.block_on(self.behaviour.get_current_epoch())
-    }
-}
-
-impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net> Has<SplashPolicy>
-    for WithOutputRef<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-{
-    fn select<U: IsEqual<SplashPolicy>>(&self) -> SplashPolicy {
-        self.behaviour.conf.get()
-    }
-}
-
-impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net> Has<SplashAssetName>
-    for WithOutputRef<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-{
-    fn select<U: IsEqual<SplashAssetName>>(&self) -> SplashAssetName {
-        self.behaviour.conf.get()
-    }
-}
-
-impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net> Has<PermManagerAuthPolicy>
-    for WithOutputRef<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-{
-    fn select<U: IsEqual<PermManagerAuthPolicy>>(&self) -> PermManagerAuthPolicy {
-        self.behaviour.conf.get()
-    }
-}
-
-impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net> Has<PermManagerAuthName>
-    for WithOutputRef<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-{
-    fn select<U: IsEqual<PermManagerAuthName>>(&self) -> PermManagerAuthName {
-        self.behaviour.conf.get()
-    }
-}
-
-impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net> Has<MintWPAuthPolicy>
-    for WithOutputRef<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-{
-    fn select<U: IsEqual<MintWPAuthPolicy>>(&self) -> MintWPAuthPolicy {
-        self.behaviour.conf.get()
-    }
-}
-
-impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net> Has<MintVEIdentifierPolicy>
-    for WithOutputRef<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-{
-    fn select<U: IsEqual<MintVEIdentifierPolicy>>(&self) -> MintVEIdentifierPolicy {
-        self.behaviour.conf.get()
-    }
-}
-
-impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net> Has<MintVECompositionPolicy>
-    for WithOutputRef<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-{
-    fn select<U: IsEqual<MintVECompositionPolicy>>(&self) -> MintVECompositionPolicy {
-        self.behaviour.conf.get()
-    }
-}
-
-impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net> Has<VEFactoryAuthPolicy>
-    for WithOutputRef<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-{
-    fn select<U: IsEqual<VEFactoryAuthPolicy>>(&self) -> VEFactoryAuthPolicy {
-        self.behaviour.conf.get()
-    }
-}
-
-impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net> Has<VEFactoryAuthName>
-    for WithOutputRef<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-{
-    fn select<U: IsEqual<VEFactoryAuthName>>(&self) -> VEFactoryAuthName {
-        self.behaviour.conf.get()
-    }
-}
-
-impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net> Has<GTAuthPolicy>
-    for WithOutputRef<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-{
-    fn select<U: IsEqual<GTAuthPolicy>>(&self) -> GTAuthPolicy {
-        self.behaviour.conf.get()
-    }
-}
-
-impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net> Has<GTAuthName>
-    for WithOutputRef<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-{
-    fn select<U: IsEqual<GTAuthName>>(&self) -> GTAuthName {
-        self.behaviour.conf.get()
-    }
-}
-
-impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-    Has<DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }>>
-    for WithOutputRef<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-{
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }> {
-        self.behaviour.conf.get()
-    }
-}
-
-impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-    Has<DeployedScriptInfo<{ ProtocolValidator::Inflation as u8 }>>
-    for WithOutputRef<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-{
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::Inflation as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::Inflation as u8 }> {
-        self.behaviour.conf.get()
-    }
-}
-
-impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-    Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
-    for WithOutputRef<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-{
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }> {
-        self.behaviour.conf.get()
-    }
-}
-
-impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-    Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>
-    for WithOutputRef<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-{
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }> {
-        self.behaviour.conf.get()
-    }
-}
-
-impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-    Has<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
-    for WithOutputRef<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-{
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }> {
-        self.behaviour.conf.get()
-    }
-}
-
-impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-    Has<DeployedScriptInfo<{ ProtocolValidator::MintIdentifier as u8 }>>
-    for WithOutputRef<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-{
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::MintIdentifier as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::MintIdentifier as u8 }> {
-        self.behaviour.conf.get()
-    }
-}
-
-impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-    Has<DeployedScriptInfo<{ ProtocolValidator::MintVeCompositionToken as u8 }>>
-    for WithOutputRef<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-{
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::MintVeCompositionToken as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::MintVeCompositionToken as u8 }> {
-        self.behaviour.conf.get()
-    }
-}
-
-impl<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-    Has<DeployedScriptInfo<{ ProtocolValidator::PermManager as u8 }>>
-    for WithOutputRef<'a, IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
-{
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::PermManager as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::PermManager as u8 }> {
-        self.behaviour.conf.get()
+        rt.block_on(self.get_current_epoch())
     }
 }
 

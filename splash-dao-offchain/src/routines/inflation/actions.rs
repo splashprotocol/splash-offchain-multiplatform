@@ -62,7 +62,7 @@ use crate::GenesisEpochStartTime;
 
 use super::{
     AvailableFundingBoxes, FundingBoxChanges, InflationBoxSnapshot, PermManagerSnapshot, PollFactorySnapshot,
-    SmartFarmSnapshot, VotingEscrowSnapshot, WeightingPollSnapshot,
+    Slot, SmartFarmSnapshot, VotingEscrowSnapshot, WeightingPollSnapshot,
 };
 
 #[async_trait::async_trait]
@@ -88,7 +88,6 @@ pub trait InflationActions<Bearer> {
         &self,
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
         order: (VotingOrder, Bundled<VotingEscrowSnapshot, Bearer>),
-        funding_boxes: AvailableFundingBoxes,
     ) -> (
         SignedTxBuilder,
         Traced<Predicted<Bundled<WeightingPollSnapshot, Bearer>>>,
@@ -147,6 +146,7 @@ where
         + Has<NodeMagic>
         + Has<OperatorCreds>
         + Has<GenesisEpochStartTime>
+        + Has<Slot>
         + Has<DeployedScriptInfo<{ ProtocolValidator::GovProxy as u8 }>>,
 {
     async fn create_wpoll(
@@ -164,8 +164,7 @@ where
         let mut tx_builder = constant_tx_builder();
 
         // Set TX validity range
-        let current_posix_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        let start_slot = 68004028; //67580376;
+        let start_slot = self.ctx.select::<Slot>().0;
         tx_builder.set_validity_start_interval(start_slot);
         tx_builder.set_ttl(start_slot + 43200);
 
@@ -539,7 +538,6 @@ where
             VotingOrder,
             Bundled<VotingEscrowSnapshot, TransactionOutput>,
         ),
-        funding_boxes: AvailableFundingBoxes,
     ) -> (
         SignedTxBuilder,
         Traced<Predicted<Bundled<WeightingPollSnapshot, TransactionOutput>>>,
