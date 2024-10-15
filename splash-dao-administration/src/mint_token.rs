@@ -37,7 +37,7 @@ use splash_dao_offchain::{
         DEFAULT_AUTH_TOKEN_NAME, GOV_PROXY_SCRIPT, GT_NAME, MAX_GT_SUPPLY, MINT_IDENTIFIER_SCRIPT,
         MINT_VE_COMPOSITION_TOKEN_SCRIPT, ONE_TIME_MINT_SCRIPT,
     },
-    deployment::{BuiltPolicy, MintedTokens},
+    deployment::{BuiltPolicy, ExternallyMintedToken, MintedTokens},
     entities::onchain::{
         farm_factory::compute_farm_factory_validator,
         inflation_box::compute_inflation_box_validator,
@@ -54,7 +54,7 @@ use splash_dao_offchain::{
 };
 use uplc_pallas_codec::{minicbor::Encode, utils::PlutusBytes};
 
-use crate::{ExternallyMintedToken, PreprodDeploymentProgress};
+use crate::DeploymentProgress;
 
 pub fn mint_token(
     token_name: &str,
@@ -273,8 +273,9 @@ fn compute_one_time_mint_validator(tx_hash: TransactionHash, index: usize, quant
 /// Computes the scripts of all DAO reference inputs, and forms `TransactionBuilder` instances containing
 /// the necessary outputs for reference input UTxOs.
 pub fn create_dao_reference_input_utxos(
-    config: &PreprodDeploymentProgress,
+    config: &DeploymentProgress,
     zeroth_epoch_start: u64,
+    network_id: NetworkId,
 ) -> (
     TransactionBuilder,
     TransactionBuilder,
@@ -366,7 +367,7 @@ pub fn create_dao_reference_input_utxos(
     let script_before =
         NativeScript::ScriptInvalidHereafter(cml_chain::transaction::ScriptInvalidHereafter::new(0));
 
-    let script_addr = script_address(script_before.hash(), config.network_id);
+    let script_addr = script_address(script_before.hash(), network_id);
 
     let make_output = |script| {
         TransactionOutputBuilder::new()

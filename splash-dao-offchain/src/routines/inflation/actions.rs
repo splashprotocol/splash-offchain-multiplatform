@@ -31,6 +31,7 @@ use uplc_pallas_primitives::Fragment;
 
 use crate::assets::SPLASH_AC;
 use crate::constants::{self};
+use crate::create_change_output::{ChangeOutputCreator, CreateChangeOutput};
 use crate::deployment::ProtocolValidator;
 use crate::entities::offchain::voting_order::VotingOrder;
 use crate::entities::onchain::funding_box::{FundingBox, FundingBoxId, FundingBoxSnapshot};
@@ -71,6 +72,7 @@ pub trait InflationActions<Bearer> {
         &self,
         inflation_box: Bundled<InflationBoxSnapshot, Bearer>,
         factory: Bundled<PollFactorySnapshot, Bearer>,
+        current_slot: Slot,
         funding_boxes: AvailableFundingBoxes,
     ) -> (
         SignedTxBuilder,
@@ -132,7 +134,6 @@ where
         + Has<FarmAuthPolicy>
         + Has<FarmAuthRefScriptOutput>
         + Has<FarmFactoryAuthPolicy>
-        + Has<WPFactoryAuthPolicy>
         + Has<VEFactoryAuthPolicy>
         + Has<MintVECompositionPolicy>
         + Has<VotingEscrowRefScriptOutput>
@@ -146,13 +147,13 @@ where
         + Has<NodeMagic>
         + Has<OperatorCreds>
         + Has<GenesisEpochStartTime>
-        + Has<Slot>
         + Has<DeployedScriptInfo<{ ProtocolValidator::GovProxy as u8 }>>,
 {
     async fn create_wpoll(
         &self,
         Bundled(inflation_box, inflation_box_in): Bundled<InflationBoxSnapshot, TransactionOutput>,
         Bundled(factory, factory_in): Bundled<PollFactorySnapshot, TransactionOutput>,
+        current_slot: Slot,
         funding_boxes: AvailableFundingBoxes,
     ) -> (
         SignedTxBuilder,
@@ -161,25 +162,12 @@ where
         Traced<Predicted<Bundled<WeightingPollSnapshot, TransactionOutput>>>,
         FundingBoxChanges,
     ) {
+        let mut change_output_creator = ChangeOutputCreator::default();
         let mut tx_builder = constant_tx_builder();
 
         // Set TX validity range
-        let start_slot = self.ctx.select::<Slot>().0;
-        tx_builder.set_validity_start_interval(start_slot);
-        tx_builder.set_ttl(start_slot + 43200);
-
-        let wpoll_auth_policy = self.ctx.select::<MintWPAuthPolicy>().0;
-        let splash_policy = self.ctx.select::<SplashPolicy>().0;
-        let genesis_time = self.ctx.select::<GenesisEpochStartTime>().0;
-        let farm_auth_policy = self.ctx.select::<FarmAuthPolicy>().0;
-
-        // Note that we're not actually minting weighting power here. We only need the minting
-        // policy id as part of the inflation box's script.
-        //let weighting_power_policy = compute_mint_weighting_power_policy_id(
-        //self.ctx.select::<GenesisEpochStartTime>().0,
-        //wpoll_auth_policy,
-        //self.ctx.select::<GTAuthPolicy>().0,
-        //);
+        tx_builder.set_validity_start_interval(current_slot.0);
+        tx_builder.set_ttl(current_slot.0 + 43200);
 
         let inflation_script_hash = self
             .ctx
@@ -212,6 +200,7 @@ where
         }
         inflation_box_out.sub_asset(*SPLASH_AC, emission_rate.untag());
         let inflation_output = SingleOutputBuilderResult::new(inflation_box_out.clone());
+        change_output_creator.add_output(&inflation_output);
         tx_builder.add_output(inflation_output).unwrap();
 
         // WP factory
@@ -247,7 +236,7 @@ where
         }
 
         let (input_results, funding_boxes_to_spend) =
-            select_funding_boxes(5_000_000, funding_boxes.0, &self.ctx);
+            select_funding_boxes(1_000_000, funding_boxes.0, &self.ctx);
 
         let mut unsorted_inputs: Vec<_> = input_results
             .into_iter()
@@ -267,6 +256,7 @@ where
         ) = sort_create_wp_poll_tx_inputs(unsorted_inputs);
 
         for input in input_results {
+            change_output_creator.add_input(&input);
             tx_builder.add_input(input).unwrap();
         }
 
@@ -295,23 +285,9 @@ where
             inflation_box_in_ix: inflation_box_in_ix as u32,
         };
 
-        // Mint wp_auth token TODO: don't need to compute, it's in deployment
-        let mint_wp_auth_token_script_hash = compute_mint_wp_auth_token_validator(
-            splash_policy,
-            farm_auth_policy,
-            self.ctx.select::<WPFactoryAuthPolicy>().0,
-            self.ctx.select::<InflationAuthPolicy>().0,
-            genesis_time,
-        )
-        .hash();
-        println!(
-            "mint_wp_auth_token_script_hash: {}",
-            mint_wp_auth_token_script_hash.to_hex()
-        );
-        let mint_wp_auth_token_witness = PartialPlutusWitness::new(
-            PlutusScriptWitness::Ref(mint_wp_auth_token_script_hash),
-            mint_action.into_pd(),
-        );
+        let wp_auth_policy = self.ctx.select::<MintWPAuthPolicy>().0;
+        let mint_wp_auth_token_witness =
+            PartialPlutusWitness::new(PlutusScriptWitness::Ref(wp_auth_policy), mint_action.into_pd());
         let OperatorCreds(operator_pkh, _operator_addr) = self.ctx.select::<OperatorCreds>();
 
         println!("operator_addr: {:?}", _operator_addr.to_bech32(None));
@@ -321,8 +297,7 @@ where
             inflation_box.get().last_processed_epoch
         );
         // Compute index_tn(epoch), where `epoch` is the current epoch
-        //let asset = compute_epoch_asset_name(inflation_box.get().last_processed_epoch);
-        let asset = compute_epoch_asset_name(0);
+        let asset = compute_epoch_asset_name(inflation_box.get().last_processed_epoch);
         println!("mint_wp_auth_token name: {}", hex::encode(&asset.inner));
         let wp_auth_minting_policy = SingleMintBuilder::new_single_asset(asset.clone(), 1)
             .plutus_script(mint_wp_auth_token_witness, RequiredSigners::from(vec![]));
@@ -337,7 +312,7 @@ where
         let mut wpoll_out = fresh_wpoll.clone().into_ledger(self.ctx.clone());
         // Add wp_auth_token to this output.
         let asset_pair = OrderedHashMap::from_iter(vec![(asset, 1)]);
-        let ord_hash_map = OrderedHashMap::from_iter(vec![(mint_wp_auth_token_script_hash, asset_pair)]);
+        let ord_hash_map = OrderedHashMap::from_iter(vec![(wp_auth_policy, asset_pair)]);
         match &mut wpoll_out {
             TransactionOutput::AlonzoFormatTxOut(tx_out) => {
                 let multiasset = tx_out
@@ -361,38 +336,24 @@ where
         }
 
         let weighting_poll_output = SingleOutputBuilderResult::new(wpoll_out.clone());
+        change_output_creator.add_output(&weighting_poll_output);
         tx_builder.add_output(weighting_poll_output).unwrap();
 
         let factory_output = SingleOutputBuilderResult::new(factory_out.clone());
+        change_output_creator.add_output(&factory_output);
         tx_builder.add_output(factory_output).unwrap();
 
         // Set Governance Proxy witness script
         let OperatorCreds(_, operator_address) = self.ctx.select::<OperatorCreds>();
-
-        //let gov_witness_script_hash = self
-        //    .ctx
-        //    .select::<DeployedScriptInfo<{ ProtocolValidator::GovProxy as u8 }>>()
-        //    .script_hash;
-        //let gp_witness = PartialPlutusWitness::new(
-        //    PlutusScriptWitness::Ref(gov_witness_script_hash),
-        //    cml_chain::plutus::PlutusData::new_list(vec![]), // dummy value (this validator doesn't require redeemer)
-        //);
-        //let withdrawal_result = SingleWithdrawalBuilder::new(operator_address.clone(), 0)
-        //    .plutus_script(gp_witness, vec![])
-        //    .unwrap();
-        //tx_builder.add_reference_input(self.ctx.select::<GovProxyRefScriptOutput>().0.clone());
-        //tx_builder.add_withdrawal(withdrawal_result);
-        //tx_builder.set_exunits(
-        //    RedeemerWitnessKey::new(RedeemerTag::Reward, 0),
-        //    GOV_PROXY_EX_UNITS,
-        //);
 
         tx_builder
             .add_collateral(InputBuilderResult::from(self.ctx.select::<Collateral>()))
             .unwrap();
 
         let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
-        tx_builder.set_fee(estimated_tx_fee + TX_FEE_CORRECTION);
+        let actual_fee = estimated_tx_fee + TX_FEE_CORRECTION;
+        let change_output = change_output_creator.create_change_output(actual_fee, operator_address.clone());
+        tx_builder.add_output(change_output).unwrap();
 
         // Build tx, change is execution fee.
         let signed_tx_builder = tx_builder

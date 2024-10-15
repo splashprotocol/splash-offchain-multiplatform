@@ -20,12 +20,12 @@ use crate::entities::onchain::permission_manager::PermManagerId;
 use crate::entities::onchain::poll_factory::PollFactoryId;
 use crate::entities::onchain::weighting_poll::WeightingPollId;
 use crate::time::ProtocolEpoch;
-use crate::GenesisEpochStartTime;
+use crate::{CurrentEpoch, GenesisEpochStartTime};
 
 #[derive(Clone)]
 pub struct ProtocolConfig {
     pub deployed_validators: ProtocolDeployment,
-    pub tokens: ProtocolTokens,
+    pub tokens: MintedTokens,
     pub operator_sk: String,
     pub node_magic: u64,
     pub network_id: NetworkId,
@@ -40,37 +40,6 @@ impl ProtocolConfig {
     }
 }
 
-#[derive(Clone)]
-pub struct ProtocolTokens {
-    pub factory_auth_policy: PolicyId,
-    pub wp_factory_auth_policy: PolicyId,
-    pub ve_factory_auth_policy: PolicyId,
-    pub ve_factory_auth_name: AssetName,
-    pub edao_msig_policy: PolicyId,
-    pub perm_manager_auth_policy: PolicyId,
-    pub perm_manager_auth_name: AssetName,
-    pub inflation_box_auth_policy: PolicyId,
-    pub gt_policy: PolicyId,
-    pub gt_name: AssetName,
-}
-
-impl ProtocolTokens {
-    pub fn from_minted_tokens(value: MintedTokens) -> Self {
-        Self {
-            factory_auth_policy: value.factory_auth.policy_id,
-            wp_factory_auth_policy: value.wp_factory_auth.policy_id,
-            ve_factory_auth_policy: value.ve_factory_auth.policy_id,
-            ve_factory_auth_name: value.ve_factory_auth.asset_name,
-            edao_msig_policy: value.edao_msig.policy_id,
-            perm_manager_auth_policy: value.perm_auth.policy_id,
-            perm_manager_auth_name: value.perm_auth.asset_name,
-            inflation_box_auth_policy: value.inflation_auth.policy_id,
-            gt_policy: value.gt.policy_id,
-            gt_name: value.gt.asset_name,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct InflationBoxRefScriptOutput(pub TransactionUnspentOutput);
 
@@ -82,9 +51,6 @@ pub struct Reward(pub cml_chain::address::RewardAddress);
 
 #[derive(Debug, Clone)]
 pub struct SplashPolicy(pub PolicyId);
-
-#[derive(Debug, Clone)]
-pub struct SplashAssetName(pub AssetName);
 
 #[derive(Debug, Clone)]
 pub struct PollFactoryRefScriptOutput(pub TransactionUnspentOutput);
@@ -123,9 +89,6 @@ pub struct WPFactoryAuthPolicy(pub PolicyId);
 pub struct VEFactoryAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
-pub struct VEFactoryAuthName(pub AssetName);
-
-#[derive(Debug, Clone)]
 pub struct VotingEscrowRefScriptOutput(pub TransactionUnspentOutput);
 
 #[derive(Debug, Clone)]
@@ -150,18 +113,25 @@ pub struct EDaoMSigAuthPolicy(pub PolicyId);
 pub struct PermManagerAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
-pub struct PermManagerAuthName(pub AssetName);
-
-#[derive(Debug, Clone)]
 pub struct GTAuthPolicy(pub PolicyId);
-
-#[derive(Debug, Clone)]
-pub struct GTAuthName(pub AssetName);
 
 #[derive(Debug, Clone)]
 pub struct NodeMagic(pub u64);
 
 pub struct OperatorCreds(pub Ed25519KeyHash, pub Address);
+
+pub trait NotOutputRefNorSlotNumber {}
+
+impl NotOutputRefNorSlotNumber for OperatorCreds {}
+impl NotOutputRefNorSlotNumber for CurrentEpoch {}
+impl NotOutputRefNorSlotNumber for SplashPolicy {}
+impl NotOutputRefNorSlotNumber for PermManagerAuthPolicy {}
+impl NotOutputRefNorSlotNumber for MintWPAuthPolicy {}
+impl NotOutputRefNorSlotNumber for MintVEIdentifierPolicy {}
+impl NotOutputRefNorSlotNumber for MintVECompositionPolicy {}
+impl NotOutputRefNorSlotNumber for VEFactoryAuthPolicy {}
+impl NotOutputRefNorSlotNumber for GTAuthPolicy {}
+impl<const TYP: u8> NotOutputRefNorSlotNumber for DeployedScriptInfo<TYP> {}
 
 impl Has<Reward> for ProtocolConfig {
     fn select<U: IsEqual<Reward>>(&self) -> Reward {
@@ -181,12 +151,6 @@ impl Has<SplashPolicy> for ProtocolConfig {
     }
 }
 
-impl Has<SplashAssetName> for ProtocolConfig {
-    fn select<U: IsEqual<SplashAssetName>>(&self) -> SplashAssetName {
-        SplashAssetName(get_splash_token().1)
-    }
-}
-
 impl Has<InflationBoxRefScriptOutput> for ProtocolConfig {
     fn select<U: IsEqual<InflationBoxRefScriptOutput>>(&self) -> InflationBoxRefScriptOutput {
         InflationBoxRefScriptOutput(self.deployed_validators.inflation.reference_utxo.clone())
@@ -195,7 +159,7 @@ impl Has<InflationBoxRefScriptOutput> for ProtocolConfig {
 
 impl Has<InflationAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<InflationAuthPolicy>>(&self) -> InflationAuthPolicy {
-        InflationAuthPolicy(self.tokens.inflation_box_auth_policy)
+        InflationAuthPolicy(self.tokens.inflation_auth.policy_id)
     }
 }
 
@@ -268,25 +232,19 @@ impl Has<FarmAuthRefScriptOutput> for ProtocolConfig {
 
 impl Has<FarmFactoryAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<FarmFactoryAuthPolicy>>(&self) -> FarmFactoryAuthPolicy {
-        FarmFactoryAuthPolicy(self.tokens.factory_auth_policy)
+        FarmFactoryAuthPolicy(self.tokens.factory_auth.policy_id)
     }
 }
 
 impl Has<WPFactoryAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<WPFactoryAuthPolicy>>(&self) -> WPFactoryAuthPolicy {
-        WPFactoryAuthPolicy(self.tokens.wp_factory_auth_policy)
+        WPFactoryAuthPolicy(self.tokens.wp_factory_auth.policy_id)
     }
 }
 
 impl Has<VEFactoryAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<VEFactoryAuthPolicy>>(&self) -> VEFactoryAuthPolicy {
-        VEFactoryAuthPolicy(self.tokens.ve_factory_auth_policy)
-    }
-}
-
-impl Has<VEFactoryAuthName> for ProtocolConfig {
-    fn select<U: IsEqual<VEFactoryAuthName>>(&self) -> VEFactoryAuthName {
-        VEFactoryAuthName(self.tokens.ve_factory_auth_name.clone())
+        VEFactoryAuthPolicy(self.tokens.ve_factory_auth.policy_id)
     }
 }
 
@@ -322,19 +280,13 @@ impl Has<PermManagerBoxRefScriptOutput> for ProtocolConfig {
 
 impl Has<EDaoMSigAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<EDaoMSigAuthPolicy>>(&self) -> EDaoMSigAuthPolicy {
-        EDaoMSigAuthPolicy(self.tokens.edao_msig_policy)
+        todo!()
     }
 }
 
 impl Has<PermManagerAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<PermManagerAuthPolicy>>(&self) -> PermManagerAuthPolicy {
-        PermManagerAuthPolicy(self.tokens.perm_manager_auth_policy)
-    }
-}
-
-impl Has<PermManagerAuthName> for ProtocolConfig {
-    fn select<U: IsEqual<PermManagerAuthName>>(&self) -> PermManagerAuthName {
-        PermManagerAuthName(self.tokens.perm_manager_auth_name.clone())
+        PermManagerAuthPolicy(self.tokens.perm_auth.policy_id)
     }
 }
 
@@ -346,13 +298,7 @@ impl Has<GovProxyRefScriptOutput> for ProtocolConfig {
 
 impl Has<GTAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<GTAuthPolicy>>(&self) -> GTAuthPolicy {
-        GTAuthPolicy(self.tokens.gt_policy)
-    }
-}
-
-impl Has<GTAuthName> for ProtocolConfig {
-    fn select<U: IsEqual<GTAuthName>>(&self) -> GTAuthName {
-        GTAuthName(self.tokens.gt_name.clone())
+        GTAuthPolicy(self.tokens.gt.policy_id)
     }
 }
 

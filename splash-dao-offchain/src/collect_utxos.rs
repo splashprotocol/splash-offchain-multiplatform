@@ -15,7 +15,7 @@ pub fn collect_utxos(
     all_utxos: Vec<TransactionUnspentOutput>,
     required_coin: Coin,
     required_tokens: Vec<BuiltPolicy>,
-    collateral: &Collateral,
+    collateral: Option<&Collateral>,
 ) -> Vec<InputBuilderResult> {
     if required_tokens.is_empty() {
         return collect_utxos_with_no_assets(all_utxos, required_coin, collateral);
@@ -32,7 +32,8 @@ pub fn collect_utxos(
 
     for utxo in all_utxos {
         let output_ref = OutputRef::new(utxo.input.transaction_id, utxo.input.index);
-        if output_ref != collateral.reference() {
+        let to_add = collateral.is_none() || collateral.unwrap().reference() != output_ref;
+        if to_add {
             let mut add_utxo = false;
             if count_satisfied_tokens < required_tokens.len() {
                 for (policy_id, name_map) in utxo.output.value().multiasset.iter() {
@@ -90,7 +91,7 @@ pub fn collect_utxos(
 fn collect_utxos_with_no_assets(
     mut all_utxos: Vec<TransactionUnspentOutput>,
     required_coin: Coin,
-    collateral: &Collateral,
+    collateral: Option<&Collateral>,
 ) -> Vec<InputBuilderResult> {
     let mut res = vec![];
     let mut lovelaces_collected = 0;
@@ -111,7 +112,8 @@ fn collect_utxos_with_no_assets(
 
     for utxo in all_utxos {
         let output_ref = OutputRef::new(utxo.input.transaction_id, utxo.input.index);
-        if output_ref != collateral.reference() {
+        let to_add = collateral.is_none() || collateral.unwrap().reference() != output_ref;
+        if to_add {
             if lovelaces_collected > required_coin {
                 break;
             }

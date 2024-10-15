@@ -30,10 +30,13 @@ use spectrum_offchain::{
 };
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 
-use crate::constants::{MINT_GOVERNANCE_POWER_SCRIPT, MINT_WEIGHTING_POWER_SCRIPT, VOTING_ESCROW_SCRIPT};
+use crate::constants::{
+    DEFAULT_AUTH_TOKEN_NAME, GT_NAME, MINT_GOVERNANCE_POWER_SCRIPT, MINT_WEIGHTING_POWER_SCRIPT,
+    VOTING_ESCROW_SCRIPT,
+};
 use crate::deployment::ProtocolValidator;
 use crate::entities::Snapshot;
-use crate::protocol_config::{GTAuthName, GTAuthPolicy, VEFactoryAuthName};
+use crate::protocol_config::GTAuthPolicy;
 use crate::{
     constants::MAX_LOCK_TIME_SECONDS,
     protocol_config::{NodeMagic, OperatorCreds, VEFactoryAuthPolicy},
@@ -95,9 +98,7 @@ impl HasIdentifier for VotingEscrowSnapshot {
 impl<C> TryFromLedger<TransactionOutput, C> for VotingEscrowSnapshot
 where
     C: Has<VEFactoryAuthPolicy>
-        + Has<VEFactoryAuthName>
         + Has<GTAuthPolicy>
-        + Has<GTAuthName>
         + Has<OutputRef>
         + Has<DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }>>,
 {
@@ -114,12 +115,16 @@ where
             } = VotingEscrowConfig::try_from_pd(repr.datum()?.into_pd()?)?;
 
             let ve_factory_auth_policy = ctx.select::<VEFactoryAuthPolicy>().0;
+            let ve_factory_auth_name =
+                cml_chain::assets::AssetName::new(DEFAULT_AUTH_TOKEN_NAME.to_be_bytes().to_vec()).unwrap();
             let ve_factory_auth_qty = value
                 .multiasset
-                .get(&ve_factory_auth_policy, &ctx.select::<VEFactoryAuthName>().0)?;
+                .get(&ve_factory_auth_policy, &ve_factory_auth_name)?;
             assert_eq!(ve_factory_auth_qty, 1);
             let gt_policy = ctx.select::<GTAuthPolicy>().0;
-            let cml_gt_policy_name = ctx.select::<GTAuthName>().0;
+            let cml_gt_policy_name =
+                cml_chain::assets::AssetName::new(GT_NAME.to_be_bytes().to_vec()).unwrap();
+
             let gov_token_amount = value.multiasset.get(&gt_policy, &cml_gt_policy_name)?;
             let gt_auth_name = AssetName::from(cml_gt_policy_name);
 

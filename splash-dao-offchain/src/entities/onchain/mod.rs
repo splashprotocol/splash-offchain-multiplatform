@@ -14,8 +14,8 @@ use weighting_poll::{WeightingPoll, WeightingPollSnapshot};
 use crate::{
     deployment::ProtocolValidator,
     protocol_config::{
-        GTAuthName, GTAuthPolicy, MintWPAuthPolicy, OperatorCreds, PermManagerAuthName,
-        PermManagerAuthPolicy, SplashAssetName, SplashPolicy, VEFactoryAuthName, VEFactoryAuthPolicy,
+        GTAuthPolicy, MintWPAuthPolicy, OperatorCreds, PermManagerAuthPolicy, SplashPolicy,
+        VEFactoryAuthPolicy,
     },
     CurrentEpoch,
 };
@@ -48,14 +48,10 @@ pub type DaoEntitySnapshot = Snapshot<DaoEntity, OutputRef>;
 impl<C> TryFromLedger<TransactionOutput, C> for DaoEntitySnapshot
 where
     C: Has<SplashPolicy>
-        + Has<SplashAssetName>
         + Has<PermManagerAuthPolicy>
-        + Has<PermManagerAuthName>
         + Has<MintWPAuthPolicy>
         + Has<VEFactoryAuthPolicy>
-        + Has<VEFactoryAuthName>
         + Has<GTAuthPolicy>
-        + Has<GTAuthName>
         + Has<CurrentEpoch>
         + Has<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }>>

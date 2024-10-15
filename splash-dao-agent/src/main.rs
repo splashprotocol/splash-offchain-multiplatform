@@ -38,17 +38,17 @@ use spectrum_offchain::{
     streaming::boxed,
 };
 use spectrum_offchain_cardano::{
-    collateral::pull_collateral,
     creds::{operator_creds, operator_creds_base_address},
     prover::operator::OperatorProver,
     tx_submission::{tx_submission_agent_stream, TxSubmissionAgent},
 };
 use splash_dao_offchain::{
-    deployment::{DaoDeployment, ProtocolDeployment},
+    collateral::pull_collateral,
+    deployment::{CompleteDeployment, DeploymentProgress, ProtocolDeployment},
     entities::offchain::voting_order::VotingOrder,
     funding::FundingRepoRocksDB,
     handler::DaoHandler,
-    protocol_config::{ProtocolConfig, ProtocolTokens},
+    protocol_config::ProtocolConfig,
     routines::inflation::{actions::CardanoInflationActions, Behaviour},
     state_projection::StateProjectionRocksDB,
     time::{NetworkTime, NetworkTimeProvider},
@@ -69,7 +69,10 @@ async fn main() {
     let config: AppConfig = serde_json::from_str(&raw_config).expect("Invalid configuration file");
 
     let raw_deployment = std::fs::read_to_string(args.deployment_path).expect("Cannot load deployment file");
-    let deployment: DaoDeployment = serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
+    let deployment_progress: DeploymentProgress =
+        serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
+
+    let deployment = CompleteDeployment::try_from(deployment_progress).unwrap();
 
     log4rs::init_file(args.log4rs_path, Default::default()).unwrap();
 
@@ -80,7 +83,8 @@ async fn main() {
     let explorer = Maestro::new(config.maestro_key_path, config.network_id.into())
         .await
         .expect("Maestro instantiation failed");
-    let protocol_deployment = ProtocolDeployment::unsafe_pull(deployment.validators, &explorer).await;
+    let protocol_deployment =
+        ProtocolDeployment::unsafe_pull(deployment.deployed_validators, &explorer).await;
 
     let chain_sync_cache = Arc::new(Mutex::new(LedgerCacheRocksDB::new(config.chain_sync.db_path)));
     let chain_sync = ChainSyncClient::init(
@@ -137,7 +141,7 @@ async fn main() {
     let node_magic: u8 = config.network_id.into();
     let protocol_config = ProtocolConfig {
         deployed_validators: protocol_deployment,
-        tokens: ProtocolTokens::from_minted_tokens(deployment.nfts),
+        tokens: deployment.minted_deployment_tokens,
         operator_sk: config.batcher_private_key.into(),
         network_id: config.network_id,
         node_magic: node_magic as u64,

@@ -22,10 +22,10 @@ use spectrum_offchain_cardano::{
 };
 
 use crate::{
-    constants::PERM_MANAGER_SCRIPT,
+    constants::{DEFAULT_AUTH_TOKEN_NAME, PERM_MANAGER_SCRIPT},
     deployment::ProtocolValidator,
     entities::Snapshot,
-    protocol_config::{PermManagerAuthName, PermManagerAuthPolicy},
+    protocol_config::PermManagerAuthPolicy,
 };
 
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, From, Serialize, Deserialize)]
@@ -70,14 +70,14 @@ impl Stable for PermManager {
 impl<C> TryFromLedger<TransactionOutput, C> for PermManagerSnapshot
 where
     C: Has<PermManagerAuthPolicy>
-        + Has<PermManagerAuthName>
         + Has<OutputRef>
         + Has<DeployedScriptInfo<{ ProtocolValidator::PermManager as u8 }>>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
             let perm_manager_auth_policy = ctx.select::<PermManagerAuthPolicy>().0;
-            let auth_token_cml_asset_name = ctx.select::<PermManagerAuthName>().0;
+            let auth_token_cml_asset_name =
+                cml_chain::assets::AssetName::new(DEFAULT_AUTH_TOKEN_NAME.to_be_bytes().to_vec()).unwrap();
             let auth_token_qty = repr
                 .value()
                 .multiasset

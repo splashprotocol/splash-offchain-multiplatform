@@ -43,9 +43,13 @@ use spectrum_offchain_cardano::{
     prover::operator::OperatorProver,
 };
 use splash_dao_offchain::{
+    collateral::{generate_collateral, pull_collateral},
     constants::{DEFAULT_AUTH_TOKEN_NAME, SPLASH_NAME},
     create_change_output::{ChangeOutputCreator, CreateChangeOutput},
-    deployment::{BuiltPolicy, DeployedValidators, MintedTokens, ProtocolDeployment, ProtocolValidator},
+    deployment::{
+        write_deployment_to_disk, BuiltPolicy, CompleteDeployment, DeployedValidators, DeploymentProgress,
+        MintedTokens, NFTUtxoInputs, ProtocolDeployment, ProtocolValidator,
+    },
     entities::onchain::{
         farm_factory::{FarmFactoryAction, FarmFactoryDatum},
         inflation_box::InflationBoxSnapshot,
@@ -55,7 +59,8 @@ use splash_dao_offchain::{
         voting_escrow::{Lock, Owner, VotingEscrowConfig},
         voting_escrow_factory::{self, exchange_outputs, VEFactoryDatum, VEFactorySnapshot},
     },
-    protocol_config::{GTAuthPolicy, VEFactoryAuthPolicy},
+    protocol_config::{GTAuthPolicy, NotOutputRefNorSlotNumber, VEFactoryAuthPolicy},
+    routines::inflation::WithOutputRef,
     time::NetworkTimeProvider,
     NetworkTimeSource,
 };
@@ -107,7 +112,7 @@ async fn deploy<'a>(config: AppConfig<'a>) {
 
     let raw_deployment_config =
         std::fs::read_to_string(config.deployment_json_path).expect("Cannot load configuration file");
-    let mut deployment_config: PreprodDeploymentProgress =
+    let mut deployment_config: DeploymentProgress =
         serde_json::from_str(&raw_deployment_config).expect("Invalid configuration file");
 
     // Mint LQ token -------------------------------------------------------------------------------
@@ -237,6 +242,7 @@ async fn deploy<'a>(config: AppConfig<'a>) {
             mint_token::create_dao_reference_input_utxos(
                 &deployment_config,
                 time_source.network_time().await + dao_parameters.zeroth_epoch_start_offset,
+                config.network_id,
             );
 
         println!("Creating reference inputs (batch #0) ---------------------------------------");
@@ -345,12 +351,13 @@ async fn deploy<'a>(config: AppConfig<'a>) {
         write_deployment_to_disk(&deployment_config, config.deployment_json_path).await;
     }
 
-    let deployment_config = PreprodDeployment::try_from(deployment_config).unwrap();
+    let deployment_config = CompleteDeployment::try_from(deployment_config).unwrap();
     make_deposit(
         &explorer,
         &addr,
         collateral,
         &prover,
+        config.network_id,
         &deployment_config,
         &dao_parameters,
     )
@@ -394,7 +401,8 @@ async fn create_dao_entities(
     addr: &Address,
     collateral: Collateral,
     prover: &OperatorProver,
-    deployment_config: &PreprodDeployment,
+    network_id: NetworkId,
+    deployment_config: &CompleteDeployment,
     deployment_params: DaoDeploymentParameters,
 ) {
     let minted_tokens = &deployment_config.minted_deployment_tokens;
@@ -466,7 +474,7 @@ async fn create_dao_entities(
 
     let make_output = |script_hash: ScriptHash, datum: DatumOption, multi_asset: MultiAsset| {
         TransactionOutputBuilder::new()
-            .with_address(script_address(script_hash, deployment_config.network_id))
+            .with_address(script_address(script_hash, network_id))
             .with_data(datum)
             .next()
             .unwrap()
@@ -627,14 +635,14 @@ async fn make_deposit(
     addr: &Address,
     collateral: Collateral,
     prover: &OperatorProver,
-    deployment_config: &PreprodDeployment,
+    network_id: NetworkId,
+    deployment_config: &CompleteDeployment,
     deployment_params: &DaoDeploymentParameters,
 ) {
     let deployed_ref_inputs = &deployment_config.deployed_validators;
     let protocol_deployment = ProtocolDeployment::unsafe_pull(deployed_ref_inputs.clone(), explorer).await;
 
     let ve_factory_script_hash = protocol_deployment.ve_factory.hash;
-    let network_id = deployment_config.network_id;
 
     let ve_factory_unspent_output = pull_onchain_entity::<VEFactorySnapshot, _>(
         explorer,
@@ -792,10 +800,7 @@ async fn make_deposit(
         panic!("farm_factory: expected datum!");
     };
     let ve_factory_output = TransactionOutputBuilder::new()
-        .with_address(script_address(
-            ve_factory_script_hash,
-            deployment_config.network_id,
-        ))
+        .with_address(script_address(ve_factory_script_hash, network_id))
         .with_data(ve_factory_datum)
         .next()
         .unwrap()
@@ -823,10 +828,7 @@ async fn make_deposit(
     voting_escrow_value.coin = 2_000_000;
 
     let voting_escrow_output = TransactionOutputBuilder::new()
-        .with_address(script_address(
-            protocol_deployment.voting_escrow.hash,
-            deployment_config.network_id,
-        ))
+        .with_address(script_address(protocol_deployment.voting_escrow.hash, network_id))
         .with_data(voting_escrow_datum)
         .next()
         .unwrap()
@@ -864,7 +866,8 @@ async fn create_initial_farms(
     addr: &Address,
     collateral: Collateral,
     prover: &OperatorProver,
-    deployment_config: &PreprodDeploymentProgress,
+    network_id: NetworkId,
+    deployment_config: &DeploymentProgress,
 ) {
     let deployed_ref_inputs = deployment_config.deployed_validators.as_ref().unwrap();
     let protocol_deployment = ProtocolDeployment::unsafe_pull(deployed_ref_inputs.clone(), explorer).await;
@@ -875,10 +878,7 @@ async fn create_initial_farms(
 
     let mut farm_factory_input = explorer
         .utxos_by_address(
-            script_address(
-                protocol_deployment.farm_factory.hash,
-                deployment_config.network_id,
-            ),
+            script_address(protocol_deployment.farm_factory.hash, network_id),
             0,
             10,
         )
@@ -981,10 +981,7 @@ async fn create_initial_farms(
     let mut farm_factory_out_datum = farm_factory_in_datum.clone();
     farm_factory_out_datum.last_farm_id += 1;
     let farm_factory_output = TransactionOutputBuilder::new()
-        .with_address(script_address(
-            farm_factory_script_hash,
-            deployment_config.network_id,
-        ))
+        .with_address(script_address(farm_factory_script_hash, network_id))
         .with_data(DatumOption::new_datum(farm_factory_out_datum.into_pd()))
         .next()
         .unwrap()
@@ -1007,10 +1004,7 @@ async fn create_initial_farms(
     );
     let smart_farm_datum = DatumOption::new_datum(smart_farm_datum_pd);
     let smart_farm_output = TransactionOutputBuilder::new()
-        .with_address(script_address(
-            protocol_deployment.smart_farm.hash,
-            deployment_config.network_id,
-        ))
+        .with_address(script_address(protocol_deployment.smart_farm.hash, network_id))
         .with_data(smart_farm_datum)
         .next()
         .unwrap()
@@ -1064,7 +1058,12 @@ async fn collect_utxos(
     explorer: &Maestro,
 ) -> Vec<InputBuilderResult> {
     let all_utxos = explorer.utxos_by_address(addr.clone(), 0, 100).await;
-    splash_dao_offchain::collect_utxos::collect_utxos(all_utxos, required_coin, required_tokens, collateral)
+    splash_dao_offchain::collect_utxos::collect_utxos(
+        all_utxos,
+        required_coin,
+        required_tokens,
+        Some(collateral),
+    )
 }
 
 async fn pull_onchain_entity<'a, T, D>(
@@ -1074,7 +1073,7 @@ async fn pull_onchain_entity<'a, T, D>(
     deployment_config: &'a D,
 ) -> Option<TransactionUnspentOutput>
 where
-    T: TryFromLedger<TransactionOutput, DeploymentWithOutputRef<'a, D>>,
+    T: TryFromLedger<TransactionOutput, WithOutputRef<'a, D>>,
 {
     let utxos = explorer
         .utxos_by_address(script_address(script_hash, network_id), 0, 50)
@@ -1082,8 +1081,8 @@ where
 
     for utxo in utxos {
         let ve_factory_output_ref = OutputRef::from(utxo.clone().input);
-        let ctx = DeploymentWithOutputRef {
-            deployment: deployment_config,
+        let ctx = WithOutputRef {
+            behaviour: deployment_config,
             output_ref: ve_factory_output_ref,
         };
         if T::try_from_ledger(&utxo.output, &ctx).is_some() {
@@ -1099,13 +1098,6 @@ fn compute_identifier_token_asset_name(output_ref: OutputRef) -> cml_chain::asse
     bytes.extend_from_slice(&PlutusData::new_integer(BigInteger::from(output_ref.index())).to_cbor_bytes());
     let token_name = blake2b256(bytes.as_ref());
     cml_chain::assets::AssetName::new(token_name.to_vec()).unwrap()
-}
-
-async fn write_deployment_to_disk(deployment_config: &PreprodDeploymentProgress, deployment_json_path: &str) {
-    let mut file = tokio::fs::File::create(deployment_json_path).await.unwrap();
-    file.write_all((serde_json::to_string(deployment_config).unwrap()).as_bytes())
-        .await
-        .unwrap();
 }
 
 #[derive(Parser)]
@@ -1129,112 +1121,6 @@ pub struct AppConfig<'a> {
     pub parameters_json_path: &'a str,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
-struct PreprodDeploymentProgress {
-    lq_tokens: Option<ExternallyMintedToken>,
-    splash_tokens: Option<ExternallyMintedToken>,
-    nft_utxo_inputs: Option<NFTUtxoInputs>,
-    minted_deployment_tokens: Option<MintedTokens>,
-    deployed_validators: Option<DeployedValidators>,
-    network_id: NetworkId,
-}
-
-struct PreprodDeployment {
-    lq_tokens: ExternallyMintedToken,
-    splash_tokens: ExternallyMintedToken,
-    nft_utxo_inputs: NFTUtxoInputs,
-    minted_deployment_tokens: MintedTokens,
-    deployed_validators: DeployedValidators,
-    network_id: NetworkId,
-}
-
-impl Has<VEFactoryAuthPolicy> for PreprodDeployment {
-    fn select<U: IsEqual<VEFactoryAuthPolicy>>(&self) -> VEFactoryAuthPolicy {
-        VEFactoryAuthPolicy(self.minted_deployment_tokens.ve_factory_auth.policy_id)
-    }
-}
-
-impl Has<GTAuthPolicy> for PreprodDeployment {
-    fn select<U: IsEqual<GTAuthPolicy>>(&self) -> GTAuthPolicy {
-        GTAuthPolicy(self.minted_deployment_tokens.gt.policy_id)
-    }
-}
-
-impl Has<DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }>> for PreprodDeployment {
-    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }>>>(
-        &self,
-    ) -> DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }> {
-        DeployedScriptInfo::from(&self.deployed_validators.ve_factory)
-    }
-}
-
-trait NotOutputRef {}
-
-impl NotOutputRef for VEFactoryAuthPolicy {}
-impl NotOutputRef for GTAuthPolicy {}
-impl<const TYP: u8> NotOutputRef for DeployedScriptInfo<TYP> {}
-
-struct DeploymentWithOutputRef<'a, D> {
-    deployment: &'a D,
-    output_ref: OutputRef,
-}
-
-impl<'a, D> Has<OutputRef> for DeploymentWithOutputRef<'a, D> {
-    fn select<U: IsEqual<OutputRef>>(&self) -> OutputRef {
-        self.output_ref
-    }
-}
-
-impl<'a, H, D> Has<H> for DeploymentWithOutputRef<'a, D>
-where
-    D: Has<H>,
-    H: NotOutputRef,
-{
-    fn select<U: IsEqual<H>>(&self) -> H {
-        self.deployment.select::<U>()
-    }
-}
-
-impl TryFrom<PreprodDeploymentProgress> for PreprodDeployment {
-    type Error = ();
-
-    fn try_from(value: PreprodDeploymentProgress) -> Result<Self, Self::Error> {
-        match value {
-            PreprodDeploymentProgress {
-                lq_tokens: Some(lq_tokens),
-                splash_tokens: Some(splash_tokens),
-                nft_utxo_inputs: Some(nft_utxo_inputs),
-                minted_deployment_tokens: Some(minted_deployment_tokens),
-                deployed_validators: Some(deployed_validators),
-                network_id,
-            } => Ok(Self {
-                lq_tokens,
-                splash_tokens,
-                nft_utxo_inputs,
-                minted_deployment_tokens,
-                deployed_validators,
-                network_id,
-            }),
-            _ => Err(()),
-        }
-    }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
-struct ExternallyMintedToken {
-    policy_id: ScriptHash,
-    asset_name: cml_chain::assets::AssetName,
-    quantity: u64,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
-/// Each NFT we mint requires a distinct UTxO input.
-struct NFTUtxoInputs {
-    tx_hash: TransactionHash,
-    number_of_inputs: usize,
-    inputs_consumed: bool,
-}
-
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 struct InitialDaoEntities {
     inflation_box: InflationBoxSnapshot,
@@ -1243,73 +1129,6 @@ struct InitialDaoEntities {
     //voting_escrow_factory: VE
     // gov_proxy: Gov
     permission_manager: PermManagerSnapshot,
-}
-
-const LIMIT: u16 = 50;
-const COLLATERAL_LOVELACES: u64 = 5_000_000;
-
-pub async fn pull_collateral<Net: CardanoNetwork>(
-    collateral_address: CollateralAddress,
-    explorer: &Net,
-) -> Option<Collateral> {
-    let mut collateral: Option<TransactionUnspentOutput> = None;
-    let mut offset = 0u32;
-    let mut num_utxos_pulled = 0;
-    while collateral.is_none() {
-        let utxos = explorer
-            .utxos_by_address(collateral_address.clone().address(), offset, LIMIT)
-            .await;
-        if utxos.is_empty() {
-            break;
-        }
-        if utxos.len() > num_utxos_pulled {
-            num_utxos_pulled = utxos.len();
-        } else {
-            // Didn't find any new UTxOs
-            break;
-        }
-        if let Some(x) = utxos
-            .into_iter()
-            .find(|u| !u.output.amount().has_multiassets() && u.output.value().coin == COLLATERAL_LOVELACES)
-        {
-            collateral = Some(x);
-        }
-        offset += LIMIT as u32;
-    }
-    collateral.map(|out| out.into())
-}
-
-async fn generate_collateral<Net: CardanoNetwork>(
-    explorer: &Net,
-    addr: &Address,
-    prover: &OperatorProver,
-) -> Result<Collateral, Box<dyn std::error::Error>> {
-    let input_utxo = get_largest_utxo(explorer, addr).await;
-    let mut tx_builder = constant_tx_builder();
-    tx_builder.add_input(input_utxo).unwrap();
-    let output_result = TransactionOutputBuilder::new()
-        .with_address(addr.clone())
-        .next()
-        .unwrap()
-        .with_value(Value::from(COLLATERAL_LOVELACES))
-        .build()
-        .unwrap();
-    tx_builder.add_output(output_result).unwrap();
-    let signed_tx_builder = tx_builder.build(ChangeSelectionAlgo::Default, addr).unwrap();
-
-    let tx = prover.prove(signed_tx_builder);
-    let tx_hash = TransactionHash::from_hex(&tx.deref().body.hash().to_hex()).unwrap();
-    println!("Generating collateral TX ----------------------------------------------");
-    println!("tx_hash: {:?}", tx_hash);
-    let tx_bytes = tx.deref().to_cbor_bytes();
-    println!("tx_bytes: {}", hex::encode(&tx_bytes));
-
-    explorer.submit_tx(&tx_bytes).await?;
-    explorer.wait_for_transaction_confirmation(tx_hash).await?;
-
-    let output_ref = OutputRef::new(tx_hash, 0);
-    let utxo = explorer.utxo_by_ref(output_ref).await.unwrap();
-    Ok(Collateral::from(utxo))
 }
 
 const EX_UNITS: ExUnits = ExUnits {

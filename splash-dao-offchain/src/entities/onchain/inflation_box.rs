@@ -18,7 +18,7 @@ use crate::assets::Splash;
 use crate::constants::{INFLATION_SCRIPT, SPLASH_NAME};
 use crate::deployment::ProtocolValidator;
 use crate::entities::Snapshot;
-use crate::protocol_config::{SplashAssetName, SplashPolicy};
+use crate::protocol_config::SplashPolicy;
 use crate::time::{epoch_end, NetworkTime, ProtocolEpoch};
 use crate::{constants, GenesisEpochStartTime};
 
@@ -92,10 +92,7 @@ impl Stable for InflationBox {
 
 impl<C> TryFromLedger<TransactionOutput, C> for InflationBoxSnapshot
 where
-    C: Has<SplashPolicy>
-        + Has<SplashAssetName>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::Inflation as u8 }>>
-        + Has<OutputRef>,
+    C: Has<SplashPolicy> + Has<DeployedScriptInfo<{ ProtocolValidator::Inflation as u8 }>> + Has<OutputRef>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
@@ -106,10 +103,10 @@ where
             println!("bbb: datum: {:?}", datum);
             let epoch = datum.into_pd()?.into_u64()?;
             println!("ccc");
-            let splash = value.multiasset.get(
-                &ctx.select::<SplashPolicy>().0,
-                &ctx.select::<SplashAssetName>().0,
-            )?;
+            let splash_asset_name = AssetName::try_from(SPLASH_NAME).unwrap();
+            let splash = value
+                .multiasset
+                .get(&ctx.select::<SplashPolicy>().0, &splash_asset_name)?;
             println!("ddd");
             let script_hash = repr.script_hash()?;
             println!("eee");

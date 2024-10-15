@@ -31,7 +31,7 @@ use crate::{
     constants::{DEFAULT_AUTH_TOKEN_NAME, GT_NAME, VE_FACTORY_SCRIPT},
     deployment::ProtocolValidator,
     entities::Snapshot,
-    protocol_config::{GTAuthName, GTAuthPolicy, VEFactoryAuthName, VEFactoryAuthPolicy},
+    protocol_config::{GTAuthPolicy, VEFactoryAuthPolicy},
 };
 
 pub type VEFactorySnapshot = Snapshot<VEFactory, OutputRef>;

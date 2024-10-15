@@ -46,9 +46,9 @@ use crate::entities::onchain::{DaoEntity, DaoEntitySnapshot};
 use crate::entities::Snapshot;
 use crate::funding::FundingRepo;
 use crate::protocol_config::{
-    GTAuthName, GTAuthPolicy, MintVECompositionPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy,
-    OperatorCreds, PermManagerAuthName, PermManagerAuthPolicy, ProtocolConfig, SplashAssetName, SplashPolicy,
-    VEFactoryAuthName, VEFactoryAuthPolicy,
+    GTAuthPolicy, MintVECompositionPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy,
+    NotOutputRefNorSlotNumber, OperatorCreds, PermManagerAuthPolicy, ProtocolConfig, SplashPolicy,
+    VEFactoryAuthPolicy,
 };
 use crate::routine::{retry_in, RoutineBehaviour, ToRoutine};
 use crate::routines::inflation::actions::InflationActions;
@@ -469,7 +469,12 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
             let funding_boxes = AvailableFundingBoxes(self.funding_box.collect().await.unwrap());
             let (signed_tx, next_inflation_box, next_factory, next_wpoll, funding_box_changes) = self
                 .actions
-                .create_wpoll(inflation_box.state.0, factory.state.0, funding_boxes)
+                .create_wpoll(
+                    inflation_box.state.0,
+                    factory.state.0,
+                    Slot(self.current_slot),
+                    funding_boxes,
+                )
                 .await;
             println!("try_create_wpoll: formed wpoll TX!");
             let prover = OperatorProver::new(self.operator_sk.to_bech32());
@@ -636,7 +641,6 @@ where
                         let ctx = WithOutputRef {
                             behaviour: self,
                             output_ref,
-                            current_slot: Slot(slot),
                         };
                         if let Some(entity) = DaoEntitySnapshot::try_from_ledger(&output.1, &ctx) {
                             println!("entity found: {:?}", entity);
@@ -730,41 +734,17 @@ where
     }
 }
 
-trait NotOutputRefNorSlotNumber {}
-
-impl NotOutputRefNorSlotNumber for OperatorCreds {}
-impl NotOutputRefNorSlotNumber for CurrentEpoch {}
-impl NotOutputRefNorSlotNumber for SplashPolicy {}
-impl NotOutputRefNorSlotNumber for SplashAssetName {}
-impl NotOutputRefNorSlotNumber for PermManagerAuthPolicy {}
-impl NotOutputRefNorSlotNumber for PermManagerAuthName {}
-impl NotOutputRefNorSlotNumber for MintWPAuthPolicy {}
-impl NotOutputRefNorSlotNumber for MintVEIdentifierPolicy {}
-impl NotOutputRefNorSlotNumber for MintVECompositionPolicy {}
-impl NotOutputRefNorSlotNumber for VEFactoryAuthPolicy {}
-impl NotOutputRefNorSlotNumber for VEFactoryAuthName {}
-impl NotOutputRefNorSlotNumber for GTAuthPolicy {}
-impl NotOutputRefNorSlotNumber for GTAuthName {}
-impl<const TYP: u8> NotOutputRefNorSlotNumber for DeployedScriptInfo<TYP> {}
-
 #[derive(Clone, Copy)]
 pub struct Slot(pub u64);
 
-struct WithOutputRef<'a, D> {
-    behaviour: &'a D,
-    output_ref: OutputRef,
-    current_slot: Slot,
+pub struct WithOutputRef<'a, D> {
+    pub behaviour: &'a D,
+    pub output_ref: OutputRef,
 }
 
 impl<'a, D> Has<OutputRef> for WithOutputRef<'a, D> {
     fn select<U: IsEqual<OutputRef>>(&self) -> OutputRef {
         self.output_ref
-    }
-}
-
-impl<'a, D> Has<Slot> for WithOutputRef<'a, D> {
-    fn select<U: IsEqual<Slot>>(&self) -> Slot {
-        self.current_slot
     }
 }
 
