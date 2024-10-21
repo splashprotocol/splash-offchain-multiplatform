@@ -400,6 +400,8 @@ where
                     }
                     self.sync_book(pair, tr);
                 }
+            } else {
+                panic!("Error during invalidation of {}. None in index state", ver)
             }
         }
     }
