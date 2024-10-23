@@ -362,7 +362,7 @@ where
         }
     }
 
-    fn invalidate_versions(&mut self, pair: &PR, versions: HashSet<V>)
+    fn invalidate_versions(&mut self, pair: &PR, versions: HashSet<V>) -> Result<(), V>
     where
         PR: Copy + Eq + Hash + Display,
         SID: Copy + Eq + Hash + Debug + Display,
@@ -401,9 +401,10 @@ where
                     self.sync_book(pair, tr);
                 }
             } else {
-                panic!("Error during invalidation of {}. None in index state", ver)
+                return Err(ver);
             }
         }
+        Ok(())
     }
 
     fn update_state<T>(&mut self, update: Channel<StateUpdate<Bundled<T, B>>>) -> Option<Ior<T, T>>
@@ -550,9 +551,10 @@ where
     {
         warn!("TX {} failed", tx_hash);
         if let Ok(missing_inputs) = err.try_into() {
-            match pending_effects {
+            let strict_index_consistency = match pending_effects {
                 ExecutionEffects::FromLiquidityBook(_) => {
                     self.multi_book.get_mut(&pair).on_recipe_failed();
+                    true
                 }
                 ExecutionEffects::FromBacklog(_, order) => {
                     let order_ref = order.get_self_ref();
@@ -561,13 +563,18 @@ where
                     } else {
                         self.multi_backlog.get_mut(&pair).put(order);
                     }
+                    false
                 }
-            }
+            };
             // Defensive programming against node sending error for an irrelevant TX.
             let has_relevant_bearers = missing_inputs.intersection(&consumed_versions).next().is_some();
             if has_relevant_bearers {
                 trace!("Going to process missing inputs");
-                self.invalidate_versions(&pair, missing_inputs.clone());
+                if let Err(ver) = self.invalidate_versions(&pair, missing_inputs.clone()) {
+                    if strict_index_consistency {
+                        panic!("Detected state inconsistency while invalidating {}. None in index state", ver);
+                    }
+                }
             }
         } else {
             warn!("Unknown Tx submission error!");
