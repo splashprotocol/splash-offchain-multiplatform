@@ -16,7 +16,7 @@ use uplc_pallas_codec::utils::{Int, PlutusBytes};
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
 };
-use spectrum_cardano_lib::{OutputRef, TaggedAmount, Token};
+use spectrum_cardano_lib::{NetworkId, OutputRef, TaggedAmount, Token};
 use spectrum_offchain::data::{Has, HasIdentifier, Identifier, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
@@ -78,7 +78,7 @@ where
         + Has<MintWPAuthPolicy>
         + Has<WeightingPowerPolicy>
         + Has<GTAuthPolicy>
-        + Has<NodeMagic>,
+        + Has<NetworkId>,
 {
     fn into_ledger(self, ctx: Ctx) -> TransactionOutput {
         let wp_auth_policy = ctx.select::<MintWPAuthPolicy>().0;
@@ -101,7 +101,7 @@ where
         println!("WEIGHTING_POLL DATUM: {:?}", datum);
 
         let cred = StakeCredential::new_script(wp_auth_policy);
-        let address = EnterpriseAddress::new(ctx.select::<NodeMagic>().0 as u8, cred).to_address();
+        let address = EnterpriseAddress::new(ctx.select::<NetworkId>().into(), cred).to_address();
 
         // Note: We don't add wp_auth_token to this output here.
         let mut bundle = OrderedHashMap::new();
@@ -197,7 +197,12 @@ impl WeightingPoll {
     }
 
     fn weighting_open(&self, genesis: GenesisEpochStartTime, time_now: NetworkTime) -> bool {
-        epoch_start(genesis, self.epoch) < time_now && epoch_end(genesis, self.epoch) > time_now
+        let e_start = epoch_start(genesis, self.epoch);
+        let e_end = epoch_end(genesis, self.epoch);
+        println!("epoch_start = {}, epoch_end = {}", e_start, e_end);
+        println!("epoch_start < time_now: {}", e_start < time_now);
+        println!("epoch_end > time_now: {}", e_end > time_now);
+        e_start < time_now && e_end > time_now
     }
 
     fn distribution_finished(&self) -> bool {
@@ -353,7 +358,7 @@ pub enum PollAction {
 
 impl IntoPlutusData for PollAction {
     fn into_pd(self) -> PlutusData {
-        match self {
+        let inner = match self {
             PollAction::Vote => PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![])),
             PollAction::Distribute { farm_ix, farm_in_ix } => {
                 PlutusData::ConstrPlutusData(ConstrPlutusData::new(
@@ -365,7 +370,10 @@ impl IntoPlutusData for PollAction {
                 ))
             }
             PollAction::Destroy => PlutusData::ConstrPlutusData(ConstrPlutusData::new(2, vec![])),
-        }
+        };
+
+        // Need this wrapping since `weighting_poll` is a multivalidator.
+        PlutusData::new_constr_plutus_data(ConstrPlutusData::new(1, vec![inner]))
     }
 }
 

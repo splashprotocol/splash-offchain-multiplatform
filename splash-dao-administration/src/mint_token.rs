@@ -301,8 +301,13 @@ pub fn create_dao_reference_input_utxos(
 
     let mint_ve_composition_token_script = compute_mint_ve_composition_token_script(ve_factory_auth_policy);
 
-    let voting_escrow_script =
-        compute_voting_escrow_validator(ve_factory_auth_policy, mint_ve_composition_token_script.hash());
+    let mint_identifier_script = PlutusV2Script::new(hex::decode(MINT_IDENTIFIER_SCRIPT).unwrap());
+
+    let voting_escrow_script = compute_voting_escrow_validator(
+        mint_identifier_script.hash(),
+        ve_factory_auth_policy,
+        mint_ve_composition_token_script.hash(),
+    );
 
     let farm_factory_auth_policy = minted_tokens.factory_auth.policy_id;
 
@@ -320,8 +325,6 @@ pub fn create_dao_reference_input_utxos(
         zeroth_epoch_start,
     );
 
-    let mint_identifier_script = PlutusV2Script::new(hex::decode(MINT_IDENTIFIER_SCRIPT).unwrap());
-
     let ve_factory_script = compute_ve_factory_validator(
         ve_factory_auth_policy,
         mint_identifier_script.hash(),
@@ -337,10 +340,14 @@ pub fn create_dao_reference_input_utxos(
     let farm_factory_script =
         compute_farm_factory_validator(mint_farm_auth_token_script.hash(), gov_proxy_script.hash());
 
-    let mint_weighting_power_script =
-        compute_mint_weighting_power_validator(zeroth_epoch_start, proposal_auth_policy, gt_policy);
+    let mint_weighting_power_script = compute_mint_weighting_power_validator(
+        zeroth_epoch_start,
+        mint_wp_auth_token_script.hash(), // `weighting_poll` is a multivalidator with `mint_wp_auth_token`
+        gt_policy,
+    );
 
     let inflation_script = compute_inflation_box_validator(
+        inflation_auth_policy,
         splash_policy,
         mint_wp_auth_token_script.hash(),
         mint_weighting_power_script.hash(),

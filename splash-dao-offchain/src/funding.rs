@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use async_std::task::spawn_blocking;
 use async_trait::async_trait;
+use log::trace;
 use rocksdb::{Direction, IteratorMode, ReadOptions};
 use spectrum_offchain::data::event::{Confirmed, Predicted};
 
@@ -58,6 +59,7 @@ impl FundingRepo for FundingRepoRocksDB {
     }
 
     async fn put_confirmed(&mut self, Confirmed(f): Confirmed<FundingBox>) {
+        trace!("FB.put_confirmed: {:?}", f);
         let db = self.db.clone();
         let predicted_key = funding_key(STATE_PREFIX, PREDICTED_AVAILABLE, &f.id);
         let confirmed_key = funding_key(STATE_PREFIX, CONFIRMED_AVAILABLE, &f.id);
@@ -74,6 +76,7 @@ impl FundingRepo for FundingRepoRocksDB {
     }
 
     async fn put_predicted(&mut self, Predicted(f): Predicted<FundingBox>) {
+        trace!("FB.put_predicted: {:?}", f);
         let db = self.db.clone();
         let predicted_key = funding_key(STATE_PREFIX, PREDICTED_AVAILABLE, &f.id);
         spawn_blocking(move || {
@@ -89,13 +92,14 @@ impl FundingRepo for FundingRepoRocksDB {
         let confirmed_key = funding_key(STATE_PREFIX, CONFIRMED_AVAILABLE, &f_id);
         spawn_blocking(move || {
             assert!(db.get(&predicted_key).unwrap().is_none());
-            let confirmed_bytes = db.get(&confirmed_key).unwrap().unwrap();
-
-            let tx = db.transaction();
-            tx.delete(&confirmed_key).unwrap();
-            let spent_key = funding_key(STATE_PREFIX, CONFIRMED_SPENT, &f_id);
-            tx.put(spent_key, confirmed_bytes).unwrap();
-            tx.commit().unwrap();
+            if let Some(confirmed_bytes) = db.get(&confirmed_key).unwrap() {
+                trace!("FB.spend_confirmed: {:?}", f_id);
+                let tx = db.transaction();
+                tx.delete(&confirmed_key).unwrap();
+                let spent_key = funding_key(STATE_PREFIX, CONFIRMED_SPENT, &f_id);
+                tx.put(spent_key, confirmed_bytes).unwrap();
+                tx.commit().unwrap();
+            }
         })
         .await
     }
@@ -104,17 +108,20 @@ impl FundingRepo for FundingRepoRocksDB {
         let db = self.db.clone();
         let spent_key = funding_key(STATE_PREFIX, CONFIRMED_SPENT, &f_id);
         spawn_blocking(move || {
-            let spent_box_bytes = db.get(&spent_key).unwrap().unwrap();
-            let tx = db.transaction();
-            tx.delete(&spent_key).unwrap();
-            let confirmed_key = funding_key(STATE_PREFIX, CONFIRMED_AVAILABLE, &f_id);
-            tx.put(confirmed_key, spent_box_bytes).unwrap();
-            tx.commit().unwrap();
+            if let Some(spent_box_bytes) = db.get(&spent_key).unwrap() {
+                trace!("FB.unspend_confirmed: {:?}", f_id);
+                let tx = db.transaction();
+                tx.delete(&spent_key).unwrap();
+                let confirmed_key = funding_key(STATE_PREFIX, CONFIRMED_AVAILABLE, &f_id);
+                tx.put(confirmed_key, spent_box_bytes).unwrap();
+                tx.commit().unwrap();
+            }
         })
         .await
     }
 
     async fn spend_predicted(&mut self, f_id: FundingBoxId) {
+        trace!("FB.spend_predicted: {:?}", f_id);
         let db = self.db.clone();
         let predicted_key = funding_key(STATE_PREFIX, PREDICTED_AVAILABLE, &f_id);
         let confirmed_key = funding_key(STATE_PREFIX, CONFIRMED_AVAILABLE, &f_id);
@@ -133,6 +140,7 @@ impl FundingRepo for FundingRepoRocksDB {
     }
 
     async fn unspend_predicted(&mut self, f_id: FundingBoxId) {
+        trace!("FB.unspend_predicted: {:?}", f_id);
         let db = self.db.clone();
         let spent_key = funding_key(STATE_PREFIX, PREDICTED_SPENT, &f_id);
         spawn_blocking(move || {

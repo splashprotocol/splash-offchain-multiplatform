@@ -1,129 +1,129 @@
 {
   "lq_tokens": {
-    "policy_id": "0f353dafff12b752121f47ea8ec219a0bcfac9373839644f1db28d3d",
+    "policy_id": "3dfcd4970966b1f8b622bb837b9ef1b0937f15adccd5ba9c218ae2e0",
     "asset_name": "53504c4153482f414441204c512a",
     "quantity": 32000000000000
   },
   "splash_tokens": {
-    "policy_id": "697b29f9961e04a526d864fbcf61fa67070d8c48ef76a722dd2f2b20",
+    "policy_id": "e8cfc20dac8daff83e8382b91fe0dd1a0acb47f3161e1a286da88321",
     "asset_name": "53504c415348",
     "quantity": 64000000000000
   },
   "nft_utxo_inputs": {
-    "tx_hash": "628e2c9c4b67abd66509074b3e62493251cbe680764dd28f50ff2f69d99ad093",
+    "tx_hash": "ecbbf06a2b3cd790c0c7b4e1ec16bda2d5194dcedd13840413c38af0ae4a0095",
     "number_of_inputs": 9,
     "inputs_consumed": true
   },
   "minted_deployment_tokens": {
     "factory_auth": {
-      "policy_id": "894a45bbb6a2af2161aac9b7b5a2b2b64a2a81cb0b9d3e4672dc825e",
+      "policy_id": "684476ee9ef253686febb903b5009ac797b4aeada8b3dfbdc860cd07",
       "asset_name": "a4",
       "quantity": "1"
     },
     "wp_factory_auth": {
-      "policy_id": "de7775e620bfcd18fbc894522ad788aeb598d065dcc26eb30623a190",
+      "policy_id": "4a453ad2221ebd9a67f56161233c26d097301ada569a9aa0e778c5dc",
       "asset_name": "a4",
       "quantity": "1"
     },
     "ve_factory_auth": {
-      "policy_id": "d7ad4c47aa956fd84d8d4bc20e2ec7f26c28926418bc5054198f6d76",
+      "policy_id": "a61e9a6774b94b0d2dfa2fa4efd9c0a3c624e0752b5b3cc53bd786a0",
       "asset_name": "a4",
       "quantity": "1"
     },
     "perm_auth": {
-      "policy_id": "9e59e61fdacf05c96c5705fe79b7716d60d7cd01bf38a71762d71655",
+      "policy_id": "7e3ef0fd0359141d6def99763db331b472662baee5870e5ee7e4c1b7",
       "asset_name": "a4",
       "quantity": "1"
     },
     "proposal_auth": {
-      "policy_id": "45f3d1b543878a1bef4b0b18e02f487fb175cf1e56938c9c0f6597dc",
+      "policy_id": "4d29c90394cb58bca2baea38bb3a1620c668c89eeb4807a1a6d52318",
       "asset_name": "a4",
       "quantity": "1"
     },
     "edao_msig": {
-      "policy_id": "2bd647e3e8022644f2c16ba812c24e8ede20d1b1b5f9c3b077bceff9",
+      "policy_id": "2f0396fa3e0e2833392df695d0cc336a131d78fb1b962f033a4e8666",
       "asset_name": "a4",
       "quantity": "1"
     },
     "inflation_auth": {
-      "policy_id": "7c8e419e13e17b8af3f5e1307fda9d7676fca6eac59d681c46d9d24e",
+      "policy_id": "c1bde8ebd4497a513cfe0a0ac65613fbe781a17d65b09f850baa3c29",
       "asset_name": "a4",
       "quantity": "1"
     },
     "gt": {
-      "policy_id": "a9166f95ebf38b3b3970615420af6a268f7a5ae5f979d357b9d01f65",
+      "policy_id": "800e722437a8b29c7ed23cd3276e458b1e1a9d372685aea9353b9295",
       "asset_name": "f4",
       "quantity": "45000000000000000"
     }
   },
   "deployed_validators": {
     "inflation": {
-      "hash": "a8385044b1fe643efbc5d2aade9260c8dbfb6ef956d4359c275664ef",
+      "hash": "85d01f71348da1a4192710d055eb3afa5c75866c1b01d17d92b2a582",
       "referenceUtxo": {
-        "txHash": "c4e487e7972eac3cf903c5a365e34c5cf38962a4196ef98c23190d53748091de",
+        "txHash": "15bb4704c2e3692118aa5f32808cbb754f6ee37b9b9a6b9688a678e1f3bdf1c7",
         "outputIndex": 0
       },
       "cost": { "mem": 500000, "steps": 200000000 },
       "marginalCost": null
     },
     "voting_escrow": {
-      "hash": "def79540301486280d60568108b173dafe4abfe107439078a7e8e7bf",
+      "hash": "3c9307245666c1ed78c148458ba6516abbcb0f1e759f0eb11fe08dbd",
       "referenceUtxo": {
-        "txHash": "c4e487e7972eac3cf903c5a365e34c5cf38962a4196ef98c23190d53748091de",
+        "txHash": "15bb4704c2e3692118aa5f32808cbb754f6ee37b9b9a6b9688a678e1f3bdf1c7",
         "outputIndex": 1
       },
       "cost": { "mem": 500000, "steps": 200000000 },
       "marginalCost": null
     },
     "farm_factory": {
-      "hash": "f0ffd9764d01802dbc3023ccf90e7b704bb04256ae974411b832e0c4",
+      "hash": "3cf445258170b417073d7699f5052417fddf994b82c166fe9a40f044",
       "referenceUtxo": {
-        "txHash": "c4e487e7972eac3cf903c5a365e34c5cf38962a4196ef98c23190d53748091de",
+        "txHash": "15bb4704c2e3692118aa5f32808cbb754f6ee37b9b9a6b9688a678e1f3bdf1c7",
         "outputIndex": 2
       },
       "cost": { "mem": 500000, "steps": 200000000 },
       "marginalCost": null
     },
     "wp_factory": {
-      "hash": "84d06ffb995bf4ea46b7bfd79cb1339e06d81fb027f26f25ee447590",
+      "hash": "6507935041d26c753b82b582d0755ed6649e7b3db2071fb767042ac6",
       "referenceUtxo": {
-        "txHash": "c4e487e7972eac3cf903c5a365e34c5cf38962a4196ef98c23190d53748091de",
+        "txHash": "15bb4704c2e3692118aa5f32808cbb754f6ee37b9b9a6b9688a678e1f3bdf1c7",
         "outputIndex": 3
       },
       "cost": { "mem": 500000, "steps": 200000000 },
       "marginalCost": null
     },
     "ve_factory": {
-      "hash": "3a64ee842bcb7e925024bab11fd892ff0278d65490f52a21e4af98b7",
+      "hash": "ebf34c44ec1c138d7c9b5de7f46664ac6990df13f3a11b78742e1ada",
       "referenceUtxo": {
-        "txHash": "c4e487e7972eac3cf903c5a365e34c5cf38962a4196ef98c23190d53748091de",
+        "txHash": "15bb4704c2e3692118aa5f32808cbb754f6ee37b9b9a6b9688a678e1f3bdf1c7",
         "outputIndex": 4
       },
       "cost": { "mem": 500000, "steps": 200000000 },
       "marginalCost": null
     },
     "gov_proxy": {
-      "hash": "b520e195a1042d9ca90d498fe07bfb3ab6fab5777a6c4d57127df18e",
+      "hash": "5cb52d6fd97c5b58db458515b9cf730ca69080d09606075aefe1d25e",
       "referenceUtxo": {
-        "txHash": "b16f9538f3120d5c910955b36747de20f7b7f831ef6e4f6d5cd2ffb0f74d0842",
+        "txHash": "a9a4c381c10ea4b04c6f1ba290254a9a4724f0688b93c0f40799d1f07b082461",
         "outputIndex": 0
       },
       "cost": { "mem": 500000, "steps": 200000000 },
       "marginalCost": null
     },
     "perm_manager": {
-      "hash": "3d633b49d7bf90954cbd9a23c2dd45775f6c1bfe5133c9b749a84540",
+      "hash": "a626700adf383e088e1b0554d5c0375f180adb073765495affd88ed6",
       "referenceUtxo": {
-        "txHash": "b16f9538f3120d5c910955b36747de20f7b7f831ef6e4f6d5cd2ffb0f74d0842",
+        "txHash": "a9a4c381c10ea4b04c6f1ba290254a9a4724f0688b93c0f40799d1f07b082461",
         "outputIndex": 1
       },
       "cost": { "mem": 500000, "steps": 200000000 },
       "marginalCost": null
     },
     "mint_wpauth_token": {
-      "hash": "c13945c504276fa993f829a2d22c3e6ac25c8fab25230fce3db5b150",
+      "hash": "f8943e2c51a5f9a66b8b767c82407197be190718b414baeef41a73ff",
       "referenceUtxo": {
-        "txHash": "b16f9538f3120d5c910955b36747de20f7b7f831ef6e4f6d5cd2ffb0f74d0842",
+        "txHash": "a9a4c381c10ea4b04c6f1ba290254a9a4724f0688b93c0f40799d1f07b082461",
         "outputIndex": 2
       },
       "cost": { "mem": 500000, "steps": 200000000 },
@@ -132,38 +132,39 @@
     "mint_identifier": {
       "hash": "41c0e3b5f560ee53f28f4ca2b07a3f00ca2aafdf161cffd9f2a1ce62",
       "referenceUtxo": {
-        "txHash": "b16f9538f3120d5c910955b36747de20f7b7f831ef6e4f6d5cd2ffb0f74d0842",
+        "txHash": "a9a4c381c10ea4b04c6f1ba290254a9a4724f0688b93c0f40799d1f07b082461",
         "outputIndex": 3
       },
       "cost": { "mem": 500000, "steps": 200000000 },
       "marginalCost": null
     },
     "mint_ve_composition_token": {
-      "hash": "0c404473ce1c3ebcf2ce555c8aa910d001b96ccd77b82e096db5c172",
+      "hash": "6bfaaf3d4a72600b1efc4500cb043773171510749f4dbda75516cc0d",
       "referenceUtxo": {
-        "txHash": "5545421442e7a50955218e1db0e676fe7637d693066d8d4eda06c27f4aa83481",
+        "txHash": "17a1ff4fa8c8b7b548a08ac265d64b1ee8c74036bbb629bed9eead42fad59e71",
         "outputIndex": 0
       },
       "cost": { "mem": 500000, "steps": 200000000 },
       "marginalCost": null
     },
     "weighting_power": {
-      "hash": "1d23f8233ca7175a91d1f2d6a342ad99e337d9da2cb58e0900c2455d",
+      "hash": "6fee6a07a38a779990eacf40d78c7898d7ed7da8fc57364289bb78a4",
       "referenceUtxo": {
-        "txHash": "5545421442e7a50955218e1db0e676fe7637d693066d8d4eda06c27f4aa83481",
+        "txHash": "17a1ff4fa8c8b7b548a08ac265d64b1ee8c74036bbb629bed9eead42fad59e71",
         "outputIndex": 1
       },
       "cost": { "mem": 500000, "steps": 200000000 },
       "marginalCost": null
     },
     "smart_farm": {
-      "hash": "d98157a3882cd4603119bf6cbcf8874801d3ae5dc651e5387e6162bc",
+      "hash": "d324054e71c05f2b5669246de337ee6a2e912f419a958c2bd5c84277",
       "referenceUtxo": {
-        "txHash": "5545421442e7a50955218e1db0e676fe7637d693066d8d4eda06c27f4aa83481",
+        "txHash": "17a1ff4fa8c8b7b548a08ac265d64b1ee8c74036bbb629bed9eead42fad59e71",
         "outputIndex": 2
       },
       "cost": { "mem": 500000, "steps": 200000000 },
       "marginalCost": null
     }
-  }
+  },
+  "genesis_epoch_start_time": 1729613289000
 }

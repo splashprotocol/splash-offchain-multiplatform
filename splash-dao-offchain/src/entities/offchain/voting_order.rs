@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex};
 
+use cml_chain::plutus::PlutusData;
 use cml_chain::PolicyId;
 use cml_crypto::ScriptHash;
 use derive_more::{From, Into};
@@ -26,8 +27,9 @@ pub struct VotingOrder {
     pub distribution: Vec<(FarmId, u64)>,
     pub proof: Vec<u8>,
     pub witness: ScriptHash,
+    pub witness_input: PlutusData,
     pub version: u32,
-    pub proposal_auth_policy: PolicyId,
+    // pub proposal_auth_policy: PolicyId,
 }
 
 impl UniqueOrder for VotingOrder {

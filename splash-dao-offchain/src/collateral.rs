@@ -57,9 +57,10 @@ pub async fn pull_collateral<Net: CardanoNetwork>(
 pub async fn generate_collateral<Net: CardanoNetwork>(
     explorer: &Net,
     addr: &Address,
+    collateral_addr: &Address,
     prover: &OperatorProver,
 ) -> Result<Collateral, Box<dyn std::error::Error>> {
-    let all_utxos = explorer.utxos_by_address(addr.clone(), 0, 50).await;
+    let all_utxos = explorer.utxos_by_address(addr.clone(), 0, 100).await;
     let utxos = collect_utxos(all_utxos, COLLATERAL_LOVELACES + 1_000_000, vec![], None);
 
     let mut tx_builder = constant_tx_builder();
@@ -67,7 +68,7 @@ pub async fn generate_collateral<Net: CardanoNetwork>(
         tx_builder.add_input(utxo).unwrap();
     }
     let output_result = TransactionOutputBuilder::new()
-        .with_address(addr.clone())
+        .with_address(collateral_addr.clone())
         .next()
         .unwrap()
         .with_value(Value::from(COLLATERAL_LOVELACES))
@@ -75,6 +76,47 @@ pub async fn generate_collateral<Net: CardanoNetwork>(
         .unwrap();
     tx_builder.add_output(output_result).unwrap();
     let signed_tx_builder = tx_builder.build(ChangeSelectionAlgo::Default, addr).unwrap();
+
+    let tx = prover.prove(signed_tx_builder);
+    let tx_hash = TransactionHash::from_hex(&tx.deref().body.hash().to_hex()).unwrap();
+    println!("Generating collateral TX ----------------------------------------------");
+    println!("tx_hash: {:?}", tx_hash);
+    let tx_bytes = tx.deref().to_cbor_bytes();
+    println!("tx_bytes: {}", hex::encode(&tx_bytes));
+
+    explorer.submit_tx(&tx_bytes).await?;
+    explorer.wait_for_transaction_confirmation(tx_hash).await?;
+
+    let output_ref = OutputRef::new(tx_hash, 0);
+    let utxo = explorer.utxo_by_ref(output_ref).await.unwrap();
+    Ok(Collateral::from(utxo))
+}
+
+pub async fn send_ada<Net: CardanoNetwork>(
+    explorer: &Net,
+    wallet_addr: &Address,
+    destination_addr: &Address,
+    prover: &OperatorProver,
+) -> Result<Collateral, Box<dyn std::error::Error>> {
+    let amount = 100_000_000;
+    let all_utxos = explorer.utxos_by_address(wallet_addr.clone(), 0, 50).await;
+    let utxos = collect_utxos(all_utxos, amount + 1_000_000, vec![], None);
+
+    let mut tx_builder = constant_tx_builder();
+    for utxo in utxos {
+        tx_builder.add_input(utxo).unwrap();
+    }
+    let output_result = TransactionOutputBuilder::new()
+        .with_address(destination_addr.clone())
+        .next()
+        .unwrap()
+        .with_value(Value::from(amount))
+        .build()
+        .unwrap();
+    tx_builder.add_output(output_result).unwrap();
+    let signed_tx_builder = tx_builder
+        .build(ChangeSelectionAlgo::Default, wallet_addr)
+        .unwrap();
 
     let tx = prover.prove(signed_tx_builder);
     let tx_hash = TransactionHash::from_hex(&tx.deref().body.hash().to_hex()).unwrap();

@@ -149,6 +149,7 @@ pub struct DeploymentProgress {
     pub nft_utxo_inputs: Option<NFTUtxoInputs>,
     pub minted_deployment_tokens: Option<MintedTokens>,
     pub deployed_validators: Option<DeployedValidators>,
+    pub genesis_epoch_start_time: Option<u64>,
 }
 
 pub async fn write_deployment_to_disk(deployment_config: &DeploymentProgress, deployment_json_path: &str) {
@@ -164,6 +165,7 @@ pub struct CompleteDeployment {
     pub nft_utxo_inputs: NFTUtxoInputs,
     pub minted_deployment_tokens: MintedTokens,
     pub deployed_validators: DeployedValidators,
+    pub genesis_epoch_start_time: u64,
 }
 
 impl Has<VEFactoryAuthPolicy> for CompleteDeployment {
@@ -197,12 +199,14 @@ impl TryFrom<DeploymentProgress> for CompleteDeployment {
                 nft_utxo_inputs: Some(nft_utxo_inputs),
                 minted_deployment_tokens: Some(minted_deployment_tokens),
                 deployed_validators: Some(deployed_validators),
+                genesis_epoch_start_time: Some(genesis_epoch_start_time),
             } => Ok(Self {
                 lq_tokens,
                 splash_tokens,
                 nft_utxo_inputs,
                 minted_deployment_tokens,
                 deployed_validators,
+                genesis_epoch_start_time,
             }),
             _ => Err(()),
         }

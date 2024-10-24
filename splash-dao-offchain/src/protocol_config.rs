@@ -36,7 +36,7 @@ pub struct ProtocolConfig {
 
 impl ProtocolConfig {
     pub fn poll_id(&self, epoch: ProtocolEpoch) -> WeightingPollId {
-        WeightingPollId(0)
+        WeightingPollId(epoch)
     }
 }
 
@@ -123,7 +123,6 @@ pub struct OperatorCreds(pub Ed25519KeyHash, pub Address);
 pub trait NotOutputRefNorSlotNumber {}
 
 impl NotOutputRefNorSlotNumber for OperatorCreds {}
-impl NotOutputRefNorSlotNumber for CurrentEpoch {}
 impl NotOutputRefNorSlotNumber for SplashPolicy {}
 impl NotOutputRefNorSlotNumber for PermManagerAuthPolicy {}
 impl NotOutputRefNorSlotNumber for MintWPAuthPolicy {}
@@ -131,7 +130,14 @@ impl NotOutputRefNorSlotNumber for MintVEIdentifierPolicy {}
 impl NotOutputRefNorSlotNumber for MintVECompositionPolicy {}
 impl NotOutputRefNorSlotNumber for VEFactoryAuthPolicy {}
 impl NotOutputRefNorSlotNumber for GTAuthPolicy {}
+impl NotOutputRefNorSlotNumber for NetworkId {}
 impl<const TYP: u8> NotOutputRefNorSlotNumber for DeployedScriptInfo<TYP> {}
+
+impl Has<NetworkId> for ProtocolConfig {
+    fn select<U: IsEqual<NetworkId>>(&self) -> NetworkId {
+        self.network_id
+    }
+}
 
 impl Has<Reward> for ProtocolConfig {
     fn select<U: IsEqual<Reward>>(&self) -> Reward {
@@ -183,8 +189,7 @@ impl Has<MintWPAuthRefScriptOutput> for ProtocolConfig {
 
 impl Has<MintVEIdentifierPolicy> for ProtocolConfig {
     fn select<U: IsEqual<MintVEIdentifierPolicy>>(&self) -> MintVEIdentifierPolicy {
-        // MintVEIdentifierPolicy(self.deployed_validators.mint_ve_identifier_token.hash)
-        todo!()
+        MintVEIdentifierPolicy(self.deployed_validators.mint_identifier.hash)
     }
 }
 

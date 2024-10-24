@@ -23,7 +23,7 @@ use cml_chain::{
     transaction::{Transaction, TransactionOutput},
     PolicyId,
 };
-use cml_crypto::TransactionHash;
+use cml_crypto::{Bip32PrivateKey, TransactionHash};
 use cml_multi_era::babbage::BabbageTransaction;
 use config::AppConfig;
 use futures::{stream::select_all, FutureExt, Stream, StreamExt};
@@ -43,7 +43,7 @@ use spectrum_offchain_cardano::{
     tx_submission::{tx_submission_agent_stream, TxSubmissionAgent},
 };
 use splash_dao_offchain::{
-    collateral::pull_collateral,
+    collateral::{generate_collateral, pull_collateral},
     deployment::{CompleteDeployment, DeploymentProgress, ProtocolDeployment},
     entities::offchain::voting_order::VotingOrder,
     funding::FundingRepoRocksDB,
@@ -126,15 +126,19 @@ async fn main() {
 
     // We assume the batcher's private key is associated with a Cardano base address, which also
     // includes a reward address.
-    let (addr, _, operator_pkh, operator_cred, operator_sk) =
-        operator_creds_base_address(config.batcher_private_key, config.network_id);
+    let (addr, collateral_addr, funding_addresses) =
+        operator_creds(config.batcher_private_key, config.network_id);
+
+    let operator_sk = Bip32PrivateKey::from_bech32(config.batcher_private_key)
+        .expect("wallet error")
+        .to_raw_key();
 
     let reward_address = RewardAddress::new(
         NetworkInfo::preprod().network_id(),
-        StakeCredential::new_pub_key(operator_sk.to_public().hash()),
+        StakeCredential::new_pub_key(addr.0),
     );
 
-    let collateral = pull_collateral(addr.into(), &explorer)
+    let collateral = pull_collateral(collateral_addr, &explorer)
         .await
         .expect("Couldn't retrieve collateral");
 
@@ -147,7 +151,7 @@ async fn main() {
         node_magic: node_magic as u64,
         reward_address,
         collateral,
-        genesis_time: config.genesis_start_time.into(),
+        genesis_time: deployment.genesis_epoch_start_time.into(),
     };
 
     let (ledger_event_snd, ledger_event_rcv) = tokio::sync::mpsc::channel(100);

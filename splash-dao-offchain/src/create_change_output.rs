@@ -65,6 +65,7 @@ impl CreateChangeOutput for ChangeOutputCreator {
     }
 
     fn create_change_output(self, fee: u64, change_address: Address) -> SingleOutputBuilderResult {
+        assert!(self.input_coin > self.output_coin + fee);
         let change_output_coin = self.input_coin - self.output_coin - fee;
         let mut change_assets = MultiAsset::default();
         for ((policy_id, asset_name), quantity) in self.tokens_in_inputs {

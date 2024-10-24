@@ -4,6 +4,7 @@ use cml_chain::plutus::{ExUnits, PlutusData, PlutusV2Script};
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, ScriptHash};
+use log::trace;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::plutus_data::{DatumExtension, IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
@@ -33,24 +34,32 @@ impl Identifier for InflationBoxId {
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct InflationBox {
-    pub last_processed_epoch: ProtocolEpoch,
+    pub last_processed_epoch: Option<ProtocolEpoch>,
     pub splash_reserves: TaggedAmount<Splash>,
     pub script_hash: ScriptHash,
 }
 
 impl InflationBox {
     pub fn active_epoch(&self, genesis: GenesisEpochStartTime, now: NetworkTime) -> ProtocolEpoch {
-        if epoch_end(genesis, self.last_processed_epoch) < now {
-            self.last_processed_epoch
+        if let Some(last_processed_epoch) = self.last_processed_epoch {
+            if epoch_end(genesis, last_processed_epoch) > now {
+                last_processed_epoch
+            } else {
+                last_processed_epoch + 1
+            }
         } else {
-            self.last_processed_epoch + 1
+            0
         }
     }
 
     pub fn release_next_tranche(mut self) -> (InflationBox, TaggedAmount<Splash>) {
-        let next_epoch = self.last_processed_epoch + 1;
+        let next_epoch = if self.last_processed_epoch.is_none() {
+            1
+        } else {
+            self.last_processed_epoch.unwrap() + 1
+        };
         let rate = emission_rate(next_epoch);
-        self.last_processed_epoch = next_epoch;
+        self.last_processed_epoch = Some(next_epoch);
         self.splash_reserves -= rate;
         (self, rate)
     }
@@ -96,23 +105,18 @@ where
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
-            println!("INFLATION_BOX ADDR OK!!");
             let value = repr.value().clone();
-            println!("aaa");
             let datum = repr.datum()?;
-            println!("bbb: datum: {:?}", datum);
             let epoch = datum.into_pd()?.into_u64()?;
-            println!("ccc");
+            let last_processed_epoch = if epoch > 0 { Some(epoch as u32 - 1) } else { None };
             let splash_asset_name = AssetName::try_from(SPLASH_NAME).unwrap();
             let splash = value
                 .multiasset
                 .get(&ctx.select::<SplashPolicy>().0, &splash_asset_name)?;
-            println!("ddd");
             let script_hash = repr.script_hash()?;
-            println!("eee");
 
             let inflation_box = InflationBox {
-                last_processed_epoch: epoch as u32,
+                last_processed_epoch,
                 splash_reserves: TaggedAmount::new(splash),
                 script_hash,
             };
@@ -135,12 +139,14 @@ pub const INFLATION_BOX_EX_UNITS: ExUnits = ExUnits {
 };
 
 pub fn compute_inflation_box_validator(
+    inflation_auth_policy: PolicyId,
     splash_policy: PolicyId,
     wp_auth_policy: PolicyId,
     weighting_power_policy: PolicyId,
     zeroth_epoch_start: u64,
 ) -> PlutusV2Script {
     let params_pd = uplc::PlutusData::Array(vec![
+        uplc::PlutusData::BoundedBytes(PlutusBytes::from(inflation_auth_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(splash_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(wp_auth_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(weighting_power_policy.to_raw_bytes().to_vec())),

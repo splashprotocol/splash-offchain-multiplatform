@@ -1,4 +1,5 @@
 mod mint_token;
+pub mod voting_order;
 
 use std::{
     cmp::Ordering,
@@ -18,9 +19,11 @@ use cml_chain::{
         output_builder::TransactionOutputBuilder,
         redeemer_builder::RedeemerWitnessKey,
         tx_builder::{ChangeSelectionAlgo, TransactionBuilder, TransactionUnspentOutput},
+        withdrawal_builder::SingleWithdrawalBuilder,
         witness_builder::{PartialPlutusWitness, PlutusScriptWitness},
     },
-    plutus::{ConstrPlutusData, PlutusData, RedeemerTag},
+    certs::Credential,
+    plutus::{ConstrPlutusData, PlutusData, PlutusScript, PlutusV2Script, RedeemerTag},
     transaction::{DatumOption, TransactionOutput},
     utils::BigInteger,
     Coin, Serialize, Value,
@@ -38,13 +41,13 @@ use spectrum_cardano_lib::{
 use spectrum_cardano_lib::{plutus_data::IntoPlutusData, types::TryFromPData};
 use spectrum_offchain::{data::Has, ledger::TryFromLedger, tx_prover::TxProver};
 use spectrum_offchain_cardano::{
-    creds::{operator_creds_base_address, CollateralAddress},
+    creds::{operator_creds, operator_creds_base_address, CollateralAddress},
     deployment::{DeployedScriptInfo, DeployedValidatorRef, ReferenceUTxO},
     prover::operator::OperatorProver,
 };
 use splash_dao_offchain::{
-    collateral::{generate_collateral, pull_collateral},
-    constants::{DEFAULT_AUTH_TOKEN_NAME, SPLASH_NAME},
+    collateral::{generate_collateral, pull_collateral, send_ada},
+    constants::{DEFAULT_AUTH_TOKEN_NAME, SPLASH_NAME, VOTING_WITNESS_STUB},
     create_change_output::{ChangeOutputCreator, CreateChangeOutput},
     deployment::{
         write_deployment_to_disk, BuiltPolicy, CompleteDeployment, DeployedValidators, DeploymentProgress,
@@ -55,14 +58,14 @@ use splash_dao_offchain::{
         inflation_box::InflationBoxSnapshot,
         permission_manager::PermManagerSnapshot,
         poll_factory::{PollFactoryConfig, PollFactorySnapshot},
-        smart_farm::MintAction,
-        voting_escrow::{Lock, Owner, VotingEscrowConfig},
+        smart_farm::{FarmId, MintAction},
+        voting_escrow::{Lock, Owner, VotingEscrowAction, VotingEscrowAuthorizedAction, VotingEscrowConfig},
         voting_escrow_factory::{self, exchange_outputs, VEFactoryDatum, VEFactorySnapshot},
     },
     protocol_config::{GTAuthPolicy, NotOutputRefNorSlotNumber, VEFactoryAuthPolicy},
     routines::inflation::WithOutputRef,
     time::NetworkTimeProvider,
-    NetworkTimeSource,
+    CurrentEpoch, NetworkTimeSource,
 };
 use tokio::io::AsyncWriteExt;
 use type_equalities::IsEqual;
@@ -84,17 +87,19 @@ async fn deploy<'a>(config: AppConfig<'a>) {
         .await
         .expect("Maestro instantiation failed");
 
-    let (addr, _, operator_pkh, operator_cred, operator_sk) =
+    let (addr, _, operator_pkh, _operator_cred, operator_sk) =
         operator_creds_base_address(config.batcher_private_key, config.network_id);
 
-    let pk_bech32 = operator_sk.to_bech32();
-    println!("pk_bech32: {}", pk_bech32);
-    let prover = OperatorProver::new(pk_bech32);
+    let sk_bech32 = operator_sk.to_bech32();
+    let prover = OperatorProver::new(sk_bech32);
+    let owner_pub_key = operator_sk.to_public();
 
     let collateral = if let Some(c) = pull_collateral(addr.clone().into(), &explorer).await {
         c
     } else {
-        generate_collateral(&explorer, &addr, &prover).await.unwrap()
+        generate_collateral(&explorer, &addr, &addr, &prover)
+            .await
+            .unwrap()
     };
 
     println!("Collateral output_ref: {}", collateral.reference());
@@ -238,10 +243,12 @@ async fn deploy<'a>(config: AppConfig<'a>) {
     }
     if deployment_config.deployed_validators.is_none() {
         let time_source = NetworkTimeSource;
+        let genesis_epoch_start_time =
+            (time_source.network_time().await - dao_parameters.zeroth_epoch_start_offset) * 1000;
         let (tx_builder_0, tx_builder_1, tx_builder_2, reference_input_script_hashes) =
             mint_token::create_dao_reference_input_utxos(
                 &deployment_config,
-                time_source.network_time().await + dao_parameters.zeroth_epoch_start_offset,
+                genesis_epoch_start_time,
                 config.network_id,
             );
 
@@ -347,14 +354,26 @@ async fn deploy<'a>(config: AppConfig<'a>) {
         };
 
         deployment_config.deployed_validators = Some(d);
+        deployment_config.genesis_epoch_start_time = Some(genesis_epoch_start_time);
 
         write_deployment_to_disk(&deployment_config, config.deployment_json_path).await;
     }
 
     let deployment_config = CompleteDeployment::try_from(deployment_config).unwrap();
+    create_dao_entities(
+        &explorer,
+        &addr,
+        collateral.clone(),
+        &prover,
+        config.network_id,
+        &deployment_config,
+        &dao_parameters,
+    )
+    .await;
     make_deposit(
         &explorer,
         &addr,
+        owner_pub_key,
         collateral,
         &prover,
         config.network_id,
@@ -362,16 +381,15 @@ async fn deploy<'a>(config: AppConfig<'a>) {
         &dao_parameters,
     )
     .await;
-    //create_dao_entities(
+    //create_initial_farms(
     //    &explorer,
     //    &addr,
     //    collateral,
     //    &prover,
+    //    config.network_id,
     //    &deployment_config,
-    //    dao_parameters,
     //)
     //.await;
-    //create_initial_farms(&explorer, &addr, collateral, &prover, &deployment_config).await;
 }
 
 /// Note: need about 120 ADA to create these entities.
@@ -403,9 +421,14 @@ async fn create_dao_entities(
     prover: &OperatorProver,
     network_id: NetworkId,
     deployment_config: &CompleteDeployment,
-    deployment_params: DaoDeploymentParameters,
+    deployment_params: &DaoDeploymentParameters,
 ) {
     let minted_tokens = &deployment_config.minted_deployment_tokens;
+    let splash_built_policy = BuiltPolicy {
+        policy_id: deployment_config.splash_tokens.policy_id,
+        asset_name: deployment_config.splash_tokens.asset_name.clone(),
+        quantity: BigInteger::from(deployment_config.splash_tokens.quantity),
+    };
     let required_tokens = vec![
         minted_tokens.perm_auth.clone(),
         minted_tokens.ve_factory_auth.clone(),
@@ -413,6 +436,7 @@ async fn create_dao_entities(
         minted_tokens.factory_auth.clone(),
         minted_tokens.inflation_auth.clone(),
         minted_tokens.wp_factory_auth.clone(),
+        splash_built_policy,
     ];
     let utxos = collect_utxos(addr, 5_000_000, required_tokens.clone(), &collateral, explorer).await;
 
@@ -491,6 +515,11 @@ async fn create_dao_entities(
         minted_tokens.inflation_auth.asset_name.clone(),
         minted_tokens.inflation_auth.quantity.as_u64().unwrap(),
     );
+    inflation_assets.set(
+        deployment_config.splash_tokens.policy_id,
+        deployment_config.splash_tokens.asset_name.clone(),
+        deployment_config.splash_tokens.quantity,
+    );
     let inflation_out = make_output(
         protocol_deployment.inflation.hash,
         DatumOption::new_datum(PlutusData::new_integer(BigInteger::from(0_u64))),
@@ -521,10 +550,16 @@ async fn create_dao_entities(
     output_coin += farm_factory_out.output.value().coin;
     tx_builder.add_output(farm_factory_out).unwrap();
 
+    let farm_id = |name_utf8: &str| {
+        FarmId(spectrum_cardano_lib::AssetName::from(
+            cml_chain::assets::AssetName::try_from(name_utf8).unwrap(),
+        ))
+    };
+
     // wp_factory
     let wp_factory_datum = PollFactoryConfig {
         last_poll_epoch: -1,
-        active_farms: vec![],
+        active_farms: vec![farm_id("f0"), farm_id("f1")],
     };
     let mut wp_factory_assets = MultiAsset::default();
     wp_factory_assets.set(
@@ -540,7 +575,7 @@ async fn create_dao_entities(
     output_coin += wp_factory_out.output.amount().coin;
     tx_builder.add_output(wp_factory_out).unwrap();
 
-    let ve_factory_datum = VEFactoryDatum::from(deployment_params.accepted_assets);
+    let ve_factory_datum = VEFactoryDatum::from(deployment_params.accepted_assets.clone());
     let mut ve_factory_assets = MultiAsset::default();
     ve_factory_assets.set(
         minted_tokens.ve_factory_auth.policy_id,
@@ -596,7 +631,7 @@ async fn create_dao_entities(
 
     println!("Creating DAO entities --------------------------------------------");
     let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
-    let actual_fee = estimated_tx_fee + 200_000;
+    let actual_fee = estimated_tx_fee + 300_000;
     tx_builder.set_fee(actual_fee);
     println!("Estimated fee: {}", estimated_tx_fee);
 
@@ -628,11 +663,13 @@ async fn create_dao_entities(
 
     explorer.submit_tx(&tx_bytes).await.unwrap();
     explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
+    println!("TX confirmed");
 }
 
 async fn make_deposit(
     explorer: &Maestro,
     addr: &Address,
+    owner_pub_key: cml_crypto::PublicKey,
     collateral: Collateral,
     prover: &OperatorProver,
     network_id: NetworkId,
@@ -813,19 +850,20 @@ async fn make_deposit(
     tx_builder.add_output(ve_factory_output).unwrap();
 
     let time_source = NetworkTimeSource;
+    const ONE_MONTH_IN_SECONDS: u64 = 604800 * 4;
     let voting_escrow_datum = DatumOption::new_datum(
         VotingEscrowConfig {
-            locked_until: Lock::Def((time_source.network_time().await + 10000) * 1000),
-            owner: Owner::PubKey(vec![1, 2, 3]),
-            max_ex_fee: 300_000,
+            locked_until: Lock::Def((time_source.network_time().await + ONE_MONTH_IN_SECONDS) * 1000),
+            owner: Owner::PubKey(owner_pub_key.to_raw_bytes().to_vec()),
+            max_ex_fee: 2_000_000,
             version: 0,
-            last_wp_epoch: 0,
-            last_gp_deadline: 0,
+            last_wp_epoch: -1,
+            last_gp_deadline: -1,
         }
         .into_pd(),
     );
 
-    voting_escrow_value.coin = 2_000_000;
+    voting_escrow_value.coin = 5_000_000;
 
     let voting_escrow_output = TransactionOutputBuilder::new()
         .with_address(script_address(protocol_deployment.voting_escrow.hash, network_id))
@@ -859,6 +897,7 @@ async fn make_deposit(
 
     explorer.submit_tx(&tx_bytes).await.unwrap();
     explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
+    println!("TX confirmed");
 }
 
 async fn create_initial_farms(
@@ -867,12 +906,12 @@ async fn create_initial_farms(
     collateral: Collateral,
     prover: &OperatorProver,
     network_id: NetworkId,
-    deployment_config: &DeploymentProgress,
+    deployment_config: &CompleteDeployment,
 ) {
-    let deployed_ref_inputs = deployment_config.deployed_validators.as_ref().unwrap();
+    let deployed_ref_inputs = &deployment_config.deployed_validators;
     let protocol_deployment = ProtocolDeployment::unsafe_pull(deployed_ref_inputs.clone(), explorer).await;
 
-    let minted_tokens = deployment_config.minted_deployment_tokens.as_ref().unwrap();
+    let minted_tokens = &deployment_config.minted_deployment_tokens;
     let required_tokens = vec![minted_tokens.factory_auth.clone()];
     let utxos = collect_utxos(addr, 5_000_000, required_tokens.clone(), &collateral, explorer).await;
 
@@ -1084,6 +1123,7 @@ where
         let ctx = WithOutputRef {
             behaviour: deployment_config,
             output_ref: ve_factory_output_ref,
+            current_epoch: CurrentEpoch::from(0),
         };
         if T::try_from_ledger(&utxo.output, &ctx).is_some() {
             return Some(utxo);
@@ -1094,7 +1134,6 @@ where
 
 fn compute_identifier_token_asset_name(output_ref: OutputRef) -> cml_chain::assets::AssetName {
     let mut bytes = output_ref.tx_hash().to_raw_bytes().to_vec();
-    // let mut bytes = PlutusData::new_bytes(output_ref.tx_hash().to_raw_bytes().to_vec()).to_cbor_bytes();
     bytes.extend_from_slice(&PlutusData::new_integer(BigInteger::from(output_ref.index())).to_cbor_bytes());
     let token_name = blake2b256(bytes.as_ref());
     cml_chain::assets::AssetName::new(token_name.to_vec()).unwrap()

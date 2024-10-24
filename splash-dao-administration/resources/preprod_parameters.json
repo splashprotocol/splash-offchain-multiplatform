@@ -1,5 +1,5 @@
 {
-  "zeroth_epoch_start_offset": 60,
+  "zeroth_epoch_start_offset": 100,
   "accepted_assets": [
     {
       "asset_name_utf8": "SPLASH",

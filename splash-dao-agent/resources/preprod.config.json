@@ -2,17 +2,17 @@
   "chainSync": {
     "startingPoint": {
       "Specific": [
-        70441625,
-        "5046b26cdbddc7a6079bec508a178a97257730c540f784cc6e4f0c558b7ddd17"
+        73919468,
+        "f120d3f1f8100ec3407f8000feca09e2feb2cd17c784846f70935f7f8739df44"
       ]
     },
     "replayFromPoint": {
       "Specific": [
-        70441625,
-        "5046b26cdbddc7a6079bec508a178a97257730c540f784cc6e4f0c558b7ddd17"
+        73919468,
+        "f120d3f1f8100ec3407f8000feca09e2feb2cd17c784846f70935f7f8739df44"
       ]
     },
-    "disableRollbacksUntil": 67857311,
+    "disableRollbacksUntil": 73724591,
     "dbPath": "state"
   },
   "node": {
@@ -41,5 +41,5 @@
   "explorer": {
     "url": "https://explorer.spectrum.fi"
   },
-  "rewardAddress": "addr_test1qqhgas4szag9gn4cvpctxzz6em6adxpmf4hp7h8jdclvpwzdx3jdp9r93dm04q7tsuchcs6ypgtwydmtp2pxvu6p8khsdaedud"
+  "rewardAddress": "addr_test1qqltu3xgvc8wn8kadarzg4gsjytlpj9fd5rgy5sjl6neh6rakpadsazz4ztjclka0u7nqujz34vtnj9a0swjg5ccmfsqzzrhjz"
 }

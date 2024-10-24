@@ -9,8 +9,10 @@ use async_stream::stream;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain_cardano::event_sink::processed_tx::TxViewAtEraBoundary;
 use cardano_chain_sync::data::LedgerTxEvent;
+use cml_chain::plutus::{PlutusData, PlutusScript, PlutusV2Script};
 use cml_chain::transaction::{Transaction, TransactionOutput};
-use cml_crypto::{PrivateKey, TransactionHash};
+use cml_chain::Serialize;
+use cml_crypto::{PrivateKey, RawBytesEncoding, ScriptHash, TransactionHash};
 use cml_multi_era::babbage::BabbageTransaction;
 use futures::{pin_mut, Future, FutureExt, Stream, StreamExt};
 use futures_timer::Delay;
@@ -23,6 +25,7 @@ use spectrum_offchain::data::{EntitySnapshot, Has};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_prover::TxProver;
+use spectrum_offchain_cardano::creds::operator_creds_base_address;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::RejectReasons;
@@ -31,8 +34,9 @@ use tokio::sync::mpsc::Receiver;
 use tokio::sync::Mutex;
 use type_equalities::IsEqual;
 
+use crate::constants::VOTING_WITNESS_STUB;
 use crate::deployment::ProtocolValidator;
-use crate::entities::offchain::voting_order::VotingOrder;
+use crate::entities::offchain::voting_order::{VotingOrder, VotingOrderId};
 use crate::entities::onchain::funding_box::{FundingBox, FundingBoxId, FundingBoxSnapshot};
 use crate::entities::onchain::inflation_box::{InflationBoxId, InflationBoxSnapshot};
 use crate::entities::onchain::permission_manager::{PermManager, PermManagerId, PermManagerSnapshot};
@@ -113,7 +117,7 @@ where
     FB: FundingRepo + Send + Sync,
     Time: NetworkTimeProvider + Send + Sync,
     Actions: InflationActions<Bearer> + Send + Sync,
-    Bearer: Send + Sync,
+    Bearer: Send + Sync + std::fmt::Debug,
     Net: Network<OutboundTransaction<Transaction>, RejectReasons> + Clone + Sync + Send,
 {
     async fn attempt(&mut self) -> Option<ToRoutine> {
@@ -156,7 +160,10 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         operator_sk: PrivateKey,
         ledger_upstream: Receiver<LedgerTxEvent<TxViewAtEraBoundary>>,
         signal_tip_reached_recv: tokio::sync::broadcast::Receiver<bool>,
-    ) -> Self {
+    ) -> Self
+    where
+        Backlog: ResilientBacklog<VotingOrder> + Send + Sync,
+    {
         Self {
             inflation_box,
             poll_factory,
@@ -192,6 +199,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
     {
         if let Some(m) = self.inflation_box().await {
             let time_src = NetworkTimeSource {};
+            let now_millis = time_src.network_time().await * 1000;
             match m {
                 AnyMod::Confirmed(Traced {
                     state: Confirmed(Bundled(snapshot, _)),
@@ -199,16 +207,21 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                 }) => CurrentEpoch(
                     snapshot
                         .get()
-                        .active_epoch(self.conf.genesis_time.into(), time_src.network_time().await),
+                        .active_epoch(self.conf.genesis_time.into(), now_millis),
                 ),
                 AnyMod::Predicted(Traced {
                     state: Predicted(Bundled(snapshot, _)),
                     ..
-                }) => CurrentEpoch(
-                    snapshot
+                }) => {
+                    let predicted_active_epoch = snapshot
                         .get()
-                        .active_epoch(self.conf.genesis_time.into(), time_src.network_time().await),
-                ),
+                        .active_epoch(self.conf.genesis_time.into(), now_millis);
+                    if predicted_active_epoch > 0 {
+                        CurrentEpoch(predicted_active_epoch - 1)
+                    } else {
+                        CurrentEpoch(0)
+                    }
+                }
             }
         } else {
             CurrentEpoch(0)
@@ -240,12 +253,13 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
     }
 
     async fn next_order(
-        &self,
+        &mut self,
         _stage: WeightingOngoing,
     ) -> Option<(VotingOrder, Bundled<VotingEscrowSnapshot, Bearer>)>
     where
         VE: StateProjectionRead<VotingEscrowSnapshot, Bearer> + Send + Sync,
         Backlog: ResilientBacklog<VotingOrder> + Send + Sync,
+        Bearer: std::fmt::Debug,
     {
         if let Some(ord) = self.backlog.try_pop().await {
             self.voting_escrow
@@ -257,7 +271,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         }
     }
 
-    async fn read_state(&self) -> RoutineState<Bearer>
+    async fn read_state(&mut self) -> RoutineState<Bearer>
     where
         IB: StateProjectionRead<InflationBoxSnapshot, Bearer> + Send + Sync,
         PF: StateProjectionRead<PollFactorySnapshot, Bearer> + Send + Sync,
@@ -266,6 +280,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         VE: StateProjectionRead<VotingEscrowSnapshot, Bearer> + Send + Sync,
         SF: StateProjectionRead<SmartFarmSnapshot, Bearer> + Send + Sync,
         Backlog: ResilientBacklog<VotingOrder> + Send + Sync,
+        Bearer: std::fmt::Debug,
         Time: NetworkTimeProvider + Send + Sync,
     {
         let ibox = self.inflation_box().await;
@@ -277,15 +292,24 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
             //self.perm_manager().await,
         ) {
             let genesis = self.conf.genesis_time;
-            let now = self.ntp.network_time().await;
-            let current_epoch = inflation_box.as_erased().0.get().active_epoch(genesis, now);
+            let now_millis = self.ntp.network_time().await * 1000;
+            let current_epoch = inflation_box
+                .as_erased()
+                .0
+                .get()
+                .active_epoch(genesis, now_millis);
+            println!("read_state: current_epoch: {}", current_epoch);
             match self.weighting_poll(current_epoch).await {
-                None => RoutineState::PendingCreatePoll(PendingCreatePoll {
-                    inflation_box,
-                    poll_factory,
-                }),
-                Some(wp) => match wp.as_erased().0.get().state(genesis, now) {
+                None => {
+                    println!("self.weighting_poll(current_epoch) == None");
+                    RoutineState::PendingCreatePoll(PendingCreatePoll {
+                        inflation_box,
+                        poll_factory,
+                    })
+                }
+                Some(wp) => match wp.as_erased().0.get().state(genesis, now_millis) {
                     PollState::WeightingOngoing(st) => {
+                        println!("WeightingOnGoing");
                         RoutineState::WeightingInProgress(WeightingInProgress {
                             weighting_poll: wp,
                             next_pending_order: self.next_order(st).await,
@@ -407,10 +431,11 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                 self.smart_farm.write_confirmed(traced).await;
             }
             DaoEntity::VotingEscrow(ve) => {
-                let confirmed_snapshot = Confirmed(Bundled(Snapshot::new(*ve, *entity.version()), bearer));
+                let confirmed_snapshot =
+                    Confirmed(Bundled(Snapshot::new(ve.clone(), *entity.version()), bearer));
                 let prev_state_id = if let Some(state) = self
                     .voting_escrow
-                    .read(VotingEscrowId::from(ve.get_token()))
+                    .read(VotingEscrowId::from(ve.ve_identifier_policy))
                     .await
                 {
                     let bundled = state.erased();
@@ -516,7 +541,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         if let Some(next_order) = next_pending_order {
             let (signed_tx, next_wpoll, next_ve) = self
                 .actions
-                .execute_order(weighting_poll.erased(), next_order)
+                .execute_order(weighting_poll.erased(), next_order, Slot(self.current_slot))
                 .await;
             let prover = OperatorProver::new(self.operator_sk.to_bech32());
             let tx = prover.prove(signed_tx);
@@ -638,9 +663,11 @@ where
                     let mut ix = num_outputs - 1;
                     while let Some(output) = outputs.pop() {
                         let output_ref = OutputRef::new(hash, ix as u64);
+                        let current_epoch = self.get_current_epoch().await;
                         let ctx = WithOutputRef {
                             behaviour: self,
                             output_ref,
+                            current_epoch,
                         };
                         if let Some(entity) = DaoEntitySnapshot::try_from_ledger(&output.1, &ctx) {
                             println!("entity found: {:?}", entity);
@@ -740,11 +767,18 @@ pub struct Slot(pub u64);
 pub struct WithOutputRef<'a, D> {
     pub behaviour: &'a D,
     pub output_ref: OutputRef,
+    pub current_epoch: CurrentEpoch,
 }
 
 impl<'a, D> Has<OutputRef> for WithOutputRef<'a, D> {
     fn select<U: IsEqual<OutputRef>>(&self) -> OutputRef {
         self.output_ref
+    }
+}
+
+impl<'a, D> Has<CurrentEpoch> for WithOutputRef<'a, D> {
+    fn select<U: IsEqual<CurrentEpoch>>(&self) -> CurrentEpoch {
+        self.current_epoch
     }
 }
 
@@ -765,17 +799,6 @@ where
 {
     fn select<U: IsEqual<H>>(&self) -> H {
         self.conf.select::<U>()
-    }
-}
-
-impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Net> Has<CurrentEpoch>
-    for Behaviour<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, TransactionOutput, Net>
-where
-    IB: StateProjectionRead<InflationBoxSnapshot, TransactionOutput> + Send + Sync,
-{
-    fn select<U: IsEqual<CurrentEpoch>>(&self) -> CurrentEpoch {
-        let rt = Runtime::new().unwrap();
-        rt.block_on(self.get_current_epoch())
     }
 }
 
