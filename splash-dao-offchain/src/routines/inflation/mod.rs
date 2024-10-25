@@ -16,6 +16,10 @@ use cml_crypto::{PrivateKey, RawBytesEncoding, ScriptHash, TransactionHash};
 use cml_multi_era::babbage::BabbageTransaction;
 use futures::{pin_mut, Future, FutureExt, Stream, StreamExt};
 use futures_timer::Delay;
+use log::{error, info};
+use pallas_network::miniprotocols::localtxsubmission::cardano_node_errors::{
+    ApplyTxError, ConwayLedgerPredFailure, ConwayUtxoPredFailure, ConwayUtxowPredFailure,
+};
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::{BabbageTransactionOutputExtension, OutboundTransaction};
 use spectrum_cardano_lib::{AssetName, OutputRef};
@@ -536,19 +540,59 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         Net: Network<OutboundTransaction<Transaction>, RejectReasons> + Clone + Sync + Send,
         WP: StateProjectionWrite<WeightingPollSnapshot, Bearer> + Send + Sync,
         VE: StateProjectionWrite<VotingEscrowSnapshot, Bearer> + Send + Sync,
+        Backlog: ResilientBacklog<VotingOrder> + Send + Sync,
         FB: FundingRepo + Send + Sync,
     {
         if let Some(next_order) = next_pending_order {
-            let (signed_tx, next_wpoll, next_ve) = self
+            let order = next_order.0.clone();
+            let order_id = order.id;
+            if let Some((signed_tx, next_wpoll, next_ve)) = self
                 .actions
                 .execute_order(weighting_poll.erased(), next_order, Slot(self.current_slot))
-                .await;
-            let prover = OperatorProver::new(self.operator_sk.to_bech32());
-            let tx = prover.prove(signed_tx);
-            self.network.submit_tx(tx).await.unwrap();
-            self.weighting_poll.write_predicted(next_wpoll).await;
-            self.voting_escrow.write_predicted(next_ve).await;
-            return None;
+                .await
+            {
+                let prover = OperatorProver::new(self.operator_sk.to_bech32());
+                let tx = prover.prove(signed_tx);
+                match self.network.submit_tx(tx).await {
+                    Ok(()) => {
+                        self.weighting_poll.write_predicted(next_wpoll).await;
+                        self.voting_escrow.write_predicted(next_ve).await;
+                        return None;
+                    }
+                    Err(RejectReasons(Some(ApplyTxError { node_errors }))) => {
+                        // We suspend the order if there are bad/missing inputs. With this TX the
+                        // only inputs are `weighting_poll` and `voting_escrow`. If they're missing
+                        // from the UTxO set then it's possible that another bot has made a TX
+                        // involving at least one of these inputs.
+                        if node_errors.iter().any(|err| {
+                            matches!(
+                                err,
+                                ConwayLedgerPredFailure::UtxowFailure(ConwayUtxowPredFailure::UtxoFailure(
+                                    ConwayUtxoPredFailure::BadInputsUtxo(_)
+                                ),)
+                            )
+                        }) {
+                            info!("`execute_order` TX failed on bad/missing input error");
+                            self.backlog.suspend(order).await;
+                            return None;
+                        } else {
+                            // For all other errors we discard the order.
+                            error!("TX submit failed on unknown error");
+                            self.backlog.remove(order_id).await;
+                            return None;
+                        }
+                    }
+                    Err(RejectReasons(None)) => {
+                        error!("TX submit failed on unknown error");
+                        self.backlog.remove(order_id).await;
+                        return None;
+                    }
+                }
+            } else {
+                // Here the order has been deemed inadmissible and so it will be removed.
+                self.backlog.remove(order_id).await;
+                return None;
+            }
         }
         retry_in(DEF_DELAY)
     }

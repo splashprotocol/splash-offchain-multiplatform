@@ -95,11 +95,11 @@ pub trait InflationActions<Bearer> {
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
         order: (VotingOrder, Bundled<VotingEscrowSnapshot, Bearer>),
         current_slot: Slot,
-    ) -> (
+    ) -> Option<(
         SignedTxBuilder,
         Traced<Predicted<Bundled<WeightingPollSnapshot, Bearer>>>,
         Traced<Predicted<Bundled<VotingEscrowSnapshot, Bearer>>>,
-    );
+    )>;
     async fn distribute_inflation(
         &self,
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
@@ -514,27 +514,26 @@ where
             Bundled<VotingEscrowSnapshot, TransactionOutput>,
         ),
         current_slot: Slot,
-    ) -> (
+    ) -> Option<(
         SignedTxBuilder,
         Traced<Predicted<Bundled<WeightingPollSnapshot, TransactionOutput>>>,
         Traced<Predicted<Bundled<VotingEscrowSnapshot, TransactionOutput>>>,
-    ) {
+    )> {
         let mut tx_builder = constant_tx_builder();
 
         let prev_ve_version = voting_escrow.version();
         let prev_wp_version = weighting_poll.version();
 
-        // Voting escrow
+        // Voting escrow ---------------------------------------------------------------------------
         let mut voting_escrow_out = ve_box_in.clone();
         let data_mut = voting_escrow_out.data_mut().unwrap();
-        unsafe_update_ve_state(
-            data_mut,
-            weighting_poll.get().epoch,
-            voting_escrow.get().version + 1,
-        );
+        let new_wp_epoch = weighting_poll.get().epoch;
+        let new_ve_version = voting_escrow.get().version + 1;
+        unsafe_update_ve_state(data_mut, new_wp_epoch, new_ve_version);
+        let mut next_ve = voting_escrow.get().clone();
+        next_ve.last_wp_epoch = new_wp_epoch as i32;
+        next_ve.version = new_ve_version;
 
-        // TODO: update voting_escrow !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-        // It only affects Predicted entities. Maybe no point?
         let ve_datum = VotingEscrowConfig::try_from_pd(data_mut.clone()).unwrap();
         let max_ex_fee = ve_datum.max_ex_fee;
         let mut ve_amt = voting_escrow_out.amount().clone();
@@ -601,9 +600,13 @@ where
 
         let mut wpoll_out = weighting_poll_in.clone();
         let weighting_power = voting_escrow.get().voting_power(current_posix_time);
-        order.distribution[0].1 = weighting_power;
+
+        let mut next_weighting_poll = weighting_poll.get().clone();
+        next_weighting_poll.apply_votes(&order.distribution);
+        next_weighting_poll.weighting_power = Some(weighting_power);
+
         if let Some(data_mut) = wpoll_out.data_mut() {
-            unsafe_update_wp_state(data_mut, &order.distribution);
+            unsafe_update_wp_state(data_mut, &next_weighting_poll.distribution);
         }
         wpoll_out.add_asset(
             spectrum_cardano_lib::AssetClass::Token(Token(
@@ -613,11 +616,6 @@ where
             weighting_power,
         );
 
-        let next_weighting_poll = WeightingPoll {
-            distribution: order.distribution,
-            weighting_power: Some(weighting_power),
-            ..weighting_poll.get().clone()
-        };
         // Set TX outputs --------------------------------------------------------------------------
         let mut amt = wpoll_out.amount().clone();
         let min_ada = min_ada_required(&wpoll_out, COINS_PER_UTXO_BYTE).unwrap();
@@ -742,7 +740,6 @@ where
         );
 
         let next_ve_version = OutputRef::new(tx_hash, 1);
-        let next_ve = voting_escrow.get().clone();
         let fresh_ve = Traced::new(
             Predicted(Bundled(
                 Snapshot::new(next_ve, next_ve_version),
@@ -751,7 +748,7 @@ where
             Some(*prev_ve_version),
         );
 
-        (signed_tx_builder, fresh_wp, fresh_ve)
+        Some((signed_tx_builder, fresh_wp, fresh_ve))
     }
 
     async fn distribute_inflation(
@@ -1055,6 +1052,12 @@ where
         }
     }
     (input_results, selected_boxes)
+}
+
+enum ExecuteOrderError {
+    BadOrMissingInput,
+    WeightingExceedsAvailableVotingPower,
+    InVotingPower,
 }
 
 #[cfg(test)]

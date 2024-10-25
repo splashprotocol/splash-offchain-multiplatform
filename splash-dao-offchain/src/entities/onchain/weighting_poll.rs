@@ -196,6 +196,16 @@ impl WeightingPoll {
         epoch_end(genesis, self.epoch)
     }
 
+    pub fn apply_votes(&mut self, order_distribution: &[(FarmId, u64)]) {
+        assert_eq!(self.distribution.len(), order_distribution.len());
+        self.distribution.iter_mut().zip(order_distribution).for_each(
+            |((existing_farm_id, existing_weight), (farm_id, weight))| {
+                assert_eq!(*farm_id, *existing_farm_id);
+                *existing_weight += *weight;
+            },
+        );
+    }
+
     fn weighting_open(&self, genesis: GenesisEpochStartTime, time_now: NetworkTime) -> bool {
         let e_start = epoch_start(genesis, self.epoch);
         let e_end = epoch_end(genesis, self.epoch);
