@@ -94,7 +94,7 @@ impl CardanoNetwork for Maestro {
         }
 
         match send_request(self, oref).await {
-            None => Box::pin(send_request(self, oref)).await,
+            None => Box::pin(self.utxo_by_ref(oref)).await,
             Some(res) => Some(res)
         }
     }
