@@ -76,11 +76,14 @@ impl CardanoNetwork for Maestro {
             "with_cbor".to_lowercase(),
             "true".to_lowercase(),
         )]));
+        println!("params: {:?}", params);
         self.0
             .transaction_output_from_reference(oref.tx_hash().to_hex().as_str(), oref.index() as i32, params)
             .await
             .and_then(|tx_out| {
+                println!("tx_out_raw: {:?}", tx_out);
                 let tx_out = TransactionOutput::from_cbor_bytes(&*hex::decode(tx_out.data.tx_out_cbor)?)?;
+                println!("tx_out: {:?}", tx_out);
                 Ok(TransactionUnspentOutput::new(oref.into(), tx_out))
             })
             .ok()
