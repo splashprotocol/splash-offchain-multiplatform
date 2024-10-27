@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{net::SocketAddr, time::Duration};
 
 use cml_core::Slot;
 
@@ -35,6 +35,7 @@ pub struct AppConfig<'a> {
     pub perm_manager_persistence_config: RocksConfig,
     pub funding_box_config: RocksConfig,
     pub genesis_start_time: u64,
+    pub voting_order_listener_endpoint: SocketAddr,
 }
 
 #[derive(serde::Deserialize)]

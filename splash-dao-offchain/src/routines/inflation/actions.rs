@@ -16,6 +16,7 @@ use cml_chain::transaction::{TransactionInput, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::{Coin, OrderedHashMap, PolicyId, RequiredSigners};
 use cml_crypto::{blake2b256, RawBytesEncoding, TransactionHash};
+use serde::Serialize;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_offchain::data::event::{Predicted, Traced};
@@ -1054,7 +1055,8 @@ where
     (input_results, selected_boxes)
 }
 
-enum ExecuteOrderError {
+#[derive(Clone, Debug, Serialize)]
+pub enum ExecuteOrderError {
     BadOrMissingInput,
     WeightingExceedsAvailableVotingPower,
     InVotingPower,

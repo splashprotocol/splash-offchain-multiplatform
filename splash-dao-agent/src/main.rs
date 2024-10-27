@@ -5,6 +5,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use axum::{extract::State, http::StatusCode, response::IntoResponse};
 use bloom_offchain_cardano::event_sink::processed_tx::TxViewAtEraBoundary;
 use bounded_integer::BoundedU8;
 use cardano_chain_sync::{
@@ -49,7 +50,10 @@ use splash_dao_offchain::{
     funding::FundingRepoRocksDB,
     handler::DaoHandler,
     protocol_config::ProtocolConfig,
-    routines::inflation::{actions::CardanoInflationActions, Behaviour},
+    routines::inflation::{
+        actions::CardanoInflationActions, Behaviour, VotingOrderCommand, VotingOrderMessage,
+        VotingOrderStatus,
+    },
     state_projection::StateProjectionRocksDB,
     time::{NetworkTime, NetworkTimeProvider},
     NetworkTimeSource,
@@ -155,6 +159,22 @@ async fn main() {
     };
 
     let (ledger_event_snd, ledger_event_rcv) = tokio::sync::mpsc::channel(100);
+    let (voting_order_snd, voting_event_rcv) = tokio::sync::mpsc::channel(100);
+
+    let state = AppState {
+        sender: voting_order_snd,
+    };
+
+    // Setup axum server to listen for incoming voting orders --------------------------------------
+    let app = axum::Router::new()
+        .route("/submit/votingorder", axum::routing::put(handle_put))
+        .with_state(state);
+    println!("Listening on {}", config.voting_order_listener_endpoint);
+
+    let listener = tokio::net::TcpListener::bind(config.voting_order_listener_endpoint)
+        .await
+        .unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
     let inflation_actions = CardanoInflationActions::from(protocol_config.clone());
 
@@ -174,6 +194,7 @@ async fn main() {
         tx_submission_channel,
         operator_sk,
         ledger_event_rcv,
+        voting_event_rcv,
         signal_tip_reached_recv,
     );
 
@@ -189,6 +210,38 @@ async fn main() {
     loop {
         app.select_next_some().await;
     }
+}
+
+async fn handle_put(
+    State(state): State<AppState>,
+    axum::Json(payload): axum::Json<VotingOrder>,
+) -> impl IntoResponse {
+    // You can now process the payload as needed
+    let AppState { sender } = state;
+    let (response_sender, recv) = tokio::sync::oneshot::channel();
+    let msg = VotingOrderMessage {
+        command: VotingOrderCommand::Submit(payload),
+        response_sender,
+    };
+    sender.send(msg).await.unwrap();
+    match recv.await {
+        Ok(status) => match status {
+            VotingOrderStatus::Queued | VotingOrderStatus::Success => {
+                (StatusCode::OK, format!("{:?}", status))
+            }
+            VotingOrderStatus::Failed => (StatusCode::UNPROCESSABLE_ENTITY, "TX submission failed".into()),
+            VotingOrderStatus::VotingEscrowNotFound => (
+                StatusCode::NOT_FOUND,
+                "Cannot find associated voting_escrow".into(),
+            ),
+        },
+        Err(_err) => (StatusCode::UNPROCESSABLE_ENTITY, "Unknown error".into()),
+    }
+}
+
+#[derive(Clone)]
+struct AppState {
+    sender: tokio::sync::mpsc::Sender<VotingOrderMessage>,
 }
 
 async fn setup_order_backlog(

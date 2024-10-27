@@ -142,7 +142,7 @@ impl ProtocolDeployment {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct DeploymentProgress {
     pub lq_tokens: Option<ExternallyMintedToken>,
     pub splash_tokens: Option<ExternallyMintedToken>,

@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::task::Poll;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use actions::ExecuteOrderError;
 use async_stream::stream;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain_cardano::event_sink::processed_tx::TxViewAtEraBoundary;
@@ -25,6 +26,7 @@ use spectrum_cardano_lib::transaction::{BabbageTransactionOutputExtension, Outbo
 use spectrum_cardano_lib::{AssetName, OutputRef};
 use spectrum_offchain::backlog::ResilientBacklog;
 use spectrum_offchain::data::event::{AnyMod, Confirmed, Predicted, Traced, Unconfirmed};
+use spectrum_offchain::data::order::PendingOrder;
 use spectrum_offchain::data::{EntitySnapshot, Has};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain::network::Network;
@@ -82,6 +84,7 @@ pub struct Behaviour<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer,
     network: Net,
     operator_sk: PrivateKey,
     ledger_upstream: Receiver<LedgerTxEvent<TxViewAtEraBoundary>>,
+    voting_orders: Receiver<VotingOrderMessage>,
     chain_tip_reached: Arc<Mutex<bool>>,
     signal_tip_reached_recv: Option<tokio::sync::broadcast::Receiver<bool>>,
     current_slot: u64,
@@ -163,6 +166,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         network: Net,
         operator_sk: PrivateKey,
         ledger_upstream: Receiver<LedgerTxEvent<TxViewAtEraBoundary>>,
+        voting_orders: Receiver<VotingOrderMessage>,
         signal_tip_reached_recv: tokio::sync::broadcast::Receiver<bool>,
     ) -> Self
     where
@@ -184,6 +188,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
             network,
             operator_sk,
             ledger_upstream,
+            voting_orders,
             chain_tip_reached: Arc::new(Mutex::new(false)),
             signal_tip_reached_recv: Some(signal_tip_reached_recv),
             current_slot: 0,
@@ -759,6 +764,48 @@ where
         }
     }
 
+    async fn processing_voting_order_message(&mut self, message: VotingOrderMessage)
+    where
+        Backlog: ResilientBacklog<VotingOrder> + Send + Sync,
+        Time: NetworkTimeProvider + Send + Sync,
+        VE: StateProjectionRead<VotingEscrowSnapshot, TransactionOutput> + Send + Sync,
+    {
+        let VotingOrderMessage {
+            command,
+            response_sender,
+        } = message;
+        match command {
+            VotingOrderCommand::Submit(voting_order) => {
+                if !self.backlog.exists(voting_order.id).await {
+                    let time_src = NetworkTimeSource {};
+                    let timestamp = time_src.network_time().await as i64;
+                    let ord = PendingOrder {
+                        order: voting_order,
+                        timestamp,
+                    };
+                    self.backlog.put(ord).await;
+                    response_sender.send(VotingOrderStatus::Queued).unwrap();
+                }
+            }
+            VotingOrderCommand::GetStatus(order_id) => {
+                if self.backlog.exists(order_id).await {
+                    response_sender.send(VotingOrderStatus::Queued).unwrap();
+                } else if let Some(ve) = self.voting_escrow.read(order_id.voting_escrow_id).await {
+                    let ve_version = ve.as_erased().0.get().version as u64;
+                    if ve_version > order_id.version {
+                        response_sender.send(VotingOrderStatus::Success).unwrap();
+                    } else {
+                        response_sender.send(VotingOrderStatus::Failed).unwrap();
+                    }
+                } else {
+                    response_sender
+                        .send(VotingOrderStatus::VotingEscrowNotFound)
+                        .unwrap();
+                }
+            }
+        }
+    }
+
     #[allow(clippy::needless_lifetimes)]
     pub fn as_stream<'a>(&'a mut self) -> impl Stream<Item = ()> + 'a {
         let mut signal = self.signal_tip_reached_recv.take().unwrap();
@@ -776,6 +823,10 @@ where
             loop {
                 while let Ok(ev) = self.ledger_upstream.try_recv() {
                     self.process_ledger_event(ev).await;
+                }
+
+                while let Ok(voting_order_msg) = self.voting_orders.try_recv() {
+                    self.processing_voting_order_message(voting_order_msg).await;
                 }
 
                 let chain_tip_reached = {
@@ -889,6 +940,26 @@ pub struct FundingBoxChanges {
 
 #[derive(Debug, Clone)]
 pub struct AvailableFundingBoxes(pub Vec<FundingBox>);
+
+pub struct VotingOrderMessage {
+    pub command: VotingOrderCommand,
+    pub response_sender: tokio::sync::oneshot::Sender<VotingOrderStatus>,
+}
+
+pub enum VotingOrderCommand {
+    Submit(VotingOrder),
+    GetStatus(VotingOrderId),
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub enum VotingOrderStatus {
+    Queued,
+    /// TODO: should fold in TX hash
+    Success,
+    /// TODO: give reason for failure
+    Failed,
+    VotingEscrowNotFound,
+}
 
 #[cfg(test)]
 mod tests {

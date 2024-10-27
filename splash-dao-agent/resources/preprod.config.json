@@ -41,5 +41,6 @@
   "explorer": {
     "url": "https://explorer.spectrum.fi"
   },
-  "rewardAddress": "addr_test1qqltu3xgvc8wn8kadarzg4gsjytlpj9fd5rgy5sjl6neh6rakpadsazz4ztjclka0u7nqujz34vtnj9a0swjg5ccmfsqzzrhjz"
+  "rewardAddress": "addr_test1qqltu3xgvc8wn8kadarzg4gsjytlpj9fd5rgy5sjl6neh6rakpadsazz4ztjclka0u7nqujz34vtnj9a0swjg5ccmfsqzzrhjz",
+  "votingOrderListenerEndpoint": "127.0.0.1:1244"
 }

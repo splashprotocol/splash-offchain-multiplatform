@@ -5,9 +5,16 @@ appenders:
     kind: file
     path: "log/requests.log"
     encoder:
-      pattern: "{d} - {m}{n}"
+      pattern: "{d} - {l} - {f}:{L} - {m}{n}"
 
 root:
   level: trace
   appenders:
     - requests
+
+loggers:
+  async_std::task::builder:
+    level: debug   # Suppress TRACE and DEBUG messages
+    appenders:
+      - requests
+    additive: false  # Ensure it doesn't inherit from the root logger

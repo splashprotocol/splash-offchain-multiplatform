@@ -13,11 +13,15 @@ use crate::entities::onchain::smart_farm::FarmId;
 use crate::entities::onchain::voting_escrow::VotingEscrowId;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Into, From, Debug, Serialize, Deserialize)]
-pub struct VotingOrderId(VotingEscrowId, u64);
+pub struct VotingOrderId {
+    pub voting_escrow_id: VotingEscrowId,
+    /// Current version of voting_escrow that this order will apply to.
+    pub version: u64,
+}
 
 impl From<VotingOrderId> for VotingEscrowId {
     fn from(value: VotingOrderId) -> Self {
-        value.0
+        value.voting_escrow_id
     }
 }
 

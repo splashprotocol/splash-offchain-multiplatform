@@ -9,10 +9,10 @@ use std::{
 };
 
 use cardano_explorer::{CardanoNetwork, Maestro};
-use clap::{command, Parser};
+use clap::{command, Parser, Subcommand};
 use cml_chain::{
     address::Address,
-    assets::MultiAsset,
+    assets::{self, MultiAsset},
     builders::{
         input_builder::{InputBuilderResult, SingleInputBuilder},
         mint_builder::SingleMintBuilder,
@@ -36,7 +36,7 @@ use spectrum_cardano_lib::{
     protocol_params::{constant_tx_builder, COINS_PER_UTXO_BYTE},
     transaction::TransactionOutputExtension,
     value::ValueExtension,
-    AssetClass, NetworkId, OutputRef, Token,
+    AssetClass, NetworkId, OutputRef, PaymentCredential, Token,
 };
 use spectrum_cardano_lib::{plutus_data::IntoPlutusData, types::TryFromPData};
 use spectrum_offchain::{data::Has, ledger::TryFromLedger, tx_prover::TxProver};
@@ -79,49 +79,60 @@ async fn main() {
     let raw_config = std::fs::read_to_string(args.config_path).expect("Cannot load configuration file");
     let config: AppConfig = serde_json::from_str(&raw_config).expect("Invalid configuration file");
 
-    deploy(config).await;
+    let op_inputs = create_operation_inputs(&config).await;
+
+    println!("Collateral output_ref: {}", op_inputs.collateral.reference());
+    match args.command {
+        Command::Deploy => {
+            deploy(op_inputs, config).await;
+        }
+        Command::CreateFarm => {
+            create_initial_farms(&op_inputs).await;
+        }
+        Command::MakeVotingEscrow { assets_json_path } => {
+            let s = std::fs::read_to_string(assets_json_path)
+                .expect("Cannot load voting_escrow settings JSON file");
+            let ve_settings: VotingEscrowSettings =
+                serde_json::from_str(&s).expect("Invalid voting_escrow settings file");
+            make_voting_escrow(ve_settings, &op_inputs).await;
+        }
+        Command::ExtendDeposit => {
+            //
+        }
+        Command::CastVote => {
+            //
+        }
+    };
 }
 
-async fn deploy<'a>(config: AppConfig<'a>) {
-    let explorer = Maestro::new(config.maestro_key_path, config.network_id.into())
-        .await
-        .expect("Maestro instantiation failed");
-
-    let (addr, _, operator_pkh, _operator_cred, operator_sk) =
-        operator_creds_base_address(config.batcher_private_key, config.network_id);
-
-    let sk_bech32 = operator_sk.to_bech32();
-    let prover = OperatorProver::new(sk_bech32);
-    let owner_pub_key = operator_sk.to_public();
-
-    let collateral = if let Some(c) = pull_collateral(addr.clone().into(), &explorer).await {
-        c
-    } else {
-        generate_collateral(&explorer, &addr, &addr, &prover)
-            .await
-            .unwrap()
-    };
+async fn deploy<'a>(op_inputs: OperationInputs, config: AppConfig<'a>) {
+    let OperationInputs {
+        explorer,
+        addr,
+        owner_pub_key,
+        collateral,
+        prover,
+        operator_public_key_hash,
+        mut deployment_progress,
+        dao_parameters,
+        ..
+    } = op_inputs;
 
     println!("Collateral output_ref: {}", collateral.reference());
 
-    let operator_pkh_str: String = operator_pkh.into();
+    let operator_pkh_str: String = operator_public_key_hash.into();
 
     let pk_hash = Ed25519KeyHash::from_bech32(&operator_pkh_str).unwrap();
 
     let input_result = get_largest_utxo(&explorer, &addr).await;
 
-    let dao_parameters_str =
-        std::fs::read_to_string(config.parameters_json_path).expect("Cannot load dao parameters file");
-    let dao_parameters: DaoDeploymentParameters =
-        serde_json::from_str(&dao_parameters_str).expect("Invalid parameters file");
-
-    let raw_deployment_config =
-        std::fs::read_to_string(config.deployment_json_path).expect("Cannot load configuration file");
-    let mut deployment_config: DeploymentProgress =
-        serde_json::from_str(&raw_deployment_config).expect("Invalid configuration file");
+    //let raw_deployment_config =
+    //    std::fs::read_to_string(config.deployment_json_path).expect("Cannot load configuration file");
+    //let mut deployment_config: DeploymentProgress =
+    //    serde_json::from_str(&raw_deployment_config).expect("Invalid configuration file");
 
     // Mint LQ token -------------------------------------------------------------------------------
-    if deployment_config.lq_tokens.is_none() {
+    if deployment_progress.lq_tokens.is_none() {
         println!("Minting LQ tokens ----------------------------------------------------------");
         let (signed_tx_builder, minted_token) = mint_token::mint_token(
             LQ_NAME,
@@ -140,11 +151,11 @@ async fn deploy<'a>(config: AppConfig<'a>) {
         explorer.submit_tx(&tx_bytes).await.unwrap();
         explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
 
-        deployment_config.lq_tokens = Some(minted_token);
-        write_deployment_to_disk(&deployment_config, config.deployment_json_path).await;
+        deployment_progress.lq_tokens = Some(minted_token);
+        write_deployment_to_disk(&deployment_progress, config.deployment_json_path).await;
     }
 
-    if deployment_config.splash_tokens.is_none() {
+    if deployment_progress.splash_tokens.is_none() {
         println!("Minting SPLASH tokens ----------------------------------------------------------");
 
         let input_result = get_largest_utxo(&explorer, &addr).await;
@@ -166,13 +177,13 @@ async fn deploy<'a>(config: AppConfig<'a>) {
         explorer.submit_tx(&tx_bytes).await.unwrap();
         explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
 
-        deployment_config.splash_tokens = Some(minted_token);
-        write_deployment_to_disk(&deployment_config, config.deployment_json_path).await;
+        deployment_progress.splash_tokens = Some(minted_token);
+        write_deployment_to_disk(&deployment_progress, config.deployment_json_path).await;
     }
 
-    let need_create_token_inputs = deployment_config.nft_utxo_inputs.is_none()
-        || (deployment_config.minted_deployment_tokens.is_none()
-            && deployment_config
+    let need_create_token_inputs = deployment_progress.nft_utxo_inputs.is_none()
+        || (deployment_progress.minted_deployment_tokens.is_none()
+            && deployment_progress
                 .nft_utxo_inputs
                 .as_ref()
                 .unwrap()
@@ -191,22 +202,22 @@ async fn deploy<'a>(config: AppConfig<'a>) {
 
         explorer.submit_tx(&tx_bytes).await.unwrap();
         explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
-        if let Some(ref mut i) = deployment_config.nft_utxo_inputs {
+        if let Some(ref mut i) = deployment_progress.nft_utxo_inputs {
             i.tx_hash = tx_hash;
             i.inputs_consumed = false;
         } else {
-            deployment_config.nft_utxo_inputs = Some(NFTUtxoInputs {
+            deployment_progress.nft_utxo_inputs = Some(NFTUtxoInputs {
                 tx_hash,
                 number_of_inputs: mint_token::NUMBER_TOKEN_MINTS_NEEDED,
                 inputs_consumed: false,
             });
-            write_deployment_to_disk(&deployment_config, config.deployment_json_path).await;
+            write_deployment_to_disk(&deployment_progress, config.deployment_json_path).await;
         }
     }
 
-    if deployment_config.minted_deployment_tokens.is_none() {
+    if deployment_progress.minted_deployment_tokens.is_none() {
         println!("Minting deployment tokens ---------------------------------------");
-        let mint_input_tx_hash = deployment_config.nft_utxo_inputs.as_ref().unwrap().tx_hash;
+        let mint_input_tx_hash = deployment_progress.nft_utxo_inputs.as_ref().unwrap().tx_hash;
         let inputs = explorer
             .utxos_by_address(addr.clone(), 0, 100)
             .await
@@ -233,21 +244,21 @@ async fn deploy<'a>(config: AppConfig<'a>) {
         explorer.submit_tx(&tx_bytes).await.unwrap();
         explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
 
-        deployment_config.minted_deployment_tokens = Some(minted_tokens);
-        deployment_config
+        deployment_progress.minted_deployment_tokens = Some(minted_tokens);
+        deployment_progress
             .nft_utxo_inputs
             .as_mut()
             .unwrap()
             .inputs_consumed = true;
-        write_deployment_to_disk(&deployment_config, config.deployment_json_path).await;
+        write_deployment_to_disk(&deployment_progress, config.deployment_json_path).await;
     }
-    if deployment_config.deployed_validators.is_none() {
+    if deployment_progress.deployed_validators.is_none() {
         let time_source = NetworkTimeSource;
         let genesis_epoch_start_time =
             (time_source.network_time().await - dao_parameters.zeroth_epoch_start_offset) * 1000;
         let (tx_builder_0, tx_builder_1, tx_builder_2, reference_input_script_hashes) =
             mint_token::create_dao_reference_input_utxos(
-                &deployment_config,
+                &deployment_progress,
                 genesis_epoch_start_time,
                 config.network_id,
             );
@@ -353,13 +364,14 @@ async fn deploy<'a>(config: AppConfig<'a>) {
             },
         };
 
-        deployment_config.deployed_validators = Some(d);
-        deployment_config.genesis_epoch_start_time = Some(genesis_epoch_start_time);
+        deployment_progress.deployed_validators = Some(d);
+        deployment_progress.genesis_epoch_start_time = Some(genesis_epoch_start_time);
 
-        write_deployment_to_disk(&deployment_config, config.deployment_json_path).await;
+        write_deployment_to_disk(&deployment_progress, config.deployment_json_path).await;
     }
 
-    let deployment_config = CompleteDeployment::try_from(deployment_config).unwrap();
+    let deployment_config =
+        CompleteDeployment::try_from(deployment_progress).expect(INCOMPLETE_DEPLOYMENT_ERR_MSG);
     create_dao_entities(
         &explorer,
         &addr,
@@ -370,17 +382,17 @@ async fn deploy<'a>(config: AppConfig<'a>) {
         &dao_parameters,
     )
     .await;
-    make_deposit(
-        &explorer,
-        &addr,
-        owner_pub_key,
-        collateral,
-        &prover,
-        config.network_id,
-        &deployment_config,
-        &dao_parameters,
-    )
-    .await;
+    //make_deposit(
+    //    &explorer,
+    //    &addr,
+    //    owner_pub_key,
+    //    collateral,
+    //    &prover,
+    //    config.network_id,
+    //    &deployment_config,
+    //    &dao_parameters,
+    //)
+    //.await;
     //create_initial_farms(
     //    &explorer,
     //    &addr,
@@ -666,26 +678,38 @@ async fn create_dao_entities(
     println!("TX confirmed");
 }
 
-async fn make_deposit(
-    explorer: &Maestro,
-    addr: &Address,
-    owner_pub_key: cml_crypto::PublicKey,
-    collateral: Collateral,
-    prover: &OperatorProver,
-    network_id: NetworkId,
-    deployment_config: &CompleteDeployment,
-    deployment_params: &DaoDeploymentParameters,
-) {
-    let deployed_ref_inputs = &deployment_config.deployed_validators;
-    let protocol_deployment = ProtocolDeployment::unsafe_pull(deployed_ref_inputs.clone(), explorer).await;
+async fn make_voting_escrow(ve_settings: VotingEscrowSettings, op_inputs: &OperationInputs) {
+    let OperationInputs {
+        explorer,
+        addr,
+        owner_pub_key,
+        deployment_progress,
+        dao_parameters,
+        collateral,
+        prover,
+        network_id,
+        ..
+    } = op_inputs;
+
+    let VotingEscrowSettings {
+        deposits,
+        max_ex_fee,
+        ada_balance,
+        lock_duration_in_seconds,
+    } = ve_settings;
+
+    let deployment_config =
+        CompleteDeployment::try_from(deployment_progress.clone()).expect(INCOMPLETE_DEPLOYMENT_ERR_MSG);
+    let protocol_deployment =
+        ProtocolDeployment::unsafe_pull(deployment_config.deployed_validators.clone(), explorer).await;
 
     let ve_factory_script_hash = protocol_deployment.ve_factory.hash;
 
     let ve_factory_unspent_output = pull_onchain_entity::<VEFactorySnapshot, _>(
         explorer,
         ve_factory_script_hash,
-        network_id,
-        deployment_config,
+        *network_id,
+        &deployment_config,
     )
     .await
     .unwrap();
@@ -698,12 +722,21 @@ async fn make_deposit(
     let mut ve_factory_out_value = ve_factory_in_value.clone();
 
     // Deposit assets into ve_factory -------------------------------------------
-    let VEFactoryDatum { accepted_assets, .. } =
-        VEFactoryDatum::from(deployment_params.accepted_assets.clone());
+    let VEFactoryDatum { accepted_assets, .. } = VEFactoryDatum::from(dao_parameters.accepted_assets.clone());
 
-    let (token, _) = accepted_assets.first().unwrap();
-    let ac = AssetClass::from(*token);
-    ve_factory_out_value.add_unsafe(ac, 1_000_000);
+    let mut built_policies = vec![];
+
+    for token_deposit in deposits {
+        let token = Token::from(&token_deposit);
+        let accepted_asset = accepted_assets.iter().any(|(tok, _)| *tok == token);
+        let ac = AssetClass::from(token);
+        if accepted_asset {
+            ve_factory_out_value.add_unsafe(ac, token_deposit.quantity);
+            built_policies.push(BuiltPolicy::from(token_deposit));
+        } else {
+            panic!("{} is not accepted by the DAO!", ac);
+        }
+    }
 
     let ve_composition_policy = protocol_deployment.mint_ve_composition_token.hash;
 
@@ -723,12 +756,7 @@ async fn make_deposit(
     ));
     ve_factory_out_value.sub_unsafe(gt_ac, ve_composition_qty);
 
-    let bp = BuiltPolicy {
-        policy_id: token.0,
-        asset_name: cml_chain::assets::AssetName::from(token.1),
-        quantity: BigInteger::from(1_000_000),
-    };
-    let utxos = collect_utxos(addr, 5_000_000, vec![bp], &collateral, explorer).await;
+    let utxos = collect_utxos(addr, 5_000_000, built_policies, collateral, explorer).await;
 
     #[derive(PartialEq, Eq)]
     enum InputType {
@@ -837,7 +865,7 @@ async fn make_deposit(
         panic!("farm_factory: expected datum!");
     };
     let ve_factory_output = TransactionOutputBuilder::new()
-        .with_address(script_address(ve_factory_script_hash, network_id))
+        .with_address(script_address(ve_factory_script_hash, *network_id))
         .with_data(ve_factory_datum)
         .next()
         .unwrap()
@@ -853,9 +881,9 @@ async fn make_deposit(
     const ONE_MONTH_IN_SECONDS: u64 = 604800 * 4;
     let voting_escrow_datum = DatumOption::new_datum(
         VotingEscrowConfig {
-            locked_until: Lock::Def((time_source.network_time().await + ONE_MONTH_IN_SECONDS) * 1000),
+            locked_until: Lock::Def((time_source.network_time().await + lock_duration_in_seconds) * 1000),
             owner: Owner::PubKey(owner_pub_key.to_raw_bytes().to_vec()),
-            max_ex_fee: 2_000_000,
+            max_ex_fee: max_ex_fee as u32,
             version: 0,
             last_wp_epoch: -1,
             last_gp_deadline: -1,
@@ -863,10 +891,13 @@ async fn make_deposit(
         .into_pd(),
     );
 
-    voting_escrow_value.coin = 5_000_000;
+    voting_escrow_value.coin = ada_balance;
 
     let voting_escrow_output = TransactionOutputBuilder::new()
-        .with_address(script_address(protocol_deployment.voting_escrow.hash, network_id))
+        .with_address(script_address(
+            protocol_deployment.voting_escrow.hash,
+            *network_id,
+        ))
         .with_data(voting_escrow_datum)
         .next()
         .unwrap()
@@ -881,7 +912,7 @@ async fn make_deposit(
     let change_output = change_output_creator.create_change_output(actual_fee, addr.clone());
     tx_builder.add_output(change_output).unwrap();
     tx_builder
-        .add_collateral(InputBuilderResult::from(collateral))
+        .add_collateral(InputBuilderResult::from(collateral.clone()))
         .unwrap();
 
     let start_slot = explorer.chain_tip_slot_number().await.unwrap();
@@ -900,24 +931,32 @@ async fn make_deposit(
     println!("TX confirmed");
 }
 
-async fn create_initial_farms(
-    explorer: &Maestro,
-    addr: &Address,
-    collateral: Collateral,
-    prover: &OperatorProver,
-    network_id: NetworkId,
-    deployment_config: &CompleteDeployment,
-) {
+async fn create_initial_farms(op_inputs: &OperationInputs) {
+    let OperationInputs {
+        explorer,
+        addr,
+        owner_pub_key,
+        operator_public_key_hash,
+        deployment_progress,
+        dao_parameters,
+        collateral,
+        prover,
+        network_id,
+    } = op_inputs;
+
+    let deployment_config =
+        CompleteDeployment::try_from(deployment_progress.clone()).expect(INCOMPLETE_DEPLOYMENT_ERR_MSG);
+
     let deployed_ref_inputs = &deployment_config.deployed_validators;
     let protocol_deployment = ProtocolDeployment::unsafe_pull(deployed_ref_inputs.clone(), explorer).await;
 
     let minted_tokens = &deployment_config.minted_deployment_tokens;
     let required_tokens = vec![minted_tokens.factory_auth.clone()];
-    let utxos = collect_utxos(addr, 5_000_000, required_tokens.clone(), &collateral, explorer).await;
+    let utxos = collect_utxos(addr, 5_000_000, required_tokens.clone(), collateral, explorer).await;
 
     let mut farm_factory_input = explorer
         .utxos_by_address(
-            script_address(protocol_deployment.farm_factory.hash, network_id),
+            script_address(protocol_deployment.farm_factory.hash, *network_id),
             0,
             10,
         )
@@ -1020,7 +1059,7 @@ async fn create_initial_farms(
     let mut farm_factory_out_datum = farm_factory_in_datum.clone();
     farm_factory_out_datum.last_farm_id += 1;
     let farm_factory_output = TransactionOutputBuilder::new()
-        .with_address(script_address(farm_factory_script_hash, network_id))
+        .with_address(script_address(farm_factory_script_hash, *network_id))
         .with_data(DatumOption::new_datum(farm_factory_out_datum.into_pd()))
         .next()
         .unwrap()
@@ -1043,7 +1082,7 @@ async fn create_initial_farms(
     );
     let smart_farm_datum = DatumOption::new_datum(smart_farm_datum_pd);
     let smart_farm_output = TransactionOutputBuilder::new()
-        .with_address(script_address(protocol_deployment.smart_farm.hash, network_id))
+        .with_address(script_address(protocol_deployment.smart_farm.hash, *network_id))
         .with_data(smart_farm_datum)
         .next()
         .unwrap()
@@ -1056,7 +1095,7 @@ async fn create_initial_farms(
     tx_builder.add_output(smart_farm_output).unwrap();
 
     tx_builder
-        .add_collateral(InputBuilderResult::from(collateral))
+        .add_collateral(InputBuilderResult::from(collateral.clone()))
         .unwrap();
 
     let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
@@ -1148,6 +1187,53 @@ struct AppArgs {
     /// Path to the JSON configuration file.
     #[arg(long, short)]
     config_path: String,
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    Deploy,
+    CreateFarm,
+    MakeVotingEscrow {
+        #[arg(long)]
+        assets_json_path: String,
+    },
+    ExtendDeposit,
+    CastVote,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+pub struct VotingEscrowSettings {
+    deposits: Vec<TokenDeposit>,
+    max_ex_fee: u64,
+    ada_balance: u64,
+    lock_duration_in_seconds: u64,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+pub struct TokenDeposit {
+    pub asset_name_utf8: String,
+    pub policy_id: ScriptHash,
+    pub quantity: u64,
+}
+
+impl From<TokenDeposit> for BuiltPolicy {
+    fn from(value: TokenDeposit) -> Self {
+        let asset_name = cml_chain::assets::AssetName::try_from(&*value.asset_name_utf8).unwrap();
+        Self {
+            policy_id: value.policy_id,
+            asset_name,
+            quantity: BigInteger::from(value.quantity),
+        }
+    }
+}
+
+impl From<&TokenDeposit> for Token {
+    fn from(value: &TokenDeposit) -> Self {
+        let asset_name = spectrum_cardano_lib::AssetName::utf8_unsafe(value.asset_name_utf8.clone());
+        Token(value.policy_id, asset_name)
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -1170,6 +1256,61 @@ struct InitialDaoEntities {
     permission_manager: PermManagerSnapshot,
 }
 
+struct OperationInputs {
+    explorer: Maestro,
+    addr: Address,
+    owner_pub_key: cml_crypto::PublicKey,
+    operator_public_key_hash: PaymentCredential,
+    deployment_progress: DeploymentProgress,
+    dao_parameters: DaoDeploymentParameters,
+    collateral: Collateral,
+    prover: OperatorProver,
+    network_id: NetworkId,
+}
+
+async fn create_operation_inputs<'a>(config: &'a AppConfig<'a>) -> OperationInputs {
+    let explorer = Maestro::new(config.maestro_key_path, config.network_id.into())
+        .await
+        .expect("Maestro instantiation failed");
+
+    let (addr, _, operator_pkh, _operator_cred, operator_sk) =
+        operator_creds_base_address(config.batcher_private_key, config.network_id);
+
+    let sk_bech32 = operator_sk.to_bech32();
+    let prover = OperatorProver::new(sk_bech32);
+    let owner_pub_key = operator_sk.to_public();
+
+    let collateral = if let Some(c) = pull_collateral(addr.clone().into(), &explorer).await {
+        c
+    } else {
+        generate_collateral(&explorer, &addr, &addr, &prover)
+            .await
+            .unwrap()
+    };
+
+    let dao_parameters_str =
+        std::fs::read_to_string(config.parameters_json_path).expect("Cannot load dao parameters file");
+    let dao_parameters: DaoDeploymentParameters =
+        serde_json::from_str(&dao_parameters_str).expect("Invalid parameters file");
+
+    let raw_deployment_config =
+        std::fs::read_to_string(config.deployment_json_path).expect("Cannot load configuration file");
+    let deployment_progress: DeploymentProgress =
+        serde_json::from_str(&raw_deployment_config).expect("Invalid configuration file");
+
+    OperationInputs {
+        explorer,
+        addr,
+        owner_pub_key,
+        operator_public_key_hash: operator_pkh,
+        collateral,
+        dao_parameters,
+        deployment_progress,
+        prover,
+        network_id: config.network_id,
+    }
+}
+
 const EX_UNITS: ExUnits = ExUnits {
     mem: 500_000,
     steps: 200_000_000,
@@ -1179,3 +1320,6 @@ const EX_UNITS_CREATE_VOTING_ESCROW: ExUnits = ExUnits {
     mem: 700_000,
     steps: 300_000_000,
 };
+
+const INCOMPLETE_DEPLOYMENT_ERR_MSG: &str =
+    "Expected a complete deployment! Run `splash-dao-administration deploy` to complete deployment";
