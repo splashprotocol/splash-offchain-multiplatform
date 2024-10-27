@@ -94,7 +94,7 @@ impl CardanoNetwork for Maestro {
         }
 
         match send_request(self, oref).await {
-            None => self.utxo_by_ref(oref),
+            None => send_request(self, oref).await,
             Some(res) => Some(res)
         }
     }
