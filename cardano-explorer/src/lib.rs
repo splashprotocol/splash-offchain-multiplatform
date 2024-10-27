@@ -72,23 +72,31 @@ impl Maestro {
 
 impl CardanoNetwork for Maestro {
     async fn utxo_by_ref(&self, oref: OutputRef) -> Option<TransactionUnspentOutput> {
-        let params = Some(HashMap::from([(
-            "with_cbor".to_lowercase(),
-            "true".to_lowercase(),
-        )]));
-        println!("params: {:?}", params);
-        println!("oref.tx_hash().to_hex().as_str(): {}", oref.tx_hash().to_hex().as_str());
-        println!("oref.index(): {}", oref.index() as i32);
-        self.0
-            .transaction_output_from_reference(oref.tx_hash().to_hex().as_str(), oref.index() as i32, params)
-            .await
-            .and_then(|tx_out| {
-                println!("tx_out_raw: {:?}", tx_out);
-                let tx_out = TransactionOutput::from_cbor_bytes(&*hex::decode(tx_out.data.tx_out_cbor)?)?;
-                println!("tx_out: {:?}", tx_out);
-                Ok(TransactionUnspentOutput::new(oref.into(), tx_out))
-            })
-            .ok()
+
+        async fn send_request(network: &Maestro, oref: OutputRef) -> Option<TransactionUnspentOutput> {
+            let params = Some(HashMap::from([(
+                "with_cbor".to_lowercase(),
+                "true".to_lowercase(),
+            )]));
+            println!("params: {:?}", params);
+            println!("oref.tx_hash().to_hex().as_str(): {}", oref.tx_hash().to_hex().as_str());
+            println!("oref.index(): {}", oref.index() as i32);
+            network.0
+                .transaction_output_from_reference(oref.tx_hash().to_hex().as_str(), oref.index() as i32, params)
+                .await
+                .and_then(|tx_out| {
+                    println!("tx_out_raw: {:?}", tx_out);
+                    let tx_out = TransactionOutput::from_cbor_bytes(&*hex::decode(tx_out.data.tx_out_cbor)?)?;
+                    println!("tx_out: {:?}", tx_out);
+                    Ok(TransactionUnspentOutput::new(oref.into(), tx_out))
+                })
+                .ok()
+        }
+
+        match send_request(self, oref).await {
+            None => self.utxo_by_ref(oref),
+            Some(res) => Some(res)
+        }
     }
 
     async fn utxos_by_pay_cred(
