@@ -480,6 +480,7 @@ pub struct DaoDeploymentParameters {
     /// Posix timestamp when first emission occurs.
     pub zeroth_epoch_start_offset: u64,
     pub accepted_assets: Vec<AcceptedAsset>,
+    pub authorized_executors: Vec<Ed25519KeyHash>,
 }
 
 #[cfg(test)]

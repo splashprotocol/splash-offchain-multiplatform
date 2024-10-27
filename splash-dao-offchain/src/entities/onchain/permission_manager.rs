@@ -1,13 +1,13 @@
 use cml_chain::{
-    plutus::{ExUnits, PlutusV2Script},
+    plutus::{ConstrPlutusData, ExUnits, PlutusData, PlutusV2Script},
     transaction::TransactionOutput,
     PolicyId,
 };
-use cml_crypto::RawBytesEncoding;
+use cml_crypto::{Ed25519KeyHash, RawBytesEncoding};
 use derive_more::From;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
-    plutus_data::{ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension},
+    plutus_data::{ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension},
     transaction::TransactionOutputExtension,
     types::TryFromPData,
     AssetName, OutputRef, Token,
@@ -28,7 +28,11 @@ use crate::{
     protocol_config::PermManagerAuthPolicy,
 };
 
-#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, From, Serialize, Deserialize)]
+use super::smart_farm::FarmId;
+
+#[derive(
+    Copy, Clone, PartialEq, Eq, Ord, PartialOrd, From, Serialize, Deserialize, derive_more::Display, Hash,
+)]
 pub struct PermManagerId;
 
 impl Identifier for PermManagerId {
@@ -39,14 +43,7 @@ pub type PermManagerSnapshot = Snapshot<PermManager, OutputRef>;
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct PermManager {
-    pub perm_manager_auth_policy: PolicyId,
-    pub auth_token_asset_name: AssetName,
-}
-
-impl PermManager {
-    pub fn get_token(&self) -> Token {
-        Token(self.perm_manager_auth_policy, self.auth_token_asset_name)
-    }
+    pub datum: PermManagerDatum,
 }
 
 impl HasIdentifier for PermManagerSnapshot {
@@ -58,9 +55,9 @@ impl HasIdentifier for PermManagerSnapshot {
 }
 
 impl Stable for PermManager {
-    type StableId = PolicyId;
+    type StableId = PermManagerId;
     fn stable_id(&self) -> Self::StableId {
-        self.perm_manager_auth_policy
+        PermManagerId
     }
     fn is_quasi_permanent(&self) -> bool {
         true
@@ -83,15 +80,65 @@ where
                 .multiasset
                 .get(&perm_manager_auth_policy, &auth_token_cml_asset_name)?;
             assert_eq!(auth_token_qty, 1);
+            let datum = repr.datum()?;
+            let perm_manager_datum = datum
+                .into_pd()
+                .map(|pd| PermManagerDatum::try_from_pd(pd).unwrap())?;
             let output_ref = ctx.select::<OutputRef>();
             let perm_manager = PermManager {
-                perm_manager_auth_policy,
-                auth_token_asset_name: AssetName::from(auth_token_cml_asset_name),
+                datum: perm_manager_datum,
             };
 
             return Some(Snapshot::new(perm_manager, output_ref));
         }
         None
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct PermManagerDatum {
+    pub authorized_executors: Vec<Ed25519KeyHash>,
+    pub suspended_farms: Vec<FarmId>,
+}
+
+impl IntoPlutusData for PermManagerDatum {
+    fn into_pd(self) -> PlutusData {
+        let authorized_executors_vec: Vec<PlutusData> = self
+            .authorized_executors
+            .into_iter()
+            .map(|key_hash| PlutusData::new_bytes(key_hash.to_raw_bytes().to_vec()))
+            .collect();
+        let suspended_farms_vec: Vec<PlutusData> = self
+            .suspended_farms
+            .into_iter()
+            .map(|farm_id| {
+                let farm_name = cml_chain::assets::AssetName::from(farm_id.0);
+                PlutusData::new_bytes(farm_name.to_raw_bytes().to_vec())
+            })
+            .collect();
+        let cpd = ConstrPlutusData::new(
+            0,
+            vec![
+                PlutusData::new_list(authorized_executors_vec),
+                PlutusData::new_list(suspended_farms_vec),
+            ],
+        );
+        PlutusData::ConstrPlutusData(cpd)
+    }
+}
+
+impl TryFromPData for PermManagerDatum {
+    fn try_from_pd(data: PlutusData) -> Option<Self> {
+        let mut cpd = data.into_constr_pd()?;
+        let authorized_executors = cpd.take_field(0)?.into_vec_pd(|pd| {
+            pd.into_bytes()
+                .map(|bytes| Ed25519KeyHash::from_raw_bytes(&bytes).unwrap())
+        })?;
+        let suspended_farms = cpd.take_field(1)?.into_vec_pd(FarmId::try_from_pd)?;
+        Some(Self {
+            authorized_executors,
+            suspended_farms,
+        })
     }
 }
 

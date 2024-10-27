@@ -57,7 +57,7 @@ use splash_dao_offchain::{
     entities::onchain::{
         farm_factory::{FarmFactoryAction, FarmFactoryDatum},
         inflation_box::InflationBoxSnapshot,
-        permission_manager::PermManagerSnapshot,
+        permission_manager::{PermManagerDatum, PermManagerSnapshot},
         poll_factory::{PollFactoryConfig, PollFactorySnapshot},
         smart_farm::{FarmId, MintAction},
         voting_escrow::{Lock, Owner, VotingEscrowAction, VotingEscrowAuthorizedAction, VotingEscrowConfig},
@@ -522,7 +522,7 @@ async fn create_dao_entities(
             .unwrap()
     };
 
-    // Inflation
+    // Inflation -----------------------------------------------------------------------------------
     let mut inflation_assets = MultiAsset::default();
     inflation_assets.set(
         minted_tokens.inflation_auth.policy_id,
@@ -542,7 +542,7 @@ async fn create_dao_entities(
     output_coin += inflation_out.output.value().coin;
     tx_builder.add_output(inflation_out).unwrap();
 
-    // farm_factory
+    // farm_factory --------------------------------------------------------------------------------
     let mut farm_assets = MultiAsset::default();
     farm_assets.set(
         minted_tokens.factory_auth.policy_id,
@@ -570,7 +570,7 @@ async fn create_dao_entities(
         ))
     };
 
-    // wp_factory
+    // wp_factory ----------------------------------------------------------------------------------
     let wp_factory_datum = PollFactoryConfig {
         last_poll_epoch: -1,
         active_farms: vec![farm_id("f0"), farm_id("f1")],
@@ -614,7 +614,7 @@ async fn create_dao_entities(
         vec![],
     )));
 
-    // gov_proxy
+    // gov_proxy -----------------------------------------------------------------------------------
     let gov_proxy_out = make_output(
         protocol_deployment.gov_proxy.hash,
         null_datum.clone(),
@@ -623,7 +623,7 @@ async fn create_dao_entities(
     output_coin += gov_proxy_out.output.amount().coin;
     tx_builder.add_output(gov_proxy_out).unwrap();
 
-    // perm_manager
+    // perm_manager --------------------------------------------------------------------------------
     let mut perm_manager_assets = MultiAsset::default();
     perm_manager_assets.set(
         minted_tokens.perm_auth.policy_id,
@@ -631,9 +631,14 @@ async fn create_dao_entities(
         minted_tokens.perm_auth.quantity.as_u64().unwrap(),
     );
 
+    let perm_manager_datum = PermManagerDatum {
+        authorized_executors: deployment_params.authorized_executors.clone(),
+        suspended_farms: vec![],
+    };
+
     let perm_manager_out = make_output(
         protocol_deployment.perm_manager.hash,
-        null_datum,
+        DatumOption::new_datum(perm_manager_datum.into_pd()),
         perm_manager_assets,
     );
     output_coin += perm_manager_out.output.amount().coin;
@@ -649,7 +654,7 @@ async fn create_dao_entities(
     tx_builder.set_fee(actual_fee);
     println!("Estimated fee: {}", estimated_tx_fee);
 
-    // Adding change output ---------------------------------------------------
+    // Adding change output ------------------------------------------------------------------------
     let change_output_coin = input_coin - output_coin - actual_fee;
     println!("change output coin: {}", change_output_coin);
     println!("unused tokens: {:?}", tokens_in_inputs);
