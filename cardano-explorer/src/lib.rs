@@ -7,6 +7,7 @@ use maestro_rust_sdk::client::maestro;
 use maestro_rust_sdk::models::addresses::UtxosAtAddress;
 use maestro_rust_sdk::utils::Parameters;
 use std::collections::HashMap;
+use std::future::Future;
 use std::io::Error;
 use std::path::Path;
 use tokio::fs;
@@ -127,12 +128,26 @@ impl CardanoNetwork for Maestro {
         params.with_cbor();
         params.from(offset as i64);
         params.count(limit as i32);
-        self.0
-            .utxos_at_address(address.to_bech32(None).unwrap().as_str(), Some(params))
-            .await
-            .and_then(read_maestro_utxos)
-            .ok()
-            .unwrap_or(vec![])
+
+        async fn internal_request(network: &Maestro, address: Address, params: Parameters) -> Option<Vec<TransactionUnspentOutput>> {
+            network.0
+                .utxos_at_address(address.to_bech32(None).unwrap().as_str(), Some(params))
+                .await
+                .and_then(read_maestro_utxos)
+                .ok()
+        }
+
+        match internal_request(self, address.clone(), params).await {
+            Some(res) => res,
+            None => Box::pin(self.utxos_by_address(address, offset, limit)).await
+        }
+
+        // self.0
+        //     .utxos_at_address(address.to_bech32(None).unwrap().as_str(), Some(params))
+        //     .await
+        //     .and_then(read_maestro_utxos)
+        //     .ok()
+        //     .unwrap_or(vec![])
     }
 }
 
