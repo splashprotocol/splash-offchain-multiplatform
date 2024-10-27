@@ -22,7 +22,7 @@ use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 
 use crate::assets::Splash;
-use crate::constants::{MINT_WP_AUTH_TOKEN_SCRIPT, SPLASH_NAME};
+use crate::constants::{script_bytes::MINT_WP_AUTH_TOKEN_SCRIPT, SPLASH_NAME};
 use crate::deployment::ProtocolValidator;
 use crate::entities::onchain::smart_farm::FarmId;
 use crate::entities::onchain::voting_escrow::compute_mint_weighting_power_validator;

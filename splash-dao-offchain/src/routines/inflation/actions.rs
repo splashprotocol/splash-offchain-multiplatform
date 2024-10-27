@@ -35,7 +35,7 @@ use uplc::PlutusData;
 use uplc_pallas_primitives::Fragment;
 
 use crate::assets::SPLASH_AC;
-use crate::constants::{self, VOTING_WITNESS_STUB};
+use crate::constants::{self, script_bytes::VOTING_WITNESS_STUB};
 use crate::create_change_output::{ChangeOutputCreator, CreateChangeOutput};
 use crate::deployment::ProtocolValidator;
 use crate::entities::offchain::voting_order::VotingOrder;

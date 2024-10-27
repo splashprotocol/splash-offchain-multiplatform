@@ -4,9 +4,8 @@
 use cml_chain::plutus::{PlutusData, PlutusScript, PlutusV2Script};
 use cml_chain::Serialize;
 use cml_crypto::{PrivateKey, RawBytesEncoding, ScriptHash};
-use splash_dao_offchain::constants::MINT_IDENTIFIER_SCRIPT;
 use splash_dao_offchain::{
-    constants::VOTING_WITNESS_STUB,
+    constants::script_bytes::{MINT_IDENTIFIER_SCRIPT, VOTING_WITNESS_STUB},
     entities::{
         offchain::voting_order::{VotingOrder, VotingOrderId},
         onchain::{smart_farm::FarmId, voting_escrow::VotingEscrowId},

@@ -40,7 +40,7 @@ use tokio::sync::mpsc::Receiver;
 use tokio::sync::Mutex;
 use type_equalities::IsEqual;
 
-use crate::constants::VOTING_WITNESS_STUB;
+use crate::constants::script_bytes::VOTING_WITNESS_STUB;
 use crate::deployment::ProtocolValidator;
 use crate::entities::offchain::voting_order::{VotingOrder, VotingOrderId};
 use crate::entities::onchain::funding_box::{FundingBox, FundingBoxId, FundingBoxSnapshot};

@@ -17,7 +17,7 @@ use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 use uplc_pallas_codec::utils::PlutusBytes;
 
 use crate::assets::Splash;
-use crate::constants::WP_FACTORY_SCRIPT;
+use crate::constants::script_bytes::WP_FACTORY_SCRIPT;
 use crate::deployment::ProtocolValidator;
 use crate::entities::onchain::smart_farm::FarmId;
 use crate::entities::onchain::weighting_poll::WeightingPoll;

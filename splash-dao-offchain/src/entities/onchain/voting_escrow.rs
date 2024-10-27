@@ -30,10 +30,10 @@ use spectrum_offchain::{
 };
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 
-use crate::constants::{
-    DEFAULT_AUTH_TOKEN_NAME, GT_NAME, MINT_GOVERNANCE_POWER_SCRIPT, MINT_WEIGHTING_POWER_SCRIPT,
-    VOTING_ESCROW_SCRIPT,
+use crate::constants::script_bytes::{
+    MINT_GOVERNANCE_POWER_SCRIPT, MINT_WEIGHTING_POWER_SCRIPT, VOTING_ESCROW_SCRIPT,
 };
+use crate::constants::{DEFAULT_AUTH_TOKEN_NAME, GT_NAME};
 use crate::deployment::ProtocolValidator;
 use crate::entities::Snapshot;
 use crate::protocol_config::{GTAuthPolicy, MintVEIdentifierPolicy};

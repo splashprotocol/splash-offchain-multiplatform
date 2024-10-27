@@ -16,7 +16,7 @@ use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 use uplc_pallas_codec::utils::{Int, PlutusBytes};
 
 use crate::assets::Splash;
-use crate::constants::{INFLATION_SCRIPT, SPLASH_NAME};
+use crate::constants::{script_bytes::INFLATION_SCRIPT, SPLASH_NAME};
 use crate::deployment::ProtocolValidator;
 use crate::entities::Snapshot;
 use crate::protocol_config::SplashPolicy;

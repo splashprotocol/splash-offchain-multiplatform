@@ -48,7 +48,7 @@ use spectrum_offchain_cardano::{
 };
 use splash_dao_offchain::{
     collateral::{generate_collateral, pull_collateral, send_ada},
-    constants::{DEFAULT_AUTH_TOKEN_NAME, SPLASH_NAME, VOTING_WITNESS_STUB},
+    constants::{script_bytes::VOTING_WITNESS_STUB, DEFAULT_AUTH_TOKEN_NAME, SPLASH_NAME},
     create_change_output::{ChangeOutputCreator, CreateChangeOutput},
     deployment::{
         write_deployment_to_disk, BuiltPolicy, CompleteDeployment, DeployedValidators, DeploymentProgress,

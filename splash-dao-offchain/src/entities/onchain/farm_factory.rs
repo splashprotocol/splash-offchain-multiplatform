@@ -25,7 +25,7 @@ use spectrum_offchain_cardano::{
 use uplc_pallas_codec::utils::PlutusBytes;
 
 use crate::{
-    constants::{self, FARM_FACTORY_SCRIPT},
+    constants::{self, script_bytes::FARM_FACTORY_SCRIPT},
     deployment::ProtocolValidator,
     entities::Snapshot,
     protocol_config::FarmFactoryAuthPolicy,

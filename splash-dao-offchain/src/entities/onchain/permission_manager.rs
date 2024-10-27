@@ -22,7 +22,7 @@ use spectrum_offchain_cardano::{
 };
 
 use crate::{
-    constants::{DEFAULT_AUTH_TOKEN_NAME, PERM_MANAGER_SCRIPT},
+    constants::{script_bytes::PERM_MANAGER_SCRIPT, DEFAULT_AUTH_TOKEN_NAME},
     deployment::ProtocolValidator,
     entities::Snapshot,
     protocol_config::PermManagerAuthPolicy,

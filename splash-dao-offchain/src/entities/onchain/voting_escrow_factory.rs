@@ -28,7 +28,7 @@ use spectrum_offchain_cardano::{
 use uplc_pallas_codec::utils::PlutusBytes;
 
 use crate::{
-    constants::{DEFAULT_AUTH_TOKEN_NAME, GT_NAME, VE_FACTORY_SCRIPT},
+    constants::{script_bytes::VE_FACTORY_SCRIPT, DEFAULT_AUTH_TOKEN_NAME, GT_NAME},
     deployment::ProtocolValidator,
     entities::Snapshot,
     protocol_config::{GTAuthPolicy, VEFactoryAuthPolicy},

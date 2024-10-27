@@ -34,8 +34,10 @@ use spectrum_offchain_cardano::{
 };
 use splash_dao_offchain::{
     constants::{
-        DEFAULT_AUTH_TOKEN_NAME, GOV_PROXY_SCRIPT, GT_NAME, MAX_GT_SUPPLY, MINT_IDENTIFIER_SCRIPT,
-        MINT_VE_COMPOSITION_TOKEN_SCRIPT, ONE_TIME_MINT_SCRIPT,
+        script_bytes::{
+            GOV_PROXY_SCRIPT, MINT_IDENTIFIER_SCRIPT, MINT_VE_COMPOSITION_TOKEN_SCRIPT, ONE_TIME_MINT_SCRIPT,
+        },
+        DEFAULT_AUTH_TOKEN_NAME, GT_NAME, MAX_GT_SUPPLY,
     },
     deployment::{BuiltPolicy, ExternallyMintedToken, MintedTokens},
     entities::onchain::{
