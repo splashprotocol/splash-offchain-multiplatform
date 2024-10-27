@@ -13,7 +13,7 @@ use splash_dao_offchain::{
     },
 };
 
-pub fn create_voting_order(operator_sk: PrivateKey) -> VotingOrder {
+pub fn create_voting_order(operator_sk: &PrivateKey) -> VotingOrder {
     let voting_witness_script =
         PlutusScript::PlutusV2(PlutusV2Script::new(hex::decode(VOTING_WITNESS_STUB).unwrap()));
     let redeemer = cml_chain::plutus::PlutusData::new_list(vec![]);

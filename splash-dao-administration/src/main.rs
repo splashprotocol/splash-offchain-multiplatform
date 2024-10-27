@@ -5,6 +5,7 @@ use std::{
     cmp::Ordering,
     collections::{HashMap, HashSet},
     hash::Hash,
+    net::SocketAddr,
     ops::Deref,
 };
 
@@ -28,7 +29,7 @@ use cml_chain::{
     utils::BigInteger,
     Coin, Serialize, Value,
 };
-use cml_crypto::{blake2b256, Ed25519KeyHash, RawBytesEncoding, ScriptHash, TransactionHash};
+use cml_crypto::{blake2b256, Ed25519KeyHash, PrivateKey, RawBytesEncoding, ScriptHash, TransactionHash};
 use mint_token::{script_address, DaoDeploymentParameters, LQ_NAME};
 use spectrum_cardano_lib::{
     collateral::Collateral,
@@ -70,6 +71,7 @@ use splash_dao_offchain::{
 use tokio::io::AsyncWriteExt;
 use type_equalities::IsEqual;
 use uplc_pallas_traverse::output;
+use voting_order::create_voting_order;
 
 const INFLATION_BOX_INITIAL_SPLASH_QTY: i64 = 32000000000000;
 
@@ -100,7 +102,7 @@ async fn main() {
             //
         }
         Command::CastVote => {
-            //
+            cast_vote(&op_inputs).await;
         }
     };
 }
@@ -942,6 +944,7 @@ async fn create_initial_farms(op_inputs: &OperationInputs) {
         collateral,
         prover,
         network_id,
+        ..
     } = op_inputs;
 
     let deployment_config =
@@ -1117,6 +1120,40 @@ async fn create_initial_farms(op_inputs: &OperationInputs) {
     explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
 }
 
+async fn cast_vote(op_inputs: &OperationInputs) {
+    let OperationInputs {
+        voting_order_listener_endpoint,
+        operator_sk,
+        ..
+    } = op_inputs;
+
+    let voting_order = create_voting_order(operator_sk);
+
+    let client = reqwest::Client::new();
+
+    let url = format!(
+        "http://{}{}",
+        voting_order_listener_endpoint, "/submit/votingorder"
+    );
+
+    // Send the PUT request with JSON body
+    let response = client
+        .put(url)
+        .json(&voting_order) // Serialize the payload as JSON
+        .send()
+        .await
+        .unwrap();
+
+    if response.status().is_success() {
+        let text = response.text().await.unwrap();
+        println!("Response: {}", text);
+    } else {
+        println!("Failed with status: {}", response.status());
+        let error_text = response.text().await.unwrap();
+        println!("Error: {}", error_text);
+    }
+}
+
 pub async fn get_largest_utxo<Net: CardanoNetwork>(explorer: &Net, addr: &Address) -> InputBuilderResult {
     let mut utxos = explorer.utxos_by_address(addr.clone(), 0, 50).await;
     utxos.sort_by_key(|output| output.output.value().coin);
@@ -1244,6 +1281,7 @@ pub struct AppConfig<'a> {
     pub batcher_private_key: &'a str, //todo: store encrypted
     pub deployment_json_path: &'a str,
     pub parameters_json_path: &'a str,
+    pub voting_order_listener_endpoint: SocketAddr,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -1261,11 +1299,13 @@ struct OperationInputs {
     addr: Address,
     owner_pub_key: cml_crypto::PublicKey,
     operator_public_key_hash: PaymentCredential,
+    operator_sk: PrivateKey,
     deployment_progress: DeploymentProgress,
     dao_parameters: DaoDeploymentParameters,
     collateral: Collateral,
     prover: OperatorProver,
     network_id: NetworkId,
+    voting_order_listener_endpoint: SocketAddr,
 }
 
 async fn create_operation_inputs<'a>(config: &'a AppConfig<'a>) -> OperationInputs {
@@ -1303,11 +1343,13 @@ async fn create_operation_inputs<'a>(config: &'a AppConfig<'a>) -> OperationInpu
         addr,
         owner_pub_key,
         operator_public_key_hash: operator_pkh,
+        operator_sk,
         collateral,
         dao_parameters,
         deployment_progress,
         prover,
         network_id: config.network_id,
+        voting_order_listener_endpoint: config.voting_order_listener_endpoint,
     }
 }
 
