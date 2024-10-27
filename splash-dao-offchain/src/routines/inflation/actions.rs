@@ -989,6 +989,19 @@ pub fn compute_epoch_asset_name(epoch: u32) -> cml_chain::assets::AssetName {
     cml_chain::assets::AssetName::new(token_name.to_vec()).unwrap()
 }
 
+/// Computes farm_name(farm_id: Int) from aiken script
+pub fn compute_farm_name(farm_id: u32) -> cml_chain::assets::AssetName {
+    let i = uplc_pallas_codec::utils::Int::from(farm_id as i64);
+
+    // Here we calculate `cbor.serialise(i)` from Aiken script. The exact calculation that is
+    // performed is found here: https://github.com/aiken-lang/aiken/blob/2bb2f11090ace3c7f36ed75b0e1d5b101d0c9a8a/crates/uplc/src/machine/runtime.rs#L1032
+    let bytes = PlutusData::BigInt(uplc_pallas_primitives::alonzo::BigInt::Int(i))
+        .encode_fragment()
+        .unwrap();
+
+    cml_chain::assets::AssetName::try_from(bytes).unwrap()
+}
+
 enum CreateWPollInputType {
     Inflation,
     WPFactory,

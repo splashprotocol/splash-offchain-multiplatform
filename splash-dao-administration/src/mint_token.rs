@@ -481,6 +481,7 @@ pub struct DaoDeploymentParameters {
     pub zeroth_epoch_start_offset: u64,
     pub accepted_assets: Vec<AcceptedAsset>,
     pub authorized_executors: Vec<Ed25519KeyHash>,
+    pub num_active_farms: u32,
 }
 
 #[cfg(test)]

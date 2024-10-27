@@ -64,7 +64,7 @@ use splash_dao_offchain::{
         voting_escrow_factory::{self, exchange_outputs, VEFactoryDatum, VEFactorySnapshot},
     },
     protocol_config::{GTAuthPolicy, NotOutputRefNorSlotNumber, VEFactoryAuthPolicy},
-    routines::inflation::WithOutputRef,
+    routines::inflation::{actions::compute_farm_name, WithOutputRef},
     time::NetworkTimeProvider,
     CurrentEpoch, NetworkTimeSource,
 };
@@ -564,16 +564,18 @@ async fn create_dao_entities(
     output_coin += farm_factory_out.output.value().coin;
     tx_builder.add_output(farm_factory_out).unwrap();
 
-    let farm_id = |name_utf8: &str| {
-        FarmId(spectrum_cardano_lib::AssetName::from(
-            cml_chain::assets::AssetName::try_from(name_utf8).unwrap(),
-        ))
-    };
-
     // wp_factory ----------------------------------------------------------------------------------
+
+    let active_farms = (0..deployment_params.num_active_farms)
+        .map(|farm_id| {
+            let name = spectrum_cardano_lib::AssetName::from(compute_farm_name(farm_id));
+            FarmId(name)
+        })
+        .collect();
+
     let wp_factory_datum = PollFactoryConfig {
         last_poll_epoch: -1,
-        active_farms: vec![farm_id("f0"), farm_id("f1")],
+        active_farms,
     };
     let mut wp_factory_assets = MultiAsset::default();
     wp_factory_assets.set(

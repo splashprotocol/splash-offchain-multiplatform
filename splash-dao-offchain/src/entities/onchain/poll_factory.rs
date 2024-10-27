@@ -157,16 +157,6 @@ impl IntoPlutusData for FactoryRedeemer {
     }
 }
 
-pub struct RedeemerPollFactoryMapping {
-    successor_ix: usize,
-    action: usize,
-}
-
-const PF_REDEEMER_MAPPING: RedeemerPollFactoryMapping = RedeemerPollFactoryMapping {
-    successor_ix: 0,
-    action: 1,
-};
-
 pub const WP_FACTORY_EX_UNITS: ExUnits = ExUnits {
     mem: 500_000,
     steps: 200_000_000,
