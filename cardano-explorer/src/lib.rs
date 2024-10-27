@@ -77,6 +77,8 @@ impl CardanoNetwork for Maestro {
             "true".to_lowercase(),
         )]));
         println!("params: {:?}", params);
+        println!("oref.tx_hash().to_hex().as_str(): {}", oref.tx_hash().to_hex().as_str());
+        println!("oref.index(): {}", oref.index() as i32);
         self.0
             .transaction_output_from_reference(oref.tx_hash().to_hex().as_str(), oref.index() as i32, params)
             .await
