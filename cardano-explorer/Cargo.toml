@@ -19,7 +19,6 @@ pallas-network = { git = "https://github.com/kettlebell/pallas.git", branch = "c
 pallas-primitives = { git = "https://github.com/kettlebell/pallas.git", branch = "conway_update" }
 isahc = { version = "1.7.2", features = ["json"] }
 futures = "0.3.25"
-futures-retry = "0.6.0"
 tokio = { version = "1.22.0", features = ["full"] }
 log = "0.4.17"
 log4rs = "1.2.0"
