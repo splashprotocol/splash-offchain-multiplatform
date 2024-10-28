@@ -67,3 +67,7 @@ uplc-pallas-primitives = { package = "pallas-primitives", version = "0.16" }
 [dev-dependencies]
 rocksdb = "0.22.*"
 cbor_event = "2.4.0"
+
+[features]
+default = []
+test_30_min_epoch = []
