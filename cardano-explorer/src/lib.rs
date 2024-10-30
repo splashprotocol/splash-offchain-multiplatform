@@ -20,6 +20,7 @@ pub mod client;
 
 pub mod constants;
 pub mod data;
+pub mod retry;
 
 #[derive(serde::Deserialize)]
 pub enum Network {
@@ -76,14 +77,20 @@ impl CardanoNetwork for Maestro {
             "with_cbor".to_lowercase(),
             "true".to_lowercase(),
         )]));
-        self.0
-            .transaction_output_from_reference(oref.tx_hash().to_hex().as_str(), oref.index() as i32, params)
-            .await
-            .and_then(|tx_out| {
-                let tx_out = TransactionOutput::from_cbor_bytes(&*hex::decode(tx_out.data.tx_out_cbor)?)?;
-                Ok(TransactionUnspentOutput::new(oref.into(), tx_out))
-            })
-            .ok()
+        retry!(
+            self.0
+                .transaction_output_from_reference(
+                    oref.tx_hash().to_hex().as_str(),
+                    oref.index() as i32,
+                    params.clone()
+                )
+                .await
+        )
+        .and_then(|tx_out| {
+            let tx_out = TransactionOutput::from_cbor_bytes(&*hex::decode(tx_out.data.tx_out_cbor)?)?;
+            Ok(TransactionUnspentOutput::new(oref.into(), tx_out))
+        })
+        .ok()
     }
 
     async fn utxos_by_pay_cred(
@@ -96,12 +103,17 @@ impl CardanoNetwork for Maestro {
         params.with_cbor();
         params.from(offset as i64);
         params.count(limit as i32);
-        self.0
-            .utxos_by_payment_credential(String::from(payment_credential).as_str(), Some(params))
-            .await
-            .and_then(read_maestro_utxos)
-            .ok()
-            .unwrap_or(vec![])
+        retry!(
+            self.0
+                .utxos_by_payment_credential(
+                    String::from(payment_credential.clone()).as_str(),
+                    Some(params.clone())
+                )
+                .await
+        )
+        .and_then(read_maestro_utxos)
+        .ok()
+        .unwrap_or(vec![])
     }
 
     async fn utxos_by_address(
@@ -114,12 +126,14 @@ impl CardanoNetwork for Maestro {
         params.with_cbor();
         params.from(offset as i64);
         params.count(limit as i32);
-        self.0
-            .utxos_at_address(address.to_bech32(None).unwrap().as_str(), Some(params))
-            .await
-            .and_then(read_maestro_utxos)
-            .ok()
-            .unwrap_or(vec![])
+        retry!(
+            self.0
+                .utxos_at_address(address.to_bech32(None).unwrap().as_str(), Some(params.clone()))
+                .await
+        )
+        .and_then(read_maestro_utxos)
+        .ok()
+        .unwrap_or(vec![])
     }
 }
 

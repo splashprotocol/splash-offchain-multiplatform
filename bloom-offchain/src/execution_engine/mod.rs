@@ -572,7 +572,10 @@ where
                 trace!("Going to process missing inputs");
                 if let Err(ver) = self.invalidate_versions(&pair, missing_inputs.clone()) {
                     if strict_index_consistency {
-                        panic!("Detected state inconsistency while invalidating {}. None in index state", ver);
+                        panic!(
+                            "Detected state inconsistency while invalidating {}. None in index state",
+                            ver
+                        );
                     }
                 }
             }
