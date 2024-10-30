@@ -771,6 +771,7 @@ where
 pub type Execution<T, M, B> = Either<Take<T, B>, Make<M, B>>;
 
 /// Same as [MatchmakingRecipe] but with bearers attached to each target element.
+/// Returns a collection of orphaned targets that failed to link in case of failure.
 #[derive(Debug, Clone)]
 pub struct ExecutionRecipe<Taker, Maker, B>(pub Vec<Execution<Taker, Maker, B>>);
 
@@ -787,7 +788,7 @@ impl<T, M, B> ExecutionRecipe<T, M, B> {
     {
         let mut translated_instructions = vec![];
         let mut consumed_versions = vec![];
-        let mut orphaned_identifiers = vec![];
+        let mut orphaned_targets = vec![];
         for i in instructions {
             match i {
                 Either::Left(Trans { target, result }) => {
@@ -798,7 +799,7 @@ impl<T, M, B> ExecutionRecipe<T, M, B> {
                             result,
                         }));
                     } else {
-                        orphaned_identifiers.push(Either::Left(target));
+                        orphaned_targets.push(Either::Left(target));
                     }
                 }
                 Either::Right(Trans { target, result }) => {
@@ -809,12 +810,12 @@ impl<T, M, B> ExecutionRecipe<T, M, B> {
                             result,
                         }));
                     } else {
-                        orphaned_identifiers.push(Either::Right(target));
+                        orphaned_targets.push(Either::Right(target));
                     }
                 }
             }
         }
-        if let Some(orphans) = NonEmpty::collect(orphaned_identifiers) {
+        if let Some(orphans) = NonEmpty::collect(orphaned_targets) {
             return Err(orphans);
         }
         Ok((
