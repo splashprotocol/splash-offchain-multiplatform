@@ -12,6 +12,7 @@ use futures::stream::FusedStream;
 use futures::{FutureExt, Stream};
 use futures::{SinkExt, StreamExt};
 use log::{error, trace, warn};
+use nonempty::NonEmpty;
 use tokio::sync::broadcast;
 
 use liquidity_book::interpreter::RecipeInterpreter;
@@ -36,7 +37,7 @@ use crate::execution_engine::liquidity_book::interpreter::ExecutionResult;
 use crate::execution_engine::liquidity_book::market_taker::MarketTaker;
 use crate::execution_engine::liquidity_book::{ExternalLBEvents, LBFeedback, LiquidityBook};
 use crate::execution_engine::multi_pair::MultiPair;
-use crate::execution_engine::resolver::resolve_source_state;
+use crate::execution_engine::resolver::resolve_state;
 use crate::execution_engine::storage::kv_store::KvStore;
 use crate::execution_engine::storage::StateIndex;
 
@@ -103,7 +104,6 @@ pub fn execution_part_stream<
     MakerCtx,
     ExUnits,
     Index,
-    Cache,
     Book,
     Backlog,
     RecInterpreter,
@@ -113,7 +113,6 @@ pub fn execution_part_stream<
     Err,
 >(
     index: Index,
-    cache: Cache,
     book: MultiPair<Pair, Book, MakerCtx>,
     backlog: MultiPair<Pair, Backlog, MakerCtx>,
     context: Ctx,
@@ -141,7 +140,6 @@ where
     Ctx: Clone + Unpin + 'a,
     MakerCtx: Clone + Unpin + 'a,
     Index: StateIndex<EvolvingEntity<CompOrd, Pool, Ver, Bearer>> + Unpin + 'a,
-    Cache: KvStore<StableId, EvolvingEntity<CompOrd, Pool, Ver, Bearer>> + Unpin + 'a,
     Book: LiquidityBook<CompOrd, Pool>
         + ExternalLBEvents<CompOrd, Pool>
         + LBFeedback<CompOrd, Pool>
@@ -158,7 +156,6 @@ where
     let (feedback_out, feedback_in) = mpsc::channel(100);
     let executor = Executor::new(
         index,
-        cache,
         book,
         backlog,
         context,
@@ -202,7 +199,6 @@ pub struct Executor<
     Ctx,
     MakerCtx,
     Index,
-    Cache,
     Book,
     Backlog,
     TradeInterpreter,
@@ -212,8 +208,6 @@ pub struct Executor<
 > {
     /// Storage for all on-chain states.
     index: Index,
-    /// Hot storage for resolved states.
-    cache: Cache,
     /// Separate TLBs for each pair (for swaps).
     multi_book: MultiPair<Pair, Book, MakerCtx>,
     /// Separate Backlogs for each pair (for specialized operations such as Deposit/Redeem)
@@ -236,15 +230,14 @@ pub struct Executor<
     pd: PhantomData<(StableId, Ver, TxCandidate, Tx, Err)>,
 }
 
-impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR, PRV, E>
-    Executor<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR, PRV, E>
+impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, E>
+    Executor<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, E>
 where
-    V: Send + std::marker::Sync,
-    SID: std::marker::Send + std::marker::Sync,
+    V: Send + Sync,
+    SID: Send + Sync,
 {
     fn new(
         index: IX,
-        cache: CH,
         multi_book: MultiPair<PR, TLB, MC>,
         multi_backlog: MultiPair<PR, L, MC>,
         context: C,
@@ -257,7 +250,6 @@ where
     ) -> Self {
         Self {
             index,
-            cache,
             multi_book,
             multi_backlog,
             context,
@@ -318,7 +310,6 @@ where
         CO: Stable<StableId = SID> + Clone,
         P: Stable<StableId = SID> + Clone,
         IX: StateIndex<EvolvingEntity<CO, P, V, B>>,
-        CH: KvStore<SID, EvolvingEntity<CO, P, V, B>>,
         TLB: ExternalLBEvents<CO, P> + Maker<MC>,
     {
         trace!("Syncing TLB pair: {}", pair);
@@ -344,24 +335,6 @@ where
         }
     }
 
-    fn cache<T>(&mut self, new_entity_state: Bundled<T, B>) -> Option<Ior<T, T>>
-    where
-        SID: Copy + Eq + Hash + Display,
-        V: Copy + Eq + Hash + Display,
-        T: EntitySnapshot<StableId = SID, Version = V> + Clone,
-        B: Clone,
-        CH: KvStore<SID, Bundled<T, B>>,
-    {
-        if let Some(Bundled(prev_best_state, _)) = self
-            .cache
-            .insert(new_entity_state.stable_id(), new_entity_state.clone())
-        {
-            Some(Ior::Both(prev_best_state, new_entity_state.0))
-        } else {
-            Some(Ior::Right(new_entity_state.0))
-        }
-    }
-
     fn invalidate_versions(&mut self, pair: &PR, versions: HashSet<V>) -> Result<(), V>
     where
         PR: Copy + Eq + Hash + Display,
@@ -372,19 +345,16 @@ where
         CO: Stable<StableId = SID> + Clone + Display,
         P: Stable<StableId = SID> + Clone,
         IX: StateIndex<EvolvingEntity<CO, P, V, B>>,
-        CH: KvStore<SID, EvolvingEntity<CO, P, V, B>>,
         TLB: ExternalLBEvents<CO, P> + Maker<MC>,
     {
         for ver in versions {
-            if let Some(stable_id) = self.index.invalidate_version(ver) {
+            if let Some(state) = self.index.get_state(ver) {
+                let stable_id = state.stable_id();
+                let state_before_invalidation = resolve_state(stable_id, &self.index);
                 trace!("Invalidating snapshot {} of {}", ver, stable_id);
-                let maybe_transition = match resolve_source_state(stable_id, &self.index) {
-                    None => self
-                        .cache
-                        .remove(stable_id)
-                        .map(|Bundled(elim_state, _)| Ior::Left(elim_state)),
-                    Some(latest_state) => self.cache(latest_state),
-                };
+                self.index.invalidate_version(ver);
+                let state_after_invalidation = resolve_state(stable_id, &self.index);
+                let maybe_transition = to_transition(state_before_invalidation, state_after_invalidation);
                 if let Some(tr) = maybe_transition {
                     match &tr {
                         Ior::Left(Either::Right(mm)) if mm.is_quasi_permanent() => {
@@ -414,7 +384,6 @@ where
         T: EntitySnapshot<StableId = SID, Version = V> + Clone,
         B: Clone,
         IX: StateIndex<Bundled<T, B>>,
-        CH: KvStore<SID, Bundled<T, B>>,
     {
         let from_ledger = matches!(update, Channel::Ledger(_));
         let from_mempool = matches!(update, Channel::Mempool(_));
@@ -445,6 +414,7 @@ where
                     }
                     return None;
                 }
+                let state_before_update = resolve_state(id, &self.index);
                 if from_ledger {
                     trace!("Observing new confirmed state {}", id);
                     self.index.put_confirmed(Confirmed(new_state));
@@ -455,10 +425,8 @@ where
                     trace!("Observing new predicted state {}", id);
                     self.index.put_predicted(Predicted(new_state));
                 }
-                match resolve_source_state(id, &self.index) {
-                    Some(latest_state) => self.cache(latest_state),
-                    None => unreachable!(),
-                }
+                let state_after_update = resolve_state(id, &self.index);
+                to_transition(state_before_update, state_after_update)
             }
             StateUpdate::Transition(Ior::Left(st)) | StateUpdate::TransitionRollback(Ior::Left(st)) => {
                 self.index.eliminate(st.stable_id());
@@ -484,7 +452,6 @@ where
         SO: SpecializedOrder<TOrderId = V>,
         CO: Stable<StableId = SID> + Copy + Debug,
         P: Stable<StableId = SID> + Copy,
-        CH: KvStore<SID, EvolvingEntity<CO, P, V, B>>,
         TH: Display,
         IX: StateIndex<EvolvingEntity<CO, P, V, B>>,
         TLB: ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<MC>,
@@ -542,7 +509,6 @@ where
         SO: SpecializedOrder<TOrderId = V>,
         CO: Stable<StableId = SID> + Copy + Display,
         P: Stable<StableId = SID> + Copy,
-        CH: KvStore<SID, EvolvingEntity<CO, P, V, B>>,
         TH: Display,
         IX: StateIndex<EvolvingEntity<CO, P, V, B>>,
         TLB: ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<MC>,
@@ -606,6 +572,38 @@ where
         }
     }
 
+    fn on_linkage_failure(&mut self, focus_pair: PR, orphans: NonEmpty<Either<CO, P>>)
+    where
+        SID: Eq + Hash + Copy + Display + Debug,
+        V: Eq + Hash + Copy + Display,
+        B: Clone + Debug,
+        MC: Clone,
+        PR: Eq + Hash + Copy + Display,
+        SO: SpecializedOrder<TOrderId = V>,
+        CO: Stable<StableId = SID> + Copy + Display,
+        P: Stable<StableId = SID> + Copy,
+        IX: StateIndex<EvolvingEntity<CO, P, V, B>>,
+        TLB: ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<MC>,
+    {
+        for fragment in &orphans {
+            let id = fragment.stable_id();
+            warn!("Linkage failed for {}", id);
+            self.index.eliminate(id);
+        }
+        let liquidity_book = self.multi_book.get_mut(&focus_pair);
+        liquidity_book.on_recipe_failed();
+        for fragment in orphans {
+            match fragment {
+                Either::Left(taker) => {
+                    liquidity_book.remove_taker(taker);
+                }
+                Either::Right(maker) => {
+                    liquidity_book.remove_maker(maker);
+                }
+            }
+        }
+    }
+
     fn on_funding_effects_failure(&mut self, err: E, mut effects: Vec<FundingEvent<B>>)
     where
         B: Has<V> + Eq + Ord + Clone,
@@ -643,7 +641,6 @@ where
         SO: SpecializedOrder<TOrderId = V>,
         CO: Stable<StableId = SID> + Copy + Debug,
         P: Stable<StableId = SID> + Copy,
-        CH: KvStore<SID, EvolvingEntity<CO, P, V, B>>,
         IX: StateIndex<EvolvingEntity<CO, P, V, B>>,
         TLB: ExternalLBEvents<CO, P> + Maker<MC>,
         L: HotBacklog<Bundled<SO, B>> + Maker<MC>,
@@ -674,8 +671,19 @@ where
     }
 }
 
-impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, U, C, MC, IX, CH, TLB, L, RIR, SIR, PRV, E> Stream
-    for Executor<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR, PRV, E>
+fn to_transition<T, B>(prev: Option<Bundled<T, B>>, next: Option<Bundled<T, B>>) -> Option<Ior<T, T>> {
+    match (prev, next) {
+        (Some(Bundled(elim_state, _)), None) => Some(Ior::Left(elim_state)),
+        (None, Some(Bundled(new_state, _))) => Some(Ior::Right(new_state)),
+        (Some(Bundled(prev_best_state, _)), Some(Bundled(new_best_state, _))) => {
+            Some(Ior::Both(prev_best_state, new_best_state))
+        }
+        (None, None) => None,
+    }
+}
+
+impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, U, C, MC, IX, TLB, L, RIR, SIR, PRV, E> Stream
+    for Executor<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, E>
 where
     S: Stream<Item = (PR, Event<CO, SO, P, B, V>)> + Unpin,
     F: Stream<Item = FundingEvent<B>> + Unpin,
@@ -692,7 +700,6 @@ where
     C: Clone + Unpin,
     MC: Clone + Unpin,
     IX: StateIndex<EvolvingEntity<CO, P, V, B>> + Unpin,
-    CH: KvStore<SID, EvolvingEntity<CO, P, V, B>> + Unpin,
     TLB: LiquidityBook<CO, P> + ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<MC> + Unpin,
     L: HotBacklog<Bundled<SO, B>> + Maker<MC> + Unpin,
     RIR: RecipeInterpreter<CO, P, C, V, B, TC> + Unpin,
@@ -751,44 +758,48 @@ where
             while let Some(focus_pair) = self.focus_set.pop_front() {
                 // Try TLB:
                 if let Some(recipe) = self.multi_book.get_mut(&focus_pair).attempt() {
-                    let (linked_recipe, consumed_versions) = ExecutionRecipe::link(recipe, |id| {
-                        self.cache
-                            .get(id)
+                    match ExecutionRecipe::link(recipe, |id| {
+                        resolve_state(id, &self.index)
                             .map(|Bundled(t, bearer)| (t.either(|b| b.version, |b| b.version), bearer))
-                    })
-                    .expect("State is inconsistent");
-                    let ctx = self.context.clone();
-                    if let Some(funding) = self.funding_pool.pop_first() {
-                        let ExecutionResult {
-                            txc,
-                            matchmaking_effects,
-                            funding_io,
-                        } = self.trade_interpreter.run(linked_recipe, funding, ctx);
-                        let tx = self.prover.prove(txc);
-                        let tx_hash = tx.canonical_hash();
-                        self.pending_effects.push(Effects::Pair(ExecutionEffectsByPair {
-                            pair: focus_pair,
-                            tx_hash,
-                            consumed_versions,
-                            pending_effects: ExecutionEffects::FromLiquidityBook(matchmaking_effects),
-                        }));
-                        let (maybe_unused_funding, funding_effects) = funding_io.into_effects();
-                        if let Some(unused_funding) = maybe_unused_funding {
-                            self.funding_pool.insert(unused_funding);
+                    }) {
+                        Ok((linked_recipe, consumed_versions)) => {
+                            let ctx = self.context.clone();
+                            if let Some(funding) = self.funding_pool.pop_first() {
+                                let ExecutionResult {
+                                    txc,
+                                    matchmaking_effects,
+                                    funding_io,
+                                } = self.trade_interpreter.run(linked_recipe, funding, ctx);
+                                let tx = self.prover.prove(txc);
+                                let tx_hash = tx.canonical_hash();
+                                self.pending_effects.push(Effects::Pair(ExecutionEffectsByPair {
+                                    pair: focus_pair,
+                                    tx_hash,
+                                    consumed_versions,
+                                    pending_effects: ExecutionEffects::FromLiquidityBook(matchmaking_effects),
+                                }));
+                                let (maybe_unused_funding, funding_effects) = funding_io.into_effects();
+                                if let Some(unused_funding) = maybe_unused_funding {
+                                    self.funding_pool.insert(unused_funding);
+                                }
+                                self.pending_effects.push(Effects::Funding(funding_effects));
+                                // Return pair to focus set to make sure corresponding TLB will be exhausted.
+                                self.focus_set.push_back(focus_pair);
+                                return Poll::Ready(Some(tx));
+                            } else {
+                                warn!("Cannot matchmake without funding box");
+                                self.multi_book.get_mut(&focus_pair).on_recipe_failed();
+                            }
                         }
-                        self.pending_effects.push(Effects::Funding(funding_effects));
-                        // Return pair to focus set to make sure corresponding TLB will be exhausted.
-                        self.focus_set.push_back(focus_pair);
-                        return Poll::Ready(Some(tx));
-                    } else {
-                        warn!("Cannot matchmake without funding box");
-                        self.multi_book.get_mut(&focus_pair).on_recipe_failed();
+                        Err(invalid_fragments) => {
+                            self.on_linkage_failure(focus_pair, invalid_fragments);
+                        }
                     }
                 }
                 // Try Backlog:
                 if let Some(next_order) = self.multi_backlog.get_mut(&focus_pair).try_pop() {
                     if let Some(Bundled(Either::Right(pool), pool_bearer)) =
-                        self.cache.get(next_order.0.get_pool_ref())
+                        resolve_state(next_order.0.get_pool_ref(), &self.index)
                     {
                         let ctx = self.context.clone();
                         if let Some((txc, updated_pool, consumed_ord)) =
@@ -817,14 +828,14 @@ where
     }
 }
 
-impl<S, F, PR, ST, V, CO, SO, P, B, TC, TX, TH, U, C, MC, IX, CH, TLB, L, RIR, SIR, PRV, E> FusedStream
-    for Executor<S, F, PR, ST, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, CH, TLB, L, RIR, SIR, PRV, E>
+impl<S, F, PR, ST, V, CO, SO, P, B, TC, TX, TH, U, C, MC, IX, TLB, L, RIR, SIR, PRV, E> FusedStream
+    for Executor<S, F, PR, ST, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, E>
 where
     S: Stream<Item = (PR, Event<CO, SO, P, B, V>)> + Unpin,
     F: Stream<Item = FundingEvent<B>> + Unpin,
     PR: Copy + Eq + Ord + Hash + Display + Unpin,
-    ST: Copy + Eq + Hash + Debug + Display + Unpin + Send + std::marker::Sync,
-    V: Copy + Eq + Hash + Display + Unpin + Send + std::marker::Sync,
+    ST: Copy + Eq + Hash + Debug + Display + Unpin + Send + Sync,
+    V: Copy + Eq + Hash + Display + Unpin + Send + Sync,
     P: Stable<StableId = ST> + Copy + Debug + Unpin + Display,
     CO: Stable<StableId = ST> + MarketTaker<U = U> + Copy + Debug + Unpin + Display,
     SO: SpecializedOrder<TPoolId = ST, TOrderId = V> + Unpin,
@@ -835,7 +846,6 @@ where
     C: Clone + Unpin,
     MC: Clone + Unpin,
     IX: StateIndex<EvolvingEntity<CO, P, V, B>> + Unpin,
-    CH: KvStore<ST, EvolvingEntity<CO, P, V, B>> + Unpin,
     TLB: LiquidityBook<CO, P> + ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<MC> + Unpin,
     L: HotBacklog<Bundled<SO, B>> + Maker<MC> + Unpin,
     RIR: RecipeInterpreter<CO, P, C, V, B, TC> + Unpin,

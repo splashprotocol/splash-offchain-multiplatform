@@ -286,13 +286,11 @@ async fn main() {
         "Backlog",
     );
     let state_index = InMemoryStateIndex::with_tracing();
-    let state_cache = InMemoryKvStore::with_tracing();
 
     let (signal_tip_reached_snd, signal_tip_reached_recv) = broadcast::channel(1);
 
     let execution_stream_p1 = execution_part_stream(
         state_index.clone(),
-        state_cache.clone(),
         multi_book.clone(),
         multi_backlog.clone(),
         context_p1,
@@ -309,7 +307,6 @@ async fn main() {
     );
     let execution_stream_p2 = execution_part_stream(
         state_index.clone(),
-        state_cache.clone(),
         multi_book.clone(),
         multi_backlog.clone(),
         context_p2,
@@ -326,7 +323,6 @@ async fn main() {
     );
     let execution_stream_p3 = execution_part_stream(
         state_index.clone(),
-        state_cache.clone(),
         multi_book.clone(),
         multi_backlog.clone(),
         context_p3,
@@ -343,7 +339,6 @@ async fn main() {
     );
     let execution_stream_p4 = execution_part_stream(
         state_index,
-        state_cache,
         multi_book,
         multi_backlog,
         context_p4,
