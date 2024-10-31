@@ -477,8 +477,8 @@ mod tests {
     use cml_chain::plutus::PlutusData;
     use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
     use cml_chain::{PolicyId, Value};
-    use cml_core::serialization::Deserialize;
-    use cml_crypto::{Ed25519KeyHash, TransactionHash};
+    use cml_core::serialization::{Deserialize, Serialize};
+    use cml_crypto::{blake2b224, Ed25519KeyHash, TransactionHash};
     use type_equalities::IsEqual;
 
     use bloom_offchain::execution_engine::liquidity_book::config::{ExecutionCap, ExecutionConfig};
@@ -500,9 +500,7 @@ mod tests {
         ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers,
     };
 
-    use crate::orders::limit::{
-        beacon_from_oref, unsafe_update_datum, Datum, LimitOrder, LimitOrderValidation,
-    };
+    use crate::orders::limit::{beacon_from_oref, unsafe_update_datum, with_erased_beacon_unsafe, Datum, LimitOrder, LimitOrderValidation};
 
     struct Context {
         oref: OutputRef,
@@ -563,13 +561,17 @@ mod tests {
 
     #[test]
     fn beacon_derivation_eqv() {
-        const TX: &str = "d90ff0194f2ca8dc832ab0550375ef688a74748d963be33cd08622dd0ba65af6";
+        const DT: &str = "d8799f4100581c80efdc4308cffb24b7e43f1b7951cd77323583383b7db3feae246c8ed8799f4040ff1a000f42401a000dbba01a00021d06d8799f581ccebbd6a8ca954b7fc7a346d0baed4182e0358059f38065de279fb8224b43617264616e6f20436174ffd8799f1b003134b92f84d8621b016345785d8a0000ff00d8799fd8799f581c74104cd5ca6288c1dd2e22ee5c874fdcfc1b81897462d91153496430ffd8799fd8799fd8799f581cde7866fe5068ebf3c87dcdb568da528da5dcb5f659d9b60010e7450fffffffff581c74104cd5ca6288c1dd2e22ee5c874fdcfc1b81897462d911534964309f581c5cb2c968e5d1c7197a6ce7615967310a375545d9bc65063a964335b2ffff";
+        const TX: &str = "a88cbaedbe8d5e9e709cddf24886355e876e7c561100b30533ecc2de79a65aa6";
         const IX: u64 = 0;
         const ORDER_IX: u64 = 0;
+        let pd = PlutusData::from_cbor_bytes(&*hex::decode(DT).unwrap()).unwrap();
+        let pd_without_beacon = with_erased_beacon_unsafe(pd);
+        let datum_hash = blake2b224(&*pd_without_beacon.to_canonical_cbor_bytes());
         let oref = OutputRef::new(TransactionHash::from_hex(TX).unwrap(), IX);
         assert_eq!(
-            beacon_from_oref(oref, ORDER_IX).to_hex(),
-            "355e042fc2397adf5a5fc731a54853b4831facc28a256c1df67263bd"
+            beacon_from_oref(oref, datum_hash, ORDER_IX).to_hex(),
+            "80efdc4308cffb24b7e43f1b7951cd77323583383b7db3feae246c8e"
         )
     }
 
