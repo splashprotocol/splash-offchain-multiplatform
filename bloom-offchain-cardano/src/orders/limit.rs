@@ -14,6 +14,7 @@ use bloom_offchain::execution_engine::liquidity_book::weight::Weighted;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::PolicyId;
+use cml_core::serialization::Serialize;
 use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
 use log::trace;
 use spectrum_cardano_lib::address::PlutusAddress;
@@ -291,6 +292,12 @@ pub fn unsafe_update_datum(data: &mut PlutusData, tradable_input: InputAsset<u64
     cpd.set_field(DATUM_MAPPING.fee, fee.into_pd());
 }
 
+fn with_erased_beacon_unsafe(data: PlutusData) -> PlutusData {
+    let mut cpd = data.into_constr_pd().unwrap();
+    cpd.set_field(DATUM_MAPPING.beacon, [0u8; 28].into_pd());
+    cpd.into_pd()
+}
+
 impl TryFromPData for Datum {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
@@ -328,17 +335,18 @@ impl TryFromPData for Datum {
     }
 }
 
-fn beacon_from_oref(input_oref: OutputRef, order_index: u64) -> PolicyId {
+fn beacon_from_oref(some_input_oref: OutputRef, datum_hash: [u8; 28], order_index: u64) -> PolicyId {
     let mut bf = vec![];
-    bf.append(&mut input_oref.tx_hash().to_raw_bytes().to_vec());
-    bf.append(&mut input_oref.index().to_be_bytes().to_vec());
+    bf.append(&mut some_input_oref.tx_hash().to_raw_bytes().to_vec());
+    bf.append(&mut some_input_oref.index().to_be_bytes().to_vec());
     bf.append(&mut order_index.to_be_bytes().to_vec());
+    bf.append(&mut datum_hash.to_vec());
     blake2b224(&*bf).into()
 }
 
 const MIN_LOVELACE: u64 = 1_500_000;
 
-fn is_valid_beacon<C>(beacon: PolicyId, ctx: &C) -> bool
+fn is_valid_beacon<C>(beacon: PolicyId, datum: PlutusData, ctx: &C) -> bool
 where
     C: Has<ConsumedInputs>
         + Has<ConsumedIdentifiers<Token>>
@@ -346,10 +354,12 @@ where
         + Has<OutputRef>,
 {
     let order_index = ctx.select::<OutputRef>().index();
+    let datum_without_beacon = with_erased_beacon_unsafe(datum);
+    let datum_hash = blake2b224(&*datum_without_beacon.to_canonical_cbor_bytes());
     let valid_fresh_beacon = || {
         ctx.select::<ConsumedInputs>()
             .0
-            .find(|o| beacon_from_oref(*o, order_index) == beacon)
+            .find(|o| beacon_from_oref(*o, datum_hash, order_index) == beacon)
     };
     let consumed_ids = ctx.select::<ConsumedIdentifiers<Token>>().0;
     let consumed_beacons = consumed_ids.count(|b| b.0 == beacon);
@@ -373,7 +383,8 @@ where
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
             let value = repr.value().clone();
-            let conf = Datum::try_from_pd(repr.datum()?.into_pd()?)?;
+            let datum = repr.datum()?.into_pd()?;
+            let conf = Datum::try_from_pd(datum.clone())?;
             let total_input_asset_amount = value.amount_of(conf.input)?;
             let total_ada_input = value.amount_of(AssetClass::Native)?;
             let (reserved_lovelace, tradable_lovelace) = match (conf.input, conf.output) {
@@ -404,13 +415,13 @@ where
                     let sufficient_fee = conf.fee >= validation.min_fee_lovelace;
                     let valid_configuration = conf.cost_per_ex_step >= validation.min_cost_per_ex_step
                         && execution_budget >= conf.cost_per_ex_step;
-                    let valid_beacon = || !validation.strict_beacon || is_valid_beacon(conf.beacon, ctx);
+                    let valid_beacon = !validation.strict_beacon || is_valid_beacon(conf.beacon, datum, ctx);
                     if sufficient_input
                         && sufficient_execution_budget
                         && sufficient_fee
                         && executable
                         && valid_configuration
-                        && valid_beacon()
+                        && valid_beacon
                     {
                         // Fresh beacon must be derived from one of consumed utxos.
                         let script_info = ctx.select::<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>();
@@ -441,7 +452,7 @@ where
                             sufficient_fee,
                             executable,
                             valid_configuration,
-                            valid_beacon()
+                            valid_beacon
                         );
                     }
                 }
@@ -466,8 +477,8 @@ mod tests {
     use cml_chain::plutus::PlutusData;
     use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
     use cml_chain::{PolicyId, Value};
-    use cml_core::serialization::Deserialize;
-    use cml_crypto::{Ed25519KeyHash, TransactionHash};
+    use cml_core::serialization::{Deserialize, Serialize};
+    use cml_crypto::{blake2b224, Ed25519KeyHash, TransactionHash};
     use type_equalities::IsEqual;
 
     use bloom_offchain::execution_engine::liquidity_book::config::{ExecutionCap, ExecutionConfig};
@@ -489,9 +500,7 @@ mod tests {
         ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers,
     };
 
-    use crate::orders::limit::{
-        beacon_from_oref, unsafe_update_datum, Datum, LimitOrder, LimitOrderValidation,
-    };
+    use crate::orders::limit::{beacon_from_oref, unsafe_update_datum, with_erased_beacon_unsafe, Datum, LimitOrder, LimitOrderValidation};
 
     struct Context {
         oref: OutputRef,
@@ -552,13 +561,17 @@ mod tests {
 
     #[test]
     fn beacon_derivation_eqv() {
-        const TX: &str = "d90ff0194f2ca8dc832ab0550375ef688a74748d963be33cd08622dd0ba65af6";
+        const DT: &str = "d8799f4100581c80efdc4308cffb24b7e43f1b7951cd77323583383b7db3feae246c8ed8799f4040ff1a000f42401a000dbba01a00021d06d8799f581ccebbd6a8ca954b7fc7a346d0baed4182e0358059f38065de279fb8224b43617264616e6f20436174ffd8799f1b003134b92f84d8621b016345785d8a0000ff00d8799fd8799f581c74104cd5ca6288c1dd2e22ee5c874fdcfc1b81897462d91153496430ffd8799fd8799fd8799f581cde7866fe5068ebf3c87dcdb568da528da5dcb5f659d9b60010e7450fffffffff581c74104cd5ca6288c1dd2e22ee5c874fdcfc1b81897462d911534964309f581c5cb2c968e5d1c7197a6ce7615967310a375545d9bc65063a964335b2ffff";
+        const TX: &str = "a88cbaedbe8d5e9e709cddf24886355e876e7c561100b30533ecc2de79a65aa6";
         const IX: u64 = 0;
         const ORDER_IX: u64 = 0;
+        let pd = PlutusData::from_cbor_bytes(&*hex::decode(DT).unwrap()).unwrap();
+        let pd_without_beacon = with_erased_beacon_unsafe(pd);
+        let datum_hash = blake2b224(&*pd_without_beacon.to_canonical_cbor_bytes());
         let oref = OutputRef::new(TransactionHash::from_hex(TX).unwrap(), IX);
         assert_eq!(
-            beacon_from_oref(oref, ORDER_IX).to_hex(),
-            "355e042fc2397adf5a5fc731a54853b4831facc28a256c1df67263bd"
+            beacon_from_oref(oref, datum_hash, ORDER_IX).to_hex(),
+            "80efdc4308cffb24b7e43f1b7951cd77323583383b7db3feae246c8e"
         )
     }
 

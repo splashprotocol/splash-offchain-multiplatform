@@ -861,6 +861,7 @@ mod tests {
 
     use cml_chain::address::{Address, RewardAddress};
     use cml_chain::certs::Credential;
+    use cml_chain::PolicyId;
     use cml_chain::transaction::{
         ConwayFormatTxOut, Transaction, TransactionBody, TransactionInput, TransactionOutput,
         TransactionWitnessSet,
@@ -874,8 +875,8 @@ mod tests {
     use futures::StreamExt;
     use tokio::sync::Mutex;
 
-    use crate::event_sink::context::HandlerContextProto;
-    use crate::event_sink::entity_index::InMemoryEntityIndex;
+    use crate::event_sink::context::{HandlerContext, HandlerContextProto};
+    use crate::event_sink::entity_index::{EntityIndexTracing, InMemoryEntityIndex};
     use crate::event_sink::handler::{PairUpdateHandler, TxViewAtEraBoundary};
     use crate::orders::adhoc::AdhocFeeStructure;
     use crate::orders::limit::LimitOrderValidation;
@@ -1097,14 +1098,10 @@ mod tests {
                     script_hash: ScriptHash::from([0u8; 28]),
                     marginal_cost: ExUnits::empty(),
                 },
-                degen_fn_pool_v1: DeployedScriptInfo {
-                    script_hash: ScriptHash::from([0u8; 28]),
-                    marginal_cost: ExUnits::empty(),
-                },
             },
             adhoc_fee_structure: AdhocFeeStructure::empty(),
         };
-        let mut handler = PairUpdateHandler::new(Partitioned::new([snd]), index, context);
+        let mut handler: PairUpdateHandler<1, u8, mpsc::Sender<(u8, Channel<StateUpdate<TrivialEntity>>)>, TrivialEntity, EntityIndexTracing<InMemoryEntityIndex<TrivialEntity>>, HandlerContextProto, HandlerContext<u8>> = PairUpdateHandler::new(Partitioned::new([snd]), index, context);
         // Handle tx application
         EventHandler::<LedgerTxEvent<TxViewAtEraBoundary>>::try_handle(
             &mut handler,
