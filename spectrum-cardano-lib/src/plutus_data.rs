@@ -31,6 +31,12 @@ impl IntoPlutusData for U512 {
     }
 }
 
+impl<const N: usize> IntoPlutusData for [u8; N] {
+    fn into_pd(self) -> PlutusData {
+        PlutusData::new_bytes(self.to_vec())
+    }
+}
+
 impl IntoPlutusData for ConstrPlutusData {
     fn into_pd(self) -> PlutusData {
         PlutusData::ConstrPlutusData(self)

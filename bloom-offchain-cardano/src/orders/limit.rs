@@ -14,6 +14,7 @@ use bloom_offchain::execution_engine::liquidity_book::weight::Weighted;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::PolicyId;
+use cml_core::serialization::Serialize;
 use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
 use log::trace;
 use spectrum_cardano_lib::address::PlutusAddress;
@@ -291,6 +292,12 @@ pub fn unsafe_update_datum(data: &mut PlutusData, tradable_input: InputAsset<u64
     cpd.set_field(DATUM_MAPPING.fee, fee.into_pd());
 }
 
+fn with_erased_beacon_unsafe(data: PlutusData) -> PlutusData {
+    let mut cpd = data.into_constr_pd().unwrap();
+    cpd.set_field(DATUM_MAPPING.beacon, [0u8; 28].into_pd());
+    cpd.into_pd()
+}
+
 impl TryFromPData for Datum {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
@@ -328,17 +335,18 @@ impl TryFromPData for Datum {
     }
 }
 
-fn beacon_from_oref(input_oref: OutputRef, order_index: u64) -> PolicyId {
+fn beacon_from_oref(some_input_oref: OutputRef, datum_hash: [u8; 28], order_index: u64) -> PolicyId {
     let mut bf = vec![];
-    bf.append(&mut input_oref.tx_hash().to_raw_bytes().to_vec());
-    bf.append(&mut input_oref.index().to_be_bytes().to_vec());
+    bf.append(&mut some_input_oref.tx_hash().to_raw_bytes().to_vec());
+    bf.append(&mut some_input_oref.index().to_be_bytes().to_vec());
     bf.append(&mut order_index.to_be_bytes().to_vec());
+    bf.append(&mut datum_hash.to_vec());
     blake2b224(&*bf).into()
 }
 
 const MIN_LOVELACE: u64 = 1_500_000;
 
-fn is_valid_beacon<C>(beacon: PolicyId, ctx: &C) -> bool
+fn is_valid_beacon<C>(beacon: PolicyId, datum: PlutusData, ctx: &C) -> bool
 where
     C: Has<ConsumedInputs>
         + Has<ConsumedIdentifiers<Token>>
@@ -346,10 +354,12 @@ where
         + Has<OutputRef>,
 {
     let order_index = ctx.select::<OutputRef>().index();
+    let datum_without_beacon = with_erased_beacon_unsafe(datum);
+    let datum_hash = blake2b224(&*datum_without_beacon.to_canonical_cbor_bytes());
     let valid_fresh_beacon = || {
         ctx.select::<ConsumedInputs>()
             .0
-            .find(|o| beacon_from_oref(*o, order_index) == beacon)
+            .find(|o| beacon_from_oref(*o, datum_hash, order_index) == beacon)
     };
     let consumed_ids = ctx.select::<ConsumedIdentifiers<Token>>().0;
     let consumed_beacons = consumed_ids.count(|b| b.0 == beacon);
@@ -373,7 +383,8 @@ where
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
             let value = repr.value().clone();
-            let conf = Datum::try_from_pd(repr.datum()?.into_pd()?)?;
+            let datum = repr.datum()?.into_pd()?;
+            let conf = Datum::try_from_pd(datum.clone())?;
             let total_input_asset_amount = value.amount_of(conf.input)?;
             let total_ada_input = value.amount_of(AssetClass::Native)?;
             let (reserved_lovelace, tradable_lovelace) = match (conf.input, conf.output) {
@@ -404,13 +415,13 @@ where
                     let sufficient_fee = conf.fee >= validation.min_fee_lovelace;
                     let valid_configuration = conf.cost_per_ex_step >= validation.min_cost_per_ex_step
                         && execution_budget >= conf.cost_per_ex_step;
-                    let valid_beacon = || !validation.strict_beacon || is_valid_beacon(conf.beacon, ctx);
+                    let valid_beacon = !validation.strict_beacon || is_valid_beacon(conf.beacon, datum, ctx);
                     if sufficient_input
                         && sufficient_execution_budget
                         && sufficient_fee
                         && executable
                         && valid_configuration
-                        && valid_beacon()
+                        && valid_beacon
                     {
                         // Fresh beacon must be derived from one of consumed utxos.
                         let script_info = ctx.select::<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>();
@@ -441,7 +452,7 @@ where
                             sufficient_fee,
                             executable,
                             valid_configuration,
-                            valid_beacon()
+                            valid_beacon
                         );
                     }
                 }
