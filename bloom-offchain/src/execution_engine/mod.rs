@@ -585,14 +585,10 @@ where
         IX: StateIndex<EvolvingEntity<CO, P, V, B>>,
         TLB: ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<MC>,
     {
-        for fragment in &orphans {
-            let id = fragment.stable_id();
-            warn!("Linkage failed for {}", id);
-            self.index.eliminate(id);
-        }
         let liquidity_book = self.multi_book.get_mut(&focus_pair);
         liquidity_book.on_recipe_failed();
         for fragment in orphans {
+            warn!("Linkage failed for {}", fragment.stable_id());
             match fragment {
                 Either::Left(taker) => {
                     liquidity_book.remove_taker(taker);
