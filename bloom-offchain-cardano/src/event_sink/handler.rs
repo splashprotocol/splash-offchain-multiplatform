@@ -861,11 +861,11 @@ mod tests {
 
     use cml_chain::address::{Address, RewardAddress};
     use cml_chain::certs::Credential;
-    use cml_chain::PolicyId;
     use cml_chain::transaction::{
         ConwayFormatTxOut, Transaction, TransactionBody, TransactionInput, TransactionOutput,
         TransactionWitnessSet,
     };
+    use cml_chain::PolicyId;
     use cml_crypto::{Ed25519KeyHash, ScriptHash};
     use cml_multi_era::babbage::{
         BabbageFormatTxOut, BabbageTransaction, BabbageTransactionBody, BabbageTransactionOutput,
@@ -1101,7 +1101,15 @@ mod tests {
             },
             adhoc_fee_structure: AdhocFeeStructure::empty(),
         };
-        let mut handler: PairUpdateHandler<1, u8, mpsc::Sender<(u8, Channel<StateUpdate<TrivialEntity>>)>, TrivialEntity, EntityIndexTracing<InMemoryEntityIndex<TrivialEntity>>, HandlerContextProto, HandlerContext<u8>> = PairUpdateHandler::new(Partitioned::new([snd]), index, context);
+        let mut handler: PairUpdateHandler<
+            1,
+            u8,
+            mpsc::Sender<(u8, Channel<StateUpdate<TrivialEntity>>)>,
+            TrivialEntity,
+            EntityIndexTracing<InMemoryEntityIndex<TrivialEntity>>,
+            HandlerContextProto,
+            HandlerContext<u8>,
+        > = PairUpdateHandler::new(Partitioned::new([snd]), index, context);
         // Handle tx application
         EventHandler::<LedgerTxEvent<TxViewAtEraBoundary>>::try_handle(
             &mut handler,

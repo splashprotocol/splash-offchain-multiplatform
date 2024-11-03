@@ -80,7 +80,7 @@ impl TakerBehaviour for AdhocOrder {
     }
 
     fn with_applied_trade(
-        mut self,
+        self,
         removed_input: InputAsset<u64>,
         added_output: OutputAsset<u64>,
     ) -> Next<Self, TerminalTake> {
@@ -89,16 +89,16 @@ impl TakerBehaviour for AdhocOrder {
             .map_succ(|s| AdhocOrder(s, self.1))
     }
 
-    fn with_budget_corrected(mut self, delta: i64) -> (i64, Self) {
+    fn with_budget_corrected(self, delta: i64) -> (i64, Self) {
         let (real_delta, order) = self.0.with_budget_corrected(delta);
         (real_delta, AdhocOrder(order, self.1))
     }
 
-    fn with_fee_charged(mut self, fee: u64) -> Self {
+    fn with_fee_charged(self, fee: u64) -> Self {
         AdhocOrder(self.0.with_fee_charged(fee), self.1)
     }
 
-    fn with_output_added(mut self, added_output: u64) -> Self {
+    fn with_output_added(self, added_output: u64) -> Self {
         AdhocOrder(self.0.with_output_added(added_output), self.1)
     }
 
@@ -231,7 +231,7 @@ where
     C: Has<Option<Metadata>> + Has<AuthVerificationKey>,
 {
     if let Some(signature) = ctx.select::<Option<Metadata>>().and_then(|md| {
-        // Signature splitted into several parts
+        // Signature split into several parts
         md.get(AUTH_MD_KEY)
             .and_then(|d| d.as_list())
             .and_then(|signature_parts| {

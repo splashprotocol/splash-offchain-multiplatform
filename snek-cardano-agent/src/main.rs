@@ -260,11 +260,9 @@ async fn main() {
             "Backlog",
         );
         let state_index = InMemoryStateIndex::with_tracing();
-        let state_cache = InMemoryKvStore::with_tracing();
 
         let execution_stream_p1 = execution_part_stream(
             state_index.clone(),
-            state_cache.clone(),
             multi_book.clone(),
             multi_backlog.clone(),
             context.clone(),
@@ -281,7 +279,6 @@ async fn main() {
         );
         let execution_stream_p2 = execution_part_stream(
             state_index.clone(),
-            state_cache.clone(),
             multi_book.clone(),
             multi_backlog.clone(),
             context.clone(),
@@ -298,7 +295,6 @@ async fn main() {
         );
         let execution_stream_p3 = execution_part_stream(
             state_index.clone(),
-            state_cache.clone(),
             multi_book.clone(),
             multi_backlog.clone(),
             context.clone(),
@@ -315,7 +311,6 @@ async fn main() {
         );
         let execution_stream_p4 = execution_part_stream(
             state_index,
-            state_cache,
             multi_book,
             multi_backlog,
             context,
@@ -385,11 +380,9 @@ async fn main() {
             "Backlog",
         );
         let state_index = InMemoryStateIndex::with_tracing();
-        let state_cache = InMemoryKvStore::with_tracing();
 
         let execution_stream_p1 = execution_part_stream(
             state_index.clone(),
-            state_cache.clone(),
             multi_book.clone(),
             multi_backlog.clone(),
             context.clone(),
@@ -406,7 +399,6 @@ async fn main() {
         );
         let execution_stream_p2 = execution_part_stream(
             state_index.clone(),
-            state_cache.clone(),
             multi_book.clone(),
             multi_backlog.clone(),
             context.clone(),
@@ -423,7 +415,6 @@ async fn main() {
         );
         let execution_stream_p3 = execution_part_stream(
             state_index.clone(),
-            state_cache.clone(),
             multi_book.clone(),
             multi_backlog.clone(),
             context.clone(),
@@ -440,7 +431,6 @@ async fn main() {
         );
         let execution_stream_p4 = execution_part_stream(
             state_index,
-            state_cache,
             multi_book,
             multi_backlog,
             context,

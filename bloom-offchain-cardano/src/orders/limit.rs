@@ -500,7 +500,10 @@ mod tests {
         ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers,
     };
 
-    use crate::orders::limit::{beacon_from_oref, unsafe_update_datum, with_erased_beacon_unsafe, Datum, LimitOrder, LimitOrderValidation};
+    use crate::orders::limit::{
+        beacon_from_oref, unsafe_update_datum, with_erased_beacon_unsafe, Datum, LimitOrder,
+        LimitOrderValidation,
+    };
 
     struct Context {
         oref: OutputRef,
