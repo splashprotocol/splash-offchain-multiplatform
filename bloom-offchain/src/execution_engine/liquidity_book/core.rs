@@ -9,6 +9,7 @@ use algebra_core::semigroup::Semigroup;
 use derive_more::Display;
 use either::Either;
 use log::trace;
+use nonempty::NonEmpty;
 use num_rational::Ratio;
 use spectrum_offchain::data::Stable;
 use std::cmp::{max, min};
@@ -770,6 +771,7 @@ where
 pub type Execution<T, M, B> = Either<Take<T, B>, Make<M, B>>;
 
 /// Same as [MatchmakingRecipe] but with bearers attached to each target element.
+/// Returns a collection of orphaned targets that failed to link in case of failure.
 #[derive(Debug, Clone)]
 pub struct ExecutionRecipe<Taker, Maker, B>(pub Vec<Execution<Taker, Maker, B>>);
 
@@ -777,7 +779,7 @@ impl<T, M, B> ExecutionRecipe<T, M, B> {
     pub fn link<I, F, V>(
         MatchmakingRecipe { instructions }: MatchmakingRecipe<T, M>,
         link: F,
-    ) -> Result<(Self, HashSet<V>), ()>
+    ) -> Result<(Self, HashSet<V>), NonEmpty<Either<T, M>>>
     where
         V: Hash + Eq,
         T: Stable<StableId = I>,
@@ -786,6 +788,7 @@ impl<T, M, B> ExecutionRecipe<T, M, B> {
     {
         let mut translated_instructions = vec![];
         let mut consumed_versions = vec![];
+        let mut orphaned_targets = vec![];
         for i in instructions {
             match i {
                 Either::Left(Trans { target, result }) => {
@@ -795,7 +798,8 @@ impl<T, M, B> ExecutionRecipe<T, M, B> {
                             target: Bundled(target, bearer),
                             result,
                         }));
-                        continue;
+                    } else {
+                        orphaned_targets.push(Either::Left(target));
                     }
                 }
                 Either::Right(Trans { target, result }) => {
@@ -805,11 +809,14 @@ impl<T, M, B> ExecutionRecipe<T, M, B> {
                             target: Bundled(target, bearer),
                             result,
                         }));
-                        continue;
+                    } else {
+                        orphaned_targets.push(Either::Right(target));
                     }
                 }
             }
-            return Err(());
+        }
+        if let Some(orphans) = NonEmpty::collect(orphaned_targets) {
+            return Err(orphans);
         }
         Ok((
             Self(translated_instructions),

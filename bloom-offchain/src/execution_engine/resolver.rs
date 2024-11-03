@@ -4,11 +4,11 @@ use spectrum_offchain::data::EntitySnapshot;
 use crate::execution_engine::storage::StateIndex;
 
 /// Get latest state of an on-chain entity `TEntity`.
-pub fn resolve_source_state<Src, Index>(id: Src::StableId, index: &Index) -> Option<Src>
+pub fn resolve_state<T, Index>(id: T::StableId, index: &Index) -> Option<T>
 where
-    Index: StateIndex<Src>,
-    Src: EntitySnapshot,
-    Src::StableId: Copy,
+    Index: StateIndex<T>,
+    T: EntitySnapshot,
+    T::StableId: Copy,
 {
     index
         .get_last_predicted(id)
