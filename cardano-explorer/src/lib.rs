@@ -63,6 +63,12 @@ pub trait CardanoNetwork {
         offset: u32,
         limit: u16,
     ) -> Vec<TransactionUnspentOutput>;
+    async fn slot_indexed_utxos_by_address(
+        &self,
+        address: Address,
+        offset: u32,
+        limit: u16,
+    ) -> Vec<(TransactionUnspentOutput, u64)>;
     async fn submit_tx(&self, cbor: &[u8]) -> Result<(), Box<dyn std::error::Error>>;
     async fn chain_tip_slot_number(&self) -> Result<u64, Box<dyn std::error::Error>>;
     async fn wait_for_transaction_confirmation(
@@ -146,6 +152,26 @@ impl CardanoNetwork for Maestro {
         .unwrap_or(vec![])
     }
 
+    async fn slot_indexed_utxos_by_address(
+        &self,
+        address: Address,
+        offset: u32,
+        limit: u16,
+    ) -> Vec<(TransactionUnspentOutput, u64)> {
+        let utxos = self.utxos_by_address(address, offset, limit).await;
+        let mut res = vec![];
+
+        for utxo in utxos {
+            let tx_details = self
+                .0
+                .transaction_details(&utxo.input.transaction_id.to_hex())
+                .await
+                .unwrap();
+            res.push((utxo, tx_details.data.block_absolute_slot as u64));
+        }
+        res
+    }
+
     async fn submit_tx(&self, cbor_bytes: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
         let result = self.0.tx_manager_submit(cbor_bytes.to_vec()).await?;
         println!("TX submit result: {}", result);
@@ -187,7 +213,7 @@ fn read_maestro_utxos(
             TransactionHash::from_hex(utxo.tx_hash.as_str()).unwrap(),
             utxo.index as u64,
         );
-        let tx_out = TransactionOutput::from_cbor_bytes(&*hex::decode(utxo.tx_out_cbor)?)?;
+        let tx_out = TransactionOutput::from_cbor_bytes(&*hex::decode(utxo.tx_out_cbor.unwrap())?)?;
         utxos.push(TransactionUnspentOutput::new(tx_in, tx_out));
     }
     Ok(utxos)

@@ -19,6 +19,7 @@ use crate::entities::onchain::inflation_box::InflationBoxId;
 use crate::entities::onchain::permission_manager::PermManagerId;
 use crate::entities::onchain::poll_factory::PollFactoryId;
 use crate::entities::onchain::weighting_poll::WeightingPollId;
+use crate::routines::inflation::TimedOutputRef;
 use crate::time::ProtocolEpoch;
 use crate::{CurrentEpoch, GenesisEpochStartTime};
 
@@ -124,11 +125,13 @@ pub trait NotOutputRefNorSlotNumber {}
 
 impl NotOutputRefNorSlotNumber for OperatorCreds {}
 impl NotOutputRefNorSlotNumber for SplashPolicy {}
+impl NotOutputRefNorSlotNumber for FarmAuthPolicy {}
 impl NotOutputRefNorSlotNumber for PermManagerAuthPolicy {}
 impl NotOutputRefNorSlotNumber for MintWPAuthPolicy {}
 impl NotOutputRefNorSlotNumber for MintVEIdentifierPolicy {}
 impl NotOutputRefNorSlotNumber for MintVECompositionPolicy {}
 impl NotOutputRefNorSlotNumber for VEFactoryAuthPolicy {}
+impl NotOutputRefNorSlotNumber for GenesisEpochStartTime {}
 impl NotOutputRefNorSlotNumber for GTAuthPolicy {}
 impl NotOutputRefNorSlotNumber for NetworkId {}
 impl<const TYP: u8> NotOutputRefNorSlotNumber for DeployedScriptInfo<TYP> {}
@@ -285,7 +288,7 @@ impl Has<PermManagerBoxRefScriptOutput> for ProtocolConfig {
 
 impl Has<EDaoMSigAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<EDaoMSigAuthPolicy>>(&self) -> EDaoMSigAuthPolicy {
-        todo!()
+        EDaoMSigAuthPolicy(self.tokens.edao_msig.policy_id)
     }
 }
 

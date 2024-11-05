@@ -35,3 +35,7 @@ clap = { version = "4.0", features = ["derive"] }
 serde = { version = "1.0.147", features = ["derive"] }
 serde_yaml = "0.9.25"
 serde_json = "1.0.88"
+
+[features]
+default = []
+enable_test_30_min_epoch = ["splash-dao-offchain/test_30_min_epoch"]

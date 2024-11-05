@@ -14,10 +14,11 @@ use weighting_poll::{WeightingPoll, WeightingPollSnapshot};
 use crate::{
     deployment::ProtocolValidator,
     protocol_config::{
-        GTAuthPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy, OperatorCreds, PermManagerAuthPolicy,
-        SplashPolicy, VEFactoryAuthPolicy,
+        FarmAuthPolicy, GTAuthPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy, OperatorCreds,
+        PermManagerAuthPolicy, SplashPolicy, VEFactoryAuthPolicy,
     },
-    CurrentEpoch,
+    routines::inflation::{Slot, TimedOutputRef},
+    CurrentEpoch, GenesisEpochStartTime,
 };
 
 use super::Snapshot;
@@ -43,15 +44,17 @@ pub enum DaoEntity {
     FundingBox(FundingBox),
 }
 
-pub type DaoEntitySnapshot = Snapshot<DaoEntity, OutputRef>;
+pub type DaoEntitySnapshot = Snapshot<DaoEntity, TimedOutputRef>;
 
 impl<C> TryFromLedger<TransactionOutput, C> for DaoEntitySnapshot
 where
     C: Has<SplashPolicy>
         + Has<PermManagerAuthPolicy>
         + Has<MintWPAuthPolicy>
+        + Has<FarmAuthPolicy>
         + Has<VEFactoryAuthPolicy>
         + Has<MintVEIdentifierPolicy>
+        + Has<GenesisEpochStartTime>
         + Has<GTAuthPolicy>
         + Has<CurrentEpoch>
         + Has<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
@@ -61,6 +64,7 @@ where
         + Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
         + Has<OperatorCreds>
+        + Has<TimedOutputRef>
         + Has<OutputRef>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
@@ -87,9 +91,11 @@ where
             WeightingPollSnapshot::try_from_ledger(repr, ctx)
         {
             Some(Snapshot(DaoEntity::WeightingPoll(weighting_poll), output_ref))
-        } else if let Some(Snapshot(funding_box, output_ref)) = FundingBoxSnapshot::try_from_ledger(repr, ctx)
+        } else if let Some(Snapshot(funding_box, _output_ref)) =
+            FundingBoxSnapshot::try_from_ledger(repr, ctx)
         {
-            Some(Snapshot(DaoEntity::FundingBox(funding_box), output_ref))
+            let timed_output_ref = ctx.select::<TimedOutputRef>();
+            Some(Snapshot(DaoEntity::FundingBox(funding_box), timed_output_ref))
         } else {
             None
         }

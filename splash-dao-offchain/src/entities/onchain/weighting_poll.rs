@@ -22,6 +22,7 @@ use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 
 use crate::assets::Splash;
+use crate::constants::time::EPOCH_LEN;
 use crate::constants::{script_bytes::MINT_WP_AUTH_TOKEN_SCRIPT, SPLASH_NAME};
 use crate::deployment::ProtocolValidator;
 use crate::entities::onchain::smart_farm::FarmId;
@@ -29,10 +30,11 @@ use crate::entities::onchain::voting_escrow::compute_mint_weighting_power_valida
 use crate::entities::Snapshot;
 use crate::protocol_config::{GTAuthPolicy, MintWPAuthPolicy, NodeMagic, SplashPolicy, WeightingPowerPolicy};
 use crate::routines::inflation::actions::compute_epoch_asset_name;
+use crate::routines::inflation::{Slot, TimedOutputRef};
 use crate::time::{epoch_end, epoch_start, NetworkTime, ProtocolEpoch};
 use crate::{CurrentEpoch, GenesisEpochStartTime};
 
-pub type WeightingPollSnapshot = Snapshot<WeightingPoll, OutputRef>;
+pub type WeightingPollSnapshot = Snapshot<WeightingPoll, TimedOutputRef>;
 
 #[derive(
     Copy,
@@ -209,6 +211,7 @@ impl WeightingPoll {
     fn weighting_open(&self, genesis: GenesisEpochStartTime, time_now: NetworkTime) -> bool {
         let e_start = epoch_start(genesis, self.epoch);
         let e_end = epoch_end(genesis, self.epoch);
+        println!("time_now: {}", time_now);
         println!("epoch_start = {}, epoch_end = {}", e_start, e_end);
         println!("epoch_start < time_now: {}", e_start < time_now);
         println!("epoch_end > time_now: {}", e_end > time_now);
@@ -222,13 +225,12 @@ impl WeightingPoll {
 
 impl<C> TryFromLedger<TransactionOutput, C> for WeightingPollSnapshot
 where
-    C: Has<CurrentEpoch>
+    C: Has<GenesisEpochStartTime>
         + Has<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
-        + Has<OutputRef>,
+        + Has<TimedOutputRef>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
-            println!("FOUND WEIGHTING_POLL ADDRESS");
             let value = repr.value().clone();
             let WeightingPollConfig {
                 distribution,
@@ -237,24 +239,35 @@ where
                 ..
             } = WeightingPollConfig::try_from_pd(repr.datum()?.into_pd()?)?;
 
-            let epoch = ctx.select::<CurrentEpoch>().0;
+            let TimedOutputRef { output_ref, slot } = ctx.select::<TimedOutputRef>();
+            let genesis_time_millis = ctx.select::<GenesisEpochStartTime>().0;
+            let epoch = epoch_from_slot(slot.0, genesis_time_millis);
             let distribution = distribution.into_iter().map(|f| (f.id, f.weight)).collect();
             let weighting_power_asset_name = compute_epoch_asset_name(epoch);
             let weighting_power = value
                 .multiasset
                 .get(&weighting_power_policy, &weighting_power_asset_name);
 
+            println!(
+                "FOUND WEIGHTING_POLL: epoch: {}, weighting_power: {:?}",
+                epoch, weighting_power
+            );
             let weighting_poll = WeightingPoll {
                 epoch,
                 distribution,
                 emission_rate: TaggedAmount::new(emission_rate),
                 weighting_power,
             };
-            let output_ref = ctx.select::<OutputRef>();
-            return Some(Snapshot::new(weighting_poll, output_ref));
+            return Some(Snapshot::new(weighting_poll, TimedOutputRef { output_ref, slot }));
         }
         None
     }
+}
+
+fn epoch_from_slot(slot: u64, genesis_time_millis: u64) -> u32 {
+    let time_millis = (1655683200 + slot) * 1000;
+    let diff = (time_millis - genesis_time_millis) as f32;
+    (diff / EPOCH_LEN as f32).floor() as u32
 }
 
 fn distribution_to_plutus_data(distribution: &[(FarmId, u64)]) -> PlutusData {
@@ -414,7 +427,7 @@ impl IntoPlutusData for MintAction {
 }
 
 pub const MINT_WP_AUTH_EX_UNITS: ExUnits = ExUnits {
-    mem: 500_000,
+    mem: 2_000_000,
     steps: 200_000_000,
     encodings: None,
 };
@@ -440,4 +453,17 @@ pub fn compute_mint_wp_auth_token_validator(
         uplc::PlutusData::BigInt(uplc::BigInt::Int(Int::from(zeroth_epoch_start as i64))),
     ]);
     apply_params_validator(params_pd, MINT_WP_AUTH_TOKEN_SCRIPT)
+}
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn test_wp_zzz() {
+        let bytes: Vec<u8> = vec![
+            193, 193, 97, 136, 48, 101, 63, 181, 108, 59, 225, 140, 150, 101, 161, 42, 147, 115, 64, 230,
+            176, 192, 255, 157, 231, 252, 218, 178,
+        ];
+        println!("{}", hex::encode(&bytes));
+    }
 }

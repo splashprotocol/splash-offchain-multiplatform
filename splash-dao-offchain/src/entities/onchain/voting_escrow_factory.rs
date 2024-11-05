@@ -18,7 +18,7 @@ use spectrum_cardano_lib::{
     AssetClass, AssetName, OutputRef, Token,
 };
 use spectrum_offchain::{
-    data::{Has, Identifier},
+    data::{Has, HasIdentifier, Identifier},
     ledger::TryFromLedger,
 };
 use spectrum_offchain_cardano::{
@@ -43,6 +43,14 @@ pub struct VEFactoryId;
 
 impl Identifier for VEFactoryId {
     type For = VEFactorySnapshot;
+}
+
+impl HasIdentifier for VEFactorySnapshot {
+    type Id = VEFactoryId;
+
+    fn identifier(&self) -> Self::Id {
+        VEFactoryId
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

@@ -8,7 +8,7 @@ use spectrum_offchain_cardano::deployment::{
 use tokio::io::AsyncWriteExt;
 use type_equalities::IsEqual;
 
-use crate::protocol_config::{GTAuthPolicy, VEFactoryAuthPolicy};
+use crate::protocol_config::{GTAuthPolicy, MintVEIdentifierPolicy, VEFactoryAuthPolicy};
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct DeployedValidators {
@@ -174,6 +174,12 @@ impl Has<VEFactoryAuthPolicy> for CompleteDeployment {
     }
 }
 
+impl Has<MintVEIdentifierPolicy> for CompleteDeployment {
+    fn select<U: IsEqual<MintVEIdentifierPolicy>>(&self) -> MintVEIdentifierPolicy {
+        MintVEIdentifierPolicy(self.deployed_validators.mint_identifier.hash)
+    }
+}
+
 impl Has<GTAuthPolicy> for CompleteDeployment {
     fn select<U: IsEqual<GTAuthPolicy>>(&self) -> GTAuthPolicy {
         GTAuthPolicy(self.minted_deployment_tokens.gt.policy_id)
@@ -185,6 +191,14 @@ impl Has<DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }>> for Complet
         &self,
     ) -> DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }> {
         DeployedScriptInfo::from(&self.deployed_validators.ve_factory)
+    }
+}
+
+impl Has<DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }>> for CompleteDeployment {
+    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }> {
+        DeployedScriptInfo::from(&self.deployed_validators.voting_escrow)
     }
 }
 

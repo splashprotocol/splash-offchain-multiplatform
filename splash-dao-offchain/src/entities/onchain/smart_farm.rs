@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
 };
+use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::{AssetName, OutputRef};
 use spectrum_offchain::data::{Has, HasIdentifier, Identifier, Stable};
@@ -21,9 +22,10 @@ use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 use crate::constants::script_bytes::MINT_FARM_AUTH_TOKEN_SCRIPT;
 use crate::deployment::ProtocolValidator;
 use crate::entities::Snapshot;
-use crate::protocol_config::PermManagerAuthPolicy;
+use crate::protocol_config::{FarmAuthPolicy, MintWPAuthPolicy, PermManagerAuthPolicy};
+use crate::routines::inflation::{Slot, TimedOutputRef};
 
-pub type SmartFarmSnapshot = Snapshot<SmartFarm, OutputRef>;
+pub type SmartFarmSnapshot = Snapshot<SmartFarm, TimedOutputRef>;
 
 #[derive(
     Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Debug, Hash, derive_more::Display, Serialize, Deserialize,
@@ -81,10 +83,14 @@ impl IntoPlutusData for Redeemer {
     fn into_pd(self) -> PlutusData {
         let mut cpd = ConstrPlutusData::new(
             0,
-            vec![PlutusData::Integer(BigInteger::from(self.successor_out_ix))],
+            vec![
+                PlutusData::Integer(BigInteger::from(self.successor_out_ix)),
+                self.action.into_pd(),
+            ],
         );
-        cpd.set_field(1, self.action.into_pd());
-        PlutusData::ConstrPlutusData(cpd)
+
+        // This wrapping is needed since `smart_farm` is a multivalidator with `mint_farm_auth_token`.
+        PlutusData::new_constr_plutus_data(ConstrPlutusData::new(1, vec![PlutusData::ConstrPlutusData(cpd)]))
     }
 }
 
@@ -110,21 +116,29 @@ impl IntoPlutusData for Action {
 impl<C> TryFromLedger<TransactionOutput, C> for SmartFarmSnapshot
 where
     C: Has<PermManagerAuthPolicy>
-        + Has<OutputRef>
+        + Has<FarmAuthPolicy>
+        + Has<TimedOutputRef>
         + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         let addr = repr.address();
         if test_address(addr, ctx) {
             if let Ok(auth_policy) = PolicyId::from_raw_bytes(&repr.datum()?.into_pd()?.into_bytes()?) {
+                println!("smart_farm policy_id extracted!");
                 if ctx.select::<PermManagerAuthPolicy>().0 == auth_policy {
-                    let cred = addr.payment_cred().unwrap();
-                    if let Credential::Script { hash, .. } = cred {
-                        let smart_farm = SmartFarm {
-                            farm_id: FarmId(AssetName::try_from(hash.to_raw_bytes().to_vec()).unwrap()),
-                        };
-                        let output_ref = ctx.select::<OutputRef>();
-                        return Some(Snapshot::new(smart_farm, output_ref));
+                    let value = repr.value();
+                    let farm_auth_policy = ctx.select::<FarmAuthPolicy>().0;
+                    for (policy_id, by_names) in value.multiasset.iter() {
+                        if *policy_id == farm_auth_policy {
+                            assert_eq!(by_names.len(), 1);
+                            let (farm_name, quantity) = by_names.front().unwrap();
+                            assert_eq!(*quantity, 1);
+                            let smart_farm = SmartFarm {
+                                farm_id: FarmId(spectrum_cardano_lib::AssetName::from(farm_name.clone())),
+                            };
+                            let version = ctx.select::<TimedOutputRef>();
+                            return Some(Snapshot::new(smart_farm, version));
+                        }
                     }
                 }
             }

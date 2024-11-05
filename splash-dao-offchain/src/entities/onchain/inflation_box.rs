@@ -20,10 +20,11 @@ use crate::constants::{script_bytes::INFLATION_SCRIPT, SPLASH_NAME};
 use crate::deployment::ProtocolValidator;
 use crate::entities::Snapshot;
 use crate::protocol_config::SplashPolicy;
+use crate::routines::inflation::{Slot, TimedOutputRef};
 use crate::time::{epoch_end, NetworkTime, ProtocolEpoch};
 use crate::{constants, GenesisEpochStartTime};
 
-pub type InflationBoxSnapshot = Snapshot<InflationBox, OutputRef>;
+pub type InflationBoxSnapshot = Snapshot<InflationBox, TimedOutputRef>;
 
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize)]
 pub struct InflationBoxId;
@@ -42,7 +43,7 @@ pub struct InflationBox {
 impl InflationBox {
     pub fn active_epoch(&self, genesis: GenesisEpochStartTime, now: NetworkTime) -> ProtocolEpoch {
         if let Some(last_processed_epoch) = self.last_processed_epoch {
-            if epoch_end(genesis, last_processed_epoch) > now {
+            if epoch_end(genesis, last_processed_epoch) > now - 60_000 {
                 last_processed_epoch
             } else {
                 last_processed_epoch + 1
@@ -54,7 +55,7 @@ impl InflationBox {
 
     pub fn release_next_tranche(mut self) -> (InflationBox, TaggedAmount<Splash>) {
         let next_epoch = if self.last_processed_epoch.is_none() {
-            1
+            0
         } else {
             self.last_processed_epoch.unwrap() + 1
         };
@@ -101,7 +102,9 @@ impl Stable for InflationBox {
 
 impl<C> TryFromLedger<TransactionOutput, C> for InflationBoxSnapshot
 where
-    C: Has<SplashPolicy> + Has<DeployedScriptInfo<{ ProtocolValidator::Inflation as u8 }>> + Has<OutputRef>,
+    C: Has<SplashPolicy>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::Inflation as u8 }>>
+        + Has<TimedOutputRef>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
@@ -120,9 +123,9 @@ where
                 splash_reserves: TaggedAmount::new(splash),
                 script_hash,
             };
-            let output_ref = ctx.select::<OutputRef>();
+            let version = ctx.select::<TimedOutputRef>();
 
-            return Some(Snapshot::new(inflation_box, output_ref));
+            return Some(Snapshot::new(inflation_box, version));
         }
         None
     }

@@ -23,9 +23,10 @@ use crate::entities::onchain::smart_farm::FarmId;
 use crate::entities::onchain::weighting_poll::WeightingPoll;
 use crate::entities::Snapshot;
 use crate::protocol_config::MintWPAuthPolicy;
+use crate::routines::inflation::{Slot, TimedOutputRef};
 use crate::time::ProtocolEpoch;
 
-pub type PollFactorySnapshot = Snapshot<PollFactory, OutputRef>;
+pub type PollFactorySnapshot = Snapshot<PollFactory, TimedOutputRef>;
 
 #[derive(
     Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize, Debug, derive_more::Display,
@@ -74,11 +75,11 @@ impl HasIdentifier for PollFactorySnapshot {
 
 impl<C> TryFromLedger<TransactionOutput, C> for PollFactorySnapshot
 where
-    C: Has<OutputRef> + Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>,
+    C: Has<TimedOutputRef> + Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
-            let output_ref = ctx.select::<OutputRef>();
+            let version = ctx.select::<TimedOutputRef>();
             let datum = repr.datum()?;
             let PollFactoryConfig {
                 last_poll_epoch,
@@ -101,7 +102,7 @@ where
                     .script_hash,
             };
 
-            return Some(Snapshot::new(poll_factory, output_ref));
+            return Some(Snapshot::new(poll_factory, version));
         }
         None
     }

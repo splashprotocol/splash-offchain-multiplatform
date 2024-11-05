@@ -12,12 +12,16 @@ use cml_chain::{
 use cml_crypto::TransactionHash;
 use spectrum_cardano_lib::{
     collateral::Collateral, protocol_params::constant_tx_builder, transaction::TransactionOutputExtension,
-    OutputRef,
+    value::ValueExtension, OutputRef,
 };
 use spectrum_offchain::tx_prover::TxProver;
 use spectrum_offchain_cardano::{creds::CollateralAddress, prover::operator::OperatorProver};
 
-use crate::collect_utxos::collect_utxos;
+use crate::{
+    collect_utxos::collect_utxos,
+    create_change_output::{ChangeOutputCreator, CreateChangeOutput},
+    deployment::BuiltPolicy,
+};
 
 const LIMIT: u16 = 50;
 const COLLATERAL_LOVELACES: u64 = 5_000_000;
@@ -92,35 +96,56 @@ pub async fn generate_collateral<Net: CardanoNetwork>(
     Ok(Collateral::from(utxo))
 }
 
-pub async fn send_ada<Net: CardanoNetwork>(
+pub async fn send_assets<Net: CardanoNetwork>(
+    required_tokens: Vec<BuiltPolicy>,
     explorer: &Net,
     wallet_addr: &Address,
     destination_addr: &Address,
     prover: &OperatorProver,
-) -> Result<Collateral, Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error>> {
     let amount = 100_000_000;
-    let all_utxos = explorer.utxos_by_address(wallet_addr.clone(), 0, 50).await;
-    let utxos = collect_utxos(all_utxos, amount + 1_000_000, vec![], None);
+    let all_utxos = explorer.utxos_by_address(wallet_addr.clone(), 0, 100).await;
+    let utxos = collect_utxos(all_utxos, amount + 3_000_000, required_tokens.clone(), None);
 
+    let mut change_output_creator = ChangeOutputCreator::default();
     let mut tx_builder = constant_tx_builder();
     for utxo in utxos {
+        change_output_creator.add_input(&utxo);
         tx_builder.add_input(utxo).unwrap();
+    }
+    let mut output_value = Value::from(10_000_000);
+    for BuiltPolicy {
+        policy_id,
+        asset_name,
+        quantity,
+    } in required_tokens
+    {
+        let asset_name = spectrum_cardano_lib::AssetName::from(asset_name);
+        let ac = spectrum_cardano_lib::AssetClass::Token(spectrum_cardano_lib::Token(policy_id, asset_name));
+        output_value.add_unsafe(ac, quantity.as_u64().unwrap());
     }
     let output_result = TransactionOutputBuilder::new()
         .with_address(destination_addr.clone())
         .next()
         .unwrap()
-        .with_value(Value::from(amount))
+        .with_value(output_value)
         .build()
         .unwrap();
+    change_output_creator.add_output(&output_result);
     tx_builder.add_output(output_result).unwrap();
+
+    let estimated_tx_fee = tx_builder.min_fee(false).unwrap();
+    let actual_fee = estimated_tx_fee + 200_000;
+    let change_output = change_output_creator.create_change_output(actual_fee, wallet_addr.clone());
+    tx_builder.set_fee(actual_fee);
+    tx_builder.add_output(change_output).unwrap();
+
     let signed_tx_builder = tx_builder
         .build(ChangeSelectionAlgo::Default, wallet_addr)
         .unwrap();
 
     let tx = prover.prove(signed_tx_builder);
     let tx_hash = TransactionHash::from_hex(&tx.deref().body.hash().to_hex()).unwrap();
-    println!("Generating collateral TX ----------------------------------------------");
     println!("tx_hash: {:?}", tx_hash);
     let tx_bytes = tx.deref().to_cbor_bytes();
     println!("tx_bytes: {}", hex::encode(&tx_bytes));
@@ -128,7 +153,5 @@ pub async fn send_ada<Net: CardanoNetwork>(
     explorer.submit_tx(&tx_bytes).await?;
     explorer.wait_for_transaction_confirmation(tx_hash).await?;
 
-    let output_ref = OutputRef::new(tx_hash, 0);
-    let utxo = explorer.utxo_by_ref(output_ref).await.unwrap();
-    Ok(Collateral::from(utxo))
+    Ok(())
 }

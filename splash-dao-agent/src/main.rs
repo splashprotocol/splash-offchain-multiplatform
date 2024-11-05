@@ -125,7 +125,10 @@ async fn main() {
             tx: TxViewAtEraBoundary::from(tx),
             slot,
         },
-        LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary::from(tx)),
+        LedgerTxEvent::TxUnapplied { tx, slot } => LedgerTxEvent::TxUnapplied {
+            tx: TxViewAtEraBoundary::from(tx),
+            slot,
+        },
     });
 
     // We assume the batcher's private key is associated with a Cardano base address, which also

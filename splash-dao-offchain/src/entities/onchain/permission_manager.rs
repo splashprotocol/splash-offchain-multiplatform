@@ -26,6 +26,7 @@ use crate::{
     deployment::ProtocolValidator,
     entities::Snapshot,
     protocol_config::PermManagerAuthPolicy,
+    routines::inflation::{Slot, TimedOutputRef},
 };
 
 use super::smart_farm::FarmId;
@@ -39,7 +40,7 @@ impl Identifier for PermManagerId {
     type For = PermManagerSnapshot;
 }
 
-pub type PermManagerSnapshot = Snapshot<PermManager, OutputRef>;
+pub type PermManagerSnapshot = Snapshot<PermManager, TimedOutputRef>;
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct PermManager {
@@ -67,7 +68,7 @@ impl Stable for PermManager {
 impl<C> TryFromLedger<TransactionOutput, C> for PermManagerSnapshot
 where
     C: Has<PermManagerAuthPolicy>
-        + Has<OutputRef>
+        + Has<TimedOutputRef>
         + Has<DeployedScriptInfo<{ ProtocolValidator::PermManager as u8 }>>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
@@ -84,12 +85,12 @@ where
             let perm_manager_datum = datum
                 .into_pd()
                 .map(|pd| PermManagerDatum::try_from_pd(pd).unwrap())?;
-            let output_ref = ctx.select::<OutputRef>();
+            let version = ctx.select::<TimedOutputRef>();
             let perm_manager = PermManager {
                 datum: perm_manager_datum,
             };
 
-            return Some(Snapshot::new(perm_manager, output_ref));
+            return Some(Snapshot::new(perm_manager, version));
         }
         None
     }

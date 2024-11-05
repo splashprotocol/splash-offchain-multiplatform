@@ -24,3 +24,7 @@ uplc = "0.0.29"
 uplc-pallas-codec = { package = "pallas-codec", version = "0.16" }
 uplc-pallas-traverse = { package = "pallas-traverse", version = "0.16" }
 uplc-pallas-primitives = { package = "pallas-primitives", version = "0.16" }
+
+[features]
+default = []
+enable_test_30_min_epoch = ["splash-dao-offchain/test_30_min_epoch"]

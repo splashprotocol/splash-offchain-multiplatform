@@ -66,7 +66,7 @@ pub fn mint_token(
     change_address: &Address,
     current_slot_number: u64,
 ) -> (SignedTxBuilder, ExternallyMintedToken) {
-    let valid_until = current_slot_number + 10001;
+    let valid_until = current_slot_number + 300;
 
     let script_pk = NativeScript::new_script_pubkey(pk_hash);
     let script_before = NativeScript::ScriptInvalidHereafter(

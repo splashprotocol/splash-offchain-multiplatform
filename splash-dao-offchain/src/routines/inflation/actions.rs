@@ -6,15 +6,16 @@ use cml_chain::builders::input_builder::{InputBuilderResult, SingleInputBuilder}
 use cml_chain::builders::mint_builder::SingleMintBuilder;
 use cml_chain::builders::output_builder::{SingleOutputBuilderResult, TransactionOutputBuilder};
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
-use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder};
+use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput};
 use cml_chain::builders::withdrawal_builder::SingleWithdrawalBuilder;
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
 use cml_chain::certs::Credential;
 use cml_chain::min_ada::min_ada_required;
-use cml_chain::plutus::{PlutusScript, PlutusV2Script, RedeemerTag};
+use cml_chain::plutus::{ConstrPlutusData, PlutusScript, PlutusV2Script, RedeemerTag};
 use cml_chain::transaction::{TransactionInput, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::{Coin, OrderedHashMap, PolicyId, RequiredSigners};
+use cml_core::serialization::FromBytes;
 use cml_crypto::{blake2b256, RawBytesEncoding, TransactionHash};
 use serde::Serialize;
 use spectrum_cardano_lib::types::TryFromPData;
@@ -35,9 +36,11 @@ use uplc::PlutusData;
 use uplc_pallas_primitives::Fragment;
 
 use crate::assets::SPLASH_AC;
+use crate::collect_utxos::collect_utxos;
+use crate::constants::time::MAX_TIME_DRIFT_MILLIS;
 use crate::constants::{self, script_bytes::VOTING_WITNESS_STUB};
 use crate::create_change_output::{ChangeOutputCreator, CreateChangeOutput};
-use crate::deployment::ProtocolValidator;
+use crate::deployment::{BuiltPolicy, ProtocolValidator};
 use crate::entities::offchain::voting_order::VotingOrder;
 use crate::entities::onchain::funding_box::{FundingBox, FundingBoxId, FundingBoxSnapshot};
 use crate::entities::onchain::inflation_box::{unsafe_update_ibox_state, INFLATION_BOX_EX_UNITS};
@@ -45,7 +48,9 @@ use crate::entities::onchain::permission_manager::{compute_perm_manager_validato
 use crate::entities::onchain::poll_factory::{
     unsafe_update_factory_state, FactoryRedeemer, PollFactoryAction, GOV_PROXY_EX_UNITS, WP_FACTORY_EX_UNITS,
 };
-use crate::entities::onchain::smart_farm::{self, compute_mint_farm_auth_token_validator, FARM_EX_UNITS};
+use crate::entities::onchain::smart_farm::{
+    self, compute_mint_farm_auth_token_validator, FarmId, FARM_EX_UNITS,
+};
 use crate::entities::onchain::voting_escrow::{
     self, compute_mint_weighting_power_validator, compute_voting_escrow_validator, unsafe_update_ve_state,
     VotingEscrowAction, VotingEscrowAuthorizedAction, VotingEscrowConfig, ORDER_WITNESS_EX_UNITS,
@@ -64,6 +69,7 @@ use crate::protocol_config::{
     VEFactoryAuthPolicy, VotingEscrowPolicy, VotingEscrowRefScriptOutput, WPFactoryAuthPolicy,
     WeightingPowerPolicy, WeightingPowerRefScriptOutput, TX_FEE_CORRECTION,
 };
+use crate::routines::inflation::TimedOutputRef;
 use crate::GenesisEpochStartTime;
 
 use super::{
@@ -90,7 +96,8 @@ pub trait InflationActions<Bearer> {
         &self,
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
         funding_boxes: AvailableFundingBoxes,
-    ) -> SignedTxBuilder;
+        current_slot: Slot,
+    ) -> (SignedTxBuilder, FundingBoxChanges);
     async fn execute_order(
         &self,
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
@@ -106,6 +113,7 @@ pub trait InflationActions<Bearer> {
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
         farm: Bundled<SmartFarmSnapshot, Bearer>,
         perm_manager: Bundled<PermManagerSnapshot, Bearer>,
+        current_slot: Slot,
         farm_weight: u64,
         funding_boxes: AvailableFundingBoxes,
     ) -> (
@@ -113,8 +121,12 @@ pub trait InflationActions<Bearer> {
         Traced<Predicted<Bundled<WeightingPollSnapshot, Bearer>>>,
         Traced<Predicted<Bundled<SmartFarmSnapshot, Bearer>>>,
         Traced<Predicted<Bundled<PermManagerSnapshot, Bearer>>>,
+        FundingBoxChanges,
     );
 }
+
+/// 1/5 of MAX_TIME_DRIFT
+const TX_TTL_SLOT: u64 = MAX_TIME_DRIFT_MILLIS / 1000 / 5;
 
 #[derive(derive_more::From)]
 pub struct CardanoInflationActions<Ctx> {
@@ -176,7 +188,8 @@ where
         // Set TX validity range
         println!("current_slot: {}", current_slot.0);
         tx_builder.set_validity_start_interval(current_slot.0);
-        tx_builder.set_ttl(current_slot.0 + 43200);
+        // tx_builder.set_ttl(current_slot.0 + 43200);
+        tx_builder.set_ttl(current_slot.0 + TX_TTL_SLOT);
 
         let inflation_script_hash = self
             .ctx
@@ -189,7 +202,7 @@ where
         );
 
         let inflation_input = SingleInputBuilder::new(
-            TransactionInput::from(*(inflation_box.version())),
+            TransactionInput::from(inflation_box.version().output_ref),
             inflation_box_in.clone(),
         )
         .plutus_script_inline_datum(inflation_script, RequiredSigners::from(vec![]))
@@ -206,7 +219,7 @@ where
         let mut inflation_box_out = inflation_box_in.clone();
         if let Some(data_mut) = inflation_box_out.data_mut() {
             // Following unwrap is safe due to the `.release_next_trache()` call above.
-            unsafe_update_ibox_state(data_mut, next_inflation_box.last_processed_epoch.unwrap());
+            unsafe_update_ibox_state(data_mut, next_inflation_box.last_processed_epoch.unwrap() + 1);
         }
         inflation_box_out.sub_asset(*SPLASH_AC, emission_rate.untag());
         let inflation_output = SingleOutputBuilderResult::new(inflation_box_out.clone());
@@ -228,10 +241,12 @@ where
             factory_redeemer.into_pd(),
         );
 
-        let wp_factory_input =
-            SingleInputBuilder::new(TransactionInput::from(*(factory.version())), factory_in.clone())
-                .plutus_script_inline_datum(wp_factory_script, RequiredSigners::from(vec![]))
-                .unwrap();
+        let wp_factory_input = SingleInputBuilder::new(
+            TransactionInput::from(factory.version().output_ref),
+            factory_in.clone(),
+        )
+        .plutus_script_inline_datum(wp_factory_script, RequiredSigners::from(vec![]))
+        .unwrap();
 
         tx_builder.add_reference_input(self.ctx.select::<PollFactoryRefScriptOutput>().0.clone());
 
@@ -244,7 +259,7 @@ where
         }
 
         let (input_results, funding_boxes_to_spend) =
-            select_funding_boxes(10_000_000, funding_boxes.0, &self.ctx);
+            select_funding_boxes(10_000_000, vec![], funding_boxes.0, &self.ctx);
 
         let mut unsorted_inputs: Vec<_> = input_results
             .into_iter()
@@ -309,7 +324,13 @@ where
             inflation_box.get().last_processed_epoch
         );
         // Compute index_tn(epoch), where `epoch` is the current epoch
-        let asset = compute_epoch_asset_name(inflation_box.get().last_processed_epoch.unwrap_or(0));
+        let asset = compute_epoch_asset_name(
+            inflation_box
+                .get()
+                .last_processed_epoch
+                .map(|epoch| epoch + 1)
+                .unwrap_or(0),
+        );
         println!("mint_wp_auth_token name: {}", hex::encode(&asset.inner));
         let wp_auth_minting_policy = SingleMintBuilder::new_single_asset(asset.clone(), 1)
             .plutus_script(mint_wp_auth_token_witness, RequiredSigners::from(vec![]));
@@ -378,6 +399,11 @@ where
 
         let tx_hash = hash_transaction_canonical(&tx_body);
 
+        let add_slot = |output_ref| TimedOutputRef {
+            output_ref,
+            slot: current_slot,
+        };
+
         // Extract newly-created funding-boxes, which are change boxes created by the TX builder.
         let created_funding_boxes: Vec<_> = tx_body
             .outputs
@@ -403,7 +429,7 @@ where
             created: created_funding_boxes,
         };
 
-        let next_ib_version = OutputRef::new(tx_hash, 0);
+        let next_ib_version = add_slot(OutputRef::new(tx_hash, 0));
         let next_traced_ibox = Traced::new(
             Predicted(Bundled(
                 Snapshot::new(next_inflation_box, next_ib_version),
@@ -411,7 +437,7 @@ where
             )),
             Some(prev_ib_version),
         );
-        let fresh_wpoll_version = OutputRef::new(tx_hash, 1);
+        let fresh_wpoll_version = add_slot(OutputRef::new(tx_hash, 1));
         let fresh_wpoll = Traced::new(
             Predicted(Bundled(
                 Snapshot::new(fresh_wpoll, fresh_wpoll_version),
@@ -419,7 +445,7 @@ where
             )),
             None,
         );
-        let next_factory_version = OutputRef::new(tx_hash, 2);
+        let next_factory_version = add_slot(OutputRef::new(tx_hash, 2));
         let next_traced_factory = Traced::new(
             Predicted(Bundled(
                 Snapshot::new(next_factory, next_factory_version),
@@ -440,24 +466,16 @@ where
         &self,
         Bundled(weighting_poll, weighting_poll_in): Bundled<WeightingPollSnapshot, TransactionOutput>,
         funding_boxes: AvailableFundingBoxes,
-    ) -> SignedTxBuilder {
+        current_slot: Slot,
+    ) -> (SignedTxBuilder, FundingBoxChanges) {
         let mut tx_builder = constant_tx_builder();
 
-        let splash_policy = self.ctx.select::<SplashPolicy>().0;
-        let genesis_time = self.ctx.select::<GenesisEpochStartTime>().0;
-        let farm_auth_policy = self.ctx.select::<FarmAuthPolicy>().0;
-        let factory_auth_policy = self.ctx.select::<FarmFactoryAuthPolicy>().0;
-        let inflation_box_auth_policy = self.ctx.select::<InflationAuthPolicy>().0;
         let wpoll_auth_ref_script = self.ctx.select::<MintWPAuthRefScriptOutput>().0;
-
-        let weighting_poll_script_hash = compute_mint_wp_auth_token_validator(
-            splash_policy,
-            farm_auth_policy,
-            factory_auth_policy,
-            inflation_box_auth_policy,
-            genesis_time,
-        )
-        .hash();
+        let weighting_poll_script_hash = self.ctx.select::<MintWPAuthPolicy>().0;
+        println!(
+            "Computed wpoll script_hash:{}",
+            weighting_poll_script_hash.to_hex()
+        );
 
         let redeemer = weighting_poll::PollAction::Destroy;
         let weighting_poll_script = PartialPlutusWitness::new(
@@ -466,45 +484,104 @@ where
         );
 
         let weighting_poll_input = SingleInputBuilder::new(
-            TransactionInput::from(*(weighting_poll.version())),
+            TransactionInput::from(weighting_poll.version().output_ref),
             weighting_poll_in.clone(),
         )
         .plutus_script_inline_datum(weighting_poll_script, RequiredSigners::from(vec![]))
         .unwrap();
 
-        let mut output_value = match weighting_poll_in {
+        let output_value = match weighting_poll_in {
             TransactionOutput::AlonzoFormatTxOut(tx) => tx.amount.clone(),
             TransactionOutput::ConwayFormatTxOut(tx) => tx.amount.clone(),
         };
 
-        let estimated_tx_fee = tx_builder.min_fee(true).unwrap() + TX_FEE_CORRECTION;
-        tx_builder.set_fee(estimated_tx_fee);
-        if estimated_tx_fee > output_value.coin {
-            panic!("Not enough ADA in weighting_poll");
+        enum InputType {
+            Funding,
+            WPoll,
         }
-        output_value.coin -= estimated_tx_fee;
+
+        let (input_results, funding_boxes_to_spend) =
+            select_funding_boxes(10_000_000, vec![], funding_boxes.0, &self.ctx);
+
+        let mut inputs: Vec<_> = input_results
+            .into_iter()
+            .map(|input| (InputType::Funding, input))
+            .collect();
+
+        inputs.push((InputType::WPoll, weighting_poll_input));
+        inputs.sort_by_key(|input| input.1.input.clone());
+
+        let wpoll_ix = inputs
+            .iter()
+            .position(|(input_type, _)| matches!(input_type, InputType::WPoll))
+            .unwrap() as u64;
 
         tx_builder.add_reference_input(wpoll_auth_ref_script);
-        tx_builder.add_input(weighting_poll_input).unwrap();
+        let mut change_output_creator = ChangeOutputCreator::default();
+        for (_, input) in inputs {
+            change_output_creator.add_input(&input);
+            tx_builder.add_input(input).unwrap();
+        }
 
         let OperatorCreds(_, operator_addr) = self.ctx.select::<OperatorCreds>();
         let output = TransactionOutputBuilder::new()
-            .with_address(operator_addr)
+            .with_address(operator_addr.clone())
             .next()
             .unwrap()
             .with_value(output_value)
             .build()
             .unwrap();
+        change_output_creator.add_output(&output);
         tx_builder.add_output(output).unwrap();
         tx_builder.set_exunits(
-            RedeemerWitnessKey::new(RedeemerTag::Spend, 0),
+            RedeemerWitnessKey::new(RedeemerTag::Spend, wpoll_ix),
             MINT_WP_AUTH_EX_UNITS,
         );
 
-        let execution_fee_address: Address = self.ctx.select::<Reward>().0.clone().into();
+        let estimated_tx_fee = tx_builder.min_fee(true).unwrap() + 10_000;
+        let change_output =
+            change_output_creator.create_change_output(estimated_tx_fee, operator_addr.clone());
+        tx_builder.add_output(change_output).unwrap();
+        tx_builder.set_fee(estimated_tx_fee);
+
         tx_builder
+            .add_collateral(InputBuilderResult::from(self.ctx.select::<Collateral>()))
+            .unwrap();
+
+        let execution_fee_address: Address = self.ctx.select::<Reward>().0.clone().into();
+        let signed_tx_builder = tx_builder
             .build(ChangeSelectionAlgo::Default, &execution_fee_address)
-            .unwrap()
+            .unwrap();
+        let tx_body = signed_tx_builder.body();
+
+        let tx_hash = hash_transaction_canonical(&tx_body);
+
+        // Extract newly-created funding-boxes, which are change boxes created by the TX builder.
+        let created_funding_boxes: Vec<_> = tx_body
+            .outputs
+            .iter()
+            .enumerate()
+            .skip(1)
+            .map(|(ix, output)| {
+                assert_eq!(*output.address(), operator_addr);
+                let output_ref = OutputRef::new(tx_hash, ix as u64);
+                let value = output.value().clone();
+                let funding_box = FundingBox {
+                    value,
+                    id: FundingBoxId::from(output_ref),
+                };
+                Predicted(funding_box)
+            })
+            .collect();
+
+        let spent_funding_boxes: Vec<_> = funding_boxes_to_spend.into_iter().map(|f| f.id).collect();
+
+        let funding_box_changes = FundingBoxChanges {
+            spent: spent_funding_boxes,
+            created: created_funding_boxes,
+        };
+
+        (signed_tx_builder, funding_box_changes)
     }
 
     async fn execute_order(
@@ -538,7 +615,7 @@ where
         let ve_datum = VotingEscrowConfig::try_from_pd(data_mut.clone()).unwrap();
         let max_ex_fee = ve_datum.max_ex_fee;
         let mut ve_amt = voting_escrow_out.amount().clone();
-        ve_amt.sub_unsafe(AssetClass::Native, 800_000 + 200_904 + 129_780);
+        ve_amt.sub_unsafe(AssetClass::Native, 800_000 + 200_904 + 129_780 + 60_000);
         dbg!(&ve_amt);
         voting_escrow_out.set_amount(ve_amt);
 
@@ -560,7 +637,7 @@ where
         );
 
         let voting_escrow_input = SingleInputBuilder::new(
-            TransactionInput::from(*(voting_escrow.version())),
+            TransactionInput::from(voting_escrow.version().output_ref),
             ve_box_in.clone(),
         )
         .plutus_script_inline_datum(voting_escrow_witness, RequiredSigners::from(vec![]))
@@ -582,7 +659,7 @@ where
         );
 
         let weighting_poll_input = SingleInputBuilder::new(
-            TransactionInput::from(*(weighting_poll.version())),
+            TransactionInput::from(weighting_poll.version().output_ref),
             weighting_poll_in.clone(),
         )
         .plutus_script_inline_datum(weighting_poll_witness, RequiredSigners::from(vec![]))
@@ -712,7 +789,8 @@ where
         // Set TX validity range
         println!("CURRENT_SLOT: {}", current_slot.0);
         tx_builder.set_validity_start_interval(current_slot.0);
-        tx_builder.set_ttl(current_slot.0 + 1000);
+        // tx_builder.set_ttl(current_slot.0 + 1000);
+        tx_builder.set_ttl(current_slot.0 + TX_TTL_SLOT);
 
         tx_builder
             .add_collateral(InputBuilderResult::from(self.ctx.select::<Collateral>()))
@@ -731,7 +809,12 @@ where
 
         let tx_hash = hash_transaction_canonical(&tx_body);
 
-        let next_wp_version = OutputRef::new(tx_hash, 0);
+        let add_slot = |output_ref| TimedOutputRef {
+            output_ref,
+            slot: current_slot,
+        };
+
+        let next_wp_version = add_slot(OutputRef::new(tx_hash, 0));
         let fresh_wp = Traced::new(
             Predicted(Bundled(
                 Snapshot::new(next_weighting_poll, next_wp_version),
@@ -740,7 +823,7 @@ where
             Some(*prev_wp_version),
         );
 
-        let next_ve_version = OutputRef::new(tx_hash, 1);
+        let next_ve_version = add_slot(OutputRef::new(tx_hash, 1));
         let fresh_ve = Traced::new(
             Predicted(Bundled(
                 Snapshot::new(next_ve, next_ve_version),
@@ -757,6 +840,7 @@ where
         Bundled(weighting_poll, weighting_poll_in): Bundled<WeightingPollSnapshot, TransactionOutput>,
         Bundled(farm, farm_in): Bundled<SmartFarmSnapshot, TransactionOutput>,
         Bundled(perm_manager, perm_manager_in): Bundled<PermManagerSnapshot, TransactionOutput>,
+        current_slot: Slot,
         farm_weight: u64,
         funding_boxes: AvailableFundingBoxes,
     ) -> (
@@ -764,75 +848,79 @@ where
         Traced<Predicted<Bundled<WeightingPollSnapshot, TransactionOutput>>>,
         Traced<Predicted<Bundled<SmartFarmSnapshot, TransactionOutput>>>,
         Traced<Predicted<Bundled<PermManagerSnapshot, TransactionOutput>>>,
+        FundingBoxChanges,
     ) {
         let mut tx_builder = constant_tx_builder();
 
-        let genesis_time = self.ctx.select::<GenesisEpochStartTime>().0;
-        let farm_auth_policy = self.ctx.select::<FarmAuthPolicy>().0;
-        let splash_policy = self.ctx.select::<SplashPolicy>().0;
-        let factory_auth_policy = self.ctx.select::<FarmFactoryAuthPolicy>().0;
-        let inflation_box_auth_policy = self.ctx.select::<InflationAuthPolicy>().0;
         let wpoll_auth_ref_script = self.ctx.select::<MintWPAuthRefScriptOutput>().0;
         let smart_farm_ref_script = self.ctx.select::<FarmAuthRefScriptOutput>().0;
         let edao_msig_policy = self.ctx.select::<EDaoMSigAuthPolicy>().0;
         let perm_manager_auth_policy = self.ctx.select::<PermManagerAuthPolicy>().0;
         let perm_manager_box_ref_script = self.ctx.select::<PermManagerBoxRefScriptOutput>().0;
 
+        println!("AAAA");
         let mut next_weighting_poll = weighting_poll.get().clone();
-        let ix = next_weighting_poll
+        let farm_distribution_ix = next_weighting_poll
             .distribution
             .iter()
             .position(|&(farm_id, _)| farm_id == farm.get().farm_id)
             .unwrap();
-        let old_weight = next_weighting_poll.distribution[ix].1;
-        next_weighting_poll.distribution[ix].1 = old_weight + farm_weight;
+        let old_weight = next_weighting_poll.distribution[farm_distribution_ix].1;
+        assert!(old_weight >= farm_weight);
+        next_weighting_poll.distribution[farm_distribution_ix].1 = old_weight - farm_weight;
 
-        let weighting_poll_script_hash = compute_mint_wp_auth_token_validator(
-            splash_policy,
-            farm_auth_policy,
-            factory_auth_policy,
-            inflation_box_auth_policy,
-            genesis_time,
-        )
-        .hash();
+        let weighting_poll_script_hash = self.ctx.select::<MintWPAuthPolicy>().0;
 
         // Setting TX inputs
         enum InputType {
             WPoll,
             Farm,
-            PermManager,
+            Funding(InputBuilderResult),
         }
 
-        let mut typed_inputs = vec![
+        let edao_auth_token_name =
+            cml_chain::assets::AssetName::new(constants::DEFAULT_AUTH_TOKEN_NAME.to_be_bytes().to_vec())
+                .unwrap();
+        let edao_built_policy = BuiltPolicy {
+            policy_id: edao_msig_policy,
+            asset_name: edao_auth_token_name,
+            quantity: BigInteger::from(1),
+        };
+
+        let (input_results, funding_boxes_to_spend) =
+            select_funding_boxes(10_000_000, vec![edao_built_policy], funding_boxes.0, &self.ctx);
+
+        let mut typed_inputs: Vec<_> = input_results
+            .into_iter()
+            .map(|input| (input.input.transaction_id, InputType::Funding(input)))
+            .collect();
+
+        typed_inputs.extend([
             (
-                TransactionInput::from(*weighting_poll.version()).transaction_id,
+                TransactionInput::from(weighting_poll.version().output_ref).transaction_id,
                 InputType::WPoll,
             ),
             (
-                TransactionInput::from(*farm.version()).transaction_id,
+                TransactionInput::from(farm.version().output_ref).transaction_id,
                 InputType::Farm,
             ),
-            (
-                TransactionInput::from(*perm_manager.version()).transaction_id,
-                InputType::PermManager,
-            ),
-        ];
+        ]);
 
         typed_inputs.sort_by_key(|(tx_hash, _)| *tx_hash);
         let farm_in_ix = typed_inputs
             .iter()
             .position(|(_, t)| matches!(t, InputType::Farm))
             .unwrap() as u32;
-        let perm_manager_input_ix = typed_inputs
-            .iter()
-            .position(|(_, t)| matches!(t, InputType::PermManager))
-            .unwrap() as u32;
 
+        let OperatorCreds(operator_pkh, operator_addr) = self.ctx.select::<OperatorCreds>();
+        println!("Operator signatory: {}", operator_pkh.to_hex());
+
+        let mut change_output_creator = ChangeOutputCreator::default();
         for (i, (_, input_type)) in typed_inputs.into_iter().enumerate() {
             match input_type {
                 InputType::WPoll => {
                     let redeemer = weighting_poll::PollAction::Distribute {
-                        farm_ix: 1,
+                        farm_ix: farm_distribution_ix as u32,
                         farm_in_ix,
                     };
                     let weighting_poll_script = PartialPlutusWitness::new(
@@ -841,70 +929,62 @@ where
                     );
 
                     let weighting_poll_input = SingleInputBuilder::new(
-                        TransactionInput::from(*(weighting_poll.version())),
+                        TransactionInput::from(weighting_poll.version().output_ref),
                         weighting_poll_in.clone(),
                     )
                     .plutus_script_inline_datum(weighting_poll_script, RequiredSigners::from(vec![]))
                     .unwrap();
                     tx_builder.add_reference_input(wpoll_auth_ref_script.clone());
+                    change_output_creator.add_input(&weighting_poll_input);
                     tx_builder.add_input(weighting_poll_input).unwrap();
                     tx_builder.set_exunits(
                         RedeemerWitnessKey::new(RedeemerTag::Spend, i as u64),
                         MINT_WP_AUTH_EX_UNITS,
                     );
                 }
+
                 InputType::Farm => {
                     let redeemer = smart_farm::Redeemer {
                         successor_out_ix: 1,
                         action: smart_farm::Action::DistributeRewards {
-                            perm_manager_input_ix,
+                            perm_manager_input_ix: 1, // MASSIVE HACK
                         },
-                    };
-                    let farm_auth_policy = self.ctx.select::<FarmAuthPolicy>().0.to_hex();
-                    let smart_farm_script_hash =
-                        compute_mint_farm_auth_token_validator(splash_policy, factory_auth_policy).hash();
-                    let smart_farm_script = PartialPlutusWitness::new(
-                        PlutusScriptWitness::Ref(smart_farm_script_hash),
-                        redeemer.into_pd(),
-                    );
+                    }
+                    .into_pd();
+
+                    let smart_farm_script_hash = self.ctx.select::<FarmAuthPolicy>().0;
+                    let smart_farm_script =
+                        PartialPlutusWitness::new(PlutusScriptWitness::Ref(smart_farm_script_hash), redeemer);
 
                     let smart_farm_input = SingleInputBuilder::new(
-                        TransactionInput::from(*(farm.version())),
-                        weighting_poll_in.clone(),
+                        TransactionInput::from(farm.version().output_ref),
+                        farm_in.clone(),
                     )
-                    .plutus_script_inline_datum(smart_farm_script, RequiredSigners::from(vec![]))
+                    .plutus_script_inline_datum(smart_farm_script, RequiredSigners::from(vec![operator_pkh]))
                     .unwrap();
                     tx_builder.add_reference_input(smart_farm_ref_script.clone());
+                    change_output_creator.add_input(&smart_farm_input);
                     tx_builder.add_input(smart_farm_input).unwrap();
                     tx_builder.set_exunits(
                         RedeemerWitnessKey::new(RedeemerTag::Spend, i as u64),
                         FARM_EX_UNITS,
                     );
                 }
-                InputType::PermManager => {
-                    let perm_manager_script_hash =
-                        compute_perm_manager_validator(edao_msig_policy, perm_manager_auth_policy).hash();
 
-                    let perm_manager_script = PartialPlutusWitness::new(
-                        PlutusScriptWitness::Ref(perm_manager_script_hash),
-                        cml_chain::plutus::PlutusData::Integer(BigInteger::from(2)), // set successor_out_ix to 2
-                    );
-
-                    let perm_manager_input = SingleInputBuilder::new(
-                        TransactionInput::from(*(perm_manager.version())),
-                        weighting_poll_in.clone(),
-                    )
-                    .plutus_script_inline_datum(perm_manager_script, RequiredSigners::from(vec![]))
-                    .unwrap();
-                    tx_builder.add_reference_input(perm_manager_box_ref_script.clone());
-                    tx_builder.add_input(perm_manager_input).unwrap();
-                    tx_builder.set_exunits(
-                        RedeemerWitnessKey::new(RedeemerTag::Spend, i as u64),
-                        PERM_MANAGER_EX_UNITS,
-                    );
+                InputType::Funding(funding_input) => {
+                    change_output_creator.add_input(&funding_input);
+                    tx_builder.add_input(funding_input).unwrap();
                 }
             }
         }
+
+        let tx_unspent_output = TransactionUnspentOutput::new(
+            TransactionInput::from(perm_manager.version().output_ref),
+            perm_manager_in.clone(),
+        );
+        tx_builder.add_reference_input(tx_unspent_output);
+
+        dbg!(weighting_poll.get());
 
         // Adjust splash values in weighting_poll and farm.
         let splash_emission = weighting_poll.get().emission_rate.untag() * farm_weight
@@ -916,36 +996,73 @@ where
         let mut farm_out = farm_in.clone();
         farm_out.add_asset(*SPLASH_AC, splash_emission);
 
+        // Reduce weightings in weighting_poll's datum
+        if let Some(data_mut) = weighting_poll_out.data_mut() {
+            unsafe_update_wp_state(data_mut, &next_weighting_poll.distribution);
+        }
+
         // farm output must be at index 1
         let weighting_poll_output = SingleOutputBuilderResult::new(weighting_poll_out.clone());
         let farm_output = SingleOutputBuilderResult::new(farm_out.clone());
         let perm_manager_output = SingleOutputBuilderResult::new(perm_manager_in.clone());
+        change_output_creator.add_output(&weighting_poll_output);
         tx_builder.add_output(weighting_poll_output).unwrap();
+        change_output_creator.add_output(&farm_output);
         tx_builder.add_output(farm_output).unwrap();
-        tx_builder.add_output(perm_manager_output).unwrap();
 
         // Add operator as signatory
-        let OperatorCreds(operator_pkh, _) = self.ctx.select::<OperatorCreds>();
         tx_builder.add_required_signer(operator_pkh);
 
         tx_builder
             .add_collateral(InputBuilderResult::from(self.ctx.select::<Collateral>()))
             .unwrap();
 
-        let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
-        tx_builder.set_fee(estimated_tx_fee + TX_FEE_CORRECTION);
-
-        let execution_fee_address: Address = self.ctx.select::<Reward>().0.into();
+        let estimated_tx_fee = tx_builder.min_fee(true).unwrap() + 10_000;
+        let change_output =
+            change_output_creator.create_change_output(estimated_tx_fee, operator_addr.clone());
+        tx_builder.add_output(change_output).unwrap();
+        tx_builder.set_fee(estimated_tx_fee);
+        tx_builder.set_validity_start_interval(current_slot.0);
+        tx_builder.set_ttl(current_slot.0 + 300);
 
         // Build tx, change is execution fee.
         let signed_tx_builder = tx_builder
-            .build(ChangeSelectionAlgo::Default, &execution_fee_address)
+            .build(ChangeSelectionAlgo::Default, &operator_addr)
             .unwrap();
         let tx_body = signed_tx_builder.body();
 
         let tx_hash = hash_transaction_canonical(&tx_body);
 
-        let next_wp_version = OutputRef::new(tx_hash, 0);
+        let add_slot = |output_ref| TimedOutputRef {
+            output_ref,
+            slot: current_slot,
+        };
+
+        // Extract newly-created funding-boxes, which are change boxes created by the TX builder.
+        let created_funding_boxes: Vec<_> = tx_body
+            .outputs
+            .iter()
+            .enumerate()
+            .skip(3)
+            .map(|(ix, output)| {
+                assert_eq!(*output.address(), operator_addr);
+                let output_ref = OutputRef::new(tx_hash, ix as u64);
+                let value = output.value().clone();
+                let funding_box = FundingBox {
+                    value,
+                    id: FundingBoxId::from(output_ref),
+                };
+                Predicted(funding_box)
+            })
+            .collect();
+
+        let spent_funding_boxes: Vec<_> = funding_boxes_to_spend.into_iter().map(|f| f.id).collect();
+
+        let funding_box_changes = FundingBoxChanges {
+            spent: spent_funding_boxes,
+            created: created_funding_boxes,
+        };
+        let next_wp_version = add_slot(OutputRef::new(tx_hash, 0));
         let fresh_wp = Traced::new(
             Predicted(Bundled(
                 Snapshot::new(next_weighting_poll, next_wp_version),
@@ -954,14 +1071,14 @@ where
             Some(*weighting_poll.version()),
         );
 
-        let next_farm_version = OutputRef::new(tx_hash, 1);
+        let next_farm_version = add_slot(OutputRef::new(tx_hash, 1));
         let next_farm = farm.get().clone();
         let fresh_farm = Traced::new(
             Predicted(Bundled(Snapshot::new(next_farm, next_farm_version), farm_out)),
             Some(*farm.version()),
         );
 
-        let next_perm_manager_version = OutputRef::new(tx_hash, 2);
+        let next_perm_manager_version = add_slot(OutputRef::new(tx_hash, 2));
         let next_perm_manager = perm_manager.get().clone();
         let fresh_perm_manager = Traced::new(
             Predicted(Bundled(
@@ -971,7 +1088,13 @@ where
             Some(*perm_manager.version()),
         );
 
-        (signed_tx_builder, fresh_wp, fresh_farm, fresh_perm_manager)
+        (
+            signed_tx_builder,
+            fresh_wp,
+            fresh_farm,
+            fresh_perm_manager,
+            funding_box_changes,
+        )
     }
 }
 
@@ -1040,28 +1163,40 @@ fn sort_create_wp_poll_tx_inputs(
 
 fn select_funding_boxes<Ctx>(
     target: Coin,
+    required_tokens: Vec<BuiltPolicy>,
     boxes: Vec<FundingBox>,
     ctx: &Ctx,
 ) -> (Vec<InputBuilderResult>, Vec<FundingBox>)
 where
     Ctx: Has<OperatorCreds> + Clone,
 {
-    let mut total_coin = 0;
-    let mut input_results = vec![];
+    let mut all_utxos = vec![];
+    for funding_box in &boxes {
+        let output = funding_box.clone().into_ledger(ctx.clone());
+        let output_ref: OutputRef = funding_box.id.into();
+        let input = TransactionInput::from(output_ref);
+        all_utxos.push(TransactionUnspentOutput::new(input, output));
+    }
+    let input_results = collect_utxos(all_utxos, target, required_tokens, None);
+
     let mut selected_boxes = vec![];
-    for funding_box in boxes {
-        let coin = funding_box.value.coin;
-        total_coin += coin;
-        if total_coin >= target {
-            let output = funding_box.clone().into_ledger(ctx.clone());
-            let output_ref: OutputRef = funding_box.id.into();
-            let input = SingleInputBuilder::new(TransactionInput::from(output_ref), output)
-                .payment_key()
-                .unwrap();
-            input_results.push(input);
-            selected_boxes.push(funding_box);
-            break;
-        }
+    for i in &input_results {
+        let output_ref = OutputRef::new(i.input.transaction_id, i.input.index);
+        let id = boxes
+            .iter()
+            .find_map(|f| {
+                let funding_output_ref: OutputRef = f.id.into();
+                if funding_output_ref == output_ref {
+                    Some(f.id)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        selected_boxes.push(FundingBox {
+            value: i.utxo_info.value().clone(),
+            id,
+        });
     }
     (input_results, selected_boxes)
 }

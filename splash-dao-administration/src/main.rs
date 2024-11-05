@@ -7,6 +7,7 @@ use std::{
     hash::Hash,
     net::SocketAddr,
     ops::Deref,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use cardano_explorer::{CardanoNetwork, Maestro};
@@ -40,31 +41,41 @@ use spectrum_cardano_lib::{
     AssetClass, NetworkId, OutputRef, PaymentCredential, Token,
 };
 use spectrum_cardano_lib::{plutus_data::IntoPlutusData, types::TryFromPData};
-use spectrum_offchain::{data::Has, ledger::TryFromLedger, tx_prover::TxProver};
+use spectrum_offchain::{
+    data::{Has, HasIdentifier},
+    ledger::TryFromLedger,
+    tx_prover::TxProver,
+};
 use spectrum_offchain_cardano::{
     creds::{operator_creds, operator_creds_base_address, CollateralAddress},
     deployment::{DeployedScriptInfo, DeployedValidatorRef, ReferenceUTxO},
     prover::operator::OperatorProver,
 };
 use splash_dao_offchain::{
-    collateral::{generate_collateral, pull_collateral, send_ada},
+    collateral::{generate_collateral, pull_collateral, send_assets},
     constants::{script_bytes::VOTING_WITNESS_STUB, DEFAULT_AUTH_TOKEN_NAME, SPLASH_NAME},
     create_change_output::{ChangeOutputCreator, CreateChangeOutput},
     deployment::{
         write_deployment_to_disk, BuiltPolicy, CompleteDeployment, DeployedValidators, DeploymentProgress,
         MintedTokens, NFTUtxoInputs, ProtocolDeployment, ProtocolValidator,
     },
-    entities::onchain::{
-        farm_factory::{FarmFactoryAction, FarmFactoryDatum},
-        inflation_box::InflationBoxSnapshot,
-        permission_manager::{PermManagerDatum, PermManagerSnapshot},
-        poll_factory::{PollFactoryConfig, PollFactorySnapshot},
-        smart_farm::{FarmId, MintAction},
-        voting_escrow::{Lock, Owner, VotingEscrowAction, VotingEscrowAuthorizedAction, VotingEscrowConfig},
-        voting_escrow_factory::{self, exchange_outputs, VEFactoryDatum, VEFactorySnapshot},
+    entities::{
+        offchain::voting_order::VotingOrderId,
+        onchain::{
+            farm_factory::{FarmFactoryAction, FarmFactoryDatum},
+            inflation_box::InflationBoxSnapshot,
+            permission_manager::{PermManagerDatum, PermManagerSnapshot},
+            poll_factory::{PollFactoryConfig, PollFactorySnapshot},
+            smart_farm::{FarmId, MintAction},
+            voting_escrow::{
+                Lock, Owner, VotingEscrowAction, VotingEscrowAuthorizedAction, VotingEscrowConfig,
+                VotingEscrowId, VotingEscrowSnapshot,
+            },
+            voting_escrow_factory::{self, exchange_outputs, VEFactoryDatum, VEFactoryId, VEFactorySnapshot},
+        },
     },
     protocol_config::{GTAuthPolicy, NotOutputRefNorSlotNumber, VEFactoryAuthPolicy},
-    routines::inflation::{actions::compute_farm_name, WithOutputRef},
+    routines::inflation::{actions::compute_farm_name, Slot, TimedOutputRef, WithTimedOutputRef},
     time::NetworkTimeProvider,
     CurrentEpoch, NetworkTimeSource,
 };
@@ -101,8 +112,15 @@ async fn main() {
         Command::ExtendDeposit => {
             //
         }
-        Command::CastVote => {
-            cast_vote(&op_inputs).await;
+        Command::CastVote { ve_identifier_hex } => {
+            let id = VotingEscrowId::from(
+                spectrum_cardano_lib::AssetName::try_from_hex(&ve_identifier_hex).unwrap(),
+            );
+            cast_vote(&op_inputs, id).await;
+        }
+
+        Command::SendEDaoToken { destination_addr } => {
+            send_edao_token(&op_inputs, destination_addr).await;
         }
     };
 }
@@ -551,7 +569,7 @@ async fn create_dao_entities(
     );
 
     let farm_seed_data =
-        PlutusData::new_bytes(protocol_deployment.perm_manager.hash.to_raw_bytes().to_vec()).to_cbor_bytes();
+        PlutusData::new_bytes(minted_tokens.perm_auth.policy_id.to_raw_bytes().to_vec()).to_cbor_bytes();
     let farm_factory_datum = FarmFactoryDatum {
         last_farm_id: -1,
         farm_seed_data,
@@ -714,11 +732,12 @@ async fn make_voting_escrow(ve_settings: VotingEscrowSettings, op_inputs: &Opera
 
     let ve_factory_script_hash = protocol_deployment.ve_factory.hash;
 
-    let ve_factory_unspent_output = pull_onchain_entity::<VEFactorySnapshot, _>(
+    let (ve_factory, ve_factory_unspent_output) = pull_onchain_entity::<VEFactorySnapshot, _>(
         explorer,
         ve_factory_script_hash,
         *network_id,
         &deployment_config,
+        VEFactoryId,
     )
     .await
     .unwrap();
@@ -926,7 +945,7 @@ async fn make_voting_escrow(ve_settings: VotingEscrowSettings, op_inputs: &Opera
 
     let start_slot = explorer.chain_tip_slot_number().await.unwrap();
     tx_builder.set_validity_start_interval(start_slot);
-    tx_builder.set_ttl(start_slot + 43200);
+    tx_builder.set_ttl(start_slot + 300);
 
     let signed_tx_builder = tx_builder.build(ChangeSelectionAlgo::Default, addr).unwrap();
     let tx = prover.prove(signed_tx_builder);
@@ -1084,14 +1103,20 @@ async fn create_initial_farms(op_inputs: &OperationInputs) {
     // smart_farm output ------------------------------------------
     let mut smart_farm_assets = MultiAsset::default();
     smart_farm_assets.set(protocol_deployment.smart_farm.hash, mint_farm_auth_asset_name, 1);
-    let smart_farm_datum_pd =
-        PlutusData::new_bytes(protocol_deployment.perm_manager.hash.to_raw_bytes().to_vec());
+    let smart_farm_datum_pd = PlutusData::new_bytes(
+        deployment_config
+            .minted_deployment_tokens
+            .perm_auth
+            .policy_id
+            .to_raw_bytes()
+            .to_vec(),
+    );
     println!(
         "smart_farm datum: {}",
         hex::encode(smart_farm_datum_pd.to_cbor_bytes())
     );
     let smart_farm_datum = DatumOption::new_datum(smart_farm_datum_pd);
-    let smart_farm_output = TransactionOutputBuilder::new()
+    let mut smart_farm_output = TransactionOutputBuilder::new()
         .with_address(script_address(protocol_deployment.smart_farm.hash, *network_id))
         .with_data(smart_farm_datum)
         .next()
@@ -1100,6 +1125,9 @@ async fn create_initial_farms(op_inputs: &OperationInputs) {
         .unwrap()
         .build()
         .unwrap();
+
+    // Need to increase ADA here since the farm will take splash on inflation distribution.
+    smart_farm_output.output.add_asset(AssetClass::Native, 250_000);
 
     change_output_creator.add_output(&smart_farm_output);
     tx_builder.add_output(smart_farm_output).unwrap();
@@ -1127,14 +1155,43 @@ async fn create_initial_farms(op_inputs: &OperationInputs) {
     explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
 }
 
-async fn cast_vote(op_inputs: &OperationInputs) {
+async fn cast_vote(op_inputs: &OperationInputs, id: VotingEscrowId) {
     let OperationInputs {
         voting_order_listener_endpoint,
         operator_sk,
+        deployment_progress,
+        explorer,
+        network_id,
+        dao_parameters,
         ..
     } = op_inputs;
 
-    let voting_order = create_voting_order(operator_sk);
+    let deployment_config =
+        CompleteDeployment::try_from(deployment_progress.clone()).expect(INCOMPLETE_DEPLOYMENT_ERR_MSG);
+    let protocol_deployment =
+        ProtocolDeployment::unsafe_pull(deployment_config.deployed_validators.clone(), explorer).await;
+
+    let voting_escrow_script_hash = protocol_deployment.voting_escrow.hash;
+
+    let (voting_escrow, voting_escrow_unspent_output) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
+        explorer,
+        voting_escrow_script_hash,
+        *network_id,
+        &deployment_config,
+        id,
+    )
+    .await
+    .unwrap();
+
+    let id = VotingOrderId {
+        voting_escrow_id: voting_escrow.identifier(),
+        version: voting_escrow.get().version as u64,
+    };
+
+    let current_posix_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+    let voting_power = voting_escrow.get().voting_power(current_posix_time);
+
+    let voting_order = create_voting_order(operator_sk, id, voting_power, dao_parameters.num_active_farms);
 
     let client = reqwest::Client::new();
 
@@ -1162,7 +1219,7 @@ async fn cast_vote(op_inputs: &OperationInputs) {
 }
 
 pub async fn get_largest_utxo<Net: CardanoNetwork>(explorer: &Net, addr: &Address) -> InputBuilderResult {
-    let mut utxos = explorer.utxos_by_address(addr.clone(), 0, 50).await;
+    let mut utxos = explorer.utxos_by_address(addr.clone(), 0, 100).await;
     utxos.sort_by_key(|output| output.output.value().coin);
 
     let utxo = utxos.last().cloned().unwrap();
@@ -1193,26 +1250,49 @@ async fn pull_onchain_entity<'a, T, D>(
     script_hash: ScriptHash,
     network_id: NetworkId,
     deployment_config: &'a D,
-) -> Option<TransactionUnspentOutput>
+    id: T::Id,
+) -> Option<(T, TransactionUnspentOutput)>
 where
-    T: TryFromLedger<TransactionOutput, WithOutputRef<'a, D>>,
+    T: TryFromLedger<TransactionOutput, WithTimedOutputRef<'a, D>> + HasIdentifier,
 {
     let utxos = explorer
-        .utxos_by_address(script_address(script_hash, network_id), 0, 50)
+        .slot_indexed_utxos_by_address(script_address(script_hash, network_id), 0, 50)
         .await;
 
-    for utxo in utxos {
-        let ve_factory_output_ref = OutputRef::from(utxo.clone().input);
-        let ctx = WithOutputRef {
+    for (utxo, slot) in utxos {
+        let timed_output_ref = TimedOutputRef {
+            output_ref: OutputRef::from(utxo.clone().input),
+            slot: Slot(slot),
+        };
+        let ctx = WithTimedOutputRef {
             behaviour: deployment_config,
-            output_ref: ve_factory_output_ref,
+            timed_output_ref,
             current_epoch: CurrentEpoch::from(0),
         };
-        if T::try_from_ledger(&utxo.output, &ctx).is_some() {
-            return Some(utxo);
+        if let Some(t) = T::try_from_ledger(&utxo.output, &ctx) {
+            return Some((t, utxo));
         }
     }
     None
+}
+
+async fn send_edao_token(op_inputs: &OperationInputs, destination_addr: String) {
+    let OperationInputs {
+        explorer,
+        addr,
+        deployment_progress,
+        prover,
+        ..
+    } = op_inputs;
+    let destination_addr = Address::from_bech32(&destination_addr).unwrap();
+    let deployment_config =
+        CompleteDeployment::try_from(deployment_progress.clone()).expect(INCOMPLETE_DEPLOYMENT_ERR_MSG);
+
+    let minted_tokens = &deployment_config.minted_deployment_tokens;
+    let required_tokens = vec![minted_tokens.edao_msig.clone()];
+    send_assets(required_tokens, explorer, addr, &destination_addr, prover)
+        .await
+        .unwrap();
 }
 
 fn compute_identifier_token_asset_name(output_ref: OutputRef) -> cml_chain::assets::AssetName {
@@ -1244,7 +1324,14 @@ enum Command {
         assets_json_path: String,
     },
     ExtendDeposit,
-    CastVote,
+    CastVote {
+        #[arg(long)]
+        ve_identifier_hex: String,
+    },
+    SendEDaoToken {
+        #[arg(long)]
+        destination_addr: String,
+    },
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]

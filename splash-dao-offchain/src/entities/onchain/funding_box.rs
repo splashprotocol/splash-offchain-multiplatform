@@ -6,7 +6,11 @@ use spectrum_offchain::{
     ledger::{IntoLedger, TryFromLedger},
 };
 
-use crate::{entities::Snapshot, protocol_config::OperatorCreds};
+use crate::{
+    entities::Snapshot,
+    protocol_config::OperatorCreds,
+    routines::inflation::{Slot, TimedOutputRef},
+};
 
 pub type FundingBoxSnapshot = Snapshot<FundingBox, OutputRef>;
 
@@ -65,13 +69,13 @@ where
         let OperatorCreds(_, addr) = ctx.select::<OperatorCreds>();
         if addr == *repr.address() {
             let value = repr.value().clone();
-            let output_ref = ctx.select::<OutputRef>();
+            let ver = ctx.select::<OutputRef>();
             return Some(Snapshot(
                 FundingBox {
                     value,
-                    id: FundingBoxId(output_ref),
+                    id: FundingBoxId(ver),
                 },
-                output_ref,
+                ver,
             ));
         }
         None

@@ -82,7 +82,7 @@ impl<TSink, TOrd, TRegistry> ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry
         Some(on_failure(tx))
     }
 
-    async fn handle_unapplied_tx(&mut self, tx: Transaction) -> Option<LedgerTxEvent<Transaction>>
+    async fn handle_unapplied_tx(&mut self, tx: Transaction, slot: u64) -> Option<LedgerTxEvent<Transaction>>
     where
         TSink: Sink<OrderUpdate<TOrd, OrderLink<TOrd>>> + Unpin,
         TOrd: SpecializedOrder + TryFromLedger<TransactionOutput, OutputRef>,
@@ -107,7 +107,7 @@ impl<TSink, TOrd, TRegistry> ClassicalOrderUpdatesHandler<TSink, TOrd, TRegistry
         if is_success {
             return None;
         }
-        Some(LedgerTxEvent::TxUnapplied(tx))
+        Some(LedgerTxEvent::TxUnapplied { tx, slot })
     }
 }
 
@@ -126,7 +126,7 @@ where
                 self.handle_applied_tx(tx.clone(), |tx| LedgerTxEvent::TxApplied { tx, slot })
                     .await
             }
-            LedgerTxEvent::TxUnapplied(tx) => self.handle_unapplied_tx(tx).await,
+            LedgerTxEvent::TxUnapplied { tx, slot } => self.handle_unapplied_tx(tx, slot).await,
         };
         let _ = self.topic.flush().await;
         res

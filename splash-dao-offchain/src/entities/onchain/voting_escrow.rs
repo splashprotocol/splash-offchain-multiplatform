@@ -37,19 +37,22 @@ use crate::constants::{DEFAULT_AUTH_TOKEN_NAME, GT_NAME};
 use crate::deployment::ProtocolValidator;
 use crate::entities::Snapshot;
 use crate::protocol_config::{GTAuthPolicy, MintVEIdentifierPolicy};
+use crate::routines::inflation::{Slot, TimedOutputRef};
 use crate::{
-    constants::MAX_LOCK_TIME_SECONDS,
+    constants::time::MAX_LOCK_TIME_SECONDS,
     protocol_config::{NodeMagic, OperatorCreds, VEFactoryAuthPolicy},
     time::{NetworkTime, ProtocolEpoch},
 };
 
-pub type VotingEscrowSnapshot = Snapshot<VotingEscrow, OutputRef>;
+pub type VotingEscrowSnapshot = Snapshot<VotingEscrow, TimedOutputRef>;
 
 /// Identified by GT Token
 #[derive(
     Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize, derive_more::From,
 )]
-pub struct VotingEscrowId(PolicyId);
+
+/// Each voting_escrow is identified by the name of its identifier NFT.
+pub struct VotingEscrowId(pub AssetName);
 
 impl Identifier for VotingEscrowId {
     type For = VotingEscrowSnapshot;
@@ -61,7 +64,7 @@ pub struct VotingEscrow {
     pub gt_policy: PolicyId,
     pub gt_auth_name: AssetName,
     pub locked_until: Lock,
-    pub ve_identifier_policy: PolicyId,
+    pub ve_identifier_name: AssetName,
     pub owner: Owner,
     pub max_ex_fee: u32,
     pub version: u32,
@@ -99,7 +102,7 @@ impl HasIdentifier for VotingEscrowSnapshot {
     type Id = VotingEscrowId;
 
     fn identifier(&self) -> Self::Id {
-        VotingEscrowId(self.0.ve_identifier_policy)
+        VotingEscrowId(self.0.ve_identifier_name)
     }
 }
 
@@ -107,7 +110,7 @@ impl<C> TryFromLedger<TransactionOutput, C> for VotingEscrowSnapshot
 where
     C: Has<MintVEIdentifierPolicy>
         + Has<GTAuthPolicy>
-        + Has<OutputRef>
+        + Has<TimedOutputRef>
         + Has<DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }>>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
@@ -133,12 +136,21 @@ where
             }
 
             let ve_identifier_policy = ctx.select::<MintVEIdentifierPolicy>().0;
-            let ve_factory_auth_qty = value
+            let mut identifier_token_names = value
                 .multiasset
                 .iter()
-                .filter(|&(policy_id, _)| *policy_id == ve_identifier_policy)
-                .count();
-            assert_eq!(ve_factory_auth_qty, 1);
+                .find_map(|(policy_id, a)| {
+                    if *policy_id == ve_identifier_policy {
+                        Some(a)
+                    } else {
+                        None
+                    }
+                })?
+                .clone();
+            assert_eq!(identifier_token_names.len(), 1);
+            let (ve_identifier_name_cml, qty) = identifier_token_names.pop_front()?;
+            let ve_identifier_name = AssetName::from(ve_identifier_name_cml);
+            assert_eq!(qty, 1);
             let gt_policy = ctx.select::<GTAuthPolicy>().0;
             let cml_gt_policy_name =
                 cml_chain::assets::AssetName::new(GT_NAME.to_be_bytes().to_vec()).unwrap();
@@ -151,24 +163,24 @@ where
                 gt_policy,
                 gt_auth_name,
                 locked_until,
-                ve_identifier_policy,
+                ve_identifier_name,
                 owner,
                 max_ex_fee,
                 version,
                 last_wp_epoch,
                 last_gp_deadline,
             };
-            let output_ref = ctx.select::<OutputRef>();
-            return Some(Snapshot::new(voting_escrow, output_ref));
+            let version = ctx.select::<TimedOutputRef>();
+            return Some(Snapshot::new(voting_escrow, version));
         }
         None
     }
 }
 
 impl Stable for VotingEscrow {
-    type StableId = PolicyId;
+    type StableId = AssetName;
     fn stable_id(&self) -> Self::StableId {
-        self.ve_identifier_policy
+        self.ve_identifier_name
     }
     fn is_quasi_permanent(&self) -> bool {
         true
