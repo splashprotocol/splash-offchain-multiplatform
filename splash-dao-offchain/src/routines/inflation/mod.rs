@@ -274,20 +274,10 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
     {
         if let Some(ord) = self.backlog.try_pop().await {
             let ve_id = ord.id.voting_escrow_id.0;
-            let processed =
-                AssetName::try_from_hex("edb88b0c2ae0d7b7201bb179bd9a2682ba7d87284672cfa187b5f6346d685c85")
-                    .unwrap();
-            println!("self.backlog.try_pop() == Some()");
-
-            if ve_id != processed {
-                self.voting_escrow
-                    .read(VotingEscrowId::from(ord.id))
-                    .await
-                    .map(|ve| (ord, ve.erased()))
-            } else {
-                println!("ALREADY PROCESSED ORDER WITH VE_ID");
-                None
-            }
+            self.voting_escrow
+                .read(VotingEscrowId::from(ord.id))
+                .await
+                .map(|ve| (ord, ve.erased()))
         } else {
             println!("self.backlog.try_pop() == None");
             None
@@ -324,7 +314,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
             if current_epoch > 0 {
                 if let Some(prev_wp) = self.weighting_poll(current_epoch - 1).await {
                     return match prev_wp.as_erased().0.get().state(genesis, now_millis) {
-                        PollState::WeightingOngoing(st) => {
+                        PollState::WeightingOngoing(_st) => {
                             unreachable!("Weighting is over for epoch {}", current_epoch - 1);
                         }
                         PollState::DistributionOngoing(next_farm) => {
