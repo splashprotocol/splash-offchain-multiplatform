@@ -140,10 +140,7 @@ where
                 self.try_create_wpoll(state).await
             }
             RoutineState::WeightingInProgress(state) => self.try_apply_votes(state).await,
-            RoutineState::DistributionInProgress(state) => {
-                self.try_distribute_inflation(state).await;
-                None
-            }
+            RoutineState::DistributionInProgress(state) => self.try_distribute_inflation(state).await,
             RoutineState::PendingEliminatePoll(state) => self.try_eliminate_poll(state).await,
         }
     }
@@ -643,7 +640,8 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
             perm_manager,
             next_farm_weight,
         }: DistributionInProgress<Bearer>,
-    ) where
+    ) -> Option<ToRoutine>
+    where
         Actions: InflationActions<Bearer> + Send + Sync,
         Net: Network<OutboundTransaction<Transaction>, RejectReasons> + Clone + Sync + Send,
         WP: StateProjectionWrite<WeightingPollSnapshot, Bearer> + Send + Sync,
@@ -677,6 +675,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         for fb in funding_box_changes.created {
             self.funding_box.put_predicted(fb).await;
         }
+        retry_in(DEF_DELAY)
     }
 
     async fn try_eliminate_poll(

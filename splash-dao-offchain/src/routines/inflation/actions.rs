@@ -1,3 +1,4 @@
+use std::ops::{Deref, DerefMut};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use cml_chain::address::Address;
@@ -470,17 +471,12 @@ where
         let mut tx_builder = constant_tx_builder();
 
         let wpoll_auth_ref_script = self.ctx.select::<MintWPAuthRefScriptOutput>().0;
-        let weighting_poll_script_hash = self.ctx.select::<MintWPAuthPolicy>().0;
-        println!(
-            "Computed wpoll script_hash:{}",
-            weighting_poll_script_hash.to_hex()
-        );
+        let wpoll_script_hash = self.ctx.select::<MintWPAuthPolicy>().0;
+        println!("Computed wpoll script_hash:{}", wpoll_script_hash.to_hex());
 
         let redeemer = weighting_poll::PollAction::Destroy;
-        let weighting_poll_script = PartialPlutusWitness::new(
-            PlutusScriptWitness::Ref(weighting_poll_script_hash),
-            redeemer.into_pd(),
-        );
+        let weighting_poll_script =
+            PartialPlutusWitness::new(PlutusScriptWitness::Ref(wpoll_script_hash), redeemer.into_pd());
 
         let weighting_poll_input = SingleInputBuilder::new(
             TransactionInput::from(weighting_poll.version().output_ref),
@@ -489,7 +485,7 @@ where
         .plutus_script_inline_datum(weighting_poll_script, RequiredSigners::from(vec![]))
         .unwrap();
 
-        let output_value = match weighting_poll_in {
+        let mut output_value = match weighting_poll_in {
             TransactionOutput::AlonzoFormatTxOut(tx) => tx.amount.clone(),
             TransactionOutput::ConwayFormatTxOut(tx) => tx.amount.clone(),
         };
@@ -521,6 +517,33 @@ where
             change_output_creator.add_input(&input);
             tx_builder.add_input(input).unwrap();
         }
+
+        // Burn weighting_poll's token -------------------------------------------------------------
+        let mut names = output_value
+            .multiasset
+            .deref_mut()
+            .remove(&wpoll_script_hash)
+            .unwrap();
+        assert_eq!(names.len(), 1);
+        let (name, qty) = names.pop_front().unwrap();
+        assert_eq!(qty, 1);
+
+        change_output_creator.burn_token(crate::create_change_output::Token {
+            policy_id: wpoll_script_hash,
+            asset_name: name.clone(),
+            quantity: 1,
+        });
+
+        let mint_action = MintAction::BurnAuthToken;
+        let mint_wp_auth_token_witness =
+            PartialPlutusWitness::new(PlutusScriptWitness::Ref(wpoll_script_hash), mint_action.into_pd());
+        let wp_auth_minting_policy = SingleMintBuilder::new_single_asset(name, -1)
+            .plutus_script(mint_wp_auth_token_witness, RequiredSigners::from(vec![]));
+        tx_builder.add_mint(wp_auth_minting_policy).unwrap();
+        tx_builder.set_exunits(
+            RedeemerWitnessKey::new(RedeemerTag::Mint, 0),
+            MINT_WP_AUTH_EX_UNITS,
+        );
 
         let OperatorCreds(_, operator_addr) = self.ctx.select::<OperatorCreds>();
         let output = TransactionOutputBuilder::new()
