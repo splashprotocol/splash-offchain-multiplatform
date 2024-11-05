@@ -120,7 +120,6 @@ pub trait InflationActions<Bearer> {
         SignedTxBuilder,
         Traced<Predicted<Bundled<WeightingPollSnapshot, Bearer>>>,
         Traced<Predicted<Bundled<SmartFarmSnapshot, Bearer>>>,
-        Traced<Predicted<Bundled<PermManagerSnapshot, Bearer>>>,
         FundingBoxChanges,
     );
 }
@@ -847,18 +846,13 @@ where
         SignedTxBuilder,
         Traced<Predicted<Bundled<WeightingPollSnapshot, TransactionOutput>>>,
         Traced<Predicted<Bundled<SmartFarmSnapshot, TransactionOutput>>>,
-        Traced<Predicted<Bundled<PermManagerSnapshot, TransactionOutput>>>,
         FundingBoxChanges,
     ) {
         let mut tx_builder = constant_tx_builder();
 
         let wpoll_auth_ref_script = self.ctx.select::<MintWPAuthRefScriptOutput>().0;
         let smart_farm_ref_script = self.ctx.select::<FarmAuthRefScriptOutput>().0;
-        let edao_msig_policy = self.ctx.select::<EDaoMSigAuthPolicy>().0;
-        let perm_manager_auth_policy = self.ctx.select::<PermManagerAuthPolicy>().0;
-        let perm_manager_box_ref_script = self.ctx.select::<PermManagerBoxRefScriptOutput>().0;
 
-        println!("AAAA");
         let mut next_weighting_poll = weighting_poll.get().clone();
         let farm_distribution_ix = next_weighting_poll
             .distribution
@@ -878,35 +872,23 @@ where
             Funding(InputBuilderResult),
         }
 
-        let edao_auth_token_name =
-            cml_chain::assets::AssetName::new(constants::DEFAULT_AUTH_TOKEN_NAME.to_be_bytes().to_vec())
-                .unwrap();
-        let edao_built_policy = BuiltPolicy {
-            policy_id: edao_msig_policy,
-            asset_name: edao_auth_token_name,
-            quantity: BigInteger::from(1),
-        };
-
         let (input_results, funding_boxes_to_spend) =
-            select_funding_boxes(10_000_000, vec![edao_built_policy], funding_boxes.0, &self.ctx);
+            select_funding_boxes(10_000_000, vec![], funding_boxes.0, &self.ctx);
 
         let mut typed_inputs: Vec<_> = input_results
             .into_iter()
-            .map(|input| (input.input.transaction_id, InputType::Funding(input)))
+            .map(|input| (input.input.clone(), InputType::Funding(input)))
             .collect();
 
         typed_inputs.extend([
             (
-                TransactionInput::from(weighting_poll.version().output_ref).transaction_id,
+                TransactionInput::from(weighting_poll.version().output_ref),
                 InputType::WPoll,
             ),
-            (
-                TransactionInput::from(farm.version().output_ref).transaction_id,
-                InputType::Farm,
-            ),
+            (TransactionInput::from(farm.version().output_ref), InputType::Farm),
         ]);
 
-        typed_inputs.sort_by_key(|(tx_hash, _)| *tx_hash);
+        typed_inputs.sort_by_key(|(tx_hash, _)| tx_hash.clone());
         let farm_in_ix = typed_inputs
             .iter()
             .position(|(_, t)| matches!(t, InputType::Farm))
@@ -914,6 +896,12 @@ where
 
         let OperatorCreds(operator_pkh, operator_addr) = self.ctx.select::<OperatorCreds>();
         println!("Operator signatory: {}", operator_pkh.to_hex());
+
+        let perm_manager_unspent_input = TransactionUnspentOutput::new(
+            TransactionInput::from(perm_manager.version().output_ref),
+            perm_manager_in.clone(),
+        );
+        tx_builder.add_reference_input(perm_manager_unspent_input.clone());
 
         let mut change_output_creator = ChangeOutputCreator::default();
         for (i, (_, input_type)) in typed_inputs.into_iter().enumerate() {
@@ -944,10 +932,26 @@ where
                 }
 
                 InputType::Farm => {
+                    // First determine the index of `perm_manager` within `reference_input`
+                    enum T {
+                        PermManager,
+                        Other,
+                    }
+                    let mut indexed_inputs = vec![
+                        (smart_farm_ref_script.input.clone(), T::Other),
+                        (wpoll_auth_ref_script.input.clone(), T::Other),
+                        (perm_manager_unspent_input.input.clone(), T::PermManager),
+                    ];
+                    indexed_inputs.sort_by_key(|(input, _)| input.clone());
+                    let perm_manager_input_ix = indexed_inputs
+                        .iter()
+                        .position(|(_, typ)| matches!(typ, T::PermManager))
+                        .unwrap() as u32;
+
                     let redeemer = smart_farm::Redeemer {
                         successor_out_ix: 1,
                         action: smart_farm::Action::DistributeRewards {
-                            perm_manager_input_ix: 1, // MASSIVE HACK
+                            perm_manager_input_ix,
                         },
                     }
                     .into_pd();
@@ -978,12 +982,6 @@ where
             }
         }
 
-        let tx_unspent_output = TransactionUnspentOutput::new(
-            TransactionInput::from(perm_manager.version().output_ref),
-            perm_manager_in.clone(),
-        );
-        tx_builder.add_reference_input(tx_unspent_output);
-
         dbg!(weighting_poll.get());
 
         // Adjust splash values in weighting_poll and farm.
@@ -1004,7 +1002,6 @@ where
         // farm output must be at index 1
         let weighting_poll_output = SingleOutputBuilderResult::new(weighting_poll_out.clone());
         let farm_output = SingleOutputBuilderResult::new(farm_out.clone());
-        let perm_manager_output = SingleOutputBuilderResult::new(perm_manager_in.clone());
         change_output_creator.add_output(&weighting_poll_output);
         tx_builder.add_output(weighting_poll_output).unwrap();
         change_output_creator.add_output(&farm_output);
@@ -1078,23 +1075,7 @@ where
             Some(*farm.version()),
         );
 
-        let next_perm_manager_version = add_slot(OutputRef::new(tx_hash, 2));
-        let next_perm_manager = perm_manager.get().clone();
-        let fresh_perm_manager = Traced::new(
-            Predicted(Bundled(
-                Snapshot::new(next_perm_manager, next_perm_manager_version),
-                perm_manager_in,
-            )),
-            Some(*perm_manager.version()),
-        );
-
-        (
-            signed_tx_builder,
-            fresh_wp,
-            fresh_farm,
-            fresh_perm_manager,
-            funding_box_changes,
-        )
+        (signed_tx_builder, fresh_wp, fresh_farm, funding_box_changes)
     }
 }
 

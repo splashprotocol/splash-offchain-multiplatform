@@ -662,7 +662,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         FB: FundingRepo + Send + Sync,
     {
         let funding_boxes = AvailableFundingBoxes(self.funding_box.collect().await.unwrap());
-        let (signed_tx, next_wpoll, next_sf, next_pm, funding_box_changes) = self
+        let (signed_tx, next_wpoll, next_sf, funding_box_changes) = self
             .actions
             .distribute_inflation(
                 weighting_poll.erased(),
@@ -680,7 +680,6 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         self.network.submit_tx(tx).await.unwrap();
         self.weighting_poll.write_predicted(next_wpoll).await;
         self.smart_farm.write_predicted(next_sf).await;
-        self.perm_manager.write_predicted(next_pm).await;
         for p in funding_box_changes.spent {
             self.funding_box.spend_predicted(p).await;
         }
