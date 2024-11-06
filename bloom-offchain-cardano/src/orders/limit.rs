@@ -355,7 +355,7 @@ where
 {
     let order_index = ctx.select::<OutputRef>().index();
     let datum_without_beacon = with_erased_beacon_unsafe(datum);
-    let datum_hash = blake2b224(&*datum_without_beacon.to_canonical_cbor_bytes());
+    let datum_hash = blake2b224(&*datum_without_beacon.to_cbor_bytes());
     let valid_fresh_beacon = || {
         ctx.select::<ConsumedInputs>()
             .0
@@ -485,6 +485,7 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::market_taker::MarketTaker;
     use bloom_offchain::execution_engine::liquidity_book::{ExternalLBEvents, LiquidityBook, TLB};
     use spectrum_cardano_lib::ex_units::ExUnits;
+    use spectrum_cardano_lib::plutus_data::IntoPlutusData;
     use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_cardano_lib::{AssetName, OutputRef, Token};
     use spectrum_offchain::data::Has;
@@ -570,11 +571,11 @@ mod tests {
         const ORDER_IX: u64 = 0;
         let pd = PlutusData::from_cbor_bytes(&*hex::decode(DT).unwrap()).unwrap();
         let pd_without_beacon = with_erased_beacon_unsafe(pd);
-        let datum_hash = blake2b224(&*pd_without_beacon.to_canonical_cbor_bytes());
+        let datum_hash = blake2b224(&*pd_without_beacon.to_cbor_bytes());
         let oref = OutputRef::new(TransactionHash::from_hex(TX).unwrap(), IX);
         assert_eq!(
             beacon_from_oref(oref, datum_hash, ORDER_IX).to_hex(),
-            "80efdc4308cffb24b7e43f1b7951cd77323583383b7db3feae246c8e"
+            "43787c201c4cc02ce5e71636fce4ed1dc92429a75c08e1cd9fca707b"
         )
     }
 
