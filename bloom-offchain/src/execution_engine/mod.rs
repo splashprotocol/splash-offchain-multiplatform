@@ -577,7 +577,7 @@ where
     fn on_linkage_failure(&mut self, focus_pair: PR, orphans: NonEmpty<Either<CO, P>>)
     where
         SID: Eq + Hash + Copy + Display + Debug,
-        V: Eq + Hash + Copy + Display,
+        V: Eq + Hash + Copy + Display + Serialize + DeserializeOwned,
         B: Clone + Debug,
         MC: Clone,
         PR: Eq + Hash + Copy + Display,

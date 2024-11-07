@@ -771,6 +771,7 @@ where
                         hash,
                         inputs,
                         mut outputs,
+                        ..
                     },
                 slot,
             } => {
@@ -869,6 +870,7 @@ where
                         hash,
                         inputs,
                         outputs,
+                        ..
                     },
                 slot,
             } => {

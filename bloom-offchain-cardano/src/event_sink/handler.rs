@@ -718,7 +718,7 @@ where
                 }
             }
             LedgerTxEvent::TxUnapplied { tx, slot } => {
-                match extract_continuous_transitions(Arc::clone(&self.index), self.context, tx).await {
+                match extract_continuous_transitions(Arc::clone(&self.index), self.context_proto, tx).await {
                     Ok((transitions, tx)) => {
                         trace!("{} entities found in unapplied TX", transitions.len());
                         let mut index = self.index.lock().await;

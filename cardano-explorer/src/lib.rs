@@ -103,7 +103,7 @@ impl CardanoNetwork for Maestro {
                 .await
         )
         .and_then(|tx_out| {
-            let tx_out = TransactionOutput::from_cbor_bytes(&*hex::decode(tx_out.data.tx_out_cbor)?)?;
+            let tx_out = TransactionOutput::from_cbor_bytes(&hex::decode(tx_out.data.tx_out_cbor.unwrap())?)?;
             Ok(TransactionUnspentOutput::new(oref.into(), tx_out))
         })
         .ok()
