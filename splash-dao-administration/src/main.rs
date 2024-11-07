@@ -75,7 +75,7 @@ use splash_dao_offchain::{
         },
     },
     protocol_config::{GTAuthPolicy, NotOutputRefNorSlotNumber, VEFactoryAuthPolicy},
-    routines::inflation::{actions::compute_farm_name, Slot, TimedOutputRef, WithTimedOutputRef},
+    routines::inflation::{actions::compute_farm_name, ProcessLedgerEntityContext, Slot, TimedOutputRef},
     time::NetworkTimeProvider,
     CurrentEpoch, NetworkTimeSource,
 };
@@ -1253,7 +1253,7 @@ async fn pull_onchain_entity<'a, T, D>(
     id: T::Id,
 ) -> Option<(T, TransactionUnspentOutput)>
 where
-    T: TryFromLedger<TransactionOutput, WithTimedOutputRef<'a, D>> + HasIdentifier,
+    T: TryFromLedger<TransactionOutput, ProcessLedgerEntityContext<'a, D>> + HasIdentifier,
 {
     let utxos = explorer
         .slot_indexed_utxos_by_address(script_address(script_hash, network_id), 0, 50)
@@ -1264,10 +1264,11 @@ where
             output_ref: OutputRef::from(utxo.clone().input),
             slot: Slot(slot),
         };
-        let ctx = WithTimedOutputRef {
+        let ctx = ProcessLedgerEntityContext {
             behaviour: deployment_config,
             timed_output_ref,
             current_epoch: CurrentEpoch::from(0),
+            wpoll_eliminated: false,
         };
         if let Some(t) = T::try_from_ledger(&utxo.output, &ctx) {
             return Some((t, utxo));

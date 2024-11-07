@@ -42,6 +42,9 @@ pub mod time {
 
     /// Min length of voting on proposal. (7 days)
     pub const MIN_VOTING_TIME_MILLIS: u64 = 604_800_000;
+
+    /// Period after poll deadline after which it is allowed to destroy the poll. 30 min.
+    pub const COOLDOWN_PERIOD_MILLIS: u64 = 1_800_000;
 }
 
 #[cfg(feature = "test_30_min_epoch")]
@@ -60,6 +63,9 @@ pub mod time {
 
     /// Min length of voting on proposal. (5 min)
     pub const MIN_VOTING_TIME_MILLIS: u64 = 300_000;
+
+    /// Period after poll deadline after which it is allowed to destroy the poll. 10 min.
+    pub const COOLDOWN_PERIOD_MILLIS: u64 = 600_000;
 
     //----------------------------------------------------------------------------------------------
     // NOTE: the following constants from governance/weighting_poll.ak were also modified:

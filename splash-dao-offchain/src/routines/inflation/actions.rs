@@ -59,7 +59,7 @@ use crate::entities::onchain::voting_escrow::{
 };
 use crate::entities::onchain::weighting_poll::{
     self, compute_mint_wp_auth_token_validator, unsafe_update_wp_state, MintAction, WeightingPoll,
-    MINT_WP_AUTH_EX_UNITS,
+    MINT_WP_AUTH_EX_UNITS, TOKEN_BURN_EX_UNITS,
 };
 use crate::entities::Snapshot;
 use crate::protocol_config::{
@@ -188,7 +188,6 @@ where
         // Set TX validity range
         println!("current_slot: {}", current_slot.0);
         tx_builder.set_validity_start_interval(current_slot.0);
-        // tx_builder.set_ttl(current_slot.0 + 43200);
         tx_builder.set_ttl(current_slot.0 + TX_TTL_SLOT);
 
         let inflation_script_hash = self
@@ -469,7 +468,10 @@ where
         current_slot: Slot,
     ) -> (SignedTxBuilder, FundingBoxChanges) {
         let mut tx_builder = constant_tx_builder();
+        tx_builder.set_validity_start_interval(current_slot.0);
+        tx_builder.set_ttl(current_slot.0 + TX_TTL_SLOT);
 
+        let mint_weighting_power_ref_script = self.ctx.select::<WeightingPowerRefScriptOutput>().0;
         let wpoll_auth_ref_script = self.ctx.select::<MintWPAuthRefScriptOutput>().0;
         let wpoll_script_hash = self.ctx.select::<MintWPAuthPolicy>().0;
         println!("Computed wpoll script_hash:{}", wpoll_script_hash.to_hex());
@@ -511,6 +513,7 @@ where
             .position(|(input_type, _)| matches!(input_type, InputType::WPoll))
             .unwrap() as u64;
 
+        tx_builder.add_reference_input(mint_weighting_power_ref_script);
         tx_builder.add_reference_input(wpoll_auth_ref_script);
         let mut change_output_creator = ChangeOutputCreator::default();
         for (_, input) in inputs {
@@ -537,13 +540,42 @@ where
         let mint_action = MintAction::BurnAuthToken;
         let mint_wp_auth_token_witness =
             PartialPlutusWitness::new(PlutusScriptWitness::Ref(wpoll_script_hash), mint_action.into_pd());
-        let wp_auth_minting_policy = SingleMintBuilder::new_single_asset(name, -1)
+        let wp_auth_minting_policy = SingleMintBuilder::new_single_asset(name.clone(), -1)
             .plutus_script(mint_wp_auth_token_witness, RequiredSigners::from(vec![]));
         tx_builder.add_mint(wp_auth_minting_policy).unwrap();
-        tx_builder.set_exunits(
-            RedeemerWitnessKey::new(RedeemerTag::Mint, 0),
-            MINT_WP_AUTH_EX_UNITS,
+
+        // Burn weighting_power tokens -------------------------------------------------------------
+        let mint_weighting_power_policy = self.ctx.select::<WeightingPowerPolicy>().0;
+        let weighting_power = weighting_poll.get().weighting_power.unwrap();
+        let mut names = output_value
+            .multiasset
+            .deref_mut()
+            .remove(&mint_weighting_power_policy)
+            .unwrap();
+        assert_eq!(names.len(), 1);
+        let (mint_weighting_power_token_name, qty) = names.pop_front().unwrap();
+        assert_eq!(qty, weighting_power);
+        assert_eq!(mint_weighting_power_token_name, name);
+
+        let mint_action = voting_escrow::MintAction::Burn;
+        let mint_wp_auth_token_witness = PartialPlutusWitness::new(
+            PlutusScriptWitness::Ref(mint_weighting_power_policy),
+            mint_action.into_pd(),
         );
+        let mint_weighting_power_builder_result =
+            SingleMintBuilder::new_single_asset(name.clone(), -(weighting_power as i64))
+                .plutus_script(mint_wp_auth_token_witness, RequiredSigners::from(vec![]));
+        tx_builder.add_mint(mint_weighting_power_builder_result).unwrap();
+
+        tx_builder.set_exunits(RedeemerWitnessKey::new(RedeemerTag::Mint, 0), TOKEN_BURN_EX_UNITS);
+        tx_builder.set_exunits(RedeemerWitnessKey::new(RedeemerTag::Mint, 1), TOKEN_BURN_EX_UNITS);
+
+        // ------------------
+        change_output_creator.burn_token(crate::create_change_output::Token {
+            policy_id: mint_weighting_power_policy,
+            asset_name: mint_weighting_power_token_name,
+            quantity: weighting_power,
+        });
 
         let OperatorCreds(_, operator_addr) = self.ctx.select::<OperatorCreds>();
         let output = TransactionOutputBuilder::new()
@@ -560,7 +592,7 @@ where
             MINT_WP_AUTH_EX_UNITS,
         );
 
-        let estimated_tx_fee = tx_builder.min_fee(true).unwrap() + 10_000;
+        let estimated_tx_fee = tx_builder.min_fee(true).unwrap() + 50_000;
         let change_output =
             change_output_creator.create_change_output(estimated_tx_fee, operator_addr.clone());
         tx_builder.add_output(change_output).unwrap();

@@ -17,7 +17,7 @@ use crate::{
         FarmAuthPolicy, GTAuthPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy, OperatorCreds,
         PermManagerAuthPolicy, SplashPolicy, VEFactoryAuthPolicy,
     },
-    routines::inflation::{Slot, TimedOutputRef},
+    routines::inflation::{Slot, TimedOutputRef, WeightingPollEliminated},
     CurrentEpoch, GenesisEpochStartTime,
 };
 
@@ -64,6 +64,7 @@ where
         + Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
         + Has<OperatorCreds>
+        + Has<WeightingPollEliminated>
         + Has<TimedOutputRef>
         + Has<OutputRef>,
 {

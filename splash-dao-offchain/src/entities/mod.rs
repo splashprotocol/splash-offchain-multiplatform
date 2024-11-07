@@ -17,6 +17,10 @@ impl<T, V> Snapshot<T, V> {
         &self.0
     }
 
+    pub fn get_mut(&mut self) -> &mut T {
+        &mut self.0
+    }
+
     pub fn unwrap(self) -> T {
         self.0
     }

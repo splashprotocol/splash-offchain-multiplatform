@@ -22,7 +22,7 @@ use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 
 use crate::assets::Splash;
-use crate::constants::time::EPOCH_LEN;
+use crate::constants::time::{COOLDOWN_PERIOD_MILLIS, EPOCH_LEN};
 use crate::constants::{script_bytes::MINT_WP_AUTH_TOKEN_SCRIPT, SPLASH_NAME};
 use crate::deployment::ProtocolValidator;
 use crate::entities::onchain::smart_farm::FarmId;
@@ -30,7 +30,7 @@ use crate::entities::onchain::voting_escrow::compute_mint_weighting_power_valida
 use crate::entities::Snapshot;
 use crate::protocol_config::{GTAuthPolicy, MintWPAuthPolicy, NodeMagic, SplashPolicy, WeightingPowerPolicy};
 use crate::routines::inflation::actions::compute_epoch_asset_name;
-use crate::routines::inflation::{Slot, TimedOutputRef};
+use crate::routines::inflation::{Slot, TimedOutputRef, WeightingPollEliminated};
 use crate::time::{epoch_end, epoch_start, NetworkTime, ProtocolEpoch};
 use crate::{CurrentEpoch, GenesisEpochStartTime};
 
@@ -63,6 +63,7 @@ pub struct WeightingPoll {
     pub emission_rate: TaggedAmount<Splash>,
     /// Note: weighting power is not determined until vote stage.
     pub weighting_power: Option<u64>,
+    pub eliminated: bool,
 }
 
 impl HasIdentifier for WeightingPollSnapshot {
@@ -84,16 +85,6 @@ where
 {
     fn into_ledger(self, ctx: Ctx) -> TransactionOutput {
         let wp_auth_policy = ctx.select::<MintWPAuthPolicy>().0;
-        // BUG! Should call compute_mint_wp_auth_token_policy_id!!!!!
-        //let weighting_power_policy = compute_mint_wp_auth_token_policy_id(
-        //    self.epoch as u64,
-        //    ctx.select::<WPAuthPolicy>().0,
-        //    ctx.select::<GTAuthPolicy>().0,
-        //);
-        //println!(
-        //    "WeightingPoll::into_ledger(): weighting_power_policy {}",
-        //    weighting_power_policy.to_hex()
-        //);
         let datum = create_datum(
             &self,
             ctx.select::<GenesisEpochStartTime>(),
@@ -175,6 +166,15 @@ pub enum PollState {
 }
 
 impl WeightingPoll {
+    pub fn can_be_eliminated(&self, genesis: GenesisEpochStartTime, time_now: NetworkTime) -> bool {
+        let epoch_end = epoch_end(genesis, self.epoch);
+        let past_cooling_off_period = time_now > epoch_end + COOLDOWN_PERIOD_MILLIS;
+        self.distribution_finished()
+            && self.weighting_power.is_some()
+            && !self.eliminated
+            && past_cooling_off_period
+    }
+
     pub fn reserves_splash(&self) -> u64 {
         self.distribution.iter().fold(0, |acc, (_, i)| acc + *i)
     }
@@ -211,10 +211,17 @@ impl WeightingPoll {
     fn weighting_open(&self, genesis: GenesisEpochStartTime, time_now: NetworkTime) -> bool {
         let e_start = epoch_start(genesis, self.epoch);
         let e_end = epoch_end(genesis, self.epoch);
-        println!("time_now: {}", time_now);
-        println!("epoch_start = {}, epoch_end = {}", e_start, e_end);
-        println!("epoch_start < time_now: {}", e_start < time_now);
-        println!("epoch_end > time_now: {}", e_end > time_now);
+        if time_now > e_end {
+            println!(
+                "epoch_start = {}, epoch_end = {} < time_now: {}",
+                e_start, e_end, time_now
+            );
+        } else {
+            println!(
+                "epoch_start = {},  time_now: {} < epoch_end = {}",
+                e_start, time_now, e_end,
+            );
+        }
         e_start < time_now && e_end > time_now
     }
 
@@ -227,6 +234,8 @@ impl<C> TryFromLedger<TransactionOutput, C> for WeightingPollSnapshot
 where
     C: Has<GenesisEpochStartTime>
         + Has<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
+        + Has<MintWPAuthPolicy>
+        + Has<WeightingPollEliminated>
         + Has<TimedOutputRef>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
@@ -241,24 +250,30 @@ where
 
             let TimedOutputRef { output_ref, slot } = ctx.select::<TimedOutputRef>();
             let genesis_time_millis = ctx.select::<GenesisEpochStartTime>().0;
-            let epoch = epoch_from_slot(slot.0, genesis_time_millis);
+            let current_epoch = epoch_from_slot(slot.0, genesis_time_millis);
             let distribution = distribution.into_iter().map(|f| (f.id, f.weight)).collect();
-            let weighting_power_asset_name = compute_epoch_asset_name(epoch);
-            let weighting_power = value
-                .multiasset
-                .get(&weighting_power_policy, &weighting_power_asset_name);
+            let wp_auth_policy = ctx.select::<MintWPAuthPolicy>().0;
 
-            println!(
-                "FOUND WEIGHTING_POLL: epoch: {}, weighting_power: {:?}",
-                epoch, weighting_power
-            );
-            let weighting_poll = WeightingPoll {
-                epoch,
-                distribution,
-                emission_rate: TaggedAmount::new(emission_rate),
-                weighting_power,
-            };
-            return Some(Snapshot::new(weighting_poll, TimedOutputRef { output_ref, slot }));
+            for epoch in 0..=current_epoch {
+                // wp_auth_token and weighting_power tokens have same asset name
+                let token_asset_name = compute_epoch_asset_name(epoch);
+                if value.multiasset.get(&wp_auth_policy, &token_asset_name).is_some() {
+                    let weighting_power = value.multiasset.get(&weighting_power_policy, &token_asset_name);
+
+                    println!(
+                        "FOUND WEIGHTING_POLL: epoch: {}, weighting_power: {:?}",
+                        epoch, weighting_power
+                    );
+                    let weighting_poll = WeightingPoll {
+                        epoch,
+                        distribution,
+                        emission_rate: TaggedAmount::new(emission_rate),
+                        weighting_power,
+                        eliminated: ctx.select::<WeightingPollEliminated>().0,
+                    };
+                    return Some(Snapshot::new(weighting_poll, TimedOutputRef { output_ref, slot }));
+                }
+            }
         }
         None
     }
@@ -429,6 +444,12 @@ impl IntoPlutusData for MintAction {
 pub const MINT_WP_AUTH_EX_UNITS: ExUnits = ExUnits {
     mem: 2_000_000,
     steps: 200_000_000,
+    encodings: None,
+};
+
+pub const TOKEN_BURN_EX_UNITS: ExUnits = ExUnits {
+    mem: 500_000,
+    steps: 100_000_000,
     encodings: None,
 };
 

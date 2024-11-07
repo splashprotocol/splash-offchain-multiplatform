@@ -66,7 +66,7 @@ use crate::routine::{retry_in, RoutineBehaviour, ToRoutine};
 use crate::routines::inflation::actions::InflationActions;
 use crate::state_projection::{StateProjectionRead, StateProjectionWrite};
 use crate::time::{NetworkTimeProvider, ProtocolEpoch};
-use crate::{CurrentEpoch, NetworkTimeSource};
+use crate::{CurrentEpoch, GenesisEpochStartTime, NetworkTimeSource};
 
 pub mod actions;
 
@@ -250,7 +250,23 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         WP: StateProjectionRead<WeightingPollSnapshot, Bearer> + Send + Sync,
     {
         println!("Behaviour::weighting_poll({})", epoch);
-        self.weighting_poll.read(self.conf.poll_id(epoch)).await
+        self.weighting_poll
+            .read(self.conf.poll_id(epoch))
+            .await
+            .and_then(|a| {
+                let ver = a.as_erased().version();
+                let wpoll = a.as_erased().0.get();
+                if wpoll.eliminated {
+                    // We don't return a weighting_poll that's already been eliminated
+                    println!(
+                        "Behaviour::weighting_poll({}) with ver: {} already eliminated -------------",
+                        epoch, ver
+                    );
+                    None
+                } else {
+                    Some(a)
+                }
+            })
     }
 
     async fn perm_manager(&self) -> Option<AnyMod<Bundled<PermManagerSnapshot, Bearer>>>
@@ -296,7 +312,6 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         let ibox = self.inflation_box().await;
         let wp_factory = self.poll_factory().await;
         let perm_manager = self.perm_manager().await;
-        println!("{:?}\n\n{:?}", ibox.is_some(), wp_factory.is_some());
         if let (Some(inflation_box), Some(poll_factory), Some(perm_manager)) =
             (ibox, wp_factory, perm_manager)
         {
@@ -307,16 +322,15 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                 .0
                 .get()
                 .active_epoch(genesis, now_millis);
-            println!("read_state: current_epoch: {}", current_epoch);
             if current_epoch > 0 {
                 if let Some(prev_wp) = self.weighting_poll(current_epoch - 1).await {
-                    return match prev_wp.as_erased().0.get().state(genesis, now_millis) {
+                    match prev_wp.as_erased().0.get().state(genesis, now_millis) {
                         PollState::WeightingOngoing(_st) => {
                             unreachable!("Weighting is over for epoch {}", current_epoch - 1);
                         }
                         PollState::DistributionOngoing(next_farm) => {
                             println!("Previous wpoll still exists, distribution inflation");
-                            RoutineState::DistributionInProgress(DistributionInProgress {
+                            return RoutineState::DistributionInProgress(DistributionInProgress {
                                 next_farm: self
                                     .smart_farm
                                     .read(next_farm.farm_id())
@@ -325,19 +339,24 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                                 weighting_poll: prev_wp,
                                 next_farm_weight: next_farm.farm_weight(),
                                 perm_manager,
-                            })
+                            });
                         }
                         PollState::PollExhausted(_) => {
-                            RoutineState::PendingEliminatePoll(PendingEliminatePoll {
-                                weighting_poll: prev_wp,
-                            })
+                            if !prev_wp.as_erased().0.get().eliminated {
+                                println!("Eliminating previous epoch({}) weighting_poll", current_epoch - 1);
+                                return RoutineState::PendingEliminatePoll(PendingEliminatePoll {
+                                    weighting_poll: prev_wp,
+                                });
+                            } else {
+                                println!("Prev epoch's weighting_poll already eliminated");
+                            }
                         }
                     };
                 }
             }
             match self.weighting_poll(current_epoch).await {
                 None => {
-                    println!("self.weighting_poll(current_epoch) == None");
+                    println!("No weighting_poll @ epoch {}, creating it...", current_epoch);
                     RoutineState::PendingCreatePoll(PendingCreatePoll {
                         inflation_box,
                         poll_factory,
@@ -345,13 +364,14 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                 }
                 Some(wp) => match wp.as_erased().0.get().state(genesis, now_millis) {
                     PollState::WeightingOngoing(st) => {
-                        println!("WeightingOnGoing");
+                        println!("Weighting on going @ epoch {}", current_epoch);
                         RoutineState::WeightingInProgress(WeightingInProgress {
                             weighting_poll: wp,
                             next_pending_order: self.next_order(st).await,
                         })
                     }
                     PollState::DistributionOngoing(next_farm) => {
+                        println!("WeightingOnGoing @ epoch {}", current_epoch);
                         RoutineState::DistributionInProgress(DistributionInProgress {
                             next_farm: self
                                 .smart_farm
@@ -498,6 +518,12 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                     state: confirmed_snapshot,
                     prev_state_id,
                 };
+                println!(
+                    "Weighting_poll confirmed: epoch {}, version: {:?}, prev_version: {:?} *****************************************************",
+                    wp.epoch,
+                    entity.version(),
+                    prev_state_id,
+                );
                 self.weighting_poll.write_confirmed(traced).await;
             }
 
@@ -692,23 +718,27 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
             ..
         }) = weighting_poll
         {
-            let funding_boxes = AvailableFundingBoxes(self.funding_box.collect().await.unwrap());
-            let (signed_tx, funding_box_changes) = self
-                .actions
-                .eliminate_wpoll(weighting_poll, funding_boxes, Slot(self.current_slot))
-                .await;
-            let prover = OperatorProver::new(self.operator_sk.to_bech32());
-            let tx = prover.prove(signed_tx);
-            self.network.submit_tx(tx).await.unwrap();
+            let wp = weighting_poll.0.get();
+            let time_millis = self.current_slot;
+            if wp.can_be_eliminated(self.conf.genesis_time, time_millis) {
+                let funding_boxes = AvailableFundingBoxes(self.funding_box.collect().await.unwrap());
+                let (signed_tx, funding_box_changes) = self
+                    .actions
+                    .eliminate_wpoll(weighting_poll, funding_boxes, Slot(self.current_slot))
+                    .await;
+                let prover = OperatorProver::new(self.operator_sk.to_bech32());
+                let tx = prover.prove(signed_tx);
+                self.network.submit_tx(tx).await.unwrap();
 
-            for p in funding_box_changes.spent {
-                self.funding_box.spend_predicted(p).await;
-            }
+                for p in funding_box_changes.spent {
+                    self.funding_box.spend_predicted(p).await;
+                }
 
-            for fb in funding_box_changes.created {
-                self.funding_box.put_predicted(fb).await;
+                for fb in funding_box_changes.created {
+                    self.funding_box.put_predicted(fb).await;
+                }
+                return None;
             }
-            return None;
         }
         retry_in(DEF_DELAY)
     }
@@ -759,6 +789,33 @@ where
                 slot,
             } => {
                 self.current_slot = slot;
+
+                let mut wpoll_eliminated = false;
+                let last_processed_epoch = self
+                    .inflation_box()
+                    .await
+                    .and_then(|a| a.erased().0.get().last_processed_epoch);
+                let stored_output_ref = if let Some(epoch) = last_processed_epoch {
+                    self.weighting_poll
+                        .read(WeightingPollId(epoch))
+                        .await
+                        .map(|a| a.as_erased().version().output_ref)
+                } else {
+                    None
+                };
+
+                for input in inputs {
+                    let input_output_ref = OutputRef::from(input.clone());
+                    if let Some(stored_output_ref) = stored_output_ref {
+                        if !wpoll_eliminated {
+                            wpoll_eliminated = stored_output_ref == input_output_ref;
+                        }
+                    } else {
+                        let funding_id = FundingBoxId::from(OutputRef::from(input));
+                        self.funding_box.spend_confirmed(funding_id).await;
+                    }
+                }
+
                 let num_outputs = outputs.len();
                 if num_outputs > 0 {
                     let mut ix = num_outputs - 1;
@@ -767,14 +824,25 @@ where
                             output_ref: OutputRef::new(hash, ix as u64),
                             slot: Slot(slot),
                         };
-                        let time_millis = (1655683200 + slot) * 1000;
-                        let diff = (time_millis - self.conf.genesis_time.0) as f32;
-                        let current_epoch = CurrentEpoch((diff / EPOCH_LEN as f32).floor() as u32);
-                        let ctx = WithTimedOutputRef {
+                        let time_millis = slot_to_time_millis(slot);
+                        let current_epoch = slot_to_epoch(slot, self.conf.genesis_time);
+                        let mut ctx = ProcessLedgerEntityContext {
                             behaviour: self,
                             timed_output_ref,
                             current_epoch,
+                            wpoll_eliminated,
                         };
+
+                        if wpoll_eliminated
+                            && WeightingPollSnapshot::try_from_ledger(&output.1, &ctx).is_some()
+                        {
+                            // If weighting_poll is seen in the output then it can't be an
+                            // elimination.
+                            wpoll_eliminated = false;
+                            // Set this following field to false, and redo it to properly confirm
+                            // the weighting_poll below.
+                            ctx.wpoll_eliminated = false;
+                        }
                         if let Some(entity) = DaoEntitySnapshot::try_from_ledger(&output.1, &ctx) {
                             println!(
                                 "entity found: {:?}, epoch: {}, block_timestamp: {}, EPOCH_LEN: {}, DAO GEN time: {}",
@@ -785,11 +853,27 @@ where
 
                         ix = ix.saturating_sub(1);
                     }
-                }
 
-                for input in inputs {
-                    let id = FundingBoxId::from(OutputRef::from(input));
-                    self.funding_box.spend_confirmed(id).await;
+                    if wpoll_eliminated {
+                        // Manually set eliminated = true
+                        let last_processed_epoch = last_processed_epoch.unwrap();
+                        let b = self
+                            .weighting_poll
+                            .read(WeightingPollId(last_processed_epoch))
+                            .await
+                            .unwrap();
+
+                        let prev_state_id = match &b {
+                            AnyMod::Confirmed(traced) => traced.prev_state_id,
+                            AnyMod::Predicted(traced) => traced.prev_state_id,
+                        };
+
+                        let mut bundle = b.erased();
+                        bundle.0.get_mut().eliminated = true;
+                        self.weighting_poll
+                            .write_confirmed(Traced::new(Confirmed(bundle), prev_state_id))
+                            .await;
+                    }
                 }
             }
             LedgerTxEvent::TxUnapplied {
@@ -948,35 +1032,42 @@ pub struct TimedOutputRef {
 
 impl Display for TimedOutputRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        f.write_str(format!("{}, {}", self.output_ref, self.slot).as_str())
     }
 }
 
-pub struct WithTimedOutputRef<'a, D> {
+pub struct ProcessLedgerEntityContext<'a, D> {
     pub behaviour: &'a D,
     pub timed_output_ref: TimedOutputRef,
     pub current_epoch: CurrentEpoch,
+    pub wpoll_eliminated: bool,
 }
 
-impl<'a, D> Has<OutputRef> for WithTimedOutputRef<'a, D> {
+impl<'a, D> Has<OutputRef> for ProcessLedgerEntityContext<'a, D> {
     fn select<U: IsEqual<OutputRef>>(&self) -> OutputRef {
         self.timed_output_ref.output_ref
     }
 }
 
-impl<'a, D> Has<TimedOutputRef> for WithTimedOutputRef<'a, D> {
+impl<'a, D> Has<TimedOutputRef> for ProcessLedgerEntityContext<'a, D> {
     fn select<U: IsEqual<TimedOutputRef>>(&self) -> TimedOutputRef {
         self.timed_output_ref
     }
 }
 
-impl<'a, D> Has<CurrentEpoch> for WithTimedOutputRef<'a, D> {
+impl<'a, D> Has<WeightingPollEliminated> for ProcessLedgerEntityContext<'a, D> {
+    fn select<U: IsEqual<WeightingPollEliminated>>(&self) -> WeightingPollEliminated {
+        WeightingPollEliminated(self.wpoll_eliminated)
+    }
+}
+
+impl<'a, D> Has<CurrentEpoch> for ProcessLedgerEntityContext<'a, D> {
     fn select<U: IsEqual<CurrentEpoch>>(&self) -> CurrentEpoch {
         self.current_epoch
     }
 }
 
-impl<'a, D, H> Has<H> for WithTimedOutputRef<'a, D>
+impl<'a, D, H> Has<H> for ProcessLedgerEntityContext<'a, D>
 where
     D: Has<H>,
     H: NotOutputRefNorSlotNumber,
@@ -995,6 +1086,19 @@ where
         self.conf.select::<U>()
     }
 }
+
+/// Preprod
+pub fn slot_to_time_millis(slot: u64) -> u64 {
+    (1655683200 + slot) * 1000
+}
+
+pub fn slot_to_epoch(slot: u64, genesis_time: GenesisEpochStartTime) -> CurrentEpoch {
+    let time_millis = slot_to_time_millis(slot);
+    let diff = (time_millis - genesis_time.0) as f32;
+    CurrentEpoch((diff / EPOCH_LEN as f32).floor() as u32)
+}
+
+pub struct WeightingPollEliminated(pub bool);
 
 pub enum RoutineState<Out> {
     /// Protocol wasn't initialized yet.
