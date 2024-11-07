@@ -45,6 +45,21 @@ pub mod time {
 
     /// Period after poll deadline after which it is allowed to destroy the poll. 30 min.
     pub const COOLDOWN_PERIOD_MILLIS: u64 = 1_800_000;
+
+    /// This constant represents the number of milliseconds to add on top of the POSIX time of the
+    /// right-side epoch boundary. This is used to ensure that a TX's validity interval is entirely
+    /// within the next epoch. 1 hour.
+    pub const EPOCH_BOUNDARY_SHIFT: u64 = 3_600_000;
+
+    /// TX time-to-live (TTL) for `distribute_inflation` TX (# slots).
+    pub const DISTRIBUTE_INFLATION_TX_TTL: u64 = 300;
+}
+
+pub mod fee_deltas {
+    pub const CREATE_WPOLL_FEE_DELTA: u64 = 200_000;
+    pub const ELIMINATE_WPOLL_FEE_DELTA: u64 = 50_000;
+    pub const DISTRIBUTE_INFLATION_FEE_DELTA: u64 = 10_000;
+    pub const VOTING_ESCROW_VOTING_FEE: u64 = 1_200_000;
 }
 
 #[cfg(feature = "test_30_min_epoch")]
@@ -67,9 +82,16 @@ pub mod time {
     /// Period after poll deadline after which it is allowed to destroy the poll. 10 min.
     pub const COOLDOWN_PERIOD_MILLIS: u64 = 600_000;
 
+    /// This constant represents the number of milliseconds to add on top of the POSIX time of the
+    /// right-side epoch boundary. This is used to ensure that a TX's validity interval is entirely
+    /// within the next epoch. 2 min.
+    pub const EPOCH_BOUNDARY_SHIFT: u64 = 120_000;
+
+    /// TX time-to-live (TTL) for `distribute_inflation` TX (# slots).
+    pub const DISTRIBUTE_INFLATION_TX_TTL: u64 = 300;
+
     //----------------------------------------------------------------------------------------------
     // NOTE: the following constants from governance/weighting_poll.ak were also modified:
-    //
     //
     // Period after poll deadline after which it is allowed to destroy the poll. 30 days.
     //   const cooldown_period_millis = 1_800_000

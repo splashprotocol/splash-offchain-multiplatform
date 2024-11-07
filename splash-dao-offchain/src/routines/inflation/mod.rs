@@ -1094,7 +1094,11 @@ pub fn slot_to_time_millis(slot: u64) -> u64 {
 
 pub fn slot_to_epoch(slot: u64, genesis_time: GenesisEpochStartTime) -> CurrentEpoch {
     let time_millis = slot_to_time_millis(slot);
-    let diff = (time_millis - genesis_time.0) as f32;
+    let diff = if time_millis < genesis_time.0 {
+        0.0
+    } else {
+        (time_millis - genesis_time.0) as f32
+    };
     CurrentEpoch((diff / EPOCH_LEN as f32).floor() as u32)
 }
 

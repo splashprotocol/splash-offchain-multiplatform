@@ -38,7 +38,11 @@ use uplc_pallas_primitives::Fragment;
 
 use crate::assets::SPLASH_AC;
 use crate::collect_utxos::collect_utxos;
-use crate::constants::time::MAX_TIME_DRIFT_MILLIS;
+use crate::constants::fee_deltas::{
+    CREATE_WPOLL_FEE_DELTA, DISTRIBUTE_INFLATION_FEE_DELTA, ELIMINATE_WPOLL_FEE_DELTA,
+    VOTING_ESCROW_VOTING_FEE,
+};
+use crate::constants::time::{DISTRIBUTE_INFLATION_TX_TTL, MAX_TIME_DRIFT_MILLIS};
 use crate::constants::{self, script_bytes::VOTING_WITNESS_STUB};
 use crate::create_change_output::{ChangeOutputCreator, CreateChangeOutput};
 use crate::deployment::{BuiltPolicy, ProtocolValidator};
@@ -386,7 +390,7 @@ where
             .unwrap();
 
         let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
-        let actual_fee = estimated_tx_fee + 200_000;
+        let actual_fee = estimated_tx_fee + CREATE_WPOLL_FEE_DELTA;
         let change_output = change_output_creator.create_change_output(actual_fee, operator_address.clone());
         tx_builder.add_output(change_output).unwrap();
 
@@ -592,7 +596,7 @@ where
             MINT_WP_AUTH_EX_UNITS,
         );
 
-        let estimated_tx_fee = tx_builder.min_fee(true).unwrap() + 50_000;
+        let estimated_tx_fee = tx_builder.min_fee(true).unwrap() + ELIMINATE_WPOLL_FEE_DELTA;
         let change_output =
             change_output_creator.create_change_output(estimated_tx_fee, operator_addr.clone());
         tx_builder.add_output(change_output).unwrap();
@@ -667,9 +671,8 @@ where
         next_ve.version = new_ve_version;
 
         let ve_datum = VotingEscrowConfig::try_from_pd(data_mut.clone()).unwrap();
-        let max_ex_fee = ve_datum.max_ex_fee;
         let mut ve_amt = voting_escrow_out.amount().clone();
-        ve_amt.sub_unsafe(AssetClass::Native, 800_000 + 200_904 + 129_780 + 60_000);
+        ve_amt.sub_unsafe(AssetClass::Native, VOTING_ESCROW_VOTING_FEE);
         dbg!(&ve_amt);
         voting_escrow_out.set_amount(ve_amt);
 
@@ -1069,13 +1072,13 @@ where
             .add_collateral(InputBuilderResult::from(self.ctx.select::<Collateral>()))
             .unwrap();
 
-        let estimated_tx_fee = tx_builder.min_fee(true).unwrap() + 10_000;
+        let estimated_tx_fee = tx_builder.min_fee(true).unwrap() + DISTRIBUTE_INFLATION_FEE_DELTA;
         let change_output =
             change_output_creator.create_change_output(estimated_tx_fee, operator_addr.clone());
         tx_builder.add_output(change_output).unwrap();
         tx_builder.set_fee(estimated_tx_fee);
         tx_builder.set_validity_start_interval(current_slot.0);
-        tx_builder.set_ttl(current_slot.0 + 300);
+        tx_builder.set_ttl(current_slot.0 + DISTRIBUTE_INFLATION_TX_TTL);
 
         // Build tx, change is execution fee.
         let signed_tx_builder = tx_builder

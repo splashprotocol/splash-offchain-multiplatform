@@ -16,6 +16,7 @@ use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 use uplc_pallas_codec::utils::{Int, PlutusBytes};
 
 use crate::assets::Splash;
+use crate::constants::time::EPOCH_BOUNDARY_SHIFT;
 use crate::constants::{script_bytes::INFLATION_SCRIPT, SPLASH_NAME};
 use crate::deployment::ProtocolValidator;
 use crate::entities::Snapshot;
@@ -43,7 +44,7 @@ pub struct InflationBox {
 impl InflationBox {
     pub fn active_epoch(&self, genesis: GenesisEpochStartTime, now: NetworkTime) -> ProtocolEpoch {
         if let Some(last_processed_epoch) = self.last_processed_epoch {
-            if epoch_end(genesis, last_processed_epoch) > now - 60_000 {
+            if epoch_end(genesis, last_processed_epoch) > now - EPOCH_BOUNDARY_SHIFT {
                 last_processed_epoch
             } else {
                 last_processed_epoch + 1
