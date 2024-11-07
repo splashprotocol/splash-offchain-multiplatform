@@ -140,10 +140,7 @@ async fn main() {
         .expect("wallet error")
         .to_raw_key();
 
-    let reward_address = RewardAddress::new(
-        NetworkInfo::preprod().network_id(),
-        StakeCredential::new_pub_key(addr.0),
-    );
+    let reward_address = RewardAddress::new(config.network_id.into(), StakeCredential::new_pub_key(addr.0));
 
     let collateral = pull_collateral(collateral_addr, &explorer)
         .await

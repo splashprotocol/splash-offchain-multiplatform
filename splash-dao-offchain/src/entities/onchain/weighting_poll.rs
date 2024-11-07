@@ -30,7 +30,7 @@ use crate::entities::onchain::voting_escrow::compute_mint_weighting_power_valida
 use crate::entities::Snapshot;
 use crate::protocol_config::{GTAuthPolicy, MintWPAuthPolicy, NodeMagic, SplashPolicy, WeightingPowerPolicy};
 use crate::routines::inflation::actions::compute_epoch_asset_name;
-use crate::routines::inflation::{Slot, TimedOutputRef, WeightingPollEliminated};
+use crate::routines::inflation::{slot_to_epoch, Slot, TimedOutputRef, WeightingPollEliminated};
 use crate::time::{epoch_end, epoch_start, NetworkTime, ProtocolEpoch};
 use crate::{CurrentEpoch, GenesisEpochStartTime};
 
@@ -236,6 +236,7 @@ where
         + Has<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
         + Has<MintWPAuthPolicy>
         + Has<WeightingPollEliminated>
+        + Has<NetworkId>
         + Has<TimedOutputRef>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
@@ -249,12 +250,13 @@ where
             } = WeightingPollConfig::try_from_pd(repr.datum()?.into_pd()?)?;
 
             let TimedOutputRef { output_ref, slot } = ctx.select::<TimedOutputRef>();
-            let genesis_time_millis = ctx.select::<GenesisEpochStartTime>().0;
-            let current_epoch = epoch_from_slot(slot.0, genesis_time_millis);
+            let genesis_time_millis = ctx.select::<GenesisEpochStartTime>();
+            let network_id = ctx.select::<NetworkId>();
+            let current_epoch = slot_to_epoch(slot.0, genesis_time_millis, network_id);
             let distribution = distribution.into_iter().map(|f| (f.id, f.weight)).collect();
             let wp_auth_policy = ctx.select::<MintWPAuthPolicy>().0;
 
-            for epoch in 0..=current_epoch {
+            for epoch in 0..=current_epoch.0 {
                 // wp_auth_token and weighting_power tokens have same asset name
                 let token_asset_name = compute_epoch_asset_name(epoch);
                 if value.multiasset.get(&wp_auth_policy, &token_asset_name).is_some() {
@@ -277,12 +279,6 @@ where
         }
         None
     }
-}
-
-fn epoch_from_slot(slot: u64, genesis_time_millis: u64) -> u32 {
-    let time_millis = (1655683200 + slot) * 1000;
-    let diff = (time_millis - genesis_time_millis) as f32;
-    (diff / EPOCH_LEN as f32).floor() as u32
 }
 
 fn distribution_to_plutus_data(distribution: &[(FarmId, u64)]) -> PlutusData {

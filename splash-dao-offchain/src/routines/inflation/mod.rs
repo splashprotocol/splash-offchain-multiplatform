@@ -24,7 +24,7 @@ use pallas_network::miniprotocols::localtxsubmission::cardano_node_errors::{
 };
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::{BabbageTransactionOutputExtension, OutboundTransaction};
-use spectrum_cardano_lib::{AssetName, OutputRef};
+use spectrum_cardano_lib::{AssetName, NetworkId, OutputRef};
 use spectrum_offchain::backlog::ResilientBacklog;
 use spectrum_offchain::data::event::{AnyMod, Confirmed, Predicted, Traced, Unconfirmed};
 use spectrum_offchain::data::order::PendingOrder;
@@ -206,23 +206,17 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         IB: StateProjectionRead<InflationBoxSnapshot, Bearer> + Send + Sync,
     {
         if let Some(m) = self.inflation_box().await {
-            let time_src = NetworkTimeSource {};
             match m {
                 AnyMod::Confirmed(Traced {
                     state: Confirmed(Bundled(snapshot, _)),
                     ..
-                }) => CurrentEpoch(
-                    snapshot
-                        .get()
-                        .active_epoch(self.conf.genesis_time.into(), time_millis),
-                ),
+                }) => CurrentEpoch(snapshot.get().active_epoch(self.conf.genesis_time, time_millis)),
                 AnyMod::Predicted(Traced {
                     state: Predicted(Bundled(snapshot, _)),
                     ..
                 }) => {
-                    let predicted_active_epoch = snapshot
-                        .get()
-                        .active_epoch(self.conf.genesis_time.into(), time_millis);
+                    let predicted_active_epoch =
+                        snapshot.get().active_epoch(self.conf.genesis_time, time_millis);
                     if predicted_active_epoch > 0 {
                         CurrentEpoch(predicted_active_epoch - 1)
                     } else {
@@ -824,8 +818,9 @@ where
                             output_ref: OutputRef::new(hash, ix as u64),
                             slot: Slot(slot),
                         };
-                        let time_millis = slot_to_time_millis(slot);
-                        let current_epoch = slot_to_epoch(slot, self.conf.genesis_time);
+                        let network_id = self.conf.network_id;
+                        let time_millis = slot_to_time_millis(slot, network_id);
+                        let current_epoch = slot_to_epoch(slot, self.conf.genesis_time, network_id);
                         let mut ctx = ProcessLedgerEntityContext {
                             behaviour: self,
                             timed_output_ref,
@@ -1087,13 +1082,18 @@ where
     }
 }
 
-/// Preprod
-pub fn slot_to_time_millis(slot: u64) -> u64 {
-    (1655683200 + slot) * 1000
+pub fn slot_to_time_millis(slot: u64, network_id: NetworkId) -> u64 {
+    if network_id == NetworkId::from(0) {
+        // Preprod
+        (1655683200 + slot) * 1000
+    } else {
+        // Mainnet
+        (1596491091 + slot - 4924800) * 1000
+    }
 }
 
-pub fn slot_to_epoch(slot: u64, genesis_time: GenesisEpochStartTime) -> CurrentEpoch {
-    let time_millis = slot_to_time_millis(slot);
+pub fn slot_to_epoch(slot: u64, genesis_time: GenesisEpochStartTime, network_id: NetworkId) -> CurrentEpoch {
+    let time_millis = slot_to_time_millis(slot, network_id);
     let diff = if time_millis < genesis_time.0 {
         0.0
     } else {

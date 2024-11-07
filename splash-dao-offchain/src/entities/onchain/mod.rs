@@ -5,7 +5,7 @@ use inflation_box::{InflationBox, InflationBoxSnapshot};
 use permission_manager::{PermManager, PermManagerSnapshot};
 use poll_factory::{PollFactory, PollFactorySnapshot};
 use smart_farm::{SmartFarm, SmartFarmSnapshot};
-use spectrum_cardano_lib::OutputRef;
+use spectrum_cardano_lib::{NetworkId, OutputRef};
 use spectrum_offchain::{data::Has, ledger::TryFromLedger};
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use voting_escrow::{VotingEscrow, VotingEscrowSnapshot};
@@ -65,6 +65,7 @@ where
         + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
         + Has<OperatorCreds>
         + Has<WeightingPollEliminated>
+        + Has<NetworkId>
         + Has<TimedOutputRef>
         + Has<OutputRef>,
 {
