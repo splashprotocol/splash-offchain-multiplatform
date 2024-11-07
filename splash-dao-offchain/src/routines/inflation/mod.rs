@@ -18,7 +18,7 @@ use cml_crypto::{PrivateKey, RawBytesEncoding, ScriptHash, TransactionHash};
 use cml_multi_era::babbage::BabbageTransaction;
 use futures::{pin_mut, Future, FutureExt, Stream, StreamExt};
 use futures_timer::Delay;
-use log::{error, info};
+use log::{error, info, trace};
 use pallas_network::miniprotocols::localtxsubmission::cardano_node_errors::{
     ApplyTxError, ConwayLedgerPredFailure, ConwayUtxoPredFailure, ConwayUtxowPredFailure,
 };
@@ -131,14 +131,8 @@ where
 {
     async fn attempt(&mut self) -> Option<ToRoutine> {
         match self.read_state().await {
-            RoutineState::Uninitialized => {
-                println!("UNINIT");
-                retry_in(DEF_DELAY)
-            }
-            RoutineState::PendingCreatePoll(state) => {
-                println!("PendingCreatePoll");
-                self.try_create_wpoll(state).await
-            }
+            RoutineState::Uninitialized => retry_in(DEF_DELAY),
+            RoutineState::PendingCreatePoll(state) => self.try_create_wpoll(state).await,
             RoutineState::WeightingInProgress(state) => self.try_apply_votes(state).await,
             RoutineState::DistributionInProgress(state) => self.try_distribute_inflation(state).await,
             RoutineState::PendingEliminatePoll(state) => self.try_eliminate_poll(state).await,
@@ -243,7 +237,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
     where
         WP: StateProjectionRead<WeightingPollSnapshot, Bearer> + Send + Sync,
     {
-        println!("Behaviour::weighting_poll({})", epoch);
+        trace!("Behaviour::weighting_poll({})", epoch);
         self.weighting_poll
             .read(self.conf.poll_id(epoch))
             .await
@@ -252,9 +246,10 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                 let wpoll = a.as_erased().0.get();
                 if wpoll.eliminated {
                     // We don't return a weighting_poll that's already been eliminated
-                    println!(
+                    trace!(
                         "Behaviour::weighting_poll({}) with ver: {} already eliminated -------------",
-                        epoch, ver
+                        epoch,
+                        ver
                     );
                     None
                 } else {
@@ -281,12 +276,12 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
     {
         if let Some(ord) = self.backlog.try_pop().await {
             let ve_id = ord.id.voting_escrow_id.0;
+            info!("Executing order with VE_identifier {}", ve_id);
             self.voting_escrow
                 .read(VotingEscrowId::from(ord.id))
                 .await
                 .map(|ve| (ord, ve.erased()))
         } else {
-            println!("self.backlog.try_pop() == None");
             None
         }
     }
@@ -323,7 +318,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                             unreachable!("Weighting is over for epoch {}", current_epoch - 1);
                         }
                         PollState::DistributionOngoing(next_farm) => {
-                            println!("Previous wpoll still exists, distribution inflation");
+                            trace!("Previous wpoll still exists, distributing inflation");
                             return RoutineState::DistributionInProgress(DistributionInProgress {
                                 next_farm: self
                                     .smart_farm
@@ -337,12 +332,12 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                         }
                         PollState::PollExhausted(_) => {
                             if !prev_wp.as_erased().0.get().eliminated {
-                                println!("Eliminating previous epoch({}) weighting_poll", current_epoch - 1);
+                                trace!("Eliminating previous epoch({}) weighting_poll", current_epoch - 1);
                                 return RoutineState::PendingEliminatePoll(PendingEliminatePoll {
                                     weighting_poll: prev_wp,
                                 });
                             } else {
-                                println!("Prev epoch's weighting_poll already eliminated");
+                                trace!("Prev epoch's weighting_poll already eliminated");
                             }
                         }
                     };
@@ -350,7 +345,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
             }
             match self.weighting_poll(current_epoch).await {
                 None => {
-                    println!("No weighting_poll @ epoch {}, creating it...", current_epoch);
+                    trace!("No weighting_poll @ epoch {}, creating it...", current_epoch);
                     RoutineState::PendingCreatePoll(PendingCreatePoll {
                         inflation_box,
                         poll_factory,
@@ -358,14 +353,14 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                 }
                 Some(wp) => match wp.as_erased().0.get().state(genesis, now_millis) {
                     PollState::WeightingOngoing(st) => {
-                        println!("Weighting on going @ epoch {}", current_epoch);
+                        trace!("Weighting on going @ epoch {}", current_epoch);
                         RoutineState::WeightingInProgress(WeightingInProgress {
                             weighting_poll: wp,
                             next_pending_order: self.next_order(st).await,
                         })
                     }
                     PollState::DistributionOngoing(next_farm) => {
-                        println!("WeightingOnGoing @ epoch {}", current_epoch);
+                        trace!("WeightingOnGoing @ epoch {}", current_epoch);
                         RoutineState::DistributionInProgress(DistributionInProgress {
                             next_farm: self
                                 .smart_farm
@@ -512,8 +507,8 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                     state: confirmed_snapshot,
                     prev_state_id,
                 };
-                println!(
-                    "Weighting_poll confirmed: epoch {}, version: {:?}, prev_version: {:?} *****************************************************",
+                trace!(
+                    "Weighting_poll confirmed: epoch {}, version: {:?}, prev_version: {:?}",
                     wp.epoch,
                     entity.version(),
                     prev_state_id,
@@ -543,10 +538,8 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         FB: FundingRepo + Send + Sync,
         Time: NetworkTimeProvider + Send + Sync,
     {
-        println!("try_create_wpoll");
         if let (AnyMod::Confirmed(inflation_box), AnyMod::Confirmed(factory)) = (inflation_box, poll_factory)
         {
-            println!("try_create_wpoll: confirmed!");
             let funding_boxes = AvailableFundingBoxes(self.funding_box.collect().await.unwrap());
             let (signed_tx, next_inflation_box, next_factory, next_wpoll, funding_box_changes) = self
                 .actions
@@ -557,12 +550,11 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                     funding_boxes,
                 )
                 .await;
-            println!("try_create_wpoll: formed wpoll TX!");
             let prover = OperatorProver::new(self.operator_sk.to_bech32());
             let tx = prover.prove(signed_tx);
-            println!("try_create_wpoll: wpoll TX signed!");
+            let tx_hash = tx.body.hash();
+            info!("Apply create wpoll tx (hash: {})", tx_hash);
             self.network.submit_tx(tx).await.unwrap();
-            println!("try_create_wpoll: wpoll TX submitted!");
             self.inflation_box.write_predicted(next_inflation_box).await;
             self.poll_factory.write_predicted(next_factory).await;
             self.weighting_poll.write_predicted(next_wpoll).await;
@@ -608,7 +600,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                 let tx_hash = tx.body.hash();
                 match self.network.submit_tx(tx).await {
                     Ok(()) => {
-                        println!("Apply voting tx (hash: {})", tx_hash);
+                        info!("Apply voting tx (hash: {})", tx_hash);
                         self.weighting_poll.write_predicted(next_wpoll).await;
                         self.voting_escrow.write_predicted(next_ve).await;
                         self.backlog.remove(order_id).await;
@@ -684,7 +676,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         let prover = OperatorProver::new(self.operator_sk.to_bech32());
         let tx = prover.prove(signed_tx);
         let tx_hash = tx.body.hash();
-        println!("Distributing inflation tx (hash: {})", tx_hash);
+        info!("Distributing inflation tx (hash: {})", tx_hash);
         self.network.submit_tx(tx).await.unwrap();
         self.weighting_poll.write_predicted(next_wpoll).await;
         self.smart_farm.write_predicted(next_sf).await;
@@ -839,7 +831,7 @@ where
                             ctx.wpoll_eliminated = false;
                         }
                         if let Some(entity) = DaoEntitySnapshot::try_from_ledger(&output.1, &ctx) {
-                            println!(
+                            trace!(
                                 "entity found: {:?}, epoch: {}, block_timestamp: {}, EPOCH_LEN: {}, DAO GEN time: {}",
                                 entity, current_epoch.0, time_millis, EPOCH_LEN, self.conf.genesis_time.0
                             );
@@ -959,12 +951,12 @@ where
         let mut signal = self.signal_tip_reached_recv.take().unwrap();
         let chain_tip_reached_clone = self.chain_tip_reached.clone();
         tokio::spawn(async move {
-            println!("wait for signal tip");
+            trace!("wait for signal tip");
             let _ = signal.recv().await;
 
             let mut reached = chain_tip_reached_clone.lock().await;
             *reached = true;
-            println!("signal tip reached!");
+            trace!("signal tip reached!");
         });
         let mut routine: Option<ToRoutine> = None;
         stream! {
@@ -984,7 +976,7 @@ where
                     if let Some(r) = routine {
                         match r {
                             ToRoutine::RetryIn(delay) => {
-                                println!("Delay for {:?}", delay);
+                                trace!("Delay for {:?}", delay);
                                 Delay::new(delay).await;
                             }
                         }

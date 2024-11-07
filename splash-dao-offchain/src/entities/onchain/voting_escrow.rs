@@ -10,6 +10,7 @@ use cml_chain::{
     PolicyId, Value,
 };
 use cml_crypto::{PublicKey, RawBytesEncoding, ScriptHash};
+use log::{error, info};
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::plutus_data::DatumExtension;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
@@ -82,7 +83,7 @@ impl VotingEscrow {
                     let weighting_power = self.gov_token_amount * (network_time - current_posix_time)
                         / 1000
                         / MAX_LOCK_TIME_SECONDS;
-                    println!(
+                    info!(
                         "WEIGHTING_POWER: {}, # GT tokens: {}, unlock_time: {}, current_posix_time: {}",
                         weighting_power, self.gov_token_amount, network_time, current_posix_time,
                     );
@@ -128,7 +129,7 @@ where
             match &owner {
                 Owner::PubKey(key_bytes) => {
                     if cml_crypto::PublicKey::from_raw_bytes(&key_bytes).is_err() {
-                        println!("Voting_escrow doesn't contain a valid owner public key!");
+                        error!("Voting_escrow doesn't contain a valid owner public key!");
                         return None;
                     }
                 }

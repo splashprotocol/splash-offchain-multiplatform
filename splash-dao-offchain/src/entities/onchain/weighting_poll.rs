@@ -7,6 +7,7 @@ use cml_chain::utils::BigInteger;
 use cml_chain::{OrderedHashMap, PolicyId, Value};
 use cml_crypto::RawBytesEncoding;
 use derive_more::From;
+use log::trace;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
@@ -91,8 +92,6 @@ where
             ctx.select::<WeightingPowerPolicy>().0,
         );
 
-        println!("WEIGHTING_POLL DATUM: {:?}", datum);
-
         let cred = StakeCredential::new_script(wp_auth_policy);
         let address = EnterpriseAddress::new(ctx.select::<NetworkId>().into(), cred).to_address();
 
@@ -117,12 +116,8 @@ fn create_datum(
 ) -> PlutusData {
     let distribution_pd = distribution_to_plutus_data(&wpoll.distribution);
     let deadline_inner = wpoll.voting_deadline_time(genesis_epoch_start_time);
-    println!("WP datum:distribution: {:?}", wpoll.distribution);
-    println!("WP datum:epoch: {}", wpoll.epoch);
-    println!("WP datum:deadline: {}", deadline_inner);
     let deadline = PlutusData::new_integer(BigInteger::from(deadline_inner));
     let emission_rate = PlutusData::new_integer(BigInteger::from(wpoll.emission_rate.untag()));
-    println!("WP datum:emission_rate: {}", wpoll.emission_rate.untag());
     let weighting_power_policy_pd = PlutusData::new_bytes(weighting_power_policy.to_raw_bytes().to_vec());
 
     PlutusData::ConstrPlutusData(ConstrPlutusData::new(
@@ -212,14 +207,18 @@ impl WeightingPoll {
         let e_start = epoch_start(genesis, self.epoch);
         let e_end = epoch_end(genesis, self.epoch);
         if time_now > e_end {
-            println!(
+            trace!(
                 "epoch_start = {}, epoch_end = {} < time_now: {}",
-                e_start, e_end, time_now
+                e_start,
+                e_end,
+                time_now
             );
         } else {
-            println!(
+            trace!(
                 "epoch_start = {},  time_now: {} < epoch_end = {}",
-                e_start, time_now, e_end,
+                e_start,
+                time_now,
+                e_end,
             );
         }
         e_start < time_now && e_end > time_now
@@ -262,9 +261,10 @@ where
                 if value.multiasset.get(&wp_auth_policy, &token_asset_name).is_some() {
                     let weighting_power = value.multiasset.get(&weighting_power_policy, &token_asset_name);
 
-                    println!(
+                    trace!(
                         "FOUND WEIGHTING_POLL: epoch: {}, weighting_power: {:?}",
-                        epoch, weighting_power
+                        epoch,
+                        weighting_power
                     );
                     let weighting_poll = WeightingPoll {
                         epoch,

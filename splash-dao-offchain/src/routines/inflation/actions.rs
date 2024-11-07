@@ -18,6 +18,7 @@ use cml_chain::utils::BigInteger;
 use cml_chain::{Coin, OrderedHashMap, PolicyId, RequiredSigners};
 use cml_core::serialization::FromBytes;
 use cml_crypto::{blake2b256, RawBytesEncoding, TransactionHash};
+use log::trace;
 use serde::Serialize;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
@@ -190,7 +191,6 @@ where
         let mut tx_builder = constant_tx_builder();
 
         // Set TX validity range
-        println!("current_slot: {}", current_slot.0);
         tx_builder.set_validity_start_interval(current_slot.0);
         tx_builder.set_ttl(current_slot.0 + TX_TTL_SLOT);
 
@@ -198,7 +198,6 @@ where
             .ctx
             .select::<DeployedScriptInfo<{ ProtocolValidator::Inflation as u8 }>>()
             .script_hash;
-        println!("inflation_script_hash: {}", inflation_script_hash.to_hex());
         let inflation_script = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(inflation_script_hash),
             cml_chain::plutus::PlutusData::Integer(BigInteger::from(0)),
@@ -215,10 +214,6 @@ where
 
         let prev_ib_version = *inflation_box.version();
         let (next_inflation_box, emission_rate) = inflation_box.get().release_next_tranche();
-        println!(
-            "inflation::release_next_tranche --> emission_rate: {}",
-            emission_rate.untag()
-        );
         let mut inflation_box_out = inflation_box_in.clone();
         if let Some(data_mut) = inflation_box_out.data_mut() {
             // Following unwrap is safe due to the `.release_next_trache()` call above.
@@ -233,7 +228,6 @@ where
             .ctx
             .select::<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>()
             .script_hash;
-        println!("wp_factory_script_hash: {}", wp_factory_script_hash.to_hex());
 
         let factory_redeemer = FactoryRedeemer {
             successor_ix: 2,
@@ -257,7 +251,6 @@ where
         let (next_factory, fresh_wpoll) = factory.unwrap().next_weighting_poll(emission_rate);
         let mut factory_out = factory_in;
         if let Some(data_mut) = factory_out.data_mut() {
-            println!("INPUT WP_FACTORY DATUM: {:?}", data_mut);
             unsafe_update_factory_state(data_mut, next_factory.last_poll_epoch.unwrap());
         }
 
@@ -281,10 +274,6 @@ where
             },
         ) = sort_create_wp_poll_tx_inputs(unsorted_inputs);
 
-        println!(
-            "factory_in_ix: {}, inflation_box_in_ix: {}",
-            factory_in_ix, inflation_box_in_ix
-        );
         for input in input_results {
             change_output_creator.add_input(&input);
             tx_builder.add_input(input).unwrap();
@@ -318,14 +307,8 @@ where
         let wp_auth_policy = self.ctx.select::<MintWPAuthPolicy>().0;
         let mint_wp_auth_token_witness =
             PartialPlutusWitness::new(PlutusScriptWitness::Ref(wp_auth_policy), mint_action.into_pd());
-        let OperatorCreds(operator_pkh, _operator_addr) = self.ctx.select::<OperatorCreds>();
+        let OperatorCreds(_operator_pkh, _operator_addr) = self.ctx.select::<OperatorCreds>();
 
-        println!("operator_addr: {:?}", _operator_addr.to_bech32(None));
-        println!("operator_pkh: {}", operator_pkh.to_hex());
-        println!(
-            "inflation_box.last_processed_epoch: {:?}",
-            inflation_box.get().last_processed_epoch
-        );
         // Compute index_tn(epoch), where `epoch` is the current epoch
         let asset = compute_epoch_asset_name(
             inflation_box
@@ -334,7 +317,6 @@ where
                 .map(|epoch| epoch + 1)
                 .unwrap_or(0),
         );
-        println!("mint_wp_auth_token name: {}", hex::encode(&asset.inner));
         let wp_auth_minting_policy = SingleMintBuilder::new_single_asset(asset.clone(), 1)
             .plutus_script(mint_wp_auth_token_witness, RequiredSigners::from(vec![]));
         tx_builder.add_reference_input(self.ctx.select::<MintWPAuthRefScriptOutput>().0.clone());
@@ -357,7 +339,6 @@ where
                     .checked_add(&AssetBundle::from(ord_hash_map))
                     .unwrap();
                 tx_out.amount.multiasset = multiasset;
-                println!("AlonzoFormatTxOut coin: {}", tx_out.amount.coin);
             }
 
             TransactionOutput::ConwayFormatTxOut(tx_out) => {
@@ -367,7 +348,6 @@ where
                     .checked_add(&AssetBundle::from(ord_hash_map))
                     .unwrap();
                 tx_out.amount.multiasset = multiasset;
-                println!("ConwayFormatTxOut coin: {}", tx_out.amount.coin);
             }
         }
 
@@ -478,7 +458,6 @@ where
         let mint_weighting_power_ref_script = self.ctx.select::<WeightingPowerRefScriptOutput>().0;
         let wpoll_auth_ref_script = self.ctx.select::<MintWPAuthRefScriptOutput>().0;
         let wpoll_script_hash = self.ctx.select::<MintWPAuthPolicy>().0;
-        println!("Computed wpoll script_hash:{}", wpoll_script_hash.to_hex());
 
         let redeemer = weighting_poll::PollAction::Destroy;
         let weighting_poll_script =
@@ -670,7 +649,6 @@ where
         next_ve.last_wp_epoch = new_wp_epoch as i32;
         next_ve.version = new_ve_version;
 
-        let ve_datum = VotingEscrowConfig::try_from_pd(data_mut.clone()).unwrap();
         let mut ve_amt = voting_escrow_out.amount().clone();
         ve_amt.sub_unsafe(AssetClass::Native, VOTING_ESCROW_VOTING_FEE);
         dbg!(&ve_amt);
@@ -754,7 +732,7 @@ where
         // Set TX outputs --------------------------------------------------------------------------
         let mut amt = wpoll_out.amount().clone();
         let min_ada = min_ada_required(&wpoll_out, COINS_PER_UTXO_BYTE).unwrap();
-        println!(
+        trace!(
             "wpoll_out extra lovelaces needed (as computed by CML): {}, orig ada: {}, min_ada: {}",
             min_ada - amt.coin,
             amt.coin,
@@ -844,9 +822,7 @@ where
         );
 
         // Set TX validity range
-        println!("CURRENT_SLOT: {}", current_slot.0);
         tx_builder.set_validity_start_interval(current_slot.0);
-        // tx_builder.set_ttl(current_slot.0 + 1000);
         tx_builder.set_ttl(current_slot.0 + TX_TTL_SLOT);
 
         tx_builder
@@ -953,7 +929,6 @@ where
             .unwrap() as u32;
 
         let OperatorCreds(operator_pkh, operator_addr) = self.ctx.select::<OperatorCreds>();
-        println!("Operator signatory: {}", operator_pkh.to_hex());
 
         let perm_manager_unspent_input = TransactionUnspentOutput::new(
             TransactionInput::from(perm_manager.version().output_ref),
