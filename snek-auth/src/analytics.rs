@@ -2,6 +2,7 @@ use crate::analytics::LaunchType::{Common, Fair};
 use reqwest::Error;
 use spectrum_cardano_lib::Token;
 use std::time::Duration;
+use log::error;
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 #[serde(from = "String")]
@@ -72,7 +73,15 @@ impl Analytics {
             .await
             .unwrap();
 
-        let parsed_pool_info = analytics_response.json::<PoolResponse>().await.unwrap();
+        let parsed_pool_info = match analytics_response.json::<PoolResponse>().await {
+            Ok(resp) => {
+                resp
+            }
+            Err(err) => {
+                error!("Error {:?} during request: {:?}", err, request_params);
+                return Err(err);
+            }
+        };
 
         Ok(TokenPoolInfo {
             launch_type: parsed_pool_info.pool.launch_type,
