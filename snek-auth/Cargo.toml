@@ -22,3 +22,4 @@ bloom-offchain-cardano = { version = "1.0.0", path = "../bloom-offchain-cardano"
 bloom-offchain = { version = "1.0.0", path = "../bloom-offchain" }
 spectrum-cardano-lib = { version = "0.1.0", path = "../spectrum-cardano-lib" }
 log4rs = "1.3.0"
+tokio = "1.37.0"
