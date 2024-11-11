@@ -16,7 +16,6 @@ use spectrum_cardano_lib::plutus_data::DatumExtension;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::{AssetName, OutputRef};
-use spectrum_offchain::data::HasIdentifier;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use uplc_pallas_codec::utils::{Int, PlutusBytes};
@@ -49,7 +48,18 @@ pub type VotingEscrowSnapshot = Snapshot<VotingEscrow, TimedOutputRef>;
 
 /// Identified by GT Token
 #[derive(
-    Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize, derive_more::From,
+    Copy,
+    Clone,
+    PartialEq,
+    Eq,
+    Ord,
+    PartialOrd,
+    Hash,
+    Debug,
+    Serialize,
+    Deserialize,
+    derive_more::From,
+    derive_more::Display,
 )]
 
 /// Each voting_escrow is identified by the name of its identifier NFT.
@@ -99,11 +109,13 @@ impl VotingEscrow {
     }
 }
 
-impl HasIdentifier for VotingEscrowSnapshot {
-    type Id = VotingEscrowId;
-
-    fn identifier(&self) -> Self::Id {
-        VotingEscrowId(self.0.ve_identifier_name)
+impl Stable for VotingEscrow {
+    type StableId = VotingEscrowId;
+    fn stable_id(&self) -> Self::StableId {
+        VotingEscrowId(self.ve_identifier_name)
+    }
+    fn is_quasi_permanent(&self) -> bool {
+        true
     }
 }
 
@@ -175,16 +187,6 @@ where
             return Some(Snapshot::new(voting_escrow, version));
         }
         None
-    }
-}
-
-impl Stable for VotingEscrow {
-    type StableId = AssetName;
-    fn stable_id(&self) -> Self::StableId {
-        self.ve_identifier_name
-    }
-    fn is_quasi_permanent(&self) -> bool {
-        true
     }
 }
 

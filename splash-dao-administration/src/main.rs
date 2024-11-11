@@ -41,8 +41,9 @@ use spectrum_cardano_lib::{
     AssetClass, NetworkId, OutputRef, PaymentCredential, Token,
 };
 use spectrum_cardano_lib::{plutus_data::IntoPlutusData, types::TryFromPData};
+use spectrum_offchain::data::Stable;
 use spectrum_offchain::{
-    data::{Has, HasIdentifier},
+    data::{EntitySnapshot, Has},
     ledger::TryFromLedger,
     tx_prover::TxProver,
 };
@@ -1185,7 +1186,7 @@ async fn cast_vote(op_inputs: &OperationInputs, id: VotingEscrowId) {
     .unwrap();
 
     let id = VotingOrderId {
-        voting_escrow_id: voting_escrow.identifier(),
+        voting_escrow_id: voting_escrow.get().stable_id(),
         version: voting_escrow.get().version as u64,
     };
 
@@ -1251,10 +1252,10 @@ async fn pull_onchain_entity<'a, T, D>(
     script_hash: ScriptHash,
     network_id: NetworkId,
     deployment_config: &'a D,
-    id: T::Id,
+    id: T::StableId,
 ) -> Option<(T, TransactionUnspentOutput)>
 where
-    T: TryFromLedger<TransactionOutput, ProcessLedgerEntityContext<'a, D>> + HasIdentifier,
+    T: TryFromLedger<TransactionOutput, ProcessLedgerEntityContext<'a, D>> + EntitySnapshot,
 {
     let utxos = explorer
         .slot_indexed_utxos_by_address(script_address(script_hash, network_id), 0, 50)

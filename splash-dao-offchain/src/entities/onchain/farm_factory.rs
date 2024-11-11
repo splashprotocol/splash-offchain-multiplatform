@@ -15,7 +15,7 @@ use spectrum_cardano_lib::{
     OutputRef,
 };
 use spectrum_offchain::{
-    data::{Has, HasIdentifier, Identifier},
+    data::{Has, Identifier, Stable},
     ledger::TryFromLedger,
 };
 use spectrum_offchain_cardano::{
@@ -48,11 +48,15 @@ pub struct FarmFactory {
     farm_seed_data: Vec<u8>,
 }
 
-impl HasIdentifier for FarmFactorySnapshot {
-    type Id = FarmFactoryId;
+impl Stable for FarmFactory {
+    type StableId = FarmFactoryId;
 
-    fn identifier(&self) -> Self::Id {
+    fn stable_id(&self) -> Self::StableId {
         FarmFactoryId
+    }
+
+    fn is_quasi_permanent(&self) -> bool {
+        true
     }
 }
 

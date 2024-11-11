@@ -13,7 +13,7 @@ use spectrum_cardano_lib::{
     AssetName, OutputRef, Token,
 };
 use spectrum_offchain::{
-    data::{Has, HasIdentifier, Identifier, Stable},
+    data::{Has, Identifier, Stable},
     ledger::TryFromLedger,
 };
 use spectrum_offchain_cardano::{
@@ -45,14 +45,6 @@ pub type PermManagerSnapshot = Snapshot<PermManager, TimedOutputRef>;
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct PermManager {
     pub datum: PermManagerDatum,
-}
-
-impl HasIdentifier for PermManagerSnapshot {
-    type Id = PermManagerId;
-
-    fn identifier(&self) -> Self::Id {
-        PermManagerId
-    }
 }
 
 impl Stable for PermManager {

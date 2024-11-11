@@ -18,7 +18,7 @@ use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
 };
 use spectrum_cardano_lib::{NetworkId, OutputRef, TaggedAmount, Token};
-use spectrum_offchain::data::{Has, HasIdentifier, Identifier, Stable};
+use spectrum_offchain::data::{Has, Identifier, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 
@@ -67,11 +67,13 @@ pub struct WeightingPoll {
     pub eliminated: bool,
 }
 
-impl HasIdentifier for WeightingPollSnapshot {
-    type Id = WeightingPollId;
-
-    fn identifier(&self) -> Self::Id {
-        WeightingPollId(self.0.epoch)
+impl Stable for WeightingPoll {
+    type StableId = WeightingPollId;
+    fn stable_id(&self) -> Self::StableId {
+        WeightingPollId(self.epoch)
+    }
+    fn is_quasi_permanent(&self) -> bool {
+        true
     }
 }
 
@@ -129,16 +131,6 @@ fn create_datum(
             weighting_power_policy_pd,
         ],
     ))
-}
-
-impl Stable for WeightingPoll {
-    type StableId = WeightingPollId;
-    fn stable_id(&self) -> Self::StableId {
-        WeightingPollId(self.epoch)
-    }
-    fn is_quasi_permanent(&self) -> bool {
-        true
-    }
 }
 
 pub struct WeightingOngoing;

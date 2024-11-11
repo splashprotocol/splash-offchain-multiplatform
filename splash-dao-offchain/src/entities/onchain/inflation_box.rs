@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::plutus_data::{DatumExtension, IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::{OutputRef, TaggedAmount, Token};
-use spectrum_offchain::data::{EntitySnapshot, Has, HasIdentifier, Identifier, Stable};
+use spectrum_offchain::data::{EntitySnapshot, Has, Identifier, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
@@ -27,7 +27,7 @@ use crate::{constants, GenesisEpochStartTime};
 
 pub type InflationBoxSnapshot = Snapshot<InflationBox, TimedOutputRef>;
 
-#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize)]
+#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize, Hash, derive_more::Display)]
 pub struct InflationBoxId;
 
 impl Identifier for InflationBoxId {
@@ -67,14 +67,6 @@ impl InflationBox {
     }
 }
 
-impl HasIdentifier for InflationBoxSnapshot {
-    type Id = InflationBoxId;
-
-    fn identifier(&self) -> Self::Id {
-        InflationBoxId
-    }
-}
-
 /// Calculate emission rate based on given epoch.
 pub fn emission_rate(epoch: ProtocolEpoch) -> TaggedAmount<Splash> {
     let reduction_period = epoch / constants::EMISSION_REDUCTION_PERIOD_LEN;
@@ -92,9 +84,9 @@ pub fn emission_rate(epoch: ProtocolEpoch) -> TaggedAmount<Splash> {
 }
 
 impl Stable for InflationBox {
-    type StableId = ScriptHash;
+    type StableId = InflationBoxId;
     fn stable_id(&self) -> Self::StableId {
-        self.script_hash
+        InflationBoxId
     }
     fn is_quasi_permanent(&self) -> bool {
         true

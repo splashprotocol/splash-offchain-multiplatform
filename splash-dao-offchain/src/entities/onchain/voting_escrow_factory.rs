@@ -18,7 +18,7 @@ use spectrum_cardano_lib::{
     AssetClass, AssetName, OutputRef, Token,
 };
 use spectrum_offchain::{
-    data::{Has, HasIdentifier, Identifier},
+    data::{Has, Identifier, Stable},
     ledger::TryFromLedger,
 };
 use spectrum_offchain_cardano::{
@@ -45,11 +45,15 @@ impl Identifier for VEFactoryId {
     type For = VEFactorySnapshot;
 }
 
-impl HasIdentifier for VEFactorySnapshot {
-    type Id = VEFactoryId;
+impl Stable for VEFactory {
+    type StableId = VEFactoryId;
 
-    fn identifier(&self) -> Self::Id {
+    fn stable_id(&self) -> Self::StableId {
         VEFactoryId
+    }
+
+    fn is_quasi_permanent(&self) -> bool {
+        true
     }
 }
 

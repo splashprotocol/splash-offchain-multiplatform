@@ -14,7 +14,7 @@ use spectrum_cardano_lib::plutus_data::{
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::{AssetName, OutputRef};
-use spectrum_offchain::data::{Has, HasIdentifier, Identifier, Stable};
+use spectrum_offchain::data::{Has, Identifier, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
@@ -63,14 +63,6 @@ impl Stable for SmartFarm {
     }
     fn is_quasi_permanent(&self) -> bool {
         true
-    }
-}
-
-impl HasIdentifier for SmartFarmSnapshot {
-    type Id = FarmId;
-
-    fn identifier(&self) -> Self::Id {
-        self.0.farm_id
     }
 }
 

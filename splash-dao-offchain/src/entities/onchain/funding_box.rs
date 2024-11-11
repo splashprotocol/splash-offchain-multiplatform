@@ -2,7 +2,7 @@ use cml_chain::{transaction::TransactionOutput, Value};
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{transaction::TransactionOutputExtension, OutputRef};
 use spectrum_offchain::{
-    data::{Has, HasIdentifier, Identifier, Stable},
+    data::{Has, Identifier, Stable},
     ledger::{IntoLedger, TryFromLedger},
 };
 
@@ -33,14 +33,6 @@ pub struct FundingBoxId(OutputRef);
 
 impl Identifier for FundingBoxId {
     type For = FundingBoxSnapshot;
-}
-
-impl HasIdentifier for FundingBoxSnapshot {
-    type Id = FundingBoxId;
-
-    fn identifier(&self) -> Self::Id {
-        FundingBoxId(self.1)
-    }
 }
 
 impl Stable for FundingBox {

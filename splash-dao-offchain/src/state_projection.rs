@@ -6,30 +6,30 @@ use rocksdb::{Direction, IteratorMode, ReadOptions};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use spectrum_offchain::data::event::{AnyMod, Confirmed, Predicted, Traced};
-use spectrum_offchain::data::{EntitySnapshot, HasIdentifier};
+use spectrum_offchain::data::EntitySnapshot;
 use spectrum_offchain::rocks::RocksConfig;
 
 /// Projection of [T] state relative to the ledger.
 #[async_trait::async_trait]
 pub trait StateProjectionRead<T, B>
 where
-    T: EntitySnapshot + HasIdentifier,
-    T::Id: Send + Serialize,
+    T: EntitySnapshot,
+    T::StableId: Send + Serialize,
 {
-    async fn read(&self, id: T::Id) -> Option<AnyMod<Bundled<T, B>>>;
+    async fn read(&self, id: T::StableId) -> Option<AnyMod<Bundled<T, B>>>;
     /// Returns Id of the entity whose latest version is given by `ver`, if it exists.
-    async fn get_id(&self, ver: T::Version) -> Option<T::Id>;
+    async fn get_id(&self, ver: T::Version) -> Option<T::StableId>;
 }
 
 #[async_trait::async_trait]
 pub trait StateProjectionWrite<T, B>
 where
-    T: EntitySnapshot + HasIdentifier,
-    T::Id: Send,
+    T: EntitySnapshot,
+    T::StableId: Send,
 {
     async fn write_predicted(&self, entity: Traced<Predicted<Bundled<T, B>>>);
     async fn write_confirmed(&self, entity: Traced<Confirmed<Bundled<T, B>>>);
-    async fn remove(&self, id: T::Id) -> Option<T::Version>;
+    async fn remove(&self, id: T::StableId) -> Option<T::Version>;
 }
 
 const LATEST_VERSION_PREFIX: &str = "id:";
@@ -53,12 +53,12 @@ impl StateProjectionRocksDB {
 #[async_trait::async_trait]
 impl<T, B> StateProjectionRead<T, B> for StateProjectionRocksDB
 where
-    T: EntitySnapshot + HasIdentifier + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
+    T: EntitySnapshot + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
     T::Version: Send,
     B: Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
-    T::Id: Send + DeserializeOwned + Serialize + 'static,
+    T::StableId: Send + DeserializeOwned + Serialize + 'static,
 {
-    async fn read(&self, id: T::Id) -> Option<AnyMod<Bundled<T, B>>> {
+    async fn read(&self, id: T::StableId) -> Option<AnyMod<Bundled<T, B>>> {
         let db = self.db.clone();
         let version_key = prefixed_key(LATEST_VERSION_PREFIX, &id);
         spawn_blocking(move || {
@@ -74,7 +74,7 @@ where
         .await
     }
 
-    async fn get_id(&self, ver: T::Version) -> Option<T::Id> {
+    async fn get_id(&self, ver: T::Version) -> Option<T::StableId> {
         let db = Arc::clone(&self.db);
         let prefix = prefixed_key(PREVIOUS_VERSION_PREFIX, &ver);
         spawn_blocking(move || {
@@ -82,7 +82,7 @@ where
             readopts.set_iterate_range(rocksdb::PrefixRange(prefix.clone()));
             let mut iter = db.iterator_opt(IteratorMode::From(&prefix, Direction::Forward), readopts);
             if let Some(Ok((full_key, _))) = iter.next() {
-                let id: T::Id = serde_json::from_slice(&full_key[prefix.len()..]).unwrap();
+                let id: T::StableId = serde_json::from_slice(&full_key[prefix.len()..]).unwrap();
                 Some(id)
             } else {
                 None
@@ -95,16 +95,16 @@ where
 #[async_trait::async_trait]
 impl<T, B> StateProjectionWrite<T, B> for StateProjectionRocksDB
 where
-    T: EntitySnapshot + HasIdentifier + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
+    T: EntitySnapshot + Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
     T::Version: Send + Serialize + DeserializeOwned,
     B: Send + Sync + Clone + Serialize + DeserializeOwned + 'static,
-    T::Id: Send + Serialize + 'static,
+    T::StableId: Send + Serialize + 'static,
 {
     async fn write_predicted(&self, entity: Traced<Predicted<Bundled<T, B>>>) {
         let db = self.db.clone();
         spawn_blocking(move || {
             let t = entity.state.0 .0.clone();
-            let id = t.identifier();
+            let id = t.stable_id();
             let tx = db.transaction();
 
             if let Some(prev_version) = entity.prev_state_id {
@@ -135,7 +135,7 @@ where
         let db = self.db.clone();
         spawn_blocking(move || {
             let t = entity.state.0 .0.clone();
-            let id = t.identifier();
+            let id = t.stable_id();
             let tx = db.transaction();
 
             if let Some(prev_version) = entity.prev_state_id {
@@ -165,7 +165,7 @@ where
         .await
     }
 
-    async fn remove(&self, id: T::Id) -> Option<T::Version> {
+    async fn remove(&self, id: T::StableId) -> Option<T::Version> {
         let db = self.db.clone();
         spawn_blocking(move || {
             let current_version_key = prefixed_key(LATEST_VERSION_PREFIX, &id);
@@ -252,7 +252,7 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use spectrum_offchain::data::{
         event::{AnyMod, Confirmed, Predicted, Traced},
-        EntitySnapshot, HasIdentifier, Identifier, Stable,
+        EntitySnapshot, Identifier, Stable,
     };
 
     use crate::{
@@ -302,14 +302,6 @@ mod tests {
         }
     }
 
-    impl HasIdentifier for Entity {
-        type Id = Id;
-
-        fn identifier(&self) -> Self::Id {
-            Id(self.id)
-        }
-    }
-
     impl EntitySnapshot for Entity {
         type Version = u32;
 
@@ -328,7 +320,7 @@ mod tests {
     async fn test_state_projection_rocksdb() {
         let sp = spawn_db();
         let mut entity = Entity::new(0, 0);
-        let id = entity.identifier();
+        let id = entity.stable_id();
         sp.write_predicted(mk_predicted(entity.clone(), 0, None)).await;
         let e: AnyMod<Bundled<Entity, u32>> = sp.read(id).await.unwrap();
         assert!(matches!(e, AnyMod::Predicted(_)));
@@ -367,7 +359,7 @@ mod tests {
 
         for expected_entity in expected_entities.into_iter().rev().skip(1) {
             assert_eq!(
-                Some(expected_entity.state.0 .0.identifier()),
+                Some(expected_entity.state.0 .0.stable_id()),
                 <StateProjectionRocksDB as StateProjectionRead<Entity, u32>>::get_id(
                     &sp,
                     expected_entity.state.version()

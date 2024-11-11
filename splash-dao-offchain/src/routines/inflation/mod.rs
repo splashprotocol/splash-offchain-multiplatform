@@ -1173,7 +1173,7 @@ mod tests {
     use bloom_offchain::execution_engine::bundled::Bundled;
     use spectrum_offchain::data::{
         event::{AnyMod, Confirmed, Predicted, Traced},
-        EntitySnapshot, HasIdentifier, Identifier,
+        EntitySnapshot, Identifier,
     };
 
     use crate::state_projection::{StateProjectionRead, StateProjectionWrite};
@@ -1182,10 +1182,10 @@ mod tests {
     #[async_trait]
     impl<T, B> StateProjectionWrite<T, B> for StateProjection<T, B>
     where
-        T: EntitySnapshot + HasIdentifier + Send + Sync + Clone,
+        T: EntitySnapshot + Send + Sync + Clone,
         T::Version: Send,
         B: Send + Sync + Clone,
-        T::Id: Send + Serialize + Sync,
+        T::StableId: Send + Serialize + Sync,
     {
         async fn write_predicted(&self, entity: Traced<Predicted<Bundled<T, B>>>) {
             let _ = self.0.lock().await.insert(AnyMod::Predicted(entity));
@@ -1195,7 +1195,7 @@ mod tests {
             let _ = self.0.lock().await.insert(AnyMod::Confirmed(entity));
         }
 
-        async fn remove(&self, id: T::Id) -> Option<T::Version> {
+        async fn remove(&self, id: T::StableId) -> Option<T::Version> {
             // Stub
             None
         }
@@ -1203,16 +1203,16 @@ mod tests {
     #[async_trait]
     impl<T, B> StateProjectionRead<T, B> for StateProjection<T, B>
     where
-        T: EntitySnapshot + HasIdentifier + Send + Sync + Clone,
+        T: EntitySnapshot + Send + Sync + Clone,
         T::Version: Send,
         B: Send + Sync + Clone,
-        T::Id: Send + Serialize + Sync,
+        T::StableId: Send + Serialize + Sync,
     {
-        async fn read(&self, id: T::Id) -> Option<AnyMod<Bundled<T, B>>> {
+        async fn read(&self, id: T::StableId) -> Option<AnyMod<Bundled<T, B>>> {
             self.0.lock().await.clone()
         }
 
-        async fn get_id(&self, ver: T::Version) -> Option<T::Id> {
+        async fn get_id(&self, ver: T::Version) -> Option<T::StableId> {
             None
         }
     }
