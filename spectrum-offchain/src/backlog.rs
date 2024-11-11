@@ -1,5 +1,5 @@
 use std::collections::{HashMap, VecDeque};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::sync::Arc;
 
@@ -20,7 +20,9 @@ use crate::backlog::persistence::BacklogStore;
 use crate::circular_filter::CircularFilter;
 use crate::data::order::{PendingOrder, ProgressingOrder, SpecializedOrder, SuspendedOrder, UniqueOrder};
 use crate::data::Has;
+use crate::display::display_option;
 use crate::maker::Maker;
+use crate::tracing::WithTracing;
 
 pub mod data;
 pub mod persistence;
@@ -48,6 +50,55 @@ where
     fn soft_evict<'a>(&mut self, ord: TOrd::TOrderId)
     where
         TOrd: 'a;
+}
+
+impl<In, T> HotBacklog<T> for WithTracing<In>
+where
+    In: HotBacklog<T>,
+    T: UniqueOrder,
+    T::TOrderId: Display,
+{
+    fn put<'a>(&mut self, ord: T)
+    where
+        T: 'a,
+    {
+        trace!("HotBacklog::put({})", ord.get_self_ref());
+        self.inner.put(ord);
+    }
+
+    fn try_pop(&mut self) -> Option<T> {
+        let res = self.inner.try_pop();
+        trace!(
+            "HotBacklog::try_pop() -> {}",
+            display_option(&res.as_ref().map(|o| o.get_self_ref()))
+        );
+        res
+    }
+
+    fn exists<'a>(&self, id: T::TOrderId) -> bool
+    where
+        T::TOrderId: 'a,
+    {
+        let res = self.inner.exists(id);
+        trace!("HotBacklog::exists({}) -> {}", id, res);
+        res
+    }
+
+    fn remove<'a>(&mut self, id: T::TOrderId)
+    where
+        T::TOrderId: 'a + Clone,
+    {
+        trace!("HotBacklog::remove({})", id);
+        self.inner.remove(id);
+    }
+
+    fn soft_evict<'a>(&mut self, id: T::TOrderId)
+    where
+        T: 'a,
+    {
+        trace!("HotBacklog::soft_evict({})", id);
+        self.inner.soft_evict(id);
+    }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Into, From)]
@@ -175,18 +226,8 @@ where
         F: Fn(&TOrd) -> bool + Send + 'static;
 }
 
-pub struct BacklogTracing<B> {
-    inner: B,
-}
-
-impl<B> BacklogTracing<B> {
-    pub fn wrap(backlog: B) -> Self {
-        Self { inner: backlog }
-    }
-}
-
 #[async_trait]
-impl<TOrd, B> ResilientBacklog<TOrd> for BacklogTracing<B>
+impl<TOrd, B> ResilientBacklog<TOrd> for WithTracing<B>
 where
     TOrd: UniqueOrder + Debug + Clone,
     TOrd::TOrderId: Debug + Clone + Send + Sync,

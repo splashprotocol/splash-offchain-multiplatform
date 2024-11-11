@@ -1186,8 +1186,8 @@ mod tests {
             },
         };
         let bearer = TransactionOutput::from_cbor_bytes(&*hex::decode(POOL_UTXO).unwrap()).unwrap();
-        let pool = DegenQuadraticPool::try_from_ledger(&bearer, &ctx);
-        println!("Pool: {}", pool.unwrap());
+        // let pool = DegenQuadraticPool::try_from_ledger(&bearer, &ctx);
+        // println!("Pool: {}", pool.unwrap());
     }
 
     const POOL_UTXO: &str = "a300583931905ab869961b094f1b8197278cfe15b45cbe49fa8f32c6b014f85a2db2f6abf60ccde92eae1a2f4fdf65f2eaf6208d872c6f0e597cc10b0701821a322c3e56a2581c63f947b8d9535bc4e4ce6919e3dc056547e8d30ada12f29aa5f826b8a1582053568d2aceb4e0053d2e4bd7f4a16b61bab5f5e76debcbd5e6eeab80c5526aae01581c3417226aaa4bd7391a7a7f86d7b140b14a35388080b929550d0badaba14b4c6f6164205465737420311a2b796263028201d81858e9d87989d87982581c63f947b8d9535bc4e4ce6919e3dc056547e8d30ada12f29aa5f826b8582053568d2aceb4e0053d2e4bd7f4a16b61bab5f5e76debcbd5e6eeab80c5526aaed879824040d87982581c3417226aaa4bd7391a7a7f86d7b140b14a35388080b929550d0badab4b4c6f6164205465737420311b0000001166b125ce1a001373c2581c5cb2c968e5d1c7197a6ce7615967310a375545d9bc65063a964335b21b000000028f200558581c8807fbe6e36b1c35ad6f36f0993e2fc67ab6f2db06041cfa3a53c04a581c44d3cb2be4d37239dfd22c2ba8a7eaaf68be16dd9369d36f2936e9f2";

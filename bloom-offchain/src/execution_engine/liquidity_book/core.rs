@@ -1,4 +1,3 @@
-use crate::display::display_vec;
 use crate::execution_engine::bundled::Bundled;
 use crate::execution_engine::liquidity_book::market_maker::{AbsoluteReserves, MakerBehavior, MarketMaker};
 use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
@@ -12,6 +11,7 @@ use log::trace;
 use nonempty::NonEmpty;
 use num_rational::Ratio;
 use spectrum_offchain::data::Stable;
+use spectrum_offchain::display::display_vec;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Formatter;

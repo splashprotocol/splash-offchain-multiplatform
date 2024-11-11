@@ -6,7 +6,7 @@ use type_equalities::IsEqual;
 use crate::data::Has;
 
 pub trait UniqueOrder {
-    type TOrderId: Eq + Hash;
+    type TOrderId: Copy + Clone + Eq + Hash;
     fn get_self_ref(&self) -> Self::TOrderId;
 }
 

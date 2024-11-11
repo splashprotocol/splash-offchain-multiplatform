@@ -5,7 +5,6 @@ use primitive_types::U256;
 use std::fmt::{Debug, Display};
 use std::ops::AddAssign;
 
-use crate::display::{display_option, display_tuple};
 use crate::execution_engine::liquidity_book::config::ExecutionConfig;
 use crate::execution_engine::liquidity_book::core::{
     MakeInProgress, MatchmakingAttempt, MatchmakingRecipe, Next, TakeInProgress, Trans,
@@ -20,6 +19,7 @@ use crate::execution_engine::liquidity_book::state::{FillPreview, IdleState, TLB
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, RelativePrice};
 use crate::execution_engine::types::Time;
 use spectrum_offchain::data::{Has, Stable};
+use spectrum_offchain::display::{display_option, display_tuple};
 use spectrum_offchain::maker::Maker;
 
 pub mod config;

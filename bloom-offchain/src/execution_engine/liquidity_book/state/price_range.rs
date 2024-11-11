@@ -1,6 +1,6 @@
-use crate::display::display_option;
 use crate::execution_engine::liquidity_book::market_taker::MarketTaker;
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;
+use spectrum_offchain::display::display_option;
 use std::fmt::{Display, Formatter};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

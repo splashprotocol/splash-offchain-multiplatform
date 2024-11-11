@@ -1,4 +1,3 @@
-use crate::display::display_option;
 use crate::execution_engine::liquidity_book::config::{ExecutionCap, ExecutionConfig};
 use crate::execution_engine::liquidity_book::core::{MatchmakingAttempt, MatchmakingRecipe, Next};
 use crate::execution_engine::liquidity_book::market_maker::{AvailableLiquidity, MakerBehavior, MarketMaker};
@@ -13,6 +12,7 @@ use crate::execution_engine::types::Time;
 use algebra_core::monoid::Monoid;
 use log::{error, info, trace, warn};
 use spectrum_offchain::data::{Has, Stable};
+use spectrum_offchain::display::display_option;
 use spectrum_offchain::maker::Maker;
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::fmt::Display;

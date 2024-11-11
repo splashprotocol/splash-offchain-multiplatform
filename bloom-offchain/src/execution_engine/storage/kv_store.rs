@@ -1,5 +1,5 @@
-use crate::display::display_option;
 use log::trace;
+use spectrum_offchain::display::display_option;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::hash::Hash;

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::hash::Hash;
 
 use log::trace;
@@ -17,7 +18,7 @@ impl<PairId, R, Ctx> MultiPair<PairId, R, Ctx> {
 
 impl<PairId, R, Ctx> MultiPair<PairId, R, Ctx>
 where
-    PairId: Copy + Eq + Hash + std::fmt::Display,
+    PairId: Copy + Eq + Hash + Display,
     R: Maker<Ctx>,
     Ctx: Clone,
 {

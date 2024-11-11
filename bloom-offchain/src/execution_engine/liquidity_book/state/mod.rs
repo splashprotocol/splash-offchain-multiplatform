@@ -4,7 +4,6 @@ use std::fmt::{Debug, Display, Formatter};
 use std::mem;
 use std::ops::Add;
 
-use crate::display::display_vec;
 use crate::execution_engine::liquidity_book::core::Next;
 use crate::execution_engine::liquidity_book::market_maker::{AvailableLiquidity, MarketMaker, PoolQuality};
 use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
@@ -16,6 +15,7 @@ use crate::execution_engine::liquidity_book::weight::Weighted;
 use either::{Either, Left, Right};
 use log::trace;
 use spectrum_offchain::data::Stable;
+use spectrum_offchain::display::display_vec;
 
 mod price_range;
 pub mod queries;
