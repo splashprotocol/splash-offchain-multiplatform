@@ -475,25 +475,20 @@ where
             TransactionOutput::ConwayFormatTxOut(tx) => tx.amount.clone(),
         };
 
-        enum InputType {
-            Funding,
-            WPoll,
-        }
-
         let (input_results, funding_boxes_to_spend) =
             select_funding_boxes(10_000_000, vec![], funding_boxes.0, &self.ctx);
 
         let mut inputs: Vec<_> = input_results
             .into_iter()
-            .map(|input| (InputType::Funding, input))
+            .map(|input| (EliminateWPollInputType::Funding, input))
             .collect();
 
-        inputs.push((InputType::WPoll, weighting_poll_input));
+        inputs.push((EliminateWPollInputType::WPoll, weighting_poll_input));
         inputs.sort_by_key(|input| input.1.input.clone());
 
         let wpoll_ix = inputs
             .iter()
-            .position(|(input_type, _)| matches!(input_type, InputType::WPoll))
+            .position(|(input_type, _)| matches!(input_type, EliminateWPollInputType::WPoll))
             .unwrap() as u64;
 
         tx_builder.add_reference_input(mint_weighting_power_ref_script);
@@ -899,33 +894,29 @@ where
 
         let weighting_poll_script_hash = self.ctx.select::<MintWPAuthPolicy>().0;
 
-        // Setting TX inputs
-        enum InputType {
-            WPoll,
-            Farm,
-            Funding(InputBuilderResult),
-        }
-
         let (input_results, funding_boxes_to_spend) =
             select_funding_boxes(10_000_000, vec![], funding_boxes.0, &self.ctx);
 
         let mut typed_inputs: Vec<_> = input_results
             .into_iter()
-            .map(|input| (input.input.clone(), InputType::Funding(input)))
+            .map(|input| (input.input.clone(), DistributeInflationInputType::Funding(input)))
             .collect();
 
         typed_inputs.extend([
             (
                 TransactionInput::from(weighting_poll.version().output_ref),
-                InputType::WPoll,
+                DistributeInflationInputType::WPoll,
             ),
-            (TransactionInput::from(farm.version().output_ref), InputType::Farm),
+            (
+                TransactionInput::from(farm.version().output_ref),
+                DistributeInflationInputType::Farm,
+            ),
         ]);
 
         typed_inputs.sort_by_key(|(tx_hash, _)| tx_hash.clone());
         let farm_in_ix = typed_inputs
             .iter()
-            .position(|(_, t)| matches!(t, InputType::Farm))
+            .position(|(_, t)| matches!(t, DistributeInflationInputType::Farm))
             .unwrap() as u32;
 
         let OperatorCreds(operator_pkh, operator_addr) = self.ctx.select::<OperatorCreds>();
@@ -939,7 +930,7 @@ where
         let mut change_output_creator = ChangeOutputCreator::default();
         for (i, (_, input_type)) in typed_inputs.into_iter().enumerate() {
             match input_type {
-                InputType::WPoll => {
+                DistributeInflationInputType::WPoll => {
                     let redeemer = weighting_poll::PollAction::Distribute {
                         farm_ix: farm_distribution_ix as u32,
                         farm_in_ix,
@@ -964,21 +955,26 @@ where
                     );
                 }
 
-                InputType::Farm => {
+                DistributeInflationInputType::Farm => {
                     // First determine the index of `perm_manager` within `reference_input`
-                    enum T {
-                        PermManager,
-                        Other,
-                    }
                     let mut indexed_inputs = vec![
-                        (smart_farm_ref_script.input.clone(), T::Other),
-                        (wpoll_auth_ref_script.input.clone(), T::Other),
-                        (perm_manager_unspent_input.input.clone(), T::PermManager),
+                        (
+                            smart_farm_ref_script.input.clone(),
+                            DistributeInflationRefInputType::Other,
+                        ),
+                        (
+                            wpoll_auth_ref_script.input.clone(),
+                            DistributeInflationRefInputType::Other,
+                        ),
+                        (
+                            perm_manager_unspent_input.input.clone(),
+                            DistributeInflationRefInputType::PermManager,
+                        ),
                     ];
                     indexed_inputs.sort_by_key(|(input, _)| input.clone());
                     let perm_manager_input_ix = indexed_inputs
                         .iter()
-                        .position(|(_, typ)| matches!(typ, T::PermManager))
+                        .position(|(_, typ)| matches!(typ, DistributeInflationRefInputType::PermManager))
                         .unwrap() as u32;
 
                     let redeemer = smart_farm::Redeemer {
@@ -1008,7 +1004,7 @@ where
                     );
                 }
 
-                InputType::Funding(funding_input) => {
+                DistributeInflationInputType::Funding(funding_input) => {
                     change_output_creator.add_input(&funding_input);
                     tx_builder.add_input(funding_input).unwrap();
                 }
@@ -1137,10 +1133,28 @@ pub fn compute_farm_name(farm_id: u32) -> cml_chain::assets::AssetName {
     cml_chain::assets::AssetName::try_from(bytes).unwrap()
 }
 
+// The following enums are used to identify input types for particular TXs after lexicographic
+// ordering by TxInput.
 enum CreateWPollInputType {
     Inflation,
     WPFactory,
     Funding,
+}
+
+enum DistributeInflationInputType {
+    WPoll,
+    Farm,
+    Funding(InputBuilderResult),
+}
+
+enum DistributeInflationRefInputType {
+    PermManager,
+    Other,
+}
+
+enum EliminateWPollInputType {
+    Funding,
+    WPoll,
 }
 
 struct MintWPAuthTokensIx {

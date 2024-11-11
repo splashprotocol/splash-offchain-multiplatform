@@ -198,13 +198,7 @@ impl Has<MintVEIdentifierPolicy> for ProtocolConfig {
 
 impl Has<MintVEIdentifierRefScriptOutput> for ProtocolConfig {
     fn select<U: IsEqual<MintVEIdentifierRefScriptOutput>>(&self) -> MintVEIdentifierRefScriptOutput {
-        //MintVEIdentifierRefScriptOutput(
-        //    self.deployed_validators
-        //        .mint_ve_identifier_token
-        //        .reference_utxo
-        //        .clone(),
-        //)
-        todo!()
+        MintVEIdentifierRefScriptOutput(self.deployed_validators.mint_identifier.reference_utxo.clone())
     }
 }
 

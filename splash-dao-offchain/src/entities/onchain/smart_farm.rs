@@ -124,7 +124,6 @@ where
         let addr = repr.address();
         if test_address(addr, ctx) {
             if let Ok(auth_policy) = PolicyId::from_raw_bytes(&repr.datum()?.into_pd()?.into_bytes()?) {
-                println!("smart_farm policy_id extracted!");
                 if ctx.select::<PermManagerAuthPolicy>().0 == auth_policy {
                     let value = repr.value();
                     let farm_auth_policy = ctx.select::<FarmAuthPolicy>().0;
