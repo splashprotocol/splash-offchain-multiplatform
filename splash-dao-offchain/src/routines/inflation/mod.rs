@@ -266,7 +266,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
     }
 
     async fn next_order(
-        &mut self,
+        &self,
         _stage: WeightingOngoing,
     ) -> Option<(VotingOrder, Bundled<VotingEscrowSnapshot, Bearer>)>
     where
@@ -286,7 +286,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         }
     }
 
-    async fn read_state(&mut self) -> RoutineState<Bearer>
+    async fn read_state(&self) -> RoutineState<Bearer>
     where
         IB: StateProjectionRead<InflationBoxSnapshot, Bearer> + Send + Sync,
         PF: StateProjectionRead<PollFactorySnapshot, Bearer> + Send + Sync,
