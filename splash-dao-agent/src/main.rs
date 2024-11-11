@@ -44,7 +44,7 @@ use spectrum_offchain_cardano::{
     tx_submission::{tx_submission_agent_stream, TxSubmissionAgent},
 };
 use splash_dao_offchain::{
-    collateral::{generate_collateral, pull_collateral},
+    collateral::pull_collateral,
     deployment::{CompleteDeployment, DeploymentProgress, ProtocolDeployment},
     entities::offchain::voting_order::VotingOrder,
     funding::FundingRepoRocksDB,

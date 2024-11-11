@@ -52,7 +52,7 @@ use spectrum_offchain_cardano::{
     prover::operator::OperatorProver,
 };
 use splash_dao_offchain::{
-    collateral::{generate_collateral, pull_collateral, send_assets},
+    collateral::{pull_collateral, send_assets},
     constants::{script_bytes::VOTING_WITNESS_STUB, DEFAULT_AUTH_TOKEN_NAME, SPLASH_NAME},
     create_change_output::{ChangeOutputCreator, CreateChangeOutput},
     deployment::{
@@ -77,6 +77,7 @@ use splash_dao_offchain::{
     protocol_config::{GTAuthPolicy, NotOutputRefNorSlotNumber, VEFactoryAuthPolicy},
     routines::inflation::{actions::compute_farm_name, ProcessLedgerEntityContext, Slot, TimedOutputRef},
     time::NetworkTimeProvider,
+    util::generate_collateral,
     CurrentEpoch, NetworkTimeSource,
 };
 use tokio::io::AsyncWriteExt;
