@@ -653,21 +653,16 @@ fn try_optimize_swap<M: MarketMaker + Stable>(
         Side::Bid => AbsolutePrice::new(input, output)?,
         Side::Ask => AbsolutePrice::new(output, input)?,
     };
-    if input > 0 {
-        if demand >= input {
-            Some((
-                maker.stable_id(),
-                FillPreview {
-                    price: absolute_price,
-                    input,
-                },
-            ))
-        } else {
-            probe_swap(demand, side, maker)
-        }
-    } else {
-        None
+    if input > 0 && demand >= input {
+        return Some((
+            maker.stable_id(),
+            FillPreview {
+                price: absolute_price,
+                input,
+            },
+        ));
     }
+    None
 }
 
 impl<T, M> TLBState<T, M>
