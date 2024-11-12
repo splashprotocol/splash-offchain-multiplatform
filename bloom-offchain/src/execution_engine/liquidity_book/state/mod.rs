@@ -627,6 +627,49 @@ pub struct FillPreview {
     pub input: u64,
 }
 
+fn probe_swap<M: MarketMaker + Stable>(
+    demand: u64,
+    side: Side,
+    maker: &M,
+) -> Option<(M::StableId, FillPreview)> {
+    let real_price = maker.real_price(side.wrap(demand))?;
+    Some((
+        maker.stable_id(),
+        FillPreview {
+            input: demand,
+            price: real_price,
+        },
+    ))
+}
+
+fn try_optimize_swap<M: MarketMaker + Stable>(
+    price: AbsolutePrice,
+    demand: u64,
+    side: Side,
+    maker: &M,
+) -> Option<(M::StableId, FillPreview)> {
+    let AvailableLiquidity { input, output } = maker.available_liquidity_on_side(side.wrap(price))?;
+    let absolute_price = match side {
+        Side::Bid => AbsolutePrice::new(input, output)?,
+        Side::Ask => AbsolutePrice::new(output, input)?,
+    };
+    if input > 0 {
+        if demand >= input {
+            Some((
+                maker.stable_id(),
+                FillPreview {
+                    price: absolute_price,
+                    input,
+                },
+            ))
+        } else {
+            probe_swap(demand, side, maker)
+        }
+    } else {
+        None
+    }
+}
+
 impl<T, M> TLBState<T, M>
 where
     M: Stable + Copy,
@@ -646,33 +689,7 @@ where
             .values()
             .filter(|pool| pool.is_active())
             .filter_map(|p| {
-                let AvailableLiquidity { input, output } = p.available_liquidity_on_side(side.wrap(price))?;
-                let absolute_price = match side {
-                    Side::Bid => AbsolutePrice::new(input, output)?,
-                    Side::Ask => AbsolutePrice::new(output, input)?,
-                };
-                if input > 0 {
-                    if demand >= input {
-                        Some((
-                            p.stable_id(),
-                            FillPreview {
-                                price: absolute_price,
-                                input,
-                            },
-                        ))
-                    } else {
-                        let real_price = p.real_price(side.wrap(demand))?;
-                        Some((
-                            p.stable_id(),
-                            FillPreview {
-                                input: demand,
-                                price: real_price,
-                            },
-                        ))
-                    }
-                } else {
-                    None
-                }
+                try_optimize_swap(price, demand, side, p).or_else(|| probe_swap(demand, side, p))
             });
         match side {
             Side::Bid => pools.min_by_key(|(_, rp)| rp.price),
