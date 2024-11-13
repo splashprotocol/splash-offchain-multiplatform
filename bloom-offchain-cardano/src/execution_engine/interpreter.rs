@@ -13,6 +13,7 @@ use bloom_offchain::execution_engine::funding_effect::FundingIO;
 use bloom_offchain::execution_engine::liquidity_book::core::{Execution, ExecutionRecipe, Make, Take};
 use bloom_offchain::execution_engine::liquidity_book::interpreter::{ExecutionResult, RecipeInterpreter};
 use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
+use bloom_offchain::execution_engine::liquidity_book::types::Lovelace;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
@@ -20,16 +21,24 @@ use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_cardano_lib::{NetworkId, OutputRef};
 use spectrum_offchain::data::{Baked, Has};
 use spectrum_offchain_cardano::constants::ADDITIONAL_FEE;
-use spectrum_offchain_cardano::creds::{OperatorCred, OperatorRewardAddress};
+use spectrum_offchain_cardano::creds::OperatorRewardAddress;
 use spectrum_offchain_cardano::deployment::DeployedValidator;
-use spectrum_offchain_cardano::deployment::ProtocolValidator::{GridOrderNative, LimitOrderWitnessV1};
+use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderWitnessV1;
 
 use crate::execution_engine::execution_state::ExecutionState;
-use crate::execution_engine::instances::{EffectPreview, FinalizedEffect, Magnet};
+use crate::execution_engine::instances::{EffectPreview, Magnet};
 
 /// A short-living interpreter.
 #[derive(Debug, Copy, Clone)]
-pub struct CardanoRecipeInterpreter;
+pub struct CardanoRecipeInterpreter {
+    take_residual_fee: bool,
+}
+
+impl CardanoRecipeInterpreter {
+    pub fn new(take_residual_fee: bool) -> CardanoRecipeInterpreter {
+        CardanoRecipeInterpreter { take_residual_fee }
+    }
+}
 
 impl<'a, Fr, Pl, Ctx> RecipeInterpreter<Fr, Pl, Ctx, OutputRef, FinalizedTxOut, SignedTxBuilder>
     for CardanoRecipeInterpreter
@@ -51,7 +60,8 @@ where
         funding: FinalizedTxOut,
         ctx: Ctx,
     ) -> ExecutionResult<Fr, Pl, OutputRef, FinalizedTxOut, SignedTxBuilder> {
-        let (mut tx_builder, effects, funding_io_preview, ctx) = execute_recipe(funding, ctx, instructions);
+        let (mut tx_builder, effects, funding_io_preview, ctx) =
+            execute_recipe(funding, self.take_residual_fee, ctx, instructions, 0);
         let execution_fee_address = ctx.select::<OperatorRewardAddress>().into();
         // Build tx, change is execution fee.
         let tx = tx_builder
@@ -109,8 +119,10 @@ where
 #[tailcall]
 fn execute_recipe<Fr, Pl, Ctx>(
     funding: FinalizedTxOut,
+    take_residual_fee: bool,
     ctx: Ctx,
     instructions: Vec<Execution<Fr, Pl, FinalizedTxOut>>,
+    accumulated_residue: Lovelace,
 ) -> (
     TransactionBuilder,
     Vec<EffectPreview<Either<Fr, Pl>>>,
@@ -145,14 +157,15 @@ where
         ctx.select::<NetworkId>(),
         ctx.select::<OperatorRewardAddress>(),
         funding.clone(),
-        operator_interest,
+        operator_interest + accumulated_residue,
     );
     tx_builder
         .add_collateral(ctx.select::<Collateral>().into())
         .unwrap();
 
     let estimated_fee = tx_builder.min_fee(true).unwrap() + ADDITIONAL_FEE;
-    let fee_mismatch = reserved_tx_fee as i64 - estimated_fee as i64;
+    let updated_tx_fee = reserved_tx_fee - accumulated_residue;
+    let fee_mismatch = updated_tx_fee as i64 - estimated_fee as i64;
     trace!(
         "Est. fee: {}, reserved fee: {}, mismatch: {}",
         estimated_fee,
@@ -160,9 +173,19 @@ where
         fee_mismatch
     );
     if fee_mismatch != 0 {
-        let fee_rescale_factor = Ratio::new(estimated_fee, reserved_tx_fee);
-        let corrected_recipe = balance_fee(fee_mismatch, fee_rescale_factor, instructions);
-        execute_recipe(funding, ctx, corrected_recipe)
+        if take_residual_fee && fee_mismatch > 0 {
+            execute_recipe(
+                funding,
+                take_residual_fee,
+                ctx,
+                instructions,
+                fee_mismatch.unsigned_abs(),
+            )
+        } else {
+            let fee_rescale_factor = Ratio::new(estimated_fee, reserved_tx_fee);
+            let corrected_recipe = balance_fee(fee_mismatch, fee_rescale_factor, instructions);
+            execute_recipe(funding, take_residual_fee, ctx, corrected_recipe, 0)
+        }
     } else {
         (tx_builder, effects, funding_io, ctx)
     }

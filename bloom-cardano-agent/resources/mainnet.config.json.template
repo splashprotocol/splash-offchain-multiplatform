@@ -28,6 +28,7 @@
     "nanos": 0
   },
   "operatorKey": "",
+  "takeResidualFee": false,
   "maestroKeyPath": "bloom-cardano-agent/resources/maestro.key",
   "execution": {
     "executionCap": {
@@ -41,14 +42,6 @@
       }
     },
     "o2o_allowed": true
-  },
-  "mempoolBufferingDuration": {
-    "secs": 1,
-    "nanos": 0
-  },
-  "ledgerBufferingDuration": {
-    "secs": 0,
-    "nanos": 50000
   },
   "partitioning": {
     "numPartitionsTotal": 1,

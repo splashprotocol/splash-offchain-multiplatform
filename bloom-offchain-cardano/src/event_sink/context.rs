@@ -37,7 +37,7 @@ pub struct HandlerContextProto {
     pub adhoc_fee_structure: AdhocFeeStructure,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct HandlerContext<I: Copy> {
     pub output_ref: OutputRef,
     pub consumed_utxos: ConsumedInputs,

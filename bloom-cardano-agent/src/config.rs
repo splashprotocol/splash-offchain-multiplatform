@@ -18,14 +18,13 @@ pub struct AppConfig {
     pub node: NodeConfig,
     pub tx_submission_buffer_size: usize,
     pub operator_key: String,
+    pub take_residual_fee: bool,
     pub cardano_finalization_delay: Duration,
     pub backlog_capacity: u32,
     pub network_id: NetworkId,
     pub maestro_key_path: String,
     pub execution: ExecutionConfig,
     pub channel_buffer_size: usize,
-    pub mempool_buffering_duration: Duration,
-    pub ledger_buffering_duration: Duration,
     pub partitioning: Partitioning,
 }
 

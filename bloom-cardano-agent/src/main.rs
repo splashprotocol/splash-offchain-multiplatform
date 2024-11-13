@@ -1,6 +1,5 @@
 use clap::Parser;
 use cml_chain::transaction::Transaction;
-use cml_multi_era::MultiEraBlock;
 use either::Either;
 use futures::channel::mpsc;
 use futures::stream::FuturesUnordered;
@@ -19,7 +18,6 @@ use bloom_offchain::execution_engine::execution_part_stream;
 use bloom_offchain::execution_engine::funding_effect::FundingEvent;
 use bloom_offchain::execution_engine::liquidity_book::TLB;
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
-use bloom_offchain::execution_engine::storage::kv_store::InMemoryKvStore;
 use bloom_offchain::execution_engine::storage::InMemoryStateIndex;
 use bloom_offchain_cardano::event_sink::context::{HandlerContext, HandlerContextProto};
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
@@ -105,7 +103,7 @@ async fn main() {
     let protocol_deployment = ProtocolDeployment::unsafe_pull(deployment, &explorer).await;
 
     let chain_sync_cache = Arc::new(Mutex::new(LedgerCacheRocksDB::new(config.chain_sync.db_path)));
-    let chain_sync: ChainSyncClient<MultiEraBlock> = ChainSyncClient::init(
+    let chain_sync = ChainSyncClient::init(
         Arc::clone(&chain_sync_cache),
         config.node.path.clone(),
         config.node.magic,
@@ -237,7 +235,7 @@ async fn main() {
     ];
 
     let prover = OperatorProver::new(config.operator_key);
-    let recipe_interpreter = CardanoRecipeInterpreter;
+    let recipe_interpreter = CardanoRecipeInterpreter::new(config.take_residual_fee);
     let spec_interpreter = SpecializedInterpreterViaRunOrder;
     let maker_context = MakerContext {
         time: 0.into(),

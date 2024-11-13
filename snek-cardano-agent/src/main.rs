@@ -62,7 +62,6 @@ use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::data::degen_quadratic_pool::DegenQuadraticPool;
 use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
 use spectrum_offchain_cardano::data::pair::PairId;
-use spectrum_offchain_cardano::deployment::DeployedValidators;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
 
@@ -233,7 +232,7 @@ async fn main() {
         vec![Box::new(general_upd_handler), Box::new(funding_event_handler)];
 
     let prover = OperatorProver::new(config.operator_key);
-    let recipe_interpreter = CardanoRecipeInterpreter;
+    let recipe_interpreter = CardanoRecipeInterpreter::new(true);
     let spec_interpreter = SpecializedInterpreterViaRunOrder;
     let maker_context = MakerContext {
         time: 0.into(),
