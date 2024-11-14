@@ -2,9 +2,12 @@ use cml_chain::address::Address;
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::transaction::{TransactionInput, TransactionOutput};
 use cml_core::serialization::Deserialize;
+use cml_crypto::chain_core::property::TransactionId;
 use cml_crypto::TransactionHash;
+use isahc::{AsyncReadResponseExt, Request};
 use maestro_rust_sdk::client::maestro;
 use maestro_rust_sdk::models::addresses::UtxosAtAddress;
+use maestro_rust_sdk::models::transactions::RedeemerEvaluation;
 use maestro_rust_sdk::utils::Parameters;
 use std::collections::HashMap;
 use std::io::Error;
@@ -60,6 +63,19 @@ pub trait CardanoNetwork {
         offset: u32,
         limit: u16,
     ) -> Vec<TransactionUnspentOutput>;
+    async fn slot_indexed_utxos_by_address(
+        &self,
+        address: Address,
+        offset: u32,
+        limit: u16,
+    ) -> Vec<(TransactionUnspentOutput, u64)>;
+    async fn submit_tx(&self, cbor: &[u8]) -> Result<(), Box<dyn std::error::Error>>;
+    async fn chain_tip_slot_number(&self) -> Result<u64, Box<dyn std::error::Error>>;
+    async fn wait_for_transaction_confirmation(
+        &self,
+        tx_id: TransactionHash,
+    ) -> Result<(), Box<dyn std::error::Error>>;
+    async fn evaluate_tx(&self, cbor: &str) -> Result<Vec<RedeemerEvaluation>, Box<dyn std::error::Error>>;
 }
 
 pub struct Maestro(maestro::Maestro);
@@ -87,7 +103,7 @@ impl CardanoNetwork for Maestro {
                 .await
         )
         .and_then(|tx_out| {
-            let tx_out = TransactionOutput::from_cbor_bytes(&*hex::decode(tx_out.data.tx_out_cbor)?)?;
+            let tx_out = TransactionOutput::from_cbor_bytes(&hex::decode(tx_out.data.tx_out_cbor.unwrap())?)?;
             Ok(TransactionUnspentOutput::new(oref.into(), tx_out))
         })
         .ok()
@@ -135,6 +151,57 @@ impl CardanoNetwork for Maestro {
         .ok()
         .unwrap_or(vec![])
     }
+
+    async fn slot_indexed_utxos_by_address(
+        &self,
+        address: Address,
+        offset: u32,
+        limit: u16,
+    ) -> Vec<(TransactionUnspentOutput, u64)> {
+        let utxos = self.utxos_by_address(address, offset, limit).await;
+        let mut res = vec![];
+
+        for utxo in utxos {
+            let tx_details = self
+                .0
+                .transaction_details(&utxo.input.transaction_id.to_hex())
+                .await
+                .unwrap();
+            res.push((utxo, tx_details.data.block_absolute_slot as u64));
+        }
+        res
+    }
+
+    async fn submit_tx(&self, cbor_bytes: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+        let result = self.0.tx_manager_submit(cbor_bytes.to_vec()).await?;
+        println!("TX submit result: {}", result);
+        Ok(())
+    }
+
+    async fn chain_tip_slot_number(&self) -> Result<u64, Box<dyn std::error::Error>> {
+        let r = self.0.chain_tip().await?;
+        Ok(r.last_updated.block_slot as u64)
+    }
+
+    async fn evaluate_tx(&self, cbor: &str) -> Result<Vec<RedeemerEvaluation>, Box<dyn std::error::Error>> {
+        self.0.evaluate_tx(cbor, vec![]).await
+    }
+
+    async fn wait_for_transaction_confirmation(
+        &self,
+        tx_id: TransactionHash,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        while self
+            .0
+            .transaction_cbor(&tx_id.to_hex())
+            .await
+            .map(|_| ())
+            .is_err()
+        {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        }
+        Ok(())
+    }
 }
 
 fn read_maestro_utxos(
@@ -146,7 +213,7 @@ fn read_maestro_utxos(
             TransactionHash::from_hex(utxo.tx_hash.as_str()).unwrap(),
             utxo.index as u64,
         );
-        let tx_out = TransactionOutput::from_cbor_bytes(&*hex::decode(utxo.tx_out_cbor)?)?;
+        let tx_out = TransactionOutput::from_cbor_bytes(&*hex::decode(utxo.tx_out_cbor.unwrap())?)?;
         utxos.push(TransactionUnspentOutput::new(tx_in, tx_out));
     }
     Ok(utxos)

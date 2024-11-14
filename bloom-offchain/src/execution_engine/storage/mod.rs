@@ -283,6 +283,7 @@ pub fn index_key<T: Into<[u8; 60]>>(prefix: u8, id: T) -> InMemoryIndexKey {
 mod tests {
     use crate::execution_engine::storage::{InMemoryStateIndex, StateIndex, StateIndexWithTracing};
     use derive_more::{From, Into};
+    use serde::{Deserialize, Serialize};
     use spectrum_offchain::data::event::{Confirmed, Predicted, Unconfirmed};
     use spectrum_offchain::data::{Baked, EntitySnapshot, Stable};
     use std::fmt::{Display, Formatter, Write};
@@ -300,7 +301,9 @@ mod tests {
         }
     }
 
-    #[derive(Copy, Clone, Hash, Ord, PartialOrd, PartialEq, Eq, Debug, Into, From)]
+    #[derive(
+        Copy, Clone, Hash, Ord, PartialOrd, PartialEq, Eq, Debug, Into, From, Serialize, Deserialize,
+    )]
     struct Ver([u8; 32]);
     impl Ver {
         fn from_str(s: &str) -> Self {

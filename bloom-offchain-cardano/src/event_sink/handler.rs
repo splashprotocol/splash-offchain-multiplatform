@@ -159,7 +159,7 @@ where
                     Err(tx) => Some(LedgerTxEvent::TxApplied { tx, slot }),
                 }
             }
-            LedgerTxEvent::TxUnapplied(tx) => {
+            LedgerTxEvent::TxUnapplied { tx, slot } => {
                 match extract_funding_events(
                     tx,
                     self.funding_addresses.clone(),
@@ -183,9 +183,9 @@ where
                                 }
                             }
                         }
-                        Some(LedgerTxEvent::TxUnapplied(tx))
+                        Some(LedgerTxEvent::TxUnapplied { tx, slot })
                     }
-                    Err(tx) => Some(LedgerTxEvent::TxUnapplied(tx)),
+                    Err(tx) => Some(LedgerTxEvent::TxUnapplied { tx, slot }),
                 }
             }
         };
@@ -370,7 +370,7 @@ where
                     Err(tx) => Some(LedgerTxEvent::TxApplied { tx, slot }),
                 }
             }
-            LedgerTxEvent::TxUnapplied(tx) => {
+            LedgerTxEvent::TxUnapplied { tx, slot } => {
                 match extract_atomic_transitions(
                     Arc::clone(&self.order_index),
                     self.general_handler.context_proto,
@@ -398,9 +398,9 @@ where
                                 }
                             }
                         }
-                        Some(LedgerTxEvent::TxUnapplied(tx))
+                        Some(LedgerTxEvent::TxUnapplied { tx, slot })
                     }
-                    Err(tx) => Some(LedgerTxEvent::TxUnapplied(tx)),
+                    Err(tx) => Some(LedgerTxEvent::TxUnapplied { tx, slot }),
                 }
             }
         };
@@ -717,7 +717,7 @@ where
                     Err(tx) => Some(LedgerTxEvent::TxApplied { tx, slot }),
                 }
             }
-            LedgerTxEvent::TxUnapplied(tx) => {
+            LedgerTxEvent::TxUnapplied { tx, slot } => {
                 match extract_continuous_transitions(Arc::clone(&self.index), self.context_proto, tx).await {
                     Ok((transitions, tx)) => {
                         trace!("{} entities found in unapplied TX", transitions.len());
@@ -737,9 +737,9 @@ where
                                 }
                             }
                         }
-                        Some(LedgerTxEvent::TxUnapplied(tx))
+                        Some(LedgerTxEvent::TxUnapplied { tx, slot })
                     }
-                    Err(tx) => Some(LedgerTxEvent::TxUnapplied(tx)),
+                    Err(tx) => Some(LedgerTxEvent::TxUnapplied { tx, slot }),
                 }
             }
         };
@@ -1140,7 +1140,10 @@ mod tests {
         assert_eq!(e1_reversed, e1);
         EventHandler::<LedgerTxEvent<TxViewAtEraBoundary>>::try_handle(
             &mut handler,
-            LedgerTxEvent::TxUnapplied(tx_2.into()),
+            LedgerTxEvent::TxUnapplied {
+                tx: tx_2.into(),
+                slot: 1,
+            },
         )
         .await;
         let (

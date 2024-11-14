@@ -130,7 +130,7 @@ where
                 rollback(cache, point.into(), rollback_in_progress).flat_map(|blk| {
                     let unapplied_txs: Vec<_> = unpack_valid_transactions_multi_era(blk)
                         .into_iter()
-                        .map(|(tx, _)| LedgerTxEvent::TxUnapplied(tx))
+                        .map(|(tx, slot)| LedgerTxEvent::TxUnapplied { tx, slot })
                         .rev()
                         .collect();
                     stream::iter(unapplied_txs)

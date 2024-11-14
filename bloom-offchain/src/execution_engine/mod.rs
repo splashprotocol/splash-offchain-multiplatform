@@ -13,6 +13,8 @@ use futures::{FutureExt, Stream};
 use futures::{SinkExt, StreamExt};
 use log::{error, trace, warn};
 use nonempty::NonEmpty;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 use tokio::sync::broadcast;
 
 use liquidity_book::interpreter::RecipeInterpreter;
@@ -129,7 +131,7 @@ where
     Funding: Stream<Item = FundingEvent<Bearer>> + Unpin + 'a,
     Pair: Copy + Eq + Ord + Hash + Display + Unpin + 'a,
     StableId: Copy + Eq + Hash + Debug + Display + Unpin + Send + Sync + 'a,
-    Ver: Copy + Eq + Hash + Display + Unpin + Send + Sync + 'a,
+    Ver: Copy + Eq + Hash + Display + Unpin + Send + Sync + Serialize + DeserializeOwned + 'a,
     Pool: Stable<StableId = StableId> + Copy + Debug + Unpin + Display + 'a,
     CompOrd: Stable<StableId = StableId> + MarketTaker<U = ExUnits> + Copy + Debug + Unpin + Display + 'a,
     SpecOrd: SpecializedOrder<TPoolId = StableId, TOrderId = Ver> + Debug + Unpin + 'a,
@@ -304,7 +306,7 @@ where
     ) where
         PR: Copy + Eq + Hash + Display,
         SID: Copy + Eq + Hash + Display + Debug,
-        V: Copy + Eq + Hash + Display,
+        V: Copy + Eq + Hash + Display + Serialize + DeserializeOwned,
         B: Clone,
         MC: Clone,
         CO: Stable<StableId = SID> + Clone,
@@ -339,7 +341,7 @@ where
     where
         PR: Copy + Eq + Hash + Display,
         SID: Copy + Eq + Hash + Debug + Display,
-        V: Copy + Eq + Hash + Display,
+        V: Copy + Eq + Hash + Display + Serialize + DeserializeOwned,
         B: Clone + Debug,
         MC: Clone,
         CO: Stable<StableId = SID> + Clone + Display,
@@ -445,7 +447,7 @@ where
         }: ExecutionEffectsByPair<PR, TH, CO, SO, P, V, B>,
     ) where
         SID: Eq + Hash + Copy + Display + Debug,
-        V: Eq + Hash + Copy + Display,
+        V: Eq + Hash + Copy + Display + Serialize + DeserializeOwned,
         B: Clone + Debug,
         MC: Clone,
         PR: Eq + Hash + Copy + Display,
@@ -502,7 +504,7 @@ where
         }: ExecutionEffectsByPair<PR, TH, CO, SO, P, V, B>,
     ) where
         SID: Eq + Hash + Copy + Display + Debug,
-        V: Eq + Hash + Copy + Display,
+        V: Eq + Hash + Copy + Display + Serialize + DeserializeOwned,
         B: Clone + Debug,
         MC: Clone,
         PR: Eq + Hash + Copy + Display,
@@ -575,7 +577,7 @@ where
     fn on_linkage_failure(&mut self, focus_pair: PR, orphans: NonEmpty<Either<CO, P>>)
     where
         SID: Eq + Hash + Copy + Display + Debug,
-        V: Eq + Hash + Copy + Display,
+        V: Eq + Hash + Copy + Display + Serialize + DeserializeOwned,
         B: Clone + Debug,
         MC: Clone,
         PR: Eq + Hash + Copy + Display,
@@ -630,7 +632,7 @@ where
     fn on_pair_event(&mut self, pair: PR, event: Event<CO, SO, P, B, V>)
     where
         SID: Eq + Hash + Copy + Display + Debug,
-        V: Eq + Hash + Copy + Display,
+        V: Eq + Hash + Copy + Display + Serialize + DeserializeOwned,
         B: Clone + Debug,
         MC: Clone,
         PR: Eq + Hash + Copy + Display,
@@ -685,7 +687,7 @@ where
     F: Stream<Item = FundingEvent<B>> + Unpin,
     PR: Copy + Eq + Ord + Hash + Display + Unpin,
     SID: Copy + Eq + Hash + Debug + Display + Unpin + Send + Sync,
-    V: Copy + Eq + Hash + Display + Unpin + Send + Sync,
+    V: Copy + Eq + Hash + Display + Unpin + Send + Sync + Serialize + DeserializeOwned,
     P: Stable<StableId = SID> + Copy + Debug + Unpin + Display,
     CO: Stable<StableId = SID> + MarketTaker<U = U> + Copy + Debug + Unpin + Display,
     SO: SpecializedOrder<TPoolId = SID, TOrderId = V> + Unpin,
@@ -830,8 +832,8 @@ where
     S: Stream<Item = (PR, Event<CO, SO, P, B, V>)> + Unpin,
     F: Stream<Item = FundingEvent<B>> + Unpin,
     PR: Copy + Eq + Ord + Hash + Display + Unpin,
-    ST: Copy + Eq + Hash + Debug + Display + Unpin + Send + Sync,
-    V: Copy + Eq + Hash + Display + Unpin + Send + Sync,
+    ST: Copy + Eq + Hash + Debug + Display + Unpin + Send + std::marker::Sync,
+    V: Copy + Eq + Hash + Display + Unpin + Send + std::marker::Sync + Serialize + DeserializeOwned,
     P: Stable<StableId = ST> + Copy + Debug + Unpin + Display,
     CO: Stable<StableId = ST> + MarketTaker<U = U> + Copy + Debug + Unpin + Display,
     SO: SpecializedOrder<TPoolId = ST, TOrderId = V> + Unpin,

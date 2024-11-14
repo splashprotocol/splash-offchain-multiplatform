@@ -97,31 +97,28 @@ where
         loop {
             let SubmitTx(tx, on_resp) = agent.mailbox.select_next_some().await;
             let tx_hash = tx.canonical_hash();
-            loop {
-                match agent.client.submit_tx((*tx).clone()).await {
-                    Ok(Response::Accepted) => on_resp.send(SubmissionResult::Ok).expect("Responder was dropped"),
-                    Ok(Response::Rejected(errors)) => {
-                        trace!("TX {} was rejected due to error: {:?}", tx_hash, errors);
-                        on_resp.send(SubmissionResult::TxRejected{errors:  RejectReasons(Some(errors))}).expect("Responder was dropped");
-                    },
-                    Err(Error::TxSubmissionProtocol(err)) => {
-                        trace!("Failed to submit TX {}: {}", tx_hash, hex::encode(tx.to_cbor_bytes()));
-                        match err {
-                            localtxsubmission::Error::ChannelError(multiplexer::Error::Decoding(_)) => {
-                                warn!("TX {} was likely rejected, reason unknown. Trying to recover.", tx_hash);
-                                agent.recover();
-                                on_resp.send(SubmissionResult::TxRejected{errors: RejectReasons(None)}).expect("Responder was dropped");
-                            }
-                            retryable_err => {
-                                trace!("Failed to submit TX {}: protocol returned error: {}", tx_hash, retryable_err);
-                                agent = agent.restarted().await.expect("Failed to restart TxSubmissionProtocol");
-                                on_resp.send(SubmissionResult::TxRejected{errors: RejectReasons(None)}).expect("Responder was dropped");
-                            },
-                        };
-                    },
-                    Err(err) => panic!("Cannot submit TX {} due to {}", tx_hash, err),
-                }
-                break;
+            match agent.client.submit_tx((*tx).clone()).await {
+                Ok(Response::Accepted) => on_resp.send(SubmissionResult::Ok).expect("Responder was dropped"),
+                Ok(Response::Rejected(errors)) => {
+                    trace!("TX {} was rejected due to error: {:?}", tx_hash, errors);
+                    on_resp.send(SubmissionResult::TxRejected{errors:  RejectReasons(Some(errors))}).expect("Responder was dropped");
+                },
+                Err(Error::TxSubmissionProtocol(err)) => {
+                    trace!("Failed to submit TX {}: {}", tx_hash, hex::encode(tx.to_cbor_bytes()));
+                    match err {
+                        localtxsubmission::Error::ChannelError(multiplexer::Error::Decoding(_)) => {
+                            warn!("TX {} was likely rejected, reason unknown. Trying to recover.", tx_hash);
+                            agent.recover();
+                            on_resp.send(SubmissionResult::TxRejected{errors: RejectReasons(None)}).expect("Responder was dropped");
+                        }
+                        retryable_err => {
+                            trace!("Failed to submit TX {}: protocol returned error: {}", tx_hash, retryable_err);
+                            agent = agent.restarted().await.expect("Failed to restart TxSubmissionProtocol");
+                            on_resp.send(SubmissionResult::TxRejected{errors: RejectReasons(None)}).expect("Responder was dropped");
+                        },
+                    };
+                },
+                Err(err) => panic!("Cannot submit TX {} due to {}", tx_hash, err),
             }
         }
     }

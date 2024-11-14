@@ -11,7 +11,7 @@ pub mod ledger;
 pub mod maker;
 pub mod network;
 pub mod partitioning;
-pub(crate) mod rocks;
+pub mod rocks;
 pub mod small_set;
 pub mod streaming;
 pub mod tracing;

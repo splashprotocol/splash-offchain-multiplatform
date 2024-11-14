@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use crate::constants::EPOCH_LEN;
+use crate::constants::time::EPOCH_LEN;
 use crate::GenesisEpochStartTime;
 
 pub type NetworkTime = u64;
@@ -16,6 +16,7 @@ pub fn epoch_end(gen_epoch_start: GenesisEpochStartTime, epoch: ProtocolEpoch) -
 
 #[async_trait]
 pub trait NetworkTimeProvider {
+    /// Provides current time in seconds
     async fn network_time(&self) -> NetworkTime;
 }
 

@@ -9,7 +9,7 @@ pub enum LedgerBlockEvent<Block> {
 #[derive(Clone, Debug)]
 pub enum LedgerTxEvent<Tx> {
     TxApplied { tx: Tx, slot: u64 },
-    TxUnapplied(Tx),
+    TxUnapplied { tx: Tx, slot: u64 },
 }
 
 #[derive(Clone)]

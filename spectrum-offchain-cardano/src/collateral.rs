@@ -16,11 +16,19 @@ pub async fn pull_collateral<Net: CardanoNetwork>(
 ) -> Option<Collateral> {
     let mut collateral: Option<TransactionUnspentOutput> = None;
     let mut offset = 0u32;
+    let mut num_utxos_pulled = 0;
     while collateral.is_none() {
         let utxos = explorer
             .utxos_by_address(collateral_address.clone().address(), offset, LIMIT)
             .await;
+        println!("pull_collateral utxos: {:?}", utxos);
         if utxos.is_empty() {
+            break;
+        }
+        if utxos.len() > num_utxos_pulled {
+            num_utxos_pulled = utxos.len();
+        } else {
+            // Didn't find any new UTxOs
             break;
         }
         if let Some(x) = utxos

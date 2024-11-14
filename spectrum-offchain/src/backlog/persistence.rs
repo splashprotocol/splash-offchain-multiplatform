@@ -45,8 +45,8 @@ where
         let db = self.db.clone();
         spawn_blocking(move || {
             db.put(
-                bincode::serialize(&ord.order.get_self_ref()).unwrap(),
-                bincode::serialize(&ord).unwrap(),
+                rmp_serde::to_vec_named(&ord.order.get_self_ref()).unwrap(),
+                rmp_serde::to_vec_named(&ord).unwrap(),
             )
             .unwrap();
         })
@@ -54,20 +54,25 @@ where
     }
     async fn exists(&self, ord_id: TOrd::TOrderId) -> bool {
         let db = self.db.clone();
-        spawn_blocking(move || db.get(bincode::serialize(&ord_id).unwrap()).unwrap().is_some()).await
+        spawn_blocking(move || {
+            db.get(rmp_serde::to_vec_named(&ord_id).unwrap())
+                .unwrap()
+                .is_some()
+        })
+        .await
     }
 
     async fn remove(&self, ord_id: TOrd::TOrderId) {
         let db = self.db.clone();
-        spawn_blocking(move || db.delete(bincode::serialize(&ord_id).unwrap()).unwrap()).await;
+        spawn_blocking(move || db.delete(rmp_serde::to_vec_named(&ord_id).unwrap()).unwrap()).await;
     }
 
     async fn get(&self, ord_id: TOrd::TOrderId) -> Option<BacklogOrder<TOrd>> {
         let db = self.db.clone();
         spawn_blocking(move || {
-            db.get(bincode::serialize(&ord_id).unwrap())
+            db.get(rmp_serde::to_vec_named(&ord_id).unwrap())
                 .unwrap()
-                .map(|b| bincode::deserialize(&b).unwrap())
+                .map(|b| rmp_serde::from_slice(&b).unwrap())
         })
         .await
     }
@@ -81,7 +86,7 @@ where
             db.iterator(rocksdb::IteratorMode::Start)
                 .filter_map(|i| {
                     let (_, v) = i.unwrap();
-                    if let Ok(b) = bincode::deserialize::<BacklogOrder<TOrd>>(&v) {
+                    if let Ok(b) = rmp_serde::from_slice::<BacklogOrder<TOrd>>(&v) {
                         if f(&b.order) {
                             return Some(b);
                         }

@@ -57,10 +57,12 @@ pub trait PlutusDataExtension {
     fn get_constr_pd_mut(&mut self) -> Option<&mut ConstrPlutusData>;
     fn into_bytes(self) -> Option<Vec<u8>>;
     fn into_u64(self) -> Option<u64>;
+    fn into_i128(self) -> Option<i128>;
     fn into_u128(self) -> Option<u128>;
     fn into_u512(self) -> Option<U512>;
     fn into_vec_pd<T>(self, f: fn(PlutusData) -> Option<T>) -> Option<Vec<T>>;
     fn into_vec(self) -> Option<Vec<PlutusData>>;
+    fn into_pd_map(self) -> Option<Vec<(PlutusData, PlutusData)>>;
 }
 
 impl PlutusDataExtension for PlutusData {
@@ -92,6 +94,13 @@ impl PlutusDataExtension for PlutusData {
         }
     }
 
+    fn into_i128(self) -> Option<i128> {
+        match self {
+            PlutusData::Integer(big_int) => Some(i128::from(&big_int.as_int()?)),
+            _ => None,
+        }
+    }
+
     fn into_u128(self) -> Option<u128> {
         match self {
             PlutusData::Integer(big_int) => Some(big_int.as_u128()?),
@@ -116,6 +125,13 @@ impl PlutusDataExtension for PlutusData {
     fn into_vec_pd<T>(self, f: fn(PlutusData) -> Option<T>) -> Option<Vec<T>> {
         match self {
             PlutusData::List { list, .. } => Some(list.into_iter().flat_map(f).collect()),
+            _ => None,
+        }
+    }
+
+    fn into_pd_map(self) -> Option<Vec<(PlutusData, PlutusData)>> {
+        match self {
+            PlutusData::Map(m) => Some(m.entries),
             _ => None,
         }
     }

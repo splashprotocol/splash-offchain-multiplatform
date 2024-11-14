@@ -1,10 +1,11 @@
-use cml_chain::address::{Address, BaseAddress, EnterpriseAddress};
-use cml_chain::certs::Credential;
+use cardano_explorer::constants::get_network_id;
+use cml_chain::address::{Address, BaseAddress, EnterpriseAddress, RewardAddress};
+use cml_chain::certs::{Credential, StakeCredential};
 use cml_crypto::{Bip32PrivateKey, Ed25519KeyHash, PrivateKey};
 use derive_more::{From, Into};
 
 use crate::funding::FundingAddresses;
-use spectrum_cardano_lib::NetworkId;
+use spectrum_cardano_lib::{NetworkId, PaymentCredential};
 
 #[derive(serde::Deserialize, Debug, Clone, Into, From)]
 pub struct OperatorRewardAddress(pub Address);
@@ -85,6 +86,53 @@ pub fn operator_creds(
         funding_address_4,
     ];
     (main_pkh.into(), main_address.into(), funding_addresses.into())
+}
+
+pub fn operator_creds_base_address(
+    operator_sk_raw: &str,
+    network_id: NetworkId,
+) -> (
+    Address,
+    RewardAddress,
+    PaymentCredential,
+    OperatorCred,
+    PrivateKey,
+) {
+    let root_key = Bip32PrivateKey::from_bech32(operator_sk_raw).expect("wallet error");
+    let account_key = root_key
+        .derive(1852 + 0x80000000)
+        .derive(1815 + 0x80000000)
+        .derive(0x80000000);
+    let payment_key = account_key.derive(0).derive(0).to_raw_key();
+    let stake_key = account_key.derive(2).derive(0).to_raw_key();
+
+    let payment_key_hash = payment_key.to_public().hash();
+    let stake_key_hash = stake_key.to_public().hash();
+
+    let addr = BaseAddress::new(
+        network_id.into(),
+        StakeCredential::new_pub_key(payment_key_hash),
+        StakeCredential::new_pub_key(stake_key_hash),
+    )
+    .to_address();
+    // Change to payment key
+    let reward_addr = RewardAddress::new(network_id.into(), StakeCredential::new_pub_key(payment_key_hash));
+    let encoded_addr = addr.to_bech32(None).unwrap();
+    let payment_cred = payment_key_hash.to_bech32("addr_vkh").unwrap().into();
+    println!("PAYMENT_CRED raw bytes: {:?}", payment_key_hash);
+    println!(
+        "ADDRESS raw bytes: {:?}",
+        account_key.to_public().to_raw_key().hash()
+    );
+    println!("PAYMENT_CRED: {:?}", payment_cred);
+    println!("ADDRESS: {:?}", encoded_addr);
+    (
+        addr,
+        reward_addr,
+        payment_cred,
+        payment_key_hash.into(),
+        payment_key,
+    )
 }
 
 #[cfg(test)]

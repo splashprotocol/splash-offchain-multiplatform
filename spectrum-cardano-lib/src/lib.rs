@@ -5,14 +5,17 @@ use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::str::FromStr;
 
 use cml_chain::assets::MultiAsset;
-use cml_chain::plutus::PlutusData;
+use cml_chain::certs::Credential;
+use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::TransactionInput;
+use cml_chain::utils::BigInteger;
 use cml_chain::{PolicyId, Value};
 use cml_core::serialization::ToBytes;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
 use derive_more::{From, Into};
 use num::{CheckedAdd, CheckedSub};
+use plutus_data::IntoPlutusData;
 use serde::{Deserialize, Serialize};
 use serde_with::SerializeDisplay;
 
@@ -35,8 +38,10 @@ pub mod types;
 pub mod value;
 
 /// Asset name bytes padded to 32-byte fixed array and tupled with the len of the original asset name.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, derive_more::From)]
-pub struct AssetName(pub u8, pub [u8; 32]);
+#[derive(
+    Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, derive_more::From, Serialize, Deserialize,
+)]
+pub struct AssetName(u8, [u8; 32]);
 
 impl AssetName {
     pub const fn zero() -> Self {
@@ -124,7 +129,7 @@ impl TryFrom<Vec<u8>> for AssetName {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Deserialize, SerializeDisplay)]
-#[serde(try_from = "String")]
+#[serde(try_from = "String", into = "String")]
 pub struct OutputRef(TransactionHash, u64);
 
 impl OutputRef {
@@ -189,7 +194,26 @@ impl TryFrom<&str> for OutputRef {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+impl IntoPlutusData for OutputRef {
+    fn into_pd(self) -> PlutusData {
+        // Note the type for TransactionId in Aiken's stdlib 1.8.0 is different to newer versions.
+        // See: https://github.com/aiken-lang/stdlib/blob/c074d343e869b380861b0fc834944c3cefbca982/lib/aiken/transaction.ak#L110
+        let transaction_id = PlutusData::new_constr_plutus_data(ConstrPlutusData::new(
+            0,
+            vec![PlutusData::new_bytes(self.0.to_raw_bytes().to_vec())],
+        ));
+        let index = PlutusData::new_integer(BigInteger::from(self.1));
+        PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![transaction_id, index]))
+    }
+}
+
+impl From<OutputRef> for String {
+    fn from(value: OutputRef) -> Self {
+        format!("{}#{}", value.0.to_hex(), value.1)
+    }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub struct Token(pub PolicyId, pub AssetName);
 
 impl From<Token> for [u8; 60] {
@@ -361,7 +385,7 @@ impl<T> TryFromPData for TaggedAssetClass<T> {
 }
 
 #[repr(transparent)]
-#[derive(Derivative)]
+#[derive(Derivative, Serialize, Deserialize)]
 #[derivative(Debug(bound = ""), Copy(bound = ""), Clone(bound = ""), Eq(bound = ""))]
 pub struct TaggedAmount<T>(u64, PhantomData<T>);
 
@@ -455,7 +479,7 @@ impl<T> TryFromPData for TaggedAmount<T> {
 
 pub type NetworkTime = u64;
 
-#[derive(serde::Deserialize, Debug, Copy, Clone, From, Into)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Copy, Clone, From, Into, PartialEq, Eq)]
 pub struct NetworkId(u8);
 
 /// Payment credential in bech32.

@@ -116,7 +116,7 @@ where
                     Some(LedgerTxEvent::TxApplied { tx, slot })
                 }
             }
-            LedgerTxEvent::TxUnapplied(tx) => {
+            LedgerTxEvent::TxUnapplied { tx, slot } => {
                 let transitions = extract_transitions(Arc::clone(&self.entities), tx.clone()).await;
                 let num_transitions = transitions.len();
                 let is_success = num_transitions > 0;
@@ -132,7 +132,7 @@ where
                     trace!(target: "offchain_lm", "[{}] entities parsed from unapplied tx", num_transitions);
                     None
                 } else {
-                    Some(LedgerTxEvent::TxUnapplied(tx))
+                    Some(LedgerTxEvent::TxUnapplied { tx, slot })
                 }
             }
         };

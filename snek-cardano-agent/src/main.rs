@@ -336,7 +336,10 @@ async fn main() {
                 tx: TxViewAtEraBoundary::from(tx),
                 slot,
             },
-            LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary::from(tx)),
+            LedgerTxEvent::TxUnapplied { tx, slot } => LedgerTxEvent::TxUnapplied {
+                tx: TxViewAtEraBoundary::from(tx),
+                slot,
+            },
         });
 
         let mempool_stream = mempool_stream(mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
@@ -456,7 +459,10 @@ async fn main() {
                 tx: TxViewAtEraBoundary::from(tx),
                 slot,
             },
-            LedgerTxEvent::TxUnapplied(tx) => LedgerTxEvent::TxUnapplied(TxViewAtEraBoundary::from(tx)),
+            LedgerTxEvent::TxUnapplied { tx, slot } => LedgerTxEvent::TxUnapplied {
+                tx: TxViewAtEraBoundary::from(tx),
+                slot,
+            },
         });
 
         let mempool_stream = mempool_stream(mempool_sync, signal_tip_reached_recv).map(|ev| match ev {

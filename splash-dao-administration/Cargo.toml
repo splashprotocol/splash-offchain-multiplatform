@@ -1,0 +1,30 @@
+[package]
+name = "splash-dao-administration"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cardano-explorer = { version = "0.1.0", path = "../cardano-explorer" }
+clap = { version = "4.0", features = ["derive"] }
+cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
+cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
+cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
+cml-multi-era = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
+hex = "0.4.3"
+reqwest = { version = "0.12", features = ["blocking", "json"] }
+spectrum-cardano-lib = { version = "0.1.0", path = "../spectrum-cardano-lib" }
+spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain" }
+spectrum-offchain-cardano = { version = "1.0.0", path = "../spectrum-offchain-cardano" }
+splash-dao-offchain = { version = "1.0.0", path = "../splash-dao-offchain" }
+tokio = { version = "1.22.0", features = ["full"] }
+type-equalities = "0.3.1"
+serde = { version = "1.0.147", features = ["derive"] }
+serde_json = "1.0.88"
+uplc = "0.0.29"
+uplc-pallas-codec = { package = "pallas-codec", version = "0.16" }
+uplc-pallas-traverse = { package = "pallas-traverse", version = "0.16" }
+uplc-pallas-primitives = { package = "pallas-primitives", version = "0.16" }
+
+[features]
+default = []
+enable_test_30_min_epoch = ["splash-dao-offchain/test_30_min_epoch"]

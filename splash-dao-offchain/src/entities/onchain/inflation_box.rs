@@ -1,46 +1,67 @@
-use cml_chain::plutus::{ExUnits, PlutusData};
+use cml_chain::assets::AssetName;
+use cml_chain::plutus::{ExUnits, PlutusData, PlutusV2Script};
 
+use cml_chain::transaction::TransactionOutput;
 use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, ScriptHash};
-use spectrum_cardano_lib::plutus_data::IntoPlutusData;
-use spectrum_cardano_lib::{TaggedAmount, Token};
-use spectrum_offchain::data::{EntitySnapshot, Identifier, Stable};
+use log::trace;
+use serde::{Deserialize, Serialize};
+use spectrum_cardano_lib::plutus_data::{DatumExtension, IntoPlutusData, PlutusDataExtension};
+use spectrum_cardano_lib::transaction::TransactionOutputExtension;
+use spectrum_cardano_lib::{OutputRef, TaggedAmount, Token};
+use spectrum_offchain::data::{EntitySnapshot, Has, Identifier, Stable};
+use spectrum_offchain::ledger::TryFromLedger;
+use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 use uplc_pallas_codec::utils::{Int, PlutusBytes};
 
 use crate::assets::Splash;
-use crate::constants::INFLATION_SCRIPT;
-use crate::routines::inflation::InflationBoxSnapshot;
+use crate::constants::time::EPOCH_BOUNDARY_SHIFT;
+use crate::constants::{script_bytes::INFLATION_SCRIPT, SPLASH_NAME};
+use crate::deployment::ProtocolValidator;
+use crate::entities::Snapshot;
+use crate::protocol_config::SplashPolicy;
+use crate::routines::inflation::{Slot, TimedOutputRef};
 use crate::time::{epoch_end, NetworkTime, ProtocolEpoch};
 use crate::{constants, GenesisEpochStartTime};
 
-#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
-pub struct InflationBoxId(Token);
+pub type InflationBoxSnapshot = Snapshot<InflationBox, TimedOutputRef>;
+
+#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize, Hash, derive_more::Display)]
+pub struct InflationBoxId;
 
 impl Identifier for InflationBoxId {
     type For = InflationBoxSnapshot;
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct InflationBox {
-    pub last_processed_epoch: ProtocolEpoch,
+    pub last_processed_epoch: Option<ProtocolEpoch>,
     pub splash_reserves: TaggedAmount<Splash>,
-    pub wp_auth_policy: PolicyId,
+    pub script_hash: ScriptHash,
 }
 
 impl InflationBox {
     pub fn active_epoch(&self, genesis: GenesisEpochStartTime, now: NetworkTime) -> ProtocolEpoch {
-        if epoch_end(genesis, self.last_processed_epoch) < now {
-            self.last_processed_epoch
+        if let Some(last_processed_epoch) = self.last_processed_epoch {
+            if epoch_end(genesis, last_processed_epoch) > now - EPOCH_BOUNDARY_SHIFT {
+                last_processed_epoch
+            } else {
+                last_processed_epoch + 1
+            }
         } else {
-            self.last_processed_epoch + 1
+            0
         }
     }
 
     pub fn release_next_tranche(mut self) -> (InflationBox, TaggedAmount<Splash>) {
-        let next_epoch = self.last_processed_epoch + 1;
+        let next_epoch = if self.last_processed_epoch.is_none() {
+            0
+        } else {
+            self.last_processed_epoch.unwrap() + 1
+        };
         let rate = emission_rate(next_epoch);
-        self.last_processed_epoch = next_epoch;
+        self.last_processed_epoch = Some(next_epoch);
         self.splash_reserves -= rate;
         (self, rate)
     }
@@ -63,12 +84,43 @@ pub fn emission_rate(epoch: ProtocolEpoch) -> TaggedAmount<Splash> {
 }
 
 impl Stable for InflationBox {
-    type StableId = PolicyId;
+    type StableId = InflationBoxId;
     fn stable_id(&self) -> Self::StableId {
-        self.wp_auth_policy
+        InflationBoxId
     }
     fn is_quasi_permanent(&self) -> bool {
         true
+    }
+}
+
+impl<C> TryFromLedger<TransactionOutput, C> for InflationBoxSnapshot
+where
+    C: Has<SplashPolicy>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::Inflation as u8 }>>
+        + Has<TimedOutputRef>,
+{
+    fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
+        if test_address(repr.address(), ctx) {
+            let value = repr.value().clone();
+            let datum = repr.datum()?;
+            let epoch = datum.into_pd()?.into_u64()?;
+            let last_processed_epoch = if epoch > 0 { Some(epoch as u32 - 1) } else { None };
+            let splash_asset_name = AssetName::try_from(SPLASH_NAME).unwrap();
+            let splash = value
+                .multiasset
+                .get(&ctx.select::<SplashPolicy>().0, &splash_asset_name)?;
+            let script_hash = repr.script_hash()?;
+
+            let inflation_box = InflationBox {
+                last_processed_epoch,
+                splash_reserves: TaggedAmount::new(splash),
+                script_hash,
+            };
+            let version = ctx.select::<TimedOutputRef>();
+
+            return Some(Snapshot::new(inflation_box, version));
+        }
+        None
     }
 }
 
@@ -82,17 +134,29 @@ pub const INFLATION_BOX_EX_UNITS: ExUnits = ExUnits {
     encodings: None,
 };
 
-pub fn compute_inflation_box_script_hash(
+pub fn compute_inflation_box_validator(
+    inflation_auth_policy: PolicyId,
     splash_policy: PolicyId,
     wp_auth_policy: PolicyId,
     weighting_power_policy: PolicyId,
     zeroth_epoch_start: u64,
-) -> ScriptHash {
+) -> PlutusV2Script {
     let params_pd = uplc::PlutusData::Array(vec![
+        uplc::PlutusData::BoundedBytes(PlutusBytes::from(inflation_auth_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(splash_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(wp_auth_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(weighting_power_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BigInt(uplc::BigInt::Int(Int::from(zeroth_epoch_start as i64))),
     ]);
     apply_params_validator(params_pd, INFLATION_SCRIPT)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::entities::onchain::inflation_box::emission_rate;
+
+    #[test]
+    fn check_emission() {
+        println!("epoch 0 emission: {:?}", emission_rate(0));
+    }
 }

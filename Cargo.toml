@@ -1,4 +1,5 @@
 [workspace]
+resolver = "2"
 members = [
     "cardano-chain-sync",
     "cardano-mempool-sync",
@@ -15,6 +16,8 @@ members = [
     "bloom-derivation",
     "cardano-offchain-stableswap",
     "algebra-core",
+    "splash-dao-administration",
+    "splash-dao-agent",
     "splash-dao-offchain",
     "spectrum-streaming",
 ]
