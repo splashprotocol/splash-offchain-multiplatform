@@ -1,4 +1,3 @@
-use cml_chain::address::Address;
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 
 use cardano_explorer::CardanoNetwork;
@@ -21,7 +20,6 @@ pub async fn pull_collateral<Net: CardanoNetwork>(
         let utxos = explorer
             .utxos_by_address(collateral_address.clone().address(), offset, LIMIT)
             .await;
-        println!("pull_collateral utxos: {:?}", utxos);
         if utxos.is_empty() {
             break;
         }
