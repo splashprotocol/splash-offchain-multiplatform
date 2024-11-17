@@ -13,7 +13,7 @@ use std::{
 use cardano_explorer::{CardanoNetwork, Maestro};
 use clap::{command, Parser, Subcommand};
 use cml_chain::{
-    address::Address,
+    address::{Address, RewardAddress},
     assets::{self, MultiAsset},
     builders::{
         input_builder::{InputBuilderResult, SingleInputBuilder},
@@ -24,13 +24,15 @@ use cml_chain::{
         withdrawal_builder::SingleWithdrawalBuilder,
         witness_builder::{PartialPlutusWitness, PlutusScriptWitness},
     },
-    certs::Credential,
+    certs::{Credential, StakeCredential},
     plutus::{ConstrPlutusData, PlutusData, PlutusScript, PlutusV2Script, RedeemerTag},
     transaction::{DatumOption, TransactionOutput},
     utils::BigInteger,
     Coin, Serialize, Value,
 };
-use cml_crypto::{blake2b256, Ed25519KeyHash, PrivateKey, RawBytesEncoding, ScriptHash, TransactionHash};
+use cml_crypto::{
+    blake2b256, Bip32PrivateKey, Ed25519KeyHash, PrivateKey, RawBytesEncoding, ScriptHash, TransactionHash,
+};
 use mint_token::{script_address, DaoDeploymentParameters, LQ_NAME};
 use serde::Deserialize;
 use spectrum_cardano_lib::{

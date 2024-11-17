@@ -1,7 +1,7 @@
 use cml_chain::builders::tx_builder::SignedTxBuilder;
 use cml_chain::crypto::utils::make_vkey_witness;
 use cml_chain::transaction::Transaction;
-use cml_crypto::Bip32PrivateKey;
+use cml_crypto::{Bip32PrivateKey, PrivateKey};
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_offchain::tx_prover::TxProver;
 
