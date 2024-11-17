@@ -1430,8 +1430,7 @@ async fn create_operation_inputs<'a>(config: &'a AppConfig<'a>) -> OperationInpu
     let (addr, _, operator_pkh, _operator_cred, operator_sk) =
         operator_creds_base_address(config.batcher_private_key, config.network_id);
 
-    let sk_bech32 = operator_sk.to_bech32();
-    let prover = OperatorProver::new(sk_bech32);
+    let prover = OperatorProver::new(config.batcher_private_key.into());
     let owner_pub_key = operator_sk.to_public();
 
     let collateral = if let Some(c) = pull_collateral(addr.clone().into(), &explorer).await {

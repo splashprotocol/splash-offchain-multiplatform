@@ -595,7 +595,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                 .execute_order(weighting_poll.erased(), next_order, Slot(self.current_slot))
                 .await
             {
-                let prover = OperatorProver::new(self.operator_sk.to_bech32());
+                let prover = OperatorProver::new(self.conf.operator_sk.clone());
                 let tx = prover.prove(signed_tx);
                 let tx_hash = tx.body.hash();
                 match self.network.submit_tx(tx).await {
@@ -673,7 +673,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                 funding_boxes,
             )
             .await;
-        let prover = OperatorProver::new(self.operator_sk.to_bech32());
+        let prover = OperatorProver::new(self.conf.operator_sk.clone());
         let tx = prover.prove(signed_tx);
         let tx_hash = tx.body.hash();
         info!("Distributing inflation tx (hash: {})", tx_hash);
@@ -712,7 +712,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                     .actions
                     .eliminate_wpoll(weighting_poll, funding_boxes, Slot(self.current_slot))
                     .await;
-                let prover = OperatorProver::new(self.operator_sk.to_bech32());
+                let prover = OperatorProver::new(self.conf.operator_sk.clone());
                 let tx = prover.prove(signed_tx);
                 self.network.submit_tx(tx).await.unwrap();
 
