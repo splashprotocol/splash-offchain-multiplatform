@@ -59,23 +59,34 @@ pub async fn pull_collateral<Net: CardanoNetwork>(
 }
 
 pub async fn send_assets<Net: CardanoNetwork>(
+    coin_before_change_deduction: u64,
+    change_output_coin: u64,
     required_tokens: Vec<BuiltPolicy>,
     explorer: &Net,
     wallet_addr: &Address,
     destination_addr: &Address,
     prover: &OperatorProver,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let amount = 100_000_000;
     let all_utxos = explorer.utxos_by_address(wallet_addr.clone(), 0, 100).await;
-    let utxos = collect_utxos(all_utxos, amount + 3_000_000, required_tokens.clone(), None);
+    let utxos = collect_utxos(
+        all_utxos,
+        coin_before_change_deduction,
+        required_tokens.clone(),
+        None,
+    );
+    let mut amount = 0;
 
+    println!("wallet_addr: {}", wallet_addr.to_bech32(None).unwrap());
     let mut change_output_creator = ChangeOutputCreator::default();
     let mut tx_builder = constant_tx_builder();
-    for utxo in utxos {
+    for (i, utxo) in utxos.into_iter().enumerate() {
+        let utxo_coin = utxo.utxo_info.value().coin;
+        amount += utxo_coin;
+        println!("utxo #{}: {} lovelaces", i, utxo_coin);
         change_output_creator.add_input(&utxo);
         tx_builder.add_input(utxo).unwrap();
     }
-    let mut output_value = Value::from(10_000_000);
+    let mut output_value = Value::from(amount - change_output_coin);
     for BuiltPolicy {
         policy_id,
         asset_name,

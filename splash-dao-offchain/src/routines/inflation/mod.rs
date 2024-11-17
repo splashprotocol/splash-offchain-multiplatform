@@ -550,7 +550,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                     funding_boxes,
                 )
                 .await;
-            let prover = OperatorProver::new(self.operator_sk.to_bech32());
+            let prover = OperatorProver::new(self.conf.operator_sk.clone());
             let tx = prover.prove(signed_tx);
             let tx_hash = tx.body.hash();
             info!("Apply create wpoll tx (hash: {})", tx_hash);

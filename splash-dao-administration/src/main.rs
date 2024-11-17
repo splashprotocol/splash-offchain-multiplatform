@@ -13,7 +13,7 @@ use std::{
 use cardano_explorer::{CardanoNetwork, Maestro};
 use clap::{command, Parser, Subcommand};
 use cml_chain::{
-    address::Address,
+    address::{Address, RewardAddress},
     assets::{self, MultiAsset},
     builders::{
         input_builder::{InputBuilderResult, SingleInputBuilder},
@@ -24,13 +24,15 @@ use cml_chain::{
         withdrawal_builder::SingleWithdrawalBuilder,
         witness_builder::{PartialPlutusWitness, PlutusScriptWitness},
     },
-    certs::Credential,
+    certs::{Credential, StakeCredential},
     plutus::{ConstrPlutusData, PlutusData, PlutusScript, PlutusV2Script, RedeemerTag},
     transaction::{DatumOption, TransactionOutput},
     utils::BigInteger,
     Coin, Serialize, Value,
 };
-use cml_crypto::{blake2b256, Ed25519KeyHash, PrivateKey, RawBytesEncoding, ScriptHash, TransactionHash};
+use cml_crypto::{
+    blake2b256, Bip32PrivateKey, Ed25519KeyHash, PrivateKey, RawBytesEncoding, ScriptHash, TransactionHash,
+};
 use mint_token::{script_address, DaoDeploymentParameters, LQ_NAME};
 use spectrum_cardano_lib::{
     collateral::Collateral,
@@ -1193,7 +1195,14 @@ async fn cast_vote(op_inputs: &OperationInputs, id: VotingEscrowId) {
     let current_posix_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
     let voting_power = voting_escrow.get().voting_power(current_posix_time);
 
-    let voting_order = create_voting_order(operator_sk, id, voting_power, dao_parameters.num_active_farms);
+    let wpoll_policy_id = deployment_config.deployed_validators.mint_wpauth_token.hash;
+    let voting_order = create_voting_order(
+        operator_sk,
+        id,
+        voting_power,
+        wpoll_policy_id,
+        dao_parameters.num_active_farms,
+    );
 
     let client = reqwest::Client::new();
 
@@ -1293,9 +1302,17 @@ async fn send_edao_token(op_inputs: &OperationInputs, destination_addr: String) 
 
     let minted_tokens = &deployment_config.minted_deployment_tokens;
     let required_tokens = vec![minted_tokens.edao_msig.clone()];
-    send_assets(required_tokens, explorer, addr, &destination_addr, prover)
-        .await
-        .unwrap();
+    send_assets(
+        5_000_000,
+        800_000,
+        required_tokens,
+        explorer,
+        addr,
+        &destination_addr,
+        prover,
+    )
+    .await
+    .unwrap();
 }
 
 fn compute_identifier_token_asset_name(output_ref: OutputRef) -> cml_chain::assets::AssetName {

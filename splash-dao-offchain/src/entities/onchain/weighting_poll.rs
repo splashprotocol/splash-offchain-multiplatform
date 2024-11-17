@@ -273,7 +273,7 @@ where
     }
 }
 
-fn distribution_to_plutus_data(distribution: &[(FarmId, u64)]) -> PlutusData {
+pub fn distribution_to_plutus_data(distribution: &[(FarmId, u64)]) -> PlutusData {
     let mut list = vec![];
     for (farm_id, weight) in distribution {
         let farm = Farm {
