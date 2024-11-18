@@ -13,9 +13,28 @@ use cml_core::serialization::RawBytesEncoding;
 use cml_crypto::Ed25519KeyHash;
 use dashu_float::DBig;
 use log::trace;
+use num_rational::Ratio;
 use num_traits::{CheckedDiv, CheckedSub, ToPrimitive};
 use type_equalities::IsEqual;
 use void::Void;
+
+use bloom_offchain::execution_engine::liquidity_book::core::Next;
+use bloom_offchain::execution_engine::liquidity_book::market_maker::{
+    AbsoluteReserves, AvailableLiquidity, FullPriceDerivative, MakerBehavior, MarketMaker, PoolQuality,
+    SpotPrice,
+};
+use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side, SwapAssetSide};
+use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+use spectrum_cardano_lib::ex_units::ExUnits;
+use spectrum_cardano_lib::plutus_data::{
+    ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
+};
+use spectrum_cardano_lib::transaction::TransactionOutputExtension;
+use spectrum_cardano_lib::types::TryFromPData;
+use spectrum_cardano_lib::value::ValueExtension;
+use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass, Token};
+use spectrum_offchain::data::{Has, Stable, Tradable};
+use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 use crate::creds::OperatorCred;
 use crate::data::order::{Base, PoolNft, Quote};
@@ -31,20 +50,6 @@ use crate::pool_math::degen_quadratic_math::{
     degen_quadratic_output_amount, A_DENOM, B_DENOM, FULL_PERCENTILE, MAX_ALLOWED_ADA_EXTRAS_PERCENTILE,
     MIN_ADA, TOKEN_EMISSION,
 };
-use bloom_offchain::execution_engine::liquidity_book::core::Next;
-use bloom_offchain::execution_engine::liquidity_book::market_maker::{AbsoluteReserves, AvailableLiquidity, FullPriceDerivative, MakerBehavior, MarketMaker, PoolQuality, SpotPrice};
-use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side, SwapAssetSide};
-use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
-use spectrum_cardano_lib::ex_units::ExUnits;
-use spectrum_cardano_lib::plutus_data::{
-    ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
-};
-use spectrum_cardano_lib::transaction::TransactionOutputExtension;
-use spectrum_cardano_lib::types::TryFromPData;
-use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass, Token};
-use spectrum_offchain::data::{Has, Stable, Tradable};
-use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 pub struct DegenQuadraticPoolConfig {
     pub pool_nft: TaggedAssetClass<PoolNft>,
@@ -376,7 +381,10 @@ impl MarketMaker for DegenQuadraticPool {
         }
     }
 
-    fn available_liquidity_on_side(&self, worst_price: OnSide<AbsolutePrice>) -> Option<AvailableLiquidity> {
+    fn available_liquidity_by_order_price(
+        &self,
+        worst_price: OnSide<AbsolutePrice>,
+    ) -> Option<AvailableLiquidity> {
         const BN_ZERO: BigNumber = BigNumber { value: DBig::ZERO };
         const MAX_EXCESS_PERC: u64 = 1;
         const PERC: u64 = 100;
@@ -632,7 +640,11 @@ impl MarketMaker for DegenQuadraticPool {
         })
     }
 
-    fn full_price_derivative(&self, side: OnSide<SwapAssetSide>) -> Option<FullPriceDerivative> {
+    fn full_price_derivative(&self, side: Side, swap_side: SwapAssetSide) -> Option<FullPriceDerivative> {
+        unimplemented!()
+    }
+
+    fn available_liquidity_by_spot_price(&self, _: SpotPrice) -> Option<AvailableLiquidity> {
         unimplemented!()
     }
 }
@@ -753,13 +765,6 @@ mod tests {
     use rand::{Rng, SeedableRng};
     use type_equalities::IsEqual;
 
-    use crate::creds::OperatorCred;
-    use crate::data::degen_quadratic_pool::{DegenQuadraticPool, DegenQuadraticPoolVer};
-    use crate::data::pool::PoolValidation;
-    use crate::data::PoolId;
-    use crate::deployment::ProtocolValidator::DegenQuadraticPoolV1;
-    use crate::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
-    use crate::pool_math::degen_quadratic_math::{calculate_a_num, A_DENOM, MIN_ADA, TOKEN_EMISSION};
     use bloom_offchain::execution_engine::liquidity_book::core::Next;
     use bloom_offchain::execution_engine::liquidity_book::market_maker::{
         AvailableLiquidity, MakerBehavior, MarketMaker,
@@ -771,6 +776,14 @@ mod tests {
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass, Token};
     use spectrum_offchain::data::Has;
     use spectrum_offchain::ledger::TryFromLedger;
+
+    use crate::creds::OperatorCred;
+    use crate::data::degen_quadratic_pool::{DegenQuadraticPool, DegenQuadraticPoolVer};
+    use crate::data::pool::PoolValidation;
+    use crate::data::PoolId;
+    use crate::deployment::ProtocolValidator::DegenQuadraticPoolV1;
+    use crate::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
+    use crate::pool_math::degen_quadratic_math::{calculate_a_num, A_DENOM, MIN_ADA, TOKEN_EMISSION};
 
     const LOVELACE: u64 = 1_000_000;
     const DEC: u64 = 1_000;
@@ -952,7 +965,7 @@ mod tests {
 
         let worst_price = AbsolutePrice::new(y_rec, to_dep).unwrap();
         let Some(AvailableLiquidity { input: b, output: q }) =
-            pool0.available_liquidity_on_side(Ask(worst_price))
+            pool0.available_liquidity_by_order_price(Ask(worst_price))
         else {
             panic!()
         };
@@ -968,7 +981,7 @@ mod tests {
         let w_price = AbsolutePrice::new(x_rec, y_rec / 2).unwrap();
 
         let Some(AvailableLiquidity { input: b, output: q }) =
-            pool1.available_liquidity_on_side(Bid(w_price))
+            pool1.available_liquidity_by_order_price(Bid(w_price))
         else {
             panic!()
         };
@@ -978,7 +991,7 @@ mod tests {
         let too_high_ask_price = AbsolutePrice::new(1, 300).unwrap();
 
         let Some(AvailableLiquidity { input: b, output: q }) =
-            pool1.available_liquidity_on_side(Ask(too_high_ask_price))
+            pool1.available_liquidity_by_order_price(Ask(too_high_ask_price))
         else {
             panic!()
         };
@@ -1003,8 +1016,8 @@ mod tests {
             let denom = rng.gen_range(0..TOKEN_EMISSION);
 
             let worst_price = AbsolutePrice::new(num, denom).unwrap();
-            let _ = pool.available_liquidity_on_side(Ask(worst_price));
-            let _ = pool.available_liquidity_on_side(Bid(worst_price));
+            let _ = pool.available_liquidity_by_order_price(Ask(worst_price));
+            let _ = pool.available_liquidity_by_order_price(Bid(worst_price));
             let Next::Succ(pool1) = pool.swap(Ask(num / 100)) else {
                 panic!()
             };
@@ -1027,7 +1040,7 @@ mod tests {
         let worst_price = AbsolutePrice::new(x_rec / 2, 46988705).unwrap();
 
         let Some(AvailableLiquidity { input: b, output: q }) =
-            pool0.available_liquidity_on_side(Bid(worst_price))
+            pool0.available_liquidity_by_order_price(Bid(worst_price))
         else {
             panic!()
         };
@@ -1061,23 +1074,23 @@ mod tests {
             let worst_price = AbsolutePrice::new(x_rec / 2, y_rec).unwrap();
 
             let Some(AvailableLiquidity { input: _, output: q }) =
-                pool1.available_liquidity_on_side(Bid(worst_price))
+                pool1.available_liquidity_by_order_price(Bid(worst_price))
             else {
                 panic!()
             };
             assert!((q - x_rec) * DEC <= q);
 
             let Some(AvailableLiquidity { input: b, output: q }) =
-                pool2.available_liquidity_on_side(Bid(worst_price))
+                pool2.available_liquidity_by_order_price(Bid(worst_price))
             else {
                 panic!()
             };
             assert_eq!(b, 0);
             assert_eq!(q, 0);
 
-            let Some(AvailableLiquidity { input: b, output: q }) = pool2
-                .available_liquidity_on_side(Ask(AbsolutePrice::new(ada_cap / 2, TOKEN_EMISSION).unwrap()))
-            else {
+            let Some(AvailableLiquidity { input: b, output: q }) = pool2.available_liquidity_by_order_price(
+                Ask(AbsolutePrice::new(ada_cap / 2, TOKEN_EMISSION).unwrap()),
+            ) else {
                 panic!()
             };
             let Next::Succ(pool3) = pool2.swap(Ask(pool2.ada_cap_thr - pool2.reserves_x.untag())) else {
@@ -1099,7 +1112,7 @@ mod tests {
 
         let worst_price = AbsolutePrice::new(66474242, 904253).unwrap();
         let Some(AvailableLiquidity { input: b, output: q }) =
-            pool0.available_liquidity_on_side(Bid(worst_price))
+            pool0.available_liquidity_by_order_price(Bid(worst_price))
         else {
             panic!()
         };
@@ -1216,7 +1229,7 @@ mod tests {
         assert_eq!(y_rec, 349686);
         let worst_price = AbsolutePrice::new(174843, 10000000).unwrap();
         let Some(AvailableLiquidity { input: b, output: q }) =
-            pool0.available_liquidity_on_side(Ask(worst_price))
+            pool0.available_liquidity_by_order_price(Ask(worst_price))
         else {
             panic!()
         };

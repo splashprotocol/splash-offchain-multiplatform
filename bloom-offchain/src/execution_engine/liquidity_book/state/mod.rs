@@ -4,6 +4,11 @@ use std::fmt::{Debug, Display, Formatter};
 use std::mem;
 use std::ops::Add;
 
+use either::{Either, Left, Right};
+use log::trace;
+
+use spectrum_offchain::data::Stable;
+
 use crate::display::display_vec;
 use crate::execution_engine::liquidity_book::core::Next;
 use crate::execution_engine::liquidity_book::market_maker::{AvailableLiquidity, MarketMaker, PoolQuality};
@@ -13,9 +18,6 @@ use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
 use crate::execution_engine::liquidity_book::state::price_range::AllowedPriceRange;
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 use crate::execution_engine::liquidity_book::weight::Weighted;
-use either::{Either, Left, Right};
-use log::trace;
-use spectrum_offchain::data::Stable;
 
 mod price_range;
 pub mod queries;
@@ -646,7 +648,8 @@ where
             .values()
             .filter(|pool| pool.is_active())
             .filter_map(|p| {
-                let AvailableLiquidity { input, output } = p.available_liquidity_on_side(side.wrap(price))?;
+                let AvailableLiquidity { input, output } =
+                    p.available_liquidity_by_order_price(side.wrap(price))?;
                 let absolute_price = match side {
                     Side::Bid => AbsolutePrice::new(input, output)?,
                     Side::Ask => AbsolutePrice::new(output, input)?,
@@ -959,8 +962,9 @@ pub mod tests {
     use std::fmt::{Debug, Display, Formatter};
 
     use either::Left;
-    use spectrum_offchain::data::Stable;
     use void::Void;
+
+    use spectrum_offchain::data::Stable;
 
     use crate::execution_engine::liquidity_book::core::{Next, TerminalTake, Trans, Unit};
     use crate::execution_engine::liquidity_book::market_maker::{
@@ -1669,9 +1673,16 @@ pub mod tests {
             }
         }
 
-        fn available_liquidity_on_side(
+        fn available_liquidity_by_order_price(
             &self,
             worst_price: OnSide<AbsolutePrice>,
+        ) -> Option<AvailableLiquidity> {
+            None
+        }
+
+        fn available_liquidity_by_spot_price(
+            &self,
+            final_spot_price: AbsolutePrice,
         ) -> Option<AvailableLiquidity> {
             None
         }

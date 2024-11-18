@@ -14,15 +14,18 @@ use cml_chain::utils::BigInteger;
 use cml_chain::Coin;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use log::info;
+use num_rational::Ratio;
 use void::Void;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::liquidity_book::core::Next;
-use bloom_offchain::execution_engine::liquidity_book::market_maker::{AvailableLiquidity, FullPriceDerivative};
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
     AbsoluteReserves, Excess, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
 };
-use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, SwapAssetSide};
+use bloom_offchain::execution_engine::liquidity_book::market_maker::{
+    AvailableLiquidity, FullPriceDerivative,
+};
+use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side, SwapAssetSide};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::ex_units::ExUnits;
@@ -310,19 +313,29 @@ impl MarketMaker for AnyPool {
             StableCFMM(p) => p.liquidity(),
         }
     }
-    fn available_liquidity_on_side(&self, worst_price: OnSide<AbsolutePrice>) -> Option<AvailableLiquidity> {
+    fn available_liquidity_by_order_price(
+        &self,
+        worst_price: OnSide<AbsolutePrice>,
+    ) -> Option<AvailableLiquidity> {
         match self {
-            PureCFMM(p) => p.available_liquidity_on_side(worst_price),
-            BalancedCFMM(p) => p.available_liquidity_on_side(worst_price),
-            StableCFMM(p) => p.available_liquidity_on_side(worst_price),
+            PureCFMM(p) => p.available_liquidity_by_order_price(worst_price),
+            BalancedCFMM(p) => p.available_liquidity_by_order_price(worst_price),
+            StableCFMM(p) => p.available_liquidity_by_order_price(worst_price),
         }
     }
 
-    fn full_price_derivative(&self, side: OnSide<SwapAssetSide>) -> Option<FullPriceDerivative> {
+    fn available_liquidity_by_spot_price(&self, final_spot_price: SpotPrice) -> Option<AvailableLiquidity> {
         match self {
-            PureCFMM(p) => p.full_price_derivative(side),
-            BalancedCFMM(p) => p.full_price_derivative(side),
-            StableCFMM(p) => p.full_price_derivative(side),
+            PureCFMM(p) => p.available_liquidity_by_spot_price(final_spot_price),
+            BalancedCFMM(p) => p.available_liquidity_by_spot_price(final_spot_price),
+            StableCFMM(p) => p.available_liquidity_by_spot_price(final_spot_price),
+        }
+    }
+    fn full_price_derivative(&self, side: Side, swap_side: SwapAssetSide) -> Option<FullPriceDerivative> {
+        match self {
+            PureCFMM(p) => p.full_price_derivative(side, swap_side),
+            BalancedCFMM(p) => p.full_price_derivative(side, swap_side),
+            StableCFMM(p) => p.full_price_derivative(side, swap_side),
         }
     }
 

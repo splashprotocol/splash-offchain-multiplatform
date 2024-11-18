@@ -1,7 +1,7 @@
+use std::cmp::min;
 use std::fmt::Debug;
 use std::ops::Div;
 
-use bignumber::BigNumber;
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::StakeCredential;
@@ -9,20 +9,21 @@ use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
-use cml_multi_era::babbage::BabbageTransactionOutput;
 use futures::TryFutureExt;
-use num_rational::Ratio;
-use num_traits::{One, ToPrimitive, Zero};
 use num_bigint::BigInt;
-use num_traits::{CheckedAdd, CheckedSub};
-use primitive_types::U512;
+use num_rational::BigRational;
+use num_rational::Ratio;
+use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, FromPrimitive, Signed};
+use num_traits::{One, ToPrimitive, Zero};
 use type_equalities::IsEqual;
 use void::Void;
 
 use bloom_offchain::execution_engine::liquidity_book::core::Next;
-use bloom_offchain::execution_engine::liquidity_book::market_maker::{AvailableLiquidity, FullPriceDerivative};
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
     AbsoluteReserves, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
+};
+use bloom_offchain::execution_engine::liquidity_book::market_maker::{
+    AvailableLiquidity, FullPriceDerivative,
 };
 use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side, SwapAssetSide};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
@@ -100,8 +101,8 @@ pub enum ConstFnPoolVer {
 
 impl ConstFnPoolVer {
     pub fn try_from_address<Ctx>(pool_addr: &Address, ctx: &Ctx) -> Option<ConstFnPoolVer>
-        where
-            Ctx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
+    where
+        Ctx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
             + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
             + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
             + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>
@@ -243,6 +244,7 @@ impl AMMOps for ConstFnPool {
             self.lp_fee_x - self.treasury_fee,
             self.lp_fee_y - self.treasury_fee,
         )
+        .unwrap_or(TaggedAmount::new(0))
     }
 
     fn reward_lp(
@@ -270,8 +272,8 @@ impl AMMOps for ConstFnPool {
 }
 
 impl<Ctx> RequiresValidator<Ctx> for ConstFnPool
-    where
-        Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>>
+where
+    Ctx: Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchV2 as u8 }>>
@@ -326,19 +328,25 @@ impl MakerBehavior for ConstFnPool {
                 self.treasury_x.as_mut(),
             )
         };
+        let treasury_part = (BigInt::from(input.unwrap()) * BigInt::from(*self.treasury_fee.numer())
+            / BigInt::from(*self.treasury_fee.denom()))
+        .to_u64()
+        .unwrap_or(0);
         match input {
             OnSide::Bid(input) => {
                 // A user bid means that they wish to buy the base asset for the quote asset, hence
                 // pool reserves of base decreases while reserves of quote increase.
                 *quote_reserves += input;
-                *base_reserves -= output;
-                *quote_treasury += (input * self.treasury_fee.numer()) / self.treasury_fee.denom();
+                let output_value = min(output, *base_reserves);
+                *base_reserves -= output_value;
+                *quote_treasury += treasury_part;
             }
             OnSide::Ask(input) => {
                 // User ask is the opposite; sell the base asset for the quote asset.
+                let output_value = min(output, *quote_reserves);
                 *base_reserves += input;
-                *quote_reserves -= output;
-                *base_treasury += (input * self.treasury_fee.numer()) / self.treasury_fee.denom();
+                *quote_reserves -= output_value;
+                *base_treasury += treasury_part;
             }
         }
         Next::Succ(self)
@@ -420,237 +428,167 @@ impl MarketMaker for ConstFnPool {
             }
         }
     }
-    fn available_liquidity_on_side(&self, worst_price: OnSide<AbsolutePrice>) -> Option<AvailableLiquidity> {
-        let x_asset = self.asset_x.untag();
-        let [base, _] = order_canonical(self.asset_x.untag(), self.asset_y.untag());
+    fn available_liquidity_by_order_price(
+        &self,
+        worst_price: OnSide<AbsolutePrice>,
+    ) -> Option<AvailableLiquidity> {
+        // Canonical ordering:
+        let (x_asset, y_asset) = (self.asset_x.untag(), self.asset_y.untag());
+        let [base, _] = order_canonical(x_asset, y_asset);
         let x_is_base = x_asset == base;
+        // Side of the operation:
+        let side = match worst_price {
+            OnSide::Ask(_) => Side::Ask,
+            OnSide::Bid(_) => Side::Bid,
+        };
 
+        // Pool params according to the side:
         let x_reserves = BigInt::from((self.reserves_x - self.treasury_x).untag());
         let y_reserves = BigInt::from((self.reserves_y - self.treasury_y).untag());
         let x_fee = self.lp_fee_x - self.treasury_fee;
         let y_fee = self.lp_fee_y - self.treasury_fee;
-
-        let worst_price_value = worst_price.unwrap();
-        let price_num = BigInt::try_from(*worst_price_value.numer()).ok()?;
-        let price_denom = BigInt::try_from(*worst_price_value.denom()).ok()?;
+        let worst_price_value = worst_price.unwrap().unwrap();
 
         let (
             in_balance,
             out_balance,
             total_fee_mul_num,
             total_fee_mul_denom,
-            final_spot_price_num,
-            final_spot_price_denom,
-            side_in,
-            side_out,
-        ) =
-            match worst_price {
-                OnSide::Ask(_) => {
-                    if x_is_base {
-                        (
-                            x_reserves,
-                            y_reserves,
-                            BigInt::from(*x_fee.numer()),
-                            BigInt::from(*x_fee.denom()),
-                            price_num,
-                            price_denom,
-                            OnSide::Ask(SwapAssetSide::Input),
-                            OnSide::Ask(SwapAssetSide::Output),
-                        )
-                    } else {
-                        (
-                            y_reserves,
-                            x_reserves,
-                            BigInt::from(*y_fee.numer()),
-                            BigInt::from(*y_fee.denom()),
-                            price_denom,
-                            price_num,
-                            OnSide::Ask(SwapAssetSide::Input),
-                            OnSide::Ask(SwapAssetSide::Output),
-                        )
-                    }
-                }
-                OnSide::Bid(_) => {
-                    if x_is_base {
-                        (
-                            y_reserves,
-                            x_reserves,
-                            BigInt::from(*y_fee.numer()),
-                            BigInt::from(*y_fee.denom()),
-                            price_denom,
-                            price_num,
-                            OnSide::Bid(SwapAssetSide::Input),
-                            OnSide::Bid(SwapAssetSide::Output),
-                        )
-                    } else {
-                        (
-                            x_reserves,
-                            y_reserves,
-                            BigInt::from(*x_fee.numer()),
-                            BigInt::from(*x_fee.denom()),
-                            price_num,
-                            price_denom,
-                            OnSide::Bid(SwapAssetSide::Input),
-                            OnSide::Bid(SwapAssetSide::Output),
-                        )
-                    }
-                }
-            };
+            worst_price_num,
+            worst_price_denom,
+        ) = if (side == Side::Ask && x_is_base) || (side == Side::Bid && !x_is_base) {
+            (
+                x_reserves,
+                y_reserves,
+                BigInt::from(*x_fee.numer()),
+                BigInt::from(*x_fee.denom()),
+                BigInt::from(*worst_price_value.numer()),
+                BigInt::from(*worst_price_value.denom()),
+            )
+        } else {
+            (
+                y_reserves,
+                x_reserves,
+                BigInt::from(*y_fee.numer()),
+                BigInt::from(*y_fee.denom()),
+                BigInt::from(*worst_price_value.denom()),
+                BigInt::from(*worst_price_value.numer()),
+            )
+        };
+        // Input estimation formula is:
+        // required_in_amount = (total_fee_mul * out_balance / worst_price - in_balance) / total_fee_mul.
+        // Reducing to a common denominator we get:
 
-        let mut pool = self.clone();
-        let spot_init = self.static_price().unwrap();
-        let spot_init_num = BigInt::from(*spot_init.numer()).checked_mul(&total_fee_mul_num)?;
-        let spot_init_denom = BigInt::from(*spot_init.denom()).checked_mul(&total_fee_mul_denom)?;
+        let total_fee_mul_num_x_total_fee_mul_denom = total_fee_mul_num.checked_mul(&total_fee_mul_denom)?;
 
-        let mut price_delta_num = spot_init_num.checked_mul(&final_spot_price_denom)?.checked_sub(&final_spot_price_num.checked_mul(&spot_init_denom)?)?;
-        let target_price_denom = spot_init_denom.checked_mul(&final_spot_price_denom)?;
-        let orig_target_price_num = spot_init_num.checked_mul(&final_spot_price_denom)?.checked_sub(&price_delta_num)?;
+        let required_in_amount_num_left = out_balance
+            .checked_mul(&worst_price_denom)?
+            .checked_mul(&total_fee_mul_num_x_total_fee_mul_denom)?;
+        let required_in_amount_num_right = in_balance
+            .checked_mul(&worst_price_num)?
+            .checked_mul(&total_fee_mul_denom)?
+            .checked_mul(&total_fee_mul_denom)?;
+        let required_in_amount_num =
+            required_in_amount_num_left.checked_sub(&required_in_amount_num_right)?;
+        let required_in_amount_denom =
+            worst_price_num.checked_mul(&total_fee_mul_num_x_total_fee_mul_denom)?;
+        let scale_num = BigInt::from(1000);
+        let scale_denom = BigInt::from(1000);
 
-        let mut target_price_num = spot_init_num.checked_mul(&final_spot_price_denom)?.checked_sub(&price_delta_num)?;
-
-        let mut error = u64::one();
-
-        let mut div_factor: u32 = 2;
-        let mut counter = u32::zero();
-        while error >= u64::one() {
-            let div = BigInt::from(div_factor.pow(counter));
-            let price_delta_num_on_step = price_delta_num.checked_div(&div)?;
-            target_price_num = spot_init_num.checked_mul(&final_spot_price_denom)?.checked_sub(&price_delta_num_on_step)?;
-            let derivative_in = pool.full_price_derivative(side_in)?.0;
-            let derivative_in_num = BigInt::try_from(*derivative_in.numer()).ok()?;
-            let derivative_in_denom = BigInt::try_from(*derivative_in.denom()).ok()?;
-
-            let derivative_out = pool.full_price_derivative(side_out)?.0;
-            let derivative_out_num = BigInt::try_from(*derivative_out.numer()).ok()?;
-
-            let derivative_out_denom = BigInt::try_from(*derivative_out.denom()).ok()?;
-
-            let in_b_mul_fee_denom = in_balance.checked_mul(&total_fee_mul_denom)?;
-            let const_a_left = out_balance.checked_mul(&total_fee_mul_num)?.checked_mul(&target_price_denom)?;
-            let const_a_right = in_b_mul_fee_denom.checked_mul(&target_price_num)?;
-            let const_a = const_a_left.checked_sub(&const_a_right)?;
-            let const_b = in_b_mul_fee_denom.checked_mul(&target_price_denom)?;
-
-            let required_in_amount_num =
-                derivative_in_denom.checked_mul(&const_a)?;
-            let required_in_amount_denom = derivative_in_num.checked_mul(&const_b)?;
-
-            let required_in_amount = required_in_amount_num.checked_div(&required_in_amount_denom)?;
-
-            let available_out_amount_num =
-                derivative_out_denom.checked_mul(&const_a)?;
-            let available_out_amount_denom = derivative_out_num.checked_mul(&const_b)?;
-
-            let available_out_amount = available_out_amount_num.checked_div(&available_out_amount_denom)?;
-
-            let inp = match side_out {
-                OnSide::Ask(_) => OnSide::Ask(required_in_amount.to_u64()?),
-                OnSide::Bid(_) => OnSide::Bid(required_in_amount.to_u64()?),
-            };
-            let estimated_output = pool.estimated_trade(inp)?.output;
-            error = (available_out_amount.to_u64()? - estimated_output) * 10000u64 / estimated_output;
-            counter += 1;
-            // println!("error {:?}", error);
-        }
-        let mut required_in_amount = BigInt::zero();
-        let mut available_out_amount = BigInt::zero();
-
-        let n_iters = div_factor.pow(counter) + 1;
-
-        let min_step = price_delta_num.checked_div(&BigInt::from(n_iters))?;
-        println!("num {:?}", price_delta_num.to_f64().unwrap());
-        println!("min_step {:?}", min_step.to_f64().unwrap());
-        println!("n_iters {:?}", counter);
-        let mut stop_spot: f64 = pool.static_price().unwrap().to_f64().unwrap() * total_fee_mul_num.to_f64().unwrap() / total_fee_mul_denom.to_f64().unwrap();
-        let worst_price_v = final_spot_price_num.to_f64().unwrap() / final_spot_price_denom.to_f64().unwrap();
-        let mut cc = 0;
-        println!("worst_price_v {:?}",worst_price_v);
-        let min_step_f = min_step.to_f64().unwrap() / target_price_denom.to_f64().unwrap();
-        println!("min_step_f {:?}",min_step_f);
-
-        while stop_spot > worst_price_v + min_step_f {
-            let spot_actual = pool.static_price().unwrap();
-            // println!("spot_actual {:?}", spot_actual.to_f64().unwrap());
-            let spot_actual_num = BigInt::from(*spot_actual.numer()).checked_mul(&total_fee_mul_num)?;
-            let spot_actual_denom = BigInt::from(*spot_actual.denom()).checked_mul(&total_fee_mul_denom)?;
-            let target_price_denom = spot_actual_denom.checked_mul(&final_spot_price_denom)?;
-            let actual_min_step = min_step.checked_mul(&spot_init_denom)?.checked_div(&spot_actual_denom)?;
-
-            let derivative_in = pool.full_price_derivative(side_in)?.0;
-            let derivative_in_num = BigInt::try_from(*derivative_in.numer()).ok()?;
-            let derivative_in_denom = BigInt::try_from(*derivative_in.denom()).ok()?;
-            // println!("Deriv in {:?}", derivative_in.to_f64().unwrap());
-            // println!("target {:?}", target_price_num.to_f64().unwrap() * total_fee_mul_denom.to_f64().unwrap() / target_price_denom.to_f64().unwrap() / total_fee_mul_num.to_f64().unwrap());
-            // println!("actual_min_step {:?}", actual_min_step.to_f64().unwrap() / target_price_denom.to_f64().unwrap());
-
-            let derivative_out = pool.full_price_derivative(side_out)?.0;
-            let derivative_out_num = BigInt::try_from(*derivative_out.numer()).ok()?;
-
-            let derivative_out_denom = BigInt::try_from(*derivative_out.denom()).ok()?;
-
-
-            let required_in_amount_num =
-                derivative_in_denom.checked_mul(&actual_min_step)?;
-            let required_in_amount_denom = derivative_in_num.checked_mul(&target_price_denom)?;
-
-            let required_in_amount_step = required_in_amount_num.checked_div(&required_in_amount_denom)?;
-
-            let available_out_amount_num =
-                derivative_out_denom.checked_mul(&actual_min_step)?;
-            let available_out_amount_denom = derivative_out_num.checked_mul(&target_price_denom)?;
-
-            let available_out_amount_step = available_out_amount_num.checked_div(&available_out_amount_denom)?;
-
-            let inp = match side_out {
-                OnSide::Ask(_) => OnSide::Ask(required_in_amount_step.to_u64()?),
-                OnSide::Bid(_) => OnSide::Bid(required_in_amount_step.to_u64()?),
-            };
-            required_in_amount += required_in_amount_step;
-            available_out_amount += available_out_amount_step.clone();
-            let estimated_output = pool.estimated_trade(inp)?.output;
-            error = (available_out_amount_step.to_u64()? - estimated_output) * 10000u64 / estimated_output;
-            let Next::Succ(pool_new) = pool.swap(inp) else { todo!() };
-            pool = pool_new;
-            cc +=1;
-            stop_spot = pool.static_price().unwrap().to_f64().unwrap() * total_fee_mul_num.to_f64().unwrap() / total_fee_mul_denom.to_f64().unwrap();
-            // println!("Inp {:?}", inp);
-            // println!("CC: {:?}", cc);
-        }
-        println!("Final error {:?}", error);
-        println!("Last spot w fee {:?}", pool.static_price().unwrap().to_f64().unwrap() * total_fee_mul_num.to_f64().unwrap() / total_fee_mul_denom.to_f64().unwrap());
-
-        Some(AvailableLiquidity {
-            input: required_in_amount.to_u64()?,
-            output: available_out_amount.to_u64()?,
-        })
+        let required_in_amount = required_in_amount_num
+            .checked_mul(&scale_num)?
+            .checked_div(&required_in_amount_denom.checked_mul(&scale_denom)?)?
+            .to_u64()
+            .unwrap_or(0);
+        let input_for_estimation = match side {
+            Side::Ask => OnSide::Ask(required_in_amount),
+            Side::Bid => OnSide::Bid(required_in_amount),
+        };
+        self.estimated_trade(input_for_estimation)
     }
 
-    fn full_price_derivative(&self, side: OnSide<SwapAssetSide>) -> Option<FullPriceDerivative> {
+    fn available_liquidity_by_spot_price(&self, final_spot_price: SpotPrice) -> Option<AvailableLiquidity> {
+        // Canonical ordering:
+        let (x_asset, y_asset) = (self.asset_x.untag(), self.asset_y.untag());
+        let [base, _] = order_canonical(x_asset, y_asset);
+        let x_is_base = x_asset == base;
+        // Side of the operation:
+        let side = if final_spot_price.unwrap().to_f64() < self.static_price().unwrap().to_f64() {
+            Side::Ask
+        } else {
+            Side::Bid
+        };
+
+        // Pool params according to the side:
+        let x_reserves = BigInt::from((self.reserves_x - self.treasury_x).untag());
+        let y_reserves = BigInt::from((self.reserves_y - self.treasury_y).untag());
+        let x_total_fee = BigRational::from_f64((self.lp_fee_x - self.treasury_fee).to_f64()?)?;
+        let y_total_fee = BigRational::from_f64((self.lp_fee_x - self.treasury_fee).to_f64()?)?;
+        let tr_fee_rev = BigRational::from_f64(1f64 - self.treasury_fee.to_f64().unwrap())?;
+        let x_lp_fee = x_total_fee.checked_div(&tr_fee_rev)?;
+        let y_lp_fee = y_total_fee.checked_div(&tr_fee_rev)?;
+        let final_spot_price_value = final_spot_price.unwrap();
+        let (in_balance, out_balance, lp_fee_mul_num, lp_fee_mul_denom, final_price_num, final_price_denom) =
+            if (side == Side::Ask && x_is_base) || (side == Side::Bid && !x_is_base) {
+                (
+                    BigInt::from(x_reserves),
+                    BigInt::from(y_reserves),
+                    x_lp_fee.numer(),
+                    x_lp_fee.denom(),
+                    BigInt::from(*final_spot_price_value.numer()),
+                    BigInt::from(*final_spot_price_value.denom()),
+                )
+            } else {
+                (
+                    BigInt::from(y_reserves),
+                    BigInt::from(x_reserves),
+                    y_lp_fee.numer(),
+                    y_lp_fee.denom(),
+                    BigInt::from(*final_spot_price_value.denom()),
+                    BigInt::from(*final_spot_price_value.numer()),
+                )
+            };
+
+        let lp_fees = BigRational::new_raw(lp_fee_mul_num.clone(), lp_fee_mul_denom.clone());
+        let in_balance_rational = BigRational::from(in_balance);
+        let out_balance_rational = BigRational::from(out_balance);
+
+        let rational_1 = BigRational::from_u32(1)?;
+        let rational_2 = BigRational::from_u32(2)?;
+        let rational_4 = BigRational::from_u32(4)?;
+
+        let final_price = BigRational::new_raw(final_price_num, final_price_denom);
+        let r_i_p_s = in_balance_rational.checked_mul(&final_price)?;
+        let s0 = r_i_p_s.checked_mul(&lp_fees)?.checked_mul(&lp_fees)?;
+        let s1 = r_i_p_s.checked_mul(&lp_fees)?.checked_mul(&rational_2)?;
+        let s2 = r_i_p_s.clone();
+        let s3 = rational_4
+            .checked_mul(&out_balance_rational)?
+            .checked_mul(&lp_fees)?;
+
+        let under_sqrt = r_i_p_s.checked_mul(&s0.checked_sub(&s1)?.checked_add(&s2)?.checked_add(&s3)?)?;
+        let sqrt = BigRational::from(under_sqrt.to_integer().sqrt());
+        let est_in = sqrt
+            .checked_sub(&r_i_p_s.checked_mul(&rational_1.checked_add(&lp_fees)?)?)?
+            .checked_div(&rational_2.checked_mul(&lp_fees)?.checked_mul(&final_price)?)?
+            .checked_div(&tr_fee_rev)?;
+        let required_in_amount = est_in.to_u64()?;
+        let input_for_estimation = match side {
+            Side::Ask => OnSide::Ask(required_in_amount),
+            Side::Bid => OnSide::Bid(required_in_amount),
+        };
+        self.estimated_trade(input_for_estimation)
+    }
+
+    fn full_price_derivative(&self, side: Side, swap_side: SwapAssetSide) -> Option<FullPriceDerivative> {
         let x_asset = self.asset_x.untag();
         let [base, _] = order_canonical(self.asset_x.untag(), self.asset_y.untag());
         let x_is_base = x_asset == base;
         let x_reserves = BigInt::from((self.reserves_x - self.treasury_x).untag());
         let y_reserves = BigInt::from((self.reserves_y - self.treasury_y).untag());
-        let (side_a_balance, side_b_balance, lp_fee_mul_num, lp_fee_mul_denom) = match side
-        {
-            OnSide::Ask(_) => {
-                if x_is_base {
-                    (
-                        y_reserves,
-                        x_reserves,
-                        BigInt::from(*self.lp_fee_y.numer()),
-                        BigInt::from(*self.lp_fee_y.denom()),
-                    )
-                } else {
-                    (
-                        x_reserves,
-                        y_reserves,
-                        BigInt::from(*self.lp_fee_x.numer()),
-                        BigInt::from(*self.lp_fee_x.denom()),
-                    )
-                }
-            }
-            OnSide::Bid(_) => if x_is_base {
+
+        let (side_a_balance, side_b_balance, lp_fee_mul_num, lp_fee_mul_denom) = {
+            if (side == Side::Bid && x_is_base) || (side == Side::Ask && !x_is_base) {
                 (
                     x_reserves,
                     y_reserves,
@@ -664,15 +602,13 @@ impl MarketMaker for ConstFnPool {
                     BigInt::from(*self.lp_fee_y.numer()),
                     BigInt::from(*self.lp_fee_y.denom()),
                 )
-            },
+            }
         };
-        let swap_asset_side = side.unwrap();
-
         let out_num = lp_fee_mul_num.checked_add(&lp_fee_mul_denom)?;
 
         let out_denom = side_b_balance.checked_mul(&lp_fee_mul_denom)?;
 
-        let (derivative_num, derivative_denom) = match swap_asset_side {
+        let (derivative_num, derivative_denom) = match swap_side {
             SwapAssetSide::Output => (out_num, out_denom),
             SwapAssetSide::Input => (
                 side_a_balance
@@ -724,8 +660,8 @@ impl Stable for ConstFnPool {
 }
 
 impl<Ctx> TryFromLedger<TransactionOutput, Ctx> for ConstFnPool
-    where
-        Ctx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
+where
+    Ctx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>
@@ -1070,13 +1006,16 @@ impl ApplyOrder<ClassicalOnChainRedeem> for ConstFnPool {
 
 #[cfg(test)]
 mod tests {
+    use std::cmp::max;
+    use std::convert::identity;
+
     use cml_chain::transaction::TransactionOutput;
     use cml_core::serialization::Deserialize;
     use cml_crypto::ScriptHash;
     use num_rational::Ratio;
     use num_traits::ToPrimitive;
-    use std::convert::identity;
-    use tracing_subscriber::fmt::writer::EitherWriter::B;
+    use rand::prelude::StdRng;
+    use rand::{Rng, SeedableRng};
     use type_equalities::IsEqual;
 
     use bloom_offchain::execution_engine::liquidity_book::core::{Excess, MakeInProgress, Next, Trans};
@@ -1307,16 +1246,14 @@ mod tests {
     const POOL_UTXO: &str = "a300583931f002facfd69d51b63e7046c6d40349b0b17c8dd775ee415c66af3cccb2f6abf60ccde92eae1a2f4fdf65f2eaf6208d872c6f0e597cc10b0701821a0115a2e9a3581cc881c20e49dbaca3ff6cef365969354150983230c39520b917f5cf7ca1444e696b65190962581c18bed14efe387074511e22c53e46433a43cbb0fdd61e3c5fbdea49f4a14b4e696b655f4144415f4c511b7fffffffffffffff581cc05d4f6397a95b48d0c8a54bf4f0d955f9638d26d7d77d02081c1591a14c4e696b655f4144415f4e465401028201d81858dcd8798bd87982581cc05d4f6397a95b48d0c8a54bf4f0d955f9638d26d7d77d02081c15914c4e696b655f4144415f4e4654d879824040d87982581cc881c20e49dbaca3ff6cef365969354150983230c39520b917f5cf7c444e696b65d87982581c18bed14efe387074511e22c53e46433a43cbb0fdd61e3c5fbdea49f44b4e696b655f4144415f4c511a00017f9818b41a0115a2e919096281d87981d87a81581cc24a311347be1bc3ebfa6f18cb14c7e6bbc2a245725fd9a8a1ccaaea00581c75c4570eb625ae881b32a34c52b159f6f3f3f2c7aaabf5bac4688133";
 
     #[test]
-    fn available_liquidity_test() {
-        let fee_num = 100000;
-        let reserves_x = 1_000_000_000;
-        let reserves_y = 8_000_000_000;
+    fn available_liquidity_test_fixtures() {
+        let fee_num = 55000;
+        let tr_fee = 25000;
+        let reserves_x = 1_000_000_000_000;
+        let reserves_y = 1_000_000_000_000;
         let base_in = 1_000_000_000;
 
-        let pool = gen_ada_token_pool(
-            reserves_x, reserves_y, 0, fee_num, fee_num, 0, 0, 0,
-        );
-        let spot = pool.static_price().unwrap().to_f64().unwrap();
+        let pool = gen_ada_token_pool(reserves_x, reserves_y, 0, fee_num, fee_num, tr_fee, 0, 0);
         // ASK:
         let Next::Succ(pool1) = pool.swap(OnSide::Ask(base_in)) else {
             panic!()
@@ -1324,15 +1261,15 @@ mod tests {
         let y_rec = pool.reserves_y.untag() - pool1.reserves_y.untag();
 
         let final_ask_spot = pool1.static_price().unwrap();
-        let worst_ask_price = AbsolutePrice::new_raw(final_ask_spot.numer() * fee_num as u128, final_ask_spot.denom() * *pool.treasury_fee.denom() as u128);
+        let worst_ask_price = AbsolutePrice::new_raw(y_rec as u128, base_in as u128);
 
         let Some(AvailableLiquidity {
-                     input: inp_ask,
-                     output: out_ask,
-                 }) = pool.available_liquidity_on_side(Ask(worst_ask_price))
-            else {
-                !panic!();
-            };
+            input: inp_ask,
+            output: out_ask,
+        }) = pool.available_liquidity_by_order_price(Ask(worst_ask_price))
+        else {
+            !panic!();
+        };
         // BID:
         let Next::Succ(pool2) = pool.swap(OnSide::Bid(base_in)) else {
             panic!()
@@ -1340,77 +1277,124 @@ mod tests {
         let x_rec = pool.reserves_x.untag() - pool2.reserves_x.untag();
         let final_bid_spot = pool2.static_price().unwrap();
 
-        let worst_bid_price = AbsolutePrice::new_raw(final_bid_spot.numer() * *pool.treasury_fee.denom() as u128, final_bid_spot.denom() * fee_num as u128);
+        let worst_bid_price = AbsolutePrice::new_raw(base_in as u128, x_rec as u128);
 
         let Some(AvailableLiquidity {
-                     input: inp_bid,
-                     output: out_bid,
-                 }) = pool.available_liquidity_on_side(Bid(worst_bid_price))
+            input: inp_bid,
+            output: out_bid,
+        }) = pool.available_liquidity_by_order_price(Bid(worst_bid_price))
+        else {
+            !panic!();
+        };
+        assert_eq!(inp_ask, base_in);
+        assert_eq!(out_ask, y_rec);
+
+        assert_eq!(inp_bid, base_in);
+        assert_eq!(out_bid, x_rec);
+        assert_eq!(1, 2);
+    }
+    #[test]
+    fn available_liquidity_precision_tolerance_test() {
+        let mut rng = StdRng::seed_from_u64(42);
+        for _ in 0..1_000_000 {
+            let reserves_x = rng.gen_range(1_000_000..u64::MAX / 2);
+            let reserves_y = rng.gen_range(1_000_000..u64::MAX / 2);
+            let in_amount = rng.gen_range(100..max(reserves_x, reserves_y));
+            let fee_num = rng.gen_range(50000..90000);
+            let treasury_fee_num = rng.gen_range(1..9900);
+            let treasury_x = rng.gen_range(1..reserves_x / 10);
+            let treasury_y = rng.gen_range(1..reserves_y / 10);
+
+            let pool = gen_ada_token_pool(
+                reserves_x,
+                reserves_y,
+                0,
+                fee_num,
+                fee_num,
+                treasury_fee_num,
+                treasury_x,
+                treasury_y,
+            );
+            // ASK:
+            let Next::Succ(pool1) = pool.swap(OnSide::Ask(in_amount)) else {
+                panic!()
+            };
+            let y_rec = pool.reserves_y.untag() - pool1.reserves_y.untag();
+
+            let worst_ask_price = AbsolutePrice::new_raw(y_rec as u128, in_amount as u128);
+
+            let Some(AvailableLiquidity {
+                input: inp_ask,
+                output: out_ask,
+            }) = pool.available_liquidity_by_order_price(Ask(worst_ask_price))
+            else {
+                !panic!();
+            };
+            // BID:
+            let Next::Succ(pool2) = pool.swap(OnSide::Bid(in_amount)) else {
+                panic!()
+            };
+            let x_rec = pool.reserves_x.untag() - pool2.reserves_x.untag();
+
+            let worst_bid_price = AbsolutePrice::new_raw(in_amount as u128, x_rec as u128);
+
+            let Some(AvailableLiquidity {
+                input: inp_bid,
+                output: out_bid,
+            }) = pool.available_liquidity_by_order_price(Bid(worst_bid_price))
             else {
                 !panic!();
             };
 
-
-        assert_eq!(y_rec, 4000000000);
-        assert_eq!(inp_ask, 1000425197);
-        assert_eq!(out_ask, 4001060839);
-
-        assert_eq!(x_rec, 1235970);
-        // assert_eq!(inp_bid, 999810);
-        // assert_eq!(out_bid, 123726);
-        assert_eq!(1, 2);
+            let base_p = 100000f64;
+            assert!((1f64 - in_amount as f64 / inp_ask as f64) * base_p <= 1f64);
+            assert!((1f64 - in_amount as f64 / inp_bid as f64) * base_p <= 1f64);
+            assert!(out_ask as f64 / inp_ask as f64 >= worst_ask_price.unwrap().to_f64().unwrap());
+            assert!(out_bid as f64 / inp_bid as f64 >= worst_bid_price.unwrap().to_f64().unwrap().recip());
+        }
     }
-
     #[test]
-    fn available_liquidity_precision_tolerance_test() {
-        let fee_num = 99000;
-        let reserves_x = 1_000_000_000;
-        let reserves_y = 8_000_000_000;
+    fn available_liquidity_by_spot_price_test_fixtures() {
+        let lp_fee_num = 84100;
+        let reserves_x = 1_000_000;
+        let reserves_y = 1_000_000;
+        let base_in = 2349494;
+        let tr_fee = 38380;
 
-        let pool = gen_ada_token_pool(
-            reserves_x, reserves_y, 0, fee_num, fee_num, 0, 0, 0,
-        );
-        let spot = pool.static_price().unwrap().to_f64().unwrap();
+        let pool = gen_ada_token_pool(reserves_x, reserves_y, 0, lp_fee_num, lp_fee_num, tr_fee, 0, 0);
         // ASK:
-        let Next::Succ(pool1) = pool.swap(OnSide::Ask(1_000_000)) else {
+        let Next::Succ(pool1) = pool.swap(OnSide::Ask(base_in)) else {
             panic!()
         };
         let y_rec = pool.reserves_y.untag() - pool1.reserves_y.untag();
 
-        let final_ask_spot = pool1.static_price().unwrap();
-        let worst_ask_price = AbsolutePrice::new_raw(final_ask_spot.numer() * fee_num as u128, final_ask_spot.denom() * *pool.treasury_fee.denom() as u128);
-
+        let final_spot = pool1.static_price();
         let Some(AvailableLiquidity {
-                     input: inp_ask,
-                     output: out_ask,
-                 }) = pool.available_liquidity_on_side(Ask(worst_ask_price))
-            else {
-                !panic!();
-            };
+            input: inp_ask,
+            output: out_ask,
+        }) = pool.available_liquidity_by_spot_price(final_spot.into())
+        else {
+            !panic!();
+        };
         // BID:
-        let Next::Succ(pool2) = pool.swap(OnSide::Bid(1_000_000)) else {
+        let Next::Succ(pool2) = pool.swap(OnSide::Bid(base_in)) else {
             panic!()
         };
         let x_rec = pool.reserves_x.untag() - pool2.reserves_x.untag();
-        let final_bid_spot = pool2.static_price().unwrap();
-
-        let worst_bid_price = AbsolutePrice::new_raw(final_bid_spot.numer() * *pool.treasury_fee.denom() as u128, final_bid_spot.denom() * fee_num as u128);
+        let final_bid_spot = pool2.static_price();
 
         let Some(AvailableLiquidity {
-                     input: inp_bid,
-                     output: out_bid,
-                 }) = pool.available_liquidity_on_side(Bid(worst_bid_price))
-            else {
-                !panic!();
-            };
-
-
-        assert_eq!(y_rec, 7912166);
-        assert_eq!(inp_ask, 998509);
-        assert_eq!(out_ask, 7908194);
-
-        assert_eq!(x_rec, 123734);
-        assert_eq!(inp_bid, 999810);
-        assert_eq!(out_bid, 123726);
+            input: inp_bid,
+            output: out_bid,
+        }) = pool.available_liquidity_by_spot_price(final_bid_spot.into())
+        else {
+            !panic!();
+        };
+        // assert_eq!(inp_ask, base_in);
+        // assert_eq!(out_ask, y_rec);
+        // //
+        assert_eq!(inp_bid, base_in);
+        // assert_eq!(out_bid, x_rec);
+        // assert_eq!(1, 2);
     }
 }

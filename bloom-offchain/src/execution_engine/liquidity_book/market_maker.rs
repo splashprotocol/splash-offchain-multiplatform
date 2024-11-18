@@ -5,7 +5,7 @@ use num_rational::Ratio;
 use void::Void;
 
 use crate::execution_engine::liquidity_book::core::Next;
-use crate::execution_engine::liquidity_book::side::{OnSide, SwapAssetSide};
+use crate::execution_engine::liquidity_book::side::{OnSide, Side, SwapAssetSide};
 use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 
 /// Price of a theoretical 0-swap in pool.
@@ -48,14 +48,19 @@ pub trait MarketMaker {
     fn marginal_cost_hint(&self) -> Self::U;
     /// How much base and quote asset is available.
     fn liquidity(&self) -> AbsoluteReserves;
-    /// How much base/quote asset is available at 'worst_price' or better.
-    fn available_liquidity_on_side(&self, worst_price: OnSide<AbsolutePrice>) -> Option<AvailableLiquidity>;
     /// Full derivative of the spot price func.
-    fn full_price_derivative(&self, side: OnSide<SwapAssetSide>) -> Option<FullPriceDerivative>;
+    fn full_price_derivative(&self, side: Side, swap_side: SwapAssetSide) -> Option<FullPriceDerivative>;
     /// How much base/quote asset is available for the given input.
     fn estimated_trade(&self, input: OnSide<u64>) -> Option<AvailableLiquidity>;
     /// Is this MM active at the moment or not.
     fn is_active(&self) -> bool;
+    /// How much base/quote asset is available at 'worst_price' or better.
+    fn available_liquidity_by_order_price(
+        &self,
+        worst_price: OnSide<AbsolutePrice>,
+    ) -> Option<AvailableLiquidity>;
+    /// How much base/quote asset is needed to move a pool to 'final_spot_price'.
+    fn available_liquidity_by_spot_price(&self, final_spot_price: SpotPrice) -> Option<AvailableLiquidity>;
 }
 
 /// Pooled liquidity.

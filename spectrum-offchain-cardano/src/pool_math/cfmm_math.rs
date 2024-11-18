@@ -1,10 +1,13 @@
+use std::cmp::min;
+
+use num_bigint::BigInt;
+use num_rational::Ratio;
+use num_traits::ToPrimitive;
+
+use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
+
 use crate::data::order::{Base, Quote};
 use crate::data::pool::{Lq, Rx, Ry};
-
-use log::info;
-use num_rational::Ratio;
-use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
-use std::cmp::min;
 
 pub fn classic_cfmm_output_amount<X, Y>(
     asset_x: TaggedAssetClass<X>,
@@ -14,17 +17,34 @@ pub fn classic_cfmm_output_amount<X, Y>(
     base_amount: TaggedAmount<Base>,
     pool_fee_x: Ratio<u64>,
     pool_fee_y: Ratio<u64>,
-) -> TaggedAmount<Quote> {
-    let quote_amount = if base_asset.untag() == asset_x.untag() {
-        (reserves_y.untag() as u128) * (base_amount.untag() as u128) * (*pool_fee_x.numer() as u128)
-            / ((reserves_x.untag() as u128) * (*pool_fee_x.denom() as u128)
-                + (base_amount.untag() as u128) * (*pool_fee_x.numer() as u128))
-    } else {
-        (reserves_x.untag() as u128) * (base_amount.untag() as u128) * (*pool_fee_y.numer() as u128)
-            / ((reserves_y.untag() as u128) * (*pool_fee_y.denom() as u128)
-                + (base_amount.untag() as u128) * (*pool_fee_y.numer() as u128))
-    };
-    TaggedAmount::new(quote_amount as u64)
+) -> Option<TaggedAmount<Quote>> {
+    // Pool params according to the side:
+    let (in_balance, out_balance, total_fee_mul_num, total_fee_mul_denom) =
+        if base_asset.untag() == asset_x.untag() {
+            (
+                BigInt::from(reserves_x.untag()),
+                BigInt::from(reserves_y.untag()),
+                BigInt::from(*pool_fee_x.numer()),
+                BigInt::from(*pool_fee_x.denom()),
+            )
+        } else {
+            (
+                BigInt::from(reserves_y.untag()),
+                BigInt::from(reserves_x.untag()),
+                BigInt::from(*pool_fee_y.numer()),
+                BigInt::from(*pool_fee_y.denom()),
+            )
+        };
+    let base_amount_in = BigInt::from(base_amount.untag());
+
+    let quote_amount_num = out_balance
+        .checked_mul(&base_amount_in)?
+        .checked_mul(&total_fee_mul_num)?;
+    let quote_amount_denom_left = in_balance.checked_mul(&total_fee_mul_denom)?;
+    let quote_amount_denom_right = base_amount_in.checked_mul(&total_fee_mul_num)?;
+    let quote_amount_denom = quote_amount_denom_left.checked_add(&quote_amount_denom_right)?;
+    let quote_amount = quote_amount_num.checked_div(&quote_amount_denom)?.to_u64()?;
+    Some(TaggedAmount::new(quote_amount))
 }
 
 pub fn classic_cfmm_reward_lp(

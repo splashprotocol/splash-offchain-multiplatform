@@ -1,5 +1,7 @@
 use std::fmt::{Display, Formatter, Write};
 
+use num_rational::Ratio;
+
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use spectrum_cardano_lib::AssetClass;
 
@@ -36,4 +38,33 @@ impl Display for PairId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(format!("[{}]/[{}]", self.0, self.1).as_str())
     }
+}
+/// Returns relative price, i.e. relative to the given trade Side and (x, y) pair canonical ordering.
+
+pub fn absolute_price_to_relative(
+    absolute_ratio: Ratio<u128>,
+    x: AssetClass,
+    y: AssetClass,
+    side: Side,
+) -> (u128, u128) {
+    let [base, _] = order_canonical(x, y);
+    let x_is_base = x == base;
+    let (ratio_canonical_num, ratio_canonical_denom) = (absolute_ratio.numer(), absolute_ratio.denom());
+    let (ratio_relative_num, ratio_relative_denom) = match side {
+        Side::Ask => {
+            if x_is_base {
+                (ratio_canonical_num, ratio_canonical_denom)
+            } else {
+                (ratio_canonical_denom, ratio_canonical_num)
+            }
+        }
+        Side::Bid => {
+            if x_is_base {
+                (ratio_canonical_denom, ratio_canonical_num)
+            } else {
+                (ratio_canonical_num, ratio_canonical_denom)
+            }
+        }
+    };
+    (*ratio_relative_num, *ratio_relative_denom)
 }
