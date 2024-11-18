@@ -1,10 +1,9 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::fmt::{Debug, Display, Formatter, Write};
+use std::fmt::{Debug, Display, Formatter};
 
-use log::{trace, warn};
+use log::trace;
 
-use crate::execution_engine::storage::kv_store::KvStoreWithTracing;
 use spectrum_offchain::data::event::{Confirmed, Predicted, Unconfirmed};
 use spectrum_offchain::data::{EntitySnapshot, Stable};
 
@@ -12,17 +11,20 @@ pub mod kv_store;
 
 pub trait StateIndex<T: EntitySnapshot> {
     /// Get last confirmed state of the given entity.
-    fn get_last_confirmed<'a>(&self, id: T::StableId) -> Option<Confirmed<T>>;
+    fn get_last_confirmed(&self, id: T::StableId) -> Option<Confirmed<T>>;
     /// Get last unconfirmed state of the given entity.
-    fn get_last_unconfirmed<'a>(&self, id: T::StableId) -> Option<Unconfirmed<T>>;
+    fn get_last_unconfirmed(&self, id: T::StableId) -> Option<Unconfirmed<T>>;
     /// Get last predicted state of the given entity.
-    fn get_last_predicted<'a>(&self, id: T::StableId) -> Option<Predicted<T>>;
+    fn get_last_predicted(&self, id: T::StableId) -> Option<Predicted<T>>;
+    /// Get fallback state of the given entity.
+    fn get_fallback(&self, id: T::StableId) -> Option<T>;
     /// Persist confirmed state of the entity.
     fn put_confirmed(&mut self, entity: Confirmed<T>);
     /// Persist unconfirmed state of the entity.
     fn put_unconfirmed(&mut self, entity: Unconfirmed<T>);
     /// Persist predicted state of the entity.
     fn put_predicted(&mut self, entity: Predicted<T>);
+    fn put_fallback(&mut self, entity: T);
     fn invalidate_version(&mut self, ver: T::Version) -> Option<T::StableId>;
     fn eliminate<'a>(&mut self, sid: T::StableId);
     fn exists<'a>(&self, sid: &T::Version) -> bool;
@@ -50,25 +52,31 @@ where
     In: StateIndex<T>,
     T: EntitySnapshot,
 {
-    fn get_last_confirmed<'a>(&self, id: T::StableId) -> Option<Confirmed<T>> {
+    fn get_last_confirmed(&self, id: T::StableId) -> Option<Confirmed<T>> {
         let res = self.0.get_last_confirmed(id);
         trace!("state_index::get_last_confirmed({}) -> {}", id, Displayed(&res));
         res
     }
 
-    fn get_last_unconfirmed<'a>(&self, id: T::StableId) -> Option<Unconfirmed<T>> {
+    fn get_last_unconfirmed(&self, id: T::StableId) -> Option<Unconfirmed<T>> {
         let res = self.0.get_last_unconfirmed(id);
         trace!("state_index::get_last_unconfirmed({}) -> {}", id, Displayed(&res));
         res
     }
 
-    fn get_last_predicted<'a>(&self, id: T::StableId) -> Option<Predicted<T>> {
+    fn get_last_predicted(&self, id: T::StableId) -> Option<Predicted<T>> {
         let res = self.0.get_last_predicted(id);
         trace!("state_index::get_last_predicted({}) -> {}", id, Displayed(&res));
         res
     }
 
-    fn put_confirmed<'a>(&mut self, entity: Confirmed<T>) {
+    fn get_fallback(&self, id: T::StableId) -> Option<T> {
+        let res = self.0.get_fallback(id);
+        trace!("state_index::get_fallback({}) -> {}", id, Displayed(&res));
+        res
+    }
+
+    fn put_confirmed(&mut self, entity: Confirmed<T>) {
         trace!(
             "state_index::put_confirmed(Entity({}, {}))",
             entity.0.stable_id(),
@@ -77,7 +85,7 @@ where
         self.0.put_confirmed(entity);
     }
 
-    fn put_unconfirmed<'a>(&mut self, entity: Unconfirmed<T>) {
+    fn put_unconfirmed(&mut self, entity: Unconfirmed<T>) {
         trace!(
             "state_index::put_unconfirmed(Entity({}, {}))",
             entity.0.stable_id(),
@@ -95,6 +103,15 @@ where
         self.0.put_predicted(entity);
     }
 
+    fn put_fallback(&mut self, entity: T) {
+        trace!(
+            "state_index::put_fallback(Entity({}, {}))",
+            entity.stable_id(),
+            entity.version()
+        );
+        self.0.put_fallback(entity);
+    }
+
     fn invalidate_version(&mut self, ver: T::Version) -> Option<T::StableId> {
         let res = self.0.invalidate_version(ver);
         trace!(
@@ -105,9 +122,9 @@ where
         res
     }
 
-    fn eliminate<'a>(&mut self, ver: T::StableId) {
-        self.0.eliminate(ver);
-        trace!("state_index::eliminate({})", ver);
+    fn eliminate<'a>(&mut self, id: T::StableId) {
+        self.0.eliminate(id);
+        trace!("state_index::eliminate({})", id);
     }
 
     fn exists<'a>(&self, sid: &T::Version) -> bool {
@@ -173,8 +190,15 @@ type InMemoryIndexKey = [u8; 61];
 const LAST_CONFIRMED_PREFIX: u8 = 3u8;
 const LAST_UNCONFIRMED_PREFIX: u8 = 4u8;
 const LAST_PREDICTED_PREFIX: u8 = 5u8;
+const FALLBACK_PREFIX: u8 = 6u8;
 
-const EPHEMERAL_STATE_KEYS: [u8; 2] = [LAST_UNCONFIRMED_PREFIX, LAST_PREDICTED_PREFIX];
+const ALL_STATE_KEYS: [u8; 4] = [
+    LAST_CONFIRMED_PREFIX,
+    LAST_UNCONFIRMED_PREFIX,
+    LAST_PREDICTED_PREFIX,
+    FALLBACK_PREFIX,
+];
+const EPHEMERAL_STATE_KEYS: [u8; 3] = [LAST_UNCONFIRMED_PREFIX, LAST_PREDICTED_PREFIX, FALLBACK_PREFIX];
 
 impl<T> StateIndex<T> for InMemoryStateIndex<T>
 where
@@ -198,12 +222,20 @@ where
             .map(|e| Unconfirmed(e.clone()))
     }
 
-    fn get_last_predicted<'a>(&self, id: T::StableId) -> Option<Predicted<T>> {
+    fn get_last_predicted(&self, id: T::StableId) -> Option<Predicted<T>> {
         let index_key = index_key(LAST_PREDICTED_PREFIX, id);
         self.index
             .get(&index_key)
             .and_then(|sid| self.store.get(sid))
             .map(|e| Predicted(e.clone()))
+    }
+
+    fn get_fallback(&self, id: T::StableId) -> Option<T> {
+        let index_key = index_key(FALLBACK_PREFIX, id);
+        self.index
+            .get(&index_key)
+            .and_then(|sid| self.store.get(sid))
+            .map(|e| e.clone())
     }
 
     fn put_confirmed(&mut self, Confirmed(entity): Confirmed<T>) {
@@ -219,6 +251,11 @@ where
     fn put_predicted(&mut self, Predicted(entity): Predicted<T>) {
         let sid = entity.stable_id();
         self.put(LAST_PREDICTED_PREFIX, sid, entity);
+    }
+
+    fn put_fallback(&mut self, entity: T) {
+        let sid = entity.stable_id();
+        self.put(FALLBACK_PREFIX, sid, entity);
     }
 
     fn invalidate_version(&mut self, ver: T::Version) -> Option<T::StableId> {
@@ -247,17 +284,10 @@ where
     }
 
     fn eliminate(&mut self, sid: T::StableId) {
-        let predicted_ver = self.index.remove(&index_key(LAST_PREDICTED_PREFIX, sid));
-        let unconfirmed_ver = self.index.remove(&index_key(LAST_UNCONFIRMED_PREFIX, sid));
-        let confirmed_ver = self.index.remove(&index_key(LAST_CONFIRMED_PREFIX, sid));
-        if let Some(ver) = predicted_ver {
-            self.store.remove(&ver);
-        }
-        if let Some(ver) = unconfirmed_ver {
-            self.store.remove(&ver);
-        }
-        if let Some(ver) = confirmed_ver {
-            self.store.remove(&ver);
+        for key in ALL_STATE_KEYS {
+            if let Some(ver) = self.index.remove(&index_key(key, sid)) {
+                self.store.remove(&ver);
+            }
         }
     }
 
@@ -270,7 +300,7 @@ where
     }
 }
 
-pub fn index_key<T: Into<[u8; 60]>>(prefix: u8, id: T) -> InMemoryIndexKey {
+fn index_key<T: Into<[u8; 60]>>(prefix: u8, id: T) -> InMemoryIndexKey {
     let mut arr = [prefix; 61];
     let raw_id: [u8; 60] = id.into();
     for (ix, byte) in raw_id.into_iter().enumerate() {

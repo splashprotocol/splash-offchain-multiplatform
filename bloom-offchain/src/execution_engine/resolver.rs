@@ -14,5 +14,6 @@ where
         .get_last_predicted(id)
         .map(|Predicted(u)| u)
         .or_else(|| index.get_last_unconfirmed(id).map(|Unconfirmed(u)| u))
+        .or_else(|| index.get_fallback(id))
         .or_else(|| index.get_last_confirmed(id).map(|Confirmed(u)| u))
 }

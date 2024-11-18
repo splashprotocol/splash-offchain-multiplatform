@@ -413,6 +413,8 @@ where
                     );
                     if from_ledger {
                         self.index.put_confirmed(Confirmed(new_state));
+                    } else {
+                        self.index.put_fallback(new_state);
                     }
                     return None;
                 }
@@ -431,7 +433,9 @@ where
                 to_transition(state_before_update, state_after_update)
             }
             StateUpdate::Transition(Ior::Left(st)) | StateUpdate::TransitionRollback(Ior::Left(st)) => {
-                self.index.eliminate(st.stable_id());
+                if from_ledger || !st.is_quasi_permanent() {
+                    self.index.eliminate(st.stable_id());
+                }
                 Some(Ior::Left(st.0))
             }
         }
