@@ -54,9 +54,9 @@ pub fn max_by_volume<Fr>(fragments: &mut MarketTakers<Fr>, range: AllowedPriceRa
 where
     Fr: MarketTaker + Ord + Copy,
 {
-    let best_bid = fragments.bids.pop_first().and_then(|tk| range.test_bid(tk));
-    let best_ask = fragments.asks.pop_first().and_then(|tk| range.test_ask(tk));
-    match (best_ask, best_bid) {
+    let best_bid = fragments.bids.first().and_then(|tk| range.test_bid(*tk));
+    let best_ask = fragments.asks.first().and_then(|tk| range.test_ask(*tk));
+    let choice = match (best_ask, best_bid) {
         (Some(ask), Some(bid)) => {
             let choice = _max_by_volume(ask, bid, None);
             if choice == ask {
@@ -68,7 +68,11 @@ where
         }
         (Some(taker), _) | (_, Some(taker)) => Some(taker),
         _ => None,
+    };
+    if let Some(taker) = &choice {
+        fragments.remove(taker);
     }
+    choice
 }
 
 #[cfg(test)]
