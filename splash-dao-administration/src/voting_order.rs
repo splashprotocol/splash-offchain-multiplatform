@@ -7,7 +7,7 @@ use cml_chain::utils::BigInteger;
 use cml_chain::{LenEncoding, PolicyId, Serialize};
 use cml_crypto::{PrivateKey, RawBytesEncoding, ScriptHash};
 use splash_dao_offchain::constants::script_bytes::VOTING_WITNESS;
-use splash_dao_offchain::entities::onchain::weighting_poll::distribution_to_plutus_data;
+use splash_dao_offchain::entities::offchain::voting_order::compute_voting_witness_message;
 use splash_dao_offchain::routines::inflation::actions::{compute_epoch_asset_name, compute_farm_name};
 use splash_dao_offchain::{
     constants::script_bytes::{MINT_IDENTIFIER_SCRIPT, VOTING_WITNESS_STUB},
@@ -37,10 +37,13 @@ pub fn create_voting_order(
             0,
         ),
     ];
-    let redeemer = make_witness_redeemer(&distribution, wpoll_policy_id, 0);
-    let redeemer_pallas = make_pallas_redeemer(wpoll_policy_id, 0);
-    let message = compute_voting_witness_message(voting_witness_script.hash(), redeemer_pallas, 0);
-    println!("MESSAGE: {}", hex::encode(&message));
+    let redeemer = make_cml_witness_redeemer(&distribution, wpoll_policy_id, 0);
+    let redeemer_pallas = make_pallas_redeemer(&distribution, wpoll_policy_id, 0);
+    assert_eq!(
+        hex::encode(redeemer.to_cbor_bytes()),
+        hex::encode(redeemer_pallas.encode_fragment().unwrap()),
+    );
+    let message = compute_voting_witness_message(voting_witness_script.hash(), redeemer.clone(), 0);
     let signature = operator_sk.sign(&message).to_raw_bytes().to_vec();
 
     VotingOrder {
@@ -53,21 +56,7 @@ pub fn create_voting_order(
     }
 }
 
-fn compute_voting_witness_message(
-    witness: ScriptHash,
-    witness_input: uplc::PlutusData,
-    authenticated_version: u64,
-) -> Vec<u8> {
-    let mut bytes = witness.to_raw_bytes().to_vec();
-    let witness_input_cbor = witness_input.encode_fragment().unwrap();
-    bytes.extend_from_slice(&witness_input_cbor);
-    bytes.extend_from_slice(
-        &PlutusData::new_integer(cml_chain::utils::BigInteger::from(authenticated_version)).to_cbor_bytes(),
-    );
-    cml_crypto::blake2b256(bytes.as_ref()).to_vec()
-}
-
-fn make_witness_redeemer(
+fn make_cml_witness_redeemer(
     distribution: &[(FarmId, u64)],
     wpoll_policy_id: ScriptHash,
     epoch: u32,
@@ -80,23 +69,31 @@ fn make_witness_redeemer(
         PlutusData::new_bytes(wpoll_auth_token_name.to_raw_bytes().to_vec()),
     ]);
 
-    let farm_0_name = compute_farm_name(0);
+    let distribution = distribution
+        .iter()
+        .map(|&(farm_id, weight)| {
+            make_constr_pd_indefinite_arr(vec![
+                PlutusData::new_bytes(cml_chain::assets::AssetName::from(farm_id.0).inner),
+                PlutusData::new_integer(BigInteger::from(weight)),
+            ])
+        })
+        .collect();
 
-    // let distribution_pd = distribution_to_plutus_data(distribution);
     let distribution_pd = PlutusData::List {
-        list: vec![make_constr_pd_indefinite_arr(vec![
-            PlutusData::new_bytes(farm_0_name.inner),
-            PlutusData::new_integer(BigInteger::from(-20_i64)),
-        ])],
+        list: distribution,
         list_encoding: LenEncoding::Indefinite,
     };
     make_constr_pd_indefinite_arr(vec![asset_pd, distribution_pd])
 }
 
-/// There are differences in how Aiken and CML serialise PlutusData. Here we'll form the redeemer
-/// using the `PlutusData` representation from the Pallas crates, since it is used internally
-/// by Aiken.
-fn make_pallas_redeemer(wpoll_policy_id: ScriptHash, epoch: u32) -> uplc::PlutusData {
+/// There are differences in how Aiken and default-CML serialise PlutusData. Here we'll form the
+/// redeemer using the `PlutusData` representation from the Pallas crates, since it is used
+/// internally by Aiken.
+fn make_pallas_redeemer(
+    distribution: &[(FarmId, u64)],
+    wpoll_policy_id: ScriptHash,
+    epoch: u32,
+) -> uplc::PlutusData {
     let wpoll_auth_token_name = compute_epoch_asset_name(epoch);
 
     let to_plutus_bytes =
@@ -113,18 +110,29 @@ fn make_pallas_redeemer(wpoll_policy_id: ScriptHash, epoch: u32) -> uplc::Plutus
         to_plutus_bytes(wpoll_auth_token_name.to_raw_bytes().to_vec()),
     ]);
 
-    let farm_0_name = compute_farm_name(0);
-    let distribution_pd = uplc::PlutusData::Array(vec![to_plutus_cstr(vec![
-        to_plutus_bytes(farm_0_name.inner),
-        uplc::PlutusData::BigInt(uplc::BigInt::Int(uplc_pallas_codec::utils::Int::from(-20_i64))),
-    ])]);
+    let distribution = distribution
+        .iter()
+        .map(|&(farm_id, weight)| {
+            to_plutus_cstr(vec![
+                to_plutus_bytes(cml_chain::assets::AssetName::from(farm_id.0).inner),
+                uplc::PlutusData::BigInt(uplc::BigInt::Int(uplc_pallas_codec::utils::Int::from(
+                    weight as i64,
+                ))),
+            ])
+        })
+        .collect();
+
+    let distribution_pd = uplc::PlutusData::Array(distribution);
     to_plutus_cstr(vec![asset_pd, distribution_pd])
 }
 
 fn make_constr_pd_indefinite_arr(fields: Vec<PlutusData>) -> PlutusData {
     let enc = ConstrPlutusDataEncoding {
         len_encoding: LenEncoding::Indefinite,
-        ..ConstrPlutusDataEncoding::default()
+        prefer_compact: true,
+        tag_encoding: None,
+        alternative_encoding: None,
+        fields_encoding: LenEncoding::Indefinite,
     };
     PlutusData::new_constr_plutus_data(ConstrPlutusData {
         alternative: 0,
@@ -136,45 +144,35 @@ fn make_constr_pd_indefinite_arr(fields: Vec<PlutusData>) -> PlutusData {
 #[cfg(test)]
 mod tests {
     use cml_chain::Serialize;
-    use cml_crypto::Ed25519KeyHash;
-    use cml_crypto::RawBytesEncoding;
     use cml_crypto::ScriptHash;
-    use spectrum_cardano_lib::{AssetName, NetworkId};
-    use spectrum_offchain_cardano::creds::operator_creds_base_address;
-    use splash_dao_offchain::entities::{
-        offchain::voting_order::{VotingOrder, VotingOrderId},
-        onchain::voting_escrow::VotingEscrowId,
-    };
+    use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
+    use splash_dao_offchain::routines::inflation::actions::compute_farm_name;
+    use uplc_pallas_primitives::Fragment;
 
-    use super::create_voting_order;
+    use super::make_cml_witness_redeemer;
+    use super::make_pallas_redeemer;
 
     #[test]
-    fn zzz() {
-        let (addr, _, operator_pkh, _operator_cred, operator_sk) =
-            operator_creds_base_address("xprv18zms3y4qkekv08jecrggtdvrxs3a2skf4cz7elfn8lsvq2nf39tqzd8mhh5kv9dp27kf3fy80uunz9k83rtg6gw5vvyu04f6tl8uw5pryslfc3g6wnjffneazpxh5t2nea7hq72hdsuc4m7ftry07yglwysze4ep", NetworkId::from(0));
-
-        let voting_escrow_id = VotingEscrowId(AssetName::utf8_unsafe("ve_id".into()));
-        let id = VotingOrderId {
-            voting_escrow_id,
-            version: 0,
-        };
-
+    fn test_cml_and_pallas_plutus_data_coincide() {
         let wpoll_policy_id =
             ScriptHash::from_hex("6da073591bfaffa99618d0b587434f5d7e681c4b78a70a53af816d98").unwrap();
-        let VotingOrder {
-            id,
-            distribution,
-            proof,
-            witness,
-            witness_input,
-            version,
-        } = create_voting_order(&operator_sk, id, 20, wpoll_policy_id, 2);
 
-        let operator_pkh_str: String = operator_pkh.into();
-        let pk_hash = operator_sk.to_public().to_raw_bytes().to_vec();
-        println!("-----------payment_cred: {}", hex::encode(&pk_hash));
-        println!("proof: {}", hex::encode(&proof));
-        println!("witness: {}", witness.to_hex());
-        //println!("witness_input: {}", hex::encode(witness_input.to_cbor_bytes()));
+        let distribution = generate_distribution(5);
+
+        let epoch = 20;
+        let cml_rdmr = make_cml_witness_redeemer(&distribution, wpoll_policy_id, epoch);
+        let pallas_rdmr = make_pallas_redeemer(&distribution, wpoll_policy_id, epoch);
+        assert_eq!(cml_rdmr.to_cbor_bytes(), pallas_rdmr.encode_fragment().unwrap());
+    }
+
+    fn generate_distribution(n: usize) -> Vec<(FarmId, u64)> {
+        let mut dist = vec![];
+        for i in 0..n {
+            let farm_name = FarmId(spectrum_cardano_lib::AssetName::from(compute_farm_name(i as u32)));
+            let p = ((i + 1) * 10) as u64;
+            dist.push((farm_name, p));
+        }
+
+        dist
     }
 }

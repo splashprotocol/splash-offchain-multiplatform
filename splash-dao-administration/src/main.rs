@@ -34,6 +34,7 @@ use cml_crypto::{
     blake2b256, Bip32PrivateKey, Ed25519KeyHash, PrivateKey, RawBytesEncoding, ScriptHash, TransactionHash,
 };
 use mint_token::{script_address, DaoDeploymentParameters, LQ_NAME};
+use serde::Deserialize;
 use spectrum_cardano_lib::{
     collateral::Collateral,
     ex_units::ExUnits,
@@ -1464,6 +1465,23 @@ async fn create_operation_inputs<'a>(config: &'a AppConfig<'a>) -> OperationInpu
         network_id: config.network_id,
         voting_order_listener_endpoint: config.voting_order_listener_endpoint,
     }
+}
+
+#[derive(Deserialize, Clone)]
+enum WeightingDistribution {
+    /// All weighting power goes to a single farm
+    SinglePool {
+        farm_id: u32,
+    },
+    MultiPool {
+        weightings: Vec<FarmWeight>,
+    },
+}
+
+#[derive(Deserialize, Clone)]
+struct FarmWeight {
+    farm_id: u32,
+    weight: u64,
 }
 
 const EX_UNITS: ExUnits = ExUnits {
