@@ -134,71 +134,73 @@ where
             trace!("Attempting to matchmake");
             let mut batch: MatchmakingAttempt<Taker, Maker, U> = MatchmakingAttempt::empty();
             while batch.execution_units_consumed() < self.conf.execution_cap.soft && batch.num_takes() < 15 {
-                let spot_price = self.spot_price();
-                let price_range = self.state.allowed_price_range();
-                trace!("Spot price is: {}", display_option(&spot_price));
-                trace!("Price range is: {}", price_range);
-                trace!("TLB state is: {}", self.state);
-                if let Some(target_taker) = self.state.pick_active_taker(|fs| {
-                    spot_price
-                        .map(|sp| max_by_distance_to_spot(fs, sp, price_range))
-                        .unwrap_or_else(|| max_by_volume(fs, price_range))
-                }) {
-                    trace!("Selected taker is: {}", target_taker);
-                    let target_side = target_taker.side();
-                    let target_price = target_side.wrap(target_taker.price());
-                    let maybe_price_counter_taker = self.state.best_taker_price(!target_side);
-                    let maybe_price_maker = self.state.preselect_market_maker(
-                        target_taker.price(),
-                        target_taker.input(),
-                        target_side,
-                    );
-                    trace!(
-                        "P_target: {}, P_counter: {}, P_amm: {}",
-                        target_price.unwrap(),
-                        display_option(&maybe_price_counter_taker),
-                        display_option(&maybe_price_maker.map(|(id, fp)| display_tuple((id, fp.price))))
-                    );
-                    match (maybe_price_counter_taker, maybe_price_maker) {
-                        (Some(price_counter_taker), maybe_price_maker)
-                            if self.conf.o2o_allowed
-                                && target_price.overlaps(price_counter_taker.unwrap())
-                                && maybe_price_maker
-                                    .map(|(_, fp)| price_counter_taker.better_than(fp.price))
-                                    .unwrap_or(true) =>
-                        {
-                            if let Some(counter_taker) = self.state.try_pick_taker(!target_side, ok) {
-                                let make_match =
-                                    |ask: &Taker, bid: &Taker| settle_price(ask, bid, spot_price);
-                                let (take_a, take_b) =
-                                    execute_with_taker(target_taker, counter_taker, make_match);
-                                trace!("Taker {} matched with {}", target_taker, counter_taker);
-                                for take in vec![take_a, take_b] {
+                if let Some(spot_price) = self.spot_price() {
+                    let price_range = self.state.allowed_price_range();
+                    trace!("Spot price is: {}", spot_price);
+                    trace!("Price range is: {}", price_range);
+                    trace!("TLB state is: {}", self.state);
+                    if let Some(target_taker) = self
+                        .state
+                        .pick_active_taker(|fs| max_by_distance_to_spot(fs, spot_price, price_range))
+                    {
+                        trace!("Selected taker is: {}", target_taker);
+                        let target_side = target_taker.side();
+                        let target_price = target_side.wrap(target_taker.price());
+                        let maybe_price_counter_taker = self.state.best_taker_price(!target_side);
+                        let maybe_price_maker = self.state.preselect_market_maker(
+                            target_taker.price(),
+                            target_taker.input(),
+                            target_side,
+                        );
+                        trace!(
+                            "P_target: {}, P_counter: {}, P_amm: {}",
+                            target_price.unwrap(),
+                            display_option(&maybe_price_counter_taker),
+                            display_option(&maybe_price_maker.map(|(id, fp)| display_tuple((id, fp.price))))
+                        );
+                        match (maybe_price_counter_taker, maybe_price_maker) {
+                            (Some(price_counter_taker), maybe_price_maker)
+                                if self.conf.o2o_allowed
+                                    && target_price.overlaps(price_counter_taker.unwrap())
+                                    && maybe_price_maker
+                                        .map(|(_, fp)| price_counter_taker.better_than(fp.price))
+                                        .unwrap_or(true) =>
+                            {
+                                if let Some(counter_taker) = self.state.try_pick_taker(!target_side, ok) {
+                                    let make_match =
+                                        |ask: &Taker, bid: &Taker| settle_price(ask, bid, Some(spot_price));
+                                    let (take_a, take_b) =
+                                        execute_with_taker(target_taker, counter_taker, make_match);
+                                    trace!("Taker {} matched with {}", target_taker, counter_taker);
+                                    for take in vec![take_a, take_b] {
+                                        batch.add_take(take);
+                                        self.on_take(take.result);
+                                    }
+                                    continue;
+                                }
+                            }
+                            (_, Some((maker_sid, FillPreview { price, input })))
+                                if target_price.overlaps(price) =>
+                            {
+                                if let Some(maker) = self.state.pick_maker_by_id(&maker_sid) {
+                                    trace!("Taker {} matched with {}", target_taker, maker);
+                                    let (take, make) =
+                                        execute_with_maker(target_taker, maker, target_side.wrap(input));
+                                    batch.add_make(make);
                                     batch.add_take(take);
                                     self.on_take(take.result);
+                                    self.on_make(make.result);
+                                    continue;
                                 }
-                                continue;
                             }
-                        }
-                        (_, Some((maker_sid, FillPreview { price, input })))
-                            if target_price.overlaps(price) =>
-                        {
-                            if let Some(maker) = self.state.pick_maker_by_id(&maker_sid) {
-                                trace!("Taker {} matched with {}", target_taker, maker);
-                                let (take, make) =
-                                    execute_with_maker(target_taker, maker, target_side.wrap(input));
-                                batch.add_make(make);
-                                batch.add_take(take);
-                                self.on_take(take.result);
-                                self.on_make(make.result);
-                                continue;
+                            _ => {
+                                trace!("Failed to match taker {}", target_taker);
+                                self.state.pre_add_taker(target_taker);
                             }
-                        }
-                        _ => {
-                            trace!("Failed to match taker {}", target_taker);
-                            self.state.pre_add_taker(target_taker);
                         }
                     }
+                } else {
+                    trace!("Spot price is not available");
                 }
                 break;
             }
