@@ -109,11 +109,14 @@ pub trait InflationActions<Bearer> {
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
         order: (VotingOrder, Bundled<VotingEscrowSnapshot, Bearer>),
         current_slot: Slot,
-    ) -> Option<(
-        SignedTxBuilder,
-        Traced<Predicted<Bundled<WeightingPollSnapshot, Bearer>>>,
-        Traced<Predicted<Bundled<VotingEscrowSnapshot, Bearer>>>,
-    )>;
+    ) -> Result<
+        (
+            SignedTxBuilder,
+            Traced<Predicted<Bundled<WeightingPollSnapshot, Bearer>>>,
+            Traced<Predicted<Bundled<VotingEscrowSnapshot, Bearer>>>,
+        ),
+        ExecuteOrderError,
+    >;
     async fn distribute_inflation(
         &self,
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
@@ -624,11 +627,14 @@ where
             Bundled<VotingEscrowSnapshot, TransactionOutput>,
         ),
         current_slot: Slot,
-    ) -> Option<(
-        SignedTxBuilder,
-        Traced<Predicted<Bundled<WeightingPollSnapshot, TransactionOutput>>>,
-        Traced<Predicted<Bundled<VotingEscrowSnapshot, TransactionOutput>>>,
-    )> {
+    ) -> Result<
+        (
+            SignedTxBuilder,
+            Traced<Predicted<Bundled<WeightingPollSnapshot, TransactionOutput>>>,
+            Traced<Predicted<Bundled<VotingEscrowSnapshot, TransactionOutput>>>,
+        ),
+        ExecuteOrderError,
+    > {
         let mut tx_builder = constant_tx_builder();
 
         let prev_ve_version = voting_escrow.version();
@@ -642,19 +648,23 @@ where
             last_wp_epoch,
             version,
             ..
-        } = VotingEscrowConfig::try_from_pd(data_mut.clone())?;
+        } = VotingEscrowConfig::try_from_pd(data_mut.clone()).unwrap();
 
         // Verify that witness is authorized by the owner.
         if let Owner::PubKey(bytes) = owner {
-            let pk = cml_crypto::PublicKey::from_raw_bytes(&bytes).ok()?;
-            let signature = Ed25519Signature::from_raw_bytes(&order.proof).ok()?;
+            let pk = cml_crypto::PublicKey::from_raw_bytes(&bytes)
+                .map_err(|_| ExecuteOrderError::Other("Can't extrat PublicKey from bytes".into()))?;
+            let signature = Ed25519Signature::from_raw_bytes(&order.proof)
+                .map_err(|_| ExecuteOrderError::Other("Can't extract Ed25519Signature from bytes".into()))?;
             let message = compute_voting_witness_message(
                 order.witness,
                 order.witness_input.clone(),
                 order.version as u64,
             );
             if !pk.verify(&message, &signature) {
-                return None;
+                return Err(ExecuteOrderError::WeightingWitness(
+                    WeightingWitnessError::OwnerAuthFailure,
+                ));
             }
         }
 
@@ -662,11 +672,21 @@ where
 
         // Check `ve_is_eligible_to_vote_in_this_epoch` predicate from `mint_weighting_power`.
         if last_wp_epoch >= new_wp_epoch as i32 {
-            return None;
+            return Err(ExecuteOrderError::WeightingWitness(
+                WeightingWitnessError::VotingEscrowIneligibleToVote {
+                    last_wp_epoch,
+                    current_epoch: new_wp_epoch as i32,
+                },
+            ));
         }
 
         if version != order.version {
-            return None;
+            return Err(ExecuteOrderError::WeightingWitness(
+                WeightingWitnessError::VotingEscrowVersionMismatch {
+                    voting_escrow_version: version,
+                    order_version: order.version,
+                },
+            ));
         }
 
         let new_ve_version = voting_escrow.get().version + 1;
@@ -742,7 +762,7 @@ where
 
         let distribution_weighting_power = order.distribution.iter().fold(0, |acc, &(_, w)| acc + w);
         if distribution_weighting_power != weighting_power {
-            return None;
+            return Err(ExecuteOrderError::WeightingExceedsAvailableVotingPower);
         }
 
         let mut next_weighting_poll = weighting_poll.get().clone();
@@ -896,7 +916,7 @@ where
             Some(*prev_ve_version),
         );
 
-        Some((signed_tx_builder, fresh_wp, fresh_ve))
+        Ok((signed_tx_builder, fresh_wp, fresh_ve))
     }
 
     async fn distribute_inflation(
@@ -1270,6 +1290,21 @@ pub enum ExecuteOrderError {
     BadOrMissingInput,
     WeightingExceedsAvailableVotingPower,
     InVotingPower,
+    WeightingWitness(WeightingWitnessError),
+    Other(String),
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub enum WeightingWitnessError {
+    OwnerAuthFailure,
+    VotingEscrowIneligibleToVote {
+        last_wp_epoch: i32,
+        current_epoch: i32,
+    },
+    VotingEscrowVersionMismatch {
+        voting_escrow_version: u32,
+        order_version: u32,
+    },
 }
 
 #[cfg(test)]
