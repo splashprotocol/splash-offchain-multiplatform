@@ -56,9 +56,7 @@ async fn auth(
     // - if pool launch is `common`:
     //  1) Captcha verification
     let system_time = SystemTime::now();
-    let since_the_epoch = system_time
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards");
+    let since_the_epoch = system_time.duration_since(UNIX_EPOCH).expect("Clocks not synced");
     info!(
         "Going to process request {:?} at {}",
         req,
@@ -129,7 +127,7 @@ async fn auth(
                 Ok(response)
             }
             Err(err) => {
-                error!("Error occured during analytics request {}", err);
+                error!("Failed to fetch pool info: {}", err);
                 Err(HttpResponse::InternalServerError().body("Internal server error"))
             }
         }
@@ -152,6 +150,7 @@ struct AppConfig {
     secret_bech32: String,
     analytics_snek_url: String,
     limits: Limits,
+    cache_size: usize,
 }
 
 #[actix_web::main]
@@ -168,7 +167,10 @@ async fn main() -> std::io::Result<()> {
             .allow_any_method()
             .allow_any_header();
         let re_captcha = Data::new(ReCaptcha::new(config.re_captcha_secret.clone()));
-        let analytics = Data::new(Analytics::new(config.analytics_snek_url.clone()));
+        let analytics = Data::new(Analytics::new(
+            config.analytics_snek_url.clone(),
+            config.cache_size,
+        ));
         let sk = Data::new(
             Bip32PrivateKey::from_bech32(config.secret_bech32.as_str())
                 .expect("Invalid secret bech32")

@@ -1,4 +1,5 @@
 {
+  "cacheSize": 4096,
   "reCaptchaSecret": "",
   "secretBech32": "",
   "analyticsSnekUrl": "https://api5.splash.trade/platform-api/v2/snekfun/pool/overview/by",
