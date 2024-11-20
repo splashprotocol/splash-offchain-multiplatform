@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fmt::{Display, Formatter};
 
 pub fn display_option<T>(opt: &Option<T>) -> DisplayOption<T> {
@@ -46,4 +47,21 @@ impl<'a, T: Display> Display for DisplayVec<'a, T> {
 
 pub fn display_vec<T>(vec: &Vec<T>) -> DisplayVec<T> {
     DisplayVec(vec)
+}
+
+pub struct DisplaySet<'a, T>(&'a HashSet<T>);
+
+impl<'a, T: Display> Display for DisplaySet<'a, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("{")?;
+        for x in self.0 {
+            x.fmt(f)?;
+            f.write_str(", ")?;
+        }
+        f.write_str("}")
+    }
+}
+
+pub fn display_set<T>(set: &HashSet<T>) -> DisplaySet<T> {
+    DisplaySet(set)
 }

@@ -24,6 +24,7 @@ use spectrum_offchain::combinators::Ior;
 use spectrum_offchain::data::event::{Channel, Confirmed, Predicted, StateUpdate, Unconfirmed};
 use spectrum_offchain::data::order::{OrderUpdate, SpecializedOrder};
 use spectrum_offchain::data::{Baked, EntitySnapshot, Has, Stable};
+use spectrum_offchain::display::{display_set, display_vec};
 use spectrum_offchain::maker::Maker;
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_hash::CanonicalHash;
@@ -767,6 +768,7 @@ where
                         Ok((linked_recipe, consumed_versions)) => {
                             let ctx = self.context.clone();
                             if let Some(funding) = self.funding_pool.pop_first() {
+                                trace!("Consumed bearers: {}", display_set(&consumed_versions));
                                 let ExecutionResult {
                                     txc,
                                     matchmaking_effects,
