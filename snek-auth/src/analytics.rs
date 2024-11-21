@@ -42,7 +42,7 @@ struct PoolResponse {
     metrics: MetricsResponse,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct TokenPoolInfo {
     pub launch_type: LaunchType,
     pub created_on: Duration,
@@ -67,6 +67,10 @@ impl Analytics {
     pub async fn get_token_pool_info(&self, token: Token) -> Result<TokenPoolInfo, Error> {
         self.try_retrieve_from_cache(token, |token| {
             Box::pin(async move {
+                println!(
+                    "{}",
+                    format!("{}.{}", token.0.to_hex(), hex::encode(token.1.as_bytes()))
+                );
                 let request_params = vec![(
                     "asset",
                     format!("{}.{}", token.0.to_hex(), hex::encode(token.1.as_bytes())),
@@ -95,11 +99,10 @@ impl Analytics {
         F: Fn(Token) -> Pin<Box<dyn Future<Output = Result<TokenPoolInfo, Error>> + 'a>>,
     {
         if let Some(info) = self.cache.lock().await.cache_get(&token) {
-            Ok(*info)
-        } else {
-            let info = get(token).await?;
-            self.cache.lock().await.cache_set(token, info);
-            Ok(info)
+            return Ok(*info);
         }
+        let info = get(token).await?;
+        self.cache.lock().await.cache_set(token, info);
+        Ok(info)
     }
 }
