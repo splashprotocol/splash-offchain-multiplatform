@@ -338,7 +338,7 @@ where
         }
     }
 
-    fn invalidate_versions(&mut self, pair: &PR, versions: HashSet<V>) -> Result<(), V>
+    fn invalidate_versions(&mut self, pair: &PR, versions: HashSet<V>) -> Result<(), Vec<V>>
     where
         PR: Copy + Eq + Hash + Display,
         SID: Copy + Eq + Hash + Debug + Display,
@@ -350,6 +350,7 @@ where
         IX: StateIndex<EvolvingEntity<CO, P, V, B>>,
         TLB: ExternalLBEvents<CO, P> + Maker<MC>,
     {
+        let mut missing_bearers = vec![];
         for ver in versions {
             if let Some(state) = self.index.get_state(ver) {
                 let stable_id = state.stable_id();
@@ -374,8 +375,11 @@ where
                     self.sync_book(pair, tr);
                 }
             } else {
-                return Err(ver);
+                missing_bearers.push(ver);
             }
+        }
+        if !missing_bearers.is_empty() {
+            return Err(missing_bearers);
         }
         Ok(())
     }
@@ -544,11 +548,11 @@ where
                 .copied()
                 .collect::<HashSet<_>>();
             trace!("Going to process missing inputs");
-            if let Err(ver) = self.invalidate_versions(&pair, relevant_bearers) {
+            if let Err(unknown_bearers) = self.invalidate_versions(&pair, relevant_bearers) {
                 if strict_index_consistency {
                     panic!(
                         "Detected state inconsistency while invalidating {}. None in index state",
-                        ver
+                        display_vec(&unknown_bearers)
                     );
                 }
             }
