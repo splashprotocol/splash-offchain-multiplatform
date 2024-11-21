@@ -539,17 +539,17 @@ where
                     false
                 }
             };
-            // Defensive programming against node sending error for an irrelevant TX.
-            let has_relevant_bearers = missing_inputs.intersection(&consumed_versions).next().is_some();
-            if has_relevant_bearers {
-                trace!("Going to process missing inputs");
-                if let Err(ver) = self.invalidate_versions(&pair, missing_inputs.clone()) {
-                    if strict_index_consistency {
-                        panic!(
-                            "Detected state inconsistency while invalidating {}. None in index state",
-                            ver
-                        );
-                    }
+            let relevant_bearers = missing_inputs
+                .intersection(&consumed_versions)
+                .copied()
+                .collect::<HashSet<_>>();
+            trace!("Going to process missing inputs");
+            if let Err(ver) = self.invalidate_versions(&pair, relevant_bearers) {
+                if strict_index_consistency {
+                    panic!(
+                        "Detected state inconsistency while invalidating {}. None in index state",
+                        ver
+                    );
                 }
             }
         } else {
