@@ -16,7 +16,6 @@ use cml_chain::transaction::TransactionOutput;
 use cml_chain::PolicyId;
 use cml_core::serialization::Serialize;
 use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
-use log::trace;
 use spectrum_cardano_lib::address::PlutusAddress;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{
@@ -346,7 +345,12 @@ fn beacon_from_oref(some_input_oref: OutputRef, datum_hash: [u8; 28], order_inde
 
 const MIN_LOVELACE: u64 = 1_500_000;
 
-fn is_valid_beacon<C>(beacon: PolicyId, datum: PlutusData, ctx: &C) -> bool
+enum OrderState {
+    New,
+    Subsequent,
+}
+
+fn order_state<C>(beacon: PolicyId, datum: PlutusData, ctx: &C) -> Option<OrderState>
 where
     C: Has<ConsumedInputs>
         + Has<ConsumedIdentifiers<Token>>
@@ -367,7 +371,13 @@ where
         .select::<ProducedIdentifiers<Token>>()
         .0
         .count(|b| b.0 == beacon);
-    consumed_beacons == 1 && produced_beacons == 1 || valid_fresh_beacon() && consumed_ids.is_empty()
+    if consumed_beacons == 1 && produced_beacons == 1 {
+        Some(OrderState::Subsequent)
+    } else if valid_fresh_beacon() && consumed_ids.is_empty() {
+        Some(OrderState::New)
+    } else {
+        None
+    }
 }
 
 impl<C> TryFromLedger<TransactionOutput, C> for LimitOrder
@@ -412,10 +422,14 @@ where
                             .permitted_executors
                             .contains(&ctx.select::<OperatorCred>().into());
                     let validation = ctx.select::<LimitOrderValidation>();
-                    let sufficient_fee = conf.fee >= validation.min_fee_lovelace;
                     let valid_configuration = conf.cost_per_ex_step >= validation.min_cost_per_ex_step
                         && execution_budget >= conf.cost_per_ex_step;
-                    let valid_beacon = !validation.strict_beacon || is_valid_beacon(conf.beacon, datum, ctx);
+                    let order_state = order_state(conf.beacon, datum, ctx);
+                    let sufficient_fee = match order_state {
+                        Some(OrderState::New) | None => conf.fee >= validation.min_fee_lovelace,
+                        _ => true,
+                    };
+                    let valid_beacon = order_state.is_some();
                     if sufficient_input
                         && sufficient_execution_budget
                         && sufficient_fee
@@ -443,7 +457,7 @@ where
                             marginal_cost: script_info.marginal_cost,
                         });
                     } else {
-                        trace!(
+                        println!(
                             "UTxO {}, LimitOrder {} :: sufficient_input: {}, sufficient_execution_budget: {}, sufficient_fee: {}, executable: {}, valid_configuration: {}, is_valid_beacon: {}",
                             ctx.select::<OutputRef>(),
                             conf.beacon,
@@ -467,7 +481,6 @@ where
 pub struct LimitOrderValidation {
     pub min_cost_per_ex_step: u64,
     pub min_fee_lovelace: Lovelace,
-    pub strict_beacon: bool,
 }
 
 #[cfg(test)]
@@ -477,15 +490,14 @@ mod tests {
     use cml_chain::plutus::PlutusData;
     use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
     use cml_chain::{PolicyId, Value};
-    use cml_core::serialization::{Deserialize, Serialize};
-    use cml_crypto::{blake2b224, Ed25519KeyHash, TransactionHash};
+    use cml_core::serialization::{Deserialize, RawBytesEncoding, Serialize};
+    use cml_crypto::{blake2b224, Ed25519KeyHash, ScriptHash, TransactionHash};
     use type_equalities::IsEqual;
 
     use bloom_offchain::execution_engine::liquidity_book::config::{ExecutionCap, ExecutionConfig};
     use bloom_offchain::execution_engine::liquidity_book::market_taker::MarketTaker;
     use bloom_offchain::execution_engine::liquidity_book::{ExternalLBEvents, LiquidityBook, TLB};
     use spectrum_cardano_lib::ex_units::ExUnits;
-    use spectrum_cardano_lib::plutus_data::IntoPlutusData;
     use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_cardano_lib::{AssetName, OutputRef, Token};
     use spectrum_offchain::data::Has;
@@ -538,7 +550,6 @@ mod tests {
             LimitOrderValidation {
                 min_cost_per_ex_step: 0,
                 min_fee_lovelace: 0,
-                strict_beacon: true,
             }
         }
     }
@@ -623,7 +634,7 @@ mod tests {
         println!("P_abs: {}", ord.price());
     }
 
-    const ORDER_UTXO: &str = "a300583911464eeee89f05aff787d40045af2a40a83fd96c513197d32fbc54ff027846f6bb07f5b2825885e4502679e699b4e60a0c4609a46bc35454cd011a002f4d60028201d81858fed8798c4100581c91290a058a4b2d706a14abf94deda7bb4bf486f42e50f777004b8429d8798240401a000f42401a000557301a00012174d87982581c3417226aaa4bd7391a7a7f86d7b140b14a35388080b929550d0badab4b4c6f616420546573742031d879821a000b4e8d1a009896801a0003d090d87982d87981581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b25d87981d87981d87981581c7846f6bb07f5b2825885e4502679e699b4e60a0c4609a46bc35454cd581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b2581581c2f9ff04d8914bf64d671a03d34ab7937eb417831ea6b9f7fbcab96f5";
+    const ORDER_UTXO: &str = "a300583911464eeee89f05aff787d40045af2a40a83fd96c513197d32fbc54ff02b926a3997fa1821ff686e9b435dae1f1cdaf4cf285c99c26f4ce43d501821a0fb024a1a1581c3bbbe8599fbc4a9cd2dc1c94ad0f577ce2328180b9cc7b851633aa8da1495061727479204361741a00097dd2028201d81858f7d8798c4100581cea868dde9641509a9b98248059106bbd7634a377639806e1761fbbdfd8798240401a0f6761771a000dbba01a0004c4b4d87982581c3bbbe8599fbc4a9cd2dc1c94ad0f577ce2328180b9cc7b851633aa8d49506172747920436174d8798218191927101a0008acead87982d87981581c4d43eb1a9d0bc89fbaf7e559ca6999a9f294215095743a6569875129d87981d87981d87981581cb926a3997fa1821ff686e9b435dae1f1cdaf4cf285c99c26f4ce43d5581c4d43eb1a9d0bc89fbaf7e559ca6999a9f294215095743a656987512981581c5cb2c968e5d1c7197a6ce7615967310a375545d9bc65063a964335b2";
 
     #[test]
     fn invalid_address() {

@@ -770,16 +770,21 @@ where
 
 pub type Execution<T, M, B> = Either<Take<T, B>, Make<M, B>>;
 
+type Orphans<T, M> = NonEmpty<Either<T, M>>;
+
 /// Same as [MatchmakingRecipe] but with bearers attached to each target element.
 /// Returns a collection of orphaned targets that failed to link in case of failure.
 #[derive(Debug, Clone)]
 pub struct ExecutionRecipe<Taker, Maker, B>(pub Vec<Execution<Taker, Maker, B>>);
 
 impl<T, M, B> ExecutionRecipe<T, M, B> {
+    /// Link the recipe to corresponding bearers.
+    /// Returns [ExecutionRecipe] along with consumed bearers in case of success.
+    /// If linking fails, a set of orphaned entities is returned.
     pub fn link<I, F, V>(
         MatchmakingRecipe { instructions }: MatchmakingRecipe<T, M>,
         link: F,
-    ) -> Result<(Self, HashSet<V>), NonEmpty<Either<T, M>>>
+    ) -> Result<(Self, HashSet<V>), Orphans<T, M>>
     where
         V: Hash + Eq,
         T: Stable<StableId = I>,

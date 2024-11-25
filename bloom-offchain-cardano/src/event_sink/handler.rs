@@ -999,7 +999,6 @@ mod tests {
                 limit_order: LimitOrderValidation {
                     min_cost_per_ex_step: 1000,
                     min_fee_lovelace: 1000,
-                    strict_beacon: true,
                 },
                 deposit_order: DepositOrderValidation {
                     min_collateral_ada: 1000,
