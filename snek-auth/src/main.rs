@@ -1,5 +1,6 @@
 use crate::analytics::{Analytics, LaunchType};
 use crate::re_captcha::{ReCaptcha, ReCaptchaSecret, ReCaptchaToken};
+use crate::signature::Signature;
 use actix_cors::Cors;
 use actix_web::http::header::ContentType;
 use actix_web::web::Data;
@@ -14,6 +15,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod analytics;
 pub mod re_captcha;
+pub mod signature;
 
 #[derive(serde::Serialize, From)]
 struct SignatureHex(String);
@@ -25,7 +27,8 @@ struct AuthRequest {
     input_amount: u64,
     input_asset: AssetClass,
     output_asset: AssetClass,
-    token: ReCaptchaToken,
+    token: Option<ReCaptchaToken>,
+    signature: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -36,6 +39,7 @@ struct AuthResponse {
 #[post("/auth")]
 async fn auth(
     captcha: Data<ReCaptcha>,
+    signature_verifier: Data<Signature>,
     analytics: Data<Analytics>,
     sk: Data<PrivateKey>,
     limits: Data<Limits>,
@@ -45,7 +49,7 @@ async fn auth(
 
     // Rules:
     // - if pool launch is `fair`:
-    //  1) Captcha verification
+    //  1) Captcha verification or Signature verification, if empty - error
     //  2) Token value verification:
     //      - If input is ADA:
     //          * If diff between pool launch and request is lt 3 min - 25 ADA
@@ -62,10 +66,28 @@ async fn auth(
         req,
         since_the_epoch.as_millis()
     );
-    if !captcha.verify(req.token.clone()).await {
-        info!("Captcha verification failed");
-        return HttpResponse::Ok().body("Verification failed");
-    }
+    match (req.clone().token, req.clone().signature) {
+        (Some(token), _) => {
+            if !captcha.verify(token).await {
+                info!("Captcha verification failed");
+                return HttpResponse::Ok().body("Verification failed");
+            }
+        }
+        (_, Some(signature_from_request)) => {
+            if let Some(verification_result_is_success) =
+                signature_verifier.verify(req.clone().into(), signature_from_request)
+            {
+                if !verification_result_is_success {
+                    info!("Signature verification failed for request {:?}", req.clone());
+                    return HttpResponse::Unauthorized().body("Authorization failed");
+                }
+            } else {
+                info!("Serialization failed for request: {:?}", req.clone());
+                return HttpResponse::BadRequest().body("Bad request");
+            }
+        }
+        _ => return HttpResponse::Unauthorized().body("Authorization failed"),
+    };
     match token_opt {
         None => HttpResponse::BadRequest().body("ADA/ADA request"),
         Some(token) => match analytics.get_token_pool_info(token).await {
@@ -148,6 +170,7 @@ struct Limits {
 struct AppConfig {
     re_captcha_secret: ReCaptchaSecret,
     secret_bech32: String,
+    signature_secret: String,
     analytics_snek_url: String,
     limits: Limits,
     cache_size: usize,
@@ -171,6 +194,7 @@ async fn main() -> std::io::Result<()> {
             config.analytics_snek_url.clone(),
             config.cache_size,
         ));
+        let signature_verifier = Data::new(Signature::new(config.signature_secret.clone()));
         let sk = Data::new(
             Bip32PrivateKey::from_bech32(config.secret_bech32.as_str())
                 .expect("Invalid secret bech32")
@@ -179,6 +203,7 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .wrap(cors)
             .app_data(re_captcha)
+            .app_data(signature_verifier)
             .app_data(analytics)
             .app_data(sk)
             .app_data(Data::new(config.limits))
