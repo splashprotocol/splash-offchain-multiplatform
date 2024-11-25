@@ -16,6 +16,7 @@ use cml_chain::transaction::TransactionOutput;
 use cml_chain::PolicyId;
 use cml_core::serialization::Serialize;
 use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
+use log::trace;
 use spectrum_cardano_lib::address::PlutusAddress;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{
@@ -355,7 +356,8 @@ where
     C: Has<ConsumedInputs>
         + Has<ConsumedIdentifiers<Token>>
         + Has<ProducedIdentifiers<Token>>
-        + Has<OutputRef>,
+        + Has<OutputRef>
+        + Has<BeaconMode>,
 {
     let order_index = ctx.select::<OutputRef>().index();
     let datum_without_beacon = with_erased_beacon_unsafe(datum);
@@ -371,13 +373,20 @@ where
         .select::<ProducedIdentifiers<Token>>()
         .0
         .count(|b| b.0 == beacon);
+    let beacon_mode = ctx.select::<BeaconMode>();
     if consumed_beacons == 1 && produced_beacons == 1 {
         Some(OrderState::Subsequent)
-    } else if valid_fresh_beacon() && consumed_ids.is_empty() {
+    } else if (matches!(beacon_mode, BeaconMode::Adhoc) || valid_fresh_beacon()) && consumed_ids.is_empty() {
         Some(OrderState::New)
     } else {
         None
     }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum BeaconMode {
+    Default,
+    Adhoc,
 }
 
 impl<C> TryFromLedger<TransactionOutput, C> for LimitOrder
@@ -388,7 +397,8 @@ where
         + Has<ProducedIdentifiers<Token>>
         + Has<ConsumedInputs>
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
-        + Has<LimitOrderValidation>,
+        + Has<LimitOrderValidation>
+        + Has<BeaconMode>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
@@ -457,7 +467,7 @@ where
                             marginal_cost: script_info.marginal_cost,
                         });
                     } else {
-                        println!(
+                        trace!(
                             "UTxO {}, LimitOrder {} :: sufficient_input: {}, sufficient_execution_budget: {}, sufficient_fee: {}, executable: {}, valid_configuration: {}, is_valid_beacon: {}",
                             ctx.select::<OutputRef>(),
                             conf.beacon,
@@ -514,7 +524,7 @@ mod tests {
     };
 
     use crate::orders::limit::{
-        beacon_from_oref, unsafe_update_datum, with_erased_beacon_unsafe, Datum, LimitOrder,
+        beacon_from_oref, unsafe_update_datum, with_erased_beacon_unsafe, BeaconMode, Datum, LimitOrder,
         LimitOrderValidation,
     };
 
@@ -563,6 +573,12 @@ mod tests {
     impl Has<OperatorCred> for Context {
         fn select<U: IsEqual<OperatorCred>>(&self) -> OperatorCred {
             self.cred
+        }
+    }
+
+    impl Has<BeaconMode> for Context {
+        fn select<U: IsEqual<BeaconMode>>(&self) -> BeaconMode {
+            BeaconMode::Default
         }
     }
 

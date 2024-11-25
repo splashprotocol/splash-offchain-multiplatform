@@ -2,7 +2,7 @@ use cml_chain::transaction::TransactionOutput;
 use std::fmt::{Debug, Display, Formatter};
 
 use crate::orders::grid::GridOrder;
-use crate::orders::limit::{LimitOrder, LimitOrderValidation};
+use crate::orders::limit::{BeaconMode, LimitOrder, LimitOrderValidation};
 use bloom_derivation::{MarketTaker, Stable, Tradable};
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
 use bloom_offchain::execution_engine::liquidity_book::market_taker::TakerBehaviour;
@@ -100,7 +100,8 @@ where
         + Has<ProducedIdentifiers<Token>>
         + Has<ConsumedInputs>
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
-        + Has<LimitOrderValidation>,
+        + Has<LimitOrderValidation>
+        + Has<BeaconMode>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         LimitOrder::try_from_ledger(repr, ctx).map(AnyOrder::Limit)

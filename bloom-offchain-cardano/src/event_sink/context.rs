@@ -18,7 +18,7 @@ use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHa
 use spectrum_offchain_cardano::handler_context::{ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers};
 
 use crate::orders::adhoc::AdhocFeeStructure;
-use crate::orders::limit::LimitOrderValidation;
+use crate::orders::limit::{BeaconMode, LimitOrderValidation};
 use crate::validation_rules::ValidationRules;
 
 pub struct EventContext<I: Copy> {
@@ -282,5 +282,11 @@ impl<I: Copy> Has<OutputRef> for HandlerContext<I> {
 impl<I: Copy> Has<OperatorCred> for HandlerContext<I> {
     fn select<U: IsEqual<OperatorCred>>(&self) -> OperatorCred {
         self.executor_cred
+    }
+}
+
+impl<I: Copy> Has<BeaconMode> for HandlerContext<I> {
+    fn select<U: IsEqual<BeaconMode>>(&self) -> BeaconMode {
+        BeaconMode::Default
     }
 }

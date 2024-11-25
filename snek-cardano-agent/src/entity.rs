@@ -4,7 +4,7 @@ use either::Either;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain_cardano::orders::adhoc::{AdhocFeeStructure, AdhocOrder};
-use bloom_offchain_cardano::orders::limit::LimitOrderValidation;
+use bloom_offchain_cardano::orders::limit::{BeaconMode, LimitOrderValidation};
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::{OutputRef, Token};
 use spectrum_offchain::data::order::SpecializedOrder;
@@ -113,6 +113,7 @@ where
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
         + Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>>
         + Has<LimitOrderValidation>
+        + Has<BeaconMode>
         + Has<PoolValidation>
         + Has<AdhocFeeStructure>
         + Has<Option<Metadata>>

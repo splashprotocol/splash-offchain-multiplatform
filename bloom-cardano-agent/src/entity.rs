@@ -2,7 +2,7 @@ use cml_chain::transaction::TransactionOutput;
 use either::Either;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
-use bloom_offchain_cardano::orders::limit::LimitOrderValidation;
+use bloom_offchain_cardano::orders::limit::{BeaconMode, LimitOrderValidation};
 use bloom_offchain_cardano::orders::AnyOrder;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::{OutputRef, Token};
@@ -117,6 +117,7 @@ where
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
         + Has<LimitOrderValidation>
+        + Has<BeaconMode>
         + Has<DepositOrderValidation>
         + Has<PoolValidation>,
 {

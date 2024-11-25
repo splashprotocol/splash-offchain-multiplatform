@@ -1,4 +1,4 @@
-use crate::orders::limit::{LimitOrder, LimitOrderValidation};
+use crate::orders::limit::{BeaconMode, LimitOrder, LimitOrderValidation};
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
 use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
@@ -265,6 +265,7 @@ where
         + Has<ConsumedInputs>
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
         + Has<LimitOrderValidation>
+        + Has<BeaconMode>
         + Has<AdhocFeeStructure>
         + Has<Option<Metadata>>
         + Has<AuthVerificationKey>,
