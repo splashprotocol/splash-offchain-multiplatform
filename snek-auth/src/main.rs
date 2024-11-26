@@ -1,10 +1,11 @@
+use std::fmt::format;
 use crate::analytics::{Analytics, LaunchType};
 use crate::re_captcha::{ReCaptcha, ReCaptchaSecret, ReCaptchaToken};
 use crate::signature::Signature;
 use actix_cors::Cors;
 use actix_web::http::header::ContentType;
-use actix_web::web::Data;
-use actix_web::{post, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::web::{Data, Json};
+use actix_web::{post, web, App, HttpResponse, HttpServer, Responder, HttpMessage};
 use bloom_offchain_cardano::orders::adhoc::beacon_from_oref;
 use clap::Parser;
 use cml_crypto::{Bip32PrivateKey, PrivateKey, RawBytesEncoding};
@@ -12,6 +13,8 @@ use derive_more::From;
 use log::{error, info};
 use spectrum_cardano_lib::{AssetClass, OutputRef};
 use std::time::{SystemTime, UNIX_EPOCH};
+use actix_web::middleware::Logger;
+use actix_web::dev::Service;
 
 mod analytics;
 pub mod re_captcha;
@@ -43,8 +46,16 @@ async fn auth(
     analytics: Data<Analytics>,
     sk: Data<PrivateKey>,
     limits: Data<Limits>,
-    req: web::Json<AuthRequest>,
+    req_raw: String,
 ) -> impl Responder {
+
+    if let None = serde_json::from_str::<AuthRequest>(&req_raw).ok() {
+        info!("Failed to deserialize {}", req_raw);
+        return HttpResponse::BadRequest().body("Bad request")
+    }
+
+    let req: AuthRequest = serde_json::from_str(&req_raw).unwrap();
+
     let token_opt = req.output_asset.into_token().or(req.input_asset.into_token());
 
     // Rules:
