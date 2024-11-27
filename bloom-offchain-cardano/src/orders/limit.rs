@@ -353,11 +353,7 @@ enum OrderState {
 
 fn order_state<C>(beacon: PolicyId, datum: PlutusData, ctx: &C) -> Option<OrderState>
 where
-    C: Has<ConsumedInputs>
-        + Has<ConsumedIdentifiers<Token>>
-        + Has<ProducedIdentifiers<Token>>
-        + Has<OutputRef>
-        + Has<BeaconMode>,
+    C: Has<ConsumedInputs> + Has<ConsumedIdentifiers<Token>> + Has<OutputRef> + Has<BeaconMode>,
 {
     let order_index = ctx.select::<OutputRef>().index();
     let datum_without_beacon = with_erased_beacon_unsafe(datum);
@@ -369,12 +365,8 @@ where
     };
     let consumed_ids = ctx.select::<ConsumedIdentifiers<Token>>().0;
     let consumed_beacons = consumed_ids.count(|b| b.0 == beacon);
-    let produced_beacons = ctx
-        .select::<ProducedIdentifiers<Token>>()
-        .0
-        .count(|b| b.0 == beacon);
     let beacon_mode = ctx.select::<BeaconMode>();
-    if consumed_beacons == 1 && produced_beacons == 1 {
+    if consumed_beacons == 1 {
         Some(OrderState::Subsequent)
     } else if (matches!(beacon_mode, BeaconMode::Adhoc) || valid_fresh_beacon()) && consumed_ids.is_empty() {
         Some(OrderState::New)
@@ -394,7 +386,6 @@ where
     C: Has<OperatorCred>
         + Has<OutputRef>
         + Has<ConsumedIdentifiers<Token>>
-        + Has<ProducedIdentifiers<Token>>
         + Has<ConsumedInputs>
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
         + Has<LimitOrderValidation>
