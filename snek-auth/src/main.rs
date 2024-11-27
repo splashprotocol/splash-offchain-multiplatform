@@ -1,10 +1,15 @@
 use crate::analytics::{Analytics, LaunchType};
 use crate::re_captcha::{ReCaptcha, ReCaptchaSecret, ReCaptchaToken};
 use crate::signature::Signature;
+use crate::ProcessingErrorCode::{
+    ADA2ADARequest, AuthEntityIsMissing, EmptyPoolInfo, IncorrectRequestStructure, PoolVerificationFailed,
+    ReCapchaVerificationFailed, SignatureVerificationFailed, UnexpectedError,
+};
 use actix_cors::Cors;
+use actix_web::error::InternalError;
 use actix_web::http::header::ContentType;
 use actix_web::web::Data;
-use actix_web::{post, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{error, post, web, App, HttpResponse, HttpServer, Responder};
 use bloom_offchain_cardano::orders::adhoc::beacon_from_oref;
 use clap::Parser;
 use cml_crypto::{Bip32PrivateKey, PrivateKey, RawBytesEncoding};
@@ -31,9 +36,54 @@ struct AuthRequest {
     signature: Option<String>,
 }
 
+#[derive(serde::Serialize, Clone, Debug)]
+enum ProcessingErrorCode {
+    ReCapchaVerificationFailed,
+    SignatureVerificationFailed,
+    AuthEntityIsMissing,
+    ADA2ADARequest,
+    EmptyPoolInfo,
+    IncorrectRequestStructure,
+    PoolVerificationFailed,
+    UnexpectedError,
+}
+
+impl Into<String> for ProcessingErrorCode {
+    fn into(self) -> String {
+        match self {
+            ReCapchaVerificationFailed => "Captcha verification failed",
+            SignatureVerificationFailed => "Signature verification failed",
+            AuthEntityIsMissing => "Authentication failed",
+            ADA2ADARequest => "ADA/ADA Request",
+            EmptyPoolInfo => "Empty pool info",
+            IncorrectRequestStructure => "Incorrect request",
+            PoolVerificationFailed => "Verification failed",
+            UnexpectedError => "Internal server error",
+        }
+        .to_string()
+    }
+}
+
+#[derive(serde::Serialize, Clone, Debug)]
+struct ProcessingError {
+    message: String,
+    code: ProcessingErrorCode,
+}
+
 #[derive(serde::Serialize)]
 struct AuthResponse {
     signature: SignatureHex,
+}
+
+fn create_error_response(code: ProcessingErrorCode) -> HttpResponse {
+    let parsing_error = ProcessingError {
+        message: code.clone().into(),
+        code,
+    };
+    let body = serde_json::to_string(&parsing_error).unwrap();
+    return HttpResponse::BadRequest()
+        .content_type(ContentType::json())
+        .body(body);
 }
 
 #[post("/auth")]
@@ -70,7 +120,7 @@ async fn auth(
         (Some(token), _) => {
             if !captcha.verify(token).await {
                 info!("Captcha verification failed");
-                return HttpResponse::Ok().body("Verification failed");
+                return create_error_response(ReCapchaVerificationFailed);
             }
         }
         (_, Some(signature_from_request)) => {
@@ -79,17 +129,17 @@ async fn auth(
             {
                 if !verification_result_is_success {
                     info!("Signature verification failed for request {:?}", req.clone());
-                    return HttpResponse::Unauthorized().body("Authorization failed");
+                    return create_error_response(SignatureVerificationFailed);
                 }
             } else {
                 info!("Serialization failed for request: {:?}", req.clone());
-                return HttpResponse::BadRequest().body("Bad request");
+                return create_error_response(IncorrectRequestStructure);
             }
         }
-        _ => return HttpResponse::Unauthorized().body("Authorization failed"),
+        _ => return create_error_response(AuthEntityIsMissing),
     };
     match token_opt {
-        None => HttpResponse::BadRequest().body("ADA/ADA request"),
+        None => return create_error_response(ADA2ADARequest),
         Some(token) => match analytics.get_token_pool_info(token).await {
             Ok(pool_info) => {
                 let pool_verification_result_is_success: bool = match pool_info.launch_type {
@@ -125,7 +175,7 @@ async fn auth(
                     }
                     LaunchType::Common => true,
                 };
-                let response = if pool_verification_result_is_success {
+                if pool_verification_result_is_success {
                     let beacon = beacon_from_oref(
                         req.input_oref,
                         req.order_index,
@@ -138,22 +188,20 @@ async fn auth(
                         signature: proof.to_raw_hex().into(),
                     };
                     let body = serde_json::to_string(&response).unwrap();
-                    HttpResponse::Ok().content_type(ContentType::json()).body(body)
+                    return HttpResponse::Ok().content_type(ContentType::json()).body(body);
                 } else {
                     error!(
                         "pool_verification_result_is_success {} for request {:?}",
                         pool_verification_result_is_success, req
                     );
-                    HttpResponse::Ok().body("Verification failed")
-                };
-                Ok(response)
+                    return create_error_response(PoolVerificationFailed);
+                }
             }
             Err(err) => {
                 error!("Failed to fetch pool info: {}", err);
-                Err(HttpResponse::InternalServerError().body("Internal server error"))
+                return create_error_response(EmptyPoolInfo);
             }
-        }
-        .unwrap_or(HttpResponse::InternalServerError().body("Internal server error")),
+        },
     }
 }
 
@@ -184,11 +232,18 @@ async fn main() -> std::io::Result<()> {
 
     let raw_config = std::fs::File::open(args.config_path).expect("Cannot load configuration file");
     let config: AppConfig = serde_json::from_reader(raw_config).expect("Invalid configuration file");
+
     HttpServer::new(move || {
         let cors = Cors::default()
             .allow_any_origin()
             .allow_any_method()
             .allow_any_header();
+
+        let json_config = web::JsonConfig::default().error_handler(|err, _req| {
+            error!("Json parsing error: {}", err);
+            InternalError::from_response(err, create_error_response(IncorrectRequestStructure)).into()
+        });
+
         let re_captcha = Data::new(ReCaptcha::new(config.re_captcha_secret.clone()));
         let analytics = Data::new(Analytics::new(
             config.analytics_snek_url.clone(),
@@ -202,6 +257,7 @@ async fn main() -> std::io::Result<()> {
         );
         App::new()
             .wrap(cors)
+            .app_data(json_config)
             .app_data(re_captcha)
             .app_data(signature_verifier)
             .app_data(analytics)
