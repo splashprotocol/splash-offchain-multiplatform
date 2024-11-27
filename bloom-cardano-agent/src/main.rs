@@ -64,6 +64,7 @@ use spectrum_offchain_cardano::data::pool::AnyPool;
 use spectrum_offchain_cardano::deployment::{DeployedValidators, ProtocolDeployment, ProtocolScriptHashes};
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
+use spectrum_streaming::StreamExt as StreamExtAlt;
 
 mod config;
 mod context;
@@ -296,7 +297,10 @@ async fn main() {
         spec_interpreter,
         prover.clone(),
         select_partition(
-            merge_upstreams(pair_upd_recv_p1, spec_upd_recv_p1),
+            merge_upstreams(
+                pair_upd_recv_p1.buffered_within(config.event_feed_buffering_duration),
+                spec_upd_recv_p1,
+            ),
             config.partitioning.clone(),
         ),
         funding_upd_recv_p1,
@@ -312,7 +316,10 @@ async fn main() {
         spec_interpreter,
         prover.clone(),
         select_partition(
-            merge_upstreams(pair_upd_recv_p2, spec_upd_recv_p2),
+            merge_upstreams(
+                pair_upd_recv_p2.buffered_within(config.event_feed_buffering_duration),
+                spec_upd_recv_p2,
+            ),
             config.partitioning.clone(),
         ),
         funding_upd_recv_p2,
@@ -328,7 +335,10 @@ async fn main() {
         spec_interpreter,
         prover.clone(),
         select_partition(
-            merge_upstreams(pair_upd_recv_p3, spec_upd_recv_p3),
+            merge_upstreams(
+                pair_upd_recv_p3.buffered_within(config.event_feed_buffering_duration),
+                spec_upd_recv_p3,
+            ),
             config.partitioning.clone(),
         ),
         funding_upd_recv_p3,
@@ -344,7 +354,10 @@ async fn main() {
         spec_interpreter,
         prover,
         select_partition(
-            merge_upstreams(pair_upd_recv_p4, spec_upd_recv_p4),
+            merge_upstreams(
+                pair_upd_recv_p4.buffered_within(config.event_feed_buffering_duration),
+                spec_upd_recv_p4,
+            ),
             config.partitioning,
         ),
         funding_upd_recv_p4,

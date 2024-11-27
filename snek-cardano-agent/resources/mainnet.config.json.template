@@ -43,19 +43,15 @@
     },
     "o2o_allowed": false
   },
-  "mempoolBufferingDuration": {
-    "secs": 1,
-    "nanos": 0
-  },
-  "ledgerBufferingDuration": {
-    "secs": 0,
-    "nanos": 50000
-  },
   "partitioning": {
     "numPartitionsTotal": 1,
     "assignedPartitions": [0]
   },
   "adhocFee": {
     "relativeFeePercent": 1
+  },
+  "eventFeedBufferingDuration": {
+    "secs": 2,
+    "nanos": 0
   }
 }

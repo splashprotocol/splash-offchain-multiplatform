@@ -46,5 +46,9 @@
   "partitioning": {
     "numPartitionsTotal": 1,
     "assignedPartitions": [0]
+  },
+  "eventFeedBufferingDuration": {
+    "secs": 2,
+    "nanos": 0
   }
 }

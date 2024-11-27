@@ -27,8 +27,7 @@ pub struct AppConfig {
     pub maestro_key_path: String,
     pub execution: ExecutionConfig,
     pub channel_buffer_size: usize,
-    pub mempool_buffering_duration: Duration,
-    pub ledger_buffering_duration: Duration,
+    pub event_feed_buffering_duration: Duration,
     pub partitioning: Partitioning,
     pub adhoc_fee: AdhocFeeConfig,
 }

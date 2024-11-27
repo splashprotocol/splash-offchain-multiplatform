@@ -41,11 +41,11 @@ impl<S: Stream> Stream for BufferedWithin<S> {
         }
         if this.timer.as_mut().poll(cx).is_ready() {
             if let Some(buffered_item) = this.buffer.pop_front() {
-                // Keep returning accumulated items util buffer is exhausted.
+                // Keep returning accumulated items util the buffer is exhausted.
                 return Poll::Ready(Some(buffered_item));
             } else {
                 // If no accumulated items left in the upstream reset the timer.
-                let _ = mem::replace(&mut *this.timer, Delay::new(*this.duration));
+                this.timer.reset(*this.duration);
             }
         }
 
