@@ -559,8 +559,28 @@ where
         } else {
             warn!("Unknown Tx submission error!");
             match pending_effects {
-                ExecutionEffects::FromLiquidityBook(_) => {
-                    self.multi_book.get_mut(&pair).on_recipe_failed();
+                ExecutionEffects::FromLiquidityBook(effs) => {
+                    let orders = effs
+                        .into_iter()
+                        .map(|eff| match eff {
+                            ExecutionEff::Updated(k, _) => k.0,
+                            ExecutionEff::Eliminated(k) => k.0,
+                        })
+                        .filter_map(|k| match k {
+                            Either::Left(order) => Some(order),
+                            Either::Right(_) => None,
+                        })
+                        .collect::<Vec<_>>();
+                    let book = self.multi_book.get_mut(&pair);
+                    book.on_recipe_failed();
+                    for order in orders {
+                        warn!(
+                            "Removing {} @ {} as potentially poisonous",
+                            order.stable_id(),
+                            order.version()
+                        );
+                        book.remove_taker(order.entity);
+                    }
                 }
                 ExecutionEffects::FromBacklog(_, order) => {
                     self.multi_backlog.get_mut(&pair).put(order);
@@ -790,7 +810,18 @@ where
                                 if let Some(unused_funding) = maybe_unused_funding {
                                     self.funding_pool.insert(unused_funding);
                                 }
+                                let consumed_funding_bearers = funding_effects
+                                    .iter()
+                                    .filter_map(|eff| match eff {
+                                        FundingEvent::Consumed(br) => Some(br.select::<V>()),
+                                        _ => None,
+                                    })
+                                    .collect::<Vec<_>>();
                                 self.pending_effects.push(Effects::Funding(funding_effects));
+                                trace!(
+                                    "Consumed funding bearers: {}",
+                                    display_vec(&consumed_funding_bearers)
+                                );
                                 // Return pair to focus set to make sure corresponding TLB will be exhausted.
                                 self.focus_set.push_back(focus_pair);
                                 return Poll::Ready(Some(tx));
