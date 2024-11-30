@@ -142,11 +142,7 @@ impl OutputRef {
     }
 
     pub fn from_string_unsafe(s: &str) -> OutputRef {
-        let parts = s.split("#").collect::<Vec<_>>();
-        Self(
-            TransactionHash::from_hex(parts[0]).unwrap(),
-            parts[1].parse().unwrap(),
-        )
+        Self::try_from(s).unwrap()
     }
 }
 
@@ -250,7 +246,7 @@ impl From<Token> for [u8; 60] {
 
 impl Display for Token {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(format!("{}:{}", self.0.to_hex()[0..6].to_string(), self.1).as_str())
+        f.write_str(format!("{}.{}", self.0.to_hex()[0..6].to_string(), self.1).as_str())
     }
 }
 

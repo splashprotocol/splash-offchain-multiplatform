@@ -29,10 +29,9 @@ pub async fn pull_collateral<Net: CardanoNetwork>(
             // Didn't find any new UTxOs
             break;
         }
-        if let Some(x) = utxos
-            .into_iter()
-            .find(|u| !u.output.amount().has_multiassets() && u.output.value().coin >= MIN_SAFE_COLLATERAL)
-        {
+        if let Some(x) = utxos.into_iter().find(|u| {
+            !u.output.amount().has_multiassets() && u.output.value().coin == MIN_SAFE_COLLATERAL * 2
+        }) {
             collateral = Some(x);
         }
         offset += LIMIT as u32;
