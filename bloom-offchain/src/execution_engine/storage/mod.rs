@@ -31,7 +31,7 @@ pub trait StateIndex<T: EntitySnapshot> {
     fn get_state<'a>(&self, sid: T::Version) -> Option<T>;
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct StateIndexWithTracing<In>(pub In);
 
 struct Displayed<'a, T>(&'a Option<T>);
@@ -146,6 +146,20 @@ pub struct InMemoryStateIndex<T: EntitySnapshot> {
     index: HashMap<InMemoryIndexKey, T::Version>,
 }
 
+impl<T: EntitySnapshot + Display> Debug for InMemoryStateIndex<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("InMemoryStateIndex(store:[")?;
+        for (k, v) in &self.store {
+            f.write_fmt(format_args!("{} -> {}, ", k, v))?;
+        }
+        f.write_str("], index:[")?;
+        for (k, v) in &self.index {
+            f.write_fmt(format_args!("{} -> {}, ", hex::encode(k), v))?;
+        }
+        f.write_str("])")
+    }
+}
+
 impl<T: EntitySnapshot> InMemoryStateIndex<T> {
     pub fn new() -> Self {
         Self {
@@ -163,7 +177,7 @@ impl<T: EntitySnapshot> InMemoryStateIndex<T> {
         T::StableId: Into<[u8; 60]>,
     {
         let mut bound_versions = vec![];
-        for p in EPHEMERAL_STATE_KEYS {
+        for p in ALL_STATE_KEYS {
             if p != prefix {
                 let index_key = index_key(p, sid);
                 if let Some(bound_ver) = self.index.get(&index_key) {
@@ -312,54 +326,25 @@ fn index_key<T: Into<[u8; 60]>>(prefix: u8, id: T) -> InMemoryIndexKey {
 #[cfg(test)]
 mod tests {
     use crate::execution_engine::storage::{InMemoryStateIndex, StateIndex, StateIndexWithTracing};
-    use derive_more::{From, Into};
-    use serde::{Deserialize, Serialize};
+    use spectrum_cardano_lib::{OutputRef, Token};
     use spectrum_offchain::data::event::{Confirmed, Predicted, Unconfirmed};
-    use spectrum_offchain::data::{Baked, EntitySnapshot, Stable};
-    use std::fmt::{Display, Formatter, Write};
-
-    #[derive(Copy, Clone, Hash, Ord, PartialOrd, PartialEq, Eq, Debug, Into, From)]
-    struct StableId([u8; 60]);
-    impl StableId {
-        fn from_str(s: &str) -> Self {
-            Self(<[u8; 60]>::try_from(hex::decode(s).unwrap()).unwrap())
-        }
-    }
-    impl Display for StableId {
-        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            f.write_str("")
-        }
-    }
-
-    #[derive(
-        Copy, Clone, Hash, Ord, PartialOrd, PartialEq, Eq, Debug, Into, From, Serialize, Deserialize,
-    )]
-    struct Ver([u8; 32]);
-    impl Ver {
-        fn from_str(s: &str) -> Self {
-            Self(<[u8; 32]>::try_from(hex::decode(s).unwrap()).unwrap())
-        }
-    }
-    impl Display for Ver {
-        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            f.write_str("")
-        }
-    }
+    use spectrum_offchain::data::{EntitySnapshot, Stable};
+    use std::fmt::{Display, Formatter};
 
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     struct Ent {
-        stable_id: StableId,
-        ver: Ver,
+        stable_id: Token,
+        ver: OutputRef,
     }
 
     impl Display for Ent {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            f.write_str(format!("Ent({})", hex::encode(&self.ver.0)).as_str())
+            f.write_str(format!("Ent({})", &self.ver).as_str())
         }
     }
 
     impl Stable for Ent {
-        type StableId = StableId;
+        type StableId = Token;
         fn stable_id(&self) -> Self::StableId {
             self.stable_id
         }
@@ -369,7 +354,7 @@ mod tests {
     }
 
     impl EntitySnapshot for Ent {
-        type Version = Ver;
+        type Version = OutputRef;
         fn version(&self) -> Self::Version {
             self.ver
         }
@@ -377,13 +362,14 @@ mod tests {
 
     #[test]
     fn normal_index_cycle() {
-        let nft = "42019269344f20974cc563179e392a78dd3a3e9fe90adf30322abf8d1af7822454e4e3286b8c59c3adbed84a7e4aa9467ae9741807d24de501ed48c2";
-        let utxo1 = "9bdfa9a985ed742d70fe896868c50e97be3c8759b90d3c7f979e5becb75f8d86";
-        let ver1 = Ver::from_str(utxo1);
-        let utxo2 = "1af7822454e4e3286b8c59c3adbed84a7e4aa9467ae9741807d24de501ed48c2";
-        let ver2 = Ver::from_str(utxo2);
+        let stable_id = Token::from_string_unsafe("42019269344f20974cc563179e392a78dd3a3e9fe90adf30322abf8d.1af7822454e4e3286b8c59c3adbed84a7e4aa9467ae9741807d24de501ed48c2");
+        let ver1 = OutputRef::from_string_unsafe(
+            "9bdfa9a985ed742d70fe896868c50e97be3c8759b90d3c7f979e5becb75f8d86#1",
+        );
+        let ver2 = OutputRef::from_string_unsafe(
+            "1af7822454e4e3286b8c59c3adbed84a7e4aa9467ae9741807d24de501ed48c2#0",
+        );
         let mut store = StateIndexWithTracing(InMemoryStateIndex::<Ent>::new());
-        let stable_id = StableId::from_str(nft);
         store.put_unconfirmed(Unconfirmed(Ent { stable_id, ver: ver1 }));
         store.put_confirmed(Confirmed(Ent { stable_id, ver: ver1 }));
         store.put_predicted(Predicted(Ent { stable_id, ver: ver2 }));

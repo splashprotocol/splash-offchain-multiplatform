@@ -1,16 +1,14 @@
 use std::cmp::Ordering;
-use std::fmt::{format, Debug, Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::str::FromStr;
 
 use cml_chain::assets::MultiAsset;
-use cml_chain::certs::Credential;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::TransactionInput;
 use cml_chain::utils::BigInteger;
 use cml_chain::{PolicyId, Value};
-use cml_core::serialization::ToBytes;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
 use derive_more::{From, Into};
@@ -142,6 +140,14 @@ impl OutputRef {
     pub fn index(&self) -> u64 {
         self.1
     }
+
+    pub fn from_string_unsafe(s: &str) -> OutputRef {
+        let parts = s.split("#").collect::<Vec<_>>();
+        Self(
+            TransactionHash::from_hex(parts[0]).unwrap(),
+            parts[1].parse().unwrap(),
+        )
+    }
 }
 
 impl Debug for OutputRef {
@@ -215,6 +221,16 @@ impl From<OutputRef> for String {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub struct Token(pub PolicyId, pub AssetName);
+
+impl Token {
+    pub fn from_string_unsafe(s: &str) -> Token {
+        let parts = s.split(".").collect::<Vec<_>>();
+        Self(
+            PolicyId::from_hex(parts[0]).unwrap(),
+            AssetName::try_from_hex(parts[1]).unwrap(),
+        )
+    }
+}
 
 impl From<Token> for [u8; 60] {
     fn from(value: Token) -> Self {

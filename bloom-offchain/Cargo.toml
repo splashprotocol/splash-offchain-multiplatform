@@ -45,3 +45,6 @@ either = "1.9.0"
 circular-buffer = "0.1.7"
 primitive-types = "0.12.2"
 void = "1.0.2"
+
+[dev-dependencies]
+spectrum-cardano-lib = { version = "0.1.0", path = "../spectrum-cardano-lib" }
