@@ -3,23 +3,32 @@ use std::ops::Deref;
 use cardano_explorer::CardanoNetwork;
 use cml_chain::{
     address::Address,
-    builders::{output_builder::TransactionOutputBuilder, tx_builder::ChangeSelectionAlgo},
+    builders::{
+        output_builder::TransactionOutputBuilder,
+        tx_builder::{ChangeSelectionAlgo, SignedTxBuilder},
+    },
+    transaction::Transaction,
     Serialize, Value,
 };
 use cml_crypto::TransactionHash;
 use log::trace;
-use spectrum_cardano_lib::{collateral::Collateral, protocol_params::constant_tx_builder, OutputRef};
+use spectrum_cardano_lib::{
+    collateral::Collateral, protocol_params::constant_tx_builder, transaction::OutboundTransaction, OutputRef,
+};
 use spectrum_offchain::tx_prover::TxProver;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 
 use crate::{collateral::COLLATERAL_LOVELACES, collect_utxos::collect_utxos};
 
-pub async fn generate_collateral<Net: CardanoNetwork>(
+pub async fn generate_collateral<Net: CardanoNetwork, TX>(
     explorer: &Net,
     addr: &Address,
     collateral_addr: &Address,
-    prover: &OperatorProver,
-) -> Result<Collateral, Box<dyn std::error::Error>> {
+    prover: &TX,
+) -> Result<Collateral, Box<dyn std::error::Error>>
+where
+    TX: TxProver<SignedTxBuilder, OutboundTransaction<Transaction>>,
+{
     let all_utxos = explorer.utxos_by_address(addr.clone(), 0, 100).await;
     let utxos = collect_utxos(all_utxos, COLLATERAL_LOVELACES + 1_000_000, vec![], None);
 
