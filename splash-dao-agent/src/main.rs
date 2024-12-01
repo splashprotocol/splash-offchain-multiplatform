@@ -76,7 +76,7 @@ async fn main() {
     let deployment_progress: DeploymentProgress =
         serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
 
-    let deployment = CompleteDeployment::try_from(deployment_progress).unwrap();
+    let deployment = CompleteDeployment::try_from((deployment_progress, config.network_id)).unwrap();
 
     log4rs::init_file(args.log4rs_path, Default::default()).unwrap();
 

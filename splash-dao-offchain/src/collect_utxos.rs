@@ -63,6 +63,8 @@ pub fn collect_utxos(
                 } else {
                     skipped_utxos.push(utxo);
                 }
+            } else {
+                skipped_utxos.push(utxo);
             }
         }
     }

@@ -23,7 +23,7 @@ use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 
 use crate::assets::Splash;
-use crate::constants::time::{COOLDOWN_PERIOD_MILLIS, EPOCH_LEN};
+use crate::constants::time::{COOLDOWN_PERIOD_MILLIS, DISTRIBUTE_INFLATION_START_DELAY_MILLIS, EPOCH_LEN};
 use crate::constants::{script_bytes::MINT_WP_AUTH_TOKEN_SCRIPT, SPLASH_NAME};
 use crate::deployment::ProtocolValidator;
 use crate::entities::onchain::smart_farm::FarmId;
@@ -149,6 +149,7 @@ pub struct PollExhausted;
 pub enum PollState {
     WeightingOngoing(WeightingOngoing),
     DistributionOngoing(DistributionOngoing),
+    WaitingForDistributionToStart,
     PollExhausted(PollExhausted),
 }
 
@@ -176,7 +177,16 @@ impl WeightingPoll {
         } else {
             match self.next_farm() {
                 None => PollState::PollExhausted(PollExhausted),
-                Some((farm, weight)) => PollState::DistributionOngoing(DistributionOngoing(farm, weight)),
+                Some((farm, weight)) => {
+                    let epoch_end = epoch_end(genesis, self.epoch);
+                    let can_start_distribution =
+                        time_now > epoch_end + DISTRIBUTE_INFLATION_START_DELAY_MILLIS;
+                    if can_start_distribution {
+                        PollState::DistributionOngoing(DistributionOngoing(farm, weight))
+                    } else {
+                        PollState::WaitingForDistributionToStart
+                    }
+                }
             }
         }
     }
@@ -186,13 +196,15 @@ impl WeightingPoll {
     }
 
     pub fn apply_votes(&mut self, order_distribution: &[(FarmId, u64)]) {
-        assert_eq!(self.distribution.len(), order_distribution.len());
-        self.distribution.iter_mut().zip(order_distribution).for_each(
-            |((existing_farm_id, existing_weight), (farm_id, weight))| {
-                assert_eq!(*farm_id, *existing_farm_id);
-                *existing_weight += *weight;
-            },
-        );
+        // assert_eq!(self.distribution.len(), order_distribution.len());
+        for (farm_id, weight) in order_distribution {
+            let ix = self
+                .distribution
+                .iter()
+                .position(|&(f_id, w)| f_id == *farm_id)
+                .unwrap();
+            self.distribution[ix].1 += *weight;
+        }
     }
 
     fn weighting_open(&self, genesis: GenesisEpochStartTime, time_now: NetworkTime) -> bool {

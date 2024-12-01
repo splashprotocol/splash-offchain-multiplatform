@@ -1,6 +1,7 @@
 use cardano_explorer::CardanoNetwork;
 use cml_chain::utils::BigInteger;
 use cml_crypto::{ScriptHash, TransactionHash};
+use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::deployment::{
     DeployedScriptInfo, DeployedValidator, DeployedValidatorRef, Script,
@@ -8,7 +9,10 @@ use spectrum_offchain_cardano::deployment::{
 use tokio::io::AsyncWriteExt;
 use type_equalities::IsEqual;
 
-use crate::protocol_config::{GTAuthPolicy, MintVEIdentifierPolicy, VEFactoryAuthPolicy};
+use crate::{
+    protocol_config::{GTAuthPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy, VEFactoryAuthPolicy},
+    GenesisEpochStartTime,
+};
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct DeployedValidators {
@@ -150,6 +154,7 @@ pub struct DeploymentProgress {
     pub minted_deployment_tokens: Option<MintedTokens>,
     pub deployed_validators: Option<DeployedValidators>,
     pub genesis_epoch_start_time: Option<u64>,
+    pub num_initial_farms: u32,
 }
 
 pub async fn write_deployment_to_disk(deployment_config: &DeploymentProgress, deployment_json_path: &str) {
@@ -166,6 +171,8 @@ pub struct CompleteDeployment {
     pub minted_deployment_tokens: MintedTokens,
     pub deployed_validators: DeployedValidators,
     pub genesis_epoch_start_time: u64,
+    pub network_id: NetworkId,
+    pub num_initial_farms: u32,
 }
 
 impl Has<VEFactoryAuthPolicy> for CompleteDeployment {
@@ -180,9 +187,35 @@ impl Has<MintVEIdentifierPolicy> for CompleteDeployment {
     }
 }
 
+impl Has<NetworkId> for CompleteDeployment {
+    fn select<U: IsEqual<NetworkId>>(&self) -> NetworkId {
+        self.network_id
+    }
+}
+
+impl Has<MintWPAuthPolicy> for CompleteDeployment {
+    fn select<U: IsEqual<MintWPAuthPolicy>>(&self) -> MintWPAuthPolicy {
+        MintWPAuthPolicy(self.deployed_validators.mint_wpauth_token.hash)
+    }
+}
+
 impl Has<GTAuthPolicy> for CompleteDeployment {
     fn select<U: IsEqual<GTAuthPolicy>>(&self) -> GTAuthPolicy {
         GTAuthPolicy(self.minted_deployment_tokens.gt.policy_id)
+    }
+}
+
+impl Has<GenesisEpochStartTime> for CompleteDeployment {
+    fn select<U: IsEqual<GenesisEpochStartTime>>(&self) -> GenesisEpochStartTime {
+        GenesisEpochStartTime::from(self.genesis_epoch_start_time)
+    }
+}
+
+impl Has<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>> for CompleteDeployment {
+    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }> {
+        DeployedScriptInfo::from(&self.deployed_validators.mint_wpauth_token)
     }
 }
 
@@ -202,10 +235,10 @@ impl Has<DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }>> for Comp
     }
 }
 
-impl TryFrom<DeploymentProgress> for CompleteDeployment {
+impl TryFrom<(DeploymentProgress, NetworkId)> for CompleteDeployment {
     type Error = ();
 
-    fn try_from(value: DeploymentProgress) -> Result<Self, Self::Error> {
+    fn try_from((value, network_id): (DeploymentProgress, NetworkId)) -> Result<Self, Self::Error> {
         match value {
             DeploymentProgress {
                 lq_tokens: Some(lq_tokens),
@@ -214,6 +247,7 @@ impl TryFrom<DeploymentProgress> for CompleteDeployment {
                 minted_deployment_tokens: Some(minted_deployment_tokens),
                 deployed_validators: Some(deployed_validators),
                 genesis_epoch_start_time: Some(genesis_epoch_start_time),
+                num_initial_farms,
             } => Ok(Self {
                 lq_tokens,
                 splash_tokens,
@@ -221,6 +255,8 @@ impl TryFrom<DeploymentProgress> for CompleteDeployment {
                 minted_deployment_tokens,
                 deployed_validators,
                 genesis_epoch_start_time,
+                network_id,
+                num_initial_farms,
             }),
             _ => Err(()),
         }

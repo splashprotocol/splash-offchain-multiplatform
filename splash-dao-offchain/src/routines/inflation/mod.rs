@@ -38,7 +38,6 @@ use tokio::sync::mpsc::Receiver;
 use tokio::sync::Mutex;
 use type_equalities::IsEqual;
 
-use crate::constants::script_bytes::VOTING_WITNESS_STUB;
 use crate::constants::time::EPOCH_LEN;
 use crate::deployment::ProtocolValidator;
 use crate::entities::offchain::voting_order::{VotingOrder, VotingOrderId};
@@ -128,7 +127,7 @@ where
 {
     async fn attempt(&mut self) -> Option<ToRoutine> {
         match self.read_state().await {
-            RoutineState::Uninitialized => retry_in(DEF_DELAY),
+            RoutineState::Uninitialized | RoutineState::WaitingForDistributionToStart => retry_in(DEF_DELAY),
             RoutineState::PendingCreatePoll(state) => self.try_create_wpoll(state).await,
             RoutineState::WeightingInProgress(state) => self.try_apply_votes(state).await,
             RoutineState::DistributionInProgress(state) => self.try_distribute_inflation(state).await,
@@ -234,7 +233,6 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
     where
         WP: StateProjectionRead<WeightingPollSnapshot, Bearer> + Send + Sync,
     {
-        trace!("Behaviour::weighting_poll({})", epoch);
         self.weighting_poll
             .read(self.conf.poll_id(epoch))
             .await
@@ -329,13 +327,15 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                         }
                         PollState::PollExhausted(_) => {
                             if !prev_wp.as_erased().0.get().eliminated {
-                                trace!("Eliminating previous epoch({}) weighting_poll", current_epoch - 1);
                                 return RoutineState::PendingEliminatePoll(PendingEliminatePoll {
                                     weighting_poll: prev_wp,
                                 });
                             } else {
                                 trace!("Prev epoch's weighting_poll already eliminated");
                             }
+                        }
+                        PollState::WaitingForDistributionToStart => {
+                            trace!("Waiting for distribution of epoch {} to start", current_epoch - 1);
                         }
                     };
                 }
@@ -372,6 +372,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                     PollState::PollExhausted(_) => {
                         RoutineState::PendingEliminatePoll(PendingEliminatePoll { weighting_poll: wp })
                     }
+                    PollState::WaitingForDistributionToStart => RoutineState::WaitingForDistributionToStart,
                 },
             }
         } else {
@@ -708,8 +709,10 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         }) = weighting_poll
         {
             let wp = weighting_poll.0.get();
+            let epoch = wp.epoch;
             let time_millis = self.current_slot;
             if wp.can_be_eliminated(self.conf.genesis_time, time_millis) {
+                info!("Eliminating wpoll @ epoch {}", epoch);
                 let funding_boxes = AvailableFundingBoxes(self.funding_box.collect().await.unwrap());
                 let (signed_tx, funding_box_changes) = self
                     .actions
@@ -717,7 +720,12 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                     .await;
                 let prover = OperatorProver::new(self.conf.operator_sk.clone());
                 let tx = prover.prove(signed_tx);
+                let tx_hash = tx.body.hash();
                 self.network.submit_tx(tx).await.unwrap();
+                info!(
+                    "Eliminating wpoll @ epoch {} SUCCESS (tx hash: {})",
+                    epoch, tx_hash
+                );
 
                 for p in funding_box_changes.spent {
                     self.funding_box.spend_predicted(p).await;
@@ -921,7 +929,7 @@ where
             command,
             response_sender,
         } = message;
-        match command {
+        let send_response_result = match command {
             VotingOrderCommand::Submit(voting_order) => {
                 if !self.backlog.exists(voting_order.id).await {
                     let time_src = NetworkTimeSource {};
@@ -931,23 +939,34 @@ where
                         timestamp,
                     };
                     self.backlog.put(ord).await;
-                    response_sender.send(VotingOrderStatus::Queued).unwrap();
+                    Some(response_sender.send(VotingOrderStatus::Queued))
+                } else {
+                    trace!("Order already exists in backlog");
+                    None
                 }
             }
             VotingOrderCommand::GetStatus(order_id) => {
                 if self.backlog.exists(order_id).await {
-                    response_sender.send(VotingOrderStatus::Queued).unwrap();
+                    Some(response_sender.send(VotingOrderStatus::Queued))
                 } else if let Some(ve) = self.voting_escrow.read(order_id.voting_escrow_id).await {
                     let ve_version = ve.as_erased().0.get().version as u64;
                     if ve_version > order_id.version {
-                        response_sender.send(VotingOrderStatus::Success).unwrap();
+                        Some(response_sender.send(VotingOrderStatus::Success))
                     } else {
-                        response_sender.send(VotingOrderStatus::Failed).unwrap();
+                        Some(response_sender.send(VotingOrderStatus::Failed))
                     }
                 } else {
-                    response_sender
-                        .send(VotingOrderStatus::VotingEscrowNotFound)
-                        .unwrap();
+                    Some(response_sender.send(VotingOrderStatus::VotingEscrowNotFound))
+                }
+            }
+        };
+        if let Some(res) = send_response_result {
+            match res {
+                Ok(_) => {
+                    trace!("Response sent to user");
+                }
+                Err(_e) => {
+                    trace!("Couldn't send response to user");
                 }
             }
         }
@@ -983,7 +1002,6 @@ where
                     if let Some(r) = routine {
                         match r {
                             ToRoutine::RetryIn(delay) => {
-                                trace!("Delay for {:?}", delay);
                                 Delay::new(delay).await;
                             }
                         }
@@ -1091,14 +1109,18 @@ pub fn slot_to_time_millis(slot: u64, network_id: NetworkId) -> u64 {
     }
 }
 
-pub fn slot_to_epoch(slot: u64, genesis_time: GenesisEpochStartTime, network_id: NetworkId) -> CurrentEpoch {
-    let time_millis = slot_to_time_millis(slot, network_id);
+pub fn time_millis_to_epoch(time_millis: u64, genesis_time: GenesisEpochStartTime) -> CurrentEpoch {
     let diff = if time_millis < genesis_time.0 {
         0.0
     } else {
         (time_millis - genesis_time.0) as f32
     };
     CurrentEpoch((diff / EPOCH_LEN as f32).floor() as u32)
+}
+
+pub fn slot_to_epoch(slot: u64, genesis_time: GenesisEpochStartTime, network_id: NetworkId) -> CurrentEpoch {
+    let time_millis = slot_to_time_millis(slot, network_id);
+    time_millis_to_epoch(time_millis, genesis_time)
 }
 
 pub struct WeightingPollEliminated(pub bool);
@@ -1113,6 +1135,8 @@ pub enum RoutineState<Out> {
     WeightingInProgress(WeightingInProgress<Out>),
     /// Weighting ended. Time to distribute inflation to farms pro-rata.
     DistributionInProgress(DistributionInProgress<Out>),
+    /// Weighting ended. Awaiting start time to distribute inflation to farms pro-rata.
+    WaitingForDistributionToStart,
     /// Inflation is distributed, time to eliminate the poll.
     PendingEliminatePoll(PendingEliminatePoll<Out>),
 }

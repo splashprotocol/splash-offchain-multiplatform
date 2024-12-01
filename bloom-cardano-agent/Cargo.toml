@@ -23,8 +23,8 @@ cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", br
 cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
 cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
 cml-multi-era = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
-pallas-network = { git = "https://github.com/kettlebell/pallas.git", branch = "conway_update" }
-pallas-primitives = { git = "https://github.com/kettlebell/pallas.git", branch = "conway_update" }
+pallas-network = { git = "https://github.com/kettlebell/pallas.git", branch = "conway_diagnostics" }
+pallas-primitives = { git = "https://github.com/kettlebell/pallas.git", branch = "conway_diagnostics" }
 isahc = { version = "1.7.2", features = ["json"] }
 futures = "0.3.25"
 tokio = { version = "1.22.0", features = ["full"] }
