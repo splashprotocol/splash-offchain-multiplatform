@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::time::Duration;
 
 use cml_core::Slot;
@@ -16,6 +17,7 @@ use bloom_offchain_cardano::integrity::{CheckIntegrity, IntegrityViolations};
 pub struct AppConfig {
     pub chain_sync: ChainSyncConfig,
     pub node: NodeConfig,
+    pub reporting_endpoint: SocketAddr,
     pub tx_submission_buffer_size: usize,
     pub operator_key: String,
     pub take_residual_fee: bool,

@@ -54,6 +54,7 @@ use spectrum_offchain::data::Baked;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::partitioning::Partitioned;
+use spectrum_offchain::reporting::{reporting_stream, ReportingAgent};
 use spectrum_offchain::streaming::run_stream;
 use spectrum_offchain::tracing::WithTracing;
 use spectrum_offchain_cardano::collateral::pull_collateral;
@@ -125,9 +126,11 @@ async fn main() {
         )
         .await
         .expect("LocalTxSubmission initialization failed");
-
-    // prepare upstreams
     let tx_submission_stream = tx_submission_agent_stream(tx_submission_agent);
+
+    let (reporting_agent, reporting_channel) =
+        ReportingAgent::new(config.reporting_endpoint, config.tx_submission_buffer_size).await;
+    let reporting_stream = reporting_stream(reporting_agent);
 
     let (operator_paycred, collateral_address, funding_addresses) =
         operator_creds(config.operator_key.as_str(), config.network_id);
@@ -305,6 +308,7 @@ async fn main() {
         ),
         funding_upd_recv_p1,
         tx_submission_channel.clone(),
+        reporting_channel.clone(),
         signal_tip_reached_snd.subscribe(),
     );
     let execution_stream_p2 = execution_part_stream(
@@ -324,6 +328,7 @@ async fn main() {
         ),
         funding_upd_recv_p2,
         tx_submission_channel.clone(),
+        reporting_channel.clone(),
         signal_tip_reached_snd.subscribe(),
     );
     let execution_stream_p3 = execution_part_stream(
@@ -343,6 +348,7 @@ async fn main() {
         ),
         funding_upd_recv_p3,
         tx_submission_channel.clone(),
+        reporting_channel.clone(),
         signal_tip_reached_snd.subscribe(),
     );
     let execution_stream_p4 = execution_part_stream(
@@ -362,6 +368,7 @@ async fn main() {
         ),
         funding_upd_recv_p4,
         tx_submission_channel,
+        reporting_channel,
         signal_tip_reached_snd.subscribe(),
     );
 
@@ -413,6 +420,9 @@ async fn main() {
 
     let tx_submission_stream_handle = tokio::spawn(run_stream(tx_submission_stream));
     processes.push(tx_submission_stream_handle);
+
+    let reporting_stream_handle = tokio::spawn(run_stream(reporting_stream));
+    processes.push(reporting_stream_handle);
 
     let default_panic = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {

@@ -56,6 +56,7 @@ use spectrum_offchain::data::Baked;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::partitioning::Partitioned;
+use spectrum_offchain::reporting::{reporting_stream, ReportingAgent};
 use spectrum_offchain::streaming::run_stream;
 use spectrum_offchain_cardano::collateral::pull_collateral;
 use spectrum_offchain_cardano::creds::operator_creds;
@@ -128,9 +129,11 @@ async fn main() {
         )
         .await
         .expect("LocalTxSubmission initialization failed");
-
-    // prepare upstreams
     let tx_submission_stream = tx_submission_agent_stream(tx_submission_agent);
+
+    let (reporting_agent, reporting_channel) =
+        ReportingAgent::new(config.reporting_endpoint, config.tx_submission_buffer_size).await;
+    let reporting_stream = reporting_stream(reporting_agent);
 
     let (operator_paycred, collateral_address, funding_addresses) =
         operator_creds(config.operator_key.as_str(), config.network_id);
@@ -251,265 +254,132 @@ async fn main() {
         adhoc_fee_structure: config.adhoc_fee.into(),
     };
     let (signal_tip_reached_snd, signal_tip_reached_recv) = broadcast::channel(1);
-    if args.hot {
-        let multi_book =
-            MultiPair::new::<HotLB<AdhocOrder, DegenQuadraticPool, ExUnits>>(maker_context.clone(), "Book");
-        let multi_backlog = MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(
-            maker_context,
-            "Backlog",
-        );
-        let state_index = InMemoryStateIndex::with_tracing();
+    let multi_book =
+        MultiPair::new::<TLB<AdhocOrder, DegenQuadraticPool, ExUnits>>(maker_context.clone(), "Book");
+    let multi_backlog = MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(
+        maker_context,
+        "Backlog",
+    );
+    let state_index = InMemoryStateIndex::with_tracing();
 
-        let execution_stream_p1 = execution_part_stream(
-            state_index.clone(),
-            multi_book.clone(),
-            multi_backlog.clone(),
-            context.clone(),
-            recipe_interpreter,
-            spec_interpreter,
-            prover.clone(),
-            select_partition(
-                merge_upstreams(
-                    pair_upd_recv_p1.buffered_within(config.event_feed_buffering_duration),
-                    spec_upd_recv_p1,
-                ),
-                config.partitioning.clone(),
-            ),
-            funding_upd_recv_p1,
-            tx_submission_channel.clone(),
-            signal_tip_reached_snd.subscribe(),
-        );
-        let execution_stream_p2 = execution_part_stream(
-            state_index.clone(),
-            multi_book.clone(),
-            multi_backlog.clone(),
-            context.clone(),
-            recipe_interpreter,
-            spec_interpreter,
-            prover.clone(),
-            select_partition(
-                merge_upstreams(
-                    pair_upd_recv_p2.buffered_within(config.event_feed_buffering_duration),
-                    spec_upd_recv_p2,
-                ),
-                config.partitioning.clone(),
-            ),
-            funding_upd_recv_p2,
-            tx_submission_channel.clone(),
-            signal_tip_reached_snd.subscribe(),
-        );
-        let execution_stream_p3 = execution_part_stream(
-            state_index.clone(),
-            multi_book.clone(),
-            multi_backlog.clone(),
-            context.clone(),
-            recipe_interpreter,
-            spec_interpreter,
-            prover.clone(),
-            select_partition(
-                merge_upstreams(
-                    pair_upd_recv_p3.buffered_within(config.event_feed_buffering_duration),
-                    spec_upd_recv_p3,
-                ),
-                config.partitioning.clone(),
-            ),
-            funding_upd_recv_p3,
-            tx_submission_channel.clone(),
-            signal_tip_reached_snd.subscribe(),
-        );
-        let execution_stream_p4 = execution_part_stream(
-            state_index,
-            multi_book,
-            multi_backlog,
-            context,
-            recipe_interpreter,
-            spec_interpreter,
-            prover,
-            select_partition(
-                merge_upstreams(
-                    pair_upd_recv_p4.buffered_within(config.event_feed_buffering_duration),
-                    spec_upd_recv_p4,
-                ),
-                config.partitioning,
-            ),
-            funding_upd_recv_p4,
-            tx_submission_channel,
-            signal_tip_reached_snd.subscribe(),
-        );
-        let ledger_stream = Box::pin(ledger_transactions(
-            chain_sync_cache,
-            chain_sync_stream(chain_sync, signal_tip_reached_snd),
-            config.chain_sync.disable_rollbacks_until,
-            config.chain_sync.replay_from_point,
-            rollback_in_progress,
-        ))
-        .await
-        .map(|ev| match ev {
-            LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
-                tx: TxViewAtEraBoundary::from(tx),
-                slot,
-            },
-            LedgerTxEvent::TxUnapplied { tx, slot } => LedgerTxEvent::TxUnapplied {
-                tx: TxViewAtEraBoundary::from(tx),
-                slot,
-            },
-        });
+    let execution_stream_p1 = execution_part_stream(
+        state_index.clone(),
+        multi_book.clone(),
+        multi_backlog.clone(),
+        context.clone(),
+        recipe_interpreter,
+        spec_interpreter,
+        prover.clone(),
+        select_partition(
+            merge_upstreams(pair_upd_recv_p1, spec_upd_recv_p1),
+            config.partitioning.clone(),
+        ),
+        funding_upd_recv_p1,
+        tx_submission_channel.clone(),
+        reporting_channel.clone(),
+        signal_tip_reached_snd.subscribe(),
+    );
+    let execution_stream_p2 = execution_part_stream(
+        state_index.clone(),
+        multi_book.clone(),
+        multi_backlog.clone(),
+        context.clone(),
+        recipe_interpreter,
+        spec_interpreter,
+        prover.clone(),
+        select_partition(
+            merge_upstreams(pair_upd_recv_p2, spec_upd_recv_p2),
+            config.partitioning.clone(),
+        ),
+        funding_upd_recv_p2,
+        tx_submission_channel.clone(),
+        reporting_channel.clone(),
+        signal_tip_reached_snd.subscribe(),
+    );
+    let execution_stream_p3 = execution_part_stream(
+        state_index.clone(),
+        multi_book.clone(),
+        multi_backlog.clone(),
+        context.clone(),
+        recipe_interpreter,
+        spec_interpreter,
+        prover.clone(),
+        select_partition(
+            merge_upstreams(pair_upd_recv_p3, spec_upd_recv_p3),
+            config.partitioning.clone(),
+        ),
+        funding_upd_recv_p3,
+        tx_submission_channel.clone(),
+        reporting_channel.clone(),
+        signal_tip_reached_snd.subscribe(),
+    );
+    let execution_stream_p4 = execution_part_stream(
+        state_index,
+        multi_book,
+        multi_backlog,
+        context,
+        recipe_interpreter,
+        spec_interpreter,
+        prover,
+        select_partition(
+            merge_upstreams(pair_upd_recv_p4, spec_upd_recv_p4),
+            config.partitioning,
+        ),
+        funding_upd_recv_p4,
+        tx_submission_channel,
+        reporting_channel,
+        signal_tip_reached_snd.subscribe(),
+    );
+    let ledger_stream = Box::pin(ledger_transactions(
+        chain_sync_cache,
+        chain_sync_stream(chain_sync, signal_tip_reached_snd),
+        config.chain_sync.disable_rollbacks_until,
+        config.chain_sync.replay_from_point,
+        rollback_in_progress,
+    ))
+    .await
+    .map(|ev| match ev {
+        LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
+            tx: TxViewAtEraBoundary::from(tx),
+            slot,
+        },
+        LedgerTxEvent::TxUnapplied { tx, slot } => LedgerTxEvent::TxUnapplied {
+            tx: TxViewAtEraBoundary::from(tx),
+            slot,
+        },
+    });
 
-        let mempool_stream = mempool_stream(mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
-            MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewAtEraBoundary::from(tx)),
-        });
+    let mempool_stream = mempool_stream(mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
+        MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewAtEraBoundary::from(tx)),
+    });
 
-        let process_ledger_events_stream = process_events(ledger_stream, handlers_ledger);
-        let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool);
+    let process_ledger_events_stream = process_events(ledger_stream, handlers_ledger);
+    let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool);
 
-        let processes = FuturesUnordered::new();
+    let processes = FuturesUnordered::new();
 
-        let process_ledger_events_stream_handle = tokio::spawn(run_stream(process_ledger_events_stream));
-        processes.push(process_ledger_events_stream_handle);
+    let process_ledger_events_stream_handle = tokio::spawn(run_stream(process_ledger_events_stream));
+    processes.push(process_ledger_events_stream_handle);
 
-        let process_mempool_events_stream_handle = tokio::spawn(run_stream(process_mempool_events_stream));
-        processes.push(process_mempool_events_stream_handle);
+    let process_mempool_events_stream_handle = tokio::spawn(run_stream(process_mempool_events_stream));
+    processes.push(process_mempool_events_stream_handle);
 
-        let execution_stream_p1_handle = tokio::spawn(run_stream(execution_stream_p1));
-        processes.push(execution_stream_p1_handle);
+    let execution_stream_p1_handle = tokio::spawn(run_stream(execution_stream_p1));
+    processes.push(execution_stream_p1_handle);
 
-        let execution_stream_p2_handle = tokio::spawn(run_stream(execution_stream_p2));
-        processes.push(execution_stream_p2_handle);
+    let execution_stream_p2_handle = tokio::spawn(run_stream(execution_stream_p2));
+    processes.push(execution_stream_p2_handle);
 
-        let execution_stream_p3_handle = tokio::spawn(run_stream(execution_stream_p3));
-        processes.push(execution_stream_p3_handle);
+    let execution_stream_p3_handle = tokio::spawn(run_stream(execution_stream_p3));
+    processes.push(execution_stream_p3_handle);
 
-        let execution_stream_p4_handle = tokio::spawn(run_stream(execution_stream_p4));
-        processes.push(execution_stream_p4_handle);
+    let execution_stream_p4_handle = tokio::spawn(run_stream(execution_stream_p4));
+    processes.push(execution_stream_p4_handle);
 
-        let tx_submission_stream_handle = tokio::spawn(run_stream(tx_submission_stream));
-        processes.push(tx_submission_stream_handle);
+    let tx_submission_stream_handle = tokio::spawn(run_stream(tx_submission_stream));
+    processes.push(tx_submission_stream_handle);
 
-        run_stream(processes).await;
-    } else {
-        let multi_book =
-            MultiPair::new::<TLB<AdhocOrder, DegenQuadraticPool, ExUnits>>(maker_context.clone(), "Book");
-        let multi_backlog = MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(
-            maker_context,
-            "Backlog",
-        );
-        let state_index = InMemoryStateIndex::with_tracing();
-
-        let execution_stream_p1 = execution_part_stream(
-            state_index.clone(),
-            multi_book.clone(),
-            multi_backlog.clone(),
-            context.clone(),
-            recipe_interpreter,
-            spec_interpreter,
-            prover.clone(),
-            select_partition(
-                merge_upstreams(pair_upd_recv_p1, spec_upd_recv_p1),
-                config.partitioning.clone(),
-            ),
-            funding_upd_recv_p1,
-            tx_submission_channel.clone(),
-            signal_tip_reached_snd.subscribe(),
-        );
-        let execution_stream_p2 = execution_part_stream(
-            state_index.clone(),
-            multi_book.clone(),
-            multi_backlog.clone(),
-            context.clone(),
-            recipe_interpreter,
-            spec_interpreter,
-            prover.clone(),
-            select_partition(
-                merge_upstreams(pair_upd_recv_p2, spec_upd_recv_p2),
-                config.partitioning.clone(),
-            ),
-            funding_upd_recv_p2,
-            tx_submission_channel.clone(),
-            signal_tip_reached_snd.subscribe(),
-        );
-        let execution_stream_p3 = execution_part_stream(
-            state_index.clone(),
-            multi_book.clone(),
-            multi_backlog.clone(),
-            context.clone(),
-            recipe_interpreter,
-            spec_interpreter,
-            prover.clone(),
-            select_partition(
-                merge_upstreams(pair_upd_recv_p3, spec_upd_recv_p3),
-                config.partitioning.clone(),
-            ),
-            funding_upd_recv_p3,
-            tx_submission_channel.clone(),
-            signal_tip_reached_snd.subscribe(),
-        );
-        let execution_stream_p4 = execution_part_stream(
-            state_index,
-            multi_book,
-            multi_backlog,
-            context,
-            recipe_interpreter,
-            spec_interpreter,
-            prover,
-            select_partition(
-                merge_upstreams(pair_upd_recv_p4, spec_upd_recv_p4),
-                config.partitioning,
-            ),
-            funding_upd_recv_p4,
-            tx_submission_channel,
-            signal_tip_reached_snd.subscribe(),
-        );
-        let ledger_stream = Box::pin(ledger_transactions(
-            chain_sync_cache,
-            chain_sync_stream(chain_sync, signal_tip_reached_snd),
-            config.chain_sync.disable_rollbacks_until,
-            config.chain_sync.replay_from_point,
-            rollback_in_progress,
-        ))
-        .await
-        .map(|ev| match ev {
-            LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
-                tx: TxViewAtEraBoundary::from(tx),
-                slot,
-            },
-            LedgerTxEvent::TxUnapplied { tx, slot } => LedgerTxEvent::TxUnapplied {
-                tx: TxViewAtEraBoundary::from(tx),
-                slot,
-            },
-        });
-
-        let mempool_stream = mempool_stream(mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
-            MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewAtEraBoundary::from(tx)),
-        });
-
-        let process_ledger_events_stream = process_events(ledger_stream, handlers_ledger);
-        let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool);
-
-        let processes = FuturesUnordered::new();
-
-        let process_ledger_events_stream_handle = tokio::spawn(run_stream(process_ledger_events_stream));
-        processes.push(process_ledger_events_stream_handle);
-
-        let process_mempool_events_stream_handle = tokio::spawn(run_stream(process_mempool_events_stream));
-        processes.push(process_mempool_events_stream_handle);
-
-        let execution_stream_p1_handle = tokio::spawn(run_stream(execution_stream_p1));
-        processes.push(execution_stream_p1_handle);
-
-        let execution_stream_p2_handle = tokio::spawn(run_stream(execution_stream_p2));
-        processes.push(execution_stream_p2_handle);
-
-        let execution_stream_p3_handle = tokio::spawn(run_stream(execution_stream_p3));
-        processes.push(execution_stream_p3_handle);
-
-        let execution_stream_p4_handle = tokio::spawn(run_stream(execution_stream_p4));
-        processes.push(execution_stream_p4_handle);
-
-        let tx_submission_stream_handle = tokio::spawn(run_stream(tx_submission_stream));
-        processes.push(tx_submission_stream_handle);
-
-        run_stream(processes).await;
-    }
+    run_stream(processes).await;
 }
 
 fn merge_upstreams(
@@ -566,6 +436,4 @@ struct AppArgs {
     /// Path to the log4rs YAML configuration file.
     #[arg(long, short)]
     log4rs_path: String,
-    #[arg(long)]
-    hot: bool,
 }

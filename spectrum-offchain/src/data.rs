@@ -11,7 +11,7 @@ use crate::ledger::TryFromLedger;
 pub mod event;
 pub mod order;
 
-/// Indicates presence of type [T] in implementor's type.
+/// Indicates that [T] is a member of some type.
 /// Enables data polymorphism.
 pub trait Has<T> {
     /// Use this when there are multiple [Has] bounds on a single type.

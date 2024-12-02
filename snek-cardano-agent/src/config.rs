@@ -10,6 +10,7 @@ use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain_cardano::creds::OperatorRewardAddress;
 use spectrum_offchain_cardano::handler_context::AuthVerificationKey;
 use spectrum_offchain_cardano::node::NodeConfig;
+use std::net::SocketAddr;
 use std::time::Duration;
 
 #[derive(serde::Deserialize)]
@@ -17,6 +18,7 @@ use std::time::Duration;
 pub struct AppConfig {
     pub chain_sync: ChainSyncConfig,
     pub node: NodeConfig,
+    pub reporting_endpoint: SocketAddr,
     pub tx_submission_buffer_size: usize,
     pub operator_key: String,
     pub auth_verification_key: AuthVerificationKey,

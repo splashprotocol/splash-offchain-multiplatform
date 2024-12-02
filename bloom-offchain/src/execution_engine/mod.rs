@@ -27,6 +27,7 @@ use spectrum_offchain::data::{Baked, EntitySnapshot, Has, Stable};
 use spectrum_offchain::display::{display_set, display_vec};
 use spectrum_offchain::maker::Maker;
 use spectrum_offchain::network::Network;
+use spectrum_offchain::reporting::Reporting;
 use spectrum_offchain::tx_hash::CanonicalHash;
 use spectrum_offchain::tx_prover::TxProver;
 
@@ -40,6 +41,7 @@ use crate::execution_engine::liquidity_book::interpreter::ExecutionResult;
 use crate::execution_engine::liquidity_book::market_taker::MarketTaker;
 use crate::execution_engine::liquidity_book::{ExternalLBEvents, LBFeedback, LiquidityBook};
 use crate::execution_engine::multi_pair::MultiPair;
+use crate::execution_engine::report::{ExecutionReport, ExecutionReportPartial};
 use crate::execution_engine::resolver::resolve_state;
 use crate::execution_engine::storage::kv_store::KvStore;
 use crate::execution_engine::storage::StateIndex;
@@ -53,6 +55,7 @@ pub mod funding_effect;
 pub mod liquidity_book;
 pub mod multi_pair;
 pub mod partial_fill;
+mod report;
 pub mod resolver;
 pub mod storage;
 pub mod types;
@@ -113,6 +116,8 @@ pub fn execution_part_stream<
     SpecInterpreter,
     Prover,
     Net,
+    Rep,
+    Meta,
     Err,
 >(
     index: Index,
@@ -125,6 +130,7 @@ pub fn execution_part_stream<
     upstream: Upstream,
     funding: Funding,
     network: Net,
+    reporting: Rep,
     mut tip_reached_signal: broadcast::Receiver<bool>,
 ) -> impl Stream<Item = ()> + 'a
 where
@@ -139,11 +145,11 @@ where
     Bearer: Has<Ver> + Eq + Ord + Clone + Debug + Unpin + 'a,
     TxCandidate: Unpin + 'a,
     Tx: CanonicalHash<Hash = TxHash> + Unpin + 'a,
-    TxHash: Display + Unpin + 'a,
+    TxHash: Copy + Display + Unpin + 'a,
     Ctx: Clone + Unpin + 'a,
     MakerCtx: Clone + Unpin + 'a,
     Index: StateIndex<EvolvingEntity<CompOrd, Pool, Ver, Bearer>> + Unpin + 'a,
-    Book: LiquidityBook<CompOrd, Pool>
+    Book: LiquidityBook<CompOrd, Pool, Meta>
         + ExternalLBEvents<CompOrd, Pool>
         + LBFeedback<CompOrd, Pool>
         + Maker<MakerCtx>
@@ -154,6 +160,8 @@ where
     SpecInterpreter: SpecializedInterpreter<Pool, SpecOrd, Ver, TxCandidate, Bearer, Ctx> + Unpin + 'a,
     Prover: TxProver<TxCandidate, Tx> + Unpin + 'a,
     Net: Network<Tx, Err> + Clone + 'a,
+    Meta: Clone + Unpin + 'a,
+    Rep: Reporting<ExecutionReport<StableId, Ver, TxHash, Pair, Meta>> + Clone + 'a,
     Err: TryInto<HashSet<Ver>> + Clone + Unpin + Debug + Display + 'a,
 {
     let (feedback_out, feedback_in) = mpsc::channel(100);
@@ -174,12 +182,16 @@ where
     };
     wait_signal
         .map(move |_| {
-            executor.then(move |tx| {
+            executor.then(move |(tx, maybe_report)| {
                 let mut network = network.clone();
+                let mut reporting = reporting.clone();
                 let mut feedback = feedback_out.clone();
                 async move {
                     let result = network.submit_tx(tx).await;
                     feedback.send(result).await.expect("Filed to propagate feedback.");
+                    if let Some(report) = maybe_report {
+                        reporting.send_report(report).await;
+                    }
                 }
             })
         })
@@ -207,6 +219,7 @@ pub struct Executor<
     TradeInterpreter,
     SpecInterpreter,
     Prover,
+    Meta,
     Err,
 > {
     /// Storage for all on-chain states.
@@ -230,11 +243,11 @@ pub struct Executor<
     focus_set: FocusSet<Pair>,
     /// Temporarily memoize entities that came from unconfirmed updates.
     skip_filter: CircularFilter<256, Ver>,
-    pd: PhantomData<(StableId, Ver, TxCandidate, Tx, Err)>,
+    pd: PhantomData<(StableId, Ver, TxCandidate, Tx, Meta, Err)>,
 }
 
-impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, E>
-    Executor<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, E>
+impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E>
+    Executor<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E>
 where
     V: Send + Sync,
     SID: Send + Sync,
@@ -709,32 +722,33 @@ fn to_transition<T, B>(prev: Option<Bundled<T, B>>, next: Option<Bundled<T, B>>)
     }
 }
 
-impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, U, C, MC, IX, TLB, L, RIR, SIR, PRV, E> Stream
-    for Executor<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, E>
+impl<S, F, PR, I, V, CO, SO, P, B, TC, TX, TH, U, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E> Stream
+    for Executor<S, F, PR, I, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E>
 where
     S: Stream<Item = (PR, Event<CO, SO, P, B, V>)> + Unpin,
     F: Stream<Item = FundingEvent<B>> + Unpin,
     PR: Copy + Eq + Ord + Hash + Display + Unpin,
-    SID: Copy + Eq + Hash + Debug + Display + Unpin + Send + Sync,
+    I: Copy + Eq + Hash + Debug + Display + Unpin + Send + Sync,
     V: Copy + Eq + Hash + Display + Unpin + Send + Sync + Serialize + DeserializeOwned,
-    P: Stable<StableId = SID> + Copy + Debug + Unpin + Display,
-    CO: Stable<StableId = SID> + MarketTaker<U = U> + Copy + Debug + Unpin + Display,
-    SO: SpecializedOrder<TPoolId = SID, TOrderId = V> + Unpin,
+    P: Stable<StableId = I> + Copy + Debug + Unpin + Display,
+    CO: Stable<StableId = I> + MarketTaker<U = U> + Copy + Debug + Unpin + Display,
+    SO: SpecializedOrder<TPoolId = I, TOrderId = V> + Unpin,
     B: Has<V> + Eq + Ord + Clone + Debug + Unpin,
     TC: Unpin,
     TX: CanonicalHash<Hash = TH> + Unpin,
-    TH: Display + Unpin,
+    TH: Copy + Display + Unpin,
     C: Clone + Unpin,
     MC: Clone + Unpin,
     IX: StateIndex<EvolvingEntity<CO, P, V, B>> + Unpin,
-    TLB: LiquidityBook<CO, P> + ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<MC> + Unpin,
+    TLB: LiquidityBook<CO, P, M> + ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<MC> + Unpin,
     L: HotBacklog<Bundled<SO, B>> + Maker<MC> + Unpin,
     RIR: RecipeInterpreter<CO, P, C, V, B, TC> + Unpin,
     SIR: SpecializedInterpreter<P, SO, V, TC, B, C> + Unpin,
     PRV: TxProver<TC, TX> + Unpin,
+    M: Unpin,
     E: TryInto<HashSet<V>> + Clone + Unpin + Debug + Display,
 {
-    type Item = TX;
+    type Item = (TX, Option<ExecutionReport<I, V, TH, PR, M>>);
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         loop {
@@ -784,12 +798,13 @@ where
             // Finally attempt to matchmake.
             while let Some(focus_pair) = self.focus_set.pop_front() {
                 // Try TLB:
-                if let Some(recipe) = self.multi_book.get_mut(&focus_pair).attempt() {
+                if let Some((recipe, meta)) = self.multi_book.get_mut(&focus_pair).attempt() {
                     match ExecutionRecipe::link(recipe, |id| {
                         resolve_state(id, &self.index)
                             .map(|Bundled(t, bearer)| (t.either(|b| b.version, |b| b.version), bearer))
                     }) {
                         Ok((linked_recipe, consumed_versions)) => {
+                            let report = ExecutionReportPartial::new(&linked_recipe, focus_pair, meta);
                             let ctx = self.context.clone();
                             if let Some(funding) = self.funding_pool.pop_first() {
                                 trace!("Consumed bearers: {}", display_set(&consumed_versions));
@@ -824,7 +839,7 @@ where
                                 );
                                 // Return pair to focus set to make sure corresponding TLB will be exhausted.
                                 self.focus_set.push_back(focus_pair);
-                                return Poll::Ready(Some(tx));
+                                return Poll::Ready(Some((tx, Some(report.finalize(tx_hash)))));
                             } else {
                                 warn!("Cannot matchmake without funding box");
                                 self.multi_book.get_mut(&focus_pair).on_recipe_failed();
@@ -857,7 +872,7 @@ where
                             }));
                             // Return pair to focus set to make sure corresponding TLB will be exhausted.
                             self.focus_set.push_back(focus_pair);
-                            return Poll::Ready(Some(tx));
+                            return Poll::Ready(Some((tx, None)));
                         }
                     }
                 }
@@ -867,8 +882,8 @@ where
     }
 }
 
-impl<S, F, PR, ST, V, CO, SO, P, B, TC, TX, TH, U, C, MC, IX, TLB, L, RIR, SIR, PRV, E> FusedStream
-    for Executor<S, F, PR, ST, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, E>
+impl<S, F, PR, ST, V, CO, SO, P, B, TC, TX, TH, U, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E> FusedStream
+    for Executor<S, F, PR, ST, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E>
 where
     S: Stream<Item = (PR, Event<CO, SO, P, B, V>)> + Unpin,
     F: Stream<Item = FundingEvent<B>> + Unpin,
@@ -881,15 +896,16 @@ where
     B: Has<V> + Eq + Ord + Clone + Debug + Unpin,
     TC: Unpin,
     TX: CanonicalHash<Hash = TH> + Unpin,
-    TH: Display + Unpin,
+    TH: Copy + Display + Unpin,
     C: Clone + Unpin,
     MC: Clone + Unpin,
     IX: StateIndex<EvolvingEntity<CO, P, V, B>> + Unpin,
-    TLB: LiquidityBook<CO, P> + ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<MC> + Unpin,
+    TLB: LiquidityBook<CO, P, M> + ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<MC> + Unpin,
     L: HotBacklog<Bundled<SO, B>> + Maker<MC> + Unpin,
     RIR: RecipeInterpreter<CO, P, C, V, B, TC> + Unpin,
     SIR: SpecializedInterpreter<P, SO, V, TC, B, C> + Unpin,
     PRV: TxProver<TC, TX> + Unpin,
+    M: Unpin,
     E: TryInto<HashSet<V>> + Clone + Unpin + Debug + Display,
 {
     fn is_terminated(&self) -> bool {

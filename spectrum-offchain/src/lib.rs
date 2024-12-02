@@ -11,6 +11,7 @@ pub mod ledger;
 pub mod maker;
 pub mod network;
 pub mod partitioning;
+pub mod reporting;
 pub mod rocks;
 pub mod small_set;
 pub mod streaming;

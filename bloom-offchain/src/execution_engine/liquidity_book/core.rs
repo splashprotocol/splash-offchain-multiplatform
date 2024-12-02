@@ -1,5 +1,7 @@
 use crate::execution_engine::bundled::Bundled;
-use crate::execution_engine::liquidity_book::market_maker::{AbsoluteReserves, MakerBehavior, MarketMaker};
+use crate::execution_engine::liquidity_book::market_maker::{
+    AbsoluteReserves, MakerBehavior, MarketMaker, SpotPrice,
+};
 use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
 use crate::execution_engine::liquidity_book::side::{OnSide, Side};
 use crate::execution_engine::liquidity_book::types::{FeeAsset, InputAsset, OutputAsset};
@@ -10,6 +12,7 @@ use either::Either;
 use log::trace;
 use nonempty::NonEmpty;
 use num_rational::Ratio;
+use serde::Serialize;
 use spectrum_offchain::data::Stable;
 use spectrum_offchain::display::display_vec;
 use std::cmp::{max, min};
@@ -827,5 +830,25 @@ impl<T, M, B> ExecutionRecipe<T, M, B> {
             Self(translated_instructions),
             HashSet::from_iter(consumed_versions),
         ))
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct ExecutionMeta {
+    pub mean_spot_price: Option<SpotPrice>,
+}
+
+impl ExecutionMeta {
+    pub fn empty() -> Self {
+        Self {
+            mean_spot_price: None,
+        }
+    }
+
+    pub fn add_price_point(&mut self, price: SpotPrice) {
+        self.mean_spot_price = match self.mean_spot_price {
+            None => Some(price),
+            Some(p0) => Some(p0 + price / 2),
+        };
     }
 }

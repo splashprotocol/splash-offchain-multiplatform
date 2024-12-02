@@ -50,5 +50,6 @@
   "eventFeedBufferingDuration": {
     "secs": 2,
     "nanos": 0
-  }
+  },
+  "reportingEndpoint": "127.0.0.1:9021"
 }

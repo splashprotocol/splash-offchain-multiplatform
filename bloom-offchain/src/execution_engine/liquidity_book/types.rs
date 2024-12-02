@@ -1,11 +1,11 @@
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
+use crate::execution_engine::liquidity_book::side::{OnSide, Side};
 use bignumber::BigNumber;
 use derive_more::{Add, Div, From, Into, Mul, Sub};
 use num_rational::Ratio;
-
-use crate::execution_engine::liquidity_book::side::{OnSide, Side};
+use serde::Serialize;
 
 pub type Lovelace = u64;
 
@@ -20,7 +20,9 @@ pub type FeeAsset<T> = T;
 
 /// Price of base asset denominated in units of quote asset (Quote/Base).
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Div, Mul, Sub, Add, From, Into)]
+#[derive(
+    Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Div, Mul, Sub, Add, From, Into, Serialize,
+)]
 pub struct AbsolutePrice(Ratio<u128>);
 
 impl AbsolutePrice {

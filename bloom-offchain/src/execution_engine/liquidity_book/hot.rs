@@ -1,5 +1,5 @@
 use crate::execution_engine::liquidity_book::config::{ExecutionCap, ExecutionConfig};
-use crate::execution_engine::liquidity_book::core::{MatchmakingAttempt, MatchmakingRecipe, Next};
+use crate::execution_engine::liquidity_book::core::{MatchmakingAttempt, MatchmakingRecipe, Next, Unit};
 use crate::execution_engine::liquidity_book::market_maker::{AvailableLiquidity, MakerBehavior, MarketMaker};
 use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
 use crate::execution_engine::liquidity_book::side::Side;
@@ -283,13 +283,13 @@ impl<T: Stable, M: Stable, U> LBFeedback<T, M> for HotLB<T, M, U> {
     }
 }
 
-impl<T, M, U> LiquidityBook<T, M> for HotLB<T, M, U>
+impl<T, M, U> LiquidityBook<T, M, Unit> for HotLB<T, M, U>
 where
     T: Stable + MarketTaker<U = U> + TakerBehaviour + Copy + Display,
     M: Stable + MarketMaker<U = U> + MakerBehavior + Copy + Display,
     U: Monoid + AddAssign + PartialOrd + Copy,
 {
-    fn attempt(&mut self) -> Option<MatchmakingRecipe<T, M>> {
+    fn attempt(&mut self) -> Option<(MatchmakingRecipe<T, M>, Unit)> {
         loop {
             trace!("Attempting to matchmake");
             let mut batch: MatchmakingAttempt<T, M, U> = MatchmakingAttempt::empty();
@@ -331,7 +331,7 @@ where
             match MatchmakingRecipe::try_from(batch) {
                 Ok(ex_recipe) => {
                     trace!("Successfully formed a batch {}", ex_recipe);
-                    return Some(ex_recipe);
+                    return Some((ex_recipe, Unit));
                 }
                 Err(None) => {
                     trace!("Matchmaking attempt failed");

@@ -1,13 +1,6 @@
-use algebra_core::monoid::Monoid;
-use log::trace;
-use num_rational::Ratio;
-use primitive_types::U256;
-use std::fmt::{Debug, Display};
-use std::ops::AddAssign;
-
 use crate::execution_engine::liquidity_book::config::ExecutionConfig;
 use crate::execution_engine::liquidity_book::core::{
-    MakeInProgress, MatchmakingAttempt, MatchmakingRecipe, Next, TakeInProgress, Trans,
+    ExecutionMeta, MakeInProgress, MatchmakingAttempt, MatchmakingRecipe, Next, TakeInProgress, Trans,
 };
 use crate::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker, SpotPrice};
 use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
@@ -18,9 +11,16 @@ use crate::execution_engine::liquidity_book::state::queries::{max_by_distance_to
 use crate::execution_engine::liquidity_book::state::{FillPreview, IdleState, TLBState};
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, RelativePrice};
 use crate::execution_engine::types::Time;
+use algebra_core::monoid::Monoid;
+use algebra_core::semigroup::Semigroup;
+use log::trace;
+use num_rational::Ratio;
+use primitive_types::U256;
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::display::{display_option, display_tuple};
 use spectrum_offchain::maker::Maker;
+use std::fmt::{Debug, Display};
+use std::ops::AddAssign;
 
 pub mod config;
 pub mod core;
@@ -36,8 +36,8 @@ pub mod types;
 pub mod weight;
 
 /// Liquidity aggregator.
-pub trait LiquidityBook<Taker, Maker> {
-    fn attempt(&mut self) -> Option<MatchmakingRecipe<Taker, Maker>>;
+pub trait LiquidityBook<Taker, Maker, Meta> {
+    fn attempt(&mut self) -> Option<(MatchmakingRecipe<Taker, Maker>, Meta)>;
 }
 
 /// TLB API for external events affecting its state.
@@ -123,18 +123,20 @@ where
     }
 }
 
-impl<Taker, Maker, U> LiquidityBook<Taker, Maker> for TLB<Taker, Maker, U>
+impl<Taker, Maker, U> LiquidityBook<Taker, Maker, ExecutionMeta> for TLB<Taker, Maker, U>
 where
     Taker: Stable + MarketTaker<U = U> + TakerBehaviour + Ord + Copy + Display,
     Maker: Stable + MarketMaker<U = U> + MakerBehavior + Copy + Display,
     U: Monoid + AddAssign + PartialOrd + Copy,
 {
-    fn attempt(&mut self) -> Option<MatchmakingRecipe<Taker, Maker>> {
+    fn attempt(&mut self) -> Option<(MatchmakingRecipe<Taker, Maker>, ExecutionMeta)> {
         loop {
             trace!("Attempting to matchmake");
             let mut batch: MatchmakingAttempt<Taker, Maker, U> = MatchmakingAttempt::empty();
+            let mut meta = ExecutionMeta::empty();
             while batch.execution_units_consumed() < self.conf.execution_cap.soft && batch.num_takes() < 15 {
                 if let Some(spot_price) = self.spot_price() {
+                    meta.add_price_point(spot_price);
                     let price_range = self.state.allowed_price_range();
                     trace!("Spot price is: {}", spot_price);
                     trace!("Price range is: {}", price_range);
@@ -208,7 +210,7 @@ where
             match MatchmakingRecipe::try_from(batch) {
                 Ok(ex_recipe) => {
                     trace!("Successfully formed a batch {}", ex_recipe);
-                    return Some(ex_recipe);
+                    return Some((ex_recipe, meta));
                 }
                 Err(None) => {
                     trace!("Matchmaking attempt failed");
