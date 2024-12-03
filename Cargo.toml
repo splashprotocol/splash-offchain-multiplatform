@@ -20,6 +20,7 @@ members = [
     "splash-dao-agent",
     "splash-dao-offchain",
     "spectrum-streaming",
+    "engine-telemetry",
 ]
 
 [profile.release]

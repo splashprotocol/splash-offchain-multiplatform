@@ -1,0 +1,12 @@
+{
+  "cacheSize": 4096,
+  "reCaptchaSecret": "",
+  "signatureSecret": "",
+  "secretBech32": "",
+  "analyticsSnekUrl": "https://api5.splash.trade/platform-api/v2/snekfun/pool/overview/by",
+  "limits": {
+    "threeMinLimit": 25000000,
+    "sixMinLimit": 50000000,
+    "nineMinLimit": 100000000
+  }
+}
