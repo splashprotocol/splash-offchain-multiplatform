@@ -123,12 +123,12 @@ impl<TOrd: UniqueOrder> HotPriorityBacklog<TOrd> {
     }
 }
 
-impl<Ctx, TOrd> Maker<Ctx> for HotPriorityBacklog<TOrd>
+impl<K, Ctx, TOrd> Maker<K, Ctx> for HotPriorityBacklog<TOrd>
 where
     TOrd: SpecializedOrder,
     Ctx: Has<BacklogCapacity>,
 {
-    fn make(ctx: &Ctx) -> Self {
+    fn make(_: K, ctx: &Ctx) -> Self {
         HotPriorityBacklog::new(ctx.get())
     }
 }

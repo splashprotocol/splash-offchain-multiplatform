@@ -7,13 +7,13 @@ use crate::execution_engine::liquidity_book::side::{OnSide, Side};
 use crate::execution_engine::liquidity_book::types::{FeeAsset, InputAsset, OutputAsset};
 use algebra_core::monoid::Monoid;
 use algebra_core::semigroup::Semigroup;
-use derive_more::Display;
+use derive_more::{Display, From, Into};
 use either::Either;
 use log::trace;
 use nonempty::NonEmpty;
 use num_rational::Ratio;
 use serde::Serialize;
-use spectrum_offchain::data::Stable;
+use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::display::display_vec;
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
@@ -52,6 +52,7 @@ impl TerminalTake {
     }
 
     fn with_fee_charged(mut self, fee: u64) -> Self {
+        println!("{} - {}", self.remaining_fee, fee);
         self.remaining_fee -= fee;
         self
     }
@@ -544,8 +545,8 @@ impl<T> TakeInProgress<T> {
 
 #[derive(Debug, Clone)]
 pub struct FinalRecipe<Taker: Stable, Maker: Stable> {
-    takes: HashMap<Taker::StableId, FinalTake<Taker>>,
-    makes: HashMap<Maker::StableId, FinalMake<Maker>>,
+    pub(crate) takes: HashMap<Taker::StableId, FinalTake<Taker>>,
+    pub(crate) makes: HashMap<Maker::StableId, FinalMake<Maker>>,
 }
 
 impl<T: Stable, M: Stable> FinalRecipe<T, M> {
@@ -739,20 +740,36 @@ impl<T: Display, M: Display> Display for MatchmakingRecipe<T, M> {
     }
 }
 
+const BASE_TAKE_TO_MAKE_RATIO: Ratio<usize> = Ratio::new_raw(1, 2);
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, From, Into, serde::Deserialize)]
+pub struct BaseStepBudget(u64);
+
+/// An exception indicating the recipe turned out to be too expensive for available budget.
+pub struct DowngradeNeeded;
+
+/// Takers that require deeper execution than current recipe provides.
+pub type DissatisfiedTakers<Taker> = Vec<Taker>;
+
 impl<Taker, Maker> MatchmakingRecipe<Taker, Maker>
 where
     Taker: Stable,
     Maker: Stable,
 {
-    pub fn try_from<U>(attempt: MatchmakingAttempt<Taker, Maker, U>) -> Result<Self, Option<Vec<Taker>>>
+    pub fn try_from<U, C>(
+        attempt: MatchmakingAttempt<Taker, Maker, U>,
+        cx: C,
+    ) -> Result<Self, Option<Either<DissatisfiedTakers<Taker>, DowngradeNeeded>>>
     where
         Maker: MarketMaker + MakerBehavior + Copy,
         Taker: MarketTaker + TakerBehaviour + Copy,
+        C: Has<BaseStepBudget>,
     {
         if attempt.is_complete() {
             if let Some(final_recipe) = attempt.finalized() {
                 let unsatisfied_fragments = final_recipe.unsatisfied_fragments();
                 return if unsatisfied_fragments.is_empty() {
+                    let complexity_ok = Self::check_recipe_complexity(&final_recipe, cx);
                     let FinalRecipe { takes, makes } = final_recipe;
                     let mut instructions = vec![];
                     for Final(take) in takes.into_values() {
@@ -761,13 +778,35 @@ where
                     for Final(make) in makes.into_values() {
                         instructions.push(Either::Right(make));
                     }
-                    Ok(Self { instructions })
+                    if complexity_ok {
+                        Ok(Self { instructions })
+                    } else {
+                        Err(Some(Either::Right(DowngradeNeeded)))
+                    }
                 } else {
-                    Err(Some(unsatisfied_fragments))
+                    Err(Some(Either::Left(unsatisfied_fragments)))
                 };
             }
         }
         Err(None)
+    }
+
+    fn check_recipe_complexity<C>(recipe: &FinalRecipe<Taker, Maker>, cx: C) -> bool
+    where
+        Taker: MarketTaker,
+        C: Has<BaseStepBudget>,
+    {
+        let num_takes = recipe.takes.len();
+        let num_makes = recipe.makes.len();
+        let takes_to_makes = Ratio::new_raw(num_takes, num_makes);
+        let base_budget = <u64>::from(cx.get());
+        let total_budget = recipe
+            .takes
+            .values()
+            .fold(0, |acc, Final(take)| acc + take.target.consumable_budget());
+        let budget_ratio = Ratio::new_raw(total_budget as usize, base_budget as usize);
+        let takes_to_makes_ratio = takes_to_makes * budget_ratio.reduced();
+        takes_to_makes_ratio >= BASE_TAKE_TO_MAKE_RATIO
     }
 }
 
@@ -850,5 +889,257 @@ impl ExecutionMeta {
             None => Some(price),
             Some(p0) => Some(p0 + price / 2),
         };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::execution_engine::liquidity_book::core::{
+        BaseStepBudget, Final, FinalRecipe, MatchmakingRecipe, Next, TerminalTake, Trans,
+    };
+    use crate::execution_engine::liquidity_book::market_taker::MarketTaker;
+    use crate::execution_engine::liquidity_book::side::Side;
+    use crate::execution_engine::liquidity_book::time::TimeBounds;
+    use crate::execution_engine::liquidity_book::types::{AbsolutePrice, FeeAsset, InputAsset, OutputAsset};
+    use spectrum_offchain::data::{Has, Stable};
+    use std::collections::HashMap;
+    use type_equalities::IsEqual;
+
+    #[test]
+    fn recipe_complexity_estimation_ok() {
+        let recipe = FinalRecipe::<Taker, Maker> {
+            takes: HashMap::from([(
+                0usize,
+                Final(Trans::new(
+                    Taker {
+                        id: 0,
+                        budget: 1100000,
+                    },
+                    Next::Term(TerminalTake {
+                        remaining_input: 0,
+                        accumulated_output: 0,
+                        remaining_budget: 0,
+                        remaining_fee: 0,
+                    }),
+                )),
+            )]),
+            makes: HashMap::from([
+                (
+                    1usize,
+                    Final(Trans::new(Maker { id: 1 }, Next::Succ(Maker { id: 1 }))),
+                ),
+                (2, Final(Trans::new(Maker { id: 2 }, Next::Succ(Maker { id: 2 })))),
+            ]),
+        };
+        let ok = MatchmakingRecipe::check_recipe_complexity(
+            &recipe,
+            Cx {
+                base_step_budget: 1100000.into(),
+            },
+        );
+        assert!(ok)
+    }
+
+    #[test]
+    fn recipe_complexity_estimation_double_budget_ok() {
+        let recipe = FinalRecipe::<Taker, Maker> {
+            takes: HashMap::from([(
+                0usize,
+                Final(Trans::new(
+                    Taker {
+                        id: 0,
+                        budget: 1100000 * 2,
+                    },
+                    Next::Term(TerminalTake {
+                        remaining_input: 0,
+                        accumulated_output: 0,
+                        remaining_budget: 0,
+                        remaining_fee: 0,
+                    }),
+                )),
+            )]),
+            makes: HashMap::from([
+                (1, Final(Trans::new(Maker { id: 1 }, Next::Succ(Maker { id: 1 })))),
+                (2, Final(Trans::new(Maker { id: 2 }, Next::Succ(Maker { id: 2 })))),
+                (3, Final(Trans::new(Maker { id: 3 }, Next::Succ(Maker { id: 3 })))),
+            ]),
+        };
+        let ok = MatchmakingRecipe::check_recipe_complexity(
+            &recipe,
+            Cx {
+                base_step_budget: 1100000.into(),
+            },
+        );
+        assert!(ok)
+    }
+
+    #[test]
+    fn recipe_complexity_estimation_mult_takers_ok() {
+        let recipe = FinalRecipe::<Taker, Maker> {
+            takes: HashMap::from([
+                (
+                    0,
+                    Final(Trans::new(
+                        Taker {
+                            id: 0,
+                            budget: 1100000,
+                        },
+                        Next::Term(TerminalTake {
+                            remaining_input: 0,
+                            accumulated_output: 0,
+                            remaining_budget: 0,
+                            remaining_fee: 0,
+                        }),
+                    )),
+                ),
+                (
+                    1,
+                    Final(Trans::new(
+                        Taker {
+                            id: 1,
+                            budget: 1100000,
+                        },
+                        Next::Term(TerminalTake {
+                            remaining_input: 0,
+                            accumulated_output: 0,
+                            remaining_budget: 0,
+                            remaining_fee: 0,
+                        }),
+                    )),
+                ),
+            ]),
+            makes: HashMap::from([
+                (1, Final(Trans::new(Maker { id: 1 }, Next::Succ(Maker { id: 1 })))),
+                (2, Final(Trans::new(Maker { id: 2 }, Next::Succ(Maker { id: 2 })))),
+                (3, Final(Trans::new(Maker { id: 3 }, Next::Succ(Maker { id: 3 })))),
+            ]),
+        };
+        let ok = MatchmakingRecipe::check_recipe_complexity(
+            &recipe,
+            Cx {
+                base_step_budget: 1100000.into(),
+            },
+        );
+        assert!(ok)
+    }
+
+    #[test]
+    fn recipe_complexity_estimation_not_ok() {
+        let recipe = FinalRecipe::<Taker, Maker> {
+            takes: HashMap::from([(
+                0usize,
+                Final(Trans::new(
+                    Taker {
+                        id: 0,
+                        budget: 1100000,
+                    },
+                    Next::Term(TerminalTake {
+                        remaining_input: 0,
+                        accumulated_output: 0,
+                        remaining_budget: 0,
+                        remaining_fee: 0,
+                    }),
+                )),
+            )]),
+            makes: HashMap::from([
+                (1, Final(Trans::new(Maker { id: 1 }, Next::Succ(Maker { id: 1 })))),
+                (2, Final(Trans::new(Maker { id: 2 }, Next::Succ(Maker { id: 2 })))),
+                (3, Final(Trans::new(Maker { id: 3 }, Next::Succ(Maker { id: 3 })))),
+            ]),
+        };
+        let ok = MatchmakingRecipe::check_recipe_complexity(
+            &recipe,
+            Cx {
+                base_step_budget: 1100000.into(),
+            },
+        );
+        assert!(!ok)
+    }
+
+    struct Maker {
+        id: usize,
+    }
+
+    impl Stable for Maker {
+        type StableId = usize;
+        fn stable_id(&self) -> Self::StableId {
+            self.id
+        }
+        fn is_quasi_permanent(&self) -> bool {
+            false
+        }
+    }
+
+    struct Taker {
+        id: usize,
+        budget: u64,
+    }
+
+    impl Stable for Taker {
+        type StableId = usize;
+        fn stable_id(&self) -> Self::StableId {
+            self.id
+        }
+        fn is_quasi_permanent(&self) -> bool {
+            false
+        }
+    }
+
+    impl MarketTaker for Taker {
+        type U = ();
+
+        fn side(&self) -> Side {
+            todo!()
+        }
+
+        fn input(&self) -> InputAsset<u64> {
+            todo!()
+        }
+
+        fn output(&self) -> OutputAsset<u64> {
+            todo!()
+        }
+
+        fn price(&self) -> AbsolutePrice {
+            todo!()
+        }
+
+        fn operator_fee(&self, input_consumed: InputAsset<u64>) -> FeeAsset<u64> {
+            todo!()
+        }
+
+        fn fee(&self) -> FeeAsset<u64> {
+            todo!()
+        }
+
+        fn budget(&self) -> FeeAsset<u64> {
+            self.budget
+        }
+
+        fn consumable_budget(&self) -> FeeAsset<u64> {
+            self.budget
+        }
+
+        fn marginal_cost_hint(&self) -> Self::U {
+            todo!()
+        }
+
+        fn min_marginal_output(&self) -> OutputAsset<u64> {
+            todo!()
+        }
+
+        fn time_bounds(&self) -> TimeBounds<u64> {
+            todo!()
+        }
+    }
+
+    struct Cx {
+        base_step_budget: BaseStepBudget,
+    }
+
+    impl Has<BaseStepBudget> for Cx {
+        fn select<U: IsEqual<BaseStepBudget>>(&self) -> BaseStepBudget {
+            self.base_step_budget
+        }
     }
 }

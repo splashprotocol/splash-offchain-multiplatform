@@ -1,4 +1,4 @@
 /// Instantiate [Self] given context [T].
-pub trait Maker<T> {
-    fn make(ctx: &T) -> Self;
+pub trait Maker<Key, T> {
+    fn make(key: Key, ctx: &T) -> Self;
 }

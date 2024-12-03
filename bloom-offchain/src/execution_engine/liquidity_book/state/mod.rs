@@ -627,7 +627,7 @@ pub struct FillPreview {
     pub input: u64,
 }
 
-fn probe_swap<M: MarketMaker + Stable>(
+fn dummy_swap<M: MarketMaker + Stable>(
     demand: u64,
     side: Side,
     maker: &M,
@@ -642,7 +642,7 @@ fn probe_swap<M: MarketMaker + Stable>(
     ))
 }
 
-fn try_optimize_swap<M: MarketMaker + Stable>(
+fn try_optimized_swap<M: MarketMaker + Stable>(
     price: AbsolutePrice,
     demand: u64,
     side: Side,
@@ -674,6 +674,7 @@ where
         price: AbsolutePrice,
         demand: u64,
         side: Side,
+        optimized: bool,
     ) -> Option<(M::StableId, FillPreview)>
     where
         M: MarketMaker,
@@ -684,7 +685,11 @@ where
             .values()
             .filter(|pool| pool.is_active())
             .filter_map(|p| {
-                try_optimize_swap(price, demand, side, p).or_else(|| probe_swap(demand, side, p))
+                if optimized {
+                    try_optimized_swap(price, demand, side, p).or_else(|| dummy_swap(demand, side, p))
+                } else {
+                    dummy_swap(demand, side, p)
+                }
             });
         match side {
             Side::Bid => pools.min_by_key(|(_, rp)| rp.price),
@@ -1088,10 +1093,10 @@ pub mod tests {
             takers_preview: Chronology::new(0),
             consumed_active_takers: vec![],
             stashed_active_takers: vec![
-                SimpleOrderPF::new(Side::Ask, 0, AbsolutePrice::new_unsafe(1, 2), 0),
-                SimpleOrderPF::new(Side::Ask, 0, AbsolutePrice::new_unsafe(1, 3), 0),
-                SimpleOrderPF::new(Side::Bid, 0, AbsolutePrice::new_unsafe(2, 3), 0),
-                SimpleOrderPF::new(Side::Bid, 0, AbsolutePrice::new_unsafe(1, 3), 0),
+                SimpleOrderPF::new(Side::Ask, 0, AbsolutePrice::new_unsafe(1, 2), 1100000, 900000),
+                SimpleOrderPF::new(Side::Ask, 0, AbsolutePrice::new_unsafe(1, 3), 1100000, 900000),
+                SimpleOrderPF::new(Side::Bid, 0, AbsolutePrice::new_unsafe(2, 3), 1100000, 900000),
+                SimpleOrderPF::new(Side::Bid, 0, AbsolutePrice::new_unsafe(1, 3), 1100000, 900000),
             ],
             makers_intact: MarketMakers::new(),
             makers_preview: MarketMakers::new(),
@@ -1110,8 +1115,8 @@ pub mod tests {
             takers_preview: Chronology::new(0),
             consumed_active_takers: vec![],
             stashed_active_takers: vec![
-                SimpleOrderPF::new(Side::Ask, 0, AbsolutePrice::new_unsafe(1, 2), 0),
-                SimpleOrderPF::new(Side::Ask, 0, AbsolutePrice::new_unsafe(1, 3), 0),
+                SimpleOrderPF::new(Side::Ask, 0, AbsolutePrice::new_unsafe(1, 2), 1100000, 900000),
+                SimpleOrderPF::new(Side::Ask, 0, AbsolutePrice::new_unsafe(1, 3), 1100000, 900000),
             ],
             makers_intact: MarketMakers::new(),
             makers_preview: MarketMakers::new(),
@@ -1172,8 +1177,8 @@ pub mod tests {
     fn choose_best_fragment_bid_is_underpriced() {
         let time_now = 1000u64;
         let index_price = AbsolutePrice::new_unsafe(1, 35);
-        let ask = SimpleOrderPF::new(Side::Ask, 1000, index_price, 100);
-        let bid = SimpleOrderPF::new(Side::Bid, 1000, AbsolutePrice::new_unsafe(1, 40), 200);
+        let ask = SimpleOrderPF::new(Side::Ask, 1000, index_price, 1100000, 900000);
+        let bid = SimpleOrderPF::new(Side::Bid, 1000, AbsolutePrice::new_unsafe(1, 40), 1100000, 900000);
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.takers.add_fragment(ask);
         s0.takers.add_fragment(bid);
@@ -1187,8 +1192,8 @@ pub mod tests {
     fn choose_best_fragment_ask_is_overpriced() {
         let time_now = 1000u64;
         let index_price = AbsolutePrice::new_unsafe(1, 35);
-        let ask = SimpleOrderPF::new(Side::Ask, 1000, AbsolutePrice::new_unsafe(1, 30), 100);
-        let bid = SimpleOrderPF::new(Side::Bid, 1000, index_price, 200);
+        let ask = SimpleOrderPF::new(Side::Ask, 1000, AbsolutePrice::new_unsafe(1, 30), 1100000, 900000);
+        let bid = SimpleOrderPF::new(Side::Bid, 1000, index_price, 1100000, 900000);
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.takers.add_fragment(ask);
         s0.takers.add_fragment(bid);
@@ -1202,8 +1207,8 @@ pub mod tests {
     fn choose_best_fragment_both_orders_price_is_off() {
         let time_now = 1000u64;
         let index_price = AbsolutePrice::new_unsafe(1, 35);
-        let ask = SimpleOrderPF::new(Side::Ask, 1000, AbsolutePrice::new_unsafe(1, 30), 100);
-        let bid = SimpleOrderPF::new(Side::Bid, 1000, AbsolutePrice::new_unsafe(1, 40), 200);
+        let ask = SimpleOrderPF::new(Side::Ask, 1000, AbsolutePrice::new_unsafe(1, 30), 1100000, 900000);
+        let bid = SimpleOrderPF::new(Side::Bid, 1000, AbsolutePrice::new_unsafe(1, 40), 1100000, 900000);
         let mut s0 = IdleState::<_, SimpleCFMMPool>::new(time_now);
         s0.takers.add_fragment(ask);
         s0.takers.add_fragment(bid);
@@ -1419,7 +1424,7 @@ pub mod tests {
     }
 
     impl SimpleOrderPF {
-        pub fn new(side: Side, input: u64, price: AbsolutePrice, fee: u64) -> Self {
+        pub fn new(side: Side, input: u64, price: AbsolutePrice, ex_budget: u64, fee: u64) -> Self {
             Self {
                 source: StableId::random(),
                 side,
@@ -1428,7 +1433,7 @@ pub mod tests {
                 min_marginal_output: 0,
                 price,
                 fee,
-                ex_budget: 0,
+                ex_budget,
                 cost_hint: 10,
                 bounds: TimeBounds::None,
             }
@@ -1548,8 +1553,6 @@ pub mod tests {
             removed_input: InputAsset<u64>,
             added_output: OutputAsset<u64>,
         ) -> Next<Self, TerminalTake> {
-            let target = self;
-            self.fee -= self.operator_fee(removed_input);
             self.input -= removed_input;
             self.accumulated_output += added_output;
             self.try_terminate()

@@ -2,6 +2,7 @@ use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use serde::Serialize;
 use spectrum_cardano_lib::AssetClass;
 use std::fmt::{Display, Formatter, Write};
+use uplc_pallas_traverse::Asset;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 pub struct PairId(AssetClass, AssetClass);
@@ -11,6 +12,10 @@ impl PairId {
     pub fn canonical(x: AssetClass, y: AssetClass) -> Self {
         let xs = order_canonical(x, y);
         Self(xs[0], xs[1])
+    }
+
+    pub fn dummy() -> Self {
+        Self(AssetClass::Native, AssetClass::Native)
     }
 }
 

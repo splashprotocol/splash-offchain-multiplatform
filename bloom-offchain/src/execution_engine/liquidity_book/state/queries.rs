@@ -92,13 +92,15 @@ mod tests {
             Side::Ask,
             1000000,
             AbsolutePrice::new_unsafe(13964959385539833, 5000000000000000),
-            0,
+            1100000,
+            900000,
         );
         let bid = SimpleOrderPF::new(
             Side::Bid,
             6666700000,
             AbsolutePrice::new_unsafe(250000, 127183),
-            0,
+            1100000,
+            900000,
         );
         let spot = SpotPrice::from(AbsolutePrice::new_unsafe(35953787, 11755056));
         mt.asks.insert(ask);

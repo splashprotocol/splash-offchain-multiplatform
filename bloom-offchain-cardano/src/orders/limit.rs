@@ -502,9 +502,11 @@ mod tests {
     use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_cardano_lib::{AssetName, OutputRef, Token};
     use spectrum_offchain::data::Has;
+    use spectrum_offchain::display::display_option;
     use spectrum_offchain::ledger::TryFromLedger;
     use spectrum_offchain::small_set::SmallVec;
     use spectrum_offchain_cardano::creds::OperatorCred;
+    use spectrum_offchain_cardano::data::pair::PairId;
     use spectrum_offchain_cardano::data::pool::AnyPool;
     use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
     use spectrum_offchain_cardano::deployment::{
@@ -636,9 +638,9 @@ mod tests {
             produced_identifiers: Default::default(),
         };
         let bearer = TransactionOutput::from_cbor_bytes(&*hex::decode(ORDER_UTXO).unwrap()).unwrap();
-        let ord = LimitOrder::try_from_ledger(&bearer, &ctx).expect("LimitOrder expected");
+        let ord = LimitOrder::try_from_ledger(&bearer, &ctx);
         println!("Order: {:?}", ord);
-        println!("P_abs: {}", ord.price());
+        println!("P_abs: {}", display_option(&ord.map(|x| x.price())));
     }
 
     const ORDER_UTXO: &str = "a300583911464eeee89f05aff787d40045af2a40a83fd96c513197d32fbc54ff02b926a3997fa1821ff686e9b435dae1f1cdaf4cf285c99c26f4ce43d501821a0fb024a1a1581c3bbbe8599fbc4a9cd2dc1c94ad0f577ce2328180b9cc7b851633aa8da1495061727479204361741a00097dd2028201d81858f7d8798c4100581cea868dde9641509a9b98248059106bbd7634a377639806e1761fbbdfd8798240401a0f6761771a000dbba01a0004c4b4d87982581c3bbbe8599fbc4a9cd2dc1c94ad0f577ce2328180b9cc7b851633aa8d49506172747920436174d8798218191927101a0008acead87982d87981581c4d43eb1a9d0bc89fbaf7e559ca6999a9f294215095743a6569875129d87981d87981d87981581cb926a3997fa1821ff686e9b435dae1f1cdaf4cf285c99c26f4ce43d5581c4d43eb1a9d0bc89fbaf7e559ca6999a9f294215095743a656987512981581c5cb2c968e5d1c7197a6ce7615967310a375545d9bc65063a964335b2";
@@ -710,7 +712,7 @@ mod tests {
         });
         dbg!(LimitOrder::try_from_ledger(&o0, &ctx));
         dbg!(LimitOrder::try_from_ledger(&o1, &ctx));
-        let mut book = TLB::<LimitOrder, AnyPool, ExUnits>::new(
+        let mut book = TLB::<LimitOrder, AnyPool, PairId, ExUnits>::new(
             0,
             ExecutionConfig {
                 execution_cap: ExecutionCap {
@@ -724,7 +726,9 @@ mod tests {
                     },
                 },
                 o2o_allowed: true,
+                base_step_budget: 90000.into(),
             },
+            PairId::dummy(),
         );
         vec![o0, o1]
             .into_iter()

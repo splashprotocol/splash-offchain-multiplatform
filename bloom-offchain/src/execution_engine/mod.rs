@@ -152,10 +152,10 @@ where
     Book: LiquidityBook<CompOrd, Pool, Meta>
         + ExternalLBEvents<CompOrd, Pool>
         + LBFeedback<CompOrd, Pool>
-        + Maker<MakerCtx>
+        + Maker<Pair, MakerCtx>
         + Unpin
         + 'a,
-    Backlog: HotBacklog<Bundled<SpecOrd, Bearer>> + Maker<MakerCtx> + Unpin + 'a,
+    Backlog: HotBacklog<Bundled<SpecOrd, Bearer>> + Maker<Pair, MakerCtx> + Unpin + 'a,
     RecInterpreter: RecipeInterpreter<CompOrd, Pool, Ctx, Ver, Bearer, TxCandidate> + Unpin + 'a,
     SpecInterpreter: SpecializedInterpreter<Pool, SpecOrd, Ver, TxCandidate, Bearer, Ctx> + Unpin + 'a,
     Prover: TxProver<TxCandidate, Tx> + Unpin + 'a,
@@ -288,7 +288,7 @@ where
         PR: Copy + Eq + Hash + Display,
         V: Copy + Eq + Hash + Display,
         SO: SpecializedOrder<TOrderId = V>,
-        L: HotBacklog<Bundled<SO, B>> + Maker<MC>,
+        L: HotBacklog<Bundled<SO, B>> + Maker<PR, MC>,
         MC: Clone,
     {
         let is_confirmed = matches!(update, Channel::Ledger(_));
@@ -326,7 +326,7 @@ where
         CO: Stable<StableId = SID> + Clone,
         P: Stable<StableId = SID> + Clone,
         IX: StateIndex<EvolvingEntity<CO, P, V, B>>,
-        TLB: ExternalLBEvents<CO, P> + Maker<MC>,
+        TLB: ExternalLBEvents<CO, P> + Maker<PR, MC>,
     {
         trace!("Syncing TLB pair: {}", pair);
         match transition {
@@ -361,7 +361,7 @@ where
         CO: Stable<StableId = SID> + Clone + Display,
         P: Stable<StableId = SID> + Clone,
         IX: StateIndex<EvolvingEntity<CO, P, V, B>>,
-        TLB: ExternalLBEvents<CO, P> + Maker<MC>,
+        TLB: ExternalLBEvents<CO, P> + Maker<PR, MC>,
     {
         let mut missing_bearers = vec![];
         for ver in versions {
@@ -478,8 +478,8 @@ where
         P: Stable<StableId = SID> + Copy,
         TH: Display,
         IX: StateIndex<EvolvingEntity<CO, P, V, B>>,
-        TLB: ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<MC>,
-        L: HotBacklog<Bundled<SO, B>> + Maker<MC>,
+        TLB: ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<PR, MC>,
+        L: HotBacklog<Bundled<SO, B>> + Maker<PR, MC>,
     {
         trace!("TX {} succeeded", tx_hash);
         match pending_effects {
@@ -535,8 +535,8 @@ where
         P: Stable<StableId = SID> + Copy,
         TH: Display,
         IX: StateIndex<EvolvingEntity<CO, P, V, B>>,
-        TLB: ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<MC>,
-        L: HotBacklog<Bundled<SO, B>> + Maker<MC>,
+        TLB: ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<PR, MC>,
+        L: HotBacklog<Bundled<SO, B>> + Maker<PR, MC>,
         E: TryInto<HashSet<V>> + Unpin + Debug + Display,
     {
         warn!("TX {} failed", tx_hash);
@@ -627,7 +627,7 @@ where
         CO: Stable<StableId = SID> + Copy + Display,
         P: Stable<StableId = SID> + Copy,
         IX: StateIndex<EvolvingEntity<CO, P, V, B>>,
-        TLB: ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<MC>,
+        TLB: ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<PR, MC>,
     {
         let liquidity_book = self.multi_book.get_mut(&focus_pair);
         liquidity_book.on_recipe_failed();
@@ -682,8 +682,8 @@ where
         CO: Stable<StableId = SID> + Copy + Debug,
         P: Stable<StableId = SID> + Copy,
         IX: StateIndex<EvolvingEntity<CO, P, V, B>>,
-        TLB: ExternalLBEvents<CO, P> + Maker<MC>,
-        L: HotBacklog<Bundled<SO, B>> + Maker<MC>,
+        TLB: ExternalLBEvents<CO, P> + Maker<PR, MC>,
+        L: HotBacklog<Bundled<SO, B>> + Maker<PR, MC>,
     {
         match event {
             Either::Left(evolving_entity) => {
@@ -740,8 +740,8 @@ where
     C: Clone + Unpin,
     MC: Clone + Unpin,
     IX: StateIndex<EvolvingEntity<CO, P, V, B>> + Unpin,
-    TLB: LiquidityBook<CO, P, M> + ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<MC> + Unpin,
-    L: HotBacklog<Bundled<SO, B>> + Maker<MC> + Unpin,
+    TLB: LiquidityBook<CO, P, M> + ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<PR, MC> + Unpin,
+    L: HotBacklog<Bundled<SO, B>> + Maker<PR, MC> + Unpin,
     RIR: RecipeInterpreter<CO, P, C, V, B, TC> + Unpin,
     SIR: SpecializedInterpreter<P, SO, V, TC, B, C> + Unpin,
     PRV: TxProver<TC, TX> + Unpin,
@@ -900,8 +900,8 @@ where
     C: Clone + Unpin,
     MC: Clone + Unpin,
     IX: StateIndex<EvolvingEntity<CO, P, V, B>> + Unpin,
-    TLB: LiquidityBook<CO, P, M> + ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<MC> + Unpin,
-    L: HotBacklog<Bundled<SO, B>> + Maker<MC> + Unpin,
+    TLB: LiquidityBook<CO, P, M> + ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<PR, MC> + Unpin,
+    L: HotBacklog<Bundled<SO, B>> + Maker<PR, MC> + Unpin,
     RIR: RecipeInterpreter<CO, P, C, V, B, TC> + Unpin,
     SIR: SpecializedInterpreter<P, SO, V, TC, B, C> + Unpin,
     PRV: TxProver<TC, TX> + Unpin,

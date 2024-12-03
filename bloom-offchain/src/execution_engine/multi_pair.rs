@@ -19,7 +19,7 @@ impl<PairId, R, Ctx> MultiPair<PairId, R, Ctx> {
 impl<PairId, R, Ctx> MultiPair<PairId, R, Ctx>
 where
     PairId: Copy + Eq + Hash + Display,
-    R: Maker<Ctx>,
+    R: Maker<PairId, Ctx>,
     Ctx: Clone,
 {
     pub fn with_resource_mut<F, T>(&mut self, pair: &PairId, f: F) -> T
@@ -34,7 +34,7 @@ where
             self.0.get_mut(pair).unwrap()
         } else {
             trace!(target: "offchain", "MultiPair[{}]: new pair: {}", self.2, pair);
-            self.0.insert(*pair, Maker::make(&self.1));
+            self.0.insert(*pair, Maker::make(*pair, &self.1));
             self.get_mut(pair)
         }
     }

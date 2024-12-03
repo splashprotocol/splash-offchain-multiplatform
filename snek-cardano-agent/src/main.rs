@@ -22,7 +22,6 @@ use crate::snek_validation_rules::SnekValidationRules;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_part_stream;
 use bloom_offchain::execution_engine::funding_effect::FundingEvent;
-use bloom_offchain::execution_engine::liquidity_book::hot::HotLB;
 use bloom_offchain::execution_engine::liquidity_book::TLB;
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
 use bloom_offchain::execution_engine::storage::InMemoryStateIndex;
@@ -240,7 +239,9 @@ async fn main() {
     let spec_interpreter = SpecializedInterpreterViaRunOrder;
     let maker_context = MakerContext {
         time: 0.into(),
-        execution_conf: config.execution.into(),
+        execution_conf: config
+            .execution
+            .into_lb_config(validation_rules.limit_order.min_cost_per_ex_step.into()),
         backlog_capacity: BacklogCapacity::from(config.backlog_capacity),
     };
     let context = ExecutionContext {
@@ -255,7 +256,7 @@ async fn main() {
     };
     let (signal_tip_reached_snd, signal_tip_reached_recv) = broadcast::channel(1);
     let multi_book =
-        MultiPair::new::<TLB<AdhocOrder, DegenQuadraticPool, ExUnits>>(maker_context.clone(), "Book");
+        MultiPair::new::<TLB<AdhocOrder, DegenQuadraticPool, PairId, ExUnits>>(maker_context.clone(), "Book");
     let multi_backlog = MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(
         maker_context,
         "Backlog",

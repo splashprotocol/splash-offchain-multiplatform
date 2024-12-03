@@ -243,7 +243,9 @@ async fn main() {
     let spec_interpreter = SpecializedInterpreterViaRunOrder;
     let maker_context = MakerContext {
         time: 0.into(),
-        execution_conf: config.execution.into(),
+        execution_conf: config
+            .execution
+            .into_lb_config(validation_rules.limit_order.min_cost_per_ex_step.into()),
         backlog_capacity: BacklogCapacity::from(config.backlog_capacity),
     };
     let context_p1 = ExecutionContext {
@@ -283,7 +285,7 @@ async fn main() {
         operator_cred: operator_paycred,
     };
 
-    let multi_book = MultiPair::new::<TLB<AnyOrder, AnyPool, ExUnits>>(maker_context.clone(), "Book");
+    let multi_book = MultiPair::new::<TLB<AnyOrder, AnyPool, PairId, ExUnits>>(maker_context.clone(), "Book");
     let multi_backlog = MultiPair::new::<
         WithTracing<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>,
     >(maker_context, "Backlog");

@@ -12,7 +12,7 @@ use crate::execution_engine::liquidity_book::state::{FillPreview, IdleState, TLB
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, RelativePrice};
 use crate::execution_engine::types::Time;
 use algebra_core::monoid::Monoid;
-use algebra_core::semigroup::Semigroup;
+use either::Either;
 use log::trace;
 use num_rational::Ratio;
 use primitive_types::U256;
@@ -24,7 +24,6 @@ use std::ops::AddAssign;
 
 pub mod config;
 pub mod core;
-pub mod hot;
 pub mod interpreter;
 pub mod market_maker;
 pub mod market_taker;
@@ -65,12 +64,13 @@ pub trait LBFeedback<T, M> {
 /// (1.) Discrete Fragments of liquidity;
 /// (2.) Pooled (according to some AMM formula) liquidity;
 #[derive(Clone)]
-pub struct TLB<Taker, Maker: Stable, U> {
+pub struct TLB<Taker, Maker: Stable, Pair, U> {
     state: TLBState<Taker, Maker>,
     conf: ExecutionConfig<U>,
+    pair: Pair,
 }
 
-impl<Taker, Maker, U> LBFeedback<Taker, Maker> for TLB<Taker, Maker, U>
+impl<Taker, Maker, P, U> LBFeedback<Taker, Maker> for TLB<Taker, Maker, P, U>
 where
     Taker: MarketTaker + Ord + Copy,
     Maker: MarketMaker + Stable + Copy,
@@ -84,14 +84,15 @@ where
     }
 }
 
-impl<Taker, Maker, U> TLB<Taker, Maker, U>
+impl<Taker, Maker, P, U> TLB<Taker, Maker, P, U>
 where
     Maker: Stable,
 {
-    pub fn new(time: u64, conf: ExecutionConfig<U>) -> Self {
+    pub fn new(time: u64, conf: ExecutionConfig<U>, pair: P) -> Self {
         Self {
             state: TLBState::new(time),
             conf,
+            pair,
         }
     }
 
@@ -104,7 +105,7 @@ where
     }
 }
 
-impl<Taker, Maker, U> TLB<Taker, Maker, U>
+impl<Taker, Maker, P, U> TLB<Taker, Maker, P, U>
 where
     Taker: MarketTaker<U = U> + Ord + Copy + Display,
     Maker: MarketMaker + Stable + Copy,
@@ -123,29 +124,39 @@ where
     }
 }
 
-impl<Taker, Maker, U> LiquidityBook<Taker, Maker, ExecutionMeta> for TLB<Taker, Maker, U>
+impl<Taker, Maker, P, U> LiquidityBook<Taker, Maker, ExecutionMeta> for TLB<Taker, Maker, P, U>
 where
     Taker: Stable + MarketTaker<U = U> + TakerBehaviour + Ord + Copy + Display,
     Maker: Stable + MarketMaker<U = U> + MakerBehavior + Copy + Display,
     U: Monoid + AddAssign + PartialOrd + Copy,
+    P: Display,
 {
     fn attempt(&mut self) -> Option<(MatchmakingRecipe<Taker, Maker>, ExecutionMeta)> {
+        let mut optimized_matchmaking = true;
         loop {
-            trace!("Attempting to matchmake");
+            trace!(
+                "[{}] Attempting to matchmake (optimized={})",
+                self.pair,
+                optimized_matchmaking
+            );
             let mut batch: MatchmakingAttempt<Taker, Maker, U> = MatchmakingAttempt::empty();
             let mut meta = ExecutionMeta::empty();
             while batch.execution_units_consumed() < self.conf.execution_cap.soft && batch.num_takes() < 15 {
                 if let Some(spot_price) = self.spot_price() {
                     meta.add_price_point(spot_price);
                     let price_range = self.state.allowed_price_range();
-                    trace!("Spot price is: {}", spot_price);
-                    trace!("Price range is: {}", price_range);
-                    trace!("TLB state is: {}", self.state);
+                    trace!(
+                        "[{}] spot_price: {}, price_range: {}",
+                        self.pair,
+                        spot_price,
+                        price_range
+                    );
+                    trace!("[{}] TLB.state: {}", self.pair, self.state);
                     if let Some(target_taker) = self
                         .state
                         .pick_active_taker(|fs| max_by_distance_to_spot(fs, spot_price, price_range))
                     {
-                        trace!("Selected taker is: {}", target_taker);
+                        trace!("Selected taker: {}", target_taker);
                         let target_side = target_taker.side();
                         let target_price = target_side.wrap(target_taker.price());
                         let maybe_price_counter_taker = self.state.best_taker_price(!target_side);
@@ -153,9 +164,11 @@ where
                             target_taker.price(),
                             target_taker.input(),
                             target_side,
+                            optimized_matchmaking,
                         );
                         trace!(
-                            "P_target: {}, P_counter: {}, P_amm: {}",
+                            "[{}] P_target: {}, P_counter: {}, P_amm: {}",
+                            self.pair,
                             target_price.unwrap(),
                             display_option(&maybe_price_counter_taker),
                             display_option(&maybe_price_maker.map(|(id, fp)| display_tuple((id, fp.price))))
@@ -202,23 +215,35 @@ where
                         }
                     }
                 } else {
-                    trace!("Spot price is not available");
+                    trace!("[{}] Spot price is not available", self.pair);
                 }
                 break;
             }
-            trace!("Raw batch: {}", batch);
-            match MatchmakingRecipe::try_from(batch) {
+            trace!("[{}] Raw batch: {}", self.pair, batch);
+            match MatchmakingRecipe::try_from(batch, self.conf) {
                 Ok(ex_recipe) => {
-                    trace!("Successfully formed a batch {}", ex_recipe);
+                    trace!("[{}] Successfully formed a batch {}", self.pair, ex_recipe);
                     return Some((ex_recipe, meta));
                 }
                 Err(None) => {
-                    trace!("Matchmaking attempt failed");
+                    trace!("[{}] Matchmaking attempt failed", self.pair);
                     self.state.rollback(StashingOption::Unstash);
                 }
-                Err(Some(unsatisfied_takers)) => {
-                    trace!("Matchmaking attempt failed due to taker limits, retrying");
+                Err(Some(Either::Left(unsatisfied_takers))) => {
+                    trace!(
+                        "[{}] Matchmaking attempt failed due to taker limits, retrying",
+                        self.pair
+                    );
                     self.state.rollback(StashingOption::Stash(unsatisfied_takers));
+                    continue;
+                }
+                Err(Some(Either::Right(_downgrade_required))) => {
+                    trace!(
+                        "[{}] Matchmaking attempt failed due to high execution complexity, retrying",
+                        self.pair
+                    );
+                    self.state.rollback(StashingOption::Stash(vec![]));
+                    optimized_matchmaking = false;
                     continue;
                 }
             }
@@ -278,20 +303,24 @@ fn ok<T>(_: &T) -> bool {
     true
 }
 
-impl<Fr, Pl, Ctx, U> Maker<Ctx> for TLB<Fr, Pl, U>
+impl<T, M, P, Ctx, U> Maker<P, Ctx> for TLB<T, M, P, U>
 where
-    Pl: Stable,
+    M: Stable,
     Ctx: Has<Time> + Has<ExecutionConfig<U>>,
 {
-    fn make(ctx: &Ctx) -> Self {
-        Self::new(ctx.select::<Time>().into(), ctx.select::<ExecutionConfig<U>>())
+    fn make(key: P, ctx: &Ctx) -> Self {
+        Self::new(
+            ctx.select::<Time>().into(),
+            ctx.select::<ExecutionConfig<U>>(),
+            key,
+        )
     }
 }
 
-fn requiring_settled_state<Fr, Pl, U, F>(book: &mut TLB<Fr, Pl, U>, f: F)
+fn requiring_settled_state<T, M, P, U, F>(book: &mut TLB<T, M, P, U>, f: F)
 where
-    Pl: Stable,
-    F: Fn(&mut IdleState<Fr, Pl>),
+    M: Stable,
+    F: Fn(&mut IdleState<T, M>),
 {
     match book.state {
         TLBState::Idle(ref mut st) => f(st),
@@ -303,28 +332,28 @@ where
     }
 }
 
-impl<Fr, Pl, U> ExternalLBEvents<Fr, Pl> for TLB<Fr, Pl, U>
+impl<T, M, P, U> ExternalLBEvents<T, M> for TLB<T, M, P, U>
 where
-    Fr: MarketTaker + TakerBehaviour + Ord + Copy + Display,
-    Pl: MarketMaker + Stable + Copy + Display + Debug,
+    T: MarketTaker + TakerBehaviour + Ord + Copy + Display,
+    M: MarketMaker + Stable + Copy + Display + Debug,
 {
     fn advance_clocks(&mut self, new_time: u64) {
         requiring_settled_state(self, |st| st.advance_clocks(new_time))
     }
 
-    fn update_taker(&mut self, fr: Fr) {
+    fn update_taker(&mut self, fr: T) {
         requiring_settled_state(self, |st| st.add_fragment(fr))
     }
 
-    fn remove_taker(&mut self, fr: Fr) {
+    fn remove_taker(&mut self, fr: T) {
         requiring_settled_state(self, |st| st.remove_fragment(fr))
     }
 
-    fn update_maker(&mut self, pool: Pl) {
+    fn update_maker(&mut self, pool: M) {
         requiring_settled_state(self, |st| st.update_pool(pool))
     }
 
-    fn remove_maker(&mut self, pool: Pl) {
+    fn remove_maker(&mut self, pool: M) {
         requiring_settled_state(self, |st| st.remove_pool(pool))
     }
 }
@@ -425,7 +454,7 @@ mod tests {
             0,
             6634631,
         );
-        let mut book = TLB::<_, SimpleCFMMPool, _>::new(
+        let mut book = TLB::<_, SimpleCFMMPool, _, _>::new(
             0,
             ExecutionConfig {
                 execution_cap: ExecutionCap {
@@ -433,7 +462,9 @@ mod tests {
                     hard: 1600000,
                 },
                 o2o_allowed: true,
+                base_step_budget: 900000.into(),
             },
+            "ada-usdt",
         );
         vec![o1, o2].into_iter().for_each(|o| book.update_taker(o));
         let recipe = book.attempt();
@@ -443,8 +474,8 @@ mod tests {
     #[test]
     fn recipe_fill_fragment_from_fragment() {
         // Assuming pair ADA/USDT @ 0.37
-        let o1 = SimpleOrderPF::new(Ask, 20000, AbsolutePrice::new_unsafe(36, 100), 1000);
-        let o2 = SimpleOrderPF::new(Bid, 3700, AbsolutePrice::new_unsafe(37, 100), 990);
+        let o1 = SimpleOrderPF::new(Ask, 20000, AbsolutePrice::new_unsafe(36, 100), 1100000, 900000);
+        let o2 = SimpleOrderPF::new(Bid, 3700, AbsolutePrice::new_unsafe(37, 100), 1100000, 900000);
         let p1 = SimpleCFMMPool {
             pool_id: StableId::random(),
             reserves_base: 1000000,
@@ -465,7 +496,9 @@ mod tests {
                     hard: 1600000,
                 },
                 o2o_allowed: true,
+                base_step_budget: 1.into(),
             },
+            "ada-usdt",
         );
         book.update_taker(o1);
         book.update_taker(o2);

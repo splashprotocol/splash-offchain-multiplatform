@@ -1,4 +1,5 @@
 use bloom_offchain::execution_engine::liquidity_book;
+use bloom_offchain::execution_engine::liquidity_book::core::BaseStepBudget;
 use bloom_offchain::partitioning::Partitioning;
 use bloom_offchain_cardano::integrity::{CheckIntegrity, IntegrityViolations};
 use bloom_offchain_cardano::orders::adhoc::AdhocFeeStructure;
@@ -94,11 +95,15 @@ pub struct ExecutionConfig {
     pub execution_cap: ExecutionCap,
 }
 
-impl From<ExecutionConfig> for liquidity_book::config::ExecutionConfig<ExUnits> {
-    fn from(conf: ExecutionConfig) -> Self {
-        Self {
-            execution_cap: conf.execution_cap.into(),
+impl ExecutionConfig {
+    pub fn into_lb_config(
+        self,
+        base_step_budget: BaseStepBudget,
+    ) -> liquidity_book::config::ExecutionConfig<ExUnits> {
+        liquidity_book::config::ExecutionConfig {
+            execution_cap: self.execution_cap.into(),
             o2o_allowed: false,
+            base_step_budget,
         }
     }
 }

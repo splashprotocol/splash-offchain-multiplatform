@@ -4,6 +4,7 @@ use std::time::Duration;
 use cml_core::Slot;
 
 use bloom_offchain::execution_engine::liquidity_book;
+use bloom_offchain::execution_engine::liquidity_book::core::BaseStepBudget;
 use bloom_offchain::partitioning::Partitioning;
 use cardano_chain_sync::client::Point;
 use spectrum_cardano_lib::ex_units::ExUnits;
@@ -79,11 +80,15 @@ pub struct ExecutionConfig {
     pub o2o_allowed: bool,
 }
 
-impl From<ExecutionConfig> for liquidity_book::config::ExecutionConfig<ExUnits> {
-    fn from(conf: ExecutionConfig) -> Self {
-        Self {
-            execution_cap: conf.execution_cap.into(),
-            o2o_allowed: conf.o2o_allowed,
+impl ExecutionConfig {
+    pub fn into_lb_config(
+        self,
+        base_step_budget: BaseStepBudget,
+    ) -> liquidity_book::config::ExecutionConfig<ExUnits> {
+        liquidity_book::config::ExecutionConfig {
+            execution_cap: self.execution_cap.into(),
+            o2o_allowed: self.o2o_allowed,
+            base_step_budget,
         }
     }
 }

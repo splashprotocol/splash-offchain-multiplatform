@@ -13,11 +13,11 @@ impl<Component> WithTracing<Component> {
 }
 
 /// Any [Component] can be instantiated with tracing.
-impl<Component, Context> Maker<Context> for WithTracing<Component>
+impl<Key, Component, Context> Maker<Key, Context> for WithTracing<Component>
 where
-    Component: Maker<Context>,
+    Component: Maker<Key, Context>,
 {
-    fn make(ctx: &Context) -> Self {
-        Self::wrap(Component::make(ctx))
+    fn make(key: Key, ctx: &Context) -> Self {
+        Self::wrap(Component::make(key, ctx))
     }
 }
