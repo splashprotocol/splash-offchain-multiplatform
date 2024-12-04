@@ -46,7 +46,7 @@ pub async fn user_simulator<'a>(
         serde_json::from_str(&s).expect("Invalid voting_escrow settings file");
 
     // Current epoch as measured determined by weighting_poll
-    let mut current_epoch = None;
+    let mut wpoll_current_epoch = None;
     let mut ve_state = VEState::Waiting;
 
     let genesis_epoch_time = GenesisEpochStartTime::from(deployment_config.genesis_epoch_start_time);
@@ -55,7 +55,7 @@ pub async fn user_simulator<'a>(
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
-        let CurrentEpoch(e) = time_millis_to_epoch(now, genesis_epoch_time);
+        let CurrentEpoch(current_epoch) = time_millis_to_epoch(now, genesis_epoch_time);
 
         let ve_identifier_str =
             std::fs::read_to_string(ve_identifier_json_path).expect("Cannot load dao parameters file");
@@ -63,10 +63,11 @@ pub async fn user_simulator<'a>(
             serde_json::from_str(&ve_identifier_str).expect("Invalid ve_identifiers file");
 
         // Create initial voting_escrow
-        if ve_settings.creation_epoch == e && user_ve_identifier.identifier_name.is_none() {
+        if ve_settings.creation_epoch == current_epoch && user_ve_identifier.identifier_name.is_none() {
+            assert!(matches!(ve_state, VEState::Waiting));
             println!("---- Making deposit into VE");
             // Deposit into VE
-            let identifier_name = make_voting_escrow(&ve_settings, op_inputs, e).await;
+            let identifier_name = make_voting_escrow(&ve_settings, op_inputs, current_epoch).await;
 
             let voting_escrow_id =
                 VotingEscrowId(spectrum_cardano_lib::AssetName::from(identifier_name.clone()));
@@ -79,7 +80,7 @@ pub async fn user_simulator<'a>(
             )
             .await
             {
-                ve_state = VEState::ConfirmedVotingEscrow(ve_snapshot, Epoch(e));
+                ve_state = VEState::ConfirmedVotingEscrow(ve_snapshot, Epoch(current_epoch));
             }
             let mut file = tokio::fs::File::create(ve_identifier_json_path).await.unwrap();
             file.write_all(
@@ -91,24 +92,13 @@ pub async fn user_simulator<'a>(
             )
             .await
             .unwrap();
-        } else if let Some(ref identifier_name) = user_ve_identifier.identifier_name {
-            let voting_escrow_id =
-                VotingEscrowId(spectrum_cardano_lib::AssetName::from(identifier_name.clone()));
-            if let Some((ve_snapshot, _)) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
-                &op_inputs.explorer,
-                protocol_deployment.voting_escrow.hash,
-                op_inputs.network_id,
-                &deployment_config,
-                voting_escrow_id,
-            )
-            .await
-            {
-                ve_state = VEState::ConfirmedVotingEscrow(ve_snapshot, Epoch(e));
-            }
+
+            continue;
         }
 
-        let try_pull_next_wpoll = (current_epoch.is_none() || current_epoch.unwrap() < e)
-            && now - epoch_start(genesis_epoch_time, e) > EPOCH_WAIT_TIME;
+        let try_pull_next_wpoll = (wpoll_current_epoch.is_none()
+            || wpoll_current_epoch.unwrap() < current_epoch)
+            && now - epoch_start(genesis_epoch_time, current_epoch) > EPOCH_WAIT_TIME;
 
         if try_pull_next_wpoll {
             let pulled = pull_onchain_entity::<WeightingPollSnapshot, _>(
@@ -116,24 +106,25 @@ pub async fn user_simulator<'a>(
                 protocol_deployment.mint_wpauth_token.hash,
                 op_inputs.network_id,
                 &deployment_config,
-                WeightingPollId(e),
+                WeightingPollId(current_epoch),
             )
             .await
             .is_some();
             if pulled {
-                println!("Pulled WPOLL for epoch {}", e);
-                current_epoch = Some(e);
+                println!("Pulled WPOLL for epoch {}", current_epoch);
+                wpoll_current_epoch = Some(current_epoch);
             }
         }
 
-        let pulled_current_epoch = current_epoch.is_some() && current_epoch.unwrap() == e;
+        let pulled_current_epoch =
+            wpoll_current_epoch.is_some() && wpoll_current_epoch.unwrap() == current_epoch;
 
         if pulled_current_epoch {
             if let Some(ve_id) = user_ve_identifier.identifier_name {
-                let voting_escrow_id = VotingEscrowId(spectrum_cardano_lib::AssetName::from(ve_id));
+                let voting_escrow_id = VotingEscrowId(spectrum_cardano_lib::AssetName::from(ve_id.clone()));
                 match ve_state {
                     VEState::PredictedVoteCast(e) => {
-                        // try pull voting_escrow snapshot. On successful pull we can immediately continue.
+                        assert_eq!(e.0, current_epoch);
                         if let Some((ve_snapshot, _)) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
                             &op_inputs.explorer,
                             protocol_deployment.voting_escrow.hash,
@@ -143,44 +134,57 @@ pub async fn user_simulator<'a>(
                         )
                         .await
                         {
-                            ve_state = VEState::ConfirmedVoteCast(ve_snapshot, e);
-                            continue;
+                            let last_wp_epoch = ve_snapshot.get().last_wp_epoch;
+                            if current_epoch as i32 == last_wp_epoch {
+                                println!("Vote confirmed for epoch {}", current_epoch);
+                                ve_state = VEState::ConfirmedVoteCast(ve_snapshot, e);
+                            }
                         }
                     }
                     VEState::ConfirmedVoteCast(ref ve_snapshot, Epoch(epoch)) => {
                         // wait until epoch's ended (or add funds, vote on proposal)
-                        if ve_snapshot.get().last_wp_epoch < e as i32 {
-                            println!("Voting from state {:?}", ve_state);
+                        let last_wp_epoch = ve_snapshot.get().last_wp_epoch;
+                        assert_eq!(epoch as i32, last_wp_epoch);
+                        if last_wp_epoch < current_epoch as i32 {
+                            let version = ve_snapshot.get().version as u64;
+                            println!(
+                                "Voting from state {:?} in epoch {}, version: {}",
+                                ve_state, current_epoch, version
+                            );
                             let voting_power = ve_snapshot.get().voting_power(now);
                             let wpoll_policy_id =
                                 deployment_config.deployed_validators.mint_wpauth_token.hash;
                             let voting_order_id = VotingOrderId {
                                 voting_escrow_id,
-                                version: ve_snapshot.get().version as u64,
+                                version,
                             };
                             let voting_order = create_voting_order(
                                 &op_inputs.operator_sk,
                                 voting_order_id,
                                 voting_power,
                                 wpoll_policy_id,
-                                e,
+                                current_epoch,
                                 op_inputs.dao_parameters.num_active_farms,
                             );
 
                             send_vote(voting_order, &op_inputs.voting_order_listener_endpoint).await;
 
-                            ve_state = VEState::PredictedVoteCast(Epoch(e));
+                            ve_state = VEState::PredictedVoteCast(Epoch(current_epoch));
                         }
                     }
                     VEState::ConfirmedVotingEscrow(ref ve_snapshot, Epoch(epoch)) => {
                         // cast vote
-                        assert_eq!(epoch, e);
+                        assert_eq!(epoch, current_epoch);
                         let voting_power = ve_snapshot.get().voting_power(now);
-                        println!("Voting from state {:?}, voting_power: {}", ve_state, voting_power);
+                        let version = ve_snapshot.get().version as u64;
+                        println!(
+                            "Voting from state {:?}, epoch: {}, voting_power: {}, version: {}",
+                            ve_state, epoch, voting_power, version
+                        );
                         let wpoll_policy_id = deployment_config.deployed_validators.mint_wpauth_token.hash;
                         let voting_order_id = VotingOrderId {
                             voting_escrow_id,
-                            version: ve_snapshot.get().version as u64,
+                            version,
                         };
                         let voting_order = create_voting_order(
                             &op_inputs.operator_sk,
@@ -193,9 +197,24 @@ pub async fn user_simulator<'a>(
 
                         send_vote(voting_order, &op_inputs.voting_order_listener_endpoint).await;
 
-                        ve_state = VEState::PredictedVoteCast(Epoch(e));
+                        ve_state = VEState::PredictedVoteCast(Epoch(current_epoch));
                     }
-                    VEState::Waiting => unreachable!(),
+                    VEState::Waiting => {
+                        let voting_escrow_id =
+                            VotingEscrowId(spectrum_cardano_lib::AssetName::from(ve_id.clone()));
+
+                        if let Some((ve_snapshot, _)) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
+                            &op_inputs.explorer,
+                            protocol_deployment.voting_escrow.hash,
+                            op_inputs.network_id,
+                            &deployment_config,
+                            voting_escrow_id,
+                        )
+                        .await
+                        {
+                            ve_state = VEState::ConfirmedVotingEscrow(ve_snapshot, Epoch(current_epoch));
+                        }
+                    }
                 }
             }
         }
