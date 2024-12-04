@@ -174,7 +174,8 @@ where
     );
     if fee_mismatch != 0 {
         if take_residual_fee && fee_mismatch > 0 {
-            execute_recipe(funding, false, ctx, instructions, fee_mismatch.unsigned_abs())
+            let accumulated_residue = accumulated_residue + fee_mismatch.unsigned_abs();
+            execute_recipe(funding, false, ctx, instructions, accumulated_residue)
         } else {
             let fee_rescale_factor = Ratio::new(estimated_fee, reserved_tx_fee);
             let corrected_recipe = balance_fee(fee_mismatch, fee_rescale_factor, instructions);
