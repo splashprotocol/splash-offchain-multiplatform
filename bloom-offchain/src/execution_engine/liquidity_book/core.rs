@@ -52,7 +52,6 @@ impl TerminalTake {
     }
 
     fn with_fee_charged(mut self, fee: u64) -> Self {
-        println!("{} - {}", self.remaining_fee, fee);
         self.remaining_fee -= fee;
         self
     }
