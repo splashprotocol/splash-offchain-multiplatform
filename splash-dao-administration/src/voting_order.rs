@@ -57,7 +57,8 @@ pub fn create_voting_order(
     let redeemer_hex = hex::encode(redeemer.to_cbor_bytes());
     println!("redeemer: {}", redeemer_hex);
     let message =
-        compute_voting_witness_message(voting_witness_script.hash(), redeemer_hex.clone(), 0).unwrap();
+        compute_voting_witness_message(voting_witness_script.hash(), redeemer_hex.clone(), id.version)
+            .unwrap();
     println!("message: {}", hex::encode(&message));
     let signature = operator_sk.sign(&message).to_raw_bytes().to_vec();
 

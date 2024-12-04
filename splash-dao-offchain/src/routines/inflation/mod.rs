@@ -14,6 +14,7 @@ use cml_chain::transaction::{Transaction, TransactionOutput};
 use cml_chain::Serialize;
 use cml_crypto::{PrivateKey, RawBytesEncoding, ScriptHash, TransactionHash};
 use cml_multi_era::babbage::BabbageTransaction;
+use either::Either;
 use futures::{pin_mut, Future, FutureExt, Stream, StreamExt};
 use futures_timer::Delay;
 use log::{error, info, trace};
@@ -23,6 +24,7 @@ use pallas_network::miniprotocols::localtxsubmission::cardano_node_errors::{
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::{AssetName, NetworkId, OutputRef};
 use spectrum_offchain::backlog::ResilientBacklog;
+use spectrum_offchain::circular_filter::CircularFilter;
 use spectrum_offchain::domain::event::{AnyMod, Confirmed, Predicted, Traced, Unconfirmed};
 use spectrum_offchain::domain::order::PendingOrder;
 use spectrum_offchain::domain::{EntitySnapshot, Has};
@@ -86,6 +88,7 @@ pub struct Behaviour<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer,
     chain_tip_reached: Arc<Mutex<bool>>,
     signal_tip_reached_recv: Option<tokio::sync::broadcast::Receiver<bool>>,
     current_slot: u64,
+    skip_filter: CircularFilter<256, OnChainStatus>,
 }
 
 const DEF_DELAY: Duration = Duration::new(5, 0);
@@ -122,16 +125,79 @@ where
     FB: FundingRepo + Send + Sync,
     Time: NetworkTimeProvider + Send + Sync,
     Actions: InflationActions<Bearer> + Send + Sync,
-    Bearer: Send + Sync + std::fmt::Debug,
+    Bearer: Send + Sync + std::fmt::Debug + Clone,
     Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
 {
     async fn attempt(&mut self) -> Option<ToRoutine> {
-        match self.read_state().await {
-            RoutineState::Uninitialized | RoutineState::WaitingForDistributionToStart => retry_in(DEF_DELAY),
-            RoutineState::PendingCreatePoll(state) => self.try_create_wpoll(state).await,
-            RoutineState::WeightingInProgress(state) => self.try_apply_votes(state).await,
-            RoutineState::DistributionInProgress(state) => self.try_distribute_inflation(state).await,
-            RoutineState::PendingEliminatePoll(state) => self.try_eliminate_poll(state).await,
+        let RoutineState {
+            previous_epoch_state,
+            current_epoch_state,
+        } = self.read_state().await;
+        match previous_epoch_state {
+            // For epoch 0
+            None => match current_epoch_state {
+                EpochRoutineState::Uninitialized | EpochRoutineState::WaitingForDistributionToStart => {
+                    retry_in(DEF_DELAY)
+                }
+                EpochRoutineState::PendingCreatePoll(state) => self.try_create_wpoll(state).await,
+                EpochRoutineState::WeightingInProgress(state) => self.try_apply_votes(state).await,
+                EpochRoutineState::DistributionInProgress(state) => {
+                    self.try_distribute_inflation(state).await
+                }
+                EpochRoutineState::PendingEliminatePoll(state) => self.try_eliminate_poll(state).await,
+                EpochRoutineState::Eliminated => unreachable!(),
+            },
+            Some(EpochRoutineState::DistributionInProgress(prev_state)) => {
+                trace!("Distributing inflation for previous epoch");
+                self.try_distribute_inflation(prev_state).await
+            }
+            Some(EpochRoutineState::PendingEliminatePoll(prev_state)) => {
+                trace!("Eliminating wpoll for previous epoch");
+                match current_epoch_state {
+                    EpochRoutineState::PendingCreatePoll(state) => {
+                        trace!("Creating wpoll for current epoch");
+                        self.try_create_wpoll(state).await
+                    }
+                    EpochRoutineState::WeightingInProgress(state) => {
+                        trace!("Try apply votes for current epoch");
+                        self.try_apply_votes(state).await
+                    }
+                    EpochRoutineState::Uninitialized => {
+                        unreachable!("AAAA");
+                    }
+                    EpochRoutineState::WaitingForDistributionToStart => retry_in(DEF_DELAY),
+                    EpochRoutineState::DistributionInProgress(_) => {
+                        unreachable!("CCCC");
+                    }
+                    EpochRoutineState::PendingEliminatePoll(_) => {
+                        unreachable!("DDDD");
+                    }
+                    EpochRoutineState::Eliminated => {
+                        unreachable!("EEEE");
+                    }
+                }
+                //self.try_eliminate_poll(prev_state).await
+            }
+            Some(EpochRoutineState::WaitingForDistributionToStart) | Some(EpochRoutineState::Eliminated) => {
+                match current_epoch_state {
+                    EpochRoutineState::PendingCreatePoll(state) => {
+                        trace!("Creating wpoll for current epoch");
+                        self.try_create_wpoll(state).await
+                    }
+                    EpochRoutineState::WeightingInProgress(state) => {
+                        trace!("Try apply votes for current epoch");
+                        self.try_apply_votes(state).await
+                    }
+                    EpochRoutineState::Uninitialized
+                    | EpochRoutineState::WaitingForDistributionToStart
+                    | EpochRoutineState::DistributionInProgress(_)
+                    | EpochRoutineState::PendingEliminatePoll(_)
+                    | EpochRoutineState::Eliminated => {
+                        unreachable!()
+                    }
+                }
+            }
+            _ => unreachable!(),
         }
     }
 }
@@ -181,6 +247,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
             chain_tip_reached: Arc::new(Mutex::new(false)),
             signal_tip_reached_recv: Some(signal_tip_reached_recv),
             current_slot: 0,
+            skip_filter: CircularFilter::new(),
         }
     }
 
@@ -229,7 +296,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
     async fn weighting_poll(
         &self,
         epoch: ProtocolEpoch,
-    ) -> Option<AnyMod<Bundled<WeightingPollSnapshot, Bearer>>>
+    ) -> Option<Either<WPollEliminated, AnyMod<Bundled<WeightingPollSnapshot, Bearer>>>>
     where
         WP: StateProjectionRead<WeightingPollSnapshot, Bearer> + Send + Sync,
     {
@@ -246,9 +313,9 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                         epoch,
                         ver
                     );
-                    None
+                    Some(Either::Left(WPollEliminated))
                 } else {
-                    Some(a)
+                    Some(Either::Right(a))
                 }
             })
     }
@@ -290,7 +357,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         VE: StateProjectionRead<VotingEscrowSnapshot, Bearer> + Send + Sync,
         SF: StateProjectionRead<SmartFarmSnapshot, Bearer> + Send + Sync,
         Backlog: ResilientBacklog<VotingOrder> + Send + Sync,
-        Bearer: std::fmt::Debug,
+        Bearer: std::fmt::Debug + Clone,
         Time: NetworkTimeProvider + Send + Sync,
     {
         let ibox = self.inflation_box().await;
@@ -306,59 +373,69 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                 .0
                 .get()
                 .active_epoch(genesis, now_millis);
-            if current_epoch > 0 {
-                if let Some(prev_wp) = self.weighting_poll(current_epoch - 1).await {
-                    match prev_wp.as_erased().0.get().state(genesis, now_millis) {
-                        PollState::WeightingOngoing(_st) => {
-                            unreachable!("Weighting is over for epoch {}", current_epoch - 1);
-                        }
-                        PollState::DistributionOngoing(next_farm) => {
-                            trace!("Previous wpoll still exists, distributing inflation");
-                            return RoutineState::DistributionInProgress(DistributionInProgress {
-                                next_farm: self
-                                    .smart_farm
-                                    .read(next_farm.farm_id())
-                                    .await
-                                    .expect("State is inconsistent"),
-                                weighting_poll: prev_wp,
-                                next_farm_weight: next_farm.farm_weight(),
-                                perm_manager,
-                            });
-                        }
-                        PollState::PollExhausted(_) => {
-                            if !prev_wp.as_erased().0.get().eliminated {
-                                return RoutineState::PendingEliminatePoll(PendingEliminatePoll {
-                                    weighting_poll: prev_wp,
-                                });
-                            } else {
-                                trace!("Prev epoch's weighting_poll already eliminated");
+            let previous_epoch_state = if current_epoch > 0 {
+                match self.weighting_poll(current_epoch - 1).await {
+                    Some(Either::Right(prev_wp)) => {
+                        match prev_wp.as_erased().0.get().state(genesis, now_millis) {
+                            PollState::WeightingOngoing(_st) => {
+                                unreachable!("Weighting is over for epoch {}", current_epoch - 1);
+                            }
+                            PollState::DistributionOngoing(next_farm) => {
+                                trace!("Previous wpoll still exists, distributing inflation");
+                                Some(EpochRoutineState::DistributionInProgress(
+                                    DistributionInProgress {
+                                        next_farm: self
+                                            .smart_farm
+                                            .read(next_farm.farm_id())
+                                            .await
+                                            .expect("State is inconsistent"),
+                                        weighting_poll: prev_wp,
+                                        next_farm_weight: next_farm.farm_weight(),
+                                        perm_manager: perm_manager.clone(),
+                                    },
+                                ))
+                            }
+                            PollState::PollExhausted(_) => {
+                                if !prev_wp.as_erased().0.get().eliminated {
+                                    Some(EpochRoutineState::PendingEliminatePoll(PendingEliminatePoll {
+                                        weighting_poll: prev_wp,
+                                    }))
+                                } else {
+                                    trace!("Prev epoch's weighting_poll already eliminated");
+                                    Some(EpochRoutineState::Eliminated)
+                                }
+                            }
+                            PollState::WaitingForDistributionToStart => {
+                                trace!("Waiting for distribution of epoch {} to start", current_epoch - 1);
+                                Some(EpochRoutineState::WaitingForDistributionToStart)
                             }
                         }
-                        PollState::WaitingForDistributionToStart => {
-                            trace!("Waiting for distribution of epoch {} to start", current_epoch - 1);
-                        }
-                    };
+                    }
+                    Some(Either::Left(WPollEliminated)) => Some(EpochRoutineState::Eliminated),
+                    None => None,
                 }
-            }
-            match self.weighting_poll(current_epoch).await {
+            } else {
+                None
+            };
+            let current_epoch_state = match self.weighting_poll(current_epoch).await {
                 None => {
                     trace!("No weighting_poll @ epoch {}, creating it...", current_epoch);
-                    RoutineState::PendingCreatePoll(PendingCreatePoll {
+                    EpochRoutineState::PendingCreatePoll(PendingCreatePoll {
                         inflation_box,
                         poll_factory,
                     })
                 }
-                Some(wp) => match wp.as_erased().0.get().state(genesis, now_millis) {
+                Some(Either::Right(wp)) => match wp.as_erased().0.get().state(genesis, now_millis) {
                     PollState::WeightingOngoing(st) => {
                         trace!("Weighting on going @ epoch {}", current_epoch);
-                        RoutineState::WeightingInProgress(WeightingInProgress {
+                        EpochRoutineState::WeightingInProgress(WeightingInProgress {
                             weighting_poll: wp,
                             next_pending_order: self.next_order(st).await,
                         })
                     }
                     PollState::DistributionOngoing(next_farm) => {
                         trace!("WeightingOnGoing @ epoch {}", current_epoch);
-                        RoutineState::DistributionInProgress(DistributionInProgress {
+                        EpochRoutineState::DistributionInProgress(DistributionInProgress {
                             next_farm: self
                                 .smart_farm
                                 .read(next_farm.farm_id())
@@ -370,13 +447,24 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                         })
                     }
                     PollState::PollExhausted(_) => {
-                        RoutineState::PendingEliminatePoll(PendingEliminatePoll { weighting_poll: wp })
+                        EpochRoutineState::PendingEliminatePoll(PendingEliminatePoll { weighting_poll: wp })
                     }
-                    PollState::WaitingForDistributionToStart => RoutineState::WaitingForDistributionToStart,
+                    PollState::WaitingForDistributionToStart => {
+                        EpochRoutineState::WaitingForDistributionToStart
+                    }
                 },
+                Some(Either::Left(WPollEliminated)) => unreachable!(),
+            };
+
+            RoutineState {
+                previous_epoch_state,
+                current_epoch_state,
             }
         } else {
-            RoutineState::Uninitialized
+            RoutineState {
+                previous_epoch_state: None,
+                current_epoch_state: EpochRoutineState::Uninitialized,
+            }
         }
     }
 
@@ -710,8 +798,16 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         {
             let wp = weighting_poll.0.get();
             let epoch = wp.epoch;
-            let time_millis = self.current_slot;
-            if wp.can_be_eliminated(self.conf.genesis_time, time_millis) {
+            let time_millis = slot_to_time_millis(self.current_slot, NetworkId::from(0));
+
+            let wp_input_output_ref = weighting_poll.0.version().output_ref;
+            if !self
+                .skip_filter
+                .contains(&OnChainStatus::Eliminated(wp_input_output_ref))
+                && wp.can_be_eliminated(self.conf.genesis_time, time_millis)
+            {
+                self.skip_filter
+                    .add(OnChainStatus::Eliminated(wp_input_output_ref));
                 info!("Eliminating wpoll @ epoch {}", epoch);
                 let funding_boxes = AvailableFundingBoxes(self.funding_box.collect().await.unwrap());
                 let (signed_tx, funding_box_changes) = self
@@ -857,6 +953,7 @@ where
                     if wpoll_eliminated {
                         // Manually set eliminated = true
                         let last_processed_epoch = last_processed_epoch.unwrap();
+                        info!("wpoll (epoch {}) eliminated", last_processed_epoch);
                         let b = self
                             .weighting_poll
                             .read(WeightingPollId(last_processed_epoch))
@@ -1125,7 +1222,7 @@ pub fn slot_to_epoch(slot: u64, genesis_time: GenesisEpochStartTime, network_id:
 
 pub struct WeightingPollEliminated(pub bool);
 
-pub enum RoutineState<Out> {
+pub enum EpochRoutineState<Out> {
     /// Protocol wasn't initialized yet.
     Uninitialized,
     /// It's time to create a new WP for epoch `e`
@@ -1139,6 +1236,12 @@ pub enum RoutineState<Out> {
     WaitingForDistributionToStart,
     /// Inflation is distributed, time to eliminate the poll.
     PendingEliminatePoll(PendingEliminatePoll<Out>),
+    Eliminated,
+}
+
+pub struct RoutineState<Out> {
+    pub previous_epoch_state: Option<EpochRoutineState<Out>>,
+    pub current_epoch_state: EpochRoutineState<Out>,
 }
 
 pub struct PendingCreatePoll<Out> {
@@ -1174,6 +1277,15 @@ pub struct AvailableFundingBoxes(pub Vec<FundingBox>);
 pub struct VotingOrderMessage {
     pub command: VotingOrderCommand,
     pub response_sender: tokio::sync::oneshot::Sender<VotingOrderStatus>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WPollEliminated;
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+enum OnChainStatus {
+    Created(OutputRef),
+    Eliminated(OutputRef),
 }
 
 pub enum VotingOrderCommand {

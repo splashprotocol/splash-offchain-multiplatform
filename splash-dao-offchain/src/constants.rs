@@ -46,6 +46,9 @@ pub mod time {
     /// Period after poll deadline after which it is allowed to destroy the poll. 30 min.
     pub const COOLDOWN_PERIOD_MILLIS: u64 = 1_800_000;
 
+    /// Extra buffer period after COOLDOWN_PERIOD_MILLIS to ensure poll elimination TX validates. 5 min.
+    pub const COOLDOWN_PERIOD_EXTRA_BUFFER: u64 = 300_000;
+
     /// Period after poll deadline after which it is allowed to start distributing inflation. 10 min.
     pub const DISTRIBUTE_INFLATION_START_DELAY_MILLIS: u64 = 600_000;
 
@@ -84,6 +87,9 @@ pub mod time {
 
     /// Period after poll deadline after which it is allowed to destroy the poll. 10 min.
     pub const COOLDOWN_PERIOD_MILLIS: u64 = 600_000;
+
+    /// Extra buffer period after COOLDOWN_PERIOD_MILLIS to ensure poll elimination TX validates. 2 min.
+    pub const COOLDOWN_PERIOD_EXTRA_BUFFER: u64 = 120_000;
 
     /// Period after poll deadline after which it is allowed to start distributing inflation. 2 min.
     pub const DISTRIBUTE_INFLATION_START_DELAY_MILLIS: u64 = 120_000;
