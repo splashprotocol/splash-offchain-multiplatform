@@ -486,6 +486,4 @@ struct AppArgs {
     /// Path to the log4rs YAML configuration file.
     #[arg(long, short)]
     log4rs_path: String,
-    #[arg(long)]
-    hot: bool,
 }

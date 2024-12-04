@@ -36,9 +36,7 @@ pub mod types;
 pub mod value;
 
 /// Asset name bytes padded to 32-byte fixed array and tupled with the len of the original asset name.
-#[derive(
-    Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, derive_more::From, Serialize, Deserialize,
-)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, derive_more::From)]
 pub struct AssetName(u8, [u8; 32]);
 
 impl AssetName {
@@ -54,7 +52,7 @@ impl AssetName {
         &self.1[0..self.0 as usize]
     }
 
-    pub fn try_from_hex(s: &str) -> Option<AssetName> {
+    pub fn try_from_hex(s: &str) -> Option<Self> {
         hex::decode(s).ok().and_then(|xs| Self::try_from(xs).ok())
     }
 
@@ -66,6 +64,25 @@ impl AssetName {
             bf[ix] = *i;
         });
         Self(orig_len as u8, bf)
+    }
+}
+
+impl serde::Serialize for AssetName {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> serde::de::Deserialize<'de> for AssetName {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::de::Deserializer<'de>,
+    {
+        let s = <String as serde::de::Deserialize>::deserialize(deserializer)?;
+        Ok(AssetName::try_from_hex(&s).unwrap_or_else(|| Self::utf8_unsafe(s.clone())))
     }
 }
 
@@ -219,12 +236,23 @@ impl From<OutputRef> for String {
 pub struct Token(pub PolicyId, pub AssetName);
 
 impl Token {
+    pub fn try_from_string(s: &str) -> Option<Token> {
+        let (pol, an) = s.split_once(".")?;
+        Some(Self(PolicyId::from_hex(pol).ok()?, AssetName::try_from_hex(an)?))
+    }
     pub fn from_string_unsafe(s: &str) -> Token {
         let parts = s.split(".").collect::<Vec<_>>();
         Self(
             PolicyId::from_hex(parts[0]).unwrap(),
             AssetName::try_from_hex(parts[1]).unwrap(),
         )
+    }
+}
+
+impl TryFrom<String> for Token {
+    type Error = &'static str;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from_string(&*value).ok_or("invalid token")
     }
 }
 
@@ -246,7 +274,7 @@ impl From<Token> for [u8; 60] {
 
 impl Display for Token {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(format!("{}.{}", self.0.to_hex()[0..6].to_string(), self.1).as_str())
+        f.write_str(format!("{}.{}", self.0.to_hex().to_string(), self.1).as_str())
     }
 }
 

@@ -1,10 +1,10 @@
 use derive_more::Display;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fmt::Formatter;
 use std::ops::Not;
 
 /// Side marker.
-#[derive(Debug, Display, Copy, Clone, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Display, Copy, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Side {
     Bid,
     Ask,

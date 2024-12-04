@@ -45,6 +45,8 @@ impl<Rep> ReportingAgent<Rep> {
     }
 }
 
+pub const REPORT_DELIMITER: u8 = b'@';
+
 pub fn reporting_stream<'a, Rep: Serialize + 'a>(
     mut agent: ReportingAgent<Rep>,
 ) -> impl Stream<Item = ()> + 'a {
@@ -52,7 +54,9 @@ pub fn reporting_stream<'a, Rep: Serialize + 'a>(
         loop {
             let report = agent.mailbox.select_next_some().await;
             if let Some(ref mut endpoint) = agent.endpoint {
-                if let Err(err) = endpoint.write_all(serde_json::to_vec(&report).unwrap().as_ref()).await {
+                let mut msg = serde_json::to_vec(&report).unwrap();
+                msg.push(REPORT_DELIMITER);
+                if let Err(err) = endpoint.write_all(msg.as_ref()).await {
                     warn!("Failed to submit report: {}", err);
                 }
             }

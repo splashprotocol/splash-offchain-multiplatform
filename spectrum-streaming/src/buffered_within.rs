@@ -3,7 +3,6 @@ use futures_timer::Delay;
 use pin_project_lite::pin_project;
 use std::collections::VecDeque;
 use std::future::Future;
-use std::mem;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;

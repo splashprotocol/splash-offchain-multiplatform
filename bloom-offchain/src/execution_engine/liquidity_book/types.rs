@@ -5,7 +5,7 @@ use crate::execution_engine::liquidity_book::side::{OnSide, Side};
 use bignumber::BigNumber;
 use derive_more::{Add, Div, From, Into, Mul, Sub};
 use num_rational::Ratio;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 pub type Lovelace = u64;
 
@@ -21,7 +21,22 @@ pub type FeeAsset<T> = T;
 /// Price of base asset denominated in units of quote asset (Quote/Base).
 #[repr(transparent)]
 #[derive(
-    Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Div, Mul, Sub, Add, From, Into, Serialize,
+    Debug,
+    Copy,
+    Clone,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Hash,
+    Div,
+    Mul,
+    Sub,
+    Add,
+    From,
+    Into,
+    Serialize,
+    Deserialize,
 )]
 pub struct AbsolutePrice(Ratio<u128>);
 
