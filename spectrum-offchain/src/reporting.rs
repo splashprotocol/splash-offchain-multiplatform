@@ -45,7 +45,7 @@ impl<Rep> ReportingAgent<Rep> {
     }
 }
 
-pub const REPORT_DELIMITER: u8 = b'#';
+pub const REPORT_DELIMITER: u8 = b'@';
 
 pub fn reporting_stream<'a, Rep: Serialize + 'a>(
     mut agent: ReportingAgent<Rep>,

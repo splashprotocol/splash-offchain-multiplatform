@@ -1,3 +1,4 @@
+mod db;
 mod message;
 
 use std::net::SocketAddr;
@@ -5,6 +6,7 @@ use std::sync::Arc;
 
 use futures::{channel::mpsc, SinkExt, StreamExt};
 
+use crate::db::write_report;
 use crate::message::ExecutionReport;
 use async_std::{
     io::BufReader,
@@ -39,11 +41,12 @@ async fn accept_loop(
     addr: impl ToSocketAddrs,
 ) -> Result<()> {
     let listener = TcpListener::bind(addr).await?;
+    info!("Accepting connections at {}", listener.local_addr()?);
     let mut incoming = listener.incoming();
     while let Some(stream) = incoming.next().await {
         let stream = stream?;
         let peer = stream.peer_addr()?;
-        info!("Accepting connection from: {}", peer);
+        info!("Accepted connection from: {}", peer);
         spawn_and_log_error(connection_loop(archiver.clone(), peer, stream));
     }
     Ok(())
@@ -66,40 +69,17 @@ async fn connection_loop(
     Ok(())
 }
 
-const INSERT_ST: &str = "INSERT INTO executions (id, ver, pair, price_num, price_den, removed_input, added_output, side, meta, reporter) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)";
-
 async fn archiver_loop(pg: Pg, mut reports: Receiver<(SocketAddr, ExecutionReport)>) -> Result<()> {
     let url = format!(
         "host={} port={} user={} password={}",
         pg.host, pg.port, pg.user, pg.pass
     );
-    println!("Connecting");
     let (client, conn) = tokio_postgres::connect(url.as_str(), NoTls).await?;
-    println!("Connected");
+    info!("Connected to database");
     task::spawn(conn);
     loop {
         let (reporter, report) = reports.select_next_some().await;
-        for exec in report.executions {
-            let (price_num, price_den) = exec.mean_price.unwrap().reduced().into_raw();
-            let meta = serde_json::to_string(&report.meta)?;
-            client
-                .execute(
-                    INSERT_ST,
-                    &[
-                        &exec.id.to_string(),
-                        &exec.version.to_string(),
-                        &report.pair.to_string(),
-                        &(price_num as i64),
-                        &(price_den as i64),
-                        &(exec.removed_input as i64),
-                        &(exec.added_output as i64),
-                        &exec.side.to_string(),
-                        &meta,
-                        &reporter.to_string(),
-                    ],
-                )
-                .await?;
-        }
+        write_report(&client, reporter, report).await?;
     }
 }
 

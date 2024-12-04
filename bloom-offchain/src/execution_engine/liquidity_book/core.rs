@@ -871,7 +871,7 @@ impl<T, M, B> ExecutionRecipe<T, M, B> {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ExecutionMeta {
     pub mean_spot_price: Option<SpotPrice>,
 }
