@@ -12,7 +12,7 @@ use either::Either;
 use log::trace;
 use nonempty::NonEmpty;
 use num_rational::Ratio;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::display::display_vec;
 use std::cmp::{max, min};
@@ -871,7 +871,7 @@ impl<T, M, B> ExecutionRecipe<T, M, B> {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ExecutionMeta {
     pub mean_spot_price: Option<SpotPrice>,
 }

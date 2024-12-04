@@ -27,8 +27,6 @@ impl<T: EntitySnapshot> InMemoryEntityRepo<T> {
 
 type InMemoryIndexKey = [u8; 61];
 
-const STATE_PREFIX: u8 = 0u8;
-const PREDICTION_LINK_PREFIX: u8 = 1u8;
 const LAST_PREDICTED_PREFIX: u8 = 2u8;
 const LAST_CONFIRMED_PREFIX: u8 = 3u8;
 const LAST_UNCONFIRMED_PREFIX: u8 = 4u8;

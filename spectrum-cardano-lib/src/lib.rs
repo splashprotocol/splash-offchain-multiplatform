@@ -246,7 +246,7 @@ impl From<Token> for [u8; 60] {
 
 impl Display for Token {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(format!("{}.{}", self.0.to_hex()[0..6].to_string(), self.1).as_str())
+        f.write_str(format!("{}.{}", self.0.to_hex().to_string(), self.1).as_str())
     }
 }
 

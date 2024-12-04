@@ -1,10 +1,10 @@
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::AssetClass;
 use std::fmt::{Display, Formatter, Write};
 use uplc_pallas_traverse::Asset;
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub struct PairId(AssetClass, AssetClass);
 
 impl PairId {

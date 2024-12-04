@@ -8,18 +8,18 @@ use spectrum_offchain_cardano::data::pair::PairId;
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct OrderExecution {
-    id: Token,
-    version: OutputRef,
-    mean_price: AbsolutePrice,
-    removed_input: u64,
-    added_output: u64,
-    side: Side,
+    pub id: Token,
+    pub version: OutputRef,
+    pub mean_price: AbsolutePrice,
+    pub removed_input: u64,
+    pub added_output: u64,
+    pub side: Side,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ExecutionReport {
-    pair: PairId,
-    executions: Vec<OrderExecution>,
-    meta: ExecutionMeta,
-    tx_hash: TransactionHash,
+    pub pair: PairId,
+    pub executions: Vec<OrderExecution>,
+    pub meta: ExecutionMeta,
+    pub tx_hash: TransactionHash,
 }

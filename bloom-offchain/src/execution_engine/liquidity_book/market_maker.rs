@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use derive_more::{Add, Display, Div, From, Into, Mul};
 use num_rational::Ratio;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use void::Void;
 
 use crate::execution_engine::liquidity_book::core::Next;
@@ -12,7 +12,22 @@ use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 /// Price of a theoretical 0-swap in pool.
 #[repr(transparent)]
 #[derive(
-    Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Div, Mul, Add, From, Into, Display, Serialize,
+    Debug,
+    Copy,
+    Clone,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Hash,
+    Div,
+    Mul,
+    Add,
+    From,
+    Into,
+    Display,
+    Serialize,
+    Deserialize,
 )]
 pub struct SpotPrice(AbsolutePrice);
 

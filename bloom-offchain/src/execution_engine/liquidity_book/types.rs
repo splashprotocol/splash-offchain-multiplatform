@@ -5,7 +5,7 @@ use crate::execution_engine::liquidity_book::side::{OnSide, Side};
 use bignumber::BigNumber;
 use derive_more::{Add, Div, From, Into, Mul, Sub};
 use num_rational::Ratio;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 pub type Lovelace = u64;
 
