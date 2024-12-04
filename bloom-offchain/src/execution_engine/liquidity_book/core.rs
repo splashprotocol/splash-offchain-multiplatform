@@ -9,7 +9,7 @@ use algebra_core::monoid::Monoid;
 use algebra_core::semigroup::Semigroup;
 use derive_more::{Display, From, Into};
 use either::Either;
-use log::trace;
+use log::{trace, warn};
 use nonempty::NonEmpty;
 use num_rational::Ratio;
 use serde::{Deserialize, Serialize};
@@ -367,6 +367,13 @@ impl<Maker, B> Make<Maker, B> {
 }
 
 impl<Maker> MakeInProgress<Maker> {
+    pub fn is_zero(&self) -> bool
+    where
+        Maker: MarketMaker,
+    {
+        self.trade_side().is_none()
+    }
+
     pub fn trade_side(&self) -> Option<Side>
     where
         Maker: MarketMaker,
@@ -774,13 +781,20 @@ where
                     for Final(take) in takes.into_values() {
                         instructions.push(Either::Left(take));
                     }
+                    let mut has_zero_makes = false;
                     for Final(make) in makes.into_values() {
+                        has_zero_makes = has_zero_makes || make.is_zero();
                         instructions.push(Either::Right(make));
                     }
-                    if complexity_ok {
-                        Ok(Self { instructions })
+                    if !has_zero_makes {
+                        if complexity_ok {
+                            Ok(Self { instructions })
+                        } else {
+                            Err(Some(Either::Right(DowngradeNeeded)))
+                        }
                     } else {
-                        Err(Some(Either::Right(DowngradeNeeded)))
+                        warn!("Zero make appeared in recipe");
+                        Err(None)
                     }
                 } else {
                     Err(Some(Either::Left(unsatisfied_fragments)))
