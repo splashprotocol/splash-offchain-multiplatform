@@ -163,20 +163,20 @@ where
                         self.try_apply_votes(state).await
                     }
                     EpochRoutineState::Uninitialized => {
-                        unreachable!("AAAA");
+                        unreachable!("current_epoch_state: EpochRoutineState::Uninitialized");
                     }
                     EpochRoutineState::WaitingForDistributionToStart => retry_in(DEF_DELAY),
-                    EpochRoutineState::DistributionInProgress(_) => {
-                        unreachable!("CCCC");
+                    EpochRoutineState::DistributionInProgress(curr_state) => {
+                        trace!("Distributing inflation for current epoch");
+                        self.try_distribute_inflation(curr_state).await
                     }
                     EpochRoutineState::PendingEliminatePoll(_) => {
-                        unreachable!("DDDD");
+                        unreachable!("current_epoch_state: EpochRoutineState::PendingEliminatePoll(_)");
                     }
                     EpochRoutineState::Eliminated => {
-                        unreachable!("EEEE");
+                        unreachable!("current_epoch_state: EpochRoutineState::Eliminated");
                     }
                 }
-                //self.try_eliminate_poll(prev_state).await
             }
             Some(EpochRoutineState::WaitingForDistributionToStart) | Some(EpochRoutineState::Eliminated) => {
                 match current_epoch_state {
