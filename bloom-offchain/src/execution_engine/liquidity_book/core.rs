@@ -592,7 +592,7 @@ impl<T: Stable + Display, M: Stable + Display, U> Display for MatchmakingAttempt
                 display_vec(&self.makes.values().collect()),
                 self.num_aggregated_makes
             )
-            .as_str(),
+                .as_str(),
         )
     }
 }
@@ -655,7 +655,7 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
 
     pub fn add_take(&mut self, take: TakeInProgress<Taker>)
     where
-        Taker: MarketTaker<U = U>,
+        Taker: MarketTaker<U=U>,
         U: AddAssign,
     {
         let sid = take.target.stable_id();
@@ -671,7 +671,7 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
 
     pub fn add_make(&mut self, make: MakeInProgress<Maker>)
     where
-        Maker: MarketMaker<U = U>,
+        Maker: MarketMaker<U=U>,
         U: AddAssign,
     {
         let sid = make.target.stable_id();
@@ -811,15 +811,18 @@ where
     {
         let num_takes = recipe.takes.len();
         let num_makes = recipe.makes.len();
-        let takes_to_makes = Ratio::new_raw(num_takes, num_makes);
-        let base_budget = <u64>::from(cx.get());
-        let total_budget = recipe
-            .takes
-            .values()
-            .fold(0, |acc, Final(take)| acc + take.target.consumable_budget());
-        let budget_ratio = Ratio::new_raw(total_budget as usize, base_budget as usize);
-        let takes_to_makes_ratio = takes_to_makes * budget_ratio.reduced();
-        takes_to_makes_ratio >= BASE_TAKE_TO_MAKE_RATIO
+        if num_makes > 0 {
+            let takes_to_makes = Ratio::new_raw(num_takes, num_makes);
+            let base_budget = <u64>::from(cx.get());
+            let total_budget = recipe
+                .takes
+                .values()
+                .fold(0, |acc, Final(take)| acc + take.target.consumable_budget());
+            let budget_ratio = Ratio::new_raw(total_budget as usize, base_budget as usize);
+            let takes_to_makes_ratio = takes_to_makes * budget_ratio.reduced();
+            return takes_to_makes_ratio >= BASE_TAKE_TO_MAKE_RATIO
+        }
+        true
     }
 }
 
@@ -842,8 +845,8 @@ impl<T, M, B> ExecutionRecipe<T, M, B> {
     ) -> Result<(Self, HashSet<V>), Orphans<T, M>>
     where
         V: Hash + Eq,
-        T: Stable<StableId = I>,
-        M: Stable<StableId = I>,
+        T: Stable<StableId=I>,
+        M: Stable<StableId=I>,
         F: Fn(I) -> Option<(V, B)>,
     {
         let mut translated_instructions = vec![];
