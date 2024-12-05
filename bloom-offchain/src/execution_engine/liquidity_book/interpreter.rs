@@ -1,5 +1,5 @@
 use either::Either;
-use spectrum_offchain::data::Baked;
+use spectrum_offchain::domain::Baked;
 
 use crate::execution_engine::bundled::Bundled;
 use crate::execution_engine::execution_effect::ExecutionEff;

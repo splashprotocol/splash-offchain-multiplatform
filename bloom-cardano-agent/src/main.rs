@@ -25,7 +25,7 @@ use bloom_offchain_cardano::event_sink::handler::{
     FundingEventHandler, PairUpdateHandler, SpecializedHandler,
 };
 use bloom_offchain_cardano::event_sink::order_index::InMemoryKvIndex;
-use bloom_offchain_cardano::event_sink::processed_tx::TxViewAtEraBoundary;
+use bloom_offchain_cardano::event_sink::processed_tx::TxViewMut;
 use bloom_offchain_cardano::execution_engine::backlog::interpreter::SpecializedInterpreterViaRunOrder;
 use bloom_offchain_cardano::execution_engine::interpreter::CardanoRecipeInterpreter;
 use bloom_offchain_cardano::integrity::CheckIntegrity;
@@ -48,9 +48,9 @@ use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::OutboundTransaction;
 use spectrum_cardano_lib::{OutputRef, Token};
 use spectrum_offchain::backlog::{BacklogCapacity, HotPriorityBacklog};
-use spectrum_offchain::data::event::{Channel, StateUpdate};
-use spectrum_offchain::data::order::OrderUpdate;
-use spectrum_offchain::data::Baked;
+use spectrum_offchain::domain::event::{Channel, StateUpdate};
+use spectrum_offchain::domain::order::OrderUpdate;
+use spectrum_offchain::domain::Baked;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::partitioning::Partitioned;
@@ -226,13 +226,13 @@ async fn main() {
 
     info!("Derived funding addresses: {}", funding_addresses);
 
-    let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<TxViewAtEraBoundary>> + Send>> = vec![
+    let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<TxViewMut>> + Send>> = vec![
         Box::new(general_upd_handler.clone()),
         Box::new(spec_upd_handler.clone()),
         Box::new(funding_event_handler.clone()),
     ];
 
-    let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<TxViewAtEraBoundary>> + Send>> = vec![
+    let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<TxViewMut>> + Send>> = vec![
         Box::new(general_upd_handler),
         Box::new(spec_upd_handler),
         Box::new(funding_event_handler),
@@ -384,17 +384,17 @@ async fn main() {
     .await
     .map(|ev| match ev {
         LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
-            tx: TxViewAtEraBoundary::from(tx),
+            tx: TxViewMut::from(tx),
             slot,
         },
         LedgerTxEvent::TxUnapplied { tx, slot } => LedgerTxEvent::TxUnapplied {
-            tx: TxViewAtEraBoundary::from(tx),
+            tx: TxViewMut::from(tx),
             slot,
         },
     });
 
     let mempool_stream = mempool_stream(mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
-        MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewAtEraBoundary::from(tx)),
+        MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewMut::from(tx)),
     });
 
     let process_ledger_events_stream = process_events(ledger_stream, handlers_ledger);

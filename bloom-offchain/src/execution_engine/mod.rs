@@ -19,12 +19,12 @@ use tokio::sync::broadcast;
 
 use liquidity_book::interpreter::RecipeInterpreter;
 use spectrum_offchain::backlog::HotBacklog;
-use spectrum_offchain::circular_filter::CircularFilter;
-use spectrum_offchain::combinators::Ior;
-use spectrum_offchain::data::event::{Channel, Confirmed, Predicted, StateUpdate, Unconfirmed};
-use spectrum_offchain::data::order::{OrderUpdate, SpecializedOrder};
-use spectrum_offchain::data::{Baked, EntitySnapshot, Has, Stable};
+use spectrum_offchain::data::circular_filter::CircularFilter;
+use spectrum_offchain::data::ior::Ior;
 use spectrum_offchain::display::{display_set, display_vec};
+use spectrum_offchain::domain::event::{Channel, Confirmed, Predicted, StateUpdate, Unconfirmed};
+use spectrum_offchain::domain::order::{OrderUpdate, SpecializedOrder};
+use spectrum_offchain::domain::{Baked, EntitySnapshot, Has, Stable};
 use spectrum_offchain::maker::Maker;
 use spectrum_offchain::network::Network;
 use spectrum_offchain::reporting::Reporting;

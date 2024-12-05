@@ -38,6 +38,6 @@ pub fn order_canonical(x: AssetClass, y: AssetClass) -> [AssetClass; 2] {
 
 impl Display for PairId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(format!("[{}]/[{}]", self.0, self.1).as_str())
+        f.write_str(format!("({}, {})", self.0, self.1).as_str())
     }
 }

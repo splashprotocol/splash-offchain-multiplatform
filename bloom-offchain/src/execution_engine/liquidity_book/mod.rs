@@ -16,8 +16,8 @@ use either::Either;
 use log::trace;
 use num_rational::Ratio;
 use primitive_types::U256;
-use spectrum_offchain::data::{Has, Stable};
 use spectrum_offchain::display::{display_option, display_tuple};
+use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::maker::Maker;
 use std::fmt::{Debug, Display};
 use std::ops::AddAssign;
@@ -135,7 +135,7 @@ where
         let mut optimized_matchmaking = true;
         loop {
             trace!(
-                "[{}] Attempting to matchmake (optimized={})",
+                "{} Attempting to matchmake (optimized={})",
                 self.pair,
                 optimized_matchmaking
             );
@@ -146,12 +146,12 @@ where
                     meta.add_price_point(spot_price);
                     let price_range = self.state.allowed_price_range();
                     trace!(
-                        "[{}] spot_price: {}, price_range: {}",
+                        "{} spot_price: {}, price_range: {}",
                         self.pair,
                         spot_price,
                         price_range
                     );
-                    trace!("[{}] TLB.state: {}", self.pair, self.state);
+                    trace!("{} TLB.state: {}", self.pair, self.state);
                     if let Some(target_taker) = self
                         .state
                         .pick_active_taker(|fs| max_by_distance_to_spot(fs, spot_price, price_range))
@@ -167,7 +167,7 @@ where
                             optimized_matchmaking,
                         );
                         trace!(
-                            "[{}] P_target: {}, P_counter: {}, P_amm: {}",
+                            "{} P_target: {}, P_counter: {}, P_amm: {}",
                             self.pair,
                             target_price.unwrap(),
                             display_option(&maybe_price_counter_taker),
@@ -215,23 +215,23 @@ where
                         }
                     }
                 } else {
-                    trace!("[{}] Spot price is not available", self.pair);
+                    trace!("{} Spot price is not available", self.pair);
                 }
                 break;
             }
-            trace!("[{}] Raw batch: {}", self.pair, batch);
+            trace!("{} Raw batch: {}", self.pair, batch);
             match MatchmakingRecipe::try_from(batch, self.conf) {
                 Ok(ex_recipe) => {
-                    trace!("[{}] Successfully formed a batch {}", self.pair, ex_recipe);
+                    trace!("{} Successfully formed a batch {}", self.pair, ex_recipe);
                     return Some((ex_recipe, meta));
                 }
                 Err(None) => {
-                    trace!("[{}] Matchmaking attempt failed", self.pair);
+                    trace!("{} Matchmaking attempt failed", self.pair);
                     self.state.rollback(StashingOption::Unstash);
                 }
                 Err(Some(Either::Left(unsatisfied_takers))) => {
                     trace!(
-                        "[{}] Matchmaking attempt failed due to taker limits, retrying",
+                        "{} Matchmaking attempt failed due to taker limits, retrying",
                         self.pair
                     );
                     self.state.rollback(StashingOption::Stash(unsatisfied_takers));
@@ -239,7 +239,7 @@ where
                 }
                 Err(Some(Either::Right(_downgrade_required))) => {
                     trace!(
-                        "[{}] Matchmaking attempt failed due to high execution complexity, retrying",
+                        "{} Matchmaking attempt failed due to high execution complexity, retrying",
                         self.pair
                     );
                     self.state.rollback(StashingOption::Stash(vec![]));

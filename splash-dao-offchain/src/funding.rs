@@ -4,7 +4,7 @@ use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use log::trace;
 use rocksdb::{Direction, IteratorMode, ReadOptions};
-use spectrum_offchain::data::event::{Confirmed, Predicted};
+use spectrum_offchain::domain::event::{Confirmed, Predicted};
 
 use crate::entities::onchain::funding_box::{FundingBox, FundingBoxId};
 
@@ -185,7 +185,7 @@ mod tests {
     use cml_crypto::TransactionHash;
     use rand::{seq::SliceRandom, Rng, RngCore};
     use spectrum_cardano_lib::OutputRef;
-    use spectrum_offchain::data::event::{Confirmed, Predicted};
+    use spectrum_offchain::domain::event::{Confirmed, Predicted};
 
     use super::FundingRepoRocksDB;
 

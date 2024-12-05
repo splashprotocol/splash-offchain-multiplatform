@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::plutus_data::{DatumExtension, IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::{OutputRef, TaggedAmount, Token};
-use spectrum_offchain::data::{EntitySnapshot, Has, Identifier, Stable};
+use spectrum_offchain::domain::{EntitySnapshot, Has, Identifier, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;

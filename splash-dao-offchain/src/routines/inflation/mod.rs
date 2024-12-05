@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use actions::ExecuteOrderError;
 use async_stream::stream;
 use bloom_offchain::execution_engine::bundled::Bundled;
-use bloom_offchain_cardano::event_sink::processed_tx::TxViewAtEraBoundary;
+use bloom_offchain_cardano::event_sink::processed_tx::TxViewMut;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cml_chain::plutus::{PlutusData, PlutusScript, PlutusV2Script};
 use cml_chain::transaction::{Transaction, TransactionOutput};
@@ -26,9 +26,9 @@ use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::{BabbageTransactionOutputExtension, OutboundTransaction};
 use spectrum_cardano_lib::{AssetName, NetworkId, OutputRef};
 use spectrum_offchain::backlog::ResilientBacklog;
-use spectrum_offchain::data::event::{AnyMod, Confirmed, Predicted, Traced, Unconfirmed};
-use spectrum_offchain::data::order::PendingOrder;
-use spectrum_offchain::data::{EntitySnapshot, Has};
+use spectrum_offchain::domain::event::{AnyMod, Confirmed, Predicted, Traced, Unconfirmed};
+use spectrum_offchain::domain::order::PendingOrder;
+use spectrum_offchain::domain::{EntitySnapshot, Has};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_prover::TxProver;
@@ -85,7 +85,7 @@ pub struct Behaviour<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer,
     pd: PhantomData<Bearer>,
     network: Net,
     operator_sk: PrivateKey,
-    ledger_upstream: Receiver<LedgerTxEvent<TxViewAtEraBoundary>>,
+    ledger_upstream: Receiver<LedgerTxEvent<TxViewMut>>,
     voting_orders: Receiver<VotingOrderMessage>,
     chain_tip_reached: Arc<Mutex<bool>>,
     signal_tip_reached_recv: Option<tokio::sync::broadcast::Receiver<bool>>,
@@ -158,7 +158,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         pd: PhantomData<Bearer>,
         network: Net,
         operator_sk: PrivateKey,
-        ledger_upstream: Receiver<LedgerTxEvent<TxViewAtEraBoundary>>,
+        ledger_upstream: Receiver<LedgerTxEvent<TxViewMut>>,
         voting_orders: Receiver<VotingOrderMessage>,
         signal_tip_reached_recv: tokio::sync::broadcast::Receiver<bool>,
     ) -> Self
@@ -763,11 +763,11 @@ where
     Actions: InflationActions<TransactionOutput> + Send + Sync,
     Net: Network<OutboundTransaction<Transaction>, RejectReasons> + Clone + Sync + Send,
 {
-    async fn process_ledger_event(&mut self, ev: LedgerTxEvent<TxViewAtEraBoundary>) {
+    async fn process_ledger_event(&mut self, ev: LedgerTxEvent<TxViewMut>) {
         match ev {
             LedgerTxEvent::TxApplied {
                 tx:
-                    TxViewAtEraBoundary {
+                    TxViewMut {
                         hash,
                         inputs,
                         mut outputs,
@@ -866,7 +866,7 @@ where
             }
             LedgerTxEvent::TxUnapplied {
                 tx:
-                    TxViewAtEraBoundary {
+                    TxViewMut {
                         hash,
                         inputs,
                         outputs,
@@ -1171,7 +1171,7 @@ mod tests {
     use tokio::sync::Mutex;
 
     use bloom_offchain::execution_engine::bundled::Bundled;
-    use spectrum_offchain::data::{
+    use spectrum_offchain::domain::{
         event::{AnyMod, Confirmed, Predicted, Traced},
         EntitySnapshot, Identifier,
     };

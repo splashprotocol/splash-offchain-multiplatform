@@ -19,7 +19,7 @@ use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_cardano_lib::{NetworkId, OutputRef};
-use spectrum_offchain::data::{Baked, Has};
+use spectrum_offchain::domain::{Baked, Has};
 use spectrum_offchain_cardano::constants::ADDITIONAL_FEE;
 use spectrum_offchain_cardano::creds::OperatorRewardAddress;
 use spectrum_offchain_cardano::deployment::DeployedValidator;

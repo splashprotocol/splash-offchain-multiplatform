@@ -5,18 +5,15 @@ use std::sync::Arc;
 use cml_core::serialization::Deserialize;
 use cml_core::Slot;
 use cml_crypto::BlockHeaderHash;
-use cml_multi_era::utils::MultiEraBlockHeader;
-use log::{debug, info};
+use log::debug;
 use pallas_network::miniprotocols::chainsync::{BlockContent, NextResponse, State};
 use pallas_network::miniprotocols::handshake::RefuseReason;
 use pallas_network::miniprotocols::{chainsync, handshake, PROTOCOL_N2C_CHAIN_SYNC, PROTOCOL_N2C_HANDSHAKE};
 use pallas_network::multiplexer;
 use pallas_network::multiplexer::{Bearer, RunningPlexer};
-use spectrum_cardano_lib::hash::hash_block_header_canonical_multi_era;
 use tokio::sync::Mutex;
 
 use crate::cache::LedgerCache;
-use crate::client::Point::Specific;
 use crate::data::ChainUpgrade;
 
 pub struct ChainSyncClient<Block> {

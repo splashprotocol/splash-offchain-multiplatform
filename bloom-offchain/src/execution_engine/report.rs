@@ -6,7 +6,7 @@ use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 use either::Either;
 use num_rational::Ratio;
 use serde::Serialize;
-use spectrum_offchain::data::{Has, Stable};
+use spectrum_offchain::domain::{Has, Stable};
 
 #[derive(Copy, Clone, Debug, Serialize)]
 pub struct OrderExecution<I, V> {

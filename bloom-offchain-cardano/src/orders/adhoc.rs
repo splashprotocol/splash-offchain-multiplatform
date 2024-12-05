@@ -15,7 +15,7 @@ use cml_crypto::{blake2b224, Ed25519Signature};
 use log::{info, trace};
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::{AssetClass, OutputRef, Token};
-use spectrum_offchain::data::{Has, Stable, Tradable};
+use spectrum_offchain::domain::{Has, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;

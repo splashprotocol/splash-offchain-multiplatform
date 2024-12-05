@@ -8,7 +8,7 @@ use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake,
 use bloom_offchain::execution_engine::liquidity_book::market_taker::TakerBehaviour;
 use bloom_offchain::execution_engine::liquidity_book::types::{InputAsset, OutputAsset, RelativePrice};
 use spectrum_cardano_lib::{OutputRef, Token};
-use spectrum_offchain::data::Has;
+use spectrum_offchain::domain::Has;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;

@@ -1,5 +1,5 @@
 use crate::execution_engine::liquidity_book::core::BaseStepBudget;
-use spectrum_offchain::data::Has;
+use spectrum_offchain::domain::Has;
 use type_equalities::IsEqual;
 
 #[derive(Debug, Copy, Clone)]

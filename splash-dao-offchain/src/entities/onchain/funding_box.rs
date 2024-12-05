@@ -2,7 +2,7 @@ use cml_chain::{transaction::TransactionOutput, Value};
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{transaction::TransactionOutputExtension, OutputRef};
 use spectrum_offchain::{
-    data::{Has, Identifier, Stable},
+    domain::{Has, Identifier, Stable},
     ledger::{IntoLedger, TryFromLedger},
 };
 

@@ -8,8 +8,8 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, TaggedAssetClass};
-use spectrum_offchain::data::order::UniqueOrder;
-use spectrum_offchain::data::Has;
+use spectrum_offchain::domain::order::UniqueOrder;
+use spectrum_offchain::domain::Has;
 use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::data::order::{ClassicalOrder, OrderType, PoolNft};

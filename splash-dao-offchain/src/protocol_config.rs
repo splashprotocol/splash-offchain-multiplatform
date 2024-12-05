@@ -7,7 +7,7 @@ use cml_chain::PolicyId;
 use cml_crypto::{Bip32PrivateKey, Ed25519KeyHash, PrivateKey, ScriptHash};
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::{AssetClass, NetworkId, Token};
-use spectrum_offchain::data::Has;
+use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use std::ops::Index;

@@ -3,8 +3,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::box_resolver::persistence::EntityRepo;
-use crate::data::event::{Confirmed, Predicted, Traced, Unconfirmed};
-use crate::data::EntitySnapshot;
+use crate::domain::event::{Confirmed, Predicted, Traced, Unconfirmed};
+use crate::domain::EntitySnapshot;
 
 pub mod blacklist;
 pub mod persistence;
@@ -77,8 +77,8 @@ mod tests {
     use crate::box_resolver::persistence::tests::*;
     use crate::box_resolver::persistence::EntityRepo;
     use crate::box_resolver::resolve_entity_state;
-    use crate::data::event::Confirmed;
-    use crate::data::Stable;
+    use crate::domain::event::Confirmed;
+    use crate::domain::Stable;
 
     #[tokio::test]
     async fn test_resolve_state_trivial() {

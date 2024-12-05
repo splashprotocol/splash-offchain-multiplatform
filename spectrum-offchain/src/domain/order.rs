@@ -3,7 +3,7 @@ use std::hash::Hash;
 use either::Either;
 use type_equalities::IsEqual;
 
-use crate::data::Has;
+use crate::domain::Has;
 
 pub trait UniqueOrder {
     type TOrderId: Copy + Clone + Eq + Hash;

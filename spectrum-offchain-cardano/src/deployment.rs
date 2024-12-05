@@ -15,7 +15,7 @@ use algebra_core::monoid::Monoid;
 use cardano_explorer::CardanoNetwork;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::OutputRef;
-use spectrum_offchain::data::Has;
+use spectrum_offchain::domain::Has;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]

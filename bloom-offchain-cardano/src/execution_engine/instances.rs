@@ -12,7 +12,7 @@ use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{AssetClass, NetworkId};
-use spectrum_offchain::data::Has;
+use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::balance_pool::{BalancePool, BalancePoolRedeemer};
 use spectrum_offchain_cardano::data::cfmm_pool::ConstFnPoolVer::{FeeSwitch, FeeSwitchV2};

@@ -30,8 +30,8 @@ use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::protocol_params::constant_tx_builder;
 use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, Token};
-use spectrum_offchain::data::event::Predicted;
-use spectrum_offchain::data::{Has, Stable, Tradable};
+use spectrum_offchain::domain::event::Predicted;
+use spectrum_offchain::domain::{Has, Stable, Tradable};
 use spectrum_offchain::executor::RunOrderError;
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 

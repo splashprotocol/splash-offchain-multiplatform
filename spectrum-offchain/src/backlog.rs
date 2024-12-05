@@ -17,10 +17,10 @@ use type_equalities::IsEqual;
 
 use crate::backlog::data::{BacklogOrder, OrderWeight, Weighted};
 use crate::backlog::persistence::BacklogStore;
-use crate::circular_filter::CircularFilter;
-use crate::data::order::{PendingOrder, ProgressingOrder, SpecializedOrder, SuspendedOrder, UniqueOrder};
-use crate::data::Has;
+use crate::data::circular_filter::CircularFilter;
 use crate::display::display_option;
+use crate::domain::order::{PendingOrder, ProgressingOrder, SpecializedOrder, SuspendedOrder, UniqueOrder};
+use crate::domain::Has;
 use crate::maker::Maker;
 use crate::tracing::WithTracing;
 
@@ -615,7 +615,7 @@ mod tests {
     use crate::backlog::data::{BacklogOrder, OrderWeight, Weighted};
     use crate::backlog::persistence::{BacklogStore, BacklogStoreRocksDB};
     use crate::backlog::{BacklogConfig, PersistentPriorityBacklog, ResilientBacklog};
-    use crate::data::order::{PendingOrder, ProgressingOrder, SuspendedOrder, UniqueOrder};
+    use crate::domain::order::{PendingOrder, ProgressingOrder, SuspendedOrder, UniqueOrder};
 
     #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash, Clone, Copy, Serialize, Deserialize)]
     struct MockOrderId(i64);

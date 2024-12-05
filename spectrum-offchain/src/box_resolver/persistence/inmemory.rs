@@ -5,8 +5,8 @@ use async_trait::async_trait;
 use log::warn;
 
 use crate::box_resolver::persistence::EntityRepo;
-use crate::data::event::{Confirmed, Predicted, Traced, Unconfirmed};
-use crate::data::{EntitySnapshot, Stable};
+use crate::domain::event::{Confirmed, Predicted, Traced, Unconfirmed};
+use crate::domain::{EntitySnapshot, Stable};
 
 #[derive(Debug)]
 pub struct InMemoryEntityRepo<T: EntitySnapshot> {

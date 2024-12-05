@@ -6,9 +6,9 @@ use bloom_offchain::execution_engine::backlog::SpecializedInterpreter;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::OutputRef;
-use spectrum_offchain::data::event::Predicted;
-use spectrum_offchain::data::order::SpecializedOrder;
-use spectrum_offchain::data::{Baked, Stable};
+use spectrum_offchain::domain::event::Predicted;
+use spectrum_offchain::domain::order::SpecializedOrder;
+use spectrum_offchain::domain::{Baked, Stable};
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 
 use crate::pools::PoolMagnet;

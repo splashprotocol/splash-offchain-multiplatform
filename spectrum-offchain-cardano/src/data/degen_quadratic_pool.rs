@@ -45,7 +45,7 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass, Token};
-use spectrum_offchain::data::{Has, Stable, Tradable};
+use spectrum_offchain::domain::{Has, Stable, Tradable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 pub struct DegenQuadraticPoolConfig {
@@ -767,7 +767,7 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass, Token};
-    use spectrum_offchain::data::Has;
+    use spectrum_offchain::domain::Has;
     use spectrum_offchain::ledger::TryFromLedger;
 
     const LOVELACE: u64 = 1_000_000;

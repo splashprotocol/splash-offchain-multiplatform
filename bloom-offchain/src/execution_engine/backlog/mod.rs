@@ -1,4 +1,4 @@
-use spectrum_offchain::data::Baked;
+use spectrum_offchain::domain::Baked;
 
 use crate::execution_engine::bundled::Bundled;
 

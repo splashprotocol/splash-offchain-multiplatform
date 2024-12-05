@@ -25,7 +25,7 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{AssetClass, AssetName, Token};
-use spectrum_offchain::data::{Has, Stable, Tradable};
+use spectrum_offchain::domain::{Has, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::data::pair::{side_of, PairId};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::GridOrderNative;
@@ -514,7 +514,7 @@ mod tests {
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_cardano_lib::AssetClass;
-    use spectrum_offchain::data::Has;
+    use spectrum_offchain::domain::Has;
     use spectrum_offchain::ledger::TryFromLedger;
     use spectrum_offchain_cardano::deployment::ProtocolValidator::GridOrderNative;
     use spectrum_offchain_cardano::deployment::{

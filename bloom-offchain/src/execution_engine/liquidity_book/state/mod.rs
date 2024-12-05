@@ -14,8 +14,8 @@ use crate::execution_engine::liquidity_book::types::AbsolutePrice;
 use crate::execution_engine::liquidity_book::weight::Weighted;
 use either::{Either, Left, Right};
 use log::trace;
-use spectrum_offchain::data::Stable;
 use spectrum_offchain::display::display_vec;
+use spectrum_offchain::domain::Stable;
 
 mod price_range;
 pub mod queries;
@@ -976,7 +976,7 @@ pub mod tests {
     use std::fmt::{Debug, Display, Formatter};
 
     use either::Left;
-    use spectrum_offchain::data::Stable;
+    use spectrum_offchain::domain::Stable;
     use void::Void;
 
     use crate::execution_engine::liquidity_book::core::{Next, TerminalTake, Trans, Unit};

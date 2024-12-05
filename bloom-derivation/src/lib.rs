@@ -31,7 +31,7 @@ pub fn derive_market_taker(input: TokenStream) -> TokenStream {
 pub fn derive_stable(input: TokenStream) -> TokenStream {
     quick_derive! {
         input,
-        spectrum_offchain::data::Stable,
+        spectrum_offchain::domain::Stable,
         pub trait Stable {
             type StableId: Copy + Eq + Hash + Display;
             fn stable_id(&self) -> Self::StableId;
@@ -44,7 +44,7 @@ pub fn derive_stable(input: TokenStream) -> TokenStream {
 pub fn derive_entity_snapshot(input: TokenStream) -> TokenStream {
     quick_derive! {
         input,
-        spectrum_offchain::data::EntitySnapshot,
+        spectrum_offchain::domain::EntitySnapshot,
         pub trait EntitySnapshot {
             type Version: Copy + Eq + Hash + Display;
             fn version(&self) -> Self::Version;
@@ -56,7 +56,7 @@ pub fn derive_entity_snapshot(input: TokenStream) -> TokenStream {
 pub fn derive_tradable(input: TokenStream) -> TokenStream {
     quick_derive! {
         input,
-        spectrum_offchain::data::Tradable,
+        spectrum_offchain::domain::Tradable,
         pub trait Tradable {
             type PairId: Copy + Eq + Hash + Display;
             fn pair_id(&self) -> Self::PairId;

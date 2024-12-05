@@ -41,9 +41,9 @@ use spectrum_cardano_lib::{
     AssetClass, NetworkId, OutputRef, PaymentCredential, Token,
 };
 use spectrum_cardano_lib::{plutus_data::IntoPlutusData, types::TryFromPData};
-use spectrum_offchain::data::Stable;
+use spectrum_offchain::domain::Stable;
 use spectrum_offchain::{
-    data::{EntitySnapshot, Has},
+    domain::{EntitySnapshot, Has},
     ledger::TryFromLedger,
     tx_prover::TxProver,
 };

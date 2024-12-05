@@ -6,7 +6,7 @@ use permission_manager::{PermManager, PermManagerSnapshot};
 use poll_factory::{PollFactory, PollFactorySnapshot};
 use smart_farm::{SmartFarm, SmartFarmSnapshot};
 use spectrum_cardano_lib::{NetworkId, OutputRef};
-use spectrum_offchain::{data::Has, ledger::TryFromLedger};
+use spectrum_offchain::{domain::Has, ledger::TryFromLedger};
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use voting_escrow::{VotingEscrow, VotingEscrowSnapshot};
 use weighting_poll::{WeightingPoll, WeightingPollSnapshot};

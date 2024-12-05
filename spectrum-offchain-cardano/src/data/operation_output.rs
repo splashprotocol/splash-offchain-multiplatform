@@ -7,7 +7,7 @@ use cml_crypto::Ed25519KeyHash;
 
 use spectrum_cardano_lib::asset_bundle::SafeAssetBundleOps;
 use spectrum_cardano_lib::{NetworkId, TaggedAmount, TaggedAssetClass, Token};
-use spectrum_offchain::data::Has;
+use spectrum_offchain::domain::Has;
 use spectrum_offchain::ledger::IntoLedger;
 
 use crate::data::order::Quote;

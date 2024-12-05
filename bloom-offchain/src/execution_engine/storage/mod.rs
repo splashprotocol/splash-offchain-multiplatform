@@ -4,8 +4,8 @@ use std::fmt::{Debug, Display, Formatter};
 
 use log::trace;
 
-use spectrum_offchain::data::event::{Confirmed, Predicted, Unconfirmed};
-use spectrum_offchain::data::{EntitySnapshot, Stable};
+use spectrum_offchain::domain::event::{Confirmed, Predicted, Unconfirmed};
+use spectrum_offchain::domain::{EntitySnapshot, Stable};
 
 pub mod kv_store;
 
@@ -327,8 +327,8 @@ fn index_key<T: Into<[u8; 60]>>(prefix: u8, id: T) -> InMemoryIndexKey {
 mod tests {
     use crate::execution_engine::storage::{InMemoryStateIndex, StateIndex, StateIndexWithTracing};
     use spectrum_cardano_lib::{OutputRef, Token};
-    use spectrum_offchain::data::event::{Confirmed, Predicted, Unconfirmed};
-    use spectrum_offchain::data::{EntitySnapshot, Stable};
+    use spectrum_offchain::domain::event::{Confirmed, Predicted, Unconfirmed};
+    use spectrum_offchain::domain::{EntitySnapshot, Stable};
     use std::fmt::{Display, Formatter};
 
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]

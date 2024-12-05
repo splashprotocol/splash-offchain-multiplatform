@@ -6,7 +6,7 @@ use std::{
 
 use async_trait::async_trait;
 use axum::{extract::State, http::StatusCode, response::IntoResponse};
-use bloom_offchain_cardano::event_sink::processed_tx::TxViewAtEraBoundary;
+use bloom_offchain_cardano::event_sink::processed_tx::TxViewMut;
 use bounded_integer::BoundedU8;
 use cardano_chain_sync::{
     cache::LedgerCacheRocksDB, chain_sync_stream, client::ChainSyncClient, data::LedgerTxEvent,
@@ -122,11 +122,11 @@ async fn main() {
     .await
     .map(|ev| match ev {
         LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
-            tx: TxViewAtEraBoundary::from(tx),
+            tx: TxViewMut::from(tx),
             slot,
         },
         LedgerTxEvent::TxUnapplied { tx, slot } => LedgerTxEvent::TxUnapplied {
-            tx: TxViewAtEraBoundary::from(tx),
+            tx: TxViewMut::from(tx),
             slot,
         },
     });
@@ -198,7 +198,7 @@ async fn main() {
         signal_tip_reached_recv,
     );
 
-    let handlers: Vec<Box<dyn EventHandler<LedgerTxEvent<TxViewAtEraBoundary>> + Send>> =
+    let handlers: Vec<Box<dyn EventHandler<LedgerTxEvent<TxViewMut>> + Send>> =
         vec![Box::new(DaoHandler::new(ledger_event_snd))];
     let process_ledger_events_stream = process_events(ledger_stream, handlers);
 

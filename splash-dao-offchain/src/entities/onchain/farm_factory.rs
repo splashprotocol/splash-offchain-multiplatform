@@ -15,7 +15,7 @@ use spectrum_cardano_lib::{
     OutputRef,
 };
 use spectrum_offchain::{
-    data::{Has, Identifier, Stable},
+    domain::{Has, Identifier, Stable},
     ledger::TryFromLedger,
 };
 use spectrum_offchain_cardano::{

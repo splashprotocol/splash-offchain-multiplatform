@@ -15,9 +15,9 @@ use cardano_mempool_sync::data::MempoolUpdate;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::box_resolver::persistence::EntityRepo;
-use spectrum_offchain::combinators::Ior;
-use spectrum_offchain::data::event::{Channel, Confirmed, StateUpdate, Unconfirmed};
-use spectrum_offchain::data::EntitySnapshot;
+use spectrum_offchain::data::ior::Ior;
+use spectrum_offchain::domain::event::{Channel, Confirmed, StateUpdate, Unconfirmed};
+use spectrum_offchain::domain::EntitySnapshot;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 

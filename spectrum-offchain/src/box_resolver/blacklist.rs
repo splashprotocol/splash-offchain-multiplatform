@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use async_trait::async_trait;
 
-use crate::data::EntitySnapshot;
+use crate::domain::EntitySnapshot;
 
 #[async_trait(?Send)]
 pub trait EntityBlacklist<T: EntitySnapshot> {

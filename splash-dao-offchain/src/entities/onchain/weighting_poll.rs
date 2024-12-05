@@ -18,7 +18,7 @@ use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
 };
 use spectrum_cardano_lib::{NetworkId, OutputRef, TaggedAmount, Token};
-use spectrum_offchain::data::{Has, Identifier, Stable};
+use spectrum_offchain::domain::{Has, Identifier, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 

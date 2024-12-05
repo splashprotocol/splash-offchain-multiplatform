@@ -10,7 +10,7 @@ use spectrum_cardano_lib::plutus_data::{
 };
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::{AssetName, OutputRef, TaggedAmount};
-use spectrum_offchain::data::{Has, Identifier, Stable};
+use spectrum_offchain::domain::{Has, Identifier, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;

@@ -7,7 +7,7 @@ use type_equalities::IsEqual;
 use crate::snek_protocol_deployment::SnekProtocolScriptHashes;
 use crate::snek_validation_rules::SnekValidationRules;
 use spectrum_cardano_lib::OutputRef;
-use spectrum_offchain::data::Has;
+use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::pool::PoolValidation;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;

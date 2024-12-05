@@ -25,7 +25,7 @@ use spectrum_cardano_lib::{
     Token,
 };
 use spectrum_offchain::{
-    data::{Has, Identifier, Stable},
+    domain::{Has, Identifier, Stable},
     ledger::IntoLedger,
 };
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;

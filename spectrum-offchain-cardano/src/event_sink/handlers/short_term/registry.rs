@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use spectrum_offchain::data::order::{OrderLink, SpecializedOrder};
+use spectrum_offchain::domain::order::{OrderLink, SpecializedOrder};
 
 pub trait HotOrderRegistry<TOrd: SpecializedOrder> {
     fn register(&mut self, order_link: OrderLink<TOrd>);

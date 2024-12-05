@@ -22,7 +22,7 @@ use log::trace;
 use serde::Serialize;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_offchain::data::event::{Predicted, Traced};
+use spectrum_offchain::domain::event::{Predicted, Traced};
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
@@ -32,7 +32,7 @@ use spectrum_cardano_lib::plutus_data::{IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::protocol_params::{constant_tx_builder, COINS_PER_UTXO_BYTE};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::{AssetClass, AssetName, NetworkId, OutputRef, Token};
-use spectrum_offchain::data::Has;
+use spectrum_offchain::domain::Has;
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 use uplc::PlutusData;
 use uplc_pallas_primitives::Fragment;

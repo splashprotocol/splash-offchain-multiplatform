@@ -10,8 +10,8 @@ use serde::Serialize;
 use crate::binary::prefixed_key;
 use crate::box_resolver::persistence::EntityRepo;
 use crate::box_resolver::{Predicted, Traced};
-use crate::data::event::{Confirmed, Unconfirmed};
-use crate::data::{EntitySnapshot, Stable};
+use crate::domain::event::{Confirmed, Unconfirmed};
+use crate::domain::{EntitySnapshot, Stable};
 use crate::rocks::RocksConfig;
 
 pub struct EntityRepoRocksDB {

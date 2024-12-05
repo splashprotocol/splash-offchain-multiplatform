@@ -32,7 +32,7 @@ use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::AssetClass::Native;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass, Token};
-use spectrum_offchain::data::{Has, Stable};
+use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 use crate::constants::{FEE_DEN, LEGACY_FEE_NUM_MULTIPLIER, MAX_LQ_CAP};
@@ -862,7 +862,7 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass, Token};
-    use spectrum_offchain::data::Has;
+    use spectrum_offchain::domain::Has;
     use spectrum_offchain::ledger::TryFromLedger;
 
     use crate::data::cfmm_pool::{ConstFnPool, ConstFnPoolVer};

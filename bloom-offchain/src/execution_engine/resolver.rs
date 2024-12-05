@@ -1,5 +1,5 @@
-use spectrum_offchain::data::event::{Confirmed, Predicted, Unconfirmed};
-use spectrum_offchain::data::EntitySnapshot;
+use spectrum_offchain::domain::event::{Confirmed, Predicted, Unconfirmed};
+use spectrum_offchain::domain::EntitySnapshot;
 
 use crate::execution_engine::storage::StateIndex;
 

@@ -6,7 +6,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::backlog::data::BacklogOrder;
-use crate::data::order::UniqueOrder;
+use crate::domain::order::UniqueOrder;
 use crate::rocks::RocksConfig;
 
 #[async_trait]

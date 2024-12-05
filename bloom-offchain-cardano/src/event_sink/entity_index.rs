@@ -4,7 +4,7 @@ use std::time::{Duration, SystemTime};
 
 use log::trace;
 
-use spectrum_offchain::data::{EntitySnapshot, Tradable};
+use spectrum_offchain::domain::{EntitySnapshot, Tradable};
 
 pub trait TradableEntityIndex<T: EntitySnapshot + Tradable> {
     fn put_state(&mut self, state: T);

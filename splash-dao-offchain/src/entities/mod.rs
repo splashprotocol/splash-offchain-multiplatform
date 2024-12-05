@@ -1,7 +1,7 @@
 use std::{fmt::Display, hash::Hash};
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use spectrum_offchain::data::{EntitySnapshot, Stable};
+use spectrum_offchain::domain::{EntitySnapshot, Stable};
 
 pub mod offchain;
 pub mod onchain;

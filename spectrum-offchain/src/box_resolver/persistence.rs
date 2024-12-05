@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use log::trace;
 
 use crate::box_resolver::{Predicted, Traced};
-use crate::data::event::{Confirmed, Unconfirmed};
-use crate::data::{EntitySnapshot, Stable};
+use crate::domain::event::{Confirmed, Unconfirmed};
+use crate::domain::{EntitySnapshot, Stable};
 
 pub mod inmemory;
 pub mod noop;
@@ -204,10 +204,10 @@ pub(crate) mod tests {
 
     use crate::box_resolver::persistence::inmemory::InMemoryEntityRepo;
     use crate::box_resolver::persistence::rocksdb::EntityRepoRocksDB;
-    use crate::data::Stable;
+    use crate::domain::Stable;
     use crate::{
         box_resolver::persistence::EntityRepo,
-        data::{
+        domain::{
             event::{Confirmed, Predicted, Traced, Unconfirmed},
             EntitySnapshot,
         },

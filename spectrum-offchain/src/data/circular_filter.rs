@@ -66,7 +66,7 @@ impl<const N: usize, T: Hash + Eq + Clone> CircularFilter<N, T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::circular_filter::CircularFilter;
+    use crate::data::circular_filter::CircularFilter;
 
     #[test]
     fn add_check_rotate() {

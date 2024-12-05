@@ -6,8 +6,8 @@ use serde::__private::de::missing_field;
 use serde::ser::SerializeStruct;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::combinators::Ior;
-use crate::data::{EntitySnapshot, Stable};
+use crate::data::ior::Ior;
+use crate::domain::{EntitySnapshot, Stable};
 
 /// A unique, persistent, self-reproducible, on-chiain entity.
 #[derive(Debug, Clone)]

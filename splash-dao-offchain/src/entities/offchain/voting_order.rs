@@ -7,7 +7,7 @@ use derive_more::{From, Into};
 
 use serde::{Deserialize, Serialize};
 use spectrum_offchain::backlog::data::{OrderWeight, Weighted};
-use spectrum_offchain::data::order::UniqueOrder;
+use spectrum_offchain::domain::order::UniqueOrder;
 
 use crate::entities::onchain::smart_farm::FarmId;
 use crate::entities::onchain::voting_escrow::VotingEscrowId;

@@ -5,8 +5,8 @@ use bloom_offchain::execution_engine::bundled::Bundled;
 use rocksdb::{Direction, IteratorMode, ReadOptions};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use spectrum_offchain::data::event::{AnyMod, Confirmed, Predicted, Traced};
-use spectrum_offchain::data::EntitySnapshot;
+use spectrum_offchain::domain::event::{AnyMod, Confirmed, Predicted, Traced};
+use spectrum_offchain::domain::EntitySnapshot;
 use spectrum_offchain::rocks::RocksConfig;
 
 /// Projection of [T] state relative to the ledger.
@@ -250,7 +250,7 @@ mod tests {
     use cml_chain::transaction::TransactionOutput;
     use rand::RngCore;
     use serde::{Deserialize, Serialize};
-    use spectrum_offchain::data::{
+    use spectrum_offchain::domain::{
         event::{AnyMod, Confirmed, Predicted, Traced},
         EntitySnapshot, Identifier, Stable,
     };

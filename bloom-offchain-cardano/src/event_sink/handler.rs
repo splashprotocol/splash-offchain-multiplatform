@@ -8,7 +8,7 @@ use std::sync::Arc;
 use crate::event_sink::context::EventContext;
 use crate::event_sink::entity_index::TradableEntityIndex;
 use crate::event_sink::order_index::KvIndex;
-use crate::event_sink::processed_tx::TxViewAtEraBoundary;
+use crate::event_sink::processed_tx::TxViewMut;
 use async_trait::async_trait;
 use bloom_offchain::execution_engine::funding_effect::FundingEvent;
 use cardano_chain_sync::data::LedgerTxEvent;
@@ -19,15 +19,15 @@ use futures::{Sink, SinkExt};
 use log::trace;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::OutputRef;
-use spectrum_offchain::combinators::Ior;
-use spectrum_offchain::data::event::{Channel, StateUpdate};
-use spectrum_offchain::data::order::{OrderUpdate, SpecializedOrder};
-use spectrum_offchain::data::EntitySnapshot;
-use spectrum_offchain::data::Tradable;
+use spectrum_offchain::data::ior::Ior;
+use spectrum_offchain::data::small_set::SmallVec;
+use spectrum_offchain::domain::event::{Channel, StateUpdate};
+use spectrum_offchain::domain::order::{OrderUpdate, SpecializedOrder};
+use spectrum_offchain::domain::EntitySnapshot;
+use spectrum_offchain::domain::Tradable;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain::partitioning::Partitioned;
-use spectrum_offchain::small_set::SmallVec;
 use spectrum_offchain_cardano::funding::FundingAddresses;
 use tokio::sync::{Mutex, MutexGuard};
 
@@ -57,11 +57,11 @@ impl<const N: usize, Topic, Index> FundingEventHandler<N, Topic, Index> {
 }
 
 async fn extract_funding_events<const N: usize, Index>(
-    mut tx: TxViewAtEraBoundary,
+    mut tx: TxViewMut,
     funding_addresses: FundingAddresses<N>,
     skip_set: OutputRef,
     index: Arc<Mutex<Index>>,
-) -> Result<(Vec<(usize, FundingEvent<FinalizedTxOut>)>, TxViewAtEraBoundary), TxViewAtEraBoundary>
+) -> Result<(Vec<(usize, FundingEvent<FinalizedTxOut>)>, TxViewMut), TxViewMut>
 where
     Index: KvIndex<OutputRef, (usize, FinalizedTxOut)>,
 {
@@ -118,17 +118,14 @@ where
 }
 
 #[async_trait]
-impl<const N: usize, Topic, Index> EventHandler<LedgerTxEvent<TxViewAtEraBoundary>>
+impl<const N: usize, Topic, Index> EventHandler<LedgerTxEvent<TxViewMut>>
     for FundingEventHandler<N, Topic, Index>
 where
     Topic: Sink<FundingEvent<FinalizedTxOut>> + Unpin + Send,
     Topic::Error: Debug,
     Index: KvIndex<OutputRef, (usize, FinalizedTxOut)> + Send,
 {
-    async fn try_handle(
-        &mut self,
-        ev: LedgerTxEvent<TxViewAtEraBoundary>,
-    ) -> Option<LedgerTxEvent<TxViewAtEraBoundary>> {
+    async fn try_handle(&mut self, ev: LedgerTxEvent<TxViewMut>) -> Option<LedgerTxEvent<TxViewMut>> {
         let mut events_by_part: HashMap<usize, Vec<FundingEvent<FinalizedTxOut>>> = HashMap::new();
         let remainder = match ev {
             LedgerTxEvent::TxApplied { tx, slot } => {
@@ -203,17 +200,14 @@ where
 }
 
 #[async_trait]
-impl<const N: usize, Topic, Index> EventHandler<MempoolUpdate<TxViewAtEraBoundary>>
+impl<const N: usize, Topic, Index> EventHandler<MempoolUpdate<TxViewMut>>
     for FundingEventHandler<N, Topic, Index>
 where
     Topic: Sink<FundingEvent<FinalizedTxOut>> + Unpin + Send,
     Topic::Error: Debug,
     Index: KvIndex<OutputRef, (usize, FinalizedTxOut)> + Send,
 {
-    async fn try_handle(
-        &mut self,
-        ev: MempoolUpdate<TxViewAtEraBoundary>,
-    ) -> Option<MempoolUpdate<TxViewAtEraBoundary>> {
+    async fn try_handle(&mut self, ev: MempoolUpdate<TxViewMut>) -> Option<MempoolUpdate<TxViewMut>> {
         let mut events_by_part: HashMap<usize, Vec<FundingEvent<FinalizedTxOut>>> = HashMap::new();
         let remainder = match ev {
             MempoolUpdate::TxAccepted(tx) => {
@@ -307,7 +301,7 @@ impl<H, OrderIndex, Pool, Ctx, OpCtx> SpecializedHandler<H, OrderIndex, Pool, Ct
 
 #[async_trait]
 impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex, K, Proto, Ctx>
-    EventHandler<LedgerTxEvent<TxViewAtEraBoundary>>
+    EventHandler<LedgerTxEvent<TxViewMut>>
     for SpecializedHandler<
         PairUpdateHandler<N, PairId, Topic, Order, PoolIndex, Proto, Ctx>,
         OrderIndex,
@@ -332,10 +326,7 @@ where
     PoolIndex: TradableEntityIndex<Pool> + Send,
     K: Send + Copy,
 {
-    async fn try_handle(
-        &mut self,
-        ev: LedgerTxEvent<TxViewAtEraBoundary>,
-    ) -> Option<LedgerTxEvent<TxViewAtEraBoundary>> {
+    async fn try_handle(&mut self, ev: LedgerTxEvent<TxViewMut>) -> Option<LedgerTxEvent<TxViewMut>> {
         let mut updates: HashMap<PairId, Vec<Channel<OrderUpdate<Order, Order>>>> = HashMap::new();
         let remainder = match ev {
             LedgerTxEvent::TxApplied { tx, slot } => {
@@ -419,7 +410,7 @@ where
 
 #[async_trait]
 impl<const N: usize, PairId, Topic, Pool, Order, PoolIndex, OrderIndex, K, Proto, Ctx>
-    EventHandler<MempoolUpdate<TxViewAtEraBoundary>>
+    EventHandler<MempoolUpdate<TxViewMut>>
     for SpecializedHandler<
         PairUpdateHandler<N, PairId, Topic, Order, PoolIndex, Proto, Ctx>,
         OrderIndex,
@@ -444,10 +435,7 @@ where
     PoolIndex: TradableEntityIndex<Pool> + Send,
     K: Copy + Send,
 {
-    async fn try_handle(
-        &mut self,
-        ev: MempoolUpdate<TxViewAtEraBoundary>,
-    ) -> Option<MempoolUpdate<TxViewAtEraBoundary>> {
+    async fn try_handle(&mut self, ev: MempoolUpdate<TxViewMut>) -> Option<MempoolUpdate<TxViewMut>> {
         let mut updates: HashMap<PairId, Vec<Channel<OrderUpdate<Order, Order>>>> = HashMap::new();
         let remainder = match ev {
             MempoolUpdate::TxAccepted(tx) => {
@@ -506,8 +494,8 @@ fn pool_ref_of<T: SpecializedOrder>(tr: &Either<T, T>) -> T::TPoolId {
 async fn extract_atomic_transitions<Order, Index, K, Proto, Ctx>(
     index: Arc<Mutex<Index>>,
     context_proto: Proto,
-    mut tx: TxViewAtEraBoundary,
-) -> Result<(Vec<Either<Order, Order>>, TxViewAtEraBoundary), TxViewAtEraBoundary>
+    mut tx: TxViewMut,
+) -> Result<(Vec<Either<Order, Order>>, TxViewMut), TxViewMut>
 where
     Proto: Copy,
     Ctx: From<(Proto, EventContext<K>)>,
@@ -584,8 +572,8 @@ where
 async fn extract_continuous_transitions<Entity, Index, Proto, Ctx>(
     index: Arc<Mutex<Index>>,
     context_proto: Proto,
-    mut tx: TxViewAtEraBoundary,
-) -> Result<(Vec<Ior<Entity, Entity>>, TxViewAtEraBoundary), TxViewAtEraBoundary>
+    mut tx: TxViewMut,
+) -> Result<(Vec<Ior<Entity, Entity>>, TxViewMut), TxViewMut>
 where
     Proto: Copy,
     Ctx: From<(Proto, EventContext<Entity::StableId>)>,
@@ -669,8 +657,7 @@ fn pair_id_of<T: Tradable>(xa: &Ior<T, T>) -> T::PairId {
 }
 
 #[async_trait]
-impl<const N: usize, PairId, Topic, Entity, Index, Proto, Ctx>
-    EventHandler<LedgerTxEvent<TxViewAtEraBoundary>>
+impl<const N: usize, PairId, Topic, Entity, Index, Proto, Ctx> EventHandler<LedgerTxEvent<TxViewMut>>
     for PairUpdateHandler<N, PairId, Topic, Entity, Index, Proto, Ctx>
 where
     Proto: Copy + Send,
@@ -687,10 +674,7 @@ where
     Entity::Version: From<OutputRef>,
     Index: TradableEntityIndex<Entity> + Send,
 {
-    async fn try_handle(
-        &mut self,
-        ev: LedgerTxEvent<TxViewAtEraBoundary>,
-    ) -> Option<LedgerTxEvent<TxViewAtEraBoundary>> {
+    async fn try_handle(&mut self, ev: LedgerTxEvent<TxViewMut>) -> Option<LedgerTxEvent<TxViewMut>> {
         let mut updates: HashMap<PairId, Vec<Channel<StateUpdate<Entity>>>> = HashMap::new();
         let remainder = match ev {
             LedgerTxEvent::TxApplied { tx, slot } => {
@@ -757,8 +741,7 @@ where
 }
 
 #[async_trait]
-impl<const N: usize, PairId, Topic, Entity, Index, Proto, Ctx>
-    EventHandler<MempoolUpdate<TxViewAtEraBoundary>>
+impl<const N: usize, PairId, Topic, Entity, Index, Proto, Ctx> EventHandler<MempoolUpdate<TxViewMut>>
     for PairUpdateHandler<N, PairId, Topic, Entity, Index, Proto, Ctx>
 where
     Proto: Copy + Send,
@@ -775,10 +758,7 @@ where
     Entity::Version: From<OutputRef>,
     Index: TradableEntityIndex<Entity> + Send,
 {
-    async fn try_handle(
-        &mut self,
-        ev: MempoolUpdate<TxViewAtEraBoundary>,
-    ) -> Option<MempoolUpdate<TxViewAtEraBoundary>> {
+    async fn try_handle(&mut self, ev: MempoolUpdate<TxViewMut>) -> Option<MempoolUpdate<TxViewMut>> {
         let mut updates: HashMap<PairId, Vec<Channel<StateUpdate<Entity>>>> = HashMap::new();
         let remainder = match ev {
             MempoolUpdate::TxAccepted(tx) => {
@@ -877,7 +857,7 @@ mod tests {
 
     use crate::event_sink::context::{HandlerContext, HandlerContextProto};
     use crate::event_sink::entity_index::{EntityIndexTracing, InMemoryEntityIndex};
-    use crate::event_sink::handler::{PairUpdateHandler, TxViewAtEraBoundary};
+    use crate::event_sink::handler::{PairUpdateHandler, TxViewMut};
     use crate::orders::adhoc::AdhocFeeStructure;
     use crate::orders::limit::LimitOrderValidation;
     use crate::validation_rules::ValidationRules;
@@ -887,9 +867,9 @@ mod tests {
     use spectrum_cardano_lib::hash::hash_transaction_canonical;
     use spectrum_cardano_lib::transaction::TransactionOutputExtension;
     use spectrum_cardano_lib::OutputRef;
-    use spectrum_offchain::combinators::Ior;
-    use spectrum_offchain::data::event::{Channel, Confirmed, StateUpdate};
-    use spectrum_offchain::data::{EntitySnapshot, Has, Stable, Tradable};
+    use spectrum_offchain::data::ior::Ior;
+    use spectrum_offchain::domain::event::{Channel, Confirmed, StateUpdate};
+    use spectrum_offchain::domain::{EntitySnapshot, Has, Stable, Tradable};
     use spectrum_offchain::event_sink::event_handler::EventHandler;
     use spectrum_offchain::ledger::TryFromLedger;
     use spectrum_offchain::partitioning::Partitioned;
@@ -1110,7 +1090,7 @@ mod tests {
             HandlerContext<u8>,
         > = PairUpdateHandler::new(Partitioned::new([snd]), index, context);
         // Handle tx application
-        EventHandler::<LedgerTxEvent<TxViewAtEraBoundary>>::try_handle(
+        EventHandler::<LedgerTxEvent<TxViewMut>>::try_handle(
             &mut handler,
             LedgerTxEvent::TxApplied {
                 tx: tx_1.into(),
@@ -1123,7 +1103,7 @@ mod tests {
         else {
             panic!("Must be a transition")
         };
-        EventHandler::<LedgerTxEvent<TxViewAtEraBoundary>>::try_handle(
+        EventHandler::<LedgerTxEvent<TxViewMut>>::try_handle(
             &mut handler,
             LedgerTxEvent::TxApplied {
                 tx: tx_2.clone().into(),
@@ -1137,7 +1117,7 @@ mod tests {
             panic!("Must be a transition")
         };
         assert_eq!(e1_reversed, e1);
-        EventHandler::<LedgerTxEvent<TxViewAtEraBoundary>>::try_handle(
+        EventHandler::<LedgerTxEvent<TxViewMut>>::try_handle(
             &mut handler,
             LedgerTxEvent::TxUnapplied {
                 tx: tx_2.into(),

@@ -2,7 +2,7 @@ use cml_chain::auxdata::Metadata;
 use type_equalities::IsEqual;
 
 use spectrum_cardano_lib::OutputRef;
-use spectrum_offchain::data::Has;
+use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::deposit::DepositOrderValidation;
 use spectrum_offchain_cardano::data::pool::PoolValidation;

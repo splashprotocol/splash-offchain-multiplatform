@@ -9,14 +9,14 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 /// A Tx being processed.
 /// Outputs in [Transaction] may be partially consumed in the process
 /// while this structure preserves stable hash.
-pub struct TxViewAtEraBoundary {
+pub struct TxViewMut {
     pub hash: TransactionHash,
     pub inputs: Vec<TransactionInput>,
     pub outputs: Vec<(usize, TransactionOutput)>,
     pub metadata: Option<Metadata>,
 }
 
-impl From<Transaction> for TxViewAtEraBoundary {
+impl From<Transaction> for TxViewMut {
     fn from(tx: Transaction) -> Self {
         Self {
             hash: hash_transaction_canonical(&tx.body),
@@ -27,7 +27,7 @@ impl From<Transaction> for TxViewAtEraBoundary {
     }
 }
 
-impl From<Either<BabbageTransaction, Transaction>> for TxViewAtEraBoundary {
+impl From<Either<BabbageTransaction, Transaction>> for TxViewMut {
     fn from(tx: Either<BabbageTransaction, Transaction>) -> Self {
         match tx {
             Either::Left(tx) => Self {

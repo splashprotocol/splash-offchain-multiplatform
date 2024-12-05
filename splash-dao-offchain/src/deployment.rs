@@ -1,7 +1,7 @@
 use cardano_explorer::CardanoNetwork;
 use cml_chain::utils::BigInteger;
 use cml_crypto::{ScriptHash, TransactionHash};
-use spectrum_offchain::data::Has;
+use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::deployment::{
     DeployedScriptInfo, DeployedValidator, DeployedValidatorRef, Script,
 };

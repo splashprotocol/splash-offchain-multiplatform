@@ -3,8 +3,8 @@ use std::hash::{Hash, Hasher};
 
 use serde::{Deserialize, Serialize};
 use spectrum_offchain::backlog;
-use spectrum_offchain::data::order::SpecializedOrder;
-use spectrum_offchain::data::{EntitySnapshot, Stable, Tradable};
+use spectrum_offchain::domain::order::SpecializedOrder;
+use spectrum_offchain::domain::{EntitySnapshot, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::execution_engine::liquidity_book;

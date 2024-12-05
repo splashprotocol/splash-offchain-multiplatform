@@ -6,9 +6,9 @@ use log::trace;
 use tokio::sync::Mutex;
 
 use crate::box_resolver::persistence::EntityRepo;
-use crate::combinators::Ior;
-use crate::data::event::{Channel, Confirmed, Predicted, StateUpdate, Unconfirmed};
-use crate::data::EntitySnapshot;
+use crate::data::ior::Ior;
+use crate::domain::event::{Channel, Confirmed, Predicted, StateUpdate, Unconfirmed};
+use crate::domain::EntitySnapshot;
 use crate::partitioning::Partitioned;
 
 pub fn pool_tracking_stream<'a, const N: usize, S, Repo, Pool>(

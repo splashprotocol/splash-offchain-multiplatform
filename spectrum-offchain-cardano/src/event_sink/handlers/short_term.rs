@@ -12,7 +12,7 @@ use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_mempool_sync::data::MempoolUpdate;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::OutputRef;
-use spectrum_offchain::data::order::{OrderLink, OrderUpdate, SpecializedOrder};
+use spectrum_offchain::domain::order::{OrderLink, OrderUpdate, SpecializedOrder};
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 
