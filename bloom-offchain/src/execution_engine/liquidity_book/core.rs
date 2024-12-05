@@ -813,7 +813,7 @@ where
         let num_makes = recipe.makes.len();
         if num_makes > 0 {
             let takes_to_makes = Ratio::new_raw(num_takes, num_makes);
-            let base_budget = <u64>::from(cx.get());
+            let base_budget = max(<u64>::from(cx.get()), 1);
             let total_budget = recipe
                 .takes
                 .values()
