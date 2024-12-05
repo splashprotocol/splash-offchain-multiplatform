@@ -68,7 +68,7 @@ use crate::{CurrentEpoch, GenesisEpochStartTime, NetworkTimeSource};
 
 pub mod actions;
 
-pub struct Behaviour<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net> {
+pub struct Behaviour<IB, PF, WP, VE, SF, PM, FB, OrderBacklog, Time, Actions, Bearer, Net> {
     inflation_box: IB,
     poll_factory: PF,
     weighting_poll: WP,
@@ -76,7 +76,7 @@ pub struct Behaviour<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer,
     smart_farm: SF,
     perm_manager: PM,
     funding_box: FB,
-    backlog: Backlog,
+    voting_order_backlog: OrderBacklog,
     ntp: Time,
     actions: Actions,
     pub conf: ProtocolConfig,
@@ -94,8 +94,8 @@ pub struct Behaviour<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer,
 const DEF_DELAY: Duration = Duration::new(5, 0);
 
 #[async_trait::async_trait]
-impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net> RoutineBehaviour
-    for Behaviour<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
+impl<IB, PF, WP, VE, SF, PM, FB, OrderBacklog, Time, Actions, Bearer, Net> RoutineBehaviour
+    for Behaviour<IB, PF, WP, VE, SF, PM, FB, OrderBacklog, Time, Actions, Bearer, Net>
 where
     IB: StateProjectionRead<InflationBoxSnapshot, Bearer>
         + StateProjectionWrite<InflationBoxSnapshot, Bearer>
@@ -113,7 +113,7 @@ where
         + StateProjectionWrite<VotingEscrowSnapshot, Bearer>
         + Send
         + Sync,
-    Backlog: ResilientBacklog<VotingOrder> + Send + Sync,
+    OrderBacklog: ResilientBacklog<VotingOrder> + Send + Sync,
     SF: StateProjectionRead<SmartFarmSnapshot, Bearer>
         + StateProjectionWrite<SmartFarmSnapshot, Bearer>
         + Send
@@ -235,7 +235,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
             smart_farm,
             perm_manager,
             funding_box,
-            backlog,
+            voting_order_backlog: backlog,
             ntp,
             actions,
             conf,
@@ -336,7 +336,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         Backlog: ResilientBacklog<VotingOrder> + Send + Sync,
         Bearer: std::fmt::Debug,
     {
-        if let Some(ord) = self.backlog.try_pop().await {
+        if let Some(ord) = self.voting_order_backlog.try_pop().await {
             let ve_id = ord.id.voting_escrow_id.0;
             info!("Executing order with VE_identifier {}", ve_id);
             self.voting_escrow
@@ -690,7 +690,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                             info!("Apply voting tx (hash: {})", tx_hash);
                             self.weighting_poll.write_predicted(next_wpoll).await;
                             self.voting_escrow.write_predicted(next_ve).await;
-                            self.backlog.remove(order_id).await;
+                            self.voting_order_backlog.remove(order_id).await;
                             return None;
                         }
                         Err(RejectReasons(Some(ApplyTxError { node_errors }))) => {
@@ -709,18 +709,18 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                                 )
                             }) {
                                 info!("`execute_order` TX failed on bad/missing input error");
-                                self.backlog.suspend(order).await;
+                                self.voting_order_backlog.suspend(order).await;
                                 return None;
                             } else {
                                 // For all other errors we discard the order.
                                 error!("TX submit failed on unknown error");
-                                self.backlog.remove(order_id).await;
+                                self.voting_order_backlog.remove(order_id).await;
                                 return None;
                             }
                         }
                         Err(RejectReasons(None)) => {
                             error!("TX submit failed on unknown error");
-                            self.backlog.remove(order_id).await;
+                            self.voting_order_backlog.remove(order_id).await;
                             return None;
                         }
                     }
@@ -728,7 +728,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                 Err(e) => {
                     error!("execute_order error: {:?}", e);
                     // Here the order has been deemed inadmissible and so it will be removed.
-                    self.backlog.remove(order_id).await;
+                    self.voting_order_backlog.remove(order_id).await;
                     return None;
                 }
             }
@@ -1028,14 +1028,14 @@ where
         } = message;
         let send_response_result = match command {
             VotingOrderCommand::Submit(voting_order) => {
-                if !self.backlog.exists(voting_order.id).await {
+                if !self.voting_order_backlog.exists(voting_order.id).await {
                     let time_src = NetworkTimeSource {};
                     let timestamp = time_src.network_time().await as i64;
                     let ord = PendingOrder {
                         order: voting_order,
                         timestamp,
                     };
-                    self.backlog.put(ord).await;
+                    self.voting_order_backlog.put(ord).await;
                     Some(response_sender.send(VotingOrderStatus::Queued))
                 } else {
                     trace!("Order already exists in backlog");
@@ -1043,7 +1043,7 @@ where
                 }
             }
             VotingOrderCommand::GetStatus(order_id) => {
-                if self.backlog.exists(order_id).await {
+                if self.voting_order_backlog.exists(order_id).await {
                     Some(response_sender.send(VotingOrderStatus::Queued))
                 } else if let Some(ve) = self.voting_escrow.read(order_id.voting_escrow_id).await {
                     let ve_version = ve.as_erased().0.get().version as u64;
