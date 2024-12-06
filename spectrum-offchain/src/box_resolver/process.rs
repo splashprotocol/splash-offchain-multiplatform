@@ -7,7 +7,7 @@ use tokio::sync::Mutex;
 
 use crate::box_resolver::persistence::EntityRepo;
 use crate::data::ior::Ior;
-use crate::domain::event::{Channel, Confirmed, Predicted, StateUpdate, Unconfirmed};
+use crate::domain::event::{Channel, Confirmed, Predicted, Transition, Unconfirmed};
 use crate::domain::EntitySnapshot;
 use crate::partitioning::Partitioned;
 
@@ -16,7 +16,7 @@ pub fn pool_tracking_stream<'a, const N: usize, S, Repo, Pool>(
     pools: Partitioned<N, Pool::StableId, Arc<Mutex<Repo>>>,
 ) -> impl Stream<Item = ()> + 'a
 where
-    S: Stream<Item = Channel<StateUpdate<Pool>>> + 'a,
+    S: Stream<Item = Channel<Transition<Pool>>> + 'a,
     Pool: EntitySnapshot + 'a,
     Pool::StableId: Display,
     Repo: EntityRepo<Pool> + 'a,
@@ -30,10 +30,10 @@ where
             | Channel::Mempool(Unconfirmed(upd))
             | Channel::LocalTxSubmit(Predicted(upd))) = upd_in_mode;
             match upd {
-                StateUpdate::Transition(Ior::Right(new_state))
-                | StateUpdate::Transition(Ior::Both(_, new_state))
-                | StateUpdate::TransitionRollback(Ior::Right(new_state))
-                | StateUpdate::TransitionRollback(Ior::Both(_, new_state)) => {
+                Transition::Forward(Ior::Right(new_state))
+                | Transition::Forward(Ior::Both(_, new_state))
+                | Transition::Backward(Ior::Right(new_state))
+                | Transition::Backward(Ior::Both(_, new_state)) => {
                     let pool_ref = new_state.stable_id();
                     let pools_mux = pools.get(pool_ref);
                     let mut repo = pools_mux.lock().await;
@@ -45,12 +45,12 @@ where
                         repo.put_unconfirmed(Unconfirmed(new_state)).await
                     }
                 }
-                StateUpdate::Transition(Ior::Left(st)) => {
+                Transition::Forward(Ior::Left(st)) => {
                     let pools_mux = pools.get(st.stable_id());
                     let mut repo = pools_mux.lock().await;
                     repo.eliminate(st).await
                 }
-                StateUpdate::TransitionRollback(Ior::Left(st)) => {
+                Transition::Backward(Ior::Left(st)) => {
                     let pool_ref = st.stable_id();
                     trace!(target: "offchain", "Rolling back state of pool {}", pool_ref);
                     let pools_mux = pools.get(pool_ref);

@@ -120,7 +120,11 @@ where
             );
             let applied_txs: Vec<_> = unpack_valid_transactions_multi_era(blk)
                 .into_iter()
-                .map(|(tx, slot)| LedgerTxEvent::TxApplied { tx, slot })
+                .map(|(tx, slot, block_number)| LedgerTxEvent::TxApplied {
+                    tx,
+                    slot,
+                    block_number,
+                })
                 .collect();
             Box::pin(stream::iter(applied_txs))
         }
@@ -130,7 +134,11 @@ where
                 rollback(cache, point.into(), rollback_in_progress).flat_map(|blk| {
                     let unapplied_txs: Vec<_> = unpack_valid_transactions_multi_era(blk)
                         .into_iter()
-                        .map(|(tx, slot)| LedgerTxEvent::TxUnapplied { tx, slot })
+                        .map(|(tx, slot, block_number)| LedgerTxEvent::TxUnapplied {
+                            tx,
+                            slot,
+                            block_number,
+                        })
                         .rev()
                         .collect();
                     stream::iter(unapplied_txs)
@@ -166,13 +174,13 @@ async fn cache_point<Cache: LedgerCache>(cache: Arc<Mutex<Cache>>, blk: &MultiEr
 
 fn unpack_valid_transactions_multi_era(
     block: MultiEraBlock,
-) -> Vec<(Either<BabbageTransaction, Transaction>, u64)> {
+) -> Vec<(Either<BabbageTransaction, Transaction>, u64, u64)> {
     match block {
         MultiEraBlock::Babbage(blk) => unpack_valid_transactions_babbage(blk)
-            .map(|(tx, ix)| (Either::Left(tx), ix))
+            .map(|(tx, slot, block_number)| (Either::Left(tx), slot, block_number))
             .collect(),
         MultiEraBlock::Conway(blk) => unpack_valid_transactions_conway(blk)
-            .map(|(tx, ix)| (Either::Right(tx), ix))
+            .map(|(tx, slot, block_number)| (Either::Right(tx), slot, block_number))
             .collect(),
         _ => vec![],
     }
@@ -180,7 +188,7 @@ fn unpack_valid_transactions_multi_era(
 
 fn unpack_valid_transactions_babbage(
     block: BabbageBlock,
-) -> impl DoubleEndedIterator<Item = (BabbageTransaction, u64)> {
+) -> impl DoubleEndedIterator<Item = (BabbageTransaction, u64, u64)> {
     let BabbageBlock {
         header,
         transaction_bodies,
@@ -204,11 +212,13 @@ fn unpack_valid_transactions_babbage(
                 auxiliary_data: auxiliary_data_set.remove(tx_ix),
                 encodings: None,
             };
-            (tx, header.header_body.slot)
+            (tx, header.header_body.slot, header.header_body.block_number)
         })
 }
 
-fn unpack_valid_transactions_conway(block: Block) -> impl DoubleEndedIterator<Item = (Transaction, u64)> {
+fn unpack_valid_transactions_conway(
+    block: Block,
+) -> impl DoubleEndedIterator<Item = (Transaction, u64, u64)> {
     let Block {
         header,
         transaction_bodies,
@@ -232,7 +242,7 @@ fn unpack_valid_transactions_conway(block: Block) -> impl DoubleEndedIterator<It
                 auxiliary_data: auxiliary_data_set.remove(tx_ix),
                 encodings: None,
             };
-            (tx, header.header_body.slot)
+            (tx, header.header_body.slot, header.header_body.block_number)
         })
 }
 

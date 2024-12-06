@@ -5,8 +5,7 @@ use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, ScriptRef, Transact
 use cml_chain::Value;
 use cml_crypto::{ScriptHash, TransactionHash};
 use cml_multi_era::babbage::{BabbageFormatTxOut, BabbageScriptRef, BabbageTransactionOutput};
-use derive_more::From;
-use std::ops::Deref;
+use std::marker::PhantomData;
 
 use spectrum_offchain::tx_hash::CanonicalHash;
 
@@ -14,20 +13,25 @@ use crate::address::AddressExtension;
 use crate::hash::hash_transaction_canonical;
 use crate::AssetClass;
 
-#[derive(Clone, Debug, From)]
-pub struct OutboundTransaction<T>(T);
+#[derive(Clone, Debug)]
+pub struct OutboundTransaction<T>(PhantomData<T>, T);
 
-impl<T> Deref for OutboundTransaction<T> {
-    type Target = T;
-    fn deref(&self) -> &Self::Target {
-        &self.0
+impl<T> From<T> for OutboundTransaction<T> {
+    fn from(value: T) -> Self {
+        Self(PhantomData, value)
+    }
+}
+
+impl From<OutboundTransaction<Transaction>> for Transaction {
+    fn from(value: OutboundTransaction<Transaction>) -> Self {
+        value.1
     }
 }
 
 impl CanonicalHash for OutboundTransaction<Transaction> {
     type Hash = TransactionHash;
     fn canonical_hash(&self) -> Self::Hash {
-        hash_transaction_canonical(&self.0.body)
+        hash_transaction_canonical(&self.1.body)
     }
 }
 

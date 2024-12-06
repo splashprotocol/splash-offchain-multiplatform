@@ -14,21 +14,23 @@ use pallas_network::miniprotocols::localtxsubmission::cardano_node_errors::{
 use pallas_network::miniprotocols::localtxsubmission::Response;
 use pallas_network::multiplexer;
 
+use crate::node::NodeConfig;
 use cardano_submit_api::client::{Error, LocalTxSubmissionClient};
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_hash::CanonicalHash;
+use spectrum_offchain::tx_tracker::TxTracker;
 
-use crate::node::NodeConfig;
-
-pub struct TxSubmissionAgent<'a, const ERA: u16, TxAdapter, Tx> {
+pub struct TxSubmissionAgent<'a, const ERA: u16, TxAdapter, Tx, Tracker> {
     client: LocalTxSubmissionClient<'a, ERA, Tx>,
     mailbox: mpsc::Receiver<SubmitTx<TxAdapter>>,
+    tracker: Tracker,
     node_config: NodeConfig,
 }
 
-impl<'a, const ERA: u16, TxAdapter, Tx> TxSubmissionAgent<'a, ERA, TxAdapter, Tx> {
+impl<'a, const ERA: u16, TxAdapter, Tx, Tracker> TxSubmissionAgent<'a, ERA, TxAdapter, Tx, Tracker> {
     pub async fn new(
+        tracker: Tracker,
         node_config: NodeConfig,
         buffer_size: usize,
     ) -> Result<(Self, TxSubmissionChannel<ERA, TxAdapter>), Error> {
@@ -38,6 +40,7 @@ impl<'a, const ERA: u16, TxAdapter, Tx> TxSubmissionAgent<'a, ERA, TxAdapter, Tx
         let agent = Self {
             client: tx_submission_client,
             mailbox: recv,
+            tracker,
             node_config,
         };
         Ok((agent, TxSubmissionChannel(snd)))
@@ -52,6 +55,7 @@ impl<'a, const ERA: u16, TxAdapter, Tx> TxSubmissionAgent<'a, ERA, TxAdapter, Tx
         let TxSubmissionAgent {
             client,
             mailbox,
+            tracker,
             node_config,
         } = self;
         client.close().await;
@@ -60,6 +64,7 @@ impl<'a, const ERA: u16, TxAdapter, Tx> TxSubmissionAgent<'a, ERA, TxAdapter, Tx
         Ok(Self {
             client: new_tx_submission_client,
             mailbox,
+            tracker,
             node_config,
         })
     }
@@ -85,26 +90,30 @@ impl From<SubmissionResult> for Result<(), RejectReasons> {
     }
 }
 
-pub fn tx_submission_agent_stream<'a, const ERA: u16, TxAdapter, Tx>(
-    mut agent: TxSubmissionAgent<'a, ERA, TxAdapter, Tx>,
+pub fn tx_submission_agent_stream<'a, const ERA: u16, TxAdapter, Tx, Tracker>(
+    mut agent: TxSubmissionAgent<'a, ERA, TxAdapter, Tx, Tracker>,
 ) -> impl Stream<Item = ()> + 'a
 where
-    TxAdapter: Deref<Target = Tx> + CanonicalHash + 'a,
+    TxAdapter: CanonicalHash + 'a,
     TxAdapter::Hash: Display,
-    Tx: Serialize + Clone + 'a,
+    Tx: From<TxAdapter> + Serialize + Clone + 'a,
+    Tracker: TxTracker<TxAdapter::Hash, Tx> + 'a,
 {
     stream! {
         loop {
             let SubmitTx(tx, on_resp) = agent.mailbox.select_next_some().await;
             let tx_hash = tx.canonical_hash();
-            match agent.client.submit_tx((*tx).clone()).await {
-                Ok(Response::Accepted) => on_resp.send(SubmissionResult::Ok).expect("Responder was dropped"),
+            let tx: Tx = tx.into();
+            match agent.client.submit_tx(tx.clone()).await {
+                Ok(Response::Accepted) => {
+                    on_resp.send(SubmissionResult::Ok).expect("Responder was dropped");
+                    agent.tracker.track(tx_hash, tx).await;
+                },
                 Ok(Response::Rejected(errors)) => {
                     trace!("TX {} was rejected due to error: {:?}", tx_hash, errors);
                     on_resp.send(SubmissionResult::TxRejected{errors:  RejectReasons(Some(errors))}).expect("Responder was dropped");
                 },
                 Err(Error::TxSubmissionProtocol(err)) => {
-                    trace!("Failed to submit TX {}: {}", tx_hash, hex::encode(tx.to_cbor_bytes()));
                     match err {
                         localtxsubmission::Error::ChannelError(multiplexer::Error::Decoding(_)) => {
                             warn!("TX {} was likely rejected, reason unknown. Trying to recover.", tx_hash);

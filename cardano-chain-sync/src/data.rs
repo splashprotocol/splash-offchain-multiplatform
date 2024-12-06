@@ -8,8 +8,8 @@ pub enum LedgerBlockEvent<Block> {
 
 #[derive(Clone, Debug)]
 pub enum LedgerTxEvent<Tx> {
-    TxApplied { tx: Tx, slot: u64 },
-    TxUnapplied { tx: Tx, slot: u64 },
+    TxApplied { tx: Tx, slot: u64, block_number: u64 },
+    TxUnapplied { tx: Tx, slot: u64, block_number: u64 },
 }
 
 #[derive(Clone)]
