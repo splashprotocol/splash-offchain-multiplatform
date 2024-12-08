@@ -44,7 +44,7 @@ use cardano_explorer::Maestro;
 use cardano_mempool_sync::client::LocalTxMonitorClient;
 use cardano_mempool_sync::data::MempoolUpdate;
 use cardano_mempool_sync::mempool_stream;
-use spectrum_cardano_lib::constants::CONWAY_ERA_ID;
+use spectrum_cardano_lib::constants::{CONWAY_ERA_ID, SAFE_BLOCK_TIME};
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::OutboundTransaction;
@@ -127,11 +127,12 @@ async fn main() {
 
     let (failed_txs_snd, failed_txs_recv) = mpsc::channel(config.tx_submission_buffer_size);
     let (confirmed_txs_snd, confirmed_txs_recv) = mpsc::channel(config.tx_submission_buffer_size);
+    let max_confirmation_delay_blocks = config.event_cache_ttl.as_secs() / SAFE_BLOCK_TIME.as_secs();
     let (tx_tracker_agent, tx_tracker_channel) = new_tx_tracker_bundle(
         confirmed_txs_recv,
         failed_txs_snd,
         config.tx_submission_buffer_size,
-        4,
+        max_confirmation_delay_blocks,
     );
     let (tx_submission_agent, tx_submission_channel) =
         TxSubmissionAgent::<CONWAY_ERA_ID, OutboundTransaction<Transaction>, Transaction, _>::new(
@@ -160,13 +161,13 @@ async fn main() {
         .expect("Couldn't retrieve collateral");
 
     let (pair_upd_snd_p1, pair_upd_recv_p1) =
-        mpsc::channel::<(PairId, Channel<Transition<EvolvingCardanoEntity>>)>(config.channel_buffer_size);
+        mpsc::channel::<(PairId, Channel<Transition<EvolvingCardanoEntity>>)>(config.event_feed_buffer_size);
     let (pair_upd_snd_p2, pair_upd_recv_p2) =
-        mpsc::channel::<(PairId, Channel<Transition<EvolvingCardanoEntity>>)>(config.channel_buffer_size);
+        mpsc::channel::<(PairId, Channel<Transition<EvolvingCardanoEntity>>)>(config.event_feed_buffer_size);
     let (pair_upd_snd_p3, pair_upd_recv_p3) =
-        mpsc::channel::<(PairId, Channel<Transition<EvolvingCardanoEntity>>)>(config.channel_buffer_size);
+        mpsc::channel::<(PairId, Channel<Transition<EvolvingCardanoEntity>>)>(config.event_feed_buffer_size);
     let (pair_upd_snd_p4, pair_upd_recv_p4) =
-        mpsc::channel::<(PairId, Channel<Transition<EvolvingCardanoEntity>>)>(config.channel_buffer_size);
+        mpsc::channel::<(PairId, Channel<Transition<EvolvingCardanoEntity>>)>(config.event_feed_buffer_size);
 
     let partitioned_pair_upd_snd =
         Partitioned::new([pair_upd_snd_p1, pair_upd_snd_p2, pair_upd_snd_p3, pair_upd_snd_p4]);
@@ -174,28 +175,28 @@ async fn main() {
     let (_, spec_upd_recv_p1) = mpsc::channel::<(
         PairId,
         Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
-    )>(config.channel_buffer_size);
+    )>(config.event_feed_buffer_size);
     let (_, spec_upd_recv_p2) = mpsc::channel::<(
         PairId,
         Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
-    )>(config.channel_buffer_size);
+    )>(config.event_feed_buffer_size);
     let (_, spec_upd_recv_p3) = mpsc::channel::<(
         PairId,
         Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
-    )>(config.channel_buffer_size);
+    )>(config.event_feed_buffer_size);
     let (_, spec_upd_recv_p4) = mpsc::channel::<(
         PairId,
         Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
-    )>(config.channel_buffer_size);
+    )>(config.event_feed_buffer_size);
 
     let (funding_upd_snd_p1, funding_upd_recv_p1) =
-        mpsc::channel::<FundingEvent<FinalizedTxOut>>(config.channel_buffer_size);
+        mpsc::channel::<FundingEvent<FinalizedTxOut>>(config.event_feed_buffer_size);
     let (funding_upd_snd_p2, funding_upd_recv_p2) =
-        mpsc::channel::<FundingEvent<FinalizedTxOut>>(config.channel_buffer_size);
+        mpsc::channel::<FundingEvent<FinalizedTxOut>>(config.event_feed_buffer_size);
     let (funding_upd_snd_p3, funding_upd_recv_p3) =
-        mpsc::channel::<FundingEvent<FinalizedTxOut>>(config.channel_buffer_size);
+        mpsc::channel::<FundingEvent<FinalizedTxOut>>(config.event_feed_buffer_size);
     let (funding_upd_snd_p4, funding_upd_recv_p4) =
-        mpsc::channel::<FundingEvent<FinalizedTxOut>>(config.channel_buffer_size);
+        mpsc::channel::<FundingEvent<FinalizedTxOut>>(config.event_feed_buffer_size);
 
     let partitioned_funding_event_snd = Partitioned::new([
         funding_upd_snd_p1,
@@ -204,11 +205,9 @@ async fn main() {
         funding_upd_snd_p4,
     ]);
 
-    let entity_index = Arc::new(Mutex::new(InMemoryEntityIndex::new(
-        config.cardano_finalization_delay,
-    )));
+    let entity_index = Arc::new(Mutex::new(InMemoryEntityIndex::new(config.event_cache_ttl)));
     let funding_index = Arc::new(Mutex::new(InMemoryKvIndex::new(
-        config.cardano_finalization_delay,
+        config.event_cache_ttl,
         SystemClock,
     )));
     let handler_context = SnekHandlerContextProto {
