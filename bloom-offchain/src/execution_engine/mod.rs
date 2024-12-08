@@ -418,24 +418,26 @@ where
             );
             self.index.invalidate_version(rolled_back_state.version());
         }
+        let is_rollback_upd = matches!(upd, Transition::Backward(_));
         match upd {
             Transition::Forward(Ior::Right(new_state))
             | Transition::Forward(Ior::Both(_, new_state))
             | Transition::Backward(Ior::Right(new_state))
             | Transition::Backward(Ior::Both(_, new_state)) => {
                 let id = new_state.stable_id();
-                if self.skip_filter.contains(&new_state.version()) {
-                    trace!(
-                        "State transition (-> {}) of {} is skipped",
-                        new_state.version(),
-                        new_state.stable_id()
-                    );
-                    if from_ledger {
-                        self.index.put_confirmed(Confirmed(new_state));
-                    } else {
-                        self.index.put_fallback(new_state);
+                let ver = new_state.version();
+                if self.skip_filter.contains(&ver) {
+                    if !is_rollback_upd {
+                        trace!("State transition (-> {}) of {} is skipped", ver, id);
+                        if from_ledger {
+                            self.index.put_confirmed(Confirmed(new_state));
+                        } else {
+                            self.index.put_fallback(new_state);
+                        }
+                        return None;
                     }
-                    return None;
+                    trace!("{} of {} removed from skip filter", ver, id);
+                    self.skip_filter.remove(&ver);
                 }
                 let state_before_update = resolve_state(id, &self.index);
                 if from_ledger {
