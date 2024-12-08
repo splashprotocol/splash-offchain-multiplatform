@@ -1,5 +1,5 @@
 {
-  "channelBufferSize": 1024,
+  "eventFeedBufferSize": 1024,
   "chainSync": {
     "startingPoint": {
       "Specific": [
@@ -23,7 +23,7 @@
   "txSubmissionBufferSize": 64,
   "backlogCapacity": 512,
   "networkId": 1,
-  "cardanoFinalizationDelay": {
+  "eventCacheTtl": {
     "secs": 120,
     "nanos": 0
   },
