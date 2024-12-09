@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use cml_chain::plutus::PlutusData;
 use cml_chain::PolicyId;
-use cml_crypto::ScriptHash;
+use cml_crypto::{RawBytesEncoding, ScriptHash};
 use derive_more::{From, Into};
 
 use serde::{Deserialize, Serialize};
@@ -47,4 +47,19 @@ impl Weighted for VotingOrder {
     fn weight(&self) -> OrderWeight {
         OrderWeight::from(1)
     }
+}
+
+pub fn compute_voting_witness_message(
+    witness: ScriptHash,
+    witness_input: PlutusData,
+    authenticated_version: u64,
+) -> Vec<u8> {
+    use cml_chain::Serialize;
+    let mut bytes = witness.to_raw_bytes().to_vec();
+    let witness_input_cbor = witness_input.to_cbor_bytes();
+    bytes.extend_from_slice(&witness_input_cbor);
+    bytes.extend_from_slice(
+        &PlutusData::new_integer(cml_chain::utils::BigInteger::from(authenticated_version)).to_cbor_bytes(),
+    );
+    cml_crypto::blake2b256(bytes.as_ref()).to_vec()
 }

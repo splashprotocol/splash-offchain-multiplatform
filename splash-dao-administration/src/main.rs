@@ -32,6 +32,7 @@ use cml_chain::{
 };
 use cml_crypto::{blake2b256, Ed25519KeyHash, PrivateKey, RawBytesEncoding, ScriptHash, TransactionHash};
 use mint_token::{script_address, DaoDeploymentParameters, LQ_NAME};
+use serde::Deserialize;
 use spectrum_cardano_lib::{
     collateral::Collateral,
     ex_units::ExUnits,
@@ -1193,7 +1194,14 @@ async fn cast_vote(op_inputs: &OperationInputs, id: VotingEscrowId) {
     let current_posix_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
     let voting_power = voting_escrow.get().voting_power(current_posix_time);
 
-    let voting_order = create_voting_order(operator_sk, id, voting_power, dao_parameters.num_active_farms);
+    let wpoll_policy_id = deployment_config.deployed_validators.mint_wpauth_token.hash;
+    let voting_order = create_voting_order(
+        operator_sk,
+        id,
+        voting_power,
+        wpoll_policy_id,
+        dao_parameters.num_active_farms,
+    );
 
     let client = reqwest::Client::new();
 
@@ -1293,9 +1301,17 @@ async fn send_edao_token(op_inputs: &OperationInputs, destination_addr: String) 
 
     let minted_tokens = &deployment_config.minted_deployment_tokens;
     let required_tokens = vec![minted_tokens.edao_msig.clone()];
-    send_assets(required_tokens, explorer, addr, &destination_addr, prover)
-        .await
-        .unwrap();
+    send_assets(
+        5_000_000,
+        800_000,
+        required_tokens,
+        explorer,
+        addr,
+        &destination_addr,
+        prover,
+    )
+    .await
+    .unwrap();
 }
 
 fn compute_identifier_token_asset_name(output_ref: OutputRef) -> cml_chain::assets::AssetName {
@@ -1413,8 +1429,7 @@ async fn create_operation_inputs<'a>(config: &'a AppConfig<'a>) -> OperationInpu
     let (addr, _, operator_pkh, _operator_cred, operator_sk) =
         operator_creds_base_address(config.batcher_private_key, config.network_id);
 
-    let sk_bech32 = operator_sk.to_bech32();
-    let prover = OperatorProver::new(sk_bech32);
+    let prover = OperatorProver::new(config.batcher_private_key.into());
     let owner_pub_key = operator_sk.to_public();
 
     let collateral = if let Some(c) = pull_collateral(addr.clone().into(), &explorer).await {
@@ -1448,6 +1463,23 @@ async fn create_operation_inputs<'a>(config: &'a AppConfig<'a>) -> OperationInpu
         network_id: config.network_id,
         voting_order_listener_endpoint: config.voting_order_listener_endpoint,
     }
+}
+
+#[derive(Deserialize, Clone)]
+enum WeightingDistribution {
+    /// All weighting power goes to a single farm
+    SinglePool {
+        farm_id: u32,
+    },
+    MultiPool {
+        weightings: Vec<FarmWeight>,
+    },
+}
+
+#[derive(Deserialize, Clone)]
+struct FarmWeight {
+    farm_id: u32,
+    weight: u64,
 }
 
 const EX_UNITS: ExUnits = ExUnits {

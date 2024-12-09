@@ -550,7 +550,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                     funding_boxes,
                 )
                 .await;
-            let prover = OperatorProver::new(self.operator_sk.to_bech32());
+            let prover = OperatorProver::new(self.conf.operator_sk.clone());
             let tx = prover.prove(signed_tx);
             let tx_hash = tx.body.hash();
             info!("Apply create wpoll tx (hash: {})", tx_hash);
@@ -590,55 +590,61 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         if let Some(next_order) = next_pending_order {
             let order = next_order.0.clone();
             let order_id = order.id;
-            if let Some((signed_tx, next_wpoll, next_ve)) = self
+            match self
                 .actions
                 .execute_order(weighting_poll.erased(), next_order, Slot(self.current_slot))
                 .await
             {
-                let prover = OperatorProver::new(self.operator_sk.to_bech32());
-                let tx = prover.prove(signed_tx);
-                let tx_hash = tx.body.hash();
-                match self.network.submit_tx(tx).await {
-                    Ok(()) => {
-                        info!("Apply voting tx (hash: {})", tx_hash);
-                        self.weighting_poll.write_predicted(next_wpoll).await;
-                        self.voting_escrow.write_predicted(next_ve).await;
-                        self.backlog.remove(order_id).await;
-                        return None;
-                    }
-                    Err(RejectReasons(Some(ApplyTxError { node_errors }))) => {
-                        // We suspend the order if there are bad/missing inputs. With this TX the
-                        // only inputs are `weighting_poll` and `voting_escrow`. If they're missing
-                        // from the UTxO set then it's possible that another bot has made a TX
-                        // involving at least one of these inputs.
-                        if node_errors.iter().any(|err| {
-                            matches!(
-                                err,
-                                ConwayLedgerPredFailure::UtxowFailure(ConwayUtxowPredFailure::UtxoFailure(
-                                    ConwayUtxoPredFailure::BadInputsUtxo(_)
-                                ),)
-                            )
-                        }) {
-                            info!("`execute_order` TX failed on bad/missing input error");
-                            self.backlog.suspend(order).await;
+                Ok((signed_tx, next_wpoll, next_ve)) => {
+                    let prover = OperatorProver::new(self.conf.operator_sk.clone());
+                    let tx = prover.prove(signed_tx);
+                    let tx_hash = tx.body.hash();
+                    match self.network.submit_tx(tx).await {
+                        Ok(()) => {
+                            info!("Apply voting tx (hash: {})", tx_hash);
+                            self.weighting_poll.write_predicted(next_wpoll).await;
+                            self.voting_escrow.write_predicted(next_ve).await;
+                            self.backlog.remove(order_id).await;
                             return None;
-                        } else {
-                            // For all other errors we discard the order.
+                        }
+                        Err(RejectReasons(Some(ApplyTxError { node_errors }))) => {
+                            // We suspend the order if there are bad/missing inputs. With this TX the
+                            // only inputs are `weighting_poll` and `voting_escrow`. If they're missing
+                            // from the UTxO set then it's possible that another bot has made a TX
+                            // involving at least one of these inputs.
+                            if node_errors.iter().any(|err| {
+                                matches!(
+                                    err,
+                                    ConwayLedgerPredFailure::UtxowFailure(
+                                        ConwayUtxowPredFailure::UtxoFailure(
+                                            ConwayUtxoPredFailure::BadInputsUtxo(_)
+                                        ),
+                                    )
+                                )
+                            }) {
+                                info!("`execute_order` TX failed on bad/missing input error");
+                                self.backlog.suspend(order).await;
+                                return None;
+                            } else {
+                                // For all other errors we discard the order.
+                                error!("TX submit failed on unknown error");
+                                self.backlog.remove(order_id).await;
+                                return None;
+                            }
+                        }
+                        Err(RejectReasons(None)) => {
                             error!("TX submit failed on unknown error");
                             self.backlog.remove(order_id).await;
                             return None;
                         }
                     }
-                    Err(RejectReasons(None)) => {
-                        error!("TX submit failed on unknown error");
-                        self.backlog.remove(order_id).await;
-                        return None;
-                    }
                 }
-            } else {
-                // Here the order has been deemed inadmissible and so it will be removed.
-                self.backlog.remove(order_id).await;
-                return None;
+                Err(e) => {
+                    error!("execute_order error: {:?}", e);
+                    // Here the order has been deemed inadmissible and so it will be removed.
+                    self.backlog.remove(order_id).await;
+                    return None;
+                }
             }
         }
         retry_in(DEF_DELAY)
@@ -673,7 +679,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                 funding_boxes,
             )
             .await;
-        let prover = OperatorProver::new(self.operator_sk.to_bech32());
+        let prover = OperatorProver::new(self.conf.operator_sk.clone());
         let tx = prover.prove(signed_tx);
         let tx_hash = tx.body.hash();
         info!("Distributing inflation tx (hash: {})", tx_hash);
@@ -712,7 +718,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                     .actions
                     .eliminate_wpoll(weighting_poll, funding_boxes, Slot(self.current_slot))
                     .await;
-                let prover = OperatorProver::new(self.operator_sk.to_bech32());
+                let prover = OperatorProver::new(self.conf.operator_sk.clone());
                 let tx = prover.prove(signed_tx);
                 self.network.submit_tx(tx).await.unwrap();
 
