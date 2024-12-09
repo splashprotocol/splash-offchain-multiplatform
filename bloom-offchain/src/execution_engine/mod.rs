@@ -1,11 +1,3 @@
-use std::collections::{BTreeSet, HashSet};
-use std::fmt::{Debug, Display};
-use std::hash::Hash;
-use std::marker::PhantomData;
-use std::mem;
-use std::pin::Pin;
-use std::task::{Context, Poll};
-
 use either::Either;
 use futures::channel::mpsc;
 use futures::stream::FusedStream;
@@ -15,21 +7,13 @@ use log::{error, trace, warn};
 use nonempty::NonEmpty;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use std::collections::{BTreeSet, HashSet};
+use std::fmt::{Debug, Display};
+use std::hash::Hash;
+use std::marker::PhantomData;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use tokio::sync::broadcast;
-
-use liquidity_book::interpreter::RecipeInterpreter;
-use spectrum_offchain::backlog::HotBacklog;
-use spectrum_offchain::data::circular_filter::CircularFilter;
-use spectrum_offchain::data::ior::Ior;
-use spectrum_offchain::display::{display_set, display_vec};
-use spectrum_offchain::domain::event::{Channel, Confirmed, Predicted, StateUpdate, Unconfirmed};
-use spectrum_offchain::domain::order::{OrderUpdate, SpecializedOrder};
-use spectrum_offchain::domain::{Baked, EntitySnapshot, Has, Stable};
-use spectrum_offchain::maker::Maker;
-use spectrum_offchain::network::Network;
-use spectrum_offchain::reporting::Reporting;
-use spectrum_offchain::tx_hash::CanonicalHash;
-use spectrum_offchain::tx_prover::TxProver;
 
 use crate::execution_engine::backlog::SpecializedInterpreter;
 use crate::execution_engine::bundled::Bundled;
@@ -43,8 +27,20 @@ use crate::execution_engine::liquidity_book::{ExternalLBEvents, LBFeedback, Liqu
 use crate::execution_engine::multi_pair::MultiPair;
 use crate::execution_engine::report::{ExecutionReport, ExecutionReportPartial};
 use crate::execution_engine::resolver::resolve_state;
-use crate::execution_engine::storage::kv_store::KvStore;
 use crate::execution_engine::storage::StateIndex;
+use liquidity_book::interpreter::RecipeInterpreter;
+use spectrum_offchain::backlog::HotBacklog;
+use spectrum_offchain::data::circular_filter::CircularFilter;
+use spectrum_offchain::data::ior::Ior;
+use spectrum_offchain::display::{display_set, display_vec};
+use spectrum_offchain::domain::event::{Channel, Confirmed, Predicted, Transition, Unconfirmed};
+use spectrum_offchain::domain::order::{OrderUpdate, SpecializedOrder};
+use spectrum_offchain::domain::{Baked, EntitySnapshot, Has, Stable};
+use spectrum_offchain::maker::Maker;
+use spectrum_offchain::network::Network;
+use spectrum_offchain::reporting::Reporting;
+use spectrum_offchain::tx_hash::CanonicalHash;
+use spectrum_offchain::tx_prover::TxProver;
 
 pub mod backlog;
 pub mod batch_exec;
@@ -64,8 +60,9 @@ pub mod types;
 type EvolvingEntity<CO, P, V, B> = Bundled<Either<Baked<CO, V>, Baked<P, V>>, B>;
 
 pub type Event<CO, SO, P, B, V> =
-    Either<Channel<StateUpdate<EvolvingEntity<CO, P, V, B>>>, Channel<OrderUpdate<Bundled<SO, B>, SO>>>;
+    Either<Channel<Transition<EvolvingEntity<CO, P, V, B>>>, Channel<OrderUpdate<Bundled<SO, B>, SO>>>;
 
+#[derive(Clone)]
 enum ExecutionEffects<CompOrd, SpecOrd, Pool, Ver, Bearer> {
     FromLiquidityBook(
         Vec<
@@ -78,16 +75,18 @@ enum ExecutionEffects<CompOrd, SpecOrd, Pool, Ver, Bearer> {
     FromBacklog(Bundled<Baked<Pool, Ver>, Bearer>, Bundled<SpecOrd, Bearer>),
 }
 
-struct ExecutionEffectsByPair<Pair, TxHash, CompOrd, SpecOrd, Pool, Ver, Bearer> {
+#[derive(Clone)]
+struct ExecutionEffectsByPair<Pair, CompOrd, SpecOrd, Pool, Ver, Bearer> {
     pair: Pair,
-    tx_hash: TxHash,
     consumed_versions: HashSet<Ver>,
     pending_effects: ExecutionEffects<CompOrd, SpecOrd, Pool, Ver, Bearer>,
 }
 
-enum Effects<Pair, TxHash, CompOrd, SpecOrd, Pool, Ver, Bearer> {
-    Pair(ExecutionEffectsByPair<Pair, TxHash, CompOrd, SpecOrd, Pool, Ver, Bearer>),
-    Funding(Vec<FundingEvent<Bearer>>),
+#[derive(Clone)]
+struct Effects<Pair, TxHash, CompOrd, SpecOrd, Pool, Ver, Bearer> {
+    tx_hash: TxHash,
+    execution: ExecutionEffectsByPair<Pair, CompOrd, SpecOrd, Pool, Ver, Bearer>,
+    funding: Vec<FundingEvent<Bearer>>,
 }
 
 /// Instantiate execution stream partition.
@@ -188,10 +187,12 @@ where
                 let mut feedback = feedback_out.clone();
                 async move {
                     let result = network.submit_tx(tx).await;
-                    feedback.send(result).await.expect("Filed to propagate feedback.");
-                    if let Some(report) = maybe_report {
-                        reporting.send_report(report).await;
+                    if result.is_ok() {
+                        if let Some(report) = maybe_report {
+                            reporting.send_report(report).await;
+                        }
                     }
+                    feedback.send(result).await.expect("Filed to propagate feedback.");
                 }
             })
         })
@@ -202,7 +203,7 @@ pub struct Executor<
     Upstream,
     Funding,
     Pair,
-    StableId,
+    Id,
     Ver,
     CompOrd,
     SpecOrd,
@@ -238,16 +239,16 @@ pub struct Executor<
     /// Feedback channel is used to signal the status of transaction submitted earlier by the executor.
     feedback: mpsc::Receiver<Result<(), Err>>,
     /// Pending effects resulted from execution of a batch trade in a certain [Pair].
-    pending_effects: Vec<Effects<Pair, TxHash, CompOrd, SpecOrd, Pool, Ver, Bearer>>,
+    pending_effects: Option<Effects<Pair, TxHash, CompOrd, SpecOrd, Pool, Ver, Bearer>>,
     /// Which pair should we process in the first place.
     focus_set: FocusSet<Pair>,
     /// Temporarily memoize entities that came from unconfirmed updates.
     skip_filter: CircularFilter<256, Ver>,
-    pd: PhantomData<(StableId, Ver, TxCandidate, Tx, Meta, Err)>,
+    pd: PhantomData<(Id, Ver, TxCandidate, Tx, Meta, Err)>,
 }
 
-impl<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E>
-    Executor<S, F, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E>
+impl<S, FN, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E>
+    Executor<S, FN, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E>
 where
     V: Send + Sync,
     SID: Send + Sync,
@@ -261,7 +262,7 @@ where
         spec_interpreter: SIR,
         prover: PRV,
         upstream: S,
-        funding_events: F,
+        funding_events: FN,
         feedback: mpsc::Receiver<Result<(), E>>,
     ) -> Self {
         Self {
@@ -276,7 +277,7 @@ where
             funding_events,
             funding_pool: BTreeSet::new(),
             feedback,
-            pending_effects: Vec::new(),
+            pending_effects: None,
             focus_set: FocusSet::new(),
             skip_filter: CircularFilter::new(),
             pd: Default::default(),
@@ -397,7 +398,7 @@ where
         Ok(())
     }
 
-    fn update_state<T>(&mut self, update: Channel<StateUpdate<Bundled<T, B>>>) -> Option<Ior<T, T>>
+    fn update_state<T>(&mut self, update: Channel<Transition<Bundled<T, B>>>) -> Option<Ior<T, T>>
     where
         SID: Copy + Eq + Hash + Display,
         V: Copy + Eq + Hash + Display,
@@ -410,31 +411,33 @@ where
         let (Channel::Ledger(Confirmed(upd))
         | Channel::Mempool(Unconfirmed(upd))
         | Channel::LocalTxSubmit(Predicted(upd))) = update;
-        if let StateUpdate::TransitionRollback(Ior::Both(rolled_back_state, _)) = &upd {
+        if let Transition::Backward(Ior::Both(rolled_back_state, _)) = &upd {
             trace!(
                 "State {} was eliminated in result of rollback.",
                 rolled_back_state.stable_id()
             );
             self.index.invalidate_version(rolled_back_state.version());
         }
+        let is_rollback_upd = matches!(upd, Transition::Backward(_));
         match upd {
-            StateUpdate::Transition(Ior::Right(new_state))
-            | StateUpdate::Transition(Ior::Both(_, new_state))
-            | StateUpdate::TransitionRollback(Ior::Right(new_state))
-            | StateUpdate::TransitionRollback(Ior::Both(_, new_state)) => {
+            Transition::Forward(Ior::Right(new_state))
+            | Transition::Forward(Ior::Both(_, new_state))
+            | Transition::Backward(Ior::Right(new_state))
+            | Transition::Backward(Ior::Both(_, new_state)) => {
                 let id = new_state.stable_id();
-                if self.skip_filter.contains(&new_state.version()) {
-                    trace!(
-                        "State transition (-> {}) of {} is skipped",
-                        new_state.version(),
-                        new_state.stable_id()
-                    );
-                    if from_ledger {
-                        self.index.put_confirmed(Confirmed(new_state));
-                    } else {
-                        self.index.put_fallback(new_state);
+                let ver = new_state.version();
+                if self.skip_filter.contains(&ver) {
+                    if !is_rollback_upd {
+                        trace!("State transition (-> {}) of {} is skipped", ver, id);
+                        if from_ledger {
+                            self.index.put_confirmed(Confirmed(new_state));
+                        } else {
+                            self.index.put_fallback(new_state);
+                        }
+                        return None;
                     }
-                    return None;
+                    trace!("{} of {} removed from skip filter", ver, id);
+                    self.skip_filter.remove(&ver);
                 }
                 let state_before_update = resolve_state(id, &self.index);
                 if from_ledger {
@@ -450,7 +453,7 @@ where
                 let state_after_update = resolve_state(id, &self.index);
                 to_transition(state_before_update, state_after_update)
             }
-            StateUpdate::Transition(Ior::Left(st)) | StateUpdate::TransitionRollback(Ior::Left(st)) => {
+            Transition::Forward(Ior::Left(st)) | Transition::Backward(Ior::Left(st)) => {
                 if from_ledger || !st.is_quasi_permanent() {
                     self.index.eliminate(st.stable_id());
                 }
@@ -463,10 +466,9 @@ where
         &mut self,
         ExecutionEffectsByPair {
             pair,
-            tx_hash,
             pending_effects,
             ..
-        }: ExecutionEffectsByPair<PR, TH, CO, SO, P, V, B>,
+        }: ExecutionEffectsByPair<PR, CO, SO, P, V, B>,
     ) where
         SID: Eq + Hash + Copy + Display + Debug,
         V: Eq + Hash + Copy + Display + Serialize + DeserializeOwned,
@@ -481,7 +483,6 @@ where
         TLB: ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<PR, MC>,
         L: HotBacklog<Bundled<SO, B>> + Maker<PR, MC>,
     {
-        trace!("TX {} succeeded", tx_hash);
         match pending_effects {
             ExecutionEffects::FromLiquidityBook(mut pending_effects) => {
                 self.multi_book.get_mut(&pair).on_recipe_succeeded();
@@ -489,15 +490,13 @@ where
                     let tr = match effect {
                         ExecutionEff::Updated(elim, upd) => {
                             self.on_entity_processed(elim.version());
-                            self.update_state(Channel::local_tx_submit(StateUpdate::Transition(Ior::Both(
+                            self.update_state(Channel::local_tx_submit(Transition::Forward(Ior::Both(
                                 elim, upd,
                             ))))
                         }
                         ExecutionEff::Eliminated(elim) => {
                             self.on_entity_processed(elim.version());
-                            self.update_state(Channel::local_tx_submit(StateUpdate::Transition(Ior::Left(
-                                elim,
-                            ))))
+                            self.update_state(Channel::local_tx_submit(Transition::Forward(Ior::Left(elim))))
                         }
                     };
                     if let Some(tr) = tr {
@@ -508,7 +507,7 @@ where
             }
             ExecutionEffects::FromBacklog(new_pool, consumed_ord) => {
                 self.on_entity_processed(consumed_ord.get_self_ref());
-                self.update_state(Channel::local_tx_submit(StateUpdate::Transition(Ior::Right(
+                self.update_state(Channel::local_tx_submit(Transition::Forward(Ior::Right(
                     new_pool.map(Either::Right),
                 ))));
             }
@@ -520,10 +519,9 @@ where
         err: E,
         ExecutionEffectsByPair {
             pair,
-            tx_hash,
             consumed_versions,
             pending_effects,
-        }: ExecutionEffectsByPair<PR, TH, CO, SO, P, V, B>,
+        }: ExecutionEffectsByPair<PR, CO, SO, P, V, B>,
     ) where
         SID: Eq + Hash + Copy + Display + Debug,
         V: Eq + Hash + Copy + Display + Serialize + DeserializeOwned,
@@ -539,7 +537,6 @@ where
         L: HotBacklog<Bundled<SO, B>> + Maker<PR, MC>,
         E: TryInto<HashSet<V>> + Unpin + Debug + Display,
     {
-        warn!("TX {} failed", tx_hash);
         if let Ok(missing_inputs) = err.try_into() {
             let strict_index_consistency = match pending_effects {
                 ExecutionEffects::FromLiquidityBook(_) => {
@@ -722,11 +719,11 @@ fn to_transition<T, B>(prev: Option<Bundled<T, B>>, next: Option<Bundled<T, B>>)
     }
 }
 
-impl<S, F, PR, I, V, CO, SO, P, B, TC, TX, TH, U, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E> Stream
-    for Executor<S, F, PR, I, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E>
+impl<S, FN, PR, I, V, CO, SO, P, B, TC, TX, TH, U, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E> Stream
+    for Executor<S, FN, PR, I, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E>
 where
     S: Stream<Item = (PR, Event<CO, SO, P, B, V>)> + Unpin,
-    F: Stream<Item = FundingEvent<B>> + Unpin,
+    FN: Stream<Item = FundingEvent<B>> + Unpin,
     PR: Copy + Eq + Ord + Hash + Display + Unpin,
     I: Copy + Eq + Hash + Debug + Display + Unpin + Send + Sync,
     V: Copy + Eq + Hash + Display + Unpin + Send + Sync + Serialize + DeserializeOwned,
@@ -753,31 +750,19 @@ where
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         loop {
             // Wait for the feedback from the last pending job.
-            if !self.pending_effects.is_empty() {
+            if !self.pending_effects.is_none() {
                 if let Poll::Ready(Some(result)) = Stream::poll_next(Pin::new(&mut self.feedback), cx) {
-                    match result {
-                        Ok(_) => {
-                            while let Some(effect) = self.pending_effects.pop() {
-                                match effect {
-                                    Effects::Pair(execution_effects) => {
-                                        self.on_execution_effects_success(execution_effects)
-                                    }
-                                    Effects::Funding(funding_effects) => {
-                                        self.on_funding_effects_success(funding_effects)
-                                    }
-                                }
+                    if let Some(effects) = self.pending_effects.take() {
+                        match result {
+                            Ok(_) => {
+                                trace!("Tx {} was accepted", effects.tx_hash);
+                                self.on_execution_effects_success(effects.execution);
+                                self.on_funding_effects_success(effects.funding);
                             }
-                        }
-                        Err(err) => {
-                            while let Some(effect) = self.pending_effects.pop() {
-                                match effect {
-                                    Effects::Pair(execution_effects) => {
-                                        self.on_execution_effects_failure(err.clone(), execution_effects)
-                                    }
-                                    Effects::Funding(funding_effects) => {
-                                        self.on_funding_effects_failure(err.clone(), funding_effects)
-                                    }
-                                }
+                            Err(err) => {
+                                warn!("Tx {} was rejected", effects.tx_hash);
+                                self.on_execution_effects_failure(err.clone(), effects.execution);
+                                self.on_funding_effects_failure(err, effects.funding);
                             }
                         }
                     }
@@ -815,12 +800,11 @@ where
                                 } = self.trade_interpreter.run(linked_recipe, funding, ctx);
                                 let tx = self.prover.prove(txc);
                                 let tx_hash = tx.canonical_hash();
-                                self.pending_effects.push(Effects::Pair(ExecutionEffectsByPair {
+                                let execution_effects = ExecutionEffectsByPair {
                                     pair: focus_pair,
-                                    tx_hash,
                                     consumed_versions,
                                     pending_effects: ExecutionEffects::FromLiquidityBook(matchmaking_effects),
-                                }));
+                                };
                                 let (maybe_unused_funding, funding_effects) = funding_io.into_effects();
                                 if let Some(unused_funding) = maybe_unused_funding {
                                     self.funding_pool.insert(unused_funding);
@@ -832,7 +816,11 @@ where
                                         _ => None,
                                     })
                                     .collect::<Vec<_>>();
-                                self.pending_effects.push(Effects::Funding(funding_effects));
+                                self.pending_effects = Some(Effects {
+                                    tx_hash,
+                                    execution: execution_effects,
+                                    funding: funding_effects,
+                                });
                                 trace!(
                                     "Consumed funding bearers: {}",
                                     display_vec(&consumed_funding_bearers)
@@ -864,12 +852,18 @@ where
                             let tx_hash = tx.canonical_hash();
                             let consumed_versions =
                                 HashSet::from_iter(vec![pool.version, consumed_ord.get_self_ref()]);
-                            self.pending_effects.push(Effects::Pair(ExecutionEffectsByPair {
-                                pair: focus_pair,
+                            self.pending_effects = Some(Effects {
                                 tx_hash,
-                                consumed_versions,
-                                pending_effects: ExecutionEffects::FromBacklog(updated_pool, consumed_ord),
-                            }));
+                                execution: ExecutionEffectsByPair {
+                                    pair: focus_pair,
+                                    consumed_versions,
+                                    pending_effects: ExecutionEffects::FromBacklog(
+                                        updated_pool,
+                                        consumed_ord,
+                                    ),
+                                },
+                                funding: vec![],
+                            });
                             // Return pair to focus set to make sure corresponding TLB will be exhausted.
                             self.focus_set.push_back(focus_pair);
                             return Poll::Ready(Some((tx, None)));
@@ -882,11 +876,11 @@ where
     }
 }
 
-impl<S, F, PR, ST, V, CO, SO, P, B, TC, TX, TH, U, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E> FusedStream
-    for Executor<S, F, PR, ST, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E>
+impl<S, FN, PR, ST, V, CO, SO, P, B, TC, TX, TH, U, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E> FusedStream
+    for Executor<S, FN, PR, ST, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E>
 where
     S: Stream<Item = (PR, Event<CO, SO, P, B, V>)> + Unpin,
-    F: Stream<Item = FundingEvent<B>> + Unpin,
+    FN: Stream<Item = FundingEvent<B>> + Unpin,
     PR: Copy + Eq + Ord + Hash + Display + Unpin,
     ST: Copy + Eq + Hash + Debug + Display + Unpin + Send + Sync,
     V: Copy + Eq + Hash + Display + Unpin + Send + Sync + Serialize + DeserializeOwned,

@@ -634,16 +634,22 @@ mod tests {
             limit_order: scripts.limit_order,
             cred: OperatorCred(Ed25519KeyHash::from([0u8; 28])),
             consumed_inputs: SmallVec::new(vec![oref].into_iter()).into(),
-            consumed_identifiers: Default::default(),
+            consumed_identifiers: SmallVec::new(
+                vec![Token::from_string_unsafe(
+                    "64b18826b8f4e3c6a870c84dcf10370b91f4add2550c92e061db356b.",
+                )]
+                .into_iter(),
+            )
+            .into(),
             produced_identifiers: Default::default(),
         };
         let bearer = TransactionOutput::from_cbor_bytes(&*hex::decode(ORDER_UTXO).unwrap()).unwrap();
         let ord = LimitOrder::try_from_ledger(&bearer, &ctx);
-        println!("Order: {:?}", ord);
+        println!("Order: {}", display_option(&ord));
         println!("P_abs: {}", display_option(&ord.map(|x| x.price())));
     }
 
-    const ORDER_UTXO: &str = "a300583911464eeee89f05aff787d40045af2a40a83fd96c513197d32fbc54ff02b926a3997fa1821ff686e9b435dae1f1cdaf4cf285c99c26f4ce43d501821a0fb024a1a1581c3bbbe8599fbc4a9cd2dc1c94ad0f577ce2328180b9cc7b851633aa8da1495061727479204361741a00097dd2028201d81858f7d8798c4100581cea868dde9641509a9b98248059106bbd7634a377639806e1761fbbdfd8798240401a0f6761771a000dbba01a0004c4b4d87982581c3bbbe8599fbc4a9cd2dc1c94ad0f577ce2328180b9cc7b851633aa8d49506172747920436174d8798218191927101a0008acead87982d87981581c4d43eb1a9d0bc89fbaf7e559ca6999a9f294215095743a6569875129d87981d87981d87981581cb926a3997fa1821ff686e9b435dae1f1cdaf4cf285c99c26f4ce43d5581c4d43eb1a9d0bc89fbaf7e559ca6999a9f294215095743a656987512981581c5cb2c968e5d1c7197a6ce7615967310a375545d9bc65063a964335b2";
+    const ORDER_UTXO: &str = "a300583911464eeee89f05aff787d40045af2a40a83fd96c513197d32fbc54ff02de84e72d9d32321535c7f79824766728c1000a2f050b57c63ab3f0d401821a1360e018a1581c97075bf380e65f3c63fb733267adbb7d42eec574428a754d2abca55ba150436861726c65732074686520436861641a00022269028201d81858ecd8799f4100581c64b18826b8f4e3c6a870c84dcf10370b91f4add2550c92e061db356bd8799f4040ff1a13036eaa1a000dbba0199512d8799f581c97075bf380e65f3c63fb733267adbb7d42eec574428a754d2abca55b50436861726c6573207468652043686164ffd8799f1a000254481aa8d2d897ff1a0001e3eed8799fd8799f581caabb78d6719fa76d47849659dd2a8ad211824b895c0109bef8d1d9a4ffd8799fd8799fd8799f581cde84e72d9d32321535c7f79824766728c1000a2f050b57c63ab3f0d4ffffffff581caabb78d6719fa76d47849659dd2a8ad211824b895c0109bef8d1d9a480ff";
 
     #[test]
     fn invalid_address() {

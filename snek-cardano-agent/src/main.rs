@@ -1,5 +1,6 @@
 use clap::Parser;
 use cml_chain::transaction::Transaction;
+use cml_crypto::TransactionHash;
 use cml_multi_era::MultiEraBlock;
 use either::Either;
 use futures::channel::mpsc;
@@ -43,20 +44,22 @@ use cardano_explorer::Maestro;
 use cardano_mempool_sync::client::LocalTxMonitorClient;
 use cardano_mempool_sync::data::MempoolUpdate;
 use cardano_mempool_sync::mempool_stream;
-use spectrum_cardano_lib::constants::CONWAY_ERA_ID;
+use spectrum_cardano_lib::constants::{CONWAY_ERA_ID, SAFE_BLOCK_TIME};
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::OutboundTransaction;
 use spectrum_cardano_lib::{OutputRef, Token};
 use spectrum_offchain::backlog::{BacklogCapacity, HotPriorityBacklog};
-use spectrum_offchain::domain::event::{Channel, StateUpdate};
+use spectrum_offchain::clock::SystemClock;
+use spectrum_offchain::domain::event::{Channel, Transition};
 use spectrum_offchain::domain::order::OrderUpdate;
 use spectrum_offchain::domain::Baked;
-use spectrum_offchain::event_sink::event_handler::EventHandler;
+use spectrum_offchain::event_sink::event_handler::{forward_to, EventHandler};
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::reporting::{reporting_stream, ReportingAgent};
 use spectrum_offchain::streaming::run_stream;
+use spectrum_offchain::tx_tracker::{new_tx_tracker_bundle, TxTrackerAgent};
 use spectrum_offchain_cardano::collateral::pull_collateral;
 use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::data::degen_quadratic_pool::DegenQuadraticPool;
@@ -121,8 +124,19 @@ async fn main() {
         LocalTxMonitorClient::<Transaction>::connect(config.node.path.as_str(), config.node.magic)
             .await
             .expect("MempoolSync initialization failed");
+
+    let (failed_txs_snd, failed_txs_recv) = mpsc::channel(config.tx_submission_buffer_size);
+    let (confirmed_txs_snd, confirmed_txs_recv) = mpsc::channel(config.tx_submission_buffer_size);
+    let max_confirmation_delay_blocks = config.event_cache_ttl.as_secs() / SAFE_BLOCK_TIME.as_secs();
+    let (tx_tracker_agent, tx_tracker_channel) = new_tx_tracker_bundle(
+        confirmed_txs_recv,
+        failed_txs_snd,
+        config.tx_submission_buffer_size,
+        max_confirmation_delay_blocks,
+    );
     let (tx_submission_agent, tx_submission_channel) =
-        TxSubmissionAgent::<CONWAY_ERA_ID, OutboundTransaction<Transaction>, Transaction>::new(
+        TxSubmissionAgent::<CONWAY_ERA_ID, OutboundTransaction<Transaction>, Transaction, _>::new(
+            tx_tracker_channel,
             config.node.clone(),
             config.tx_submission_buffer_size,
         )
@@ -147,13 +161,13 @@ async fn main() {
         .expect("Couldn't retrieve collateral");
 
     let (pair_upd_snd_p1, pair_upd_recv_p1) =
-        mpsc::channel::<(PairId, Channel<StateUpdate<EvolvingCardanoEntity>>)>(config.channel_buffer_size);
+        mpsc::channel::<(PairId, Channel<Transition<EvolvingCardanoEntity>>)>(config.event_feed_buffer_size);
     let (pair_upd_snd_p2, pair_upd_recv_p2) =
-        mpsc::channel::<(PairId, Channel<StateUpdate<EvolvingCardanoEntity>>)>(config.channel_buffer_size);
+        mpsc::channel::<(PairId, Channel<Transition<EvolvingCardanoEntity>>)>(config.event_feed_buffer_size);
     let (pair_upd_snd_p3, pair_upd_recv_p3) =
-        mpsc::channel::<(PairId, Channel<StateUpdate<EvolvingCardanoEntity>>)>(config.channel_buffer_size);
+        mpsc::channel::<(PairId, Channel<Transition<EvolvingCardanoEntity>>)>(config.event_feed_buffer_size);
     let (pair_upd_snd_p4, pair_upd_recv_p4) =
-        mpsc::channel::<(PairId, Channel<StateUpdate<EvolvingCardanoEntity>>)>(config.channel_buffer_size);
+        mpsc::channel::<(PairId, Channel<Transition<EvolvingCardanoEntity>>)>(config.event_feed_buffer_size);
 
     let partitioned_pair_upd_snd =
         Partitioned::new([pair_upd_snd_p1, pair_upd_snd_p2, pair_upd_snd_p3, pair_upd_snd_p4]);
@@ -161,28 +175,28 @@ async fn main() {
     let (_, spec_upd_recv_p1) = mpsc::channel::<(
         PairId,
         Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
-    )>(config.channel_buffer_size);
+    )>(config.event_feed_buffer_size);
     let (_, spec_upd_recv_p2) = mpsc::channel::<(
         PairId,
         Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
-    )>(config.channel_buffer_size);
+    )>(config.event_feed_buffer_size);
     let (_, spec_upd_recv_p3) = mpsc::channel::<(
         PairId,
         Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
-    )>(config.channel_buffer_size);
+    )>(config.event_feed_buffer_size);
     let (_, spec_upd_recv_p4) = mpsc::channel::<(
         PairId,
         Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
-    )>(config.channel_buffer_size);
+    )>(config.event_feed_buffer_size);
 
     let (funding_upd_snd_p1, funding_upd_recv_p1) =
-        mpsc::channel::<FundingEvent<FinalizedTxOut>>(config.channel_buffer_size);
+        mpsc::channel::<FundingEvent<FinalizedTxOut>>(config.event_feed_buffer_size);
     let (funding_upd_snd_p2, funding_upd_recv_p2) =
-        mpsc::channel::<FundingEvent<FinalizedTxOut>>(config.channel_buffer_size);
+        mpsc::channel::<FundingEvent<FinalizedTxOut>>(config.event_feed_buffer_size);
     let (funding_upd_snd_p3, funding_upd_recv_p3) =
-        mpsc::channel::<FundingEvent<FinalizedTxOut>>(config.channel_buffer_size);
+        mpsc::channel::<FundingEvent<FinalizedTxOut>>(config.event_feed_buffer_size);
     let (funding_upd_snd_p4, funding_upd_recv_p4) =
-        mpsc::channel::<FundingEvent<FinalizedTxOut>>(config.channel_buffer_size);
+        mpsc::channel::<FundingEvent<FinalizedTxOut>>(config.event_feed_buffer_size);
 
     let partitioned_funding_event_snd = Partitioned::new([
         funding_upd_snd_p1,
@@ -191,11 +205,10 @@ async fn main() {
         funding_upd_snd_p4,
     ]);
 
-    let entity_index = Arc::new(Mutex::new(InMemoryEntityIndex::new(
-        config.cardano_finalization_delay,
-    )));
+    let entity_index = Arc::new(Mutex::new(InMemoryEntityIndex::new(config.event_cache_ttl)));
     let funding_index = Arc::new(Mutex::new(InMemoryKvIndex::new(
-        config.cardano_finalization_delay,
+        config.event_cache_ttl,
+        SystemClock,
     )));
     let handler_context = SnekHandlerContextProto {
         executor_cred: operator_paycred,
@@ -229,6 +242,7 @@ async fn main() {
     let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<TxViewMut>> + Send>> = vec![
         Box::new(general_upd_handler.clone()),
         Box::new(funding_event_handler.clone()),
+        Box::new(forward_to(confirmed_txs_snd, succinct_tx)),
     ];
 
     let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<TxViewMut>> + Send>> =
@@ -340,19 +354,31 @@ async fn main() {
     ))
     .await
     .map(|ev| match ev {
-        LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
+        LedgerTxEvent::TxApplied {
+            tx,
+            slot,
+            block_number,
+        } => LedgerTxEvent::TxApplied {
             tx: TxViewMut::from(tx),
             slot,
+            block_number,
         },
-        LedgerTxEvent::TxUnapplied { tx, slot } => LedgerTxEvent::TxUnapplied {
+        LedgerTxEvent::TxUnapplied {
+            tx,
+            slot,
+            block_number,
+        } => LedgerTxEvent::TxUnapplied {
             tx: TxViewMut::from(tx),
             slot,
+            block_number,
         },
     });
 
-    let mempool_stream = mempool_stream(mempool_sync, signal_tip_reached_recv).map(|ev| match ev {
-        MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewMut::from(tx)),
-    });
+    let mempool_stream =
+        mempool_stream(mempool_sync, failed_txs_recv, signal_tip_reached_recv).map(|ev| match ev {
+            MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewMut::from(tx)),
+            MempoolUpdate::TxDropped(tx) => MempoolUpdate::TxDropped(TxViewMut::from(tx)),
+        });
 
     let process_ledger_events_stream = process_events(ledger_stream, handlers_ledger);
     let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool);
@@ -383,6 +409,9 @@ async fn main() {
     let reporting_stream_handle = tokio::spawn(run_stream(reporting_stream));
     processes.push(reporting_stream_handle);
 
+    let tx_tracker_handle = tokio::spawn(tx_tracker_agent.run());
+    processes.push(tx_tracker_handle);
+
     let default_panic = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         default_panic(info);
@@ -392,8 +421,14 @@ async fn main() {
     run_stream(processes).await;
 }
 
+fn succinct_tx(tx: LedgerTxEvent<TxViewMut>) -> (TransactionHash, u64) {
+    let (LedgerTxEvent::TxApplied { tx, block_number, .. }
+    | LedgerTxEvent::TxUnapplied { tx, block_number, .. }) = tx;
+    (tx.hash, block_number)
+}
+
 fn merge_upstreams(
-    xs: impl Stream<Item = (PairId, Channel<StateUpdate<EvolvingCardanoEntity>>)> + Unpin,
+    xs: impl Stream<Item = (PairId, Channel<Transition<EvolvingCardanoEntity>>)> + Unpin,
     ys: impl Stream<
             Item = (
                 PairId,
@@ -405,7 +440,7 @@ fn merge_upstreams(
         PairId,
         Either<
             Channel<
-                StateUpdate<
+                Transition<
                     Bundled<
                         Either<Baked<AdhocOrder, OutputRef>, Baked<DegenQuadraticPool, OutputRef>>,
                         FinalizedTxOut,

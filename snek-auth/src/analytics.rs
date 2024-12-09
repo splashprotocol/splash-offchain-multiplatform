@@ -67,10 +67,6 @@ impl Analytics {
     pub async fn get_token_pool_info(&self, token: Token) -> Result<TokenPoolInfo, Error> {
         self.try_retrieve_from_cache(token, |token| {
             Box::pin(async move {
-                println!(
-                    "{}",
-                    format!("{}.{}", token.0.to_hex(), hex::encode(token.1.as_bytes()))
-                );
                 let request_params = vec![(
                     "asset",
                     format!("{}.{}", token.0.to_hex(), hex::encode(token.1.as_bytes())),

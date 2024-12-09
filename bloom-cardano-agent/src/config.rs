@@ -22,12 +22,13 @@ pub struct AppConfig {
     pub tx_submission_buffer_size: usize,
     pub operator_key: String,
     pub take_residual_fee: bool,
-    pub cardano_finalization_delay: Duration,
+    pub event_cache_ttl: Duration,
     pub backlog_capacity: u32,
     pub network_id: NetworkId,
     pub maestro_key_path: String,
     pub execution: ExecutionConfig,
-    pub channel_buffer_size: usize,
+    #[serde(alias = "channel_buffer_size")]
+    pub event_feed_buffer_size: usize,
     pub event_feed_buffering_duration: Duration,
     pub partitioning: Partitioning,
 }

@@ -1,5 +1,6 @@
 pub type FundingEff<T> = FundingEvent<T>;
 
+#[derive(Clone)]
 pub enum FundingEvent<T> {
     Consumed(T),
     Produced(T),

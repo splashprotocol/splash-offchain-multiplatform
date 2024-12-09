@@ -21,7 +21,7 @@ use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::ior::Ior;
 use spectrum_offchain::data::small_set::SmallVec;
-use spectrum_offchain::domain::event::{Channel, StateUpdate};
+use spectrum_offchain::domain::event::{Channel, Transition};
 use spectrum_offchain::domain::order::{OrderUpdate, SpecializedOrder};
 use spectrum_offchain::domain::EntitySnapshot;
 use spectrum_offchain::domain::Tradable;
@@ -128,7 +128,11 @@ where
     async fn try_handle(&mut self, ev: LedgerTxEvent<TxViewMut>) -> Option<LedgerTxEvent<TxViewMut>> {
         let mut events_by_part: HashMap<usize, Vec<FundingEvent<FinalizedTxOut>>> = HashMap::new();
         let remainder = match ev {
-            LedgerTxEvent::TxApplied { tx, slot } => {
+            LedgerTxEvent::TxApplied {
+                tx,
+                slot,
+                block_number,
+            } => {
                 match extract_funding_events(
                     tx,
                     self.funding_addresses.clone(),
@@ -151,12 +155,24 @@ where
                                 }
                             }
                         }
-                        Some(LedgerTxEvent::TxApplied { tx, slot })
+                        Some(LedgerTxEvent::TxApplied {
+                            tx,
+                            slot,
+                            block_number,
+                        })
                     }
-                    Err(tx) => Some(LedgerTxEvent::TxApplied { tx, slot }),
+                    Err(tx) => Some(LedgerTxEvent::TxApplied {
+                        tx,
+                        slot,
+                        block_number,
+                    }),
                 }
             }
-            LedgerTxEvent::TxUnapplied { tx, slot } => {
+            LedgerTxEvent::TxUnapplied {
+                tx,
+                slot,
+                block_number,
+            } => {
                 match extract_funding_events(
                     tx,
                     self.funding_addresses.clone(),
@@ -180,9 +196,17 @@ where
                                 }
                             }
                         }
-                        Some(LedgerTxEvent::TxUnapplied { tx, slot })
+                        Some(LedgerTxEvent::TxUnapplied {
+                            tx,
+                            slot,
+                            block_number,
+                        })
                     }
-                    Err(tx) => Some(LedgerTxEvent::TxUnapplied { tx, slot }),
+                    Err(tx) => Some(LedgerTxEvent::TxUnapplied {
+                        tx,
+                        slot,
+                        block_number,
+                    }),
                 }
             }
         };
@@ -236,6 +260,35 @@ where
                         Some(MempoolUpdate::TxAccepted(tx))
                     }
                     Err(tx) => Some(MempoolUpdate::TxAccepted(tx)),
+                }
+            }
+            MempoolUpdate::TxDropped(tx) => {
+                match extract_funding_events(
+                    tx,
+                    self.funding_addresses.clone(),
+                    self.skip_set,
+                    self.index.clone(),
+                )
+                .await
+                {
+                    Ok((events, tx)) => {
+                        let mut index = self.index.lock().await;
+                        index.run_eviction();
+                        for (pt, event) in events {
+                            let event = event.inverse();
+                            index_funding_event(&mut index, pt, &event);
+                            match events_by_part.entry(pt) {
+                                Entry::Occupied(mut entry) => {
+                                    entry.get_mut().push(event);
+                                }
+                                Entry::Vacant(entry) => {
+                                    entry.insert(vec![event]);
+                                }
+                            }
+                        }
+                        Some(MempoolUpdate::TxDropped(tx))
+                    }
+                    Err(tx) => Some(MempoolUpdate::TxDropped(tx)),
                 }
             }
         };
@@ -329,7 +382,11 @@ where
     async fn try_handle(&mut self, ev: LedgerTxEvent<TxViewMut>) -> Option<LedgerTxEvent<TxViewMut>> {
         let mut updates: HashMap<PairId, Vec<Channel<OrderUpdate<Order, Order>>>> = HashMap::new();
         let remainder = match ev {
-            LedgerTxEvent::TxApplied { tx, slot } => {
+            LedgerTxEvent::TxApplied {
+                tx,
+                slot,
+                block_number,
+            } => {
                 match extract_atomic_transitions(
                     Arc::clone(&self.order_index),
                     self.general_handler.context_proto,
@@ -356,12 +413,24 @@ where
                                 }
                             }
                         }
-                        Some(LedgerTxEvent::TxApplied { tx, slot })
+                        Some(LedgerTxEvent::TxApplied {
+                            tx,
+                            slot,
+                            block_number,
+                        })
                     }
-                    Err(tx) => Some(LedgerTxEvent::TxApplied { tx, slot }),
+                    Err(tx) => Some(LedgerTxEvent::TxApplied {
+                        tx,
+                        slot,
+                        block_number,
+                    }),
                 }
             }
-            LedgerTxEvent::TxUnapplied { tx, slot } => {
+            LedgerTxEvent::TxUnapplied {
+                tx,
+                slot,
+                block_number,
+            } => {
                 match extract_atomic_transitions(
                     Arc::clone(&self.order_index),
                     self.general_handler.context_proto,
@@ -389,9 +458,17 @@ where
                                 }
                             }
                         }
-                        Some(LedgerTxEvent::TxUnapplied { tx, slot })
+                        Some(LedgerTxEvent::TxUnapplied {
+                            tx,
+                            slot,
+                            block_number,
+                        })
                     }
-                    Err(tx) => Some(LedgerTxEvent::TxUnapplied { tx, slot }),
+                    Err(tx) => Some(LedgerTxEvent::TxUnapplied {
+                        tx,
+                        slot,
+                        block_number,
+                    }),
                 }
             }
         };
@@ -468,6 +545,39 @@ where
                         Some(MempoolUpdate::TxAccepted(tx))
                     }
                     Err(tx) => Some(MempoolUpdate::TxAccepted(tx)),
+                }
+            }
+            MempoolUpdate::TxDropped(tx) => {
+                match extract_atomic_transitions(
+                    Arc::clone(&self.order_index),
+                    self.general_handler.context_proto,
+                    tx,
+                )
+                .await
+                {
+                    Ok((transitions, tx)) => {
+                        trace!("{} entities found in unconfirmed TX", transitions.len());
+                        let pool_index = self.general_handler.index.lock().await;
+                        let mut index = self.order_index.lock().await;
+                        index.run_eviction();
+                        for tr in transitions {
+                            if let Some(pair) = pool_index.pair_of(&pool_ref_of(&tr)) {
+                                let inverse_tr = tr.flip();
+                                index_atomic_transition(&mut index, &inverse_tr);
+                                let upd = Channel::mempool(inverse_tr.into());
+                                match updates.entry(pair) {
+                                    Entry::Occupied(mut entry) => {
+                                        entry.get_mut().push(upd);
+                                    }
+                                    Entry::Vacant(entry) => {
+                                        entry.insert(vec![upd]);
+                                    }
+                                }
+                            }
+                        }
+                        Some(MempoolUpdate::TxDropped(tx))
+                    }
+                    Err(tx) => Some(MempoolUpdate::TxDropped(tx)),
                 }
             }
         };
@@ -663,7 +773,7 @@ where
     Proto: Copy + Send,
     Ctx: From<(Proto, EventContext<Entity::StableId>)> + Send,
     PairId: Copy + Hash + Eq + Send,
-    Topic: Sink<(PairId, Channel<StateUpdate<Entity>>)> + Unpin + Send,
+    Topic: Sink<(PairId, Channel<Transition<Entity>>)> + Unpin + Send,
     Topic::Error: Debug,
     Entity: EntitySnapshot
         + Tradable<PairId = PairId>
@@ -675,9 +785,13 @@ where
     Index: TradableEntityIndex<Entity> + Send,
 {
     async fn try_handle(&mut self, ev: LedgerTxEvent<TxViewMut>) -> Option<LedgerTxEvent<TxViewMut>> {
-        let mut updates: HashMap<PairId, Vec<Channel<StateUpdate<Entity>>>> = HashMap::new();
+        let mut updates: HashMap<PairId, Vec<Channel<Transition<Entity>>>> = HashMap::new();
         let remainder = match ev {
-            LedgerTxEvent::TxApplied { tx, slot } => {
+            LedgerTxEvent::TxApplied {
+                tx,
+                slot,
+                block_number,
+            } => {
                 match extract_continuous_transitions(Arc::clone(&self.index), self.context_proto, tx).await {
                     Ok((transitions, tx)) => {
                         trace!("{} transitions found in applied TX", transitions.len());
@@ -686,7 +800,7 @@ where
                         for tr in transitions {
                             index_transition(&mut index, &tr);
                             let pair = pair_id_of(&tr);
-                            let upd = Channel::ledger(StateUpdate::Transition(tr));
+                            let upd = Channel::ledger(Transition::Forward(tr));
                             match updates.entry(pair) {
                                 Entry::Occupied(mut entry) => {
                                     entry.get_mut().push(upd);
@@ -696,12 +810,24 @@ where
                                 }
                             }
                         }
-                        Some(LedgerTxEvent::TxApplied { tx, slot })
+                        Some(LedgerTxEvent::TxApplied {
+                            tx,
+                            slot,
+                            block_number,
+                        })
                     }
-                    Err(tx) => Some(LedgerTxEvent::TxApplied { tx, slot }),
+                    Err(tx) => Some(LedgerTxEvent::TxApplied {
+                        tx,
+                        slot,
+                        block_number,
+                    }),
                 }
             }
-            LedgerTxEvent::TxUnapplied { tx, slot } => {
+            LedgerTxEvent::TxUnapplied {
+                tx,
+                slot,
+                block_number,
+            } => {
                 match extract_continuous_transitions(Arc::clone(&self.index), self.context_proto, tx).await {
                     Ok((transitions, tx)) => {
                         trace!("{} entities found in unapplied TX", transitions.len());
@@ -711,7 +837,7 @@ where
                             let inverse_tr = tr.swap();
                             index_transition(&mut index, &inverse_tr);
                             let pair = pair_id_of(&inverse_tr);
-                            let upd = Channel::ledger(StateUpdate::TransitionRollback(inverse_tr));
+                            let upd = Channel::ledger(Transition::Backward(inverse_tr));
                             match updates.entry(pair) {
                                 Entry::Occupied(mut entry) => {
                                     entry.get_mut().push(upd);
@@ -721,9 +847,17 @@ where
                                 }
                             }
                         }
-                        Some(LedgerTxEvent::TxUnapplied { tx, slot })
+                        Some(LedgerTxEvent::TxUnapplied {
+                            tx,
+                            slot,
+                            block_number,
+                        })
                     }
-                    Err(tx) => Some(LedgerTxEvent::TxUnapplied { tx, slot }),
+                    Err(tx) => Some(LedgerTxEvent::TxUnapplied {
+                        tx,
+                        slot,
+                        block_number,
+                    }),
                 }
             }
         };
@@ -747,7 +881,7 @@ where
     Proto: Copy + Send,
     Ctx: From<(Proto, EventContext<Entity::StableId>)> + Send,
     PairId: Copy + Hash + Eq + Send,
-    Topic: Sink<(PairId, Channel<StateUpdate<Entity>>)> + Unpin + Send,
+    Topic: Sink<(PairId, Channel<Transition<Entity>>)> + Unpin + Send,
     Topic::Error: Debug,
     Entity: EntitySnapshot
         + Tradable<PairId = PairId>
@@ -759,7 +893,7 @@ where
     Index: TradableEntityIndex<Entity> + Send,
 {
     async fn try_handle(&mut self, ev: MempoolUpdate<TxViewMut>) -> Option<MempoolUpdate<TxViewMut>> {
-        let mut updates: HashMap<PairId, Vec<Channel<StateUpdate<Entity>>>> = HashMap::new();
+        let mut updates: HashMap<PairId, Vec<Channel<Transition<Entity>>>> = HashMap::new();
         let remainder = match ev {
             MempoolUpdate::TxAccepted(tx) => {
                 match extract_continuous_transitions(Arc::clone(&self.index), self.context_proto, tx).await {
@@ -770,7 +904,7 @@ where
                         for tr in transitions {
                             index_transition(&mut index, &tr);
                             let pair = pair_id_of(&tr);
-                            let upd = Channel::mempool(StateUpdate::Transition(tr));
+                            let upd = Channel::mempool(Transition::Forward(tr));
                             match updates.entry(pair) {
                                 Entry::Occupied(mut entry) => {
                                     entry.get_mut().push(upd);
@@ -783,6 +917,31 @@ where
                         Some(MempoolUpdate::TxAccepted(tx))
                     }
                     Err(tx) => Some(MempoolUpdate::TxAccepted(tx)),
+                }
+            }
+            MempoolUpdate::TxDropped(tx) => {
+                match extract_continuous_transitions(Arc::clone(&self.index), self.context_proto, tx).await {
+                    Ok((transitions, tx)) => {
+                        trace!("{} entities found in accepted TX", transitions.len());
+                        let mut index = self.index.lock().await;
+                        index.run_eviction();
+                        for tr in transitions {
+                            index_transition(&mut index, &tr);
+                            let inverse_tr = tr.swap();
+                            let pair = pair_id_of(&inverse_tr);
+                            let upd = Channel::mempool(Transition::Backward(inverse_tr));
+                            match updates.entry(pair) {
+                                Entry::Occupied(mut entry) => {
+                                    entry.get_mut().push(upd);
+                                }
+                                Entry::Vacant(entry) => {
+                                    entry.insert(vec![upd]);
+                                }
+                            }
+                        }
+                        Some(MempoolUpdate::TxDropped(tx))
+                    }
+                    Err(tx) => Some(MempoolUpdate::TxDropped(tx)),
                 }
             }
         };
@@ -868,7 +1027,7 @@ mod tests {
     use spectrum_cardano_lib::transaction::TransactionOutputExtension;
     use spectrum_cardano_lib::OutputRef;
     use spectrum_offchain::data::ior::Ior;
-    use spectrum_offchain::domain::event::{Channel, Confirmed, StateUpdate};
+    use spectrum_offchain::domain::event::{Channel, Confirmed, Transition};
     use spectrum_offchain::domain::{EntitySnapshot, Has, Stable, Tradable};
     use spectrum_offchain::event_sink::event_handler::EventHandler;
     use spectrum_offchain::ledger::TryFromLedger;
@@ -972,7 +1131,7 @@ mod tests {
         let index = Arc::new(Mutex::new(
             InMemoryEntityIndex::new(entity_eviction_delay).with_tracing(),
         ));
-        let (snd, mut recv) = mpsc::channel::<(u8, Channel<StateUpdate<TrivialEntity>>)>(100);
+        let (snd, mut recv) = mpsc::channel::<(u8, Channel<Transition<TrivialEntity>>)>(100);
         let ex_cred = OperatorCred(Ed25519KeyHash::from([0u8; 28]));
         let context = HandlerContextProto {
             validation_rules: ValidationRules {
@@ -1083,7 +1242,7 @@ mod tests {
         let mut handler: PairUpdateHandler<
             1,
             u8,
-            mpsc::Sender<(u8, Channel<StateUpdate<TrivialEntity>>)>,
+            mpsc::Sender<(u8, Channel<Transition<TrivialEntity>>)>,
             TrivialEntity,
             EntityIndexTracing<InMemoryEntityIndex<TrivialEntity>>,
             HandlerContextProto,
@@ -1095,10 +1254,11 @@ mod tests {
             LedgerTxEvent::TxApplied {
                 tx: tx_1.into(),
                 slot: 0,
+                block_number: 1,
             },
         )
         .await;
-        let (_, Channel::Ledger(Confirmed(StateUpdate::Transition(Ior::Right(e1))))) =
+        let (_, Channel::Ledger(Confirmed(Transition::Forward(Ior::Right(e1))))) =
             recv.next().await.expect("Must result in new event")
         else {
             panic!("Must be a transition")
@@ -1108,10 +1268,11 @@ mod tests {
             LedgerTxEvent::TxApplied {
                 tx: tx_2.clone().into(),
                 slot: 1,
+                block_number: 1,
             },
         )
         .await;
-        let (_, Channel::Ledger(Confirmed(StateUpdate::Transition(Ior::Both(e1_reversed, e2))))) =
+        let (_, Channel::Ledger(Confirmed(Transition::Forward(Ior::Both(e1_reversed, e2))))) =
             recv.next().await.expect("Must result in new event")
         else {
             panic!("Must be a transition")
@@ -1122,13 +1283,12 @@ mod tests {
             LedgerTxEvent::TxUnapplied {
                 tx: tx_2.into(),
                 slot: 1,
+                block_number: 1,
             },
         )
         .await;
-        let (
-            _,
-            Channel::Ledger(Confirmed(StateUpdate::TransitionRollback(Ior::Both(e2_reversed, e1_revived)))),
-        ) = recv.next().await.expect("Must result in new event")
+        let (_, Channel::Ledger(Confirmed(Transition::Backward(Ior::Both(e2_reversed, e1_revived))))) =
+            recv.next().await.expect("Must result in new event")
         else {
             panic!("Must be a transition")
         };

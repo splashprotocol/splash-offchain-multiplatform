@@ -400,32 +400,22 @@ impl<T: EntitySnapshot> EntitySnapshot for Predicted<T> {
     }
 }
 
-/// How states apply to the sequence of states of an entity:
-
-/// State is applied on top of previous states.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Upgrade<T>(pub T);
-
-/// State is discarded and should be eliminated from the sequence of upgrades.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpgradeRollback<T>(pub T);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum StateUpdate<T> {
+pub enum Transition<T> {
     /// State transition (left: old state, right: new state).
-    Transition(Ior<T, T>),
+    Forward(Ior<T, T>),
     /// State transition rollback (left: rolled back state, right: revived state).
-    TransitionRollback(Ior<T, T>),
+    Backward(Ior<T, T>),
 }
 
-impl<T> StateUpdate<T> {
-    pub fn map<B, F>(self, f: F) -> StateUpdate<B>
+impl<T> Transition<T> {
+    pub fn map<B, F>(self, f: F) -> Transition<B>
     where
         F: Fn(T) -> B,
     {
         match self {
-            StateUpdate::Transition(ior) => StateUpdate::Transition(ior.bimap(&f, &f)),
-            StateUpdate::TransitionRollback(ior) => StateUpdate::TransitionRollback(ior.bimap(&f, &f)),
+            Transition::Forward(ior) => Transition::Forward(ior.bimap(&f, &f)),
+            Transition::Backward(ior) => Transition::Backward(ior.bimap(&f, &f)),
         }
     }
 }
