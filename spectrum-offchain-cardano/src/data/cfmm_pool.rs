@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use std::ops::Div;
+use std::ops::{Div, Neg};
 
 use bignumber::BigNumber;
 use cml_chain::address::Address::Enterprise;
@@ -11,8 +11,7 @@ use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_core::serialization::{RawBytesEncoding, Serialize, ToBytes};
-use cml_crypto::{blake2b256, Ed25519Signature, PublicKey, ScriptHash};
-use log::info;
+use cml_crypto::{Ed25519Signature, PublicKey, ScriptHash};
 use num_rational::Ratio;
 use num_traits::ToPrimitive;
 use num_traits::{CheckedAdd, CheckedSub};
@@ -26,7 +25,7 @@ use bloom_offchain::execution_engine::liquidity_book::market_maker::{
 };
 use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
-use spectrum_cardano_lib::address::{AddressExtension, InlineCredential};
+use spectrum_cardano_lib::address::{AddressExtension, InlineCredential, PlutusAddress, PlutusCredential};
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
@@ -35,7 +34,7 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::AssetClass::Native;
-use spectrum_cardano_lib::{NetworkId, TaggedAmount, TaggedAssetClass, Token};
+use spectrum_cardano_lib::{Ed25519PublicKey, NetworkId, TaggedAmount, TaggedAssetClass, Token};
 use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
@@ -47,10 +46,7 @@ use crate::data::fee_switch_pool::FeeSwitchPoolConfig;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::operation_output::DaoActionResult::{RequestorOutput, TreasuryWithdraw};
 use crate::data::operation_output::OperationResultOutputs::SingleOutput;
-use crate::data::operation_output::{
-    DaoActionResult, DaoRequestorOutput, DepositOutput, OperationResultBlueprint, OperationResultOutputs,
-    RedeemOutput, RoyaltyWithdrawOutput, SwapOutput, TreasuryWithdrawOutput,
-};
+use crate::data::operation_output::{ContexBasedRedeemerCreator, DaoActionResult, DaoRequestorOutput, DepositOutput, OperationResultBlueprint, OperationResultContext, OperationResultOutputs, RedeemOutput, RoyaltyWithdrawOutput, SwapOutput, TreasuryWithdrawOutput};
 use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
 use crate::data::pair::order_canonical;
 use crate::data::pool::{
@@ -190,7 +186,7 @@ pub struct ConstFnPool {
     pub lq_lower_bound: TaggedAmount<Rx>,
     pub admin_address: ScriptHash,
     pub treasury_address: ScriptHash,
-    pub royalty_pub_key: [u8; 32],
+    pub royalty_pub_key: Ed25519PublicKey,
     pub ver: ConstFnPoolVer,
     pub marginal_cost: ExUnits,
     pub bounds: PoolValidation,
@@ -625,7 +621,7 @@ where
                         lq_lower_bound: conf.lq_lower_bound,
                         admin_address: ScriptHash::from([0; 28]),
                         treasury_address: ScriptHash::from([0; 28]),
-                        royalty_pub_key: [0; 32],
+                        royalty_pub_key: Ed25519PublicKey::from([0; 32]),
                         ver: pool_ver,
                         marginal_cost,
                         bounds,
@@ -665,7 +661,7 @@ where
                             lq_lower_bound: conf.lq_lower_bound,
                             admin_address: ScriptHash::from([0; 28]),
                             treasury_address: ScriptHash::from([0; 28]),
-                            royalty_pub_key: [0; 32],
+                            royalty_pub_key: Ed25519PublicKey::from([0; 32]),
                             ver: pool_ver,
                             marginal_cost,
                             bounds,
@@ -706,7 +702,7 @@ where
                             lq_lower_bound: conf.lq_lower_bound,
                             admin_address: ScriptHash::from([0; 28]),
                             treasury_address: ScriptHash::from([0; 28]),
-                            royalty_pub_key: [0; 32],
+                            royalty_pub_key: Ed25519PublicKey::from([0; 32]),
                             ver: pool_ver,
                             marginal_cost,
                             bounds,
@@ -1102,9 +1098,9 @@ where
         let mut message_to_sign = order.additional_bytes.clone();
         message_to_sign.extend(&data_to_sign.into_pd().to_cbor_bytes());
 
-        let signature_is_correct = PublicKey::from_raw_bytes(&self.royalty_pub_key)
-            .unwrap()
-            .verify(&message_to_sign, &order.signature);
+        let public_key: PublicKey = self.royalty_pub_key.try_into().unwrap();
+
+        let signature_is_correct = public_key.verify(&message_to_sign, &order.signature);
 
         if !signature_is_correct {
             return Err(ApplyOrderError::verification_failed(
@@ -1145,15 +1141,15 @@ where
         };
 
         let blueprint = OperationResultBlueprint {
-            outputs: OperationResultOutputs::SingleOutput(royalty_output),
+            outputs: SingleOutput(royalty_output),
             witness_script: Some((
                 pool_order_validator.clone().erased(),
-                Box::new(move |(pool_id, order_idx)| {
+                ContexBasedRedeemerCreator::create(move |context: OperationResultContext| {
                     ConstrPlutusData::new(
                         0,
                         vec![
-                            PlutusData::Integer(BigInteger::from(pool_id)),
-                            PlutusData::Integer(BigInteger::from(order_idx)),
+                            PlutusData::Integer(BigInteger::from(context.pool_input_idx)),
+                            PlutusData::Integer(BigInteger::from(context.order_input_idx)),
                         ],
                     )
                     .into_pd()
@@ -1188,14 +1184,23 @@ where
         let pool_validator: DeployedValidator<{ RoyaltyPoolV1 as u8 }> = ctx.get();
         let dao_ctx: DAOContext = ctx.get();
 
-        let data_to_sign: DaoRequestDataToSign = (
-            dao_request.clone().order,
-            pool_validator.hash,
-            self.nonce,
-            self.treasury_x.untag(),
-            self.treasury_y.untag(),
-        )
-            .into();
+        let data_to_sign: DaoRequestDataToSign = DaoRequestDataToSign {
+            dao_action: dao_request.order.dao_action,
+            pool_nft: dao_request.order.pool_nft,
+            pool_fee: *dao_request.order.pool_fee.numer(),
+            treasury_fee: *dao_request.order.treasury_fee.numer(),
+            admin_address: vec![dao_request.order.admin_address.into()],
+            pool_address: PlutusAddress {
+                payment_cred: PlutusCredential::Script(pool_validator.hash),
+                stake_cred: dao_request.order.pool_stake_script_hash.map(Into::into),
+            },
+            treasury_address: dao_request.order.treasury_address,
+            // on contract side we are validating delta between `new_treasury_x` and
+            // `prev_treasury_x`
+            treasury_x_delta: (dao_request.order.treasury_x_abs_delta.untag() as i64).neg(),
+            treasury_y_delta: (dao_request.order.treasury_y_abs_delta.untag() as i64).neg(),
+            pool_nonce: self.nonce,
+        };
 
         let data_to_sign_raw = data_to_sign.clone().into_pd().to_cbor_bytes();
 
@@ -1217,7 +1222,7 @@ where
             .clone()
             .order
             .signatures
-            .iter()
+            .into_iter()
             .zip::<Vec<[u8; 32]>>(dao_ctx.clone().public_keys.into())
             .zip(data_to_sign_with_additional_bytes)
             .fold(
@@ -1226,7 +1231,7 @@ where
                     siq_qty += 1;
                     let (signature, public_key_raw) = signature_with_public_key;
                     if let Some(public_key) = PublicKey::from_raw_bytes(&public_key_raw).ok() {
-                        if public_key.verify(&data_to_sign_for_user, signature) {
+                        if public_key.verify(&data_to_sign_for_user, &signature) {
                             return correct_signatures + 1;
                         }
                     }
@@ -1249,19 +1254,19 @@ where
             DaoAction::WithdrawTreasury => {
                 self.reserves_x = self
                     .reserves_x
-                    .checked_sub(&dao_request.order.treasury_x_withdraw)
+                    .checked_sub(&dao_request.order.treasury_x_abs_delta)
                     .ok_or(ApplyOrderError::incompatible(dao_request.clone()))?;
                 self.treasury_x = self
                     .treasury_x
-                    .checked_sub(&dao_request.order.treasury_x_withdraw)
+                    .checked_sub(&dao_request.order.treasury_x_abs_delta)
                     .ok_or(ApplyOrderError::incompatible(dao_request.clone()))?;
                 self.reserves_y = self
                     .reserves_y
-                    .checked_sub(&dao_request.order.treasury_y_withdraw)
+                    .checked_sub(&dao_request.order.treasury_y_abs_delta)
                     .ok_or(ApplyOrderError::incompatible(dao_request.clone()))?;
                 self.treasury_y = self
                     .treasury_y
-                    .checked_sub(&dao_request.order.treasury_y_withdraw)
+                    .checked_sub(&dao_request.order.treasury_y_abs_delta)
                     .ok_or(ApplyOrderError::incompatible(dao_request.clone()))?
             }
             DaoAction::ChangeStakePart => {
@@ -1294,12 +1299,12 @@ where
                                 signatures: Vec<Ed25519Signature>,
                                 additional_bytes: Vec<Vec<u8>>,
                                 dao_action: DaoAction| {
-            Box::new(move |(pool_idx, order_idx): (u64, u64)| {
+            ContexBasedRedeemerCreator::create(move |context: OperationResultContext| {
                 PlutusData::ConstrPlutusData(ConstrPlutusData::new(
                     0,
                     vec![
                         dao_action.into_pd(),
-                        pool_idx.into_pd(),
+                        context.pool_input_idx.into_pd(),
                         POOL_OUT_IDX_IN.into_pd(),
                         PlutusData::new_list(
                             signatures
@@ -1326,9 +1331,9 @@ where
             DaoAction::WithdrawTreasury => {
                 let treasury_withdraw = TreasuryWithdraw(TreasuryWithdrawOutput {
                     token_x_asset: self.asset_x,
-                    token_x_amount: dao_request.order.treasury_x_withdraw,
+                    token_x_amount: dao_request.order.treasury_x_abs_delta,
                     token_y_asset: self.asset_y,
-                    token_y_amount: dao_request.order.treasury_y_withdraw,
+                    token_y_amount: dao_request.order.treasury_y_abs_delta,
                     // todo: fix in t2t case
                     ada_residue: 0,
                     treasury_script_hash: self.treasury_address,

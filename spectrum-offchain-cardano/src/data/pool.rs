@@ -230,7 +230,6 @@ pub enum CFMMPoolAction {
     Swap,
     Deposit,
     Redeem,
-    Destroy,
     RoyaltyWithdraw,
     DAOAction,
 }
@@ -241,8 +240,6 @@ impl CFMMPoolAction {
             CFMMPoolAction::Swap => PlutusData::Integer(BigInteger::from(2)),
             CFMMPoolAction::Deposit => PlutusData::Integer(BigInteger::from(0)),
             CFMMPoolAction::Redeem => PlutusData::Integer(BigInteger::from(1)),
-            CFMMPoolAction::Destroy => PlutusData::Integer(BigInteger::from(3)),
-            // also 3
             CFMMPoolAction::DAOAction => PlutusData::Integer(BigInteger::from(3)),
             CFMMPoolAction::RoyaltyWithdraw => PlutusData::Integer(BigInteger::from(4)),
         }
@@ -620,8 +617,8 @@ where
     }
     .map_err(|err| RunOrderError::from_tx_builder_error(err, order_bundle.clone()))?;
 
-    if let (Some((witness_validator, redeemer_fn))) = operation_result_blueprint.witness_script {
-        let real_redeemer = redeemer_fn((pool_in_idx, order_in_idx));
+    if let Some((witness_validator, redeemer_creator)) = operation_result_blueprint.witness_script {
+        let real_redeemer = redeemer_creator.compute(pool_in_idx, order_in_idx);
 
         let reward_address = cml_chain::address::RewardAddress::new(
             ctx.select::<NetworkId>().into(),

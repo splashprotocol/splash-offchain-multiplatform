@@ -72,7 +72,7 @@ where
                 let validator: DeployedValidator<{ StableFnPoolT2TRedeem as u8 }> = ctx.get();
                 validator.erased()
             }
-            OrderType::RoyaltyFn => {
+            OrderType::RoyaltyConstFn => {
                 let validator: DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }> = ctx.get();
                 validator.erased()
             }
@@ -133,7 +133,7 @@ where
             } else if is_const_pool_redeem {
                 OrderType::ConstFn
             } else if is_royalty_pool_redeem {
-                OrderType::RoyaltyFn
+                OrderType::RoyaltyConstFn
             } else {
                 OrderType::StableFn
             };

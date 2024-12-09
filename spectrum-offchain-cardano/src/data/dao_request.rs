@@ -1,4 +1,5 @@
 use crate::constants::FEE_DEN;
+use crate::data::cfmm_pool::ConstFnPool;
 use crate::data::deposit::DepositOrderValidation;
 use crate::data::limit_swap::{ClassicalOnChainLimitSwap, OnChainLimitSwapConfig};
 use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
@@ -52,7 +53,7 @@ pub struct DAOContext {
     pub execution_fee: u64,
 }
 
-#[derive(FromRepr, Debug, Clone, Eq, PartialEq)]
+#[derive(FromRepr, Debug, Clone, Eq, PartialEq, Copy)]
 #[repr(u64)]
 pub enum DaoAction {
     WithdrawTreasury,
@@ -87,8 +88,8 @@ pub struct DAORequestConfig {
     pub admin_address: ScriptHash,
     pub pool_stake_script_hash: Option<ScriptHash>,
     pub treasury_address: ScriptHash,
-    pub treasury_x_withdraw: u64,
-    pub treasury_y_withdraw: u64,
+    pub treasury_x_abs_delta: u64,
+    pub treasury_y_abs_delta: u64,
     pub requestor_pkh: Ed25519KeyHash,
     pub signatures: Vec<Ed25519Signature>,
     pub additional_bytes: Vec<Vec<u8>>,
@@ -174,8 +175,8 @@ impl TryFromPData for DAORequestConfig {
             admin_address: admin_addresses.clone(),
             pool_stake_script_hash: pool_stake_cred,
             treasury_address,
-            treasury_x_withdraw: cpd.take_field(DATUM_MAPPING.treasury_x_withdraw)?.into_u64()?,
-            treasury_y_withdraw: cpd.take_field(DATUM_MAPPING.treasury_y_withdraw)?.into_u64()?,
+            treasury_x_abs_delta: cpd.take_field(DATUM_MAPPING.treasury_x_withdraw)?.into_u64()?,
+            treasury_y_abs_delta: cpd.take_field(DATUM_MAPPING.treasury_y_withdraw)?.into_u64()?,
             requestor_pkh,
             signatures,
             additional_bytes,
@@ -193,8 +194,8 @@ pub struct DAOV1Request {
     pub admin_address: ScriptHash,
     pub pool_stake_script_hash: Option<ScriptHash>,
     pub treasury_address: ScriptHash,
-    pub treasury_x_withdraw: TaggedAmount<Rx>,
-    pub treasury_y_withdraw: TaggedAmount<Ry>,
+    pub treasury_x_abs_delta: TaggedAmount<Rx>,
+    pub treasury_y_abs_delta: TaggedAmount<Ry>,
     pub requestor_pkh: Ed25519KeyHash,
     pub signatures: Vec<Ed25519Signature>,
     pub additional_bytes: Vec<Vec<u8>>,
@@ -236,8 +237,8 @@ where
                 admin_address: conf.admin_address,
                 pool_stake_script_hash: conf.pool_stake_script_hash,
                 treasury_address: conf.treasury_address,
-                treasury_x_withdraw: TaggedAmount::new(conf.treasury_x_withdraw),
-                treasury_y_withdraw: TaggedAmount::new(conf.treasury_y_withdraw),
+                treasury_x_abs_delta: TaggedAmount::new(conf.treasury_x_abs_delta),
+                treasury_y_abs_delta: TaggedAmount::new(conf.treasury_y_abs_delta),
                 requestor_pkh: conf.requestor_pkh,
                 signatures: conf.signatures,
                 additional_bytes: conf.additional_bytes,
@@ -263,32 +264,11 @@ pub struct DaoRequestDataToSign {
     pub admin_address: Vec<InlineCredential>,
     pub pool_address: PlutusAddress,
     pub treasury_address: ScriptHash,
-    pub treasury_x_withdraw: i64,
-    pub treasury_y_withdraw: i64,
+    // always negative
+    pub treasury_x_delta: i64,
+    // always negative
+    pub treasury_y_delta: i64,
     pub pool_nonce: u64,
-}
-
-impl From<(DAOV1Request, ScriptHash, u64, u64, u64)> for DaoRequestDataToSign {
-    fn from(value: (DAOV1Request, ScriptHash, u64, u64, u64)) -> Self {
-        let (request, pool_hash, pool_nonce, prev_treasury_x, prev_treasury_y) = value;
-        let new_treasury_x = (prev_treasury_x as i64) - (request.treasury_x_withdraw.untag() as i64);
-        let new_treasury_y = (prev_treasury_y as i64) - (request.treasury_y_withdraw.untag() as i64);
-        DaoRequestDataToSign {
-            dao_action: request.dao_action,
-            pool_nft: request.pool_nft,
-            pool_fee: *request.pool_fee.numer(),
-            treasury_fee: *request.treasury_fee.numer(),
-            admin_address: vec![request.admin_address.into()],
-            pool_address: PlutusAddress {
-                payment_cred: PlutusCredential::Script(pool_hash),
-                stake_cred: request.pool_stake_script_hash.map(Into::into),
-            },
-            treasury_address: request.treasury_address,
-            treasury_x_withdraw: new_treasury_x - (prev_treasury_x as i64),
-            treasury_y_withdraw: new_treasury_y - (prev_treasury_y as i64),
-            pool_nonce,
-        }
-    }
 }
 
 impl IntoPlutusData for DaoRequestDataToSign {
@@ -303,8 +283,8 @@ impl IntoPlutusData for DaoRequestDataToSign {
                 self.admin_address.into_pd(),
                 self.pool_address.into_pd(),
                 PlutusData::new_bytes(self.treasury_address.to_raw_bytes().to_vec()),
-                self.treasury_x_withdraw.into_pd(),
-                self.treasury_y_withdraw.into_pd(),
+                self.treasury_x_delta.into_pd(),
+                self.treasury_y_delta.into_pd(),
                 self.pool_nonce.into_pd(),
             ],
             encodings: Some(ConstrPlutusDataEncoding {

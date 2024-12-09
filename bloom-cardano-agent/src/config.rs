@@ -115,12 +115,10 @@ impl Into<DAOContext> for DAOConfig {
     fn into(self) -> DAOContext {
         let parsed_public_keys: Vec<[u8; 32]> = self
             .public_keys
-            .iter()
+            .into_iter()
             .try_fold(vec![], |mut acc, key_to_parse| {
                 PublicKey::from_raw_bytes(&hex::decode(key_to_parse).unwrap()).map(|parsed_key| {
-                    let mut buf = [0; 32];
-                    buf[0..32].clone_from_slice(parsed_key.to_raw_bytes());
-                    acc.push(buf);
+                    acc.push(parsed_key.to_raw_bytes().try_into().unwrap());
                     acc
                 })
             })

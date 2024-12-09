@@ -64,7 +64,7 @@ pub enum OrderType {
     ConstFnFeeSwitch,
     ConstFn,
     StableFn,
-    RoyaltyFn,
+    RoyaltyConstFn,
 }
 
 impl<Id: Clone, Ord> Has<Id> for ClassicalOrder<Id, Ord> {

@@ -73,7 +73,7 @@ where
                 let validator: DeployedValidator<{ StableFnPoolT2TDeposit as u8 }> = ctx.get();
                 validator.erased()
             }
-            OrderType::RoyaltyFn => {
+            OrderType::RoyaltyConstFn => {
                 let validator: DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }> = ctx.get();
                 validator.erased()
             }
@@ -129,7 +129,7 @@ where
             } else if is_stable_fn_pool_deposit {
                 OrderType::StableFn
             } else {
-                OrderType::RoyaltyFn
+                OrderType::RoyaltyConstFn
             };
             let value = repr.value().clone();
             let conf = OnChainDepositConfig::try_from_pd(repr.clone().into_datum()?.into_pd()?)?;

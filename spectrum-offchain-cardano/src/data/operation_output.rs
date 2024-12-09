@@ -48,6 +48,26 @@ impl<T> OperationResultOutputs<T> {
     }
 }
 
+pub struct OperationResultContext {
+    pub pool_input_idx: u64,
+    pub order_input_idx: u64,
+}
+
+pub struct ContexBasedRedeemerCreator(Box<dyn FnOnce(OperationResultContext) -> PlutusData>);
+
+impl ContexBasedRedeemerCreator {
+    pub fn compute(self, pool_input_idx: u64, order_input_idx: u64) -> PlutusData {
+        self.0(OperationResultContext {
+            pool_input_idx,
+            order_input_idx,
+        })
+    }
+
+    pub fn create(f: impl FnOnce(OperationResultContext) -> PlutusData + 'static) -> ContexBasedRedeemerCreator {
+        ContexBasedRedeemerCreator(Box::new(f))
+    }
+}
+
 /// `OperationResultBlueprint` represents the outcome of an order execution, containing essential
 /// details for processing the result, including results, validation scripts, and optional fees.
 ///
@@ -65,7 +85,7 @@ impl<T> OperationResultOutputs<T> {
 ///   CML may produce incorrect `min_fee` values.
 pub struct OperationResultBlueprint<T> {
     pub outputs: OperationResultOutputs<T>,
-    pub witness_script: Option<(DeployedValidatorErased, Box<dyn FnOnce((u64, u64)) -> PlutusData>)>,
+    pub witness_script: Option<(DeployedValidatorErased, ContexBasedRedeemerCreator)>,
     pub order_script_validator: DeployedValidatorErased,
     pub strict_fee: Option<Coin>,
 }

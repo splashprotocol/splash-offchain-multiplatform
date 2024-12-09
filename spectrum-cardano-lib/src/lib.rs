@@ -4,6 +4,7 @@ use std::marker::PhantomData;
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::str::FromStr;
 
+use crate::constants::ED25519_PUB_KEY_LENGTH;
 use cml_chain::assets::MultiAsset;
 use cml_chain::certs::Credential;
 use cml_chain::plutus::utils::ConstrPlutusDataEncoding;
@@ -13,7 +14,9 @@ use cml_chain::utils::BigInteger;
 use cml_chain::{PolicyId, Value};
 use cml_core::serialization::LenEncoding::Indefinite;
 use cml_core::serialization::ToBytes;
-use cml_crypto::{RawBytesEncoding, TransactionHash};
+use cml_core::{DeserializeError, Int};
+use cml_crypto::chain_crypto::ed25519;
+use cml_crypto::{PublicKey, RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
 use derive_more::{From, Into};
 use num::{CheckedAdd, CheckedSub};
@@ -553,6 +556,31 @@ pub struct NetworkId(u8);
 /// Payment credential in bech32.
 #[derive(serde::Deserialize, Debug, Clone, From, Into)]
 pub struct PaymentCredential(String);
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct Ed25519PublicKey([u8; ED25519_PUB_KEY_LENGTH]);
+
+impl From<[u8; ED25519_PUB_KEY_LENGTH]> for Ed25519PublicKey {
+    fn from(value: [u8; ED25519_PUB_KEY_LENGTH]) -> Self {
+        Self(value)
+    }
+}
+
+impl TryFrom<Vec<u8>> for Ed25519PublicKey {
+    type Error = ();
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        value.try_into().map(Self).map_err(|_| ())
+    }
+}
+
+impl TryInto<PublicKey> for Ed25519PublicKey {
+    type Error = DeserializeError;
+
+    fn try_into(self) -> Result<PublicKey, Self::Error> {
+        PublicKey::from_raw_bytes(&self.0)
+    }
+}
 
 #[cfg(test)]
 mod tests {
