@@ -94,10 +94,16 @@ impl FundingRepo for FundingRepoRocksDB {
             assert!(db.get(&predicted_key).unwrap().is_none());
             let tx = db.transaction();
             let predicted_spent_key = funding_key(STATE_PREFIX, PREDICTED_SPENT, &f_id);
-            if let Some(confirmed_bytes) = db.get(&predicted_spent_key).unwrap() {
-                trace!("FB.spend_confirmed: {:?}", f_id);
-                tx.delete(&predicted_spent_key).unwrap();
+
+            if let Some(confirmed_bytes) = db.get(&confirmed_key).unwrap() {
+                trace!("FB.spend_confirmed (COMFIRMED AVAILABLE): {:?}", f_id);
                 tx.delete(&confirmed_key).unwrap();
+                let spent_key = funding_key(STATE_PREFIX, CONFIRMED_SPENT, &f_id);
+                tx.put(spent_key, confirmed_bytes).unwrap();
+                tx.commit().unwrap();
+            } else if let Some(confirmed_bytes) = db.get(&predicted_spent_key).unwrap() {
+                trace!("FB.spend_confirmed (PREDICTED SPEND): {:?}", f_id);
+                tx.delete(&predicted_spent_key).unwrap();
                 let spent_key = funding_key(STATE_PREFIX, CONFIRMED_SPENT, &f_id);
                 tx.put(spent_key, confirmed_bytes).unwrap();
                 tx.commit().unwrap();
