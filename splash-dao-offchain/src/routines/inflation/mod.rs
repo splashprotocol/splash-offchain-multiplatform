@@ -627,33 +627,63 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         if let (AnyMod::Confirmed(inflation_box), AnyMod::Confirmed(factory)) = (inflation_box, poll_factory)
         {
             let funding_boxes = AvailableFundingBoxes(self.funding_box.collect().await.unwrap());
-            let (signed_tx, next_inflation_box, next_factory, next_wpoll, funding_box_changes) = self
-                .actions
-                .create_wpoll(
-                    inflation_box.state.0,
-                    factory.state.0,
-                    Slot(self.current_slot),
-                    funding_boxes,
-                )
-                .await;
-            let prover = OperatorProver::new(self.conf.operator_sk.clone());
-            let tx = prover.prove(signed_tx);
-            let tx_hash = tx.body.hash();
-            info!("Apply create wpoll tx (hash: {})", tx_hash);
-            self.network.submit_tx(tx).await.unwrap();
-            self.inflation_box.write_predicted(next_inflation_box).await;
-            self.poll_factory.write_predicted(next_factory).await;
-            self.weighting_poll.write_predicted(next_wpoll).await;
+            let lovelaces_input_value = funding_boxes.0.iter().fold(0, |acc, x| acc + x.value.coin);
+            if lovelaces_input_value >= 5_000_000 {
+                let (signed_tx, next_inflation_box, next_factory, next_wpoll, funding_box_changes) = self
+                    .actions
+                    .create_wpoll(
+                        inflation_box.state.0,
+                        factory.state.0,
+                        Slot(self.current_slot),
+                        funding_boxes,
+                    )
+                    .await;
+                let prover = OperatorProver::new(self.conf.operator_sk.clone());
+                let tx = prover.prove(signed_tx);
+                let tx_hash = tx.body.hash();
+                info!("`create_wpoll`: submitting TX (hash: {})", tx_hash);
+                match self.network.submit_tx(tx).await {
+                    Ok(()) => {
+                        info!("`create_wpoll`: TX submission SUCCESS");
+                        self.inflation_box.write_predicted(next_inflation_box).await;
+                        self.poll_factory.write_predicted(next_factory).await;
+                        self.weighting_poll.write_predicted(next_wpoll).await;
 
-            for p in funding_box_changes.spent {
-                self.funding_box.spend_predicted(p).await;
+                        for p in funding_box_changes.spent {
+                            self.funding_box.spend_predicted(p).await;
+                        }
+
+                        for fb in funding_box_changes.created {
+                            self.funding_box.put_predicted(fb).await;
+                        }
+
+                        return None;
+                    }
+                    Err(RejectReasons(Some(ApplyTxError { node_errors }))) => {
+                        if node_errors.iter().any(|err| {
+                            matches!(
+                                err,
+                                ConwayLedgerPredFailure::UtxowFailure(ConwayUtxowPredFailure::UtxoFailure(
+                                    ConwayUtxoPredFailure::BadInputsUtxo(_)
+                                ),)
+                            )
+                        }) {
+                            info!("`create_wpoll`: Bad/missing input UTxO. Retrying...");
+                            return None;
+                        } else {
+                            // For all other errors we discard the order.
+                            error!("`create_wpoll`: TX submit failed on errors: {:?}", node_errors);
+                            return None;
+                        }
+                    }
+                    Err(RejectReasons(None)) => {
+                        error!("`create_wpoll`: TX submit failed on UNKNOWN error");
+                        return None;
+                    }
+                }
+            } else {
+                info!("`create_wpoll`: Insufficient ADA. Waiting for other funding boxes to be confirmed.");
             }
-
-            for fb in funding_box_changes.created {
-                self.funding_box.put_predicted(fb).await;
-            }
-
-            return None;
         }
         retry_in(DEF_DELAY)
     }
@@ -685,9 +715,10 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                     let prover = OperatorProver::new(self.conf.operator_sk.clone());
                     let tx = prover.prove(signed_tx);
                     let tx_hash = tx.body.hash();
+                    info!("`execute_order`: submitting TX (hash: {})", tx_hash);
                     match self.network.submit_tx(tx).await {
                         Ok(()) => {
-                            info!("Apply voting tx (hash: {})", tx_hash);
+                            info!("`execute_order`: TX submission SUCCESS");
                             self.weighting_poll.write_predicted(next_wpoll).await;
                             self.voting_escrow.write_predicted(next_ve).await;
                             self.voting_order_backlog.remove(order_id).await;
@@ -708,25 +739,25 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                                     )
                                 )
                             }) {
-                                info!("`execute_order` TX failed on bad/missing input error");
+                                info!("`execute_order`: TX failed on bad/missing input error");
                                 self.voting_order_backlog.suspend(order).await;
                                 return None;
                             } else {
                                 // For all other errors we discard the order.
-                                error!("TX submit failed on unknown error");
+                                error!("`execute_order`: TX submit failed on errors: {:?}", node_errors);
                                 self.voting_order_backlog.remove(order_id).await;
                                 return None;
                             }
                         }
                         Err(RejectReasons(None)) => {
-                            error!("TX submit failed on unknown error");
+                            error!("`execute_order`: TX submit failed on unknown error");
                             self.voting_order_backlog.remove(order_id).await;
                             return None;
                         }
                     }
                 }
                 Err(e) => {
-                    error!("execute_order error: {:?}", e);
+                    error!("`execute_order`: Inadmissible order, error: {:?}", e);
                     // Here the order has been deemed inadmissible and so it will be removed.
                     self.voting_order_backlog.remove(order_id).await;
                     return None;
@@ -768,16 +799,44 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
         let prover = OperatorProver::new(self.conf.operator_sk.clone());
         let tx = prover.prove(signed_tx);
         let tx_hash = tx.body.hash();
-        info!("Distributing inflation tx (hash: {})", tx_hash);
-        self.network.submit_tx(tx).await.unwrap();
-        self.weighting_poll.write_predicted(next_wpoll).await;
-        self.smart_farm.write_predicted(next_sf).await;
-        for p in funding_box_changes.spent {
-            self.funding_box.spend_predicted(p).await;
-        }
+        info!("`distribute_inflation`: submitting TX (hash: {})", tx_hash);
+        match self.network.submit_tx(tx).await {
+            Ok(()) => {
+                info!("`distribute_inflation`: TX submission SUCCESS");
+                self.weighting_poll.write_predicted(next_wpoll).await;
+                self.smart_farm.write_predicted(next_sf).await;
+                for p in funding_box_changes.spent {
+                    self.funding_box.spend_predicted(p).await;
+                }
 
-        for fb in funding_box_changes.created {
-            self.funding_box.put_predicted(fb).await;
+                for fb in funding_box_changes.created {
+                    self.funding_box.put_predicted(fb).await;
+                }
+            }
+            Err(RejectReasons(Some(ApplyTxError { node_errors }))) => {
+                if node_errors.iter().any(|err| {
+                    matches!(
+                        err,
+                        ConwayLedgerPredFailure::UtxowFailure(ConwayUtxowPredFailure::UtxoFailure(
+                            ConwayUtxoPredFailure::BadInputsUtxo(_)
+                        ),)
+                    )
+                }) {
+                    info!("`distribute_inflation`: Bad/missing input UTxO. Retrying...");
+                    return None;
+                } else {
+                    // For all other errors we discard the order.
+                    error!(
+                        "`distribute_inflation`: TX submit failed on errors: {:?}",
+                        node_errors
+                    );
+                    return None;
+                }
+            }
+            Err(RejectReasons(None)) => {
+                error!("`distribute_inflation`: TX submit failed on UNKNOWN error");
+                return None;
+            }
         }
         retry_in(DEF_DELAY)
     }
