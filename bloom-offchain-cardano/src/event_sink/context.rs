@@ -4,10 +4,11 @@ use type_equalities::IsEqual;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::creds::OperatorCred;
-use spectrum_offchain_cardano::data::dao_request::DAOContext;
+use spectrum_offchain_cardano::data::dao_request::{DAOContext, DAOV1ActionOrderValidation};
 use spectrum_offchain_cardano::data::deposit::DepositOrderValidation;
 use spectrum_offchain_cardano::data::pool::PoolValidation;
 use spectrum_offchain_cardano::data::redeem::RedeemOrderValidation;
+use spectrum_offchain_cardano::data::royalty_withdraw_request::RoyaltyWithdrawOrderValidation;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2, ConstFnFeeSwitchPoolDeposit,
     ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
@@ -79,6 +80,18 @@ impl<I: Copy> Has<LimitOrderValidation> for HandlerContext<I> {
 impl<I: Copy> Has<DepositOrderValidation> for HandlerContext<I> {
     fn select<U: IsEqual<DepositOrderValidation>>(&self) -> DepositOrderValidation {
         self.bounds.deposit_order
+    }
+}
+
+impl<I: Copy> Has<RoyaltyWithdrawOrderValidation> for HandlerContext<I> {
+    fn select<U: IsEqual<RoyaltyWithdrawOrderValidation>>(&self) -> RoyaltyWithdrawOrderValidation {
+        self.bounds.royalty_withdraw
+    }
+}
+
+impl<I: Copy> Has<DAOV1ActionOrderValidation> for HandlerContext<I> {
+    fn select<U: IsEqual<DAOV1ActionOrderValidation>>(&self) -> DAOV1ActionOrderValidation {
+        self.bounds.dao_action
     }
 }
 

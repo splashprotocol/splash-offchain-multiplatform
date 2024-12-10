@@ -29,7 +29,7 @@ use spectrum_offchain::ledger::TryFromLedger;
 #[derive(Copy, Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RoyaltyWithdrawContext {
-    pub execution_fee: u64,
+    pub transaction_fee: u64,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -202,6 +202,12 @@ impl Into<WithdrawData> for RoyaltyWithdraw {
     }
 }
 
+#[derive(Copy, Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoyaltyWithdrawOrderValidation {
+    pub min_ada_in_royalty_output: u64,
+}
+
 pub type OnChainRoyaltyWithdraw = ClassicalOrder<OnChainOrderId, RoyaltyWithdraw>;
 
 impl<Ctx> RequiresValidator<Ctx> for OnChainRoyaltyWithdraw
@@ -223,7 +229,7 @@ impl<Ctx> TryFromLedger<TransactionOutput, Ctx> for OnChainRoyaltyWithdraw
 where
     Ctx: Has<OutputRef>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
-        + Has<DepositOrderValidation>,
+        + Has<RoyaltyWithdrawOrderValidation>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
         if test_address(repr.address(), ctx) {
@@ -242,11 +248,15 @@ where
                 additional_bytes: conf.additional_bytes,
                 requestor_address: repr.address().clone(),
             };
-            return Some(Self {
-                id: OnChainOrderId::from(ctx.select::<OutputRef>()),
-                pool_id: royalty_withdraw.pool_nft,
-                order: royalty_withdraw,
-            });
+            let bounds = ctx.select::<RoyaltyWithdrawOrderValidation>();
+
+            if init_ada_value - conf.fee >= bounds.min_ada_in_royalty_output {
+                return Some(Self {
+                    id: OnChainOrderId::from(ctx.select::<OutputRef>()),
+                    pool_id: royalty_withdraw.pool_nft,
+                    order: royalty_withdraw,
+                });
+            }
         };
         None
     }

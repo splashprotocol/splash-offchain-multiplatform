@@ -513,13 +513,13 @@ where
         + RequiresValidator<Ctx>
         + IntoLedger<TransactionOutput, ImmutablePoolUtxo>
         + RequiresRedeemer<CFMMPoolAction>
-        + Clone,
+        + Copy,
     <Pool as ApplyOrder<Order, Ctx>>::Result: IntoLedger<TransactionOutput, Ctx> + Clone,
     Order: Has<OnChainOrderId> + Clone + Debug,
     Order: Into<CFMMPoolAction>,
     Ctx: Clone + Has<Collateral> + Has<OperatorRewardAddress> + Has<NetworkId>,
 {
-    let Bundled(pool, FinalizedTxOut(pool_utxo, pool_ref)) = pool_bundle.clone();
+    let Bundled(pool, FinalizedTxOut(pool_utxo, pool_ref)) = pool_bundle;
     let Bundled(order, FinalizedTxOut(order_utxo, order_ref)) = order_bundle.clone();
 
     info!(target: "offchain", "Running order {} against pool {}", order_ref, pool_ref);
@@ -540,7 +540,7 @@ where
         action: ClassicalOrderAction::Apply,
     };
 
-    let (next_pool, operation_result_blueprint) = match pool.clone().apply_order(order.clone(), ctx.clone()) {
+    let (next_pool, operation_result_blueprint) = match pool.apply_order(order.clone(), ctx.clone()) {
         Ok(res) => res,
         Err(order_error) => {
             return Err(order_error
@@ -548,14 +548,14 @@ where
                 .into());
         }
     };
-    let pool_out = next_pool.clone().into_ledger(immut_pool);
+    let pool_out = next_pool.into_ledger(immut_pool);
 
     let pool_validator = pool.get_validator(&ctx);
     let pool_script = PartialPlutusWitness::new(
         PlutusScriptWitness::Ref(pool_validator.hash),
         next_pool
             .clone()
-            .redeemer(pool.clone(), pool_in_idx, order.clone().into()),
+            .redeemer(pool, pool_in_idx, order.clone().into()),
     );
 
     let pool_in = SingleInputBuilder::new(pool_ref.into(), pool_utxo.clone())

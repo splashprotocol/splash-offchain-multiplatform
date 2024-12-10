@@ -5,13 +5,8 @@ use crate::data::limit_swap::{ClassicalOnChainLimitSwap, OnChainLimitSwapConfig}
 use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
 use crate::data::pool::CFMMPoolAction::{DAOAction, Swap};
 use crate::data::pool::{CFMMPoolAction, Rx, Ry};
-use crate::data::royalty_withdraw_request::{
-    OnChainRoyaltyWithdraw, RoyaltyWithdraw, RoyaltyWithdrawRequestConfig, WithdrawData,
-};
 use crate::data::{ExecutorFeePerToken, OnChainOrderId, PoolId};
-use crate::deployment::ProtocolValidator::{
-    ConstFnFeeSwitchPoolSwap, RoyaltyPoolDAOV1Request, RoyaltyPoolV1RoyaltyWithdrawRequest,
-};
+use crate::deployment::ProtocolValidator::{ConstFnFeeSwitchPoolSwap, RoyaltyPoolDAOV1Request};
 use crate::deployment::{
     test_address, DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator,
 };
@@ -203,6 +198,12 @@ pub struct DAOV1Request {
     pub lovelace: Lovelace,
 }
 
+#[derive(Copy, Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DAOV1ActionOrderValidation {
+    pub min_collateral_ada: u64,
+}
+
 pub type OnChainDAOActionRequest = ClassicalOrder<OnChainOrderId, DAOV1Request>;
 
 impl Into<CFMMPoolAction> for OnChainDAOActionRequest {
@@ -222,13 +223,18 @@ where
 
 impl<Ctx> TryFromLedger<TransactionOutput, Ctx> for OnChainDAOActionRequest
 where
-    Ctx: Has<OutputRef> + Has<DeployedScriptInfo<{ RoyaltyPoolDAOV1Request as u8 }>>,
+    Ctx: Has<OutputRef>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolDAOV1Request as u8 }>>
+        + Has<DAOV1ActionOrderValidation>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
         if test_address(repr.address(), ctx) {
             let pd = repr.datum().clone()?.into_pd()?;
             let conf = DAORequestConfig::try_from_pd(pd)?;
             let init_ada_value = repr.value().coin;
+            if init_ada_value < conf.fee {
+                return None;
+            }
             let royalty_withdraw = DAOV1Request {
                 dao_action: conf.dao_action,
                 pool_nft: PoolId::try_from(conf.pool_nft).ok()?,
@@ -245,11 +251,16 @@ where
                 fee: conf.fee,
                 lovelace: init_ada_value,
             };
-            return Some(Self {
-                id: OnChainOrderId::from(ctx.select::<OutputRef>()),
-                pool_id: royalty_withdraw.pool_nft,
-                order: royalty_withdraw,
-            });
+
+            let bounds = ctx.select::<DAOV1ActionOrderValidation>();
+
+            if init_ada_value - conf.fee >= bounds.min_collateral_ada {
+                return Some(Self {
+                    id: OnChainOrderId::from(ctx.select::<OutputRef>()),
+                    pool_id: royalty_withdraw.pool_nft,
+                    order: royalty_withdraw,
+                });
+            }
         };
         None
     }

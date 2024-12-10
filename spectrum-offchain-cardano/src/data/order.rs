@@ -23,12 +23,14 @@ use spectrum_offchain::ledger::TryFromLedger;
 use crate::creds::OperatorRewardAddress;
 
 use crate::data::cfmm_pool::ConstFnPool;
-use crate::data::dao_request::{DAOContext, OnChainDAOActionRequest};
+use crate::data::dao_request::{DAOContext, DAOV1ActionOrderValidation, OnChainDAOActionRequest};
 use crate::data::deposit::{ClassicalOnChainDeposit, DepositOrderValidation};
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::pool::try_run_order_against_pool;
 use crate::data::redeem::{ClassicalOnChainRedeem, RedeemOrderValidation};
-use crate::data::royalty_withdraw_request::{OnChainRoyaltyWithdraw, RoyaltyWithdrawContext};
+use crate::data::royalty_withdraw_request::{
+    OnChainRoyaltyWithdraw, RoyaltyWithdrawContext, RoyaltyWithdrawOrderValidation,
+};
 use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2, ConstFnFeeSwitchPoolDeposit,
@@ -189,7 +191,9 @@ where
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolDAOV1Request as u8 }>>
         + Has<DepositOrderValidation>
-        + Has<RedeemOrderValidation>,
+        + Has<RedeemOrderValidation>
+        + Has<RoyaltyWithdrawOrderValidation>
+        + Has<DAOV1ActionOrderValidation>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
         ClassicalOnChainLimitSwap::try_from_ledger(repr, ctx)

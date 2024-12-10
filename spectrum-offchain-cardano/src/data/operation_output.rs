@@ -63,7 +63,9 @@ impl ContexBasedRedeemerCreator {
         })
     }
 
-    pub fn create(f: impl FnOnce(OperationResultContext) -> PlutusData + 'static) -> ContexBasedRedeemerCreator {
+    pub fn create(
+        f: impl FnOnce(OperationResultContext) -> PlutusData + 'static,
+    ) -> ContexBasedRedeemerCreator {
         ContexBasedRedeemerCreator(Box::new(f))
     }
 }

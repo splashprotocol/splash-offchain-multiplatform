@@ -46,7 +46,11 @@ use crate::data::fee_switch_pool::FeeSwitchPoolConfig;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::operation_output::DaoActionResult::{RequestorOutput, TreasuryWithdraw};
 use crate::data::operation_output::OperationResultOutputs::SingleOutput;
-use crate::data::operation_output::{ContexBasedRedeemerCreator, DaoActionResult, DaoRequestorOutput, DepositOutput, OperationResultBlueprint, OperationResultContext, OperationResultOutputs, RedeemOutput, RoyaltyWithdrawOutput, SwapOutput, TreasuryWithdrawOutput};
+use crate::data::operation_output::{
+    ContexBasedRedeemerCreator, DaoActionResult, DaoRequestorOutput, DepositOutput, OperationResultBlueprint,
+    OperationResultContext, OperationResultOutputs, RedeemOutput, RoyaltyWithdrawOutput, SwapOutput,
+    TreasuryWithdrawOutput,
+};
 use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
 use crate::data::pair::order_canonical;
 use crate::data::pool::{
@@ -641,7 +645,8 @@ where
                     let sufficient_lovelace = conf.asset_x.is_native()
                         || conf.asset_y.is_native()
                         || bounds.min_t2t_lovelace <= lov;
-                    if non_empty_reserves && sufficient_lovelace {
+                    let enough_reserves = reserves_x > conf.treasury_x && reserves_y > conf.treasury_y;
+                    if non_empty_reserves && sufficient_lovelace && enough_reserves {
                         return Some(ConstFnPool {
                             id: PoolId::try_from(conf.pool_nft).ok()?,
                             reserves_x: TaggedAmount::new(reserves_x),
@@ -682,7 +687,8 @@ where
                     let sufficient_lovelace = conf.asset_x.is_native()
                         || conf.asset_y.is_native()
                         || bounds.min_t2t_lovelace <= lov;
-                    if non_empty_reserves && sufficient_lovelace {
+                    let enough_reserves = reserves_x > conf.treasury_x && reserves_y > conf.treasury_y;
+                    if non_empty_reserves && sufficient_lovelace && enough_reserves {
                         return Some(ConstFnPool {
                             id: PoolId::try_from(conf.pool_nft).ok()?,
                             reserves_x: TaggedAmount::new(reserves_x),
@@ -723,7 +729,9 @@ where
                     let sufficient_lovelace = conf.asset_x.is_native()
                         || conf.asset_y.is_native()
                         || bounds.min_t2t_lovelace <= lov;
-                    if non_empty_reserves && sufficient_lovelace {
+                    let enough_reserves = reserves_x > (conf.treasury_x + conf.royalty_x)
+                        && reserves_y > (conf.treasury_y + conf.royalty_y);
+                    if non_empty_reserves && sufficient_lovelace && enough_reserves {
                         return Some(ConstFnPool {
                             id: PoolId::try_from(conf.pool_nft).ok()?,
                             reserves_x: TaggedAmount::new(reserves_x),
@@ -1156,7 +1164,7 @@ where
                 }),
             )),
             order_script_validator: order_validator,
-            strict_fee: Some(royalty_withdraw_context.execution_fee),
+            strict_fee: Some(royalty_withdraw_context.transaction_fee),
         };
 
         Ok((self, blueprint))
