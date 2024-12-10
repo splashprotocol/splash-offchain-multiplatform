@@ -7,6 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_stream::stream;
 use bloom_offchain::execution_engine::bundled::Bundled;
+use bloom_offchain::execution_engine::liquidity_book::core::Trans;
 use bloom_offchain_cardano::event_sink::processed_tx::TxViewMut;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cml_chain::plutus::{PlutusData, PlutusScript, PlutusV2Script};
@@ -24,7 +25,7 @@ use pallas_network::miniprotocols::localtxsubmission::cardano_node_errors::{
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::{AssetName, NetworkId, OutputRef};
 use spectrum_offchain::backlog::ResilientBacklog;
-use spectrum_offchain::circular_filter::CircularFilter;
+use spectrum_offchain::data::circular_filter::CircularFilter;
 use spectrum_offchain::domain::event::{AnyMod, Confirmed, Predicted, Traced, Unconfirmed};
 use spectrum_offchain::domain::order::PendingOrder;
 use spectrum_offchain::domain::{EntitySnapshot, Has};
@@ -639,10 +640,11 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                     )
                     .await;
                 let prover = OperatorProver::new(self.conf.operator_sk.clone());
-                let tx = prover.prove(signed_tx);
+                let outbound_tx = prover.prove(signed_tx);
+                let tx = Transaction::from(outbound_tx.clone());
                 let tx_hash = tx.body.hash();
                 info!("`create_wpoll`: submitting TX (hash: {})", tx_hash);
-                match self.network.submit_tx(tx).await {
+                match self.network.submit_tx(outbound_tx).await {
                     Ok(()) => {
                         info!("`create_wpoll`: TX submission SUCCESS");
                         self.inflation_box.write_predicted(next_inflation_box).await;
@@ -713,10 +715,11 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
             {
                 Ok((signed_tx, next_wpoll, next_ve)) => {
                     let prover = OperatorProver::new(self.conf.operator_sk.clone());
-                    let tx = prover.prove(signed_tx);
+                    let outbound_tx = prover.prove(signed_tx);
+                    let tx = Transaction::from(outbound_tx.clone());
                     let tx_hash = tx.body.hash();
                     info!("`execute_order`: submitting TX (hash: {})", tx_hash);
-                    match self.network.submit_tx(tx).await {
+                    match self.network.submit_tx(outbound_tx).await {
                         Ok(()) => {
                             info!("`execute_order`: TX submission SUCCESS");
                             self.weighting_poll.write_predicted(next_wpoll).await;
@@ -797,10 +800,11 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
             )
             .await;
         let prover = OperatorProver::new(self.conf.operator_sk.clone());
-        let tx = prover.prove(signed_tx);
+        let outbound_tx = prover.prove(signed_tx);
+        let tx = Transaction::from(outbound_tx.clone());
         let tx_hash = tx.body.hash();
         info!("`distribute_inflation`: submitting TX (hash: {})", tx_hash);
-        match self.network.submit_tx(tx).await {
+        match self.network.submit_tx(outbound_tx).await {
             Ok(()) => {
                 info!("`distribute_inflation`: TX submission SUCCESS");
                 self.weighting_poll.write_predicted(next_wpoll).await;
@@ -874,9 +878,10 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
                     .eliminate_wpoll(weighting_poll, funding_boxes, Slot(self.current_slot))
                     .await;
                 let prover = OperatorProver::new(self.conf.operator_sk.clone());
-                let tx = prover.prove(signed_tx);
+                let outbound_tx = prover.prove(signed_tx);
+                let tx = Transaction::from(outbound_tx.clone());
                 let tx_hash = tx.body.hash();
-                self.network.submit_tx(tx).await.unwrap();
+                self.network.submit_tx(outbound_tx).await.unwrap();
                 info!(
                     "Eliminating wpoll @ epoch {} SUCCESS (tx hash: {})",
                     epoch, tx_hash

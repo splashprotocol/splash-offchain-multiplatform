@@ -29,6 +29,10 @@
     "nanos": 0
   },
   "batcherPrivateKey": "",
+  "eventCacheTtl": {
+    "secs": 120,
+    "nanos": 0
+  },
   "genesisStartTime": 1723349688000,
   "orderBacklogConfig": { "db_path": "tmp/backlog" },
   "inflationBoxPersistenceConfig": { "db_path": "tmp/inflation" },

@@ -27,16 +27,27 @@ use cml_chain::{
 use cml_crypto::{Bip32PrivateKey, TransactionHash};
 use cml_multi_era::babbage::BabbageTransaction;
 use config::AppConfig;
-use futures::{stream::select_all, FutureExt, Stream, StreamExt};
+use futures::{
+    channel::mpsc,
+    stream::{select_all, FuturesUnordered},
+    FutureExt, Stream, StreamExt,
+};
 use spectrum_cardano_lib::{
-    constants::BABBAGE_ERA_ID, hash::hash_transaction_canonical, output::FinalizedTxOut,
-    transaction::OutboundTransaction, NetworkId,
+    constants::{BABBAGE_ERA_ID, CONWAY_ERA_ID, SAFE_BLOCK_TIME},
+    hash::hash_transaction_canonical,
+    output::FinalizedTxOut,
+    transaction::OutboundTransaction,
+    NetworkId,
 };
 use spectrum_offchain::{
     backlog::{persistence::BacklogStoreRocksDB, BacklogConfig, PersistentPriorityBacklog},
-    event_sink::{event_handler::EventHandler, process_events},
+    event_sink::{
+        event_handler::{forward_to, EventHandler},
+        process_events,
+    },
     rocks::RocksConfig,
-    streaming::boxed,
+    streaming::{boxed, run_stream},
+    tx_tracker::new_tx_tracker_bundle,
 };
 use spectrum_offchain_cardano::{
     creds::{operator_creds, operator_creds_base_address},
@@ -101,8 +112,20 @@ async fn main() {
     .expect("ChainSync initialization failed");
 
     // n2c clients:
+    let (failed_txs_snd, mut failed_txs_recv) =
+        mpsc::channel::<Transaction>(config.tx_submission_buffer_size);
+    let (confirmed_txs_snd, confirmed_txs_recv) =
+        mpsc::channel::<(TransactionHash, u64)>(config.tx_submission_buffer_size);
+    let max_confirmation_delay_blocks = config.event_cache_ttl.as_secs() / SAFE_BLOCK_TIME.as_secs();
+    let (tx_tracker_agent, tx_tracker_channel) = new_tx_tracker_bundle(
+        confirmed_txs_recv,
+        failed_txs_snd,
+        config.tx_submission_buffer_size,
+        max_confirmation_delay_blocks,
+    );
     let (tx_submission_agent, tx_submission_channel) =
-        TxSubmissionAgent::<BABBAGE_ERA_ID, OutboundTransaction<Transaction>, Transaction>::new(
+        TxSubmissionAgent::<CONWAY_ERA_ID, OutboundTransaction<Transaction>, Transaction, _>::new(
+            tx_tracker_channel,
             config.node,
             config.tx_submission_buffer_size,
         )
@@ -121,13 +144,23 @@ async fn main() {
     ))
     .await
     .map(|ev| match ev {
-        LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
+        LedgerTxEvent::TxApplied {
+            tx,
+            slot,
+            block_number,
+        } => LedgerTxEvent::TxApplied {
             tx: TxViewMut::from(tx),
             slot,
+            block_number,
         },
-        LedgerTxEvent::TxUnapplied { tx, slot } => LedgerTxEvent::TxUnapplied {
+        LedgerTxEvent::TxUnapplied {
+            tx,
+            slot,
+            block_number,
+        } => LedgerTxEvent::TxUnapplied {
             tx: TxViewMut::from(tx),
             slot,
+            block_number,
         },
     });
 
@@ -198,18 +231,39 @@ async fn main() {
         signal_tip_reached_recv,
     );
 
-    let handlers: Vec<Box<dyn EventHandler<LedgerTxEvent<TxViewMut>> + Send>> =
-        vec![Box::new(DaoHandler::new(ledger_event_snd))];
+    let handlers: Vec<Box<dyn EventHandler<LedgerTxEvent<TxViewMut>> + Send>> = vec![
+        Box::new(DaoHandler::new(ledger_event_snd)),
+        Box::new(forward_to(confirmed_txs_snd, succinct_tx)),
+    ];
     let process_ledger_events_stream = process_events(ledger_stream, handlers);
 
-    let mut app = select_all(vec![
-        boxed(process_ledger_events_stream),
-        boxed(behaviour.as_stream()),
-        boxed(tx_submission_stream),
-    ]);
-    loop {
-        app.select_next_some().await;
-    }
+    let processes = FuturesUnordered::new();
+
+    let process_ledger_events_stream_handle = tokio::spawn(run_stream(process_ledger_events_stream));
+    processes.push(process_ledger_events_stream_handle);
+
+    let behaviour_stream_handle = tokio::spawn(async move {
+        behaviour.as_stream().collect::<Vec<_>>().await;
+    });
+    processes.push(behaviour_stream_handle);
+
+    let tx_submission_stream_handle = tokio::spawn(run_stream(tx_submission_stream));
+    processes.push(tx_submission_stream_handle);
+
+    let tx_tracker_handle = tokio::spawn(tx_tracker_agent.run());
+    processes.push(tx_tracker_handle);
+
+    // This bot doesn't need to watch mempool, so just consume failed TXs here.
+    let recv_failed_txs_handle = tokio::spawn(async move { while failed_txs_recv.next().await.is_some() {} });
+    processes.push(recv_failed_txs_handle);
+
+    let default_panic = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        default_panic(info);
+        std::process::exit(1);
+    }));
+
+    run_stream(processes).await;
 }
 
 async fn handle_put(
@@ -237,6 +291,12 @@ async fn handle_put(
         },
         Err(_err) => (StatusCode::UNPROCESSABLE_ENTITY, "Unknown error".into()),
     }
+}
+
+fn succinct_tx(tx: LedgerTxEvent<TxViewMut>) -> (TransactionHash, u64) {
+    let (LedgerTxEvent::TxApplied { tx, block_number, .. }
+    | LedgerTxEvent::TxUnapplied { tx, block_number, .. }) = tx;
+    (tx.hash, block_number)
 }
 
 #[derive(Clone)]
@@ -275,11 +335,3 @@ struct AppArgs {
 }
 
 pub type ProcessingTransaction = (TransactionHash, BabbageTransaction);
-
-//fn receiver_as_stream<T>(rcv: tokio::sync::mpsc::Receiver<T>) -> impl Stream<Item = T> {
-//    stream! {
-//        loop {
-//            match rcv.
-//        }
-//    }
-//}

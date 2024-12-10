@@ -196,10 +196,10 @@ async fn deploy<'a>(op_inputs: &mut OperationInputs, config: AppConfig<'a>) -> C
             addr,
             explorer.chain_tip_slot_number().await.unwrap(),
         );
-        let tx = prover.prove(signed_tx_builder);
-        let tx_hash = TransactionHash::from_hex(&tx.deref().body.hash().to_hex()).unwrap();
+        let tx = Transaction::from(prover.prove(signed_tx_builder));
+        let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
         println!("tx_hash: {}", tx_hash.to_hex());
-        let tx_bytes = tx.deref().to_cbor_bytes();
+        let tx_bytes = tx.to_cbor_bytes();
         println!("tx_bytes: {}", hex::encode(&tx_bytes));
 
         explorer.submit_tx(&tx_bytes).await.unwrap();
@@ -222,10 +222,10 @@ async fn deploy<'a>(op_inputs: &mut OperationInputs, config: AppConfig<'a>) -> C
             &addr,
             explorer.chain_tip_slot_number().await.unwrap(),
         );
-        let tx = prover.prove(signed_tx_builder);
-        let tx_hash = TransactionHash::from_hex(&tx.deref().body.hash().to_hex()).unwrap();
+        let tx = Transaction::from(prover.prove(signed_tx_builder));
+        let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
         println!("tx_hash: {}", tx_hash.to_hex());
-        let tx_bytes = tx.deref().to_cbor_bytes();
+        let tx_bytes = tx.to_cbor_bytes();
         println!("tx_bytes: {}", hex::encode(&tx_bytes));
 
         explorer.submit_tx(&tx_bytes).await.unwrap();
@@ -248,10 +248,10 @@ async fn deploy<'a>(op_inputs: &mut OperationInputs, config: AppConfig<'a>) -> C
         let input_result = get_largest_utxo(explorer, addr).await;
         println!("input ADA: {}", input_result.utxo_info.amount().coin);
         let signed_tx_builder = mint_token::create_minting_tx_inputs(input_result, &addr);
-        let tx = prover.prove(signed_tx_builder);
-        let tx_hash = TransactionHash::from_hex(&tx.deref().body.hash().to_hex()).unwrap();
+        let tx = Transaction::from(prover.prove(signed_tx_builder));
+        let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
         println!("tx_hash: {:?}", tx_hash);
-        let tx_bytes = tx.deref().to_cbor_bytes();
+        let tx_bytes = tx.to_cbor_bytes();
         println!("tx_bytes: {}", hex::encode(&tx_bytes));
 
         explorer.submit_tx(&tx_bytes).await.unwrap();
@@ -289,10 +289,10 @@ async fn deploy<'a>(op_inputs: &mut OperationInputs, config: AppConfig<'a>) -> C
             .collect();
         let (signed_tx_builder, minted_tokens) =
             mint_token::mint_deployment_tokens(inputs, &addr, pk_hash, collateral.clone());
-        let tx = prover.prove(signed_tx_builder);
-        let tx_hash = TransactionHash::from_hex(&tx.deref().body.hash().to_hex()).unwrap();
+        let tx = Transaction::from(prover.prove(signed_tx_builder));
+        let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
         println!("tx_hash: {:?}", tx_hash);
-        let tx_bytes = tx.deref().to_cbor_bytes();
+        let tx_bytes = tx.to_cbor_bytes();
         println!("tx_bytes: {}", hex::encode(&tx_bytes));
 
         explorer.submit_tx(&tx_bytes).await.unwrap();
@@ -455,10 +455,10 @@ async fn deploy_dao_reference_inputs(
     let input_result = get_largest_utxo(explorer, addr).await;
     tx_builder.add_input(input_result).unwrap();
     let signed_tx_builder = tx_builder.build(ChangeSelectionAlgo::Default, addr).unwrap();
-    let tx = prover.prove(signed_tx_builder);
-    let tx_hash = TransactionHash::from_hex(&tx.deref().body.hash().to_hex()).unwrap();
+    let tx = Transaction::from(prover.prove(signed_tx_builder));
+    let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
     println!("tx_hash: {:?}", tx_hash);
-    let tx_bytes = tx.deref().to_cbor_bytes();
+    let tx_bytes = tx.to_cbor_bytes();
     println!("tx_bytes: {}", hex::encode(&tx_bytes));
 
     explorer.submit_tx(&tx_bytes).await.unwrap();
@@ -715,10 +715,10 @@ async fn create_dao_entities(
     tx_builder.add_output(change_output_output).unwrap();
 
     let signed_tx_builder = tx_builder.build(ChangeSelectionAlgo::Default, addr).unwrap();
-    let tx = prover.prove(signed_tx_builder);
-    let tx_hash = TransactionHash::from_hex(&tx.deref().body.hash().to_hex()).unwrap();
+    let tx = Transaction::from(prover.prove(signed_tx_builder));
+    let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
     println!("tx_hash: {:?}", tx_hash);
-    let tx_bytes = tx.deref().to_cbor_bytes();
+    let tx_bytes = tx.to_cbor_bytes();
     println!("tx_bytes: {}", hex::encode(&tx_bytes));
 
     explorer.submit_tx(&tx_bytes).await.unwrap();
@@ -983,10 +983,10 @@ async fn make_voting_escrow(
     tx_builder.set_ttl(start_slot + 300);
 
     let signed_tx_builder = tx_builder.build(ChangeSelectionAlgo::Default, addr).unwrap();
-    let tx = prover.prove(signed_tx_builder);
-    let tx_hash = TransactionHash::from_hex(&tx.deref().body.hash().to_hex()).unwrap();
+    let tx = Transaction::from(prover.prove(signed_tx_builder));
+    let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
     println!("tx_hash: {:?}", tx_hash);
-    let tx_bytes = tx.deref().to_cbor_bytes();
+    let tx_bytes = tx.to_cbor_bytes();
     println!("tx_bytes: {}", hex::encode(&tx_bytes));
 
     explorer.submit_tx(&tx_bytes).await.unwrap();
@@ -1181,10 +1181,10 @@ async fn create_initial_farms(op_inputs: &OperationInputs) {
     tx_builder.add_output(change_output).unwrap();
 
     let signed_tx_builder = tx_builder.build(ChangeSelectionAlgo::Default, addr).unwrap();
-    let tx = prover.prove(signed_tx_builder);
-    let tx_hash = TransactionHash::from_hex(&tx.deref().body.hash().to_hex()).unwrap();
+    let tx = Transaction::from(prover.prove(signed_tx_builder));
+    let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
     println!("tx_hash: {:?}", tx_hash);
-    let tx_bytes = tx.deref().to_cbor_bytes();
+    let tx_bytes = tx.to_cbor_bytes();
     println!("tx_bytes: {}", hex::encode(&tx_bytes));
 
     explorer.submit_tx(&tx_bytes).await.unwrap();
