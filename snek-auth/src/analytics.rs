@@ -28,18 +28,12 @@ impl From<String> for LaunchType {
 #[serde(rename_all = "camelCase")]
 struct PoolInfo {
     launch_type: LaunchType,
-}
-
-#[derive(serde::Deserialize, serde::Serialize, Debug, Copy, Clone)]
-#[serde(rename_all = "camelCase")]
-struct MetricsResponse {
-    created_on: u64,
+    created_on: u64
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Copy, Clone)]
 struct PoolResponse {
-    pool: PoolInfo,
-    metrics: MetricsResponse,
+    pool: PoolInfo
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -83,7 +77,7 @@ impl Analytics {
 
                 Ok(TokenPoolInfo {
                     launch_type: parsed_pool_info.pool.launch_type,
-                    created_on: Duration::from_secs(parsed_pool_info.metrics.created_on),
+                    created_on: Duration::from_secs(parsed_pool_info.pool.created_on),
                 })
             })
         })
