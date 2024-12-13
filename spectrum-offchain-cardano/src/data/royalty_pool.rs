@@ -110,7 +110,7 @@ mod tests {
     use crate::data::order::Order::RoyaltyWithdraw;
     use crate::data::pool::{AnyPool, PoolValidation};
     use crate::data::royalty_pool::RoyaltyPoolConfig;
-    use crate::data::royalty_withdraw_request::OnChainRoyaltyWithdraw;
+    use crate::data::royalty_withdraw_request::{OnChainRoyaltyWithdraw, RoyaltyWithdrawOrderValidation};
     use crate::deployment::ProtocolValidator::{
         ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolV1,
         ConstFnPoolV2, LimitOrderV1, RoyaltyPoolV1, RoyaltyPoolV1RoyaltyWithdrawRequest,
@@ -140,6 +140,7 @@ mod tests {
         consumed_identifiers: ConsumedIdentifiers<Token>,
         produced_identifiers: ProducedIdentifiers<Token>,
         pool_validation: PoolValidation,
+        royalty_validation: RoyaltyWithdrawOrderValidation,
     }
 
     impl Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>> for Context {
@@ -204,6 +205,12 @@ mod tests {
         }
     }
 
+    impl Has<RoyaltyWithdrawOrderValidation> for Context {
+        fn select<U: IsEqual<RoyaltyWithdrawOrderValidation>>(&self) -> RoyaltyWithdrawOrderValidation {
+            self.royalty_validation
+        }
+    }
+
     impl Has<PoolValidation> for Context {
         fn select<U: IsEqual<PoolValidation>>(&self) -> PoolValidation {
             self.pool_validation
@@ -222,6 +229,9 @@ mod tests {
         let deployment: DeployedValidators =
             serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
         let scripts = ProtocolScriptHashes::from(&deployment);
+        let royalty_withdraw_validation = RoyaltyWithdrawOrderValidation {
+            min_ada_in_royalty_output: 1_000_000,
+        };
         let ctx = Context {
             oref,
             royalty_pool: scripts.royalty_pool_v1,
@@ -239,6 +249,7 @@ mod tests {
                 min_n2t_lovelace: 10,
                 min_t2t_lovelace: 10,
             },
+            royalty_validation: royalty_withdraw_validation,
         };
         let bearer = TransactionOutput::from_cbor_bytes(&*hex::decode(POOL_UTXO).unwrap()).unwrap();
         let pool = OnChainRoyaltyWithdraw::try_from_ledger(&bearer, &ctx);

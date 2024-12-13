@@ -311,8 +311,7 @@ impl IntoPlutusData for DaoRequestDataToSign {
 
 #[cfg(test)]
 mod tests {
-
-    use crate::data::dao_request::OnChainDAOActionRequest;
+    use crate::data::dao_request::{DAOV1ActionOrderValidation, OnChainDAOActionRequest};
     use crate::data::pool::PoolValidation;
     use crate::deployment::ProtocolValidator::RoyaltyPoolDAOV1Request;
     use crate::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
@@ -320,7 +319,7 @@ mod tests {
     use cml_core::serialization::Deserialize;
     use cml_crypto::TransactionHash;
     use spectrum_cardano_lib::OutputRef;
-    use spectrum_offchain::data::Has;
+    use spectrum_offchain::domain::Has;
     use spectrum_offchain::ledger::TryFromLedger;
     use type_equalities::IsEqual;
 
@@ -330,6 +329,7 @@ mod tests {
         bounds: PoolValidation,
         scripts: ProtocolScriptHashes,
         output_ref: OutputRef,
+        dao_validation: DAOV1ActionOrderValidation,
     }
 
     impl Has<DeployedScriptInfo<{ RoyaltyPoolDAOV1Request as u8 }>> for Ctx {
@@ -337,6 +337,12 @@ mod tests {
             &self,
         ) -> DeployedScriptInfo<{ RoyaltyPoolDAOV1Request as u8 }> {
             self.scripts.royalty_pool_dao_request
+        }
+    }
+
+    impl Has<DAOV1ActionOrderValidation> for Ctx {
+        fn select<U: IsEqual<DAOV1ActionOrderValidation>>(&self) -> DAOV1ActionOrderValidation {
+            self.dao_validation
         }
     }
 
@@ -352,6 +358,10 @@ mod tests {
         let deployment: DeployedValidators =
             serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
         let scripts = ProtocolScriptHashes::from(&deployment);
+        let dao_validation = DAOV1ActionOrderValidation {
+            min_collateral_ada: 1_500_000,
+        };
+
         let ctx = Ctx {
             scripts,
             bounds: PoolValidation {
@@ -363,6 +373,7 @@ mod tests {
                     .unwrap(),
                 0,
             ),
+            dao_validation,
         };
         let bearer = TransactionOutput::from_cbor_bytes(&*hex::decode(ORDER_UTXO).unwrap()).unwrap();
         let order = OnChainDAOActionRequest::try_from_ledger(&bearer, &ctx);

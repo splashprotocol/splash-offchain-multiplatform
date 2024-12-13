@@ -1404,7 +1404,9 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
     use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
     use spectrum_cardano_lib::ex_units::ExUnits;
-    use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass, Token};
+    use spectrum_cardano_lib::{
+        AssetClass, AssetName, Ed25519PublicKey, TaggedAmount, TaggedAssetClass, Token,
+    };
     use spectrum_offchain::domain::Has;
     use spectrum_offchain::ledger::TryFromLedger;
 
@@ -1482,7 +1484,7 @@ mod tests {
             lq_lower_bound: TaggedAmount::new(0),
             admin_address: ScriptHash::from([0; 28]),
             treasury_address: ScriptHash::from([0; 28]),
-            royalty_pub_key: [0; 32],
+            royalty_pub_key: Ed25519PublicKey::from([0; 32]),
             ver: ConstFnPoolVer::FeeSwitch,
             marginal_cost: ExUnits { mem: 100, steps: 100 },
             bounds: PoolValidation {
