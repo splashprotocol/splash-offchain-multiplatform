@@ -28,12 +28,12 @@ impl From<String> for LaunchType {
 #[serde(rename_all = "camelCase")]
 struct PoolInfo {
     launch_type: LaunchType,
-    created_on: u64
+    created_on: u64,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Copy, Clone)]
 struct PoolResponse {
-    pool: PoolInfo
+    pool: PoolInfo,
 }
 
 #[derive(Copy, Clone, Debug)]

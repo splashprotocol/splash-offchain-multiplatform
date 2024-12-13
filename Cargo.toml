@@ -21,6 +21,7 @@ members = [
     "splash-dao-offchain",
     "spectrum-streaming",
     "engine-telemetry",
+    "splash-lp-indexer",
 ]
 
 [profile.release]

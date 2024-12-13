@@ -14,6 +14,7 @@ pub mod partitioning;
 pub mod reporting;
 pub mod rocks;
 pub mod streaming;
+pub mod sink;
 pub mod tracing;
 pub mod tx_hash;
 pub mod tx_prover;

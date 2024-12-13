@@ -28,6 +28,7 @@ use spectrum_offchain::domain::Tradable;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain::partitioning::Partitioned;
+use spectrum_offchain::sink::{BatchSinkExt, KeyedBatchSinkExt};
 use spectrum_offchain_cardano::funding::FundingAddresses;
 use tokio::sync::{Mutex, MutexGuard};
 
@@ -213,10 +214,7 @@ where
         for (pt, events) in events_by_part {
             let num_updates = events.len();
             let topic = self.topic.get_by_id_mut(pt);
-            for event in events {
-                topic.feed(event).await.expect("Channel is closed");
-            }
-            topic.flush().await.expect("Failed to commit updates");
+            topic.batch_send(events).await.expect("Failed to submit updates");
             trace!("{} funding events from ledger were commited", num_updates);
         }
         remainder
@@ -295,10 +293,7 @@ where
         for (pt, events) in events_by_part {
             let num_updates = events.len();
             let topic = self.topic.get_by_id_mut(pt);
-            for event in events {
-                topic.feed(event).await.expect("Channel is closed");
-            }
-            topic.flush().await.expect("Failed to commit updates");
+            topic.batch_send(events).await.expect("Failed to submit updates");
             trace!("{} funding events from mempool were commited", num_updates);
         }
         remainder
@@ -475,10 +470,10 @@ where
         for (pair, updates_by_pair) in updates {
             let num_updates = updates_by_pair.len();
             let topic = self.general_handler.topic.get_mut(pair);
-            for upd in updates_by_pair {
-                topic.feed((pair, upd)).await.expect("Channel is closed");
-            }
-            topic.flush().await.expect("Failed to commit updates");
+            topic
+                .batch_send_by_key(pair, updates_by_pair)
+                .await
+                .expect("Failed to submit updates");
             trace!("{} special updates commited", num_updates);
         }
         remainder
@@ -584,10 +579,10 @@ where
         for (pair, updates_by_pair) in updates {
             let num_updates = updates_by_pair.len();
             let topic = self.general_handler.topic.get_mut(pair);
-            for upd in updates_by_pair {
-                topic.feed((pair, upd)).await.expect("Channel is closed");
-            }
-            topic.flush().await.expect("Failed to commit updates");
+            topic
+                .batch_send_by_key(pair, updates_by_pair)
+                .await
+                .expect("Failed to submit updates");
             trace!("{} special mempool updates commited", num_updates);
         }
         remainder
@@ -864,10 +859,10 @@ where
         for (pair, updates_by_pair) in updates {
             let num_updates = updates_by_pair.len();
             let topic = self.topic.get_mut(pair);
-            for upd in updates_by_pair {
-                topic.feed((pair, upd)).await.expect("Channel is closed");
-            }
-            topic.flush().await.expect("Failed to commit updates");
+            topic
+                .batch_send_by_key(pair, updates_by_pair)
+                .await
+                .expect("Failed to submit updates");
             trace!("{} updates commited", num_updates);
         }
         remainder
@@ -948,10 +943,10 @@ where
         for (pair, updates_by_pair) in updates {
             let num_updates = updates_by_pair.len();
             let topic = self.topic.get_mut(pair);
-            for upd in updates_by_pair {
-                topic.feed((pair, upd)).await.expect("Channel is closed");
-            }
-            topic.flush().await.expect("Failed to commit updates");
+            topic
+                .batch_send_by_key(pair, updates_by_pair)
+                .await
+                .expect("Failed to submit updates");
             trace!("{} mempool updates commited", num_updates);
         }
         remainder
