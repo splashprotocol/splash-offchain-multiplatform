@@ -24,6 +24,7 @@ members = [
     "engine-telemetry",
     "splash-mempool-proxy",
     "graphite",
+    "splash-lp-indexer",
 ]
 
 [profile.release]

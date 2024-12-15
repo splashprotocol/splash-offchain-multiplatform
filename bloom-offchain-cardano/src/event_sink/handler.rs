@@ -8,7 +8,7 @@ use std::sync::Arc;
 use crate::event_sink::context::EventContext;
 use crate::event_sink::entity_index::TradableEntityIndex;
 use crate::event_sink::order_index::KvIndex;
-use crate::event_sink::processed_tx::TxViewMut;
+use crate::event_sink::tx_view::TxViewMut;
 use async_trait::async_trait;
 use bloom_offchain::execution_engine::funding_effect::FundingEvent;
 use cardano_chain_sync::data::LedgerTxEvent;

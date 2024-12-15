@@ -348,6 +348,7 @@ impl MarketMaker for AnyPool {
             StableCFMM(p) => p.liquidity(),
         }
     }
+
     fn available_liquidity_on_side(&self, worst_price: OnSide<AbsolutePrice>) -> Option<AvailableLiquidity> {
         match self {
             PureCFMM(p) => p.available_liquidity_on_side(worst_price),
