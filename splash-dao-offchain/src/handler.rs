@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use bloom_offchain_cardano::event_sink::processed_tx::TxViewMut;
+use bloom_offchain_cardano::event_sink::tx_view::TxViewMut;
 use cardano_chain_sync::data::LedgerTxEvent;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 
