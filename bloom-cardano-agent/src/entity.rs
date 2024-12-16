@@ -10,23 +10,27 @@ use spectrum_offchain::domain::order::SpecializedOrder;
 use spectrum_offchain::domain::{Baked, EntitySnapshot, Has, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::creds::OperatorCred;
+use spectrum_offchain_cardano::data::dao_request::DAOV1ActionOrderValidation;
 use spectrum_offchain_cardano::data::deposit::DepositOrderValidation;
-use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
+use spectrum_offchain_cardano::data::order::Order;
 use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::data::pool::{AnyPool, PoolValidation};
 use spectrum_offchain_cardano::data::redeem::RedeemOrderValidation;
+use spectrum_offchain_cardano::data::royalty_withdraw_request::RoyaltyWithdrawOrderValidation;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2, ConstFnFeeSwitchPoolDeposit,
     ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
     ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1,
-    ConstFnPoolV2, LimitOrderV1, StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
+    ConstFnPoolV2, LimitOrderV1, RoyaltyPoolDAOV1Request, RoyaltyPoolV1, RoyaltyPoolV1Deposit,
+    RoyaltyPoolV1Redeem, RoyaltyPoolV1RoyaltyWithdrawRequest, StableFnPoolT2T, StableFnPoolT2TDeposit,
+    StableFnPoolT2TRedeem,
 };
 use spectrum_offchain_cardano::handler_context::{ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers};
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
-pub struct AtomicCardanoEntity(pub Bundled<ClassicalAMMOrder, FinalizedTxOut>);
+pub struct AtomicCardanoEntity(pub Bundled<Order, FinalizedTxOut>);
 
 impl SpecializedOrder for AtomicCardanoEntity {
     type TOrderId = OutputRef;
@@ -56,11 +60,17 @@ where
         + Has<DeployedScriptInfo<{ BalanceFnPoolRedeem as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2TDeposit as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2TRedeem as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV1Deposit as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV1Redeem as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolDAOV1Request as u8 }>>
         + Has<DepositOrderValidation>
-        + Has<RedeemOrderValidation>,
+        + Has<RedeemOrderValidation>
+        + Has<RoyaltyWithdrawOrderValidation>
+        + Has<DAOV1ActionOrderValidation>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
-        ClassicalAMMOrder::try_from_ledger(repr, ctx).map(|inner| {
+        Order::try_from_ledger(repr, ctx).map(|inner| {
             Self(Bundled(
                 inner,
                 FinalizedTxOut::new(repr.clone(), ctx.select::<OutputRef>()),
@@ -114,6 +124,7 @@ where
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
         + Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
         + Has<LimitOrderValidation>

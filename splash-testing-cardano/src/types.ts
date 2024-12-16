@@ -1,4 +1,4 @@
-import { PolicyId, Script, UTxO, Unit } from "https://deno.land/x/lucid@0.10.7/mod.ts";
+import { PolicyId, Script, UTxO, Unit } from "@lucid-evolution/lucid";
 
 export type PubKeyHash = string
 
@@ -30,6 +30,6 @@ export type DeployedValidator = BuiltValidator & {
     referenceUtxo: UTxO;
 };
 
-export type ScriptNames = "limitOrder" | "limitOrderWitness" | "gridOrderNative"; //"limitOrder" | "limitOrderWitness" | "gridOrderNative" | "balancePool" | "balanceDeposit" | "balanceRedeem" | "stablePoolT2T" | "stableDeposit" | "stableRedeem";
+export type ScriptNames = "limitOrder" | "limitOrderWitness" | "gridOrderNative" | "royaltyPool" | "royaltyWithdrawRequest" | "royaltyWithdrawPool" | "royaltyDeposit" | "royaltyRedeem" | "royaltyDAOV1Pool" | "royaltyDAOV1Request" | "factory"; //"limitOrder" | "limitOrderWitness" | "gridOrderNative" | "balancePool" | "balanceDeposit" | "balanceRedeem" | "stablePoolT2T" | "stableDeposit" | "stableRedeem";
 export type BuiltValidators = Record<ScriptNames, BuiltValidator>;
 export type DeployedValidators = Record<ScriptNames, DeployedValidator>;

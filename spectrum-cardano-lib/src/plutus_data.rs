@@ -2,10 +2,12 @@ use std::mem;
 use std::ops::Deref;
 use std::str::FromStr;
 
+use cml_chain::plutus::utils::ConstrPlutusDataEncoding;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::DatumOption;
 use cml_chain::utils::BigInteger;
 use cml_core::serialization::LenEncoding;
+use cml_core::serialization::LenEncoding::{Canonical, Indefinite};
 use num_rational::Ratio;
 use primitive_types::U512;
 
@@ -19,9 +21,24 @@ impl IntoPlutusData for u64 {
     }
 }
 
+impl IntoPlutusData for i64 {
+    fn into_pd(self) -> PlutusData {
+        PlutusData::Integer(BigInteger::from(self))
+    }
+}
+
 impl IntoPlutusData for u128 {
     fn into_pd(self) -> PlutusData {
         PlutusData::Integer(BigInteger::from(self))
+    }
+}
+
+impl IntoPlutusData for Vec<u8> {
+    fn into_pd(self) -> PlutusData {
+        PlutusData::Bytes {
+            bytes: self,
+            bytes_encoding: Default::default(),
+        }
     }
 }
 
@@ -49,6 +66,44 @@ impl<T: IntoPlutusData + Copy> IntoPlutusData for Ratio<T> {
             0,
             vec![(*self.numer()).into_pd(), (*self.denom()).into_pd()],
         ))
+    }
+}
+
+impl<T: IntoPlutusData + Clone> IntoPlutusData for Vec<T> {
+    fn into_pd(self) -> PlutusData {
+        PlutusData::List {
+            list: self.iter().map(|to_pd| to_pd.clone().into_pd()).collect(),
+            list_encoding: LenEncoding::Indefinite,
+        }
+    }
+}
+
+impl<T: IntoPlutusData + Clone> IntoPlutusData for Option<T> {
+    fn into_pd(self) -> PlutusData {
+        match self {
+            None => PlutusData::new_constr_plutus_data(ConstrPlutusData {
+                alternative: 1,
+                fields: vec![],
+                encodings: Some(ConstrPlutusDataEncoding {
+                    len_encoding: Canonical,
+                    tag_encoding: Some(cbor_event::Sz::One),
+                    alternative_encoding: None,
+                    fields_encoding: Indefinite,
+                    prefer_compact: true,
+                }),
+            }),
+            Some(to_pd) => PlutusData::new_constr_plutus_data(ConstrPlutusData {
+                alternative: 0,
+                fields: vec![to_pd.into_pd()],
+                encodings: Some(ConstrPlutusDataEncoding {
+                    len_encoding: Canonical,
+                    tag_encoding: Some(cbor_event::Sz::One),
+                    alternative_encoding: None,
+                    fields_encoding: Indefinite,
+                    prefer_compact: true,
+                }),
+            }),
+        }
     }
 }
 

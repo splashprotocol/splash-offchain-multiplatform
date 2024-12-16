@@ -3,12 +3,34 @@ import { getLucid } from "./lucid.ts";
 import { asUnit } from "./types.ts";
 import { BuiltValidator } from "./types.ts";
 import { Asset, PubKeyHash, Rational} from "./types.ts";
-import { Address, Data, Datum, Lovelace, Lucid, PolicyId, TxComplete, UTxO, fromHex, toHex } from 'https://deno.land/x/lucid@0.10.7/mod.ts';
+import {
+    Address,
+    Data,
+    Datum,
+    Lovelace,
+    Lucid,
+    PolicyId,
+    UTxO,
+    fromHex,
+    toHex,
+    paymentCredentialOf, stakeCredentialOf, TxComplete, LucidEvolution, TxSignBuilder
+} from '@lucid-evolution/lucid';
+import { createHash } from "node:crypto";
 import { setupWallet } from "./wallet.ts";
 import { getConfig } from "./config.ts";
 import { BuiltValidators } from "./types.ts";
+import { blake2b } from 'hash-wasm';
 import { hash_blake2b224 } from "https://deno.land/x/lucid@0.10.7/src/core/libs/cardano_multiplatform_lib/cardano_multiplatform_lib.generated.js";
 import { sleep } from "https://deno.land/x/sleep/mod.ts"
+import {
+    coreToUtxo, credentialToAddress,
+    credentialToRewardAddress,
+    getAddressDetails,
+    utxoToCore,
+} from "@lucid-evolution/utils";
+
+const sha256 = (input: string) =>
+    createHash("sha256").update(input).digest("hex");
 
 export type LimitOrderConf = {
     input: Asset,
@@ -35,9 +57,9 @@ function buildLimitOrderDatum(lucid: Lucid, conf: LimitOrderConf, beacon: Policy
         basePrice: conf.basePrice,
         fee: conf.fee,
         redeemerAddress: {
-            paymentCredential: { VerificationKeyCredential: [lucid.utils.paymentCredentialOf(conf.redeemerAddr).hash] },
+            paymentCredential: { VerificationKeyCredential: [paymentCredentialOf(conf.redeemerAddr).hash] },
             stakeCredential: {
-              Inline: [{ VerificationKeyCredential: [lucid.utils.stakeCredentialOf(conf.redeemerAddr).hash] }],
+              Inline: [{ VerificationKeyCredential: [stakeCredentialOf(conf.redeemerAddr).hash] }],
             },
           },
         cancellationPkh: conf.cancellationPkh,
@@ -45,22 +67,26 @@ function buildLimitOrderDatum(lucid: Lucid, conf: LimitOrderConf, beacon: Policy
     }, LimitOrderLimitOrder.conf)
 }
 
-function beaconFromInput(utxo: UTxO): PolicyId {
+async function beaconFromInput(utxo: UTxO): Promise<PolicyId> {
     const txHash = fromHex(utxo.txHash);
     const index = new TextEncoder().encode(utxo.outputIndex.toString())
-    return toHex(hash_blake2b224(new Uint8Array([...txHash, ...index])))
+    return blake2b(
+            Uint8Array.from([...txHash, ...index]),
+            224,
+    );
 }
 
-async function createLimitOrder(lucid: Lucid, validator: BuiltValidator, conf: LimitOrderConf): Promise<TxComplete> {
-    const orderAddress = lucid.utils.credentialToAddress(
+async function createLimitOrder(lucid: LucidEvolution, validator: BuiltValidator, conf: LimitOrderConf): Promise<TxSignBuilder> {
+    const orderAddress = credentialToAddress(
+        "Preprod",
         { hash: validator.hash, type: 'Script' },
     );
-    const input = (await lucid.wallet.getUtxos())[0];
-    const beacon = beaconFromInput(input);
+    const input = (await lucid.wallet().getUtxos())[0];
+    const beacon = await beaconFromInput(input);
     console.log("Beacon: " + beacon);
     const lovelaceTotal = conf.fee + conf.costPerExStep * 4n;
     const depositedValue = conf.input.policy == "" ? { lovelace: lovelaceTotal + conf.tradableInput } : { lovelace: lovelaceTotal, [asUnit(conf.input)]: conf.tradableInput};
-    const tx = lucid.newTx().collectFrom([input]).payToContract(orderAddress, { inline: buildLimitOrderDatum(lucid, conf, beacon) }, depositedValue);
+    const tx = lucid.newTx().collectFrom([input]).pay.ToAddressWithData(orderAddress, { kind: "inline", value: buildLimitOrderDatum(lucid, conf, beacon) }, depositedValue);
     return tx.complete();
 }
 
@@ -71,13 +97,13 @@ await setupWallet(lucid);
 const conf = await getConfig<BuiltValidators>();
 
 async function submit() {
-    const id = await lucid.wallet.submitTx(txb);
+    const id = await lucid.wallet().submitTx(txb);
     console.log(id);
 }
 
 async function main() {
-    const myAddr = await lucid.wallet.address();
-    console.log("My address: ", lucid.utils.getAddressDetails(myAddr));
+    const myAddr = await lucid.wallet().address();
+    console.log("My address: ", getAddressDetails(myAddr));
     const txBid = await createLimitOrder(lucid, conf.validators!.limitOrder, {
         input: {
             policy: "fd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3a",
@@ -99,7 +125,7 @@ async function main() {
         cancellationPkh: lucid.utils.getAddressDetails(myAddr).paymentCredential!.hash,
         permittedExecutors: [],
     });
-    const txBidId = await (await txBid.sign().complete()).submit();
+    const txBidId = await (await txBid.sign.withWallet().complete()).submit();
     console.log(txBidId);
     await sleep(120);
     const txAsk = await createLimitOrder(lucid, conf.validators!.limitOrder, {
@@ -123,83 +149,83 @@ async function main() {
         cancellationPkh: lucid.utils.getAddressDetails(myAddr).paymentCredential!.hash,
         permittedExecutors: [],
     });
-    const txAskId = await (await txAsk.sign().complete()).submit();
+    const txAskId = await (await txAsk.sign.withWallet().complete()).submit();
     console.log(txAskId);
 }
 
 async function createMToNOrders() {
-    const myAddr = await lucid.wallet.address();
-    console.log("My address: ", lucid.utils.getAddressDetails(myAddr));
-    const txBid1 = await createLimitOrder(lucid, conf.validators!.limitOrder, {
-        input: {
-            policy: "fd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3a",
-            name: "74657374746f6b656e",
-        },
-        output: {
-            policy: "",
-            name: "",
-        },
-        tradableInput: 70_000n,
-        minMarginalOutput: 1_000n,
-        costPerExStep: 600_000n,
-        basePrice: {
-            num: 1000n,
-            denom: 1n,
-        },
-        fee: 600_000n,
-        redeemerAddr: myAddr,
-        cancellationPkh: lucid.utils.getAddressDetails(myAddr).paymentCredential!.hash,
-        permittedExecutors: [],
-    });
-    const txBidId1 = await (await txBid1.sign().complete()).submit();
-    console.log("Bid #0: " + txBidId1);
-    await sleep(60);
-    const txBid2 = await createLimitOrder(lucid, conf.validators!.limitOrder, {
-        input: {
-            policy: "fd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3a",
-            name: "74657374746f6b656e",
-        },
-        output: {
-            policy: "",
-            name: "",
-        },
-        tradableInput: 60_000n,
-        minMarginalOutput: 1_000n,
-        costPerExStep: 600_000n,
-        basePrice: {
-            num: 1000n,
-            denom: 1n,
-        },
-        fee: 500_000n,
-        redeemerAddr: myAddr,
-        cancellationPkh: lucid.utils.getAddressDetails(myAddr).paymentCredential!.hash,
-        permittedExecutors: [],
-    });
-    const txBidId2 = await (await txBid2.sign().complete()).submit();
-    console.log("Bid #1: " + txBidId2);
-    await sleep(60);
+    const myAddr = await lucid.wallet().address();
+    console.log("My address: ", getAddressDetails(myAddr));
+    // const txBid1 = await createLimitOrder(lucid, conf.validators!.limitOrder, {
+    //     input: {
+    //         policy: "4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26",
+    //         name: "7465737444",
+    //     },
+    //     output: {
+    //         policy: "",
+    //         name: "",
+    //     },
+    //     tradableInput: 400_000n,
+    //     minMarginalOutput: 1n,
+    //     costPerExStep: 800_000n,
+    //     basePrice: {
+    //         num: 1n,
+    //         denom: 100_000n,
+    //     },
+    //     fee: 800_000n,
+    //     redeemerAddr: myAddr,
+    //     cancellationPkh: getAddressDetails(myAddr).paymentCredential.hash,
+    //     permittedExecutors: [],
+    // });
+    // const txBidId1 = await (await txBid1.sign.withWallet().complete()).submit();
+    // console.log("Bid #0: " + txBidId1);
+    // await sleep(60);
+    // const txBid2 = await createLimitOrder(lucid, conf.validators!.limitOrder, {
+    //     input: {
+    //         policy: "fd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3a",
+    //         name: "74657374746f6b656e",
+    //     },
+    //     output: {
+    //         policy: "",
+    //         name: "",
+    //     },
+    //     tradableInput: 60_000n,
+    //     minMarginalOutput: 1_000n,
+    //     costPerExStep: 600_000n,
+    //     basePrice: {
+    //         num: 1000n,
+    //         denom: 1n,
+    //     },
+    //     fee: 500_000n,
+    //     redeemerAddr: myAddr,
+    //     cancellationPkh: getAddressDetails(myAddr).paymentCredential.hash,
+    //     permittedExecutors: [],
+    // });
+    // const txBidId2 = await (await txBid2.sign.withWallet().complete()).submit();
+    // console.log("Bid #1: " + txBidId2);
+    // await sleep(60);
     const txAsk = await createLimitOrder(lucid, conf.validators!.limitOrder, {
         input: {
             policy: "",
             name: "",
         },
         output: {
-            policy: "fd10da3e6a578708c877e14b6aaeda8dc3a36f666a346eec52a30b3a",
-            name: "74657374746f6b656e",
+            policy: "4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26",
+            name: "7465737444",
         },
-        tradableInput: 100_000_000n,
-        minMarginalOutput: 1_000n,
-        costPerExStep: 500_000n,
+        tradableInput: 10_000_000n,
+        minMarginalOutput: 1n,
+        costPerExStep: 800_000n,
         basePrice: {
             num: 1n,
-            denom: 1000n,
+            denom: 10_000_000n,
         },
         fee: 500_000n,
         redeemerAddr: myAddr,
-        cancellationPkh: lucid.utils.getAddressDetails(myAddr).paymentCredential!.hash,
+        cancellationPkh: getAddressDetails(myAddr).paymentCredential.hash,
         permittedExecutors: [],
     });
-    const txAskId = await (await txAsk.sign().complete()).submit();
+    const txAskId = await (await txAsk.sign.withWallet().complete()).submit();
     console.log("Ask #0: " + txAskId);
 }
 

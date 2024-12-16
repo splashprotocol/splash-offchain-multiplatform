@@ -53,5 +53,13 @@
   "partitioning": {
     "numPartitionsTotal": 1,
     "assignedPartitions": [0]
+  },
+  "daoConfig": {
+    "publicKeys": [],
+    "threshold": 0,
+    "exFee": 1500000
+  },
+  "royaltyWithdraw": {
+    "exFee": 1500000
   }
 }

@@ -51,5 +51,13 @@
     "secs": 2,
     "nanos": 0
   },
-  "reportingEndpoint": "127.0.0.1:9021"
+  "reportingEndpoint": "127.0.0.1:9021",
+  "daoConfig": {
+    "publicKeys": [],
+    "threshold": 0,
+    "exFee": 1500000
+  },
+  "royaltyWithdraw": {
+    "transactionFee": 1500000
+  },
 }

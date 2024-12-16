@@ -35,7 +35,8 @@ use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 use crate::constants::{FEE_DEN, MAX_LQ_CAP};
 use crate::data::cfmm_pool::AMMOps;
 use crate::data::deposit::ClassicalOnChainDeposit;
-use crate::data::operation_output::{DepositOutput, RedeemOutput};
+use crate::data::operation_output::OperationResultOutputs::SingleOutput;
+use crate::data::operation_output::{DepositOutput, OperationResultBlueprint, RedeemOutput};
 use crate::data::order::{Base, PoolNft, Quote};
 use crate::data::pair::order_canonical;
 use crate::data::pool::{
@@ -44,7 +45,11 @@ use crate::data::pool::{
 };
 use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
-use crate::deployment::ProtocolValidator::StableFnPoolT2T;
+use crate::deployment::ProtocolValidator::{
+    BalanceFnPoolDeposit, BalanceFnPoolRedeem, ConstFnFeeSwitchPoolDeposit, ConstFnFeeSwitchPoolRedeem,
+    ConstFnPoolDeposit, ConstFnPoolRedeem, RoyaltyPoolV1Deposit, RoyaltyPoolV1Redeem, StableFnPoolT2T,
+    StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
+};
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::pool_math::cfmm_math::classic_cfmm_shares_amount;
 use crate::pool_math::stable_math::stable_cfmm_reward_lp;
@@ -555,8 +560,10 @@ impl MarketMaker for StablePoolT2T {
 
         let tradable_x_reserves = (self.reserves_x - self.treasury_x).untag();
         let tradable_y_reserves = (self.reserves_y - self.treasury_y).untag();
-        let fee_x = BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64()?);
-        let fee_y = BigNumber::from((self.lp_fee_y - self.treasury_fee).to_f64()?);
+        let raw_fee_x = self.lp_fee_x.checked_sub(&self.treasury_fee)?;
+        let fee_x = BigNumber::from(raw_fee_x.to_f64()?);
+        let raw_fee_y = self.lp_fee_y.checked_sub(&self.treasury_fee)?;
+        let fee_y = BigNumber::from(raw_fee_y.to_f64()?);
         let bid_price = BigNumber::from(*worst_price.unwrap().denom() as f64)
             / BigNumber::from(*worst_price.unwrap().numer() as f64);
         let ask_price = BigNumber::from(*worst_price.unwrap().numer() as f64)
@@ -736,14 +743,24 @@ impl MarketMaker for StablePoolT2T {
     }
 }
 
-impl ApplyOrder<ClassicalOnChainDeposit> for StablePoolT2T {
+impl<Ctx> ApplyOrder<ClassicalOnChainDeposit, Ctx> for StablePoolT2T
+where
+    Ctx: Has<DeployedValidator<{ ConstFnFeeSwitchPoolDeposit as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolDeposit as u8 }>>
+        + Has<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>>
+        + Has<DeployedValidator<{ StableFnPoolT2TDeposit as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }>>,
+{
     type Result = DepositOutput;
 
     fn apply_order(
         mut self,
         deposit: ClassicalOnChainDeposit,
-    ) -> Result<(Self, DepositOutput), ApplyOrderError<ClassicalOnChainDeposit>> {
+        ctx: Ctx,
+    ) -> Result<(Self, OperationResultBlueprint<DepositOutput>), ApplyOrderError<ClassicalOnChainDeposit>>
+    {
         let order = deposit.order;
+        let validator = deposit.get_validator(&ctx);
         let net_x = if order.token_x.is_native() {
             order
                 .token_x_amount
@@ -796,21 +813,33 @@ impl ApplyOrder<ClassicalOnChainDeposit> for StablePoolT2T {
                     redeemer_stake_pkh: order.reward_stake_pkh,
                 };
 
-                Ok((self, deposit_output))
+                Ok((
+                    self,
+                    OperationResultBlueprint::single_output(deposit_output, validator),
+                ))
             }
             None => Err(ApplyOrderError::incompatible(deposit)),
         }
     }
 }
 
-impl ApplyOrder<ClassicalOnChainRedeem> for StablePoolT2T {
+impl<Ctx> ApplyOrder<ClassicalOnChainRedeem, Ctx> for StablePoolT2T
+where
+    Ctx: Has<DeployedValidator<{ ConstFnFeeSwitchPoolRedeem as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolRedeem as u8 }>>
+        + Has<DeployedValidator<{ BalanceFnPoolRedeem as u8 }>>
+        + Has<DeployedValidator<{ StableFnPoolT2TRedeem as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>>,
+{
     type Result = RedeemOutput;
 
     fn apply_order(
         mut self,
         redeem: ClassicalOnChainRedeem,
-    ) -> Result<(Self, RedeemOutput), ApplyOrderError<ClassicalOnChainRedeem>> {
+        ctx: Ctx,
+    ) -> Result<(Self, OperationResultBlueprint<RedeemOutput>), ApplyOrderError<ClassicalOnChainRedeem>> {
         let order = redeem.order;
+        let validator = redeem.get_validator(&ctx);
         match self.shares_amount(order.token_lq_amount) {
             Some((x_amount, y_amount)) => {
                 self.reserves_x = self
@@ -836,7 +865,10 @@ impl ApplyOrder<ClassicalOnChainRedeem> for StablePoolT2T {
                     redeemer_stake_pkh: order.reward_stake_pkh,
                 };
 
-                Ok((self, redeem_output))
+                Ok((
+                    self,
+                    OperationResultBlueprint::single_output(redeem_output, validator),
+                ))
             }
             None => Err(ApplyOrderError::incompatible(redeem)),
         }
@@ -848,10 +880,15 @@ mod tests {
     use crate::constants::MAX_LQ_CAP;
     use crate::data::order::ClassicalOrder;
     use crate::data::order::OrderType::BalanceFn;
-    use crate::data::pool::ApplyOrder;
+    use crate::data::pool::{ApplyOrder, PoolValidation};
     use crate::data::redeem::{ClassicalOnChainRedeem, Redeem};
     use crate::data::stable_pool_t2t::{StablePoolT2T, StablePoolT2TConfig, StablePoolT2TVer};
     use crate::data::{OnChainOrderId, PoolId};
+    use crate::deployment::ProtocolValidator::{
+        BalanceFnPoolRedeem, ConstFnFeeSwitchPoolRedeem, ConstFnPoolRedeem, RoyaltyPoolV1Redeem,
+        StableFnPoolT2TRedeem,
+    };
+    use crate::deployment::{DeployedValidator, DeployedValidators, ProtocolScriptHashes};
     use crate::pool_math::stable_pool_t2t_exact_math::{
         calculate_invariant, calculate_safe_price_ratio_x_y_swap,
     };
@@ -862,8 +899,12 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
     use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+    use cml_chain::address::Address;
+    use cml_chain::assets::AssetBundle;
+    use cml_chain::builders::tx_builder::TransactionUnspentOutput;
     use cml_chain::plutus::PlutusData;
-    use cml_chain::Deserialize;
+    use cml_chain::transaction::{ConwayFormatTxOut, TransactionInput, TransactionOutput};
+    use cml_chain::{Deserialize, Value};
     use cml_crypto::{Ed25519KeyHash, ScriptHash, TransactionHash};
     use num_rational::Ratio;
     use num_traits::ToPrimitive;
@@ -871,8 +912,91 @@ mod tests {
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass, Token};
+    use spectrum_offchain::domain::Has;
+    use type_equalities::IsEqual;
 
     const DATUM_SAMPLE: &str = "d8799fd8799f581c7dbe6f0c7849e2dae806cd4681910bfe1bbc0d5fd4e370e8e2f7bd4a436e6674ff190c80d8799f4040ffd8799f581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26457465737443ff0000d8799f581c6abe65f6adc8301ff4dbfcfcec1a187075639d21f85cae3c1cf2a060426c71ffd87980d879801a000186820a581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba26581c4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba260000ff";
+
+    const MOCK_ADDRESS: &str = "addr1z8d70g7c58vznyye9guwagdza74x36f3uff0eyk2zwpcpx6c96rgsm7p0hmwrj8e28qny5yxwya63e8gjj8s2ugfglhsxedx9j";
+
+    struct Ctx {
+        bounds: PoolValidation,
+        scripts: ProtocolScriptHashes,
+        mock_output: TransactionUnspentOutput,
+    }
+
+    const mock_ex_units: ExUnits = ExUnits { mem: 0, steps: 0 };
+
+    impl Has<DeployedValidator<{ ConstFnPoolRedeem as u8 }>> for Ctx {
+        fn select<U: IsEqual<DeployedValidator<{ ConstFnPoolRedeem as u8 }>>>(
+            &self,
+        ) -> DeployedValidator<{ ConstFnPoolRedeem as u8 }> {
+            DeployedValidator {
+                reference_utxo: self.mock_output.clone(),
+                hash: self.scripts.const_fn_pool_redeem.script_hash,
+                cost: mock_ex_units,
+                marginal_cost: self.scripts.const_fn_pool_redeem.marginal_cost,
+            }
+        }
+    }
+
+    impl Has<DeployedValidator<{ ConstFnFeeSwitchPoolRedeem as u8 }>> for Ctx {
+        fn select<U: IsEqual<DeployedValidator<{ ConstFnFeeSwitchPoolRedeem as u8 }>>>(
+            &self,
+        ) -> DeployedValidator<{ ConstFnFeeSwitchPoolRedeem as u8 }> {
+            DeployedValidator {
+                reference_utxo: self.mock_output.clone(),
+                hash: self.scripts.const_fn_fee_switch_pool_redeem.script_hash,
+                cost: mock_ex_units,
+                marginal_cost: self.scripts.const_fn_fee_switch_pool_redeem.marginal_cost,
+            }
+        }
+    }
+
+    impl Has<DeployedValidator<{ BalanceFnPoolRedeem as u8 }>> for Ctx {
+        fn select<U: IsEqual<DeployedValidator<{ BalanceFnPoolRedeem as u8 }>>>(
+            &self,
+        ) -> DeployedValidator<{ BalanceFnPoolRedeem as u8 }> {
+            DeployedValidator {
+                reference_utxo: self.mock_output.clone(),
+                hash: self.scripts.balance_fn_pool_redeem.script_hash,
+                cost: mock_ex_units,
+                marginal_cost: self.scripts.balance_fn_pool_redeem.marginal_cost,
+            }
+        }
+    }
+
+    impl Has<DeployedValidator<{ StableFnPoolT2TRedeem as u8 }>> for Ctx {
+        fn select<U: IsEqual<DeployedValidator<{ StableFnPoolT2TRedeem as u8 }>>>(
+            &self,
+        ) -> DeployedValidator<{ StableFnPoolT2TRedeem as u8 }> {
+            DeployedValidator {
+                reference_utxo: self.mock_output.clone(),
+                hash: self.scripts.stable_fn_pool_t2t_redeem.script_hash,
+                cost: mock_ex_units,
+                marginal_cost: self.scripts.stable_fn_pool_t2t_redeem.marginal_cost,
+            }
+        }
+    }
+
+    impl Has<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>> for Ctx {
+        fn select<U: IsEqual<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>>>(
+            &self,
+        ) -> DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }> {
+            DeployedValidator {
+                reference_utxo: self.mock_output.clone(),
+                hash: self.scripts.royalty_pool_redeem.script_hash,
+                cost: mock_ex_units,
+                marginal_cost: self.scripts.royalty_pool_redeem.marginal_cost,
+            }
+        }
+    }
+
+    impl Has<PoolValidation> for Ctx {
+        fn select<U: IsEqual<PoolValidation>>(&self) -> PoolValidation {
+            self.bounds
+        }
+    }
 
     fn gen_ada_token_pool(
         reserves_x: u64,
@@ -1073,6 +1197,39 @@ mod tests {
         const TX: &str = "6c038a69587061acd5611507e68b1fd3a7e7d189367b7853f3bb5079a118b880";
         const IX: u64 = 1;
 
+        let raw_deployment = std::fs::read_to_string("/Users/oskin/dev/spectrum/spectrum-offchain-multiplatform/bloom-cardano-agent/resources/mainnet.deployment.json").expect("Cannot load deployment file");
+        let deployment: DeployedValidators =
+            serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
+        let scripts = ProtocolScriptHashes::from(&deployment);
+
+        let mock_input: TransactionInput = TransactionInput {
+            transaction_id: TransactionHash::from_hex(TX).unwrap(),
+            index: 0,
+            encodings: None,
+        };
+
+        let mock_output: TransactionOutput = TransactionOutput::ConwayFormatTxOut(ConwayFormatTxOut {
+            address: Address::from_bech32(MOCK_ADDRESS).unwrap(),
+            amount: Value::new(1000000, AssetBundle::new()),
+            datum_option: None,
+            script_reference: None,
+            encodings: None,
+        });
+
+        let mock_unspent_output: TransactionUnspentOutput = TransactionUnspentOutput {
+            input: mock_input,
+            output: mock_output,
+        };
+
+        let ctx = Ctx {
+            scripts,
+            bounds: PoolValidation {
+                min_n2t_lovelace: 150_000_000,
+                min_t2t_lovelace: 10_000_000,
+            },
+            mock_output: mock_unspent_output,
+        };
+
         let test_order: ClassicalOnChainRedeem = ClassicalOrder {
             id: OnChainOrderId(OutputRef::new(TransactionHash::from_hex(TX).unwrap(), IX)),
             pool_id: pool.id,
@@ -1090,7 +1247,7 @@ mod tests {
             },
         };
 
-        let test = pool.apply_order(test_order);
+        let test = pool.apply_order(test_order, ctx);
 
         assert_eq!(1, 1)
     }

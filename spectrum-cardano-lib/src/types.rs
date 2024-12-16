@@ -33,6 +33,22 @@ where
     }
 }
 
+impl<T> TryFromPData for Vec<T>
+where
+    T: TryFromPData,
+{
+    fn try_from_pd(data: PlutusData) -> Option<Self> {
+        data.into_vec().and_then(|pd_vec| {
+            pd_vec.into_iter().try_fold(vec![], |mut acc, raw_pd| {
+                T::try_from_pd(raw_pd).map(|parsed_value| {
+                    acc.push(parsed_value);
+                    acc
+                })
+            })
+        })
+    }
+}
+
 impl TryFromPData for Ratio<u128> {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;

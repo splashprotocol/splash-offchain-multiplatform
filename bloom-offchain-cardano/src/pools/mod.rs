@@ -9,30 +9,36 @@ use spectrum_offchain::domain::Has;
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain_cardano::creds::OperatorRewardAddress;
 use spectrum_offchain_cardano::data::balance_order::RunBalanceAMMOrderOverPool;
+use spectrum_offchain_cardano::data::dao_request::DAOContext;
 use spectrum_offchain_cardano::data::degen_quadratic_pool::DegenQuadraticPool;
-use spectrum_offchain_cardano::data::order::{ClassicalAMMOrder, RunClassicalAMMOrderOverPool};
+use spectrum_offchain_cardano::data::order::{Order, RunClassicalAMMOrderOverPool};
 use spectrum_offchain_cardano::data::pool::AnyPool;
 use spectrum_offchain_cardano::data::pool::AnyPool::{BalancedCFMM, PureCFMM, StableCFMM};
+use spectrum_offchain_cardano::data::royalty_withdraw_request::RoyaltyWithdrawContext;
 use spectrum_offchain_cardano::data::stable_order::RunStableAMMOrderOverPool;
 use spectrum_offchain_cardano::deployment::DeployedValidator;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2, ConstFnFeeSwitchPoolDeposit,
     ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
     ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1,
-    ConstFnPoolV2, StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
+    ConstFnPoolV2, RoyaltyPoolDAOV1, RoyaltyPoolDAOV1Request, RoyaltyPoolRoyaltyWithdraw, RoyaltyPoolV1,
+    RoyaltyPoolV1Deposit, RoyaltyPoolV1Redeem, RoyaltyPoolV1RoyaltyWithdrawRequest, StableFnPoolT2T,
+    StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 
 /// Magnet for local instances.
 #[repr(transparent)]
 pub struct PoolMagnet<T>(pub T);
 
-impl<Ctx> RunOrder<Bundled<ClassicalAMMOrder, FinalizedTxOut>, Ctx, SignedTxBuilder>
+impl<Ctx> RunOrder<Bundled<Order, FinalizedTxOut>, Ctx, SignedTxBuilder>
     for PoolMagnet<Bundled<AnyPool, FinalizedTxOut>>
 where
     Ctx: Clone
         + Has<NetworkId>
         + Has<Collateral>
         + Has<OperatorRewardAddress>
+        + Has<DAOContext>
+        + Has<RoyaltyWithdrawContext>
         + Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>
@@ -50,14 +56,20 @@ where
         + Has<DeployedValidator<{ BalanceFnPoolRedeem as u8 }>>
         + Has<DeployedValidator<{ StableFnPoolT2T as u8 }>>
         + Has<DeployedValidator<{ StableFnPoolT2TDeposit as u8 }>>
-        + Has<DeployedValidator<{ StableFnPoolT2TRedeem as u8 }>>,
+        + Has<DeployedValidator<{ StableFnPoolT2TRedeem as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdraw as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolDAOV1Request as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolDAOV1 as u8 }>>,
 {
     fn try_run(
         self,
-        order: Bundled<ClassicalAMMOrder, FinalizedTxOut>,
+        order: Bundled<Order, FinalizedTxOut>,
         ctx: Ctx,
-    ) -> Result<(SignedTxBuilder, Predicted<Self>), RunOrderError<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>
-    {
+    ) -> Result<(SignedTxBuilder, Predicted<Self>), RunOrderError<Bundled<Order, FinalizedTxOut>>> {
         let PoolMagnet(Bundled(pool, bearer)) = self;
         match pool {
             PureCFMM(cfmm_pool) => RunClassicalAMMOrderOverPool(Bundled(cfmm_pool, bearer))
@@ -73,15 +85,14 @@ where
     }
 }
 
-impl<Ctx> RunOrder<Bundled<ClassicalAMMOrder, FinalizedTxOut>, Ctx, SignedTxBuilder>
+impl<Ctx> RunOrder<Bundled<Order, FinalizedTxOut>, Ctx, SignedTxBuilder>
     for PoolMagnet<Bundled<DegenQuadraticPool, FinalizedTxOut>>
 {
     fn try_run(
         self,
-        _: Bundled<ClassicalAMMOrder, FinalizedTxOut>,
+        _: Bundled<Order, FinalizedTxOut>,
         _: Ctx,
-    ) -> Result<(SignedTxBuilder, Predicted<Self>), RunOrderError<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>
-    {
+    ) -> Result<(SignedTxBuilder, Predicted<Self>), RunOrderError<Bundled<Order, FinalizedTxOut>>> {
         unreachable!()
     }
 }

@@ -1,15 +1,17 @@
 use std::fmt::Debug;
-use std::ops::Div;
+use std::ops::{Div, Neg};
 
 use bignumber::BigNumber;
-use cml_chain::address::Address;
+use cml_chain::address::Address::Enterprise;
+use cml_chain::address::{Address, EnterpriseAddress};
 use cml_chain::assets::MultiAsset;
-use cml_chain::certs::StakeCredential;
+use cml_chain::certs::{Credential, StakeCredential};
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
-use cml_multi_era::babbage::BabbageTransactionOutput;
+use cml_core::serialization::{RawBytesEncoding, Serialize, ToBytes};
+use cml_crypto::{Ed25519Signature, PublicKey, ScriptHash};
 use num_rational::Ratio;
 use num_traits::ToPrimitive;
 use num_traits::{CheckedAdd, CheckedSub};
@@ -23,6 +25,7 @@ use bloom_offchain::execution_engine::liquidity_book::market_maker::{
 };
 use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
+use spectrum_cardano_lib::address::{AddressExtension, InlineCredential, PlutusAddress, PlutusCredential};
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
@@ -31,25 +34,39 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::AssetClass::Native;
-use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass, Token};
+use spectrum_cardano_lib::{Ed25519PublicKey, NetworkId, TaggedAmount, TaggedAssetClass, Token};
 use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
-use crate::constants::{FEE_DEN, LEGACY_FEE_NUM_MULTIPLIER, MAX_LQ_CAP};
+use crate::constants::{FEE_DEN, LEGACY_FEE_NUM_MULTIPLIER, MAX_LQ_CAP, POOL_OUT_IDX_IN};
+use crate::data::dao_request::{DAOContext, DaoAction, DaoRequestDataToSign, OnChainDAOActionRequest};
 use crate::data::deposit::ClassicalOnChainDeposit;
 use crate::data::fee_switch_bidirectional_fee::FeeSwitchBidirectionalPoolConfig;
 use crate::data::fee_switch_pool::FeeSwitchPoolConfig;
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
-use crate::data::operation_output::{DepositOutput, RedeemOutput, SwapOutput};
+use crate::data::operation_output::DaoActionResult::{RequestorOutput, TreasuryWithdraw};
+use crate::data::operation_output::OperationResultOutputs::SingleOutput;
+use crate::data::operation_output::{
+    ContexBasedRedeemerCreator, DaoActionResult, DaoRequestorOutput, DepositOutput, OperationResultBlueprint,
+    OperationResultContext, OperationResultOutputs, RedeemOutput, RoyaltyWithdrawOutput, SwapOutput,
+    TreasuryWithdrawOutput,
+};
 use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
 use crate::data::pair::order_canonical;
 use crate::data::pool::{
     ApplyOrder, ApplyOrderError, ImmutablePoolUtxo, Lq, PoolAssetMapping, PoolValidation, Rx, Ry,
 };
 use crate::data::redeem::ClassicalOnChainRedeem;
+use crate::data::royalty_pool::{RoyaltyPoolConfig, ROYALTY_DATUM_MAPPING};
+use crate::data::royalty_withdraw_request::{DataToSign, OnChainRoyaltyWithdraw, RoyaltyWithdrawContext};
 use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::{
-    ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2,
+    BalanceFnPoolDeposit, BalanceFnPoolRedeem, ConstFnFeeSwitchPoolDeposit, ConstFnFeeSwitchPoolRedeem,
+    ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,
+    ConstFnPoolFeeSwitchV2, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2,
+    RoyaltyPoolDAOV1, RoyaltyPoolDAOV1Request, RoyaltyPoolRoyaltyWithdraw, RoyaltyPoolV1,
+    RoyaltyPoolV1Deposit, RoyaltyPoolV1Redeem, RoyaltyPoolV1RoyaltyWithdrawRequest, StableFnPoolT2TDeposit,
+    StableFnPoolT2TRedeem,
 };
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::fees::FeeExtension;
@@ -93,6 +110,7 @@ pub enum ConstFnPoolVer {
     FeeSwitch,
     FeeSwitchV2,
     FeeSwitchBiDirFee,
+    RoyaltyPoolV1,
 }
 
 impl ConstFnPoolVer {
@@ -102,7 +120,8 @@ impl ConstFnPoolVer {
             + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
             + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
             + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>
-            + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>,
+            + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+            + Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>,
     {
         let maybe_hash = pool_addr.payment_cred().and_then(|c| match c {
             StakeCredential::PubKey { .. } => None,
@@ -139,6 +158,12 @@ impl ConstFnPoolVer {
                 == *this_hash
             {
                 return Some(ConstFnPoolVer::FeeSwitchBiDirFee);
+            } else if ctx
+                .select::<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>()
+                .script_hash
+                == *this_hash
+            {
+                return Some(ConstFnPoolVer::RoyaltyPoolV1);
             }
         };
         None
@@ -159,10 +184,18 @@ pub struct ConstFnPool {
     pub treasury_fee: Ratio<u64>,
     pub treasury_x: TaggedAmount<Rx>,
     pub treasury_y: TaggedAmount<Ry>,
+    pub royalty_fee: Ratio<u64>,
+    pub royalty_x: TaggedAmount<Rx>,
+    pub royalty_y: TaggedAmount<Ry>,
     pub lq_lower_bound: TaggedAmount<Rx>,
+    pub admin_address: ScriptHash,
+    pub treasury_address: ScriptHash,
+    pub royalty_pub_key: Ed25519PublicKey,
     pub ver: ConstFnPoolVer,
     pub marginal_cost: ExUnits,
     pub bounds: PoolValidation,
+    pub nonce: u64,
+    pub stake_part_script_hash: Option<ScriptHash>,
 }
 
 impl ConstFnPool {
@@ -233,12 +266,12 @@ impl AMMOps for ConstFnPool {
     ) -> TaggedAmount<Quote> {
         classic_cfmm_output_amount(
             self.asset_x,
-            self.reserves_x - self.treasury_x,
-            self.reserves_y - self.treasury_y,
+            self.reserves_x - self.treasury_x - self.royalty_x,
+            self.reserves_y - self.treasury_y - self.royalty_y,
             base_asset,
             base_amount,
-            self.lp_fee_x - self.treasury_fee,
-            self.lp_fee_y - self.treasury_fee,
+            self.lp_fee_x - self.treasury_fee - self.royalty_fee,
+            self.lp_fee_y - self.treasury_fee - self.royalty_fee,
         )
     }
 
@@ -248,8 +281,8 @@ impl AMMOps for ConstFnPool {
         in_y_amount: u64,
     ) -> Option<(TaggedAmount<Lq>, TaggedAmount<Rx>, TaggedAmount<Ry>)> {
         classic_cfmm_reward_lp(
-            self.reserves_x - self.treasury_x,
-            self.reserves_y - self.treasury_y,
+            self.reserves_x - self.treasury_x - self.royalty_x,
+            self.reserves_y - self.treasury_y - self.royalty_y,
             self.liquidity,
             in_x_amount,
             in_y_amount,
@@ -258,8 +291,8 @@ impl AMMOps for ConstFnPool {
 
     fn shares_amount(&self, burned_lq: TaggedAmount<Lq>) -> Option<(TaggedAmount<Rx>, TaggedAmount<Ry>)> {
         classic_cfmm_shares_amount(
-            self.reserves_x - self.treasury_x,
-            self.reserves_y - self.treasury_y,
+            self.reserves_x - self.treasury_x - self.royalty_x,
+            self.reserves_y - self.treasury_y - self.royalty_y,
             self.liquidity,
             burned_lq,
         )
@@ -272,7 +305,8 @@ where
         + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitch as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolFeeSwitchV2 as u8 }>>
-        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>,
+        + Has<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self.ver {
@@ -287,6 +321,9 @@ where
                 .erased(),
             ConstFnPoolVer::FeeSwitchBiDirFee => ctx
                 .select::<DeployedValidator<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>()
+                .erased(),
+            ConstFnPoolVer::RoyaltyPoolV1 => ctx
+                .select::<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>()
                 .erased(),
             _ => ctx
                 .select::<DeployedValidator<{ ConstFnPoolV2 as u8 }>>()
@@ -308,21 +345,26 @@ impl MakerBehavior for ConstFnPool {
                 .output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
                 .untag(),
         };
-        let (base_reserves, base_treasury, quote_reserves, quote_treasury) = if x == base {
-            (
-                self.reserves_x.as_mut(),
-                self.treasury_x.as_mut(),
-                self.reserves_y.as_mut(),
-                self.treasury_y.as_mut(),
-            )
-        } else {
-            (
-                self.reserves_y.as_mut(),
-                self.treasury_y.as_mut(),
-                self.reserves_x.as_mut(),
-                self.treasury_x.as_mut(),
-            )
-        };
+        let (base_reserves, base_treasury, base_royalty, quote_reserves, quote_treasury, quote_royalty) =
+            if x == base {
+                (
+                    self.reserves_x.as_mut(),
+                    self.treasury_x.as_mut(),
+                    self.royalty_x.as_mut(),
+                    self.reserves_y.as_mut(),
+                    self.treasury_y.as_mut(),
+                    self.royalty_y.as_mut(),
+                )
+            } else {
+                (
+                    self.reserves_y.as_mut(),
+                    self.treasury_y.as_mut(),
+                    self.royalty_y.as_mut(),
+                    self.reserves_x.as_mut(),
+                    self.treasury_x.as_mut(),
+                    self.royalty_x.as_mut(),
+                )
+            };
         match input {
             OnSide::Bid(input) => {
                 // A user bid means that they wish to buy the base asset for the quote asset, hence
@@ -330,12 +372,14 @@ impl MakerBehavior for ConstFnPool {
                 *quote_reserves += input;
                 *base_reserves -= output;
                 *quote_treasury += (input * self.treasury_fee.numer()) / self.treasury_fee.denom();
+                *quote_royalty += (input * self.royalty_fee.numer()) / self.royalty_fee.denom();
             }
             OnSide::Ask(input) => {
                 // User ask is the opposite; sell the base asset for the quote asset.
                 *base_reserves += input;
                 *quote_reserves -= output;
                 *base_treasury += (input * self.treasury_fee.numer()) / self.treasury_fee.denom();
+                *base_royalty += (input * self.royalty_fee.numer()) / self.royalty_fee.denom();
             }
         }
         Next::Succ(self)
@@ -349,8 +393,8 @@ impl MarketMaker for ConstFnPool {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
         let [base, _] = order_canonical(x, y);
-        let available_x_reserves = (self.reserves_x - self.treasury_x).untag();
-        let available_y_reserves = (self.reserves_y - self.treasury_y).untag();
+        let available_x_reserves = (self.reserves_x - self.treasury_x - self.royalty_x).untag();
+        let available_y_reserves = (self.reserves_y - self.treasury_y - self.royalty_y).untag();
         if available_x_reserves == available_y_reserves {
             AbsolutePrice::new_unsafe(1, 1).into()
         } else {
@@ -422,10 +466,20 @@ impl MarketMaker for ConstFnPool {
 
         let [base, _] = order_canonical(self.asset_x.untag(), self.asset_y.untag());
 
-        let tradable_x_reserves = BigNumber::from((self.reserves_x - self.treasury_x).untag() as f64);
-        let tradable_y_reserves = BigNumber::from((self.reserves_y - self.treasury_y).untag() as f64);
-        let fee_x = BigNumber::from((self.lp_fee_x - self.treasury_fee).to_f64()?);
-        let fee_y = BigNumber::from((self.lp_fee_y - self.treasury_fee).to_f64()?);
+        let tradable_x_reserves =
+            BigNumber::from((self.reserves_x - self.treasury_x - self.royalty_x).untag() as f64);
+        let tradable_y_reserves =
+            BigNumber::from((self.reserves_y - self.treasury_y - self.royalty_y).untag() as f64);
+        let raw_fee_x = self
+            .lp_fee_x
+            .checked_sub(&self.treasury_fee)
+            .and_then(|fee| fee.checked_sub(&self.royalty_fee))?;
+        let fee_x = BigNumber::from(raw_fee_x.to_f64()?);
+        let raw_fee_y = self
+            .lp_fee_y
+            .checked_sub(&self.treasury_fee)
+            .and_then(|fee| fee.checked_sub(&self.royalty_fee))?;
+        let fee_y = BigNumber::from(raw_fee_y.to_f64()?);
         let bid_price = BigNumber::from(*worst_price.unwrap().denom() as f64)
             / BigNumber::from(*worst_price.unwrap().numer() as f64);
         let ask_price = BigNumber::from(*worst_price.unwrap().numer() as f64)
@@ -505,6 +559,7 @@ where
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
         + Has<PoolValidation>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
@@ -512,6 +567,13 @@ where
             let value = repr.value();
             let pd = repr.datum().clone()?.into_pd()?;
             let bounds = ctx.select::<PoolValidation>();
+            let stake_part = repr
+                .address()
+                .staking_cred()
+                .and_then(|staking_cred| match staking_cred {
+                    StakeCredential::Script { hash, .. } => Some(*hash),
+                    _ => None,
+                });
             let marginal_cost = match pool_ver {
                 ConstFnPoolVer::V1 => {
                     ctx.select::<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>()
@@ -531,6 +593,10 @@ where
                 }
                 ConstFnPoolVer::FeeSwitchBiDirFee => {
                     ctx.select::<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>()
+                        .marginal_cost
+                }
+                ConstFnPoolVer::RoyaltyPoolV1 => {
+                    ctx.select::<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>()
                         .marginal_cost
                 }
             };
@@ -553,10 +619,18 @@ where
                         treasury_fee: Ratio::new_raw(0, 1),
                         treasury_x: TaggedAmount::new(0),
                         treasury_y: TaggedAmount::new(0),
+                        royalty_fee: Ratio::new_raw(0, 100),
+                        royalty_x: TaggedAmount::new(0),
+                        royalty_y: TaggedAmount::new(0),
                         lq_lower_bound: conf.lq_lower_bound,
+                        admin_address: ScriptHash::from([0; 28]),
+                        treasury_address: ScriptHash::from([0; 28]),
+                        royalty_pub_key: Ed25519PublicKey::from([0; 32]),
                         ver: pool_ver,
                         marginal_cost,
                         bounds,
+                        nonce: 0,
+                        stake_part_script_hash: stake_part,
                     });
                 }
                 ConstFnPoolVer::FeeSwitch | ConstFnPoolVer::FeeSwitchV2 => {
@@ -571,7 +645,8 @@ where
                     let sufficient_lovelace = conf.asset_x.is_native()
                         || conf.asset_y.is_native()
                         || bounds.min_t2t_lovelace <= lov;
-                    if non_empty_reserves && sufficient_lovelace {
+                    let enough_reserves = reserves_x > conf.treasury_x && reserves_y > conf.treasury_y;
+                    if non_empty_reserves && sufficient_lovelace && enough_reserves {
                         return Some(ConstFnPool {
                             id: PoolId::try_from(conf.pool_nft).ok()?,
                             reserves_x: TaggedAmount::new(reserves_x),
@@ -585,10 +660,18 @@ where
                             treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
                             treasury_x: TaggedAmount::new(conf.treasury_x),
                             treasury_y: TaggedAmount::new(conf.treasury_y),
+                            royalty_fee: Ratio::new_raw(0, 100),
+                            royalty_x: TaggedAmount::new(0),
+                            royalty_y: TaggedAmount::new(0),
                             lq_lower_bound: conf.lq_lower_bound,
+                            admin_address: ScriptHash::from([0; 28]),
+                            treasury_address: ScriptHash::from([0; 28]),
+                            royalty_pub_key: Ed25519PublicKey::from([0; 32]),
                             ver: pool_ver,
                             marginal_cost,
                             bounds,
+                            nonce: 0,
+                            stake_part_script_hash: stake_part,
                         });
                     }
                 }
@@ -604,7 +687,8 @@ where
                     let sufficient_lovelace = conf.asset_x.is_native()
                         || conf.asset_y.is_native()
                         || bounds.min_t2t_lovelace <= lov;
-                    if non_empty_reserves && sufficient_lovelace {
+                    let enough_reserves = reserves_x > conf.treasury_x && reserves_y > conf.treasury_y;
+                    if non_empty_reserves && sufficient_lovelace && enough_reserves {
                         return Some(ConstFnPool {
                             id: PoolId::try_from(conf.pool_nft).ok()?,
                             reserves_x: TaggedAmount::new(reserves_x),
@@ -618,10 +702,61 @@ where
                             treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
                             treasury_x: TaggedAmount::new(conf.treasury_x),
                             treasury_y: TaggedAmount::new(conf.treasury_y),
+                            royalty_fee: Ratio::new_raw(0, 100),
+                            royalty_x: TaggedAmount::new(0),
+                            royalty_y: TaggedAmount::new(0),
                             lq_lower_bound: conf.lq_lower_bound,
+                            admin_address: ScriptHash::from([0; 28]),
+                            treasury_address: ScriptHash::from([0; 28]),
+                            royalty_pub_key: Ed25519PublicKey::from([0; 32]),
                             ver: pool_ver,
                             marginal_cost,
                             bounds,
+                            nonce: 0,
+                            stake_part_script_hash: stake_part,
+                        });
+                    }
+                }
+                ConstFnPoolVer::RoyaltyPoolV1 => {
+                    let conf = RoyaltyPoolConfig::try_from_pd(pd.clone())?;
+                    let liquidity_neg = value.amount_of(conf.asset_lq.into())?;
+                    let lov = value.amount_of(Native)?;
+                    let reserves_x = value.amount_of(conf.asset_x.into())?;
+                    let reserves_y = value.amount_of(conf.asset_y.into())?;
+                    let pure_reserves_x = reserves_x - conf.treasury_x - conf.royalty_x;
+                    let pure_reserves_y = reserves_y - conf.treasury_y - conf.royalty_y;
+                    let non_empty_reserves = pure_reserves_x > 0 && pure_reserves_y > 0;
+                    let sufficient_lovelace = conf.asset_x.is_native()
+                        || conf.asset_y.is_native()
+                        || bounds.min_t2t_lovelace <= lov;
+                    let enough_reserves = reserves_x > (conf.treasury_x + conf.royalty_x)
+                        && reserves_y > (conf.treasury_y + conf.royalty_y);
+                    if non_empty_reserves && sufficient_lovelace && enough_reserves {
+                        return Some(ConstFnPool {
+                            id: PoolId::try_from(conf.pool_nft).ok()?,
+                            reserves_x: TaggedAmount::new(reserves_x),
+                            reserves_y: TaggedAmount::new(reserves_y),
+                            liquidity: TaggedAmount::new(MAX_LQ_CAP - liquidity_neg),
+                            asset_x: conf.asset_x,
+                            asset_y: conf.asset_y,
+                            asset_lq: conf.asset_lq,
+                            lp_fee_x: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
+                            lp_fee_y: Ratio::new_raw(conf.lp_fee_num, FEE_DEN),
+                            treasury_fee: Ratio::new_raw(conf.treasury_fee_num, FEE_DEN),
+                            treasury_x: TaggedAmount::new(conf.treasury_x),
+                            treasury_y: TaggedAmount::new(conf.treasury_y),
+                            royalty_fee: Ratio::new_raw(conf.royalty_fee_num, FEE_DEN),
+                            royalty_x: TaggedAmount::new(conf.royalty_x),
+                            royalty_y: TaggedAmount::new(conf.royalty_y),
+                            lq_lower_bound: TaggedAmount::new(0),
+                            admin_address: conf.admin_address,
+                            treasury_address: ScriptHash::from_raw_bytes(&conf.treasury_address).ok()?,
+                            royalty_pub_key: conf.royalty_pub_key.try_into().ok()?,
+                            ver: pool_ver,
+                            marginal_cost,
+                            bounds,
+                            nonce: conf.nonce,
+                            stake_part_script_hash: stake_part,
                         });
                     }
                 }
@@ -656,8 +791,31 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for ConstFnPool {
 
         if self.ver == ConstFnPoolVer::FeeSwitch || self.ver == ConstFnPoolVer::FeeSwitchV2 {
             if let Some(DatumOption::Datum { datum, .. }) = &mut immut_pool.datum_option {
-                unsafe_update_pd(datum, self.treasury_x.untag(), self.treasury_y.untag());
+                unsafe_update_pd_fee_switch(datum, self.treasury_x.untag(), self.treasury_y.untag());
             }
+        } else if self.ver == ConstFnPoolVer::RoyaltyPoolV1 {
+            if let Some(DatumOption::Datum { datum, .. }) = &mut immut_pool.datum_option {
+                unsafe_update_pd_royalty(
+                    datum,
+                    // royalty pool have the same lp_fee_x and lp_fee_y values
+                    *self.lp_fee_x.numer(),
+                    *self.treasury_fee.numer(),
+                    *self.royalty_fee.numer(),
+                    self.treasury_x.untag(),
+                    self.treasury_y.untag(),
+                    self.royalty_x.untag(),
+                    self.royalty_y.untag(),
+                    self.treasury_address,
+                    self.admin_address,
+                    self.nonce,
+                );
+            }
+        }
+
+        if let (Some(stake_part_script_hash)) = self.stake_part_script_hash {
+            immut_pool
+                .address
+                .update_staking_cred(Credential::new_script(stake_part_script_hash))
         }
 
         TransactionOutput::new_conway_format_tx_out(ConwayFormatTxOut {
@@ -670,19 +828,59 @@ impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for ConstFnPool {
     }
 }
 
-pub fn unsafe_update_pd(data: &mut PlutusData, treasury_x: u64, treasury_y: u64) {
+pub fn unsafe_update_pd_fee_switch(data: &mut PlutusData, treasury_x: u64, treasury_y: u64) {
     let cpd = data.get_constr_pd_mut().unwrap();
     cpd.set_field(6, treasury_x.into_pd());
     cpd.set_field(7, treasury_y.into_pd());
 }
 
-impl ApplyOrder<ClassicalOnChainLimitSwap> for ConstFnPool {
+pub fn unsafe_update_pd_royalty(
+    data: &mut PlutusData,
+    lp_fee_num: u64,
+    treasury_fee_num: u64,
+    royalty_fee_num: u64,
+    treasury_x: u64,
+    treasury_y: u64,
+    royalty_x: u64,
+    royalty_y: u64,
+    treasury_address: ScriptHash,
+    admin_address: ScriptHash,
+    new_nonce: u64,
+) {
+    let admin_addresses: Vec<InlineCredential> = vec![admin_address.into()];
+
+    let cpd = data.get_constr_pd_mut().unwrap();
+    cpd.set_field(ROYALTY_DATUM_MAPPING.lp_fee_num, lp_fee_num.into_pd());
+    cpd.set_field(ROYALTY_DATUM_MAPPING.treasury_fee_num, treasury_fee_num.into_pd());
+    cpd.set_field(ROYALTY_DATUM_MAPPING.royalty_fee_num, royalty_fee_num.into_pd());
+    cpd.set_field(ROYALTY_DATUM_MAPPING.treasury_x, treasury_x.into_pd());
+    cpd.set_field(ROYALTY_DATUM_MAPPING.treasury_y, treasury_y.into_pd());
+    cpd.set_field(ROYALTY_DATUM_MAPPING.royalty_x, royalty_x.into_pd());
+    cpd.set_field(ROYALTY_DATUM_MAPPING.royalty_y, royalty_y.into_pd());
+    cpd.set_field(ROYALTY_DATUM_MAPPING.admin_address, admin_addresses.into_pd());
+    cpd.set_field(
+        ROYALTY_DATUM_MAPPING.treasury_address,
+        treasury_address.to_raw_bytes().to_vec().into_pd(),
+    );
+    cpd.set_field(ROYALTY_DATUM_MAPPING.royalty_nonce, new_nonce.into_pd());
+}
+
+impl<Ctx> ApplyOrder<ClassicalOnChainLimitSwap, Ctx> for ConstFnPool
+where
+    Ctx: Has<DeployedValidator<{ ConstFnFeeSwitchPoolSwap as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolSwap as u8 }>>,
+{
     type Result = SwapOutput;
 
     fn apply_order(
         mut self,
-        ClassicalOrder { id, pool_id, order }: ClassicalOnChainLimitSwap,
-    ) -> Result<(Self, SwapOutput), ApplyOrderError<ClassicalOnChainLimitSwap>> {
+        ord: ClassicalOnChainLimitSwap,
+        ctx: Ctx,
+    ) -> Result<(Self, OperationResultBlueprint<SwapOutput>), ApplyOrderError<ClassicalOnChainLimitSwap>>
+    {
+        let ClassicalOrder { id, pool_id, order } = ord.clone();
+        let validator = ord.get_validator(&ctx);
+
         let quote_amount = self.output_amount(order.base_asset, order.base_amount);
         if quote_amount < order.min_expected_quote_amount {
             return Err(ApplyOrderError::slippage(
@@ -700,14 +898,22 @@ impl ApplyOrder<ClassicalOnChainLimitSwap> for ConstFnPool {
             let additional_treasury_y = (((order.base_amount.untag() as u128)
                 * (*self.treasury_fee.numer() as u128))
                 / (*self.treasury_fee.denom() as u128)) as u64;
+            let additional_royalty_y = (((order.base_amount.untag() as u128)
+                * (*self.royalty_fee.numer() as u128))
+                / (*self.royalty_fee.denom() as u128)) as u64;
             self.reserves_x = self.reserves_x - quote_amount.retag();
             self.treasury_y = self.treasury_y + TaggedAmount::new(additional_treasury_y);
+            self.royalty_y = self.royalty_y + TaggedAmount::new(additional_royalty_y);
             self.reserves_y = self.reserves_y + order.base_amount.retag();
         } else {
             let additional_treasury_x = (((order.base_amount.untag() as u128)
                 * (*self.treasury_fee.numer() as u128))
                 / (*self.treasury_fee.denom() as u128)) as u64;
+            let additional_royalty_x = (((order.base_amount.untag() as u128)
+                * (*self.royalty_fee.numer() as u128))
+                / (*self.royalty_fee.denom() as u128)) as u64;
             self.treasury_x = self.treasury_x + TaggedAmount::new(additional_treasury_x);
+            self.royalty_x = self.royalty_x + TaggedAmount::new(additional_royalty_x);
             self.reserves_y = self.reserves_y - quote_amount.retag();
             self.reserves_x = self.reserves_x + order.base_amount.retag();
         }
@@ -733,18 +939,31 @@ impl ApplyOrder<ClassicalOnChainLimitSwap> for ConstFnPool {
             redeemer_stake_pkh: order.redeemer_stake_pkh,
         };
         // Prepare batcher fee.
-        Ok((self, swap_output))
+        Ok((
+            self,
+            OperationResultBlueprint::single_output(swap_output, validator),
+        ))
     }
 }
 
-impl ApplyOrder<ClassicalOnChainDeposit> for ConstFnPool {
+impl<Ctx> ApplyOrder<ClassicalOnChainDeposit, Ctx> for ConstFnPool
+where
+    Ctx: Has<DeployedValidator<{ ConstFnFeeSwitchPoolDeposit as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolDeposit as u8 }>>
+        + Has<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>>
+        + Has<DeployedValidator<{ StableFnPoolT2TDeposit as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }>>,
+{
     type Result = DepositOutput;
 
     fn apply_order(
         mut self,
         deposit: ClassicalOnChainDeposit,
-    ) -> Result<(Self, DepositOutput), ApplyOrderError<ClassicalOnChainDeposit>> {
+        ctx: Ctx,
+    ) -> Result<(Self, OperationResultBlueprint<DepositOutput>), ApplyOrderError<ClassicalOnChainDeposit>>
+    {
         let order = deposit.order;
+        let validator = deposit.get_validator(&ctx);
         let net_x = if order.token_x.is_native() {
             order
                 .token_x_amount
@@ -796,21 +1015,33 @@ impl ApplyOrder<ClassicalOnChainDeposit> for ConstFnPool {
                     redeemer_stake_pkh: order.reward_stake_pkh,
                 };
 
-                Ok((self, deposit_output))
+                Ok((
+                    self,
+                    OperationResultBlueprint::single_output(deposit_output, validator),
+                ))
             }
             None => Err(ApplyOrderError::incompatible(deposit)),
         }
     }
 }
 
-impl ApplyOrder<ClassicalOnChainRedeem> for ConstFnPool {
+impl<Ctx> ApplyOrder<ClassicalOnChainRedeem, Ctx> for ConstFnPool
+where
+    Ctx: Has<DeployedValidator<{ ConstFnFeeSwitchPoolRedeem as u8 }>>
+        + Has<DeployedValidator<{ ConstFnPoolRedeem as u8 }>>
+        + Has<DeployedValidator<{ BalanceFnPoolRedeem as u8 }>>
+        + Has<DeployedValidator<{ StableFnPoolT2TRedeem as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>>,
+{
     type Result = RedeemOutput;
 
     fn apply_order(
         mut self,
         redeem: ClassicalOnChainRedeem,
-    ) -> Result<(Self, RedeemOutput), ApplyOrderError<ClassicalOnChainRedeem>> {
+        ctx: Ctx,
+    ) -> Result<(Self, OperationResultBlueprint<RedeemOutput>), ApplyOrderError<ClassicalOnChainRedeem>> {
         let order = redeem.order;
+        let validator = redeem.get_validator(&ctx);
         match self.shares_amount(order.token_lq_amount) {
             Some((x_amount, y_amount)) => {
                 self.reserves_x = self
@@ -836,15 +1067,327 @@ impl ApplyOrder<ClassicalOnChainRedeem> for ConstFnPool {
                     redeemer_stake_pkh: order.reward_stake_pkh,
                 };
 
-                Ok((self, redeem_output))
+                Ok((
+                    self,
+                    OperationResultBlueprint::single_output(redeem_output, validator),
+                ))
             }
             None => Err(ApplyOrderError::incompatible(redeem)),
         }
     }
 }
 
+impl<Ctx> ApplyOrder<OnChainRoyaltyWithdraw, Ctx> for ConstFnPool
+where
+    Ctx: Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdraw as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
+        + Has<RoyaltyWithdrawContext>,
+{
+    type Result = RoyaltyWithdrawOutput;
+
+    fn apply_order(
+        mut self,
+        royalty_withdraw: OnChainRoyaltyWithdraw,
+        ctx: Ctx,
+    ) -> Result<
+        (Self, OperationResultBlueprint<RoyaltyWithdrawOutput>),
+        ApplyOrderError<OnChainRoyaltyWithdraw>,
+    > {
+        let order = royalty_withdraw.order.clone();
+        let order_validator = royalty_withdraw.get_validator(&ctx);
+        let pool_order_validator: DeployedValidator<{ RoyaltyPoolRoyaltyWithdraw as u8 }> = ctx.get();
+        let royalty_withdraw_context: RoyaltyWithdrawContext = ctx.get();
+
+        let data_to_sign = DataToSign {
+            withdraw_data: royalty_withdraw.clone().order.into(),
+            pool_nonce: self.nonce,
+        };
+
+        let mut message_to_sign = order.additional_bytes.clone();
+        message_to_sign.extend(&data_to_sign.into_pd().to_cbor_bytes());
+
+        let public_key: PublicKey = self.royalty_pub_key.try_into().unwrap();
+
+        let signature_is_correct = public_key.verify(&message_to_sign, &order.signature);
+
+        if !signature_is_correct {
+            return Err(ApplyOrderError::verification_failed(
+                royalty_withdraw,
+                format!("signature_is_correct: {}", signature_is_correct),
+            ));
+        }
+
+        self.royalty_x = self
+            .royalty_x
+            .checked_sub(&order.withdraw_royalty_x)
+            .ok_or(ApplyOrderError::incompatible(royalty_withdraw.clone()))?;
+
+        self.royalty_y = self
+            .royalty_y
+            .checked_sub(&order.withdraw_royalty_y)
+            .ok_or(ApplyOrderError::incompatible(royalty_withdraw.clone()))?;
+
+        self.reserves_x = self
+            .reserves_x
+            .checked_sub(&order.withdraw_royalty_x)
+            .ok_or(ApplyOrderError::incompatible(royalty_withdraw.clone()))?;
+
+        self.reserves_y = self
+            .reserves_y
+            .checked_sub(&order.withdraw_royalty_y)
+            .ok_or(ApplyOrderError::incompatible(royalty_withdraw.clone()))?;
+
+        self.nonce += 1;
+
+        let royalty_output = RoyaltyWithdrawOutput {
+            token_x_asset: self.asset_x,
+            token_x_amount: order.withdraw_royalty_x,
+            token_y_asset: self.asset_y,
+            token_y_amount: order.withdraw_royalty_y,
+            ada_residue: order.init_ada_value - order.fee,
+            redeemer_pkh: order.royalty_pub_key_hash,
+        };
+
+        let blueprint = OperationResultBlueprint {
+            outputs: SingleOutput(royalty_output),
+            witness_script: Some((
+                pool_order_validator.clone().erased(),
+                ContexBasedRedeemerCreator::create(move |context: OperationResultContext| {
+                    ConstrPlutusData::new(
+                        0,
+                        vec![
+                            PlutusData::Integer(BigInteger::from(context.pool_input_idx)),
+                            PlutusData::Integer(BigInteger::from(context.order_input_idx)),
+                        ],
+                    )
+                    .into_pd()
+                }),
+            )),
+            order_script_validator: order_validator,
+            strict_fee: Some(royalty_withdraw_context.transaction_fee),
+        };
+
+        Ok((self, blueprint))
+    }
+}
+
+impl<Ctx> ApplyOrder<OnChainDAOActionRequest, Ctx> for ConstFnPool
+where
+    Ctx: Has<DeployedValidator<{ RoyaltyPoolDAOV1 as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolDAOV1Request as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>
+        + Has<DAOContext>
+        + Has<NetworkId>,
+{
+    type Result = DaoActionResult;
+
+    fn apply_order(
+        mut self,
+        dao_request: OnChainDAOActionRequest,
+        ctx: Ctx,
+    ) -> Result<(Self, OperationResultBlueprint<DaoActionResult>), ApplyOrderError<OnChainDAOActionRequest>>
+    {
+        let validator = dao_request.get_validator(&ctx);
+        let dao_validator: DeployedValidator<{ RoyaltyPoolDAOV1 as u8 }> = ctx.get();
+        let pool_validator: DeployedValidator<{ RoyaltyPoolV1 as u8 }> = ctx.get();
+        let dao_ctx: DAOContext = ctx.get();
+
+        let data_to_sign: DaoRequestDataToSign = DaoRequestDataToSign {
+            dao_action: dao_request.order.dao_action,
+            pool_nft: dao_request.order.pool_nft,
+            pool_fee: *dao_request.order.pool_fee.numer(),
+            treasury_fee: *dao_request.order.treasury_fee.numer(),
+            admin_address: vec![dao_request.order.admin_address.into()],
+            pool_address: PlutusAddress {
+                payment_cred: PlutusCredential::Script(pool_validator.hash),
+                stake_cred: dao_request.order.pool_stake_script_hash.map(Into::into),
+            },
+            treasury_address: dao_request.order.treasury_address,
+            // on contract side we are validating delta between `new_treasury_x` and
+            // `prev_treasury_x`
+            treasury_x_delta: (dao_request.order.treasury_x_abs_delta.untag() as i64).neg(),
+            treasury_y_delta: (dao_request.order.treasury_y_abs_delta.untag() as i64).neg(),
+            pool_nonce: self.nonce,
+        };
+
+        let data_to_sign_raw = data_to_sign.clone().into_pd().to_cbor_bytes();
+
+        let data_to_sign_with_additional_bytes: Vec<Vec<u8>> = dao_request
+            .clone()
+            .order
+            .additional_bytes
+            .into_iter()
+            .map(|mut additional_bytes| {
+                let mut to_add = data_to_sign_raw.clone();
+                additional_bytes.append(&mut to_add);
+                additional_bytes
+            })
+            .collect();
+
+        let mut siq_qty = 0;
+
+        let correct_signatures_qty = dao_request
+            .clone()
+            .order
+            .signatures
+            .into_iter()
+            .zip::<Vec<[u8; 32]>>(dao_ctx.clone().public_keys.into())
+            .zip(data_to_sign_with_additional_bytes)
+            .fold(
+                0,
+                |correct_signatures, (signature_with_public_key, data_to_sign_for_user)| {
+                    siq_qty += 1;
+                    let (signature, public_key_raw) = signature_with_public_key;
+                    if let Some(public_key) = PublicKey::from_raw_bytes(&public_key_raw).ok() {
+                        if public_key.verify(&data_to_sign_for_user, &signature) {
+                            return correct_signatures + 1;
+                        }
+                    }
+                    correct_signatures
+                },
+            );
+
+        if correct_signatures_qty < dao_ctx.signature_threshold {
+            return Err(ApplyOrderError::verification_failed(
+                dao_request.clone(),
+                format!(
+                    "Incorrect signature threshold. Correct signatures qty: {}. Threshold: {}",
+                    correct_signatures_qty, dao_ctx.signature_threshold
+                ),
+            ));
+        }
+
+        let network_id = ctx.select::<NetworkId>();
+        match dao_request.order.dao_action {
+            DaoAction::WithdrawTreasury => {
+                self.reserves_x = self
+                    .reserves_x
+                    .checked_sub(&dao_request.order.treasury_x_abs_delta)
+                    .ok_or(ApplyOrderError::incompatible(dao_request.clone()))?;
+                self.treasury_x = self
+                    .treasury_x
+                    .checked_sub(&dao_request.order.treasury_x_abs_delta)
+                    .ok_or(ApplyOrderError::incompatible(dao_request.clone()))?;
+                self.reserves_y = self
+                    .reserves_y
+                    .checked_sub(&dao_request.order.treasury_y_abs_delta)
+                    .ok_or(ApplyOrderError::incompatible(dao_request.clone()))?;
+                self.treasury_y = self
+                    .treasury_y
+                    .checked_sub(&dao_request.order.treasury_y_abs_delta)
+                    .ok_or(ApplyOrderError::incompatible(dao_request.clone()))?
+            }
+            DaoAction::ChangeStakePart => {
+                self.stake_part_script_hash = dao_request.order.pool_stake_script_hash
+            }
+            DaoAction::ChangeTreasuryFee => self.treasury_fee = dao_request.order.treasury_fee,
+            DaoAction::ChangeTreasuryAddress => self.treasury_address = dao_request.order.treasury_address,
+            DaoAction::ChangeAdminAddress => self.admin_address = dao_request.order.admin_address,
+            DaoAction::ChangePoolFee => {
+                self.lp_fee_x = dao_request.order.pool_fee;
+                self.lp_fee_y = dao_request.order.pool_fee
+            }
+        };
+
+        let requestor_output = RequestorOutput(DaoRequestorOutput {
+            lovelace_qty: dao_request
+                .order
+                .lovelace
+                .checked_sub(dao_request.order.fee)
+                .ok_or(ApplyOrderError::incompatible(dao_request.clone()))?,
+            requestor_address: Enterprise(EnterpriseAddress::new(
+                network_id.into(),
+                Credential::new_pub_key(dao_request.order.requestor_pkh),
+            )),
+        });
+
+        self.nonce += 1;
+
+        let redeemer_creator = |pool_id: PoolId,
+                                signatures: Vec<Ed25519Signature>,
+                                additional_bytes: Vec<Vec<u8>>,
+                                dao_action: DaoAction| {
+            ContexBasedRedeemerCreator::create(move |context: OperationResultContext| {
+                PlutusData::ConstrPlutusData(ConstrPlutusData::new(
+                    0,
+                    vec![
+                        dao_action.into_pd(),
+                        context.pool_input_idx.into_pd(),
+                        POOL_OUT_IDX_IN.into_pd(),
+                        PlutusData::new_list(
+                            signatures
+                                .iter()
+                                .map(|signature| {
+                                    PlutusData::new_bytes(signature.clone().to_raw_bytes().to_vec())
+                                })
+                                .collect(),
+                        ),
+                        PlutusData::new_list(
+                            additional_bytes
+                                .iter()
+                                .map(|additional_bytes_to_add| {
+                                    PlutusData::new_bytes(additional_bytes_to_add.clone())
+                                })
+                                .collect(),
+                        ),
+                    ],
+                ))
+            })
+        };
+
+        match dao_request.order.dao_action {
+            DaoAction::WithdrawTreasury => {
+                let treasury_withdraw = TreasuryWithdraw(TreasuryWithdrawOutput {
+                    token_x_asset: self.asset_x,
+                    token_x_amount: dao_request.order.treasury_x_abs_delta,
+                    token_y_asset: self.asset_y,
+                    token_y_amount: dao_request.order.treasury_y_abs_delta,
+                    // todo: fix in t2t case
+                    ada_residue: 0,
+                    treasury_script_hash: self.treasury_address,
+                });
+                Ok((
+                    self.clone(),
+                    OperationResultBlueprint {
+                        outputs: OperationResultOutputs::multiple(requestor_output, vec![treasury_withdraw]),
+                        witness_script: Some((
+                            dao_validator.clone().erased(),
+                            redeemer_creator(
+                                self.id,
+                                dao_request.order.signatures,
+                                dao_request.order.additional_bytes,
+                                dao_request.order.dao_action,
+                            ),
+                        )),
+                        order_script_validator: validator,
+                        strict_fee: Some(dao_ctx.execution_fee),
+                    },
+                ))
+            }
+            _ => Ok((
+                self,
+                OperationResultBlueprint {
+                    outputs: SingleOutput(requestor_output),
+                    witness_script: Some((
+                        dao_validator.clone().erased(),
+                        redeemer_creator(
+                            self.id,
+                            dao_request.order.signatures,
+                            dao_request.order.additional_bytes,
+                            dao_request.order.dao_action,
+                        ),
+                    )),
+                    order_script_validator: validator,
+                    strict_fee: Some(dao_ctx.execution_fee),
+                },
+            )),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use cml_chain::address::Address;
     use cml_chain::transaction::TransactionOutput;
     use cml_core::serialization::Deserialize;
     use cml_crypto::ScriptHash;
@@ -861,7 +1404,9 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
     use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
     use spectrum_cardano_lib::ex_units::ExUnits;
-    use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass, Token};
+    use spectrum_cardano_lib::{
+        AssetClass, AssetName, Ed25519PublicKey, TaggedAmount, TaggedAssetClass, Token,
+    };
     use spectrum_offchain::domain::Has;
     use spectrum_offchain::ledger::TryFromLedger;
 
@@ -870,7 +1415,7 @@ mod tests {
     use crate::data::PoolId;
     use crate::deployment::ProtocolValidator::{
         ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolV1,
-        ConstFnPoolV2,
+        ConstFnPoolV2, RoyaltyPoolV1,
     };
     use crate::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
 
@@ -933,13 +1478,21 @@ mod tests {
             treasury_fee: Ratio::new_raw(treasury_fee, 100000),
             treasury_x: TaggedAmount::new(treasury_x),
             treasury_y: TaggedAmount::new(treasury_y),
+            royalty_fee: Ratio::new_raw(0, 100000),
+            royalty_x: TaggedAmount::new(0),
+            royalty_y: TaggedAmount::new(0),
             lq_lower_bound: TaggedAmount::new(0),
+            admin_address: ScriptHash::from([0; 28]),
+            treasury_address: ScriptHash::from([0; 28]),
+            royalty_pub_key: Ed25519PublicKey::from([0; 32]),
             ver: ConstFnPoolVer::FeeSwitch,
             marginal_cost: ExUnits { mem: 100, steps: 100 },
             bounds: PoolValidation {
                 min_n2t_lovelace: 10000000,
                 min_t2t_lovelace: 10000000,
             },
+            nonce: 0,
+            stake_part_script_hash: Some(ScriptHash::from([0; 28])),
         };
     }
 
@@ -990,6 +1543,7 @@ mod tests {
             balanced_pool_aggregate_swap.0.result.fold(identity, |_| panic!()),
             final_pool_aggregate_swap
         );
+        assert_eq!(1, 2)
     }
 
     #[test]
@@ -1043,6 +1597,14 @@ mod tests {
             &self,
         ) -> DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }> {
             self.scripts.const_fn_pool_fee_switch_v2
+        }
+    }
+
+    impl Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>> for Ctx {
+        fn select<U: IsEqual<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>>(
+            &self,
+        ) -> DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }> {
+            self.scripts.royalty_pool_v1
         }
     }
 

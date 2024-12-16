@@ -7,13 +7,16 @@ use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
 use cml_chain::builders::tx_builder::{
     ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput, TxBuilderError,
 };
+use cml_chain::builders::withdrawal_builder::SingleWithdrawalBuilder;
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
+use cml_chain::certs::Credential;
+use cml_chain::genesis::network_info::NetworkInfo;
 use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::{DatumOption, ScriptRef, TransactionOutput};
 use cml_chain::utils::BigInteger;
-use cml_chain::Coin;
+use cml_chain::{Coin, Value};
 use cml_multi_era::babbage::BabbageTransactionOutput;
-use log::info;
+use log::{error, info};
 use void::Void;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
@@ -29,7 +32,7 @@ use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::protocol_params::constant_tx_builder;
-use spectrum_cardano_lib::{AssetClass, OutputRef, TaggedAmount, Token};
+use spectrum_cardano_lib::{AssetClass, NetworkId, OutputRef, TaggedAmount, Token};
 use spectrum_offchain::domain::event::Predicted;
 use spectrum_offchain::domain::{Has, Stable, Tradable};
 use spectrum_offchain::executor::RunOrderError;
@@ -38,6 +41,7 @@ use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 use crate::creds::OperatorRewardAddress;
 use crate::data::balance_pool::{BalancePool, BalancePoolRedeemer};
 use crate::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool};
+use crate::data::operation_output::{OperationResultBlueprint, OperationResultOutputs};
 use crate::data::order::{ClassicalOrderAction, ClassicalOrderRedeemer, Quote};
 use crate::data::pair::PairId;
 use crate::data::pool::AnyPool::{BalancedCFMM, PureCFMM, StableCFMM};
@@ -45,7 +49,8 @@ use crate::data::stable_pool_t2t::{StablePoolRedeemer, StablePoolT2T as StablePo
 use crate::data::OnChainOrderId;
 use crate::deployment::ProtocolValidator::{
     BalanceFnPoolV1, BalanceFnPoolV2, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,
-    ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, DegenQuadraticPoolV1, StableFnPoolT2T,
+    ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, DegenQuadraticPoolV1, RoyaltyPoolV1,
+    StableFnPoolT2T,
 };
 use crate::deployment::{DeployedScriptInfo, RequiresValidator};
 
@@ -59,11 +64,16 @@ pub enum ApplyOrderError<Order> {
     Slippage(Slippage<Order>),
     LowBatcherFee(LowerBatcherFee<Order>),
     Incompatible(Incompatible<Order>),
+    VerificationFailed(VerificationFailed<Order>),
 }
 
 impl<Order> ApplyOrderError<Order> {
     pub fn incompatible(order: Order) -> Self {
         Self::Incompatible(Incompatible { order })
+    }
+
+    pub fn verification_failed(order: Order, description: String) -> Self {
+        Self::VerificationFailed(VerificationFailed { order, description })
     }
 
     pub fn map<F, T1>(self, f: F) -> ApplyOrderError<T1>
@@ -76,6 +86,9 @@ impl<Order> ApplyOrderError<Order> {
                 ApplyOrderError::LowBatcherFee(low_batcher_fee.map(f))
             }
             ApplyOrderError::Incompatible(math_error) => ApplyOrderError::Incompatible(math_error.map(f)),
+            ApplyOrderError::VerificationFailed(verification_error) => {
+                ApplyOrderError::VerificationFailed(verification_error.map(f))
+            }
         }
     }
 
@@ -106,6 +119,7 @@ impl<Order> From<ApplyOrderError<Order>> for RunOrderError<Order> {
             ApplyOrderError::Slippage(slippage) => slippage.into(),
             ApplyOrderError::LowBatcherFee(low_batcher_fee) => low_batcher_fee.into(),
             ApplyOrderError::Incompatible(math_error) => math_error.into(),
+            ApplyOrderError::VerificationFailed(verifiaction_failed) => verifiaction_failed.into(),
         }
     }
 }
@@ -188,11 +202,36 @@ impl<Order> From<Incompatible<Order>> for RunOrderError<Order> {
     }
 }
 
+#[derive(Debug)]
+pub struct VerificationFailed<Order> {
+    pub order: Order,
+    pub description: String,
+}
+
+impl<T> VerificationFailed<T> {
+    pub fn map<F, T1>(self, f: F) -> VerificationFailed<T1>
+    where
+        F: FnOnce(T) -> T1,
+    {
+        VerificationFailed {
+            order: f(self.order),
+            description: self.description,
+        }
+    }
+}
+
+impl<Order> From<VerificationFailed<Order>> for RunOrderError<Order> {
+    fn from(value: VerificationFailed<Order>) -> Self {
+        RunOrderError::Fatal(format!("Verification failed. {}", value.description), value.order)
+    }
+}
+
 pub enum CFMMPoolAction {
     Swap,
     Deposit,
     Redeem,
-    Destroy,
+    RoyaltyWithdraw,
+    DAOAction,
 }
 
 impl CFMMPoolAction {
@@ -201,7 +240,8 @@ impl CFMMPoolAction {
             CFMMPoolAction::Swap => PlutusData::Integer(BigInteger::from(2)),
             CFMMPoolAction::Deposit => PlutusData::Integer(BigInteger::from(0)),
             CFMMPoolAction::Redeem => PlutusData::Integer(BigInteger::from(1)),
-            CFMMPoolAction::Destroy => PlutusData::Integer(BigInteger::from(3)),
+            CFMMPoolAction::DAOAction => PlutusData::Integer(BigInteger::from(3)),
+            CFMMPoolAction::RoyaltyWithdraw => PlutusData::Integer(BigInteger::from(4)),
         }
     }
 }
@@ -345,6 +385,7 @@ where
         + Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
         + Has<PoolValidation>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
@@ -439,11 +480,14 @@ impl RequiresRedeemer<CFMMPoolAction> for StablePoolT2TData {
     }
 }
 
-pub trait ApplyOrder<Order>: Sized {
+pub trait ApplyOrder<Order, Ctx>: Sized {
     type Result;
-
     /// Returns new pool, order output
-    fn apply_order(self, order: Order) -> Result<(Self, Self::Result), ApplyOrderError<Order>>;
+    fn apply_order(
+        self,
+        order: Order,
+        ctx: Ctx,
+    ) -> Result<(Self, OperationResultBlueprint<Self::Result>), ApplyOrderError<Order>>;
 }
 
 fn wrap_cml_action<U, Order>(
@@ -465,17 +509,17 @@ pub fn try_run_order_against_pool<Order, Pool, Ctx>(
     RunOrderError<Bundled<Order, FinalizedTxOut>>,
 >
 where
-    Pool: ApplyOrder<Order>
+    Pool: ApplyOrder<Order, Ctx>
         + RequiresValidator<Ctx>
         + IntoLedger<TransactionOutput, ImmutablePoolUtxo>
         + RequiresRedeemer<CFMMPoolAction>
-        + Clone,
-    <Pool as ApplyOrder<Order>>::Result: IntoLedger<TransactionOutput, Ctx>,
-    Order: Has<OnChainOrderId> + RequiresValidator<Ctx> + Clone + Debug,
+        + Copy,
+    <Pool as ApplyOrder<Order, Ctx>>::Result: IntoLedger<TransactionOutput, Ctx> + Clone,
+    Order: Has<OnChainOrderId> + Clone + Debug,
     Order: Into<CFMMPoolAction>,
-    Ctx: Clone + Has<Collateral> + Has<OperatorRewardAddress>,
+    Ctx: Clone + Has<Collateral> + Has<OperatorRewardAddress> + Has<NetworkId>,
 {
-    let Bundled(pool, FinalizedTxOut(pool_utxo, pool_ref)) = pool_bundle.clone();
+    let Bundled(pool, FinalizedTxOut(pool_utxo, pool_ref)) = pool_bundle;
     let Bundled(order, FinalizedTxOut(order_utxo, order_ref)) = order_bundle.clone();
 
     info!(target: "offchain", "Running order {} against pool {}", order_ref, pool_ref);
@@ -495,15 +539,8 @@ where
         output_index: 1,
         action: ClassicalOrderAction::Apply,
     };
-    let order_validator = order.get_validator(&ctx);
-    let order_script = PartialPlutusWitness::new(
-        PlutusScriptWitness::Ref(order_validator.hash),
-        order_redeemer.to_plutus_data(),
-    );
-    let order_in = SingleInputBuilder::new(order_ref.into(), order_utxo.clone())
-        .plutus_script_inline_datum(order_script, Vec::new().into())
-        .unwrap();
-    let (next_pool, user_out) = match pool.clone().apply_order(order.clone()) {
+
+    let (next_pool, operation_result_blueprint) = match pool.apply_order(order.clone(), ctx.clone()) {
         Ok(res) => res,
         Err(order_error) => {
             return Err(order_error
@@ -511,35 +548,45 @@ where
                 .into());
         }
     };
-    let pool_out = next_pool.clone().into_ledger(immut_pool);
+    let pool_out = next_pool.into_ledger(immut_pool);
 
     let pool_validator = pool.get_validator(&ctx);
     let pool_script = PartialPlutusWitness::new(
         PlutusScriptWitness::Ref(pool_validator.hash),
         next_pool
             .clone()
-            .redeemer(pool.clone(), pool_in_idx, order.clone().into()),
+            .redeemer(pool, pool_in_idx, order.clone().into()),
     );
 
     let pool_in = SingleInputBuilder::new(pool_ref.into(), pool_utxo.clone())
         .plutus_script_inline_datum(pool_script, Vec::new().into())
         .unwrap();
 
+    let order_validator = operation_result_blueprint.order_script_validator;
+    let order_script = PartialPlutusWitness::new(
+        PlutusScriptWitness::Ref(order_validator.hash),
+        order_redeemer.to_plutus_data(),
+    );
+    let order_in = SingleInputBuilder::new(order_ref.into(), order_utxo.clone())
+        .plutus_script_inline_datum(order_script, Vec::new().into())
+        .unwrap();
+
     let mut tx_builder = constant_tx_builder();
 
     tx_builder
         .add_collateral(ctx.select::<Collateral>().into())
-        .map_err(|err| RunOrderError::from_cml_error(err, order_bundle.clone()))?;
+        .map_err(|err| RunOrderError::from_tx_builder_error(err, order_bundle.clone()))?;
 
-    tx_builder.add_reference_input(order_validator.reference_utxo);
     tx_builder.add_reference_input(pool_validator.reference_utxo);
+    tx_builder.add_reference_input(order_validator.reference_utxo);
 
     tx_builder
         .add_input(pool_in)
-        .map_err(|err| RunOrderError::from_cml_error(err, order_bundle.clone()))?;
+        .map_err(|err| RunOrderError::from_tx_builder_error(err, order_bundle.clone()))?;
+
     tx_builder
         .add_input(order_in)
-        .map_err(|err| RunOrderError::from_cml_error(err, order_bundle.clone()))?;
+        .map_err(|err| RunOrderError::from_tx_builder_error(err, order_bundle.clone()))?;
 
     tx_builder.set_exunits(
         RedeemerWitnessKey::new(RedeemerTag::Spend, pool_in_idx.clone().into()),
@@ -552,17 +599,80 @@ where
 
     tx_builder
         .add_output(SingleOutputBuilderResult::new(pool_out.clone()))
-        .map_err(|err| RunOrderError::from_cml_error(err, order_bundle.clone()))?;
+        .map_err(|err| RunOrderError::from_tx_builder_error(err, order_bundle.clone()))?;
 
-    tx_builder
-        .add_output(SingleOutputBuilderResult::new(user_out.into_ledger(ctx.clone())))
-        .map_err(|err| RunOrderError::from_cml_error(err, order_bundle.clone()))?;
+    match operation_result_blueprint.outputs {
+        OperationResultOutputs::SingleOutput(single_output) => tx_builder.add_output(
+            SingleOutputBuilderResult::new(single_output.into_ledger(ctx.clone())),
+        ),
+        OperationResultOutputs::MultipleOutputs(multiple_outputs) => {
+            let mut operation_outputs = multiple_outputs.sub_action_utxos;
+            operation_outputs.insert(0, multiple_outputs.action_result_output);
+            operation_outputs.iter().try_fold((), |_, op_result| {
+                tx_builder.add_output(SingleOutputBuilderResult::new(
+                    op_result.clone().into_ledger(ctx.clone()),
+                ))
+            })
+        }
+    }
+    .map_err(|err| RunOrderError::from_tx_builder_error(err, order_bundle.clone()))?;
+
+    if let Some((witness_validator, redeemer_creator)) = operation_result_blueprint.witness_script {
+        let real_redeemer = redeemer_creator.compute(pool_in_idx, order_in_idx);
+
+        let reward_address = cml_chain::address::RewardAddress::new(
+            ctx.select::<NetworkId>().into(),
+            Credential::new_script(witness_validator.hash),
+        );
+        let partial_witness =
+            PartialPlutusWitness::new(PlutusScriptWitness::Ref(witness_validator.hash), real_redeemer);
+
+        let withdrawal_result = SingleWithdrawalBuilder::new(reward_address.clone(), 0)
+            .plutus_script(partial_witness, vec![].into())
+            .map_err(|err| RunOrderError::from_withdrawal_builder_error(err, order_bundle.clone()))?;
+
+        tx_builder.add_reference_input(witness_validator.reference_utxo);
+
+        tx_builder.add_withdrawal(withdrawal_result);
+
+        tx_builder.set_exunits(
+            RedeemerWitnessKey::new(RedeemerTag::Reward, 0),
+            witness_validator.ex_budget.into(),
+        );
+    }
+
+    let address: Address = ctx.select::<OperatorRewardAddress>().into();
+
+    /// Temporary solution to handle a potential bug in CML.
+    /// The current version produces an incorrect `min_fee`, so some operations
+    /// directly set the fee value. This requires manual creation of a batcher fee UTXO.
+    ///
+    /// TODO: Remove this workaround once the `min_fee` issue is resolved.
+    if let Some(strict_fee) = operation_result_blueprint.strict_fee {
+        tx_builder.set_fee(strict_fee);
+        tx_builder
+            .add_output(SingleOutputBuilderResult::new(TransactionOutput::new(
+                address.clone(),
+                Value::from(
+                    tx_builder
+                        .get_total_input()
+                        .unwrap()
+                        .coin
+                        .checked_sub(tx_builder.get_total_output().unwrap().coin)
+                        .and_then(|without_fee| without_fee.checked_sub(strict_fee))
+                        .ok_or(RunOrderError::raw_builder_error(
+                            "Insufficient ada value".to_string(),
+                            order_bundle.clone(),
+                        ))?,
+                ),
+                None,
+                None,
+            )))
+            .map_err(|err| RunOrderError::from_tx_builder_error(err, order_bundle.clone()))?;
+    }
 
     let tx = wrap_cml_action(
-        tx_builder.build(
-            ChangeSelectionAlgo::Default,
-            &ctx.select::<OperatorRewardAddress>().into(),
-        ),
+        tx_builder.build(ChangeSelectionAlgo::Default, &address),
         Bundled(order, FinalizedTxOut(order_utxo, order_ref)),
     )?;
 

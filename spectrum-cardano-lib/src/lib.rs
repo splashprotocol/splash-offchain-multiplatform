@@ -4,20 +4,26 @@ use std::marker::PhantomData;
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::str::FromStr;
 
+use crate::constants::ED25519_PUB_KEY_LENGTH;
 use cml_chain::assets::MultiAsset;
+use cml_chain::certs::Credential;
+use cml_chain::plutus::utils::ConstrPlutusDataEncoding;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::TransactionInput;
 use cml_chain::utils::BigInteger;
 use cml_chain::{PolicyId, Value};
-use cml_crypto::{RawBytesEncoding, TransactionHash};
+use cml_core::serialization::LenEncoding::Indefinite;
+use cml_core::serialization::ToBytes;
+use cml_core::{DeserializeError, Int};
+use cml_crypto::chain_crypto::ed25519;
+use cml_crypto::{PublicKey, RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
 use derive_more::{From, Into};
 use num::{CheckedAdd, CheckedSub};
-use plutus_data::IntoPlutusData;
 use serde::{Deserialize, Serialize};
 use serde_with::SerializeDisplay;
 
-use crate::plutus_data::{ConstrPlutusDataExtension, PlutusDataExtension};
+use crate::plutus_data::{ConstrPlutusDataExtension, IntoPlutusData, PlutusDataExtension};
 use crate::types::TryFromPData;
 
 pub mod address;
@@ -269,6 +275,31 @@ impl From<Token> for [u8; 60] {
             arr[ix] = *b;
         }
         arr
+    }
+}
+
+impl IntoPlutusData for Token {
+    fn into_pd(self) -> PlutusData {
+        PlutusData::ConstrPlutusData(ConstrPlutusData {
+            alternative: 0,
+            fields: vec![
+                PlutusData::Bytes {
+                    bytes: self.0.to_raw_bytes().to_vec(),
+                    bytes_encoding: Default::default(),
+                },
+                PlutusData::Bytes {
+                    bytes: self.1.as_bytes().to_vec(),
+                    bytes_encoding: Default::default(),
+                },
+            ],
+            encodings: Some(ConstrPlutusDataEncoding {
+                len_encoding: Indefinite,
+                tag_encoding: Some(cbor_event::Sz::Inline),
+                alternative_encoding: None,
+                fields_encoding: Indefinite,
+                prefer_compact: true,
+            }),
+        })
     }
 }
 
@@ -525,6 +556,31 @@ pub struct NetworkId(u8);
 /// Payment credential in bech32.
 #[derive(serde::Deserialize, Debug, Clone, From, Into)]
 pub struct PaymentCredential(String);
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct Ed25519PublicKey([u8; ED25519_PUB_KEY_LENGTH]);
+
+impl From<[u8; ED25519_PUB_KEY_LENGTH]> for Ed25519PublicKey {
+    fn from(value: [u8; ED25519_PUB_KEY_LENGTH]) -> Self {
+        Self(value)
+    }
+}
+
+impl TryFrom<Vec<u8>> for Ed25519PublicKey {
+    type Error = ();
+
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        value.try_into().map(Self).map_err(|_| ())
+    }
+}
+
+impl TryInto<PublicKey> for Ed25519PublicKey {
+    type Error = DeserializeError;
+
+    fn try_into(self) -> Result<PublicKey, Self::Error> {
+        PublicKey::from_raw_bytes(&self.0)
+    }
+}
 
 #[cfg(test)]
 mod tests {

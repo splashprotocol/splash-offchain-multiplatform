@@ -17,6 +17,7 @@ cml-multi-era = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git
 serde = { version = "1.0.147", features = ["derive"] }
 serde_with = "3.9.0"
 hex = "0.4.3"
+cbor_event = "2.4.0"
 thiserror = "1.0.47"
 derive_more = { version = "1.0.0", features = ["full"] }
 derivative = "2.2.0"

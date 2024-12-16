@@ -265,5 +265,110 @@
       "mem": 500000,
       "steps": 200000000
     }
+  },
+  "royaltyPool": {
+    "hash": "cb684a69e78907a9796b21fc150a758af5f2805e5ed5d5a8ce9f76f1",
+    "referenceUtxo": {
+      "txHash": "8aa606ad8c995af6e59b19c0fee2f5bb5abc04552d105a146f0a4921cca9b600",
+      "outputIndex": 0
+    },
+    "cost": {
+      "mem": 2000000,
+      "steps": 1200000000
+    },
+    "marginalCost": {
+      "mem": 600000,
+      "steps": 240000000
+    }
+  },
+  "royaltyPoolDeposit": {
+    "hash": "5a04e05f6fd8b6e03c19619417abfec145b44f237d58bed30dc9f694",
+    "referenceUtxo": {
+      "txHash": "8aa606ad8c995af6e59b19c0fee2f5bb5abc04552d105a146f0a4921cca9b600",
+      "outputIndex": 1
+    },
+    "cost": {
+      "mem": 600000,
+      "steps": 240000000
+    },
+    "marginalCost": {
+      "mem": 600000,
+      "steps": 240000000
+    }
+  },
+  "royaltyPoolRedeem": {
+    "hash": "fceb645fdc06550d62065bc0f95318e8dcd71e6a8c13c05f313b246d",
+    "referenceUtxo": {
+      "txHash": "8aa606ad8c995af6e59b19c0fee2f5bb5abc04552d105a146f0a4921cca9b600",
+      "outputIndex": 2
+    },
+    "cost": {
+      "mem": 600000,
+      "steps": 240000000
+    },
+    "marginalCost": {
+      "mem": 600000,
+      "steps": 240000000
+    }
+  },
+  "royaltyPoolWithdrawRequest": {
+    "hash": "92c094b90cf3637a96a13e9bc9a04ce8bb7e48c7ed0b5d1cc5ca7332",
+    "referenceUtxo": {
+      "txHash": "b43f65aa330b9532bda1066c05999210695b76ba17fcffcc09afea209b4b2fa9",
+      "outputIndex": 0
+    },
+    "cost": {
+      "mem": 800000,
+      "steps": 320000000
+    },
+    "marginalCost": {
+      "mem": 600000,
+      "steps": 240000000
+    }
+  },
+  "royaltyPoolDaoRequest": {
+    "hash": "e6715e7c155fbb5bb5cc23e41ebf5491ccb292959fc2220d7499a1fa",
+    "referenceUtxo": {
+      "txHash": "8aa606ad8c995af6e59b19c0fee2f5bb5abc04552d105a146f0a4921cca9b600",
+      "outputIndex": 3
+    },
+    "cost": {
+      "mem": 1500000,
+      "steps": 320000000
+    },
+    "marginalCost": {
+      "mem": 600000,
+      "steps": 240000000
+    }
+  },
+  "royaltyPoolWithdrawContract": {
+    "hash": "b7f10508f0bca230b30172c17ae98fc11846ff573b4b91b4ea41ffc6",
+    "referenceUtxo": {
+      "txHash": "b43f65aa330b9532bda1066c05999210695b76ba17fcffcc09afea209b4b2fa9",
+      "outputIndex": 2
+    },
+    "cost": {
+      "mem": 800000,
+      "steps": 320000000
+    },
+    "marginalCost": {
+      "mem": 600000,
+      "steps": 240000000
+    }
+  },
+  "royaltyPoolDaoContract": {
+    "hash": "66e711a4bf9ddf46ff239143870b6893055a4fd4dea9f99fed6665cd",
+    "referenceUtxo": {
+      "txHash": "b43f65aa330b9532bda1066c05999210695b76ba17fcffcc09afea209b4b2fa9",
+      "outputIndex": 1
+    },
+    "cost": {
+      "mem": 6000000,
+      "steps": 3502791591
+    },
+    "marginalCost": {
+      "mem": 600000,
+      "steps": 240000000
+    }
   }
 }

@@ -2,7 +2,6 @@ use cml_chain::plutus::PlutusData;
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::Coin;
 use cml_crypto::Ed25519KeyHash;
-use cml_multi_era::babbage::BabbageTransactionOutput;
 use num_rational::Ratio;
 
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension};
@@ -15,7 +14,7 @@ use spectrum_offchain::domain::Has;
 use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::constants::MIN_SAFE_LOVELACE_VALUE;
-use crate::data::order::{Base, ClassicalOrder, OrderType, PoolNft, Quote};
+use crate::data::order::{Base, ClassicalOrder, PoolNft, Quote};
 use crate::data::pool::CFMMPoolAction;
 use crate::data::pool::CFMMPoolAction::Swap;
 use crate::data::{ExecutorFeePerToken, OnChainOrderId, PoolId};

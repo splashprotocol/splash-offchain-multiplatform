@@ -23,20 +23,25 @@ use spectrum_offchain::ledger::TryFromLedger;
 use crate::creds::OperatorRewardAddress;
 
 use crate::data::cfmm_pool::ConstFnPool;
+use crate::data::dao_request::{DAOContext, DAOV1ActionOrderValidation, OnChainDAOActionRequest};
 use crate::data::deposit::{ClassicalOnChainDeposit, DepositOrderValidation};
 use crate::data::limit_swap::ClassicalOnChainLimitSwap;
 use crate::data::pool::try_run_order_against_pool;
 use crate::data::redeem::{ClassicalOnChainRedeem, RedeemOrderValidation};
+use crate::data::royalty_withdraw_request::{
+    OnChainRoyaltyWithdraw, RoyaltyWithdrawContext, RoyaltyWithdrawOrderValidation,
+};
 use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2, ConstFnFeeSwitchPoolDeposit,
     ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
     ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1,
-    ConstFnPoolV2, StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
+    ConstFnPoolV2, RoyaltyPoolDAOV1, RoyaltyPoolDAOV1Request, RoyaltyPoolRoyaltyWithdraw, RoyaltyPoolV1,
+    RoyaltyPoolV1Deposit, RoyaltyPoolV1Redeem, RoyaltyPoolV1RoyaltyWithdrawRequest, StableFnPoolT2T,
+    StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use crate::deployment::{DeployedScriptInfo, DeployedValidator};
-use spectrum_cardano_lib::{AssetClass, NetworkId, OutputRef, Token};
-use spectrum_offchain::executor::RunOrderError::Fatal;
+use spectrum_cardano_lib::{NetworkId, OutputRef, Token};
 
 pub struct Input;
 
@@ -61,6 +66,7 @@ pub enum OrderType {
     ConstFnFeeSwitch,
     ConstFn,
     StableFn,
+    RoyaltyConstFn,
 }
 
 impl<Id: Clone, Ord> Has<Id> for ClassicalOrder<Id, Ord> {
@@ -102,64 +108,72 @@ impl ClassicalOrderRedeemer {
 }
 
 #[derive(Debug, Clone)]
-pub enum ClassicalAMMOrder {
+pub enum Order {
     Swap(ClassicalOnChainLimitSwap),
     Deposit(ClassicalOnChainDeposit),
     Redeem(ClassicalOnChainRedeem),
+    RoyaltyWithdraw(OnChainRoyaltyWithdraw),
+    DAOActionRequest(OnChainDAOActionRequest),
 }
 
-impl Display for ClassicalAMMOrder {
+impl Display for Order {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str("ClassicalAMMOrder")
     }
 }
 
-impl Weighted for ClassicalAMMOrder {
+impl Weighted for Order {
     fn weight(&self) -> OrderWeight {
         match self {
-            ClassicalAMMOrder::Swap(limit_swap) => OrderWeight::from(limit_swap.order.fee.0),
-            ClassicalAMMOrder::Deposit(deposit) => OrderWeight::from(deposit.order.ex_fee),
-            ClassicalAMMOrder::Redeem(redeem) => OrderWeight::from(redeem.order.ex_fee),
+            Order::Swap(limit_swap) => OrderWeight::from(limit_swap.order.fee.0),
+            Order::Deposit(deposit) => OrderWeight::from(deposit.order.ex_fee),
+            Order::Redeem(redeem) => OrderWeight::from(redeem.order.ex_fee),
+            Order::RoyaltyWithdraw(_) => OrderWeight::from(0),
+            Order::DAOActionRequest(_) => OrderWeight::from(0),
         }
     }
 }
 
-impl PartialEq for ClassicalAMMOrder {
+impl PartialEq for Order {
     fn eq(&self, other: &Self) -> bool {
         <Self as UniqueOrder>::get_self_ref(self).eq(&<Self as UniqueOrder>::get_self_ref(other))
     }
 }
 
-impl Eq for ClassicalAMMOrder {}
+impl Eq for Order {}
 
-impl Hash for ClassicalAMMOrder {
+impl Hash for Order {
     fn hash<H: Hasher>(&self, state: &mut H) {
         <Self as UniqueOrder>::get_self_ref(self).hash(state)
     }
 }
 
-impl SpecializedOrder for ClassicalAMMOrder {
+impl SpecializedOrder for Order {
     type TOrderId = OutputRef;
     type TPoolId = Token;
 
     fn get_self_ref(&self) -> Self::TOrderId {
         match self {
-            ClassicalAMMOrder::Swap(swap) => swap.id.into(),
-            ClassicalAMMOrder::Deposit(dep) => dep.id.into(),
-            ClassicalAMMOrder::Redeem(red) => red.id.into(),
+            Order::Swap(swap) => swap.id.into(),
+            Order::Deposit(dep) => dep.id.into(),
+            Order::Redeem(red) => red.id.into(),
+            Order::RoyaltyWithdraw(withdraw) => withdraw.id.into(),
+            Order::DAOActionRequest(dao_request) => dao_request.id.into(),
         }
     }
 
     fn get_pool_ref(&self) -> Self::TPoolId {
         match self {
-            ClassicalAMMOrder::Swap(swap) => swap.pool_id.into(),
-            ClassicalAMMOrder::Deposit(dep) => dep.pool_id.into(),
-            ClassicalAMMOrder::Redeem(red) => red.pool_id.into(),
+            Order::Swap(swap) => swap.pool_id.into(),
+            Order::Deposit(dep) => dep.pool_id.into(),
+            Order::Redeem(red) => red.pool_id.into(),
+            Order::RoyaltyWithdraw(withdraw) => withdraw.pool_id.into(),
+            Order::DAOActionRequest(dao_request) => dao_request.pool_id.into(),
         }
     }
 }
 
-impl<Ctx> TryFromLedger<TransactionOutput, Ctx> for ClassicalAMMOrder
+impl<Ctx> TryFromLedger<TransactionOutput, Ctx> for Order
 where
     Ctx: Has<OutputRef>
         + Has<DeployedScriptInfo<{ ConstFnFeeSwitchPoolSwap as u8 }>>
@@ -172,32 +186,49 @@ where
         + Has<DeployedScriptInfo<{ BalanceFnPoolRedeem as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2TDeposit as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2TRedeem as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV1Deposit as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV1Redeem as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolDAOV1Request as u8 }>>
         + Has<DepositOrderValidation>
-        + Has<RedeemOrderValidation>,
+        + Has<RedeemOrderValidation>
+        + Has<RoyaltyWithdrawOrderValidation>
+        + Has<DAOV1ActionOrderValidation>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
         ClassicalOnChainLimitSwap::try_from_ledger(repr, ctx)
-            .map(|swap| ClassicalAMMOrder::Swap(swap))
+            .map(|swap| Order::Swap(swap))
             .or_else(|| {
-                ClassicalOnChainDeposit::try_from_ledger(repr, ctx)
-                    .map(|deposit| ClassicalAMMOrder::Deposit(deposit))
+                ClassicalOnChainDeposit::try_from_ledger(repr, ctx).map(|deposit| Order::Deposit(deposit))
             })
             .or_else(|| {
-                ClassicalOnChainRedeem::try_from_ledger(repr, ctx)
-                    .map(|redeem| ClassicalAMMOrder::Redeem(redeem))
+                ClassicalOnChainRedeem::try_from_ledger(repr, ctx).map(|redeem| Order::Redeem(redeem))
+            })
+            .or_else(|| {
+                ClassicalOnChainRedeem::try_from_ledger(repr, ctx).map(|redeem| Order::Redeem(redeem))
+            })
+            .or_else(|| {
+                OnChainRoyaltyWithdraw::try_from_ledger(repr, ctx)
+                    .map(|royalty_withdraw| Order::RoyaltyWithdraw(royalty_withdraw))
+            })
+            .or_else(|| {
+                OnChainDAOActionRequest::try_from_ledger(repr, ctx)
+                    .map(|royalty_withdraw| Order::DAOActionRequest(royalty_withdraw))
             })
     }
 }
 
 pub struct RunClassicalAMMOrderOverPool<Pool>(pub Bundled<Pool, FinalizedTxOut>);
 
-impl<Ctx> RunOrder<Bundled<ClassicalAMMOrder, FinalizedTxOut>, Ctx, SignedTxBuilder>
+impl<Ctx> RunOrder<Bundled<Order, FinalizedTxOut>, Ctx, SignedTxBuilder>
     for RunClassicalAMMOrderOverPool<ConstFnPool>
 where
     Ctx: Clone
         + Has<Collateral>
         + Has<NetworkId>
         + Has<OperatorRewardAddress>
+        + Has<DAOContext>
+        + Has<RoyaltyWithdrawContext>
         + Has<DeployedValidator<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedValidator<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedValidator<{ ConstFnFeeSwitchPoolSwap as u8 }>>
@@ -210,6 +241,13 @@ where
         + Has<DeployedValidator<{ ConstFnFeeSwitchPoolSwap as u8 }>>
         + Has<DeployedValidator<{ ConstFnFeeSwitchPoolDeposit as u8 }>>
         + Has<DeployedValidator<{ ConstFnFeeSwitchPoolRedeem as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolDAOV1Request as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolDAOV1 as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdraw as u8 }>>
         // comes from common execution for deposit and redeem for balance pool
         + Has<DeployedValidator<{ BalanceFnPoolV1 as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolV2 as u8 }>>
@@ -221,31 +259,40 @@ where
 {
     fn try_run(
         self,
-        Bundled(order, ord_bearer): Bundled<ClassicalAMMOrder, FinalizedTxOut>,
+        Bundled(order, ord_bearer): Bundled<Order, FinalizedTxOut>,
         ctx: Ctx,
-    ) -> Result<(SignedTxBuilder, Predicted<Self>), RunOrderError<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>
-    {
+    ) -> Result<(SignedTxBuilder, Predicted<Self>), RunOrderError<Bundled<Order, FinalizedTxOut>>> {
         let RunClassicalAMMOrderOverPool(pool_bundle) = self;
         match order {
-            ClassicalAMMOrder::Swap(swap) => {
-                try_run_order_against_pool(pool_bundle, Bundled(swap, ord_bearer), ctx)
-                    .map(|(txb, res)| (txb, res.map(RunClassicalAMMOrderOverPool)))
-                    .map_err(|err| {
-                        err.map(|Bundled(swap, bundle)| Bundled(ClassicalAMMOrder::Swap(swap), bundle))
-                    })
-            }
-            ClassicalAMMOrder::Deposit(deposit) => {
+            Order::Swap(swap) => try_run_order_against_pool(pool_bundle, Bundled(swap, ord_bearer), ctx)
+                .map(|(txb, res)| (txb, res.map(RunClassicalAMMOrderOverPool)))
+                .map_err(|err| err.map(|Bundled(swap, bundle)| Bundled(Order::Swap(swap), bundle))),
+            Order::Deposit(deposit) => {
                 try_run_order_against_pool(pool_bundle, Bundled(deposit.clone(), ord_bearer), ctx)
                     .map(|(txb, res)| (txb, res.map(RunClassicalAMMOrderOverPool)))
-                    .map_err(|err| {
-                        err.map(|Bundled(_swap, bundle)| Bundled(ClassicalAMMOrder::Deposit(deposit), bundle))
-                    })
+                    .map_err(|err| err.map(|Bundled(_swap, bundle)| Bundled(Order::Deposit(deposit), bundle)))
             }
-            ClassicalAMMOrder::Redeem(redeem) => {
+            Order::Redeem(redeem) => {
                 try_run_order_against_pool(pool_bundle, Bundled(redeem.clone(), ord_bearer), ctx)
                     .map(|(txb, res)| (txb, res.map(RunClassicalAMMOrderOverPool)))
+                    .map_err(|err| err.map(|Bundled(_swap, bundle)| Bundled(Order::Redeem(redeem), bundle)))
+            }
+            Order::RoyaltyWithdraw(royalty_withdraw) => {
+                try_run_order_against_pool(pool_bundle, Bundled(royalty_withdraw.clone(), ord_bearer), ctx)
+                    .map(|(txb, res)| (txb, res.map(RunClassicalAMMOrderOverPool)))
                     .map_err(|err| {
-                        err.map(|Bundled(_swap, bundle)| Bundled(ClassicalAMMOrder::Redeem(redeem), bundle))
+                        err.map(|Bundled(_swap, bundle)| {
+                            Bundled(Order::RoyaltyWithdraw(royalty_withdraw), bundle)
+                        })
+                    })
+            }
+            Order::DAOActionRequest(dao_request) => {
+                try_run_order_against_pool(pool_bundle, Bundled(dao_request.clone(), ord_bearer), ctx)
+                    .map(|(txb, res)| (txb, res.map(RunClassicalAMMOrderOverPool)))
+                    .map_err(|err| {
+                        err.map(|Bundled(_swap, bundle)| {
+                            Bundled(Order::DAOActionRequest(dao_request), bundle)
+                        })
                     })
             }
         }

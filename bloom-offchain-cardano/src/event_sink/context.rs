@@ -4,15 +4,18 @@ use type_equalities::IsEqual;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::creds::OperatorCred;
+use spectrum_offchain_cardano::data::dao_request::{DAOContext, DAOV1ActionOrderValidation};
 use spectrum_offchain_cardano::data::deposit::DepositOrderValidation;
 use spectrum_offchain_cardano::data::pool::PoolValidation;
 use spectrum_offchain_cardano::data::redeem::RedeemOrderValidation;
+use spectrum_offchain_cardano::data::royalty_withdraw_request::RoyaltyWithdrawOrderValidation;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2, ConstFnFeeSwitchPoolDeposit,
     ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
     ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1,
-    ConstFnPoolV2, LimitOrderV1, LimitOrderWitnessV1, StableFnPoolT2T, StableFnPoolT2TDeposit,
-    StableFnPoolT2TRedeem,
+    ConstFnPoolV2, LimitOrderV1, LimitOrderWitnessV1, RoyaltyPoolDAOV1Request, RoyaltyPoolV1,
+    RoyaltyPoolV1Deposit, RoyaltyPoolV1Redeem, RoyaltyPoolV1RoyaltyWithdrawRequest, StableFnPoolT2T,
+    StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHashes};
 use spectrum_offchain_cardano::handler_context::{ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers};
@@ -35,6 +38,7 @@ pub struct HandlerContextProto {
     pub scripts: ProtocolScriptHashes,
     pub validation_rules: ValidationRules,
     pub adhoc_fee_structure: AdhocFeeStructure,
+    pub dao_context: DAOContext,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -47,6 +51,7 @@ pub struct HandlerContext<I: Copy> {
     pub scripts: ProtocolScriptHashes,
     pub bounds: ValidationRules,
     pub adhoc_fee_structure: AdhocFeeStructure,
+    pub dao_context: DAOContext,
 }
 
 impl<I: Copy> From<(HandlerContextProto, EventContext<I>)> for HandlerContext<I> {
@@ -61,6 +66,7 @@ impl<I: Copy> From<(HandlerContextProto, EventContext<I>)> for HandlerContext<I>
             scripts: ctx_proto.scripts,
             bounds: ctx_proto.validation_rules,
             adhoc_fee_structure: ctx_proto.adhoc_fee_structure,
+            dao_context: ctx_proto.dao_context,
         }
     }
 }
@@ -74,6 +80,18 @@ impl<I: Copy> Has<LimitOrderValidation> for HandlerContext<I> {
 impl<I: Copy> Has<DepositOrderValidation> for HandlerContext<I> {
     fn select<U: IsEqual<DepositOrderValidation>>(&self) -> DepositOrderValidation {
         self.bounds.deposit_order
+    }
+}
+
+impl<I: Copy> Has<RoyaltyWithdrawOrderValidation> for HandlerContext<I> {
+    fn select<U: IsEqual<RoyaltyWithdrawOrderValidation>>(&self) -> RoyaltyWithdrawOrderValidation {
+        self.bounds.royalty_withdraw
+    }
+}
+
+impl<I: Copy> Has<DAOV1ActionOrderValidation> for HandlerContext<I> {
+    fn select<U: IsEqual<DAOV1ActionOrderValidation>>(&self) -> DAOV1ActionOrderValidation {
+        self.bounds.dao_action
     }
 }
 
@@ -267,6 +285,46 @@ impl<I: Copy> Has<DeployedScriptInfo<{ StableFnPoolT2TRedeem as u8 }>> for Handl
     }
 }
 
+impl<I: Copy> Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>> for HandlerContext<I> {
+    fn select<U: IsEqual<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }> {
+        self.scripts.royalty_pool_v1.clone()
+    }
+}
+
+impl<I: Copy> Has<DeployedScriptInfo<{ RoyaltyPoolV1Deposit as u8 }>> for HandlerContext<I> {
+    fn select<U: IsEqual<DeployedScriptInfo<{ RoyaltyPoolV1Deposit as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ RoyaltyPoolV1Deposit as u8 }> {
+        self.scripts.royalty_pool_deposit.clone()
+    }
+}
+
+impl<I: Copy> Has<DeployedScriptInfo<{ RoyaltyPoolV1Redeem as u8 }>> for HandlerContext<I> {
+    fn select<U: IsEqual<DeployedScriptInfo<{ RoyaltyPoolV1Redeem as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ RoyaltyPoolV1Redeem as u8 }> {
+        self.scripts.royalty_pool_redeem.clone()
+    }
+}
+
+impl<I: Copy> Has<DeployedScriptInfo<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>> for HandlerContext<I> {
+    fn select<U: IsEqual<DeployedScriptInfo<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }> {
+        self.scripts.royalty_pool_withdraw_request.clone()
+    }
+}
+
+impl<I: Copy> Has<DeployedScriptInfo<{ RoyaltyPoolDAOV1Request as u8 }>> for HandlerContext<I> {
+    fn select<U: IsEqual<DeployedScriptInfo<{ RoyaltyPoolDAOV1Request as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ RoyaltyPoolDAOV1Request as u8 }> {
+        self.scripts.royalty_pool_dao_request.clone()
+    }
+}
+
 impl<I: Copy> Has<AdhocFeeStructure> for HandlerContext<I> {
     fn select<U: IsEqual<AdhocFeeStructure>>(&self) -> AdhocFeeStructure {
         self.adhoc_fee_structure
@@ -288,5 +346,11 @@ impl<I: Copy> Has<OperatorCred> for HandlerContext<I> {
 impl<I: Copy> Has<BeaconMode> for HandlerContext<I> {
     fn select<U: IsEqual<BeaconMode>>(&self) -> BeaconMode {
         BeaconMode::Default
+    }
+}
+
+impl<I: Copy> Has<DAOContext> for HandlerContext<I> {
+    fn select<U: IsEqual<DAOContext>>(&self) -> DAOContext {
+        self.dao_context.clone()
     }
 }

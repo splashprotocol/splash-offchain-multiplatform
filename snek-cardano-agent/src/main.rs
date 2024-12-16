@@ -63,7 +63,7 @@ use spectrum_offchain::tx_tracker::{new_tx_tracker_bundle, TxTrackerAgent};
 use spectrum_offchain_cardano::collateral::pull_collateral;
 use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::data::degen_quadratic_pool::DegenQuadraticPool;
-use spectrum_offchain_cardano::data::order::ClassicalAMMOrder;
+use spectrum_offchain_cardano::data::order::Order;
 use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
@@ -271,10 +271,8 @@ async fn main() {
     let (signal_tip_reached_snd, signal_tip_reached_recv) = broadcast::channel(1);
     let multi_book =
         MultiPair::new::<TLB<AdhocOrder, DegenQuadraticPool, PairId, ExUnits>>(maker_context.clone(), "Book");
-    let multi_backlog = MultiPair::new::<HotPriorityBacklog<Bundled<ClassicalAMMOrder, FinalizedTxOut>>>(
-        maker_context,
-        "Backlog",
-    );
+    let multi_backlog =
+        MultiPair::new::<HotPriorityBacklog<Bundled<Order, FinalizedTxOut>>>(maker_context, "Backlog");
     let state_index = InMemoryStateIndex::with_tracing();
 
     let execution_stream_p1 = execution_part_stream(
@@ -447,7 +445,7 @@ fn merge_upstreams(
                     >,
                 >,
             >,
-            Channel<OrderUpdate<Bundled<ClassicalAMMOrder, FinalizedTxOut>, ClassicalAMMOrder>>,
+            Channel<OrderUpdate<Bundled<Order, FinalizedTxOut>, Order>>,
         >,
     ),
 > {

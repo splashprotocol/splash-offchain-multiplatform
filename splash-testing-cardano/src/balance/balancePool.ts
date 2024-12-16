@@ -1,9 +1,8 @@
-import { BalanceContract } from "../../plutus.ts";
 import { getConfig } from "../config.ts";
 import { getLucid } from "../lucid.ts";
 import { Asset, BuiltValidators, asUnit } from "../types.ts";
 import { setupWallet } from "../wallet.ts";
-import { Unit, Datum, MintingPolicy, UTxO, Data, Lucid, ScriptHash} from "https://deno.land/x/lucid@0.10.7/mod.ts";
+import { Unit, Datum, MintingPolicy, UTxO, Data, Lucid, ScriptHash} from "@lucid-evolution/lucid";
 import { encoder } from 'npm:js-encoding-utils';
 
 export const stringToHex = (str: string): string =>
@@ -76,7 +75,7 @@ export type PoolConfig = {
     invariant: number
 }
 
-const stringifyBigIntReviewer = (_: any, value: any) =>
+export const stringifyBigIntReviewer = (_: any, value: any) =>
   typeof value === 'bigint'
     ? { value: value.toString(), _bigint: true }
     : value;
@@ -88,7 +87,7 @@ async function main() {
 
     const conf = await getConfig<BuiltValidators>();
 
-    const utxos = (await lucid.wallet.getUtxos());
+    const utxos = (await lucid.wallet().getUtxos());
 
     const boxWithToken = await getUtxoWithToken(utxos, encodedTestB);
     const boxWithAda   = await getUtxoWithAda(utxos)
@@ -103,7 +102,7 @@ async function main() {
 
     console.log(`nft info: ${nftInfo}`);
 
-    console.log(`address: ${await lucid.wallet.address()}`);
+    console.log(`address: ${await lucid.wallet().address()}`);
 
     const poolAddress = lucid.utils.credentialToAddress(
         { hash: conf.validators!.balancePool.hash, type: 'Script' },
@@ -227,7 +226,7 @@ function buildPoolDatum(conf: PoolConfig): Datum {
     }, BalanceContract.conf)
 }
 
-function getUtxoWithToken(utxos: UTxO[], token2find: string) {
+export function getUtxoWithToken(utxos: UTxO[], token2find: string) {
     return utxos.find( utxo =>
             {
                 return (Object.keys(utxo.assets) as Array<string>).find(key => key.includes(token2find)) !== undefined
@@ -235,7 +234,7 @@ function getUtxoWithToken(utxos: UTxO[], token2find: string) {
         )
 }
 
-function getUtxoWithAda(utxos: UTxO[]) {
+export function getUtxoWithAda(utxos: UTxO[]) {
     return utxos.find( utxo =>
             {
                 return ((utxo.assets["lovelace"] > startLovelaceValue))
@@ -243,7 +242,7 @@ function getUtxoWithAda(utxos: UTxO[]) {
         )
 }
 
-async function getCSAndSсript(txId: string, outIdx: number, tn: string, qty: string): Promise<TokenInfo> {
+export async function getCSAndSсript(txId: string, outIdx: number, tn: string, qty: string): Promise<TokenInfo> {
 
     const res = await getMintingTokenInfo<CreationResponse>(new URL("http://88.99.59.114:8081/getData/"), txId, outIdx, tn, qty);
 
@@ -276,7 +275,7 @@ function getMintingTokenInfo<T>(url: URL, txId: string, outIdx: number, tn: stri
           })
 }
 
-function getDAO<T>(url: URL, nftCS: string, nftTN: string): Promise<T> {
+export function getDAO<T>(url: URL, nftCS: string, nftTN: string): Promise<T> {
     return fetch(url, {
         method: 'POST',
         body: `{"nftCS":"${nftCS}","nftTN":"${nftTN}"}`,
@@ -292,4 +291,4 @@ function getDAO<T>(url: URL, nftCS: string, nftTN: string): Promise<T> {
           })
 }
 
-main();
+//main();
