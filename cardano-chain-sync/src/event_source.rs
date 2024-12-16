@@ -1,21 +1,19 @@
 use std::collections::HashSet;
-use std::iter;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use async_stream::stream;
 use cml_chain::block::Block;
-use cml_chain::transaction::TransactionOutput::ConwayFormatTxOut as OtherConwayFormatTxOut;
-use cml_chain::transaction::{ConwayFormatTxOut, Transaction, TransactionBody};
+use cml_chain::transaction::Transaction;
 use cml_core::serialization::Deserialize;
 use cml_core::Slot;
 use cml_multi_era::babbage::{BabbageBlock, BabbageTransaction, BabbageTransactionBody};
-use cml_multi_era::{MultiEraBlock, MultiEraTransactionBody};
+use cml_multi_era::MultiEraBlock;
 use either::Either;
 use futures::stream::StreamExt;
 use futures::{stream, Stream};
-use log::{info, trace, warn};
+use log::{info, warn};
 use tokio::sync::Mutex;
 
 use spectrum_cardano_lib::hash::{hash_block_header_canonical, hash_block_header_canonical_multi_era};

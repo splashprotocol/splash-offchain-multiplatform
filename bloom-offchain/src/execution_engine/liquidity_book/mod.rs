@@ -7,7 +7,7 @@ use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBe
 use crate::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
 use crate::execution_engine::liquidity_book::side::{OnSide, Side};
 use crate::execution_engine::liquidity_book::stashing_option::StashingOption;
-use crate::execution_engine::liquidity_book::state::queries::{max_by_distance_to_spot, max_by_volume};
+use crate::execution_engine::liquidity_book::state::queries::max_by_distance_to_spot;
 use crate::execution_engine::liquidity_book::state::{FillPreview, IdleState, TLBState};
 use crate::execution_engine::liquidity_book::types::{AbsolutePrice, RelativePrice};
 use crate::execution_engine::types::Time;

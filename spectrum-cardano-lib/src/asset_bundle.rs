@@ -1,4 +1,4 @@
-use cml_chain::assets::{AssetBundle, AssetName, ClampedSub};
+use cml_chain::assets::{AssetBundle, AssetName};
 use cml_chain::PolicyId;
 
 pub trait SafeAssetBundleOps<T> {

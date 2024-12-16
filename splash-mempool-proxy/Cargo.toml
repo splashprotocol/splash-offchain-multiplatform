@@ -1,0 +1,36 @@
+[package]
+name = "splash-mempool-proxy"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.80.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+actix-web = "4.9.0"
+actix-cors = "0.7.0"
+tokio = "1.41.1"
+cached = "0.54.0"
+serde = { version = "1.0.210", features = ["derive"] }
+reqwest = { version = "0.11.22", features = ["blocking", "json"] }
+serde_urlencoded = "0.7.1"
+log = "0.4.22"
+serde_json = "1.0.121"
+clap = { version = "4.5.17", features = ["derive"] }
+derive_more = { version = "1.0.0", features = ["full"] }
+hex = "0.4.3"
+pallas-crypto = { git = "https://github.com/kettlebell/pallas.git", branch = "conway_update" }
+pallas-network = { git = "https://github.com/kettlebell/pallas.git", branch = "conway_update" }
+pallas-primitives = { git = "https://github.com/kettlebell/pallas.git", branch = "conway_update" }
+cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
+cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
+bloom-offchain-cardano = { version = "1.0.0", path = "../bloom-offchain-cardano" }
+bloom-offchain = { version = "1.0.0", path = "../bloom-offchain" }
+spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain" }
+spectrum-cardano-lib = { version = "0.1.0", path = "../spectrum-cardano-lib" }
+spectrum-offchain-cardano = { version = "1.0.0", path = "../spectrum-offchain-cardano" }
+cardano-submit-api = { version = "0.1.0", path = "../cardano-submit-api" }
+log4rs = "1.3.0"
+async-stream = "0.3.6"
+futures = "0.3.30"
+async-trait = "0.1.81"

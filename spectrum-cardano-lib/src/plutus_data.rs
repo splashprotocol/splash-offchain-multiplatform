@@ -1,5 +1,4 @@
 use std::mem;
-use std::ops::Deref;
 use std::str::FromStr;
 
 use cml_chain::plutus::utils::ConstrPlutusDataEncoding;

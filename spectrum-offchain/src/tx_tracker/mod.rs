@@ -5,7 +5,7 @@ use crate::tx_tracker::pending_txs::PendingTxs;
 use async_trait::async_trait;
 use futures::channel::mpsc;
 use futures::stream::FusedStream;
-use futures::{select, FutureExt, Sink, SinkExt, Stream, StreamExt};
+use futures::{select, FutureExt, Sink, SinkExt, StreamExt};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::sync::{Arc, Mutex};

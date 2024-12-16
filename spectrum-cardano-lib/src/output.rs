@@ -1,7 +1,5 @@
-use crate::transaction::BabbageTransactionOutputExtension;
 use crate::OutputRef;
 use cml_chain::transaction::TransactionOutput;
-use cml_multi_era::babbage::BabbageTransactionOutput;
 use spectrum_offchain::domain::Has;
 use std::cmp::Ordering;
 use type_equalities::IsEqual;

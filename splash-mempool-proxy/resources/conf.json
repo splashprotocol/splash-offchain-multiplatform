@@ -1,0 +1,10 @@
+{
+  "node": {
+    "path": "/data/cardano-node/ipc/node.socket",
+    "magic": 764824073
+  },
+  "limits": {
+    "maxPayloadLenBytes": 25000000
+  },
+  "txSubmissionBufferSize": 8192
+}

@@ -6,7 +6,6 @@ use futures::executor::block_on;
 use futures::SinkExt;
 use log::trace;
 use rocksdb::{Direction, IteratorMode};
-use serde::Serialize;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::task::spawn_blocking;

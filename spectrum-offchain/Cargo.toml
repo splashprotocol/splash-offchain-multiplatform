@@ -40,6 +40,7 @@ hex = "0.4.3"
 circular-buffer = "0.1.7"
 cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
 async-stream = "0.3.6"
+pin-project-lite = "0.2.15"
 
 [dev-dependencies]
 rocksdb = "0.22.*"

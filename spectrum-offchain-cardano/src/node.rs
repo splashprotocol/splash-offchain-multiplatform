@@ -1,4 +1,4 @@
-#[derive(Clone, serde::Deserialize)]
+#[derive(Clone, serde::Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct NodeConfig {
     pub path: String,

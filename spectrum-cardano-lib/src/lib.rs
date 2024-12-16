@@ -6,16 +6,13 @@ use std::str::FromStr;
 
 use crate::constants::ED25519_PUB_KEY_LENGTH;
 use cml_chain::assets::MultiAsset;
-use cml_chain::certs::Credential;
 use cml_chain::plutus::utils::ConstrPlutusDataEncoding;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::TransactionInput;
 use cml_chain::utils::BigInteger;
 use cml_chain::{PolicyId, Value};
 use cml_core::serialization::LenEncoding::Indefinite;
-use cml_core::serialization::ToBytes;
-use cml_core::{DeserializeError, Int};
-use cml_crypto::chain_crypto::ed25519;
+use cml_core::DeserializeError;
 use cml_crypto::{PublicKey, RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
 use derive_more::{From, Into};
