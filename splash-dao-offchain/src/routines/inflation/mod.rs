@@ -3,10 +3,8 @@ use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
 use std::pin::{pin, Pin};
 use std::sync::Arc;
-use std::task::Poll;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use actions::ExecuteOrderError;
 use async_stream::stream;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain_cardano::event_sink::processed_tx::TxViewMut;
@@ -23,7 +21,6 @@ use pallas_network::miniprotocols::localtxsubmission::cardano_node_errors::{
     ApplyTxError, ConwayLedgerPredFailure, ConwayUtxoPredFailure, ConwayUtxowPredFailure,
 };
 use spectrum_cardano_lib::output::FinalizedTxOut;
-use spectrum_cardano_lib::transaction::{BabbageTransactionOutputExtension, OutboundTransaction};
 use spectrum_cardano_lib::{AssetName, NetworkId, OutputRef};
 use spectrum_offchain::backlog::ResilientBacklog;
 use spectrum_offchain::domain::event::{AnyMod, Confirmed, Predicted, Traced, Unconfirmed};
@@ -127,7 +124,7 @@ where
     Time: NetworkTimeProvider + Send + Sync,
     Actions: InflationActions<Bearer> + Send + Sync,
     Bearer: Send + Sync + std::fmt::Debug,
-    Net: Network<OutboundTransaction<Transaction>, RejectReasons> + Clone + Sync + Send,
+    Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
 {
     async fn attempt(&mut self) -> Option<ToRoutine> {
         match self.read_state().await {
@@ -531,7 +528,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
     ) -> Option<ToRoutine>
     where
         Actions: InflationActions<Bearer> + Send + Sync,
-        Net: Network<OutboundTransaction<Transaction>, RejectReasons> + Clone + Sync + Send,
+        Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
         IB: StateProjectionWrite<InflationBoxSnapshot, Bearer> + Send + Sync,
         PF: StateProjectionWrite<PollFactorySnapshot, Bearer> + Send + Sync,
         WP: StateProjectionWrite<WeightingPollSnapshot, Bearer> + Send + Sync,
@@ -581,7 +578,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
     ) -> Option<ToRoutine>
     where
         Actions: InflationActions<Bearer> + Send + Sync,
-        Net: Network<OutboundTransaction<Transaction>, RejectReasons> + Clone + Sync + Send,
+        Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
         WP: StateProjectionWrite<WeightingPollSnapshot, Bearer> + Send + Sync,
         VE: StateProjectionWrite<VotingEscrowSnapshot, Bearer> + Send + Sync,
         Backlog: ResilientBacklog<VotingOrder> + Send + Sync,
@@ -661,7 +658,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
     ) -> Option<ToRoutine>
     where
         Actions: InflationActions<Bearer> + Send + Sync,
-        Net: Network<OutboundTransaction<Transaction>, RejectReasons> + Clone + Sync + Send,
+        Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
         WP: StateProjectionWrite<WeightingPollSnapshot, Bearer> + Send + Sync,
         SF: StateProjectionWrite<SmartFarmSnapshot, Bearer> + Send + Sync,
         PM: StateProjectionWrite<PermManagerSnapshot, Bearer> + Send + Sync,
@@ -702,7 +699,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, Time, Actions, Bearer, Net>
     ) -> Option<ToRoutine>
     where
         Actions: InflationActions<Bearer> + Send + Sync,
-        Net: Network<OutboundTransaction<Transaction>, RejectReasons> + Clone + Sync + Send,
+        Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
         FB: FundingRepo + Send + Sync,
     {
         if let AnyMod::Confirmed(Traced {
@@ -767,7 +764,7 @@ where
     FB: FundingRepo + Send + Sync,
     Time: NetworkTimeProvider + Send + Sync,
     Actions: InflationActions<TransactionOutput> + Send + Sync,
-    Net: Network<OutboundTransaction<Transaction>, RejectReasons> + Clone + Sync + Send,
+    Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
 {
     async fn process_ledger_event(&mut self, ev: LedgerTxEvent<TxViewMut>) {
         match ev {
@@ -780,6 +777,7 @@ where
                         ..
                     },
                 slot,
+                ..
             } => {
                 self.current_slot = slot;
 
@@ -878,7 +876,7 @@ where
                         outputs,
                         ..
                     },
-                slot,
+                slot, ..
             } => {
                 for ix in 0..outputs.len() {
                     let ver = TimedOutputRef {

@@ -7,23 +7,21 @@ use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
 use cml_chain::builders::tx_builder::{
     ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput, TxBuilderError,
 };
-use cml_chain::builders::withdrawal_builder::SingleWithdrawalBuilder;
+use cml_chain::builders::withdrawal_builder::{SingleWithdrawalBuilder, WithdrawalBuilderError};
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
 use cml_chain::certs::Credential;
-use cml_chain::genesis::network_info::NetworkInfo;
 use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::{DatumOption, ScriptRef, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::{Coin, Value};
-use cml_multi_era::babbage::BabbageTransactionOutput;
-use log::{error, info};
+use log::info;
 use void::Void;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::liquidity_book::core::Next;
 use bloom_offchain::execution_engine::liquidity_book::market_maker::AvailableLiquidity;
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{
-    AbsoluteReserves, Excess, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
+    AbsoluteReserves, MakerBehavior, MarketMaker, PoolQuality, SpotPrice,
 };
 use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
@@ -480,6 +478,14 @@ impl RequiresRedeemer<CFMMPoolAction> for StablePoolT2TData {
     }
 }
 
+pub fn from_tx_builder_error<O>(cml_error: TxBuilderError, order: O) -> RunOrderError<O> {
+    RunOrderError::Fatal(cml_error.to_string(), order)
+}
+
+pub fn from_withdrawal_builder_error<O>(cml_error: WithdrawalBuilderError, order: O) -> RunOrderError<O> {
+    RunOrderError::Fatal(cml_error.to_string(), order)
+}
+
 pub trait ApplyOrder<Order, Ctx>: Sized {
     type Result;
     /// Returns new pool, order output
@@ -575,18 +581,18 @@ where
 
     tx_builder
         .add_collateral(ctx.select::<Collateral>().into())
-        .map_err(|err| RunOrderError::from_tx_builder_error(err, order_bundle.clone()))?;
+        .map_err(|err| from_tx_builder_error(err, order_bundle.clone()))?;
 
     tx_builder.add_reference_input(pool_validator.reference_utxo);
     tx_builder.add_reference_input(order_validator.reference_utxo);
 
     tx_builder
         .add_input(pool_in)
-        .map_err(|err| RunOrderError::from_tx_builder_error(err, order_bundle.clone()))?;
+        .map_err(|err| from_tx_builder_error(err, order_bundle.clone()))?;
 
     tx_builder
         .add_input(order_in)
-        .map_err(|err| RunOrderError::from_tx_builder_error(err, order_bundle.clone()))?;
+        .map_err(|err| from_tx_builder_error(err, order_bundle.clone()))?;
 
     tx_builder.set_exunits(
         RedeemerWitnessKey::new(RedeemerTag::Spend, pool_in_idx.clone().into()),
@@ -599,7 +605,7 @@ where
 
     tx_builder
         .add_output(SingleOutputBuilderResult::new(pool_out.clone()))
-        .map_err(|err| RunOrderError::from_tx_builder_error(err, order_bundle.clone()))?;
+        .map_err(|err| from_tx_builder_error(err, order_bundle.clone()))?;
 
     match operation_result_blueprint.outputs {
         OperationResultOutputs::SingleOutput(single_output) => tx_builder.add_output(
@@ -615,7 +621,7 @@ where
             })
         }
     }
-    .map_err(|err| RunOrderError::from_tx_builder_error(err, order_bundle.clone()))?;
+    .map_err(|err| from_tx_builder_error(err, order_bundle.clone()))?;
 
     if let Some((witness_validator, redeemer_creator)) = operation_result_blueprint.witness_script {
         let real_redeemer = redeemer_creator.compute(pool_in_idx, order_in_idx);
@@ -629,7 +635,7 @@ where
 
         let withdrawal_result = SingleWithdrawalBuilder::new(reward_address.clone(), 0)
             .plutus_script(partial_witness, vec![].into())
-            .map_err(|err| RunOrderError::from_withdrawal_builder_error(err, order_bundle.clone()))?;
+            .map_err(|err| from_withdrawal_builder_error(err, order_bundle.clone()))?;
 
         tx_builder.add_reference_input(witness_validator.reference_utxo);
 
@@ -668,7 +674,7 @@ where
                 None,
                 None,
             )))
-            .map_err(|err| RunOrderError::from_tx_builder_error(err, order_bundle.clone()))?;
+            .map_err(|err| from_tx_builder_error(err, order_bundle.clone()))?;
     }
 
     let tx = wrap_cml_action(

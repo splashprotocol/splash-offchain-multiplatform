@@ -1,9 +1,7 @@
 use std::cmp::Ordering;
 
-use num_rational::Ratio;
-
 use crate::execution_engine::liquidity_book::market_taker::MarketTaker;
-use crate::execution_engine::liquidity_book::types::{ExCostUnits, FeeAsset};
+use crate::execution_engine::liquidity_book::types::FeeAsset;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct OrderWeight<CostUnits>(u64, CostUnits);

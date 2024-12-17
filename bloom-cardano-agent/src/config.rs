@@ -3,8 +3,6 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use cml_core::Slot;
-use cml_crypto::chain_crypto::ed25519;
-use cml_crypto::chain_crypto::ed25519::Pub;
 use cml_crypto::PublicKey;
 
 use bloom_offchain::execution_engine::liquidity_book;

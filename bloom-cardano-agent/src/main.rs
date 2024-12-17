@@ -46,7 +46,6 @@ use cardano_mempool_sync::mempool_stream;
 use spectrum_cardano_lib::constants::{CONWAY_ERA_ID, SAFE_BLOCK_TIME};
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::output::FinalizedTxOut;
-use spectrum_cardano_lib::transaction::OutboundTransaction;
 use spectrum_cardano_lib::{constants, OutputRef, Token};
 use spectrum_offchain::backlog::{BacklogCapacity, HotPriorityBacklog};
 use spectrum_offchain::clock::SystemClock;
@@ -134,18 +133,14 @@ async fn main() {
         max_confirmation_delay_blocks,
     );
 
-    let (tx_submission_agent, tx_submission_channel) = TxSubmissionAgent::<
-        CONWAY_ERA_ID,
-        OutboundTransaction<Transaction>,
-        Transaction,
-        TxTrackerChannel<TransactionHash, Transaction>,
-    >::new(
-        tx_tracker_channel,
-        config.node.clone(),
-        config.tx_submission_buffer_size,
-    )
-    .await
-    .expect("LocalTxSubmission initialization failed");
+    let (tx_submission_agent, tx_submission_channel) =
+        TxSubmissionAgent::<CONWAY_ERA_ID, Transaction, TxTrackerChannel<TransactionHash, Transaction>>::new(
+            tx_tracker_channel.clone(),
+            config.node.clone(),
+            config.tx_submission_buffer_size,
+        )
+        .await
+        .expect("LocalTxSubmission initialization failed");
     let tx_submission_stream = tx_submission_agent_stream(tx_submission_agent);
 
     let (reporting_agent, reporting_channel) =
@@ -435,11 +430,13 @@ async fn main() {
         },
     });
 
-    let mempool_stream =
-        mempool_stream(mempool_sync, failed_txs_recv, signal_tip_reached_recv).map(|ev| match ev {
-            MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewMut::from(tx)),
-            MempoolUpdate::TxDropped(tx) => MempoolUpdate::TxDropped(TxViewMut::from(tx)),
-        });
+    let mempool_stream = mempool_stream(
+        mempool_sync,
+        tx_tracker_channel,
+        failed_txs_recv,
+        signal_tip_reached_recv,
+    )
+    .map(|ev| ev.map(TxViewMut::from));
 
     let process_ledger_events_stream = process_events(ledger_stream, handlers_ledger);
     let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool);

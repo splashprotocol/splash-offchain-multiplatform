@@ -118,9 +118,9 @@ pub async fn send_assets<Net: CardanoNetwork>(
         .unwrap();
 
     let tx = prover.prove(signed_tx_builder);
-    let tx_hash = TransactionHash::from_hex(&tx.deref().body.hash().to_hex()).unwrap();
+    let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
     println!("tx_hash: {:?}", tx_hash);
-    let tx_bytes = tx.deref().to_cbor_bytes();
+    let tx_bytes = tx.to_cbor_bytes();
     println!("tx_bytes: {}", hex::encode(&tx_bytes));
 
     explorer.submit_tx(&tx_bytes).await?;

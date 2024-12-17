@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 use std::fmt::Display;
-use std::ops::Deref;
 
 use async_stream::stream;
 use cml_core::serialization::Serialize;
@@ -21,19 +20,19 @@ use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_hash::CanonicalHash;
 use spectrum_offchain::tx_tracker::TxTracker;
 
-pub struct TxSubmissionAgent<'a, const ERA: u16, TxAdapter, Tx, Tracker> {
+pub struct TxSubmissionAgent<'a, const ERA: u16, Tx, Tracker> {
     client: LocalTxSubmissionClient<'a, ERA, Tx>,
-    mailbox: mpsc::Receiver<SubmitTx<TxAdapter>>,
+    mailbox: mpsc::Receiver<SubmitTx<Tx>>,
     tracker: Tracker,
     node_config: NodeConfig,
 }
 
-impl<'a, const ERA: u16, TxAdapter, Tx, Tracker> TxSubmissionAgent<'a, ERA, TxAdapter, Tx, Tracker> {
+impl<'a, const ERA: u16, Tx, Tracker> TxSubmissionAgent<'a, ERA, Tx, Tracker> {
     pub async fn new(
         tracker: Tracker,
         node_config: NodeConfig,
         buffer_size: usize,
-    ) -> Result<(Self, TxSubmissionChannel<ERA, TxAdapter>), Error> {
+    ) -> Result<(Self, TxSubmissionChannel<ERA, Tx>), Error> {
         let tx_submission_client =
             LocalTxSubmissionClient::init(node_config.path.clone(), node_config.magic).await?;
         let (snd, recv) = mpsc::channel(buffer_size);
@@ -90,14 +89,13 @@ impl From<SubmissionResult> for Result<(), RejectReasons> {
     }
 }
 
-pub fn tx_submission_agent_stream<'a, const ERA: u16, TxAdapter, Tx, Tracker>(
-    mut agent: TxSubmissionAgent<'a, ERA, TxAdapter, Tx, Tracker>,
+pub fn tx_submission_agent_stream<'a, const ERA: u16, Tx, Tracker>(
+    mut agent: TxSubmissionAgent<'a, ERA, Tx, Tracker>,
 ) -> impl Stream<Item = ()> + 'a
 where
-    TxAdapter: CanonicalHash + 'a,
-    TxAdapter::Hash: Display,
-    Tx: From<TxAdapter> + Serialize + Clone + 'a,
-    Tracker: TxTracker<TxAdapter::Hash, Tx> + 'a,
+    Tx: CanonicalHash + Serialize + Clone + 'a,
+    Tx::Hash: Display,
+    Tracker: TxTracker<Tx::Hash, Tx> + 'a,
 {
     stream! {
         loop {

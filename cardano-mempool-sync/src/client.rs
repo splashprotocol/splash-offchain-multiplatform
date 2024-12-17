@@ -12,8 +12,6 @@ use pallas_network::multiplexer;
 use pallas_network::multiplexer::{Bearer, RunningPlexer};
 use tokio::sync::Mutex;
 
-use crate::data::MempoolUpdate;
-
 pub struct LocalTxMonitorClient<Tx> {
     plexer: RunningPlexer,
     tx_monitor: Arc<Mutex<MonitorState>>,
@@ -56,7 +54,7 @@ impl<Tx: Send + Sync> LocalTxMonitorClient<Tx> {
         })
     }
 
-    pub fn stream_updates<'a>(self) -> impl Stream<Item = MempoolUpdate<Tx>> + Send + 'a
+    pub fn stream_updates<'a>(self) -> impl Stream<Item = Tx> + Send + 'a
     where
         Tx: Deserialize + 'a,
     {
@@ -69,7 +67,7 @@ impl<Tx: Send + Sync> LocalTxMonitorClient<Tx> {
                             let bytes = &*raw_tx.1;
                             if !tx_monitor.filter.register(hash_tx_bytes(bytes)) {
                                 if let Some(tx) = Tx::from_cbor_bytes(bytes).ok() {
-                                    yield MempoolUpdate::TxAccepted(tx);
+                                    yield tx;
                                 }
                             }
                         } else {

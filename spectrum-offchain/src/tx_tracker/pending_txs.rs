@@ -2,14 +2,14 @@ use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 use std::hash::Hash;
 
-pub(crate) struct PendingTxs<TxHash, Trs> {
+pub(crate) struct PendingTxs<TxHash, Tx> {
     max_confirmation_delay_blocks: u64,
     current_block: u64,
     index: HashMap<TxHash, u64>,
-    queue: BTreeMap<u64, HashMap<TxHash, Trs>>,
+    queue: BTreeMap<u64, HashMap<TxHash, Tx>>,
 }
 
-impl<TxHash, Trs> PendingTxs<TxHash, Trs> {
+impl<TxHash, Tx> PendingTxs<TxHash, Tx> {
     pub fn new(max_confirmation_delay_blocks: u64) -> Self {
         Self {
             max_confirmation_delay_blocks,
@@ -19,7 +19,7 @@ impl<TxHash, Trs> PendingTxs<TxHash, Trs> {
         }
     }
 
-    pub fn append(&mut self, tx: TxHash, trs: Trs)
+    pub fn append(&mut self, tx: TxHash, trs: Tx)
     where
         TxHash: Copy + Eq + Hash,
     {
@@ -48,7 +48,7 @@ impl<TxHash, Trs> PendingTxs<TxHash, Trs> {
         }
     }
 
-    pub fn try_advance(&mut self, new_block: u64) -> Option<Vec<(TxHash, Trs)>>
+    pub fn try_advance(&mut self, new_block: u64) -> Option<Vec<(TxHash, Tx)>>
     where
         TxHash: Eq + Hash,
     {

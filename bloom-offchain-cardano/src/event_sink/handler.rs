@@ -15,7 +15,7 @@ use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_mempool_sync::data::MempoolUpdate;
 use cml_chain::transaction::TransactionOutput;
 use either::Either;
-use futures::{Sink, SinkExt};
+use futures::Sink;
 use log::trace;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::OutputRef;
@@ -1028,9 +1028,11 @@ mod tests {
     use spectrum_offchain::ledger::TryFromLedger;
     use spectrum_offchain::partitioning::Partitioned;
     use spectrum_offchain_cardano::creds::OperatorCred;
+    use spectrum_offchain_cardano::data::dao_request::{DAOContext, DAOV1ActionOrderValidation};
     use spectrum_offchain_cardano::data::deposit::DepositOrderValidation;
     use spectrum_offchain_cardano::data::pool::PoolValidation;
     use spectrum_offchain_cardano::data::redeem::RedeemOrderValidation;
+    use spectrum_offchain_cardano::data::royalty_withdraw_request::RoyaltyWithdrawOrderValidation;
     use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHashes};
     use spectrum_offchain_cardano::handler_context::AuthVerificationKey;
 
@@ -1144,6 +1146,12 @@ mod tests {
                     min_n2t_lovelace: 1000,
                     min_t2t_lovelace: 1000,
                 },
+                royalty_withdraw: RoyaltyWithdrawOrderValidation {
+                    min_ada_in_royalty_output: 0,
+                },
+                dao_action: DAOV1ActionOrderValidation {
+                    min_collateral_ada: 0,
+                },
             },
             executor_cred: ex_cred,
             scripts: ProtocolScriptHashes {
@@ -1223,6 +1231,30 @@ mod tests {
                     script_hash: ScriptHash::from([0u8; 28]),
                     marginal_cost: ExUnits::empty(),
                 },
+                royalty_pool_v1: DeployedScriptInfo {
+                    script_hash: ScriptHash::from([0u8; 28]),
+                    marginal_cost: ExUnits::empty(),
+                },
+                royalty_pool_deposit: DeployedScriptInfo {
+                    script_hash: ScriptHash::from([0u8; 28]),
+                    marginal_cost: ExUnits::empty(),
+                },
+                royalty_pool_redeem: DeployedScriptInfo {
+                    script_hash: ScriptHash::from([0u8; 28]),
+                    marginal_cost: ExUnits::empty(),
+                },
+                royalty_pool_withdraw_request: DeployedScriptInfo {
+                    script_hash: ScriptHash::from([0u8; 28]),
+                    marginal_cost: ExUnits::empty(),
+                },
+                royalty_pool_dao_request: DeployedScriptInfo {
+                    script_hash: ScriptHash::from([0u8; 28]),
+                    marginal_cost: ExUnits::empty(),
+                },
+                royalty_pool_dao: DeployedScriptInfo {
+                    script_hash: ScriptHash::from([0u8; 28]),
+                    marginal_cost: ExUnits::empty(),
+                },
                 balance_fn_pool_v2: DeployedScriptInfo {
                     script_hash: ScriptHash::from([0u8; 28]),
                     marginal_cost: ExUnits::empty(),
@@ -1231,8 +1263,18 @@ mod tests {
                     script_hash: ScriptHash::from([0u8; 28]),
                     marginal_cost: ExUnits::empty(),
                 },
+
+                royalty_pool_withdraw: DeployedScriptInfo {
+                    script_hash: ScriptHash::from([0u8; 28]),
+                    marginal_cost: ExUnits::empty(),
+                },
             },
             adhoc_fee_structure: AdhocFeeStructure::empty(),
+            dao_context: DAOContext {
+                public_keys: Default::default(),
+                signature_threshold: 0,
+                execution_fee: 0,
+            },
         };
         let mut handler: PairUpdateHandler<
             1,
