@@ -62,7 +62,7 @@ use splash_dao_offchain::{
     handler::DaoHandler,
     protocol_config::ProtocolConfig,
     routines::inflation::{
-        actions::CardanoInflationActions, Behaviour, VotingOrderCommand, VotingOrderMessage,
+        actions::CardanoInflationActions, Behaviour, PredictedWrites, VotingOrderCommand, VotingOrderMessage,
         VotingOrderStatus,
     },
     state_projection::StateProjectionRocksDB,
@@ -220,15 +220,16 @@ async fn main() {
         StateProjectionRocksDB::new(config.perm_manager_persistence_config),
         FundingRepoRocksDB::new(config.funding_box_config.db_path),
         setup_order_backlog(config.order_backlog_config).await,
+        setup_predicted_txs_backlog(config.predicted_txs_backlog_config).await,
         NetworkTimeSource {},
         inflation_actions,
         protocol_config,
         PhantomData::<TransactionOutput>,
         tx_submission_channel,
-        operator_sk,
         ledger_event_rcv,
         voting_event_rcv,
         signal_tip_reached_recv,
+        failed_txs_recv,
     );
 
     let handlers: Vec<Box<dyn EventHandler<LedgerTxEvent<TxViewMut>> + Send>> = vec![
@@ -252,10 +253,6 @@ async fn main() {
 
     let tx_tracker_handle = tokio::spawn(tx_tracker_agent.run());
     processes.push(tx_tracker_handle);
-
-    // This bot doesn't need to watch mempool, so just consume failed TXs here.
-    let recv_failed_txs_handle = tokio::spawn(async move { while failed_txs_recv.next().await.is_some() {} });
-    processes.push(recv_failed_txs_handle);
 
     let default_panic = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -315,6 +312,19 @@ async fn setup_order_backlog(
     };
 
     PersistentPriorityBacklog::new::<VotingOrder>(store, backlog_config).await
+}
+
+async fn setup_predicted_txs_backlog(
+    store_conf: RocksConfig,
+) -> PersistentPriorityBacklog<PredictedWrites, BacklogStoreRocksDB> {
+    let store = BacklogStoreRocksDB::new(store_conf);
+    let backlog_config = BacklogConfig {
+        order_lifespan: Duration::try_hours(1).unwrap(),
+        order_exec_time: Duration::try_minutes(5).unwrap(),
+        retry_suspended_prob: BoundedU8::new(60).unwrap(),
+    };
+
+    PersistentPriorityBacklog::new::<PredictedWrites>(store, backlog_config).await
 }
 
 #[derive(Parser)]

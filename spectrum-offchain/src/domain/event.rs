@@ -368,7 +368,7 @@ impl<T: EntitySnapshot> EntitySnapshot for Unconfirmed<T> {
 }
 
 /// State `T` is predicted, but not confirmed to be included into blockchain or mempool yet.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Predicted<T>(pub T);
 
 impl<T> Predicted<T> {
