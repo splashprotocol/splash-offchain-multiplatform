@@ -47,7 +47,7 @@ impl Stable for FundingBox {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Hash, Serialize, Deserialize)]
 pub struct FundingBox {
     pub value: Value,
     pub id: FundingBoxId,
