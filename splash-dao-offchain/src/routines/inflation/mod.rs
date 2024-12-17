@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 use std::fmt::{Display, Formatter};
+use std::hash::Hash;
 use std::marker::PhantomData;
 use std::pin::{pin, Pin};
 use std::sync::Arc;
@@ -91,7 +92,7 @@ pub struct Behaviour<IB, PF, WP, VE, SF, PM, FB, OrderBacklog, PTX, Time, Action
     signal_tip_reached_recv: Option<tokio::sync::broadcast::Receiver<bool>>,
     current_slot: u64,
     skip_filter: CircularFilter<256, OnChainStatus>,
-    failed_to_confirm_txs_recv: futures::channel::mpsc::Receiver<Transaction>,
+    failed_to_confirm_txs_recv: Receiver<Transaction>,
 }
 
 const DEF_DELAY: Duration = Duration::new(5, 0);
@@ -227,7 +228,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
         ledger_upstream: Receiver<LedgerTxEvent<TxViewMut>>,
         voting_orders: Receiver<VotingOrderMessage>,
         signal_tip_reached_recv: tokio::sync::broadcast::Receiver<bool>,
-        failed_txs_recv: futures::channel::mpsc::Receiver<Transaction>,
+        failed_txs_recv: Receiver<Transaction>,
     ) -> Self
     where
         Backlog: ResilientBacklog<VotingOrder> + Send + Sync,
@@ -1227,6 +1228,10 @@ where
         }
     }
 
+    async fn revert_bot_action(&mut self, tx_hash: TransactionHash) {
+        let r = self.predicted_tx_backlog.remove(tx_hash).await;
+    }
+
     #[allow(clippy::needless_lifetimes)]
     pub fn as_stream<'a>(&'a mut self) -> impl Stream<Item = ()> + 'a {
         let mut signal = self.signal_tip_reached_recv.take().unwrap();
@@ -1250,9 +1255,10 @@ where
                     self.processing_voting_order_message(voting_order_msg).await;
                 }
 
-                //while let Ok(t) = self.failed_to_confirm_txs_recv.try_recv() {
-                //
-                //}
+                while let Ok(tx) = self.failed_to_confirm_txs_recv.try_recv() {
+                    let tx_hash = tx.body.hash();
+                    self.revert_bot_action(tx_hash).await;
+                }
 
                 let chain_tip_reached = {
                     *self.chain_tip_reached.lock().await

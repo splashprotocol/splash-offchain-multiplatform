@@ -112,14 +112,14 @@ async fn main() {
     .expect("ChainSync initialization failed");
 
     // n2c clients:
-    let (failed_txs_snd, mut failed_txs_recv) =
-        mpsc::channel::<Transaction>(config.tx_submission_buffer_size);
+    let (failed_txs_snd, failed_txs_recv) =
+        tokio::sync::mpsc::channel::<Transaction>(config.tx_submission_buffer_size);
     let (confirmed_txs_snd, confirmed_txs_recv) =
         mpsc::channel::<(TransactionHash, u64)>(config.tx_submission_buffer_size);
     let max_confirmation_delay_blocks = config.event_cache_ttl.as_secs() / SAFE_BLOCK_TIME.as_secs();
     let (tx_tracker_agent, tx_tracker_channel) = new_tx_tracker_bundle(
         confirmed_txs_recv,
-        failed_txs_snd,
+        tokio_util::sync::PollSender::new(failed_txs_snd), // Need to wrap the Sender to satisfy Sink trait
         config.tx_submission_buffer_size,
         max_confirmation_delay_blocks,
     );
@@ -134,7 +134,7 @@ async fn main() {
 
     // prepare upstreams
     let tx_submission_stream = tx_submission_agent_stream(tx_submission_agent);
-    let (signal_tip_reached_snd, mut signal_tip_reached_recv) = tokio::sync::broadcast::channel(1);
+    let (signal_tip_reached_snd, signal_tip_reached_recv) = tokio::sync::broadcast::channel(1);
     let ledger_stream = Box::pin(ledger_transactions(
         chain_sync_cache,
         chain_sync_stream(chain_sync, signal_tip_reached_snd),

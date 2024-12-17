@@ -27,6 +27,7 @@ spectrum-offchain-cardano = { version = "1.0.0", path = "../spectrum-offchain-ca
 splash-dao-offchain = { version = "1.0.0", path = "../splash-dao-offchain" }
 futures = "0.3.25"
 tokio = { version = "1.42.0", features = ["full"] }
+tokio-util = "0.7.13"
 log = "0.4.17"
 log4rs = "1.2.0"
 tracing = "0.1.31"
