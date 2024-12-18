@@ -2,7 +2,7 @@ use crate::tx_submission::TxSubmissionChannel;
 use actix_cors::Cors;
 use actix_web::dev::{AppService, HttpServiceFactory};
 use actix_web::web::Data;
-use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{guard, web, App, HttpResponse, HttpServer, Responder};
 use cml_chain::Deserialize;
 use futures::StreamExt;
 use std::future::Future;
@@ -46,8 +46,9 @@ impl<const ERA: u16, Tx: Deserialize + 'static> HttpServiceFactory for SubmitTx<
             }
         }
         let resource = actix_web::Resource::new("/submit")
-            .name("submit_tx")
-            .guard(actix_web::guard::Post())
+            .name("submit")
+            .guard(guard::Post())
+            .guard(guard::Header("content-type", "application/cbor"))
             .to(submit_tx::<ERA, Tx>);
         HttpServiceFactory::register(resource, config);
     }
