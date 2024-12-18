@@ -8,5 +8,10 @@
     "threeMinLimit": 25000000,
     "sixMinLimit": 50000000,
     "nineMinLimit": 100000000
+  },
+  "graphite": {
+    "host": "0.0.0.0",
+    "port": 1234,
+    "prefix": "some-prefix"
   }
 }
