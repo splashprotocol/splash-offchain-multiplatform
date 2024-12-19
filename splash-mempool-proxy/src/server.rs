@@ -45,8 +45,8 @@ impl<const ERA: u16, Tx: Deserialize + 'static> HttpServiceFactory for SubmitTx<
                 Err(_) => HttpResponse::BadRequest().body("invalid cbor"),
             }
         }
-        let resource = actix_web::Resource::new("/submit")
-            .name("submit")
+        let resource = actix_web::Resource::new("/tx/submit")
+            .name("tx-submit")
             .guard(guard::Post())
             .guard(guard::Header("content-type", "application/cbor"))
             .to(submit_tx::<ERA, Tx>);
@@ -59,6 +59,7 @@ pub async fn build_api_server<const ERA: u16, Tx: Send + Deserialize + 'static>(
     tx_submission: TxSubmissionChannel<ERA, Tx>,
     bind_addr: SocketAddr,
 ) -> Result<impl Future<Output = io::Result<()>>, io::Error> {
+    let tx_submission = Data::new(tx_submission);
     Ok(HttpServer::new(move || {
         let cors = Cors::default()
             .allow_any_origin()

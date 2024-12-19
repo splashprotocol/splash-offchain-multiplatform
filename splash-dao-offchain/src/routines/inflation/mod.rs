@@ -876,7 +876,8 @@ where
                         outputs,
                         ..
                     },
-                slot, ..
+                slot,
+                ..
             } => {
                 for ix in 0..outputs.len() {
                     let ver = TimedOutputRef {
