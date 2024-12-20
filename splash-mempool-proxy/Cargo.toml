@@ -10,10 +10,7 @@ rust-version = "1.80.0"
 actix-web = "4.9.0"
 actix-cors = "0.7.0"
 tokio = "1.41.1"
-cached = "0.54.0"
 serde = { version = "1.0.210", features = ["derive"] }
-reqwest = { version = "0.11.22", features = ["blocking", "json"] }
-serde_urlencoded = "0.7.1"
 log = "0.4.22"
 serde_json = "1.0.121"
 clap = { version = "4.5.17", features = ["derive"] }
@@ -26,7 +23,7 @@ cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", 
 cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
 bloom-offchain-cardano = { version = "1.0.0", path = "../bloom-offchain-cardano" }
 bloom-offchain = { version = "1.0.0", path = "../bloom-offchain" }
-spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain" }
+spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain", features = ["cml-chain"] }
 spectrum-cardano-lib = { version = "0.1.0", path = "../spectrum-cardano-lib" }
 spectrum-offchain-cardano = { version = "1.0.0", path = "../spectrum-offchain-cardano" }
 cardano-submit-api = { version = "0.1.0", path = "../cardano-submit-api" }

@@ -5,6 +5,7 @@ use actix_web::web::Data;
 use actix_web::{guard, web, App, HttpResponse, HttpServer, Responder};
 use cml_chain::Deserialize;
 use futures::StreamExt;
+use spectrum_offchain::tx_hash::CanonicalHash;
 use std::future::Future;
 use std::io;
 use std::marker::PhantomData;
@@ -18,13 +19,21 @@ pub struct Limits {
 
 pub struct SubmitTx<const ERA: u16, Tx>(PhantomData<Tx>);
 
-impl<const ERA: u16, Tx: Deserialize + 'static> HttpServiceFactory for SubmitTx<ERA, Tx> {
+impl<const ERA: u16, Tx> HttpServiceFactory for SubmitTx<ERA, Tx>
+where
+    Tx: CanonicalHash + Deserialize + 'static,
+    Tx::Hash: ToString,
+{
     fn register(self, config: &mut AppService) {
-        async fn submit_tx<const ERA: u16, Tx: Deserialize>(
+        async fn submit_tx<const ERA: u16, Tx>(
             limits: Data<Limits>,
             tx_submission: Data<TxSubmissionChannel<ERA, Tx>>,
             mut body: web::Payload,
-        ) -> impl Responder {
+        ) -> impl Responder
+        where
+            Tx: CanonicalHash + Deserialize,
+            Tx::Hash: ToString,
+        {
             let mut bytes = web::BytesMut::new();
             while let Some(item) = body.next().await {
                 if let Ok(item) = item {
@@ -38,9 +47,10 @@ impl<const ERA: u16, Tx: Deserialize + 'static> HttpServiceFactory for SubmitTx<
             }
             match Tx::from_cbor_bytes(&*bytes) {
                 Ok(tx) => {
+                    let hash = tx.canonical_hash();
                     let mut channel = tx_submission.get_ref().clone();
                     channel.submit(tx).await;
-                    HttpResponse::Ok().body("success")
+                    HttpResponse::Ok().body(hash.to_string())
                 }
                 Err(_) => HttpResponse::BadRequest().body("invalid cbor"),
             }
@@ -54,11 +64,15 @@ impl<const ERA: u16, Tx: Deserialize + 'static> HttpServiceFactory for SubmitTx<
     }
 }
 
-pub async fn build_api_server<const ERA: u16, Tx: Send + Deserialize + 'static>(
+pub async fn build_api_server<const ERA: u16, Tx>(
     limits: Limits,
     tx_submission: TxSubmissionChannel<ERA, Tx>,
     bind_addr: SocketAddr,
-) -> Result<impl Future<Output = io::Result<()>>, io::Error> {
+) -> Result<impl Future<Output = io::Result<()>>, io::Error>
+where
+    Tx: Send + Deserialize + CanonicalHash + 'static,
+    Tx::Hash: ToString,
+{
     let tx_submission = Data::new(tx_submission);
     Ok(HttpServer::new(move || {
         let cors = Cors::default()
