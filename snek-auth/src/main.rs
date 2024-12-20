@@ -1,13 +1,11 @@
 use crate::analytics::{Analytics, LaunchType};
-use crate::graphite::Graphite;
-use crate::metrics::MetricKey::{
+use crate::metric_keys::SnekAuthMetricKey::{
     ADA2ADARequest as ADA2ADARequestKey, CaptchaVerificationFailed, CaptchaVerificationSuccess, CommonLaunch,
     CorrectFairLaunchOutput, EmptyAnalyticsInfoAboutPool, EmptyAuth, FailedFullVerification,
     FairLaunchWithNativeOutput, IncorrectFairLaunchOutput, IncorrectSignatureBasedRequestFormat,
     RequestReceived, SignatureVerificationFailed as SignatureVerificationFailedKey,
     SignatureVerificationSuccess, SuccessFullVerification,
 };
-use crate::metrics::Metrics;
 use crate::re_captcha::{ReCaptcha, ReCaptchaSecret, ReCaptchaToken};
 use crate::signature::Signature;
 use crate::ProcessingErrorCode::{
@@ -23,13 +21,14 @@ use bloom_offchain_cardano::orders::adhoc::beacon_from_oref;
 use clap::Parser;
 use cml_crypto::{Bip32PrivateKey, PrivateKey, RawBytesEncoding};
 use derive_more::From;
+use graphite::graphite::{Graphite, GraphiteConfig};
+use graphite::metrics::Metrics;
 use log::{error, info};
 use spectrum_cardano_lib::{AssetClass, OutputRef};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod analytics;
-pub mod graphite;
-pub mod metrics;
+pub mod metric_keys;
 pub mod re_captcha;
 pub mod signature;
 
@@ -254,14 +253,6 @@ struct Limits {
     nine_min_limit: u64,
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct GraphiteConfig {
-    host: String,
-    port: u64,
-    prefix: String,
-}
-
 #[derive(serde::Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct AppConfig {
@@ -305,8 +296,7 @@ async fn main() -> std::io::Result<()> {
                 .expect("Invalid secret bech32")
                 .to_raw_key(),
         );
-        let graphite = Graphite::new(config.graphite.clone()).unwrap();
-        let metrics = Metrics::new(graphite);
+        let metrics = Metrics::graphite_based(config.graphite.clone()).unwrap();
         App::new()
             .wrap(cors)
             .app_data(json_config)
