@@ -5,7 +5,7 @@ use futures::stream::select;
 use futures::Stream;
 use futures::{FutureExt, StreamExt};
 use spectrum_offchain::tx_hash::CanonicalHash;
-use spectrum_offchain::tx_tracker::TxTracker;
+use spectrum_offchain_cardano::tx_tracker::TxTracker;
 use tokio::sync::broadcast;
 
 pub mod client;

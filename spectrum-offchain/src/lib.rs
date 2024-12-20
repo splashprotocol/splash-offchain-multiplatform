@@ -18,4 +18,3 @@ pub mod streaming;
 pub mod tracing;
 pub mod tx_hash;
 pub mod tx_prover;
-pub mod tx_tracker;

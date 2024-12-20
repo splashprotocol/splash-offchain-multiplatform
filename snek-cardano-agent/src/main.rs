@@ -58,7 +58,6 @@ use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::reporting::{reporting_stream, ReportingAgent};
 use spectrum_offchain::streaming::run_stream;
-use spectrum_offchain::tx_tracker::{new_tx_tracker_bundle, TxTrackerAgent};
 use spectrum_offchain_cardano::collateral::pull_collateral;
 use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::data::degen_quadratic_pool::DegenQuadraticPool;
@@ -66,6 +65,7 @@ use spectrum_offchain_cardano::data::order::Order;
 use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
+use spectrum_offchain_cardano::tx_tracker::{new_tx_tracker_bundle, TxTrackerAgent};
 use spectrum_streaming::StreamExt as StreamExtAlt;
 
 mod config;

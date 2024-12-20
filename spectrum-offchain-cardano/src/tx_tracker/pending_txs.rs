@@ -48,7 +48,7 @@ impl<TxHash, Tx> PendingTxs<TxHash, Tx> {
         }
     }
 
-    pub fn try_advance(&mut self, new_block: u64) -> Option<Vec<(TxHash, Tx)>>
+    pub fn try_advance(&mut self, new_block: u64) -> Option<Vec<Tx>>
     where
         TxHash: Eq + Hash,
     {
@@ -59,9 +59,9 @@ impl<TxHash, Tx> PendingTxs<TxHash, Tx> {
                 if let Some(entry) = self.queue.first_entry() {
                     if *entry.key() <= new_block {
                         let txs = entry.remove();
-                        for (tx, trs) in txs {
-                            self.index.remove(&tx);
-                            failed_txs.push((tx, trs));
+                        for (hash, tx) in txs {
+                            self.index.remove(&hash);
+                            failed_txs.push(tx);
                         }
                         continue;
                     }
@@ -88,7 +88,7 @@ mod tests {
         txs.append(tx2.0, tx2.1.clone());
         txs.confirm_tx(0);
         let unsuccessful_txs = txs.try_advance(128);
-        assert_eq!(unsuccessful_txs, Some(vec![tx2]));
+        assert_eq!(unsuccessful_txs, Some(vec![tx2.1]));
         assert!(txs.index.is_empty());
     }
 
@@ -101,8 +101,8 @@ mod tests {
         txs.append(tx2.0, tx2.1.clone());
         let unsuccessful_txs = txs.try_advance(128);
         assert_eq!(
-            HashSet::<(i32, Vec<i32>)>::from_iter(unsuccessful_txs.unwrap()),
-            HashSet::from_iter(vec![tx1, tx2])
+            HashSet::<Vec<i32>>::from_iter(unsuccessful_txs.unwrap()),
+            HashSet::from_iter(vec![tx1.1, tx2.1])
         );
         assert!(txs.index.is_empty());
     }
@@ -122,10 +122,10 @@ mod tests {
         txs.append(tx3.0, tx3.1.clone());
         let unsuccessful_txs = txs.try_advance(130);
         assert_eq!(
-            HashSet::<(i32, Vec<i32>)>::from_iter(unsuccessful_txs.unwrap()),
-            HashSet::from_iter(vec![tx1, tx2])
+            HashSet::<Vec<i32>>::from_iter(unsuccessful_txs.unwrap()),
+            HashSet::from_iter(vec![tx1.1, tx2.1])
         );
         let unsuccessful_txs = txs.try_advance(138);
-        assert_eq!(unsuccessful_txs, Some(vec![tx3]));
+        assert_eq!(unsuccessful_txs, Some(vec![tx3.1]));
     }
 }

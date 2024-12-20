@@ -14,11 +14,11 @@ use pallas_network::miniprotocols::localtxsubmission::Response;
 use pallas_network::multiplexer;
 
 use crate::node::NodeConfig;
+use crate::tx_tracker::TxTracker;
 use cardano_submit_api::client::{Error, LocalTxSubmissionClient};
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_hash::CanonicalHash;
-use spectrum_offchain::tx_tracker::TxTracker;
 
 pub struct TxSubmissionAgent<'a, const ERA: u16, Tx, Tracker> {
     client: LocalTxSubmissionClient<'a, ERA, Tx>,
