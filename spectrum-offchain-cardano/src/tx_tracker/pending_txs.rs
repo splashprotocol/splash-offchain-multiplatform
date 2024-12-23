@@ -1,3 +1,4 @@
+use log::{info, trace};
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 use std::hash::Hash;
@@ -68,6 +69,11 @@ impl<TxHash, Tx> PendingTxs<TxHash, Tx> {
                 }
                 break;
             }
+            trace!(
+                "[TxTracker] Queue size: {}, pending transactions: {}",
+                self.queue.len(),
+                self.index.len()
+            );
             return Some(failed_txs);
         }
         None
