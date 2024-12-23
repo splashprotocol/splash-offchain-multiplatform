@@ -179,7 +179,7 @@ where
                                     && target_price.overlaps(price_counter_taker.unwrap())
                                     && maybe_price_maker
                                         .map(|(_, fp)| price_counter_taker.better_than(fp.price))
-                                        .unwrap_or(true) =>
+                                        .unwrap_or(false) =>
                             {
                                 if let Some(counter_taker) = self.state.try_pick_taker(!target_side, ok) {
                                     let make_match =
