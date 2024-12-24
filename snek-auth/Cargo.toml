@@ -23,4 +23,7 @@ cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", 
 bloom-offchain-cardano = { version = "1.0.0", path = "../bloom-offchain-cardano" }
 bloom-offchain = { version = "1.0.0", path = "../bloom-offchain" }
 spectrum-cardano-lib = { version = "0.1.0", path = "../spectrum-cardano-lib" }
+graphite = { version = "0.1.0", path = "../graphite" }
 log4rs = "1.3.0"
+chrono = "0.4.38"
+strum_macros = "0.24.3"

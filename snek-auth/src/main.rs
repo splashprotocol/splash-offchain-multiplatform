@@ -1,4 +1,11 @@
 use crate::analytics::{Analytics, LaunchType};
+use crate::metric_keys::SnekAuthMetricKey::{
+    ADA2ADARequest as ADA2ADARequestKey, CaptchaVerificationFailed, CaptchaVerificationSuccess, CommonLaunch,
+    CorrectFairLaunchOutput, EmptyAnalyticsInfoAboutPool, EmptyAuth, FailedFullVerification,
+    FairLaunchWithNativeOutput, IncorrectFairLaunchOutput, IncorrectSignatureBasedRequestFormat,
+    RequestReceived, SignatureVerificationFailed as SignatureVerificationFailedKey,
+    SignatureVerificationSuccess, SuccessFullVerification,
+};
 use crate::re_captcha::{ReCaptcha, ReCaptchaSecret, ReCaptchaToken};
 use crate::signature::Signature;
 use crate::ProcessingErrorCode::{
@@ -14,11 +21,14 @@ use bloom_offchain_cardano::orders::adhoc::beacon_from_oref;
 use clap::Parser;
 use cml_crypto::{Bip32PrivateKey, PrivateKey, RawBytesEncoding};
 use derive_more::From;
+use graphite::graphite::{Graphite, GraphiteConfig};
+use graphite::metrics::Metrics;
 use log::{error, info};
 use spectrum_cardano_lib::{AssetClass, OutputRef};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod analytics;
+pub mod metric_keys;
 pub mod re_captcha;
 pub mod signature;
 
@@ -93,10 +103,11 @@ async fn auth(
     analytics: Data<Analytics>,
     sk: Data<PrivateKey>,
     limits: Data<Limits>,
+    metrics: Data<Metrics>,
     req: web::Json<AuthRequest>,
 ) -> impl Responder {
     let token_opt = req.output_asset.into_token().or(req.input_asset.into_token());
-
+    metrics.send_point_and_log_result(RequestReceived);
     // Rules:
     // - if pool launch is `fair`:
     //  1) Captcha verification or Signature verification, if empty - error
@@ -119,8 +130,11 @@ async fn auth(
     match (req.clone().token, req.clone().signature) {
         (Some(token), _) => {
             if !captcha.verify(token).await {
+                metrics.send_point_and_log_result(CaptchaVerificationFailed);
                 info!("Captcha verification failed");
                 return create_error_response(ReCapchaVerificationFailed);
+            } else {
+                metrics.send_point_and_log_result(CaptchaVerificationSuccess)
             }
         }
         (_, Some(signature_from_request)) => {
@@ -129,22 +143,33 @@ async fn auth(
             {
                 if !verification_result_is_success {
                     info!("Signature verification failed for request {:?}", req.clone());
+                    metrics.send_point_and_log_result(SignatureVerificationFailedKey);
                     return create_error_response(SignatureVerificationFailed);
+                } else {
+                    metrics.send_point_and_log_result(SignatureVerificationSuccess)
                 }
             } else {
+                metrics.send_point_and_log_result(IncorrectSignatureBasedRequestFormat);
                 info!("Serialization failed for request: {:?}", req.clone());
                 return create_error_response(IncorrectRequestStructure);
             }
         }
-        _ => return create_error_response(AuthEntityIsMissing),
+        _ => {
+            metrics.send_point_and_log_result(EmptyAuth);
+            return create_error_response(AuthEntityIsMissing);
+        }
     };
     match token_opt {
-        None => return create_error_response(ADA2ADARequest),
+        None => {
+            metrics.send_point_and_log_result(ADA2ADARequestKey);
+            return create_error_response(ADA2ADARequest);
+        }
         Some(token) => match analytics.get_token_pool_info(token).await {
             Ok(pool_info) => {
                 let pool_verification_result_is_success: bool = match pool_info.launch_type {
                     LaunchType::Fair => {
                         if req.output_asset.is_native() {
+                            metrics.send_point_and_log_result(FairLaunchWithNativeOutput);
                             true
                         } else {
                             let pool_created_time = pool_info.created_on.as_secs();
@@ -158,22 +183,34 @@ async fn auth(
                                 pool_created_time, diff_between_order_and_pool_creation_in_mins
                             );
 
-                            match diff_between_order_and_pool_creation_in_mins {
-                                less_than_3_min if less_than_3_min < 3 => {
-                                    req.input_amount <= limits.three_min_limit
-                                }
-                                less_than_6_min if less_than_6_min < 6 => {
-                                    req.input_amount <= limits.six_min_limit
-                                }
-                                less_than_9_min if less_than_9_min < 9 => {
-                                    req.input_amount <= limits.nine_min_limit
-                                }
-                                more_than_9 if more_than_9 >= 9 => true,
-                                _ => false,
+                            let correct_output_value_for_fair_launch =
+                                match diff_between_order_and_pool_creation_in_mins {
+                                    less_than_3_min if less_than_3_min < 3 => {
+                                        req.input_amount <= limits.three_min_limit
+                                    }
+                                    less_than_6_min if less_than_6_min < 6 => {
+                                        req.input_amount <= limits.six_min_limit
+                                    }
+                                    less_than_9_min if less_than_9_min < 9 => {
+                                        req.input_amount <= limits.nine_min_limit
+                                    }
+                                    more_than_9 if more_than_9 >= 9 => true,
+                                    _ => false,
+                                };
+
+                            if correct_output_value_for_fair_launch {
+                                metrics.send_point_and_log_result(CorrectFairLaunchOutput)
+                            } else {
+                                metrics.send_point_and_log_result(IncorrectFairLaunchOutput)
                             }
+
+                            correct_output_value_for_fair_launch
                         }
                     }
-                    LaunchType::Common => true,
+                    LaunchType::Common => {
+                        metrics.send_point_and_log_result(CommonLaunch);
+                        true
+                    }
                 };
                 if pool_verification_result_is_success {
                     let beacon = beacon_from_oref(
@@ -188,8 +225,10 @@ async fn auth(
                         signature: proof.to_raw_hex().into(),
                     };
                     let body = serde_json::to_string(&response).unwrap();
+                    metrics.send_point_and_log_result(SuccessFullVerification);
                     return HttpResponse::Ok().content_type(ContentType::json()).body(body);
                 } else {
+                    metrics.send_point_and_log_result(FailedFullVerification);
                     error!(
                         "pool_verification_result_is_success {} for request {:?}",
                         pool_verification_result_is_success, req
@@ -198,6 +237,7 @@ async fn auth(
                 }
             }
             Err(err) => {
+                metrics.send_point_and_log_result(EmptyAnalyticsInfoAboutPool);
                 error!("Failed to fetch pool info: {}", err);
                 return create_error_response(EmptyPoolInfo);
             }
@@ -222,6 +262,7 @@ struct AppConfig {
     analytics_snek_url: String,
     limits: Limits,
     cache_size: usize,
+    graphite: GraphiteConfig,
 }
 
 #[actix_web::main]
@@ -255,6 +296,7 @@ async fn main() -> std::io::Result<()> {
                 .expect("Invalid secret bech32")
                 .to_raw_key(),
         );
+        let metrics = Metrics::graphite_based(config.graphite.clone()).unwrap();
         App::new()
             .wrap(cors)
             .app_data(json_config)
@@ -263,6 +305,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(analytics)
             .app_data(sk)
             .app_data(Data::new(config.limits))
+            .app_data(Data::new(metrics))
             .service(auth)
     })
     .bind((args.host, args.port))?
