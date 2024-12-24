@@ -257,6 +257,7 @@ struct Limits {
 #[serde(rename_all = "camelCase")]
 struct AppConfig {
     re_captcha_secret: ReCaptchaSecret,
+    scoring_threshold: f64,
     secret_bech32: String,
     signature_secret: String,
     analytics_snek_url: String,
@@ -285,7 +286,7 @@ async fn main() -> std::io::Result<()> {
             InternalError::from_response(err, create_error_response(IncorrectRequestStructure)).into()
         });
 
-        let re_captcha = Data::new(ReCaptcha::new(config.re_captcha_secret.clone()));
+        let re_captcha = Data::new(ReCaptcha::new(config.re_captcha_secret.clone(), config.scoring_threshold));
         let analytics = Data::new(Analytics::new(
             config.analytics_snek_url.clone(),
             config.cache_size,

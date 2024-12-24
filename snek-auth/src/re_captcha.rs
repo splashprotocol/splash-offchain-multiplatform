@@ -15,18 +15,21 @@ struct VerificationRequest {
 #[derive(serde::Deserialize, serde::Serialize, Debug)]
 struct VerificationResult {
     success: bool,
+    score: f64
 }
 
 #[derive(Clone)]
 pub struct ReCaptcha {
     secret: ReCaptchaSecret,
+    scoring_threshold: f64,
     client: reqwest::Client,
 }
 
 impl ReCaptcha {
-    pub fn new(secret: ReCaptchaSecret) -> Self {
+    pub fn new(secret: ReCaptchaSecret, scoring_threshold: f64) -> Self {
         Self {
             secret,
+            scoring_threshold,
             client: reqwest::Client::new(),
         }
     }
@@ -46,7 +49,7 @@ impl ReCaptcha {
                 .await
                 .map(|res| {
                     info!("Verification result {:?}", res);
-                    res.success
+                    res.success && res.score >= self.scoring_threshold
                 })
                 .unwrap_or(false),
         }
