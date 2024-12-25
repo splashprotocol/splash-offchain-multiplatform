@@ -1,10 +1,8 @@
-use log::{info, trace};
+use log::trace;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Display;
 use std::hash::Hash;
-
-use log::trace;
 
 pub(crate) struct PendingTxs<TxHash, Tx> {
     max_confirmation_delay_blocks: u64,

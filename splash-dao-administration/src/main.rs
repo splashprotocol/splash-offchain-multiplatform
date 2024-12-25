@@ -40,7 +40,7 @@ use spectrum_cardano_lib::{
     ex_units::ExUnits,
     hash::hash_transaction_canonical,
     protocol_params::{constant_tx_builder, COINS_PER_UTXO_BYTE},
-    transaction::{OutboundTransaction, TransactionOutputExtension},
+    transaction::TransactionOutputExtension,
     value::ValueExtension,
     AssetClass, NetworkId, OutputRef, PaymentCredential, Token,
 };
@@ -1596,15 +1596,15 @@ impl OperatorProver {
     }
 }
 
-impl TxProver<SignedTxBuilder, OutboundTransaction<Transaction>> for OperatorProver {
-    fn prove(&self, mut candidate: SignedTxBuilder) -> OutboundTransaction<Transaction> {
+impl TxProver<SignedTxBuilder, Transaction> for OperatorProver {
+    fn prove(&self, mut candidate: SignedTxBuilder) -> Transaction {
         let body = candidate.body();
         let tx_hash = hash_transaction_canonical(&body);
         let sk = PrivateKey::from_bech32(self.0.as_str()).unwrap();
         let signature = make_vkey_witness(&tx_hash, &sk);
         candidate.add_vkey(signature);
         match candidate.build_checked() {
-            Ok(tx) => tx.into(),
+            Ok(tx) => tx,
             Err(err) => panic!("CML returned error: {}", err),
         }
     }
