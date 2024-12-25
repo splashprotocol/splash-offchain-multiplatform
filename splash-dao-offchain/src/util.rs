@@ -7,13 +7,17 @@ use cml_chain::{
         output_builder::TransactionOutputBuilder,
         tx_builder::{ChangeSelectionAlgo, SignedTxBuilder},
     },
-    transaction::Transaction,
+    min_ada::min_ada_required,
+    transaction::{Transaction, TransactionOutput},
     Serialize, Value,
 };
 use cml_crypto::TransactionHash;
 use log::trace;
 use spectrum_cardano_lib::{
-    collateral::Collateral, protocol_params::constant_tx_builder, transaction::OutboundTransaction, OutputRef,
+    collateral::Collateral,
+    protocol_params::{constant_tx_builder, COINS_PER_UTXO_BYTE},
+    transaction::OutboundTransaction,
+    OutputRef,
 };
 use spectrum_offchain::tx_prover::TxProver;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
@@ -61,4 +65,11 @@ where
     let output_ref = OutputRef::new(tx_hash, 0);
     let utxo = explorer.utxo_by_ref(output_ref).await.unwrap();
     Ok(Collateral::from(utxo))
+}
+
+pub fn set_min_ada(output: &mut TransactionOutput) {
+    let min_ada = min_ada_required(output, COINS_PER_UTXO_BYTE).unwrap();
+    let mut amt = output.amount().clone();
+    amt.coin = min_ada;
+    output.set_amount(amt);
 }

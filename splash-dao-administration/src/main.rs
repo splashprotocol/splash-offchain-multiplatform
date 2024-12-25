@@ -125,7 +125,7 @@ async fn main() {
                 .expect("Cannot load voting_escrow settings JSON file");
             let ve_settings: VotingEscrowSettings =
                 serde_json::from_str(&s).expect("Invalid voting_escrow settings file");
-            make_voting_escrow(&ve_settings, &mut op_inputs, 0).await;
+            make_voting_escrow(&ve_settings, &mut op_inputs).await;
         }
         Command::ExtendDeposit => {
             //
@@ -729,7 +729,6 @@ async fn create_dao_entities(
 async fn make_voting_escrow(
     ve_settings: &VotingEscrowSettings,
     op_inputs: &mut OperationInputs,
-    version: u32,
 ) -> cml_chain::assets::AssetName {
     let OperationInputs {
         explorer,
@@ -947,7 +946,7 @@ async fn make_voting_escrow(
             locked_until: Lock::Def((time_source.network_time().await + lock_duration_in_seconds) * 1000),
             owner: Owner::PubKey(owner_pub_key.to_raw_bytes().to_vec()),
             max_ex_fee: *max_ex_fee as u32,
-            version,
+            version: 0,
             last_wp_epoch: -1,
             last_gp_deadline: -1,
         }
@@ -1289,6 +1288,7 @@ async fn collect_utxos(
     )
 }
 
+const LIMIT: u16 = 50;
 async fn pull_onchain_entity<'a, T, D>(
     explorer: &Maestro,
     script_hash: ScriptHash,
@@ -1299,28 +1299,42 @@ async fn pull_onchain_entity<'a, T, D>(
 where
     T: TryFromLedger<TransactionOutput, ProcessLedgerEntityContext<'a, D>> + EntitySnapshot,
 {
-    let utxos = explorer
-        .slot_indexed_utxos_by_address(script_address(script_hash, network_id), 0, 50)
-        .await;
+    let mut entity = None;
+    let mut offset = 0u64;
 
-    for (utxo, slot) in utxos {
-        let timed_output_ref = TimedOutputRef {
-            output_ref: OutputRef::from(utxo.clone().input),
-            slot: Slot(slot),
-        };
-        let ctx = ProcessLedgerEntityContext {
-            behaviour: deployment_config,
-            timed_output_ref,
-            current_epoch: CurrentEpoch::from(0),
-            wpoll_eliminated: false,
-        };
-        if let Some(t) = T::try_from_ledger(&utxo.output, &ctx) {
-            if t.stable_id() == id {
-                return Some((t, utxo));
+    while entity.is_none() {
+        let utxos = explorer
+            .slot_indexed_utxos_by_address(script_address(script_hash, network_id), offset as u32, LIMIT)
+            .await;
+        if utxos.is_empty() {
+            break;
+        }
+
+        println!("pulled utxos from slot {}: # pulled: {}", offset, utxos.len(),);
+
+        for (utxo, slot) in utxos {
+            let timed_output_ref = TimedOutputRef {
+                output_ref: OutputRef::from(utxo.clone().input),
+                slot: Slot(slot),
+            };
+            let ctx = ProcessLedgerEntityContext {
+                behaviour: deployment_config,
+                timed_output_ref,
+                current_epoch: CurrentEpoch::from(0),
+                wpoll_eliminated: false,
+            };
+            if let Some(t) = T::try_from_ledger(&utxo.output, &ctx) {
+                println!("  ID: {}, slot: {}", t.stable_id(), slot);
+                if t.stable_id() == id {
+                    entity = Some((t, utxo));
+                }
+                if offset < slot {
+                    offset = slot + 1;
+                }
             }
         }
     }
-    None
+    entity
 }
 
 async fn send_edao_token(op_inputs: &OperationInputs, destination_addr: String) {

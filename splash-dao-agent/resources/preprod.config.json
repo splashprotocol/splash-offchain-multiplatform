@@ -41,6 +41,7 @@
   "votingEscrowPersistenceConfig": { "db_path": "tmp/voting_escrow" },
   "smartFarmPersistenceConfig": { "db_path": "tmp/smart_farm" },
   "permManagerPersistenceConfig": { "db_path": "tmp/perm_manager" },
+  "predictedTxsBacklogConfig": { "db_path": "tmp/predicted_txs" },
   "fundingBoxConfig": { "db_path": "tmp/funding_box" },
   "explorer": {
     "url": "https://explorer.spectrum.fi"

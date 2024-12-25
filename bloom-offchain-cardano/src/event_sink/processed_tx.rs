@@ -6,6 +6,7 @@ use either::Either;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 
+#[derive(Clone)]
 /// A Tx being processed.
 /// Outputs in [Transaction] may be partially consumed in the process
 /// while this structure preserves stable hash.

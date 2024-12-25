@@ -45,6 +45,7 @@ use spectrum_offchain::{
         event_handler::{forward_to, EventHandler},
         process_events,
     },
+    kv_store::KVStoreRocksDB,
     rocks::RocksConfig,
     streaming::{boxed, run_stream},
     tx_tracker::new_tx_tracker_bundle,
@@ -62,8 +63,8 @@ use splash_dao_offchain::{
     handler::DaoHandler,
     protocol_config::ProtocolConfig,
     routines::inflation::{
-        actions::CardanoInflationActions, Behaviour, PredictedWrites, VotingOrderCommand, VotingOrderMessage,
-        VotingOrderStatus,
+        actions::CardanoInflationActions, Behaviour, PredictedEntityWrites, VotingOrderCommand,
+        VotingOrderMessage, VotingOrderStatus,
     },
     state_projection::StateProjectionRocksDB,
     time::{NetworkTime, NetworkTimeProvider},
@@ -117,6 +118,7 @@ async fn main() {
     let (confirmed_txs_snd, confirmed_txs_recv) =
         mpsc::channel::<(TransactionHash, u64)>(config.tx_submission_buffer_size);
     let max_confirmation_delay_blocks = config.event_cache_ttl.as_secs() / SAFE_BLOCK_TIME.as_secs();
+    info!("max_confirmation_delay_blocks: {}", max_confirmation_delay_blocks);
     let (tx_tracker_agent, tx_tracker_channel) = new_tx_tracker_bundle(
         confirmed_txs_recv,
         tokio_util::sync::PollSender::new(failed_txs_snd), // Need to wrap the Sender to satisfy Sink trait
@@ -220,7 +222,7 @@ async fn main() {
         StateProjectionRocksDB::new(config.perm_manager_persistence_config),
         FundingRepoRocksDB::new(config.funding_box_config.db_path),
         setup_order_backlog(config.order_backlog_config).await,
-        setup_predicted_txs_backlog(config.predicted_txs_backlog_config).await,
+        KVStoreRocksDB::new(config.predicted_txs_backlog_config.db_path),
         NetworkTimeSource {},
         inflation_actions,
         protocol_config,
@@ -312,19 +314,6 @@ async fn setup_order_backlog(
     };
 
     PersistentPriorityBacklog::new::<VotingOrder>(store, backlog_config).await
-}
-
-async fn setup_predicted_txs_backlog(
-    store_conf: RocksConfig,
-) -> PersistentPriorityBacklog<PredictedWrites, BacklogStoreRocksDB> {
-    let store = BacklogStoreRocksDB::new(store_conf);
-    let backlog_config = BacklogConfig {
-        order_lifespan: Duration::try_hours(1).unwrap(),
-        order_exec_time: Duration::try_minutes(5).unwrap(),
-        retry_suspended_prob: BoundedU8::new(60).unwrap(),
-    };
-
-    PersistentPriorityBacklog::new::<PredictedWrites>(store, backlog_config).await
 }
 
 #[derive(Parser)]

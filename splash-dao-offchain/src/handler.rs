@@ -19,7 +19,7 @@ impl DaoHandler {
 #[async_trait]
 impl EventHandler<LedgerTxEvent<TxViewMut>> for DaoHandler {
     async fn try_handle(&mut self, ev: LedgerTxEvent<TxViewMut>) -> Option<LedgerTxEvent<TxViewMut>> {
-        self.tx.send(ev).await.unwrap();
-        None
+        self.tx.send(ev.clone()).await.unwrap();
+        Some(ev)
     }
 }

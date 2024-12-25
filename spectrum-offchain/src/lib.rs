@@ -7,6 +7,7 @@ pub mod display;
 pub mod domain;
 pub mod event_sink;
 pub mod executor;
+pub mod kv_store;
 pub mod ledger;
 pub mod maker;
 pub mod network;

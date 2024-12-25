@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use async_std::task::spawn_blocking;
 use bloom_offchain::execution_engine::bundled::Bundled;
+use log::trace;
 use rocksdb::{Direction, IteratorMode, ReadOptions};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -120,7 +121,12 @@ where
             bytes.extend_from_slice(&new_version_bytes);
             let state_key = prefixed_bytes(STATE_PREFIX, &bytes);
             let predicted = AnyMod::Predicted(entity);
-            println!("state_json: {:?}", serde_json::to_string_pretty(&predicted));
+            println!(
+                "write_predicte() id: {}, version: {}, state_json: {}",
+                id,
+                t.version(),
+                serde_json::to_string_pretty(&predicted).unwrap()
+            );
             let state_bytes = serde_json::to_vec(&predicted).unwrap();
 
             tx.put(state_key, state_bytes).unwrap();
@@ -152,7 +158,9 @@ where
             let state_key = prefixed_bytes(STATE_PREFIX, &bytes);
             let confirmed = AnyMod::Confirmed(entity);
             println!(
-                "state_json: {}",
+                "write_confirmed() id: {}, version: {}, state_json: {}",
+                id,
+                t.version(),
                 serde_json::to_string_pretty(&confirmed).unwrap()
             );
             let state_bytes = serde_json::to_vec(&confirmed).unwrap();
@@ -171,6 +179,11 @@ where
             let current_version_key = prefixed_key(LATEST_VERSION_PREFIX, &id);
             if let Some(current_version_bytes) = db.get(&current_version_key).unwrap() {
                 let current_version: T::Version = serde_json::from_slice(&current_version_bytes).unwrap();
+                trace!(
+                    "StateProjectionWrite::remove: id: {}, ver: {}",
+                    id,
+                    current_version
+                );
                 let prev_ver_key = prev_version_key(&id, &current_version);
 
                 let tx = db.transaction();
@@ -186,6 +199,7 @@ where
 
                 if let Some(prev_version_bytes) = db.get(&prev_ver_key).unwrap() {
                     let prev_version: T::Version = serde_json::from_slice(&prev_version_bytes).unwrap();
+                    trace!("StateProjectionWrite::remove: prev_version {}", prev_version);
                     let mut bytes = serde_json::to_vec(&id).unwrap();
                     bytes.extend_from_slice(&prev_version_bytes);
                     let prev_state_key = prefixed_bytes(STATE_PREFIX, &bytes);

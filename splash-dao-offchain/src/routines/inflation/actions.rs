@@ -76,6 +76,7 @@ use crate::protocol_config::{
     WeightingPowerPolicy, WeightingPowerRefScriptOutput, TX_FEE_CORRECTION,
 };
 use crate::routines::inflation::TimedOutputRef;
+use crate::util::set_min_ada;
 use crate::GenesisEpochStartTime;
 
 use super::{
@@ -223,6 +224,7 @@ where
             unsafe_update_ibox_state(data_mut, next_inflation_box.last_processed_epoch.unwrap() + 1);
         }
         inflation_box_out.sub_asset(*SPLASH_AC, emission_rate.untag());
+        set_min_ada(&mut inflation_box_out);
         let inflation_output = SingleOutputBuilderResult::new(inflation_box_out.clone());
 
         // WP factory
@@ -357,10 +359,12 @@ where
         change_output_creator.add_output(&inflation_output);
         tx_builder.add_output(inflation_output).unwrap();
 
+        set_min_ada(&mut wpoll_out);
         let weighting_poll_output = SingleOutputBuilderResult::new(wpoll_out.clone());
         change_output_creator.add_output(&weighting_poll_output);
         tx_builder.add_output(weighting_poll_output).unwrap();
 
+        set_min_ada(&mut factory_out);
         let factory_output = SingleOutputBuilderResult::new(factory_out.clone());
         change_output_creator.add_output(&factory_output);
         tx_builder.add_output(factory_output).unwrap();
@@ -421,7 +425,7 @@ where
                 Snapshot::new(next_inflation_box, next_ib_version),
                 inflation_box_out.clone(),
             )),
-            Some(prev_ib_version),
+            None,
         );
         let fresh_wpoll_version = add_slot(OutputRef::new(tx_hash, 1));
         let fresh_wpoll = Traced::new(
@@ -437,7 +441,7 @@ where
                 Snapshot::new(next_factory, next_factory_version),
                 factory_out.clone(),
             )),
-            Some(prev_factory_version),
+            None,
         );
         (
             signed_tx_builder,
