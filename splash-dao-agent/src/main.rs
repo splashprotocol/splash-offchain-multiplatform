@@ -36,7 +36,6 @@ use spectrum_cardano_lib::{
     constants::{BABBAGE_ERA_ID, CONWAY_ERA_ID, SAFE_BLOCK_TIME},
     hash::hash_transaction_canonical,
     output::FinalizedTxOut,
-    transaction::OutboundTransaction,
     NetworkId,
 };
 use spectrum_offchain::{
@@ -48,12 +47,12 @@ use spectrum_offchain::{
     kv_store::KVStoreRocksDB,
     rocks::RocksConfig,
     streaming::{boxed, run_stream},
-    tx_tracker::new_tx_tracker_bundle,
 };
 use spectrum_offchain_cardano::{
     creds::{operator_creds, operator_creds_base_address},
     prover::operator::OperatorProver,
     tx_submission::{tx_submission_agent_stream, TxSubmissionAgent},
+    tx_tracker::new_tx_tracker_bundle,
 };
 use splash_dao_offchain::{
     collateral::pull_collateral,
@@ -126,7 +125,7 @@ async fn main() {
         max_confirmation_delay_blocks,
     );
     let (tx_submission_agent, tx_submission_channel) =
-        TxSubmissionAgent::<CONWAY_ERA_ID, OutboundTransaction<Transaction>, Transaction, _>::new(
+        TxSubmissionAgent::<CONWAY_ERA_ID, Transaction, _>::new(
             tx_tracker_channel,
             config.node,
             config.tx_submission_buffer_size,

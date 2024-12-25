@@ -16,7 +16,6 @@ use log::trace;
 use spectrum_cardano_lib::{
     collateral::Collateral,
     protocol_params::{constant_tx_builder, COINS_PER_UTXO_BYTE},
-    transaction::OutboundTransaction,
     OutputRef,
 };
 use spectrum_offchain::tx_prover::TxProver;
@@ -31,7 +30,7 @@ pub async fn generate_collateral<Net: CardanoNetwork, TX>(
     prover: &TX,
 ) -> Result<Collateral, Box<dyn std::error::Error>>
 where
-    TX: TxProver<SignedTxBuilder, OutboundTransaction<Transaction>>,
+    TX: TxProver<SignedTxBuilder, Transaction>,
 {
     let all_utxos = explorer.utxos_by_address(addr.clone(), 0, 100).await;
     let utxos = collect_utxos(all_utxos, COLLATERAL_LOVELACES + 1_000_000, vec![], None);

@@ -18,11 +18,8 @@ use cml_chain::{
 };
 use cml_crypto::{ScriptHash, TransactionHash};
 use spectrum_cardano_lib::{
-    collateral::Collateral,
-    protocol_params::constant_tx_builder,
-    transaction::{OutboundTransaction, TransactionOutputExtension},
-    value::ValueExtension,
-    OutputRef,
+    collateral::Collateral, protocol_params::constant_tx_builder, transaction::TransactionOutputExtension,
+    value::ValueExtension, OutputRef,
 };
 use spectrum_offchain::tx_prover::TxProver;
 use spectrum_offchain_cardano::{creds::CollateralAddress, prover::operator::OperatorProver};
@@ -79,7 +76,7 @@ pub async fn send_assets<Net: CardanoNetwork, TX>(
     prover: &TX,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
-    TX: TxProver<SignedTxBuilder, OutboundTransaction<Transaction>>,
+    TX: TxProver<SignedTxBuilder, Transaction>,
 {
     let all_utxos = explorer.utxos_by_address(wallet_addr.clone(), 0, 100).await;
     let utxos = collect_utxos(
@@ -153,7 +150,7 @@ pub async fn register_staking_address<Net: CardanoNetwork, TX>(
     prover: &TX,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
-    TX: TxProver<SignedTxBuilder, OutboundTransaction<Transaction>>,
+    TX: TxProver<SignedTxBuilder, Transaction>,
 {
     let all_utxos = explorer.utxos_by_address(wallet_addr.clone(), 0, 100).await;
     let utxos = collect_utxos(all_utxos, coin_before_change_deduction, vec![], Some(collateral));
