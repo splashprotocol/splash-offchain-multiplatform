@@ -7,8 +7,6 @@ use log::trace;
 use spectrum_offchain::domain::event::{Confirmed, Predicted, Unconfirmed};
 use spectrum_offchain::domain::{EntitySnapshot, Stable};
 
-pub mod kv_store;
-
 pub trait StateIndex<T: EntitySnapshot> {
     /// Get last confirmed state of the given entity.
     fn get_last_confirmed(&self, id: T::StableId) -> Option<Confirmed<T>>;

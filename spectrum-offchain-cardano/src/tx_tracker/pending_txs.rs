@@ -4,6 +4,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt::Display;
 use std::hash::Hash;
 
+use log::trace;
+
 pub(crate) struct PendingTxs<TxHash, Tx> {
     max_confirmation_delay_blocks: u64,
     current_block: u64,
@@ -41,11 +43,12 @@ impl<TxHash, Tx> PendingTxs<TxHash, Tx> {
 
     pub fn confirm_tx(&mut self, tx: TxHash)
     where
-        TxHash: Eq + Hash,
+        TxHash: Eq + Hash + Display,
     {
         if let Some(key) = self.index.remove(&tx) {
             if let Some(txs) = self.queue.get_mut(&key) {
-                txs.remove(&tx);
+                let removed = txs.remove(&tx);
+                trace!("[PendingTxs]: removed confirmed TX {}: {}", tx, removed.is_some());
             }
         }
     }

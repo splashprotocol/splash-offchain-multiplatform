@@ -5,6 +5,7 @@ use cml_chain::transaction::TransactionOutput;
 use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, ScriptHash};
 use log::trace;
+use primitive_types::U512;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::plutus_data::{DatumExtension, IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
@@ -27,8 +28,10 @@ use crate::{constants, GenesisEpochStartTime};
 
 pub type InflationBoxSnapshot = Snapshot<InflationBox, TimedOutputRef>;
 
-#[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize, Hash, derive_more::Display)]
-pub struct InflationBoxId;
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize, Hash, derive_more::Display,
+)]
+pub struct InflationBoxId(pub ProtocolEpoch);
 
 impl Identifier for InflationBoxId {
     type For = InflationBoxSnapshot;
@@ -75,18 +78,20 @@ pub fn emission_rate(epoch: ProtocolEpoch) -> TaggedAmount<Splash> {
     } else if reduction_period == 1 {
         constants::RATE_AFTER_FIRST_REDUCTION
     } else {
-        let exp = reduction_period - 1;
+        let exp = U512::from(reduction_period - 1);
         // We calculate numerator/denominator separately to avoid error accumulation.
-        let num = constants::RATE_AFTER_FIRST_REDUCTION * constants::TAIL_REDUCTION_RATE_NUM.pow(exp);
-        let denom = constants::TAIL_REDUCTION_RATE_DEN.pow(exp);
-        num / denom
+        let num = U512::from(constants::RATE_AFTER_FIRST_REDUCTION)
+            * U512::from(constants::TAIL_REDUCTION_RATE_NUM).pow(exp);
+        let denom = U512::from(constants::TAIL_REDUCTION_RATE_DEN).pow(exp);
+        (num / denom).as_u64()
     })
 }
 
 impl Stable for InflationBox {
     type StableId = InflationBoxId;
     fn stable_id(&self) -> Self::StableId {
-        InflationBoxId
+        let epoch = self.last_processed_epoch.map(|e| e + 1).unwrap_or(0);
+        InflationBoxId(epoch)
     }
     fn is_quasi_permanent(&self) -> bool {
         true
@@ -157,6 +162,8 @@ mod tests {
 
     #[test]
     fn check_emission() {
-        println!("epoch 0 emission: {:?}", emission_rate(0));
+        for e in 0..364 {
+            println!("epoch {} emission: {:?}", e, emission_rate(e));
+        }
     }
 }

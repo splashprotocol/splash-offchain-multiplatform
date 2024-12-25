@@ -57,8 +57,9 @@ pub async fn user_simulator<'a>(
             .as_millis() as u64;
         let CurrentEpoch(current_epoch) = time_millis_to_epoch(now, genesis_epoch_time);
 
-        let ve_identifier_str =
-            std::fs::read_to_string(ve_identifier_json_path).expect("Cannot load dao parameters file");
+        let ve_identifier_str = tokio::fs::read_to_string(ve_identifier_json_path)
+            .await
+            .expect("Cannot load dao parameters file");
         let user_ve_identifier: UserVEIdentifier =
             serde_json::from_str(&ve_identifier_str).expect("Invalid ve_identifiers file");
 
@@ -67,7 +68,7 @@ pub async fn user_simulator<'a>(
             assert!(matches!(ve_state, VEState::Waiting));
             println!("---- Making deposit into VE");
             // Deposit into VE
-            let identifier_name = make_voting_escrow(&ve_settings, op_inputs, current_epoch).await;
+            let identifier_name = make_voting_escrow(&ve_settings, op_inputs).await;
 
             let voting_escrow_id =
                 VotingEscrowId(spectrum_cardano_lib::AssetName::from(identifier_name.clone()));
@@ -101,6 +102,7 @@ pub async fn user_simulator<'a>(
             && now - epoch_start(genesis_epoch_time, current_epoch) > EPOCH_WAIT_TIME;
 
         if try_pull_next_wpoll {
+            println!("try pull WPOLL");
             let pulled = pull_onchain_entity::<WeightingPollSnapshot, _>(
                 &op_inputs.explorer,
                 protocol_deployment.mint_wpauth_token.hash,
@@ -113,6 +115,8 @@ pub async fn user_simulator<'a>(
             if pulled {
                 println!("Pulled WPOLL for epoch {}", current_epoch);
                 wpoll_current_epoch = Some(current_epoch);
+            } else {
+                println!("FAILED pull WPOLL");
             }
         }
 

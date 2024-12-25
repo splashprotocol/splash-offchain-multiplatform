@@ -31,7 +31,7 @@ pub type PollFactorySnapshot = Snapshot<PollFactory, TimedOutputRef>;
 #[derive(
     Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize, Debug, derive_more::Display,
 )]
-pub struct PollFactoryId;
+pub struct PollFactoryId(pub ProtocolEpoch);
 
 impl Identifier for PollFactoryId {
     type For = PollFactorySnapshot;
@@ -104,7 +104,8 @@ where
 impl Stable for PollFactory {
     type StableId = PollFactoryId;
     fn stable_id(&self) -> Self::StableId {
-        PollFactoryId
+        let epoch = self.last_poll_epoch.map(|e| e + 1).unwrap_or(0);
+        PollFactoryId(epoch)
     }
     fn is_quasi_permanent(&self) -> bool {
         true
