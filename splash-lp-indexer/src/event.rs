@@ -110,12 +110,6 @@ pub struct Redeem {
     lp_burned: u64,
 }
 
-impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for Redeem {
-    fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
-        todo!()
-    }
-}
-
 pub struct Harvest {
     pool_id: PoolId,
     account: Credential,
