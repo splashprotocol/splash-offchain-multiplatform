@@ -143,6 +143,7 @@ where
                 .await
                 {
                     Ok((events, tx)) => {
+                        trace!("{} funding boxes found in applied TX", events.len());
                         let mut index = self.index.lock().await;
                         index.run_eviction();
                         for (pt, event) in events {
@@ -183,6 +184,7 @@ where
                 .await
                 {
                     Ok((events, tx)) => {
+                        trace!("{} funding boxes found in unapplied TX", events.len());
                         let mut index = self.index.lock().await;
                         index.run_eviction();
                         for (pt, event) in events {
@@ -242,6 +244,7 @@ where
                 .await
                 {
                     Ok((events, tx)) => {
+                        trace!("{} funding boxes found in accepted TX", events.len());
                         let mut index = self.index.lock().await;
                         index.run_eviction();
                         for (pt, event) in events {
@@ -270,6 +273,7 @@ where
                 .await
                 {
                     Ok((events, tx)) => {
+                        trace!("{} funding boxes found in dropped TX", events.len());
                         let mut index = self.index.lock().await;
                         index.run_eviction();
                         for (pt, event) in events {
@@ -519,7 +523,7 @@ where
                 .await
                 {
                     Ok((transitions, tx)) => {
-                        trace!("{} entities found in unconfirmed TX", transitions.len());
+                        trace!("{} entities found in accepted TX", transitions.len());
                         let pool_index = self.general_handler.index.lock().await;
                         let mut index = self.order_index.lock().await;
                         index.run_eviction();
@@ -551,7 +555,7 @@ where
                 .await
                 {
                     Ok((transitions, tx)) => {
-                        trace!("{} entities found in unconfirmed TX", transitions.len());
+                        trace!("{} entities found in dropped TX", transitions.len());
                         let pool_index = self.general_handler.index.lock().await;
                         let mut index = self.order_index.lock().await;
                         index.run_eviction();
@@ -917,7 +921,7 @@ where
             MempoolUpdate::TxDropped(tx) => {
                 match extract_continuous_transitions(Arc::clone(&self.index), self.context_proto, tx).await {
                     Ok((transitions, tx)) => {
-                        trace!("{} entities found in accepted TX", transitions.len());
+                        trace!("{} entities found in dropped TX", transitions.len());
                         let mut index = self.index.lock().await;
                         index.run_eviction();
                         for tr in transitions {
