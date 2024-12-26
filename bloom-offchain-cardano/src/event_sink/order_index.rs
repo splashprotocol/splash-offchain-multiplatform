@@ -77,6 +77,7 @@ where
     }
 }
 
+#[derive(Clone)]
 pub struct OrderIndexTracing<R> {
     inner: R,
     tag: String,

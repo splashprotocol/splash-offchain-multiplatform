@@ -413,8 +413,10 @@ where
         | Channel::LocalTxSubmit(Predicted(upd))) = update;
         if let Transition::Backward(Ior::Both(rolled_back_state, _)) = &upd {
             trace!(
-                "State {} was eliminated in result of rollback.",
-                rolled_back_state.stable_id()
+                "State {} of {} was eliminated in result of rollback ({}).",
+                rolled_back_state.version(),
+                rolled_back_state.stable_id(),
+                if from_ledger { "ledger" } else { "mempool" }
             );
             self.index.invalidate_version(rolled_back_state.version());
         }
@@ -695,13 +697,16 @@ where
 
     fn on_funding_event(&mut self, event: FundingEvent<B>)
     where
-        B: Eq + Ord,
+        B: Eq + Ord + Has<V>,
+        V: Display,
     {
         match event {
             FundingEvent::Consumed(funding_bearer) => {
+                trace!("Funding box {} consumed", funding_bearer.get());
                 self.funding_pool.remove(&funding_bearer);
             }
             FundingEvent::Produced(funding_bearer) => {
+                trace!("Funding box {} produced", funding_bearer.get());
                 self.funding_pool.insert(funding_bearer);
             }
         }

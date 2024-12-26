@@ -1125,9 +1125,7 @@ mod tests {
         );
         let tx_2_hash = hash_transaction_canonical(&tx_2.body);
         let entity_eviction_delay = Duration::from_secs(60 * 5);
-        let index = Arc::new(Mutex::new(
-            InMemoryEntityIndex::new(entity_eviction_delay).with_tracing(),
-        ));
+        let index = Arc::new(Mutex::new(InMemoryEntityIndex::new(entity_eviction_delay)));
         let (snd, mut recv) = mpsc::channel::<(u8, Channel<Transition<TrivialEntity>>)>(100);
         let ex_cred = OperatorCred(Ed25519KeyHash::from([0u8; 28]));
         let context = HandlerContextProto {
@@ -1281,7 +1279,7 @@ mod tests {
             u8,
             mpsc::Sender<(u8, Channel<Transition<TrivialEntity>>)>,
             TrivialEntity,
-            EntityIndexTracing<InMemoryEntityIndex<TrivialEntity>>,
+            InMemoryEntityIndex<TrivialEntity>,
             HandlerContextProto,
             HandlerContext<u8>,
         > = PairUpdateHandler::new(Partitioned::new([snd]), index, context);

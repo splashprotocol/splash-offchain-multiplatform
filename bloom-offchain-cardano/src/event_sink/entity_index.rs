@@ -34,8 +34,8 @@ impl<T: EntitySnapshot + Tradable> InMemoryEntityIndex<T> {
             eviction_delay,
         }
     }
-    pub fn with_tracing(self) -> EntityIndexTracing<Self> {
-        EntityIndexTracing::attach(self)
+    pub fn with_tracing(self, tag: &str) -> EntityIndexTracing<Self> {
+        EntityIndexTracing::attach(self, tag)
     }
 }
 
@@ -83,13 +83,18 @@ where
     }
 }
 
+#[derive(Clone)]
 pub struct EntityIndexTracing<R> {
     inner: R,
+    tag: String,
 }
 
 impl<R> EntityIndexTracing<R> {
-    pub fn attach(repo: R) -> Self {
-        Self { inner: repo }
+    pub fn attach(repo: R, tag: &str) -> Self {
+        Self {
+            inner: repo,
+            tag: String::from(tag),
+        }
     }
 }
 
@@ -100,33 +105,33 @@ where
     R: TradableEntityIndex<T>,
 {
     fn put_state(&mut self, state: T) {
-        trace!(target: "offchain", "EntityIndex::put_state({:?})", state);
+        trace!("EntityIndex[{}]::put_state({:?})", self.tag, state);
         self.inner.put_state(state)
     }
 
     fn get_state(&mut self, ver: &T::Version) -> Option<T> {
-        trace!(target: "offchain", "EntityIndex::get_state({})", ver);
+        trace!("EntityIndex[{}]::get_state({})", self.tag, ver);
         self.inner.get_state(ver)
     }
 
     fn pair_of(&self, id: &T::StableId) -> Option<T::PairId> {
-        trace!(target: "offchain", "EntityIndex::pair_of({})", id);
+        trace!("EntityIndex[{}]::pair_of({})", self.tag, id);
         self.inner.pair_of(id)
     }
 
     fn exists(&self, ver: &T::Version) -> bool {
         let res = self.inner.exists(ver);
-        trace!(target: "offchain", "EntityIndex::exists({}) -> {}", ver, res);
+        trace!("EntityIndex[{}]::exists({}) -> {}", self.tag, ver, res);
         res
     }
 
     fn register_for_eviction(&mut self, ver: T::Version) {
-        trace!(target: "offchain", "EntityIndex::register_for_eviction({})", ver);
+        trace!("EntityIndex[{}]::register_for_eviction({})", self.tag, ver);
         self.inner.register_for_eviction(ver)
     }
 
     fn run_eviction(&mut self) {
-        trace!(target: "offchain", "EntityIndex::run_eviction()");
+        trace!("EntityIndex[{}]::run_eviction()", self.tag);
         self.inner.run_eviction()
     }
 }

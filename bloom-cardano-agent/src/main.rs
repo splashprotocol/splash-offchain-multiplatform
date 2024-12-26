@@ -208,14 +208,12 @@ async fn main() {
     ]);
 
     let entity_index = Arc::new(Mutex::new(InMemoryEntityIndex::new(config.event_cache_ttl)));
-    let spec_order_index = Arc::new(Mutex::new(InMemoryKvIndex::new(
-        config.event_cache_ttl,
-        SystemClock,
-    )));
-    let funding_index = Arc::new(Mutex::new(InMemoryKvIndex::new(
-        config.event_cache_ttl,
-        SystemClock,
-    )));
+    let spec_order_index = Arc::new(Mutex::new(
+        InMemoryKvIndex::new(config.event_cache_ttl, SystemClock).with_tracing("spec_order_index"),
+    ));
+    let funding_index = Arc::new(Mutex::new(
+        InMemoryKvIndex::new(config.event_cache_ttl, SystemClock).with_tracing("funding_index"),
+    ));
     let dao_ctx: DAOContext = config.dao_config.clone().into();
     let handler_context = HandlerContextProto {
         executor_cred: operator_paycred,

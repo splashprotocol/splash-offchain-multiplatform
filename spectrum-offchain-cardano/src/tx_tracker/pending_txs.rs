@@ -1,6 +1,7 @@
 use log::{info, trace};
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap};
+use std::fmt::Display;
 use std::hash::Hash;
 
 pub(crate) struct PendingTxs<TxHash, Tx> {
@@ -51,7 +52,7 @@ impl<TxHash, Tx> PendingTxs<TxHash, Tx> {
 
     pub fn try_advance(&mut self, new_block: u64) -> Option<Vec<Tx>>
     where
-        TxHash: Eq + Hash,
+        TxHash: Eq + Hash + Display,
     {
         if self.current_block < new_block {
             self.current_block = new_block;
@@ -61,6 +62,7 @@ impl<TxHash, Tx> PendingTxs<TxHash, Tx> {
                     if *entry.key() <= new_block {
                         let txs = entry.remove();
                         for (hash, tx) in txs {
+                            trace!("Tx {} failed", hash);
                             self.index.remove(&hash);
                             failed_txs.push(tx);
                         }

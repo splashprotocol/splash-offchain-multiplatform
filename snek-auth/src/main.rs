@@ -286,7 +286,10 @@ async fn main() -> std::io::Result<()> {
             InternalError::from_response(err, create_error_response(IncorrectRequestStructure)).into()
         });
 
-        let re_captcha = Data::new(ReCaptcha::new(config.re_captcha_secret.clone(), config.scoring_threshold));
+        let re_captcha = Data::new(ReCaptcha::new(
+            config.re_captcha_secret.clone(),
+            config.scoring_threshold,
+        ));
         let analytics = Data::new(Analytics::new(
             config.analytics_snek_url.clone(),
             config.cache_size,

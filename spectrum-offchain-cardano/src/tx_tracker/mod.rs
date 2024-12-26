@@ -7,7 +7,8 @@ use futures::channel::mpsc;
 use futures::stream::FusedStream;
 use futures::{select, FutureExt, Sink, SinkExt, StreamExt};
 use spectrum_offchain::data::circular_filter::CircularFilter;
-use std::fmt::Debug;
+use spectrum_offchain::sink::BatchSinkExt;
+use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::sync::{Arc, Mutex};
 
@@ -65,7 +66,7 @@ impl<TxHash, Tx, UnconfirmedIn, ConfirmedIn, FailedOut>
         ConfirmedIn: FusedStream<Item = (TxHash, u64)> + Unpin,
         FailedOut: Sink<Tx> + Unpin,
         FailedOut::Error: Debug,
-        TxHash: Copy + Eq + Hash,
+        TxHash: Copy + Eq + Hash + Display,
     {
         select! {
             _ = Self::process_incoming_txs(
@@ -109,7 +110,7 @@ impl<TxHash, Tx, UnconfirmedIn, ConfirmedIn, FailedOut>
         ConfirmedIn: FusedStream<Item = (TxHash, u64)> + Unpin,
         FailedOut: Sink<Tx> + Unpin,
         FailedOut::Error: Debug,
-        TxHash: Copy + Eq + Hash,
+        TxHash: Copy + Eq + Hash + Display,
     {
         loop {
             let (tx, block) = ledger_stream.select_next_some().await;
@@ -120,10 +121,7 @@ impl<TxHash, Tx, UnconfirmedIn, ConfirmedIn, FailedOut>
                 pending_txs.try_advance(block)
             };
             if let Some(unsuccessful_txs) = advance_result {
-                for tr in unsuccessful_txs {
-                    failed_txs.feed(tr).await.expect("Channel is closed");
-                }
-                failed_txs.flush().await.expect("Failed to commit updates");
+                failed_txs.batch_send(unsuccessful_txs).await.unwrap();
             }
         }
     }

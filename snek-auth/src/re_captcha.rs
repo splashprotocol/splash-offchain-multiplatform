@@ -15,7 +15,7 @@ struct VerificationRequest {
 #[derive(serde::Deserialize, serde::Serialize, Debug)]
 struct VerificationResult {
     success: bool,
-    score: f64
+    score: f64,
 }
 
 #[derive(Clone)]

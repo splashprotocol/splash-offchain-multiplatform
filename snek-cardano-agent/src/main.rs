@@ -204,11 +204,12 @@ async fn main() {
         funding_upd_snd_p4,
     ]);
 
-    let entity_index = Arc::new(Mutex::new(InMemoryEntityIndex::new(config.event_cache_ttl)));
-    let funding_index = Arc::new(Mutex::new(InMemoryKvIndex::new(
-        config.event_cache_ttl,
-        SystemClock,
-    )));
+    let entity_index = Arc::new(Mutex::new(
+        InMemoryEntityIndex::new(config.event_cache_ttl).with_tracing("entity_index"),
+    ));
+    let funding_index = Arc::new(Mutex::new(
+        InMemoryKvIndex::new(config.event_cache_ttl, SystemClock).with_tracing("funding_index"),
+    ));
     let handler_context = SnekHandlerContextProto {
         executor_cred: operator_paycred,
         scripts: SnekProtocolScriptHashes::from(&protocol_deployment),
