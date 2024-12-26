@@ -15,17 +15,12 @@ where
     Out: TryFromLedger<Tx, Cx> + Send,
 {
     async fn try_handle(&mut self, ev: LedgerTxEvent<Tx>) -> Option<LedgerTxEvent<Tx>> {
-        match ev {
-            LedgerTxEvent::TxApplied { ref tx, .. } => {
-                if let Some(out) = Out::try_from_ledger(tx, &self.context) {
-                    self.topic.send(Ok(out)).await.unwrap();
-                }
-            }
-            LedgerTxEvent::TxUnapplied { ref tx, .. } => {
-                if let Some(out) = Out::try_from_ledger(tx, &self.context) {
-                    self.topic.send(Err(out)).await.unwrap();
-                }
-            }
+        let res = match ev {
+            LedgerTxEvent::TxApplied { ref tx, .. } => Out::try_from_ledger(tx, &self.context).map(Ok),
+            LedgerTxEvent::TxUnapplied { ref tx, .. } => Out::try_from_ledger(tx, &self.context).map(Err),
+        };
+        if let Some(event) = res {
+            self.topic.send(event).await.unwrap();
         }
         Some(ev)
     }
