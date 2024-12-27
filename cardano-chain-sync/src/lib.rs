@@ -17,6 +17,7 @@ pub mod cache;
 pub mod client;
 pub mod data;
 pub mod event_source;
+mod signal;
 
 pub fn chain_sync_stream<'a, Block>(
     mut chain_sync: ChainSyncClient<Block>,
