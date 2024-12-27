@@ -80,7 +80,7 @@ impl Display for LimitOrder {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(
             format!(
-                "LimitOrder({}, {}, {}, p={}, in={} {}, out={} {}, budget={}, fee={})",
+                "LimitOrder({}, {}, {}, p={}, in={} {}, out={} {}, budget={}, fee={} {})",
                 self.beacon,
                 self.side(),
                 self.pair_id(),
@@ -90,6 +90,7 @@ impl Display for LimitOrder {
                 self.output_amount,
                 self.output_asset,
                 self.execution_budget,
+                self.fee,
                 self.fee_asset
             )
             .as_str(),

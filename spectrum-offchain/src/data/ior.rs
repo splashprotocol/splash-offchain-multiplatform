@@ -8,12 +8,12 @@ pub enum Ior<O1, O2> {
     Both(O1, O2),
 }
 
-impl<O1, O2> Display for Ior<O1, O2> {
+impl<O1: Display, O2: Display> Display for Ior<O1, O2> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Ior::Left(_) => f.write_str("Ior::Left(_)"),
-            Ior::Right(_) => f.write_str("Ior::Right(_)"),
-            Ior::Both(_, _) => f.write_str("Ior::Both(_, _)"),
+            Ior::Left(a) => f.write_str(format!("Ior::Left({})", a).as_str()),
+            Ior::Right(b) => f.write_str(format!("Ior::Right({})", b).as_str()),
+            Ior::Both(a, b) => f.write_str(format!("Ior::Both({}, {})", a, b).as_str()),
         }
     }
 }

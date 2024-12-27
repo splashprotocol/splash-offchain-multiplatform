@@ -32,7 +32,7 @@ use liquidity_book::interpreter::RecipeInterpreter;
 use spectrum_offchain::backlog::HotBacklog;
 use spectrum_offchain::data::circular_filter::CircularFilter;
 use spectrum_offchain::data::ior::Ior;
-use spectrum_offchain::display::{display_set, display_vec};
+use spectrum_offchain::display::{display_option, display_set, display_vec};
 use spectrum_offchain::domain::event::{Channel, Confirmed, Predicted, Transition, Unconfirmed};
 use spectrum_offchain::domain::order::{OrderUpdate, SpecializedOrder};
 use spectrum_offchain::domain::{Baked, EntitySnapshot, Has, Stable};
@@ -369,9 +369,17 @@ where
             if let Some(state) = self.index.get_state(ver) {
                 let stable_id = state.stable_id();
                 let state_before_invalidation = resolve_state(stable_id, &self.index);
+                trace!(
+                    "State before invalidation is {}",
+                    display_option(&state_before_invalidation.as_ref().map(|x| x.version()))
+                );
                 trace!("Invalidating snapshot {} of {}", ver, stable_id);
                 self.index.invalidate_version(ver);
                 let state_after_invalidation = resolve_state(stable_id, &self.index);
+                trace!(
+                    "State after invalidation is {}",
+                    display_option(&state_after_invalidation.as_ref().map(|x| x.version()))
+                );
                 let maybe_transition = to_transition(state_before_invalidation, state_after_invalidation);
                 if let Some(tr) = maybe_transition {
                     match &tr {
@@ -383,7 +391,7 @@ where
                             );
                         }
                         _ => {
-                            trace!("Resulting transition is {}", tr);
+                            trace!("Transition is determined");
                         }
                     }
                     self.sync_book(pair, tr);
@@ -402,7 +410,7 @@ where
     where
         SID: Copy + Eq + Hash + Display,
         V: Copy + Eq + Hash + Display,
-        T: EntitySnapshot<StableId = SID, Version = V> + Clone,
+        T: EntitySnapshot<StableId = SID, Version = V> + Display + Clone,
         B: Clone,
         IX: StateIndex<Bundled<T, B>>,
     {
@@ -411,16 +419,22 @@ where
         let (Channel::Ledger(Confirmed(upd))
         | Channel::Mempool(Unconfirmed(upd))
         | Channel::LocalTxSubmit(Predicted(upd))) = update;
-        if let Transition::Backward(Ior::Both(rolled_back_state, _)) = &upd {
+        trace!(
+            "Processing transition {} from {}",
+            upd,
+            if from_ledger { "ledger" } else { "mempool" }
+        );
+        let is_rollback_upd = matches!(upd, Transition::Backward(_));
+        let state_to_rollback = if let Transition::Backward(Ior::Both(rolled_back_state, _)) = &upd {
             trace!(
-                "State {} of {} was eliminated in result of rollback ({}).",
+                "State {} of {} will be rolled back.",
                 rolled_back_state.version(),
                 rolled_back_state.stable_id(),
-                if from_ledger { "ledger" } else { "mempool" }
             );
-            self.index.invalidate_version(rolled_back_state.version());
-        }
-        let is_rollback_upd = matches!(upd, Transition::Backward(_));
+            Some(rolled_back_state.version())
+        } else {
+            None
+        };
         match upd {
             Transition::Forward(Ior::Right(new_state))
             | Transition::Forward(Ior::Both(_, new_state))
@@ -442,6 +456,14 @@ where
                     self.skip_filter.remove(&ver);
                 }
                 let state_before_update = resolve_state(id, &self.index);
+                trace!(
+                    "State before update is {}",
+                    display_option(&state_before_update.as_ref().map(|x| x.version()))
+                );
+                if let Some(state_to_rollback) = state_to_rollback {
+                    trace!("State {} is rolled back", state_to_rollback);
+                    self.index.invalidate_version(state_to_rollback);
+                }
                 if from_ledger {
                     trace!("Observing new confirmed state {}", id);
                     self.index.put_confirmed(Confirmed(new_state));
@@ -453,6 +475,10 @@ where
                     self.index.put_predicted(Predicted(new_state));
                 }
                 let state_after_update = resolve_state(id, &self.index);
+                trace!(
+                    "State after update is {}",
+                    display_option(&state_after_update.as_ref().map(|x| x.version()))
+                );
                 to_transition(state_before_update, state_after_update)
             }
             Transition::Forward(Ior::Left(st)) | Transition::Backward(Ior::Left(st)) => {
@@ -478,8 +504,8 @@ where
         MC: Clone,
         PR: Eq + Hash + Copy + Display,
         SO: SpecializedOrder<TOrderId = V>,
-        CO: Stable<StableId = SID> + Copy + Debug,
-        P: Stable<StableId = SID> + Copy,
+        CO: Stable<StableId = SID> + Copy + Debug + Display,
+        P: Stable<StableId = SID> + Copy + Display,
         TH: Display,
         IX: StateIndex<EvolvingEntity<CO, P, V, B>>,
         TLB: ExternalLBEvents<CO, P> + LBFeedback<CO, P> + Maker<PR, MC>,
@@ -678,8 +704,8 @@ where
         MC: Clone,
         PR: Eq + Hash + Copy + Display,
         SO: SpecializedOrder<TOrderId = V>,
-        CO: Stable<StableId = SID> + Copy + Debug,
-        P: Stable<StableId = SID> + Copy,
+        CO: Stable<StableId = SID> + Copy + Debug + Display,
+        P: Stable<StableId = SID> + Copy + Display,
         IX: StateIndex<EvolvingEntity<CO, P, V, B>>,
         TLB: ExternalLBEvents<CO, P> + Maker<PR, MC>,
         L: HotBacklog<Bundled<SO, B>> + Maker<PR, MC>,

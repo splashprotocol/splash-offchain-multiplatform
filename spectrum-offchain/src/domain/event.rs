@@ -1,10 +1,9 @@
-use std::fmt;
-use std::fmt::Formatter;
-use std::marker::PhantomData;
-
 use serde::__private::de::missing_field;
 use serde::ser::SerializeStruct;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
+use std::fmt;
+use std::fmt::{Display, Formatter, Write};
+use std::marker::PhantomData;
 
 use crate::data::ior::Ior;
 use crate::domain::{EntitySnapshot, Stable};
@@ -406,6 +405,18 @@ pub enum Transition<T> {
     Forward(Ior<T, T>),
     /// State transition rollback (left: rolled back state, right: revived state).
     Backward(Ior<T, T>),
+}
+
+impl<T> Display for Transition<T>
+where
+    T: Display,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Transition::Forward(tr) => f.write_str(format!("Forward({})", tr).as_str()),
+            Transition::Backward(tr) => f.write_str(format!("Backward({})", tr).as_str()),
+        }
+    }
 }
 
 impl<T> Transition<T> {
