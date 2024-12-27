@@ -7,6 +7,18 @@ pub enum LedgerBlockEvent<Block> {
     RollBackward(Block),
 }
 
+impl<Block> LedgerBlockEvent<Block> {
+    pub fn map<T2, F>(self, f: F) -> LedgerBlockEvent<T2>
+    where
+        F: FnOnce(Block) -> T2,
+    {
+        match self {
+            LedgerBlockEvent::RollForward(blk) => LedgerBlockEvent::RollForward(f(blk)),
+            LedgerBlockEvent::RollBackward(blk) => LedgerBlockEvent::RollBackward(f(blk)),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum LedgerTxEvent<Tx> {
     TxApplied {
