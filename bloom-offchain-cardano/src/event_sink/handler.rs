@@ -100,7 +100,11 @@ where
                 .into_iter()
                 .map(|(pt, utxo)| (pt, FundingEvent::Produced(utxo))),
         )
-        .collect();
+        .collect::<Vec<_>>();
+
+    if events.is_empty() {
+        return Err(tx);
+    }
     Ok((events, tx))
 }
 
