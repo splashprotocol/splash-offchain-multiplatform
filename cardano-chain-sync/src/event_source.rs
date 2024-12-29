@@ -10,6 +10,7 @@ use cml_chain::transaction::Transaction;
 use cml_core::serialization::Deserialize;
 use cml_core::Slot;
 use cml_multi_era::babbage::{BabbageBlock, BabbageTransaction};
+use cml_multi_era::utils::MultiEraBlockHeader;
 use cml_multi_era::MultiEraBlock;
 use either::Either;
 use futures::stream::StreamExt;
@@ -106,9 +107,9 @@ where
         } => {
             if !replayed {
                 if blk.header().slot() > handle_rollbacks_after {
-                    cache_block(cache, &blk, blk_bytes).await;
+                    cache_block(cache, &blk.header(), blk_bytes).await;
                 } else {
-                    cache_point(cache, &blk).await;
+                    cache_point(cache, &blk.header()).await;
                 }
             }
             info!(
@@ -149,27 +150,25 @@ where
     }
 }
 
-async fn cache_block<Cache: LedgerCache>(cache: Arc<Mutex<Cache>>, blk: &MultiEraBlock, blk_bytes: Vec<u8>) {
+async fn cache_block<Cache: LedgerCache>(
+    cache: Arc<Mutex<Cache>>,
+    hdr: &MultiEraBlockHeader,
+    blk_bytes: Vec<u8>,
+) {
     let cache = cache.lock().await;
-    let point = Point::Specific(
-        blk.header().slot(),
-        hash_block_header_canonical_multi_era(&blk.header()),
-    );
+    let point = Point::Specific(hdr.slot(), hash_block_header_canonical_multi_era(&hdr));
     let prev_point = cache.get_tip().await.unwrap_or(Point::Origin);
     cache.set_tip(point).await;
     cache.put_block(point, LinkedBlock(blk_bytes, prev_point)).await;
 }
 
-async fn cache_point<Cache: LedgerCache>(cache: Arc<Mutex<Cache>>, blk: &MultiEraBlock) {
+async fn cache_point<Cache: LedgerCache>(cache: Arc<Mutex<Cache>>, hdr: &MultiEraBlockHeader) {
     let cache = cache.lock().await;
-    let point = Point::Specific(
-        blk.header().slot(),
-        hash_block_header_canonical_multi_era(&blk.header()),
-    );
+    let point = Point::Specific(hdr.slot(), hash_block_header_canonical_multi_era(&hdr));
     cache.set_tip(point).await;
 }
 
-fn unpack_valid_transactions_multi_era(
+pub(crate) fn unpack_valid_transactions_multi_era(
     block: MultiEraBlock,
 ) -> Vec<(Either<BabbageTransaction, Transaction>, u64, u64)> {
     match block {
@@ -183,7 +182,7 @@ fn unpack_valid_transactions_multi_era(
     }
 }
 
-fn unpack_valid_transactions_babbage(
+pub(crate) fn unpack_valid_transactions_babbage(
     block: BabbageBlock,
 ) -> impl DoubleEndedIterator<Item = (BabbageTransaction, u64, u64)> {
     let BabbageBlock {
@@ -213,7 +212,7 @@ fn unpack_valid_transactions_babbage(
         })
 }
 
-fn unpack_valid_transactions_conway(
+pub(crate) fn unpack_valid_transactions_conway(
     block: Block,
 ) -> impl DoubleEndedIterator<Item = (Transaction, u64, u64)> {
     let Block {
@@ -260,9 +259,9 @@ where
         } => Box::pin(stream::once(async move {
             if !replayed {
                 if blk.header().slot() > handle_rollbacks_after {
-                    cache_block(cache, &blk, blk_bytes).await;
+                    cache_block(cache, &blk.header(), blk_bytes).await;
                 } else {
-                    cache_point(cache, &blk).await;
+                    cache_point(cache, &blk.header()).await;
                 }
             }
             LedgerBlockEvent::RollForward(blk)
