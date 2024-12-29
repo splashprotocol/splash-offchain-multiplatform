@@ -12,6 +12,8 @@ use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::sync::broadcast;
 
@@ -130,7 +132,8 @@ pub fn execution_part_stream<
     funding: Funding,
     network: Net,
     reporting: Rep,
-    mut tip_reached_signal: broadcast::Receiver<bool>,
+    is_synced: Arc<AtomicBool>,
+    rollback_in_progress: Arc<AtomicBool>,
 ) -> impl Stream<Item = ()> + 'a
 where
     Upstream: Stream<Item = (Pair, Event<CompOrd, SpecOrd, Pool, Bearer, Ver>)> + Unpin + 'a,
@@ -175,28 +178,23 @@ where
         upstream,
         funding,
         feedback_in,
+        is_synced,
+        rollback_in_progress,
     );
-    let wait_signal = async move {
-        let _ = tip_reached_signal.recv().await;
-    };
-    wait_signal
-        .map(move |_| {
-            executor.then(move |(tx, maybe_report)| {
-                let mut network = network.clone();
-                let mut reporting = reporting.clone();
-                let mut feedback = feedback_out.clone();
-                async move {
-                    let result = network.submit_tx(tx).await;
-                    if result.is_ok() {
-                        if let Some(report) = maybe_report {
-                            reporting.send_report(report).await;
-                        }
-                    }
-                    feedback.send(result).await.expect("Filed to propagate feedback.");
+    executor.then(move |(tx, maybe_report)| {
+        let mut network = network.clone();
+        let mut reporting = reporting.clone();
+        let mut feedback = feedback_out.clone();
+        async move {
+            let result = network.submit_tx(tx).await;
+            if result.is_ok() {
+                if let Some(report) = maybe_report {
+                    reporting.send_report(report).await;
                 }
-            })
-        })
-        .flatten_stream()
+            }
+            feedback.send(result).await.expect("Filed to propagate feedback.");
+        }
+    })
 }
 
 pub struct Executor<
@@ -244,6 +242,10 @@ pub struct Executor<
     focus_set: FocusSet<Pair>,
     /// Temporarily memoize entities that came from unconfirmed updates.
     skip_filter: CircularFilter<256, Ver>,
+    /// Agent is synced with the network.
+    is_synced: Arc<AtomicBool>,
+    /// Rollback is currently in progress.
+    rollback_in_progress: Arc<AtomicBool>,
     pd: PhantomData<(Id, Ver, TxCandidate, Tx, Meta, Err)>,
 }
 
@@ -264,6 +266,8 @@ where
         upstream: S,
         funding_events: FN,
         feedback: mpsc::Receiver<Result<(), E>>,
+        is_synced: Arc<AtomicBool>,
+        rollback_in_progress: Arc<AtomicBool>,
     ) -> Self {
         Self {
             index,
@@ -280,6 +284,8 @@ where
             pending_effects: None,
             focus_set: FocusSet::new(),
             skip_filter: CircularFilter::new(),
+            is_synced,
+            rollback_in_progress,
             pd: Default::default(),
         }
     }
@@ -812,92 +818,97 @@ where
                 continue;
             }
             // Finally attempt to matchmake.
-            while let Some(focus_pair) = self.focus_set.pop_front() {
-                // Try TLB:
-                if let Some((recipe, meta)) = self.multi_book.get_mut(&focus_pair).attempt() {
-                    match ExecutionRecipe::link(recipe, |id| {
-                        resolve_state(id, &self.index)
-                            .map(|Bundled(t, bearer)| (t.either(|b| b.version, |b| b.version), bearer))
-                    }) {
-                        Ok((linked_recipe, consumed_versions)) => {
-                            let report = ExecutionReportPartial::new(&linked_recipe, focus_pair, meta);
-                            let ctx = self.context.clone();
-                            if let Some(funding) = self.funding_pool.pop_first() {
-                                trace!("Consumed bearers: {}", display_set(&consumed_versions));
-                                let ExecutionResult {
-                                    txc,
-                                    matchmaking_effects,
-                                    funding_io,
-                                } = self.trade_interpreter.run(linked_recipe, funding, ctx);
-                                let tx = self.prover.prove(txc);
-                                let tx_hash = tx.canonical_hash();
-                                let execution_effects = ExecutionEffectsByPair {
-                                    pair: focus_pair,
-                                    consumed_versions,
-                                    pending_effects: ExecutionEffects::FromLiquidityBook(matchmaking_effects),
-                                };
-                                let (maybe_unused_funding, funding_effects) = funding_io.into_effects();
-                                if let Some(unused_funding) = maybe_unused_funding {
-                                    self.funding_pool.insert(unused_funding);
+            if self.is_synced.load(Ordering::Relaxed) && !self.rollback_in_progress.load(Ordering::SeqCst) {
+                while let Some(focus_pair) = self.focus_set.pop_front() {
+                    // Try TLB:
+                    if let Some((recipe, meta)) = self.multi_book.get_mut(&focus_pair).attempt() {
+                        match ExecutionRecipe::link(recipe, |id| {
+                            resolve_state(id, &self.index)
+                                .map(|Bundled(t, bearer)| (t.either(|b| b.version, |b| b.version), bearer))
+                        }) {
+                            Ok((linked_recipe, consumed_versions)) => {
+                                let report = ExecutionReportPartial::new(&linked_recipe, focus_pair, meta);
+                                let ctx = self.context.clone();
+                                if let Some(funding) = self.funding_pool.pop_first() {
+                                    trace!("Consumed bearers: {}", display_set(&consumed_versions));
+                                    let ExecutionResult {
+                                        txc,
+                                        matchmaking_effects,
+                                        funding_io,
+                                    } = self.trade_interpreter.run(linked_recipe, funding, ctx);
+                                    let tx = self.prover.prove(txc);
+                                    let tx_hash = tx.canonical_hash();
+                                    let execution_effects = ExecutionEffectsByPair {
+                                        pair: focus_pair,
+                                        consumed_versions,
+                                        pending_effects: ExecutionEffects::FromLiquidityBook(
+                                            matchmaking_effects,
+                                        ),
+                                    };
+                                    let (maybe_unused_funding, funding_effects) = funding_io.into_effects();
+                                    if let Some(unused_funding) = maybe_unused_funding {
+                                        self.funding_pool.insert(unused_funding);
+                                    }
+                                    let consumed_funding_bearers = funding_effects
+                                        .iter()
+                                        .filter_map(|eff| match eff {
+                                            FundingEvent::Consumed(br) => Some(br.select::<V>()),
+                                            _ => None,
+                                        })
+                                        .collect::<Vec<_>>();
+                                    self.pending_effects = Some(Effects {
+                                        tx_hash,
+                                        execution: execution_effects,
+                                        funding: funding_effects,
+                                    });
+                                    trace!(
+                                        "Consumed funding bearers: {}",
+                                        display_vec(&consumed_funding_bearers)
+                                    );
+                                    // Return pair to focus set to make sure corresponding TLB will be exhausted.
+                                    self.focus_set.push_back(focus_pair);
+                                    return Poll::Ready(Some((tx, Some(report.finalize(tx_hash)))));
+                                } else {
+                                    warn!("Cannot matchmake without funding box");
+                                    self.multi_book.get_mut(&focus_pair).on_recipe_failed();
                                 }
-                                let consumed_funding_bearers = funding_effects
-                                    .iter()
-                                    .filter_map(|eff| match eff {
-                                        FundingEvent::Consumed(br) => Some(br.select::<V>()),
-                                        _ => None,
-                                    })
-                                    .collect::<Vec<_>>();
-                                self.pending_effects = Some(Effects {
-                                    tx_hash,
-                                    execution: execution_effects,
-                                    funding: funding_effects,
-                                });
-                                trace!(
-                                    "Consumed funding bearers: {}",
-                                    display_vec(&consumed_funding_bearers)
-                                );
-                                // Return pair to focus set to make sure corresponding TLB will be exhausted.
-                                self.focus_set.push_back(focus_pair);
-                                return Poll::Ready(Some((tx, Some(report.finalize(tx_hash)))));
-                            } else {
-                                warn!("Cannot matchmake without funding box");
-                                self.multi_book.get_mut(&focus_pair).on_recipe_failed();
+                            }
+                            Err(invalid_fragments) => {
+                                self.on_linkage_failure(focus_pair, invalid_fragments);
                             }
                         }
-                        Err(invalid_fragments) => {
-                            self.on_linkage_failure(focus_pair, invalid_fragments);
-                        }
                     }
-                }
-                // Try Backlog:
-                if let Some(next_order) = self.multi_backlog.get_mut(&focus_pair).try_pop() {
-                    if let Some(Bundled(Either::Right(pool), pool_bearer)) =
-                        resolve_state(next_order.0.get_pool_ref(), &self.index)
-                    {
-                        let ctx = self.context.clone();
-                        if let Some((txc, updated_pool, consumed_ord)) =
-                            self.spec_interpreter
-                                .try_run(Bundled(pool.entity, pool_bearer), next_order, ctx)
+                    // Try Backlog:
+                    if let Some(next_order) = self.multi_backlog.get_mut(&focus_pair).try_pop() {
+                        if let Some(Bundled(Either::Right(pool), pool_bearer)) =
+                            resolve_state(next_order.0.get_pool_ref(), &self.index)
                         {
-                            let tx = self.prover.prove(txc);
-                            let tx_hash = tx.canonical_hash();
-                            let consumed_versions =
-                                HashSet::from_iter(vec![pool.version, consumed_ord.get_self_ref()]);
-                            self.pending_effects = Some(Effects {
-                                tx_hash,
-                                execution: ExecutionEffectsByPair {
-                                    pair: focus_pair,
-                                    consumed_versions,
-                                    pending_effects: ExecutionEffects::FromBacklog(
-                                        updated_pool,
-                                        consumed_ord,
-                                    ),
-                                },
-                                funding: vec![],
-                            });
-                            // Return pair to focus set to make sure corresponding TLB will be exhausted.
-                            self.focus_set.push_back(focus_pair);
-                            return Poll::Ready(Some((tx, None)));
+                            let ctx = self.context.clone();
+                            if let Some((txc, updated_pool, consumed_ord)) = self.spec_interpreter.try_run(
+                                Bundled(pool.entity, pool_bearer),
+                                next_order,
+                                ctx,
+                            ) {
+                                let tx = self.prover.prove(txc);
+                                let tx_hash = tx.canonical_hash();
+                                let consumed_versions =
+                                    HashSet::from_iter(vec![pool.version, consumed_ord.get_self_ref()]);
+                                self.pending_effects = Some(Effects {
+                                    tx_hash,
+                                    execution: ExecutionEffectsByPair {
+                                        pair: focus_pair,
+                                        consumed_versions,
+                                        pending_effects: ExecutionEffects::FromBacklog(
+                                            updated_pool,
+                                            consumed_ord,
+                                        ),
+                                    },
+                                    funding: vec![],
+                                });
+                                // Return pair to focus set to make sure corresponding TLB will be exhausted.
+                                self.focus_set.push_back(focus_pair);
+                                return Poll::Ready(Some((tx, None)));
+                            }
                         }
                     }
                 }

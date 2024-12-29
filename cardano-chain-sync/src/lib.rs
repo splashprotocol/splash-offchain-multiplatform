@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_stream::stream;
@@ -18,7 +20,7 @@ pub mod event_source;
 
 pub fn chain_sync_stream<'a, Block>(
     mut chain_sync: ChainSyncClient<Block>,
-    tip_reached_signal: broadcast::Sender<bool>,
+    is_synced: Arc<AtomicBool>,
 ) -> impl Stream<Item = ChainUpgrade<Block>> + 'a
 where
     Block: Deserialize + 'a,
@@ -35,7 +37,7 @@ where
             } else {
                 trace!(target: "chain_sync", "Tip reached, waiting for new blocks ..");
                 *delay_mux.lock().await = Some(Delay::new(Duration::from_secs(THROTTLE_SECS)));
-                let _ = tip_reached_signal.send(true);
+                is_synced.store(true, Ordering::Relaxed);
             }
         }
     }

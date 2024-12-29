@@ -288,7 +288,7 @@ where
 {
     stream! {
         loop {
-            rollback_in_progress.swap(true, Ordering::Relaxed);
+            rollback_in_progress.store(true, Ordering::SeqCst);
             let cache = cache.lock().await;
             if let Some(tip) = cache.get_tip().await {
                 let rollback_finished = tip == to_point;
@@ -303,7 +303,7 @@ where
                 }
             }
             info!("Rolled back to point {:?}", to_point);
-            rollback_in_progress.swap(false, Ordering::Relaxed);
+            rollback_in_progress.store(false, Ordering::SeqCst);
             break;
         }
     }

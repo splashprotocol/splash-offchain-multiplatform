@@ -99,6 +99,8 @@ async fn main() {
 
     info!("Starting Off-Chain Agent ..");
 
+    // Global flags.
+    let state_synced = Arc::new(AtomicBool::new(false));
     let rollback_in_progress = Arc::new(AtomicBool::new(false));
 
     let explorer = Maestro::new(config.maestro_key_path, config.network_id.into())
@@ -316,8 +318,6 @@ async fn main() {
     );
     let state_index = InMemoryStateIndex::with_tracing();
 
-    let (signal_tip_reached_snd, signal_tip_reached_recv) = broadcast::channel(1);
-
     let execution_stream_p1 = execution_part_stream(
         state_index.clone(),
         multi_book.clone(),
@@ -336,7 +336,8 @@ async fn main() {
         funding_upd_recv_p1,
         tx_submission_channel.clone(),
         reporting_channel.clone(),
-        signal_tip_reached_snd.subscribe(),
+        state_synced.clone(),
+        rollback_in_progress.clone(),
     );
     let execution_stream_p2 = execution_part_stream(
         state_index.clone(),
@@ -356,7 +357,8 @@ async fn main() {
         funding_upd_recv_p2,
         tx_submission_channel.clone(),
         reporting_channel.clone(),
-        signal_tip_reached_snd.subscribe(),
+        state_synced.clone(),
+        rollback_in_progress.clone(),
     );
     let execution_stream_p3 = execution_part_stream(
         state_index.clone(),
@@ -376,7 +378,8 @@ async fn main() {
         funding_upd_recv_p3,
         tx_submission_channel.clone(),
         reporting_channel.clone(),
-        signal_tip_reached_snd.subscribe(),
+        state_synced.clone(),
+        rollback_in_progress.clone(),
     );
     let execution_stream_p4 = execution_part_stream(
         state_index,
@@ -396,12 +399,13 @@ async fn main() {
         funding_upd_recv_p4,
         tx_submission_channel,
         reporting_channel,
-        signal_tip_reached_snd.subscribe(),
+        state_synced.clone(),
+        rollback_in_progress.clone(),
     );
 
     let ledger_stream = Box::pin(ledger_transactions(
         chain_sync_cache,
-        chain_sync_stream(chain_sync, signal_tip_reached_snd),
+        chain_sync_stream(chain_sync, state_synced.clone()),
         config.chain_sync.disable_rollbacks_until,
         config.chain_sync.replay_from_point,
         rollback_in_progress,
@@ -428,13 +432,8 @@ async fn main() {
         },
     });
 
-    let mempool_stream = mempool_stream(
-        mempool_sync,
-        tx_tracker_channel,
-        failed_txs_recv,
-        signal_tip_reached_recv,
-    )
-    .map(|ev| ev.map(TxViewMut::from));
+    let mempool_stream = mempool_stream(mempool_sync, tx_tracker_channel, failed_txs_recv, state_synced)
+        .map(|ev| ev.map(TxViewMut::from));
 
     let process_ledger_events_stream = process_events(ledger_stream, handlers_ledger);
     let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool);
