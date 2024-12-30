@@ -2,6 +2,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::client::ChainSyncClient;
+use crate::data::ChainUpgrade;
+use async_primitives::beacon::Beacon;
 use async_stream::stream;
 use cml_core::serialization::Deserialize;
 use futures::lock::Mutex;
@@ -9,9 +12,6 @@ use futures::Stream;
 use futures_timer::Delay;
 use log::trace;
 use tokio::sync::broadcast;
-use async_primitives::beacon::Beacon;
-use crate::client::ChainSyncClient;
-use crate::data::ChainUpgrade;
 
 pub mod cache;
 pub mod client;

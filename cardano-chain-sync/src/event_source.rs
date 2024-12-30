@@ -3,6 +3,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use async_primitives::beacon::Beacon;
 use async_stream::stream;
 use cml_chain::block::Block;
 use cml_chain::transaction::Transaction;
@@ -14,9 +15,8 @@ use either::Either;
 use futures::stream::StreamExt;
 use futures::{stream, Stream};
 use log::{info, warn};
-use tokio::sync::Mutex;
-use async_primitives::beacon::Beacon;
 use spectrum_cardano_lib::hash::hash_block_header_canonical_multi_era;
+use tokio::sync::Mutex;
 
 use crate::cache::{LedgerCache, LinkedBlock};
 use crate::client::Point;

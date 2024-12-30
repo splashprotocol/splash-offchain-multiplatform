@@ -1,12 +1,12 @@
 use crate::client::LocalTxMonitorClient;
 use crate::data::MempoolUpdate;
+use async_primitives::beacon::Beacon;
 use cml_core::serialization::Deserialize;
 use futures::stream::select;
 use futures::Stream;
 use futures::{FutureExt, StreamExt};
 use spectrum_offchain::tx_hash::CanonicalHash;
 use spectrum_offchain_cardano::tx_tracker::TxTracker;
-use async_primitives::beacon::Beacon;
 
 pub mod client;
 pub mod data;
@@ -33,7 +33,8 @@ where
         })
         .map(MempoolUpdate::TxAccepted);
     let failed_txs = failed_txs.map(MempoolUpdate::TxDropped);
-    state_synced.once(true)
+    state_synced
+        .once(true)
         .map(move |_| select(accepted_txs, failed_txs))
         .flatten_stream()
 }

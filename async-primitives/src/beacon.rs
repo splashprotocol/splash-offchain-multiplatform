@@ -1,4 +1,4 @@
-use futures::task::AtomicWaker;
+use atomic_waker::AtomicWaker;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -46,6 +46,7 @@ impl Beacon {
     pub fn alter(&self, value: bool) {
         self.0.flag.store(value, self.0.memory_ordering());
         self.0.waker.wake();
+        println!("Altered to {}", value);
     }
 
     pub fn read(&self) -> bool {
@@ -84,5 +85,25 @@ impl Future for Once {
         } else {
             Poll::Pending
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::beacon::Beacon;
+    use futures::future::join;
+    use std::time::Duration;
+    use tokio::time::{sleep, timeout};
+
+    #[tokio::test]
+    async fn notify_multiple_futures_once_switched() {
+        let beacon = Beacon::relaxed(false);
+        let h1 = tokio::spawn(beacon.once(true));
+        let h2 = tokio::spawn(beacon.once(true));
+        let _ = tokio::spawn(async move {
+            sleep(Duration::from_millis(100)).await;
+            beacon.alter(true);
+        });
+        timeout(Duration::from_millis(200), join(h1, h2)).await.unwrap();
     }
 }
