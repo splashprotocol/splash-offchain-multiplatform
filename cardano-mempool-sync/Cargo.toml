@@ -7,6 +7,7 @@ rust-version = "1.80.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+async-primitives = { version = "0.1.0", path = "../async-primitives" }
 async-trait = "0.1.72"
 async-stream = "0.3.3"
 base16 = "0.2"

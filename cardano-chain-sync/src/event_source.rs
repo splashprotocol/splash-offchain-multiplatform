@@ -15,7 +15,7 @@ use futures::stream::StreamExt;
 use futures::{stream, Stream};
 use log::{info, warn};
 use tokio::sync::Mutex;
-
+use async_primitives::beacon::Beacon;
 use spectrum_cardano_lib::hash::hash_block_header_canonical_multi_era;
 
 use crate::cache::{LedgerCache, LinkedBlock};
@@ -30,7 +30,7 @@ pub async fn ledger_transactions<'a, S, Cache>(
     handle_rollbacks_after: Slot,
     // Reapply known blocks before pulling new ones.
     replay_from: Option<Point>,
-    rollback_in_progress: Arc<AtomicBool>,
+    rollback_in_progress: Beacon,
 ) -> impl Stream<Item = LedgerTxEvent<Either<BabbageTransaction, Transaction>>> + Send + 'a
 where
     S: Stream<Item = ChainUpgrade<MultiEraBlock>> + Send + 'a,
@@ -73,7 +73,7 @@ pub fn ledger_blocks<'a, S, Cache>(
     upstream: S,
     // Rollbacks will not be handled until the specified slot is reached.
     handle_rollbacks_after: Slot,
-    rollback_in_progress: Arc<AtomicBool>,
+    rollback_in_progress: Beacon,
 ) -> impl Stream<Item = LedgerBlockEvent<MultiEraBlock>> + 'a
 where
     S: Stream<Item = ChainUpgrade<MultiEraBlock>> + 'a,
@@ -93,7 +93,7 @@ async fn process_upstream_by_txs<'a, Cache>(
     cache: Arc<Mutex<Cache>>,
     upgr: ChainUpgrade<MultiEraBlock>,
     handle_rollbacks_after: Slot,
-    rollback_in_progress: Arc<AtomicBool>,
+    rollback_in_progress: Beacon,
 ) -> Pin<Box<dyn Stream<Item = LedgerTxEvent<Either<BabbageTransaction, Transaction>>> + Send + 'a>>
 where
     Cache: LedgerCache + Send + 'a,
@@ -247,7 +247,7 @@ fn process_upstream_by_blocks<'a, Cache>(
     cache: Arc<Mutex<Cache>>,
     upgr: ChainUpgrade<MultiEraBlock>,
     handle_rollbacks_after: Slot,
-    rollback_in_progress: Arc<AtomicBool>,
+    rollback_in_progress: Beacon,
 ) -> Pin<Box<dyn Stream<Item = LedgerBlockEvent<MultiEraBlock>> + 'a>>
 where
     Cache: LedgerCache + 'a,
@@ -281,14 +281,14 @@ where
 fn rollback<Cache>(
     cache: Arc<Mutex<Cache>>,
     to_point: Point,
-    rollback_in_progress: Arc<AtomicBool>,
+    rollback_in_progress: Beacon,
 ) -> impl Stream<Item = MultiEraBlock>
 where
     Cache: LedgerCache,
 {
     stream! {
         loop {
-            rollback_in_progress.store(true, Ordering::SeqCst);
+            rollback_in_progress.alter(true);
             let cache = cache.lock().await;
             if let Some(tip) = cache.get_tip().await {
                 let rollback_finished = tip == to_point;
@@ -303,7 +303,7 @@ where
                 }
             }
             info!("Rolled back to point {:?}", to_point);
-            rollback_in_progress.store(false, Ordering::SeqCst);
+            rollback_in_progress.alter(false);
             break;
         }
     }

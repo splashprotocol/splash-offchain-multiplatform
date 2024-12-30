@@ -4,11 +4,9 @@ use cml_core::serialization::Deserialize;
 use futures::stream::select;
 use futures::Stream;
 use futures::{FutureExt, StreamExt};
-use spectrum_offchain::once::once;
 use spectrum_offchain::tx_hash::CanonicalHash;
 use spectrum_offchain_cardano::tx_tracker::TxTracker;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
+use async_primitives::beacon::Beacon;
 
 pub mod client;
 pub mod data;
@@ -17,7 +15,7 @@ pub fn mempool_stream<'a, Tx, Tracker, StFailedTxs>(
     client: LocalTxMonitorClient<Tx>,
     tx_tracker: Tracker,
     failed_txs: StFailedTxs,
-    state_synced: Arc<AtomicBool>,
+    state_synced: Beacon,
 ) -> impl Stream<Item = MempoolUpdate<Tx>> + Send + 'a
 where
     Tx: CanonicalHash + Clone + Deserialize + Send + Sync + 'a,
@@ -35,7 +33,7 @@ where
         })
         .map(MempoolUpdate::TxAccepted);
     let failed_txs = failed_txs.map(MempoolUpdate::TxDropped);
-    once(state_synced)
+    state_synced.once(true)
         .map(move |_| select(accepted_txs, failed_txs))
         .flatten_stream()
 }

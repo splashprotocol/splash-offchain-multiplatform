@@ -48,6 +48,7 @@ use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::{constants, OutputRef, Token};
 use spectrum_offchain::backlog::{BacklogCapacity, HotPriorityBacklog};
+use async_primitives::beacon::Beacon;
 use spectrum_offchain::clock::SystemClock;
 use spectrum_offchain::domain::event::{Channel, Transition};
 use spectrum_offchain::domain::order::OrderUpdate;
@@ -99,9 +100,8 @@ async fn main() {
 
     info!("Starting Off-Chain Agent ..");
 
-    // Global flags.
-    let state_synced = Arc::new(AtomicBool::new(false));
-    let rollback_in_progress = Arc::new(AtomicBool::new(false));
+    let state_synced = Beacon::relaxed(false);
+    let rollback_in_progress = Beacon::strong(false);
 
     let explorer = Maestro::new(config.maestro_key_path, config.network_id.into())
         .await

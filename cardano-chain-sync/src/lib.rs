@@ -9,7 +9,7 @@ use futures::Stream;
 use futures_timer::Delay;
 use log::trace;
 use tokio::sync::broadcast;
-
+use async_primitives::beacon::Beacon;
 use crate::client::ChainSyncClient;
 use crate::data::ChainUpgrade;
 
@@ -20,7 +20,7 @@ pub mod event_source;
 
 pub fn chain_sync_stream<'a, Block>(
     mut chain_sync: ChainSyncClient<Block>,
-    is_synced: Arc<AtomicBool>,
+    state_synced: Beacon,
 ) -> impl Stream<Item = ChainUpgrade<Block>> + 'a
 where
     Block: Deserialize + 'a,
@@ -37,7 +37,7 @@ where
             } else {
                 trace!(target: "chain_sync", "Tip reached, waiting for new blocks ..");
                 *delay_mux.lock().await = Some(Delay::new(Duration::from_secs(THROTTLE_SECS)));
-                is_synced.store(true, Ordering::Relaxed);
+                state_synced.alter(true);
             }
         }
     }

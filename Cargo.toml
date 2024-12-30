@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
+    "algebra-core",
+    "async-primitives",
     "cardano-chain-sync",
     "cardano-mempool-sync",
     "cardano-submit-api",
@@ -15,7 +17,6 @@ members = [
     "snek-auth",
     "bloom-derivation",
     "cardano-offchain-stableswap",
-    "algebra-core",
     "splash-dao-administration",
     "splash-dao-agent",
     "splash-dao-offchain",

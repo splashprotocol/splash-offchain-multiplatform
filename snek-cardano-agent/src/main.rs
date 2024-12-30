@@ -11,7 +11,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
 use tracing_subscriber::fmt::Subscriber;
-
+use async_primitives::beacon::Beacon;
 use crate::config::AppConfig;
 use crate::context::{ExecutionContext, MakerContext};
 use crate::entity::{AtomicCardanoEntity, EvolvingCardanoEntity};
@@ -100,9 +100,8 @@ async fn main() {
 
     info!("Starting Snek Agent ..");
 
-    // Global flags.
-    let state_synced = Arc::new(AtomicBool::new(false));
-    let rollback_in_progress = Arc::new(AtomicBool::new(false));
+    let state_synced = Beacon::relaxed(false);
+    let rollback_in_progress = Beacon::strong(false);
 
     let explorer = Maestro::new(config.maestro_key_path, config.network_id.into())
         .await
