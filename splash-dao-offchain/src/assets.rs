@@ -9,7 +9,7 @@ pub struct Splash;
 
 lazy_static! {
     pub static ref SPLASH_AC: AssetClass = AssetClass::Token(Token(
-        PolicyId::from_hex("42d0f5972b7a2e334e7c8dacb6f4da8d15bbcce5e4152e8a935c9188").unwrap(),
+        PolicyId::from_hex("a272923aa1c92e6a458ee285e8ce0cc176f93aaef91565ebeb71707e").unwrap(),
         AssetName::utf8_unsafe("SPLASH".to_string())
     ));
 }

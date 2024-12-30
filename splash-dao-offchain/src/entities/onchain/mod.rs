@@ -2,6 +2,7 @@ use cml_chain::transaction::TransactionOutput;
 use cml_multi_era::babbage::BabbageTransactionOutput;
 use funding_box::{FundingBox, FundingBoxSnapshot};
 use inflation_box::{InflationBox, InflationBoxSnapshot};
+use make_voting_escrow_order::MakeVotingEscrowOrder;
 use permission_manager::{PermManager, PermManagerSnapshot};
 use poll_factory::{PollFactory, PollFactorySnapshot};
 use smart_farm::{SmartFarm, SmartFarmSnapshot};
@@ -26,6 +27,7 @@ use super::Snapshot;
 pub mod farm_factory;
 pub mod funding_box;
 pub mod inflation_box;
+pub mod make_voting_escrow_order;
 pub mod permission_manager;
 pub mod poll_factory;
 pub mod smart_farm;
@@ -42,6 +44,7 @@ pub enum DaoEntity {
     VotingEscrow(VotingEscrow),
     WeightingPoll(WeightingPoll),
     FundingBox(FundingBox),
+    MakeVotingEscrowOrder(MakeVotingEscrowOrder),
 }
 
 pub type DaoEntitySnapshot = Snapshot<DaoEntity, TimedOutputRef>;

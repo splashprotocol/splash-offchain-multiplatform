@@ -65,10 +65,6 @@ pub type VotingEscrowSnapshot = Snapshot<VotingEscrow, TimedOutputRef>;
 /// Each voting_escrow is identified by the name of its identifier NFT.
 pub struct VotingEscrowId(pub AssetName);
 
-impl Identifier for VotingEscrowId {
-    type For = VotingEscrowSnapshot;
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct VotingEscrow {
     pub gov_token_amount: u64,
@@ -140,7 +136,7 @@ where
 
             match &owner {
                 Owner::PubKey(key_bytes) => {
-                    if cml_crypto::PublicKey::from_raw_bytes(&key_bytes).is_err() {
+                    if cml_crypto::PublicKey::from_raw_bytes(key_bytes).is_err() {
                         error!("Voting_escrow doesn't contain a valid owner public key!");
                         return None;
                     }
@@ -190,6 +186,8 @@ where
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, derive_more::Display, Debug, Hash)]
+#[display("VotingEscrowConfig owner: {}", owner)]
 pub struct VotingEscrowConfig {
     pub locked_until: Lock,
     pub owner: Owner,
@@ -242,7 +240,7 @@ impl TryFromPData for VotingEscrowConfig {
     }
 }
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum Lock {
     Def(NetworkTime),
     Indef(Duration),
@@ -279,16 +277,29 @@ impl TryFromPData for Lock {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Copy, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub enum Owner {
-    PubKey(Vec<u8>),
+    PubKey([u8; 32]),
     Script(ScriptHash),
+}
+
+impl std::fmt::Display for Owner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Owner::PubKey(bytes) => {
+                write!(f, "Owner::PubKey({})", hex::encode(bytes))
+            }
+            Owner::Script(script_hash) => {
+                write!(f, "Owner::Script({})", script_hash)
+            }
+        }
+    }
 }
 
 impl IntoPlutusData for Owner {
     fn into_pd(self) -> PlutusData {
         PlutusData::new_constr_plutus_data(match self {
-            Owner::PubKey(vec) => ConstrPlutusData::new(0, vec![PlutusData::new_bytes(vec)]),
+            Owner::PubKey(vec) => ConstrPlutusData::new(0, vec![PlutusData::new_bytes(vec.to_vec())]),
             Owner::Script(script_hash) => {
                 let bytes = script_hash.to_raw_bytes().to_vec();
                 ConstrPlutusData::new(1, vec![PlutusData::new_bytes(bytes)])
@@ -302,8 +313,9 @@ impl TryFromPData for Owner {
         let mut cpd = data.into_constr_pd()?;
         if cpd.alternative == 0 {
             let pd = cpd.take_field(0)?;
-            let bytes = pd.clone().into_bytes()?;
-            return Some(Owner::PubKey(bytes));
+            if let Ok(bytes) = pd.clone().into_bytes()?.try_into() {
+                return Some(Owner::PubKey(bytes));
+            }
         } else if cpd.alternative == 1 {
             let pd = cpd.take_field(0)?;
             if let Ok(script_hash) = ScriptHash::from_raw_bytes(&pd.clone().into_bytes()?) {

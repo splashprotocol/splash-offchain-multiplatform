@@ -1,4 +1,5 @@
 use std::{
+    i64,
     marker::PhantomData,
     sync::{atomic::AtomicBool, Arc, Once},
     time::UNIX_EPOCH,
@@ -57,7 +58,9 @@ use spectrum_offchain_cardano::{
 use splash_dao_offchain::{
     collateral::pull_collateral,
     deployment::{CompleteDeployment, DeploymentProgress, ProtocolDeployment},
-    entities::offchain::voting_order::VotingOrder,
+    entities::{
+        offchain::voting_order::VotingOrder, onchain::make_voting_escrow_order::MakeVotingEscrowOrder,
+    },
     funding::FundingRepoRocksDB,
     handler::DaoHandler,
     protocol_config::ProtocolConfig,
@@ -220,6 +223,7 @@ async fn main() {
         StateProjectionRocksDB::new(config.smart_farm_persistence_config),
         StateProjectionRocksDB::new(config.perm_manager_persistence_config),
         FundingRepoRocksDB::new(config.funding_box_config.db_path),
+        setup_make_ve_order_backlog(config.make_voting_escrow_owner_config).await,
         setup_order_backlog(config.order_backlog_config).await,
         KVStoreRocksDB::new(config.predicted_txs_backlog_config.db_path),
         NetworkTimeSource {},
@@ -313,6 +317,19 @@ async fn setup_order_backlog(
     };
 
     PersistentPriorityBacklog::new::<VotingOrder>(store, backlog_config).await
+}
+
+async fn setup_make_ve_order_backlog(
+    store_conf: RocksConfig,
+) -> PersistentPriorityBacklog<MakeVotingEscrowOrder, BacklogStoreRocksDB> {
+    let store = BacklogStoreRocksDB::new(store_conf);
+    let backlog_config = BacklogConfig {
+        order_lifespan: Duration::try_hours(72).unwrap(),
+        order_exec_time: Duration::try_hours(72).unwrap(),
+        retry_suspended_prob: BoundedU8::new(60).unwrap(),
+    };
+
+    PersistentPriorityBacklog::new::<MakeVotingEscrowOrder>(store, backlog_config).await
 }
 
 #[derive(Parser)]

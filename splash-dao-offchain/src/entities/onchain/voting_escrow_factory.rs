@@ -18,7 +18,7 @@ use spectrum_cardano_lib::{
     AssetClass, AssetName, OutputRef, Token,
 };
 use spectrum_offchain::{
-    domain::{Has, Identifier, Stable},
+    domain::{Has, Stable},
     ledger::TryFromLedger,
 };
 use spectrum_offchain_cardano::{
@@ -40,10 +40,6 @@ pub type VEFactorySnapshot = Snapshot<VEFactory, OutputRef>;
     Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize, Debug, derive_more::Display,
 )]
 pub struct VEFactoryId;
-
-impl Identifier for VEFactoryId {
-    type For = VEFactorySnapshot;
-}
 
 impl Stable for VEFactory {
     type StableId = VEFactoryId;

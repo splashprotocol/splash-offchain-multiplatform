@@ -36,6 +36,7 @@ pub struct AppConfig<'a> {
     pub smart_farm_persistence_config: RocksConfig,
     pub perm_manager_persistence_config: RocksConfig,
     pub funding_box_config: RocksConfig,
+    pub make_voting_escrow_owner_config: RocksConfig,
     pub genesis_start_time: u64,
     pub voting_order_listener_endpoint: SocketAddr,
 }

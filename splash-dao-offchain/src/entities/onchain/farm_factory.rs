@@ -15,7 +15,7 @@ use spectrum_cardano_lib::{
     OutputRef,
 };
 use spectrum_offchain::{
-    domain::{Has, Identifier, Stable},
+    domain::{Has, Stable},
     ledger::TryFromLedger,
 };
 use spectrum_offchain_cardano::{
@@ -37,10 +37,6 @@ pub type FarmFactorySnapshot = Snapshot<FarmFactory, OutputRef>;
     Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize, Debug, derive_more::Display,
 )]
 pub struct FarmFactoryId;
-
-impl Identifier for FarmFactoryId {
-    type For = FarmFactorySnapshot;
-}
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct FarmFactory {

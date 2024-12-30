@@ -22,7 +22,7 @@ cardano-submit-api = { version = "0.1.0", path = "../cardano-submit-api" }
 hex = "0.4.3"
 minicbor = { version = "0.20", features = ["std", "half", "derive"] }
 spectrum-cardano-lib = { version = "0.1.0", path = "../spectrum-cardano-lib" }
-spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain" }
+spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain", features = ["cml-chain"] }
 spectrum-offchain-cardano = { version = "1.0.0", path = "../spectrum-offchain-cardano" }
 splash-dao-offchain = { version = "1.0.0", path = "../splash-dao-offchain" }
 futures = "0.3.25"

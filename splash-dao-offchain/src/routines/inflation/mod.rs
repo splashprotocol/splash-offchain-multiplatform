@@ -49,6 +49,7 @@ use crate::deployment::ProtocolValidator;
 use crate::entities::offchain::voting_order::{VotingOrder, VotingOrderId};
 use crate::entities::onchain::funding_box::{FundingBox, FundingBoxId, FundingBoxSnapshot};
 use crate::entities::onchain::inflation_box::{InflationBoxId, InflationBoxSnapshot};
+use crate::entities::onchain::make_voting_escrow_order::MakeVotingEscrowOrder;
 use crate::entities::onchain::permission_manager::{PermManager, PermManagerId, PermManagerSnapshot};
 use crate::entities::onchain::poll_factory::{PollFactory, PollFactoryId, PollFactorySnapshot};
 use crate::entities::onchain::smart_farm::{FarmId, SmartFarm, SmartFarmSnapshot};
@@ -72,7 +73,7 @@ use crate::{CurrentEpoch, GenesisEpochStartTime, NetworkTimeSource};
 
 pub mod actions;
 
-pub struct Behaviour<IB, PF, WP, VE, SF, PM, FB, OrderBacklog, PTX, Time, Actions, Bearer, Net> {
+pub struct Behaviour<IB, PF, WP, VE, SF, PM, FB, MVE, OrderBacklog, PTX, Time, Actions, Bearer, Net> {
     inflation_box: IB,
     poll_factory: PF,
     weighting_poll: WP,
@@ -80,6 +81,7 @@ pub struct Behaviour<IB, PF, WP, VE, SF, PM, FB, OrderBacklog, PTX, Time, Action
     smart_farm: SF,
     perm_manager: PM,
     funding_box: FB,
+    make_voting_escrow_order: MVE,
     voting_order_backlog: OrderBacklog,
     predicted_tx_backlog: PTX,
     ntp: Time,
@@ -99,8 +101,8 @@ pub struct Behaviour<IB, PF, WP, VE, SF, PM, FB, OrderBacklog, PTX, Time, Action
 const DEF_DELAY: Duration = Duration::new(5, 0);
 
 #[async_trait::async_trait]
-impl<IB, PF, WP, VE, SF, PM, FB, OrderBacklog, PTX, Time, Actions, Bearer, Net> RoutineBehaviour
-    for Behaviour<IB, PF, WP, VE, SF, PM, FB, OrderBacklog, PTX, Time, Actions, Bearer, Net>
+impl<IB, PF, WP, VE, SF, PM, FB, MVE, OrderBacklog, PTX, Time, Actions, Bearer, Net> RoutineBehaviour
+    for Behaviour<IB, PF, WP, VE, SF, PM, FB, MVE, OrderBacklog, PTX, Time, Actions, Bearer, Net>
 where
     IB: StateProjectionRead<InflationBoxSnapshot, Bearer>
         + StateProjectionWrite<InflationBoxSnapshot, Bearer>
@@ -129,6 +131,7 @@ where
         + Send
         + Sync,
     FB: FundingRepo + Send + Sync,
+    MVE: ResilientBacklog<MakeVotingEscrowOrder> + Send + Sync,
     Time: NetworkTimeProvider + Send + Sync,
     Actions: InflationActions<Bearer> + Send + Sync,
     Bearer: Send + Sync + std::fmt::Debug + Clone,
@@ -165,6 +168,11 @@ where
                         self.try_create_wpoll(state).await
                     }
                     EpochRoutineState::WeightingInProgress(state) => {
+                        // Try to eliminate previous wpoll
+                        //if let Some(delay) = self.try_eliminate_poll(prev_state).await {
+                        //    return Some(delay);
+                        //}
+
                         trace!("Try apply votes for current epoch");
                         self.try_apply_votes(state).await
                     }
@@ -208,8 +216,8 @@ where
     }
 }
 
-impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
-    Behaviour<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
+impl<IB, PF, WP, VE, SF, PM, FB, MVE, Backlog, PTX, Time, Actions, Bearer, Net>
+    Behaviour<IB, PF, WP, VE, SF, PM, FB, MVE, Backlog, PTX, Time, Actions, Bearer, Net>
 {
     pub fn new(
         inflation_box: IB,
@@ -219,6 +227,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
         smart_farm: SF,
         perm_manager: PM,
         funding_box: FB,
+        make_voting_escrow_order: MVE,
         backlog: Backlog,
         predicted_tx_backlog: PTX,
         ntp: Time,
@@ -242,6 +251,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
             smart_farm,
             perm_manager,
             funding_box,
+            make_voting_escrow_order,
             voting_order_backlog: backlog,
             predicted_tx_backlog,
             ntp,
@@ -482,6 +492,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
             + StateProjectionWrite<VotingEscrowSnapshot, Bearer>
             + Send
             + Sync,
+        MVE: ResilientBacklog<MakeVotingEscrowOrder> + Send + Sync,
         Backlog: ResilientBacklog<VotingOrder> + Send + Sync,
         SF: StateProjectionRead<SmartFarmSnapshot, Bearer>
             + StateProjectionWrite<SmartFarmSnapshot, Bearer>
@@ -590,6 +601,20 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
             DaoEntity::FundingBox(fb) => {
                 self.funding_box.put_confirmed(Confirmed(fb.clone())).await;
             }
+            DaoEntity::MakeVotingEscrowOrder(make_voting_escrow_order) => {
+                trace!(
+                    "make_voting_escrow_order confirmed: owner {}, version: {:?}",
+                    make_voting_escrow_order.ve_datum.owner,
+                    entity.version(),
+                );
+                let time_src = NetworkTimeSource {};
+                let timestamp = time_src.network_time().await as i64;
+                let ord = PendingOrder {
+                    order: make_voting_escrow_order.clone(),
+                    timestamp,
+                };
+                self.make_voting_escrow_order.put(ord).await;
+            }
         }
     }
 
@@ -626,7 +651,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
                     .await;
                 let prover = OperatorProver::new(self.conf.operator_sk.clone());
                 let outbound_tx = prover.prove(signed_tx);
-                let tx = Transaction::from(outbound_tx.clone());
+                let tx = outbound_tx.clone();
                 let tx_hash = tx.body.hash();
                 info!("`create_wpoll`: submitting TX (hash: {})", tx_hash);
                 match self.network.submit_tx(outbound_tx).await {
@@ -898,7 +923,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
                     .await;
                 let prover = OperatorProver::new(self.conf.operator_sk.clone());
                 let outbound_tx = prover.prove(signed_tx);
-                let tx = Transaction::from(outbound_tx.clone());
+                let tx = outbound_tx.clone();
                 let tx_hash = tx.body.hash();
                 match self.network.submit_tx(outbound_tx).await {
                     Ok(()) => {
@@ -949,8 +974,8 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
     }
 }
 
-impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Net>
-    Behaviour<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, TransactionOutput, Net>
+impl<IB, PF, WP, VE, SF, PM, FB, MVE, Backlog, PTX, Time, Actions, Net>
+    Behaviour<IB, PF, WP, VE, SF, PM, FB, MVE, Backlog, PTX, Time, Actions, TransactionOutput, Net>
 where
     IB: StateProjectionRead<InflationBoxSnapshot, TransactionOutput>
         + StateProjectionWrite<InflationBoxSnapshot, TransactionOutput>
@@ -979,6 +1004,7 @@ where
         + Send
         + Sync,
     FB: FundingRepo + Send + Sync,
+    MVE: ResilientBacklog<MakeVotingEscrowOrder> + Send + Sync,
     Time: NetworkTimeProvider + Send + Sync,
     Actions: InflationActions<TransactionOutput> + Send + Sync,
     Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
@@ -1117,6 +1143,8 @@ where
                         self.smart_farm.remove(id).await;
                     } else if let Some(id) = self.perm_manager.get_id(ver).await {
                         self.perm_manager.remove(id).await;
+                    } else if self.make_voting_escrow_order.exists(ver).await {
+                        self.make_voting_escrow_order.remove(ver).await;
                     } else {
                         self.funding_box
                             .spend_confirmed(FundingBoxId::from(ver.output_ref))
@@ -1380,8 +1408,8 @@ where
     }
 }
 
-impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Net, H> Has<H>
-    for Behaviour<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, TransactionOutput, Net>
+impl<IB, PF, WP, VE, SF, PM, FB, MVE, Backlog, PTX, Time, Actions, Net, H> Has<H>
+    for Behaviour<IB, PF, WP, VE, SF, PM, FB, MVE, Backlog, PTX, Time, Actions, TransactionOutput, Net>
 where
     ProtocolConfig: Has<H>,
 {

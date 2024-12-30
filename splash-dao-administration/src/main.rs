@@ -416,6 +416,12 @@ async fn deploy<'a>(op_inputs: &mut OperationInputs, config: AppConfig<'a>) -> C
                 cost: EX_UNITS,
                 marginal_cost: None,
             },
+            make_ve_order: DeployedValidatorRef {
+                hash: reference_input_script_hashes.make_ve_order,
+                reference_utxo: make_ref_utxo(2, 3),
+                cost: EX_UNITS,
+                marginal_cost: None,
+            },
         };
 
         deployment_progress.deployed_validators = Some(d);
@@ -941,10 +947,11 @@ async fn make_voting_escrow(
 
     let time_source = NetworkTimeSource;
     const ONE_MONTH_IN_SECONDS: u64 = 604800 * 4;
+    let owner_bytes = owner_pub_key.to_raw_bytes().try_into().unwrap();
     let voting_escrow_datum = DatumOption::new_datum(
         VotingEscrowConfig {
             locked_until: Lock::Def((time_source.network_time().await + lock_duration_in_seconds) * 1000),
-            owner: Owner::PubKey(owner_pub_key.to_raw_bytes().to_vec()),
+            owner: Owner::PubKey(owner_bytes),
             max_ex_fee: *max_ex_fee as u32,
             version: 0,
             last_wp_epoch: -1,
