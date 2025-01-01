@@ -121,7 +121,7 @@ mod tests {
     use cml_core::serialization::Deserialize;
     use cml_crypto::{Ed25519KeyHash, TransactionHash};
     use spectrum_cardano_lib::{OutputRef, Token};
-    use spectrum_offchain::data::small_set::SmallVec;
+    use spectrum_offchain::data::small_vec::SmallVec;
     use spectrum_offchain::domain::Has;
     use spectrum_offchain::ledger::TryFromLedger;
     use type_equalities::IsEqual;

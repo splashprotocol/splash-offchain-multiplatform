@@ -20,7 +20,7 @@ use log::trace;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::data::ior::Ior;
-use spectrum_offchain::data::small_set::SmallVec;
+use spectrum_offchain::data::small_vec::SmallVec;
 use spectrum_offchain::domain::event::{Channel, Transition};
 use spectrum_offchain::domain::order::{OrderUpdate, SpecializedOrder};
 use spectrum_offchain::domain::EntitySnapshot;

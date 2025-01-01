@@ -9,7 +9,7 @@ rust-version = "1.80.0"
 [dependencies]
 either = "1.9.0"
 futures = "0.3.25"
-atomic-waker = { git = "https://github.com/oskin1/atomic-waker-broadcast.git", branch = "master" }
+atomic-waker = { git = "https://github.com/oskin1/atomic-waker-broadcast.git", tag = "0.1.0" }
 
 [dev-dependencies]
 tokio = { version = "1.42.0", features = ["full"] }

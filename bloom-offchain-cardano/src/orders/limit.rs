@@ -502,7 +502,7 @@ mod tests {
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_cardano_lib::{AssetName, OutputRef, Token};
-    use spectrum_offchain::data::small_set::SmallVec;
+    use spectrum_offchain::data::small_vec::SmallVec;
     use spectrum_offchain::display::display_option;
     use spectrum_offchain::domain::Has;
     use spectrum_offchain::ledger::TryFromLedger;

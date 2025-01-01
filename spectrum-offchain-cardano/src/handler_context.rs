@@ -4,7 +4,7 @@ use derive_more::{From, Into};
 use serde::de::Error;
 use serde::{Deserialize, Deserializer};
 use spectrum_cardano_lib::OutputRef;
-use spectrum_offchain::data::small_set::SmallVec;
+use spectrum_offchain::data::small_vec::SmallVec;
 
 #[derive(Debug, Copy, Clone, Into, From, Default)]
 pub struct ConsumedInputs(pub SmallVec<OutputRef>);

@@ -32,7 +32,7 @@ use spectrum_cardano_lib::plutus_data::{
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::{OutputRef, TaggedAmount, TaggedAssetClass};
-use spectrum_offchain::data::small_set::SmallVec;
+use spectrum_offchain::data::small_vec::SmallVec;
 use spectrum_offchain::domain::Has;
 use spectrum_offchain::ledger::TryFromLedger;
 use std::option::Option;

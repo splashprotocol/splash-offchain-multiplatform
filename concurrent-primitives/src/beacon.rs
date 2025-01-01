@@ -46,7 +46,6 @@ impl Beacon {
     pub fn alter(&self, value: bool) {
         self.0.flag.store(value, self.0.memory_ordering());
         self.0.waker.wake();
-        println!("Altered to {}", value);
     }
 
     pub fn read(&self) -> bool {
@@ -70,20 +69,24 @@ pub struct Once {
 impl Future for Once {
     type Output = ();
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let ord = self.beacon.memory_ordering();
-        // quick check to avoid registration if already done.
-        if self.beacon.flag.load(ord) == self.anticipated_value {
-            return Poll::Ready(());
-        }
+        loop {
+            let ord = self.beacon.memory_ordering();
+            // quick check to avoid registration if already done.
+            if self.beacon.flag.load(ord) == self.anticipated_value {
+                return Poll::Ready(());
+            }
 
-        self.beacon.waker.register(cx.waker());
+            if !self.beacon.waker.try_register(cx.waker()) {
+                continue;
+            }
 
-        // Need to check condition **after** `register` to avoid a race
-        // condition that would result in lost notifications.
-        if self.beacon.flag.load(ord) == self.anticipated_value {
-            Poll::Ready(())
-        } else {
-            Poll::Pending
+            // Need to check condition **after** `register` to avoid a race
+            // condition that would result in lost notifications.
+            return if self.beacon.flag.load(ord) == self.anticipated_value {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
         }
     }
 }
@@ -91,19 +94,28 @@ impl Future for Once {
 #[cfg(test)]
 mod tests {
     use crate::beacon::Beacon;
-    use futures::future::join;
+    use futures::future::join_all;
     use std::time::Duration;
     use tokio::time::{sleep, timeout};
 
     #[tokio::test]
     async fn notify_multiple_futures_once_switched() {
         let beacon = Beacon::relaxed(false);
-        let h1 = tokio::spawn(beacon.once(true));
-        let h2 = tokio::spawn(beacon.once(true));
+        let f1 = beacon.once(true);
+        let f2 = beacon.once(true);
+        let f3 = beacon.once(true);
+        let f4 = beacon.once(true);
+        let f5 = beacon.once(true);
+        let handles = [f1, f2, f3, f4, f5]
+            .into_iter()
+            .map(tokio::spawn)
+            .collect::<Vec<_>>();
         let _ = tokio::spawn(async move {
             sleep(Duration::from_millis(100)).await;
             beacon.alter(true);
         });
-        timeout(Duration::from_millis(200), join(h1, h2)).await.unwrap();
+        timeout(Duration::from_millis(200), join_all(handles))
+            .await
+            .unwrap();
     }
 }

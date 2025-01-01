@@ -14,7 +14,7 @@ use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain_cardano::node::NodeConfig;
 
 use bloom_offchain_cardano::integrity::{CheckIntegrity, IntegrityViolations};
-use spectrum_offchain::data::small_set::SmallVec;
+use spectrum_offchain::data::small_vec::SmallVec;
 use spectrum_offchain_cardano::data::dao_request::DAOContext;
 use spectrum_offchain_cardano::data::royalty_withdraw_request::RoyaltyWithdrawContext;
 

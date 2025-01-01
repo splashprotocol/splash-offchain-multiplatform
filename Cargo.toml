@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     "algebra-core",
-    "async-primitives",
+    "concurrent-primitives",
     "cardano-chain-sync",
     "cardano-mempool-sync",
     "cardano-submit-api",
