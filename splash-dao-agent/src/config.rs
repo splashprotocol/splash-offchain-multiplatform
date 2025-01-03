@@ -32,6 +32,7 @@ pub struct AppConfig<'a> {
     pub inflation_box_persistence_config: RocksConfig,
     pub poll_factory_persistence_config: RocksConfig,
     pub weighting_poll_persistence_config: RocksConfig,
+    pub ve_factory_persistence_config: RocksConfig,
     pub voting_escrow_persistence_config: RocksConfig,
     pub smart_farm_persistence_config: RocksConfig,
     pub perm_manager_persistence_config: RocksConfig,

@@ -59,7 +59,8 @@ use splash_dao_offchain::{
     collateral::pull_collateral,
     deployment::{CompleteDeployment, DeploymentProgress, ProtocolDeployment},
     entities::{
-        offchain::voting_order::VotingOrder, onchain::make_voting_escrow_order::MakeVotingEscrowOrder,
+        offchain::voting_order::VotingOrder,
+        onchain::make_voting_escrow_order::{MakeVotingEscrowOrder, MakeVotingEscrowOrderBundle},
     },
     funding::FundingRepoRocksDB,
     handler::DaoHandler,
@@ -219,6 +220,7 @@ async fn main() {
         StateProjectionRocksDB::new(config.inflation_box_persistence_config),
         StateProjectionRocksDB::new(config.poll_factory_persistence_config),
         StateProjectionRocksDB::new(config.weighting_poll_persistence_config),
+        StateProjectionRocksDB::new(config.ve_factory_persistence_config),
         StateProjectionRocksDB::new(config.voting_escrow_persistence_config),
         StateProjectionRocksDB::new(config.smart_farm_persistence_config),
         StateProjectionRocksDB::new(config.perm_manager_persistence_config),
@@ -321,7 +323,7 @@ async fn setup_order_backlog(
 
 async fn setup_make_ve_order_backlog(
     store_conf: RocksConfig,
-) -> PersistentPriorityBacklog<MakeVotingEscrowOrder, BacklogStoreRocksDB> {
+) -> PersistentPriorityBacklog<MakeVotingEscrowOrderBundle<TransactionOutput>, BacklogStoreRocksDB> {
     let store = BacklogStoreRocksDB::new(store_conf);
     let backlog_config = BacklogConfig {
         order_lifespan: Duration::try_hours(72).unwrap(),
@@ -329,7 +331,8 @@ async fn setup_make_ve_order_backlog(
         retry_suspended_prob: BoundedU8::new(60).unwrap(),
     };
 
-    PersistentPriorityBacklog::new::<MakeVotingEscrowOrder>(store, backlog_config).await
+    PersistentPriorityBacklog::new::<MakeVotingEscrowOrderBundle<TransactionOutput>>(store, backlog_config)
+        .await
 }
 
 #[derive(Parser)]

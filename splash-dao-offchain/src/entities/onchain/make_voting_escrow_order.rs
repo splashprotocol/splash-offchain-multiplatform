@@ -6,6 +6,7 @@ use cml_chain::{
 use cml_crypto::{RawBytesEncoding, ScriptHash};
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
+    ex_units::ExUnits,
     plutus_data::{DatumExtension, IntoPlutusData},
     transaction::TransactionOutputExtension,
     types::TryFromPData,
@@ -29,18 +30,35 @@ use crate::{
 
 use super::voting_escrow::VotingEscrowConfig;
 
-impl UniqueOrder for MakeVotingEscrowOrder {
-    type TOrderId = TimedOutputRef;
+#[derive(Hash, PartialEq, Eq, Serialize, Deserialize, Clone)]
+pub struct MakeVotingEscrowOrderBundle<Bearer> {
+    pub order: MakeVotingEscrowOrder,
+    pub output_ref: TimedOutputRef,
+    pub bearer: Bearer,
+}
 
-    fn get_self_ref(&self) -> Self::TOrderId {
-        self.timed_output_ref
+impl<Bearer> MakeVotingEscrowOrderBundle<Bearer> {
+    pub fn new(order: MakeVotingEscrowOrder, output_ref: TimedOutputRef, bearer: Bearer) -> Self {
+        Self {
+            order,
+            output_ref,
+            bearer,
+        }
     }
 }
 
-impl Weighted for MakeVotingEscrowOrder {
+impl<Bearer> UniqueOrder for MakeVotingEscrowOrderBundle<Bearer> {
+    type TOrderId = TimedOutputRef;
+
+    fn get_self_ref(&self) -> Self::TOrderId {
+        self.output_ref
+    }
+}
+
+impl<Bearer> Weighted for MakeVotingEscrowOrderBundle<Bearer> {
     fn weight(&self) -> OrderWeight {
         // Older orders first
-        OrderWeight::from(u64::MAX - self.timed_output_ref.slot.0)
+        OrderWeight::from(u64::MAX - self.output_ref.slot.0)
     }
 }
 
@@ -103,3 +121,13 @@ pub fn compute_make_ve_order_validator(
     ]);
     apply_params_validator(params_pd, MAKE_VOTING_ESCROW_ORDER)
 }
+
+pub const MAKE_VOTING_ESCROW_EX_UNITS: ExUnits = ExUnits {
+    mem: 700_000,
+    steps: 300_000_000,
+};
+
+pub const MVE_TOKEN_MINT_EX_UNITS: ExUnits = ExUnits {
+    mem: 500_000,
+    steps: 200_000_000,
+};

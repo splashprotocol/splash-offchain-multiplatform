@@ -11,6 +11,7 @@ use cml_crypto::{blake2b256, ScriptHash};
 use num_rational::Ratio;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
+    ex_units::ExUnits,
     plutus_data::{ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension},
     transaction::TransactionOutputExtension,
     types::TryFromPData,
@@ -32,9 +33,10 @@ use crate::{
     deployment::ProtocolValidator,
     entities::Snapshot,
     protocol_config::{GTAuthPolicy, VEFactoryAuthPolicy},
+    routines::inflation::TimedOutputRef,
 };
 
-pub type VEFactorySnapshot = Snapshot<VEFactory, OutputRef>;
+pub type VEFactorySnapshot = Snapshot<VEFactory, TimedOutputRef>;
 
 #[derive(
     Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize, Debug, derive_more::Display,
@@ -64,7 +66,7 @@ pub struct VEFactory {
 
 impl<C> TryFromLedger<TransactionOutput, C> for VEFactorySnapshot
 where
-    C: Has<OutputRef>
+    C: Has<TimedOutputRef>
         + Has<VEFactoryAuthPolicy>
         + Has<GTAuthPolicy>
         + Has<DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }>>,
@@ -121,7 +123,7 @@ where
                 legacy_assets_inventory,
                 gt_tokens_available,
             };
-            let output_ref = ctx.select::<OutputRef>();
+            let output_ref = ctx.select::<TimedOutputRef>();
             return Some(Snapshot::new(ve_factory, output_ref));
         }
         None
@@ -332,6 +334,11 @@ pub fn exchange_outputs(
 
     (ve_composition_qty, mint_value)
 }
+
+pub const VE_FACTORY_EX_UNITS: ExUnits = ExUnits {
+    mem: 700_000,
+    steps: 300_000_000,
+};
 
 #[cfg(test)]
 mod tests {

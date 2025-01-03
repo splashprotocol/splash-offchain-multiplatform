@@ -31,7 +31,7 @@ pub struct DeployedValidators {
     pub make_ve_order: DeployedValidatorRef,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct BuiltPolicy {
     pub policy_id: ScriptHash,
     pub asset_name: cml_chain::assets::AssetName,

@@ -10,6 +10,7 @@ use spectrum_cardano_lib::{NetworkId, OutputRef};
 use spectrum_offchain::{domain::Has, ledger::TryFromLedger};
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use voting_escrow::{VotingEscrow, VotingEscrowSnapshot};
+use voting_escrow_factory::VEFactory;
 use weighting_poll::{WeightingPoll, WeightingPollSnapshot};
 
 use crate::{
@@ -42,6 +43,7 @@ pub enum DaoEntity {
     WeightingPollFactory(PollFactory),
     SmartFarm(SmartFarm),
     VotingEscrow(VotingEscrow),
+    VotingEscrowFactory(VEFactory),
     WeightingPoll(WeightingPoll),
     FundingBox(FundingBox),
     MakeVotingEscrowOrder(MakeVotingEscrowOrder),
