@@ -86,7 +86,7 @@ impl Future for Once {
                 Poll::Ready(())
             } else {
                 Poll::Pending
-            }
+            };
         }
     }
 }

@@ -62,6 +62,7 @@ use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
 use spectrum_offchain_cardano::tx_tracker::{new_tx_tracker_bundle, TxTrackerAgent};
 use spectrum_streaming::{run_stream, StreamExt as StreamExtAlt};
+use std::future;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
@@ -389,7 +390,11 @@ async fn main() {
     let process_ledger_events_stream_handle = tokio::spawn(run_stream(process_ledger_events_stream));
     processes.push(process_ledger_events_stream_handle);
 
-    let process_mempool_events_stream_handle = tokio::spawn(run_stream(process_mempool_events_stream));
+    let process_mempool_events_stream_handle = if !config.disable_mempool {
+        tokio::spawn(run_stream(process_mempool_events_stream))
+    } else {
+        tokio::spawn(future::ready(()))
+    };
     processes.push(process_mempool_events_stream_handle);
 
     let execution_stream_p1_handle = tokio::spawn(run_stream(execution_stream_p1));

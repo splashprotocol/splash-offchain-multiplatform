@@ -38,6 +38,12 @@ pub struct AppConfig {
     pub partitioning: Partitioning,
     pub dao_config: DAOConfig,
     pub royalty_withdraw: RoyaltyWithdrawContext,
+    #[serde(default = "default_disable_mempool")]
+    pub disable_mempool: bool,
+}
+
+fn default_disable_mempool() -> bool {
+    false
 }
 
 impl CheckIntegrity for AppConfig {

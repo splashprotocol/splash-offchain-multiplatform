@@ -34,6 +34,12 @@ pub struct AppConfig {
     pub event_feed_buffering_duration: Duration,
     pub partitioning: Partitioning,
     pub adhoc_fee: AdhocFeeConfig,
+    #[serde(default = "default_disable_mempool")]
+    pub disable_mempool: bool,
+}
+
+fn default_disable_mempool() -> bool {
+    false
 }
 
 impl CheckIntegrity for AppConfig {
