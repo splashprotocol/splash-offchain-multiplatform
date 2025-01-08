@@ -4,6 +4,7 @@ use std::{
     time::UNIX_EPOCH,
 };
 
+use async_primitives::beacon::Beacon;
 use async_trait::async_trait;
 use axum::{extract::State, http::StatusCode, response::IntoResponse};
 use bloom_offchain_cardano::event_sink::processed_tx::TxViewMut;
@@ -46,7 +47,6 @@ use spectrum_offchain::{
     },
     kv_store::KVStoreRocksDB,
     rocks::RocksConfig,
-    streaming::{boxed, run_stream},
 };
 use spectrum_offchain_cardano::{
     creds::{operator_creds, operator_creds_base_address},
@@ -54,6 +54,7 @@ use spectrum_offchain_cardano::{
     tx_submission::{tx_submission_agent_stream, TxSubmissionAgent},
     tx_tracker::new_tx_tracker_bundle,
 };
+use spectrum_streaming::run_stream;
 use splash_dao_offchain::{
     collateral::pull_collateral,
     deployment::{CompleteDeployment, DeploymentProgress, ProtocolDeployment},
@@ -93,7 +94,8 @@ async fn main() {
 
     info!("Starting DAO Agent ..");
 
-    let rollback_in_progress = Arc::new(AtomicBool::new(false));
+    let state_synced = Beacon::relaxed(false);
+    let rollback_in_progress = Beacon::strong(false);
 
     let explorer = Maestro::new(config.maestro_key_path, config.network_id.into())
         .await
@@ -135,10 +137,9 @@ async fn main() {
 
     // prepare upstreams
     let tx_submission_stream = tx_submission_agent_stream(tx_submission_agent);
-    let (signal_tip_reached_snd, signal_tip_reached_recv) = tokio::sync::broadcast::channel(1);
     let ledger_stream = Box::pin(ledger_transactions(
         chain_sync_cache,
-        chain_sync_stream(chain_sync, signal_tip_reached_snd),
+        chain_sync_stream(chain_sync, state_synced.clone()),
         config.chain_sync.disable_rollbacks_until,
         config.chain_sync.replay_from_point,
         rollback_in_progress,
@@ -229,7 +230,7 @@ async fn main() {
         tx_submission_channel,
         ledger_event_rcv,
         voting_event_rcv,
-        signal_tip_reached_recv,
+        state_synced,
         failed_txs_recv,
     );
 

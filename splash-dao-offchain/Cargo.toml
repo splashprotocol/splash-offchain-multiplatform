@@ -7,6 +7,7 @@ rust-version = "1.80.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+async-primitives = { version = "0.1.0", path = "../concurrent-primitives" }
 spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain" }
 spectrum-offchain-cardano = { version = "1.0.0", path = "../spectrum-offchain-cardano" }
 bloom-offchain-cardano = { version = "1.0.0", path = "../bloom-offchain-cardano" }

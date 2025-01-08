@@ -6,6 +6,7 @@ use std::pin::{pin, Pin};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use async_primitives::beacon::{Beacon, Once};
 use async_stream::stream;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::liquidity_book::core::Trans;
@@ -90,7 +91,7 @@ pub struct Behaviour<IB, PF, WP, VE, SF, PM, FB, OrderBacklog, PTX, Time, Action
     ledger_upstream: Receiver<LedgerTxEvent<TxViewMut>>,
     voting_orders: Receiver<VotingOrderMessage>,
     chain_tip_reached: Arc<Mutex<bool>>,
-    signal_tip_reached_recv: Option<tokio::sync::broadcast::Receiver<bool>>,
+    state_synced: Beacon,
     current_slot: u64,
     skip_filter: CircularFilter<256, OnChainStatus>,
     failed_to_confirm_txs_recv: Receiver<Transaction>,
@@ -228,7 +229,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
         network: Net,
         ledger_upstream: Receiver<LedgerTxEvent<TxViewMut>>,
         voting_orders: Receiver<VotingOrderMessage>,
-        signal_tip_reached_recv: tokio::sync::broadcast::Receiver<bool>,
+        state_synced: Beacon,
         failed_txs_recv: Receiver<Transaction>,
     ) -> Self
     where
@@ -252,7 +253,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
             ledger_upstream,
             voting_orders,
             chain_tip_reached: Arc::new(Mutex::new(false)),
-            signal_tip_reached_recv: Some(signal_tip_reached_recv),
+            state_synced,
             current_slot: 0,
             skip_filter: CircularFilter::new(),
             failed_to_confirm_txs_recv: failed_txs_recv,
@@ -1260,18 +1261,19 @@ where
 
     #[allow(clippy::needless_lifetimes)]
     pub fn as_stream<'a>(&'a mut self) -> impl Stream<Item = ()> + 'a {
-        let mut signal = self.signal_tip_reached_recv.take().unwrap();
         let chain_tip_reached_clone = self.chain_tip_reached.clone();
+        let mut routine: Option<ToRoutine> = None;
+        let state_synced = self.state_synced.clone();
         tokio::spawn(async move {
             trace!("wait for signal tip");
-            let _ = signal.recv().await;
+            let _ = state_synced.once(true).await;
 
             let mut reached = chain_tip_reached_clone.lock().await;
             *reached = true;
             trace!("signal tip reached!");
         });
-        let mut routine: Option<ToRoutine> = None;
         stream! {
+
             loop {
                 while let Ok(ev) = self.ledger_upstream.try_recv() {
                     self.process_ledger_event(ev).await;
