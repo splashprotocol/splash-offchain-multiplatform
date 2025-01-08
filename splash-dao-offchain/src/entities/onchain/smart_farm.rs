@@ -14,7 +14,7 @@ use spectrum_cardano_lib::plutus_data::{
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::{AssetName, OutputRef};
-use spectrum_offchain::domain::{Has, Identifier, Stable};
+use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
@@ -31,10 +31,6 @@ pub type SmartFarmSnapshot = Snapshot<SmartFarm, TimedOutputRef>;
     Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Debug, Hash, derive_more::Display, Serialize, Deserialize,
 )]
 pub struct FarmId(pub AssetName);
-
-impl Identifier for FarmId {
-    type For = SmartFarmSnapshot;
-}
 
 impl IntoPlutusData for FarmId {
     fn into_pd(self) -> cml_chain::plutus::PlutusData {

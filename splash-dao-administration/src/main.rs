@@ -416,6 +416,12 @@ async fn deploy<'a>(op_inputs: &mut OperationInputs, config: AppConfig<'a>) -> C
                 cost: EX_UNITS,
                 marginal_cost: None,
             },
+            make_ve_order: DeployedValidatorRef {
+                hash: reference_input_script_hashes.make_ve_order,
+                reference_utxo: make_ref_utxo(2, 3),
+                cost: EX_UNITS,
+                marginal_cost: None,
+            },
         };
 
         deployment_progress.deployed_validators = Some(d);
@@ -726,10 +732,7 @@ async fn create_dao_entities(
     println!("TX confirmed");
 }
 
-async fn make_voting_escrow(
-    ve_settings: &VotingEscrowSettings,
-    op_inputs: &mut OperationInputs,
-) -> cml_chain::assets::AssetName {
+async fn make_voting_escrow(ve_settings: &VotingEscrowSettings, op_inputs: &mut OperationInputs) {
     let OperationInputs {
         explorer,
         addr,
@@ -757,7 +760,7 @@ async fn make_voting_escrow(
 
     let ve_factory_script_hash = protocol_deployment.ve_factory.hash;
 
-    let (ve_factory, ve_factory_unspent_output) = pull_onchain_entity::<VEFactorySnapshot, _>(
+    let (_ve_factory, ve_factory_unspent_output) = pull_onchain_entity::<VEFactorySnapshot, _>(
         explorer,
         ve_factory_script_hash,
         *network_id,
@@ -819,35 +822,9 @@ async fn make_voting_escrow(
     )
     .await;
 
-    #[derive(PartialEq, Eq)]
-    enum InputType {
-        VeFactory,
-        Other,
-    }
-
-    // Need to find ve_factory's position within TX inputs.
-    let mut output_refs: Vec<_> = utxos
-        .iter()
-        .map(|utxo| {
-            let output_ref = OutputRef::new(utxo.input.transaction_id, utxo.input.index);
-            (InputType::Other, output_ref)
-        })
-        .collect();
-
-    output_refs.push((InputType::VeFactory, ve_factory_output_ref));
-
-    output_refs.sort_by_key(|(_, output_ref)| *output_ref);
-    let ve_factory_in_ix = output_refs
-        .into_iter()
-        .position(|(input_type, _)| input_type == InputType::VeFactory)
-        .unwrap();
-
     let mut change_output_creator = ChangeOutputCreator::default();
     let mut tx_builder = constant_tx_builder();
-    tx_builder.add_reference_input(protocol_deployment.ve_factory.reference_utxo);
-    tx_builder.add_reference_input(protocol_deployment.voting_escrow.reference_utxo);
-    tx_builder.add_reference_input(protocol_deployment.mint_ve_composition_token.reference_utxo);
-    tx_builder.add_reference_input(protocol_deployment.mint_identifier.reference_utxo);
+    tx_builder.add_reference_input(protocol_deployment.make_ve_order.reference_utxo);
 
     // Add inputs --------------------------------------------------------
     for utxo in utxos {
@@ -856,95 +833,13 @@ async fn make_voting_escrow(
         tx_builder.add_input(utxo).unwrap();
     }
 
-    let ve_factory_redeemer = voting_escrow_factory::FactoryAction::Deposit.into_pd();
-
-    let ve_factory_witness = PartialPlutusWitness::new(
-        PlutusScriptWitness::Ref(ve_factory_script_hash),
-        ve_factory_redeemer,
-    );
-
-    let ve_factory_input_builder = SingleInputBuilder::new(
-        ve_factory_unspent_output.input,
-        ve_factory_unspent_output.output.clone(),
-    )
-    .plutus_script_inline_datum(ve_factory_witness, vec![].into())
-    .unwrap();
-    change_output_creator.add_input(&ve_factory_input_builder);
-    tx_builder.add_input(ve_factory_input_builder.clone()).unwrap();
-
-    tx_builder.set_exunits(
-        RedeemerWitnessKey::new(cml_chain::plutus::RedeemerTag::Spend, ve_factory_in_ix as u64),
-        cml_chain::plutus::ExUnits::from(EX_UNITS_CREATE_VOTING_ESCROW),
-    );
-
-    let total_num_mints = voting_escrow_value.multiasset.len() + 1;
-
-    // Mint ve_composition tokens --------------------------------------------
-    let mint_ve_composition_token_witness = PartialPlutusWitness::new(
-        PlutusScriptWitness::Ref(protocol_deployment.mint_ve_composition_token.hash),
-        PlutusData::new_integer(BigInteger::from(ve_factory_in_ix)),
-    );
-    for (_, names) in voting_escrow_value.multiasset.iter() {
-        for (asset_name, qty) in names.iter() {
-            let mint_ve_composition_builder_result =
-                SingleMintBuilder::new_single_asset(asset_name.clone(), *qty as i64)
-                    .plutus_script(mint_ve_composition_token_witness.clone(), vec![].into());
-            tx_builder.add_mint(mint_ve_composition_builder_result).unwrap();
-        }
-    }
-
-    // NOW it is safe to add GT tokens to voting_escrow
-    voting_escrow_value.add_unsafe(gt_ac, ve_composition_qty);
-
-    // Mint ve_identifier token ------------------------------------------------
-    let mint_ve_identifier_token_witness = PartialPlutusWitness::new(
-        PlutusScriptWitness::Ref(protocol_deployment.mint_identifier.hash),
-        ve_factory_output_ref.into_pd(),
-    );
-    println!("ve_factory_in output_ref: {}", ve_factory_output_ref);
-    let mint_ve_identifier_name = compute_identifier_token_asset_name(ve_factory_output_ref);
-    println!("identifier name: {}", mint_ve_identifier_name.to_raw_hex());
-    let mint_ve_identifier_builder_result =
-        SingleMintBuilder::new_single_asset(mint_ve_identifier_name.clone(), 1)
-            .plutus_script(mint_ve_identifier_token_witness.clone(), vec![].into());
-    tx_builder.add_mint(mint_ve_identifier_builder_result).unwrap();
-
-    for ix in 0..total_num_mints {
-        let ex_units = cml_chain::plutus::ExUnits::from(EX_UNITS);
-        tx_builder.set_exunits(RedeemerWitnessKey::new(RedeemerTag::Mint, ix as u64), ex_units);
-    }
-
-    let id_token = Token(
-        protocol_deployment.mint_identifier.hash,
-        spectrum_cardano_lib::AssetName::from(mint_ve_identifier_name.clone()),
-    );
-    voting_escrow_value.add_unsafe(AssetClass::from(id_token), 1);
-
-    // Add outputs -----------------------------------------------------------------------
-    let ve_factory_datum = if let Some(datum) = ve_factory_unspent_output.output.datum() {
-        datum
-    } else {
-        panic!("farm_factory: expected datum!");
-    };
-    let ve_factory_output = TransactionOutputBuilder::new()
-        .with_address(script_address(ve_factory_script_hash, *network_id))
-        .with_data(ve_factory_datum)
-        .next()
-        .unwrap()
-        .with_asset_and_min_required_coin(ve_factory_out_value.multiasset, COINS_PER_UTXO_BYTE)
-        .unwrap()
-        .build()
-        .unwrap();
-
-    change_output_creator.add_output(&ve_factory_output);
-    tx_builder.add_output(ve_factory_output).unwrap();
-
     let time_source = NetworkTimeSource;
     const ONE_MONTH_IN_SECONDS: u64 = 604800 * 4;
+    let owner_bytes = owner_pub_key.to_raw_bytes().try_into().unwrap();
     let voting_escrow_datum = DatumOption::new_datum(
         VotingEscrowConfig {
             locked_until: Lock::Def((time_source.network_time().await + lock_duration_in_seconds) * 1000),
-            owner: Owner::PubKey(owner_pub_key.to_raw_bytes().to_vec()),
+            owner: Owner::PubKey(owner_bytes),
             max_ex_fee: *max_ex_fee as u32,
             version: 0,
             last_wp_epoch: -1,
@@ -955,9 +850,9 @@ async fn make_voting_escrow(
 
     voting_escrow_value.coin = *ada_balance;
 
-    let voting_escrow_output = TransactionOutputBuilder::new()
+    let mve_output = TransactionOutputBuilder::new()
         .with_address(script_address(
-            protocol_deployment.voting_escrow.hash,
+            protocol_deployment.make_ve_order.hash,
             *network_id,
         ))
         .with_data(voting_escrow_datum)
@@ -966,8 +861,8 @@ async fn make_voting_escrow(
         .with_value(voting_escrow_value)
         .build()
         .unwrap();
-    change_output_creator.add_output(&voting_escrow_output);
-    tx_builder.add_output(voting_escrow_output).unwrap();
+    change_output_creator.add_output(&mve_output);
+    tx_builder.add_output(mve_output).unwrap();
 
     let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
     let actual_fee = estimated_tx_fee + 300_000;
@@ -991,7 +886,6 @@ async fn make_voting_escrow(
     explorer.submit_tx(&tx_bytes).await.unwrap();
     explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
     println!("TX confirmed");
-    mint_ve_identifier_name
 }
 
 async fn create_initial_farms(op_inputs: &OperationInputs) {

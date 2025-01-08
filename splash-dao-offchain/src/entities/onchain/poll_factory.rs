@@ -10,7 +10,7 @@ use spectrum_cardano_lib::plutus_data::{
 };
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::{AssetName, OutputRef, TaggedAmount};
-use spectrum_offchain::domain::{Has, Identifier, Stable};
+use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
@@ -32,10 +32,6 @@ pub type PollFactorySnapshot = Snapshot<PollFactory, TimedOutputRef>;
     Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize, Debug, derive_more::Display,
 )]
 pub struct PollFactoryId(pub ProtocolEpoch);
-
-impl Identifier for PollFactoryId {
-    type For = PollFactorySnapshot;
-}
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct PollFactory {

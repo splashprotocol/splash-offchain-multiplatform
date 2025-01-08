@@ -43,6 +43,7 @@ use splash_dao_offchain::{
     entities::onchain::{
         farm_factory::compute_farm_factory_validator,
         inflation_box::compute_inflation_box_validator,
+        make_voting_escrow_order::compute_make_ve_order_validator,
         permission_manager::compute_perm_manager_validator,
         poll_factory::{compute_wp_factory_validator, PollFactoryConfig},
         smart_farm::compute_mint_farm_auth_token_validator,
@@ -360,6 +361,12 @@ pub fn create_dao_reference_input_utxos(
 
     let perm_manager_script = compute_perm_manager_validator(edao_msig, perm_manager_auth_policy);
 
+    let make_ve_order_script = compute_make_ve_order_validator(
+        mint_identifier_script.hash(),
+        mint_ve_composition_token_script.hash(),
+        voting_escrow_script.hash(),
+    );
+
     let reference_input_script_hashes = ReferenceInputScriptHashes {
         inflation: inflation_script.hash(),
         voting_escrow: voting_escrow_script.hash(),
@@ -373,6 +380,7 @@ pub fn create_dao_reference_input_utxos(
         mint_ve_composition_token: mint_ve_composition_token_script.hash(),
         weighting_power: mint_weighting_power_script.hash(),
         smart_farm: mint_farm_auth_token_script.hash(),
+        make_ve_order: make_ve_order_script.hash(),
     };
 
     let script_before =
@@ -419,6 +427,9 @@ pub fn create_dao_reference_input_utxos(
         .unwrap();
     tx_builder_2
         .add_output(make_output(mint_farm_auth_token_script))
+        .unwrap();
+    tx_builder_2
+        .add_output(make_output(make_ve_order_script))
         .unwrap();
 
     (
@@ -477,6 +488,7 @@ pub struct ReferenceInputScriptHashes {
     pub mint_ve_composition_token: ScriptHash,
     pub weighting_power: ScriptHash,
     pub smart_farm: ScriptHash,
+    pub make_ve_order: ScriptHash,
 }
 
 #[derive(Deserialize)]
@@ -486,12 +498,4 @@ pub struct DaoDeploymentParameters {
     pub accepted_assets: Vec<AcceptedAsset>,
     pub authorized_executors: Vec<Ed25519KeyHash>,
     pub num_active_farms: u32,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::compute_one_time_mint_validator;
-
-    #[test]
-    fn ahhaha() {}
 }

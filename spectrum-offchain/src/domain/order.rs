@@ -1,7 +1,7 @@
 use std::hash::Hash;
 
 use either::Either;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use type_equalities::IsEqual;
 
 use crate::domain::Has;
@@ -66,7 +66,7 @@ impl<TOrd: SpecializedOrder> From<TOrd> for OrderLink<TOrd> {
     }
 }
 
-#[derive(Debug, Hash, Clone, Eq, PartialEq, Deserialize)]
+#[derive(Debug, Hash, Clone, Eq, PartialEq, Deserialize, Serialize)]
 pub struct PendingOrder<TOrd> {
     pub order: TOrd,
     pub timestamp: i64,

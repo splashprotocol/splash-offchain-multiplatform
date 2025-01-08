@@ -18,7 +18,7 @@ use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
 };
 use spectrum_cardano_lib::{NetworkId, OutputRef, TaggedAmount, Token};
-use spectrum_offchain::domain::{Has, Identifier, Stable};
+use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 
@@ -54,10 +54,6 @@ pub type WeightingPollSnapshot = Snapshot<WeightingPoll, TimedOutputRef>;
     derive_more::Display,
 )]
 pub struct WeightingPollId(pub ProtocolEpoch);
-
-impl Identifier for WeightingPollId {
-    type For = WeightingPollSnapshot;
-}
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct WeightingPoll {

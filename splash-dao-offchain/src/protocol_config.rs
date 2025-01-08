@@ -14,7 +14,9 @@ use std::ops::Index;
 use type_equalities::IsEqual;
 
 use crate::assets::SPLASH_AC;
-use crate::deployment::{DeployedValidators, MintedTokens, ProtocolDeployment, ProtocolValidator};
+use crate::deployment::{
+    BuiltPolicy, DeployedValidators, MintedTokens, ProtocolDeployment, ProtocolValidator,
+};
 use crate::entities::onchain::inflation_box::InflationBoxId;
 use crate::entities::onchain::permission_manager::PermManagerId;
 use crate::entities::onchain::poll_factory::PollFactoryId;
@@ -90,10 +92,16 @@ pub struct WPFactoryAuthPolicy(pub PolicyId);
 pub struct VEFactoryAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
+pub struct VEFactoryRefScriptOutput(pub TransactionUnspentOutput);
+
+#[derive(Debug, Clone)]
+pub struct MakeVotingEscrowOrderRefScriptOutput(pub TransactionUnspentOutput);
+
+#[derive(Debug, Clone)]
 pub struct VotingEscrowRefScriptOutput(pub TransactionUnspentOutput);
 
 #[derive(Debug, Clone)]
-pub struct VotingEscrowPolicy(pub PolicyId);
+pub struct VotingEscrowScriptHash(pub PolicyId);
 
 #[derive(Debug, Clone)]
 pub struct WeightingPowerPolicy(pub PolicyId);
@@ -117,6 +125,9 @@ pub struct PermManagerAuthPolicy(pub PolicyId);
 pub struct GTAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
+pub struct GTBuiltPolicy(pub BuiltPolicy);
+
+#[derive(Debug, Clone)]
 pub struct NodeMagic(pub u64);
 
 pub struct OperatorCreds(pub Ed25519KeyHash, pub Address);
@@ -133,6 +144,7 @@ impl NotOutputRefNorSlotNumber for MintVECompositionPolicy {}
 impl NotOutputRefNorSlotNumber for VEFactoryAuthPolicy {}
 impl NotOutputRefNorSlotNumber for GenesisEpochStartTime {}
 impl NotOutputRefNorSlotNumber for GTAuthPolicy {}
+impl NotOutputRefNorSlotNumber for GTBuiltPolicy {}
 impl NotOutputRefNorSlotNumber for NetworkId {}
 impl<const TYP: u8> NotOutputRefNorSlotNumber for DeployedScriptInfo<TYP> {}
 
@@ -250,15 +262,29 @@ impl Has<VEFactoryAuthPolicy> for ProtocolConfig {
     }
 }
 
+impl Has<VEFactoryRefScriptOutput> for ProtocolConfig {
+    fn select<U: IsEqual<VEFactoryRefScriptOutput>>(&self) -> VEFactoryRefScriptOutput {
+        VEFactoryRefScriptOutput(self.deployed_validators.ve_factory.reference_utxo.clone())
+    }
+}
+
+impl Has<MakeVotingEscrowOrderRefScriptOutput> for ProtocolConfig {
+    fn select<U: IsEqual<MakeVotingEscrowOrderRefScriptOutput>>(
+        &self,
+    ) -> MakeVotingEscrowOrderRefScriptOutput {
+        MakeVotingEscrowOrderRefScriptOutput(self.deployed_validators.make_ve_order.reference_utxo.clone())
+    }
+}
+
 impl Has<VotingEscrowRefScriptOutput> for ProtocolConfig {
     fn select<U: IsEqual<VotingEscrowRefScriptOutput>>(&self) -> VotingEscrowRefScriptOutput {
         VotingEscrowRefScriptOutput(self.deployed_validators.voting_escrow.reference_utxo.clone())
     }
 }
 
-impl Has<VotingEscrowPolicy> for ProtocolConfig {
-    fn select<U: IsEqual<VotingEscrowPolicy>>(&self) -> VotingEscrowPolicy {
-        VotingEscrowPolicy(self.deployed_validators.voting_escrow.hash)
+impl Has<VotingEscrowScriptHash> for ProtocolConfig {
+    fn select<U: IsEqual<VotingEscrowScriptHash>>(&self) -> VotingEscrowScriptHash {
+        VotingEscrowScriptHash(self.deployed_validators.voting_escrow.hash)
     }
 }
 
@@ -301,6 +327,12 @@ impl Has<GovProxyRefScriptOutput> for ProtocolConfig {
 impl Has<GTAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<GTAuthPolicy>>(&self) -> GTAuthPolicy {
         GTAuthPolicy(self.tokens.gt.policy_id)
+    }
+}
+
+impl Has<GTBuiltPolicy> for ProtocolConfig {
+    fn select<U: IsEqual<GTBuiltPolicy>>(&self) -> GTBuiltPolicy {
+        GTBuiltPolicy(self.tokens.gt.clone())
     }
 }
 

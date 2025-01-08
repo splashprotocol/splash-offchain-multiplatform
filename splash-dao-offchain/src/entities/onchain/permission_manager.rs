@@ -13,7 +13,7 @@ use spectrum_cardano_lib::{
     AssetName, OutputRef, Token,
 };
 use spectrum_offchain::{
-    domain::{Has, Identifier, Stable},
+    domain::{Has, Stable},
     ledger::TryFromLedger,
 };
 use spectrum_offchain_cardano::{
@@ -35,10 +35,6 @@ use super::smart_farm::FarmId;
     Copy, Clone, PartialEq, Eq, Ord, PartialOrd, From, Serialize, Deserialize, derive_more::Display, Hash,
 )]
 pub struct PermManagerId;
-
-impl Identifier for PermManagerId {
-    type For = PermManagerSnapshot;
-}
 
 pub type PermManagerSnapshot = Snapshot<PermManager, TimedOutputRef>;
 

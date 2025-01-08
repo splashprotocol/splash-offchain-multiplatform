@@ -38,6 +38,13 @@
   "inflationBoxPersistenceConfig": { "db_path": "tmp/inflation" },
   "pollFactoryPersistenceConfig": { "db_path": "tmp/poll_factory" },
   "weightingPollPersistenceConfig": { "db_path": "tmp/weighting_poll" },
+  "veFactoryPersistenceConfig": { "db_path": "tmp/ve_factory" },
+  "makeVotingEscrowOwnerConfig": {
+    "db_path": "tmp/make_voting_escrow_owner_config"
+  },
+  "votingEscrowByOwnerConfig": {
+    "db_path": "tmp/voting_escrow_by_owner_config"
+  },
   "votingEscrowPersistenceConfig": { "db_path": "tmp/voting_escrow" },
   "smartFarmPersistenceConfig": { "db_path": "tmp/smart_farm" },
   "permManagerPersistenceConfig": { "db_path": "tmp/perm_manager" },
