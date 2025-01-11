@@ -44,7 +44,7 @@ use crate::constants::fee_deltas::{
     VOTING_ESCROW_VOTING_FEE,
 };
 use crate::constants::script_bytes::{VOTING_WITNESS, VOTING_WITNESS_STUB};
-use crate::constants::time::{DISTRIBUTE_INFLATION_TX_TTL, MAX_TIME_DRIFT_MILLIS};
+use crate::constants::time::{DISTRIBUTE_INFLATION_TX_TTL, MAX_LOCK_TIME_SECONDS, MAX_TIME_DRIFT_MILLIS};
 use crate::create_change_output::{ChangeOutputCreator, CreateChangeOutput};
 use crate::deployment::{BuiltPolicy, ProtocolValidator};
 use crate::entities::offchain::voting_order::{compute_voting_witness_message, VotingOrder};
@@ -63,7 +63,7 @@ use crate::entities::onchain::smart_farm::{
 };
 use crate::entities::onchain::voting_escrow::{
     self, compute_mint_weighting_power_validator, compute_voting_escrow_validator, unsafe_update_ve_state,
-    Owner, VotingEscrow, VotingEscrowAction, VotingEscrowAuthorizedAction, VotingEscrowConfig,
+    Lock, Owner, VotingEscrow, VotingEscrowAction, VotingEscrowAuthorizedAction, VotingEscrowConfig,
     ORDER_WITNESS_EX_UNITS, VOTING_ESCROW_EX_UNITS, WEIGHTING_POWER_EX_UNITS,
 };
 use crate::entities::onchain::voting_escrow_factory::{
@@ -77,14 +77,15 @@ use crate::entities::Snapshot;
 use crate::protocol_config::{
     EDaoMSigAuthPolicy, FarmAuthPolicy, FarmAuthRefScriptOutput, FarmFactoryAuthPolicy, GTAuthPolicy,
     GTBuiltPolicy, GovProxyRefScriptOutput, InflationAuthPolicy, InflationBoxRefScriptOutput,
-    MakeVotingEscrowOrderRefScriptOutput, MintVECompositionPolicy, MintVECompositionRefScriptOutput,
-    MintVEIdentifierPolicy, MintVEIdentifierRefScriptOutput, MintWPAuthPolicy, MintWPAuthRefScriptOutput,
-    OperatorCreds, PermManagerAuthPolicy, PermManagerBoxRefScriptOutput, PollFactoryRefScriptOutput, Reward,
-    SplashPolicy, VEFactoryAuthPolicy, VEFactoryRefScriptOutput, VotingEscrowRefScriptOutput,
-    VotingEscrowScriptHash, WPFactoryAuthPolicy, WeightingPowerPolicy, WeightingPowerRefScriptOutput,
-    TX_FEE_CORRECTION,
+    MakeVotingEscrowOrderRefScriptOutput, MakeVotingEscrowOrderScriptHash, MintVECompositionPolicy,
+    MintVECompositionRefScriptOutput, MintVEIdentifierPolicy, MintVEIdentifierRefScriptOutput,
+    MintWPAuthPolicy, MintWPAuthRefScriptOutput, OperatorCreds, PermManagerAuthPolicy,
+    PermManagerBoxRefScriptOutput, PollFactoryRefScriptOutput, Reward, SplashPolicy, VEFactoryAuthPolicy,
+    VEFactoryRefScriptOutput, VEFactoryScriptHash, VotingEscrowRefScriptOutput, VotingEscrowScriptHash,
+    WPFactoryAuthPolicy, WeightingPowerPolicy, WeightingPowerRefScriptOutput, TX_FEE_CORRECTION,
 };
 use crate::routines::inflation::TimedOutputRef;
+use crate::time::NetworkTimeProvider;
 use crate::util::set_min_ada;
 use crate::{GenesisEpochStartTime, NetworkTimeSource};
 
@@ -185,9 +186,11 @@ where
         + Has<FarmAuthPolicy>
         + Has<FarmAuthRefScriptOutput>
         + Has<FarmFactoryAuthPolicy>
+        + Has<VEFactoryScriptHash>
         + Has<VEFactoryRefScriptOutput>
         + Has<MintVECompositionPolicy>
         + Has<MintVECompositionRefScriptOutput>
+        + Has<MakeVotingEscrowOrderScriptHash>
         + Has<MakeVotingEscrowOrderRefScriptOutput>
         + Has<VotingEscrowScriptHash>
         + Has<VotingEscrowRefScriptOutput>
@@ -1221,6 +1224,18 @@ where
         ),
         MakeVotingEscrowError,
     > {
+        let time_source = NetworkTimeSource;
+        let locktime_exceeds_limit = match order.ve_datum.locked_until {
+            Lock::Def(until) => {
+                let now_in_seconds = time_source.network_time().await;
+                (until / 1000) - now_in_seconds > MAX_LOCK_TIME_SECONDS
+            }
+            Lock::Indef(duration) => duration.as_secs() > MAX_LOCK_TIME_SECONDS,
+        };
+        if locktime_exceeds_limit {
+            return Err(MakeVotingEscrowError::LocktimeExceedsLimit);
+        }
+
         let ve_factory_in_value = ve_factory_in.value();
         let mut ve_factory_out_value = ve_factory_in_value.clone();
         let mve_coin = mve_tx_output.value().coin;
@@ -1267,10 +1282,8 @@ where
         };
 
         let ve_factory_unspent_output = self.ctx.select::<VEFactoryRefScriptOutput>().0;
-        let ve_factory_script_hash = ve_factory_unspent_output.output.script_hash().unwrap();
 
         let mve_unspent_output = self.ctx.select::<MakeVotingEscrowOrderRefScriptOutput>().0;
-        let mve_script_hash = mve_unspent_output.output.script_hash().unwrap();
 
         let mut change_output_creator = ChangeOutputCreator::default();
         let mut tx_builder = constant_tx_builder();
@@ -1287,11 +1300,13 @@ where
             return Err(MakeVotingEscrowError::VEFactoryDatumNotPresent);
         };
 
+        let ve_factory_script_hash = self.ctx.select::<VEFactoryScriptHash>().0;
         let ve_factory_redeemer = FactoryAction::Deposit.into_pd();
         let ve_factory_witness = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(ve_factory_script_hash),
             ve_factory_redeemer,
         );
+
         let ve_factory_input_builder =
             SingleInputBuilder::new(TransactionInput::from(ve_factory_output_ref), ve_factory_in)
                 .plutus_script_inline_datum(ve_factory_witness, vec![].into())
@@ -1299,25 +1314,41 @@ where
         change_output_creator.add_input(&ve_factory_input_builder);
         tx_builder.add_input(ve_factory_input_builder.clone()).unwrap();
 
-        tx_builder.set_exunits(
-            RedeemerWitnessKey::new(cml_chain::plutus::RedeemerTag::Spend, ve_factory_in_ix as u64),
-            cml_chain::plutus::ExUnits::from(VE_FACTORY_EX_UNITS),
-        );
-
         // `make_voting_escrow_order` input --------------------------------------------------------
-        let mve_redeemer = MakeVotingEscrowOrderAction::Deposit.into_pd();
+        let mve_script_hash = self.ctx.select::<MakeVotingEscrowOrderScriptHash>().0;
+        let mve_redeemer = MakeVotingEscrowOrderAction::Deposit {
+            ve_factory_input_ix: ve_factory_in_ix,
+        }
+        .into_pd();
         let mve_witness = PartialPlutusWitness::new(PlutusScriptWitness::Ref(mve_script_hash), mve_redeemer);
 
         let mve_input_builder =
             SingleInputBuilder::new(TransactionInput::from(mve_output_ref.output_ref), mve_tx_output)
                 .plutus_script_inline_datum(mve_witness, vec![].into())
                 .unwrap();
+        change_output_creator.add_input(&mve_input_builder);
         tx_builder.add_input(mve_input_builder).unwrap();
 
-        tx_builder.set_exunits(
-            RedeemerWitnessKey::new(cml_chain::plutus::RedeemerTag::Spend, mve_in_ix as u64),
-            cml_chain::plutus::ExUnits::from(MAKE_VOTING_ESCROW_EX_UNITS),
-        );
+        if mve_in_ix == 0 {
+            tx_builder.set_exunits(
+                RedeemerWitnessKey::new(cml_chain::plutus::RedeemerTag::Spend, mve_in_ix as u64),
+                cml_chain::plutus::ExUnits::from(MAKE_VOTING_ESCROW_EX_UNITS),
+            );
+
+            tx_builder.set_exunits(
+                RedeemerWitnessKey::new(cml_chain::plutus::RedeemerTag::Spend, ve_factory_in_ix as u64),
+                cml_chain::plutus::ExUnits::from(VE_FACTORY_EX_UNITS),
+            );
+        } else {
+            tx_builder.set_exunits(
+                RedeemerWitnessKey::new(cml_chain::plutus::RedeemerTag::Spend, ve_factory_in_ix as u64),
+                cml_chain::plutus::ExUnits::from(VE_FACTORY_EX_UNITS),
+            );
+            tx_builder.set_exunits(
+                RedeemerWitnessKey::new(cml_chain::plutus::RedeemerTag::Spend, mve_in_ix as u64),
+                cml_chain::plutus::ExUnits::from(MAKE_VOTING_ESCROW_EX_UNITS),
+            );
+        }
 
         let total_num_mints = voting_escrow_value.multiasset.len() + 1;
 
@@ -1402,7 +1433,7 @@ where
         };
 
         let voting_escrow_datum = DatumOption::new_datum(ve_datum.into_pd());
-        voting_escrow_value.coin = mve_coin - 1_000_000;
+        voting_escrow_value.coin = mve_coin - 3_000_000;
 
         let voting_escrow_output = TransactionOutputBuilder::new()
             .with_address(script_address(
@@ -1420,7 +1451,7 @@ where
         tx_builder.add_output(voting_escrow_output.clone()).unwrap();
 
         let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
-        let actual_fee = estimated_tx_fee + 300_000;
+        let actual_fee = estimated_tx_fee + 320_000;
 
         // TODO: change should be sent to the owner.
         let OperatorCreds(_operator_pkh, operator_addr) = self.ctx.select::<OperatorCreds>();
@@ -1611,6 +1642,7 @@ pub enum MakeVotingEscrowError {
     NonAcceptedAsset,
     InsufficientAdaInOrder,
     VEFactoryDatumNotPresent,
+    LocktimeExceedsLimit,
 }
 
 #[derive(Clone, Debug, Serialize)]

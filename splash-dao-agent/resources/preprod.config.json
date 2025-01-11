@@ -50,6 +50,7 @@
   "permManagerPersistenceConfig": { "db_path": "tmp/perm_manager" },
   "predictedTxsBacklogConfig": { "db_path": "tmp/predicted_txs" },
   "fundingBoxConfig": { "db_path": "tmp/funding_box" },
+  "txHashToMveConfig": { "db_path": "tmp/tx_hash_to_mve" },
   "explorer": {
     "url": "https://explorer.spectrum.fi"
   },

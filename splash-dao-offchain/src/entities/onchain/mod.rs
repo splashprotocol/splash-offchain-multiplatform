@@ -10,7 +10,7 @@ use spectrum_cardano_lib::{NetworkId, OutputRef};
 use spectrum_offchain::{domain::Has, ledger::TryFromLedger};
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use voting_escrow::{VotingEscrow, VotingEscrowSnapshot};
-use voting_escrow_factory::VEFactory;
+use voting_escrow_factory::{VEFactory, VEFactorySnapshot};
 use weighting_poll::{WeightingPoll, WeightingPollSnapshot};
 
 use crate::{
@@ -67,7 +67,9 @@ where
         + Has<DeployedScriptInfo<{ ProtocolValidator::Inflation as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::PermManager as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }>>
         + Has<OperatorCreds>
         + Has<WeightingPollEliminated>
         + Has<NetworkId>
@@ -88,6 +90,8 @@ where
                 DaoEntity::WeightingPollFactory(poll_factory),
                 output_ref,
             ))
+        } else if let Some(Snapshot(ve_factory, output_ref)) = VEFactorySnapshot::try_from_ledger(repr, ctx) {
+            Some(Snapshot(DaoEntity::VotingEscrowFactory(ve_factory), output_ref))
         } else if let Some(Snapshot(smart_farm, output_ref)) = SmartFarmSnapshot::try_from_ledger(repr, ctx) {
             Some(Snapshot(DaoEntity::SmartFarm(smart_farm), output_ref))
         } else if let Some(Snapshot(voting_escrow, output_ref)) =
@@ -103,6 +107,12 @@ where
         {
             let timed_output_ref = ctx.select::<TimedOutputRef>();
             Some(Snapshot(DaoEntity::FundingBox(funding_box), timed_output_ref))
+        } else if let Some(mve_order) = MakeVotingEscrowOrder::try_from_ledger(repr, ctx) {
+            let timed_output_ref = ctx.select::<TimedOutputRef>();
+            Some(Snapshot(
+                DaoEntity::MakeVotingEscrowOrder(mve_order),
+                timed_output_ref,
+            ))
         } else {
             None
         }

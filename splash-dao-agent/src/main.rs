@@ -7,7 +7,7 @@ use std::{
 
 use async_primitives::beacon::Beacon;
 use async_trait::async_trait;
-use axum::{extract::State, http::StatusCode, response::IntoResponse};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use bloom_offchain_cardano::event_sink::processed_tx::TxViewMut;
 use bounded_integer::BoundedU8;
 use cardano_chain_sync::{
@@ -34,6 +34,7 @@ use futures::{
     stream::{select_all, FuturesUnordered},
     FutureExt, Stream, StreamExt,
 };
+use log::trace;
 use spectrum_cardano_lib::{
     constants::{BABBAGE_ERA_ID, CONWAY_ERA_ID, SAFE_BLOCK_TIME},
     hash::hash_transaction_canonical,
@@ -61,14 +62,17 @@ use splash_dao_offchain::{
     deployment::{CompleteDeployment, DeploymentProgress, ProtocolDeployment},
     entities::{
         offchain::voting_order::VotingOrder,
-        onchain::make_voting_escrow_order::{MakeVotingEscrowOrder, MakeVotingEscrowOrderBundle},
+        onchain::{
+            make_voting_escrow_order::{MakeVotingEscrowOrder, MakeVotingEscrowOrderBundle},
+            voting_escrow::Owner,
+        },
     },
     funding::FundingRepoRocksDB,
     handler::DaoHandler,
     protocol_config::ProtocolConfig,
     routines::inflation::{
-        actions::CardanoInflationActions, Behaviour, PredictedEntityWrites, VotingOrderCommand,
-        VotingOrderMessage, VotingOrderStatus,
+        actions::CardanoInflationActions, Behaviour, DaoBotCommand, DaoBotMessage, DaoBotResponse,
+        PredictedEntityWrites, VotingOrderCommand, VotingOrderStatus,
     },
     state_projection::StateProjectionRocksDB,
     time::{NetworkTime, NetworkTimeProvider},
@@ -207,6 +211,10 @@ async fn main() {
     // Setup axum server to listen for incoming voting orders --------------------------------------
     let app = axum::Router::new()
         .route("/submit/votingorder", axum::routing::put(handle_put))
+        .route(
+            "/query/ve/identifier/name",
+            axum::routing::put(handle_get_mve_status),
+        )
         .with_state(state);
     println!("Listening on {}", config.voting_order_listener_endpoint);
 
@@ -280,23 +288,55 @@ async fn handle_put(
     // You can now process the payload as needed
     let AppState { sender } = state;
     let (response_sender, recv) = tokio::sync::oneshot::channel();
-    let msg = VotingOrderMessage {
-        command: VotingOrderCommand::Submit(payload),
+    let msg = DaoBotMessage {
+        command: DaoBotCommand::VotingOrder(VotingOrderCommand::Submit(payload)),
+        response_sender,
+    };
+    sender.send(msg).await.unwrap();
+    match recv.await {
+        Ok(response) => match response {
+            DaoBotResponse::VotingOrder(voting_order_status) => match voting_order_status {
+                VotingOrderStatus::Queued | VotingOrderStatus::Success => {
+                    (StatusCode::OK, format!("{:?}", voting_order_status))
+                }
+                VotingOrderStatus::Failed => {
+                    (StatusCode::UNPROCESSABLE_ENTITY, "TX submission failed".into())
+                }
+                VotingOrderStatus::VotingEscrowNotFound => (
+                    StatusCode::NOT_FOUND,
+                    "Cannot find associated voting_escrow".into(),
+                ),
+            },
+            DaoBotResponse::MVEStatus(mve_status) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                format!("Unexpected response: MVEStatus: {:?}", mve_status),
+            ),
+        },
+        Err(_err) => (StatusCode::UNPROCESSABLE_ENTITY, "Unknown error".into()),
+    }
+}
+
+async fn handle_get_mve_status(
+    State(state): State<AppState>,
+    axum::Json(owner): axum::Json<Owner>,
+) -> impl IntoResponse {
+    // You can now process the payload as needed
+    trace!("get_mve_status!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+    let AppState { sender } = state;
+    let (response_sender, recv) = tokio::sync::oneshot::channel();
+    let msg = DaoBotMessage {
+        command: DaoBotCommand::GetMVEOrderStatus {
+            mve_order_owner: owner,
+        },
         response_sender,
     };
     sender.send(msg).await.unwrap();
     match recv.await {
         Ok(status) => match status {
-            VotingOrderStatus::Queued | VotingOrderStatus::Success => {
-                (StatusCode::OK, format!("{:?}", status))
-            }
-            VotingOrderStatus::Failed => (StatusCode::UNPROCESSABLE_ENTITY, "TX submission failed".into()),
-            VotingOrderStatus::VotingEscrowNotFound => (
-                StatusCode::NOT_FOUND,
-                "Cannot find associated voting_escrow".into(),
-            ),
+            DaoBotResponse::MVEStatus(status) => (StatusCode::OK, Json(Some(status))),
+            DaoBotResponse::VotingOrder(_) => (StatusCode::UNPROCESSABLE_ENTITY, Json(None)),
         },
-        Err(_err) => (StatusCode::UNPROCESSABLE_ENTITY, "Unknown error".into()),
+        Err(_err) => (StatusCode::UNPROCESSABLE_ENTITY, Json(None)),
     }
 }
 
@@ -308,7 +348,7 @@ fn succinct_tx(tx: LedgerTxEvent<TxViewMut>) -> (TransactionHash, u64) {
 
 #[derive(Clone)]
 struct AppState {
-    sender: tokio::sync::mpsc::Sender<VotingOrderMessage>,
+    sender: tokio::sync::mpsc::Sender<DaoBotMessage>,
 }
 
 async fn setup_order_backlog(

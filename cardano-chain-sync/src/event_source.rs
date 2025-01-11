@@ -111,10 +111,10 @@ where
                     cache_point(cache, &blk).await;
                 }
             }
-            info!(
-                "Scanning Block {}",
-                hash_block_header_canonical_multi_era(&blk.header()).to_hex()
-            );
+            //info!(
+            //    "Scanning Block {}",
+            //    hash_block_header_canonical_multi_era(&blk.header()).to_hex()
+            //);
             let applied_txs: Vec<_> = unpack_valid_transactions_multi_era(blk)
                 .into_iter()
                 .map(|(tx, slot, block_number)| LedgerTxEvent::TxApplied {

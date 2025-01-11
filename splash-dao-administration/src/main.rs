@@ -57,7 +57,7 @@ use spectrum_offchain_cardano::{
 };
 use splash_dao_offchain::{
     collateral::{pull_collateral, register_staking_address, send_assets},
-    constants::{DEFAULT_AUTH_TOKEN_NAME, SPLASH_NAME},
+    constants::{time::MAX_LOCK_TIME_SECONDS, DEFAULT_AUTH_TOKEN_NAME, SPLASH_NAME},
     create_change_output::{ChangeOutputCreator, CreateChangeOutput},
     deployment::{
         write_deployment_to_disk, BuiltPolicy, CompleteDeployment, DeployedValidators, DeploymentProgress,
@@ -79,7 +79,10 @@ use splash_dao_offchain::{
         },
     },
     protocol_config::{GTAuthPolicy, NotOutputRefNorSlotNumber, VEFactoryAuthPolicy},
-    routines::inflation::{actions::compute_farm_name, ProcessLedgerEntityContext, Slot, TimedOutputRef},
+    routines::inflation::{
+        actions::{compute_farm_name, MakeVotingEscrowError},
+        ProcessLedgerEntityContext, Slot, TimedOutputRef,
+    },
     time::NetworkTimeProvider,
     util::generate_collateral,
     CurrentEpoch, NetworkTimeSource,
@@ -125,7 +128,7 @@ async fn main() {
                 .expect("Cannot load voting_escrow settings JSON file");
             let ve_settings: VotingEscrowSettings =
                 serde_json::from_str(&s).expect("Invalid voting_escrow settings file");
-            make_voting_escrow(&ve_settings, &mut op_inputs).await;
+            make_voting_escrow_order(&ve_settings, &mut op_inputs).await;
         }
         Command::ExtendDeposit => {
             //
@@ -721,7 +724,7 @@ async fn create_dao_entities(
     tx_builder.add_output(change_output_output).unwrap();
 
     let signed_tx_builder = tx_builder.build(ChangeSelectionAlgo::Default, addr).unwrap();
-    let tx = Transaction::from(prover.prove(signed_tx_builder));
+    let tx = prover.prove(signed_tx_builder);
     let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
     println!("tx_hash: {:?}", tx_hash);
     let tx_bytes = tx.to_cbor_bytes();
@@ -732,7 +735,10 @@ async fn create_dao_entities(
     println!("TX confirmed");
 }
 
-async fn make_voting_escrow(ve_settings: &VotingEscrowSettings, op_inputs: &mut OperationInputs) {
+async fn make_voting_escrow_order(
+    ve_settings: &VotingEscrowSettings,
+    op_inputs: &mut OperationInputs,
+) -> Owner {
     let OperationInputs {
         explorer,
         addr,
@@ -753,6 +759,10 @@ async fn make_voting_escrow(ve_settings: &VotingEscrowSettings, op_inputs: &mut 
         ..
     } = ve_settings;
 
+    if *lock_duration_in_seconds > MAX_LOCK_TIME_SECONDS {
+        panic!("Locktime exceeds limits!");
+    }
+
     let deployment_config = CompleteDeployment::try_from((deployment_progress.clone(), *network_id))
         .expect(INCOMPLETE_DEPLOYMENT_ERR_MSG);
     let protocol_deployment =
@@ -769,13 +779,8 @@ async fn make_voting_escrow(ve_settings: &VotingEscrowSettings, op_inputs: &mut 
     )
     .await
     .unwrap();
-    let ve_factory_output_ref = OutputRef::new(
-        ve_factory_unspent_output.input.transaction_id,
-        ve_factory_unspent_output.input.index,
-    );
 
-    let ve_factory_in_value = ve_factory_unspent_output.output.amount();
-    let mut ve_factory_out_value = ve_factory_in_value.clone();
+    let mut order_out_value = Value::zero();
 
     // Deposit assets into ve_factory -------------------------------------------
     let VEFactoryDatum { accepted_assets, .. } = VEFactoryDatum::from(dao_parameters.accepted_assets.clone());
@@ -787,30 +792,12 @@ async fn make_voting_escrow(ve_settings: &VotingEscrowSettings, op_inputs: &mut 
         let accepted_asset = accepted_assets.iter().any(|(tok, _)| *tok == token);
         let ac = AssetClass::from(token);
         if accepted_asset {
-            ve_factory_out_value.add_unsafe(ac, token_deposit.quantity);
+            order_out_value.add_unsafe(ac, token_deposit.quantity);
             built_policies.push(BuiltPolicy::from(token_deposit.clone()));
         } else {
             panic!("{} is not accepted by the DAO!", ac);
         }
     }
-
-    let ve_composition_policy = protocol_deployment.mint_ve_composition_token.hash;
-
-    let (ve_composition_qty, mut voting_escrow_value) = exchange_outputs(
-        ve_factory_in_value,
-        &ve_factory_out_value,
-        accepted_assets.clone(),
-        ve_composition_policy,
-        false,
-    );
-
-    // `ve_factory` will loan `ve_composition_qty` GT tokens to the newly created `voting_escrow`.
-    let gt_token = &deployment_config.minted_deployment_tokens.gt;
-    let gt_ac = AssetClass::from(Token(
-        gt_token.policy_id,
-        spectrum_cardano_lib::AssetName::from(gt_token.asset_name.clone()),
-    ));
-    ve_factory_out_value.sub_unsafe(gt_ac, ve_composition_qty);
 
     println!("seeking input value: {}", ada_balance + 10_000_000);
     let utxos = collect_utxos(
@@ -834,12 +821,13 @@ async fn make_voting_escrow(ve_settings: &VotingEscrowSettings, op_inputs: &mut 
     }
 
     let time_source = NetworkTimeSource;
-    const ONE_MONTH_IN_SECONDS: u64 = 604800 * 4;
+    let locked_until = Lock::Def((time_source.network_time().await + *lock_duration_in_seconds) * 1000);
     let owner_bytes = owner_pub_key.to_raw_bytes().try_into().unwrap();
+    let owner = Owner::PubKey(owner_bytes);
     let voting_escrow_datum = DatumOption::new_datum(
         VotingEscrowConfig {
-            locked_until: Lock::Def((time_source.network_time().await + lock_duration_in_seconds) * 1000),
-            owner: Owner::PubKey(owner_bytes),
+            locked_until,
+            owner,
             max_ex_fee: *max_ex_fee as u32,
             version: 0,
             last_wp_epoch: -1,
@@ -848,7 +836,7 @@ async fn make_voting_escrow(ve_settings: &VotingEscrowSettings, op_inputs: &mut 
         .into_pd(),
     );
 
-    voting_escrow_value.coin = *ada_balance;
+    order_out_value.coin = *ada_balance;
 
     let mve_output = TransactionOutputBuilder::new()
         .with_address(script_address(
@@ -858,7 +846,7 @@ async fn make_voting_escrow(ve_settings: &VotingEscrowSettings, op_inputs: &mut 
         .with_data(voting_escrow_datum)
         .next()
         .unwrap()
-        .with_value(voting_escrow_value)
+        .with_value(order_out_value)
         .build()
         .unwrap();
     change_output_creator.add_output(&mve_output);
@@ -877,7 +865,7 @@ async fn make_voting_escrow(ve_settings: &VotingEscrowSettings, op_inputs: &mut 
     tx_builder.set_ttl(start_slot + 300);
 
     let signed_tx_builder = tx_builder.build(ChangeSelectionAlgo::Default, addr).unwrap();
-    let tx = Transaction::from(prover.prove(signed_tx_builder));
+    let tx = prover.prove(signed_tx_builder);
     let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
     println!("tx_hash: {:?}", tx_hash);
     let tx_bytes = tx.to_cbor_bytes();
@@ -886,6 +874,7 @@ async fn make_voting_escrow(ve_settings: &VotingEscrowSettings, op_inputs: &mut 
     explorer.submit_tx(&tx_bytes).await.unwrap();
     explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
     println!("TX confirmed");
+    owner
 }
 
 async fn create_initial_farms(op_inputs: &OperationInputs) {

@@ -11,7 +11,8 @@ use splash_dao_offchain::{
     entities::{
         offchain::voting_order::{VotingOrder, VotingOrderId},
         onchain::{
-            voting_escrow::{VotingEscrowId, VotingEscrowSnapshot},
+            make_voting_escrow_order::MVEStatus,
+            voting_escrow::{Owner, VotingEscrowId, VotingEscrowSnapshot},
             weighting_poll::{WeightingPollId, WeightingPollSnapshot},
         },
     },
@@ -22,7 +23,7 @@ use splash_dao_offchain::{
 use tokio::io::AsyncWriteExt;
 
 use crate::{
-    deploy, make_voting_escrow, pull_onchain_entity, voting_order::create_voting_order, AppConfig,
+    deploy, make_voting_escrow_order, pull_onchain_entity, voting_order::create_voting_order, AppConfig,
     OperationInputs, VotingEscrowSettings,
 };
 
@@ -68,10 +69,27 @@ pub async fn user_simulator<'a>(
             assert!(matches!(ve_state, VEState::Waiting));
             println!("---- Making deposit into VE");
             // Deposit into VE
-            let identifier_name = make_voting_escrow(&ve_settings, op_inputs).await;
+            let owner = make_voting_escrow_order(&ve_settings, op_inputs).await;
 
-            let voting_escrow_id =
-                VotingEscrowId(spectrum_cardano_lib::AssetName::from(identifier_name.clone()));
+            let voting_escrow_id = loop {
+                if let Some(mve_status) =
+                    request_mve_status(owner, &op_inputs.voting_order_listener_endpoint).await
+                {
+                    match mve_status {
+                        MVEStatus::Unspent => {
+                            println!("MVE order not yet processed by bot");
+                        }
+                        MVEStatus::Refunded => {
+                            panic!("Unexpected refund of MVE order!");
+                        }
+                        MVEStatus::SpentToFormVotingEscrow(voting_escrow_id) => {
+                            break voting_escrow_id;
+                        }
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            };
+            let identifier_name = cml_chain::assets::AssetName::from(voting_escrow_id.0);
             if let Some((ve_snapshot, _)) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
                 &op_inputs.explorer,
                 protocol_deployment.voting_escrow.hash,
@@ -258,6 +276,31 @@ async fn send_vote(voting_order: VotingOrder, voting_order_listener_endpoint: &S
             println!("Error: {}", error_text);
         }
     }
+}
+
+async fn request_mve_status(owner: Owner, voting_order_listener_endpoint: &SocketAddr) -> Option<MVEStatus> {
+    let client = reqwest::Client::new();
+
+    // Send the PUT request with JSON body
+    let response = retry!(
+        {
+            let url = format!(
+                "http://{}{}",
+                &voting_order_listener_endpoint, "/query/ve/identifier/name"
+            );
+            client
+                .put(url)
+                .json(&owner) // Serialize the payload as JSON
+                .send()
+                .await
+        },
+        100,
+        2000
+    );
+    let res = response.unwrap().json::<Option<MVEStatus>>().await;
+
+    println!("{:?}", res);
+    res.unwrap()
 }
 
 #[derive(Clone, Debug)]

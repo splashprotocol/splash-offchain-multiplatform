@@ -92,7 +92,13 @@ pub struct WPFactoryAuthPolicy(pub PolicyId);
 pub struct VEFactoryAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
+pub struct VEFactoryScriptHash(pub ScriptHash);
+
+#[derive(Debug, Clone)]
 pub struct VEFactoryRefScriptOutput(pub TransactionUnspentOutput);
+
+#[derive(Debug, Clone)]
+pub struct MakeVotingEscrowOrderScriptHash(pub ScriptHash);
 
 #[derive(Debug, Clone)]
 pub struct MakeVotingEscrowOrderRefScriptOutput(pub TransactionUnspentOutput);
@@ -262,9 +268,21 @@ impl Has<VEFactoryAuthPolicy> for ProtocolConfig {
     }
 }
 
+impl Has<VEFactoryScriptHash> for ProtocolConfig {
+    fn select<U: IsEqual<VEFactoryScriptHash>>(&self) -> VEFactoryScriptHash {
+        VEFactoryScriptHash(self.deployed_validators.ve_factory.hash)
+    }
+}
+
 impl Has<VEFactoryRefScriptOutput> for ProtocolConfig {
     fn select<U: IsEqual<VEFactoryRefScriptOutput>>(&self) -> VEFactoryRefScriptOutput {
         VEFactoryRefScriptOutput(self.deployed_validators.ve_factory.reference_utxo.clone())
+    }
+}
+
+impl Has<MakeVotingEscrowOrderScriptHash> for ProtocolConfig {
+    fn select<U: IsEqual<MakeVotingEscrowOrderScriptHash>>(&self) -> MakeVotingEscrowOrderScriptHash {
+        MakeVotingEscrowOrderScriptHash(self.deployed_validators.make_ve_order.hash)
     }
 }
 
@@ -424,6 +442,22 @@ impl Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>> for Protoco
         &self,
     ) -> DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }> {
         DeployedScriptInfo::from(&self.deployed_validators.smart_farm)
+    }
+}
+
+impl Has<DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }>> for ProtocolConfig {
+    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }> {
+        DeployedScriptInfo::from(&self.deployed_validators.ve_factory)
+    }
+}
+
+impl Has<DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }>> for ProtocolConfig {
+    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }> {
+        DeployedScriptInfo::from(&self.deployed_validators.make_ve_order)
     }
 }
 

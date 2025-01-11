@@ -6,6 +6,6 @@
   }],
   "max_ex_fee": 2000000,
   "ada_balance": 100000000,
-  "lock_duration_in_seconds": 18000,
-  "creation_epoch": 110
+  "lock_duration_in_seconds": 70000,
+  "creation_epoch": 8
 }
