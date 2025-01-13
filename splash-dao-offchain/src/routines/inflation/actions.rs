@@ -512,7 +512,7 @@ where
         };
 
         let (input_results, funding_boxes_to_spend) =
-            select_funding_boxes(10_000_000, vec![], funding_boxes.0, &self.ctx);
+            select_funding_boxes(3_000_000, vec![], funding_boxes.0, &self.ctx);
 
         let mut inputs: Vec<_> = input_results
             .into_iter()

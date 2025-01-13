@@ -142,13 +142,13 @@ impl DistributionOngoing {
     }
 }
 
-pub struct PollExhausted;
-
 pub enum PollState {
     WeightingOngoing(WeightingOngoing),
     DistributionOngoing(DistributionOngoing),
     WaitingForDistributionToStart,
-    PollExhausted(PollExhausted),
+    PollExhaustedAndReadyToEliminate,
+    PollExhaustedButNotReadyToEliminate,
+    Eliminated,
 }
 
 impl WeightingPoll {
@@ -181,7 +181,15 @@ impl WeightingPoll {
             PollState::WeightingOngoing(WeightingOngoing)
         } else {
             match self.next_farm() {
-                None => PollState::PollExhausted(PollExhausted),
+                None => {
+                    if self.eliminated {
+                        PollState::Eliminated
+                    } else if self.can_be_eliminated(genesis, time_now) {
+                        PollState::PollExhaustedAndReadyToEliminate
+                    } else {
+                        PollState::PollExhaustedButNotReadyToEliminate
+                    }
+                }
                 Some((farm, weight)) => {
                     let epoch_end = epoch_end(genesis, self.epoch);
                     let can_start_distribution =
