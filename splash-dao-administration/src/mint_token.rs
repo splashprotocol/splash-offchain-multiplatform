@@ -66,6 +66,7 @@ pub fn mint_token(
     change_address: &Address,
     current_slot_number: u64,
 ) -> (SignedTxBuilder, ExternallyMintedToken) {
+    println!("current_slot_number: {}", current_slot_number);
     let valid_until = current_slot_number + 300;
 
     let script_pk = NativeScript::new_script_pubkey(pk_hash);
@@ -87,6 +88,7 @@ pub fn mint_token(
     let mut output_multiasset = MultiAsset::new();
     output_multiasset.set(script_all_hash, asset_name.clone(), quantity as u64);
 
+    println!("TO_ADDR: {}", change_address.to_bech32(None).unwrap());
     let mut output_result = TransactionOutputBuilder::new()
         .with_address(change_address.clone())
         .next()

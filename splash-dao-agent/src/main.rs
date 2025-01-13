@@ -4,6 +4,7 @@ use std::{
     time::UNIX_EPOCH,
 };
 
+use async_primitives::beacon::Beacon;
 use async_trait::async_trait;
 use axum::{extract::State, http::StatusCode, response::IntoResponse};
 use bloom_offchain_cardano::event_sink::processed_tx::TxViewMut;
@@ -27,22 +28,33 @@ use cml_chain::{
 use cml_crypto::{Bip32PrivateKey, TransactionHash};
 use cml_multi_era::babbage::BabbageTransaction;
 use config::AppConfig;
-use futures::{stream::select_all, FutureExt, Stream, StreamExt};
+use futures::{
+    channel::mpsc,
+    stream::{select_all, FuturesUnordered},
+    FutureExt, Stream, StreamExt,
+};
 use spectrum_cardano_lib::{
-    constants::BABBAGE_ERA_ID, hash::hash_transaction_canonical, output::FinalizedTxOut,
-    transaction::OutboundTransaction, NetworkId,
+    constants::{BABBAGE_ERA_ID, CONWAY_ERA_ID, SAFE_BLOCK_TIME},
+    hash::hash_transaction_canonical,
+    output::FinalizedTxOut,
+    NetworkId,
 };
 use spectrum_offchain::{
     backlog::{persistence::BacklogStoreRocksDB, BacklogConfig, PersistentPriorityBacklog},
-    event_sink::{event_handler::EventHandler, process_events},
+    event_sink::{
+        event_handler::{forward_to, EventHandler},
+        process_events,
+    },
+    kv_store::KVStoreRocksDB,
     rocks::RocksConfig,
-    streaming::boxed,
 };
 use spectrum_offchain_cardano::{
     creds::{operator_creds, operator_creds_base_address},
     prover::operator::OperatorProver,
     tx_submission::{tx_submission_agent_stream, TxSubmissionAgent},
+    tx_tracker::new_tx_tracker_bundle,
 };
+use spectrum_streaming::run_stream;
 use splash_dao_offchain::{
     collateral::pull_collateral,
     deployment::{CompleteDeployment, DeploymentProgress, ProtocolDeployment},
@@ -51,8 +63,8 @@ use splash_dao_offchain::{
     handler::DaoHandler,
     protocol_config::ProtocolConfig,
     routines::inflation::{
-        actions::CardanoInflationActions, Behaviour, VotingOrderCommand, VotingOrderMessage,
-        VotingOrderStatus,
+        actions::CardanoInflationActions, Behaviour, PredictedEntityWrites, VotingOrderCommand,
+        VotingOrderMessage, VotingOrderStatus,
     },
     state_projection::StateProjectionRocksDB,
     time::{NetworkTime, NetworkTimeProvider},
@@ -76,13 +88,14 @@ async fn main() {
     let deployment_progress: DeploymentProgress =
         serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
 
-    let deployment = CompleteDeployment::try_from(deployment_progress).unwrap();
+    let deployment = CompleteDeployment::try_from((deployment_progress, config.network_id)).unwrap();
 
     log4rs::init_file(args.log4rs_path, Default::default()).unwrap();
 
     info!("Starting DAO Agent ..");
 
-    let rollback_in_progress = Arc::new(AtomicBool::new(false));
+    let state_synced = Beacon::relaxed(false);
+    let rollback_in_progress = Beacon::strong(false);
 
     let explorer = Maestro::new(config.maestro_key_path, config.network_id.into())
         .await
@@ -101,8 +114,21 @@ async fn main() {
     .expect("ChainSync initialization failed");
 
     // n2c clients:
+    let (failed_txs_snd, failed_txs_recv) =
+        tokio::sync::mpsc::channel::<Transaction>(config.tx_submission_buffer_size);
+    let (confirmed_txs_snd, confirmed_txs_recv) =
+        mpsc::channel::<(TransactionHash, u64)>(config.tx_submission_buffer_size);
+    let max_confirmation_delay_blocks = config.event_cache_ttl.as_secs() / SAFE_BLOCK_TIME.as_secs();
+    info!("max_confirmation_delay_blocks: {}", max_confirmation_delay_blocks);
+    let (tx_tracker_agent, tx_tracker_channel) = new_tx_tracker_bundle(
+        confirmed_txs_recv,
+        tokio_util::sync::PollSender::new(failed_txs_snd), // Need to wrap the Sender to satisfy Sink trait
+        config.tx_submission_buffer_size,
+        max_confirmation_delay_blocks,
+    );
     let (tx_submission_agent, tx_submission_channel) =
-        TxSubmissionAgent::<BABBAGE_ERA_ID, OutboundTransaction<Transaction>, Transaction>::new(
+        TxSubmissionAgent::<CONWAY_ERA_ID, Transaction, _>::new(
+            tx_tracker_channel,
             config.node,
             config.tx_submission_buffer_size,
         )
@@ -111,23 +137,32 @@ async fn main() {
 
     // prepare upstreams
     let tx_submission_stream = tx_submission_agent_stream(tx_submission_agent);
-    let (signal_tip_reached_snd, mut signal_tip_reached_recv) = tokio::sync::broadcast::channel(1);
     let ledger_stream = Box::pin(ledger_transactions(
         chain_sync_cache,
-        chain_sync_stream(chain_sync, signal_tip_reached_snd),
+        chain_sync_stream(chain_sync, state_synced.clone()),
         config.chain_sync.disable_rollbacks_until,
         config.chain_sync.replay_from_point,
         rollback_in_progress,
     ))
     .await
     .map(|ev| match ev {
-        LedgerTxEvent::TxApplied { tx, slot } => LedgerTxEvent::TxApplied {
+        LedgerTxEvent::TxApplied {
+            tx,
+            slot,
+            block_number,
+        } => LedgerTxEvent::TxApplied {
             tx: TxViewMut::from(tx),
             slot,
+            block_number,
         },
-        LedgerTxEvent::TxUnapplied { tx, slot } => LedgerTxEvent::TxUnapplied {
+        LedgerTxEvent::TxUnapplied {
+            tx,
+            slot,
+            block_number,
+        } => LedgerTxEvent::TxUnapplied {
             tx: TxViewMut::from(tx),
             slot,
+            block_number,
         },
     });
 
@@ -187,29 +222,47 @@ async fn main() {
         StateProjectionRocksDB::new(config.perm_manager_persistence_config),
         FundingRepoRocksDB::new(config.funding_box_config.db_path),
         setup_order_backlog(config.order_backlog_config).await,
+        KVStoreRocksDB::new(config.predicted_txs_backlog_config.db_path),
         NetworkTimeSource {},
         inflation_actions,
         protocol_config,
         PhantomData::<TransactionOutput>,
         tx_submission_channel,
-        operator_sk,
         ledger_event_rcv,
         voting_event_rcv,
-        signal_tip_reached_recv,
+        state_synced,
+        failed_txs_recv,
     );
 
-    let handlers: Vec<Box<dyn EventHandler<LedgerTxEvent<TxViewMut>> + Send>> =
-        vec![Box::new(DaoHandler::new(ledger_event_snd))];
+    let handlers: Vec<Box<dyn EventHandler<LedgerTxEvent<TxViewMut>> + Send>> = vec![
+        Box::new(DaoHandler::new(ledger_event_snd)),
+        Box::new(forward_to(confirmed_txs_snd, succinct_tx)),
+    ];
     let process_ledger_events_stream = process_events(ledger_stream, handlers);
 
-    let mut app = select_all(vec![
-        boxed(process_ledger_events_stream),
-        boxed(behaviour.as_stream()),
-        boxed(tx_submission_stream),
-    ]);
-    loop {
-        app.select_next_some().await;
-    }
+    let processes = FuturesUnordered::new();
+
+    let process_ledger_events_stream_handle = tokio::spawn(run_stream(process_ledger_events_stream));
+    processes.push(process_ledger_events_stream_handle);
+
+    let behaviour_stream_handle = tokio::spawn(async move {
+        behaviour.as_stream().collect::<Vec<_>>().await;
+    });
+    processes.push(behaviour_stream_handle);
+
+    let tx_submission_stream_handle = tokio::spawn(run_stream(tx_submission_stream));
+    processes.push(tx_submission_stream_handle);
+
+    let tx_tracker_handle = tokio::spawn(tx_tracker_agent.run());
+    processes.push(tx_tracker_handle);
+
+    let default_panic = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        default_panic(info);
+        std::process::exit(1);
+    }));
+
+    run_stream(processes).await;
 }
 
 async fn handle_put(
@@ -237,6 +290,12 @@ async fn handle_put(
         },
         Err(_err) => (StatusCode::UNPROCESSABLE_ENTITY, "Unknown error".into()),
     }
+}
+
+fn succinct_tx(tx: LedgerTxEvent<TxViewMut>) -> (TransactionHash, u64) {
+    let (LedgerTxEvent::TxApplied { tx, block_number, .. }
+    | LedgerTxEvent::TxUnapplied { tx, block_number, .. }) = tx;
+    (tx.hash, block_number)
 }
 
 #[derive(Clone)]
@@ -275,11 +334,3 @@ struct AppArgs {
 }
 
 pub type ProcessingTransaction = (TransactionHash, BabbageTransaction);
-
-//fn receiver_as_stream<T>(rcv: tokio::sync::mpsc::Receiver<T>) -> impl Stream<Item = T> {
-//    stream! {
-//        loop {
-//            match rcv.
-//        }
-//    }
-//}

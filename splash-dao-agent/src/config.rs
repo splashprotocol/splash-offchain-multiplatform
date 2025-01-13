@@ -27,6 +27,8 @@ pub struct AppConfig<'a> {
     pub network_id: NetworkId,
     pub maestro_key_path: &'a str,
     pub order_backlog_config: RocksConfig,
+    pub predicted_txs_backlog_config: RocksConfig,
+    pub event_cache_ttl: Duration,
     pub inflation_box_persistence_config: RocksConfig,
     pub poll_factory_persistence_config: RocksConfig,
     pub weighting_poll_persistence_config: RocksConfig,

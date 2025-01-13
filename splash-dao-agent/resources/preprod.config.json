@@ -2,14 +2,14 @@
   "chainSync": {
     "startingPoint": {
       "Specific": [
-        76164390,
-        "d261370782beb17dbb951f3290f87cc25277e9c4ad52d0233874a09412a82cc2"
+        78722963,
+        "550870e94dff55150befc76a626b757b8626b8bd650b804a6b364ba63af7823c"
       ]
     },
     "replayFromPoint": {
       "Specific": [
-        76164390,
-        "d261370782beb17dbb951f3290f87cc25277e9c4ad52d0233874a09412a82cc2"
+        78722963,
+        "550870e94dff55150befc76a626b757b8626b8bd650b804a6b364ba63af7823c"
       ]
     },
     "disableRollbacksUntil": 74410411,
@@ -29,6 +29,10 @@
     "nanos": 0
   },
   "batcherPrivateKey": "",
+  "eventCacheTtl": {
+    "secs": 120,
+    "nanos": 0
+  },
   "genesisStartTime": 1723349688000,
   "orderBacklogConfig": { "db_path": "tmp/backlog" },
   "inflationBoxPersistenceConfig": { "db_path": "tmp/inflation" },
@@ -37,6 +41,7 @@
   "votingEscrowPersistenceConfig": { "db_path": "tmp/voting_escrow" },
   "smartFarmPersistenceConfig": { "db_path": "tmp/smart_farm" },
   "permManagerPersistenceConfig": { "db_path": "tmp/perm_manager" },
+  "predictedTxsBacklogConfig": { "db_path": "tmp/predicted_txs" },
   "fundingBoxConfig": { "db_path": "tmp/funding_box" },
   "explorer": {
     "url": "https://explorer.spectrum.fi"

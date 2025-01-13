@@ -92,10 +92,18 @@ impl FundingRepo for FundingRepoRocksDB {
         let confirmed_key = funding_key(STATE_PREFIX, CONFIRMED_AVAILABLE, &f_id);
         spawn_blocking(move || {
             assert!(db.get(&predicted_key).unwrap().is_none());
+            let tx = db.transaction();
+            let predicted_spent_key = funding_key(STATE_PREFIX, PREDICTED_SPENT, &f_id);
+
             if let Some(confirmed_bytes) = db.get(&confirmed_key).unwrap() {
-                trace!("FB.spend_confirmed: {:?}", f_id);
-                let tx = db.transaction();
+                trace!("FB.spend_confirmed (COMFIRMED AVAILABLE): {:?}", f_id);
                 tx.delete(&confirmed_key).unwrap();
+                let spent_key = funding_key(STATE_PREFIX, CONFIRMED_SPENT, &f_id);
+                tx.put(spent_key, confirmed_bytes).unwrap();
+                tx.commit().unwrap();
+            } else if let Some(confirmed_bytes) = db.get(&predicted_spent_key).unwrap() {
+                trace!("FB.spend_confirmed (PREDICTED SPEND): {:?}", f_id);
+                tx.delete(&predicted_spent_key).unwrap();
                 let spent_key = funding_key(STATE_PREFIX, CONFIRMED_SPENT, &f_id);
                 tx.put(spent_key, confirmed_bytes).unwrap();
                 tx.commit().unwrap();
@@ -214,6 +222,7 @@ mod tests {
         funding_boxes.shuffle(&mut rng);
         for _ in 0..5 {
             let f = funding_boxes.pop().unwrap();
+            db.spend_predicted(f.id).await;
             db.spend_confirmed(f.id).await;
         }
 
@@ -256,10 +265,30 @@ mod tests {
         }
 
         // After unspending, we have all the original boxes available again.
-        funding_boxes.sort_by(|f0, f1| f0.id.cmp(&f1.id));
         let mut collected = db.collect().await.unwrap();
         collected.sort_by(|f0, f1| f0.id.cmp(&f1.id));
         assert_eq!(collected, funding_boxes);
+    }
+
+    #[tokio::test]
+    async fn test_unspend_predicted() {
+        let mut db = spawn_db();
+        let fb = vec![gen_funding_box()];
+        db.put_confirmed(Confirmed(fb[0].clone())).await;
+        db.spend_predicted(fb[0].id).await;
+        db.unspend_predicted(fb[0].id).await;
+        assert_eq!(fb, db.collect().await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_unspend_confirmed() {
+        let mut db = spawn_db();
+        let fb = vec![gen_funding_box()];
+        db.put_confirmed(Confirmed(fb[0].clone())).await;
+        db.spend_predicted(fb[0].id).await;
+        db.spend_confirmed(fb[0].id).await;
+        db.unspend_confirmed(fb[0].id).await;
+        assert_eq!(fb, db.collect().await.unwrap());
     }
 
     fn spawn_db() -> FundingRepoRocksDB {

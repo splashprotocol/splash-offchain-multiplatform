@@ -3,23 +3,35 @@ use std::ops::Deref;
 use cardano_explorer::CardanoNetwork;
 use cml_chain::{
     address::Address,
-    builders::{output_builder::TransactionOutputBuilder, tx_builder::ChangeSelectionAlgo},
+    builders::{
+        output_builder::TransactionOutputBuilder,
+        tx_builder::{ChangeSelectionAlgo, SignedTxBuilder},
+    },
+    min_ada::min_ada_required,
+    transaction::{Transaction, TransactionOutput},
     Serialize, Value,
 };
 use cml_crypto::TransactionHash;
 use log::trace;
-use spectrum_cardano_lib::{collateral::Collateral, protocol_params::constant_tx_builder, OutputRef};
+use spectrum_cardano_lib::{
+    collateral::Collateral,
+    protocol_params::{constant_tx_builder, COINS_PER_UTXO_BYTE},
+    OutputRef,
+};
 use spectrum_offchain::tx_prover::TxProver;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 
 use crate::{collateral::COLLATERAL_LOVELACES, collect_utxos::collect_utxos};
 
-pub async fn generate_collateral<Net: CardanoNetwork>(
+pub async fn generate_collateral<Net: CardanoNetwork, TX>(
     explorer: &Net,
     addr: &Address,
     collateral_addr: &Address,
-    prover: &OperatorProver,
-) -> Result<Collateral, Box<dyn std::error::Error>> {
+    prover: &TX,
+) -> Result<Collateral, Box<dyn std::error::Error>>
+where
+    TX: TxProver<SignedTxBuilder, Transaction>,
+{
     let all_utxos = explorer.utxos_by_address(addr.clone(), 0, 100).await;
     let utxos = collect_utxos(all_utxos, COLLATERAL_LOVELACES + 1_000_000, vec![], None);
 
@@ -52,4 +64,11 @@ pub async fn generate_collateral<Net: CardanoNetwork>(
     let output_ref = OutputRef::new(tx_hash, 0);
     let utxo = explorer.utxo_by_ref(output_ref).await.unwrap();
     Ok(Collateral::from(utxo))
+}
+
+pub fn set_min_ada(output: &mut TransactionOutput) {
+    let min_ada = min_ada_required(output, COINS_PER_UTXO_BYTE).unwrap();
+    let mut amt = output.amount().clone();
+    amt.coin = min_ada;
+    output.set_amount(amt);
 }

@@ -1,4 +1,4 @@
-use log::{info, trace};
+use log::trace;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Display;
@@ -41,11 +41,12 @@ impl<TxHash, Tx> PendingTxs<TxHash, Tx> {
 
     pub fn confirm_tx(&mut self, tx: TxHash)
     where
-        TxHash: Eq + Hash,
+        TxHash: Eq + Hash + Display,
     {
         if let Some(key) = self.index.remove(&tx) {
             if let Some(txs) = self.queue.get_mut(&key) {
-                txs.remove(&tx);
+                let removed = txs.remove(&tx);
+                trace!("[PendingTxs]: removed confirmed TX {}: {}", tx, removed.is_some());
             }
         }
     }

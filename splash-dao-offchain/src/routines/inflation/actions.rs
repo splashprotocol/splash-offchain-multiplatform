@@ -15,7 +15,7 @@ use cml_chain::min_ada::min_ada_required;
 use cml_chain::plutus::{ConstrPlutusData, PlutusScript, PlutusV2Script, RedeemerTag};
 use cml_chain::transaction::{TransactionInput, TransactionOutput};
 use cml_chain::utils::BigInteger;
-use cml_chain::{Coin, OrderedHashMap, PolicyId, RequiredSigners};
+use cml_chain::{Coin, Deserialize, OrderedHashMap, PolicyId, RequiredSigners};
 use cml_core::serialization::FromBytes;
 use cml_crypto::{blake2b256, Ed25519Signature, RawBytesEncoding, TransactionHash};
 use log::trace;
@@ -43,8 +43,8 @@ use crate::constants::fee_deltas::{
     CREATE_WPOLL_FEE_DELTA, DISTRIBUTE_INFLATION_FEE_DELTA, ELIMINATE_WPOLL_FEE_DELTA,
     VOTING_ESCROW_VOTING_FEE,
 };
+use crate::constants::script_bytes::{VOTING_WITNESS, VOTING_WITNESS_STUB};
 use crate::constants::time::{DISTRIBUTE_INFLATION_TX_TTL, MAX_TIME_DRIFT_MILLIS};
-use crate::constants::{self, script_bytes::VOTING_WITNESS_STUB};
 use crate::create_change_output::{ChangeOutputCreator, CreateChangeOutput};
 use crate::deployment::{BuiltPolicy, ProtocolValidator};
 use crate::entities::offchain::voting_order::{compute_voting_witness_message, VotingOrder};
@@ -76,6 +76,7 @@ use crate::protocol_config::{
     WeightingPowerPolicy, WeightingPowerRefScriptOutput, TX_FEE_CORRECTION,
 };
 use crate::routines::inflation::TimedOutputRef;
+use crate::util::set_min_ada;
 use crate::GenesisEpochStartTime;
 
 use super::{
@@ -223,6 +224,7 @@ where
             unsafe_update_ibox_state(data_mut, next_inflation_box.last_processed_epoch.unwrap() + 1);
         }
         inflation_box_out.sub_asset(*SPLASH_AC, emission_rate.untag());
+        set_min_ada(&mut inflation_box_out);
         let inflation_output = SingleOutputBuilderResult::new(inflation_box_out.clone());
 
         // WP factory
@@ -357,10 +359,12 @@ where
         change_output_creator.add_output(&inflation_output);
         tx_builder.add_output(inflation_output).unwrap();
 
+        set_min_ada(&mut wpoll_out);
         let weighting_poll_output = SingleOutputBuilderResult::new(wpoll_out.clone());
         change_output_creator.add_output(&weighting_poll_output);
         tx_builder.add_output(weighting_poll_output).unwrap();
 
+        set_min_ada(&mut factory_out);
         let factory_output = SingleOutputBuilderResult::new(factory_out.clone());
         change_output_creator.add_output(&factory_output);
         tx_builder.add_output(factory_output).unwrap();
@@ -421,7 +425,7 @@ where
                 Snapshot::new(next_inflation_box, next_ib_version),
                 inflation_box_out.clone(),
             )),
-            Some(prev_ib_version),
+            None,
         );
         let fresh_wpoll_version = add_slot(OutputRef::new(tx_hash, 1));
         let fresh_wpoll = Traced::new(
@@ -437,7 +441,7 @@ where
                 Snapshot::new(next_factory, next_factory_version),
                 factory_out.clone(),
             )),
-            Some(prev_factory_version),
+            None,
         );
         (
             signed_tx_builder,
@@ -656,11 +660,16 @@ where
                 .map_err(|_| ExecuteOrderError::Other("Can't extrat PublicKey from bytes".into()))?;
             let signature = Ed25519Signature::from_raw_bytes(&order.proof)
                 .map_err(|_| ExecuteOrderError::Other("Can't extract Ed25519Signature from bytes".into()))?;
+            println!("witness_script hash: {}", order.witness.to_hex());
+            println!("redeemer: {}", order.witness_input);
+            println!("version: {}", order.version);
             let message = compute_voting_witness_message(
                 order.witness,
                 order.witness_input.clone(),
                 order.version as u64,
-            );
+            )
+            .map_err(|_| ExecuteOrderError::WeightingWitness(WeightingWitnessError::CannotDecodeRedeemer))?;
+            println!("message: {}", hex::encode(&message));
             if !pk.verify(&message, &signature) {
                 return Err(ExecuteOrderError::WeightingWitness(
                     WeightingWitnessError::OwnerAuthFailure,
@@ -759,6 +768,7 @@ where
 
         let mut wpoll_out = weighting_poll_in.clone();
         let weighting_power = voting_escrow.get().voting_power(current_posix_time);
+        println!("weighting_power: {}", weighting_power);
 
         let distribution_weighting_power = order.distribution.iter().fold(0, |acc, &(_, w)| acc + w);
         if distribution_weighting_power != weighting_power {
@@ -858,11 +868,15 @@ where
 
         // TODO: ACTUAL SCRIPT HERE
         let voting_witness_script =
-            PlutusScript::PlutusV2(PlutusV2Script::new(hex::decode(VOTING_WITNESS_STUB).unwrap()));
-        let order_witness = PartialPlutusWitness::new(
-            PlutusScriptWitness::Script(voting_witness_script),
-            order.witness_input,
-        );
+            PlutusScript::PlutusV2(PlutusV2Script::new(hex::decode(VOTING_WITNESS).unwrap()));
+
+        let witness_input =
+            cml_chain::plutus::PlutusData::from_cbor_bytes(&hex::decode(order.witness_input).unwrap())
+                .map_err(|_| {
+                    ExecuteOrderError::WeightingWitness(WeightingWitnessError::CannotDecodeRedeemer)
+                })?;
+        let order_witness =
+            PartialPlutusWitness::new(PlutusScriptWitness::Script(voting_witness_script), witness_input);
         let withdrawal_result = SingleWithdrawalBuilder::new(withdrawal_address, 0)
             .plutus_script(order_witness, RequiredSigners::from(vec![]))
             .unwrap();
@@ -1305,17 +1319,18 @@ pub enum WeightingWitnessError {
         voting_escrow_version: u32,
         order_version: u32,
     },
+    CannotDecodeRedeemer,
 }
 
 #[cfg(test)]
 mod tests {
     use cml_chain::{
-        address::{Address, EnterpriseAddress},
-        certs::StakeCredential,
+        address::{Address, BaseAddress, EnterpriseAddress},
+        certs::{Credential, StakeCredential},
         transaction::{DatumOption, Transaction},
         Deserialize, Serialize,
     };
-    use cml_crypto::ScriptHash;
+    use cml_crypto::{Bip32PrivateKey, ScriptHash};
 
     use super::compute_mint_wp_auth_token_validator;
 
@@ -1402,5 +1417,22 @@ mod tests {
             .try_into()
             .unwrap();
         ScriptHash::from(bytes)
+    }
+
+    #[test]
+    fn witness_reward_addr() {
+        let weighting_witness_script_hash_hex = "635fcf57b7e16a5f23f18620722688cf2ab227093ef42e49cecf61d1";
+        let weighting_witness_script_hash = ScriptHash::from_hex(weighting_witness_script_hash_hex).unwrap();
+        let staking_address =
+            cml_chain::address::RewardAddress::new(0, Credential::new_script(weighting_witness_script_hash));
+        println!("{}", staking_address.to_address().to_bech32(None).unwrap());
+
+        let addr = BaseAddress::new(
+            0,
+            StakeCredential::new_script(weighting_witness_script_hash),
+            StakeCredential::new_script(weighting_witness_script_hash),
+        )
+        .to_address();
+        println!("BASE ADDRESS: {}", addr.to_bech32(None).unwrap());
     }
 }

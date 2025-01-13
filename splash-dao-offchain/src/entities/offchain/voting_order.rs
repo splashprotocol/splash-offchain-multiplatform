@@ -31,7 +31,7 @@ pub struct VotingOrder {
     pub distribution: Vec<(FarmId, u64)>,
     pub proof: Vec<u8>,
     pub witness: ScriptHash,
-    pub witness_input: PlutusData,
+    pub witness_input: String,
     pub version: u32,
     // pub proposal_auth_policy: PolicyId,
 }
@@ -51,15 +51,15 @@ impl Weighted for VotingOrder {
 
 pub fn compute_voting_witness_message(
     witness: ScriptHash,
-    witness_input: PlutusData,
+    witness_input: String,
     authenticated_version: u64,
-) -> Vec<u8> {
+) -> Result<Vec<u8>, ()> {
     use cml_chain::Serialize;
     let mut bytes = witness.to_raw_bytes().to_vec();
-    let witness_input_cbor = witness_input.to_cbor_bytes();
+    let witness_input_cbor = hex::decode(witness_input).map_err(|_| ())?;
     bytes.extend_from_slice(&witness_input_cbor);
     bytes.extend_from_slice(
         &PlutusData::new_integer(cml_chain::utils::BigInteger::from(authenticated_version)).to_cbor_bytes(),
     );
-    cml_crypto::blake2b256(bytes.as_ref()).to_vec()
+    Ok(cml_crypto::blake2b256(bytes.as_ref()).to_vec())
 }
