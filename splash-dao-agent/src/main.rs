@@ -285,7 +285,6 @@ async fn handle_put(
     State(state): State<AppState>,
     axum::Json(payload): axum::Json<VotingOrder>,
 ) -> impl IntoResponse {
-    // You can now process the payload as needed
     let AppState { sender } = state;
     let (response_sender, recv) = tokio::sync::oneshot::channel();
     let msg = DaoBotMessage {
@@ -320,8 +319,6 @@ async fn handle_get_mve_status(
     State(state): State<AppState>,
     axum::Json(owner): axum::Json<Owner>,
 ) -> impl IntoResponse {
-    // You can now process the payload as needed
-    trace!("get_mve_status!!!!!!!!!!!!!!!!!!!!!!!!!!!");
     let AppState { sender } = state;
     let (response_sender, recv) = tokio::sync::oneshot::channel();
     let msg = DaoBotMessage {

@@ -1947,10 +1947,7 @@ mod tests {
         EntitySnapshot, Identifier,
     };
 
-    use crate::{
-        entities::onchain::make_voting_escrow_order::compute_make_ve_order_validator,
-        state_projection::{StateProjectionRead, StateProjectionWrite},
-    };
+    use crate::state_projection::{StateProjectionRead, StateProjectionWrite};
 
     struct StateProjection<T: EntitySnapshot, B>(Arc<Mutex<Option<AnyMod<Bundled<T, B>>>>>);
     #[async_trait]
@@ -1989,32 +1986,5 @@ mod tests {
         async fn get_id(&self, ver: T::Version) -> Option<T::StableId> {
             None
         }
-    }
-
-    #[test]
-    fn print_script_hash() {
-        let v: Vec<u8> = vec![
-            74, 46, 143, 131, 47, 139, 194, 209, 16, 224, 216, 192, 91, 107, 136, 124, 133, 40, 61, 129, 62,
-            221, 82, 253, 127, 27, 149, 246, 70, 187, 49, 88,
-        ];
-        println!("{}", hex::encode(v));
-    }
-
-    #[test]
-    fn check_mve_script_hash() {
-        let mint_identifier_policy =
-            PolicyId::from_hex("41c0e3b5f560ee53f28f4ca2b07a3f00ca2aafdf161cffd9f2a1ce62").unwrap();
-        let mint_composition_token_policy =
-            PolicyId::from_hex("87f36a43dbb5113b8146bd94b7354433ae72a2caebf3c0bf914cbee3").unwrap();
-        let ve_script_hash =
-            ScriptHash::from_hex("a9aeb2f98807a34635671667ee5cb2fe36701aa431278748b0373dcd").unwrap();
-        let mve = compute_make_ve_order_validator(
-            mint_identifier_policy,
-            mint_composition_token_policy,
-            ve_script_hash,
-        )
-        .hash()
-        .to_hex();
-        println!("{}", mve);
     }
 }
