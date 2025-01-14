@@ -30,11 +30,8 @@ use spectrum_offchain::{
 };
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 
-use crate::constants::script_bytes::{
-    MINT_GOVERNANCE_POWER_SCRIPT, MINT_WEIGHTING_POWER_SCRIPT, VOTING_ESCROW_SCRIPT,
-};
 use crate::constants::{DEFAULT_AUTH_TOKEN_NAME, GT_NAME};
-use crate::deployment::ProtocolValidator;
+use crate::deployment::{DaoScriptBytes, ProtocolValidator};
 use crate::entities::Snapshot;
 use crate::protocol_config::{GTAuthPolicy, MintVEIdentifierPolicy};
 use crate::routines::inflation::{Slot, TimedOutputRef};
@@ -455,7 +452,7 @@ pub fn compute_mint_weighting_power_validator(
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(proposal_auth_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(gt_policy.to_raw_bytes().to_vec())),
     ]);
-    apply_params_validator(params_pd, MINT_WEIGHTING_POWER_SCRIPT)
+    apply_params_validator(params_pd, &DaoScriptBytes::global().mint_weighting_power)
 }
 
 pub fn compute_voting_escrow_validator(
@@ -468,7 +465,7 @@ pub fn compute_voting_escrow_validator(
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(ve_factory_auth_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(ve_composition_policy.to_raw_bytes().to_vec())),
     ]);
-    apply_params_validator(params_pd, VOTING_ESCROW_SCRIPT)
+    apply_params_validator(params_pd, &DaoScriptBytes::global().voting_escrow)
 }
 
 pub fn compute_mint_governance_power_validator(
@@ -479,7 +476,7 @@ pub fn compute_mint_governance_power_validator(
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(proposal_auth_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(gt_policy.to_raw_bytes().to_vec())),
     ]);
-    apply_params_validator(params_pd, MINT_GOVERNANCE_POWER_SCRIPT)
+    apply_params_validator(params_pd, &DaoScriptBytes::global().mint_governance_power)
 }
 
 #[cfg(test)]

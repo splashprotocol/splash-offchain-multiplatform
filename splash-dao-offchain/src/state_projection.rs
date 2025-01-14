@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::Arc;
 
 use async_std::task::spawn_blocking;
@@ -44,9 +45,12 @@ pub struct StateProjectionRocksDB {
 }
 
 impl StateProjectionRocksDB {
-    pub fn new(conf: RocksConfig) -> Self {
+    pub fn new<P>(db_path: P) -> Self
+    where
+        P: AsRef<Path>,
+    {
         Self {
-            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(conf.db_path).unwrap()),
+            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(db_path).unwrap()),
         }
     }
 }

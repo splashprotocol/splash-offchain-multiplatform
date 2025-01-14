@@ -22,8 +22,8 @@ use spectrum_offchain_cardano::{
 };
 
 use crate::{
-    constants::{script_bytes::PERM_MANAGER_SCRIPT, DEFAULT_AUTH_TOKEN_NAME},
-    deployment::ProtocolValidator,
+    constants::DEFAULT_AUTH_TOKEN_NAME,
+    deployment::{DaoScriptBytes, ProtocolValidator},
     entities::Snapshot,
     protocol_config::PermManagerAuthPolicy,
     routines::inflation::{Slot, TimedOutputRef},
@@ -143,7 +143,7 @@ pub fn compute_perm_manager_validator(
             perm_manager_auth_policy.to_raw_bytes().to_vec(),
         )),
     ]);
-    apply_params_validator(params_pd, PERM_MANAGER_SCRIPT)
+    apply_params_validator(params_pd, &DaoScriptBytes::global().perm_manager)
 }
 
 pub const PERM_MANAGER_EX_UNITS: ExUnits = ExUnits {

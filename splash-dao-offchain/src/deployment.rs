@@ -10,6 +10,7 @@ use tokio::io::AsyncWriteExt;
 use type_equalities::IsEqual;
 
 use crate::{
+    constants::DAO_SCRIPT_BYTES,
     protocol_config::{GTAuthPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy, VEFactoryAuthPolicy},
     GenesisEpochStartTime,
 };
@@ -54,6 +55,35 @@ pub struct MintedTokens {
 pub struct Deployment {
     pub validators: DeployedValidators,
     pub nfts: MintedTokens,
+    pub script_bytes: DaoScriptBytes,
+}
+
+#[derive(serde::Deserialize, Clone, Debug)]
+pub struct DaoScriptBytes {
+    pub mint_weighting_power: String,
+    pub inflation: String,
+    pub wp_factory: String,
+    pub mint_wp_auth_token: String,
+    pub voting_escrow: String,
+    pub mint_farm_auth_token: String,
+    pub perm_manager: String,
+    pub one_time_mint: String,
+    pub mint_governance_power: String,
+    pub mint_identifier: String,
+    pub farm_factory: String,
+    pub ve_factory: String,
+    pub gov_proxy: String,
+    pub mint_ve_composition_token: String,
+    pub voting_witness: String,
+    pub make_voting_escrow_order: String,
+}
+
+impl DaoScriptBytes {
+    pub fn global() -> &'static DaoScriptBytes {
+        DAO_SCRIPT_BYTES
+            .get()
+            .expect("DAO script bytes is not initialized")
+    }
 }
 
 #[repr(u8)]

@@ -1,6 +1,7 @@
 use std::{
     i64,
     marker::PhantomData,
+    path::Path,
     sync::{atomic::AtomicBool, Arc, Once},
     time::UNIX_EPOCH,
 };
@@ -59,7 +60,8 @@ use spectrum_offchain_cardano::{
 use spectrum_streaming::run_stream;
 use splash_dao_offchain::{
     collateral::pull_collateral,
-    deployment::{CompleteDeployment, DeploymentProgress, ProtocolDeployment},
+    constants::DAO_SCRIPT_BYTES,
+    deployment::{CompleteDeployment, DaoScriptBytes, DeploymentProgress, ProtocolDeployment},
     entities::{
         offchain::voting_order::VotingOrder,
         onchain::{
@@ -95,6 +97,13 @@ async fn main() {
     let raw_deployment = std::fs::read_to_string(args.deployment_path).expect("Cannot load deployment file");
     let deployment_progress: DeploymentProgress =
         serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
+
+    let dao_script_bytes_str =
+        std::fs::read_to_string(args.script_bytes_path).expect("Cannot load script bytes file");
+    let dao_script_bytes: DaoScriptBytes =
+        serde_json::from_str(&dao_script_bytes_str).expect("Invalid script bytes file");
+
+    DAO_SCRIPT_BYTES.set(dao_script_bytes).unwrap();
 
     let deployment = CompleteDeployment::try_from((deployment_progress, config.network_id)).unwrap();
 
@@ -225,20 +234,28 @@ async fn main() {
 
     let inflation_actions = CardanoInflationActions::from(protocol_config.clone());
 
+    let mk_path = |name: &str| {
+        if name.ends_with('/') {
+            format!("{}{}", config.persistence_stores_root_dir, name)
+        } else {
+            format!("{}/{}", config.persistence_stores_root_dir, name)
+        }
+    };
+
     let mut behaviour = Behaviour::new(
-        StateProjectionRocksDB::new(config.inflation_box_persistence_config),
-        StateProjectionRocksDB::new(config.poll_factory_persistence_config),
-        StateProjectionRocksDB::new(config.weighting_poll_persistence_config),
-        StateProjectionRocksDB::new(config.ve_factory_persistence_config),
-        StateProjectionRocksDB::new(config.voting_escrow_persistence_config),
-        StateProjectionRocksDB::new(config.smart_farm_persistence_config),
-        StateProjectionRocksDB::new(config.perm_manager_persistence_config),
-        FundingRepoRocksDB::new(config.funding_box_config.db_path),
-        setup_make_ve_order_backlog(config.make_voting_escrow_owner_config).await,
-        KVStoreRocksDB::new(config.voting_escrow_by_owner_config.db_path),
-        KVStoreRocksDB::new(config.tx_hash_to_mve_config.db_path),
-        setup_order_backlog(config.order_backlog_config).await,
-        KVStoreRocksDB::new(config.predicted_txs_backlog_config.db_path),
+        StateProjectionRocksDB::new(mk_path("inflation_box")),
+        StateProjectionRocksDB::new(mk_path("poll_factory")),
+        StateProjectionRocksDB::new(mk_path("weighting_poll")),
+        StateProjectionRocksDB::new(mk_path("ve_factory")),
+        StateProjectionRocksDB::new(mk_path("voting_escrow")),
+        StateProjectionRocksDB::new(mk_path("smart_farm")),
+        StateProjectionRocksDB::new(mk_path("perm_manager")),
+        FundingRepoRocksDB::new(mk_path("funding_box")),
+        setup_make_ve_order_backlog(mk_path("make_voting_escrow_owner")).await,
+        KVStoreRocksDB::new(mk_path("voting_escrow_by_owner")),
+        KVStoreRocksDB::new(mk_path("tx_hash_to_mve")),
+        setup_order_backlog(mk_path("order_backlog_config")).await,
+        KVStoreRocksDB::new(mk_path("predicted_txs_backlog")),
         NetworkTimeSource {},
         inflation_actions,
         protocol_config,
@@ -348,10 +365,8 @@ struct AppState {
     sender: tokio::sync::mpsc::Sender<DaoBotMessage>,
 }
 
-async fn setup_order_backlog(
-    store_conf: RocksConfig,
-) -> PersistentPriorityBacklog<VotingOrder, BacklogStoreRocksDB> {
-    let store = BacklogStoreRocksDB::new(store_conf);
+async fn setup_order_backlog(db_path: String) -> PersistentPriorityBacklog<VotingOrder, BacklogStoreRocksDB> {
+    let store = BacklogStoreRocksDB::new(RocksConfig { db_path });
     let backlog_config = BacklogConfig {
         order_lifespan: Duration::try_hours(1).unwrap(),
         order_exec_time: Duration::try_minutes(5).unwrap(),
@@ -362,9 +377,9 @@ async fn setup_order_backlog(
 }
 
 async fn setup_make_ve_order_backlog(
-    store_conf: RocksConfig,
+    db_path: String,
 ) -> PersistentPriorityBacklog<MakeVotingEscrowOrderBundle<TransactionOutput>, BacklogStoreRocksDB> {
-    let store = BacklogStoreRocksDB::new(store_conf);
+    let store = BacklogStoreRocksDB::new(RocksConfig { db_path });
     let backlog_config = BacklogConfig {
         order_lifespan: Duration::try_hours(72).unwrap(),
         order_exec_time: Duration::try_hours(72).unwrap(),
@@ -384,6 +399,9 @@ struct AppArgs {
     /// Path to the JSON configuration file.
     #[arg(long, short)]
     config_path: String,
+    /// Path to the JSON DAO script bytes file.
+    #[arg(long, short)]
+    script_bytes_path: String,
     /// Path to the JSON deployment configuration file .
     #[arg(long, short)]
     deployment_path: String,

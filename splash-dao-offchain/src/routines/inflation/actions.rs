@@ -43,10 +43,9 @@ use crate::constants::fee_deltas::{
     CREATE_WPOLL_FEE_DELTA, DISTRIBUTE_INFLATION_FEE_DELTA, ELIMINATE_WPOLL_FEE_DELTA,
     VOTING_ESCROW_VOTING_FEE,
 };
-use crate::constants::script_bytes::{VOTING_WITNESS, VOTING_WITNESS_STUB};
 use crate::constants::time::{DISTRIBUTE_INFLATION_TX_TTL, MAX_LOCK_TIME_SECONDS, MAX_TIME_DRIFT_MILLIS};
 use crate::create_change_output::{ChangeOutputCreator, CreateChangeOutput};
-use crate::deployment::{BuiltPolicy, ProtocolValidator};
+use crate::deployment::{BuiltPolicy, DaoScriptBytes, ProtocolValidator};
 use crate::entities::offchain::voting_order::{compute_voting_witness_message, VotingOrder};
 use crate::entities::onchain::funding_box::{FundingBox, FundingBoxId, FundingBoxSnapshot};
 use crate::entities::onchain::inflation_box::{unsafe_update_ibox_state, INFLATION_BOX_EX_UNITS};
@@ -896,8 +895,9 @@ where
         );
 
         // TODO: ACTUAL SCRIPT HERE
-        let voting_witness_script =
-            PlutusScript::PlutusV2(PlutusV2Script::new(hex::decode(VOTING_WITNESS).unwrap()));
+        let voting_witness_script = PlutusScript::PlutusV2(PlutusV2Script::new(
+            hex::decode(&DaoScriptBytes::global().voting_witness).unwrap(),
+        ));
 
         let witness_input =
             cml_chain::plutus::PlutusData::from_cbor_bytes(&hex::decode(order.witness_input).unwrap())

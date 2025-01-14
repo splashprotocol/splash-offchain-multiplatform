@@ -57,11 +57,11 @@ use spectrum_offchain_cardano::{
 };
 use splash_dao_offchain::{
     collateral::{pull_collateral, register_staking_address, send_assets},
-    constants::{time::MAX_LOCK_TIME_SECONDS, DEFAULT_AUTH_TOKEN_NAME, SPLASH_NAME},
+    constants::{time::MAX_LOCK_TIME_SECONDS, DAO_SCRIPT_BYTES, DEFAULT_AUTH_TOKEN_NAME, SPLASH_NAME},
     create_change_output::{ChangeOutputCreator, CreateChangeOutput},
     deployment::{
-        write_deployment_to_disk, BuiltPolicy, CompleteDeployment, DeployedValidators, DeploymentProgress,
-        MintedTokens, NFTUtxoInputs, ProtocolDeployment, ProtocolValidator,
+        write_deployment_to_disk, BuiltPolicy, CompleteDeployment, DaoScriptBytes, DeployedValidators,
+        DeploymentProgress, MintedTokens, NFTUtxoInputs, ProtocolDeployment, ProtocolValidator,
     },
     entities::{
         offchain::voting_order::VotingOrderId,
@@ -100,6 +100,13 @@ async fn main() {
     let args = AppArgs::parse();
     let raw_config = std::fs::read_to_string(args.config_path).expect("Cannot load configuration file");
     let config: AppConfig = serde_json::from_str(&raw_config).expect("Invalid configuration file");
+
+    let dao_script_bytes_str =
+        std::fs::read_to_string(args.script_bytes_path).expect("Cannot load script bytes file");
+    let dao_script_bytes: DaoScriptBytes =
+        serde_json::from_str(&dao_script_bytes_str).expect("Invalid script bytes file");
+
+    DAO_SCRIPT_BYTES.set(dao_script_bytes).unwrap();
 
     let mut op_inputs = create_operation_inputs(&config).await;
 
@@ -222,10 +229,10 @@ async fn deploy<'a>(op_inputs: &mut OperationInputs, config: AppConfig<'a>) -> C
             2 * INFLATION_BOX_INITIAL_SPLASH_QTY,
             pk_hash,
             input_result,
-            &addr,
+            addr,
             explorer.chain_tip_slot_number().await.unwrap(),
         );
-        let tx = Transaction::from(prover.prove(signed_tx_builder));
+        let tx = prover.prove(signed_tx_builder);
         let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
         println!("tx_hash: {}", tx_hash.to_hex());
         let tx_bytes = tx.to_cbor_bytes();
@@ -251,7 +258,7 @@ async fn deploy<'a>(op_inputs: &mut OperationInputs, config: AppConfig<'a>) -> C
         let input_result = get_largest_utxo(explorer, addr).await;
         println!("input ADA: {}", input_result.utxo_info.amount().coin);
         let signed_tx_builder = mint_token::create_minting_tx_inputs(input_result, &addr);
-        let tx = Transaction::from(prover.prove(signed_tx_builder));
+        let tx = prover.prove(signed_tx_builder);
         let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
         println!("tx_hash: {:?}", tx_hash);
         let tx_bytes = tx.to_cbor_bytes();
@@ -292,7 +299,7 @@ async fn deploy<'a>(op_inputs: &mut OperationInputs, config: AppConfig<'a>) -> C
             .collect();
         let (signed_tx_builder, minted_tokens) =
             mint_token::mint_deployment_tokens(inputs, &addr, pk_hash, collateral.clone());
-        let tx = Transaction::from(prover.prove(signed_tx_builder));
+        let tx = prover.prove(signed_tx_builder);
         let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
         println!("tx_hash: {:?}", tx_hash);
         let tx_bytes = tx.to_cbor_bytes();
@@ -464,7 +471,7 @@ async fn deploy_dao_reference_inputs(
     let input_result = get_largest_utxo(explorer, addr).await;
     tx_builder.add_input(input_result).unwrap();
     let signed_tx_builder = tx_builder.build(ChangeSelectionAlgo::Default, addr).unwrap();
-    let tx = Transaction::from(prover.prove(signed_tx_builder));
+    let tx = prover.prove(signed_tx_builder);
     let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
     println!("tx_hash: {:?}", tx_hash);
     let tx_bytes = tx.to_cbor_bytes();
@@ -1293,6 +1300,9 @@ struct AppArgs {
     /// Path to the JSON configuration file.
     #[arg(long, short)]
     config_path: String,
+    /// Path to the JSON DAO script bytes file.
+    #[arg(long, short)]
+    script_bytes_path: String,
     #[command(subcommand)]
     command: Command,
 }

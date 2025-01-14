@@ -7,16 +7,13 @@ use cml_chain::utils::BigInteger;
 use cml_chain::{LenEncoding, PolicyId, Serialize};
 use cml_crypto::{PrivateKey, RawBytesEncoding, ScriptHash};
 use rand::Rng;
-use splash_dao_offchain::constants::script_bytes::{VOTING_WITNESS, VOTING_WITNESS_STUB};
+use splash_dao_offchain::deployment::DaoScriptBytes;
 use splash_dao_offchain::entities::offchain::voting_order::compute_voting_witness_message;
-use splash_dao_offchain::routines::inflation::actions::{compute_epoch_asset_name, compute_farm_name};
-use splash_dao_offchain::{
-    constants::script_bytes::MINT_IDENTIFIER_SCRIPT,
-    entities::{
-        offchain::voting_order::{VotingOrder, VotingOrderId},
-        onchain::{smart_farm::FarmId, voting_escrow::VotingEscrowId},
-    },
+use splash_dao_offchain::entities::{
+    offchain::voting_order::{VotingOrder, VotingOrderId},
+    onchain::{smart_farm::FarmId, voting_escrow::VotingEscrowId},
 };
+use splash_dao_offchain::routines::inflation::actions::{compute_epoch_asset_name, compute_farm_name};
 use uplc_pallas_primitives::Fragment;
 
 pub fn create_voting_order(
@@ -27,8 +24,9 @@ pub fn create_voting_order(
     epoch: u32,
     num_farms: u32,
 ) -> VotingOrder {
-    let voting_witness_script =
-        PlutusScript::PlutusV2(PlutusV2Script::new(hex::decode(VOTING_WITNESS).unwrap()));
+    let voting_witness_script = PlutusScript::PlutusV2(PlutusV2Script::new(
+        hex::decode(&DaoScriptBytes::global().voting_witness).unwrap(),
+    ));
 
     // Randomly choose a farm to apply the full weight towards
     let mut rng = rand::thread_rng();

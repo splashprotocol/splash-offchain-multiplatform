@@ -15,7 +15,7 @@ use type_equalities::IsEqual;
 
 use crate::assets::SPLASH_AC;
 use crate::deployment::{
-    BuiltPolicy, DeployedValidators, MintedTokens, ProtocolDeployment, ProtocolValidator,
+    BuiltPolicy, DaoScriptBytes, DeployedValidators, MintedTokens, ProtocolDeployment, ProtocolValidator,
 };
 use crate::entities::onchain::inflation_box::InflationBoxId;
 use crate::entities::onchain::permission_manager::PermManagerId;

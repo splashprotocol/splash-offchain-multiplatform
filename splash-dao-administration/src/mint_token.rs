@@ -33,13 +33,8 @@ use spectrum_offchain_cardano::{
     parametrized_validators::apply_params_validator,
 };
 use splash_dao_offchain::{
-    constants::{
-        script_bytes::{
-            GOV_PROXY_SCRIPT, MINT_IDENTIFIER_SCRIPT, MINT_VE_COMPOSITION_TOKEN_SCRIPT, ONE_TIME_MINT_SCRIPT,
-        },
-        DEFAULT_AUTH_TOKEN_NAME, GT_NAME, MAX_GT_SUPPLY,
-    },
-    deployment::{BuiltPolicy, ExternallyMintedToken, MintedTokens},
+    constants::{DEFAULT_AUTH_TOKEN_NAME, GT_NAME, MAX_GT_SUPPLY},
+    deployment::{BuiltPolicy, DaoScriptBytes, ExternallyMintedToken, MintedTokens},
     entities::onchain::{
         farm_factory::compute_farm_factory_validator,
         inflation_box::compute_inflation_box_validator,
@@ -257,7 +252,7 @@ fn compute_one_time_mint_validator(tx_hash: TransactionHash, index: usize, quant
     )));
 
     let params_pd = uplc::PlutusData::Array(vec![output_ref_pd, quantity_pd]);
-    apply_params_validator(params_pd, ONE_TIME_MINT_SCRIPT)
+    apply_params_validator(params_pd, &DaoScriptBytes::global().one_time_mint)
     //let buf: Vec<u8> = vec![];
     //let mut encoder = uplc_pallas_codec::minicbor::Encoder::new(buf);
     //tx_hash_constr_pd.encode(&mut encoder, &mut ()).unwrap();
@@ -306,7 +301,8 @@ pub fn create_dao_reference_input_utxos(
 
     let mint_ve_composition_token_script = compute_mint_ve_composition_token_script(ve_factory_auth_policy);
 
-    let mint_identifier_script = PlutusV2Script::new(hex::decode(MINT_IDENTIFIER_SCRIPT).unwrap());
+    let mint_identifier_script =
+        PlutusV2Script::new(hex::decode(&DaoScriptBytes::global().mint_identifier).unwrap());
 
     let voting_escrow_script = compute_voting_escrow_validator(
         mint_identifier_script.hash(),
@@ -452,14 +448,14 @@ fn compute_gov_proxy_script(
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(governance_power_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(gt_policy.to_raw_bytes().to_vec())),
     ]);
-    apply_params_validator(params_pd, GOV_PROXY_SCRIPT)
+    apply_params_validator(params_pd, &DaoScriptBytes::global().gov_proxy)
 }
 
 fn compute_mint_ve_composition_token_script(ve_factory_auth_policy: PolicyId) -> PlutusV2Script {
     let params_pd = uplc::PlutusData::Array(vec![uplc::PlutusData::BoundedBytes(PlutusBytes::from(
         ve_factory_auth_policy.to_raw_bytes().to_vec(),
     ))]);
-    apply_params_validator(params_pd, MINT_VE_COMPOSITION_TOKEN_SCRIPT)
+    apply_params_validator(params_pd, &DaoScriptBytes::global().mint_ve_composition_token)
 }
 
 pub fn script_address(script_hash: ScriptHash, network_id: NetworkId) -> Address {

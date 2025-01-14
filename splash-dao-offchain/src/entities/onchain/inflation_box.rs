@@ -18,8 +18,8 @@ use uplc_pallas_codec::utils::{Int, PlutusBytes};
 
 use crate::assets::Splash;
 use crate::constants::time::EPOCH_BOUNDARY_SHIFT;
-use crate::constants::{script_bytes::INFLATION_SCRIPT, SPLASH_NAME};
-use crate::deployment::ProtocolValidator;
+use crate::constants::SPLASH_NAME;
+use crate::deployment::{DaoScriptBytes, ProtocolValidator};
 use crate::entities::Snapshot;
 use crate::protocol_config::SplashPolicy;
 use crate::routines::inflation::{Slot, TimedOutputRef};
@@ -149,7 +149,7 @@ pub fn compute_inflation_box_validator(
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(weighting_power_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BigInt(uplc::BigInt::Int(Int::from(zeroth_epoch_start as i64))),
     ]);
-    apply_params_validator(params_pd, INFLATION_SCRIPT)
+    apply_params_validator(params_pd, &DaoScriptBytes::global().inflation)
 }
 
 #[cfg(test)]
