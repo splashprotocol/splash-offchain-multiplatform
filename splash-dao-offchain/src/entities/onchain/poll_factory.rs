@@ -1,4 +1,4 @@
-use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData, PlutusV2Script};
+use cml_chain::plutus::{ConstrPlutusData, PlutusData, PlutusV2Script};
 
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::utils::BigInteger;
@@ -9,21 +9,19 @@ use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
 };
 use spectrum_cardano_lib::types::TryFromPData;
-use spectrum_cardano_lib::{AssetName, OutputRef, TaggedAmount};
-use spectrum_offchain::domain::{Has, Identifier, Stable};
+use spectrum_cardano_lib::{AssetName, TaggedAmount};
+use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 use uplc_pallas_codec::utils::PlutusBytes;
 
 use crate::assets::Splash;
-use crate::constants::script_bytes::WP_FACTORY_SCRIPT;
-use crate::deployment::ProtocolValidator;
+use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::onchain::smart_farm::FarmId;
 use crate::entities::onchain::weighting_poll::WeightingPoll;
 use crate::entities::Snapshot;
-use crate::protocol_config::MintWPAuthPolicy;
-use crate::routines::inflation::{Slot, TimedOutputRef};
+use crate::routines::inflation::TimedOutputRef;
 use crate::time::ProtocolEpoch;
 
 pub type PollFactorySnapshot = Snapshot<PollFactory, TimedOutputRef>;
@@ -32,10 +30,6 @@ pub type PollFactorySnapshot = Snapshot<PollFactory, TimedOutputRef>;
     Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize, Debug, derive_more::Display,
 )]
 pub struct PollFactoryId(pub ProtocolEpoch);
-
-impl Identifier for PollFactoryId {
-    type For = PollFactorySnapshot;
-}
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct PollFactory {
@@ -152,18 +146,6 @@ impl IntoPlutusData for FactoryRedeemer {
     }
 }
 
-pub const WP_FACTORY_EX_UNITS: ExUnits = ExUnits {
-    mem: 500_000,
-    steps: 200_000_000,
-    encodings: None,
-};
-
-pub const GOV_PROXY_EX_UNITS: ExUnits = ExUnits {
-    mem: 500_000,
-    steps: 200_000_000,
-    encodings: None,
-};
-
 pub fn compute_wp_factory_validator(
     wp_auth_policy: PolicyId,
     gov_witness_script_hash: ScriptHash,
@@ -172,7 +154,7 @@ pub fn compute_wp_factory_validator(
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(wp_auth_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(gov_witness_script_hash.to_raw_bytes().to_vec())),
     ]);
-    apply_params_validator(params_pd, WP_FACTORY_SCRIPT)
+    apply_params_validator(params_pd, &DaoScriptData::global().wp_factory.script_bytes)
 }
 
 pub struct PollFactoryConfig {

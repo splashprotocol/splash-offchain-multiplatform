@@ -1,21 +1,19 @@
-use std::{fmt::Formatter, time::Duration};
+use std::time::Duration;
 
 use cml_chain::plutus::PlutusV2Script;
 use cml_chain::utils::BigInteger;
 use cml_chain::{
-    address::EnterpriseAddress,
-    certs::StakeCredential,
-    plutus::{ConstrPlutusData, ExUnits, PlutusData},
-    transaction::{DatumOption, TransactionOutput},
-    PolicyId, Value,
+    plutus::{ConstrPlutusData, PlutusData},
+    transaction::TransactionOutput,
+    PolicyId,
 };
-use cml_crypto::{PublicKey, RawBytesEncoding, ScriptHash};
+use cml_crypto::{RawBytesEncoding, ScriptHash};
 use log::{error, info};
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::plutus_data::DatumExtension;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
-use spectrum_cardano_lib::{AssetName, OutputRef};
+use spectrum_cardano_lib::AssetName;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use uplc_pallas_codec::utils::{Int, PlutusBytes};
@@ -24,23 +22,16 @@ use spectrum_cardano_lib::{
     plutus_data::{ConstrPlutusDataExtension, IntoPlutusData, PlutusDataExtension},
     Token,
 };
-use spectrum_offchain::{
-    domain::{Has, Identifier, Stable},
-    ledger::IntoLedger,
-};
+use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 
-use crate::constants::script_bytes::{
-    MINT_GOVERNANCE_POWER_SCRIPT, MINT_WEIGHTING_POWER_SCRIPT, VOTING_ESCROW_SCRIPT,
-};
-use crate::constants::{DEFAULT_AUTH_TOKEN_NAME, GT_NAME};
-use crate::deployment::ProtocolValidator;
+use crate::constants::GT_NAME;
+use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::Snapshot;
 use crate::protocol_config::{GTAuthPolicy, MintVEIdentifierPolicy};
-use crate::routines::inflation::{Slot, TimedOutputRef};
+use crate::routines::inflation::TimedOutputRef;
 use crate::{
     constants::time::MAX_LOCK_TIME_SECONDS,
-    protocol_config::{NodeMagic, OperatorCreds, VEFactoryAuthPolicy},
     time::{NetworkTime, ProtocolEpoch},
 };
 
@@ -61,13 +52,8 @@ pub type VotingEscrowSnapshot = Snapshot<VotingEscrow, TimedOutputRef>;
     derive_more::From,
     derive_more::Display,
 )]
-
 /// Each voting_escrow is identified by the name of its identifier NFT.
 pub struct VotingEscrowId(pub AssetName);
-
-impl Identifier for VotingEscrowId {
-    type For = VotingEscrowSnapshot;
-}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct VotingEscrow {
@@ -140,12 +126,12 @@ where
 
             match &owner {
                 Owner::PubKey(key_bytes) => {
-                    if cml_crypto::PublicKey::from_raw_bytes(&key_bytes).is_err() {
+                    if cml_crypto::PublicKey::from_raw_bytes(key_bytes).is_err() {
                         error!("Voting_escrow doesn't contain a valid owner public key!");
                         return None;
                     }
                 }
-                Owner::Script(script_hash) => (),
+                Owner::Script(_) => (),
             }
 
             let ve_identifier_policy = ctx.select::<MintVEIdentifierPolicy>().0;
@@ -190,6 +176,8 @@ where
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, derive_more::Display, Debug, Hash)]
+#[display("VotingEscrowConfig owner: {}", owner)]
 pub struct VotingEscrowConfig {
     pub locked_until: Lock,
     pub owner: Owner,
@@ -242,7 +230,7 @@ impl TryFromPData for VotingEscrowConfig {
     }
 }
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum Lock {
     Def(NetworkTime),
     Indef(Duration),
@@ -279,16 +267,29 @@ impl TryFromPData for Lock {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Copy, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub enum Owner {
-    PubKey(Vec<u8>),
+    PubKey([u8; 32]),
     Script(ScriptHash),
+}
+
+impl std::fmt::Display for Owner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Owner::PubKey(bytes) => {
+                write!(f, "Owner::PubKey({})", hex::encode(bytes))
+            }
+            Owner::Script(script_hash) => {
+                write!(f, "Owner::Script({})", script_hash)
+            }
+        }
+    }
 }
 
 impl IntoPlutusData for Owner {
     fn into_pd(self) -> PlutusData {
         PlutusData::new_constr_plutus_data(match self {
-            Owner::PubKey(vec) => ConstrPlutusData::new(0, vec![PlutusData::new_bytes(vec)]),
+            Owner::PubKey(vec) => ConstrPlutusData::new(0, vec![PlutusData::new_bytes(vec.to_vec())]),
             Owner::Script(script_hash) => {
                 let bytes = script_hash.to_raw_bytes().to_vec();
                 ConstrPlutusData::new(1, vec![PlutusData::new_bytes(bytes)])
@@ -302,8 +303,9 @@ impl TryFromPData for Owner {
         let mut cpd = data.into_constr_pd()?;
         if cpd.alternative == 0 {
             let pd = cpd.take_field(0)?;
-            let bytes = pd.clone().into_bytes()?;
-            return Some(Owner::PubKey(bytes));
+            if let Ok(bytes) = pd.clone().into_bytes()?.try_into() {
+                return Some(Owner::PubKey(bytes));
+            }
         } else if cpd.alternative == 1 {
             let pd = cpd.take_field(0)?;
             if let Ok(script_hash) = ScriptHash::from_raw_bytes(&pd.clone().into_bytes()?) {
@@ -385,24 +387,6 @@ impl IntoPlutusData for VotingEscrowAuthorizedAction {
     }
 }
 
-pub const VOTING_ESCROW_EX_UNITS: ExUnits = ExUnits {
-    mem: 2_000_000,
-    steps: 500_000_000,
-    encodings: None,
-};
-
-pub const WEIGHTING_POWER_EX_UNITS: ExUnits = ExUnits {
-    mem: 2_000_000,
-    steps: 500_000_000,
-    encodings: None,
-};
-
-pub const ORDER_WITNESS_EX_UNITS: ExUnits = ExUnits {
-    mem: 2_000_000,
-    steps: 100_000_000,
-    encodings: None,
-};
-
 pub enum MintAction {
     MintPower {
         binder: u32,
@@ -444,7 +428,10 @@ pub fn compute_mint_weighting_power_validator(
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(proposal_auth_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(gt_policy.to_raw_bytes().to_vec())),
     ]);
-    apply_params_validator(params_pd, MINT_WEIGHTING_POWER_SCRIPT)
+    apply_params_validator(
+        params_pd,
+        &DaoScriptData::global().mint_weighting_power.script_bytes,
+    )
 }
 
 pub fn compute_voting_escrow_validator(
@@ -457,7 +444,7 @@ pub fn compute_voting_escrow_validator(
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(ve_factory_auth_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(ve_composition_policy.to_raw_bytes().to_vec())),
     ]);
-    apply_params_validator(params_pd, VOTING_ESCROW_SCRIPT)
+    apply_params_validator(params_pd, &DaoScriptData::global().voting_escrow.script_bytes)
 }
 
 pub fn compute_mint_governance_power_validator(
@@ -468,7 +455,10 @@ pub fn compute_mint_governance_power_validator(
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(proposal_auth_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(gt_policy.to_raw_bytes().to_vec())),
     ]);
-    apply_params_validator(params_pd, MINT_GOVERNANCE_POWER_SCRIPT)
+    apply_params_validator(
+        params_pd,
+        &DaoScriptData::global().mint_governance_power.script_bytes,
+    )
 }
 
 #[cfg(test)]

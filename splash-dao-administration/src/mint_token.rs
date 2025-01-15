@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use cml_chain::{
-    address::{Address, BaseAddress, EnterpriseAddress},
+    address::{Address, EnterpriseAddress},
     assets::{AssetName, MultiAsset},
     builders::{
         input_builder::InputBuilderResult,
@@ -13,48 +13,39 @@ use cml_chain::{
     },
     certs::StakeCredential,
     min_ada::min_ada_required,
-    plutus::{ConstrPlutusData, ExUnits, PlutusData, PlutusScript, PlutusV2Script, RedeemerTag},
+    plutus::{ConstrPlutusData, PlutusData, PlutusScript, PlutusV2Script, RedeemerTag},
     transaction::NativeScript,
     utils::BigInteger,
-    PolicyId, Serialize, Value,
+    PolicyId, Value,
 };
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, ScriptHash, TransactionHash};
 use serde::Deserialize;
 use spectrum_cardano_lib::{
     collateral::Collateral,
-    plutus_data::PlutusDataExtension,
     protocol_params::{constant_tx_builder, COINS_PER_UTXO_BYTE},
     transaction::TransactionOutputExtension,
-    NetworkId, Token,
+    NetworkId,
 };
-use spectrum_offchain::tx_hash;
-use spectrum_offchain_cardano::{
-    deployment::{RawCBORScript, Script, ScriptType},
-    parametrized_validators::apply_params_validator,
-};
+use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 use splash_dao_offchain::{
-    constants::{
-        script_bytes::{
-            GOV_PROXY_SCRIPT, MINT_IDENTIFIER_SCRIPT, MINT_VE_COMPOSITION_TOKEN_SCRIPT, ONE_TIME_MINT_SCRIPT,
-        },
-        DEFAULT_AUTH_TOKEN_NAME, GT_NAME, MAX_GT_SUPPLY,
-    },
-    deployment::{BuiltPolicy, ExternallyMintedToken, MintedTokens},
+    constants::{DEFAULT_AUTH_TOKEN_NAME, GT_NAME, MAX_GT_SUPPLY},
+    deployment::{BuiltPolicy, DaoScriptData, ExternallyMintedToken, MintedTokens},
     entities::onchain::{
         farm_factory::compute_farm_factory_validator,
         inflation_box::compute_inflation_box_validator,
+        make_voting_escrow_order::compute_make_ve_order_validator,
         permission_manager::compute_perm_manager_validator,
-        poll_factory::{compute_wp_factory_validator, PollFactoryConfig},
+        poll_factory::compute_wp_factory_validator,
         smart_farm::compute_mint_farm_auth_token_validator,
         voting_escrow::{
             compute_mint_governance_power_validator, compute_mint_weighting_power_validator,
-            compute_voting_escrow_validator, VotingEscrow, VotingEscrowConfig,
+            compute_voting_escrow_validator,
         },
-        voting_escrow_factory::{compute_ve_factory_validator, AcceptedAsset, VEFactoryDatum},
+        voting_escrow_factory::{compute_ve_factory_validator, AcceptedAsset},
         weighting_poll::compute_mint_wp_auth_token_validator,
     },
 };
-use uplc_pallas_codec::{minicbor::Encode, utils::PlutusBytes};
+use uplc_pallas_codec::utils::PlutusBytes;
 
 use crate::DeploymentProgress;
 
@@ -163,10 +154,6 @@ pub fn mint_deployment_tokens(
         let quantity = qty(index);
         let plutus_script = compute_one_time_mint_validator(tx_hash, index, quantity);
         let policy_id = plutus_script.hash();
-        let script = Script {
-            typ: ScriptType::PlutusV2,
-            script: RawCBORScript::from(plutus_script.clone().inner),
-        };
         let inner = if index < 7 {
             DEFAULT_AUTH_TOKEN_NAME.to_be_bytes().to_vec()
         } else {
@@ -196,7 +183,10 @@ pub fn mint_deployment_tokens(
     }
 
     for index in 0..8 {
-        tx_builder.set_exunits(RedeemerWitnessKey::new(RedeemerTag::Mint, index as u64), EX_UNITS);
+        tx_builder.set_exunits(
+            RedeemerWitnessKey::new(RedeemerTag::Mint, index as u64),
+            DaoScriptData::global().one_time_mint.ex_units.clone(),
+        );
     }
 
     let mut output_result = TransactionOutputBuilder::new()
@@ -256,7 +246,7 @@ fn compute_one_time_mint_validator(tx_hash: TransactionHash, index: usize, quant
     )));
 
     let params_pd = uplc::PlutusData::Array(vec![output_ref_pd, quantity_pd]);
-    apply_params_validator(params_pd, ONE_TIME_MINT_SCRIPT)
+    apply_params_validator(params_pd, &DaoScriptData::global().one_time_mint.script_bytes)
     //let buf: Vec<u8> = vec![];
     //let mut encoder = uplc_pallas_codec::minicbor::Encoder::new(buf);
     //tx_hash_constr_pd.encode(&mut encoder, &mut ()).unwrap();
@@ -305,7 +295,8 @@ pub fn create_dao_reference_input_utxos(
 
     let mint_ve_composition_token_script = compute_mint_ve_composition_token_script(ve_factory_auth_policy);
 
-    let mint_identifier_script = PlutusV2Script::new(hex::decode(MINT_IDENTIFIER_SCRIPT).unwrap());
+    let mint_identifier_script =
+        PlutusV2Script::new(hex::decode(&DaoScriptData::global().mint_identifier.script_bytes).unwrap());
 
     let voting_escrow_script = compute_voting_escrow_validator(
         mint_identifier_script.hash(),
@@ -360,6 +351,12 @@ pub fn create_dao_reference_input_utxos(
 
     let perm_manager_script = compute_perm_manager_validator(edao_msig, perm_manager_auth_policy);
 
+    let make_ve_order_script = compute_make_ve_order_validator(
+        mint_identifier_script.hash(),
+        mint_ve_composition_token_script.hash(),
+        voting_escrow_script.hash(),
+    );
+
     let reference_input_script_hashes = ReferenceInputScriptHashes {
         inflation: inflation_script.hash(),
         voting_escrow: voting_escrow_script.hash(),
@@ -373,6 +370,7 @@ pub fn create_dao_reference_input_utxos(
         mint_ve_composition_token: mint_ve_composition_token_script.hash(),
         weighting_power: mint_weighting_power_script.hash(),
         smart_farm: mint_farm_auth_token_script.hash(),
+        make_ve_order: make_ve_order_script.hash(),
     };
 
     let script_before =
@@ -420,6 +418,9 @@ pub fn create_dao_reference_input_utxos(
     tx_builder_2
         .add_output(make_output(mint_farm_auth_token_script))
         .unwrap();
+    tx_builder_2
+        .add_output(make_output(make_ve_order_script))
+        .unwrap();
 
     (
         tx_builder_0,
@@ -441,14 +442,17 @@ fn compute_gov_proxy_script(
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(governance_power_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(gt_policy.to_raw_bytes().to_vec())),
     ]);
-    apply_params_validator(params_pd, GOV_PROXY_SCRIPT)
+    apply_params_validator(params_pd, &DaoScriptData::global().gov_proxy.script_bytes)
 }
 
 fn compute_mint_ve_composition_token_script(ve_factory_auth_policy: PolicyId) -> PlutusV2Script {
     let params_pd = uplc::PlutusData::Array(vec![uplc::PlutusData::BoundedBytes(PlutusBytes::from(
         ve_factory_auth_policy.to_raw_bytes().to_vec(),
     ))]);
-    apply_params_validator(params_pd, MINT_VE_COMPOSITION_TOKEN_SCRIPT)
+    apply_params_validator(
+        params_pd,
+        &DaoScriptData::global().mint_ve_composition_token.script_bytes,
+    )
 }
 
 pub fn script_address(script_hash: ScriptHash, network_id: NetworkId) -> Address {
@@ -456,13 +460,7 @@ pub fn script_address(script_hash: ScriptHash, network_id: NetworkId) -> Address
 }
 
 pub const LQ_NAME: &str = "SPLASH/ADA LQ*";
-pub const SPLASH_NAME: &str = "SPLASH";
 pub const NUMBER_TOKEN_MINTS_NEEDED: usize = 9;
-const EX_UNITS: ExUnits = ExUnits {
-    mem: 500_000,
-    steps: 200_000_000,
-    encodings: None,
-};
 
 pub struct ReferenceInputScriptHashes {
     pub inflation: ScriptHash,
@@ -477,6 +475,7 @@ pub struct ReferenceInputScriptHashes {
     pub mint_ve_composition_token: ScriptHash,
     pub weighting_power: ScriptHash,
     pub smart_farm: ScriptHash,
+    pub make_ve_order: ScriptHash,
 }
 
 #[derive(Deserialize)]
@@ -486,12 +485,4 @@ pub struct DaoDeploymentParameters {
     pub accepted_assets: Vec<AcceptedAsset>,
     pub authorized_executors: Vec<Ed25519KeyHash>,
     pub num_active_farms: u32,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::compute_one_time_mint_validator;
-
-    #[test]
-    fn ahhaha() {}
 }

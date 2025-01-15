@@ -1,16 +1,15 @@
 use cml_chain::assets::AssetName;
-use cml_chain::plutus::{ExUnits, PlutusData, PlutusV2Script};
+use cml_chain::plutus::{PlutusData, PlutusV2Script};
 
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, ScriptHash};
-use log::trace;
 use primitive_types::U512;
 use serde::{Deserialize, Serialize};
-use spectrum_cardano_lib::plutus_data::{DatumExtension, IntoPlutusData, PlutusDataExtension};
+use spectrum_cardano_lib::plutus_data::{DatumExtension, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
-use spectrum_cardano_lib::{OutputRef, TaggedAmount, Token};
-use spectrum_offchain::domain::{EntitySnapshot, Has, Identifier, Stable};
+use spectrum_cardano_lib::TaggedAmount;
+use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
@@ -18,11 +17,11 @@ use uplc_pallas_codec::utils::{Int, PlutusBytes};
 
 use crate::assets::Splash;
 use crate::constants::time::EPOCH_BOUNDARY_SHIFT;
-use crate::constants::{script_bytes::INFLATION_SCRIPT, SPLASH_NAME};
-use crate::deployment::ProtocolValidator;
+use crate::constants::SPLASH_NAME;
+use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::Snapshot;
 use crate::protocol_config::SplashPolicy;
-use crate::routines::inflation::{Slot, TimedOutputRef};
+use crate::routines::inflation::TimedOutputRef;
 use crate::time::{epoch_end, NetworkTime, ProtocolEpoch};
 use crate::{constants, GenesisEpochStartTime};
 
@@ -32,10 +31,6 @@ pub type InflationBoxSnapshot = Snapshot<InflationBox, TimedOutputRef>;
     Copy, Clone, Debug, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize, Hash, derive_more::Display,
 )]
 pub struct InflationBoxId(pub ProtocolEpoch);
-
-impl Identifier for InflationBoxId {
-    type For = InflationBoxSnapshot;
-}
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct InflationBox {
@@ -133,12 +128,6 @@ pub fn unsafe_update_ibox_state(data: &mut PlutusData, last_processed_epoch: Pro
     *data = PlutusData::new_integer(last_processed_epoch.into());
 }
 
-pub const INFLATION_BOX_EX_UNITS: ExUnits = ExUnits {
-    mem: 500_000,
-    steps: 200_000_000,
-    encodings: None,
-};
-
 pub fn compute_inflation_box_validator(
     inflation_auth_policy: PolicyId,
     splash_policy: PolicyId,
@@ -153,7 +142,7 @@ pub fn compute_inflation_box_validator(
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(weighting_power_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BigInt(uplc::BigInt::Int(Int::from(zeroth_epoch_start as i64))),
     ]);
-    apply_params_validator(params_pd, INFLATION_SCRIPT)
+    apply_params_validator(params_pd, &DaoScriptData::global().inflation.script_bytes)
 }
 
 #[cfg(test)]

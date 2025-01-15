@@ -6,7 +6,7 @@ use spectrum_offchain::domain::{EntitySnapshot, Stable};
 pub mod offchain;
 pub mod onchain;
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
 pub struct Snapshot<T, V>(T, V);
 impl<T, V> Snapshot<T, V> {
     pub fn new(t: T, v: V) -> Self {

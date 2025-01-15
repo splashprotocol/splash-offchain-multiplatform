@@ -15,10 +15,10 @@ use spectrum_cardano_lib::{
     transaction::TransactionOutputExtension,
     types::TryFromPData,
     value::ValueExtension,
-    AssetClass, AssetName, OutputRef, Token,
+    AssetClass, AssetName, Token,
 };
 use spectrum_offchain::{
-    domain::{Has, Identifier, Stable},
+    domain::{Has, Stable},
     ledger::TryFromLedger,
 };
 use spectrum_offchain_cardano::{
@@ -28,22 +28,19 @@ use spectrum_offchain_cardano::{
 use uplc_pallas_codec::utils::PlutusBytes;
 
 use crate::{
-    constants::{script_bytes::VE_FACTORY_SCRIPT, DEFAULT_AUTH_TOKEN_NAME, GT_NAME},
-    deployment::ProtocolValidator,
+    constants::{DEFAULT_AUTH_TOKEN_NAME, GT_NAME},
+    deployment::{DaoScriptData, ProtocolValidator},
     entities::Snapshot,
     protocol_config::{GTAuthPolicy, VEFactoryAuthPolicy},
+    routines::inflation::TimedOutputRef,
 };
 
-pub type VEFactorySnapshot = Snapshot<VEFactory, OutputRef>;
+pub type VEFactorySnapshot = Snapshot<VEFactory, TimedOutputRef>;
 
 #[derive(
     Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize, Debug, derive_more::Display,
 )]
 pub struct VEFactoryId;
-
-impl Identifier for VEFactoryId {
-    type For = VEFactorySnapshot;
-}
 
 impl Stable for VEFactory {
     type StableId = VEFactoryId;
@@ -57,7 +54,7 @@ impl Stable for VEFactory {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Hash)]
 pub struct VEFactory {
     pub accepted_assets: Vec<(Token, Ratio<u128>)>,
     pub legacy_accepted_assets: Vec<(Token, Ratio<u128>)>,
@@ -68,7 +65,7 @@ pub struct VEFactory {
 
 impl<C> TryFromLedger<TransactionOutput, C> for VEFactorySnapshot
 where
-    C: Has<OutputRef>
+    C: Has<TimedOutputRef>
         + Has<VEFactoryAuthPolicy>
         + Has<GTAuthPolicy>
         + Has<DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }>>,
@@ -125,7 +122,7 @@ where
                 legacy_assets_inventory,
                 gt_tokens_available,
             };
-            let output_ref = ctx.select::<OutputRef>();
+            let output_ref = ctx.select::<TimedOutputRef>();
             return Some(Snapshot::new(ve_factory, output_ref));
         }
         None
@@ -150,7 +147,7 @@ pub fn compute_ve_factory_validator(
         )),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(gov_proxy_scripthash.to_raw_bytes().to_vec())),
     ]);
-    apply_params_validator(params_pd, VE_FACTORY_SCRIPT)
+    apply_params_validator(params_pd, &DaoScriptData::global().ve_factory.script_bytes)
 }
 
 fn is_token_accepted(token: Token, accepted_assets: &[(Token, Ratio<u128>)]) -> bool {
