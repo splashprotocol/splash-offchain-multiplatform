@@ -30,7 +30,7 @@ use uplc_pallas_codec::utils::PlutusBytes;
 
 use crate::{
     constants::{DEFAULT_AUTH_TOKEN_NAME, GT_NAME},
-    deployment::{DaoScriptBytes, ProtocolValidator},
+    deployment::{DaoScriptData, ProtocolValidator},
     entities::Snapshot,
     protocol_config::{GTAuthPolicy, VEFactoryAuthPolicy},
     routines::inflation::TimedOutputRef,
@@ -148,7 +148,7 @@ pub fn compute_ve_factory_validator(
         )),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(gov_proxy_scripthash.to_raw_bytes().to_vec())),
     ]);
-    apply_params_validator(params_pd, &DaoScriptBytes::global().ve_factory)
+    apply_params_validator(params_pd, &DaoScriptData::global().ve_factory.script_bytes)
 }
 
 fn is_token_accepted(token: Token, accepted_assets: &[(Token, Ratio<u128>)]) -> bool {

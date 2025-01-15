@@ -19,7 +19,7 @@ use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 
-use crate::deployment::{DaoScriptBytes, ProtocolValidator};
+use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::Snapshot;
 use crate::protocol_config::{FarmAuthPolicy, MintWPAuthPolicy, PermManagerAuthPolicy};
 use crate::routines::inflation::{Slot, TimedOutputRef};
@@ -161,7 +161,10 @@ pub fn compute_mint_farm_auth_token_validator(
             factory_auth_policy.to_raw_bytes().to_vec(),
         )),
     ]);
-    apply_params_validator(params_pd, &DaoScriptBytes::global().mint_farm_auth_token)
+    apply_params_validator(
+        params_pd,
+        &DaoScriptData::global().mint_farm_auth_token.script_bytes,
+    )
 }
 
 pub const FARM_EX_UNITS: ExUnits = ExUnits {

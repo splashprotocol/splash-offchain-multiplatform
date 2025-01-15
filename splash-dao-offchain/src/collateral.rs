@@ -27,7 +27,7 @@ use spectrum_offchain_cardano::{creds::CollateralAddress, prover::operator::Oper
 use crate::{
     collect_utxos::collect_utxos,
     create_change_output::{ChangeOutputCreator, CreateChangeOutput},
-    deployment::{BuiltPolicy, DaoScriptBytes},
+    deployment::{BuiltPolicy, DaoScriptData},
 };
 
 const LIMIT: u16 = 50;
@@ -180,7 +180,7 @@ where
     ));
 
     let voting_witness_script = PlutusScript::PlutusV2(PlutusV2Script::new(
-        hex::decode(&DaoScriptBytes::global().voting_witness).unwrap(),
+        hex::decode(&DaoScriptData::global().voting_witness.script_bytes).unwrap(),
     ));
     let cert_reg =
         Certificate::new_reg_cert(Credential::new_script(*staking_validator_script_hash), 2_000_000);

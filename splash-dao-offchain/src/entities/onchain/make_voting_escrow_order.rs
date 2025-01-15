@@ -26,7 +26,7 @@ use uplc_pallas_codec::utils::PlutusBytes;
 
 use crate::{
     constants::MAKE_VOTING_ESCROW_ORDER_MIN_LOVELACES,
-    deployment::{DaoScriptBytes, ProtocolValidator},
+    deployment::{DaoScriptData, ProtocolValidator},
     routines::inflation::TimedOutputRef,
 };
 
@@ -131,7 +131,10 @@ pub fn compute_make_ve_order_validator(
         )),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(ve_script_hash.to_raw_bytes().to_vec())),
     ]);
-    apply_params_validator(params_pd, &DaoScriptBytes::global().make_voting_escrow_order)
+    apply_params_validator(
+        params_pd,
+        &DaoScriptData::global().make_voting_escrow_order.script_bytes,
+    )
 }
 
 pub const MAKE_VOTING_ESCROW_EX_UNITS: ExUnits = ExUnits {

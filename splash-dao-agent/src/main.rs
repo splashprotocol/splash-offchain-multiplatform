@@ -61,7 +61,7 @@ use spectrum_streaming::run_stream;
 use splash_dao_offchain::{
     collateral::pull_collateral,
     constants::DAO_SCRIPT_BYTES,
-    deployment::{CompleteDeployment, DaoScriptBytes, DeploymentProgress, ProtocolDeployment},
+    deployment::{CompleteDeployment, DaoScriptData, DeploymentProgress, ProtocolDeployment},
     entities::{
         offchain::voting_order::VotingOrder,
         onchain::{
@@ -100,7 +100,7 @@ async fn main() {
 
     let dao_script_bytes_str =
         std::fs::read_to_string(args.script_bytes_path).expect("Cannot load script bytes file");
-    let dao_script_bytes: DaoScriptBytes =
+    let dao_script_bytes: DaoScriptData =
         serde_json::from_str(&dao_script_bytes_str).expect("Invalid script bytes file");
 
     DAO_SCRIPT_BYTES.set(dao_script_bytes).unwrap();

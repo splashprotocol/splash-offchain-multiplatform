@@ -7,7 +7,7 @@ use cml_chain::utils::BigInteger;
 use cml_chain::{LenEncoding, PolicyId, Serialize};
 use cml_crypto::{PrivateKey, RawBytesEncoding, ScriptHash};
 use rand::Rng;
-use splash_dao_offchain::deployment::DaoScriptBytes;
+use splash_dao_offchain::deployment::DaoScriptData;
 use splash_dao_offchain::entities::offchain::voting_order::compute_voting_witness_message;
 use splash_dao_offchain::entities::{
     offchain::voting_order::{VotingOrder, VotingOrderId},
@@ -25,7 +25,7 @@ pub fn create_voting_order(
     num_farms: u32,
 ) -> VotingOrder {
     let voting_witness_script = PlutusScript::PlutusV2(PlutusV2Script::new(
-        hex::decode(&DaoScriptBytes::global().voting_witness).unwrap(),
+        hex::decode(&DaoScriptData::global().voting_witness.script_bytes).unwrap(),
     ));
 
     // Randomly choose a farm to apply the full weight towards

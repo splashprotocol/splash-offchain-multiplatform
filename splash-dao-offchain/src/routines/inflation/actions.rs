@@ -45,7 +45,7 @@ use crate::constants::fee_deltas::{
 };
 use crate::constants::time::{DISTRIBUTE_INFLATION_TX_TTL, MAX_LOCK_TIME_SECONDS, MAX_TIME_DRIFT_MILLIS};
 use crate::create_change_output::{ChangeOutputCreator, CreateChangeOutput};
-use crate::deployment::{BuiltPolicy, DaoScriptBytes, ProtocolValidator};
+use crate::deployment::{BuiltPolicy, DaoScriptData, ProtocolValidator};
 use crate::entities::offchain::voting_order::{compute_voting_witness_message, VotingOrder};
 use crate::entities::onchain::funding_box::{FundingBox, FundingBoxId, FundingBoxSnapshot};
 use crate::entities::onchain::inflation_box::{unsafe_update_ibox_state, INFLATION_BOX_EX_UNITS};
@@ -896,7 +896,7 @@ where
 
         // TODO: ACTUAL SCRIPT HERE
         let voting_witness_script = PlutusScript::PlutusV2(PlutusV2Script::new(
-            hex::decode(&DaoScriptBytes::global().voting_witness).unwrap(),
+            hex::decode(&DaoScriptData::global().voting_witness.script_bytes).unwrap(),
         ));
 
         let witness_input =

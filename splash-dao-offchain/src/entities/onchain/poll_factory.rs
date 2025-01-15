@@ -17,7 +17,7 @@ use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 use uplc_pallas_codec::utils::PlutusBytes;
 
 use crate::assets::Splash;
-use crate::deployment::{DaoScriptBytes, ProtocolValidator};
+use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::onchain::smart_farm::FarmId;
 use crate::entities::onchain::weighting_poll::WeightingPoll;
 use crate::entities::Snapshot;
@@ -167,7 +167,7 @@ pub fn compute_wp_factory_validator(
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(wp_auth_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(gov_witness_script_hash.to_raw_bytes().to_vec())),
     ]);
-    apply_params_validator(params_pd, &DaoScriptBytes::global().wp_factory)
+    apply_params_validator(params_pd, &DaoScriptData::global().wp_factory.script_bytes)
 }
 
 pub struct PollFactoryConfig {

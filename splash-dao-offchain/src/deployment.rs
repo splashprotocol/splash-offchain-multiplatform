@@ -1,5 +1,5 @@
 use cardano_explorer::CardanoNetwork;
-use cml_chain::utils::BigInteger;
+use cml_chain::{plutus::ExUnits, utils::BigInteger};
 use cml_crypto::{ScriptHash, TransactionHash};
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::domain::Has;
@@ -55,35 +55,42 @@ pub struct MintedTokens {
 pub struct Deployment {
     pub validators: DeployedValidators,
     pub nfts: MintedTokens,
-    pub script_bytes: DaoScriptBytes,
+    pub script_bytes: DaoScriptData,
 }
 
 #[derive(serde::Deserialize, Clone, Debug)]
-pub struct DaoScriptBytes {
-    pub mint_weighting_power: String,
-    pub inflation: String,
-    pub wp_factory: String,
-    pub mint_wp_auth_token: String,
-    pub voting_escrow: String,
-    pub mint_farm_auth_token: String,
-    pub perm_manager: String,
-    pub one_time_mint: String,
-    pub mint_governance_power: String,
-    pub mint_identifier: String,
-    pub farm_factory: String,
-    pub ve_factory: String,
-    pub gov_proxy: String,
-    pub mint_ve_composition_token: String,
-    pub voting_witness: String,
-    pub make_voting_escrow_order: String,
+pub struct DaoScriptData {
+    pub mint_weighting_power: ScriptBytesAndCosts,
+    pub inflation: ScriptBytesAndCosts,
+    pub wp_factory: ScriptBytesAndCosts,
+    pub mint_wp_auth_token: ScriptBytesAndCosts,
+    pub voting_escrow: ScriptBytesAndCosts,
+    pub mint_farm_auth_token: ScriptBytesAndCosts,
+    pub perm_manager: ScriptBytesAndCosts,
+    pub one_time_mint: ScriptBytesAndCosts,
+    pub mint_governance_power: ScriptBytesAndCosts,
+    pub mint_identifier: ScriptBytesAndCosts,
+    pub farm_factory: ScriptBytesAndCosts,
+    pub ve_factory: ScriptBytesAndCosts,
+    pub gov_proxy: ScriptBytesAndCosts,
+    pub mint_ve_composition_token: ScriptBytesAndCosts,
+    pub voting_witness: ScriptBytesAndCosts,
+    pub make_voting_escrow_order: ScriptBytesAndCosts,
 }
 
-impl DaoScriptBytes {
-    pub fn global() -> &'static DaoScriptBytes {
+impl DaoScriptData {
+    pub fn global() -> &'static DaoScriptData {
         DAO_SCRIPT_BYTES
             .get()
             .expect("DAO script bytes is not initialized")
     }
+}
+
+#[derive(serde::Deserialize, Clone, Debug)]
+pub struct ScriptBytesAndCosts {
+    /// Hex-encoded script bytes
+    pub script_bytes: String,
+    pub ex_units: ExUnits,
 }
 
 #[repr(u8)]

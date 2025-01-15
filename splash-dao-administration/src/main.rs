@@ -60,7 +60,7 @@ use splash_dao_offchain::{
     constants::{time::MAX_LOCK_TIME_SECONDS, DAO_SCRIPT_BYTES, DEFAULT_AUTH_TOKEN_NAME, SPLASH_NAME},
     create_change_output::{ChangeOutputCreator, CreateChangeOutput},
     deployment::{
-        write_deployment_to_disk, BuiltPolicy, CompleteDeployment, DaoScriptBytes, DeployedValidators,
+        write_deployment_to_disk, BuiltPolicy, CompleteDeployment, DaoScriptData, DeployedValidators,
         DeploymentProgress, MintedTokens, NFTUtxoInputs, ProtocolDeployment, ProtocolValidator,
     },
     entities::{
@@ -103,7 +103,7 @@ async fn main() {
 
     let dao_script_bytes_str =
         std::fs::read_to_string(args.script_bytes_path).expect("Cannot load script bytes file");
-    let dao_script_bytes: DaoScriptBytes =
+    let dao_script_bytes: DaoScriptData =
         serde_json::from_str(&dao_script_bytes_str).expect("Invalid script bytes file");
 
     DAO_SCRIPT_BYTES.set(dao_script_bytes).unwrap();

@@ -1,6 +1,6 @@
 use once_cell::sync::OnceCell;
 
-use crate::deployment::DaoScriptBytes;
+use crate::deployment::DaoScriptData;
 
 pub const SPLASH_NAME: &str = "SPLASH";
 
@@ -133,4 +133,4 @@ pub const WP_OUT_IX: usize = 1;
 
 pub const MAKE_VOTING_ESCROW_ORDER_MIN_LOVELACES: u64 = 10_000_000;
 
-pub static DAO_SCRIPT_BYTES: OnceCell<DaoScriptBytes> = OnceCell::new();
+pub static DAO_SCRIPT_BYTES: OnceCell<DaoScriptData> = OnceCell::new();

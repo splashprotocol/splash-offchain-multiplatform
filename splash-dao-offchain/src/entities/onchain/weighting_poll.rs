@@ -27,7 +27,7 @@ use crate::constants::time::{
     COOLDOWN_PERIOD_EXTRA_BUFFER, COOLDOWN_PERIOD_MILLIS, DISTRIBUTE_INFLATION_START_DELAY_MILLIS, EPOCH_LEN,
 };
 use crate::constants::SPLASH_NAME;
-use crate::deployment::{DaoScriptBytes, ProtocolValidator};
+use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::onchain::smart_farm::FarmId;
 use crate::entities::onchain::voting_escrow::compute_mint_weighting_power_validator;
 use crate::entities::Snapshot;
@@ -486,7 +486,10 @@ pub fn compute_mint_wp_auth_token_validator(
         )),
         uplc::PlutusData::BigInt(uplc::BigInt::Int(Int::from(zeroth_epoch_start as i64))),
     ]);
-    apply_params_validator(params_pd, &DaoScriptBytes::global().mint_wp_auth_token)
+    apply_params_validator(
+        params_pd,
+        &DaoScriptData::global().mint_wp_auth_token.script_bytes,
+    )
 }
 
 #[cfg(test)]

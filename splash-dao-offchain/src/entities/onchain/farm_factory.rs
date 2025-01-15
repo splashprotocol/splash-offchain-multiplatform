@@ -26,7 +26,7 @@ use uplc_pallas_codec::utils::PlutusBytes;
 
 use crate::{
     constants::{self},
-    deployment::{DaoScriptBytes, ProtocolValidator},
+    deployment::{DaoScriptData, ProtocolValidator},
     entities::Snapshot,
     protocol_config::FarmFactoryAuthPolicy,
 };
@@ -150,7 +150,7 @@ pub fn compute_farm_factory_validator(
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(farm_auth_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(gov_witness_script_hash.to_raw_bytes().to_vec())),
     ]);
-    apply_params_validator(params_pd, &DaoScriptBytes::global().farm_factory)
+    apply_params_validator(params_pd, &DaoScriptData::global().farm_factory.script_bytes)
 }
 
 #[cfg(test)]
