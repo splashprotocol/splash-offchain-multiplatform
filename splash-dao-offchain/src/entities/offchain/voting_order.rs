@@ -1,7 +1,4 @@
-use std::sync::{Arc, Mutex};
-
 use cml_chain::plutus::PlutusData;
-use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, ScriptHash};
 use derive_more::{From, Into};
 

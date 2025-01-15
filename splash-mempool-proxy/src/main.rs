@@ -10,8 +10,9 @@ use derive_more::From;
 use futures::stream::FuturesUnordered;
 use futures::FutureExt;
 use spectrum_cardano_lib::constants;
-use spectrum_offchain::streaming::run_stream;
 use spectrum_offchain_cardano::node::NodeConfig;
+use spectrum_streaming::run_stream;
+
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 

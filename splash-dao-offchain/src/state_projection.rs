@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::Arc;
 
 use async_std::task::spawn_blocking;
@@ -5,10 +6,9 @@ use bloom_offchain::execution_engine::bundled::Bundled;
 use log::trace;
 use rocksdb::{Direction, IteratorMode, ReadOptions};
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use spectrum_offchain::domain::event::{AnyMod, Confirmed, Predicted, Traced};
 use spectrum_offchain::domain::EntitySnapshot;
-use spectrum_offchain::rocks::RocksConfig;
 
 /// Projection of [T] state relative to the ledger.
 #[async_trait::async_trait]
@@ -44,9 +44,12 @@ pub struct StateProjectionRocksDB {
 }
 
 impl StateProjectionRocksDB {
-    pub fn new(conf: RocksConfig) -> Self {
+    pub fn new<P>(db_path: P) -> Self
+    where
+        P: AsRef<Path>,
+    {
         Self {
-            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(conf.db_path).unwrap()),
+            db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(db_path).unwrap()),
         }
     }
 }

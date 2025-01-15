@@ -6,7 +6,7 @@ use std::pin::{pin, Pin};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use async_primitives::beacon::{Beacon, Once};
+use async_primitives::beacon::Beacon;
 use async_stream::stream;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::liquidity_book::core::Trans;
@@ -20,6 +20,7 @@ use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
 use futures::{pin_mut, Future, FutureExt, Stream, StreamExt};
 use futures_timer::Delay;
+use isahc::http::header::RETRY_AFTER;
 use log::{error, info, trace};
 use pallas_network::miniprotocols::localtxsubmission::cardano_node_errors::{
     ApplyTxError, ConwayLedgerPredFailure, ConwayUtxoPredFailure, ConwayUtxowPredFailure,
@@ -45,15 +46,21 @@ use tokio::sync::mpsc::Receiver;
 use tokio::sync::Mutex;
 use type_equalities::IsEqual;
 
-use crate::constants::time::EPOCH_LEN;
+use crate::constants::time::{
+    COOLDOWN_PERIOD_EXTRA_BUFFER, COOLDOWN_PERIOD_MILLIS, EPOCH_LEN, MAX_LOCK_TIME_SECONDS,
+};
 use crate::deployment::ProtocolValidator;
 use crate::entities::offchain::voting_order::{VotingOrder, VotingOrderId};
 use crate::entities::onchain::funding_box::{FundingBox, FundingBoxId, FundingBoxSnapshot};
 use crate::entities::onchain::inflation_box::{InflationBoxId, InflationBoxSnapshot};
+use crate::entities::onchain::make_voting_escrow_order::{
+    MVEStatus, MakeVotingEscrowOrder, MakeVotingEscrowOrderBundle,
+};
 use crate::entities::onchain::permission_manager::{PermManager, PermManagerId, PermManagerSnapshot};
 use crate::entities::onchain::poll_factory::{PollFactory, PollFactoryId, PollFactorySnapshot};
 use crate::entities::onchain::smart_farm::{FarmId, SmartFarm, SmartFarmSnapshot};
-use crate::entities::onchain::voting_escrow::{VotingEscrow, VotingEscrowId, VotingEscrowSnapshot};
+use crate::entities::onchain::voting_escrow::{Owner, VotingEscrow, VotingEscrowId, VotingEscrowSnapshot};
+use crate::entities::onchain::voting_escrow_factory::{VEFactoryId, VEFactorySnapshot};
 use crate::entities::onchain::weighting_poll::{
     PollState, WeightingOngoing, WeightingPoll, WeightingPollId, WeightingPollSnapshot,
 };
@@ -68,19 +75,47 @@ use crate::protocol_config::{
 use crate::routine::{retry_in, RoutineBehaviour, ToRoutine};
 use crate::routines::inflation::actions::InflationActions;
 use crate::state_projection::{StateProjectionRead, StateProjectionWrite};
-use crate::time::{NetworkTimeProvider, ProtocolEpoch};
+use crate::time::{epoch_end, NetworkTimeProvider, ProtocolEpoch};
 use crate::{CurrentEpoch, GenesisEpochStartTime, NetworkTimeSource};
 
 pub mod actions;
 
-pub struct Behaviour<IB, PF, WP, VE, SF, PM, FB, OrderBacklog, PTX, Time, Actions, Bearer, Net> {
+pub struct Behaviour<
+    IB,
+    PF,
+    VEF,
+    WP,
+    VE,
+    SF,
+    PM,
+    FB,
+    MVE,
+    OVE,
+    TMVE,
+    OrderBacklog,
+    PTX,
+    Time,
+    Actions,
+    Bearer,
+    Net,
+> {
     inflation_box: IB,
     poll_factory: PF,
+    ve_factory: VEF,
     weighting_poll: WP,
     voting_escrow: VE,
     smart_farm: SF,
     perm_manager: PM,
     funding_box: FB,
+    /// Backlog of unspent `make_voting_escrow_order` UTxOs
+    mve_order_backlog: MVE,
+    /// Maps owners of `make_voting_escrow_order` to `MVEStatus` values. Used to respond to user
+    /// queries regarding the state of their order.
+    owner_to_voting_escrow: OVE,
+    /// Maps an output reference to an associated `make_voting_escrow_order` UTxO. This is used to
+    /// properly restore orders on chain-rollback.
+    tx_hash_to_mve: TMVE,
+    /// Backlog for all user voting orders.
     voting_order_backlog: OrderBacklog,
     predicted_tx_backlog: PTX,
     ntp: Time,
@@ -89,19 +124,37 @@ pub struct Behaviour<IB, PF, WP, VE, SF, PM, FB, OrderBacklog, PTX, Time, Action
     pd: PhantomData<Bearer>,
     network: Net,
     ledger_upstream: Receiver<LedgerTxEvent<TxViewMut>>,
-    voting_orders: Receiver<VotingOrderMessage>,
+    voting_orders: Receiver<DaoBotMessage>,
     chain_tip_reached: Arc<Mutex<bool>>,
     state_synced: Beacon,
-    current_slot: u64,
-    skip_filter: CircularFilter<256, OnChainStatus>,
+    current_slot: Option<u64>,
     failed_to_confirm_txs_recv: Receiver<Transaction>,
 }
 
 const DEF_DELAY: Duration = Duration::new(5, 0);
 
 #[async_trait::async_trait]
-impl<IB, PF, WP, VE, SF, PM, FB, OrderBacklog, PTX, Time, Actions, Bearer, Net> RoutineBehaviour
-    for Behaviour<IB, PF, WP, VE, SF, PM, FB, OrderBacklog, PTX, Time, Actions, Bearer, Net>
+impl<IB, PF, VEF, WP, VE, SF, PM, FB, MVE, OVE, TMVE, OrderBacklog, PTX, Time, Actions, Bearer, Net>
+    RoutineBehaviour
+    for Behaviour<
+        IB,
+        PF,
+        VEF,
+        WP,
+        VE,
+        SF,
+        PM,
+        FB,
+        MVE,
+        OVE,
+        TMVE,
+        OrderBacklog,
+        PTX,
+        Time,
+        Actions,
+        Bearer,
+        Net,
+    >
 where
     IB: StateProjectionRead<InflationBoxSnapshot, Bearer>
         + StateProjectionWrite<InflationBoxSnapshot, Bearer>
@@ -115,12 +168,16 @@ where
         + StateProjectionWrite<WeightingPollSnapshot, Bearer>
         + Send
         + Sync,
+    VEF: StateProjectionRead<VEFactorySnapshot, Bearer>
+        + StateProjectionWrite<VEFactorySnapshot, Bearer>
+        + Send
+        + Sync,
     VE: StateProjectionRead<VotingEscrowSnapshot, Bearer>
         + StateProjectionWrite<VotingEscrowSnapshot, Bearer>
         + Send
         + Sync,
     OrderBacklog: ResilientBacklog<VotingOrder> + Send + Sync,
-    PTX: KvStore<TransactionHash, PredictedEntityWrites> + Send + Sync,
+    PTX: KvStore<TransactionHash, PredictedEntityWrites<Bearer>> + Send + Sync,
     SF: StateProjectionRead<SmartFarmSnapshot, Bearer>
         + StateProjectionWrite<SmartFarmSnapshot, Bearer>
         + Send
@@ -130,6 +187,9 @@ where
         + Send
         + Sync,
     FB: FundingRepo + Send + Sync,
+    MVE: ResilientBacklog<MakeVotingEscrowOrderBundle<Bearer>> + Send + Sync,
+    OVE: KvStore<Owner, MVEStatus> + Send + Sync,
+    TMVE: KvStore<TimedOutputRef, PendingOrder<MakeVotingEscrowOrderBundle<Bearer>>> + Send + Sync,
     Time: NetworkTimeProvider + Send + Sync,
     Actions: InflationActions<Bearer> + Send + Sync,
     Bearer: Send + Sync + std::fmt::Debug + Clone,
@@ -139,15 +199,25 @@ where
         let RoutineState {
             previous_epoch_state,
             current_epoch_state,
+            eliminate_wpoll,
         } = self.read_state().await;
+        if let Some((wp_state, eliminated_epoch)) = eliminate_wpoll {
+            trace!("Eliminating wpoll for epoch {}", eliminated_epoch);
+            self.try_eliminate_poll(wp_state).await;
+        }
         match previous_epoch_state {
             // For epoch 0
             None => match current_epoch_state {
-                EpochRoutineState::Uninitialized | EpochRoutineState::WaitingForDistributionToStart => {
-                    retry_in(DEF_DELAY)
-                }
+                EpochRoutineState::Uninitialized
+                | EpochRoutineState::WaitingForDistributionToStart
+                | EpochRoutineState::WaitingToEliminate => retry_in(DEF_DELAY),
                 EpochRoutineState::PendingCreatePoll(state) => self.try_create_wpoll(state).await,
-                EpochRoutineState::WeightingInProgress(state) => self.try_apply_votes(state).await,
+                EpochRoutineState::WeightingInProgress(state) => {
+                    trace!("Try making voting escrow (epoch 0)");
+                    let _ = self.try_make_voting_escrow().await;
+                    trace!("Try apply votes (epoch 0)");
+                    self.try_apply_votes(state).await
+                }
                 EpochRoutineState::DistributionInProgress(state) => {
                     self.try_distribute_inflation(state).await
                 }
@@ -158,68 +228,49 @@ where
                 trace!("Distributing inflation for previous epoch");
                 self.try_distribute_inflation(prev_state).await
             }
-            Some(EpochRoutineState::PendingEliminatePoll(prev_state)) => {
-                trace!("Eliminating wpoll for previous epoch");
-                match current_epoch_state {
-                    EpochRoutineState::PendingCreatePoll(state) => {
-                        trace!("Creating wpoll for current epoch");
-                        self.try_create_wpoll(state).await
-                    }
-                    EpochRoutineState::WeightingInProgress(state) => {
-                        trace!("Try apply votes for current epoch");
-                        self.try_apply_votes(state).await
-                    }
-                    EpochRoutineState::Uninitialized => {
-                        unreachable!("current_epoch_state: EpochRoutineState::Uninitialized");
-                    }
-                    EpochRoutineState::WaitingForDistributionToStart => retry_in(DEF_DELAY),
-                    EpochRoutineState::DistributionInProgress(curr_state) => {
-                        trace!("Distributing inflation for current epoch");
-                        self.try_distribute_inflation(curr_state).await
-                    }
-                    EpochRoutineState::PendingEliminatePoll(_) => {
-                        unreachable!("current_epoch_state: EpochRoutineState::PendingEliminatePoll(_)");
-                    }
-                    EpochRoutineState::Eliminated => {
-                        unreachable!("current_epoch_state: EpochRoutineState::Eliminated");
-                    }
+
+            Some(EpochRoutineState::WaitingForDistributionToStart)
+            | Some(EpochRoutineState::WaitingToEliminate)
+            | Some(EpochRoutineState::Eliminated) => match current_epoch_state {
+                EpochRoutineState::PendingCreatePoll(state) => {
+                    trace!("Creating wpoll for current epoch");
+                    self.try_create_wpoll(state).await
                 }
-            }
-            Some(EpochRoutineState::WaitingForDistributionToStart) | Some(EpochRoutineState::Eliminated) => {
-                match current_epoch_state {
-                    EpochRoutineState::PendingCreatePoll(state) => {
-                        trace!("Creating wpoll for current epoch");
-                        self.try_create_wpoll(state).await
-                    }
-                    EpochRoutineState::WeightingInProgress(state) => {
-                        trace!("Try apply votes for current epoch");
-                        self.try_apply_votes(state).await
-                    }
-                    EpochRoutineState::Uninitialized
-                    | EpochRoutineState::WaitingForDistributionToStart
-                    | EpochRoutineState::DistributionInProgress(_)
-                    | EpochRoutineState::PendingEliminatePoll(_)
-                    | EpochRoutineState::Eliminated => {
-                        unreachable!()
-                    }
+                EpochRoutineState::WeightingInProgress(state) => {
+                    trace!("Try apply votes for current epoch");
+                    self.try_apply_votes(state).await
                 }
-            }
-            _ => unreachable!(),
+
+                EpochRoutineState::WaitingToEliminate
+                | EpochRoutineState::PendingEliminatePoll(_)
+                | EpochRoutineState::WaitingForDistributionToStart => retry_in(DEF_DELAY),
+                EpochRoutineState::Uninitialized => unreachable!(),
+                EpochRoutineState::DistributionInProgress(_) => unreachable!(),
+                EpochRoutineState::Eliminated => unreachable!(),
+            },
+            Some(EpochRoutineState::PendingEliminatePoll(_)) => retry_in(DEF_DELAY),
+            Some(EpochRoutineState::WeightingInProgress(_)) => unreachable!(),
+            Some(EpochRoutineState::PendingCreatePoll(_)) => unreachable!(),
+            Some(EpochRoutineState::Uninitialized) => unreachable!(),
         }
     }
 }
 
-impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
-    Behaviour<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
+impl<IB, PF, VEF, WP, VE, SF, PM, FB, MVE, OVE, TMVE, Backlog, PTX, Time, Actions, Bearer, Net>
+    Behaviour<IB, PF, VEF, WP, VE, SF, PM, FB, MVE, OVE, TMVE, Backlog, PTX, Time, Actions, Bearer, Net>
 {
     pub fn new(
         inflation_box: IB,
         poll_factory: PF,
         weighting_poll: WP,
+        ve_factory: VEF,
         voting_escrow: VE,
         smart_farm: SF,
         perm_manager: PM,
         funding_box: FB,
+        make_voting_escrow_order: MVE,
+        owner_to_voting_escrow: OVE,
+        tx_hash_to_mve: TMVE,
         backlog: Backlog,
         predicted_tx_backlog: PTX,
         ntp: Time,
@@ -228,7 +279,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
         pd: PhantomData<Bearer>,
         network: Net,
         ledger_upstream: Receiver<LedgerTxEvent<TxViewMut>>,
-        voting_orders: Receiver<VotingOrderMessage>,
+        voting_orders: Receiver<DaoBotMessage>,
         state_synced: Beacon,
         failed_txs_recv: Receiver<Transaction>,
     ) -> Self
@@ -239,10 +290,14 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
             inflation_box,
             poll_factory,
             weighting_poll,
+            ve_factory,
             voting_escrow,
             smart_farm,
             perm_manager,
             funding_box,
+            mve_order_backlog: make_voting_escrow_order,
+            owner_to_voting_escrow,
+            tx_hash_to_mve,
             voting_order_backlog: backlog,
             predicted_tx_backlog,
             ntp,
@@ -254,8 +309,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
             voting_orders,
             chain_tip_reached: Arc::new(Mutex::new(false)),
             state_synced,
-            current_slot: 0,
-            skip_filter: CircularFilter::new(),
+            current_slot: None,
             failed_to_confirm_txs_recv: failed_txs_recv,
         }
     }
@@ -297,24 +351,21 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
     where
         WP: StateProjectionRead<WeightingPollSnapshot, Bearer> + Send + Sync,
     {
-        self.weighting_poll
-            .read(self.conf.poll_id(epoch))
-            .await
-            .and_then(|a| {
-                let ver = a.as_erased().version();
-                let wpoll = a.as_erased().0.get();
-                if wpoll.eliminated {
-                    // We don't return a weighting_poll that's already been eliminated
-                    trace!(
-                        "Behaviour::weighting_poll({}) with ver: {} already eliminated -------------",
-                        epoch,
-                        ver
-                    );
-                    Some(Either::Left(WPollEliminated))
-                } else {
-                    Some(Either::Right(a))
-                }
-            })
+        self.weighting_poll.read(self.conf.poll_id(epoch)).await.map(|a| {
+            let ver = a.as_erased().version();
+            let wpoll = a.as_erased().0.get();
+            if wpoll.eliminated {
+                // We don't return a weighting_poll that's already been eliminated
+                trace!(
+                    "Behaviour::weighting_poll({}) with ver: {} already eliminated -------------",
+                    epoch,
+                    ver
+                );
+                Either::Left(WPollEliminated)
+            } else {
+                Either::Right(a)
+            }
+        })
     }
 
     async fn perm_manager(&self) -> Option<AnyMod<Bundled<PermManagerSnapshot, Bearer>>>
@@ -353,6 +404,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
         WP: StateProjectionRead<WeightingPollSnapshot, Bearer> + Send + Sync,
         VE: StateProjectionRead<VotingEscrowSnapshot, Bearer> + Send + Sync,
         SF: StateProjectionRead<SmartFarmSnapshot, Bearer> + Send + Sync,
+        VEF: StateProjectionRead<VEFactorySnapshot, Bearer> + Send + Sync,
         Backlog: ResilientBacklog<VotingOrder> + Send + Sync,
         Bearer: std::fmt::Debug + Clone,
         Time: NetworkTimeProvider + Send + Sync,
@@ -370,8 +422,12 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
                 .0
                 .get()
                 .active_epoch(genesis, now_millis);
-            let previous_epoch_state = if current_epoch > 0 {
-                match self.weighting_poll(current_epoch - 1).await {
+            let (previous_epoch_state, eliminate_wpoll) = if current_epoch > 0 {
+                let eliminate_wpoll = self
+                    .get_latest_wpoll_to_eliminate(current_epoch - 1, genesis, now_millis)
+                    .await
+                    .map(|(weighting_poll, epoch)| (PendingEliminatePoll { weighting_poll }, epoch));
+                let previous_epoch_state = match self.weighting_poll(current_epoch - 1).await {
                     Some(Either::Right(prev_wp)) => {
                         match prev_wp.as_erased().0.get().state(genesis, now_millis) {
                             PollState::WeightingOngoing(_st) => {
@@ -392,16 +448,15 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
                                     },
                                 ))
                             }
-                            PollState::PollExhausted(_) => {
-                                if !prev_wp.as_erased().0.get().eliminated {
-                                    Some(EpochRoutineState::PendingEliminatePoll(PendingEliminatePoll {
-                                        weighting_poll: prev_wp,
-                                    }))
-                                } else {
-                                    trace!("Prev epoch's weighting_poll already eliminated");
-                                    Some(EpochRoutineState::Eliminated)
-                                }
+                            PollState::PollExhaustedButNotReadyToEliminate => {
+                                Some(EpochRoutineState::WaitingToEliminate)
                             }
+                            PollState::PollExhaustedAndReadyToEliminate => {
+                                Some(EpochRoutineState::PendingEliminatePoll(PendingEliminatePoll {
+                                    weighting_poll: prev_wp,
+                                }))
+                            }
+                            PollState::Eliminated => Some(EpochRoutineState::Eliminated),
                             PollState::WaitingForDistributionToStart => {
                                 trace!("Waiting for distribution of epoch {} to start", current_epoch - 1);
                                 Some(EpochRoutineState::WaitingForDistributionToStart)
@@ -410,9 +465,10 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
                     }
                     Some(Either::Left(WPollEliminated)) => Some(EpochRoutineState::Eliminated),
                     None => None,
-                }
+                };
+                (previous_epoch_state, eliminate_wpoll)
             } else {
-                None
+                (None, None)
             };
             let current_epoch_state = match self.weighting_poll(current_epoch).await {
                 None => {
@@ -425,27 +481,23 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
                 Some(Either::Right(wp)) => match wp.as_erased().0.get().state(genesis, now_millis) {
                     PollState::WeightingOngoing(st) => {
                         trace!("Weighting on going @ epoch {}", current_epoch);
+
                         EpochRoutineState::WeightingInProgress(WeightingInProgress {
                             weighting_poll: wp,
                             next_pending_order: self.next_order(st).await,
                         })
                     }
-                    PollState::DistributionOngoing(next_farm) => {
-                        trace!("WeightingOnGoing @ epoch {}", current_epoch);
-                        EpochRoutineState::DistributionInProgress(DistributionInProgress {
-                            next_farm: self
-                                .smart_farm
-                                .read(next_farm.farm_id())
-                                .await
-                                .expect("State is inconsistent"),
-                            weighting_poll: wp,
-                            next_farm_weight: next_farm.farm_weight(),
-                            perm_manager,
-                        })
+                    PollState::DistributionOngoing(_) => {
+                        unreachable!("Impossible to distribute inflation on current epoch");
                     }
-                    PollState::PollExhausted(_) => {
-                        EpochRoutineState::PendingEliminatePoll(PendingEliminatePoll { weighting_poll: wp })
+                    PollState::PollExhaustedAndReadyToEliminate => {
+                        unreachable!("Impossible to eliminate wpoll on current epoch");
                     }
+                    PollState::PollExhaustedButNotReadyToEliminate => {
+                        trace!("WPoll in current epoch exhausted");
+                        EpochRoutineState::WaitingToEliminate
+                    }
+                    PollState::Eliminated => EpochRoutineState::Eliminated,
                     PollState::WaitingForDistributionToStart => {
                         EpochRoutineState::WaitingForDistributionToStart
                     }
@@ -456,11 +508,13 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
             RoutineState {
                 previous_epoch_state,
                 current_epoch_state,
+                eliminate_wpoll,
             }
         } else {
             RoutineState {
                 previous_epoch_state: None,
                 current_epoch_state: EpochRoutineState::Uninitialized,
+                eliminate_wpoll: None,
             }
         }
     }
@@ -475,6 +529,10 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
             + StateProjectionWrite<PollFactorySnapshot, Bearer>
             + Send
             + Sync,
+        VEF: StateProjectionRead<VEFactorySnapshot, Bearer>
+            + StateProjectionWrite<VEFactorySnapshot, Bearer>
+            + Send
+            + Sync,
         WP: StateProjectionRead<WeightingPollSnapshot, Bearer>
             + StateProjectionWrite<WeightingPollSnapshot, Bearer>
             + Send
@@ -483,6 +541,9 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
             + StateProjectionWrite<VotingEscrowSnapshot, Bearer>
             + Send
             + Sync,
+        OVE: KvStore<Owner, MVEStatus> + Send + Sync,
+        MVE: ResilientBacklog<MakeVotingEscrowOrderBundle<Bearer>> + Send + Sync,
+        TMVE: KvStore<TimedOutputRef, PendingOrder<MakeVotingEscrowOrderBundle<Bearer>>> + Send + Sync,
         Backlog: ResilientBacklog<VotingOrder> + Send + Sync,
         SF: StateProjectionRead<SmartFarmSnapshot, Bearer>
             + StateProjectionWrite<SmartFarmSnapshot, Bearer>
@@ -494,6 +555,7 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
             + Sync,
         FB: FundingRepo + Send + Sync,
         Time: NetworkTimeProvider + Send + Sync,
+        Bearer: Clone,
     {
         match entity.get() {
             DaoEntity::Inflation(ib) => {
@@ -565,6 +627,23 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
                 };
                 self.voting_escrow.write_confirmed(traced).await;
             }
+            DaoEntity::VotingEscrowFactory(ve_factory) => {
+                let confirmed_snapshot = Confirmed(Bundled(
+                    Snapshot::new(ve_factory.clone(), *entity.version()),
+                    bearer,
+                ));
+                let prev_state_id = if let Some(state) = self.ve_factory.read(VEFactoryId).await {
+                    let bundled = state.erased();
+                    Some(bundled.version())
+                } else {
+                    None
+                };
+                let traced = Traced {
+                    state: confirmed_snapshot,
+                    prev_state_id,
+                };
+                self.ve_factory.write_confirmed(traced).await;
+            }
             DaoEntity::WeightingPoll(wp) => {
                 let confirmed_snapshot =
                     Confirmed(Bundled(Snapshot::new(wp.clone(), *entity.version()), bearer));
@@ -591,6 +670,27 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
             DaoEntity::FundingBox(fb) => {
                 self.funding_box.put_confirmed(Confirmed(fb.clone())).await;
             }
+            DaoEntity::MakeVotingEscrowOrder(make_voting_escrow_order) => {
+                trace!(
+                    "make_voting_escrow_order confirmed: owner {}, version: {:?}",
+                    make_voting_escrow_order.ve_datum.owner,
+                    entity.version(),
+                );
+                let time_src = NetworkTimeSource {};
+                let timestamp = time_src.network_time().await as i64;
+                let owner = make_voting_escrow_order.ve_datum.owner;
+                let order = MakeVotingEscrowOrderBundle::new(
+                    make_voting_escrow_order.clone(),
+                    *entity.version(),
+                    bearer,
+                );
+                let ord = PendingOrder { order, timestamp };
+                self.mve_order_backlog.put(ord.clone()).await;
+                self.tx_hash_to_mve.insert(*entity.version(), ord).await;
+                self.owner_to_voting_escrow
+                    .insert(owner, MVEStatus::Unspent)
+                    .await;
+            }
         }
     }
 
@@ -607,12 +707,16 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
         IB: StateProjectionWrite<InflationBoxSnapshot, Bearer> + Send + Sync,
         PF: StateProjectionWrite<PollFactorySnapshot, Bearer> + Send + Sync,
         WP: StateProjectionWrite<WeightingPollSnapshot, Bearer> + Send + Sync,
-        PTX: KvStore<TransactionHash, PredictedEntityWrites> + Send + Sync,
+        PTX: KvStore<TransactionHash, PredictedEntityWrites<Bearer>> + Send + Sync,
         FB: FundingRepo + Send + Sync,
         Time: NetworkTimeProvider + Send + Sync,
     {
         if let (AnyMod::Confirmed(inflation_box), AnyMod::Confirmed(factory)) = (inflation_box, poll_factory)
         {
+            if self.current_slot.is_none() {
+                return retry_in(DEF_DELAY);
+            }
+            let current_slot = self.current_slot.unwrap();
             let funding_boxes = AvailableFundingBoxes(self.funding_box.collect().await.unwrap());
             let lovelaces_input_value = funding_boxes.0.iter().fold(0, |acc, x| acc + x.value.coin);
             if lovelaces_input_value >= 5_000_000 {
@@ -621,13 +725,13 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
                     .create_wpoll(
                         inflation_box.state.0,
                         factory.state.0,
-                        Slot(self.current_slot),
+                        Slot(current_slot),
                         funding_boxes,
                     )
                     .await;
                 let prover = OperatorProver::new(self.conf.operator_sk.clone());
                 let outbound_tx = prover.prove(signed_tx);
-                let tx = Transaction::from(outbound_tx.clone());
+                let tx = outbound_tx.clone();
                 let tx_hash = tx.body.hash();
                 info!("`create_wpoll`: submitting TX (hash: {})", tx_hash);
                 match self.network.submit_tx(outbound_tx).await {
@@ -701,20 +805,24 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
         VE: StateProjectionWrite<VotingEscrowSnapshot, Bearer> + Send + Sync,
         Backlog: ResilientBacklog<VotingOrder> + Send + Sync,
         FB: FundingRepo + Send + Sync,
-        PTX: KvStore<TransactionHash, PredictedEntityWrites> + Send + Sync,
+        PTX: KvStore<TransactionHash, PredictedEntityWrites<Bearer>> + Send + Sync,
     {
         if let Some(next_order) = next_pending_order {
+            if self.current_slot.is_none() {
+                return retry_in(DEF_DELAY);
+            }
+            let current_slot = self.current_slot.unwrap();
             let order = next_order.0.clone();
             let order_id = order.id;
             match self
                 .actions
-                .execute_order(weighting_poll.erased(), next_order, Slot(self.current_slot))
+                .execute_order(weighting_poll.erased(), next_order, Slot(current_slot))
                 .await
             {
                 Ok((signed_tx, next_wpoll, next_ve)) => {
                     let prover = OperatorProver::new(self.conf.operator_sk.clone());
                     let outbound_tx = prover.prove(signed_tx);
-                    let tx = Transaction::from(outbound_tx.clone());
+                    let tx = outbound_tx.clone();
                     let tx_hash = tx.body.hash();
                     info!("`execute_order`: submitting TX (hash: {})", tx_hash);
                     match self.network.submit_tx(outbound_tx).await {
@@ -796,70 +904,81 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
         SF: StateProjectionWrite<SmartFarmSnapshot, Bearer> + Send + Sync,
         PM: StateProjectionWrite<PermManagerSnapshot, Bearer> + Send + Sync,
         FB: FundingRepo + Send + Sync,
-        PTX: KvStore<TransactionHash, PredictedEntityWrites> + Send + Sync,
+        PTX: KvStore<TransactionHash, PredictedEntityWrites<Bearer>> + Send + Sync,
     {
+        if self.current_slot.is_none() {
+            return retry_in(DEF_DELAY);
+        }
+        let current_slot = self.current_slot.unwrap();
         let funding_boxes = AvailableFundingBoxes(self.funding_box.collect().await.unwrap());
-        let (signed_tx, next_wpoll, next_sf, funding_box_changes) = self
-            .actions
-            .distribute_inflation(
-                weighting_poll.erased(),
-                next_farm.erased(),
-                perm_manager.erased(),
-                Slot(self.current_slot),
-                next_farm_weight,
-                funding_boxes,
-            )
-            .await;
-        let prover = OperatorProver::new(self.conf.operator_sk.clone());
-        let outbound_tx = prover.prove(signed_tx);
-        let tx = Transaction::from(outbound_tx.clone());
-        let tx_hash = tx.body.hash();
-        info!("`distribute_inflation`: submitting TX (hash: {})", tx_hash);
-        match self.network.submit_tx(outbound_tx).await {
-            Ok(()) => {
-                info!("`distribute_inflation`: TX submission SUCCESS");
+        let lovelaces_input_value = funding_boxes.0.iter().fold(0, |acc, x| acc + x.value.coin);
+        if lovelaces_input_value >= 5_000_000 {
+            let (signed_tx, next_wpoll, next_sf, funding_box_changes) = self
+                .actions
+                .distribute_inflation(
+                    weighting_poll.erased(),
+                    next_farm.erased(),
+                    perm_manager.erased(),
+                    Slot(current_slot),
+                    next_farm_weight,
+                    funding_boxes,
+                )
+                .await;
+            let prover = OperatorProver::new(self.conf.operator_sk.clone());
+            let outbound_tx = prover.prove(signed_tx);
+            let tx = outbound_tx.clone();
+            let tx_hash = tx.body.hash();
+            info!("`distribute_inflation`: submitting TX (hash: {})", tx_hash);
+            match self.network.submit_tx(outbound_tx).await {
+                Ok(()) => {
+                    info!("`distribute_inflation`: TX submission SUCCESS");
 
-                let predicted_write = PredictedEntityWrites::DistributeInflation {
-                    wpoll_id: next_wpoll.state.stable_id(),
-                    smart_farm_id: next_sf.state.stable_id(),
-                    funding_box_changes: funding_box_changes.clone(),
-                    tx_hash,
-                };
-                self.predicted_tx_backlog.insert(tx_hash, predicted_write).await;
-                self.weighting_poll.write_predicted(next_wpoll).await;
-                self.smart_farm.write_predicted(next_sf).await;
-                for p in funding_box_changes.spent {
-                    self.funding_box.spend_predicted(p).await;
-                }
+                    let predicted_write = PredictedEntityWrites::DistributeInflation {
+                        wpoll_id: next_wpoll.state.stable_id(),
+                        smart_farm_id: next_sf.state.stable_id(),
+                        funding_box_changes: funding_box_changes.clone(),
+                        tx_hash,
+                    };
+                    self.predicted_tx_backlog.insert(tx_hash, predicted_write).await;
+                    self.weighting_poll.write_predicted(next_wpoll).await;
+                    self.smart_farm.write_predicted(next_sf).await;
+                    for p in funding_box_changes.spent {
+                        self.funding_box.spend_predicted(p).await;
+                    }
 
-                for fb in funding_box_changes.created {
-                    self.funding_box.put_predicted(fb).await;
+                    for fb in funding_box_changes.created {
+                        self.funding_box.put_predicted(fb).await;
+                    }
+                }
+                Err(RejectReasons(Some(ApplyTxError { node_errors }))) => {
+                    if node_errors.iter().any(|err| {
+                        matches!(
+                            err,
+                            ConwayLedgerPredFailure::UtxowFailure(ConwayUtxowPredFailure::UtxoFailure(
+                                ConwayUtxoPredFailure::BadInputsUtxo(_)
+                            ),)
+                        )
+                    }) {
+                        info!("`distribute_inflation`: Bad/missing input UTxO. Retrying...");
+                        return None;
+                    } else {
+                        // For all other errors we discard the order.
+                        error!(
+                            "`distribute_inflation`: TX submit failed on errors: {:?}",
+                            node_errors
+                        );
+                        return None;
+                    }
+                }
+                Err(RejectReasons(None)) => {
+                    error!("`distribute_inflation`: TX submit failed on UNKNOWN error");
+                    return None;
                 }
             }
-            Err(RejectReasons(Some(ApplyTxError { node_errors }))) => {
-                if node_errors.iter().any(|err| {
-                    matches!(
-                        err,
-                        ConwayLedgerPredFailure::UtxowFailure(ConwayUtxowPredFailure::UtxoFailure(
-                            ConwayUtxoPredFailure::BadInputsUtxo(_)
-                        ),)
-                    )
-                }) {
-                    info!("`distribute_inflation`: Bad/missing input UTxO. Retrying...");
-                    return None;
-                } else {
-                    // For all other errors we discard the order.
-                    error!(
-                        "`distribute_inflation`: TX submit failed on errors: {:?}",
-                        node_errors
-                    );
-                    return None;
-                }
-            }
-            Err(RejectReasons(None)) => {
-                error!("`distribute_inflation`: TX submit failed on UNKNOWN error");
-                return None;
-            }
+        } else {
+            info!(
+                "`distribute_inflation`: Insufficient ADA. Waiting for other funding boxes to be confirmed."
+            );
         }
         retry_in(DEF_DELAY)
     }
@@ -872,34 +991,33 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
         Actions: InflationActions<Bearer> + Send + Sync,
         Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
         FB: FundingRepo + Send + Sync,
-        PTX: KvStore<TransactionHash, PredictedEntityWrites> + Send + Sync,
+        PTX: KvStore<TransactionHash, PredictedEntityWrites<Bearer>> + Send + Sync,
     {
         if let AnyMod::Confirmed(Traced {
             state: Confirmed(weighting_poll),
             ..
         }) = weighting_poll
         {
+            if self.current_slot.is_none() {
+                return retry_in(DEF_DELAY);
+            }
+            let current_slot = self.current_slot.unwrap();
             let wp = weighting_poll.0.get();
             let epoch = wp.epoch;
-            let time_millis = slot_to_time_millis(self.current_slot, NetworkId::from(0));
+            let time_millis = slot_to_time_millis(current_slot, NetworkId::from(0));
 
-            let wp_input_output_ref = weighting_poll.0.version().output_ref;
-            if !self
-                .skip_filter
-                .contains(&OnChainStatus::Eliminated(wp_input_output_ref))
-                && wp.can_be_eliminated(self.conf.genesis_time, time_millis)
+            let funding_boxes = AvailableFundingBoxes(self.funding_box.collect().await.unwrap());
+            let lovelaces_input_value = funding_boxes.0.iter().fold(0, |acc, x| acc + x.value.coin);
+            if lovelaces_input_value >= 3_000_000 && wp.can_be_eliminated(self.conf.genesis_time, time_millis)
             {
-                self.skip_filter
-                    .add(OnChainStatus::Eliminated(wp_input_output_ref));
                 info!("Eliminating wpoll @ epoch {}", epoch);
-                let funding_boxes = AvailableFundingBoxes(self.funding_box.collect().await.unwrap());
                 let (signed_tx, funding_box_changes) = self
                     .actions
-                    .eliminate_wpoll(weighting_poll, funding_boxes, Slot(self.current_slot))
+                    .eliminate_wpoll(weighting_poll, funding_boxes, Slot(current_slot))
                     .await;
                 let prover = OperatorProver::new(self.conf.operator_sk.clone());
                 let outbound_tx = prover.prove(signed_tx);
-                let tx = Transaction::from(outbound_tx.clone());
+                let tx = outbound_tx.clone();
                 let tx_hash = tx.body.hash();
                 match self.network.submit_tx(outbound_tx).await {
                     Ok(()) => {
@@ -931,16 +1049,16 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
                                 ),)
                             )
                         }) {
-                            info!("`create_wpoll`: Bad/missing input UTxO. Retrying...");
+                            info!("`eliminate_wpoll`: Bad/missing input UTxO. Retrying...");
                             return None;
                         } else {
                             // For all other errors we discard the order.
-                            error!("`create_wpoll`: TX submit failed on errors: {:?}", node_errors);
+                            error!("`eliminate_wpoll`: TX submit failed on errors: {:?}", node_errors);
                             return None;
                         }
                     }
                     Err(RejectReasons(None)) => {
-                        error!("`create_wpoll`: TX submit failed on UNKNOWN error");
+                        error!("`eliminate_wpoll`: TX submit failed on UNKNOWN error");
                         return None;
                     }
                 }
@@ -948,10 +1066,149 @@ impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Bearer, Net>
         }
         retry_in(DEF_DELAY)
     }
+
+    async fn try_make_voting_escrow(&mut self) -> Option<ToRoutine>
+    where
+        Actions: InflationActions<Bearer> + Send + Sync,
+        Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
+        MVE: ResilientBacklog<MakeVotingEscrowOrderBundle<Bearer>> + Send + Sync,
+        OVE: KvStore<Owner, MVEStatus> + Send + Sync,
+        VE: StateProjectionRead<VotingEscrowSnapshot, Bearer>
+            + StateProjectionWrite<VotingEscrowSnapshot, Bearer>
+            + Send
+            + Sync,
+        VEF: StateProjectionRead<VEFactorySnapshot, Bearer>
+            + StateProjectionWrite<VEFactorySnapshot, Bearer>
+            + Send
+            + Sync,
+        PTX: KvStore<TransactionHash, PredictedEntityWrites<Bearer>> + Send + Sync,
+        Bearer: Clone,
+    {
+        if self.current_slot.is_none() {
+            return retry_in(DEF_DELAY);
+        }
+        let current_slot = Slot(self.current_slot.unwrap());
+
+        if let Some(mve_order) = self.mve_order_backlog.try_pop().await {
+            let ve_factory = self.ve_factory.read(VEFactoryId).await.unwrap().erased();
+            let result = self
+                .actions
+                .make_voting_escrow(mve_order.clone(), ve_factory, current_slot)
+                .await;
+            match result {
+                Ok((signed_tx, next_ve_factory, next_ve)) => {
+                    let prover = OperatorProver::new(self.conf.operator_sk.clone());
+                    let outbound_tx = prover.prove(signed_tx);
+                    let tx = outbound_tx.clone();
+                    let tx_hash = tx.body.hash();
+                    info!("`make_voting_escrow`: submitting TX (hash: {})", tx_hash);
+                    match self.network.submit_tx(outbound_tx).await {
+                        Ok(()) => {
+                            let voting_escrow_id = next_ve.state.stable_id();
+                            let predicted_write = PredictedEntityWrites::MakeVotingEscrow {
+                                tx_hash,
+                                voting_escrow_id,
+                                mve_order,
+                            };
+                            self.predicted_tx_backlog.insert(tx_hash, predicted_write).await;
+                            info!(
+                                "Created voting_escrow with id = {}: SUCCESS (tx hash: {})",
+                                voting_escrow_id, tx_hash
+                            );
+                            self.ve_factory.write_predicted(next_ve_factory).await;
+                            self.voting_escrow.write_predicted(next_ve).await;
+
+                            return None;
+                        }
+                        Err(RejectReasons(Some(ApplyTxError { node_errors }))) => {
+                            if node_errors.iter().any(|err| {
+                                matches!(
+                                    err,
+                                    ConwayLedgerPredFailure::UtxowFailure(
+                                        ConwayUtxowPredFailure::UtxoFailure(
+                                            ConwayUtxoPredFailure::BadInputsUtxo(_)
+                                        ),
+                                    )
+                                )
+                            }) {
+                                info!("`make_voting_escrow`: Bad/missing input UTxO. Retrying...");
+                                self.mve_order_backlog.suspend(mve_order).await;
+                                return None;
+                            } else {
+                                // For all other errors we discard the order.
+                                error!(
+                                    "`make_voting_escrow`: TX submit failed on errors: {:?}",
+                                    node_errors
+                                );
+                                self.mve_order_backlog
+                                    .remove(mve_order.output_ref.output_ref)
+                                    .await;
+                                return None;
+                            }
+                        }
+                        Err(RejectReasons(None)) => {
+                            error!("`make_voting_escrow`: TX submit failed on UNKNOWN error");
+                            self.mve_order_backlog
+                                .remove(mve_order.output_ref.output_ref)
+                                .await;
+                            return None;
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("`make_voting_escrow`: invalid order, error: {:?}", e);
+                    self.mve_order_backlog
+                        .remove(mve_order.output_ref.output_ref)
+                        .await;
+                    return None;
+                }
+            }
+        }
+        retry_in(DEF_DELAY)
+    }
+
+    async fn get_latest_wpoll_to_eliminate(
+        &self,
+        starting_epoch: ProtocolEpoch,
+        genesis: GenesisEpochStartTime,
+        now_millis: u64,
+    ) -> Option<(AnyMod<Bundled<WeightingPollSnapshot, Bearer>>, ProtocolEpoch)>
+    where
+        WP: StateProjectionRead<WeightingPollSnapshot, Bearer> + Send + Sync,
+    {
+        for epoch in (1..=starting_epoch).rev() {
+            if let Some(Either::Right(wp)) = self.weighting_poll(epoch).await {
+                if let PollState::PollExhaustedAndReadyToEliminate =
+                    wp.as_erased().0.get().state(genesis, now_millis)
+                {
+                    return Some((wp, epoch));
+                }
+            }
+        }
+        None
+    }
 }
 
-impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Net>
-    Behaviour<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, TransactionOutput, Net>
+impl<IB, PF, VEF, WP, VE, SF, PM, FB, MVE, OVE, TMVE, Backlog, PTX, Time, Actions, Net>
+    Behaviour<
+        IB,
+        PF,
+        VEF,
+        WP,
+        VE,
+        SF,
+        PM,
+        FB,
+        MVE,
+        OVE,
+        TMVE,
+        Backlog,
+        PTX,
+        Time,
+        Actions,
+        TransactionOutput,
+        Net,
+    >
 where
     IB: StateProjectionRead<InflationBoxSnapshot, TransactionOutput>
         + StateProjectionWrite<InflationBoxSnapshot, TransactionOutput>
@@ -959,6 +1216,10 @@ where
         + Sync,
     PF: StateProjectionRead<PollFactorySnapshot, TransactionOutput>
         + StateProjectionWrite<PollFactorySnapshot, TransactionOutput>
+        + Send
+        + Sync,
+    VEF: StateProjectionRead<VEFactorySnapshot, TransactionOutput>
+        + StateProjectionWrite<VEFactorySnapshot, TransactionOutput>
         + Send
         + Sync,
     WP: StateProjectionRead<WeightingPollSnapshot, TransactionOutput>
@@ -970,7 +1231,7 @@ where
         + Send
         + Sync,
     Backlog: ResilientBacklog<VotingOrder> + Send + Sync,
-    PTX: KvStore<TransactionHash, PredictedEntityWrites> + Send + Sync,
+    PTX: KvStore<TransactionHash, PredictedEntityWrites<TransactionOutput>> + Send + Sync,
     SF: StateProjectionRead<SmartFarmSnapshot, TransactionOutput>
         + StateProjectionWrite<SmartFarmSnapshot, TransactionOutput>
         + Send
@@ -980,6 +1241,9 @@ where
         + Send
         + Sync,
     FB: FundingRepo + Send + Sync,
+    MVE: ResilientBacklog<MakeVotingEscrowOrderBundle<TransactionOutput>> + Send + Sync,
+    OVE: KvStore<Owner, MVEStatus> + Send + Sync,
+    TMVE: KvStore<TimedOutputRef, PendingOrder<MakeVotingEscrowOrderBundle<TransactionOutput>>> + Send + Sync,
     Time: NetworkTimeProvider + Send + Sync,
     Actions: InflationActions<TransactionOutput> + Send + Sync,
     Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
@@ -997,31 +1261,51 @@ where
                 slot,
                 ..
             } => {
-                self.current_slot = slot;
+                self.current_slot = Some(slot);
 
                 if self.predicted_tx_backlog.remove(hash).await.is_some() {
                     trace!("Confirmed TX {}, removing from TX tracker", hash);
                 }
 
-                let mut wpoll_eliminated = false;
+                let mut epoch_of_eliminated_wpoll = None;
                 let last_processed_epoch = self
                     .inflation_box()
                     .await
                     .and_then(|a| a.erased().0.get().last_processed_epoch);
-                let stored_output_ref = if let Some(epoch) = last_processed_epoch {
-                    self.weighting_poll
-                        .read(WeightingPollId(epoch))
-                        .await
-                        .map(|a| a.as_erased().version().output_ref)
-                } else {
-                    None
-                };
+
+                let mut mve_utxo_owner = None;
+                let mut voting_escrow_in_output = None;
 
                 for input in inputs {
                     let input_output_ref = OutputRef::from(input.clone());
-                    if let Some(stored_output_ref) = stored_output_ref {
-                        if !wpoll_eliminated {
-                            wpoll_eliminated = stored_output_ref == input_output_ref;
+                    if mve_utxo_owner.is_none() {
+                        let mut orders = self
+                            .mve_order_backlog
+                            .find_orders(move |e| e.output_ref.output_ref == input_output_ref)
+                            .await;
+                        if let Some(o) = orders.pop() {
+                            assert!(orders.is_empty());
+                            mve_utxo_owner = Some((o.order.ve_datum.owner, input_output_ref));
+                        }
+                    }
+                    if let Some(last_processed_epoch) = last_processed_epoch {
+                        if epoch_of_eliminated_wpoll.is_none() {
+                            for epoch in (0..=last_processed_epoch).rev() {
+                                if let Some(stored_output_ref) = self
+                                    .weighting_poll
+                                    .read(WeightingPollId(epoch))
+                                    .await
+                                    .map(|a| a.as_erased().version().output_ref)
+                                {
+                                    if stored_output_ref == input_output_ref {
+                                        // The wpoll of this epoch has been consumed in the input.
+                                        // To confirm elimination we inspect the outputs of this TX
+                                        // below.
+                                        epoch_of_eliminated_wpoll = Some(epoch);
+                                        break;
+                                    }
+                                }
+                            }
                         }
                     }
                     let funding_id = FundingBoxId::from(input_output_ref);
@@ -1043,18 +1327,28 @@ where
                             behaviour: self,
                             timed_output_ref,
                             current_epoch,
-                            wpoll_eliminated,
+                            wpoll_eliminated: epoch_of_eliminated_wpoll.is_some(),
                         };
 
-                        if wpoll_eliminated
-                            && WeightingPollSnapshot::try_from_ledger(&output.1, &ctx).is_some()
-                        {
-                            // If weighting_poll is seen in the output then it can't be an
-                            // elimination.
-                            wpoll_eliminated = false;
-                            // Set this following field to false, and redo it to properly confirm
-                            // the weighting_poll below.
-                            ctx.wpoll_eliminated = false;
+                        if mve_utxo_owner.is_some() {
+                            if let Some(voting_escrow) =
+                                VotingEscrowSnapshot::try_from_ledger(&output.1, &ctx)
+                            {
+                                let id = voting_escrow.stable_id();
+                                voting_escrow_in_output = Some(MVEStatus::SpentToFormVotingEscrow(id));
+                            }
+                        }
+
+                        if let Some(potentially_eliminated_wpoll_epoch) = epoch_of_eliminated_wpoll {
+                            if let Some(wp_snapshot) = WeightingPollSnapshot::try_from_ledger(&output.1, &ctx)
+                            {
+                                assert_eq!(wp_snapshot.get().epoch, potentially_eliminated_wpoll_epoch);
+                                // If wpoll is seen in the output then it can't be an elimination.
+                                epoch_of_eliminated_wpoll = None;
+                                // Set this following field to false, and redo it to properly confirm
+                                // the weighting_poll below.
+                                ctx.wpoll_eliminated = false;
+                            }
                         }
                         if let Some(entity) = DaoEntitySnapshot::try_from_ledger(&output.1, &ctx) {
                             trace!(
@@ -1067,13 +1361,23 @@ where
                         ix = ix.saturating_sub(1);
                     }
 
-                    if wpoll_eliminated {
-                        // Manually set eliminated = true
-                        let last_processed_epoch = last_processed_epoch.unwrap();
-                        info!("wpoll (epoch {}) eliminated", last_processed_epoch);
+                    if let Some((owner, mve_output_ref)) = mve_utxo_owner {
+                        // Whether through the creation of a voting_escrow or refunded, this MVE
+                        // order is gone.
+                        self.mve_order_backlog.remove(mve_output_ref).await;
+                        let status = if let Some(status) = voting_escrow_in_output {
+                            status
+                        } else {
+                            MVEStatus::Refunded
+                        };
+                        self.owner_to_voting_escrow.insert(owner, status).await;
+                    }
+
+                    if let Some(eliminated_epoch) = epoch_of_eliminated_wpoll {
+                        info!("wpoll (epoch {}) eliminated", eliminated_epoch);
                         let b = self
                             .weighting_poll
-                            .read(WeightingPollId(last_processed_epoch))
+                            .read(WeightingPollId(eliminated_epoch))
                             .await
                             .unwrap();
 
@@ -1101,6 +1405,22 @@ where
                 slot,
                 ..
             } => {
+                self.current_slot = None;
+                for (ix, input) in inputs.into_iter().enumerate() {
+                    let timed_output_ref = TimedOutputRef {
+                        output_ref: OutputRef::new(hash, ix as u64),
+                        slot: Slot(slot),
+                    };
+
+                    if let Some(ord) = self.tx_hash_to_mve.get(timed_output_ref).await {
+                        // If a `make_voting_escrow_order` was consumed to create a `voting_escrow`, return the order to backlog.
+                        self.mve_order_backlog.put(ord).await;
+                    } else {
+                        let id = FundingBoxId::from(OutputRef::from(input));
+                        self.funding_box.unspend_confirmed(id).await;
+                    }
+                }
+
                 for ix in 0..outputs.len() {
                     let ver = TimedOutputRef {
                         output_ref: OutputRef::new(hash, ix as u64),
@@ -1118,33 +1438,33 @@ where
                         self.smart_farm.remove(id).await;
                     } else if let Some(id) = self.perm_manager.get_id(ver).await {
                         self.perm_manager.remove(id).await;
+                    } else if let Some(id) = self.ve_factory.get_id(ver).await {
+                        self.ve_factory.remove(id).await;
+                    } else if self.mve_order_backlog.exists(ver.output_ref).await {
+                        self.mve_order_backlog.remove(ver.output_ref).await;
                     } else {
                         self.funding_box
                             .spend_confirmed(FundingBoxId::from(ver.output_ref))
                             .await;
                     }
                 }
-
-                for input in inputs {
-                    let id = FundingBoxId::from(OutputRef::from(input));
-                    self.funding_box.unspend_confirmed(id).await;
-                }
             }
         }
     }
 
-    async fn processing_voting_order_message(&mut self, message: VotingOrderMessage)
+    async fn processing_dao_bot_message(&mut self, message: DaoBotMessage)
     where
         Backlog: ResilientBacklog<VotingOrder> + Send + Sync,
         Time: NetworkTimeProvider + Send + Sync,
+        OVE: KvStore<Owner, MVEStatus> + Send + Sync,
         VE: StateProjectionRead<VotingEscrowSnapshot, TransactionOutput> + Send + Sync,
     {
-        let VotingOrderMessage {
+        let DaoBotMessage {
             command,
             response_sender,
         } = message;
         let send_response_result = match command {
-            VotingOrderCommand::Submit(voting_order) => {
+            DaoBotCommand::VotingOrder(VotingOrderCommand::Submit(voting_order)) => {
                 if !self.voting_order_backlog.exists(voting_order.id).await {
                     let time_src = NetworkTimeSource {};
                     let timestamp = time_src.network_time().await as i64;
@@ -1153,26 +1473,33 @@ where
                         timestamp,
                     };
                     self.voting_order_backlog.put(ord).await;
-                    Some(response_sender.send(VotingOrderStatus::Queued))
+                    Some(response_sender.send(DaoBotResponse::VotingOrder(VotingOrderStatus::Queued)))
                 } else {
                     trace!("Order already exists in backlog");
                     None
                 }
             }
-            VotingOrderCommand::GetStatus(order_id) => {
+            DaoBotCommand::VotingOrder(VotingOrderCommand::GetStatus(order_id)) => {
                 if self.voting_order_backlog.exists(order_id).await {
-                    Some(response_sender.send(VotingOrderStatus::Queued))
+                    Some(response_sender.send(DaoBotResponse::VotingOrder(VotingOrderStatus::Queued)))
                 } else if let Some(ve) = self.voting_escrow.read(order_id.voting_escrow_id).await {
                     let ve_version = ve.as_erased().0.get().version as u64;
                     if ve_version > order_id.version {
-                        Some(response_sender.send(VotingOrderStatus::Success))
+                        Some(response_sender.send(DaoBotResponse::VotingOrder(VotingOrderStatus::Success)))
                     } else {
-                        Some(response_sender.send(VotingOrderStatus::Failed))
+                        Some(response_sender.send(DaoBotResponse::VotingOrder(VotingOrderStatus::Failed)))
                     }
                 } else {
-                    Some(response_sender.send(VotingOrderStatus::VotingEscrowNotFound))
+                    Some(response_sender.send(DaoBotResponse::VotingOrder(
+                        VotingOrderStatus::VotingEscrowNotFound,
+                    )))
                 }
             }
+            DaoBotCommand::GetMVEOrderStatus { mve_order_owner } => self
+                .owner_to_voting_escrow
+                .get(mve_order_owner)
+                .await
+                .map(|status| response_sender.send(DaoBotResponse::MVEStatus(status))),
         };
         if let Some(res) = send_response_result {
             match res {
@@ -1254,7 +1581,22 @@ where
                         self.funding_box.unspend_predicted(p).await;
                     }
                 }
-                PredictedEntityWrites::MakeVotingEscrow { tx_hash } => todo!(),
+                PredictedEntityWrites::MakeVotingEscrow {
+                    voting_escrow_id,
+                    mve_order,
+                    ..
+                } => {
+                    let time_src = NetworkTimeSource {};
+                    let timestamp = time_src.network_time().await as i64;
+                    let version = mve_order.output_ref;
+                    self.voting_escrow.remove(voting_escrow_id).await;
+                    let order = PendingOrder {
+                        order: mve_order,
+                        timestamp,
+                    };
+                    self.mve_order_backlog.put(order).await;
+                    self.tx_hash_to_mve.remove(version).await;
+                }
             }
         }
     }
@@ -1262,7 +1604,6 @@ where
     #[allow(clippy::needless_lifetimes)]
     pub fn as_stream<'a>(&'a mut self) -> impl Stream<Item = ()> + 'a {
         let chain_tip_reached_clone = self.chain_tip_reached.clone();
-        let mut routine: Option<ToRoutine> = None;
         let state_synced = self.state_synced.clone();
         tokio::spawn(async move {
             trace!("wait for signal tip");
@@ -1272,6 +1613,7 @@ where
             *reached = true;
             trace!("signal tip reached!");
         });
+        let mut routine: Option<ToRoutine> = None;
         stream! {
 
             loop {
@@ -1280,7 +1622,7 @@ where
                 }
 
                 while let Ok(voting_order_msg) = self.voting_orders.try_recv() {
-                    self.processing_voting_order_message(voting_order_msg).await;
+                    self.processing_dao_bot_message(voting_order_msg).await;
                 }
 
                 while let Ok(tx) = self.failed_to_confirm_txs_recv.try_recv() {
@@ -1382,8 +1724,26 @@ where
     }
 }
 
-impl<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, Net, H> Has<H>
-    for Behaviour<IB, PF, WP, VE, SF, PM, FB, Backlog, PTX, Time, Actions, TransactionOutput, Net>
+impl<IB, PF, VEF, WP, VE, SF, PM, FB, MVE, OVE, TMVE, Backlog, PTX, Time, Actions, Net, H> Has<H>
+    for Behaviour<
+        IB,
+        PF,
+        VEF,
+        WP,
+        VE,
+        SF,
+        PM,
+        FB,
+        MVE,
+        OVE,
+        TMVE,
+        Backlog,
+        PTX,
+        Time,
+        Actions,
+        TransactionOutput,
+        Net,
+    >
 where
     ProtocolConfig: Has<H>,
 {
@@ -1430,14 +1790,18 @@ pub enum EpochRoutineState<Out> {
     DistributionInProgress(DistributionInProgress<Out>),
     /// Weighting ended. Awaiting start time to distribute inflation to farms pro-rata.
     WaitingForDistributionToStart,
-    /// Inflation is distributed, time to eliminate the poll.
+    /// Inflation is distributed, but not yet time to eliminate the wpoll.
+    WaitingToEliminate,
+    /// Inflation is distributed, and it's time to eliminate the poll.
     PendingEliminatePoll(PendingEliminatePoll<Out>),
+    /// Wpoll is eliminated
     Eliminated,
 }
 
 pub struct RoutineState<Out> {
     pub previous_epoch_state: Option<EpochRoutineState<Out>>,
     pub current_epoch_state: EpochRoutineState<Out>,
+    pub eliminate_wpoll: Option<(PendingEliminatePoll<Out>, ProtocolEpoch)>,
 }
 
 pub struct PendingCreatePoll<Out> {
@@ -1471,9 +1835,9 @@ pub struct FundingBoxChanges {
 #[derive(Debug, Clone)]
 pub struct AvailableFundingBoxes(pub Vec<FundingBox>);
 
-pub struct VotingOrderMessage {
-    pub command: VotingOrderCommand,
-    pub response_sender: tokio::sync::oneshot::Sender<VotingOrderStatus>,
+pub struct DaoBotMessage {
+    pub command: DaoBotCommand,
+    pub response_sender: tokio::sync::oneshot::Sender<DaoBotResponse>,
 }
 
 #[derive(Debug, Clone)]
@@ -1485,6 +1849,11 @@ enum OnChainStatus {
     Eliminated(OutputRef),
 }
 
+pub enum DaoBotCommand {
+    VotingOrder(VotingOrderCommand),
+    GetMVEOrderStatus { mve_order_owner: Owner },
+}
+
 pub enum VotingOrderCommand {
     Submit(VotingOrder),
     GetStatus(VotingOrderId),
@@ -1494,7 +1863,7 @@ pub enum VotingOrderCommand {
 /// We need this because TXs can be silently dropped from mempool and so we must remove these
 /// entities from storage when that happens.
 #[derive(Clone, PartialEq, Eq, Debug, Hash, serde::Serialize, serde::Deserialize)]
-pub enum PredictedEntityWrites {
+pub enum PredictedEntityWrites<Bearer> {
     CreateWPoll {
         inflation_box_id: InflationBoxId,
         wp_factory_id: PollFactoryId,
@@ -1520,10 +1889,12 @@ pub enum PredictedEntityWrites {
     },
     MakeVotingEscrow {
         tx_hash: TransactionHash,
+        voting_escrow_id: VotingEscrowId,
+        mve_order: MakeVotingEscrowOrderBundle<Bearer>,
     },
 }
 
-impl UniqueOrder for PredictedEntityWrites {
+impl<Bearer> UniqueOrder for PredictedEntityWrites<Bearer> {
     type TOrderId = TransactionHash;
 
     fn get_self_ref(&self) -> Self::TOrderId {
@@ -1532,15 +1903,21 @@ impl UniqueOrder for PredictedEntityWrites {
             | PredictedEntityWrites::ApplyVotingOrder { tx_hash, .. }
             | PredictedEntityWrites::DistributeInflation { tx_hash, .. }
             | PredictedEntityWrites::EiminateWPoll { tx_hash, .. }
-            | PredictedEntityWrites::MakeVotingEscrow { tx_hash } => *tx_hash,
+            | PredictedEntityWrites::MakeVotingEscrow { tx_hash, .. } => *tx_hash,
         }
     }
 }
 
-impl Weighted for PredictedEntityWrites {
+impl<Bearer> Weighted for PredictedEntityWrites<Bearer> {
     fn weight(&self) -> OrderWeight {
         OrderWeight::from(1)
     }
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub enum DaoBotResponse {
+    VotingOrder(VotingOrderStatus),
+    MVEStatus(MVEStatus),
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -1558,6 +1935,8 @@ mod tests {
     use std::sync::Arc;
 
     use async_trait::async_trait;
+    use cml_chain::PolicyId;
+    use cml_crypto::ScriptHash;
     use serde::Serialize;
     use tokio::sync::Mutex;
 

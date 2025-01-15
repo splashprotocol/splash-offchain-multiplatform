@@ -1,12 +1,7 @@
-use std::{
-    marker::PhantomData,
-    sync::{atomic::AtomicBool, Arc, Once},
-    time::UNIX_EPOCH,
-};
+use std::{marker::PhantomData, sync::Arc};
 
 use async_primitives::beacon::Beacon;
-use async_trait::async_trait;
-use axum::{extract::State, http::StatusCode, response::IntoResponse};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use bloom_offchain_cardano::event_sink::processed_tx::TxViewMut;
 use bounded_integer::BoundedU8;
 use cardano_chain_sync::{
@@ -14,31 +9,18 @@ use cardano_chain_sync::{
     event_source::ledger_transactions,
 };
 use cardano_explorer::Maestro;
-use cardano_submit_api::client::LocalTxSubmissionClient;
 use chrono::Duration;
 use clap::Parser;
 use cml_chain::{
     address::RewardAddress,
-    assets::AssetName,
     certs::StakeCredential,
-    genesis::network_info::NetworkInfo,
     transaction::{Transaction, TransactionOutput},
-    PolicyId,
 };
-use cml_crypto::{Bip32PrivateKey, TransactionHash};
+use cml_crypto::TransactionHash;
 use cml_multi_era::babbage::BabbageTransaction;
 use config::AppConfig;
-use futures::{
-    channel::mpsc,
-    stream::{select_all, FuturesUnordered},
-    FutureExt, Stream, StreamExt,
-};
-use spectrum_cardano_lib::{
-    constants::{BABBAGE_ERA_ID, CONWAY_ERA_ID, SAFE_BLOCK_TIME},
-    hash::hash_transaction_canonical,
-    output::FinalizedTxOut,
-    NetworkId,
-};
+use futures::{channel::mpsc, stream::FuturesUnordered, StreamExt};
+use spectrum_cardano_lib::constants::{CONWAY_ERA_ID, SAFE_BLOCK_TIME};
 use spectrum_offchain::{
     backlog::{persistence::BacklogStoreRocksDB, BacklogConfig, PersistentPriorityBacklog},
     event_sink::{
@@ -49,25 +31,27 @@ use spectrum_offchain::{
     rocks::RocksConfig,
 };
 use spectrum_offchain_cardano::{
-    creds::{operator_creds, operator_creds_base_address},
-    prover::operator::OperatorProver,
+    creds::operator_creds,
     tx_submission::{tx_submission_agent_stream, TxSubmissionAgent},
     tx_tracker::new_tx_tracker_bundle,
 };
 use spectrum_streaming::run_stream;
 use splash_dao_offchain::{
     collateral::pull_collateral,
-    deployment::{CompleteDeployment, DeploymentProgress, ProtocolDeployment},
-    entities::offchain::voting_order::VotingOrder,
+    constants::DAO_SCRIPT_BYTES,
+    deployment::{CompleteDeployment, DaoScriptData, DeploymentProgress, ProtocolDeployment},
+    entities::{
+        offchain::voting_order::VotingOrder,
+        onchain::{make_voting_escrow_order::MakeVotingEscrowOrderBundle, voting_escrow::Owner},
+    },
     funding::FundingRepoRocksDB,
     handler::DaoHandler,
     protocol_config::ProtocolConfig,
     routines::inflation::{
-        actions::CardanoInflationActions, Behaviour, PredictedEntityWrites, VotingOrderCommand,
-        VotingOrderMessage, VotingOrderStatus,
+        actions::CardanoInflationActions, Behaviour, DaoBotCommand, DaoBotMessage, DaoBotResponse,
+        VotingOrderCommand, VotingOrderStatus,
     },
     state_projection::StateProjectionRocksDB,
-    time::{NetworkTime, NetworkTimeProvider},
     NetworkTimeSource,
 };
 use tokio::sync::Mutex;
@@ -87,6 +71,13 @@ async fn main() {
     let raw_deployment = std::fs::read_to_string(args.deployment_path).expect("Cannot load deployment file");
     let deployment_progress: DeploymentProgress =
         serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
+
+    let dao_script_bytes_str =
+        std::fs::read_to_string(args.script_bytes_path).expect("Cannot load script bytes file");
+    let dao_script_bytes: DaoScriptData =
+        serde_json::from_str(&dao_script_bytes_str).expect("Invalid script bytes file");
+
+    DAO_SCRIPT_BYTES.set(dao_script_bytes).unwrap();
 
     let deployment = CompleteDeployment::try_from((deployment_progress, config.network_id)).unwrap();
 
@@ -168,12 +159,8 @@ async fn main() {
 
     // We assume the batcher's private key is associated with a Cardano base address, which also
     // includes a reward address.
-    let (addr, collateral_addr, funding_addresses) =
+    let (addr, collateral_addr, _funding_addresses) =
         operator_creds(config.batcher_private_key, config.network_id);
-
-    let operator_sk = Bip32PrivateKey::from_bech32(config.batcher_private_key)
-        .expect("wallet error")
-        .to_raw_key();
 
     let reward_address = RewardAddress::new(config.network_id.into(), StakeCredential::new_pub_key(addr.0));
 
@@ -203,6 +190,10 @@ async fn main() {
     // Setup axum server to listen for incoming voting orders --------------------------------------
     let app = axum::Router::new()
         .route("/submit/votingorder", axum::routing::put(handle_put))
+        .route(
+            "/query/ve/identifier/name",
+            axum::routing::put(handle_get_mve_status),
+        )
         .with_state(state);
     println!("Listening on {}", config.voting_order_listener_endpoint);
 
@@ -213,16 +204,28 @@ async fn main() {
 
     let inflation_actions = CardanoInflationActions::from(protocol_config.clone());
 
+    let mk_path = |name: &str| {
+        if name.ends_with('/') {
+            format!("{}{}", config.persistence_stores_root_dir, name)
+        } else {
+            format!("{}/{}", config.persistence_stores_root_dir, name)
+        }
+    };
+
     let mut behaviour = Behaviour::new(
-        StateProjectionRocksDB::new(config.inflation_box_persistence_config),
-        StateProjectionRocksDB::new(config.poll_factory_persistence_config),
-        StateProjectionRocksDB::new(config.weighting_poll_persistence_config),
-        StateProjectionRocksDB::new(config.voting_escrow_persistence_config),
-        StateProjectionRocksDB::new(config.smart_farm_persistence_config),
-        StateProjectionRocksDB::new(config.perm_manager_persistence_config),
-        FundingRepoRocksDB::new(config.funding_box_config.db_path),
-        setup_order_backlog(config.order_backlog_config).await,
-        KVStoreRocksDB::new(config.predicted_txs_backlog_config.db_path),
+        StateProjectionRocksDB::new(mk_path("inflation_box")),
+        StateProjectionRocksDB::new(mk_path("poll_factory")),
+        StateProjectionRocksDB::new(mk_path("weighting_poll")),
+        StateProjectionRocksDB::new(mk_path("ve_factory")),
+        StateProjectionRocksDB::new(mk_path("voting_escrow")),
+        StateProjectionRocksDB::new(mk_path("smart_farm")),
+        StateProjectionRocksDB::new(mk_path("perm_manager")),
+        FundingRepoRocksDB::new(mk_path("funding_box")),
+        setup_make_ve_order_backlog(mk_path("make_voting_escrow_owner")).await,
+        KVStoreRocksDB::new(mk_path("voting_escrow_by_owner")),
+        KVStoreRocksDB::new(mk_path("tx_hash_to_mve")),
+        setup_order_backlog(mk_path("order_backlog_config")).await,
+        KVStoreRocksDB::new(mk_path("predicted_txs_backlog")),
         NetworkTimeSource {},
         inflation_actions,
         protocol_config,
@@ -269,26 +272,55 @@ async fn handle_put(
     State(state): State<AppState>,
     axum::Json(payload): axum::Json<VotingOrder>,
 ) -> impl IntoResponse {
-    // You can now process the payload as needed
     let AppState { sender } = state;
     let (response_sender, recv) = tokio::sync::oneshot::channel();
-    let msg = VotingOrderMessage {
-        command: VotingOrderCommand::Submit(payload),
+    let msg = DaoBotMessage {
+        command: DaoBotCommand::VotingOrder(VotingOrderCommand::Submit(payload)),
+        response_sender,
+    };
+    sender.send(msg).await.unwrap();
+    match recv.await {
+        Ok(response) => match response {
+            DaoBotResponse::VotingOrder(voting_order_status) => match voting_order_status {
+                VotingOrderStatus::Queued | VotingOrderStatus::Success => {
+                    (StatusCode::OK, format!("{:?}", voting_order_status))
+                }
+                VotingOrderStatus::Failed => {
+                    (StatusCode::UNPROCESSABLE_ENTITY, "TX submission failed".into())
+                }
+                VotingOrderStatus::VotingEscrowNotFound => (
+                    StatusCode::NOT_FOUND,
+                    "Cannot find associated voting_escrow".into(),
+                ),
+            },
+            DaoBotResponse::MVEStatus(mve_status) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                format!("Unexpected response: MVEStatus: {:?}", mve_status),
+            ),
+        },
+        Err(_err) => (StatusCode::UNPROCESSABLE_ENTITY, "Unknown error".into()),
+    }
+}
+
+async fn handle_get_mve_status(
+    State(state): State<AppState>,
+    axum::Json(owner): axum::Json<Owner>,
+) -> impl IntoResponse {
+    let AppState { sender } = state;
+    let (response_sender, recv) = tokio::sync::oneshot::channel();
+    let msg = DaoBotMessage {
+        command: DaoBotCommand::GetMVEOrderStatus {
+            mve_order_owner: owner,
+        },
         response_sender,
     };
     sender.send(msg).await.unwrap();
     match recv.await {
         Ok(status) => match status {
-            VotingOrderStatus::Queued | VotingOrderStatus::Success => {
-                (StatusCode::OK, format!("{:?}", status))
-            }
-            VotingOrderStatus::Failed => (StatusCode::UNPROCESSABLE_ENTITY, "TX submission failed".into()),
-            VotingOrderStatus::VotingEscrowNotFound => (
-                StatusCode::NOT_FOUND,
-                "Cannot find associated voting_escrow".into(),
-            ),
+            DaoBotResponse::MVEStatus(status) => (StatusCode::OK, Json(Some(status))),
+            DaoBotResponse::VotingOrder(_) => (StatusCode::UNPROCESSABLE_ENTITY, Json(None)),
         },
-        Err(_err) => (StatusCode::UNPROCESSABLE_ENTITY, "Unknown error".into()),
+        Err(_err) => (StatusCode::UNPROCESSABLE_ENTITY, Json(None)),
     }
 }
 
@@ -300,13 +332,11 @@ fn succinct_tx(tx: LedgerTxEvent<TxViewMut>) -> (TransactionHash, u64) {
 
 #[derive(Clone)]
 struct AppState {
-    sender: tokio::sync::mpsc::Sender<VotingOrderMessage>,
+    sender: tokio::sync::mpsc::Sender<DaoBotMessage>,
 }
 
-async fn setup_order_backlog(
-    store_conf: RocksConfig,
-) -> PersistentPriorityBacklog<VotingOrder, BacklogStoreRocksDB> {
-    let store = BacklogStoreRocksDB::new(store_conf);
+async fn setup_order_backlog(db_path: String) -> PersistentPriorityBacklog<VotingOrder, BacklogStoreRocksDB> {
+    let store = BacklogStoreRocksDB::new(RocksConfig { db_path });
     let backlog_config = BacklogConfig {
         order_lifespan: Duration::try_hours(1).unwrap(),
         order_exec_time: Duration::try_minutes(5).unwrap(),
@@ -314,6 +344,20 @@ async fn setup_order_backlog(
     };
 
     PersistentPriorityBacklog::new::<VotingOrder>(store, backlog_config).await
+}
+
+async fn setup_make_ve_order_backlog(
+    db_path: String,
+) -> PersistentPriorityBacklog<MakeVotingEscrowOrderBundle<TransactionOutput>, BacklogStoreRocksDB> {
+    let store = BacklogStoreRocksDB::new(RocksConfig { db_path });
+    let backlog_config = BacklogConfig {
+        order_lifespan: Duration::try_hours(72).unwrap(),
+        order_exec_time: Duration::try_hours(72).unwrap(),
+        retry_suspended_prob: BoundedU8::new(60).unwrap(),
+    };
+
+    PersistentPriorityBacklog::new::<MakeVotingEscrowOrderBundle<TransactionOutput>>(store, backlog_config)
+        .await
 }
 
 #[derive(Parser)]
@@ -325,6 +369,9 @@ struct AppArgs {
     /// Path to the JSON configuration file.
     #[arg(long, short)]
     config_path: String,
+    /// Path to the JSON DAO script bytes file.
+    #[arg(long, short)]
+    script_bytes_path: String,
     /// Path to the JSON deployment configuration file .
     #[arg(long, short)]
     deployment_path: String,

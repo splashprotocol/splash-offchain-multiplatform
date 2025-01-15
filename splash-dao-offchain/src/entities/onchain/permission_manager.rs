@@ -1,5 +1,5 @@
 use cml_chain::{
-    plutus::{ConstrPlutusData, ExUnits, PlutusData, PlutusV2Script},
+    plutus::{ConstrPlutusData, PlutusData, PlutusV2Script},
     transaction::TransactionOutput,
     PolicyId,
 };
@@ -10,10 +10,9 @@ use spectrum_cardano_lib::{
     plutus_data::{ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension},
     transaction::TransactionOutputExtension,
     types::TryFromPData,
-    AssetName, OutputRef, Token,
 };
 use spectrum_offchain::{
-    domain::{Has, Identifier, Stable},
+    domain::{Has, Stable},
     ledger::TryFromLedger,
 };
 use spectrum_offchain_cardano::{
@@ -22,11 +21,11 @@ use spectrum_offchain_cardano::{
 };
 
 use crate::{
-    constants::{script_bytes::PERM_MANAGER_SCRIPT, DEFAULT_AUTH_TOKEN_NAME},
-    deployment::ProtocolValidator,
+    constants::DEFAULT_AUTH_TOKEN_NAME,
+    deployment::{DaoScriptData, ProtocolValidator},
     entities::Snapshot,
     protocol_config::PermManagerAuthPolicy,
-    routines::inflation::{Slot, TimedOutputRef},
+    routines::inflation::TimedOutputRef,
 };
 
 use super::smart_farm::FarmId;
@@ -35,10 +34,6 @@ use super::smart_farm::FarmId;
     Copy, Clone, PartialEq, Eq, Ord, PartialOrd, From, Serialize, Deserialize, derive_more::Display, Hash,
 )]
 pub struct PermManagerId;
-
-impl Identifier for PermManagerId {
-    type For = PermManagerSnapshot;
-}
 
 pub type PermManagerSnapshot = Snapshot<PermManager, TimedOutputRef>;
 
@@ -147,11 +142,5 @@ pub fn compute_perm_manager_validator(
             perm_manager_auth_policy.to_raw_bytes().to_vec(),
         )),
     ]);
-    apply_params_validator(params_pd, PERM_MANAGER_SCRIPT)
+    apply_params_validator(params_pd, &DaoScriptData::global().perm_manager.script_bytes)
 }
-
-pub const PERM_MANAGER_EX_UNITS: ExUnits = ExUnits {
-    mem: 500_000,
-    steps: 200_000_000,
-    encodings: None,
-};

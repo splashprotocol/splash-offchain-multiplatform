@@ -34,15 +34,7 @@
     "nanos": 0
   },
   "genesisStartTime": 1723349688000,
-  "orderBacklogConfig": { "db_path": "tmp/backlog" },
-  "inflationBoxPersistenceConfig": { "db_path": "tmp/inflation" },
-  "pollFactoryPersistenceConfig": { "db_path": "tmp/poll_factory" },
-  "weightingPollPersistenceConfig": { "db_path": "tmp/weighting_poll" },
-  "votingEscrowPersistenceConfig": { "db_path": "tmp/voting_escrow" },
-  "smartFarmPersistenceConfig": { "db_path": "tmp/smart_farm" },
-  "permManagerPersistenceConfig": { "db_path": "tmp/perm_manager" },
-  "predictedTxsBacklogConfig": { "db_path": "tmp/predicted_txs" },
-  "fundingBoxConfig": { "db_path": "tmp/funding_box" },
+  "persistenceStoresRootDir": "tmp/",
   "explorer": {
     "url": "https://explorer.spectrum.fi"
   },

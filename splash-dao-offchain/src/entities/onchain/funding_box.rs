@@ -2,15 +2,11 @@ use cml_chain::{transaction::TransactionOutput, Value};
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{transaction::TransactionOutputExtension, OutputRef};
 use spectrum_offchain::{
-    domain::{Has, Identifier, Stable},
+    domain::{Has, Stable},
     ledger::{IntoLedger, TryFromLedger},
 };
 
-use crate::{
-    entities::Snapshot,
-    protocol_config::OperatorCreds,
-    routines::inflation::{Slot, TimedOutputRef},
-};
+use crate::{entities::Snapshot, protocol_config::OperatorCreds};
 
 pub type FundingBoxSnapshot = Snapshot<FundingBox, OutputRef>;
 
@@ -30,10 +26,6 @@ pub type FundingBoxSnapshot = Snapshot<FundingBox, OutputRef>;
     derive_more::Display,
 )]
 pub struct FundingBoxId(OutputRef);
-
-impl Identifier for FundingBoxId {
-    type For = FundingBoxSnapshot;
-}
 
 impl Stable for FundingBox {
     type StableId = FundingBoxId;
