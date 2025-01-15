@@ -1,12 +1,10 @@
-use cardano_explorer::constants::get_network_id;
-use cml_chain::address::{Address, EnterpriseAddress};
+use cml_chain::address::Address;
 use cml_chain::assets::AssetName;
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
-use cml_chain::certs::StakeCredential;
 use cml_chain::PolicyId;
-use cml_crypto::{Bip32PrivateKey, Ed25519KeyHash, PrivateKey, ScriptHash};
+use cml_crypto::{Ed25519KeyHash, ScriptHash};
 use spectrum_cardano_lib::collateral::Collateral;
-use spectrum_cardano_lib::{AssetClass, NetworkId, Token};
+use spectrum_cardano_lib::{NetworkId, Token};
 use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
@@ -14,14 +12,10 @@ use std::ops::Index;
 use type_equalities::IsEqual;
 
 use crate::assets::SPLASH_AC;
-use crate::deployment::{DeployedValidators, MintedTokens, ProtocolDeployment, ProtocolValidator};
-use crate::entities::onchain::inflation_box::InflationBoxId;
-use crate::entities::onchain::permission_manager::PermManagerId;
-use crate::entities::onchain::poll_factory::PollFactoryId;
+use crate::deployment::{BuiltPolicy, MintedTokens, ProtocolDeployment, ProtocolValidator};
 use crate::entities::onchain::weighting_poll::WeightingPollId;
-use crate::routines::inflation::TimedOutputRef;
 use crate::time::ProtocolEpoch;
-use crate::{CurrentEpoch, GenesisEpochStartTime};
+use crate::GenesisEpochStartTime;
 
 #[derive(Clone)]
 pub struct ProtocolConfig {
@@ -90,10 +84,22 @@ pub struct WPFactoryAuthPolicy(pub PolicyId);
 pub struct VEFactoryAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
+pub struct VEFactoryScriptHash(pub ScriptHash);
+
+#[derive(Debug, Clone)]
+pub struct VEFactoryRefScriptOutput(pub TransactionUnspentOutput);
+
+#[derive(Debug, Clone)]
+pub struct MakeVotingEscrowOrderScriptHash(pub ScriptHash);
+
+#[derive(Debug, Clone)]
+pub struct MakeVotingEscrowOrderRefScriptOutput(pub TransactionUnspentOutput);
+
+#[derive(Debug, Clone)]
 pub struct VotingEscrowRefScriptOutput(pub TransactionUnspentOutput);
 
 #[derive(Debug, Clone)]
-pub struct VotingEscrowPolicy(pub PolicyId);
+pub struct VotingEscrowScriptHash(pub PolicyId);
 
 #[derive(Debug, Clone)]
 pub struct WeightingPowerPolicy(pub PolicyId);
@@ -117,6 +123,9 @@ pub struct PermManagerAuthPolicy(pub PolicyId);
 pub struct GTAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
+pub struct GTBuiltPolicy(pub BuiltPolicy);
+
+#[derive(Debug, Clone)]
 pub struct NodeMagic(pub u64);
 
 pub struct OperatorCreds(pub Ed25519KeyHash, pub Address);
@@ -133,6 +142,7 @@ impl NotOutputRefNorSlotNumber for MintVECompositionPolicy {}
 impl NotOutputRefNorSlotNumber for VEFactoryAuthPolicy {}
 impl NotOutputRefNorSlotNumber for GenesisEpochStartTime {}
 impl NotOutputRefNorSlotNumber for GTAuthPolicy {}
+impl NotOutputRefNorSlotNumber for GTBuiltPolicy {}
 impl NotOutputRefNorSlotNumber for NetworkId {}
 impl<const TYP: u8> NotOutputRefNorSlotNumber for DeployedScriptInfo<TYP> {}
 
@@ -250,15 +260,41 @@ impl Has<VEFactoryAuthPolicy> for ProtocolConfig {
     }
 }
 
+impl Has<VEFactoryScriptHash> for ProtocolConfig {
+    fn select<U: IsEqual<VEFactoryScriptHash>>(&self) -> VEFactoryScriptHash {
+        VEFactoryScriptHash(self.deployed_validators.ve_factory.hash)
+    }
+}
+
+impl Has<VEFactoryRefScriptOutput> for ProtocolConfig {
+    fn select<U: IsEqual<VEFactoryRefScriptOutput>>(&self) -> VEFactoryRefScriptOutput {
+        VEFactoryRefScriptOutput(self.deployed_validators.ve_factory.reference_utxo.clone())
+    }
+}
+
+impl Has<MakeVotingEscrowOrderScriptHash> for ProtocolConfig {
+    fn select<U: IsEqual<MakeVotingEscrowOrderScriptHash>>(&self) -> MakeVotingEscrowOrderScriptHash {
+        MakeVotingEscrowOrderScriptHash(self.deployed_validators.make_ve_order.hash)
+    }
+}
+
+impl Has<MakeVotingEscrowOrderRefScriptOutput> for ProtocolConfig {
+    fn select<U: IsEqual<MakeVotingEscrowOrderRefScriptOutput>>(
+        &self,
+    ) -> MakeVotingEscrowOrderRefScriptOutput {
+        MakeVotingEscrowOrderRefScriptOutput(self.deployed_validators.make_ve_order.reference_utxo.clone())
+    }
+}
+
 impl Has<VotingEscrowRefScriptOutput> for ProtocolConfig {
     fn select<U: IsEqual<VotingEscrowRefScriptOutput>>(&self) -> VotingEscrowRefScriptOutput {
         VotingEscrowRefScriptOutput(self.deployed_validators.voting_escrow.reference_utxo.clone())
     }
 }
 
-impl Has<VotingEscrowPolicy> for ProtocolConfig {
-    fn select<U: IsEqual<VotingEscrowPolicy>>(&self) -> VotingEscrowPolicy {
-        VotingEscrowPolicy(self.deployed_validators.voting_escrow.hash)
+impl Has<VotingEscrowScriptHash> for ProtocolConfig {
+    fn select<U: IsEqual<VotingEscrowScriptHash>>(&self) -> VotingEscrowScriptHash {
+        VotingEscrowScriptHash(self.deployed_validators.voting_escrow.hash)
     }
 }
 
@@ -301,6 +337,12 @@ impl Has<GovProxyRefScriptOutput> for ProtocolConfig {
 impl Has<GTAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<GTAuthPolicy>>(&self) -> GTAuthPolicy {
         GTAuthPolicy(self.tokens.gt.policy_id)
+    }
+}
+
+impl Has<GTBuiltPolicy> for ProtocolConfig {
+    fn select<U: IsEqual<GTBuiltPolicy>>(&self) -> GTBuiltPolicy {
+        GTBuiltPolicy(self.tokens.gt.clone())
     }
 }
 
@@ -392,6 +434,22 @@ impl Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>> for Protoco
         &self,
     ) -> DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }> {
         DeployedScriptInfo::from(&self.deployed_validators.smart_farm)
+    }
+}
+
+impl Has<DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }>> for ProtocolConfig {
+    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }> {
+        DeployedScriptInfo::from(&self.deployed_validators.ve_factory)
+    }
+}
+
+impl Has<DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }>> for ProtocolConfig {
+    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }> {
+        DeployedScriptInfo::from(&self.deployed_validators.make_ve_order)
     }
 }
 

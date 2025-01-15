@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use cardano_explorer::CardanoNetwork;
 use cml_chain::{
     address::Address,
@@ -19,16 +17,15 @@ use cml_chain::{
 use cml_crypto::{ScriptHash, TransactionHash};
 use spectrum_cardano_lib::{
     collateral::Collateral, protocol_params::constant_tx_builder, transaction::TransactionOutputExtension,
-    value::ValueExtension, OutputRef,
+    value::ValueExtension,
 };
 use spectrum_offchain::tx_prover::TxProver;
-use spectrum_offchain_cardano::{creds::CollateralAddress, prover::operator::OperatorProver};
+use spectrum_offchain_cardano::creds::CollateralAddress;
 
 use crate::{
     collect_utxos::collect_utxos,
-    constants::script_bytes::VOTING_WITNESS,
     create_change_output::{ChangeOutputCreator, CreateChangeOutput},
-    deployment::BuiltPolicy,
+    deployment::{BuiltPolicy, DaoScriptData},
 };
 
 const LIMIT: u16 = 50;
@@ -180,8 +177,9 @@ where
         vec![asset_pd, PlutusData::new_list(vec![])],
     ));
 
-    let voting_witness_script =
-        PlutusScript::PlutusV2(PlutusV2Script::new(hex::decode(VOTING_WITNESS).unwrap()));
+    let voting_witness_script = PlutusScript::PlutusV2(PlutusV2Script::new(
+        hex::decode(&DaoScriptData::global().voting_witness.script_bytes).unwrap(),
+    ));
     let cert_reg =
         Certificate::new_reg_cert(Credential::new_script(*staking_validator_script_hash), 2_000_000);
     let partial_witness =

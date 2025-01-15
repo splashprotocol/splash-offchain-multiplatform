@@ -1,29 +1,25 @@
-use cml_chain::certs::Credential;
 use cml_chain::plutus::PlutusV2Script;
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::utils::BigInteger;
 use cml_chain::{
-    plutus::{ConstrPlutusData, ExUnits, PlutusData},
+    plutus::{ConstrPlutusData, PlutusData},
     PolicyId,
 };
 use cml_crypto::RawBytesEncoding;
 use serde::{Deserialize, Serialize};
-use spectrum_cardano_lib::plutus_data::{
-    ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
-};
+use spectrum_cardano_lib::plutus_data::{DatumExtension, IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
-use spectrum_cardano_lib::{AssetName, OutputRef};
-use spectrum_offchain::domain::{Has, Identifier, Stable};
+use spectrum_cardano_lib::AssetName;
+use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 
-use crate::constants::script_bytes::MINT_FARM_AUTH_TOKEN_SCRIPT;
-use crate::deployment::ProtocolValidator;
+use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::Snapshot;
-use crate::protocol_config::{FarmAuthPolicy, MintWPAuthPolicy, PermManagerAuthPolicy};
-use crate::routines::inflation::{Slot, TimedOutputRef};
+use crate::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy};
+use crate::routines::inflation::TimedOutputRef;
 
 pub type SmartFarmSnapshot = Snapshot<SmartFarm, TimedOutputRef>;
 
@@ -31,10 +27,6 @@ pub type SmartFarmSnapshot = Snapshot<SmartFarm, TimedOutputRef>;
     Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Debug, Hash, derive_more::Display, Serialize, Deserialize,
 )]
 pub struct FarmId(pub AssetName);
-
-impl Identifier for FarmId {
-    type For = SmartFarmSnapshot;
-}
 
 impl IntoPlutusData for FarmId {
     fn into_pd(self) -> cml_chain::plutus::PlutusData {
@@ -73,7 +65,7 @@ pub struct Redeemer {
 
 impl IntoPlutusData for Redeemer {
     fn into_pd(self) -> PlutusData {
-        let mut cpd = ConstrPlutusData::new(
+        let cpd = ConstrPlutusData::new(
             0,
             vec![
                 PlutusData::Integer(BigInteger::from(self.successor_out_ix)),
@@ -166,11 +158,8 @@ pub fn compute_mint_farm_auth_token_validator(
             factory_auth_policy.to_raw_bytes().to_vec(),
         )),
     ]);
-    apply_params_validator(params_pd, MINT_FARM_AUTH_TOKEN_SCRIPT)
+    apply_params_validator(
+        params_pd,
+        &DaoScriptData::global().mint_farm_auth_token.script_bytes,
+    )
 }
-
-pub const FARM_EX_UNITS: ExUnits = ExUnits {
-    mem: 500_000,
-    steps: 200_000_000,
-    encodings: None,
-};

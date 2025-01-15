@@ -1,4 +1,3 @@
-use cbor_event::Sz;
 use cml_chain::{
     assets::AssetName,
     plutus::{ConstrPlutusData, PlutusData, PlutusV2Script},
@@ -6,7 +5,7 @@ use cml_chain::{
     utils::BigInteger,
     PolicyId,
 };
-use cml_crypto::{RawBytesEncoding, ScriptHash};
+use cml_crypto::RawBytesEncoding;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
     plutus_data::{ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension},
@@ -15,7 +14,7 @@ use spectrum_cardano_lib::{
     OutputRef,
 };
 use spectrum_offchain::{
-    domain::{Has, Identifier, Stable},
+    domain::{Has, Stable},
     ledger::TryFromLedger,
 };
 use spectrum_offchain_cardano::{
@@ -25,8 +24,8 @@ use spectrum_offchain_cardano::{
 use uplc_pallas_codec::utils::PlutusBytes;
 
 use crate::{
-    constants::{self, script_bytes::FARM_FACTORY_SCRIPT},
-    deployment::ProtocolValidator,
+    constants::{self},
+    deployment::{DaoScriptData, ProtocolValidator},
     entities::Snapshot,
     protocol_config::FarmFactoryAuthPolicy,
 };
@@ -37,10 +36,6 @@ pub type FarmFactorySnapshot = Snapshot<FarmFactory, OutputRef>;
     Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize, Debug, derive_more::Display,
 )]
 pub struct FarmFactoryId;
-
-impl Identifier for FarmFactoryId {
-    type For = FarmFactorySnapshot;
-}
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct FarmFactory {
@@ -154,7 +149,7 @@ pub fn compute_farm_factory_validator(
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(farm_auth_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BoundedBytes(PlutusBytes::from(gov_witness_script_hash.to_raw_bytes().to_vec())),
     ]);
-    apply_params_validator(params_pd, FARM_FACTORY_SCRIPT)
+    apply_params_validator(params_pd, &DaoScriptData::global().farm_factory.script_bytes)
 }
 
 #[cfg(test)]

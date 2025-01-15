@@ -52,3 +52,12 @@ impl From<ExUnits> for cml_chain::plutus::ExUnits {
         }
     }
 }
+
+impl From<&cml_chain::plutus::ExUnits> for ExUnits {
+    fn from(value: &cml_chain::plutus::ExUnits) -> Self {
+        Self {
+            mem: value.mem,
+            steps: value.steps,
+        }
+    }
+}
