@@ -166,9 +166,3 @@ pub fn compute_mint_farm_auth_token_validator(
         &DaoScriptData::global().mint_farm_auth_token.script_bytes,
     )
 }
-
-pub const FARM_EX_UNITS: ExUnits = ExUnits {
-    mem: 500_000,
-    steps: 200_000_000,
-    encodings: None,
-};

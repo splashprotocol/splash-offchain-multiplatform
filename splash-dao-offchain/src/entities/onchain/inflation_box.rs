@@ -129,12 +129,6 @@ pub fn unsafe_update_ibox_state(data: &mut PlutusData, last_processed_epoch: Pro
     *data = PlutusData::new_integer(last_processed_epoch.into());
 }
 
-pub const INFLATION_BOX_EX_UNITS: ExUnits = ExUnits {
-    mem: 500_000,
-    steps: 200_000_000,
-    encodings: None,
-};
-
 pub fn compute_inflation_box_validator(
     inflation_auth_policy: PolicyId,
     splash_policy: PolicyId,

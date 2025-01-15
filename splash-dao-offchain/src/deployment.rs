@@ -60,10 +60,10 @@ pub struct Deployment {
 
 #[derive(serde::Deserialize, Clone, Debug)]
 pub struct DaoScriptData {
-    pub mint_weighting_power: ScriptBytesAndCosts,
+    pub mint_weighting_power: TokenPolicyBytesAndCosts,
     pub inflation: ScriptBytesAndCosts,
     pub wp_factory: ScriptBytesAndCosts,
-    pub mint_wp_auth_token: ScriptBytesAndCosts,
+    pub mint_wp_auth_token: TokenPolicyBytesAndCosts,
     pub voting_escrow: ScriptBytesAndCosts,
     pub mint_farm_auth_token: ScriptBytesAndCosts,
     pub perm_manager: ScriptBytesAndCosts,
@@ -91,6 +91,14 @@ pub struct ScriptBytesAndCosts {
     /// Hex-encoded script bytes
     pub script_bytes: String,
     pub ex_units: ExUnits,
+}
+
+#[derive(serde::Deserialize, Clone, Debug)]
+pub struct TokenPolicyBytesAndCosts {
+    /// Hex-encoded script bytes
+    pub script_bytes: String,
+    pub mint_ex_units: ExUnits,
+    pub burn_ex_units: ExUnits,
 }
 
 #[repr(u8)]

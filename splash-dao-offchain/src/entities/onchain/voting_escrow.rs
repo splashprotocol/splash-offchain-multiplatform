@@ -393,24 +393,6 @@ impl IntoPlutusData for VotingEscrowAuthorizedAction {
     }
 }
 
-pub const VOTING_ESCROW_EX_UNITS: ExUnits = ExUnits {
-    mem: 2_000_000,
-    steps: 500_000_000,
-    encodings: None,
-};
-
-pub const WEIGHTING_POWER_EX_UNITS: ExUnits = ExUnits {
-    mem: 2_000_000,
-    steps: 500_000_000,
-    encodings: None,
-};
-
-pub const ORDER_WITNESS_EX_UNITS: ExUnits = ExUnits {
-    mem: 2_000_000,
-    steps: 100_000_000,
-    encodings: None,
-};
-
 pub enum MintAction {
     MintPower {
         binder: u32,

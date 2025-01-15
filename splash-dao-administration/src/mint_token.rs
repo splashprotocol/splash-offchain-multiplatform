@@ -192,7 +192,10 @@ pub fn mint_deployment_tokens(
     }
 
     for index in 0..8 {
-        tx_builder.set_exunits(RedeemerWitnessKey::new(RedeemerTag::Mint, index as u64), EX_UNITS);
+        tx_builder.set_exunits(
+            RedeemerWitnessKey::new(RedeemerTag::Mint, index as u64),
+            DaoScriptData::global().one_time_mint.ex_units.clone(),
+        );
     }
 
     let mut output_result = TransactionOutputBuilder::new()
@@ -468,11 +471,6 @@ pub fn script_address(script_hash: ScriptHash, network_id: NetworkId) -> Address
 pub const LQ_NAME: &str = "SPLASH/ADA LQ*";
 pub const SPLASH_NAME: &str = "SPLASH";
 pub const NUMBER_TOKEN_MINTS_NEEDED: usize = 9;
-const EX_UNITS: ExUnits = ExUnits {
-    mem: 500_000,
-    steps: 200_000_000,
-    encodings: None,
-};
 
 pub struct ReferenceInputScriptHashes {
     pub inflation: ScriptHash,

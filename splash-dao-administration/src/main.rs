@@ -353,83 +353,84 @@ async fn deploy<'a>(op_inputs: &mut OperationInputs, config: AppConfig<'a>) -> C
             }
         };
         // --------
+        let dsd = DaoScriptData::global();
         let d = DeployedValidators {
             inflation: DeployedValidatorRef {
                 hash: reference_input_script_hashes.inflation,
                 reference_utxo: make_ref_utxo(0, 0),
-                cost: EX_UNITS,
+                cost: (&dsd.inflation.ex_units).into(),
                 marginal_cost: None,
             },
             voting_escrow: DeployedValidatorRef {
                 hash: reference_input_script_hashes.voting_escrow,
                 reference_utxo: make_ref_utxo(0, 1),
-                cost: EX_UNITS,
+                cost: (&dsd.voting_escrow.ex_units).into(),
                 marginal_cost: None,
             },
             farm_factory: DeployedValidatorRef {
                 hash: reference_input_script_hashes.farm_factory,
                 reference_utxo: make_ref_utxo(0, 2),
-                cost: EX_UNITS,
+                cost: (&dsd.farm_factory.ex_units).into(),
                 marginal_cost: None,
             },
             wp_factory: DeployedValidatorRef {
                 hash: reference_input_script_hashes.wp_factory,
                 reference_utxo: make_ref_utxo(0, 3),
-                cost: EX_UNITS,
+                cost: (&dsd.wp_factory.ex_units).into(),
                 marginal_cost: None,
             },
             ve_factory: DeployedValidatorRef {
                 hash: reference_input_script_hashes.ve_factory,
                 reference_utxo: make_ref_utxo(0, 4),
-                cost: EX_UNITS,
+                cost: (&dsd.ve_factory.ex_units).into(),
                 marginal_cost: None,
             },
             gov_proxy: DeployedValidatorRef {
                 hash: reference_input_script_hashes.gov_proxy,
                 reference_utxo: make_ref_utxo(1, 0),
-                cost: EX_UNITS,
+                cost: (&dsd.gov_proxy.ex_units).into(),
                 marginal_cost: None,
             },
             perm_manager: DeployedValidatorRef {
                 hash: reference_input_script_hashes.perm_manager,
                 reference_utxo: make_ref_utxo(1, 1),
-                cost: EX_UNITS,
+                cost: (&dsd.perm_manager.ex_units).into(),
                 marginal_cost: None,
             },
             mint_wpauth_token: DeployedValidatorRef {
                 hash: reference_input_script_hashes.mint_wpauth_token,
                 reference_utxo: make_ref_utxo(1, 2),
-                cost: EX_UNITS,
+                cost: (&dsd.mint_wp_auth_token.mint_ex_units).into(),
                 marginal_cost: None,
             },
             mint_identifier: DeployedValidatorRef {
                 hash: reference_input_script_hashes.mint_identifier,
                 reference_utxo: make_ref_utxo(1, 3),
-                cost: EX_UNITS,
+                cost: (&dsd.mint_identifier.ex_units).into(),
                 marginal_cost: None,
             },
             mint_ve_composition_token: DeployedValidatorRef {
                 hash: reference_input_script_hashes.mint_ve_composition_token,
                 reference_utxo: make_ref_utxo(2, 0),
-                cost: EX_UNITS,
+                cost: (&dsd.mint_ve_composition_token.ex_units).into(),
                 marginal_cost: None,
             },
             weighting_power: DeployedValidatorRef {
                 hash: reference_input_script_hashes.weighting_power,
                 reference_utxo: make_ref_utxo(2, 1),
-                cost: EX_UNITS,
+                cost: (&dsd.mint_weighting_power.mint_ex_units).into(),
                 marginal_cost: None,
             },
             smart_farm: DeployedValidatorRef {
                 hash: reference_input_script_hashes.smart_farm,
                 reference_utxo: make_ref_utxo(2, 2),
-                cost: EX_UNITS,
+                cost: (&dsd.mint_farm_auth_token.ex_units).into(),
                 marginal_cost: None,
             },
             make_ve_order: DeployedValidatorRef {
                 hash: reference_input_script_hashes.make_ve_order,
                 reference_utxo: make_ref_utxo(2, 3),
-                cost: EX_UNITS,
+                cost: (&dsd.make_voting_escrow_order.ex_units).into(),
                 marginal_cost: None,
             },
         };
@@ -983,7 +984,7 @@ async fn create_initial_farms(op_inputs: &OperationInputs) {
 
     tx_builder.set_exunits(
         RedeemerWitnessKey::new(cml_chain::plutus::RedeemerTag::Spend, farm_factory_in_ix as u64),
-        cml_chain::plutus::ExUnits::from(EX_UNITS),
+        DaoScriptData::global().farm_factory.ex_units.clone(),
     );
 
     // Mint ------------------------------------------
@@ -1005,8 +1006,10 @@ async fn create_initial_farms(op_inputs: &OperationInputs) {
         SingleMintBuilder::new_single_asset(mint_farm_auth_asset_name.clone(), 1)
             .plutus_script(mint_farm_auth_witness, vec![].into());
     tx_builder.add_mint(mint_farm_auth_builder_result).unwrap();
-    let ex_units = cml_chain::plutus::ExUnits::from(EX_UNITS);
-    tx_builder.set_exunits(RedeemerWitnessKey::new(RedeemerTag::Mint, 0), ex_units);
+    tx_builder.set_exunits(
+        RedeemerWitnessKey::new(RedeemerTag::Mint, 0),
+        DaoScriptData::global().mint_farm_auth_token.ex_units.clone(),
+    );
 
     // farm_factory output ---------------------------------------
     let farm_factory_assets = farm_factory_input_builder.utxo_info.amount().multiasset.clone();
@@ -1466,16 +1469,6 @@ struct FarmWeight {
     farm_id: u32,
     weight: u64,
 }
-
-const EX_UNITS: ExUnits = ExUnits {
-    mem: 500_000,
-    steps: 200_000_000,
-};
-
-const EX_UNITS_CREATE_VOTING_ESCROW: ExUnits = ExUnits {
-    mem: 700_000,
-    steps: 300_000_000,
-};
 
 const INCOMPLETE_DEPLOYMENT_ERR_MSG: &str =
     "Expected a complete deployment! Run `splash-dao-administration deploy` to complete deployment";

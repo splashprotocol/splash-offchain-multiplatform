@@ -335,11 +335,6 @@ pub fn exchange_outputs(
     (ve_composition_qty, mint_value)
 }
 
-pub const VE_FACTORY_EX_UNITS: ExUnits = ExUnits {
-    mem: 700_000,
-    steps: 300_000_000,
-};
-
 #[cfg(test)]
 mod tests {
     use cml_crypto::ScriptHash;

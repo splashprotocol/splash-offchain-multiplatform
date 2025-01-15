@@ -147,18 +147,6 @@ impl IntoPlutusData for FactoryRedeemer {
     }
 }
 
-pub const WP_FACTORY_EX_UNITS: ExUnits = ExUnits {
-    mem: 500_000,
-    steps: 200_000_000,
-    encodings: None,
-};
-
-pub const GOV_PROXY_EX_UNITS: ExUnits = ExUnits {
-    mem: 500_000,
-    steps: 200_000_000,
-    encodings: None,
-};
-
 pub fn compute_wp_factory_validator(
     wp_auth_policy: PolicyId,
     gov_witness_script_hash: ScriptHash,

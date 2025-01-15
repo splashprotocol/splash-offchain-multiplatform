@@ -454,18 +454,6 @@ impl IntoPlutusData for MintAction {
     }
 }
 
-pub const MINT_WP_AUTH_EX_UNITS: ExUnits = ExUnits {
-    mem: 2_000_000,
-    steps: 200_000_000,
-    encodings: None,
-};
-
-pub const TOKEN_BURN_EX_UNITS: ExUnits = ExUnits {
-    mem: 500_000,
-    steps: 100_000_000,
-    encodings: None,
-};
-
 pub const MIN_ADA_IN_BOX: u64 = 1_000_000;
 
 /// Note that the this is a multivalidator, and can serve as the script that guards the

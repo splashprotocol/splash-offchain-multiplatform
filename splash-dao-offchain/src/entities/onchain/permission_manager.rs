@@ -145,9 +145,3 @@ pub fn compute_perm_manager_validator(
     ]);
     apply_params_validator(params_pd, &DaoScriptData::global().perm_manager.script_bytes)
 }
-
-pub const PERM_MANAGER_EX_UNITS: ExUnits = ExUnits {
-    mem: 500_000,
-    steps: 200_000_000,
-    encodings: None,
-};

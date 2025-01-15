@@ -48,29 +48,24 @@ use crate::create_change_output::{ChangeOutputCreator, CreateChangeOutput};
 use crate::deployment::{BuiltPolicy, DaoScriptData, ProtocolValidator};
 use crate::entities::offchain::voting_order::{compute_voting_witness_message, VotingOrder};
 use crate::entities::onchain::funding_box::{FundingBox, FundingBoxId, FundingBoxSnapshot};
-use crate::entities::onchain::inflation_box::{unsafe_update_ibox_state, INFLATION_BOX_EX_UNITS};
+use crate::entities::onchain::inflation_box::unsafe_update_ibox_state;
 use crate::entities::onchain::make_voting_escrow_order::{
     MakeVotingEscrowOrder, MakeVotingEscrowOrderAction, MakeVotingEscrowOrderBundle,
-    MAKE_VOTING_ESCROW_EX_UNITS, MVE_TOKEN_MINT_EX_UNITS,
 };
-use crate::entities::onchain::permission_manager::{compute_perm_manager_validator, PERM_MANAGER_EX_UNITS};
+use crate::entities::onchain::permission_manager::compute_perm_manager_validator;
 use crate::entities::onchain::poll_factory::{
-    unsafe_update_factory_state, FactoryRedeemer, PollFactoryAction, GOV_PROXY_EX_UNITS, WP_FACTORY_EX_UNITS,
+    unsafe_update_factory_state, FactoryRedeemer, PollFactoryAction,
 };
-use crate::entities::onchain::smart_farm::{
-    self, compute_mint_farm_auth_token_validator, FarmId, FARM_EX_UNITS,
-};
+use crate::entities::onchain::smart_farm::{self, compute_mint_farm_auth_token_validator, FarmId};
 use crate::entities::onchain::voting_escrow::{
     self, compute_mint_weighting_power_validator, compute_voting_escrow_validator, unsafe_update_ve_state,
     Lock, Owner, VotingEscrow, VotingEscrowAction, VotingEscrowAuthorizedAction, VotingEscrowConfig,
-    ORDER_WITNESS_EX_UNITS, VOTING_ESCROW_EX_UNITS, WEIGHTING_POWER_EX_UNITS,
 };
 use crate::entities::onchain::voting_escrow_factory::{
-    exchange_outputs, FactoryAction, VEFactory, VEFactoryDatum, VEFactorySnapshot, VE_FACTORY_EX_UNITS,
+    exchange_outputs, FactoryAction, VEFactory, VEFactoryDatum, VEFactorySnapshot,
 };
 use crate::entities::onchain::weighting_poll::{
     self, compute_mint_wp_auth_token_validator, unsafe_update_wp_state, MintAction, WeightingPoll,
-    MINT_WP_AUTH_EX_UNITS, TOKEN_BURN_EX_UNITS,
 };
 use crate::entities::Snapshot;
 use crate::protocol_config::{
@@ -312,23 +307,26 @@ where
             tx_builder.add_input(input).unwrap();
         }
 
+        let inflation_ex_units = DaoScriptData::global().inflation.ex_units.clone();
+        let wp_factory_ex_units = DaoScriptData::global().wp_factory.ex_units.clone();
+
         if inflation_box_in_ix < factory_in_ix {
             tx_builder.set_exunits(
                 RedeemerWitnessKey::new(RedeemerTag::Spend, inflation_box_in_ix),
-                INFLATION_BOX_EX_UNITS,
+                inflation_ex_units,
             );
             tx_builder.set_exunits(
                 RedeemerWitnessKey::new(RedeemerTag::Spend, factory_in_ix),
-                WP_FACTORY_EX_UNITS,
+                wp_factory_ex_units,
             );
         } else {
             tx_builder.set_exunits(
                 RedeemerWitnessKey::new(RedeemerTag::Spend, factory_in_ix),
-                WP_FACTORY_EX_UNITS,
+                wp_factory_ex_units,
             );
             tx_builder.set_exunits(
                 RedeemerWitnessKey::new(RedeemerTag::Spend, inflation_box_in_ix),
-                INFLATION_BOX_EX_UNITS,
+                inflation_ex_units,
             );
         }
 
@@ -356,7 +354,7 @@ where
         tx_builder.add_mint(wp_auth_minting_policy).unwrap();
         tx_builder.set_exunits(
             RedeemerWitnessKey::new(RedeemerTag::Mint, 0),
-            MINT_WP_AUTH_EX_UNITS,
+            DaoScriptData::global().mint_wp_auth_token.mint_ex_units.clone(),
         );
 
         // Contracts require that weighting_poll output resides at index 1.
@@ -580,8 +578,15 @@ where
                 .plutus_script(mint_wp_auth_token_witness, RequiredSigners::from(vec![]));
         tx_builder.add_mint(mint_weighting_power_builder_result).unwrap();
 
-        tx_builder.set_exunits(RedeemerWitnessKey::new(RedeemerTag::Mint, 0), TOKEN_BURN_EX_UNITS);
-        tx_builder.set_exunits(RedeemerWitnessKey::new(RedeemerTag::Mint, 1), TOKEN_BURN_EX_UNITS);
+        let dsd = DaoScriptData::global();
+        tx_builder.set_exunits(
+            RedeemerWitnessKey::new(RedeemerTag::Mint, 0),
+            dsd.mint_wp_auth_token.burn_ex_units.clone(),
+        );
+        tx_builder.set_exunits(
+            RedeemerWitnessKey::new(RedeemerTag::Mint, 1),
+            dsd.mint_weighting_power.burn_ex_units.clone(),
+        );
 
         // ------------------
         change_output_creator.burn_token(crate::create_change_output::Token {
@@ -602,7 +607,7 @@ where
         tx_builder.add_output(output).unwrap();
         tx_builder.set_exunits(
             RedeemerWitnessKey::new(RedeemerTag::Spend, wpoll_ix),
-            MINT_WP_AUTH_EX_UNITS,
+            DaoScriptData::global().mint_wp_auth_token.mint_ex_units.clone(),
         );
 
         let estimated_tx_fee = tx_builder.min_fee(true).unwrap() + ELIMINATE_WPOLL_FEE_DELTA;
@@ -838,15 +843,15 @@ where
         change_output_creator.add_output(&voting_escrow_output);
         tx_builder.add_output(voting_escrow_output).unwrap();
 
+        let ve_ex_units = DaoScriptData::global().voting_escrow.ex_units.clone();
+        let mint_wp_auth_ex_units = DaoScriptData::global().mint_wp_auth_token.mint_ex_units.clone();
+
         // Mint weighting power --------------------------------------------------------------------
         let mint_action = if voting_escrow_input_tx_hash < weighting_poll_input_tx_hash {
-            tx_builder.set_exunits(
-                RedeemerWitnessKey::new(RedeemerTag::Spend, 0),
-                VOTING_ESCROW_EX_UNITS,
-            );
+            tx_builder.set_exunits(RedeemerWitnessKey::new(RedeemerTag::Spend, 0), ve_ex_units);
             tx_builder.set_exunits(
                 RedeemerWitnessKey::new(RedeemerTag::Spend, 1),
-                MINT_WP_AUTH_EX_UNITS,
+                mint_wp_auth_ex_units,
             );
             voting_escrow::MintAction::MintPower {
                 binder: weighting_poll.get().epoch,
@@ -854,13 +859,10 @@ where
                 proposal_in_ix: 1,
             }
         } else {
-            tx_builder.set_exunits(
-                RedeemerWitnessKey::new(RedeemerTag::Spend, 1),
-                VOTING_ESCROW_EX_UNITS,
-            );
+            tx_builder.set_exunits(RedeemerWitnessKey::new(RedeemerTag::Spend, 1), ve_ex_units);
             tx_builder.set_exunits(
                 RedeemerWitnessKey::new(RedeemerTag::Spend, 0),
-                MINT_WP_AUTH_EX_UNITS,
+                mint_wp_auth_ex_units,
             );
             voting_escrow::MintAction::MintPower {
                 binder: weighting_poll.get().epoch,
@@ -885,7 +887,7 @@ where
         tx_builder.add_mint(weighting_power_minting_policy).unwrap();
         tx_builder.set_exunits(
             RedeemerWitnessKey::new(RedeemerTag::Mint, 0),
-            WEIGHTING_POWER_EX_UNITS,
+            DaoScriptData::global().mint_weighting_power.mint_ex_units.clone(),
         );
 
         // Set witness script (needed by voting_escrow) --------------------------------------------
@@ -912,7 +914,7 @@ where
         tx_builder.add_withdrawal(withdrawal_result);
         tx_builder.set_exunits(
             RedeemerWitnessKey::new(RedeemerTag::Reward, 0),
-            ORDER_WITNESS_EX_UNITS,
+            DaoScriptData::global().voting_witness.ex_units.clone(),
         );
 
         // Set TX validity range
@@ -1050,7 +1052,7 @@ where
                     tx_builder.add_input(weighting_poll_input).unwrap();
                     tx_builder.set_exunits(
                         RedeemerWitnessKey::new(RedeemerTag::Spend, i as u64),
-                        MINT_WP_AUTH_EX_UNITS,
+                        DaoScriptData::global().mint_wp_auth_token.mint_ex_units.clone(),
                     );
                 }
 
@@ -1099,7 +1101,7 @@ where
                     tx_builder.add_input(smart_farm_input).unwrap();
                     tx_builder.set_exunits(
                         RedeemerWitnessKey::new(RedeemerTag::Spend, i as u64),
-                        FARM_EX_UNITS,
+                        DaoScriptData::global().mint_farm_auth_token.ex_units.clone(),
                     );
                 }
 
@@ -1329,24 +1331,27 @@ where
         change_output_creator.add_input(&mve_input_builder);
         tx_builder.add_input(mve_input_builder).unwrap();
 
+        let mve_ex_units = DaoScriptData::global().make_voting_escrow_order.ex_units.clone();
+        let ve_factory_ex_units = DaoScriptData::global().ve_factory.ex_units.clone();
+
         if mve_in_ix == 0 {
             tx_builder.set_exunits(
                 RedeemerWitnessKey::new(cml_chain::plutus::RedeemerTag::Spend, mve_in_ix as u64),
-                cml_chain::plutus::ExUnits::from(MAKE_VOTING_ESCROW_EX_UNITS),
+                mve_ex_units,
             );
 
             tx_builder.set_exunits(
                 RedeemerWitnessKey::new(cml_chain::plutus::RedeemerTag::Spend, ve_factory_in_ix as u64),
-                cml_chain::plutus::ExUnits::from(VE_FACTORY_EX_UNITS),
+                ve_factory_ex_units,
             );
         } else {
             tx_builder.set_exunits(
                 RedeemerWitnessKey::new(cml_chain::plutus::RedeemerTag::Spend, ve_factory_in_ix as u64),
-                cml_chain::plutus::ExUnits::from(VE_FACTORY_EX_UNITS),
+                ve_factory_ex_units,
             );
             tx_builder.set_exunits(
                 RedeemerWitnessKey::new(cml_chain::plutus::RedeemerTag::Spend, mve_in_ix as u64),
-                cml_chain::plutus::ExUnits::from(MAKE_VOTING_ESCROW_EX_UNITS),
+                mve_ex_units,
             );
         }
 
@@ -1390,9 +1395,13 @@ where
                 .plutus_script(mint_ve_identifier_token_witness.clone(), vec![].into());
         tx_builder.add_mint(mint_ve_identifier_builder_result).unwrap();
 
+        let mint_ve_identifier_ex_units = DaoScriptData::global().mint_ve_composition_token.ex_units.clone();
+
         for ix in 0..total_num_mints {
-            let ex_units = cml_chain::plutus::ExUnits::from(MVE_TOKEN_MINT_EX_UNITS);
-            tx_builder.set_exunits(RedeemerWitnessKey::new(RedeemerTag::Mint, ix as u64), ex_units);
+            tx_builder.set_exunits(
+                RedeemerWitnessKey::new(RedeemerTag::Mint, ix as u64),
+                mint_ve_identifier_ex_units.clone(),
+            );
         }
 
         let id_token = Token(

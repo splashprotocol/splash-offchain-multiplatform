@@ -7,7 +7,6 @@ use cml_chain::{
 use cml_crypto::{RawBytesEncoding, ScriptHash};
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
-    ex_units::ExUnits,
     plutus_data::{DatumExtension, IntoPlutusData},
     transaction::TransactionOutputExtension,
     types::TryFromPData,
@@ -136,13 +135,3 @@ pub fn compute_make_ve_order_validator(
         &DaoScriptData::global().make_voting_escrow_order.script_bytes,
     )
 }
-
-pub const MAKE_VOTING_ESCROW_EX_UNITS: ExUnits = ExUnits {
-    mem: 700_000,
-    steps: 300_000_000,
-};
-
-pub const MVE_TOKEN_MINT_EX_UNITS: ExUnits = ExUnits {
-    mem: 500_000,
-    steps: 200_000_000,
-};

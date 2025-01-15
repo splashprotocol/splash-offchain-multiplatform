@@ -241,16 +241,17 @@ where
                     self.try_apply_votes(state).await
                 }
 
-                EpochRoutineState::WaitingToEliminate => retry_in(DEF_DELAY),
+                EpochRoutineState::WaitingToEliminate | EpochRoutineState::PendingEliminatePoll(_) => {
+                    retry_in(DEF_DELAY)
+                }
                 EpochRoutineState::Uninitialized
                 | EpochRoutineState::WaitingForDistributionToStart
                 | EpochRoutineState::DistributionInProgress(_)
-                | EpochRoutineState::PendingEliminatePoll(_)
                 | EpochRoutineState::Eliminated => {
                     unreachable!()
                 }
             },
-            Some(EpochRoutineState::PendingEliminatePoll(_)) => unreachable!(),
+            Some(EpochRoutineState::PendingEliminatePoll(_)) => retry_in(DEF_DELAY),
             Some(EpochRoutineState::WeightingInProgress(_)) => unreachable!(),
             Some(EpochRoutineState::PendingCreatePoll(_)) => unreachable!(),
             Some(EpochRoutineState::Uninitialized) => unreachable!(),
