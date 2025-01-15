@@ -24,7 +24,6 @@ use spectrum_offchain_cardano::creds::CollateralAddress;
 
 use crate::{
     collect_utxos::collect_utxos,
-    constants::script_bytes::VOTING_WITNESS,
     create_change_output::{ChangeOutputCreator, CreateChangeOutput},
     deployment::{BuiltPolicy, DaoScriptData},
 };

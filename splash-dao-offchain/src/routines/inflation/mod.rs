@@ -1613,6 +1613,7 @@ where
             *reached = true;
             trace!("signal tip reached!");
         });
+        let mut routine: Option<ToRoutine> = None;
         stream! {
 
             loop {

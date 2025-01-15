@@ -1234,11 +1234,33 @@ async fn send_edao_token(op_inputs: &OperationInputs, destination_addr: String) 
     .unwrap();
 }
 
-fn compute_identifier_token_asset_name(output_ref: OutputRef) -> cml_chain::assets::AssetName {
-    let mut bytes = output_ref.tx_hash().to_raw_bytes().to_vec();
-    bytes.extend_from_slice(&PlutusData::new_integer(BigInteger::from(output_ref.index())).to_cbor_bytes());
-    let token_name = blake2b256(bytes.as_ref());
-    cml_chain::assets::AssetName::new(token_name.to_vec()).unwrap()
+async fn register_witness_staking_addr(op_inputs: &OperationInputs, script_hash_hex: String) {
+    let OperationInputs {
+        explorer,
+        addr,
+        prover,
+        collateral,
+        ..
+    } = op_inputs;
+    let staking_validator_script_hash = ScriptHash::from_hex(&script_hash_hex).unwrap();
+    //println!(
+    //    "ZZZZ: {}",
+    //    hex::encode(vec![
+    //        158, 118, 55, 184, 13, 29, 242, 39, 236, 32, 97, 168, 142, 119, 32, 223, 131, 28, 159, 233, 162,
+    //        22, 58, 3, 52, 9, 157, 158
+    //    ])
+    //);
+    register_staking_address(
+        14_000_000,
+        8_030_000,
+        explorer,
+        addr,
+        &staking_validator_script_hash,
+        collateral,
+        prover,
+    )
+    .await
+    .unwrap();
 }
 
 #[derive(Parser)]
