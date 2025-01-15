@@ -190,7 +190,6 @@ mod tests {
     use crate::{
         entities::onchain::funding_box::{FundingBox, FundingBoxId},
         funding::FundingRepo,
-        routines::inflation::{Slot, TimedOutputRef},
     };
     use cml_chain::{assets::MultiAsset, Value};
     use cml_crypto::TransactionHash;

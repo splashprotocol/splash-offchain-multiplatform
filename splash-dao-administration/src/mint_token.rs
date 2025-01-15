@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use cml_chain::{
-    address::{Address, BaseAddress, EnterpriseAddress},
+    address::{Address, EnterpriseAddress},
     assets::{AssetName, MultiAsset},
     builders::{
         input_builder::InputBuilderResult,
@@ -13,25 +13,20 @@ use cml_chain::{
     },
     certs::StakeCredential,
     min_ada::min_ada_required,
-    plutus::{ConstrPlutusData, ExUnits, PlutusData, PlutusScript, PlutusV2Script, RedeemerTag},
+    plutus::{ConstrPlutusData, PlutusData, PlutusScript, PlutusV2Script, RedeemerTag},
     transaction::NativeScript,
     utils::BigInteger,
-    PolicyId, Serialize, Value,
+    PolicyId, Value,
 };
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, ScriptHash, TransactionHash};
 use serde::Deserialize;
 use spectrum_cardano_lib::{
     collateral::Collateral,
-    plutus_data::PlutusDataExtension,
     protocol_params::{constant_tx_builder, COINS_PER_UTXO_BYTE},
     transaction::TransactionOutputExtension,
-    NetworkId, Token,
+    NetworkId,
 };
-use spectrum_offchain::tx_hash;
-use spectrum_offchain_cardano::{
-    deployment::{RawCBORScript, Script, ScriptType},
-    parametrized_validators::apply_params_validator,
-};
+use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 use splash_dao_offchain::{
     constants::{DEFAULT_AUTH_TOKEN_NAME, GT_NAME, MAX_GT_SUPPLY},
     deployment::{BuiltPolicy, DaoScriptData, ExternallyMintedToken, MintedTokens},
@@ -40,17 +35,17 @@ use splash_dao_offchain::{
         inflation_box::compute_inflation_box_validator,
         make_voting_escrow_order::compute_make_ve_order_validator,
         permission_manager::compute_perm_manager_validator,
-        poll_factory::{compute_wp_factory_validator, PollFactoryConfig},
+        poll_factory::compute_wp_factory_validator,
         smart_farm::compute_mint_farm_auth_token_validator,
         voting_escrow::{
             compute_mint_governance_power_validator, compute_mint_weighting_power_validator,
-            compute_voting_escrow_validator, VotingEscrow, VotingEscrowConfig,
+            compute_voting_escrow_validator,
         },
-        voting_escrow_factory::{compute_ve_factory_validator, AcceptedAsset, VEFactoryDatum},
+        voting_escrow_factory::{compute_ve_factory_validator, AcceptedAsset},
         weighting_poll::compute_mint_wp_auth_token_validator,
     },
 };
-use uplc_pallas_codec::{minicbor::Encode, utils::PlutusBytes};
+use uplc_pallas_codec::utils::PlutusBytes;
 
 use crate::DeploymentProgress;
 
@@ -159,10 +154,6 @@ pub fn mint_deployment_tokens(
         let quantity = qty(index);
         let plutus_script = compute_one_time_mint_validator(tx_hash, index, quantity);
         let policy_id = plutus_script.hash();
-        let script = Script {
-            typ: ScriptType::PlutusV2,
-            script: RawCBORScript::from(plutus_script.clone().inner),
-        };
         let inner = if index < 7 {
             DEFAULT_AUTH_TOKEN_NAME.to_be_bytes().to_vec()
         } else {
@@ -469,7 +460,6 @@ pub fn script_address(script_hash: ScriptHash, network_id: NetworkId) -> Address
 }
 
 pub const LQ_NAME: &str = "SPLASH/ADA LQ*";
-pub const SPLASH_NAME: &str = "SPLASH";
 pub const NUMBER_TOKEN_MINTS_NEEDED: usize = 9;
 
 pub struct ReferenceInputScriptHashes {

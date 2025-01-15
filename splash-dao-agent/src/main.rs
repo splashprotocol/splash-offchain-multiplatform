@@ -1,13 +1,6 @@
-use std::{
-    i64,
-    marker::PhantomData,
-    path::Path,
-    sync::{atomic::AtomicBool, Arc, Once},
-    time::UNIX_EPOCH,
-};
+use std::{marker::PhantomData, sync::Arc};
 
 use async_primitives::beacon::Beacon;
-use async_trait::async_trait;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use bloom_offchain_cardano::event_sink::processed_tx::TxViewMut;
 use bounded_integer::BoundedU8;
@@ -16,32 +9,18 @@ use cardano_chain_sync::{
     event_source::ledger_transactions,
 };
 use cardano_explorer::Maestro;
-use cardano_submit_api::client::LocalTxSubmissionClient;
 use chrono::Duration;
 use clap::Parser;
 use cml_chain::{
     address::RewardAddress,
-    assets::AssetName,
     certs::StakeCredential,
-    genesis::network_info::NetworkInfo,
     transaction::{Transaction, TransactionOutput},
-    PolicyId,
 };
-use cml_crypto::{Bip32PrivateKey, TransactionHash};
+use cml_crypto::TransactionHash;
 use cml_multi_era::babbage::BabbageTransaction;
 use config::AppConfig;
-use futures::{
-    channel::mpsc,
-    stream::{select_all, FuturesUnordered},
-    FutureExt, Stream, StreamExt,
-};
-use log::trace;
-use spectrum_cardano_lib::{
-    constants::{BABBAGE_ERA_ID, CONWAY_ERA_ID, SAFE_BLOCK_TIME},
-    hash::hash_transaction_canonical,
-    output::FinalizedTxOut,
-    NetworkId,
-};
+use futures::{channel::mpsc, stream::FuturesUnordered, StreamExt};
+use spectrum_cardano_lib::constants::{CONWAY_ERA_ID, SAFE_BLOCK_TIME};
 use spectrum_offchain::{
     backlog::{persistence::BacklogStoreRocksDB, BacklogConfig, PersistentPriorityBacklog},
     event_sink::{
@@ -52,8 +31,7 @@ use spectrum_offchain::{
     rocks::RocksConfig,
 };
 use spectrum_offchain_cardano::{
-    creds::{operator_creds, operator_creds_base_address},
-    prover::operator::OperatorProver,
+    creds::operator_creds,
     tx_submission::{tx_submission_agent_stream, TxSubmissionAgent},
     tx_tracker::new_tx_tracker_bundle,
 };
@@ -64,20 +42,16 @@ use splash_dao_offchain::{
     deployment::{CompleteDeployment, DaoScriptData, DeploymentProgress, ProtocolDeployment},
     entities::{
         offchain::voting_order::VotingOrder,
-        onchain::{
-            make_voting_escrow_order::{MakeVotingEscrowOrder, MakeVotingEscrowOrderBundle},
-            voting_escrow::Owner,
-        },
+        onchain::{make_voting_escrow_order::MakeVotingEscrowOrderBundle, voting_escrow::Owner},
     },
     funding::FundingRepoRocksDB,
     handler::DaoHandler,
     protocol_config::ProtocolConfig,
     routines::inflation::{
         actions::CardanoInflationActions, Behaviour, DaoBotCommand, DaoBotMessage, DaoBotResponse,
-        PredictedEntityWrites, VotingOrderCommand, VotingOrderStatus,
+        VotingOrderCommand, VotingOrderStatus,
     },
     state_projection::StateProjectionRocksDB,
-    time::{NetworkTime, NetworkTimeProvider},
     NetworkTimeSource,
 };
 use tokio::sync::Mutex;
@@ -185,12 +159,8 @@ async fn main() {
 
     // We assume the batcher's private key is associated with a Cardano base address, which also
     // includes a reward address.
-    let (addr, collateral_addr, funding_addresses) =
+    let (addr, collateral_addr, _funding_addresses) =
         operator_creds(config.batcher_private_key, config.network_id);
-
-    let operator_sk = Bip32PrivateKey::from_bech32(config.batcher_private_key)
-        .expect("wallet error")
-        .to_raw_key();
 
     let reward_address = RewardAddress::new(config.network_id.into(), StakeCredential::new_pub_key(addr.0));
 

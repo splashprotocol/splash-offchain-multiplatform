@@ -1,21 +1,19 @@
-use std::{fmt::Formatter, time::Duration};
+use std::time::Duration;
 
 use cml_chain::plutus::PlutusV2Script;
 use cml_chain::utils::BigInteger;
 use cml_chain::{
-    address::EnterpriseAddress,
-    certs::StakeCredential,
-    plutus::{ConstrPlutusData, ExUnits, PlutusData},
-    transaction::{DatumOption, TransactionOutput},
-    PolicyId, Value,
+    plutus::{ConstrPlutusData, PlutusData},
+    transaction::TransactionOutput,
+    PolicyId,
 };
-use cml_crypto::{PublicKey, RawBytesEncoding, ScriptHash};
+use cml_crypto::{RawBytesEncoding, ScriptHash};
 use log::{error, info};
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::plutus_data::DatumExtension;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
-use spectrum_cardano_lib::{AssetName, OutputRef};
+use spectrum_cardano_lib::AssetName;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use uplc_pallas_codec::utils::{Int, PlutusBytes};
@@ -24,20 +22,16 @@ use spectrum_cardano_lib::{
     plutus_data::{ConstrPlutusDataExtension, IntoPlutusData, PlutusDataExtension},
     Token,
 };
-use spectrum_offchain::{
-    domain::{Has, Identifier, Stable},
-    ledger::IntoLedger,
-};
+use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 
-use crate::constants::{DEFAULT_AUTH_TOKEN_NAME, GT_NAME};
+use crate::constants::GT_NAME;
 use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::Snapshot;
 use crate::protocol_config::{GTAuthPolicy, MintVEIdentifierPolicy};
-use crate::routines::inflation::{Slot, TimedOutputRef};
+use crate::routines::inflation::TimedOutputRef;
 use crate::{
     constants::time::MAX_LOCK_TIME_SECONDS,
-    protocol_config::{NodeMagic, OperatorCreds, VEFactoryAuthPolicy},
     time::{NetworkTime, ProtocolEpoch},
 };
 
@@ -137,7 +131,7 @@ where
                         return None;
                     }
                 }
-                Owner::Script(script_hash) => (),
+                Owner::Script(_) => (),
             }
 
             let ve_identifier_policy = ctx.select::<MintVEIdentifierPolicy>().0;

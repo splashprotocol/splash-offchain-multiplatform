@@ -1,19 +1,16 @@
-use cml_chain::certs::Credential;
 use cml_chain::plutus::PlutusV2Script;
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::utils::BigInteger;
 use cml_chain::{
-    plutus::{ConstrPlutusData, ExUnits, PlutusData},
+    plutus::{ConstrPlutusData, PlutusData},
     PolicyId,
 };
 use cml_crypto::RawBytesEncoding;
 use serde::{Deserialize, Serialize};
-use spectrum_cardano_lib::plutus_data::{
-    ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
-};
+use spectrum_cardano_lib::plutus_data::{DatumExtension, IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
-use spectrum_cardano_lib::{AssetName, OutputRef};
+use spectrum_cardano_lib::AssetName;
 use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
@@ -21,8 +18,8 @@ use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 
 use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::Snapshot;
-use crate::protocol_config::{FarmAuthPolicy, MintWPAuthPolicy, PermManagerAuthPolicy};
-use crate::routines::inflation::{Slot, TimedOutputRef};
+use crate::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy};
+use crate::routines::inflation::TimedOutputRef;
 
 pub type SmartFarmSnapshot = Snapshot<SmartFarm, TimedOutputRef>;
 
@@ -68,7 +65,7 @@ pub struct Redeemer {
 
 impl IntoPlutusData for Redeemer {
     fn into_pd(self) -> PlutusData {
-        let mut cpd = ConstrPlutusData::new(
+        let cpd = ConstrPlutusData::new(
             0,
             vec![
                 PlutusData::Integer(BigInteger::from(self.successor_out_ix)),

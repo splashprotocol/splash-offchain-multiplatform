@@ -11,12 +11,11 @@ use cml_crypto::{blake2b256, ScriptHash};
 use num_rational::Ratio;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
-    ex_units::ExUnits,
     plutus_data::{ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension},
     transaction::TransactionOutputExtension,
     types::TryFromPData,
     value::ValueExtension,
-    AssetClass, AssetName, OutputRef, Token,
+    AssetClass, AssetName, Token,
 };
 use spectrum_offchain::{
     domain::{Has, Stable},

@@ -11,7 +11,7 @@ use splash_dao_offchain::deployment::DaoScriptData;
 use splash_dao_offchain::entities::offchain::voting_order::compute_voting_witness_message;
 use splash_dao_offchain::entities::{
     offchain::voting_order::{VotingOrder, VotingOrderId},
-    onchain::{smart_farm::FarmId, voting_escrow::VotingEscrowId},
+    onchain::smart_farm::FarmId,
 };
 use splash_dao_offchain::routines::inflation::actions::{compute_epoch_asset_name, compute_farm_name};
 use uplc_pallas_primitives::Fragment;
@@ -155,6 +155,36 @@ fn make_constr_pd_indefinite_arr(fields: Vec<PlutusData>) -> PlutusData {
     })
 }
 
+fn make_witness_redeemer(
+    distribution: &[(FarmId, u64)],
+    wpoll_policy_id: ScriptHash,
+    epoch: u32,
+) -> PlutusData {
+    let wpoll_auth_token_name = compute_epoch_asset_name(epoch);
+    println!("wpoll_auth_name: {}", wpoll_auth_token_name.to_raw_hex());
+
+    let asset_pd = make_constr_pd_indefinite_arr(vec![
+        PlutusData::new_bytes(wpoll_policy_id.to_raw_bytes().to_vec()),
+        PlutusData::new_bytes(wpoll_auth_token_name.to_raw_bytes().to_vec()),
+    ]);
+
+    let distribution = distribution
+        .iter()
+        .map(|&(farm_id, weight)| {
+            make_constr_pd_indefinite_arr(vec![
+                PlutusData::new_bytes(cml_chain::assets::AssetName::from(farm_id.0).inner),
+                PlutusData::new_integer(BigInteger::from(weight)),
+            ])
+        })
+        .collect();
+
+    let distribution_pd = PlutusData::List {
+        list: distribution,
+        list_encoding: LenEncoding::Indefinite,
+    };
+    make_constr_pd_indefinite_arr(vec![asset_pd, distribution_pd])
+}
+
 #[cfg(test)]
 mod tests {
     use cml_chain::plutus::PlutusData;
@@ -225,34 +255,4 @@ mod tests {
 
         dist
     }
-}
-
-fn make_witness_redeemer(
-    distribution: &[(FarmId, u64)],
-    wpoll_policy_id: ScriptHash,
-    epoch: u32,
-) -> PlutusData {
-    let wpoll_auth_token_name = compute_epoch_asset_name(epoch);
-    println!("wpoll_auth_name: {}", wpoll_auth_token_name.to_raw_hex());
-
-    let asset_pd = make_constr_pd_indefinite_arr(vec![
-        PlutusData::new_bytes(wpoll_policy_id.to_raw_bytes().to_vec()),
-        PlutusData::new_bytes(wpoll_auth_token_name.to_raw_bytes().to_vec()),
-    ]);
-
-    let distribution = distribution
-        .iter()
-        .map(|&(farm_id, weight)| {
-            make_constr_pd_indefinite_arr(vec![
-                PlutusData::new_bytes(cml_chain::assets::AssetName::from(farm_id.0).inner),
-                PlutusData::new_integer(BigInteger::from(weight)),
-            ])
-        })
-        .collect();
-
-    let distribution_pd = PlutusData::List {
-        list: distribution,
-        list_encoding: LenEncoding::Indefinite,
-    };
-    make_constr_pd_indefinite_arr(vec![asset_pd, distribution_pd])
 }

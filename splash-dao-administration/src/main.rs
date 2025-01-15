@@ -3,11 +3,8 @@ mod user_simulator;
 pub mod voting_order;
 
 use std::{
-    cmp::Ordering,
-    collections::{HashMap, HashSet},
-    hash::Hash,
+    collections::HashMap,
     net::SocketAddr,
-    ops::Deref,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -15,29 +12,25 @@ use cardano_explorer::{CardanoNetwork, Maestro};
 use clap::{command, Parser, Subcommand};
 use cml_chain::{
     address::Address,
-    assets::{self, MultiAsset},
+    assets::MultiAsset,
     builders::{
         input_builder::{InputBuilderResult, SingleInputBuilder},
         mint_builder::SingleMintBuilder,
         output_builder::TransactionOutputBuilder,
         redeemer_builder::RedeemerWitnessKey,
         tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionBuilder, TransactionUnspentOutput},
-        withdrawal_builder::SingleWithdrawalBuilder,
         witness_builder::{PartialPlutusWitness, PlutusScriptWitness},
     },
-    certs::Credential,
     crypto::utils::make_vkey_witness,
-    plutus::{ConstrPlutusData, PlutusData, PlutusScript, PlutusV2Script, RedeemerTag},
+    plutus::{ConstrPlutusData, PlutusData, RedeemerTag},
     transaction::{DatumOption, Transaction, TransactionOutput},
     utils::BigInteger,
     Coin, Serialize, Value,
 };
-use cml_crypto::{blake2b256, Ed25519KeyHash, PrivateKey, RawBytesEncoding, ScriptHash, TransactionHash};
+use cml_crypto::{Ed25519KeyHash, PrivateKey, RawBytesEncoding, ScriptHash, TransactionHash};
 use mint_token::{script_address, DaoDeploymentParameters, LQ_NAME};
-use serde::Deserialize;
 use spectrum_cardano_lib::{
     collateral::Collateral,
-    ex_units::ExUnits,
     hash::hash_transaction_canonical,
     protocol_params::{constant_tx_builder, COINS_PER_UTXO_BYTE},
     transaction::TransactionOutputExtension,
@@ -46,22 +39,18 @@ use spectrum_cardano_lib::{
 };
 use spectrum_cardano_lib::{plutus_data::IntoPlutusData, types::TryFromPData};
 use spectrum_offchain::domain::Stable;
-use spectrum_offchain::{
-    domain::{EntitySnapshot, Has},
-    ledger::TryFromLedger,
-    tx_prover::TxProver,
-};
+use spectrum_offchain::{domain::EntitySnapshot, ledger::TryFromLedger, tx_prover::TxProver};
 use spectrum_offchain_cardano::{
-    creds::{operator_creds, operator_creds_base_address, CollateralAddress},
-    deployment::{DeployedScriptInfo, DeployedValidatorRef, ReferenceUTxO},
+    creds::operator_creds_base_address,
+    deployment::{DeployedValidatorRef, ReferenceUTxO},
 };
 use splash_dao_offchain::{
     collateral::{pull_collateral, register_staking_address, send_assets},
-    constants::{time::MAX_LOCK_TIME_SECONDS, DAO_SCRIPT_BYTES, DEFAULT_AUTH_TOKEN_NAME, SPLASH_NAME},
+    constants::{time::MAX_LOCK_TIME_SECONDS, DAO_SCRIPT_BYTES, SPLASH_NAME},
     create_change_output::{ChangeOutputCreator, CreateChangeOutput},
     deployment::{
         write_deployment_to_disk, BuiltPolicy, CompleteDeployment, DaoScriptData, DeployedValidators,
-        DeploymentProgress, MintedTokens, NFTUtxoInputs, ProtocolDeployment, ProtocolValidator,
+        DeploymentProgress, NFTUtxoInputs, ProtocolDeployment,
     },
     entities::{
         offchain::voting_order::VotingOrderId,
@@ -71,25 +60,15 @@ use splash_dao_offchain::{
             permission_manager::{PermManagerDatum, PermManagerSnapshot},
             poll_factory::{PollFactoryConfig, PollFactorySnapshot},
             smart_farm::{FarmId, MintAction},
-            voting_escrow::{
-                Lock, Owner, VotingEscrowAction, VotingEscrowAuthorizedAction, VotingEscrowConfig,
-                VotingEscrowId, VotingEscrowSnapshot,
-            },
-            voting_escrow_factory::{self, exchange_outputs, VEFactoryDatum, VEFactoryId, VEFactorySnapshot},
+            voting_escrow::{Lock, Owner, VotingEscrowConfig, VotingEscrowId, VotingEscrowSnapshot},
+            voting_escrow_factory::{VEFactoryDatum, VEFactoryId, VEFactorySnapshot},
         },
     },
-    protocol_config::{GTAuthPolicy, NotOutputRefNorSlotNumber, VEFactoryAuthPolicy},
-    routines::inflation::{
-        actions::{compute_farm_name, MakeVotingEscrowError},
-        ProcessLedgerEntityContext, Slot, TimedOutputRef,
-    },
+    routines::inflation::{actions::compute_farm_name, ProcessLedgerEntityContext, Slot, TimedOutputRef},
     time::NetworkTimeProvider,
     util::generate_collateral,
     CurrentEpoch, NetworkTimeSource,
 };
-use tokio::io::AsyncWriteExt;
-use type_equalities::IsEqual;
-use uplc_pallas_traverse::output;
 use user_simulator::user_simulator;
 use voting_order::create_voting_order;
 
@@ -160,7 +139,6 @@ async fn deploy<'a>(op_inputs: &mut OperationInputs, config: AppConfig<'a>) -> C
     let OperationInputs {
         explorer,
         addr,
-        owner_pub_key,
         collateral,
         prover,
         operator_public_key_hash,
@@ -206,7 +184,7 @@ async fn deploy<'a>(op_inputs: &mut OperationInputs, config: AppConfig<'a>) -> C
             addr,
             explorer.chain_tip_slot_number().await.unwrap(),
         );
-        let tx = Transaction::from(prover.prove(signed_tx_builder));
+        let tx = prover.prove(signed_tx_builder);
         let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
         println!("tx_hash: {}", tx_hash.to_hex());
         let tx_bytes = tx.to_cbor_bytes();
@@ -257,7 +235,7 @@ async fn deploy<'a>(op_inputs: &mut OperationInputs, config: AppConfig<'a>) -> C
         println!("Creating inputs to mint deployment tokens ---------------------------------------");
         let input_result = get_largest_utxo(explorer, addr).await;
         println!("input ADA: {}", input_result.utxo_info.amount().coin);
-        let signed_tx_builder = mint_token::create_minting_tx_inputs(input_result, &addr);
+        let signed_tx_builder = mint_token::create_minting_tx_inputs(input_result, addr);
         let tx = prover.prove(signed_tx_builder);
         let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
         println!("tx_hash: {:?}", tx_hash);
@@ -298,7 +276,7 @@ async fn deploy<'a>(op_inputs: &mut OperationInputs, config: AppConfig<'a>) -> C
             })
             .collect();
         let (signed_tx_builder, minted_tokens) =
-            mint_token::mint_deployment_tokens(inputs, &addr, pk_hash, collateral.clone());
+            mint_token::mint_deployment_tokens(inputs, addr, pk_hash, collateral.clone());
         let tx = prover.prove(signed_tx_builder);
         let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
         println!("tx_hash: {:?}", tx_hash);
@@ -328,11 +306,11 @@ async fn deploy<'a>(op_inputs: &mut OperationInputs, config: AppConfig<'a>) -> C
             );
 
         println!("Creating reference inputs (batch #0) ---------------------------------------");
-        let tx_hash_0 = deploy_dao_reference_inputs(tx_builder_0, &explorer, &addr, &prover).await;
+        let tx_hash_0 = deploy_dao_reference_inputs(tx_builder_0, explorer, addr, prover).await;
         println!("Creating reference inputs (batch #1) ---------------------------------------");
-        let tx_hash_1 = deploy_dao_reference_inputs(tx_builder_1, &explorer, &addr, &prover).await;
+        let tx_hash_1 = deploy_dao_reference_inputs(tx_builder_1, explorer, addr, prover).await;
         println!("Creating reference inputs (batch #2) ---------------------------------------");
-        let tx_hash_2 = deploy_dao_reference_inputs(tx_builder_2, &explorer, &addr, &prover).await;
+        let tx_hash_2 = deploy_dao_reference_inputs(tx_builder_2, explorer, addr, prover).await;
 
         let make_ref_utxo = |batch_num: usize, output_index: u64| {
             if batch_num == 0 {
@@ -776,18 +754,6 @@ async fn make_voting_escrow_order(
     let protocol_deployment =
         ProtocolDeployment::unsafe_pull(deployment_config.deployed_validators.clone(), explorer).await;
 
-    let ve_factory_script_hash = protocol_deployment.ve_factory.hash;
-
-    let (_ve_factory, ve_factory_unspent_output) = pull_onchain_entity::<VEFactorySnapshot, _>(
-        explorer,
-        ve_factory_script_hash,
-        *network_id,
-        &deployment_config,
-        VEFactoryId,
-    )
-    .await
-    .unwrap();
-
     let mut order_out_value = Value::zero();
 
     // Deposit assets into ve_factory -------------------------------------------
@@ -889,10 +855,7 @@ async fn create_initial_farms(op_inputs: &OperationInputs) {
     let OperationInputs {
         explorer,
         addr,
-        owner_pub_key,
-        operator_public_key_hash,
         deployment_progress,
-        dao_parameters,
         collateral,
         prover,
         network_id,
@@ -1073,7 +1036,7 @@ async fn create_initial_farms(op_inputs: &OperationInputs) {
     tx_builder.add_output(change_output).unwrap();
 
     let signed_tx_builder = tx_builder.build(ChangeSelectionAlgo::Default, addr).unwrap();
-    let tx = Transaction::from(prover.prove(signed_tx_builder));
+    let tx = prover.prove(signed_tx_builder);
     let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
     println!("tx_hash: {:?}", tx_hash);
     let tx_bytes = tx.to_cbor_bytes();
@@ -1101,7 +1064,7 @@ async fn cast_vote(op_inputs: &OperationInputs, id: VotingEscrowId) {
 
     let voting_escrow_script_hash = protocol_deployment.voting_escrow.hash;
 
-    let (voting_escrow, voting_escrow_unspent_output) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
+    let (voting_escrow, _voting_escrow_unspent_output) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
         explorer,
         voting_escrow_script_hash,
         *network_id,
@@ -1287,13 +1250,6 @@ async fn register_witness_staking_addr(op_inputs: &OperationInputs, script_hash_
     .unwrap();
 }
 
-fn compute_identifier_token_asset_name(output_ref: OutputRef) -> cml_chain::assets::AssetName {
-    let mut bytes = output_ref.tx_hash().to_raw_bytes().to_vec();
-    bytes.extend_from_slice(&PlutusData::new_integer(BigInteger::from(output_ref.index())).to_cbor_bytes());
-    let token_name = blake2b256(bytes.as_ref());
-    cml_chain::assets::AssetName::new(token_name.to_vec()).unwrap()
-}
-
 #[derive(Parser)]
 #[command(name = "splash-dao-administration")]
 #[command(author = "Spectrum Labs")]
@@ -1451,23 +1407,6 @@ async fn create_operation_inputs<'a>(config: &'a AppConfig<'a>) -> OperationInpu
         network_id: config.network_id,
         voting_order_listener_endpoint: config.voting_order_listener_endpoint,
     }
-}
-
-#[derive(Deserialize, Clone)]
-enum WeightingDistribution {
-    /// All weighting power goes to a single farm
-    SinglePool {
-        farm_id: u32,
-    },
-    MultiPool {
-        weightings: Vec<FarmWeight>,
-    },
-}
-
-#[derive(Deserialize, Clone)]
-struct FarmWeight {
-    farm_id: u32,
-    weight: u64,
 }
 
 const INCOMPLETE_DEPLOYMENT_ERR_MSG: &str =

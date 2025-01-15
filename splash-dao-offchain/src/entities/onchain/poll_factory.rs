@@ -1,4 +1,4 @@
-use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData, PlutusV2Script};
+use cml_chain::plutus::{ConstrPlutusData, PlutusData, PlutusV2Script};
 
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::utils::BigInteger;
@@ -9,7 +9,7 @@ use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
 };
 use spectrum_cardano_lib::types::TryFromPData;
-use spectrum_cardano_lib::{AssetName, OutputRef, TaggedAmount};
+use spectrum_cardano_lib::{AssetName, TaggedAmount};
 use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
@@ -21,8 +21,7 @@ use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::onchain::smart_farm::FarmId;
 use crate::entities::onchain::weighting_poll::WeightingPoll;
 use crate::entities::Snapshot;
-use crate::protocol_config::MintWPAuthPolicy;
-use crate::routines::inflation::{Slot, TimedOutputRef};
+use crate::routines::inflation::TimedOutputRef;
 use crate::time::ProtocolEpoch;
 
 pub type PollFactorySnapshot = Snapshot<PollFactory, TimedOutputRef>;

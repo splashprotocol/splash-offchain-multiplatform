@@ -1,5 +1,5 @@
 use cml_chain::{
-    plutus::{ConstrPlutusData, ExUnits, PlutusData, PlutusV2Script},
+    plutus::{ConstrPlutusData, PlutusData, PlutusV2Script},
     transaction::TransactionOutput,
     PolicyId,
 };
@@ -10,7 +10,6 @@ use spectrum_cardano_lib::{
     plutus_data::{ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension},
     transaction::TransactionOutputExtension,
     types::TryFromPData,
-    AssetName, OutputRef, Token,
 };
 use spectrum_offchain::{
     domain::{Has, Stable},
@@ -26,7 +25,7 @@ use crate::{
     deployment::{DaoScriptData, ProtocolValidator},
     entities::Snapshot,
     protocol_config::PermManagerAuthPolicy,
-    routines::inflation::{Slot, TimedOutputRef},
+    routines::inflation::TimedOutputRef,
 };
 
 use super::smart_farm::FarmId;

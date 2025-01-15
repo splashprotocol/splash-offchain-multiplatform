@@ -304,22 +304,6 @@ async fn request_mve_status(owner: Owner, voting_order_listener_endpoint: &Socke
 }
 
 #[derive(Clone, Debug)]
-enum State {
-    WaitingForWeightingPoll,
-    NewWeightingPollFound(Epoch),
-    PredictedNewVotingEscrow(Epoch),
-    ConfirmedVotingEscrow(VotingEscrowSnapshot, Epoch),
-    ConfirmedVoteCast(VotingEscrowSnapshot, Epoch),
-    PredictedVoteCast(Epoch),
-}
-
-#[derive(Clone, Debug)]
-enum WPollState {
-    WaitingForWeightingPoll,
-    NewWeightingPollFound(Epoch),
-}
-
-#[derive(Clone, Debug)]
 enum VEState {
     Waiting,
     ConfirmedVotingEscrow(VotingEscrowSnapshot, Epoch),

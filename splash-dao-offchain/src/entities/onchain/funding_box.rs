@@ -6,11 +6,7 @@ use spectrum_offchain::{
     ledger::{IntoLedger, TryFromLedger},
 };
 
-use crate::{
-    entities::Snapshot,
-    protocol_config::OperatorCreds,
-    routines::inflation::{Slot, TimedOutputRef},
-};
+use crate::{entities::Snapshot, protocol_config::OperatorCreds};
 
 pub type FundingBoxSnapshot = Snapshot<FundingBox, OutputRef>;
 

@@ -6,10 +6,9 @@ use bloom_offchain::execution_engine::bundled::Bundled;
 use log::trace;
 use rocksdb::{Direction, IteratorMode, ReadOptions};
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use spectrum_offchain::domain::event::{AnyMod, Confirmed, Predicted, Traced};
 use spectrum_offchain::domain::EntitySnapshot;
-use spectrum_offchain::rocks::RocksConfig;
 
 /// Projection of [T] state relative to the ledger.
 #[async_trait::async_trait]

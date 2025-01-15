@@ -1,7 +1,7 @@
 use cml_chain::address::EnterpriseAddress;
 use cml_chain::assets::AssetName;
 use cml_chain::certs::StakeCredential;
-use cml_chain::plutus::{ConstrPlutusData, ExUnits, PlutusData, PlutusV2Script};
+use cml_chain::plutus::{ConstrPlutusData, PlutusData, PlutusV2Script};
 use cml_chain::transaction::{DatumOption, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::{OrderedHashMap, PolicyId, Value};
@@ -17,25 +17,24 @@ use uplc_pallas_codec::utils::{Int, PlutusBytes};
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
 };
-use spectrum_cardano_lib::{NetworkId, OutputRef, TaggedAmount, Token};
+use spectrum_cardano_lib::{NetworkId, TaggedAmount};
 use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
 
 use crate::assets::Splash;
 use crate::constants::time::{
-    COOLDOWN_PERIOD_EXTRA_BUFFER, COOLDOWN_PERIOD_MILLIS, DISTRIBUTE_INFLATION_START_DELAY_MILLIS, EPOCH_LEN,
+    COOLDOWN_PERIOD_EXTRA_BUFFER, COOLDOWN_PERIOD_MILLIS, DISTRIBUTE_INFLATION_START_DELAY_MILLIS,
 };
 use crate::constants::SPLASH_NAME;
 use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::onchain::smart_farm::FarmId;
-use crate::entities::onchain::voting_escrow::compute_mint_weighting_power_validator;
 use crate::entities::Snapshot;
-use crate::protocol_config::{GTAuthPolicy, MintWPAuthPolicy, NodeMagic, SplashPolicy, WeightingPowerPolicy};
+use crate::protocol_config::{GTAuthPolicy, MintWPAuthPolicy, SplashPolicy, WeightingPowerPolicy};
 use crate::routines::inflation::actions::compute_epoch_asset_name;
-use crate::routines::inflation::{slot_to_epoch, Slot, TimedOutputRef, WeightingPollEliminated};
+use crate::routines::inflation::{slot_to_epoch, TimedOutputRef, WeightingPollEliminated};
 use crate::time::{epoch_end, epoch_start, NetworkTime, ProtocolEpoch};
-use crate::{CurrentEpoch, GenesisEpochStartTime};
+use crate::GenesisEpochStartTime;
 
 pub type WeightingPollSnapshot = Snapshot<WeightingPoll, TimedOutputRef>;
 
@@ -214,7 +213,7 @@ impl WeightingPoll {
             let ix = self
                 .distribution
                 .iter()
-                .position(|&(f_id, w)| f_id == *farm_id)
+                .position(|&(f_id, _w)| f_id == *farm_id)
                 .unwrap();
             self.distribution[ix].1 += *weight;
         }

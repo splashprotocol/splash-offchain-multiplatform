@@ -1,16 +1,15 @@
 use cml_chain::assets::AssetName;
-use cml_chain::plutus::{ExUnits, PlutusData, PlutusV2Script};
+use cml_chain::plutus::{PlutusData, PlutusV2Script};
 
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, ScriptHash};
-use log::trace;
 use primitive_types::U512;
 use serde::{Deserialize, Serialize};
-use spectrum_cardano_lib::plutus_data::{DatumExtension, IntoPlutusData, PlutusDataExtension};
+use spectrum_cardano_lib::plutus_data::{DatumExtension, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
-use spectrum_cardano_lib::{OutputRef, TaggedAmount, Token};
-use spectrum_offchain::domain::{EntitySnapshot, Has, Stable};
+use spectrum_cardano_lib::TaggedAmount;
+use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
@@ -22,7 +21,7 @@ use crate::constants::SPLASH_NAME;
 use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::Snapshot;
 use crate::protocol_config::SplashPolicy;
-use crate::routines::inflation::{Slot, TimedOutputRef};
+use crate::routines::inflation::TimedOutputRef;
 use crate::time::{epoch_end, NetworkTime, ProtocolEpoch};
 use crate::{constants, GenesisEpochStartTime};
 

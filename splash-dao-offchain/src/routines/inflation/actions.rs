@@ -1,4 +1,4 @@
-use std::ops::{Deref, DerefMut};
+use std::ops::DerefMut;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use cml_chain::address::{Address, EnterpriseAddress};
@@ -12,11 +12,10 @@ use cml_chain::builders::withdrawal_builder::SingleWithdrawalBuilder;
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
 use cml_chain::certs::{Credential, StakeCredential};
 use cml_chain::min_ada::min_ada_required;
-use cml_chain::plutus::{ConstrPlutusData, PlutusScript, PlutusV2Script, RedeemerTag};
+use cml_chain::plutus::{PlutusScript, PlutusV2Script, RedeemerTag};
 use cml_chain::transaction::{DatumOption, TransactionInput, TransactionOutput};
 use cml_chain::utils::BigInteger;
-use cml_chain::{Coin, Deserialize, OrderedHashMap, PolicyId, RequiredSigners};
-use cml_core::serialization::FromBytes;
+use cml_chain::{Coin, Deserialize, OrderedHashMap, RequiredSigners};
 use cml_crypto::{blake2b256, Ed25519Signature, RawBytesEncoding, ScriptHash, TransactionHash};
 use log::trace;
 use serde::Serialize;
@@ -28,12 +27,12 @@ use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
-use spectrum_cardano_lib::plutus_data::{IntoPlutusData, PlutusDataExtension};
+use spectrum_cardano_lib::plutus_data::IntoPlutusData;
 use spectrum_cardano_lib::protocol_params::{constant_tx_builder, COINS_PER_UTXO_BYTE};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::{AssetClass, AssetName, NetworkId, OutputRef, Token};
 use spectrum_offchain::domain::Has;
-use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
+use spectrum_offchain::ledger::IntoLedger;
 use uplc::PlutusData;
 use uplc_pallas_primitives::Fragment;
 
@@ -47,26 +46,21 @@ use crate::constants::time::{DISTRIBUTE_INFLATION_TX_TTL, MAX_LOCK_TIME_SECONDS,
 use crate::create_change_output::{ChangeOutputCreator, CreateChangeOutput};
 use crate::deployment::{BuiltPolicy, DaoScriptData, ProtocolValidator};
 use crate::entities::offchain::voting_order::{compute_voting_witness_message, VotingOrder};
-use crate::entities::onchain::funding_box::{FundingBox, FundingBoxId, FundingBoxSnapshot};
+use crate::entities::onchain::funding_box::{FundingBox, FundingBoxId};
 use crate::entities::onchain::inflation_box::unsafe_update_ibox_state;
 use crate::entities::onchain::make_voting_escrow_order::{
-    MakeVotingEscrowOrder, MakeVotingEscrowOrderAction, MakeVotingEscrowOrderBundle,
+    MakeVotingEscrowOrderAction, MakeVotingEscrowOrderBundle,
 };
-use crate::entities::onchain::permission_manager::compute_perm_manager_validator;
 use crate::entities::onchain::poll_factory::{
     unsafe_update_factory_state, FactoryRedeemer, PollFactoryAction,
 };
-use crate::entities::onchain::smart_farm::{self, compute_mint_farm_auth_token_validator, FarmId};
+use crate::entities::onchain::smart_farm::{self};
 use crate::entities::onchain::voting_escrow::{
-    self, compute_mint_weighting_power_validator, compute_voting_escrow_validator, unsafe_update_ve_state,
-    Lock, Owner, VotingEscrow, VotingEscrowAction, VotingEscrowAuthorizedAction, VotingEscrowConfig,
+    self, unsafe_update_ve_state, Lock, Owner, VotingEscrow, VotingEscrowAction,
+    VotingEscrowAuthorizedAction, VotingEscrowConfig,
 };
-use crate::entities::onchain::voting_escrow_factory::{
-    exchange_outputs, FactoryAction, VEFactory, VEFactoryDatum, VEFactorySnapshot,
-};
-use crate::entities::onchain::weighting_poll::{
-    self, compute_mint_wp_auth_token_validator, unsafe_update_wp_state, MintAction, WeightingPoll,
-};
+use crate::entities::onchain::voting_escrow_factory::{exchange_outputs, FactoryAction, VEFactorySnapshot};
+use crate::entities::onchain::weighting_poll::{self, unsafe_update_wp_state, MintAction};
 use crate::entities::Snapshot;
 use crate::protocol_config::{
     EDaoMSigAuthPolicy, FarmAuthPolicy, FarmAuthRefScriptOutput, FarmFactoryAuthPolicy, GTAuthPolicy,
@@ -74,9 +68,9 @@ use crate::protocol_config::{
     MakeVotingEscrowOrderRefScriptOutput, MakeVotingEscrowOrderScriptHash, MintVECompositionPolicy,
     MintVECompositionRefScriptOutput, MintVEIdentifierPolicy, MintVEIdentifierRefScriptOutput,
     MintWPAuthPolicy, MintWPAuthRefScriptOutput, OperatorCreds, PermManagerAuthPolicy,
-    PermManagerBoxRefScriptOutput, PollFactoryRefScriptOutput, Reward, SplashPolicy, VEFactoryAuthPolicy,
+    PermManagerBoxRefScriptOutput, PollFactoryRefScriptOutput, Reward, SplashPolicy,
     VEFactoryRefScriptOutput, VEFactoryScriptHash, VotingEscrowRefScriptOutput, VotingEscrowScriptHash,
-    WPFactoryAuthPolicy, WeightingPowerPolicy, WeightingPowerRefScriptOutput, TX_FEE_CORRECTION,
+    WPFactoryAuthPolicy, WeightingPowerPolicy, WeightingPowerRefScriptOutput,
 };
 use crate::routines::inflation::TimedOutputRef;
 use crate::time::NetworkTimeProvider;
@@ -1671,14 +1665,14 @@ pub enum WeightingWitnessError {
 #[cfg(test)]
 mod tests {
     use cml_chain::{
-        address::{Address, BaseAddress, EnterpriseAddress},
+        address::{BaseAddress, EnterpriseAddress},
         certs::{Credential, StakeCredential},
         transaction::{DatumOption, Transaction},
         Deserialize, Serialize,
     };
-    use cml_crypto::{Bip32PrivateKey, ScriptHash};
+    use cml_crypto::ScriptHash;
 
-    use super::compute_mint_wp_auth_token_validator;
+    use crate::entities::onchain::weighting_poll::compute_mint_wp_auth_token_validator;
 
     #[test]
     fn test_parametrised_validator() {

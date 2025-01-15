@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 use cardano_explorer::CardanoNetwork;
 use cml_chain::{
     address::Address,
@@ -19,10 +17,10 @@ use cml_chain::{
 use cml_crypto::{ScriptHash, TransactionHash};
 use spectrum_cardano_lib::{
     collateral::Collateral, protocol_params::constant_tx_builder, transaction::TransactionOutputExtension,
-    value::ValueExtension, OutputRef,
+    value::ValueExtension,
 };
 use spectrum_offchain::tx_prover::TxProver;
-use spectrum_offchain_cardano::{creds::CollateralAddress, prover::operator::OperatorProver};
+use spectrum_offchain_cardano::creds::CollateralAddress;
 
 use crate::{
     collect_utxos::collect_utxos,

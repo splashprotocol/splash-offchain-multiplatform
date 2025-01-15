@@ -1,4 +1,3 @@
-use cbor_event::Sz;
 use cml_chain::{
     assets::AssetName,
     plutus::{ConstrPlutusData, PlutusData, PlutusV2Script},
@@ -6,7 +5,7 @@ use cml_chain::{
     utils::BigInteger,
     PolicyId,
 };
-use cml_crypto::{RawBytesEncoding, ScriptHash};
+use cml_crypto::RawBytesEncoding;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
     plutus_data::{ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension},

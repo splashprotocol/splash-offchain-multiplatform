@@ -1,5 +1,4 @@
 use cml_chain::transaction::TransactionOutput;
-use cml_multi_era::babbage::BabbageTransactionOutput;
 use funding_box::{FundingBox, FundingBoxSnapshot};
 use inflation_box::{InflationBox, InflationBoxSnapshot};
 use make_voting_escrow_order::MakeVotingEscrowOrder;
@@ -19,7 +18,7 @@ use crate::{
         FarmAuthPolicy, GTAuthPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy, OperatorCreds,
         PermManagerAuthPolicy, SplashPolicy, VEFactoryAuthPolicy,
     },
-    routines::inflation::{Slot, TimedOutputRef, WeightingPollEliminated},
+    routines::inflation::{TimedOutputRef, WeightingPollEliminated},
     CurrentEpoch, GenesisEpochStartTime,
 };
 
