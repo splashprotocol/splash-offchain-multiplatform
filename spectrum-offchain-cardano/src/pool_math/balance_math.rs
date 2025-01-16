@@ -63,7 +63,6 @@ pub fn balance_cfmm_output_amount_old<X, Y>(
     // quote_amount = quote_reserves - quote_new_part ^ (1 / quote_weight)
     let mut pre_output_amount = quote_reserves - delta_y_rounded;
     // we should find the most approximate value to previous invariant
-    let mut num_loops = 0;
     trace!(
         "balance_cfmm_output_amount::calculate_new_invariant_bn({:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?})",
         base_reserves,
@@ -84,7 +83,6 @@ pub fn balance_cfmm_output_amount_old<X, Y>(
         pool_fee,
     ) < invariant
     {
-        num_loops += 1;
         pre_output_amount -= 1
     }
     TaggedAmount::new(pre_output_amount)

@@ -10,7 +10,7 @@ use cml_chain::transaction::{ConwayFormatTxOut, DatumOption, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use num_rational::Ratio;
-use num_traits::{CheckedAdd, CheckedSub, Pow, ToPrimitive};
+use num_traits::{CheckedAdd, CheckedSub, ToPrimitive};
 use primitive_types::U512;
 use void::Void;
 
@@ -214,8 +214,13 @@ impl StablePoolT2T {
 
         let context_values_list = match pool_action {
             CFMMPoolAction::Swap => {
-                let context_values_list =
-                    calculate_context_values_list(prev_state, new_state).expect("Invalid pool state");
+                let context_values_list = calculate_context_values_list(prev_state, new_state).expect(
+                    format!(
+                        "Context_values_list created incorrectly. calculate_context_values_list({:?}, {:?})",
+                        prev_state, new_state
+                    )
+                    .as_str(),
+                );
                 ConstrPlutusData::new(
                     0,
                     Vec::from([PlutusData::new_list(vec![PlutusData::new_integer(
@@ -374,17 +379,31 @@ impl AMMOps for StablePoolT2T {
         base_asset: TaggedAssetClass<Base>,
         base_amount: TaggedAmount<Base>,
     ) -> TaggedAmount<Quote> {
+        let x_reserves = self.reserves_x - self.treasury_x;
+        let y_reserves = self.reserves_y - self.treasury_y;
         calc_stable_swap(
             self.asset_x,
-            self.reserves_x - self.treasury_x,
+            x_reserves,
             self.multiplier_x,
-            self.reserves_y - self.treasury_y,
+            y_reserves,
             self.multiplier_y,
             base_asset,
             base_amount,
             self.an2n,
         )
-        .unwrap_or(TaggedAmount::new(0))
+        .expect(
+            format!(
+                "Output amount calculated incorrectly. calc_stable_swap({:?}, {:?}, {:?}, {:?}, {:?}, {:?}, {:?})",
+                self.asset_x,
+                x_reserves,
+                self.multiplier_x,
+                y_reserves,
+                base_asset,
+                base_amount,
+                self.an2n
+            )
+            .as_str(),
+        )
     }
 
     fn reward_lp(
@@ -472,13 +491,19 @@ impl MarketMaker for StablePoolT2T {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
 
-        let x_calc = (self.reserves_x.untag() - self.treasury_x.untag()) * self.multiplier_x;
-        let y_calc = (self.reserves_y.untag() - self.treasury_y.untag()) * self.multiplier_y;
+        let x_calc = U512::from((self.reserves_x.untag() - self.treasury_x.untag()) * self.multiplier_x);
+        let y_calc = U512::from((self.reserves_y.untag() - self.treasury_y.untag()) * self.multiplier_y);
+        let an2n_u512 = U512::from(self.an2n);
 
         let nn = N_TRADABLE_ASSETS.pow(N_TRADABLE_ASSETS as u32);
         let ann = self.an2n / nn;
-        let d = calculate_invariant(&U512::from(x_calc), &U512::from(y_calc), &U512::from(self.an2n))
-            .expect(format!("Invalid pool state {:?}", self).as_str());
+        let d = calculate_invariant(x_calc, y_calc, an2n_u512).expect(
+            format!(
+                "Invariant calculated incorrectly. calculate_invariant({}, {}, {})",
+                x_calc, y_calc, an2n_u512
+            )
+            .as_str(),
+        );
 
         let dn1 = vec![d; usize::try_from(N_TRADABLE_ASSETS + 1).unwrap()]
             .iter()
@@ -518,14 +543,32 @@ impl MarketMaker for StablePoolT2T {
         let [base, quote] = order_canonical(x, y);
         let (base, quote) = match input {
             OnSide::Bid(input) => (
-                self.output_amount(TaggedAssetClass::new(quote), TaggedAmount::new(input))
-                    .untag(),
+                calc_stable_swap(
+                    self.asset_x,
+                    self.reserves_x - self.treasury_x,
+                    self.multiplier_x,
+                    self.reserves_y - self.treasury_y,
+                    self.multiplier_y,
+                    TaggedAssetClass::new(quote),
+                    TaggedAmount::new(input),
+                    self.an2n,
+                )?
+                .untag(),
                 input,
             ),
             OnSide::Ask(input) => (
                 input,
-                self.output_amount(TaggedAssetClass::new(base), TaggedAmount::new(input))
-                    .untag(),
+                calc_stable_swap(
+                    self.asset_x,
+                    self.reserves_x - self.treasury_x,
+                    self.multiplier_x,
+                    self.reserves_y - self.treasury_y,
+                    self.multiplier_y,
+                    TaggedAssetClass::new(base),
+                    TaggedAmount::new(input),
+                    self.an2n,
+                )?
+                .untag(),
             ),
         };
         AbsolutePrice::new(quote, base)
@@ -629,9 +672,9 @@ impl MarketMaker for StablePoolT2T {
         let ampl_coeff = BigNumber::from(self.an2n as f64) / BigNumber::from(N2N);
         let ampl_coeff2 = ampl_coeff.clone() * ampl_coeff.clone();
         let d = BigNumber::from(calculate_invariant(
-            &U512::from(x0_orig),
-            &U512::from(y0_orig),
-            &U512::from(self.an2n),
+            U512::from(x0_orig),
+            U512::from(y0_orig),
+            U512::from(self.an2n),
         )?);
 
         let d2 = d.clone() * d.clone();
@@ -1012,19 +1055,23 @@ mod tests {
     ) -> StablePoolT2T {
         let reserves_x = reserves_x;
         let reserves_y = reserves_y;
-        let (multiplier_x, multiplier_y) = if (x_decimals > y_decimals) {
+        let (multiplier_x, multiplier_y) = if x_decimals > y_decimals {
             (1, 10_u32.pow(x_decimals - y_decimals))
-        } else if (x_decimals < y_decimals) {
+        } else if x_decimals < y_decimals {
             (10_u32.pow(y_decimals - x_decimals), 1)
         } else {
             (1, 1)
         };
-        let inv_before = calculate_invariant(
-            &U512::from((reserves_x - treasury_x) * multiplier_x as u64),
-            &U512::from((reserves_y - treasury_y) * multiplier_y as u64),
-            &U512::from(an2n),
-        )
-        .unwrap();
+        let x_calc = U512::from((reserves_x - treasury_x) * multiplier_x as u64);
+        let y_calc = U512::from((reserves_y - treasury_y) * multiplier_y as u64);
+        let an2n_u512 = U512::from(an2n);
+        let inv_before = calculate_invariant(x_calc, y_calc, an2n_u512).expect(
+            format!(
+                "Invariant calculated incorrectly. calculate_invariant({}, {}, {})",
+                x_calc, y_calc, an2n_u512,
+            )
+            .as_str(),
+        );
         let liquidity = MAX_LQ_CAP - inv_before.as_u64();
 
         return StablePoolT2T {
@@ -1249,7 +1296,7 @@ mod tests {
 
         let test = pool.apply_order(test_order, ctx);
 
-        assert_eq!(1, 1)
+        assert_eq!(test.is_ok(), true)
     }
 
     #[test]
@@ -1296,7 +1343,7 @@ mod tests {
         let an2n_value = pool.an2n;
         let an2n = U512::from(pool.an2n);
 
-        let d = calculate_invariant(&x_calc, &y_calc, &an2n).unwrap();
+        let d = calculate_invariant(x_calc, y_calc, an2n).unwrap();
 
         // Set the target price:
         let target_spot = 1f64;

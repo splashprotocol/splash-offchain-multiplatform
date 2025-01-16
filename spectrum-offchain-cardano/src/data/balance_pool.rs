@@ -1164,9 +1164,7 @@ mod tests {
 
         let test = pool.apply_order(test_order, ctx);
 
-        let res = test.map(|res| println!("{:?}", res.0));
-
-        assert_eq!(1, 1)
+        assert_eq!(test.is_ok(), true)
     }
 
     #[test]
