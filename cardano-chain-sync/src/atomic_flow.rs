@@ -11,6 +11,7 @@ use cml_multi_era::utils::MultiEraBlockHeader;
 use cml_multi_era::MultiEraBlock;
 use derive_more::From;
 use either::Either;
+use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::channel::{mpsc, oneshot};
 use futures::{Sink, SinkExt, StreamExt};
 use log::info;
@@ -21,12 +22,12 @@ use tokio::sync::Mutex;
 
 type BlockEvent = LedgerBlockEvent<Vec<Either<BabbageTransaction, Transaction>>>;
 
-pub fn atomic_block_flow<Upstream, Downstream, Cache>(
+pub fn atomic_block_flow<Upstream, Cache>(
     upstream: Upstream,
-    cache: Cache,
+    cache: Arc<Mutex<Cache>>,
 ) -> (
-    AtomicFlow<Upstream, Downstream, Cache>,
-    impl Stream<Item = (BlockEvent, TransactionHandle)>,
+    AtomicFlow<Upstream, UnboundedSender<(BlockEvent, TransactionHandle)>, Cache>,
+    UnboundedReceiver<(BlockEvent, TransactionHandle)>,
 ) {
     let (snd, recv) = mpsc::unbounded();
     let flow = AtomicFlow::new(upstream, snd, cache);
@@ -36,11 +37,11 @@ pub fn atomic_block_flow<Upstream, Downstream, Cache>(
 pub struct AtomicFlow<Upstream, Downstream, Cache> {
     upstream: Upstream,
     downstream: Downstream,
-    cache: Cache,
+    cache: Arc<Mutex<Cache>>,
 }
 
 impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
-    pub fn new(upstream: Upstream, downstream: Downstream, cache: Cache) -> Self {
+    pub fn new(upstream: Upstream, downstream: Downstream, cache: Arc<Mutex<Cache>>) -> Self {
         Self {
             upstream,
             downstream,
@@ -79,11 +80,12 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
                     let (snd, recv) = oneshot::channel();
                     downstream.send((applied_txs, snd.into())).await.unwrap();
                     recv.await.unwrap();
-                    cache_block(&cache, &hdr, blk_bytes).await;
+                    cache_block(cache.clone(), &hdr, blk_bytes).await;
                 }
                 ChainUpgrade::RollBackward(point) => {
                     info!("Node requested rollback to point {:?}", point);
                     loop {
+                        let mut cache = cache.lock().await;
                         if let Some(tip) = cache.get_tip().await {
                             let rollback_finished = tip == point;
                             if !rollback_finished {
@@ -126,8 +128,13 @@ impl TransactionHandle {
     }
 }
 
-async fn cache_block<Cache: LedgerCache>(cache: &Cache, hdr: &MultiEraBlockHeader, blk_bytes: Vec<u8>) {
+async fn cache_block<Cache: LedgerCache>(
+    cache: Arc<Mutex<Cache>>,
+    hdr: &MultiEraBlockHeader,
+    blk_bytes: Vec<u8>,
+) {
     let point = Point::Specific(hdr.slot(), hash_block_header_canonical_multi_era(&hdr));
+    let mut cache = cache.lock().await;
     let prev_point = cache.get_tip().await.unwrap_or(Point::Origin);
     cache.set_tip(point).await;
     cache.put_block(point, LinkedBlock(blk_bytes, prev_point)).await;
