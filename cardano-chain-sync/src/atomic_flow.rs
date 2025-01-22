@@ -20,7 +20,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-type BlockEvent = LedgerBlockEvent<Vec<Either<BabbageTransaction, Transaction>>>;
+pub type BlockEvent = LedgerBlockEvent<Vec<Either<BabbageTransaction, Transaction>>>;
 
 pub fn atomic_block_flow<Upstream, Cache>(
     upstream: Upstream,

@@ -69,6 +69,7 @@ use tracing_subscriber::fmt::Subscriber;
 
 mod config;
 mod event;
+mod event_log;
 mod pipeline;
 mod tx_view;
 

@@ -27,7 +27,6 @@ bloom-offchain = { version = "1.0.0", path = "../bloom-offchain" }
 spectrum-offchain = { version = "0.1.0", path = "../spectrum-offchain", features = ["cml-chain"] }
 spectrum-cardano-lib = { version = "0.1.0", path = "../spectrum-cardano-lib" }
 spectrum-offchain-cardano = { version = "1.0.0", path = "../spectrum-offchain-cardano" }
-spectrum-streaming = { version = "0.1.0", path = "../spectrum-streaming" }
 cardano-submit-api = { version = "0.1.0", path = "../cardano-submit-api" }
 log4rs = "1.3.0"
 async-stream = "0.3.6"

@@ -12,6 +12,7 @@ pub mod ledger;
 pub mod maker;
 pub mod network;
 pub mod partitioning;
+pub mod persistent_index;
 pub mod reporting;
 pub mod rocks;
 pub mod sink;
