@@ -8,11 +8,10 @@ use cml_chain::transaction::Transaction;
 use constants::CONWAY_ERA_ID;
 use derive_more::From;
 use futures::stream::FuturesUnordered;
-use futures::FutureExt;
+use futures::{FutureExt, Stream};
 use spectrum_cardano_lib::constants;
 use spectrum_offchain_cardano::node::NodeConfig;
 use spectrum_streaming::run_stream;
-
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 

@@ -1,18 +1,6 @@
-use clap::Parser;
-use cml_chain::transaction::Transaction;
-use cml_crypto::TransactionHash;
-use either::Either;
-use futures::channel::mpsc;
-use futures::stream::FuturesUnordered;
-use futures::{stream, stream_select, Stream, StreamExt};
-use log::info;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
-use tokio::sync::{broadcast, Mutex};
-use tracing_subscriber::fmt::Subscriber;
-
 use crate::config::AppConfig;
 use crate::event::LpEvent;
+use async_primitives::beacon::Beacon;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_part_stream;
 use bloom_offchain::execution_engine::funding_effect::FundingEvent;
@@ -33,6 +21,7 @@ use bloom_offchain_cardano::orders::adhoc::AdhocFeeStructure;
 use bloom_offchain_cardano::orders::AnyOrder;
 use bloom_offchain_cardano::partitioning::select_partition;
 use bloom_offchain_cardano::validation_rules::ValidationRules;
+use cardano_chain_sync::atomic_flow::atomic_block_flow;
 use cardano_chain_sync::cache::LedgerCacheRocksDB;
 use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::ChainSyncClient;
@@ -42,6 +31,15 @@ use cardano_explorer::Maestro;
 use cardano_mempool_sync::client::LocalTxMonitorClient;
 use cardano_mempool_sync::data::MempoolUpdate;
 use cardano_mempool_sync::mempool_stream;
+use clap::Parser;
+use cml_chain::transaction::Transaction;
+use cml_crypto::TransactionHash;
+use either::Either;
+use futures::channel::mpsc;
+use futures::stream::FuturesUnordered;
+use futures::task::SpawnExt;
+use futures::{stream, stream_select, Stream, StreamExt};
+use log::info;
 use spectrum_cardano_lib::constants::{CONWAY_ERA_ID, SAFE_BLOCK_TIME};
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::output::FinalizedTxOut;
@@ -55,7 +53,6 @@ use spectrum_offchain::event_sink::event_handler::{forward_to, EventHandler};
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::reporting::{reporting_stream, ReportingAgent};
-use spectrum_offchain::streaming::run_stream;
 use spectrum_offchain::tracing::WithTracing;
 use spectrum_offchain_cardano::collateral::pull_collateral;
 use spectrum_offchain_cardano::creds::operator_creds;
@@ -64,11 +61,15 @@ use spectrum_offchain_cardano::data::pool::AnyPool;
 use spectrum_offchain_cardano::deployment::{DeployedValidators, ProtocolDeployment, ProtocolScriptHashes};
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
-use spectrum_streaming::StreamExt as StreamExtAlt;
+use spectrum_streaming::{run_stream, StreamExt as StreamExtAlt};
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+use tokio::sync::{broadcast, Mutex};
+use tracing_subscriber::fmt::Subscriber;
 
 mod config;
 mod event;
-mod handler;
+mod pipeline;
 mod tx_view;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 8)]
@@ -109,49 +110,16 @@ async fn main() {
     .await
     .expect("ChainSync initialization failed");
 
-    let (spec_upd_snd_p1, spec_upd_recv_p1) =
-        mpsc::channel::<(PairId, LpEvent)>(config.event_feed_buffer_size);
-
-    // todo: add handler
-    let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<TxViewMut>> + Send>> = vec![];
-
-    let (signal_tip_reached_snd, signal_tip_reached_recv) = broadcast::channel(1);
-
-    let ledger_stream = Box::pin(ledger_transactions(
+    let state_synced = Beacon::relaxed(false);
+    let (flow_driver, block_events) = atomic_block_flow(
+        Box::pin(chain_sync_stream(chain_sync, state_synced)),
         chain_sync_cache,
-        chain_sync_stream(chain_sync, signal_tip_reached_snd),
-        config.chain_sync.disable_rollbacks_until,
-        config.chain_sync.replay_from_point,
-        rollback_in_progress,
-    ))
-    .await
-    .map(|ev| match ev {
-        LedgerTxEvent::TxApplied {
-            tx,
-            slot,
-            block_number,
-        } => LedgerTxEvent::TxApplied {
-            tx: TxViewMut::from(tx),
-            slot,
-            block_number,
-        },
-        LedgerTxEvent::TxUnapplied {
-            tx,
-            slot,
-            block_number,
-        } => LedgerTxEvent::TxUnapplied {
-            tx: TxViewMut::from(tx),
-            slot,
-            block_number,
-        },
-    });
-
-    let process_ledger_events_stream = process_events(ledger_stream, handlers_ledger);
+    );
 
     let processes = FuturesUnordered::new();
 
-    let process_ledger_events_stream_handle = tokio::spawn(run_stream(process_ledger_events_stream));
-    processes.push(process_ledger_events_stream_handle);
+    let flow_driver_handle = tokio::spawn(flow_driver.run());
+    processes.push(flow_driver_handle);
 
     let default_panic = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
