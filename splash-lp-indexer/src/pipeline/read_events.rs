@@ -8,21 +8,19 @@ use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
 use futures::{stream, StreamExt};
 use spectrum_cardano_lib::OutputRef;
-use spectrum_offchain::kv_store::KvStore;
 use spectrum_offchain::ledger::TryFromLedger;
+use spectrum_offchain::persistent_index::PersistentIndex;
 use std::collections::HashSet;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
 pub async fn read_events<Out, Cx, Index>(
     mut block: LedgerBlockEvent<Vec<Either<BabbageTransaction, Transaction>>>,
-    context: Cx,
-    index: Arc<Mutex<Index>>,
+    context: &Cx,
+    index: &Index,
     utxo_filter: &HashSet<ScriptHash>,
 ) -> LedgerBlockEvent<Vec<Out>>
 where
     Out: TryFromLedger<TxViewPartiallyResolved, Cx>,
-    Index: KvStore<OutputRef, TransactionOutput>,
+    Index: PersistentIndex<OutputRef, TransactionOutput>,
 {
     let txs = match &mut block {
         LedgerBlockEvent::RollForward(content) | LedgerBlockEvent::RollBackward(content) => {
@@ -31,14 +29,11 @@ where
     };
     let events = stream::iter(txs)
         .map(TxView::from)
-        .then(|tx| {
-            let index = index.clone();
-            async move {
-                index_utxos(&tx, index, utxo_filter).await;
-                tx
-            }
+        .then(|tx| async move {
+            index_utxos(&tx, index, utxo_filter).await;
+            tx
         })
-        .then(|tx| TxViewPartiallyResolved::resolve(tx, index.clone()))
+        .then(|tx| TxViewPartiallyResolved::resolve(tx, index))
         .collect::<Vec<_>>()
         .await
         .into_iter()
@@ -47,15 +42,15 @@ where
     block.map(|_| events)
 }
 
-async fn index_utxos<Index: KvStore<OutputRef, TransactionOutput>>(
+async fn index_utxos<Index: PersistentIndex<OutputRef, TransactionOutput>>(
     tx: &TxView,
-    index: Arc<Mutex<Index>>,
+    index: &Index,
     utxo_filter: &HashSet<ScriptHash>,
 ) {
     for (ix, o) in tx.outputs.iter().enumerate() {
         if test_address(o.address(), utxo_filter) {
             let oref = OutputRef::new(tx.hash, ix as u64);
-            index.lock().await.insert(oref, o.clone()).await;
+            index.insert(oref, o.clone()).await;
         }
     }
 }

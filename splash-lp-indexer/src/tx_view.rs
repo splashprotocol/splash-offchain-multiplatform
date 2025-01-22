@@ -6,6 +6,7 @@ use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::kv_store::KvStore;
+use spectrum_offchain::persistent_index::PersistentIndex;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -56,24 +57,23 @@ pub struct TxViewPartiallyResolved {
 }
 
 impl TxViewPartiallyResolved {
-    pub async fn resolve<Index: KvStore<OutputRef, TransactionOutput>>(
+    pub async fn resolve<Index: PersistentIndex<OutputRef, TransactionOutput>>(
         tx: TxView,
-        index: Arc<Mutex<Index>>,
+        index: &Index,
     ) -> Self {
         Self {
             hash: tx.hash,
-            inputs: try_resolve_inputs(tx.inputs, index.clone()).await,
+            inputs: try_resolve_inputs(tx.inputs, index).await,
             outputs: tx.outputs,
         }
     }
 }
 
-async fn try_resolve_inputs<Index: KvStore<OutputRef, TransactionOutput>>(
+async fn try_resolve_inputs<Index: PersistentIndex<OutputRef, TransactionOutput>>(
     inputs: Vec<TransactionInput>,
-    index: Arc<Mutex<Index>>,
+    index: &Index,
 ) -> Vec<(TransactionInput, Option<TransactionOutput>)> {
     let mut processed_inputs = vec![];
-    let index = index.lock().await;
     for input in inputs {
         let maybe_output = index.get(OutputRef::new(input.transaction_id, input.index)).await;
         processed_inputs.push((input, maybe_output));
