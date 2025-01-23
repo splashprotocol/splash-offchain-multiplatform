@@ -1,4 +1,5 @@
 use crate::tx_view::{TxView, TxViewPartiallyResolved};
+use cardano_chain_sync::atomic_flow::BlockEvents;
 use cardano_chain_sync::data::LedgerBlockEvent;
 use cml_chain::address::Address;
 use cml_chain::certs::StakeCredential;
@@ -13,18 +14,18 @@ use spectrum_offchain::persistent_index::PersistentIndex;
 use std::collections::HashSet;
 
 pub async fn read_events<Out, Cx, Index>(
-    mut block: LedgerBlockEvent<Vec<Either<BabbageTransaction, Transaction>>>,
+    mut block: BlockEvents<Either<BabbageTransaction, Transaction>>,
     context: &Cx,
     index: &Index,
     utxo_filter: &HashSet<ScriptHash>,
-) -> LedgerBlockEvent<Vec<Out>>
+) -> BlockEvents<Out>
 where
     Out: TryFromLedger<TxViewPartiallyResolved, Cx>,
     Index: PersistentIndex<OutputRef, TransactionOutput>,
 {
     let txs = match &mut block {
-        LedgerBlockEvent::RollForward(content) | LedgerBlockEvent::RollBackward(content) => {
-            content.drain(0..)
+        BlockEvents::RollForward { events, block_num } | BlockEvents::RollBackward { events, block_num } => {
+            events.drain(0..)
         }
     };
     let events = stream::iter(txs)
