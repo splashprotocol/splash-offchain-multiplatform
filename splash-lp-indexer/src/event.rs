@@ -2,6 +2,7 @@ use crate::tx_view::TxViewPartiallyResolved;
 use cml_chain::address::Address;
 use cml_chain::certs::Credential;
 use either::Either;
+use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::{AssetClass, Token};
 use spectrum_offchain::domain::{Has, Stable};
@@ -14,6 +15,7 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, RoyaltyPoolV1, StableFnPoolT2T,
 };
 
+#[derive(Serialize, Deserialize)]
 pub enum LpEvent {
     Deposit(Deposit),
     Redeem(Redeem),
@@ -90,6 +92,7 @@ where
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Deposit {
     pool_id: PoolId,
     account: Credential,
@@ -147,12 +150,14 @@ where
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Redeem {
     pool_id: PoolId,
     account: Credential,
     lp_burned: u64,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Harvest {
     pool_id: PoolId,
     account: Credential,

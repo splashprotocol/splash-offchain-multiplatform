@@ -1,5 +1,8 @@
 use crate::config::AppConfig;
+use crate::context::Context;
 use crate::event::LpEvent;
+use crate::event_log::EventLogRocksDB;
+use crate::pipeline::log_events;
 use async_primitives::beacon::Beacon;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_part_stream;
@@ -59,15 +62,18 @@ use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::data::pool::AnyPool;
 use spectrum_offchain_cardano::deployment::{DeployedValidators, ProtocolDeployment, ProtocolScriptHashes};
+use spectrum_offchain_cardano::persistent_index::IndexRocksDB;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
 use spectrum_streaming::{run_stream, StreamExt as StreamExtAlt};
+use std::collections::HashSet;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
 use tracing_subscriber::fmt::Subscriber;
 
 mod config;
+mod context;
 mod event;
 mod event_log;
 mod pipeline;
@@ -80,10 +86,6 @@ async fn main() {
     let args = AppArgs::parse();
     let raw_config = std::fs::read_to_string(args.config_path).expect("Cannot load configuration file");
     let config: AppConfig = serde_json::from_str(&raw_config).expect("Invalid configuration file");
-    let config_integrity_violations = config.check_integrity();
-    if !config_integrity_violations.is_empty() {
-        panic!("Malformed configuration: {}", config_integrity_violations);
-    }
 
     let raw_deployment = std::fs::read_to_string(args.deployment_path).expect("Cannot load deployment file");
     let deployment: DeployedValidators =
@@ -91,9 +93,7 @@ async fn main() {
 
     log4rs::init_file(args.log4rs_path, Default::default()).unwrap();
 
-    info!("Starting Off-Chain Agent ..");
-
-    let rollback_in_progress = Arc::new(AtomicBool::new(false));
+    info!("Starting LP indexer ..");
 
     let explorer = Maestro::new(config.maestro_key_path, config.network_id.into())
         .await
@@ -112,15 +112,27 @@ async fn main() {
     .expect("ChainSync initialization failed");
 
     let state_synced = Beacon::relaxed(false);
+    let rollback_in_progress = Arc::new(AtomicBool::new(false));
     let (flow_driver, block_events) = atomic_block_flow(
         Box::pin(chain_sync_stream(chain_sync, state_synced)),
         chain_sync_cache,
     );
 
+    let index = IndexRocksDB::new(config.utxo_index_db_path);
+    let log = EventLogRocksDB::new(config.event_log_db_path);
+    let filter = HashSet::from([protocol_deployment.balance_fn_pool_v1.hash]);
+    let cx = Context {
+        deployment: protocol_deployment,
+        pool_validation: config.pool_validation,
+    };
+
     let processes = FuturesUnordered::new();
 
     let flow_driver_handle = tokio::spawn(flow_driver.run());
     processes.push(flow_driver_handle);
+
+    let log_events_handle = tokio::spawn(log_events(block_events, log, cx, index, filter));
+    processes.push(log_events_handle);
 
     let default_panic = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {

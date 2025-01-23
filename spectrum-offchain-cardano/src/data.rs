@@ -6,7 +6,7 @@ use cml_chain::PolicyId;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use num_rational::Ratio;
 use rand::{thread_rng, RngCore};
-
+use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAssetClass, Token};
 
 use crate::data::order::PoolNft;
@@ -62,7 +62,20 @@ impl OnChainOrderId {
 }
 
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, derive_more::From, derive_more::Into)]
+#[derive(
+    Debug,
+    Copy,
+    Clone,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Hash,
+    Serialize,
+    Deserialize,
+    derive_more::From,
+    derive_more::Into,
+)]
 pub struct PoolId(Token);
 
 impl PoolId {
