@@ -20,14 +20,46 @@ use std::fmt::Debug;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-pub type BlockEvent = LedgerBlockEvent<Vec<Either<BabbageTransaction, Transaction>>>;
+#[derive(Clone)]
+pub enum BlockEvents<T> {
+    RollForward { events: Vec<T>, block_num: u64 },
+    RollBackward { events: Vec<T>, block_num: u64 },
+}
+
+impl<T> BlockEvents<T> {
+    pub fn map<T2, F>(self, f: F) -> BlockEvents<T2>
+    where
+        F: FnOnce(Vec<T>) -> Vec<T2>,
+    {
+        match self {
+            BlockEvents::RollForward { events, block_num } => BlockEvents::RollForward {
+                events: f(events),
+                block_num,
+            },
+            BlockEvents::RollBackward { events, block_num } => BlockEvents::RollBackward {
+                events: f(events),
+                block_num,
+            },
+        }
+    }
+}
 
 pub fn atomic_block_flow<Upstream, Cache>(
     upstream: Upstream,
     cache: Arc<Mutex<Cache>>,
 ) -> (
-    AtomicFlow<Upstream, UnboundedSender<(BlockEvent, TransactionHandle)>, Cache>,
-    UnboundedReceiver<(BlockEvent, TransactionHandle)>,
+    AtomicFlow<
+        Upstream,
+        UnboundedSender<(
+            BlockEvents<Either<BabbageTransaction, Transaction>>,
+            TransactionHandle,
+        )>,
+        Cache,
+    >,
+    UnboundedReceiver<(
+        BlockEvents<Either<BabbageTransaction, Transaction>>,
+        TransactionHandle,
+    )>,
 ) {
     let (snd, recv) = mpsc::unbounded();
     let flow = AtomicFlow::new(upstream, snd, cache);
@@ -52,7 +84,11 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
     pub async fn run(self)
     where
         Upstream: Stream<Item = ChainUpgrade<MultiEraBlock>> + Unpin + Send,
-        Downstream: Sink<(BlockEvent, TransactionHandle)> + Unpin + Send,
+        Downstream: Sink<(
+                BlockEvents<Either<BabbageTransaction, Transaction>>,
+                TransactionHandle,
+            )> + Unpin
+            + Send,
         Downstream::Error: Debug,
         Cache: LedgerCache + Send,
     {
@@ -71,12 +107,13 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
                         "Scanning Block {}",
                         hash_block_header_canonical_multi_era(&hdr).to_hex()
                     );
-                    let applied_txs = LedgerBlockEvent::RollForward(
-                        unpack_valid_transactions_multi_era(blk)
+                    let applied_txs = BlockEvents::RollForward {
+                        events: unpack_valid_transactions_multi_era(blk)
                             .into_iter()
                             .map(|(tx, _, _)| tx)
                             .collect(),
-                    );
+                        block_num: hdr.block_number(),
+                    };
                     let (snd, recv) = oneshot::channel();
                     downstream.send((applied_txs, snd.into())).await.unwrap();
                     recv.await.unwrap();
@@ -94,13 +131,15 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
                                 {
                                     let block = MultiEraBlock::from_cbor_bytes(&block_bytes)
                                         .expect("Block deserialization failed");
-                                    let unapplied_txs = LedgerBlockEvent::RollBackward(
-                                        unpack_valid_transactions_multi_era(block)
+                                    let block_num = block.header().block_number();
+                                    let unapplied_txs = BlockEvents::RollBackward {
+                                        events: unpack_valid_transactions_multi_era(block)
                                             .into_iter()
                                             .map(|(tx, _, _)| tx)
                                             .rev()
                                             .collect(),
-                                    );
+                                        block_num,
+                                    };
                                     let (snd, recv) = oneshot::channel();
                                     downstream.send((unapplied_txs, snd.into())).await.unwrap();
                                     recv.await.unwrap();

@@ -1,9 +1,11 @@
 use crate::event_log::EventLog;
 use crate::pipeline::log_events::log_lp_events;
 use crate::pipeline::read_events::read_events;
-use cardano_chain_sync::atomic_flow::{BlockEvent, TransactionHandle};
-use cml_chain::transaction::TransactionOutput;
+use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
+use cml_chain::transaction::{Transaction, TransactionOutput};
 use cml_crypto::ScriptHash;
+use cml_multi_era::babbage::BabbageTransaction;
+use either::Either;
 use futures::{Stream, StreamExt};
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::domain::Has;
@@ -18,12 +20,17 @@ pub mod read_events;
 
 pub async fn log_events<U, Log, Cx, Index>(
     upstream: U,
-    log: &Log,
-    context: &Cx,
-    index: &Index,
-    utxo_filter: &HashSet<ScriptHash>,
+    log: Log,
+    context: Cx,
+    index: Index,
+    utxo_filter: HashSet<ScriptHash>,
 ) where
-    U: Stream<Item = (BlockEvent, TransactionHandle)>,
+    U: Stream<
+        Item = (
+            BlockEvents<Either<BabbageTransaction, Transaction>>,
+            TransactionHandle,
+        ),
+    >,
     Log: EventLog,
     Index: PersistentIndex<OutputRef, TransactionOutput>,
     Cx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
@@ -38,11 +45,11 @@ pub async fn log_events<U, Log, Cx, Index>(
         + Has<PoolValidation>,
 {
     log_lp_events(
-        upstream.then(|(block_event, tx_handle)| async move {
-            let lp_events = read_events(block_event, context, index, utxo_filter).await;
-            (lp_events, tx_handle)
+        upstream.then(|(block, tx_handle)| {
+            let lp_events = read_events(block, &context, &index, &utxo_filter);
+            async move { (lp_events.await, tx_handle) }
         }),
-        log,
+        &log,
     )
     .await
 }

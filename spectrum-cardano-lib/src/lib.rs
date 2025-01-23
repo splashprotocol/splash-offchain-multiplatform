@@ -12,7 +12,7 @@ use cml_chain::transaction::TransactionInput;
 use cml_chain::utils::BigInteger;
 use cml_chain::{PolicyId, Value};
 use cml_core::serialization::LenEncoding::Indefinite;
-use cml_core::DeserializeError;
+use cml_core::{DeserializeError, DeserializeFailure};
 use cml_crypto::{PublicKey, RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
 use derive_more::{From, Into};
