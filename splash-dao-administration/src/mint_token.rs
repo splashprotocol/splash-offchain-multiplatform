@@ -31,6 +31,7 @@ use splash_dao_offchain::{
     constants::{DEFAULT_AUTH_TOKEN_NAME, GT_NAME, MAX_GT_SUPPLY},
     deployment::{BuiltPolicy, DaoScriptData, ExternallyMintedToken, MintedTokens},
     entities::onchain::{
+        extend_voting_escrow_order::compute_extend_ve_order_validator,
         farm_factory::compute_farm_factory_validator,
         inflation_box::compute_inflation_box_validator,
         make_voting_escrow_order::compute_make_ve_order_validator,
@@ -357,6 +358,8 @@ pub fn create_dao_reference_input_utxos(
         voting_escrow_script.hash(),
     );
 
+    let extend_ve_order_script = compute_extend_ve_order_validator(mint_ve_composition_token_script.hash());
+
     let reference_input_script_hashes = ReferenceInputScriptHashes {
         inflation: inflation_script.hash(),
         voting_escrow: voting_escrow_script.hash(),
@@ -371,6 +374,7 @@ pub fn create_dao_reference_input_utxos(
         weighting_power: mint_weighting_power_script.hash(),
         smart_farm: mint_farm_auth_token_script.hash(),
         make_ve_order: make_ve_order_script.hash(),
+        extend_ve_order: extend_ve_order_script.hash(),
     };
 
     let script_before =
@@ -420,6 +424,9 @@ pub fn create_dao_reference_input_utxos(
         .unwrap();
     tx_builder_2
         .add_output(make_output(make_ve_order_script))
+        .unwrap();
+    tx_builder_2
+        .add_output(make_output(extend_ve_order_script))
         .unwrap();
 
     (
@@ -476,6 +483,7 @@ pub struct ReferenceInputScriptHashes {
     pub weighting_power: ScriptHash,
     pub smart_farm: ScriptHash,
     pub make_ve_order: ScriptHash,
+    pub extend_ve_order: ScriptHash,
 }
 
 #[derive(Deserialize)]

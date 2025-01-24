@@ -424,6 +424,12 @@ async fn deploy<'a>(op_inputs: &mut OperationInputs, config: AppConfig<'a>) -> C
                 cost: (&dsd.make_voting_escrow_order.ex_units).into(),
                 marginal_cost: None,
             },
+            extend_ve_order: DeployedValidatorRef {
+                hash: reference_input_script_hashes.extend_ve_order,
+                reference_utxo: make_ref_utxo(2, 4),
+                cost: (&dsd.extend_voting_escrow_order.ex_units).into(),
+                marginal_cost: None,
+            },
         };
 
         deployment_progress.deployed_validators = Some(d);

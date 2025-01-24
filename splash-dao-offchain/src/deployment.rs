@@ -30,6 +30,7 @@ pub struct DeployedValidators {
     pub weighting_power: DeployedValidatorRef,
     pub smart_farm: DeployedValidatorRef,
     pub make_ve_order: DeployedValidatorRef,
+    pub extend_ve_order: DeployedValidatorRef,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -76,6 +77,7 @@ pub struct DaoScriptData {
     pub mint_ve_composition_token: ScriptBytesAndCosts,
     pub voting_witness: ScriptBytesAndCosts,
     pub make_voting_escrow_order: ScriptBytesAndCosts,
+    pub extend_voting_escrow_order: ScriptBytesAndCosts,
 }
 
 impl DaoScriptData {
@@ -117,6 +119,7 @@ pub enum ProtocolValidator {
     MintVeCompositionToken,
     WeightingPower,
     MakeVeOrder,
+    ExtendVeOrder,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -134,6 +137,7 @@ pub struct ProtocolScriptHashes {
     pub weighting_power: DeployedScriptInfo<{ ProtocolValidator::WeightingPower as u8 }>,
     pub smart_farm: DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>,
     pub make_ve_order: DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }>,
+    pub extend_ve_order: DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>,
 }
 
 impl From<&ProtocolDeployment> for ProtocolScriptHashes {
@@ -152,6 +156,7 @@ impl From<&ProtocolDeployment> for ProtocolScriptHashes {
             weighting_power: DeployedScriptInfo::from(&deployment.weighting_power),
             smart_farm: DeployedScriptInfo::from(&deployment.smart_farm),
             make_ve_order: DeployedScriptInfo::from(&deployment.make_ve_order),
+            extend_ve_order: DeployedScriptInfo::from(&deployment.extend_ve_order),
         }
     }
 }
@@ -171,6 +176,7 @@ pub struct ProtocolDeployment {
     pub weighting_power: DeployedValidator<{ ProtocolValidator::WeightingPower as u8 }>,
     pub smart_farm: DeployedValidator<{ ProtocolValidator::SmartFarm as u8 }>,
     pub make_ve_order: DeployedValidator<{ ProtocolValidator::MakeVeOrder as u8 }>,
+    pub extend_ve_order: DeployedValidator<{ ProtocolValidator::ExtendVeOrder as u8 }>,
 }
 
 impl ProtocolDeployment {
@@ -193,6 +199,7 @@ impl ProtocolDeployment {
             .await,
             weighting_power: DeployedValidator::unsafe_pull(validators.weighting_power, explorer).await,
             make_ve_order: DeployedValidator::unsafe_pull(validators.make_ve_order, explorer).await,
+            extend_ve_order: DeployedValidator::unsafe_pull(validators.extend_ve_order, explorer).await,
         }
     }
 }

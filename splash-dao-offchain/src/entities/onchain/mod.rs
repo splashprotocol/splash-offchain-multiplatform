@@ -24,6 +24,7 @@ use crate::{
 
 use super::Snapshot;
 
+pub mod extend_voting_escrow_order;
 pub mod farm_factory;
 pub mod funding_box;
 pub mod inflation_box;
