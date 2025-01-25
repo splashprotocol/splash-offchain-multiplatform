@@ -22,6 +22,16 @@ pub enum LpEvent {
     Harvest(Harvest),
 }
 
+impl LpEvent {
+    pub fn account(&self) -> Credential {
+        match self {
+            LpEvent::Deposit(d) => d.account.clone(),
+            LpEvent::Redeem(r) => r.account.clone(),
+            LpEvent::Harvest(h) => h.account.clone(),
+        }
+    }
+}
+
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for LpEvent
 where
     Cx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>

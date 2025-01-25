@@ -1,8 +1,8 @@
 use crate::config::AppConfig;
 use crate::context::Context;
+use crate::db::RocksDB;
 use crate::event::LpEvent;
-use crate::event_log::EventLogRocksDB;
-use crate::pipeline::log_events;
+use crate::pipeline::{log_events, update_accounts};
 use async_primitives::beacon::Beacon;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_part_stream;
@@ -72,10 +72,11 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
 use tracing_subscriber::fmt::Subscriber;
 
+mod account;
 mod config;
 mod context;
+mod db;
 mod event;
-mod event_log;
 mod pipeline;
 mod tx_view;
 
@@ -119,7 +120,7 @@ async fn main() {
     );
 
     let index = IndexRocksDB::new(config.utxo_index_db_path);
-    let log = EventLogRocksDB::new(config.event_log_db_path);
+    let db = RocksDB::new(config.accounts_db_path);
     let filter = HashSet::from([protocol_deployment.balance_fn_pool_v1.hash]);
     let cx = Context {
         deployment: protocol_deployment,
@@ -131,8 +132,11 @@ async fn main() {
     let flow_driver_handle = tokio::spawn(flow_driver.run());
     processes.push(flow_driver_handle);
 
-    let log_events_handle = tokio::spawn(log_events(block_events, log, cx, index, filter));
+    let log_events_handle = tokio::spawn(log_events(block_events, db.clone(), cx, index, filter));
     processes.push(log_events_handle);
+
+    let update_accounts_handle = tokio::spawn(update_accounts(db, config.confirmation_delay_blocks));
+    processes.push(update_accounts_handle);
 
     let default_panic = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {

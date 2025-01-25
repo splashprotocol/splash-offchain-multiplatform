@@ -19,7 +19,8 @@ pub struct AppConfig {
     pub event_feed_buffer_size: usize,
     pub pool_validation: PoolValidation,
     pub utxo_index_db_path: String,
-    pub event_log_db_path: String,
+    pub accounts_db_path: String,
+    pub confirmation_delay_blocks: u64,
 }
 
 #[derive(serde::Deserialize)]
