@@ -8,12 +8,13 @@ use cml_chain::{LenEncoding, PolicyId, Serialize};
 use cml_crypto::{PrivateKey, RawBytesEncoding, ScriptHash};
 use rand::Rng;
 use splash_dao_offchain::deployment::DaoScriptData;
-use splash_dao_offchain::entities::offchain::voting_order::compute_voting_witness_message;
+use splash_dao_offchain::entities::offchain::compute_voting_escrow_witness_message;
 use splash_dao_offchain::entities::{
     offchain::voting_order::{VotingOrder, VotingOrderId},
     onchain::smart_farm::FarmId,
 };
 use splash_dao_offchain::routines::inflation::actions::{compute_epoch_asset_name, compute_farm_name};
+use splash_dao_offchain::util::make_constr_pd_indefinite_arr;
 use uplc_pallas_primitives::Fragment;
 
 pub fn create_voting_order(
@@ -55,7 +56,7 @@ pub fn create_voting_order(
     let redeemer_hex = hex::encode(redeemer.to_cbor_bytes());
     println!("redeemer: {}", redeemer_hex);
     let message =
-        compute_voting_witness_message(voting_witness_script.hash(), redeemer_hex.clone(), id.version)
+        compute_voting_escrow_witness_message(voting_witness_script.hash(), redeemer_hex.clone(), id.version)
             .unwrap();
     println!("message: {}", hex::encode(&message));
     let signature = operator_sk.sign(&message).to_raw_bytes().to_vec();
@@ -140,21 +141,6 @@ fn make_pallas_redeemer(
     to_plutus_cstr(vec![asset_pd, distribution_pd])
 }
 
-fn make_constr_pd_indefinite_arr(fields: Vec<PlutusData>) -> PlutusData {
-    let enc = ConstrPlutusDataEncoding {
-        len_encoding: LenEncoding::Indefinite,
-        prefer_compact: true,
-        tag_encoding: None,
-        alternative_encoding: None,
-        fields_encoding: LenEncoding::Indefinite,
-    };
-    PlutusData::new_constr_plutus_data(ConstrPlutusData {
-        alternative: 0,
-        fields,
-        encodings: Some(enc),
-    })
-}
-
 fn make_witness_redeemer(
     distribution: &[(FarmId, u64)],
     wpoll_policy_id: ScriptHash,
@@ -194,7 +180,7 @@ mod tests {
     use cml_crypto::ScriptHash;
     use spectrum_cardano_lib::NetworkId;
     use spectrum_offchain_cardano::creds::operator_creds_base_address;
-    use splash_dao_offchain::entities::offchain::voting_order::compute_voting_witness_message;
+    use splash_dao_offchain::entities::offchain::compute_voting_escrow_witness_message;
     use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
     use splash_dao_offchain::routines::inflation::actions::compute_farm_name;
     use uplc_pallas_primitives::Fragment;
@@ -229,7 +215,7 @@ mod tests {
 
         let witness_sh =
             ScriptHash::from_hex("9e7637b80d1df227ec2061a88e7720df831c9fe9a2163a0334099d9e").unwrap();
-        let message = compute_voting_witness_message(witness_sh, redeemer_hex.clone(), 0).unwrap();
+        let message = compute_voting_escrow_witness_message(witness_sh, redeemer_hex.clone(), 0).unwrap();
         println!("message: {}", hex::encode(&message));
 
         let (addr, _, operator_pkh, _operator_cred, operator_sk) =

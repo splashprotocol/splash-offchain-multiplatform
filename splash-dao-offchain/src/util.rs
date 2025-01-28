@@ -8,8 +8,9 @@ use cml_chain::{
         tx_builder::{ChangeSelectionAlgo, SignedTxBuilder},
     },
     min_ada::min_ada_required,
+    plutus::{utils::ConstrPlutusDataEncoding, ConstrPlutusData, PlutusData},
     transaction::{Transaction, TransactionOutput},
-    Serialize, Value,
+    LenEncoding, Serialize, Value,
 };
 use cml_crypto::TransactionHash;
 use log::trace;
@@ -71,4 +72,21 @@ pub fn set_min_ada(output: &mut TransactionOutput) {
     let mut amt = output.amount().clone();
     amt.coin = min_ada;
     output.set_amount(amt);
+}
+
+/// Constructs a ConstrPlutusData instance which is bitwise-exact with how Aiken constructs such
+/// values. This is essential if we want to check equality of serialised PlutusData values.
+pub fn make_constr_pd_indefinite_arr(fields: Vec<PlutusData>) -> PlutusData {
+    let enc = ConstrPlutusDataEncoding {
+        len_encoding: LenEncoding::Indefinite,
+        prefer_compact: true,
+        tag_encoding: None,
+        alternative_encoding: None,
+        fields_encoding: LenEncoding::Indefinite,
+    };
+    PlutusData::new_constr_plutus_data(ConstrPlutusData {
+        alternative: 0,
+        fields,
+        encodings: Some(enc),
+    })
 }

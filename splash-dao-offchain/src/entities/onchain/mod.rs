@@ -1,4 +1,5 @@
 use cml_chain::transaction::TransactionOutput;
+use extend_voting_escrow_order::ExtendVotingEscrowOnchainOrder;
 use funding_box::{FundingBox, FundingBoxSnapshot};
 use inflation_box::{InflationBox, InflationBoxSnapshot};
 use make_voting_escrow_order::MakeVotingEscrowOrder;
@@ -47,6 +48,7 @@ pub enum DaoEntity {
     WeightingPoll(WeightingPoll),
     FundingBox(FundingBox),
     MakeVotingEscrowOrder(MakeVotingEscrowOrder),
+    ExtendVotingEscrowOrder(ExtendVotingEscrowOnchainOrder),
 }
 
 pub type DaoEntitySnapshot = Snapshot<DaoEntity, TimedOutputRef>;

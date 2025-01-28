@@ -63,7 +63,7 @@ pub struct MintVEIdentifierPolicy(pub PolicyId);
 pub struct MintVEIdentifierRefScriptOutput(pub TransactionUnspentOutput);
 
 #[derive(Debug, Clone)]
-pub struct MintVECompositionPolicy(pub PolicyId);
+pub struct MintVECompositionPolicy(pub BuiltPolicy);
 
 #[derive(Debug, Clone)]
 pub struct MintVECompositionRefScriptOutput(pub TransactionUnspentOutput);
@@ -94,6 +94,12 @@ pub struct MakeVotingEscrowOrderScriptHash(pub ScriptHash);
 
 #[derive(Debug, Clone)]
 pub struct MakeVotingEscrowOrderRefScriptOutput(pub TransactionUnspentOutput);
+
+#[derive(Debug, Clone)]
+pub struct ExtendVotingEscrowOrderScriptHash(pub ScriptHash);
+
+#[derive(Debug, Clone)]
+pub struct ExtendVotingEscrowOrderRefScriptOutput(pub TransactionUnspentOutput);
 
 #[derive(Debug, Clone)]
 pub struct VotingEscrowRefScriptOutput(pub TransactionUnspentOutput);
@@ -214,7 +220,7 @@ impl Has<MintVEIdentifierRefScriptOutput> for ProtocolConfig {
 
 impl Has<MintVECompositionPolicy> for ProtocolConfig {
     fn select<U: IsEqual<MintVECompositionPolicy>>(&self) -> MintVECompositionPolicy {
-        MintVECompositionPolicy(self.deployed_validators.mint_ve_composition_token.hash)
+        MintVECompositionPolicy(self.tokens.ve_factory_auth.clone())
     }
 }
 
@@ -283,6 +289,22 @@ impl Has<MakeVotingEscrowOrderRefScriptOutput> for ProtocolConfig {
         &self,
     ) -> MakeVotingEscrowOrderRefScriptOutput {
         MakeVotingEscrowOrderRefScriptOutput(self.deployed_validators.make_ve_order.reference_utxo.clone())
+    }
+}
+
+impl Has<ExtendVotingEscrowOrderScriptHash> for ProtocolConfig {
+    fn select<U: IsEqual<ExtendVotingEscrowOrderScriptHash>>(&self) -> ExtendVotingEscrowOrderScriptHash {
+        ExtendVotingEscrowOrderScriptHash(self.deployed_validators.extend_ve_order.hash)
+    }
+}
+
+impl Has<ExtendVotingEscrowOrderRefScriptOutput> for ProtocolConfig {
+    fn select<U: IsEqual<ExtendVotingEscrowOrderRefScriptOutput>>(
+        &self,
+    ) -> ExtendVotingEscrowOrderRefScriptOutput {
+        ExtendVotingEscrowOrderRefScriptOutput(
+            self.deployed_validators.extend_ve_order.reference_utxo.clone(),
+        )
     }
 }
 

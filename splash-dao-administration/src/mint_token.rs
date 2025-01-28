@@ -352,11 +352,7 @@ pub fn create_dao_reference_input_utxos(
 
     let perm_manager_script = compute_perm_manager_validator(edao_msig, perm_manager_auth_policy);
 
-    let make_ve_order_script = compute_make_ve_order_validator(
-        mint_identifier_script.hash(),
-        mint_ve_composition_token_script.hash(),
-        voting_escrow_script.hash(),
-    );
+    let make_ve_order_script = compute_make_ve_order_validator(mint_ve_composition_token_script.hash());
 
     let extend_ve_order_script = compute_extend_ve_order_validator(mint_ve_composition_token_script.hash());
 
