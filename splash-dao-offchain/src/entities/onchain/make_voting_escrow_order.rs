@@ -88,23 +88,18 @@ impl IntoPlutusData for MakeVotingEscrowOrderAction {
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, Hash)]
 pub struct MakeVotingEscrowOrder {
     pub ve_datum: VotingEscrowConfig,
-    pub timed_output_ref: TimedOutputRef,
 }
 
 impl<C> TryFromLedger<TransactionOutput, C> for MakeVotingEscrowOrder
 where
-    C: Has<DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }>> + Has<TimedOutputRef>,
+    C: Has<DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }>>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
             let value = repr.value().clone();
-            let timed_output_ref = ctx.select::<TimedOutputRef>();
             if value.coin >= MAKE_VOTING_ESCROW_ORDER_MIN_LOVELACES {
                 let ve_datum = VotingEscrowConfig::try_from_pd(repr.datum()?.into_pd()?)?;
-                return Some(Self {
-                    ve_datum,
-                    timed_output_ref,
-                });
+                return Some(Self { ve_datum });
             }
         }
         None
@@ -118,18 +113,10 @@ pub enum MVEStatus {
     SpentToFormVotingEscrow(VotingEscrowId),
 }
 
-pub fn compute_make_ve_order_validator(
-    mint_identifier_policy: PolicyId,
-    mint_composition_token_policy: PolicyId,
-    ve_script_hash: ScriptHash,
-) -> PlutusV2Script {
-    let params_pd = uplc::PlutusData::Array(vec![
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(mint_identifier_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(
-            mint_composition_token_policy.to_raw_bytes().to_vec(),
-        )),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(ve_script_hash.to_raw_bytes().to_vec())),
-    ]);
+pub fn compute_make_ve_order_validator(mint_composition_token_policy: PolicyId) -> PlutusV2Script {
+    let params_pd = uplc::PlutusData::Array(vec![uplc::PlutusData::BoundedBytes(PlutusBytes::from(
+        mint_composition_token_policy.to_raw_bytes().to_vec(),
+    ))]);
     apply_params_validator(
         params_pd,
         &DaoScriptData::global().make_voting_escrow_order.script_bytes,

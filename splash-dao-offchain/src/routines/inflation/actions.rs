@@ -27,7 +27,7 @@ use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
-use spectrum_cardano_lib::plutus_data::IntoPlutusData;
+use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::protocol_params::{constant_tx_builder, COINS_PER_UTXO_BYTE};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::{AssetClass, AssetName, NetworkId, OutputRef, Token};
@@ -45,7 +45,12 @@ use crate::constants::fee_deltas::{
 use crate::constants::time::{DISTRIBUTE_INFLATION_TX_TTL, MAX_LOCK_TIME_SECONDS, MAX_TIME_DRIFT_MILLIS};
 use crate::create_change_output::{ChangeOutputCreator, CreateChangeOutput};
 use crate::deployment::{BuiltPolicy, DaoScriptData, ProtocolValidator};
-use crate::entities::offchain::voting_order::{compute_voting_witness_message, VotingOrder};
+use crate::entities::offchain::compute_voting_escrow_witness_message;
+use crate::entities::offchain::extend_voting_escrow_order::ExtendVotingEscrowOffChainOrder;
+use crate::entities::offchain::voting_order::VotingOrder;
+use crate::entities::onchain::extend_voting_escrow_order::{
+    make_extend_ve_witness_redeemer, ExtendVotingEscrowOrderAction, ExtendVotingEscrowOrderBundle,
+};
 use crate::entities::onchain::funding_box::{FundingBox, FundingBoxId};
 use crate::entities::onchain::inflation_box::unsafe_update_ibox_state;
 use crate::entities::onchain::make_voting_escrow_order::{
@@ -63,8 +68,9 @@ use crate::entities::onchain::voting_escrow_factory::{exchange_outputs, FactoryA
 use crate::entities::onchain::weighting_poll::{self, unsafe_update_wp_state, MintAction};
 use crate::entities::Snapshot;
 use crate::protocol_config::{
-    EDaoMSigAuthPolicy, FarmAuthPolicy, FarmAuthRefScriptOutput, FarmFactoryAuthPolicy, GTAuthPolicy,
-    GTBuiltPolicy, GovProxyRefScriptOutput, InflationAuthPolicy, InflationBoxRefScriptOutput,
+    EDaoMSigAuthPolicy, ExtendVotingEscrowOrderRefScriptOutput, ExtendVotingEscrowOrderScriptHash,
+    FarmAuthPolicy, FarmAuthRefScriptOutput, FarmFactoryAuthPolicy, GTAuthPolicy, GTBuiltPolicy,
+    GovProxyRefScriptOutput, InflationAuthPolicy, InflationBoxRefScriptOutput,
     MakeVotingEscrowOrderRefScriptOutput, MakeVotingEscrowOrderScriptHash, MintVECompositionPolicy,
     MintVECompositionRefScriptOutput, MintVEIdentifierPolicy, MintVEIdentifierRefScriptOutput,
     MintWPAuthPolicy, MintWPAuthRefScriptOutput, OperatorCreds, PermManagerAuthPolicy,
@@ -143,6 +149,21 @@ pub trait InflationActions<Bearer> {
         ),
         MakeVotingEscrowError,
     >;
+    async fn extend_voting_escrow(
+        &self,
+        extend_voting_escrow_onchain_order: ExtendVotingEscrowOrderBundle<Bearer>,
+        extend_voting_escrow_offchain_order: ExtendVotingEscrowOffChainOrder,
+        voting_escrow: Bundled<VotingEscrowSnapshot, Bearer>,
+        ve_factory: Bundled<VEFactorySnapshot, Bearer>,
+        current_slot: Slot,
+    ) -> Result<
+        (
+            SignedTxBuilder,
+            Traced<Predicted<Bundled<VEFactorySnapshot, Bearer>>>,
+            Traced<Predicted<Bundled<VotingEscrowSnapshot, Bearer>>>,
+        ),
+        ExtendVotingEscrowError,
+    >;
 }
 
 /// 1/5 of MAX_TIME_DRIFT
@@ -180,6 +201,8 @@ where
         + Has<MintVECompositionRefScriptOutput>
         + Has<MakeVotingEscrowOrderScriptHash>
         + Has<MakeVotingEscrowOrderRefScriptOutput>
+        + Has<ExtendVotingEscrowOrderScriptHash>
+        + Has<ExtendVotingEscrowOrderRefScriptOutput>
         + Has<VotingEscrowScriptHash>
         + Has<VotingEscrowRefScriptOutput>
         + Has<WeightingPowerPolicy>
@@ -690,17 +713,15 @@ where
             println!("witness_script hash: {}", order.witness.to_hex());
             println!("redeemer: {}", order.witness_input);
             println!("version: {}", order.version);
-            let message = compute_voting_witness_message(
+            let message = compute_voting_escrow_witness_message(
                 order.witness,
                 order.witness_input.clone(),
                 order.version as u64,
             )
-            .map_err(|_| ExecuteOrderError::WeightingWitness(WeightingWitnessError::CannotDecodeRedeemer))?;
+            .map_err(|_| ExecuteOrderError::Witness(WitnessError::CannotDecodeRedeemer))?;
             println!("message: {}", hex::encode(&message));
             if !pk.verify(&message, &signature) {
-                return Err(ExecuteOrderError::WeightingWitness(
-                    WeightingWitnessError::OwnerAuthFailure,
-                ));
+                return Err(ExecuteOrderError::Witness(WitnessError::OwnerAuthFailure));
             }
         }
 
@@ -708,8 +729,8 @@ where
 
         // Check `ve_is_eligible_to_vote_in_this_epoch` predicate from `mint_weighting_power`.
         if last_wp_epoch >= new_wp_epoch as i32 {
-            return Err(ExecuteOrderError::WeightingWitness(
-                WeightingWitnessError::VotingEscrowIneligibleToVote {
+            return Err(ExecuteOrderError::Witness(
+                WitnessError::VotingEscrowIneligibleToVote {
                     last_wp_epoch,
                     current_epoch: new_wp_epoch as i32,
                 },
@@ -717,8 +738,8 @@ where
         }
 
         if version != order.version {
-            return Err(ExecuteOrderError::WeightingWitness(
-                WeightingWitnessError::VotingEscrowVersionMismatch {
+            return Err(ExecuteOrderError::Witness(
+                WitnessError::VotingEscrowVersionMismatch {
                     voting_escrow_version: version,
                     order_version: order.version,
                 },
@@ -897,9 +918,7 @@ where
 
         let witness_input =
             cml_chain::plutus::PlutusData::from_cbor_bytes(&hex::decode(order.witness_input).unwrap())
-                .map_err(|_| {
-                    ExecuteOrderError::WeightingWitness(WeightingWitnessError::CannotDecodeRedeemer)
-                })?;
+                .map_err(|_| ExecuteOrderError::Witness(WitnessError::CannotDecodeRedeemer))?;
         let order_witness =
             PartialPlutusWitness::new(PlutusScriptWitness::Script(voting_witness_script), witness_input);
         let withdrawal_result = SingleWithdrawalBuilder::new(withdrawal_address, 0)
@@ -1252,7 +1271,7 @@ where
             }
         }
 
-        let ve_composition_policy = self.ctx.select::<MintVECompositionPolicy>().0;
+        let ve_composition_policy = self.ctx.select::<MintVECompositionPolicy>().0.policy_id;
 
         let (ve_composition_qty, mut voting_escrow_value) = exchange_outputs(
             ve_factory_in_value,
@@ -1277,13 +1296,11 @@ where
             (1, 0)
         };
 
-        let ve_factory_unspent_output = self.ctx.select::<VEFactoryRefScriptOutput>().0;
-
         let mve_unspent_output = self.ctx.select::<MakeVotingEscrowOrderRefScriptOutput>().0;
 
         let mut change_output_creator = ChangeOutputCreator::default();
         let mut tx_builder = constant_tx_builder();
-        tx_builder.add_reference_input(ve_factory_unspent_output);
+        tx_builder.add_reference_input(self.ctx.select::<VEFactoryRefScriptOutput>().0);
         tx_builder.add_reference_input(self.ctx.select::<VotingEscrowRefScriptOutput>().0);
         tx_builder.add_reference_input(self.ctx.select::<MintVECompositionRefScriptOutput>().0);
         tx_builder.add_reference_input(self.ctx.select::<MintVEIdentifierRefScriptOutput>().0);
@@ -1353,7 +1370,7 @@ where
 
         // Mint ve_composition tokens --------------------------------------------------------------
         let mint_ve_composition_token_witness = PartialPlutusWitness::new(
-            PlutusScriptWitness::Ref(self.ctx.select::<MintVECompositionPolicy>().0),
+            PlutusScriptWitness::Ref(self.ctx.select::<MintVECompositionPolicy>().0.policy_id),
             cml_chain::plutus::PlutusData::new_integer(BigInteger::from(ve_factory_in_ix)),
         );
 
@@ -1437,6 +1454,321 @@ where
 
         let voting_escrow_datum = DatumOption::new_datum(ve_datum.into_pd());
         voting_escrow_value.coin = mve_coin - 3_000_000;
+
+        let voting_escrow_output = TransactionOutputBuilder::new()
+            .with_address(script_address(
+                self.ctx.select::<VotingEscrowScriptHash>().0,
+                self.ctx.select::<NetworkId>(),
+            ))
+            .with_data(voting_escrow_datum)
+            .next()
+            .unwrap()
+            .with_value(voting_escrow_value)
+            .build()
+            .unwrap();
+
+        change_output_creator.add_output(&voting_escrow_output);
+        tx_builder.add_output(voting_escrow_output.clone()).unwrap();
+
+        let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
+        let actual_fee = estimated_tx_fee + 320_000;
+
+        // TODO: change should be sent to the owner.
+        let OperatorCreds(_operator_pkh, operator_addr) = self.ctx.select::<OperatorCreds>();
+        let change_output = change_output_creator.create_change_output(actual_fee, operator_addr.clone());
+        tx_builder.add_output(change_output).unwrap();
+        tx_builder
+            .add_collateral(InputBuilderResult::from(self.ctx.select::<Collateral>()))
+            .unwrap();
+        tx_builder.set_validity_start_interval(current_slot.0);
+        tx_builder.set_ttl(current_slot.0 + 300);
+        let signed_tx_builder = tx_builder
+            .build(ChangeSelectionAlgo::Default, &operator_addr)
+            .unwrap();
+
+        let tx_hash = TransactionHash::from_hex(&signed_tx_builder.body().hash().to_hex()).unwrap();
+
+        let add_slot = |output_ref| TimedOutputRef {
+            output_ref,
+            slot: current_slot,
+        };
+
+        let next_ve_factory_version = add_slot(OutputRef::new(tx_hash, 0));
+        let fresh_ve_factory = Traced::new(
+            Predicted(Bundled(
+                Snapshot::new(next_ve_factory, next_ve_factory_version),
+                ve_factory_output.output,
+            )),
+            Some(*ve_factory.version()),
+        );
+        let next_ve_version = add_slot(OutputRef::new(tx_hash, 1));
+        let fresh_ve = Traced::new(
+            Predicted(Bundled(
+                Snapshot::new(next_ve, next_ve_version),
+                voting_escrow_output.output,
+            )),
+            None,
+        );
+        Ok((signed_tx_builder, fresh_ve_factory, fresh_ve))
+    }
+
+    async fn extend_voting_escrow(
+        &self,
+        eve_onchain_order: ExtendVotingEscrowOrderBundle<TransactionOutput>,
+        eve_offchain_order: ExtendVotingEscrowOffChainOrder,
+        Bundled(voting_escrow, ve_box_in): Bundled<VotingEscrowSnapshot, TransactionOutput>,
+        Bundled(ve_factory, ve_factory_in): Bundled<VEFactorySnapshot, TransactionOutput>,
+        current_slot: Slot,
+    ) -> Result<
+        (
+            SignedTxBuilder,
+            Traced<Predicted<Bundled<VEFactorySnapshot, TransactionOutput>>>,
+            Traced<Predicted<Bundled<VotingEscrowSnapshot, TransactionOutput>>>,
+        ),
+        ExtendVotingEscrowError,
+    > {
+        enum T {
+            Order,
+            VE,
+            VEFactory,
+        }
+        let order_out_ref = eve_onchain_order.output_ref.output_ref;
+        let ve_out_ref = voting_escrow.version().output_ref;
+        let ve_factory_out_ref = ve_factory.version().output_ref;
+        let mut values = [
+            (T::Order, order_out_ref),
+            (T::VE, ve_out_ref),
+            (T::VEFactory, ve_factory_out_ref),
+        ];
+        values.sort_by(|(_, x), (_, y)| x.cmp(y));
+
+        let order_input_ix = values.iter().position(|(t, _)| matches!(t, T::Order)).unwrap();
+        let voting_escrow_input_ix = values.iter().position(|(t, _)| matches!(t, T::VE)).unwrap();
+        let ve_factory_input_ix = values
+            .iter()
+            .position(|(t, _)| matches!(t, T::VEFactory))
+            .unwrap();
+
+        // Voting escrow ---------------------------------------------------------------------------
+        let mut voting_escrow_out = ve_box_in.clone();
+        let data_mut = voting_escrow_out.data_mut().unwrap();
+        let VotingEscrowConfig { owner, version, .. } =
+            VotingEscrowConfig::try_from_pd(data_mut.clone()).unwrap();
+
+        // Verify that witness is authorized by the owner.
+        if let Owner::PubKey(bytes) = owner {
+            let pk = cml_crypto::PublicKey::from_raw_bytes(&bytes)
+                .map_err(|_| ExtendVotingEscrowError::Other("Can't extrat PublicKey from bytes".into()))?;
+            let signature = Ed25519Signature::from_raw_bytes(&eve_offchain_order.proof).map_err(|_| {
+                ExtendVotingEscrowError::Other("Can't extract Ed25519Signature from bytes".into())
+            })?;
+            println!("extend_ve_script hash: {}", eve_offchain_order.witness.to_hex());
+            println!(" redeemer: {}", eve_offchain_order.witness_input);
+            println!(" version: {}", eve_offchain_order.version);
+            let message = compute_voting_escrow_witness_message(
+                eve_offchain_order.witness,
+                eve_offchain_order.witness_input.clone(),
+                eve_offchain_order.version as u64,
+            )
+            .map_err(|_| ExtendVotingEscrowError::Witness(WitnessError::CannotDecodeRedeemer))?;
+            println!("message: {}", hex::encode(&message));
+            if !pk.verify(&message, &signature) {
+                return Err(ExtendVotingEscrowError::Witness(WitnessError::OwnerAuthFailure));
+            }
+        }
+
+        if version != eve_offchain_order.version {
+            return Err(ExtendVotingEscrowError::Witness(
+                WitnessError::VotingEscrowVersionMismatch {
+                    voting_escrow_version: version,
+                    order_version: eve_offchain_order.version,
+                },
+            ));
+        }
+
+        let time_source = NetworkTimeSource;
+        let locktime_exceeds_limit = match eve_onchain_order.order.ve_datum.locked_until {
+            Lock::Def(until) => {
+                let now_in_seconds = time_source.network_time().await;
+                (until / 1000) - now_in_seconds > MAX_LOCK_TIME_SECONDS
+            }
+            Lock::Indef(duration) => duration.as_secs() > MAX_LOCK_TIME_SECONDS,
+        };
+        if locktime_exceeds_limit {
+            return Err(ExtendVotingEscrowError::LocktimeExceedsLimit);
+        }
+
+        let new_ve_version = voting_escrow.get().version + 1;
+        let cpd = data_mut.get_constr_pd_mut().unwrap();
+        cpd.set_field(
+            3,
+            cml_chain::plutus::PlutusData::new_integer(new_ve_version.into()),
+        );
+        let mut next_ve = voting_escrow.get().clone();
+        next_ve.version = new_ve_version;
+
+        let ve_factory_in_value = ve_factory_in.value();
+        let mut ve_factory_out_value = ve_factory_in_value.clone();
+        let eve_value = eve_onchain_order.bearer.value();
+        let eve_coin = eve_onchain_order.bearer.value().coin;
+
+        // Deposit assets into ve_factory -------------------------------------------
+        let accepted_assets = ve_factory.get().accepted_assets.clone();
+
+        for (script_hash, names) in eve_value.multiasset.iter() {
+            for (name, qty) in names.iter() {
+                let token = Token(*script_hash, AssetName::from(name.clone()));
+                let accepted_asset = accepted_assets.iter().any(|(tok, _)| *tok == token);
+                let ac = AssetClass::from(token);
+                if accepted_asset {
+                    ve_factory_out_value.add_unsafe(ac, *qty);
+                } else {
+                    return Err(ExtendVotingEscrowError::NonAcceptedAsset);
+                }
+            }
+        }
+
+        let ve_composition_policy = self.ctx.select::<MintVECompositionPolicy>().0.policy_id;
+
+        let (ve_composition_qty, mut voting_escrow_value) = exchange_outputs(
+            ve_factory_in_value,
+            &ve_factory_out_value,
+            accepted_assets.clone(),
+            ve_composition_policy,
+            false,
+        );
+        let mut next_ve_factory = ve_factory.get().clone();
+        next_ve_factory.gt_tokens_available -= ve_composition_qty;
+
+        // `ve_factory` will loan `ve_composition_qty` GT tokens to the newly created `voting_escrow`.
+        let gt_token = self.ctx.select::<GTBuiltPolicy>().0;
+        let gt_auth_name = spectrum_cardano_lib::AssetName::from(gt_token.asset_name.clone());
+        let gt_ac = AssetClass::from(Token(gt_token.policy_id, gt_auth_name));
+        ve_factory_out_value.sub_unsafe(gt_ac, ve_composition_qty);
+
+        let mut change_output_creator = ChangeOutputCreator::default();
+        let mut tx_builder = constant_tx_builder();
+        tx_builder.add_reference_input(self.ctx.select::<VEFactoryRefScriptOutput>().0);
+        tx_builder.add_reference_input(self.ctx.select::<VotingEscrowRefScriptOutput>().0);
+        tx_builder.add_reference_input(self.ctx.select::<MintVECompositionRefScriptOutput>().0);
+        tx_builder.add_reference_input(self.ctx.select::<ExtendVotingEscrowOrderRefScriptOutput>().0);
+
+        // `ve_factory` input ----------------------------------------------------------------------
+        let ve_factory_datum = if let Some(datum) = ve_factory_in.datum() {
+            datum
+        } else {
+            return Err(ExtendVotingEscrowError::VEFactoryDatumNotPresent);
+        };
+
+        let ve_factory_script_hash = self.ctx.select::<VEFactoryScriptHash>().0;
+        let ve_factory_redeemer = FactoryAction::ExtendPosition {
+            ve_in_ix: voting_escrow_input_ix as u64,
+        }
+        .into_pd();
+        let ve_factory_witness = PartialPlutusWitness::new(
+            PlutusScriptWitness::Ref(ve_factory_script_hash),
+            ve_factory_redeemer,
+        );
+
+        let ve_factory_input_builder =
+            SingleInputBuilder::new(TransactionInput::from(ve_factory_out_ref), ve_factory_in)
+                .plutus_script_inline_datum(ve_factory_witness, vec![].into())
+                .unwrap();
+        change_output_creator.add_input(&ve_factory_input_builder);
+        tx_builder.add_input(ve_factory_input_builder.clone()).unwrap();
+
+        // `extend_voting_escrow_order` input --------------------------------------------------------
+        let eve_script_hash = self.ctx.select::<ExtendVotingEscrowOrderScriptHash>().0;
+        let order_action = ExtendVotingEscrowOrderAction::Extend {
+            order_input_ix: order_input_ix as u32,
+            voting_escrow_input_ix: voting_escrow_input_ix as u32,
+            ve_factory_input_ix: ve_factory_input_ix as u32,
+        };
+
+        let ve_identifier_policy_id = self.ctx.select::<MintVEIdentifierPolicy>().0;
+        let ve_identifier_name = cml_chain::assets::AssetName::from(eve_offchain_order.id.voting_escrow_id.0);
+        let ve_composition_name = self.ctx.select::<MintVECompositionPolicy>().0.asset_name;
+
+        let eve_redeemer = make_extend_ve_witness_redeemer(
+            order_out_ref,
+            order_action,
+            (ve_identifier_policy_id, ve_identifier_name.clone()),
+            (ve_composition_policy, ve_composition_name),
+        );
+        let mve_witness = PartialPlutusWitness::new(PlutusScriptWitness::Ref(eve_script_hash), eve_redeemer);
+
+        let eve_input_builder = SingleInputBuilder::new(
+            TransactionInput::from(order_out_ref),
+            eve_onchain_order.bearer.clone(),
+        )
+        .plutus_script_inline_datum(mve_witness, vec![].into())
+        .unwrap();
+        change_output_creator.add_input(&eve_input_builder);
+        tx_builder.add_input(eve_input_builder).unwrap();
+
+        let total_num_mints = eve_value.multiasset.len();
+
+        // Mint ve_composition tokens --------------------------------------------------------------
+        let mint_ve_composition_token_witness = PartialPlutusWitness::new(
+            PlutusScriptWitness::Ref(self.ctx.select::<MintVECompositionPolicy>().0.policy_id),
+            cml_chain::plutus::PlutusData::new_integer(BigInteger::from(ve_factory_input_ix)),
+        );
+
+        for (_, names) in eve_value.multiasset.iter() {
+            for (asset_name, qty) in names.iter() {
+                let mint_ve_composition_builder_result =
+                    SingleMintBuilder::new_single_asset(asset_name.clone(), *qty as i64)
+                        .plutus_script(mint_ve_composition_token_witness.clone(), vec![].into());
+                tx_builder.add_mint(mint_ve_composition_builder_result).unwrap();
+            }
+        }
+
+        // NOW it is safe to add GT tokens to voting_escrow
+        voting_escrow_value.add_unsafe(gt_ac, ve_composition_qty);
+
+        // Set ex-units for minting ----------------------------------------------------------------
+        let mint_ex_units = DaoScriptData::global().mint_ve_composition_token.ex_units.clone();
+
+        for ix in 0..total_num_mints {
+            tx_builder.set_exunits(
+                RedeemerWitnessKey::new(RedeemerTag::Mint, ix as u64),
+                mint_ex_units.clone(),
+            );
+        }
+
+        // Add `ve_factory` output -----------------------------------------------------------------
+        let network_id = self.ctx.select::<NetworkId>();
+        let ve_factory_output = TransactionOutputBuilder::new()
+            .with_address(script_address(ve_factory_script_hash, network_id))
+            .with_data(ve_factory_datum)
+            .next()
+            .unwrap()
+            .with_asset_and_min_required_coin(ve_factory_out_value.multiasset, COINS_PER_UTXO_BYTE)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        change_output_creator.add_output(&ve_factory_output);
+        tx_builder.add_output(ve_factory_output.clone()).unwrap();
+
+        // Add `voting_escrow` output --------------------------------------------------------------
+        let ve_datum = eve_onchain_order.order.ve_datum;
+        let ve_identifier_name = spectrum_cardano_lib::AssetName::from(ve_identifier_name);
+        let next_ve = VotingEscrow {
+            gov_token_amount: ve_composition_qty,
+            gt_policy: gt_token.policy_id,
+            gt_auth_name,
+            locked_until: ve_datum.locked_until,
+            ve_identifier_name,
+            owner: ve_datum.owner,
+            max_ex_fee: ve_datum.max_ex_fee,
+            version: ve_datum.version,
+            last_wp_epoch: ve_datum.last_wp_epoch,
+            last_gp_deadline: ve_datum.last_gp_deadline,
+        };
+
+        let voting_escrow_datum = DatumOption::new_datum(ve_datum.into_pd());
+        voting_escrow_value.coin = eve_coin - 3_000_000;
 
         let voting_escrow_output = TransactionOutputBuilder::new()
             .with_address(script_address(
@@ -1636,7 +1968,7 @@ pub enum ExecuteOrderError {
     BadOrMissingInput,
     WeightingExceedsAvailableVotingPower,
     InVotingPower,
-    WeightingWitness(WeightingWitnessError),
+    Witness(WitnessError),
     Other(String),
 }
 
@@ -1646,10 +1978,21 @@ pub enum MakeVotingEscrowError {
     InsufficientAdaInOrder,
     VEFactoryDatumNotPresent,
     LocktimeExceedsLimit,
+    Other(String),
 }
 
 #[derive(Clone, Debug, Serialize)]
-pub enum WeightingWitnessError {
+pub enum ExtendVotingEscrowError {
+    NonAcceptedAsset,
+    InsufficientAdaInOrder,
+    VEFactoryDatumNotPresent,
+    LocktimeExceedsLimit,
+    Witness(WitnessError),
+    Other(String),
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub enum WitnessError {
     OwnerAuthFailure,
     VotingEscrowIneligibleToVote {
         last_wp_epoch: i32,

@@ -197,7 +197,7 @@ async fn deploy<'a>(op_inputs: &mut OperationInputs, config: AppConfig<'a>) -> C
             addr,
             explorer.chain_tip_slot_number().await.unwrap(),
         );
-        let tx = Transaction::from(prover.prove(signed_tx_builder));
+        let tx = prover.prove(signed_tx_builder);
         let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
         println!("tx_hash: {}", tx_hash.to_hex());
         let tx_bytes = tx.to_cbor_bytes();
@@ -868,6 +868,143 @@ async fn make_voting_escrow_order(
     explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
     println!("TX confirmed");
     owner
+}
+
+async fn extend_voting_escrow_order(
+    voting_escrow_id: VotingEscrowId,
+    ve_settings: &VotingEscrowSettings,
+    op_inputs: &mut OperationInputs,
+) {
+    let OperationInputs {
+        explorer,
+        addr,
+        deployment_progress,
+        dao_parameters,
+        collateral,
+        prover,
+        network_id,
+        ..
+    } = op_inputs;
+
+    let VotingEscrowSettings {
+        deposits,
+        ada_balance,
+        lock_duration_in_seconds,
+        ..
+    } = ve_settings;
+
+    if *lock_duration_in_seconds > MAX_LOCK_TIME_SECONDS {
+        panic!("Locktime exceeds limits!");
+    }
+
+    let deployment_config = CompleteDeployment::try_from((deployment_progress.clone(), *network_id))
+        .expect(INCOMPLETE_DEPLOYMENT_ERR_MSG);
+    let protocol_deployment =
+        ProtocolDeployment::unsafe_pull(deployment_config.deployed_validators.clone(), explorer).await;
+
+    let mut order_out_value = Value::zero();
+
+    // Deposit assets into ve_factory -------------------------------------------
+    let VEFactoryDatum { accepted_assets, .. } = VEFactoryDatum::from(dao_parameters.accepted_assets.clone());
+
+    let mut built_policies = vec![];
+
+    for token_deposit in deposits {
+        let token = Token::from(token_deposit);
+        let accepted_asset = accepted_assets.iter().any(|(tok, _)| *tok == token);
+        let ac = AssetClass::from(token);
+        if accepted_asset {
+            order_out_value.add_unsafe(ac, token_deposit.quantity);
+            built_policies.push(BuiltPolicy::from(token_deposit.clone()));
+        } else {
+            panic!("{} is not accepted by the DAO!", ac);
+        }
+    }
+
+    println!("seeking input value: {}", ada_balance + 10_000_000);
+    let utxos = collect_utxos(
+        addr,
+        ada_balance + 10_000_000,
+        built_policies,
+        collateral,
+        explorer,
+    )
+    .await;
+
+    let mut change_output_creator = ChangeOutputCreator::default();
+    let mut tx_builder = constant_tx_builder();
+    tx_builder.add_reference_input(protocol_deployment.make_ve_order.reference_utxo);
+
+    // Add inputs --------------------------------------------------------
+    for utxo in utxos {
+        println!("add_input coin: {}", utxo.utxo_info.value().coin);
+        change_output_creator.add_input(&utxo);
+        tx_builder.add_input(utxo).unwrap();
+    }
+
+    let voting_escrow_datum = if let Some((ve_snapshot, _)) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
+        explorer,
+        protocol_deployment.voting_escrow.hash,
+        *network_id,
+        &deployment_config,
+        voting_escrow_id,
+    )
+    .await
+    {
+        let ve = ve_snapshot.get();
+        DatumOption::new_datum(
+            VotingEscrowConfig {
+                locked_until: ve.locked_until,
+                owner: ve.owner,
+                max_ex_fee: ve.max_ex_fee,
+                version: ve.version,
+                last_wp_epoch: ve.last_wp_epoch,
+                last_gp_deadline: ve.last_gp_deadline,
+            }
+            .into_pd(),
+        )
+    } else {
+        panic!("VE NOT FOUND");
+    };
+
+    order_out_value.coin = *ada_balance;
+
+    let eve_output = TransactionOutputBuilder::new()
+        .with_address(script_address(
+            protocol_deployment.extend_ve_order.hash,
+            *network_id,
+        ))
+        .with_data(voting_escrow_datum)
+        .next()
+        .unwrap()
+        .with_value(order_out_value)
+        .build()
+        .unwrap();
+    change_output_creator.add_output(&eve_output);
+    tx_builder.add_output(eve_output).unwrap();
+
+    let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
+    let actual_fee = estimated_tx_fee + 300_000;
+    let change_output = change_output_creator.create_change_output(actual_fee, addr.clone());
+    tx_builder.add_output(change_output).unwrap();
+    tx_builder
+        .add_collateral(InputBuilderResult::from(collateral.clone()))
+        .unwrap();
+
+    let start_slot = explorer.chain_tip_slot_number().await.unwrap();
+    tx_builder.set_validity_start_interval(start_slot);
+    tx_builder.set_ttl(start_slot + 300);
+
+    let signed_tx_builder = tx_builder.build(ChangeSelectionAlgo::Default, addr).unwrap();
+    let tx = prover.prove(signed_tx_builder);
+    let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
+    println!("tx_hash: {:?}", tx_hash);
+    let tx_bytes = tx.to_cbor_bytes();
+    println!("tx_bytes: {}", hex::encode(&tx_bytes));
+
+    explorer.submit_tx(&tx_bytes).await.unwrap();
+    explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
+    println!("TX confirmed");
 }
 
 async fn create_initial_farms(op_inputs: &OperationInputs) {

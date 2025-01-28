@@ -12,6 +12,7 @@ use cml_chain::{
     certs::{Certificate, Credential},
     plutus::{ConstrPlutusData, PlutusData, PlutusScript, PlutusV2Script},
     transaction::Transaction,
+    utils::BigInteger,
     Serialize, Value,
 };
 use cml_crypto::{ScriptHash, TransactionHash};
@@ -26,6 +27,7 @@ use crate::{
     collect_utxos::collect_utxos,
     create_change_output::{ChangeOutputCreator, CreateChangeOutput},
     deployment::{BuiltPolicy, DaoScriptData},
+    entities::onchain::extend_voting_escrow_order::compute_extend_ve_witness_validator,
 };
 
 const LIMIT: u16 = 50;
@@ -167,21 +169,40 @@ where
     let output_value = Value::from(1_200_000);
     println!("input_amount: {}", amount,);
 
+    //let asset_pd = PlutusData::ConstrPlutusData(ConstrPlutusData::new(
+    //    0,
+    //    vec![PlutusData::new_bytes(vec![]), PlutusData::new_bytes(vec![])],
+    //));
+
+    //let redeemer = PlutusData::ConstrPlutusData(ConstrPlutusData::new(
+    //    0,
+    //    vec![asset_pd, PlutusData::new_list(vec![])],
+    //));
+
+    //let voting_witness_script = PlutusScript::PlutusV2(PlutusV2Script::new(
+    //    hex::decode(&DaoScriptData::global().voting_witness.script_bytes).unwrap(),
+    //));
+
+    let order_reference = PlutusData::ConstrPlutusData(ConstrPlutusData::new(
+        0,
+        vec![
+            PlutusData::new_bytes(vec![]),
+            PlutusData::new_integer(BigInteger::from(0)),
+        ],
+    ));
+    let action = PlutusData::ConstrPlutusData(ConstrPlutusData::new(1, vec![]));
     let asset_pd = PlutusData::ConstrPlutusData(ConstrPlutusData::new(
         0,
         vec![PlutusData::new_bytes(vec![]), PlutusData::new_bytes(vec![])],
     ));
 
-    let redeemer = PlutusData::ConstrPlutusData(ConstrPlutusData::new(
-        0,
-        vec![asset_pd, PlutusData::new_list(vec![])],
-    ));
+    let redeemer = PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![]));
 
-    let voting_witness_script = PlutusScript::PlutusV2(PlutusV2Script::new(
-        hex::decode(&DaoScriptData::global().voting_witness.script_bytes).unwrap(),
-    ));
+    let voting_witness_script: PlutusScript = compute_extend_ve_witness_validator().into();
+    let staking_validator_script_hash = voting_witness_script.hash();
+
     let cert_reg =
-        Certificate::new_reg_cert(Credential::new_script(*staking_validator_script_hash), 2_000_000);
+        Certificate::new_reg_cert(Credential::new_script(staking_validator_script_hash), 2_000_000);
     let partial_witness =
         PartialPlutusWitness::new(PlutusScriptWitness::Script(voting_witness_script), redeemer);
     let cert_builder_result = SingleCertificateBuilder::new(cert_reg)
@@ -219,7 +240,7 @@ where
         .build(ChangeSelectionAlgo::Default, wallet_addr)
         .unwrap();
 
-    let tx = Transaction::from(prover.prove(signed_tx_builder));
+    let tx = prover.prove(signed_tx_builder);
     let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
     println!("tx_hash: {:?}", tx_hash);
     let tx_bytes = tx.to_cbor_bytes();

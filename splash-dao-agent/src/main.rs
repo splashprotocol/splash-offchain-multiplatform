@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, sync::Arc};
+use std::{fmt::Debug, hash::Hash, marker::PhantomData, sync::Arc};
 
 use async_primitives::beacon::Beacon;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
@@ -20,9 +20,11 @@ use cml_crypto::TransactionHash;
 use cml_multi_era::babbage::BabbageTransaction;
 use config::AppConfig;
 use futures::{channel::mpsc, stream::FuturesUnordered, StreamExt};
+use serde::de::DeserializeOwned;
 use spectrum_cardano_lib::constants::{CONWAY_ERA_ID, SAFE_BLOCK_TIME};
 use spectrum_offchain::{
-    backlog::{persistence::BacklogStoreRocksDB, BacklogConfig, PersistentPriorityBacklog},
+    backlog::{data::Weighted, persistence::BacklogStoreRocksDB, BacklogConfig, PersistentPriorityBacklog},
+    domain::order::UniqueOrder,
     event_sink::{
         event_handler::{forward_to, EventHandler},
         process_events,
@@ -221,10 +223,12 @@ async fn main() {
         StateProjectionRocksDB::new(mk_path("smart_farm")),
         StateProjectionRocksDB::new(mk_path("perm_manager")),
         FundingRepoRocksDB::new(mk_path("funding_box")),
-        setup_make_ve_order_backlog(mk_path("make_voting_escrow_owner")).await,
+        setup_order_backlog(mk_path("make_voting_escrow_owner")).await,
+        setup_order_backlog(mk_path("extend_voting_escrow_owner")).await,
         KVStoreRocksDB::new(mk_path("voting_escrow_by_owner")),
         KVStoreRocksDB::new(mk_path("tx_hash_to_mve")),
-        setup_order_backlog(mk_path("order_backlog_config")).await,
+        setup_order_backlog(mk_path("voting_order_backlog_config")).await,
+        setup_order_backlog(mk_path("extend_ve_order_backlog_config")).await,
         KVStoreRocksDB::new(mk_path("predicted_txs_backlog")),
         NetworkTimeSource {},
         inflation_actions,
@@ -335,20 +339,11 @@ struct AppState {
     sender: tokio::sync::mpsc::Sender<DaoBotMessage>,
 }
 
-async fn setup_order_backlog(db_path: String) -> PersistentPriorityBacklog<VotingOrder, BacklogStoreRocksDB> {
-    let store = BacklogStoreRocksDB::new(RocksConfig { db_path });
-    let backlog_config = BacklogConfig {
-        order_lifespan: Duration::try_hours(1).unwrap(),
-        order_exec_time: Duration::try_minutes(5).unwrap(),
-        retry_suspended_prob: BoundedU8::new(60).unwrap(),
-    };
-
-    PersistentPriorityBacklog::new::<VotingOrder>(store, backlog_config).await
-}
-
-async fn setup_make_ve_order_backlog(
-    db_path: String,
-) -> PersistentPriorityBacklog<MakeVotingEscrowOrderBundle<TransactionOutput>, BacklogStoreRocksDB> {
+async fn setup_order_backlog<T>(db_path: String) -> PersistentPriorityBacklog<T, BacklogStoreRocksDB>
+where
+    T: Hash + Eq + UniqueOrder + Weighted + serde::Serialize + DeserializeOwned + Send + 'static,
+    T::TOrderId: Debug + serde::Serialize + DeserializeOwned + Send,
+{
     let store = BacklogStoreRocksDB::new(RocksConfig { db_path });
     let backlog_config = BacklogConfig {
         order_lifespan: Duration::try_hours(72).unwrap(),
@@ -356,8 +351,7 @@ async fn setup_make_ve_order_backlog(
         retry_suspended_prob: BoundedU8::new(60).unwrap(),
     };
 
-    PersistentPriorityBacklog::new::<MakeVotingEscrowOrderBundle<TransactionOutput>>(store, backlog_config)
-        .await
+    PersistentPriorityBacklog::new::<T>(store, backlog_config).await
 }
 
 #[derive(Parser)]
