@@ -22,7 +22,15 @@ where
     Log: EventLog,
 {
     match events {
-        BlockEvents::RollForward { events, block_num } => log.batch_append(block_num, events).await,
-        BlockEvents::RollBackward { events, block_num } => log.batch_discard(block_num, events).await,
+        BlockEvents::RollForward {
+            events,
+            slot: block_num,
+            ..
+        } => log.batch_append(block_num, events).await,
+        BlockEvents::RollBackward {
+            events,
+            slot: block_num,
+            ..
+        } => log.batch_discard(block_num, events).await,
     }
 }

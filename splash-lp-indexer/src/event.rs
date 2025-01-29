@@ -1,7 +1,6 @@
 use crate::tx_view::TxViewPartiallyResolved;
 use cml_chain::address::Address;
 use cml_chain::certs::Credential;
-use either::Either;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::{AssetClass, Token};
@@ -19,7 +18,6 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
 pub enum LpEvent {
     Deposit(Deposit),
     Redeem(Redeem),
-    Harvest(Harvest),
 }
 
 impl LpEvent {
@@ -27,7 +25,18 @@ impl LpEvent {
         match self {
             LpEvent::Deposit(d) => d.account.clone(),
             LpEvent::Redeem(r) => r.account.clone(),
-            LpEvent::Harvest(h) => h.account.clone(),
+        }
+    }
+    pub fn pool_id(&self) -> PoolId {
+        match self {
+            LpEvent::Deposit(d) => d.pool_id,
+            LpEvent::Redeem(r) => r.pool_id,
+        }
+    }
+    pub fn lp_supply(&self) -> u64 {
+        match self {
+            LpEvent::Deposit(d) => d.lp_supply,
+            LpEvent::Redeem(r) => r.lp_supply,
         }
     }
 }
@@ -46,9 +55,30 @@ where
         + Has<PoolValidation>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
-        DepositOrRedeem::try_from_ledger(repr, ctx)
-            .map(|deposit_or_redeem| deposit_or_redeem.0.either(LpEvent::Deposit, LpEvent::Redeem))
-            .or_else(|| Harvest::try_from_ledger(repr, ctx).map(Self::Harvest))
+        if let Some(pool) = PoolDiff::try_from_ledger(repr, ctx) {
+            let (plus_sign, diff) = pool.lp_diff;
+            if diff != 0 {
+                if let Some(account) = find_lp_recv(pool.lp_asset.into_token().unwrap(), repr) {
+                    let account = account.payment_cred().unwrap().clone();
+                    return Some(if plus_sign {
+                        LpEvent::Deposit(Deposit {
+                            pool_id: pool.pool_id,
+                            account,
+                            lp_mint: diff,
+                            lp_supply: pool.lp_supply,
+                        })
+                    } else {
+                        LpEvent::Redeem(Redeem {
+                            pool_id: pool.pool_id,
+                            account,
+                            lp_burned: diff,
+                            lp_supply: pool.lp_supply,
+                        })
+                    });
+                }
+            }
+        }
+        None
     }
 }
 
@@ -56,6 +86,7 @@ struct PoolDiff {
     pool_id: PoolId,
     lp_asset: AssetClass,
     lp_diff: (bool, u64),
+    lp_supply: u64,
 }
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for PoolDiff
@@ -96,6 +127,7 @@ where
                 pool_id: pin.stable_id().into(),
                 lp_asset,
                 lp_diff,
+                lp_supply: lp_out,
             });
         }
         None
@@ -107,6 +139,7 @@ pub struct Deposit {
     pool_id: PoolId,
     account: Credential,
     lp_mint: u64,
+    lp_supply: u64,
 }
 
 fn find_lp_recv(Token(pol, tn): Token, tx: &TxViewPartiallyResolved) -> Option<Address> {
@@ -119,52 +152,12 @@ fn find_lp_recv(Token(pol, tn): Token, tx: &TxViewPartiallyResolved) -> Option<A
     })
 }
 
-struct DepositOrRedeem(Either<Deposit, Redeem>);
-
-impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for DepositOrRedeem
-where
-    Cx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
-        + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
-        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
-        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>
-        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
-        + Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>
-        + Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>
-        + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
-        + Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
-        + Has<PoolValidation>,
-{
-    fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
-        if let Some(pool) = PoolDiff::try_from_ledger(repr, ctx) {
-            let (plus_sign, diff) = pool.lp_diff;
-            if diff != 0 {
-                if let Some(account) = find_lp_recv(pool.lp_asset.into_token().unwrap(), repr) {
-                    let account = account.payment_cred().unwrap().clone();
-                    return Some(if plus_sign {
-                        DepositOrRedeem(Either::Left(Deposit {
-                            pool_id: pool.pool_id,
-                            account,
-                            lp_mint: diff,
-                        }))
-                    } else {
-                        DepositOrRedeem(Either::Right(Redeem {
-                            pool_id: pool.pool_id,
-                            account,
-                            lp_burned: diff,
-                        }))
-                    });
-                }
-            }
-        }
-        None
-    }
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct Redeem {
     pool_id: PoolId,
     account: Credential,
     lp_burned: u64,
+    lp_supply: u64,
 }
 
 #[derive(Serialize, Deserialize)]

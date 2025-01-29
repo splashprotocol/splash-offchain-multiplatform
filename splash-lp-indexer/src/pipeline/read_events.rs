@@ -24,7 +24,7 @@ where
     Index: PersistentIndex<OutputRef, TransactionOutput>,
 {
     let txs = match &mut block {
-        BlockEvents::RollForward { events, block_num } | BlockEvents::RollBackward { events, block_num } => {
+        BlockEvents::RollForward { events, slot } | BlockEvents::RollBackward { events, slot } => {
             events.drain(0..)
         }
     };
