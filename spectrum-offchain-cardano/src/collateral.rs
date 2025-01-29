@@ -9,9 +9,9 @@ use crate::creds::CollateralAddress;
 
 const LIMIT: u16 = 50;
 
-pub async fn pull_collateral<Net: CardanoNetwork>(
+pub async fn pull_collateral(
     collateral_address: CollateralAddress,
-    explorer: &Net,
+    explorer: &Box<dyn CardanoNetwork>,
 ) -> Option<Collateral> {
     let mut collateral: Option<TransactionUnspentOutput> = None;
     let mut offset = 0u32;
