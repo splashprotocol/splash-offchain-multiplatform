@@ -2,9 +2,6 @@ use std::hash::Hash;
 
 use either::Either;
 use serde::{Deserialize, Serialize};
-use type_equalities::IsEqual;
-
-use crate::domain::Has;
 
 pub trait UniqueOrder {
     type TOrderId: Copy + Clone + Eq + Hash;
@@ -18,12 +15,6 @@ where
     type TOrderId = <T as SpecializedOrder>::TOrderId;
     fn get_self_ref(&self) -> Self::TOrderId {
         self.get_self_ref()
-    }
-}
-
-impl<T: Clone> Has<T> for T {
-    fn select<U: IsEqual<T>>(&self) -> T {
-        self.clone()
     }
 }
 

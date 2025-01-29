@@ -15,6 +15,7 @@ use spectrum_offchain_cardano::data::pool::PoolValidation;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::*;
 use std::collections::HashSet;
+use cml_core::Slot;
 
 mod log_events;
 pub mod read_events;
@@ -55,9 +56,12 @@ pub async fn log_events<U, Log, Cx, Index>(
     .await
 }
 
-pub async fn update_accounts<DB: Accounts>(db: DB, confirmation_delay_blocks: u64) {
+pub async fn update_accounts<DB: Accounts>(db: DB, genesis_slot: Slot, confirmation_delay_blocks: u64) {
     loop {
-        if !db.try_update_accounts(confirmation_delay_blocks).await {
+        if !db
+            .try_update_accounts(genesis_slot, confirmation_delay_blocks)
+            .await
+        {
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         }
     }

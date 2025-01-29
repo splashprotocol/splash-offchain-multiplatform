@@ -2,7 +2,7 @@ use std::{marker::PhantomData, sync::Arc};
 
 use async_primitives::beacon::Beacon;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
-use bloom_offchain_cardano::event_sink::processed_tx::TxViewMut;
+use bloom_offchain_cardano::event_sink::tx_view::TxViewMut;
 use bounded_integer::BoundedU8;
 use cardano_chain_sync::{
     cache::LedgerCacheRocksDB, chain_sync_stream, client::ChainSyncClient, data::LedgerTxEvent,

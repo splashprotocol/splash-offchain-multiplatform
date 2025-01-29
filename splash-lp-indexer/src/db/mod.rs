@@ -1,4 +1,7 @@
+use cml_chain::certs::Credential;
+use cml_core::Slot;
 use rocksdb::{Options, TransactionDBOptions};
+use spectrum_offchain_cardano::data::PoolId;
 use std::string::ToString;
 use std::sync::Arc;
 
@@ -21,12 +24,20 @@ impl RocksDB {
     }
 }
 
-fn read_block_num_from_key_unsafe(key: Vec<u8>) -> u64 {
-    <u64>::from_be_bytes(<[u8; 8]>::try_from(&key[..8]).unwrap())
+fn account_key(pool_id: PoolId, credential: Credential) -> Vec<u8> {
+    rmp_serde::to_vec(&(pool_id, credential)).unwrap()
 }
 
-fn read_block_num_unsafe(key: Vec<u8>) -> u64 {
-    <u64>::from_be_bytes(key.as_slice().try_into().unwrap())
+fn from_account_key(key: Vec<u8>) -> Option<(PoolId, Credential)> {
+    rmp_serde::from_slice(&key).ok()
+}
+
+fn event_key(slot: Slot, event_index: usize) -> Vec<u8> {
+    rmp_serde::to_vec(&(slot, event_index)).unwrap()
+}
+
+fn from_event_key(key: Vec<u8>) -> Option<(Slot, usize)> {
+    rmp_serde::from_slice(&key).ok()
 }
 
 // Unconfirmed LP events
