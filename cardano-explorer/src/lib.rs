@@ -38,6 +38,7 @@ use crate::Network::{Mainnet, Preprod};
 
 pub mod client;
 
+pub mod config;
 pub mod constants;
 pub mod data;
 pub mod retry;
@@ -67,7 +68,7 @@ impl From<Network> for String {
 }
 
 #[async_trait]
-pub trait CardanoNetwork: Send + Sync {
+pub trait CardanoNetwork {
     async fn utxo_by_ref(&self, oref: OutputRef) -> Option<TransactionUnspentOutput>;
     async fn utxos_by_pay_cred(
         &self,
@@ -161,7 +162,7 @@ impl Blockfrost {
                     .map(DatumOption::new_hash)
             }));
 
-        return Some(TransactionUnspentOutput {
+        Some(TransactionUnspentOutput {
             input: TransactionInput::new(TransactionHash::from_hex(tx_hash.as_str()).ok()?, output_idx),
             output: TransactionOutput::new(
                 Address::from_bech32(address.as_str()).ok()?,
@@ -169,7 +170,7 @@ impl Blockfrost {
                 datum,
                 script,
             ),
-        });
+        })
     }
 
     async fn blockfrost_address_utxo_to_tx_unspent_output(
@@ -223,7 +224,7 @@ impl CardanoNetwork for Blockfrost {
             return self.blockfrost_tx_utxo_to_tx_unspent_output(oref, output).await;
         };
 
-        return None;
+        None
     }
 
     async fn utxos_by_pay_cred(
@@ -232,27 +233,31 @@ impl CardanoNetwork for Blockfrost {
         offset: u32,
         limit: u16,
     ) -> Vec<TransactionUnspentOutput> {
-        let outputs = self
-            .0
-            .addresses_utxos(
-                String::from(payment_credential.clone()).as_str(),
-                Pagination {
-                    fetch_all: false,
-                    count: limit as usize,
-                    // blockfrost pagination start from page 1
-                    page: ((offset / limit as u32) + 1) as usize,
-                    order: Order::Asc,
-                },
-            )
-            .await
-            .unwrap_or(vec![]);
+        // blockfrost pagination starts from page 1 and we should increment quotient
+        if let Some(page_size) = offset.checked_div(limit as u32).map(|page| page + 1) {
+            let outputs = self
+                .0
+                .addresses_utxos(
+                    String::from(payment_credential.clone()).as_str(),
+                    Pagination {
+                        fetch_all: false,
+                        count: limit as usize,
+                        page: page_size as usize,
+                        order: Order::Asc,
+                    },
+                )
+                .await
+                .unwrap_or(vec![]);
 
-        let parsed_outputs: Vec<_> = outputs
-            .into_iter()
-            .map(|output| async move { self.blockfrost_address_utxo_to_tx_unspent_output(output).await })
-            .collect();
+            let parsed_outputs: Vec<_> = outputs
+                .into_iter()
+                .map(|output| async move { self.blockfrost_address_utxo_to_tx_unspent_output(output).await })
+                .collect();
 
-        join_all(parsed_outputs).await.into_iter().flatten().collect()
+            return join_all(parsed_outputs).await.into_iter().flatten().collect();
+        }
+
+        vec![]
     }
 
     async fn utxos_by_address(
@@ -261,27 +266,31 @@ impl CardanoNetwork for Blockfrost {
         offset: u32,
         limit: u16,
     ) -> Vec<TransactionUnspentOutput> {
-        let outputs = self
-            .0
-            .addresses_utxos(
-                String::from(address.to_bech32(None).unwrap().as_str()).as_str(),
-                Pagination {
-                    fetch_all: false,
-                    count: limit as usize,
-                    // blockfrost pagination start from page 1
-                    page: ((offset / limit as u32) + 1) as usize,
-                    order: Order::Asc,
-                },
-            )
-            .await
-            .unwrap_or(vec![]);
+        // blockfrost pagination starts from page 1 and we should increment quotient
+        if let Some(page_size) = offset.checked_div(limit as u32).map(|page| page + 1) {
+            let outputs = self
+                .0
+                .addresses_utxos(
+                    String::from(address.to_bech32(None).unwrap().as_str()).as_str(),
+                    Pagination {
+                        fetch_all: false,
+                        count: limit as usize,
+                        page: page_size as usize,
+                        order: Order::Asc,
+                    },
+                )
+                .await
+                .unwrap_or(vec![]);
 
-        let parsed_outputs: Vec<_> = outputs
-            .into_iter()
-            .map(|output| async move { self.blockfrost_address_utxo_to_tx_unspent_output(output).await })
-            .collect();
+            let parsed_outputs: Vec<_> = outputs
+                .into_iter()
+                .map(|output| async move { self.blockfrost_address_utxo_to_tx_unspent_output(output).await })
+                .collect();
 
-        join_all(parsed_outputs).await.into_iter().flatten().collect()
+            return join_all(parsed_outputs).await.into_iter().flatten().collect();
+        };
+
+        vec![]
     }
 }
 
