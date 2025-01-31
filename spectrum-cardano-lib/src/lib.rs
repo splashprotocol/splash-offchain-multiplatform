@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::str::FromStr;
 
-use crate::constants::ED25519_PUB_KEY_LENGTH;
+use crate::constants::{CURRENCY_SYMBOL_HEX_STRING_LENGTH, ED25519_PUB_KEY_LENGTH};
 use cml_chain::assets::MultiAsset;
 use cml_chain::plutus::utils::ConstrPlutusDataEncoding;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
@@ -249,6 +249,11 @@ impl Token {
             PolicyId::from_hex(parts[0]).unwrap(),
             AssetName::try_from_hex(parts[1]).unwrap(),
         )
+    }
+
+    pub fn try_from_raw_string(s: &str) -> Option<Token> {
+        let (pol, an) = s.split_at(CURRENCY_SYMBOL_HEX_STRING_LENGTH);
+        Some(Self(PolicyId::from_hex(pol).ok()?, AssetName::try_from_hex(an)?))
     }
 }
 

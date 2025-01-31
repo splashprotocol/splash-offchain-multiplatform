@@ -28,7 +28,9 @@
     "nanos": 0
   },
   "operatorKey": "",
-  "maestroKeyPath": "bloom-cardano-agent/resources/preprod.maestro.key",
+  "explorerKeyPath": {
+    "maestroKeyPath": "bloom-cardano-agent/resources/preprod.maestro.key"
+  },
   "execution": {
     "executionCap": {
       "soft": {

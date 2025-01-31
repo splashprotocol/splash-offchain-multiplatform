@@ -263,7 +263,7 @@ impl PartialEq for DeployedValidatorErased {
 impl Eq for DeployedValidatorErased {}
 
 impl<const TYP: u8> DeployedValidator<TYP> {
-    pub async fn unsafe_pull<Net: CardanoNetwork>(v: DeployedValidatorRef, explorer: &Net) -> Self {
+    pub async fn unsafe_pull(v: DeployedValidatorRef, explorer: &Box<dyn CardanoNetwork>) -> Self {
         let ref_output = explorer
             .utxo_by_ref(v.reference_utxo.into())
             .await
@@ -422,7 +422,7 @@ pub struct ProtocolDeployment {
 }
 
 impl ProtocolDeployment {
-    pub async fn unsafe_pull<Net: CardanoNetwork>(validators: DeployedValidators, explorer: &Net) -> Self {
+    pub async fn unsafe_pull(validators: DeployedValidators, explorer: &Box<dyn CardanoNetwork>) -> Self {
         Self {
             limit_order_witness: DeployedValidator::unsafe_pull(validators.limit_order_witness, explorer)
                 .await,

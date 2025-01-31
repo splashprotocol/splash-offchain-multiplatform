@@ -16,3 +16,5 @@ pub const CONWAY_ERA_ID: u16 = 6;
 pub const SAFE_BLOCK_TIME: Duration = Duration::from_secs(20 * 4);
 
 pub const ED25519_PUB_KEY_LENGTH: usize = 32;
+
+pub const CURRENCY_SYMBOL_HEX_STRING_LENGTH: usize = 56;
