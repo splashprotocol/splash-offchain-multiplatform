@@ -4,6 +4,7 @@ use crate::pipeline::log_events::log_lp_events;
 use crate::pipeline::read_events::read_events;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use cml_chain::transaction::{Transaction, TransactionOutput};
+use cml_core::Slot;
 use cml_crypto::ScriptHash;
 use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
@@ -15,7 +16,6 @@ use spectrum_offchain_cardano::data::pool::PoolValidation;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::*;
 use std::collections::HashSet;
-use cml_core::Slot;
 
 mod log_events;
 pub mod read_events;
