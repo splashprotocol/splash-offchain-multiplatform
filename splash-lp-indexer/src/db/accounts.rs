@@ -86,17 +86,14 @@ impl Accounts for RocksDB {
                                 .unwrap_or_else(|| Vec::new());
                             accounts_for_update.insert(account_key, (account, events));
                         }
+                        let current_slot = current_slot.unwrap();
                         for (new_account_key, events) in events_by_account {
-                            accounts_for_update.insert(new_account_key, (AccountInPool::new(), events));
+                            accounts_for_update
+                                .insert(new_account_key, (AccountInPool::new(current_slot), events));
                         }
                         let lp_supply = lp_supply_by_pools.remove(&pool).unwrap_or(0u64);
                         for (acc_key, (account_state, events)) in accounts_for_update {
-                            let updated_acc = account_state.apply_events(
-                                genesis_slot,
-                                current_slot.unwrap(),
-                                lp_supply,
-                                events,
-                            );
+                            let updated_acc = account_state.apply_events(current_slot, lp_supply, events);
                             let serialized_acc = rmp_serde::to_vec_named(&updated_acc).unwrap();
                             let account_key = account_key(pool, acc_key);
                             tx.put_cf(accounts_cf, account_key, serialized_acc).unwrap();
