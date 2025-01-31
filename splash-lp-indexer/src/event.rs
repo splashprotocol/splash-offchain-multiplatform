@@ -136,10 +136,10 @@ where
 
 #[derive(Serialize, Deserialize)]
 pub struct Deposit {
-    pool_id: PoolId,
-    account: Credential,
-    lp_mint: u64,
-    lp_supply: u64,
+    pub pool_id: PoolId,
+    pub account: Credential,
+    pub lp_mint: u64,
+    pub lp_supply: u64,
 }
 
 fn find_lp_recv(Token(pol, tn): Token, tx: &TxViewPartiallyResolved) -> Option<Address> {
@@ -154,10 +154,10 @@ fn find_lp_recv(Token(pol, tn): Token, tx: &TxViewPartiallyResolved) -> Option<A
 
 #[derive(Serialize, Deserialize)]
 pub struct Redeem {
-    pool_id: PoolId,
-    account: Credential,
-    lp_burned: u64,
-    lp_supply: u64,
+    pub pool_id: PoolId,
+    pub account: Credential,
+    pub lp_burned: u64,
+    pub lp_supply: u64,
 }
 
 #[derive(Serialize, Deserialize)]
