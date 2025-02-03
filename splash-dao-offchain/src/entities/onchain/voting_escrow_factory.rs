@@ -81,7 +81,7 @@ where
             let gt_policy_id = ctx.select::<GTAuthPolicy>().0;
             let gt_asset_name = cml_chain::assets::AssetName::new(GT_NAME.to_be_bytes().to_vec()).unwrap();
 
-            let auth_token_policy_id = ctx.select::<VEFactoryAuthPolicy>().0;
+            let auth_token_policy_id = ctx.select::<VEFactoryAuthPolicy>().0.policy_id;
             let auth_token_name =
                 spectrum_cardano_lib::AssetName::try_from(DEFAULT_AUTH_TOKEN_NAME.to_be_bytes().to_vec())
                     .unwrap();

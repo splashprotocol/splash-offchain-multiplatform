@@ -16,8 +16,8 @@ use weighting_poll::{WeightingPoll, WeightingPollSnapshot};
 use crate::{
     deployment::ProtocolValidator,
     protocol_config::{
-        FarmAuthPolicy, GTAuthPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy, OperatorCreds,
-        PermManagerAuthPolicy, SplashPolicy, VEFactoryAuthPolicy,
+        FarmAuthPolicy, GTAuthPolicy, MintVECompositionPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy,
+        OperatorCreds, PermManagerAuthPolicy, SplashPolicy, VEFactoryAuthPolicy,
     },
     routines::inflation::{TimedOutputRef, WeightingPollEliminated},
     CurrentEpoch, GenesisEpochStartTime,
@@ -61,6 +61,7 @@ where
         + Has<FarmAuthPolicy>
         + Has<VEFactoryAuthPolicy>
         + Has<MintVEIdentifierPolicy>
+        + Has<MintVECompositionPolicy>
         + Has<GenesisEpochStartTime>
         + Has<GTAuthPolicy>
         + Has<CurrentEpoch>
@@ -72,6 +73,7 @@ where
         + Has<DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }>>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>>
         + Has<OperatorCreds>
         + Has<WeightingPollEliminated>
         + Has<NetworkId>
@@ -113,6 +115,12 @@ where
             let timed_output_ref = ctx.select::<TimedOutputRef>();
             Some(Snapshot(
                 DaoEntity::MakeVotingEscrowOrder(mve_order),
+                timed_output_ref,
+            ))
+        } else if let Some(eve_order) = ExtendVotingEscrowOnchainOrder::try_from_ledger(repr, ctx) {
+            let timed_output_ref = ctx.select::<TimedOutputRef>();
+            Some(Snapshot(
+                DaoEntity::ExtendVotingEscrowOrder(eve_order),
                 timed_output_ref,
             ))
         } else {

@@ -63,7 +63,7 @@ pub struct MintVEIdentifierPolicy(pub PolicyId);
 pub struct MintVEIdentifierRefScriptOutput(pub TransactionUnspentOutput);
 
 #[derive(Debug, Clone)]
-pub struct MintVECompositionPolicy(pub BuiltPolicy);
+pub struct MintVECompositionPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
 pub struct MintVECompositionRefScriptOutput(pub TransactionUnspentOutput);
@@ -81,7 +81,7 @@ pub struct FarmFactoryAuthPolicy(pub PolicyId);
 pub struct WPFactoryAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
-pub struct VEFactoryAuthPolicy(pub PolicyId);
+pub struct VEFactoryAuthPolicy(pub BuiltPolicy);
 
 #[derive(Debug, Clone)]
 pub struct VEFactoryScriptHash(pub ScriptHash);
@@ -220,7 +220,7 @@ impl Has<MintVEIdentifierRefScriptOutput> for ProtocolConfig {
 
 impl Has<MintVECompositionPolicy> for ProtocolConfig {
     fn select<U: IsEqual<MintVECompositionPolicy>>(&self) -> MintVECompositionPolicy {
-        MintVECompositionPolicy(self.tokens.ve_factory_auth.clone())
+        MintVECompositionPolicy(self.deployed_validators.mint_ve_composition_token.hash)
     }
 }
 
@@ -262,7 +262,7 @@ impl Has<WPFactoryAuthPolicy> for ProtocolConfig {
 
 impl Has<VEFactoryAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<VEFactoryAuthPolicy>>(&self) -> VEFactoryAuthPolicy {
-        VEFactoryAuthPolicy(self.tokens.ve_factory_auth.policy_id)
+        VEFactoryAuthPolicy(self.tokens.ve_factory_auth.clone())
     }
 }
 
@@ -472,6 +472,14 @@ impl Has<DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }>> for Proto
         &self,
     ) -> DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }> {
         DeployedScriptInfo::from(&self.deployed_validators.make_ve_order)
+    }
+}
+
+impl Has<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>> for ProtocolConfig {
+    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }> {
+        DeployedScriptInfo::from(&self.deployed_validators.extend_ve_order)
     }
 }
 

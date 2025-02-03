@@ -155,12 +155,12 @@ impl WeightingPoll {
         let epoch_end = epoch_end(genesis, self.epoch);
         let past_cooling_off_period =
             time_now > epoch_end + COOLDOWN_PERIOD_MILLIS + COOLDOWN_PERIOD_EXTRA_BUFFER;
-        trace!(
-            "past_cooling_off_period: {}, weighting_power_is_some(): {}, eliminated: {}",
-            past_cooling_off_period,
-            self.weighting_power.is_some(),
-            self.eliminated
-        );
+        //trace!(
+        //    "past_cooling_off_period: {}, weighting_power_is_some(): {}, eliminated: {}",
+        //    past_cooling_off_period,
+        //    self.weighting_power.is_some(),
+        //    self.eliminated
+        //);
         self.distribution_finished()
             && self.weighting_power.is_some()
             && !self.eliminated
@@ -222,21 +222,21 @@ impl WeightingPoll {
     fn weighting_open(&self, genesis: GenesisEpochStartTime, time_now: NetworkTime) -> bool {
         let e_start = epoch_start(genesis, self.epoch);
         let e_end = epoch_end(genesis, self.epoch);
-        if time_now > e_end {
-            trace!(
-                "epoch_start = {}, epoch_end = {} < time_now: {}",
-                e_start,
-                e_end,
-                time_now
-            );
-        } else {
-            trace!(
-                "epoch_start = {},  time_now: {} < epoch_end = {}",
-                e_start,
-                time_now,
-                e_end,
-            );
-        }
+        //if time_now > e_end {
+        //    trace!(
+        //        "epoch_start = {}, epoch_end = {} < time_now: {}",
+        //        e_start,
+        //        e_end,
+        //        time_now
+        //    );
+        //} else {
+        //    trace!(
+        //        "epoch_start = {},  time_now: {} < epoch_end = {}",
+        //        e_start,
+        //        time_now,
+        //        e_end,
+        //    );
+        //}
         e_start < time_now && e_end > time_now
     }
 

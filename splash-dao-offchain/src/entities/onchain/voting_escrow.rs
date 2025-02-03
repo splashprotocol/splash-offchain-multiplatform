@@ -325,7 +325,7 @@ pub enum VotingEscrowAction {
     /// Apply governance action.
     Governance,
     /// Add budget (ADA) to funds execution of Gov actions or increase lock time.
-    AddBudgetOrExtend,
+    AddBudgetOrExtend { ve_out_ix: u32 },
     /// Redeem liqudity for voting power.
     Redeem { ve_factory_in_ix: u32 },
 }
@@ -334,9 +334,9 @@ impl IntoPlutusData for VotingEscrowAction {
     fn into_pd(self) -> PlutusData {
         match self {
             VotingEscrowAction::Governance => PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![])),
-            VotingEscrowAction::AddBudgetOrExtend => {
-                PlutusData::ConstrPlutusData(ConstrPlutusData::new(1, vec![]))
-            }
+            VotingEscrowAction::AddBudgetOrExtend { ve_out_ix } => PlutusData::ConstrPlutusData(
+                ConstrPlutusData::new(1, vec![PlutusData::Integer(BigInteger::from(ve_out_ix))]),
+            ),
             VotingEscrowAction::Redeem { ve_factory_in_ix } => PlutusData::ConstrPlutusData(
                 ConstrPlutusData::new(2, vec![PlutusData::Integer(BigInteger::from(ve_factory_in_ix))]),
             ),
