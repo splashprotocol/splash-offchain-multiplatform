@@ -247,22 +247,31 @@ where
                     trace!("Try making voting escrow (epoch 0)");
 
                     let _ = self.try_make_voting_escrow().await;
-                    let WeightingInProgress {
-                        weighting_poll,
-                        next_pending_order,
-                    } = state;
-                    if let Some((order, bundle)) = next_pending_order {
-                        match order {
-                            Either::Left(voting_order) => {
-                                trace!("Try apply votes (epoch 0)");
-                                self.try_apply_votes(weighting_poll, (voting_order, bundle)).await
-                            }
-                            Either::Right(extend_ve_order) => {
-                                todo!()
-                            }
+
+                    match state {
+                        Some(NextPendingOrder::Voting {
+                            weighting_poll,
+                            order,
+                            ve_bundle,
+                        }) => {
+                            trace!("Try apply votes (epoch 0)");
+                            self.try_apply_votes(weighting_poll, (order, ve_bundle)).await
                         }
-                    } else {
-                        retry_in(DEF_DELAY)
+                        Some(NextPendingOrder::ExtendVotingEscrow {
+                            offchain_order,
+                            onchain_order,
+                            ve_factory_bundle,
+                            ve_bundle,
+                        }) => {
+                            trace!("Try extend voting_escrow (epoch 0)");
+                            self.try_extend_voting_escrow(
+                                ve_bundle,
+                                ve_factory_bundle,
+                                (offchain_order, onchain_order),
+                            )
+                            .await
+                        }
+                        None => retry_in(DEF_DELAY),
                     }
                 }
                 EpochRoutineState::DistributionInProgress(state) => {
@@ -284,23 +293,33 @@ where
                     self.try_create_wpoll(state).await
                 }
                 EpochRoutineState::WeightingInProgress(state) => {
-                    trace!("Try apply votes for current epoch");
-                    let WeightingInProgress {
-                        weighting_poll,
-                        next_pending_order,
-                    } = state;
-                    if let Some((order, bundle)) = next_pending_order {
-                        match order {
-                            Either::Left(voting_order) => {
-                                trace!("Try apply votes (epoch 0)");
-                                self.try_apply_votes(weighting_poll, (voting_order, bundle)).await
-                            }
-                            Either::Right(extend_ve_order) => {
-                                todo!()
-                            }
+                    trace!("Try making voting escrow");
+                    let _ = self.try_make_voting_escrow().await;
+
+                    match state {
+                        Some(NextPendingOrder::Voting {
+                            weighting_poll,
+                            order,
+                            ve_bundle,
+                        }) => {
+                            trace!("Try apply votes");
+                            self.try_apply_votes(weighting_poll, (order, ve_bundle)).await
                         }
-                    } else {
-                        retry_in(DEF_DELAY)
+                        Some(NextPendingOrder::ExtendVotingEscrow {
+                            offchain_order,
+                            onchain_order,
+                            ve_factory_bundle,
+                            ve_bundle,
+                        }) => {
+                            trace!("Try extend voting_escrow");
+                            self.try_extend_voting_escrow(
+                                ve_bundle,
+                                ve_factory_bundle,
+                                (offchain_order, onchain_order),
+                            )
+                            .await
+                        }
+                        None => retry_in(DEF_DELAY),
                     }
                 }
 
@@ -311,7 +330,10 @@ where
                 EpochRoutineState::DistributionInProgress(_) => unreachable!(),
                 EpochRoutineState::Eliminated => unreachable!(),
             },
-            Some(EpochRoutineState::PendingEliminatePoll(_)) => retry_in(DEF_DELAY),
+            Some(EpochRoutineState::PendingEliminatePoll(state)) => {
+                error!("eliminating wpoll of previous epoch");
+                self.try_eliminate_poll(state).await
+            }
             Some(EpochRoutineState::WeightingInProgress(_)) => unreachable!(),
             Some(EpochRoutineState::PendingCreatePoll(_)) => unreachable!(),
             Some(EpochRoutineState::Uninitialized) => unreachable!(),
@@ -505,22 +527,40 @@ impl<
     ) -> Option<(
         ExtendVotingEscrowOffChainOrder,
         Bundled<VotingEscrowSnapshot, Bearer>,
+        Bundled<VEFactorySnapshot, Bearer>,
+        ExtendVotingEscrowOrderBundle<Bearer>,
     )>
     where
+        EVE: ResilientBacklog<ExtendVotingEscrowOrderBundle<Bearer>> + Send + Sync,
         VE: StateProjectionRead<VotingEscrowSnapshot, Bearer> + Send + Sync,
+        VEF: StateProjectionRead<VEFactorySnapshot, Bearer> + Send + Sync,
         ExtendVEOrderBacklog: ResilientBacklog<ExtendVotingEscrowOffChainOrder> + Send + Sync,
         Bearer: std::fmt::Debug,
     {
         if let Some(ord) = self.extend_ve_order_backlog.try_pop().await {
-            let ve_id = ord.id.voting_escrow_id.0;
-            info!("Extending `voting_escrow` order with VE_identifier {}", ve_id);
-            self.voting_escrow
-                .read(VotingEscrowId::from(ord.id))
-                .await
-                .map(|ve| (ord, ve.erased()))
-        } else {
-            None
+            let mut orders = self
+                .eve_order_backlog
+                .find_orders(move |e| e.output_ref.output_ref == ord.order_output_ref)
+                .await;
+            if let Some(order_bundle) = orders.pop() {
+                assert!(orders.is_empty());
+                let ve_id = ord.id.voting_escrow_id.0;
+                info!("Extending `voting_escrow` order with VE_identifier {}", ve_id);
+                if let Some(ve_bundle) = self
+                    .voting_escrow
+                    .read(VotingEscrowId::from(ord.id))
+                    .await
+                    .map(|ve| ve.erased())
+                {
+                    if let Some(ve_factory_bundle) =
+                        self.ve_factory.read(VEFactoryId).await.map(|v| v.erased())
+                    {
+                        return Some((ord, ve_bundle, ve_factory_bundle, order_bundle));
+                    }
+                }
+            }
         }
+        None
     }
 
     async fn read_state(&self) -> RoutineState<Bearer>
@@ -529,6 +569,7 @@ impl<
         PF: StateProjectionRead<PollFactorySnapshot, Bearer> + Send + Sync,
         PM: StateProjectionRead<PermManagerSnapshot, Bearer> + Send + Sync,
         WP: StateProjectionRead<WeightingPollSnapshot, Bearer> + Send + Sync,
+        EVE: ResilientBacklog<ExtendVotingEscrowOrderBundle<Bearer>> + Send + Sync,
         VE: StateProjectionRead<VotingEscrowSnapshot, Bearer> + Send + Sync,
         SF: StateProjectionRead<SmartFarmSnapshot, Bearer> + Send + Sync,
         VEF: StateProjectionRead<VEFactorySnapshot, Bearer> + Send + Sync,
@@ -612,16 +653,24 @@ impl<
 
                         let next_pending_order = if let Some((order, bundle)) = self.next_voting_order().await
                         {
-                            Some((Either::Left(order), bundle))
+                            Some(NextPendingOrder::Voting {
+                                weighting_poll: wp,
+                                order,
+                                ve_bundle: bundle,
+                            })
                         } else {
-                            self.next_extend_voting_escrow_order()
-                                .await
-                                .map(|(order, bundle)| (Either::Right(order), bundle))
+                            self.next_extend_voting_escrow_order().await.map(
+                                |(offchain_order, ve_bundle, ve_factory_bundle, onchain_order)| {
+                                    NextPendingOrder::ExtendVotingEscrow {
+                                        offchain_order,
+                                        onchain_order,
+                                        ve_factory_bundle,
+                                        ve_bundle,
+                                    }
+                                },
+                            )
                         };
-                        EpochRoutineState::WeightingInProgress(WeightingInProgress {
-                            weighting_poll: wp,
-                            next_pending_order,
-                        })
+                        EpochRoutineState::WeightingInProgress(next_pending_order)
                     }
                     PollState::DistributionOngoing(_) => {
                         unreachable!("Impossible to distribute inflation on current epoch");
@@ -1027,8 +1076,8 @@ impl<
 
     async fn try_extend_voting_escrow(
         &mut self,
-        voting_escrow: AnyMod<Bundled<VotingEscrowSnapshot, Bearer>>,
-        ve_factory: AnyMod<Bundled<VEFactorySnapshot, Bearer>>,
+        voting_escrow: Bundled<VotingEscrowSnapshot, Bearer>,
+        ve_factory: Bundled<VEFactorySnapshot, Bearer>,
         next_order: (
             ExtendVotingEscrowOffChainOrder,
             ExtendVotingEscrowOrderBundle<Bearer>,
@@ -1055,8 +1104,8 @@ impl<
             .extend_voting_escrow(
                 onchain_bundle.clone(),
                 offchain_order.clone(),
-                voting_escrow.erased(),
-                ve_factory.erased(),
+                voting_escrow,
+                ve_factory,
                 Slot(current_slot),
             )
             .await
@@ -1114,7 +1163,7 @@ impl<
                 }
             }
             Err(e) => {
-                error!("`execute_order`: Inadmissible order, error: {:?}", e);
+                error!("`extend_voting_escrow`: Inadmissible order, error: {:?}", e);
                 // Here the order has been deemed inadmissible and so it will be removed.
                 self.extend_ve_order_backlog.remove(order_id).await;
             }
@@ -1332,7 +1381,9 @@ impl<
             match result {
                 Ok((signed_tx, next_ve_factory, next_ve)) => {
                     let prover = OperatorProver::new(self.conf.operator_sk.clone());
+                    println!("make_voting_escrow: trying to prove");
                     let outbound_tx = prover.prove(signed_tx);
+                    println!("make_voting_escrow: PROVED");
                     let tx = outbound_tx.clone();
                     let tx_hash = tx.body.hash();
                     info!("`make_voting_escrow`: submitting TX (hash: {})", tx_hash);
@@ -2109,7 +2160,7 @@ pub enum EpochRoutineState<Out> {
     /// and pour it with epochly emission.
     PendingCreatePoll(PendingCreatePoll<Out>),
     /// Weighting in progress, applying votes from GT holders.
-    WeightingInProgress(WeightingInProgress<Out>),
+    WeightingInProgress(Option<NextPendingOrder<Out>>),
     /// Weighting ended. Time to distribute inflation to farms pro-rata.
     DistributionInProgress(DistributionInProgress<Out>),
     /// Weighting ended. Awaiting start time to distribute inflation to farms pro-rata.
@@ -2133,12 +2184,19 @@ pub struct PendingCreatePoll<Out> {
     poll_factory: AnyMod<Bundled<PollFactorySnapshot, Out>>,
 }
 
-pub struct WeightingInProgress<Out> {
-    weighting_poll: AnyMod<Bundled<WeightingPollSnapshot, Out>>,
-    next_pending_order: Option<(
-        Either<VotingOrder, ExtendVotingEscrowOffChainOrder>,
-        Bundled<VotingEscrowSnapshot, Out>,
-    )>,
+pub enum NextPendingOrder<Out> {
+    Voting {
+        weighting_poll: AnyMod<Bundled<WeightingPollSnapshot, Out>>,
+        order: VotingOrder,
+        ve_bundle: Bundled<VotingEscrowSnapshot, Out>,
+    },
+
+    ExtendVotingEscrow {
+        offchain_order: ExtendVotingEscrowOffChainOrder,
+        onchain_order: ExtendVotingEscrowOrderBundle<Out>,
+        ve_factory_bundle: Bundled<VEFactorySnapshot, Out>,
+        ve_bundle: Bundled<VotingEscrowSnapshot, Out>,
+    },
 }
 
 pub struct DistributionInProgress<Out> {

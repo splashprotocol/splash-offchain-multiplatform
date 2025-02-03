@@ -6,7 +6,7 @@ use spectrum_offchain::{
     domain::order::UniqueOrder,
 };
 
-use crate::{entities::onchain::voting_escrow::VotingEscrowId, routines::inflation::TimedOutputRef};
+use crate::entities::onchain::voting_escrow::VotingEscrowId;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtendVotingEscrowOrderId {
@@ -23,12 +23,12 @@ impl From<ExtendVotingEscrowOrderId> for VotingEscrowId {
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtendVotingEscrowOffChainOrder {
+    /// Refers to id of `voting_escrow` in the OUTPUT i.e. the 'extended' VE.
     pub id: ExtendVotingEscrowOrderId,
     pub proof: Vec<u8>,
     pub witness: ScriptHash,
     pub witness_input: String,
-    pub version: u32,
-    pub order_output_ref: TimedOutputRef,
+    pub order_output_ref: OutputRef,
 }
 
 impl UniqueOrder for ExtendVotingEscrowOffChainOrder {

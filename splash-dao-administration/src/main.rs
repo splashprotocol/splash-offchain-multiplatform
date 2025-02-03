@@ -5,6 +5,7 @@ pub mod voting_order;
 use std::{
     collections::HashMap,
     net::SocketAddr,
+    str::FromStr,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -92,18 +93,6 @@ async fn main() {
 
     println!("Collateral output_ref: {}", op_inputs.collateral.reference());
     match args.command {
-        Command::SimulateUser {
-            ve_identifier_json_path,
-            assets_json_path,
-        } => {
-            user_simulator(
-                &mut op_inputs,
-                config,
-                &ve_identifier_json_path,
-                &assets_json_path,
-            )
-            .await;
-        }
         Command::SimulateUser {
             ve_identifier_json_path,
             assets_json_path,
@@ -846,7 +835,7 @@ async fn make_voting_escrow_order(
     tx_builder.add_output(mve_output).unwrap();
 
     let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
-    let actual_fee = estimated_tx_fee + 300_000;
+    let actual_fee = estimated_tx_fee + 310_000;
     let change_output = change_output_creator.create_change_output(actual_fee, addr.clone());
     tx_builder.add_output(change_output).unwrap();
     tx_builder
@@ -874,7 +863,7 @@ async fn extend_voting_escrow_order(
     voting_escrow_id: VotingEscrowId,
     ve_settings: &VotingEscrowSettings,
     op_inputs: &mut OperationInputs,
-) {
+) -> Owner {
     let OperationInputs {
         explorer,
         addr,
@@ -883,6 +872,7 @@ async fn extend_voting_escrow_order(
         collateral,
         prover,
         network_id,
+        owner_pub_key,
         ..
     } = op_inputs;
 
@@ -952,12 +942,15 @@ async fn extend_voting_escrow_order(
     .await
     {
         let ve = ve_snapshot.get();
+        let time_source = NetworkTimeSource;
+        let locked_until = Lock::Def((time_source.network_time().await + *lock_duration_in_seconds) * 1000);
+        // Note that this datum is for the newly extended `voting_escrow` (in the output)
         DatumOption::new_datum(
             VotingEscrowConfig {
-                locked_until: ve.locked_until,
+                locked_until, // Extend by old locktime duration.
                 owner: ve.owner,
                 max_ex_fee: ve.max_ex_fee,
-                version: ve.version,
+                version: ve.version + 1,
                 last_wp_epoch: ve.last_wp_epoch,
                 last_gp_deadline: ve.last_gp_deadline,
             }
@@ -1005,6 +998,9 @@ async fn extend_voting_escrow_order(
     explorer.submit_tx(&tx_bytes).await.unwrap();
     explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
     println!("TX confirmed");
+
+    let owner_bytes = owner_pub_key.to_raw_bytes().try_into().unwrap();
+    Owner::PubKey(owner_bytes)
 }
 
 async fn create_initial_farms(op_inputs: &OperationInputs) {
@@ -1309,7 +1305,7 @@ async fn pull_onchain_entity<'a, T, D>(
     id: T::StableId,
 ) -> Option<(T, TransactionUnspentOutput)>
 where
-    T: TryFromLedger<TransactionOutput, ProcessLedgerEntityContext<'a, D>> + EntitySnapshot,
+    T: TryFromLedger<TransactionOutput, ProcessLedgerEntityContext<'a, D>> + Stable,
 {
     let mut entity = None;
     let mut offset = 0u64;
@@ -1363,11 +1359,18 @@ async fn send_edao_token(op_inputs: &OperationInputs, destination_addr: String) 
         .expect(INCOMPLETE_DEPLOYMENT_ERR_MSG);
 
     let minted_tokens = &deployment_config.minted_deployment_tokens;
+    let splash_built_policy = BuiltPolicy {
+        policy_id: ScriptHash::from_hex("7876492e3b82a31b1ce97a8f454cec653a0f6be5c09b90e62d24c152").unwrap(),
+        asset_name: cml_chain::assets::AssetName::from(spectrum_cardano_lib::AssetName::utf8_unsafe(
+            "SPLASH".into(),
+        )),
+        quantity: BigInteger::from_str("63999980390000").unwrap(),
+    };
     let required_tokens = vec![minted_tokens.edao_msig.clone()];
     send_assets(
-        5_000_000,
-        1_800_000,
-        vec![],
+        31_000_000,
+        16_942_690,
+        vec![splash_built_policy],
         explorer,
         addr,
         &destination_addr,

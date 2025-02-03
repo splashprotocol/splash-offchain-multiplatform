@@ -1,7 +1,7 @@
 use crate::{
     deployment::{DaoScriptData, ProtocolValidator},
+    protocol_config::MintVECompositionPolicy,
     routines::inflation::TimedOutputRef,
-    util::make_constr_pd_indefinite_arr,
 };
 use cml_chain::{
     assets::AssetName,
@@ -11,15 +11,16 @@ use cml_chain::{
     PolicyId,
 };
 use cml_crypto::RawBytesEncoding;
+use log::error;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
-    plutus_data::{DatumExtension, IntoPlutusData},
+    plutus_data::{make_constr_pd_indefinite_arr, DatumExtension, IntoPlutusData},
     types::TryFromPData,
     OutputRef,
 };
 use spectrum_offchain::{
     backlog::data::{OrderWeight, Weighted},
-    domain::{order::UniqueOrder, Has},
+    domain::{order::UniqueOrder, Has, Stable},
     ledger::TryFromLedger,
 };
 use spectrum_offchain_cardano::{
@@ -28,7 +29,7 @@ use spectrum_offchain_cardano::{
 };
 use uplc_pallas_codec::utils::PlutusBytes;
 
-use super::voting_escrow::VotingEscrowConfig;
+use super::voting_escrow::{Owner, VotingEscrowConfig};
 
 #[derive(Hash, PartialEq, Eq, Serialize, Deserialize, Clone, Debug)]
 pub struct ExtendVotingEscrowOrderBundle<Bearer> {
@@ -69,7 +70,7 @@ pub struct ExtendVotingEscrowOnchainOrder {
 
 impl<C> TryFromLedger<TransactionOutput, C> for ExtendVotingEscrowOnchainOrder
 where
-    C: Has<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>>,
+    C: Has<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>> + Has<MintVECompositionPolicy>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
@@ -80,6 +81,19 @@ where
     }
 }
 
+impl Stable for ExtendVotingEscrowOnchainOrder {
+    type StableId = Owner;
+
+    fn stable_id(&self) -> Self::StableId {
+        self.ve_datum.owner
+    }
+
+    fn is_quasi_permanent(&self) -> bool {
+        true
+    }
+}
+
+#[derive(Clone)]
 pub enum ExtendVotingEscrowOrderAction {
     Extend {
         order_input_ix: u32,

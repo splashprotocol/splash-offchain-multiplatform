@@ -11,7 +11,9 @@ use type_equalities::IsEqual;
 
 use crate::{
     constants::DAO_SCRIPT_BYTES,
-    protocol_config::{GTAuthPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy, VEFactoryAuthPolicy},
+    protocol_config::{
+        GTAuthPolicy, MintVECompositionPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy, VEFactoryAuthPolicy,
+    },
     GenesisEpochStartTime,
 };
 
@@ -236,13 +238,19 @@ pub struct CompleteDeployment {
 
 impl Has<VEFactoryAuthPolicy> for CompleteDeployment {
     fn select<U: IsEqual<VEFactoryAuthPolicy>>(&self) -> VEFactoryAuthPolicy {
-        VEFactoryAuthPolicy(self.minted_deployment_tokens.ve_factory_auth.policy_id)
+        VEFactoryAuthPolicy(self.minted_deployment_tokens.ve_factory_auth.clone())
     }
 }
 
 impl Has<MintVEIdentifierPolicy> for CompleteDeployment {
     fn select<U: IsEqual<MintVEIdentifierPolicy>>(&self) -> MintVEIdentifierPolicy {
         MintVEIdentifierPolicy(self.deployed_validators.mint_identifier.hash)
+    }
+}
+
+impl Has<MintVECompositionPolicy> for CompleteDeployment {
+    fn select<U: IsEqual<MintVECompositionPolicy>>(&self) -> MintVECompositionPolicy {
+        MintVECompositionPolicy(self.deployed_validators.mint_ve_composition_token.hash)
     }
 }
 
@@ -291,6 +299,14 @@ impl Has<DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }>> for Comp
         &self,
     ) -> DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }> {
         DeployedScriptInfo::from(&self.deployed_validators.voting_escrow)
+    }
+}
+
+impl Has<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>> for CompleteDeployment {
+    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }> {
+        DeployedScriptInfo::from(&self.deployed_validators.extend_ve_order)
     }
 }
 

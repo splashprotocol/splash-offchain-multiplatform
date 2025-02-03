@@ -7,6 +7,7 @@ use cml_chain::utils::BigInteger;
 use cml_chain::{LenEncoding, PolicyId, Serialize};
 use cml_crypto::{PrivateKey, RawBytesEncoding, ScriptHash};
 use rand::Rng;
+use spectrum_cardano_lib::plutus_data::make_constr_pd_indefinite_arr;
 use splash_dao_offchain::deployment::DaoScriptData;
 use splash_dao_offchain::entities::offchain::compute_voting_escrow_witness_message;
 use splash_dao_offchain::entities::{
@@ -14,7 +15,6 @@ use splash_dao_offchain::entities::{
     onchain::smart_farm::FarmId,
 };
 use splash_dao_offchain::routines::inflation::actions::{compute_epoch_asset_name, compute_farm_name};
-use splash_dao_offchain::util::make_constr_pd_indefinite_arr;
 use uplc_pallas_primitives::Fragment;
 
 pub fn create_voting_order(
@@ -175,6 +175,7 @@ fn make_witness_redeemer(
 mod tests {
     use cml_chain::plutus::PlutusData;
     use cml_chain::Deserialize;
+    use cml_chain::PolicyId;
     use cml_chain::Serialize;
     use cml_crypto::RawBytesEncoding;
     use cml_crypto::ScriptHash;
@@ -185,6 +186,7 @@ mod tests {
     use splash_dao_offchain::routines::inflation::actions::compute_farm_name;
     use uplc_pallas_primitives::Fragment;
 
+    use crate::mint_token::script_address;
     use crate::OperatorProver;
 
     use super::make_cml_witness_redeemer;
@@ -240,5 +242,12 @@ mod tests {
         }
 
         dist
+    }
+
+    #[test]
+    fn check_mve_script_hash() {
+        let sh = PolicyId::from_hex("769e29179e68f8d0b78880ede54a0efe72d2d108284dc117e38dbcec").unwrap();
+        let addr = script_address(sh, NetworkId::from(0));
+        println!("{}", addr.to_bech32(None).unwrap());
     }
 }
