@@ -1359,18 +1359,11 @@ async fn send_edao_token(op_inputs: &OperationInputs, destination_addr: String) 
         .expect(INCOMPLETE_DEPLOYMENT_ERR_MSG);
 
     let minted_tokens = &deployment_config.minted_deployment_tokens;
-    let splash_built_policy = BuiltPolicy {
-        policy_id: ScriptHash::from_hex("7876492e3b82a31b1ce97a8f454cec653a0f6be5c09b90e62d24c152").unwrap(),
-        asset_name: cml_chain::assets::AssetName::from(spectrum_cardano_lib::AssetName::utf8_unsafe(
-            "SPLASH".into(),
-        )),
-        quantity: BigInteger::from_str("63999980390000").unwrap(),
-    };
     let required_tokens = vec![minted_tokens.edao_msig.clone()];
     send_assets(
-        31_000_000,
-        16_942_690,
-        vec![splash_built_policy],
+        5_000_000,
+        1_800_000,
+        required_tokens,
         explorer,
         addr,
         &destination_addr,
@@ -1389,13 +1382,6 @@ async fn register_witness_staking_addr(op_inputs: &OperationInputs, script_hash_
         ..
     } = op_inputs;
     let staking_validator_script_hash = ScriptHash::from_hex(&script_hash_hex).unwrap();
-    //println!(
-    //    "ZZZZ: {}",
-    //    hex::encode(vec![
-    //        158, 118, 55, 184, 13, 29, 242, 39, 236, 32, 97, 168, 142, 119, 32, 223, 131, 28, 159, 233, 162,
-    //        22, 58, 3, 52, 9, 157, 158
-    //    ])
-    //);
     register_staking_address(
         14_000_000,
         8_030_000,

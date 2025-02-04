@@ -16,8 +16,8 @@ use weighting_poll::{WeightingPoll, WeightingPollSnapshot};
 use crate::{
     deployment::ProtocolValidator,
     protocol_config::{
-        FarmAuthPolicy, GTAuthPolicy, MintVECompositionPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy,
-        OperatorCreds, PermManagerAuthPolicy, SplashPolicy, VEFactoryAuthPolicy,
+        FarmAuthPolicy, GTAuthPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy, OperatorCreds,
+        PermManagerAuthPolicy, SplashPolicy, VEFactoryAuthPolicy,
     },
     routines::inflation::{TimedOutputRef, WeightingPollEliminated},
     CurrentEpoch, GenesisEpochStartTime,
@@ -61,7 +61,6 @@ where
         + Has<FarmAuthPolicy>
         + Has<VEFactoryAuthPolicy>
         + Has<MintVEIdentifierPolicy>
-        + Has<MintVECompositionPolicy>
         + Has<GenesisEpochStartTime>
         + Has<GTAuthPolicy>
         + Has<CurrentEpoch>

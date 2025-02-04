@@ -182,7 +182,6 @@ pub async fn user_simulator<'a>(
                         // wait until epoch's ended (or add funds, vote on proposal)
                         let version = ve_snapshot.get().version as u64;
                         let last_wp_epoch = ve_snapshot.get().last_wp_epoch;
-                        // assert_eq!(epoch as i32, last_wp_epoch);
                         if last_wp_epoch < current_epoch as i32 {
                             println!(
                                 "Voting from state {:?} in epoch {}, version: {}",
