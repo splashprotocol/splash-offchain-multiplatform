@@ -243,11 +243,4 @@ mod tests {
 
         dist
     }
-
-    #[test]
-    fn check_mve_script_hash() {
-        let sh = PolicyId::from_hex("769e29179e68f8d0b78880ede54a0efe72d2d108284dc117e38dbcec").unwrap();
-        let addr = script_address(sh, NetworkId::from(0));
-        println!("{}", addr.to_bech32(None).unwrap());
-    }
 }

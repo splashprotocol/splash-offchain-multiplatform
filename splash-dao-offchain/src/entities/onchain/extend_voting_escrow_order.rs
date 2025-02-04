@@ -70,7 +70,7 @@ pub struct ExtendVotingEscrowOnchainOrder {
 
 impl<C> TryFromLedger<TransactionOutput, C> for ExtendVotingEscrowOnchainOrder
 where
-    C: Has<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>> + Has<MintVECompositionPolicy>,
+    C: Has<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
