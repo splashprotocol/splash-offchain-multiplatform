@@ -72,11 +72,11 @@ impl<TxHash, Tx> PendingTxs<TxHash, Tx> {
                 }
                 break;
             }
-            //trace!(
-            //    "[TxTracker] Queue size: {}, pending transactions: {}",
-            //    self.queue.len(),
-            //    self.index.len()
-            //);
+            trace!(
+                "[TxTracker] Queue size: {}, pending transactions: {}",
+                self.queue.len(),
+                self.index.len()
+            );
             return Some(failed_txs);
         }
         None
