@@ -46,6 +46,9 @@ pub(crate) const EVENTS_CF: &str = "events";
 // Accounts
 pub(crate) const ACCOUNTS_CF: &str = "accounts";
 
+// Active farms
+pub(crate) const ACTIVE_FARMS_CF: &str = "farms";
+
 // Aggregate data
 pub(crate) const AGGREGATE_CF: &str = "aggregates";
 

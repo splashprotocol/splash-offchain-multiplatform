@@ -1,12 +1,12 @@
 use crate::db::event_log::EventLog;
-use crate::event::LpEvent;
+use crate::event::Event;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use futures::Stream;
 use futures::StreamExt;
 
 pub async fn log_lp_events<U, Log>(upstream: U, log: &Log)
 where
-    U: Stream<Item = (BlockEvents<LpEvent>, TransactionHandle)>,
+    U: Stream<Item = (BlockEvents<Event>, TransactionHandle)>,
     Log: EventLog,
 {
     upstream
@@ -17,7 +17,7 @@ where
         .await
 }
 
-async fn log_event<Log>(events: BlockEvents<LpEvent>, log: &Log)
+async fn log_event<Log>(events: BlockEvents<Event>, log: &Log)
 where
     Log: EventLog,
 {
