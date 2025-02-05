@@ -1,7 +1,7 @@
 use crate::config::AppConfig;
 use crate::context::Context;
 use crate::db::RocksDB;
-use crate::event::LpEvent;
+use crate::event::Event;
 use crate::pipeline::{log_events, update_accounts};
 use async_primitives::beacon::Beacon;
 use bloom_offchain::execution_engine::bundled::Bundled;
@@ -135,7 +135,7 @@ async fn main() {
     let log_events_handle = tokio::spawn(log_events(block_events, db.clone(), cx, index, filter));
     processes.push(log_events_handle);
 
-    let update_accounts_handle = tokio::spawn(update_accounts(db, 0, config.confirmation_delay_blocks));
+    let update_accounts_handle = tokio::spawn(update_accounts(db, config.confirmation_delay_blocks));
     processes.push(update_accounts_handle);
 
     let default_panic = std::panic::take_hook();
