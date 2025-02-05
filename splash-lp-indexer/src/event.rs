@@ -1,6 +1,7 @@
 use crate::tx_view::TxViewPartiallyResolved;
 use cml_chain::address::Address;
 use cml_chain::certs::Credential;
+use cml_core::Slot;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::{AssetClass, Token};
@@ -15,33 +16,102 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
 };
 
 #[derive(Serialize, Deserialize)]
-pub enum LpEvent {
+pub enum Event {
+    Account(AccountEvent),
+    FarmEvent(FarmEvent),
+}
+
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for Event
+where
+    Cx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+        + Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>
+        + Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>
+        + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
+        + Has<PoolValidation>,
+{
+    fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
+        todo!()
+    }
+}
+
+impl Event {
+    pub fn pool_id(&self) -> PoolId {
+        match self {
+            Event::Account(dr) => dr.pool_id(),
+            Event::FarmEvent(fe) => fe.pool_id(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum AccountEvent {
+    Position(PositionEvent),
+    Harvest(Harvest),
+}
+
+impl AccountEvent {
+    pub fn pool_id(&self) -> PoolId {
+        match self {
+            AccountEvent::Position(d) => d.pool_id(),
+            AccountEvent::Harvest(h) => h.pool_id,
+        }
+    }
+    pub fn account(&self) -> Credential {
+        match self {
+            AccountEvent::Position(d) => d.account(),
+            AccountEvent::Harvest(h) => h.account.clone(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum PositionEvent {
     Deposit(Deposit),
     Redeem(Redeem),
 }
 
-impl LpEvent {
-    pub fn account(&self) -> Credential {
-        match self {
-            LpEvent::Deposit(d) => d.account.clone(),
-            LpEvent::Redeem(r) => r.account.clone(),
-        }
-    }
+impl PositionEvent {
     pub fn pool_id(&self) -> PoolId {
         match self {
-            LpEvent::Deposit(d) => d.pool_id,
-            LpEvent::Redeem(r) => r.pool_id,
+            PositionEvent::Deposit(d) => d.pool_id,
+            PositionEvent::Redeem(r) => r.pool_id,
+        }
+    }
+    pub fn account(&self) -> Credential {
+        match self {
+            PositionEvent::Deposit(d) => d.account.clone(),
+            PositionEvent::Redeem(r) => r.account.clone(),
         }
     }
     pub fn lp_supply(&self) -> u64 {
         match self {
-            LpEvent::Deposit(d) => d.lp_supply,
-            LpEvent::Redeem(r) => r.lp_supply,
+            PositionEvent::Deposit(d) => d.lp_supply,
+            PositionEvent::Redeem(r) => r.lp_supply,
         }
     }
 }
 
-impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for LpEvent
+#[derive(Serialize, Deserialize)]
+pub enum FarmEvent {
+    FarmActivation(FarmActivation),
+    FarmDeactivation(FarmDeactivation),
+}
+
+impl FarmEvent {
+    pub fn pool_id(&self) -> PoolId {
+        match self {
+            FarmEvent::FarmActivation(a) => a.pool_id,
+            FarmEvent::FarmDeactivation(d) => d.pool_id,
+        }
+    }
+}
+
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for PositionEvent
 where
     Cx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
@@ -61,14 +131,14 @@ where
                 if let Some(account) = find_lp_recv(pool.lp_asset.into_token().unwrap(), repr) {
                     let account = account.payment_cred().unwrap().clone();
                     return Some(if plus_sign {
-                        LpEvent::Deposit(Deposit {
+                        PositionEvent::Deposit(Deposit {
                             pool_id: pool.pool_id,
                             account,
                             lp_mint: diff,
                             lp_supply: pool.lp_supply,
                         })
                     } else {
-                        LpEvent::Redeem(Redeem {
+                        PositionEvent::Redeem(Redeem {
                             pool_id: pool.pool_id,
                             account,
                             lp_burned: diff,
@@ -162,12 +232,34 @@ pub struct Redeem {
 
 #[derive(Serialize, Deserialize)]
 pub struct Harvest {
-    pool_id: PoolId,
-    account: Credential,
-    rewards: Vec<(AssetClass, u64)>,
+    pub pool_id: PoolId,
+    pub account: Credential,
+    pub harvested_till: Slot,
 }
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for Harvest {
+    fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
+        todo!()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct FarmActivation {
+    pool_id: PoolId,
+}
+
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for FarmActivation {
+    fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
+        todo!()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct FarmDeactivation {
+    pool_id: PoolId,
+}
+
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for FarmDeactivation {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         todo!()
     }
