@@ -1,5 +1,5 @@
-use crate::db::accounts::Accounts;
 use crate::db::event_log::EventLog;
+use crate::db::mature_events::MatureEvents;
 use crate::pipeline::log_events::log_lp_events;
 use crate::pipeline::read_events::read_events;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
@@ -56,9 +56,9 @@ pub async fn log_events<U, Log, Cx, Index>(
     .await
 }
 
-pub async fn update_accounts<DB: Accounts>(db: DB, confirmation_delay_blocks: u64) {
+pub async fn update_accounts<DB: MatureEvents>(db: DB, confirmation_delay_blocks: u64) {
     loop {
-        if !db.try_update_accounts(confirmation_delay_blocks).await {
+        if !db.try_process_mature_events(confirmation_delay_blocks).await {
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         }
     }

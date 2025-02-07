@@ -15,7 +15,7 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, RoyaltyPoolV1, StableFnPoolT2T,
 };
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum Event {
     Account(AccountEvent),
     FarmEvent(FarmEvent),
@@ -48,7 +48,7 @@ impl Event {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum AccountEvent {
     Position(PositionEvent),
     Harvest(Harvest),
@@ -69,7 +69,7 @@ impl AccountEvent {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum PositionEvent {
     Deposit(Deposit),
     Redeem(Redeem),
@@ -96,7 +96,7 @@ impl PositionEvent {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum FarmEvent {
     FarmActivation(FarmActivation),
     FarmDeactivation(FarmDeactivation),
@@ -204,7 +204,7 @@ where
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct Deposit {
     pub pool_id: PoolId,
     pub account: Credential,
@@ -222,7 +222,7 @@ fn find_lp_recv(Token(pol, tn): Token, tx: &TxViewPartiallyResolved) -> Option<A
     })
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct Redeem {
     pub pool_id: PoolId,
     pub account: Credential,
@@ -230,7 +230,7 @@ pub struct Redeem {
     pub lp_supply: u64,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct Harvest {
     pub pool_id: PoolId,
     pub account: Credential,
@@ -243,7 +243,7 @@ impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for Harvest {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct FarmActivation {
     pool_id: PoolId,
 }
@@ -254,7 +254,7 @@ impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for FarmActivation {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct FarmDeactivation {
     pool_id: PoolId,
 }
@@ -263,4 +263,11 @@ impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for FarmDeactivation {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         todo!()
     }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct SuspendedPositionEvents {
+    pub current_slot: Slot,
+    pub total_lq: u64,
+    pub events: Vec<PositionEvent>,
 }
