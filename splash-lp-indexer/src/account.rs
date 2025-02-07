@@ -1,8 +1,6 @@
-use crate::event::{Harvest, PositionEvent};
+use crate::event::{Harvest, PositionEvent, SuspendedPositionEvents};
 use cml_core::Slot;
 use serde::{Deserialize, Serialize};
-
-// todo: harvest processing
 
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Debug)]
 pub struct AccountInPool {
@@ -12,6 +10,7 @@ pub struct AccountInPool {
     share: (u64, u64),
     updated_at: Slot,
     activated_at: Option<Slot>,
+    pub locked_at: Option<Slot>,
 }
 
 impl AccountInPool {
@@ -21,11 +20,12 @@ impl AccountInPool {
             share: (0, 1),
             updated_at: current_slot,
             activated_at: if activated { Some(current_slot) } else { None },
+            locked_at: None,
         }
     }
 
     pub fn activated(mut self, slot: Slot) -> Self {
-        self.activated_at = Some(slot);
+        self.activated_at.replace(slot);
         self
     }
 
@@ -34,22 +34,45 @@ impl AccountInPool {
         self
     }
 
-    pub fn harvested(mut self, harvest: Harvest) -> Self {
-        match self.activated_at {
-            None => self,
-            Some(ref mut activated_at) => {
-                *activated_at = harvest.harvested_till;
-                self
-            }
-        }
+    // Lock account before harvesting.
+    pub fn lock(mut self, current_slot: Slot) -> Self {
+        self.locked_at.replace(current_slot);
+        self
     }
 
-    pub fn position_adjusted(
+    // Unlock if harvest failed.
+    pub fn unlock(mut self, delayed_events: Vec<SuspendedPositionEvents>) -> Self {
+        self.locked_at = None;
+        delayed_events.into_iter().fold(self, |acc, de| {
+            acc.try_adjust_position(de.current_slot, de.total_lq, de.events)
+                .unwrap()
+        })
+    }
+
+    // Process harvest event if harvest succeeded.
+    pub fn harvest(mut self, delayed_events: Vec<SuspendedPositionEvents>, harvest: Harvest) -> Self {
+        if let Some(ref mut activated_at) = self.activated_at {
+            *activated_at = harvest.harvested_till;
+        };
+        self.unlock(delayed_events)
+    }
+
+    pub fn try_adjust_position(
         mut self,
         current_slot: Slot,
         total_lq: u64,
         events: Vec<PositionEvent>,
-    ) -> Self {
+    ) -> Result<Self, (Self, SuspendedPositionEvents)> {
+        if self.locked_at.is_some() {
+            return Err((
+                self,
+                SuspendedPositionEvents {
+                    current_slot,
+                    total_lq,
+                    events,
+                },
+            ));
+        }
         if let Some(activated_at) = self.activated_at {
             let prev_avg_share_bps = self.avg_share_bps;
             let past_period_weight = self.updated_at - activated_at;
@@ -68,7 +91,7 @@ impl AccountInPool {
         });
         self.share = (new_abs_share, total_lq);
         self.updated_at = current_slot;
-        self
+        Ok(self)
     }
 
     fn share_bps(&self) -> u64 {
@@ -97,15 +120,16 @@ mod tests {
             lp_mint: personal_position_lq,
             lp_supply: total_lq,
         })];
-        let init_acc = acc.position_adjusted(s0, total_lq, events);
+        let init_acc = acc.try_adjust_position(s0, total_lq, events);
         assert_eq!(
             init_acc,
-            AccountInPool {
+            Ok(AccountInPool {
                 avg_share_bps: 0,
                 share: (personal_position_lq, total_lq),
                 updated_at: s0,
                 activated_at: Some(s0),
-            }
+                locked_at: None,
+            })
         )
     }
 
@@ -125,7 +149,7 @@ mod tests {
             lp_mint: personal_delta_lq_0,
             lp_supply: total_lq_0,
         })];
-        let init_acc = acc.position_adjusted(s0, total_lq_0, events_0);
+        let init_acc = acc.try_adjust_position(s0, total_lq_0, events_0).unwrap();
         let personal_delta_lq_1 = 500_000;
         let total_lq_1 = 4_000_000;
         let events_1 = vec![PositionEvent::Deposit(Deposit {
@@ -134,16 +158,16 @@ mod tests {
             lp_mint: personal_delta_lq_1,
             lp_supply: total_lq_1,
         })];
-        let updated_acc_0 = init_acc.position_adjusted(s1, total_lq_1, events_1);
+        let updated_acc_0 = init_acc.try_adjust_position(s1, total_lq_1, events_1).unwrap();
         let personal_delta_lq_2 = 1_000_000;
         let total_lq_2 = 4_000_000;
         let events_2 = vec![PositionEvent::Deposit(Deposit {
             pool_id: pid,
             account: account_key,
-            lp_mint: personal_delta_lq_1,
-            lp_supply: total_lq_1,
+            lp_mint: personal_delta_lq_2,
+            lp_supply: total_lq_2,
         })];
-        let updated_acc_1 = updated_acc_0.position_adjusted(s2, total_lq_1, events_2);
+        let updated_acc_1 = updated_acc_0.try_adjust_position(s2, total_lq_2, events_2);
         dbg!(updated_acc_1);
     }
 }

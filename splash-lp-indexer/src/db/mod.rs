@@ -1,12 +1,15 @@
 use cml_chain::certs::Credential;
 use cml_core::Slot;
-use rocksdb::{Options, TransactionDBOptions};
+use rocksdb::{
+    ColumnFamily, DBIteratorWithThreadMode, Direction, IteratorMode, Options, ReadOptions, TransactionDB,
+    TransactionDBOptions,
+};
 use spectrum_offchain_cardano::data::PoolId;
 use std::string::ToString;
 use std::sync::Arc;
 
-pub mod accounts;
 pub mod event_log;
+pub mod mature_events;
 
 #[derive(Clone)]
 pub struct RocksDB {
@@ -24,19 +27,37 @@ impl RocksDB {
     }
 }
 
-fn account_key(pool_id: PoolId, credential: Credential) -> Vec<u8> {
+pub(crate) fn get_range_iterator<'a: 'b, 'b>(
+    db: &'a Arc<TransactionDB>,
+    cf: &ColumnFamily,
+    prefix: Vec<u8>,
+) -> DBIteratorWithThreadMode<'b, TransactionDB> {
+    let mut readopts = ReadOptions::default();
+    readopts.set_iterate_range(rocksdb::PrefixRange(prefix.clone()));
+    db.iterator_cf_opt(cf, readopts, IteratorMode::From(&prefix, Direction::Forward))
+}
+
+pub(crate) fn account_key(pool_id: PoolId, credential: Credential) -> Vec<u8> {
     rmp_serde::to_vec(&(pool_id, credential)).unwrap()
 }
 
-fn from_account_key(key: Vec<u8>) -> Option<(PoolId, Credential)> {
+pub(crate) fn from_account_key(key: Vec<u8>) -> Option<(PoolId, Credential)> {
     rmp_serde::from_slice(&key).ok()
 }
 
-fn event_key(slot: Slot, event_index: usize) -> Vec<u8> {
+pub(crate) fn event_key(slot: Slot, event_index: usize) -> Vec<u8> {
     rmp_serde::to_vec(&(slot, event_index)).unwrap()
 }
 
-fn from_event_key(key: Vec<u8>) -> Option<(Slot, usize)> {
+pub(crate) fn from_event_key(key: Vec<u8>) -> Option<(Slot, usize)> {
+    rmp_serde::from_slice(&key).ok()
+}
+
+pub(crate) fn sus_event_key(cred: Credential, slot: Slot) -> Vec<u8> {
+    rmp_serde::to_vec(&(cred, slot)).unwrap()
+}
+
+pub(crate) fn from_sus_event_key(key: Vec<u8>) -> Option<(Credential, Slot)> {
     rmp_serde::from_slice(&key).ok()
 }
 
@@ -51,5 +72,7 @@ pub(crate) const ACTIVE_FARMS_CF: &str = "farms";
 
 // Aggregate data
 pub(crate) const AGGREGATE_CF: &str = "aggregates";
+
+pub(crate) const SUS_EVENTS_CF: &str = "sus_events";
 
 pub(crate) const MAX_BLOCK_KEY: [u8; 4] = [0u8; 4];
