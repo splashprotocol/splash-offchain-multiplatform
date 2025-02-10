@@ -91,9 +91,9 @@ fn create_error_response(code: ProcessingErrorCode) -> HttpResponse {
         code,
     };
     let body = serde_json::to_string(&parsing_error).unwrap();
-    return HttpResponse::BadRequest()
+    HttpResponse::BadRequest()
         .content_type(ContentType::json())
-        .body(body);
+        .body(body)
 }
 
 #[post("/auth")]

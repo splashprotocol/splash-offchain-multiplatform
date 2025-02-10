@@ -1,12 +1,13 @@
 use crate::account::AccountInPool;
 use crate::db::{
-    account_key, from_account_key, from_event_key, get_range_iterator, sus_event_key, RocksDB, ACCOUNTS_CF,
-    ACTIVE_FARMS_CF, AGGREGATE_CF, EVENTS_CF, MAX_BLOCK_KEY, SUS_EVENTS_CF,
+    account_key, cred_index_key, from_account_key, from_event_key, get_range_iterator, sus_event_key,
+    RocksDB, ACCOUNTS_CF, ACTIVE_FARMS_CF, AGGREGATE_CF, CREDS_INDEX_CF, EVENTS_CF, MAX_BLOCK_KEY,
+    SUS_EVENTS_CF,
 };
 use crate::event::{AccountEvent, Event, FarmEvent, Harvest, PositionEvent, SuspendedPositionEvents};
 use async_trait::async_trait;
 use cml_chain::certs::Credential;
-use rocksdb::{Direction, IteratorMode, ReadOptions};
+use rocksdb::{IteratorMode, ReadOptions};
 use spectrum_offchain_cardano::data::PoolId;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
@@ -51,6 +52,7 @@ impl MatureEvents for RocksDB {
                         tx.delete_cf(events_cf, event_key).unwrap();
                     }
                     let accounts_cf = db.cf_handle(ACCOUNTS_CF).unwrap();
+                    let cred_index_cf = db.cf_handle(CREDS_INDEX_CF).unwrap();
                     let frames = aggregate_events(events);
                     for (pool, mut pool_frame) in frames {
                         let pool_key = rmp_serde::to_vec(&pool).unwrap();
@@ -96,6 +98,7 @@ impl MatureEvents for RocksDB {
                             }
                             accounts_for_update.insert(account_cred, (updated_account, account_frame));
                         }
+                        // Left events relate to yet non-existent accounts
                         for (new_account_key, account_frame) in pool_frame.account_frames {
                             accounts_for_update.insert(
                                 new_account_key,
@@ -137,7 +140,8 @@ impl MatureEvents for RocksDB {
                             ) {
                                 Ok(next) => next,
                                 Err((intact_account_state, suspended_events)) => {
-                                    let suspended_events_key = sus_event_key(account_cred, current_slot);
+                                    let suspended_events_key =
+                                        sus_event_key(account_cred.clone(), current_slot);
                                     let suspended_events_value =
                                         rmp_serde::to_vec_named(&suspended_events).unwrap();
                                     tx.put_cf(
@@ -152,6 +156,8 @@ impl MatureEvents for RocksDB {
                             let updated_account_value = rmp_serde::to_vec_named(&next_account_state).unwrap();
                             tx.put_cf(accounts_cf, account_key, updated_account_value)
                                 .unwrap();
+                            let cred_index = cred_index_key(account_cred, pool);
+                            tx.put_cf(cred_index_cf, cred_index, vec![]).unwrap();
                         }
                     }
                 }
