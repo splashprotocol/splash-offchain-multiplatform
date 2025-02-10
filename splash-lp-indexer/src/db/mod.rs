@@ -8,6 +8,7 @@ use spectrum_offchain_cardano::data::PoolId;
 use std::string::ToString;
 use std::sync::Arc;
 
+mod accounts;
 pub mod event_log;
 pub mod mature_events;
 
@@ -61,6 +62,18 @@ pub(crate) fn from_sus_event_key(key: Vec<u8>) -> Option<(Credential, Slot)> {
     rmp_serde::from_slice(&key).ok()
 }
 
+pub(crate) fn cred_index_key(credential: Credential, pool_id: PoolId) -> Vec<u8> {
+    rmp_serde::to_vec(&(credential, pool_id)).unwrap()
+}
+
+pub(crate) fn cred_index_prefix(credential: Credential) -> Vec<u8> {
+    rmp_serde::to_vec(&credential).unwrap()
+}
+
+pub(crate) fn from_cred_index_key(key: Vec<u8>) -> Option<(Credential, PoolId)> {
+    rmp_serde::from_slice(&key).ok()
+}
+
 // Unconfirmed LP events
 pub(crate) const EVENTS_CF: &str = "events";
 
@@ -74,5 +87,7 @@ pub(crate) const ACTIVE_FARMS_CF: &str = "farms";
 pub(crate) const AGGREGATE_CF: &str = "aggregates";
 
 pub(crate) const SUS_EVENTS_CF: &str = "sus_events";
+
+pub(crate) const CREDS_INDEX_CF: &str = "creds_index";
 
 pub(crate) const MAX_BLOCK_KEY: [u8; 4] = [0u8; 4];
