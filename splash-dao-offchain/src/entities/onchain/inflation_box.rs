@@ -12,8 +12,9 @@ use spectrum_cardano_lib::TaggedAmount;
 use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
-use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
-use uplc_pallas_codec::utils::{Int, PlutusBytes};
+use spectrum_offchain_cardano::parametrized_validators::apply_params_validator_plutus_v2;
+use uplc_pallas_codec::utils::Int;
+use uplc_pallas_primitives::{BoundedBytes, MaybeIndefArray};
 
 use crate::assets::Splash;
 use crate::constants::time::EPOCH_BOUNDARY_SHIFT;
@@ -135,14 +136,14 @@ pub fn compute_inflation_box_validator(
     weighting_power_policy: PolicyId,
     zeroth_epoch_start: u64,
 ) -> PlutusV2Script {
-    let params_pd = uplc::PlutusData::Array(vec![
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(inflation_auth_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(splash_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(wp_auth_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(weighting_power_policy.to_raw_bytes().to_vec())),
+    let params_pd = uplc::PlutusData::Array(MaybeIndefArray::Indef(vec![
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(inflation_auth_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(splash_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(wp_auth_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(weighting_power_policy.to_raw_bytes().to_vec())),
         uplc::PlutusData::BigInt(uplc::BigInt::Int(Int::from(zeroth_epoch_start as i64))),
-    ]);
-    apply_params_validator(params_pd, &DaoScriptData::global().inflation.script_bytes)
+    ]));
+    apply_params_validator_plutus_v2(params_pd, &DaoScriptData::global().inflation.script_bytes)
 }
 
 #[cfg(test)]

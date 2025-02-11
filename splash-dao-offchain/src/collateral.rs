@@ -10,7 +10,7 @@ use cml_chain::{
         witness_builder::{PartialPlutusWitness, PlutusScriptWitness},
     },
     certs::{Certificate, Credential},
-    plutus::{ConstrPlutusData, PlutusData, PlutusScript, PlutusV2Script},
+    plutus::{ConstrPlutusData, PlutusData, PlutusScript, PlutusV2Script, PlutusV3Script},
     transaction::Transaction,
     utils::BigInteger,
     Serialize, Value,
@@ -140,11 +140,10 @@ where
 }
 
 pub async fn register_staking_address<Net: CardanoNetwork, TX>(
+    script: PlutusScript,
     coin_before_change_deduction: u64,
-    change_output_coin: u64,
     explorer: &Net,
     wallet_addr: &Address,
-    staking_validator_script_hash: &ScriptHash,
     collateral: &Collateral,
     prover: &TX,
 ) -> Result<(), Box<dyn std::error::Error>>
@@ -166,12 +165,10 @@ where
         tx_builder.add_input(utxo).unwrap();
     }
 
-    let output_value = Value::from(1_200_000);
     println!("input_amount: {}", amount,);
 
     let redeemer = PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![]));
 
-    let script: PlutusScript = compute_extend_ve_witness_validator().into();
     let staking_validator_script_hash = script.hash();
 
     let cert_reg =
@@ -185,28 +182,14 @@ where
     tx_builder.set_exunits(
         RedeemerWitnessKey::new(cml_chain::plutus::RedeemerTag::Cert, 0),
         cml_chain::plutus::ExUnits::from(spectrum_cardano_lib::ex_units::ExUnits {
-            mem: 100_000,
-            steps: 800_000,
+            mem: 200_000,
+            steps: 10_000_000,
         }),
     );
-    let output_result = TransactionOutputBuilder::new()
-        .with_address(wallet_addr.clone())
-        .next()
-        .unwrap()
-        .with_value(output_value)
-        .build()
-        .unwrap();
-    change_output_creator.add_output(&output_result);
-    // tx_builder.add_output(output_result).unwrap();
 
-    let estimated_tx_fee = tx_builder.min_fee(false).unwrap();
-    let actual_fee = 5_000_000;
-    let change_output = change_output_creator.create_change_output(actual_fee, wallet_addr.clone());
-    // tx_builder.add_output(change_output).unwrap();
     tx_builder
         .add_collateral(InputBuilderResult::from(collateral.clone()))
         .unwrap();
-    // tx_builder.set_fee(actual_fee);
 
     let signed_tx_builder = tx_builder
         .build(ChangeSelectionAlgo::Default, wallet_addr)

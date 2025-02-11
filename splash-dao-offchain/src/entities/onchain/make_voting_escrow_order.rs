@@ -19,9 +19,9 @@ use spectrum_offchain::{
 };
 use spectrum_offchain_cardano::{
     deployment::{test_address, DeployedScriptInfo},
-    parametrized_validators::apply_params_validator,
+    parametrized_validators::apply_params_validator_plutus_v2,
 };
-use uplc_pallas_codec::utils::PlutusBytes;
+use uplc_pallas_primitives::{BoundedBytes, MaybeIndefArray};
 
 use crate::{
     constants::MAKE_VOTING_ESCROW_ORDER_MIN_LOVELACES,
@@ -114,10 +114,10 @@ pub enum MVEStatus {
 }
 
 pub fn compute_make_ve_order_validator(mint_composition_token_policy: PolicyId) -> PlutusV2Script {
-    let params_pd = uplc::PlutusData::Array(vec![uplc::PlutusData::BoundedBytes(PlutusBytes::from(
-        mint_composition_token_policy.to_raw_bytes().to_vec(),
-    ))]);
-    apply_params_validator(
+    let params_pd = uplc::PlutusData::Array(MaybeIndefArray::Indef(vec![uplc::PlutusData::BoundedBytes(
+        BoundedBytes::from(mint_composition_token_policy.to_raw_bytes().to_vec()),
+    )]));
+    apply_params_validator_plutus_v2(
         params_pd,
         &DaoScriptData::global().make_voting_escrow_order.script_bytes,
     )

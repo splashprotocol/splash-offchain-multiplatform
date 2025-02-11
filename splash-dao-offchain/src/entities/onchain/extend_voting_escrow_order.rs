@@ -25,9 +25,9 @@ use spectrum_offchain::{
 };
 use spectrum_offchain_cardano::{
     deployment::{test_address, DeployedScriptInfo},
-    parametrized_validators::apply_params_validator,
+    parametrized_validators::apply_params_validator_plutus_v2,
 };
-use uplc_pallas_codec::utils::PlutusBytes;
+use uplc_pallas_primitives::{BoundedBytes, MaybeIndefArray};
 
 use super::voting_escrow::{Owner, VotingEscrowConfig};
 
@@ -145,10 +145,13 @@ pub fn make_extend_ve_witness_redeemer(
 }
 
 pub fn compute_extend_ve_order_validator(mint_composition_token_policy: PolicyId) -> PlutusV2Script {
-    let params_pd = uplc::PlutusData::Array(vec![uplc::PlutusData::BoundedBytes(PlutusBytes::from(
-        mint_composition_token_policy.to_raw_bytes().to_vec(),
-    ))]);
-    apply_params_validator(
+    let params_pd =
+        uplc_pallas_primitives::PlutusData::Array(uplc_pallas_primitives::MaybeIndefArray::Indef(vec![
+            uplc_pallas_primitives::PlutusData::BoundedBytes(BoundedBytes::from(
+                mint_composition_token_policy.to_raw_bytes().to_vec(),
+            )),
+        ]));
+    apply_params_validator_plutus_v2(
         params_pd,
         &DaoScriptData::global().extend_voting_escrow_order.script_bytes,
     )
@@ -160,10 +163,10 @@ pub fn compute_extend_ve_witness_validator() -> PlutusV2Script {
         .script_bytes
         .clone();
     let script = PlutusV2Script::new(hex::decode(script_bytes).unwrap());
-    let params_pd = uplc::PlutusData::Array(vec![uplc::PlutusData::BoundedBytes(PlutusBytes::from(
-        script.hash().to_raw_bytes().to_vec(),
-    ))]);
-    apply_params_validator(
+    let params_pd = uplc::PlutusData::Array(MaybeIndefArray::Indef(vec![uplc::PlutusData::BoundedBytes(
+        BoundedBytes::from(script.hash().to_raw_bytes().to_vec()),
+    )]));
+    apply_params_validator_plutus_v2(
         params_pd,
         &DaoScriptData::global().extend_voting_escrow_witness.script_bytes,
     )

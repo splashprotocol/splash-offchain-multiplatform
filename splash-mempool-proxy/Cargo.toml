@@ -16,9 +16,9 @@ serde_json = "1.0.121"
 clap = { version = "4.5.17", features = ["derive"] }
 derive_more = { version = "1.0.0", features = ["full"] }
 hex = "0.4.3"
-pallas-crypto = { git = "https://github.com/kettlebell/pallas.git", branch = "conway_update" }
-pallas-network = { git = "https://github.com/kettlebell/pallas.git", branch = "conway_update" }
-pallas-primitives = { git = "https://github.com/kettlebell/pallas.git", branch = "conway_update" }
+pallas-crypto = { git = "https://github.com/kettlebell/pallas.git", branch = "conway_diagnostics" }
+pallas-network = { git = "https://github.com/kettlebell/pallas.git", branch = "conway_diagnostics" }
+pallas-primitives = { git = "https://github.com/kettlebell/pallas.git", branch = "conway_diagnostics" }
 cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
 cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
 bloom-offchain-cardano = { version = "1.0.0", path = "../bloom-offchain-cardano" }

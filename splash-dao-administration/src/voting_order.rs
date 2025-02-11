@@ -15,7 +15,7 @@ use splash_dao_offchain::entities::{
     onchain::smart_farm::FarmId,
 };
 use splash_dao_offchain::routines::inflation::actions::{compute_epoch_asset_name, compute_farm_name};
-use uplc_pallas_primitives::Fragment;
+use uplc_pallas_primitives::{BoundedBytes, Fragment};
 
 pub fn create_voting_order(
     operator_sk: &PrivateKey,
@@ -111,13 +111,12 @@ fn make_pallas_redeemer(
 ) -> uplc::PlutusData {
     let wpoll_auth_token_name = compute_epoch_asset_name(epoch);
 
-    let to_plutus_bytes =
-        |bytes: Vec<u8>| uplc::PlutusData::BoundedBytes(uplc_pallas_codec::utils::PlutusBytes::from(bytes));
+    let to_plutus_bytes = |bytes: Vec<u8>| uplc::PlutusData::BoundedBytes(BoundedBytes::from(bytes));
     let to_plutus_cstr = |fields: Vec<uplc::PlutusData>| {
         uplc::PlutusData::Constr(uplc::Constr {
             tag: 121,
             any_constructor: None,
-            fields,
+            fields: uplc_pallas_primitives::MaybeIndefArray::Indef(fields),
         })
     };
     let asset_pd = to_plutus_cstr(vec![
@@ -137,7 +136,8 @@ fn make_pallas_redeemer(
         })
         .collect();
 
-    let distribution_pd = uplc::PlutusData::Array(distribution);
+    let distribution_pd =
+        uplc::PlutusData::Array(uplc_pallas_primitives::MaybeIndefArray::Indef(distribution));
     to_plutus_cstr(vec![asset_pd, distribution_pd])
 }
 
