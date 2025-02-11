@@ -8,7 +8,7 @@ use spectrum_offchain_cardano::data::PoolId;
 use std::string::ToString;
 use std::sync::Arc;
 
-mod accounts;
+pub mod accounts;
 pub mod event_log;
 pub mod mature_events;
 
