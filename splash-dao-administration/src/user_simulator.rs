@@ -304,7 +304,6 @@ pub async fn user_simulator<'a>(
                     }
                     VEState::ConfirmedVotingEscrow(ref ve_snapshot, Epoch(epoch)) => {
                         // cast vote
-                        assert_eq!(epoch, current_epoch);
                         let voting_power = ve_snapshot.get().voting_power(now);
                         let version = ve_snapshot.get().version as u64;
                         println!(

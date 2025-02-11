@@ -24,7 +24,7 @@ use cml_chain::{
         witness_builder::{PartialPlutusWitness, PlutusScriptWitness},
     },
     crypto::utils::make_vkey_witness,
-    plutus::{ConstrPlutusData, PlutusData, RedeemerTag},
+    plutus::{ConstrPlutusData, PlutusData, PlutusScript, PlutusV2Script, RedeemerTag},
     transaction::{DatumOption, Transaction, TransactionOutput},
     utils::BigInteger,
     Coin, Serialize, Value,
@@ -57,6 +57,7 @@ use splash_dao_offchain::{
     entities::{
         offchain::voting_order::VotingOrderId,
         onchain::{
+            extend_voting_escrow_order::compute_extend_ve_witness_validator,
             farm_factory::{FarmFactoryAction, FarmFactoryDatum},
             inflation_box::InflationBoxSnapshot,
             permission_manager::{PermManagerDatum, PermManagerSnapshot},
@@ -131,8 +132,16 @@ async fn main() {
         Command::SendEDaoToken { destination_addr } => {
             send_edao_token(&op_inputs, destination_addr).await;
         }
-        Command::RegisterWitnessStakingAddress { script_hash_hex } => {
-            register_witness_staking_addr(&op_inputs, script_hash_hex).await;
+        Command::RegisterVotingWitnessStakingAddress => {
+            let script: PlutusScript = PlutusV2Script::new(
+                hex::decode(DaoScriptData::global().voting_witness.script_bytes.clone()).unwrap(),
+            )
+            .into();
+            register_witness_staking_addr(&op_inputs, script).await;
+        }
+        Command::RegisterExtendVotingEscrowWitnessStakingAddress => {
+            let script: PlutusScript = compute_extend_ve_witness_validator().into();
+            register_witness_staking_addr(&op_inputs, script).await;
         }
     };
 }
@@ -1373,7 +1382,7 @@ async fn send_edao_token(op_inputs: &OperationInputs, destination_addr: String) 
     .unwrap();
 }
 
-async fn register_witness_staking_addr(op_inputs: &OperationInputs, script_hash_hex: String) {
+async fn register_witness_staking_addr(op_inputs: &OperationInputs, script: PlutusScript) {
     let OperationInputs {
         explorer,
         addr,
@@ -1381,18 +1390,9 @@ async fn register_witness_staking_addr(op_inputs: &OperationInputs, script_hash_
         collateral,
         ..
     } = op_inputs;
-    let staking_validator_script_hash = ScriptHash::from_hex(&script_hash_hex).unwrap();
-    register_staking_address(
-        14_000_000,
-        8_030_000,
-        explorer,
-        addr,
-        &staking_validator_script_hash,
-        collateral,
-        prover,
-    )
-    .await
-    .unwrap();
+    register_staking_address(script, 14_000_000, explorer, addr, collateral, prover)
+        .await
+        .unwrap();
 }
 
 #[derive(Parser)]
@@ -1434,10 +1434,8 @@ enum Command {
         #[arg(long)]
         assets_json_path: String,
     },
-    RegisterWitnessStakingAddress {
-        #[arg(long)]
-        script_hash_hex: String,
-    },
+    RegisterVotingWitnessStakingAddress,
+    RegisterExtendVotingEscrowWitnessStakingAddress,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]

@@ -16,14 +16,15 @@ use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::AssetName;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
-use uplc_pallas_codec::utils::{Int, PlutusBytes};
+use uplc_pallas_codec::utils::Int;
 
 use spectrum_cardano_lib::{
     plutus_data::{ConstrPlutusDataExtension, IntoPlutusData, PlutusDataExtension},
     Token,
 };
 use spectrum_offchain::domain::{Has, Stable};
-use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
+use spectrum_offchain_cardano::parametrized_validators::apply_params_validator_plutus_v2;
+use uplc_pallas_primitives::{BoundedBytes, MaybeIndefArray};
 
 use crate::constants::GT_NAME;
 use crate::deployment::{DaoScriptData, ProtocolValidator};
@@ -423,12 +424,12 @@ pub fn compute_mint_weighting_power_validator(
     proposal_auth_policy: PolicyId,
     gt_policy: PolicyId,
 ) -> PlutusV2Script {
-    let params_pd = uplc::PlutusData::Array(vec![
+    let params_pd = uplc::PlutusData::Array(MaybeIndefArray::Indef(vec![
         uplc::PlutusData::BigInt(uplc::BigInt::Int(Int::from(zeroth_epoch_start as i64))),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(proposal_auth_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(gt_policy.to_raw_bytes().to_vec())),
-    ]);
-    apply_params_validator(
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(proposal_auth_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(gt_policy.to_raw_bytes().to_vec())),
+    ]));
+    apply_params_validator_plutus_v2(
         params_pd,
         &DaoScriptData::global().mint_weighting_power.script_bytes,
     )
@@ -439,23 +440,23 @@ pub fn compute_voting_escrow_validator(
     ve_factory_auth_policy: PolicyId,
     ve_composition_policy: PolicyId,
 ) -> PlutusV2Script {
-    let params_pd = uplc::PlutusData::Array(vec![
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(ve_identifier_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(ve_factory_auth_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(ve_composition_policy.to_raw_bytes().to_vec())),
-    ]);
-    apply_params_validator(params_pd, &DaoScriptData::global().voting_escrow.script_bytes)
+    let params_pd = uplc::PlutusData::Array(MaybeIndefArray::Indef(vec![
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(ve_identifier_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(ve_factory_auth_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(ve_composition_policy.to_raw_bytes().to_vec())),
+    ]));
+    apply_params_validator_plutus_v2(params_pd, &DaoScriptData::global().voting_escrow.script_bytes)
 }
 
 pub fn compute_mint_governance_power_validator(
     proposal_auth_policy: PolicyId,
     gt_policy: PolicyId,
 ) -> PlutusV2Script {
-    let params_pd = uplc::PlutusData::Array(vec![
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(proposal_auth_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(gt_policy.to_raw_bytes().to_vec())),
-    ]);
-    apply_params_validator(
+    let params_pd = uplc::PlutusData::Array(MaybeIndefArray::Indef(vec![
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(proposal_auth_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(gt_policy.to_raw_bytes().to_vec())),
+    ]));
+    apply_params_validator_plutus_v2(
         params_pd,
         &DaoScriptData::global().mint_governance_power.script_bytes,
     )

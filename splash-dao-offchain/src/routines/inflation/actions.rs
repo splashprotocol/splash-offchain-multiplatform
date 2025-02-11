@@ -1246,7 +1246,12 @@ where
         let locktime_exceeds_limit = match order.ve_datum.locked_until {
             Lock::Def(until) => {
                 let now_in_seconds = time_source.network_time().await;
-                (until / 1000) - now_in_seconds > MAX_LOCK_TIME_SECONDS
+                let until_secs = until / 1000;
+                if until_secs > now_in_seconds {
+                    until_secs - now_in_seconds > MAX_LOCK_TIME_SECONDS
+                } else {
+                    false
+                }
             }
             Lock::Indef(duration) => duration.as_secs() > MAX_LOCK_TIME_SECONDS,
         };
@@ -1421,6 +1426,7 @@ where
             minted_token,
             mint_ve_identifier_ex_units,
         ));
+        mints.sort_by(|(_, t0, _), (_, t1, _)| t0.policy_id.cmp(&t1.policy_id));
 
         let id_token = Token(
             mint_identifier_policy,
@@ -1483,7 +1489,7 @@ where
             reference_inputs,
             sorted_inputs,
             outputs,
-            mints,
+            sorted_mints: mints,
             withdrawal: None,
             fee_buffer: 320_000,
             operator_address: operator_addr.clone(),
@@ -1627,7 +1633,12 @@ where
         let locktime_exceeds_limit = match eve_onchain_order.order.ve_datum.locked_until {
             Lock::Def(until) => {
                 let now_in_seconds = time_source.network_time().await;
-                (until / 1000) - now_in_seconds > MAX_LOCK_TIME_SECONDS
+                let until_secs = until / 1000;
+                if until_secs > now_in_seconds {
+                    until_secs - now_in_seconds > MAX_LOCK_TIME_SECONDS
+                } else {
+                    false
+                }
             }
             Lock::Indef(duration) => duration.as_secs() > MAX_LOCK_TIME_SECONDS,
         };
@@ -1790,6 +1801,8 @@ where
             }
         }
 
+        mints.sort_by(|(_, t0, _), (_, t1, _)| t0.policy_id.cmp(&t1.policy_id));
+
         // NOW it is safe to add GT tokens to voting_escrow
         voting_escrow_value.add_unsafe(gt_ac, ve_composition_qty);
 
@@ -1834,7 +1847,7 @@ where
             Credential::new_script(eve_offchain_order.witness),
         );
 
-        let voting_witness_script: PlutusScript = compute_extend_ve_witness_validator().into();
+        let witness_script: PlutusScript = compute_extend_ve_witness_validator().into();
 
         let ve_identifier_policy_id = self.ctx.select::<MintVEIdentifierPolicy>().0;
         let ve_factory_bp = self.ctx.select::<VEFactoryAuthPolicy>().0;
@@ -1849,7 +1862,7 @@ where
             (ve_factory_auth_policy, ve_factory_auth_name),
         );
         let order_witness =
-            PartialPlutusWitness::new(PlutusScriptWitness::Script(voting_witness_script), eve_redeemer);
+            PartialPlutusWitness::new(PlutusScriptWitness::Script(witness_script), eve_redeemer);
         let withdrawal_result = SingleWithdrawalBuilder::new(withdrawal_address, 0)
             .plutus_script(order_witness, RequiredSigners::from(vec![]))
             .unwrap();
@@ -1865,7 +1878,7 @@ where
             reference_inputs,
             sorted_inputs,
             outputs,
-            mints,
+            sorted_mints: mints,
             withdrawal,
             fee_buffer: 320_000,
             operator_address: operator_addr.clone(),
@@ -2104,7 +2117,7 @@ struct DaoTxBlueprint {
     reference_inputs: Vec<TransactionUnspentOutput>,
     sorted_inputs: Vec<(InputBuilderResult, ExUnits)>,
     outputs: Vec<SingleOutputBuilderResult>,
-    mints: Vec<(MintBuilderResult, crate::create_change_output::Token, ExUnits)>,
+    sorted_mints: Vec<(MintBuilderResult, crate::create_change_output::Token, ExUnits)>,
     withdrawal: Option<(WithdrawalBuilderResult, ExUnits)>,
     fee_buffer: u64,
     operator_address: Address,
@@ -2134,7 +2147,7 @@ impl DaoTxBlueprint {
             );
         }
 
-        for (ix, (mint, minted_token, ex_units)) in self.mints.iter().enumerate() {
+        for (ix, (mint, minted_token, ex_units)) in self.sorted_mints.iter().enumerate() {
             change_output_creator.mint_token(minted_token.clone());
             txb.add_mint(mint.clone()).unwrap();
             txb.set_exunits(
@@ -2181,7 +2194,7 @@ impl DaoTxBlueprint {
             );
         }
 
-        for (ix, (mint, minted_token, ex_units)) in self.mints.iter().enumerate() {
+        for (ix, (mint, minted_token, ex_units)) in self.sorted_mints.iter().enumerate() {
             change_output_creator.mint_token(minted_token.clone());
             txb.add_mint(mint.clone()).unwrap();
             txb.set_exunits(

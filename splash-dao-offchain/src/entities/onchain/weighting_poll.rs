@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
-use uplc_pallas_codec::utils::{Int, PlutusBytes};
+use uplc_pallas_codec::utils::Int;
 
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
@@ -20,7 +20,8 @@ use spectrum_cardano_lib::plutus_data::{
 use spectrum_cardano_lib::{NetworkId, TaggedAmount};
 use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
-use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
+use spectrum_offchain_cardano::parametrized_validators::apply_params_validator_plutus_v2;
+use uplc_pallas_primitives::{BoundedBytes, MaybeIndefArray};
 
 use crate::assets::Splash;
 use crate::constants::time::{
@@ -443,16 +444,16 @@ pub fn compute_mint_wp_auth_token_validator(
     inflation_box_auth_policy: PolicyId,
     zeroth_epoch_start: u64,
 ) -> PlutusV2Script {
-    let params_pd = uplc::PlutusData::Array(vec![
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(splash_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(farm_auth_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(factory_auth_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(
+    let params_pd = uplc::PlutusData::Array(MaybeIndefArray::Indef(vec![
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(splash_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(farm_auth_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(factory_auth_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(
             inflation_box_auth_policy.to_raw_bytes().to_vec(),
         )),
         uplc::PlutusData::BigInt(uplc::BigInt::Int(Int::from(zeroth_epoch_start as i64))),
-    ]);
-    apply_params_validator(
+    ]));
+    apply_params_validator_plutus_v2(
         params_pd,
         &DaoScriptData::global().mint_wp_auth_token.script_bytes,
     )

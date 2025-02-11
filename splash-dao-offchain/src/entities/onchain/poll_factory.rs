@@ -13,8 +13,8 @@ use spectrum_cardano_lib::{AssetName, TaggedAmount};
 use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
-use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
-use uplc_pallas_codec::utils::PlutusBytes;
+use spectrum_offchain_cardano::parametrized_validators::apply_params_validator_plutus_v2;
+use uplc_pallas_primitives::{BoundedBytes, MaybeIndefArray};
 
 use crate::assets::Splash;
 use crate::deployment::{DaoScriptData, ProtocolValidator};
@@ -150,11 +150,13 @@ pub fn compute_wp_factory_validator(
     wp_auth_policy: PolicyId,
     gov_witness_script_hash: ScriptHash,
 ) -> PlutusV2Script {
-    let params_pd = uplc::PlutusData::Array(vec![
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(wp_auth_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(gov_witness_script_hash.to_raw_bytes().to_vec())),
-    ]);
-    apply_params_validator(params_pd, &DaoScriptData::global().wp_factory.script_bytes)
+    let params_pd = uplc::PlutusData::Array(MaybeIndefArray::Indef(vec![
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(wp_auth_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(
+            gov_witness_script_hash.to_raw_bytes().to_vec(),
+        )),
+    ]));
+    apply_params_validator_plutus_v2(params_pd, &DaoScriptData::global().wp_factory.script_bytes)
 }
 
 pub struct PollFactoryConfig {
