@@ -107,7 +107,7 @@ where
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, Hash)]
-pub enum MVEStatus {
+pub enum DaoOrderStatus {
     Unspent,
     Refunded,
     SpentToFormVotingEscrow(VotingEscrowId),

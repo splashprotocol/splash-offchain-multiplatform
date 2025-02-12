@@ -20,7 +20,7 @@ use splash_dao_offchain::{
                 compute_extend_ve_witness_validator, make_extend_ve_witness_redeemer,
                 ExtendVotingEscrowOnchainOrder, ExtendVotingEscrowOrderAction,
             },
-            make_voting_escrow_order::MVEStatus,
+            make_voting_escrow_order::DaoOrderStatus,
             voting_escrow::{Owner, VotingEscrowId, VotingEscrowSnapshot},
             weighting_poll::{WeightingPollId, WeightingPollSnapshot},
         },
@@ -91,13 +91,13 @@ pub async fn user_simulator<'a>(
                     request_mve_status(owner, &op_inputs.voting_order_listener_endpoint).await
                 {
                     match mve_status {
-                        MVEStatus::Unspent => {
+                        DaoOrderStatus::Unspent => {
                             println!("MVE order not yet processed by bot");
                         }
-                        MVEStatus::Refunded => {
+                        DaoOrderStatus::Refunded => {
                             panic!("Unexpected refund of MVE order!");
                         }
-                        MVEStatus::SpentToFormVotingEscrow(voting_escrow_id) => {
+                        DaoOrderStatus::SpentToFormVotingEscrow(voting_escrow_id) => {
                             break voting_escrow_id;
                         }
                     }
@@ -174,11 +174,17 @@ pub async fn user_simulator<'a>(
                             let last_wp_epoch = ve_snapshot.get().last_wp_epoch;
                             if current_epoch as i32 == last_wp_epoch {
                                 println!("Vote confirmed for epoch {}", current_epoch);
-                                ve_state = VEState::ConfirmedVoteCast(ve_snapshot, e);
+                                ve_state = VEState::ConfirmedVoteCast {
+                                    ve_snapshot,
+                                    ve_extended_this_epoch: false,
+                                };
                             }
                         }
                     }
-                    VEState::ConfirmedVoteCast(ref ve_snapshot, Epoch(epoch)) => {
+                    VEState::ConfirmedVoteCast {
+                        ref ve_snapshot,
+                        ve_extended_this_epoch,
+                    } => {
                         // wait until epoch's ended (or add funds, vote on proposal)
                         let version = ve_snapshot.get().version as u64;
                         let last_wp_epoch = ve_snapshot.get().last_wp_epoch;
@@ -206,7 +212,7 @@ pub async fn user_simulator<'a>(
                             send_vote(voting_order, &op_inputs.voting_order_listener_endpoint).await;
 
                             ve_state = VEState::PredictedVoteCast(Epoch(current_epoch));
-                        } else {
+                        } else if !ve_extended_this_epoch {
                             let owner =
                                 extend_voting_escrow_order(voting_escrow_id, &ve_settings, op_inputs).await;
                             let ve_output_ref = ve_snapshot.version().output_ref;
@@ -298,7 +304,10 @@ pub async fn user_simulator<'a>(
                         .await
                         {
                             if ve_snapshot.get().version > version as u32 {
-                                ve_state = VEState::ConfirmedVoteCast(ve_snapshot, epoch);
+                                ve_state = VEState::ConfirmedVoteCast {
+                                    ve_snapshot,
+                                    ve_extended_this_epoch: true,
+                                };
                             }
                         }
                     }
@@ -473,7 +482,10 @@ async fn send_extend_ve_offchain_order(
     }
 }
 
-async fn request_mve_status(owner: Owner, voting_order_listener_endpoint: &SocketAddr) -> Option<MVEStatus> {
+async fn request_mve_status(
+    owner: Owner,
+    voting_order_listener_endpoint: &SocketAddr,
+) -> Option<DaoOrderStatus> {
     let client = reqwest::Client::new();
 
     // Send the PUT request with JSON body
@@ -492,7 +504,7 @@ async fn request_mve_status(owner: Owner, voting_order_listener_endpoint: &Socke
         100,
         2000
     );
-    let res = response.unwrap().json::<Option<MVEStatus>>().await;
+    let res = response.unwrap().json::<Option<DaoOrderStatus>>().await;
 
     println!("{:?}", res);
     res.unwrap()
@@ -502,7 +514,10 @@ async fn request_mve_status(owner: Owner, voting_order_listener_endpoint: &Socke
 enum VEState {
     Waiting(Owner),
     ConfirmedVotingEscrow(VotingEscrowSnapshot, Epoch),
-    ConfirmedVoteCast(VotingEscrowSnapshot, Epoch),
+    ConfirmedVoteCast {
+        ve_snapshot: VotingEscrowSnapshot,
+        ve_extended_this_epoch: bool,
+    },
     PredictedOnChainExtendedVE(Epoch, Owner, OutputRef, VEVersion),
     PredictedOffChainExtendedVESent(Epoch, VEVersion),
     PredictedVoteCast(Epoch),

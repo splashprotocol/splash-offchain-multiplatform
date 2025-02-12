@@ -5,9 +5,14 @@ use inflation_box::{InflationBox, InflationBoxSnapshot};
 use make_voting_escrow_order::MakeVotingEscrowOrder;
 use permission_manager::{PermManager, PermManagerSnapshot};
 use poll_factory::{PollFactory, PollFactorySnapshot};
+use serde::{Deserialize, Serialize};
 use smart_farm::{SmartFarm, SmartFarmSnapshot};
 use spectrum_cardano_lib::{NetworkId, OutputRef};
-use spectrum_offchain::{domain::Has, ledger::TryFromLedger};
+use spectrum_offchain::{
+    backlog::data::{OrderWeight, Weighted},
+    domain::{order::UniqueOrder, Has},
+    ledger::TryFromLedger,
+};
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use voting_escrow::{VotingEscrow, VotingEscrowSnapshot};
 use voting_escrow_factory::{VEFactory, VEFactorySnapshot};
@@ -125,5 +130,43 @@ where
         } else {
             None
         }
+    }
+}
+
+#[derive(Hash, PartialEq, Eq, Serialize, Deserialize, Clone, Debug, derive_more::From)]
+pub enum DaoOrder {
+    MakeVE(MakeVotingEscrowOrder),
+    ExtendVE(ExtendVotingEscrowOnchainOrder),
+}
+
+#[derive(Hash, PartialEq, Eq, Serialize, Deserialize, Clone, Debug)]
+pub struct DaoOrderBundle<Bearer> {
+    pub order: DaoOrder,
+    pub output_ref: TimedOutputRef,
+    pub bearer: Bearer,
+}
+
+impl<Bearer> DaoOrderBundle<Bearer> {
+    pub fn new(order: DaoOrder, output_ref: TimedOutputRef, bearer: Bearer) -> Self {
+        Self {
+            order,
+            output_ref,
+            bearer,
+        }
+    }
+}
+
+impl<Bearer> UniqueOrder for DaoOrderBundle<Bearer> {
+    type TOrderId = OutputRef;
+
+    fn get_self_ref(&self) -> Self::TOrderId {
+        self.output_ref.output_ref
+    }
+}
+
+impl<Bearer> Weighted for DaoOrderBundle<Bearer> {
+    fn weight(&self) -> OrderWeight {
+        // Older orders first
+        OrderWeight::from(u64::MAX - self.output_ref.slot.0)
     }
 }

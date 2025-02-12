@@ -56,7 +56,7 @@ use crate::entities::onchain::extend_voting_escrow_order::ExtendVotingEscrowOrde
 use crate::entities::onchain::funding_box::{FundingBox, FundingBoxId, FundingBoxSnapshot};
 use crate::entities::onchain::inflation_box::{InflationBoxId, InflationBoxSnapshot};
 use crate::entities::onchain::make_voting_escrow_order::{
-    MVEStatus, MakeVotingEscrowOrder, MakeVotingEscrowOrderBundle,
+    DaoOrderStatus, MakeVotingEscrowOrder, MakeVotingEscrowOrderBundle,
 };
 use crate::entities::onchain::permission_manager::{PermManager, PermManagerId, PermManagerSnapshot};
 use crate::entities::onchain::poll_factory::{PollFactory, PollFactoryId, PollFactorySnapshot};
@@ -66,7 +66,7 @@ use crate::entities::onchain::voting_escrow_factory::{VEFactoryId, VEFactorySnap
 use crate::entities::onchain::weighting_poll::{
     PollState, WeightingOngoing, WeightingPoll, WeightingPollId, WeightingPollSnapshot,
 };
-use crate::entities::onchain::{DaoEntity, DaoEntitySnapshot};
+use crate::entities::onchain::{DaoEntity, DaoEntitySnapshot, DaoOrder, DaoOrderBundle};
 use crate::entities::Snapshot;
 use crate::funding::FundingRepo;
 use crate::protocol_config::{
@@ -91,10 +91,9 @@ pub struct Behaviour<
     SF,
     PM,
     FB,
-    MVE,
-    EVE,
+    DOB,
     OVE,
-    TMVE,
+    TDOB,
     VotingOrderBacklog,
     ExtendVEOrderBacklog,
     PTX,
@@ -111,16 +110,14 @@ pub struct Behaviour<
     smart_farm: SF,
     perm_manager: PM,
     funding_box: FB,
-    /// Backlog of unspent `make_voting_escrow_order` UTxOs
-    mve_order_backlog: MVE,
-    /// Backlog of unspent `extend_voting_escrow_order` UTxOs
-    eve_order_backlog: EVE,
+    /// Backlog of unspent `make_voting_escrow_order` or `extend_voting_escrow_order` UTxOs
+    dao_order_backlog: DOB,
     /// Maps owners of `make_voting_escrow_order` to `MVEStatus` values. Used to respond to user
     /// queries regarding the state of their order.
     owner_to_voting_escrow: OVE,
-    /// Maps an output reference to an associated `make_voting_escrow_order` UTxO. This is used to
-    /// properly restore orders on chain-rollback.
-    tx_hash_to_mve: TMVE,
+    /// Maps an output reference to an associated DAO order UTxO. This is used to properly restore
+    /// orders on chain-rollback.
+    tx_hash_to_dao_order: TDOB,
     /// Backlog for all user voting orders.
     voting_order_backlog: VotingOrderBacklog,
     /// Backlog for all extend `voting_escrow` orders.
@@ -151,10 +148,9 @@ impl<
         SF,
         PM,
         FB,
-        MVE,
-        EVE,
+        DOB,
         OVE,
-        TMVE,
+        TDOB,
         VotingOrderBacklog,
         ExtendVEOrderBacklog,
         PTX,
@@ -172,10 +168,9 @@ impl<
         SF,
         PM,
         FB,
-        MVE,
-        EVE,
+        DOB,
         OVE,
-        TMVE,
+        TDOB,
         VotingOrderBacklog,
         ExtendVEOrderBacklog,
         PTX,
@@ -217,10 +212,9 @@ where
         + Send
         + Sync,
     FB: FundingRepo + Send + Sync,
-    MVE: ResilientBacklog<MakeVotingEscrowOrderBundle<Bearer>> + Send + Sync,
-    EVE: ResilientBacklog<ExtendVotingEscrowOrderBundle<Bearer>> + Send + Sync,
-    OVE: KvStore<Owner, MVEStatus> + Send + Sync,
-    TMVE: KvStore<TimedOutputRef, PendingOrder<MakeVotingEscrowOrderBundle<Bearer>>> + Send + Sync,
+    DOB: ResilientBacklog<DaoOrderBundle<Bearer>> + Send + Sync,
+    OVE: KvStore<Owner, DaoOrderStatus> + Send + Sync,
+    TDOB: KvStore<TimedOutputRef, PendingOrder<DaoOrderBundle<Bearer>>> + Send + Sync,
     Time: NetworkTimeProvider + Send + Sync,
     Actions: InflationActions<Bearer> + Send + Sync,
     Bearer: Send + Sync + std::fmt::Debug + Clone,
@@ -350,10 +344,9 @@ impl<
         SF,
         PM,
         FB,
-        MVE,
-        EVE,
+        DOB,
         OVE,
-        TMVE,
+        TDOB,
         VotingOrderBacklog,
         ExtendVEOrderBacklog,
         PTX,
@@ -371,10 +364,9 @@ impl<
         SF,
         PM,
         FB,
-        MVE,
-        EVE,
+        DOB,
         OVE,
-        TMVE,
+        TDOB,
         VotingOrderBacklog,
         ExtendVEOrderBacklog,
         PTX,
@@ -393,10 +385,9 @@ impl<
         smart_farm: SF,
         perm_manager: PM,
         funding_box: FB,
-        make_voting_escrow_order: MVE,
-        extend_voting_escrow_order: EVE,
+        dao_order_backlog: DOB,
         owner_to_voting_escrow: OVE,
-        tx_hash_to_mve: TMVE,
+        tx_hash_to_mve: TDOB,
         voting_order_backlog: VotingOrderBacklog,
         extend_ve_order_backlog: ExtendVEOrderBacklog,
         predicted_tx_backlog: PTX,
@@ -422,10 +413,9 @@ impl<
             smart_farm,
             perm_manager,
             funding_box,
-            mve_order_backlog: make_voting_escrow_order,
-            eve_order_backlog: extend_voting_escrow_order,
+            dao_order_backlog,
             owner_to_voting_escrow,
-            tx_hash_to_mve,
+            tx_hash_to_dao_order: tx_hash_to_mve,
             voting_order_backlog,
             extend_ve_order_backlog,
             predicted_tx_backlog,
@@ -531,7 +521,7 @@ impl<
         ExtendVotingEscrowOrderBundle<Bearer>,
     )>
     where
-        EVE: ResilientBacklog<ExtendVotingEscrowOrderBundle<Bearer>> + Send + Sync,
+        DOB: ResilientBacklog<DaoOrderBundle<Bearer>> + Send + Sync,
         VE: StateProjectionRead<VotingEscrowSnapshot, Bearer> + Send + Sync,
         VEF: StateProjectionRead<VEFactorySnapshot, Bearer> + Send + Sync,
         ExtendVEOrderBacklog: ResilientBacklog<ExtendVotingEscrowOffChainOrder> + Send + Sync,
@@ -539,23 +529,30 @@ impl<
     {
         if let Some(ord) = self.extend_ve_order_backlog.try_pop().await {
             let mut orders = self
-                .eve_order_backlog
+                .dao_order_backlog
                 .find_orders(move |e| e.output_ref.output_ref == ord.order_output_ref)
                 .await;
             if let Some(order_bundle) = orders.pop() {
                 assert!(orders.is_empty());
-                let ve_id = ord.id.voting_escrow_id.0;
-                info!("Extending `voting_escrow` order with VE_identifier {}", ve_id);
-                if let Some(ve_bundle) = self
-                    .voting_escrow
-                    .read(VotingEscrowId::from(ord.id))
-                    .await
-                    .map(|ve| ve.erased())
-                {
-                    if let Some(ve_factory_bundle) =
-                        self.ve_factory.read(VEFactoryId).await.map(|v| v.erased())
+                if let DaoOrder::ExtendVE(eve_order) = order_bundle.order {
+                    let eve_bundle = ExtendVotingEscrowOrderBundle {
+                        order: eve_order,
+                        output_ref: order_bundle.output_ref,
+                        bearer: order_bundle.bearer,
+                    };
+                    let ve_id = ord.id.voting_escrow_id.0;
+                    info!("Extending `voting_escrow` order with VE_identifier {}", ve_id);
+                    if let Some(ve_bundle) = self
+                        .voting_escrow
+                        .read(VotingEscrowId::from(ord.id))
+                        .await
+                        .map(|ve| ve.erased())
                     {
-                        return Some((ord, ve_bundle, ve_factory_bundle, order_bundle));
+                        if let Some(ve_factory_bundle) =
+                            self.ve_factory.read(VEFactoryId).await.map(|v| v.erased())
+                        {
+                            return Some((ord, ve_bundle, ve_factory_bundle, eve_bundle));
+                        }
                     }
                 }
             }
@@ -569,7 +566,7 @@ impl<
         PF: StateProjectionRead<PollFactorySnapshot, Bearer> + Send + Sync,
         PM: StateProjectionRead<PermManagerSnapshot, Bearer> + Send + Sync,
         WP: StateProjectionRead<WeightingPollSnapshot, Bearer> + Send + Sync,
-        EVE: ResilientBacklog<ExtendVotingEscrowOrderBundle<Bearer>> + Send + Sync,
+        DOB: ResilientBacklog<DaoOrderBundle<Bearer>> + Send + Sync,
         VE: StateProjectionRead<VotingEscrowSnapshot, Bearer> + Send + Sync,
         SF: StateProjectionRead<SmartFarmSnapshot, Bearer> + Send + Sync,
         VEF: StateProjectionRead<VEFactorySnapshot, Bearer> + Send + Sync,
@@ -726,10 +723,9 @@ impl<
             + StateProjectionWrite<VotingEscrowSnapshot, Bearer>
             + Send
             + Sync,
-        OVE: KvStore<Owner, MVEStatus> + Send + Sync,
-        MVE: ResilientBacklog<MakeVotingEscrowOrderBundle<Bearer>> + Send + Sync,
-        EVE: ResilientBacklog<ExtendVotingEscrowOrderBundle<Bearer>> + Send + Sync,
-        TMVE: KvStore<TimedOutputRef, PendingOrder<MakeVotingEscrowOrderBundle<Bearer>>> + Send + Sync,
+        OVE: KvStore<Owner, DaoOrderStatus> + Send + Sync,
+        DOB: ResilientBacklog<DaoOrderBundle<Bearer>> + Send + Sync,
+        TDOB: KvStore<TimedOutputRef, PendingOrder<DaoOrderBundle<Bearer>>> + Send + Sync,
         VotingOrderBacklog: ResilientBacklog<VotingOrder> + Send + Sync,
         SF: StateProjectionRead<SmartFarmSnapshot, Bearer>
             + StateProjectionWrite<SmartFarmSnapshot, Bearer>
@@ -865,16 +861,13 @@ impl<
                 let time_src = NetworkTimeSource {};
                 let timestamp = time_src.network_time().await as i64;
                 let owner = make_voting_escrow_order.ve_datum.owner;
-                let order = MakeVotingEscrowOrderBundle::new(
-                    make_voting_escrow_order.clone(),
-                    *entity.version(),
-                    bearer,
-                );
+                let order =
+                    DaoOrderBundle::new(make_voting_escrow_order.clone().into(), *entity.version(), bearer);
                 let ord = PendingOrder { order, timestamp };
-                self.mve_order_backlog.put(ord.clone()).await;
-                self.tx_hash_to_mve.insert(*entity.version(), ord).await;
+                self.dao_order_backlog.put(ord.clone()).await;
+                self.tx_hash_to_dao_order.insert(*entity.version(), ord).await;
                 self.owner_to_voting_escrow
-                    .insert(owner, MVEStatus::Unspent)
+                    .insert(owner, DaoOrderStatus::Unspent)
                     .await;
             }
             DaoEntity::ExtendVotingEscrowOrder(eve_order) => {
@@ -885,10 +878,10 @@ impl<
                 );
                 let time_src = NetworkTimeSource {};
                 let timestamp = time_src.network_time().await as i64;
-                let owner = eve_order.ve_datum.owner;
-                let order = ExtendVotingEscrowOrderBundle::new(eve_order.clone(), *entity.version(), bearer);
+                let order = DaoOrderBundle::new(eve_order.clone().into(), *entity.version(), bearer);
                 let ord = PendingOrder { order, timestamp };
-                self.eve_order_backlog.put(ord.clone()).await;
+                self.dao_order_backlog.put(ord.clone()).await;
+                self.tx_hash_to_dao_order.insert(*entity.version(), ord).await;
             }
         }
     }
@@ -1354,8 +1347,8 @@ impl<
     where
         Actions: InflationActions<Bearer> + Send + Sync,
         Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
-        MVE: ResilientBacklog<MakeVotingEscrowOrderBundle<Bearer>> + Send + Sync,
-        OVE: KvStore<Owner, MVEStatus> + Send + Sync,
+        DOB: ResilientBacklog<DaoOrderBundle<Bearer>> + Send + Sync,
+        OVE: KvStore<Owner, DaoOrderStatus> + Send + Sync,
         VE: StateProjectionRead<VotingEscrowSnapshot, Bearer>
             + StateProjectionWrite<VotingEscrowSnapshot, Bearer>
             + Send
@@ -1372,80 +1365,93 @@ impl<
         }
         let current_slot = Slot(self.current_slot.unwrap());
 
-        if let Some(mve_order) = self.mve_order_backlog.try_pop().await {
-            let ve_factory = self.ve_factory.read(VEFactoryId).await.unwrap().erased();
-            let result = self
-                .actions
-                .make_voting_escrow(mve_order.clone(), ve_factory, current_slot)
-                .await;
-            match result {
-                Ok((signed_tx, next_ve_factory, next_ve)) => {
-                    let prover = OperatorProver::new(self.conf.operator_sk.clone());
-                    println!("make_voting_escrow: trying to prove");
-                    let outbound_tx = prover.prove(signed_tx);
-                    println!("make_voting_escrow: PROVED");
-                    let tx = outbound_tx.clone();
-                    let tx_hash = tx.body.hash();
-                    info!("`make_voting_escrow`: submitting TX (hash: {})", tx_hash);
-                    match self.network.submit_tx(outbound_tx).await {
-                        Ok(()) => {
-                            let voting_escrow_id = next_ve.state.stable_id();
-                            let predicted_write = PredictedEntityWrites::MakeVotingEscrow {
-                                tx_hash,
-                                voting_escrow_id,
-                                mve_order,
-                            };
-                            self.predicted_tx_backlog.insert(tx_hash, predicted_write).await;
-                            info!(
-                                "Created voting_escrow with id = {}: SUCCESS (tx hash: {})",
-                                voting_escrow_id, tx_hash
-                            );
-                            self.ve_factory.write_predicted(next_ve_factory).await;
-                            self.voting_escrow.write_predicted(next_ve).await;
+        if let Some(dao_bundle) = self.dao_order_backlog.try_pop().await {
+            match dao_bundle.order {
+                DaoOrder::MakeVE(ref mve_order) => {
+                    let mve_bundle = MakeVotingEscrowOrderBundle::new(
+                        mve_order.clone(),
+                        dao_bundle.output_ref,
+                        dao_bundle.bearer.clone(),
+                    );
+                    let ve_factory = self.ve_factory.read(VEFactoryId).await.unwrap().erased();
+                    let result = self
+                        .actions
+                        .make_voting_escrow(mve_bundle.clone(), ve_factory, current_slot)
+                        .await;
+                    match result {
+                        Ok((signed_tx, next_ve_factory, next_ve)) => {
+                            let prover = OperatorProver::new(self.conf.operator_sk.clone());
+                            println!("make_voting_escrow: trying to prove");
+                            let outbound_tx = prover.prove(signed_tx);
+                            println!("make_voting_escrow: PROVED");
+                            let tx = outbound_tx.clone();
+                            let tx_hash = tx.body.hash();
+                            info!("`make_voting_escrow`: submitting TX (hash: {})", tx_hash);
+                            match self.network.submit_tx(outbound_tx).await {
+                                Ok(()) => {
+                                    let voting_escrow_id = next_ve.state.stable_id();
+                                    let predicted_write = PredictedEntityWrites::MakeVotingEscrow {
+                                        tx_hash,
+                                        voting_escrow_id,
+                                        mve_order: mve_bundle,
+                                    };
+                                    self.predicted_tx_backlog.insert(tx_hash, predicted_write).await;
+                                    info!(
+                                        "Created voting_escrow with id = {}: SUCCESS (tx hash: {})",
+                                        voting_escrow_id, tx_hash
+                                    );
+                                    self.ve_factory.write_predicted(next_ve_factory).await;
+                                    self.voting_escrow.write_predicted(next_ve).await;
 
-                            return None;
-                        }
-                        Err(RejectReasons(Some(ApplyTxError { node_errors }))) => {
-                            if node_errors.iter().any(|err| {
-                                matches!(
-                                    err,
-                                    ConwayLedgerPredFailure::UtxowFailure(
-                                        ConwayUtxowPredFailure::UtxoFailure(
-                                            ConwayUtxoPredFailure::BadInputsUtxo(_)
-                                        ),
-                                    )
-                                )
-                            }) {
-                                info!("`make_voting_escrow`: Bad/missing input UTxO. Retrying...");
-                                self.mve_order_backlog.suspend(mve_order).await;
-                                return None;
-                            } else {
-                                // For all other errors we discard the order.
-                                error!(
-                                    "`make_voting_escrow`: TX submit failed on errors: {:?}",
-                                    node_errors
-                                );
-                                self.mve_order_backlog
-                                    .remove(mve_order.output_ref.output_ref)
-                                    .await;
-                                return None;
+                                    return None;
+                                }
+                                Err(RejectReasons(Some(ApplyTxError { node_errors }))) => {
+                                    if node_errors.iter().any(|err| {
+                                        matches!(
+                                            err,
+                                            ConwayLedgerPredFailure::UtxowFailure(
+                                                ConwayUtxowPredFailure::UtxoFailure(
+                                                    ConwayUtxoPredFailure::BadInputsUtxo(_)
+                                                ),
+                                            )
+                                        )
+                                    }) {
+                                        info!("`make_voting_escrow`: Bad/missing input UTxO. Retrying...");
+                                        self.dao_order_backlog.suspend(dao_bundle).await;
+                                        return None;
+                                    } else {
+                                        // For all other errors we discard the order.
+                                        error!(
+                                            "`make_voting_escrow`: TX submit failed on errors: {:?}",
+                                            node_errors
+                                        );
+                                        self.dao_order_backlog
+                                            .remove(dao_bundle.output_ref.output_ref)
+                                            .await;
+                                        return None;
+                                    }
+                                }
+                                Err(RejectReasons(None)) => {
+                                    error!("`make_voting_escrow`: TX submit failed on UNKNOWN error");
+                                    self.dao_order_backlog
+                                        .remove(dao_bundle.output_ref.output_ref)
+                                        .await;
+                                    return None;
+                                }
                             }
                         }
-                        Err(RejectReasons(None)) => {
-                            error!("`make_voting_escrow`: TX submit failed on UNKNOWN error");
-                            self.mve_order_backlog
-                                .remove(mve_order.output_ref.output_ref)
+                        Err(e) => {
+                            error!("`make_voting_escrow`: invalid order, error: {:?}", e);
+                            self.dao_order_backlog
+                                .remove(dao_bundle.output_ref.output_ref)
                                 .await;
                             return None;
                         }
                     }
                 }
-                Err(e) => {
-                    error!("`make_voting_escrow`: invalid order, error: {:?}", e);
-                    self.mve_order_backlog
-                        .remove(mve_order.output_ref.output_ref)
-                        .await;
-                    return None;
+                DaoOrder::ExtendVE(_extend_voting_escrow_onchain_order) => {
+                    // We skip over extend VE orders here. It will be processed when we get to an
+                    // associated off-chain order.
                 }
             }
         }
@@ -1483,10 +1489,9 @@ impl<
         SF,
         PM,
         FB,
-        MVE,
-        EVE,
+        DOB,
         OVE,
-        TMVE,
+        TDOB,
         VotingOrderBacklog,
         ExtendVEOrderBacklog,
         PTX,
@@ -1503,10 +1508,9 @@ impl<
         SF,
         PM,
         FB,
-        MVE,
-        EVE,
+        DOB,
         OVE,
-        TMVE,
+        TDOB,
         VotingOrderBacklog,
         ExtendVEOrderBacklog,
         PTX,
@@ -1548,10 +1552,9 @@ where
         + Send
         + Sync,
     FB: FundingRepo + Send + Sync,
-    MVE: ResilientBacklog<MakeVotingEscrowOrderBundle<TransactionOutput>> + Send + Sync,
-    EVE: ResilientBacklog<ExtendVotingEscrowOrderBundle<TransactionOutput>> + Send + Sync,
-    OVE: KvStore<Owner, MVEStatus> + Send + Sync,
-    TMVE: KvStore<TimedOutputRef, PendingOrder<MakeVotingEscrowOrderBundle<TransactionOutput>>> + Send + Sync,
+    DOB: ResilientBacklog<DaoOrderBundle<TransactionOutput>> + Send + Sync,
+    OVE: KvStore<Owner, DaoOrderStatus> + Send + Sync,
+    TDOB: KvStore<TimedOutputRef, PendingOrder<DaoOrderBundle<TransactionOutput>>> + Send + Sync,
     Time: NetworkTimeProvider + Send + Sync,
     Actions: InflationActions<TransactionOutput> + Send + Sync,
     Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
@@ -1581,33 +1584,33 @@ where
                     .await
                     .and_then(|a| a.erased().0.get().last_processed_epoch);
 
-                let mut mve_utxo_owner = None;
-                let mut eve_utxo_owner = None;
+                let mut dao_order_utxo = None;
                 let mut voting_escrow_in_output = None;
 
                 for input in inputs {
                     let input_output_ref = OutputRef::from(input.clone());
-                    if mve_utxo_owner.is_none() {
+                    if dao_order_utxo.is_none() {
                         let mut orders = self
-                            .mve_order_backlog
+                            .dao_order_backlog
                             .find_orders(move |e| e.output_ref.output_ref == input_output_ref)
                             .await;
-                        if let Some(o) = orders.pop() {
+                        if let Some(dao_bundle) = orders.pop() {
                             assert!(orders.is_empty());
-                            mve_utxo_owner = Some((o.order.ve_datum.owner, input_output_ref));
+                            match dao_bundle.order {
+                                DaoOrder::MakeVE(make_voting_escrow_order) => {
+                                    dao_order_utxo =
+                                        Some((make_voting_escrow_order.ve_datum.owner, input_output_ref));
+                                }
+                                DaoOrder::ExtendVE(extend_voting_escrow_onchain_order) => {
+                                    dao_order_utxo = Some((
+                                        extend_voting_escrow_onchain_order.ve_datum.owner,
+                                        input_output_ref,
+                                    ));
+                                }
+                            }
                         }
                     }
 
-                    if mve_utxo_owner.is_none() && eve_utxo_owner.is_none() {
-                        let mut orders = self
-                            .eve_order_backlog
-                            .find_orders(move |e| e.output_ref.output_ref == input_output_ref)
-                            .await;
-                        if let Some(o) = orders.pop() {
-                            assert!(orders.is_empty());
-                            eve_utxo_owner = Some((o.order.ve_datum.owner, input_output_ref));
-                        }
-                    }
                     if let Some(last_processed_epoch) = last_processed_epoch {
                         if epoch_of_eliminated_wpoll.is_none() {
                             for epoch in (0..=last_processed_epoch).rev() {
@@ -1650,12 +1653,12 @@ where
                             wpoll_eliminated: epoch_of_eliminated_wpoll.is_some(),
                         };
 
-                        if mve_utxo_owner.is_some() {
+                        if dao_order_utxo.is_some() {
                             if let Some(voting_escrow) =
                                 VotingEscrowSnapshot::try_from_ledger(&output.1, &ctx)
                             {
                                 let id = voting_escrow.stable_id();
-                                voting_escrow_in_output = Some(MVEStatus::SpentToFormVotingEscrow(id));
+                                voting_escrow_in_output = Some(DaoOrderStatus::SpentToFormVotingEscrow(id));
                             }
                         }
 
@@ -1681,21 +1684,16 @@ where
                         ix = ix.saturating_sub(1);
                     }
 
-                    if let Some((owner, mve_output_ref)) = mve_utxo_owner {
-                        assert!(eve_utxo_owner.is_none());
-                        // Whether through the creation of a voting_escrow or refunded, this MVE
+                    if let Some((owner, order_output_ref)) = dao_order_utxo {
+                        // Whether through the creation of a voting_escrow or refunded, this user
                         // order is gone.
-                        self.mve_order_backlog.remove(mve_output_ref).await;
+                        self.dao_order_backlog.remove(order_output_ref).await;
                         let status = if let Some(status) = voting_escrow_in_output {
                             status
                         } else {
-                            MVEStatus::Refunded
+                            DaoOrderStatus::Refunded
                         };
                         self.owner_to_voting_escrow.insert(owner, status).await;
-                    } else if let Some((owner, eve_output_ref)) = eve_utxo_owner {
-                        // Whether through the creation of an updated voting_escrow or refunded, this EVE
-                        // order is gone.
-                        self.eve_order_backlog.remove(eve_output_ref).await;
                     }
 
                     if let Some(eliminated_epoch) = epoch_of_eliminated_wpoll {
@@ -1737,9 +1735,9 @@ where
                         slot: Slot(slot),
                     };
 
-                    if let Some(ord) = self.tx_hash_to_mve.get(timed_output_ref).await {
-                        // If a `make_voting_escrow_order` was consumed to create a `voting_escrow`, return the order to backlog.
-                        self.mve_order_backlog.put(ord).await;
+                    if let Some(ord) = self.tx_hash_to_dao_order.get(timed_output_ref).await {
+                        // If a DAO order was consumed to create a `voting_escrow`, return the order to backlog.
+                        self.dao_order_backlog.put(ord).await;
                     } else {
                         let id = FundingBoxId::from(OutputRef::from(input));
                         self.funding_box.unspend_confirmed(id).await;
@@ -1765,10 +1763,8 @@ where
                         self.perm_manager.remove(id).await;
                     } else if let Some(id) = self.ve_factory.get_id(ver).await {
                         self.ve_factory.remove(id).await;
-                    } else if self.mve_order_backlog.exists(ver.output_ref).await {
-                        self.mve_order_backlog.remove(ver.output_ref).await;
-                    } else if self.eve_order_backlog.exists(ver.output_ref).await {
-                        self.eve_order_backlog.remove(ver.output_ref).await;
+                    } else if self.dao_order_backlog.exists(ver.output_ref).await {
+                        self.dao_order_backlog.remove(ver.output_ref).await;
                     } else {
                         self.funding_box
                             .spend_confirmed(FundingBoxId::from(ver.output_ref))
@@ -1928,11 +1924,15 @@ where
                     let version = mve_order.output_ref;
                     self.voting_escrow.remove(voting_escrow_id).await;
                     let order = PendingOrder {
-                        order: mve_order,
+                        order: DaoOrderBundle::new(
+                            mve_order.order.into(),
+                            mve_order.output_ref,
+                            mve_order.bearer,
+                        ),
                         timestamp,
                     };
-                    self.mve_order_backlog.put(order).await;
-                    self.tx_hash_to_mve.remove(version).await;
+                    self.dao_order_backlog.put(order).await;
+                    self.tx_hash_to_dao_order.remove(version).await;
                 }
                 PredictedEntityWrites::ExtendVotingEscrow {
                     voting_escrow_id,
@@ -1944,11 +1944,15 @@ where
                     let version = eve_order.output_ref;
                     self.voting_escrow.remove(voting_escrow_id).await;
                     let order = PendingOrder {
-                        order: eve_order,
+                        order: DaoOrderBundle::new(
+                            eve_order.order.into(),
+                            eve_order.output_ref,
+                            eve_order.bearer,
+                        ),
                         timestamp,
                     };
-                    self.eve_order_backlog.put(order).await;
-                    self.tx_hash_to_mve.remove(version).await;
+                    self.dao_order_backlog.put(order).await;
+                    self.tx_hash_to_dao_order.remove(version).await;
                 }
             }
         }
@@ -2086,10 +2090,9 @@ impl<
         SF,
         PM,
         FB,
-        MVE,
-        EVE,
+        DOB,
         OVE,
-        TMVE,
+        TDOB,
         VotingOrderBacklog,
         ExtendVEOrderBacklog,
         PTX,
@@ -2107,10 +2110,9 @@ impl<
         SF,
         PM,
         FB,
-        MVE,
-        EVE,
+        DOB,
         OVE,
-        TMVE,
+        TDOB,
         VotingOrderBacklog,
         ExtendVEOrderBacklog,
         PTX,
@@ -2309,7 +2311,7 @@ impl<Bearer> Weighted for PredictedEntityWrites<Bearer> {
 #[derive(Clone, Debug, serde::Serialize)]
 pub enum DaoBotResponse {
     VotingOrder(VotingOrderStatus),
-    MVEStatus(MVEStatus),
+    MVEStatus(DaoOrderStatus),
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
