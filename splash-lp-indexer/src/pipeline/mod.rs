@@ -56,7 +56,7 @@ pub async fn log_events<U, Log, Cx, Index>(
     .await
 }
 
-pub async fn update_accounts<DB: MatureEvents>(db: DB, confirmation_delay_blocks: u64) {
+pub async fn process_mature_events<DB: MatureEvents>(db: DB, confirmation_delay_blocks: u64) {
     loop {
         if !db.try_process_mature_events(confirmation_delay_blocks).await {
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;

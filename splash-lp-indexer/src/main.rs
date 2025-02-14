@@ -2,7 +2,7 @@ use crate::config::AppConfig;
 use crate::context::Context;
 use crate::db::RocksDB;
 use crate::http_api::build_api_server;
-use crate::pipeline::{log_events, update_accounts};
+use crate::pipeline::{log_events, process_mature_events};
 use async_primitives::beacon::Beacon;
 use cardano_chain_sync::atomic_flow::atomic_block_flow;
 use cardano_chain_sync::cache::LedgerCacheRocksDB;
@@ -28,8 +28,9 @@ mod account;
 mod config;
 mod context;
 mod db;
-mod event;
+mod feed;
 mod http_api;
+mod onchain;
 mod pipeline;
 mod tx_view;
 
@@ -95,8 +96,9 @@ async fn main() {
     let log_events_handle = tokio::spawn(log_events(block_events, db.clone(), cx, index, filter));
     processes.push(log_events_handle);
 
-    let update_accounts_handle = tokio::spawn(update_accounts(db, config.confirmation_delay_blocks));
-    processes.push(update_accounts_handle);
+    let process_mature_events_handle =
+        tokio::spawn(process_mature_events(db, config.confirmation_delay_blocks));
+    processes.push(process_mature_events_handle);
 
     let server_handle = tokio::spawn(server);
     processes.push(server_handle);

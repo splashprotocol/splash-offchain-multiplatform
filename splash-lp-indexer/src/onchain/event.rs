@@ -16,12 +16,12 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
 };
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub enum Event {
+pub enum OnChainEvent {
     Account(AccountEvent),
     FarmEvent(FarmEvent),
 }
 
-impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for Event
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for OnChainEvent
 where
     Cx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
@@ -39,11 +39,11 @@ where
     }
 }
 
-impl Event {
+impl OnChainEvent {
     pub fn pool_id(&self) -> PoolId {
         match self {
-            Event::Account(dr) => dr.pool_id(),
-            Event::FarmEvent(fe) => fe.pool_id(),
+            OnChainEvent::Account(dr) => dr.pool_id(),
+            OnChainEvent::FarmEvent(fe) => fe.pool_id(),
         }
     }
 }

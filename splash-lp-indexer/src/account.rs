@@ -1,4 +1,4 @@
-use crate::event::{Harvest, PositionEvent, SuspendedPositionEvents};
+use crate::onchain::event::{Harvest, PositionEvent, SuspendedPositionEvents};
 use cml_core::Slot;
 use serde::{Deserialize, Serialize};
 
@@ -102,7 +102,7 @@ impl AccountInPool {
 #[cfg(test)]
 mod tests {
     use crate::account::AccountInPool;
-    use crate::event::{Deposit, PositionEvent};
+    use crate::onchain::event::{Deposit, PositionEvent, Redeem};
     use cml_chain::certs::Credential;
     use cml_crypto::Ed25519KeyHash;
     use spectrum_offchain_cardano::data::PoolId;
@@ -133,11 +133,12 @@ mod tests {
         )
     }
 
+
     #[test]
-    fn apply_deposit() {
+    fn deposit_redeem() {
         let s0 = 10;
         let s1 = 20;
-        let s2 = 40;
+        let s2 = 30;
         let pid = PoolId::random();
         let account_key = Credential::new_pub_key(Ed25519KeyHash::from([0u8; 28]));
         let acc = AccountInPool::new(s0, true);
@@ -152,10 +153,10 @@ mod tests {
         let init_acc = acc.try_adjust_position(s0, total_lq_0, events_0).unwrap();
         let personal_delta_lq_1 = 500_000;
         let total_lq_1 = 4_000_000;
-        let events_1 = vec![PositionEvent::Deposit(Deposit {
+        let events_1 = vec![PositionEvent::Redeem(Redeem {
             pool_id: pid,
             account: account_key.clone(),
-            lp_mint: personal_delta_lq_1,
+            lp_burned: personal_delta_lq_1,
             lp_supply: total_lq_1,
         })];
         let updated_acc_0 = init_acc.try_adjust_position(s1, total_lq_1, events_1).unwrap();
@@ -167,7 +168,20 @@ mod tests {
             lp_mint: personal_delta_lq_2,
             lp_supply: total_lq_2,
         })];
-        let updated_acc_1 = updated_acc_0.try_adjust_position(s2, total_lq_2, events_2);
-        dbg!(updated_acc_1);
+        let updated_acc_2 = updated_acc_0.try_adjust_position(s2, total_lq_2, events_2);
+        assert_eq!(updated_acc_2, Ok(
+            AccountInPool {
+                avg_share_bps: 2500,
+                share: (
+                    1000000,
+                    4000000,
+                ),
+                updated_at: 30,
+                activated_at: Some(
+                    10,
+                ),
+                locked_at: None,
+            },
+        ));
     }
 }

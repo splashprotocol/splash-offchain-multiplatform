@@ -4,7 +4,9 @@ use crate::db::{
     RocksDB, ACCOUNTS_CF, ACTIVE_FARMS_CF, AGGREGATE_CF, CREDS_INDEX_CF, EVENTS_CF, MAX_BLOCK_KEY,
     SUS_EVENTS_CF,
 };
-use crate::event::{AccountEvent, Event, FarmEvent, Harvest, PositionEvent, SuspendedPositionEvents};
+use crate::onchain::event::{
+    AccountEvent, FarmEvent, Harvest, OnChainEvent, PositionEvent, SuspendedPositionEvents,
+};
 use async_trait::async_trait;
 use cml_chain::certs::Credential;
 use rocksdb::{IteratorMode, ReadOptions};
@@ -47,7 +49,7 @@ impl MatureEvents for RocksDB {
                             }
                             current_slot = Some(slot);
                         };
-                        let event = rmp_serde::from_slice::<Event>(&value).unwrap();
+                        let event = rmp_serde::from_slice::<OnChainEvent>(&value).unwrap();
                         events.push(event);
                         tx.delete_cf(events_cf, event_key).unwrap();
                     }
@@ -171,7 +173,7 @@ impl MatureEvents for RocksDB {
     }
 }
 
-fn aggregate_events(events: Vec<Event>) -> HashMap<PoolId, PoolFrame> {
+fn aggregate_events(events: Vec<OnChainEvent>) -> HashMap<PoolId, PoolFrame> {
     let mut aggregated_events: HashMap<PoolId, PoolFrame> = HashMap::new();
     for event in events {
         let event_pid = event.pool_id();
@@ -234,9 +236,9 @@ impl PoolFrame {
             lp_supply: None,
         }
     }
-    fn apply_event(&mut self, event: Event) {
+    fn apply_event(&mut self, event: OnChainEvent) {
         match event {
-            Event::Account(account_event) => {
+            OnChainEvent::Account(account_event) => {
                 let maybe_lp_supply = match self.account_frames.entry(account_event.account()) {
                     Entry::Vacant(acc) => {
                         let mut new_frame = AccountFrame::new();
@@ -250,7 +252,7 @@ impl PoolFrame {
                     self.lp_supply.replace(lp_supply);
                 }
             }
-            Event::FarmEvent(farm_event) => {
+            OnChainEvent::FarmEvent(farm_event) => {
                 self.farm_events.push(farm_event);
             }
         }

@@ -1,17 +1,17 @@
 use crate::db::{event_key, RocksDB, EVENTS_CF};
-use crate::event::Event;
+use crate::onchain::event::OnChainEvent;
 use async_trait::async_trait;
 use tokio::task::spawn_blocking;
 
 #[async_trait]
 pub trait EventLog {
-    async fn batch_append(&self, block_num: u64, events: Vec<Event>);
-    async fn batch_discard(&self, block_num: u64, events: Vec<Event>);
+    async fn batch_append(&self, block_num: u64, events: Vec<OnChainEvent>);
+    async fn batch_discard(&self, block_num: u64, events: Vec<OnChainEvent>);
 }
 
 #[async_trait]
 impl EventLog for RocksDB {
-    async fn batch_append(&self, block_num: u64, events: Vec<Event>) {
+    async fn batch_append(&self, block_num: u64, events: Vec<OnChainEvent>) {
         let db = self.db.clone();
         spawn_blocking(move || {
             let events_cf = db.cf_handle(EVENTS_CF).unwrap();
@@ -27,7 +27,7 @@ impl EventLog for RocksDB {
         .unwrap()
     }
 
-    async fn batch_discard(&self, block_num: u64, events: Vec<Event>) {
+    async fn batch_discard(&self, block_num: u64, events: Vec<OnChainEvent>) {
         let db = self.db.clone();
         spawn_blocking(move || {
             let events_cf = db.cf_handle(EVENTS_CF).unwrap();
