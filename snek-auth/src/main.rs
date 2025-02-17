@@ -1,27 +1,26 @@
 use crate::analytics::{Analytics, LaunchType};
 use crate::metric_keys::SnekAuthMetricKey::{
-    ADA2ADARequest as ADA2ADARequestKey, CaptchaVerificationFailed, CaptchaVerificationSuccess, CommonLaunch,
-    CorrectFairLaunchOutput, EmptyAnalyticsInfoAboutPool, EmptyAuth, FailedFullVerification,
-    FairLaunchWithNativeOutput, IncorrectFairLaunchOutput, IncorrectSignatureBasedRequestFormat,
-    RequestReceived, SignatureVerificationFailed as SignatureVerificationFailedKey,
-    SignatureVerificationSuccess, SuccessFullVerification,
+    ADA2ADARequest as ADA2ADARequestKey, CommonLaunch, CorrectFairLaunchOutput, EmptyAnalyticsInfoAboutPool,
+    FailedFullVerification, FairLaunchWithNativeOutput, IncorrectFairLaunchOutput,
+    IncorrectSignatureBasedRequestFormat, RequestReceived,
+    SignatureVerificationFailed as SignatureVerificationFailedKey, SignatureVerificationSuccess,
+    SuccessFullVerification,
 };
-use crate::re_captcha::{ReCaptcha, ReCaptchaSecret, ReCaptchaToken};
 use crate::signature::Signature;
 use crate::ProcessingErrorCode::{
-    ADA2ADARequest, AuthEntityIsMissing, EmptyPoolInfo, IncorrectRequestStructure, PoolVerificationFailed,
-    ReCapchaVerificationFailed, SignatureVerificationFailed, UnexpectedError,
+    ADA2ADARequest, EmptyPoolInfo, IncorrectRequestStructure, PoolVerificationFailed,
+    SignatureVerificationFailed, UnexpectedError,
 };
 use actix_cors::Cors;
 use actix_web::error::InternalError;
 use actix_web::http::header::ContentType;
 use actix_web::web::Data;
-use actix_web::{error, post, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{post, web, App, HttpResponse, HttpServer, Responder};
 use bloom_offchain_cardano::orders::adhoc::beacon_from_oref;
 use clap::Parser;
 use cml_crypto::{Bip32PrivateKey, PrivateKey, RawBytesEncoding};
 use derive_more::From;
-use graphite::graphite::{Graphite, GraphiteConfig};
+use graphite::graphite::GraphiteConfig;
 use graphite::metrics::Metrics;
 use log::{error, info};
 use spectrum_cardano_lib::{AssetClass, OutputRef};
@@ -42,15 +41,12 @@ struct AuthRequest {
     input_amount: u64,
     input_asset: AssetClass,
     output_asset: AssetClass,
-    token: Option<ReCaptchaToken>,
-    signature: Option<String>,
+    signature: String,
 }
 
 #[derive(serde::Serialize, Clone, Debug)]
 enum ProcessingErrorCode {
-    ReCapchaVerificationFailed,
     SignatureVerificationFailed,
-    AuthEntityIsMissing,
     ADA2ADARequest,
     EmptyPoolInfo,
     IncorrectRequestStructure,
@@ -61,9 +57,7 @@ enum ProcessingErrorCode {
 impl Into<String> for ProcessingErrorCode {
     fn into(self) -> String {
         match self {
-            ReCapchaVerificationFailed => "Captcha verification failed",
             SignatureVerificationFailed => "Signature verification failed",
-            AuthEntityIsMissing => "Authentication failed",
             ADA2ADARequest => "ADA/ADA Request",
             EmptyPoolInfo => "Empty pool info",
             IncorrectRequestStructure => "Incorrect request",
@@ -91,14 +85,13 @@ fn create_error_response(code: ProcessingErrorCode) -> HttpResponse {
         code,
     };
     let body = serde_json::to_string(&parsing_error).unwrap();
-    return HttpResponse::BadRequest()
+    HttpResponse::BadRequest()
         .content_type(ContentType::json())
-        .body(body);
+        .body(body)
 }
 
 #[post("/auth")]
 async fn auth(
-    captcha: Data<ReCaptcha>,
     signature_verifier: Data<Signature>,
     analytics: Data<Analytics>,
     sk: Data<PrivateKey>,
@@ -127,42 +120,25 @@ async fn auth(
         req,
         since_the_epoch.as_millis()
     );
-    match (req.clone().token, req.clone().signature) {
-        (Some(token), _) => {
-            if !captcha.verify(token).await {
-                metrics.send_point_and_log_result(CaptchaVerificationFailed);
-                info!("Captcha verification failed");
-                return create_error_response(ReCapchaVerificationFailed);
-            } else {
-                metrics.send_point_and_log_result(CaptchaVerificationSuccess)
-            }
+    if let Some(verification_result_is_success) =
+        signature_verifier.verify(req.clone().into(), req.signature.clone())
+    {
+        if !verification_result_is_success {
+            info!("Signature verification failed for request {:?}", req.clone());
+            metrics.send_point_and_log_result(SignatureVerificationFailedKey);
+            return create_error_response(SignatureVerificationFailed);
+        } else {
+            metrics.send_point_and_log_result(SignatureVerificationSuccess)
         }
-        (_, Some(signature_from_request)) => {
-            if let Some(verification_result_is_success) =
-                signature_verifier.verify(req.clone().into(), signature_from_request)
-            {
-                if !verification_result_is_success {
-                    info!("Signature verification failed for request {:?}", req.clone());
-                    metrics.send_point_and_log_result(SignatureVerificationFailedKey);
-                    return create_error_response(SignatureVerificationFailed);
-                } else {
-                    metrics.send_point_and_log_result(SignatureVerificationSuccess)
-                }
-            } else {
-                metrics.send_point_and_log_result(IncorrectSignatureBasedRequestFormat);
-                info!("Serialization failed for request: {:?}", req.clone());
-                return create_error_response(IncorrectRequestStructure);
-            }
-        }
-        _ => {
-            metrics.send_point_and_log_result(EmptyAuth);
-            return create_error_response(AuthEntityIsMissing);
-        }
-    };
+    } else {
+        metrics.send_point_and_log_result(IncorrectSignatureBasedRequestFormat);
+        info!("Serialization failed for request: {:?}", req.clone());
+        return create_error_response(IncorrectRequestStructure);
+    }
     match token_opt {
         None => {
             metrics.send_point_and_log_result(ADA2ADARequestKey);
-            return create_error_response(ADA2ADARequest);
+            create_error_response(ADA2ADARequest)
         }
         Some(token) => match analytics.get_token_pool_info(token).await {
             Ok(pool_info) => {
@@ -226,20 +202,20 @@ async fn auth(
                     };
                     let body = serde_json::to_string(&response).unwrap();
                     metrics.send_point_and_log_result(SuccessFullVerification);
-                    return HttpResponse::Ok().content_type(ContentType::json()).body(body);
+                    HttpResponse::Ok().content_type(ContentType::json()).body(body)
                 } else {
                     metrics.send_point_and_log_result(FailedFullVerification);
                     error!(
                         "pool_verification_result_is_success {} for request {:?}",
                         pool_verification_result_is_success, req
                     );
-                    return create_error_response(PoolVerificationFailed);
+                    create_error_response(PoolVerificationFailed)
                 }
             }
             Err(err) => {
                 metrics.send_point_and_log_result(EmptyAnalyticsInfoAboutPool);
                 error!("Failed to fetch pool info: {}", err);
-                return create_error_response(EmptyPoolInfo);
+                create_error_response(EmptyPoolInfo)
             }
         },
     }
@@ -256,8 +232,6 @@ struct Limits {
 #[derive(serde::Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct AppConfig {
-    re_captcha_secret: ReCaptchaSecret,
-    scoring_threshold: f64,
     secret_bech32: String,
     signature_secret: String,
     analytics_snek_url: String,
@@ -286,10 +260,6 @@ async fn main() -> std::io::Result<()> {
             InternalError::from_response(err, create_error_response(IncorrectRequestStructure)).into()
         });
 
-        let re_captcha = Data::new(ReCaptcha::new(
-            config.re_captcha_secret.clone(),
-            config.scoring_threshold,
-        ));
         let analytics = Data::new(Analytics::new(
             config.analytics_snek_url.clone(),
             config.cache_size,
@@ -304,7 +274,6 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .wrap(cors)
             .app_data(json_config)
-            .app_data(re_captcha)
             .app_data(signature_verifier)
             .app_data(analytics)
             .app_data(sk)

@@ -1,9 +1,7 @@
 {
   "cacheSize": 4096,
-  "reCaptchaSecret": "",
   "signatureSecret": "",
   "secretBech32": "",
-  "scoringThreshold": 0.7,
   "analyticsSnekUrl": "https://analytics-snekfun.splash.trade/ws-http/v1/snekfun/pools-feed/initial/state",
   "limits": {
     "threeMinLimit": 25000000,
