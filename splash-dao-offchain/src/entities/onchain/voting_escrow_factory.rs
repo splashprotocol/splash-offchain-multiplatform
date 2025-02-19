@@ -63,6 +63,32 @@ pub struct VEFactory {
     pub gt_tokens_available: u64,
 }
 
+impl VEFactory {
+    pub fn add_asset_to_inventory(&mut self, (token, qty): (Token, u64), is_legacy_asset: bool) {
+        let inventory = if is_legacy_asset {
+            &mut self.legacy_assets_inventory
+        } else {
+            &mut self.accepted_assets_inventory
+        };
+        if let Some(ix) = inventory.iter().position(|(t, _)| *t == token) {
+            inventory[ix].1 += qty;
+        } else {
+            inventory.push((token, qty));
+        }
+    }
+    pub fn remove_asset_from_inventory(&mut self, (token, qty): (Token, u64), is_legacy_asset: bool) {
+        let inventory = if is_legacy_asset {
+            &mut self.legacy_assets_inventory
+        } else {
+            &mut self.accepted_assets_inventory
+        };
+        let ix = inventory.iter().position(|(t, _)| *t == token).unwrap();
+
+        assert!(qty <= inventory[ix].1);
+        inventory[ix].1 -= qty;
+    }
+}
+
 impl<C> TryFromLedger<TransactionOutput, C> for VEFactorySnapshot
 where
     C: Has<TimedOutputRef>

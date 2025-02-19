@@ -37,6 +37,7 @@ pub mod inflation_box;
 pub mod make_voting_escrow_order;
 pub mod permission_manager;
 pub mod poll_factory;
+pub mod redeem_voting_escrow;
 pub mod smart_farm;
 pub mod voting_escrow;
 pub mod voting_escrow_factory;
@@ -105,7 +106,8 @@ where
         } else if let Some(Snapshot(voting_escrow, output_ref)) =
             VotingEscrowSnapshot::try_from_ledger(repr, ctx)
         {
-            Some(Snapshot(DaoEntity::VotingEscrow(voting_escrow), output_ref))
+            let timed_output_ref = ctx.select::<TimedOutputRef>();
+            Some(Snapshot(DaoEntity::VotingEscrow(voting_escrow), timed_output_ref))
         } else if let Some(Snapshot(weighting_poll, output_ref)) =
             WeightingPollSnapshot::try_from_ledger(repr, ctx)
         {

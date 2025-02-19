@@ -23,11 +23,12 @@ use cml_chain::{
         withdrawal_builder::SingleWithdrawalBuilder,
         witness_builder::{PartialPlutusWitness, PlutusScriptWitness},
     },
+    certs::StakeCredential,
     crypto::utils::make_vkey_witness,
-    plutus::{ConstrPlutusData, PlutusData, PlutusScript, PlutusV2Script, RedeemerTag},
+    plutus::{ConstrPlutusData, PlutusData, PlutusScript, PlutusV2Script, PlutusV3Script, RedeemerTag},
     transaction::{DatumOption, Transaction, TransactionOutput},
     utils::BigInteger,
-    Coin, Serialize, Value,
+    Coin, PolicyId, Serialize, Value,
 };
 use cml_crypto::{Ed25519KeyHash, PrivateKey, RawBytesEncoding, ScriptHash, TransactionHash};
 use mint_token::{script_address, DaoDeploymentParameters, LQ_NAME};
@@ -37,7 +38,7 @@ use spectrum_cardano_lib::{
     protocol_params::{constant_tx_builder, COINS_PER_UTXO_BYTE},
     transaction::TransactionOutputExtension,
     value::ValueExtension,
-    AssetClass, NetworkId, OutputRef, PaymentCredential, Token,
+    AssetClass, AssetName, NetworkId, OutputRef, PaymentCredential, Token,
 };
 use spectrum_cardano_lib::{plutus_data::IntoPlutusData, types::TryFromPData};
 use spectrum_offchain::domain::Stable;
@@ -55,7 +56,7 @@ use splash_dao_offchain::{
         DeploymentProgress, NFTUtxoInputs, ProtocolDeployment,
     },
     entities::{
-        offchain::voting_order::VotingOrderId,
+        offchain::OffChainOrderId,
         onchain::{
             extend_voting_escrow_order::compute_extend_ve_witness_validator,
             farm_factory::{FarmFactoryAction, FarmFactoryDatum},
@@ -141,6 +142,19 @@ async fn main() {
         }
         Command::RegisterExtendVotingEscrowWitnessStakingAddress => {
             let script: PlutusScript = compute_extend_ve_witness_validator().into();
+            register_witness_staking_addr(&op_inputs, script).await;
+        }
+        Command::RegisterRedeemVotingEscrowWitnessStakingAddress => {
+            let script: PlutusScript = PlutusV3Script::new(
+                hex::decode(
+                    DaoScriptData::global()
+                        .redeem_voting_escrow_witness
+                        .script_bytes
+                        .clone(),
+                )
+                .unwrap(),
+            )
+            .into();
             register_witness_staking_addr(&op_inputs, script).await;
         }
     };
@@ -1235,7 +1249,7 @@ async fn cast_vote(op_inputs: &OperationInputs, id: VotingEscrowId) {
     .await
     .unwrap();
 
-    let id = VotingOrderId {
+    let id = OffChainOrderId {
         voting_escrow_id: voting_escrow.get().stable_id(),
         version: voting_escrow.get().version as u64,
     };
@@ -1368,10 +1382,16 @@ async fn send_edao_token(op_inputs: &OperationInputs, destination_addr: String) 
         .expect(INCOMPLETE_DEPLOYMENT_ERR_MSG);
 
     let minted_tokens = &deployment_config.minted_deployment_tokens;
-    let required_tokens = vec![minted_tokens.edao_msig.clone()];
+    let bp = BuiltPolicy {
+        policy_id: PolicyId::from_hex("7876492e3b82a31b1ce97a8f454cec653a0f6be5c09b90e62d24c152").unwrap(),
+        asset_name: cml_chain::assets::AssetName::from(AssetName::utf8_unsafe("SPLASH".to_string())),
+        quantity: BigInteger::from(1_000_000),
+    };
+
+    let required_tokens = vec![bp];
     send_assets(
-        5_000_000,
-        1_800_000,
+        10_000_000,
+        7_800_000,
         required_tokens,
         explorer,
         addr,
@@ -1436,6 +1456,7 @@ enum Command {
     },
     RegisterVotingWitnessStakingAddress,
     RegisterExtendVotingEscrowWitnessStakingAddress,
+    RegisterRedeemVotingEscrowWitnessStakingAddress,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -1499,6 +1520,7 @@ struct OperationInputs {
     owner_pub_key: cml_crypto::PublicKey,
     operator_public_key_hash: PaymentCredential,
     operator_sk: PrivateKey,
+    stake_credential: StakeCredential,
     deployment_progress: DeploymentProgress,
     dao_parameters: DaoDeploymentParameters,
     collateral: Collateral,
@@ -1515,6 +1537,10 @@ async fn create_operation_inputs<'a>(config: &'a AppConfig<'a>) -> OperationInpu
     let (addr, _, operator_pkh, _operator_cred, operator_sk) =
         operator_creds_base_address(config.batcher_private_key, config.network_id);
     let sk_bech32 = operator_sk.to_bech32();
+    let Address::Base(ref b) = addr else {
+        panic!("Only work with BaseAddress");
+    };
+    let stake_credential = b.stake.clone();
     let prover = OperatorProver::new(sk_bech32);
     //let prover = OperatorProver::new(config.batcher_private_key.into());
     let owner_pub_key = operator_sk.to_public();
@@ -1543,6 +1569,7 @@ async fn create_operation_inputs<'a>(config: &'a AppConfig<'a>) -> OperationInpu
         owner_pub_key,
         operator_public_key_hash: operator_pkh,
         operator_sk,
+        stake_credential,
         collateral,
         dao_parameters,
         deployment_progress,

@@ -81,6 +81,7 @@ pub struct DaoScriptData {
     pub make_voting_escrow_order: ScriptBytesAndCosts,
     pub extend_voting_escrow_order: ScriptBytesAndCosts,
     pub extend_voting_escrow_witness: ScriptBytesAndCosts,
+    pub redeem_voting_escrow_witness: ScriptBytesAndCosts,
 }
 
 impl DaoScriptData {

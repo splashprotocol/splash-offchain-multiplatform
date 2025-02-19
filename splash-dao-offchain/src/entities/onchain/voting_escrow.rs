@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::plutus_data::DatumExtension;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
-use spectrum_cardano_lib::AssetName;
+use spectrum_cardano_lib::{AssetName, OutputRef};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use uplc_pallas_codec::utils::Int;
@@ -36,7 +36,7 @@ use crate::{
     time::{NetworkTime, ProtocolEpoch},
 };
 
-pub type VotingEscrowSnapshot = Snapshot<VotingEscrow, TimedOutputRef>;
+pub type VotingEscrowSnapshot = Snapshot<VotingEscrow, OutputRef>;
 
 /// Identified by GT Token
 #[derive(
@@ -68,6 +68,7 @@ pub struct VotingEscrow {
     pub version: u32,
     pub last_wp_epoch: i32,
     pub last_gp_deadline: i32,
+    pub redeemed: bool,
 }
 
 impl VotingEscrow {
@@ -169,8 +170,9 @@ where
                 version,
                 last_wp_epoch,
                 last_gp_deadline,
+                redeemed: false,
             };
-            let version = ctx.select::<TimedOutputRef>();
+            let version = ctx.select::<TimedOutputRef>().output_ref;
             return Some(Snapshot::new(voting_escrow, version));
         }
         None
