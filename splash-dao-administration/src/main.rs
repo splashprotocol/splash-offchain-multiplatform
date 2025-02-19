@@ -5,6 +5,7 @@ pub mod voting_order;
 use std::{
     collections::HashMap,
     net::SocketAddr,
+    str::FromStr,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -23,7 +24,7 @@ use cml_chain::{
         witness_builder::{PartialPlutusWitness, PlutusScriptWitness},
     },
     crypto::utils::make_vkey_witness,
-    plutus::{ConstrPlutusData, PlutusData, RedeemerTag},
+    plutus::{ConstrPlutusData, PlutusData, PlutusScript, PlutusV2Script, RedeemerTag},
     transaction::{DatumOption, Transaction, TransactionOutput},
     utils::BigInteger,
     Coin, Serialize, Value,
@@ -56,6 +57,7 @@ use splash_dao_offchain::{
     entities::{
         offchain::voting_order::VotingOrderId,
         onchain::{
+            extend_voting_escrow_order::compute_extend_ve_witness_validator,
             farm_factory::{FarmFactoryAction, FarmFactoryDatum},
             inflation_box::InflationBoxSnapshot,
             permission_manager::{PermManagerDatum, PermManagerSnapshot},
@@ -104,18 +106,6 @@ async fn main() {
             )
             .await;
         }
-        Command::SimulateUser {
-            ve_identifier_json_path,
-            assets_json_path,
-        } => {
-            user_simulator(
-                &mut op_inputs,
-                config,
-                &ve_identifier_json_path,
-                &assets_json_path,
-            )
-            .await;
-        }
         Command::Deploy => {
             deploy(&mut op_inputs, config).await;
         }
@@ -142,8 +132,16 @@ async fn main() {
         Command::SendEDaoToken { destination_addr } => {
             send_edao_token(&op_inputs, destination_addr).await;
         }
-        Command::RegisterWitnessStakingAddress { script_hash_hex } => {
-            register_witness_staking_addr(&op_inputs, script_hash_hex).await;
+        Command::RegisterVotingWitnessStakingAddress => {
+            let script: PlutusScript = PlutusV2Script::new(
+                hex::decode(DaoScriptData::global().voting_witness.script_bytes.clone()).unwrap(),
+            )
+            .into();
+            register_witness_staking_addr(&op_inputs, script).await;
+        }
+        Command::RegisterExtendVotingEscrowWitnessStakingAddress => {
+            let script: PlutusScript = compute_extend_ve_witness_validator().into();
+            register_witness_staking_addr(&op_inputs, script).await;
         }
     };
 }
@@ -197,7 +195,7 @@ async fn deploy<'a>(op_inputs: &mut OperationInputs, config: AppConfig<'a>) -> C
             addr,
             explorer.chain_tip_slot_number().await.unwrap(),
         );
-        let tx = Transaction::from(prover.prove(signed_tx_builder));
+        let tx = prover.prove(signed_tx_builder);
         let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
         println!("tx_hash: {}", tx_hash.to_hex());
         let tx_bytes = tx.to_cbor_bytes();
@@ -422,6 +420,12 @@ async fn deploy<'a>(op_inputs: &mut OperationInputs, config: AppConfig<'a>) -> C
                 hash: reference_input_script_hashes.make_ve_order,
                 reference_utxo: make_ref_utxo(2, 3),
                 cost: (&dsd.make_voting_escrow_order.ex_units).into(),
+                marginal_cost: None,
+            },
+            extend_ve_order: DeployedValidatorRef {
+                hash: reference_input_script_hashes.extend_ve_order,
+                reference_utxo: make_ref_utxo(2, 4),
+                cost: (&dsd.extend_voting_escrow_order.ex_units).into(),
                 marginal_cost: None,
             },
         };
@@ -840,7 +844,7 @@ async fn make_voting_escrow_order(
     tx_builder.add_output(mve_output).unwrap();
 
     let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
-    let actual_fee = estimated_tx_fee + 300_000;
+    let actual_fee = estimated_tx_fee + 310_000;
     let change_output = change_output_creator.create_change_output(actual_fee, addr.clone());
     tx_builder.add_output(change_output).unwrap();
     tx_builder
@@ -862,6 +866,150 @@ async fn make_voting_escrow_order(
     explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
     println!("TX confirmed");
     owner
+}
+
+async fn extend_voting_escrow_order(
+    voting_escrow_id: VotingEscrowId,
+    ve_settings: &VotingEscrowSettings,
+    op_inputs: &mut OperationInputs,
+) -> Owner {
+    let OperationInputs {
+        explorer,
+        addr,
+        deployment_progress,
+        dao_parameters,
+        collateral,
+        prover,
+        network_id,
+        owner_pub_key,
+        ..
+    } = op_inputs;
+
+    let VotingEscrowSettings {
+        deposits,
+        ada_balance,
+        lock_duration_in_seconds,
+        ..
+    } = ve_settings;
+
+    if *lock_duration_in_seconds > MAX_LOCK_TIME_SECONDS {
+        panic!("Locktime exceeds limits!");
+    }
+
+    let deployment_config = CompleteDeployment::try_from((deployment_progress.clone(), *network_id))
+        .expect(INCOMPLETE_DEPLOYMENT_ERR_MSG);
+    let protocol_deployment =
+        ProtocolDeployment::unsafe_pull(deployment_config.deployed_validators.clone(), explorer).await;
+
+    let mut order_out_value = Value::zero();
+
+    // Deposit assets into ve_factory -------------------------------------------
+    let VEFactoryDatum { accepted_assets, .. } = VEFactoryDatum::from(dao_parameters.accepted_assets.clone());
+
+    let mut built_policies = vec![];
+
+    for token_deposit in deposits {
+        let token = Token::from(token_deposit);
+        let accepted_asset = accepted_assets.iter().any(|(tok, _)| *tok == token);
+        let ac = AssetClass::from(token);
+        if accepted_asset {
+            order_out_value.add_unsafe(ac, token_deposit.quantity);
+            built_policies.push(BuiltPolicy::from(token_deposit.clone()));
+        } else {
+            panic!("{} is not accepted by the DAO!", ac);
+        }
+    }
+
+    println!("seeking input value: {}", ada_balance + 10_000_000);
+    let utxos = collect_utxos(
+        addr,
+        ada_balance + 10_000_000,
+        built_policies,
+        collateral,
+        explorer,
+    )
+    .await;
+
+    let mut change_output_creator = ChangeOutputCreator::default();
+    let mut tx_builder = constant_tx_builder();
+    tx_builder.add_reference_input(protocol_deployment.make_ve_order.reference_utxo);
+
+    // Add inputs --------------------------------------------------------
+    for utxo in utxos {
+        println!("add_input coin: {}", utxo.utxo_info.value().coin);
+        change_output_creator.add_input(&utxo);
+        tx_builder.add_input(utxo).unwrap();
+    }
+
+    let voting_escrow_datum = if let Some((ve_snapshot, _)) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
+        explorer,
+        protocol_deployment.voting_escrow.hash,
+        *network_id,
+        &deployment_config,
+        voting_escrow_id,
+    )
+    .await
+    {
+        let ve = ve_snapshot.get();
+        let time_source = NetworkTimeSource;
+        let locked_until = Lock::Def((time_source.network_time().await + *lock_duration_in_seconds) * 1000);
+        // Note that this datum is for the newly extended `voting_escrow` (in the output)
+        DatumOption::new_datum(
+            VotingEscrowConfig {
+                locked_until, // Extend by old locktime duration.
+                owner: ve.owner,
+                max_ex_fee: ve.max_ex_fee,
+                version: ve.version + 1,
+                last_wp_epoch: ve.last_wp_epoch,
+                last_gp_deadline: ve.last_gp_deadline,
+            }
+            .into_pd(),
+        )
+    } else {
+        panic!("VE NOT FOUND");
+    };
+
+    order_out_value.coin = *ada_balance;
+
+    let eve_output = TransactionOutputBuilder::new()
+        .with_address(script_address(
+            protocol_deployment.extend_ve_order.hash,
+            *network_id,
+        ))
+        .with_data(voting_escrow_datum)
+        .next()
+        .unwrap()
+        .with_value(order_out_value)
+        .build()
+        .unwrap();
+    change_output_creator.add_output(&eve_output);
+    tx_builder.add_output(eve_output).unwrap();
+
+    let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
+    let actual_fee = estimated_tx_fee + 300_000;
+    let change_output = change_output_creator.create_change_output(actual_fee, addr.clone());
+    tx_builder.add_output(change_output).unwrap();
+    tx_builder
+        .add_collateral(InputBuilderResult::from(collateral.clone()))
+        .unwrap();
+
+    let start_slot = explorer.chain_tip_slot_number().await.unwrap();
+    tx_builder.set_validity_start_interval(start_slot);
+    tx_builder.set_ttl(start_slot + 300);
+
+    let signed_tx_builder = tx_builder.build(ChangeSelectionAlgo::Default, addr).unwrap();
+    let tx = prover.prove(signed_tx_builder);
+    let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
+    println!("tx_hash: {:?}", tx_hash);
+    let tx_bytes = tx.to_cbor_bytes();
+    println!("tx_bytes: {}", hex::encode(&tx_bytes));
+
+    explorer.submit_tx(&tx_bytes).await.unwrap();
+    explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
+    println!("TX confirmed");
+
+    let owner_bytes = owner_pub_key.to_raw_bytes().try_into().unwrap();
+    Owner::PubKey(owner_bytes)
 }
 
 async fn create_initial_farms(op_inputs: &OperationInputs) {
@@ -1166,7 +1314,7 @@ async fn pull_onchain_entity<'a, T, D>(
     id: T::StableId,
 ) -> Option<(T, TransactionUnspentOutput)>
 where
-    T: TryFromLedger<TransactionOutput, ProcessLedgerEntityContext<'a, D>> + EntitySnapshot,
+    T: TryFromLedger<TransactionOutput, ProcessLedgerEntityContext<'a, D>> + Stable,
 {
     let mut entity = None;
     let mut offset = 0u64;
@@ -1224,7 +1372,7 @@ async fn send_edao_token(op_inputs: &OperationInputs, destination_addr: String) 
     send_assets(
         5_000_000,
         1_800_000,
-        vec![],
+        required_tokens,
         explorer,
         addr,
         &destination_addr,
@@ -1234,7 +1382,7 @@ async fn send_edao_token(op_inputs: &OperationInputs, destination_addr: String) 
     .unwrap();
 }
 
-async fn register_witness_staking_addr(op_inputs: &OperationInputs, script_hash_hex: String) {
+async fn register_witness_staking_addr(op_inputs: &OperationInputs, script: PlutusScript) {
     let OperationInputs {
         explorer,
         addr,
@@ -1242,25 +1390,9 @@ async fn register_witness_staking_addr(op_inputs: &OperationInputs, script_hash_
         collateral,
         ..
     } = op_inputs;
-    let staking_validator_script_hash = ScriptHash::from_hex(&script_hash_hex).unwrap();
-    //println!(
-    //    "ZZZZ: {}",
-    //    hex::encode(vec![
-    //        158, 118, 55, 184, 13, 29, 242, 39, 236, 32, 97, 168, 142, 119, 32, 223, 131, 28, 159, 233, 162,
-    //        22, 58, 3, 52, 9, 157, 158
-    //    ])
-    //);
-    register_staking_address(
-        14_000_000,
-        8_030_000,
-        explorer,
-        addr,
-        &staking_validator_script_hash,
-        collateral,
-        prover,
-    )
-    .await
-    .unwrap();
+    register_staking_address(script, 14_000_000, explorer, addr, collateral, prover)
+        .await
+        .unwrap();
 }
 
 #[derive(Parser)]
@@ -1302,10 +1434,8 @@ enum Command {
         #[arg(long)]
         assets_json_path: String,
     },
-    RegisterWitnessStakingAddress {
-        #[arg(long)]
-        script_hash_hex: String,
-    },
+    RegisterVotingWitnessStakingAddress,
+    RegisterExtendVotingEscrowWitnessStakingAddress,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]

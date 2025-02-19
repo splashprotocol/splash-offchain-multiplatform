@@ -10,8 +10,9 @@ use cml_chain::{
         witness_builder::{PartialPlutusWitness, PlutusScriptWitness},
     },
     certs::{Certificate, Credential},
-    plutus::{ConstrPlutusData, PlutusData, PlutusScript, PlutusV2Script},
+    plutus::{ConstrPlutusData, PlutusData, PlutusScript, PlutusV2Script, PlutusV3Script},
     transaction::Transaction,
+    utils::BigInteger,
     Serialize, Value,
 };
 use cml_crypto::{ScriptHash, TransactionHash};
@@ -26,6 +27,7 @@ use crate::{
     collect_utxos::collect_utxos,
     create_change_output::{ChangeOutputCreator, CreateChangeOutput},
     deployment::{BuiltPolicy, DaoScriptData},
+    entities::onchain::extend_voting_escrow_order::compute_extend_ve_witness_validator,
 };
 
 const LIMIT: u16 = 50;
@@ -138,11 +140,10 @@ where
 }
 
 pub async fn register_staking_address<Net: CardanoNetwork, TX>(
+    script: PlutusScript,
     coin_before_change_deduction: u64,
-    change_output_coin: u64,
     explorer: &Net,
     wallet_addr: &Address,
-    staking_validator_script_hash: &ScriptHash,
     collateral: &Collateral,
     prover: &TX,
 ) -> Result<(), Box<dyn std::error::Error>>
@@ -164,26 +165,15 @@ where
         tx_builder.add_input(utxo).unwrap();
     }
 
-    let output_value = Value::from(1_200_000);
     println!("input_amount: {}", amount,);
 
-    let asset_pd = PlutusData::ConstrPlutusData(ConstrPlutusData::new(
-        0,
-        vec![PlutusData::new_bytes(vec![]), PlutusData::new_bytes(vec![])],
-    ));
+    let redeemer = PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![]));
 
-    let redeemer = PlutusData::ConstrPlutusData(ConstrPlutusData::new(
-        0,
-        vec![asset_pd, PlutusData::new_list(vec![])],
-    ));
+    let staking_validator_script_hash = script.hash();
 
-    let voting_witness_script = PlutusScript::PlutusV2(PlutusV2Script::new(
-        hex::decode(&DaoScriptData::global().voting_witness.script_bytes).unwrap(),
-    ));
     let cert_reg =
-        Certificate::new_reg_cert(Credential::new_script(*staking_validator_script_hash), 2_000_000);
-    let partial_witness =
-        PartialPlutusWitness::new(PlutusScriptWitness::Script(voting_witness_script), redeemer);
+        Certificate::new_reg_cert(Credential::new_script(staking_validator_script_hash), 2_000_000);
+    let partial_witness = PartialPlutusWitness::new(PlutusScriptWitness::Script(script), redeemer);
     let cert_builder_result = SingleCertificateBuilder::new(cert_reg)
         .plutus_script(partial_witness, vec![].into())
         .unwrap();
@@ -192,34 +182,20 @@ where
     tx_builder.set_exunits(
         RedeemerWitnessKey::new(cml_chain::plutus::RedeemerTag::Cert, 0),
         cml_chain::plutus::ExUnits::from(spectrum_cardano_lib::ex_units::ExUnits {
-            mem: 100_000,
-            steps: 800_000,
+            mem: 200_000,
+            steps: 10_000_000,
         }),
     );
-    let output_result = TransactionOutputBuilder::new()
-        .with_address(wallet_addr.clone())
-        .next()
-        .unwrap()
-        .with_value(output_value)
-        .build()
-        .unwrap();
-    change_output_creator.add_output(&output_result);
-    // tx_builder.add_output(output_result).unwrap();
 
-    let estimated_tx_fee = tx_builder.min_fee(false).unwrap();
-    let actual_fee = 5_000_000;
-    let change_output = change_output_creator.create_change_output(actual_fee, wallet_addr.clone());
-    // tx_builder.add_output(change_output).unwrap();
     tx_builder
         .add_collateral(InputBuilderResult::from(collateral.clone()))
         .unwrap();
-    // tx_builder.set_fee(actual_fee);
 
     let signed_tx_builder = tx_builder
         .build(ChangeSelectionAlgo::Default, wallet_addr)
         .unwrap();
 
-    let tx = Transaction::from(prover.prove(signed_tx_builder));
+    let tx = prover.prove(signed_tx_builder);
     let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
     println!("tx_hash: {:?}", tx_hash);
     let tx_bytes = tx.to_cbor_bytes();

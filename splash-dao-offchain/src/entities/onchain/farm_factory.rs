@@ -19,9 +19,9 @@ use spectrum_offchain::{
 };
 use spectrum_offchain_cardano::{
     deployment::{test_address, DeployedScriptInfo},
-    parametrized_validators::apply_params_validator,
+    parametrized_validators::apply_params_validator_plutus_v2,
 };
-use uplc_pallas_codec::utils::PlutusBytes;
+use uplc_pallas_primitives::{BoundedBytes, MaybeIndefArray};
 
 use crate::{
     constants::{self},
@@ -145,11 +145,13 @@ pub fn compute_farm_factory_validator(
     farm_auth_policy: PolicyId,
     gov_witness_script_hash: PolicyId,
 ) -> PlutusV2Script {
-    let params_pd = uplc::PlutusData::Array(vec![
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(farm_auth_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(gov_witness_script_hash.to_raw_bytes().to_vec())),
-    ]);
-    apply_params_validator(params_pd, &DaoScriptData::global().farm_factory.script_bytes)
+    let params_pd = uplc::PlutusData::Array(MaybeIndefArray::Indef(vec![
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(farm_auth_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(
+            gov_witness_script_hash.to_raw_bytes().to_vec(),
+        )),
+    ]));
+    apply_params_validator_plutus_v2(params_pd, &DaoScriptData::global().farm_factory.script_bytes)
 }
 
 #[cfg(test)]

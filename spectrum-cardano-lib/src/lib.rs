@@ -17,6 +17,7 @@ use cml_crypto::{PublicKey, RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
 use derive_more::{From, Into};
 use num::{CheckedAdd, CheckedSub};
+use plutus_data::make_constr_pd_indefinite_arr;
 use serde::{Deserialize, Serialize};
 use serde_with::SerializeDisplay;
 
@@ -220,12 +221,10 @@ impl IntoPlutusData for OutputRef {
     fn into_pd(self) -> PlutusData {
         // Note the type for TransactionId in Aiken's stdlib 1.8.0 is different to newer versions.
         // See: https://github.com/aiken-lang/stdlib/blob/c074d343e869b380861b0fc834944c3cefbca982/lib/aiken/transaction.ak#L110
-        let transaction_id = PlutusData::new_constr_plutus_data(ConstrPlutusData::new(
-            0,
-            vec![PlutusData::new_bytes(self.0.to_raw_bytes().to_vec())],
-        ));
+        let transaction_id =
+            make_constr_pd_indefinite_arr(vec![PlutusData::new_bytes(self.0.to_raw_bytes().to_vec())]);
         let index = PlutusData::new_integer(BigInteger::from(self.1));
-        PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![transaction_id, index]))
+        make_constr_pd_indefinite_arr(vec![transaction_id, index])
     }
 }
 

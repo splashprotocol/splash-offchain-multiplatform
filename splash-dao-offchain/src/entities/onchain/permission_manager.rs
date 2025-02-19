@@ -17,8 +17,9 @@ use spectrum_offchain::{
 };
 use spectrum_offchain_cardano::{
     deployment::{test_address, DeployedScriptInfo},
-    parametrized_validators::apply_params_validator,
+    parametrized_validators::apply_params_validator_plutus_v2,
 };
+use uplc_pallas_primitives::{BoundedBytes, MaybeIndefArray};
 
 use crate::{
     constants::DEFAULT_AUTH_TOKEN_NAME,
@@ -134,13 +135,11 @@ pub fn compute_perm_manager_validator(
     edao_msig_policy: PolicyId,
     perm_manager_auth_policy: PolicyId,
 ) -> PlutusV2Script {
-    let params_pd = uplc::PlutusData::Array(vec![
-        uplc::PlutusData::BoundedBytes(uplc_pallas_codec::utils::PlutusBytes::from(
-            edao_msig_policy.to_raw_bytes().to_vec(),
-        )),
-        uplc::PlutusData::BoundedBytes(uplc_pallas_codec::utils::PlutusBytes::from(
+    let params_pd = uplc::PlutusData::Array(MaybeIndefArray::Indef(vec![
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(edao_msig_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(
             perm_manager_auth_policy.to_raw_bytes().to_vec(),
         )),
-    ]);
-    apply_params_validator(params_pd, &DaoScriptData::global().perm_manager.script_bytes)
+    ]));
+    apply_params_validator_plutus_v2(params_pd, &DaoScriptData::global().perm_manager.script_bytes)
 }

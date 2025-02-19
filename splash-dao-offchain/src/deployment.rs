@@ -11,7 +11,9 @@ use type_equalities::IsEqual;
 
 use crate::{
     constants::DAO_SCRIPT_BYTES,
-    protocol_config::{GTAuthPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy, VEFactoryAuthPolicy},
+    protocol_config::{
+        GTAuthPolicy, MintVECompositionPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy, VEFactoryAuthPolicy,
+    },
     GenesisEpochStartTime,
 };
 
@@ -30,6 +32,7 @@ pub struct DeployedValidators {
     pub weighting_power: DeployedValidatorRef,
     pub smart_farm: DeployedValidatorRef,
     pub make_ve_order: DeployedValidatorRef,
+    pub extend_ve_order: DeployedValidatorRef,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -76,6 +79,8 @@ pub struct DaoScriptData {
     pub mint_ve_composition_token: ScriptBytesAndCosts,
     pub voting_witness: ScriptBytesAndCosts,
     pub make_voting_escrow_order: ScriptBytesAndCosts,
+    pub extend_voting_escrow_order: ScriptBytesAndCosts,
+    pub extend_voting_escrow_witness: ScriptBytesAndCosts,
 }
 
 impl DaoScriptData {
@@ -117,6 +122,7 @@ pub enum ProtocolValidator {
     MintVeCompositionToken,
     WeightingPower,
     MakeVeOrder,
+    ExtendVeOrder,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -134,6 +140,7 @@ pub struct ProtocolScriptHashes {
     pub weighting_power: DeployedScriptInfo<{ ProtocolValidator::WeightingPower as u8 }>,
     pub smart_farm: DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>,
     pub make_ve_order: DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }>,
+    pub extend_ve_order: DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>,
 }
 
 impl From<&ProtocolDeployment> for ProtocolScriptHashes {
@@ -152,6 +159,7 @@ impl From<&ProtocolDeployment> for ProtocolScriptHashes {
             weighting_power: DeployedScriptInfo::from(&deployment.weighting_power),
             smart_farm: DeployedScriptInfo::from(&deployment.smart_farm),
             make_ve_order: DeployedScriptInfo::from(&deployment.make_ve_order),
+            extend_ve_order: DeployedScriptInfo::from(&deployment.extend_ve_order),
         }
     }
 }
@@ -171,6 +179,7 @@ pub struct ProtocolDeployment {
     pub weighting_power: DeployedValidator<{ ProtocolValidator::WeightingPower as u8 }>,
     pub smart_farm: DeployedValidator<{ ProtocolValidator::SmartFarm as u8 }>,
     pub make_ve_order: DeployedValidator<{ ProtocolValidator::MakeVeOrder as u8 }>,
+    pub extend_ve_order: DeployedValidator<{ ProtocolValidator::ExtendVeOrder as u8 }>,
 }
 
 impl ProtocolDeployment {
@@ -193,6 +202,7 @@ impl ProtocolDeployment {
             .await,
             weighting_power: DeployedValidator::unsafe_pull(validators.weighting_power, explorer).await,
             make_ve_order: DeployedValidator::unsafe_pull(validators.make_ve_order, explorer).await,
+            extend_ve_order: DeployedValidator::unsafe_pull(validators.extend_ve_order, explorer).await,
         }
     }
 }
@@ -228,13 +238,19 @@ pub struct CompleteDeployment {
 
 impl Has<VEFactoryAuthPolicy> for CompleteDeployment {
     fn select<U: IsEqual<VEFactoryAuthPolicy>>(&self) -> VEFactoryAuthPolicy {
-        VEFactoryAuthPolicy(self.minted_deployment_tokens.ve_factory_auth.policy_id)
+        VEFactoryAuthPolicy(self.minted_deployment_tokens.ve_factory_auth.clone())
     }
 }
 
 impl Has<MintVEIdentifierPolicy> for CompleteDeployment {
     fn select<U: IsEqual<MintVEIdentifierPolicy>>(&self) -> MintVEIdentifierPolicy {
         MintVEIdentifierPolicy(self.deployed_validators.mint_identifier.hash)
+    }
+}
+
+impl Has<MintVECompositionPolicy> for CompleteDeployment {
+    fn select<U: IsEqual<MintVECompositionPolicy>>(&self) -> MintVECompositionPolicy {
+        MintVECompositionPolicy(self.deployed_validators.mint_ve_composition_token.hash)
     }
 }
 
@@ -283,6 +299,14 @@ impl Has<DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }>> for Comp
         &self,
     ) -> DeployedScriptInfo<{ ProtocolValidator::VotingEscrow as u8 }> {
         DeployedScriptInfo::from(&self.deployed_validators.voting_escrow)
+    }
+}
+
+impl Has<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>> for CompleteDeployment {
+    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }> {
+        DeployedScriptInfo::from(&self.deployed_validators.extend_ve_order)
     }
 }
 

@@ -26,11 +26,12 @@ use spectrum_cardano_lib::{
     transaction::TransactionOutputExtension,
     NetworkId,
 };
-use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
+use spectrum_offchain_cardano::parametrized_validators::apply_params_validator_plutus_v2;
 use splash_dao_offchain::{
     constants::{DEFAULT_AUTH_TOKEN_NAME, GT_NAME, MAX_GT_SUPPLY},
     deployment::{BuiltPolicy, DaoScriptData, ExternallyMintedToken, MintedTokens},
     entities::onchain::{
+        extend_voting_escrow_order::compute_extend_ve_order_validator,
         farm_factory::compute_farm_factory_validator,
         inflation_box::compute_inflation_box_validator,
         make_voting_escrow_order::compute_make_ve_order_validator,
@@ -45,7 +46,7 @@ use splash_dao_offchain::{
         weighting_poll::compute_mint_wp_auth_token_validator,
     },
 };
-use uplc_pallas_codec::utils::PlutusBytes;
+use uplc_pallas_primitives::BoundedBytes;
 
 use crate::DeploymentProgress;
 
@@ -225,28 +226,33 @@ fn compute_one_time_mint_validator(tx_hash: TransactionHash, index: usize, quant
     let tx_hash_constr_pd = uplc::PlutusData::Constr(uplc::Constr {
         tag: 121,
         any_constructor: None,
-        fields: vec![uplc::PlutusData::BoundedBytes(
-            uplc_pallas_codec::utils::PlutusBytes::from(tx_hash.to_raw_bytes().to_vec()),
-        )],
+        fields: uplc_pallas_primitives::MaybeIndefArray::Indef(vec![
+            uplc_pallas_primitives::PlutusData::BoundedBytes(BoundedBytes::from(
+                tx_hash.to_raw_bytes().to_vec(),
+            )),
+        ]),
     });
 
     let output_ref_pd = uplc::PlutusData::Constr(uplc::Constr {
         tag: 121,
         any_constructor: None,
-        fields: vec![
+        fields: uplc_pallas_primitives::MaybeIndefArray::Indef(vec![
             tx_hash_constr_pd,
             uplc::PlutusData::BigInt(uplc::BigInt::Int(uplc_pallas_codec::utils::Int::from(
                 index as i64,
             ))),
-        ],
+        ]),
     });
 
     let quantity_pd = uplc::PlutusData::BigInt(uplc::BigInt::Int(uplc_pallas_codec::utils::Int::from(
         quantity as i64,
     )));
 
-    let params_pd = uplc::PlutusData::Array(vec![output_ref_pd, quantity_pd]);
-    apply_params_validator(params_pd, &DaoScriptData::global().one_time_mint.script_bytes)
+    let params_pd = uplc::PlutusData::Array(uplc_pallas_primitives::MaybeIndefArray::Indef(vec![
+        output_ref_pd,
+        quantity_pd,
+    ]));
+    apply_params_validator_plutus_v2(params_pd, &DaoScriptData::global().one_time_mint.script_bytes)
     //let buf: Vec<u8> = vec![];
     //let mut encoder = uplc_pallas_codec::minicbor::Encoder::new(buf);
     //tx_hash_constr_pd.encode(&mut encoder, &mut ()).unwrap();
@@ -351,11 +357,9 @@ pub fn create_dao_reference_input_utxos(
 
     let perm_manager_script = compute_perm_manager_validator(edao_msig, perm_manager_auth_policy);
 
-    let make_ve_order_script = compute_make_ve_order_validator(
-        mint_identifier_script.hash(),
-        mint_ve_composition_token_script.hash(),
-        voting_escrow_script.hash(),
-    );
+    let make_ve_order_script = compute_make_ve_order_validator(mint_ve_composition_token_script.hash());
+
+    let extend_ve_order_script = compute_extend_ve_order_validator(mint_ve_composition_token_script.hash());
 
     let reference_input_script_hashes = ReferenceInputScriptHashes {
         inflation: inflation_script.hash(),
@@ -371,6 +375,7 @@ pub fn create_dao_reference_input_utxos(
         weighting_power: mint_weighting_power_script.hash(),
         smart_farm: mint_farm_auth_token_script.hash(),
         make_ve_order: make_ve_order_script.hash(),
+        extend_ve_order: extend_ve_order_script.hash(),
     };
 
     let script_before =
@@ -421,6 +426,9 @@ pub fn create_dao_reference_input_utxos(
     tx_builder_2
         .add_output(make_output(make_ve_order_script))
         .unwrap();
+    tx_builder_2
+        .add_output(make_output(extend_ve_order_script))
+        .unwrap();
 
     (
         tx_builder_0,
@@ -436,20 +444,28 @@ fn compute_gov_proxy_script(
     governance_power_policy: PolicyId,
     gt_policy: PolicyId,
 ) -> PlutusV2Script {
-    let params_pd = uplc::PlutusData::Array(vec![
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(ve_factory_auth_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(proposal_auth_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(governance_power_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(gt_policy.to_raw_bytes().to_vec())),
-    ]);
-    apply_params_validator(params_pd, &DaoScriptData::global().gov_proxy.script_bytes)
+    let params_pd = uplc::PlutusData::Array(uplc_pallas_primitives::MaybeIndefArray::Indef(vec![
+        uplc_pallas_primitives::PlutusData::BoundedBytes(BoundedBytes::from(
+            ve_factory_auth_policy.to_raw_bytes().to_vec(),
+        )),
+        uplc_pallas_primitives::PlutusData::BoundedBytes(BoundedBytes::from(
+            proposal_auth_policy.to_raw_bytes().to_vec(),
+        )),
+        uplc_pallas_primitives::PlutusData::BoundedBytes(BoundedBytes::from(
+            governance_power_policy.to_raw_bytes().to_vec(),
+        )),
+        uplc_pallas_primitives::PlutusData::BoundedBytes(BoundedBytes::from(
+            gt_policy.to_raw_bytes().to_vec(),
+        )),
+    ]));
+    apply_params_validator_plutus_v2(params_pd, &DaoScriptData::global().gov_proxy.script_bytes)
 }
 
 fn compute_mint_ve_composition_token_script(ve_factory_auth_policy: PolicyId) -> PlutusV2Script {
-    let params_pd = uplc::PlutusData::Array(vec![uplc::PlutusData::BoundedBytes(PlutusBytes::from(
-        ve_factory_auth_policy.to_raw_bytes().to_vec(),
-    ))]);
-    apply_params_validator(
+    let params_pd = uplc::PlutusData::Array(uplc_pallas_primitives::MaybeIndefArray::Indef(vec![
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(ve_factory_auth_policy.to_raw_bytes().to_vec())),
+    ]));
+    apply_params_validator_plutus_v2(
         params_pd,
         &DaoScriptData::global().mint_ve_composition_token.script_bytes,
     )
@@ -476,6 +492,7 @@ pub struct ReferenceInputScriptHashes {
     pub weighting_power: ScriptHash,
     pub smart_farm: ScriptHash,
     pub make_ve_order: ScriptHash,
+    pub extend_ve_order: ScriptHash,
 }
 
 #[derive(Deserialize)]

@@ -81,7 +81,7 @@ pub struct FarmFactoryAuthPolicy(pub PolicyId);
 pub struct WPFactoryAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
-pub struct VEFactoryAuthPolicy(pub PolicyId);
+pub struct VEFactoryAuthPolicy(pub BuiltPolicy);
 
 #[derive(Debug, Clone)]
 pub struct VEFactoryScriptHash(pub ScriptHash);
@@ -94,6 +94,12 @@ pub struct MakeVotingEscrowOrderScriptHash(pub ScriptHash);
 
 #[derive(Debug, Clone)]
 pub struct MakeVotingEscrowOrderRefScriptOutput(pub TransactionUnspentOutput);
+
+#[derive(Debug, Clone)]
+pub struct ExtendVotingEscrowOrderScriptHash(pub ScriptHash);
+
+#[derive(Debug, Clone)]
+pub struct ExtendVotingEscrowOrderRefScriptOutput(pub TransactionUnspentOutput);
 
 #[derive(Debug, Clone)]
 pub struct VotingEscrowRefScriptOutput(pub TransactionUnspentOutput);
@@ -256,7 +262,7 @@ impl Has<WPFactoryAuthPolicy> for ProtocolConfig {
 
 impl Has<VEFactoryAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<VEFactoryAuthPolicy>>(&self) -> VEFactoryAuthPolicy {
-        VEFactoryAuthPolicy(self.tokens.ve_factory_auth.policy_id)
+        VEFactoryAuthPolicy(self.tokens.ve_factory_auth.clone())
     }
 }
 
@@ -283,6 +289,22 @@ impl Has<MakeVotingEscrowOrderRefScriptOutput> for ProtocolConfig {
         &self,
     ) -> MakeVotingEscrowOrderRefScriptOutput {
         MakeVotingEscrowOrderRefScriptOutput(self.deployed_validators.make_ve_order.reference_utxo.clone())
+    }
+}
+
+impl Has<ExtendVotingEscrowOrderScriptHash> for ProtocolConfig {
+    fn select<U: IsEqual<ExtendVotingEscrowOrderScriptHash>>(&self) -> ExtendVotingEscrowOrderScriptHash {
+        ExtendVotingEscrowOrderScriptHash(self.deployed_validators.extend_ve_order.hash)
+    }
+}
+
+impl Has<ExtendVotingEscrowOrderRefScriptOutput> for ProtocolConfig {
+    fn select<U: IsEqual<ExtendVotingEscrowOrderRefScriptOutput>>(
+        &self,
+    ) -> ExtendVotingEscrowOrderRefScriptOutput {
+        ExtendVotingEscrowOrderRefScriptOutput(
+            self.deployed_validators.extend_ve_order.reference_utxo.clone(),
+        )
     }
 }
 
@@ -450,6 +472,14 @@ impl Has<DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }>> for Proto
         &self,
     ) -> DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }> {
         DeployedScriptInfo::from(&self.deployed_validators.make_ve_order)
+    }
+}
+
+impl Has<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>> for ProtocolConfig {
+    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }> {
+        DeployedScriptInfo::from(&self.deployed_validators.extend_ve_order)
     }
 }
 
