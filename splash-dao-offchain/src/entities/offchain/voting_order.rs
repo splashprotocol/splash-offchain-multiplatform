@@ -9,39 +9,15 @@ use spectrum_offchain::domain::order::UniqueOrder;
 use crate::entities::onchain::smart_farm::FarmId;
 use crate::entities::onchain::voting_escrow::VotingEscrowId;
 
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Into, From, Debug, Serialize, Deserialize)]
-pub struct VotingOrderId {
-    pub voting_escrow_id: VotingEscrowId,
-    /// Current version of voting_escrow that this order will apply to.
-    pub version: u64,
-}
-
-impl From<VotingOrderId> for VotingEscrowId {
-    fn from(value: VotingOrderId) -> Self {
-        value.voting_escrow_id
-    }
-}
+use super::OffChainOrderId;
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VotingOrder {
-    pub id: VotingOrderId,
+    pub id: OffChainOrderId,
     pub distribution: Vec<(FarmId, u64)>,
     pub proof: Vec<u8>,
     pub witness: ScriptHash,
     pub witness_input: String,
     pub version: u32,
     // pub proposal_auth_policy: PolicyId,
-}
-
-impl UniqueOrder for VotingOrder {
-    type TOrderId = VotingOrderId;
-    fn get_self_ref(&self) -> Self::TOrderId {
-        self.id
-    }
-}
-
-impl Weighted for VotingOrder {
-    fn weight(&self) -> OrderWeight {
-        OrderWeight::from(1)
-    }
 }

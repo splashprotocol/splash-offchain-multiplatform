@@ -43,8 +43,10 @@ use splash_dao_offchain::{
     constants::DAO_SCRIPT_BYTES,
     deployment::{CompleteDeployment, DaoScriptData, DeploymentProgress, ProtocolDeployment},
     entities::{
-        offchain::{extend_voting_escrow_order::ExtendVotingEscrowOffChainOrder, voting_order::VotingOrder},
-        onchain::{make_voting_escrow_order::MakeVotingEscrowOrderBundle, voting_escrow::Owner},
+        offchain::{
+            voting_order::VotingOrder, ExtendVotingEscrowOffChainOrder, RedeemVotingEscrowOffChainOrder,
+        },
+        onchain::voting_escrow::Owner,
     },
     funding::FundingRepoRocksDB,
     handler::DaoHandler,
@@ -193,6 +195,7 @@ async fn main() {
     let app = axum::Router::new()
         .route("/submit/votingorder", axum::routing::put(handle_voting_put))
         .route("/submit/extendve", axum::routing::put(handle_extend_ve_put))
+        .route("/submit/redeemve", axum::routing::put(handle_redeem_ve_put))
         .route(
             "/query/ve/identifier/name",
             axum::routing::put(handle_get_mve_status),
@@ -227,8 +230,7 @@ async fn main() {
         setup_order_backlog(mk_path("dao_order_backlog")).await,
         KVStoreRocksDB::new(mk_path("voting_escrow_by_owner")),
         KVStoreRocksDB::new(mk_path("tx_hash_to_dob")),
-        setup_order_backlog(mk_path("voting_order_backlog_config")).await,
-        setup_order_backlog(mk_path("extend_ve_order_backlog_config")).await,
+        setup_order_backlog(mk_path("order_backlog_config")).await,
         KVStoreRocksDB::new(mk_path("predicted_txs_backlog")),
         NetworkTimeSource {},
         inflation_actions,
@@ -314,6 +316,40 @@ async fn handle_extend_ve_put(
     let (response_sender, recv) = tokio::sync::oneshot::channel();
     let msg = DaoBotMessage {
         command: DaoBotCommand::ExtendVotingEscrowOrder(payload),
+        response_sender,
+    };
+    sender.send(msg).await.unwrap();
+    match recv.await {
+        Ok(response) => match response {
+            DaoBotResponse::VotingOrder(voting_order_status) => match voting_order_status {
+                VotingOrderStatus::Queued | VotingOrderStatus::Success => {
+                    (StatusCode::OK, format!("{:?}", voting_order_status))
+                }
+                VotingOrderStatus::Failed => {
+                    (StatusCode::UNPROCESSABLE_ENTITY, "TX submission failed".into())
+                }
+                VotingOrderStatus::VotingEscrowNotFound => (
+                    StatusCode::NOT_FOUND,
+                    "Cannot find associated voting_escrow".into(),
+                ),
+            },
+            DaoBotResponse::MVEStatus(mve_status) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                format!("Unexpected response: MVEStatus: {:?}", mve_status),
+            ),
+        },
+        Err(_err) => (StatusCode::UNPROCESSABLE_ENTITY, "Unknown error".into()),
+    }
+}
+
+async fn handle_redeem_ve_put(
+    State(state): State<AppState>,
+    axum::Json(payload): axum::Json<RedeemVotingEscrowOffChainOrder>,
+) -> impl IntoResponse {
+    let AppState { sender } = state;
+    let (response_sender, recv) = tokio::sync::oneshot::channel();
+    let msg = DaoBotMessage {
+        command: DaoBotCommand::RedeemVotingEscrowOrder(payload),
         response_sender,
     };
     sender.send(msg).await.unwrap();

@@ -68,6 +68,7 @@ pub struct VotingEscrow {
     pub version: u32,
     pub last_wp_epoch: i32,
     pub last_gp_deadline: i32,
+    pub redeemed: bool,
 }
 
 impl VotingEscrow {
@@ -169,6 +170,7 @@ where
                 version,
                 last_wp_epoch,
                 last_gp_deadline,
+                redeemed: false,
             };
             let version = ctx.select::<TimedOutputRef>();
             return Some(Snapshot::new(voting_escrow, version));

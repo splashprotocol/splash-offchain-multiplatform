@@ -37,6 +37,7 @@ pub mod inflation_box;
 pub mod make_voting_escrow_order;
 pub mod permission_manager;
 pub mod poll_factory;
+pub mod redeem_voting_escrow;
 pub mod smart_farm;
 pub mod voting_escrow;
 pub mod voting_escrow_factory;
