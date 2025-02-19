@@ -217,7 +217,7 @@ pub async fn user_simulator<'a>(
                         } else if !ve_extended_this_epoch {
                             let owner =
                                 extend_voting_escrow_order(voting_escrow_id, &ve_settings, op_inputs).await;
-                            let ve_output_ref = ve_snapshot.version().output_ref;
+                            let ve_output_ref = *ve_snapshot.version();
                             ve_state = VEState::PredictedOnChainExtendedVE(
                                 Epoch(current_epoch),
                                 owner,
@@ -378,7 +378,7 @@ pub async fn user_simulator<'a>(
                                 .map(|(_, ve_factory_output)| OutputRef::from(ve_factory_output.input))
                                 .unwrap();
 
-                                let ve_output_ref = ve_snapshot.version().output_ref;
+                                let ve_output_ref = *ve_snapshot.version();
                                 let (voting_escrow_input_ix, ve_factory_input_ix) =
                                     if ve_output_ref < ve_factory_output_ref {
                                         (0, 1)

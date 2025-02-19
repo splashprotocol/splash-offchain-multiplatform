@@ -795,7 +795,7 @@ where
         );
 
         let voting_escrow_input = SingleInputBuilder::new(
-            TransactionInput::from(voting_escrow.version().output_ref),
+            TransactionInput::from(*voting_escrow.version()),
             ve_box_in.clone(),
         )
         .plutus_script_inline_datum(voting_escrow_witness, RequiredSigners::from(vec![]))
@@ -984,7 +984,7 @@ where
             Some(*prev_wp_version),
         );
 
-        let next_ve_version = add_slot(OutputRef::new(tx_hash, 1));
+        let next_ve_version = OutputRef::new(tx_hash, 1);
         let fresh_ve = Traced::new(
             Predicted(Bundled(
                 Snapshot::new(next_ve, next_ve_version),
@@ -1560,7 +1560,7 @@ where
             )),
             Some(*ve_factory.version()),
         );
-        let next_ve_version = add_slot(OutputRef::new(tx_hash, 1));
+        let next_ve_version = OutputRef::new(tx_hash, 1);
         let fresh_ve = Traced::new(
             Predicted(Bundled(
                 Snapshot::new(next_ve, next_ve_version),
@@ -1592,7 +1592,7 @@ where
             VEFactory,
         }
         let order_out_ref = eve_onchain_order.output_ref.output_ref;
-        let ve_out_ref = voting_escrow.version().output_ref;
+        let ve_out_ref = *voting_escrow.version();
         let ve_factory_out_ref = ve_factory.version().output_ref;
 
         let eve_ex_units = DaoScriptData::global()
@@ -1745,7 +1745,7 @@ where
         );
 
         let voting_escrow_input = SingleInputBuilder::new(
-            TransactionInput::from(voting_escrow.version().output_ref),
+            TransactionInput::from(*voting_escrow.version()),
             ve_box_in.clone(),
         )
         .plutus_script_inline_datum(voting_escrow_witness, RequiredSigners::from(vec![]))
@@ -1953,7 +1953,7 @@ where
             )),
             Some(*ve_factory.version()),
         );
-        let next_ve_version = add_slot(OutputRef::new(tx_hash, 1));
+        let next_ve_version = OutputRef::new(tx_hash, 1);
         let fresh_ve = Traced::new(
             Predicted(Bundled(
                 Snapshot::new(next_ve, next_ve_version),
@@ -1981,7 +1981,7 @@ where
             VE,
             VEFactory,
         }
-        let ve_out_ref = voting_escrow.version().output_ref;
+        let ve_out_ref = *voting_escrow.version();
         let ve_factory_out_ref = ve_factory.version().output_ref;
         let ve_ex_units = DaoScriptData::global().voting_escrow.ex_units.clone();
         let ve_factory_ex_units = DaoScriptData::global().ve_factory.ex_units.clone();
@@ -2167,7 +2167,7 @@ where
         );
 
         let voting_escrow_input = SingleInputBuilder::new(
-            TransactionInput::from(voting_escrow.version().output_ref),
+            TransactionInput::from(*voting_escrow.version()),
             ve_box_in.clone(),
         )
         .plutus_script_inline_datum(voting_escrow_witness, RequiredSigners::from(vec![]))

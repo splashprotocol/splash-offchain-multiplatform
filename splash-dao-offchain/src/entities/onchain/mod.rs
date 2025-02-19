@@ -106,7 +106,8 @@ where
         } else if let Some(Snapshot(voting_escrow, output_ref)) =
             VotingEscrowSnapshot::try_from_ledger(repr, ctx)
         {
-            Some(Snapshot(DaoEntity::VotingEscrow(voting_escrow), output_ref))
+            let timed_output_ref = ctx.select::<TimedOutputRef>();
+            Some(Snapshot(DaoEntity::VotingEscrow(voting_escrow), timed_output_ref))
         } else if let Some(Snapshot(weighting_poll, output_ref)) =
             WeightingPollSnapshot::try_from_ledger(repr, ctx)
         {

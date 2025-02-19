@@ -870,8 +870,10 @@ impl<
                 self.smart_farm.write_confirmed(traced).await;
             }
             DaoEntity::VotingEscrow(ve) => {
-                let confirmed_snapshot =
-                    Confirmed(Bundled(Snapshot::new(ve.clone(), *entity.version()), bearer));
+                let confirmed_snapshot = Confirmed(Bundled(
+                    Snapshot::new(ve.clone(), entity.version().output_ref),
+                    bearer,
+                ));
                 let prev_state_id = if let Some(state) = self
                     .voting_escrow
                     .read(VotingEscrowId::from(ve.ve_identifier_name))
@@ -1249,7 +1251,7 @@ impl<
 
     async fn try_redeem_voting_escrow(
         &mut self,
-        (voting_escrow, ve_prev_state_id): (Bundled<VotingEscrowSnapshot, Bearer>, Option<TimedOutputRef>),
+        (voting_escrow, ve_prev_state_id): (Bundled<VotingEscrowSnapshot, Bearer>, Option<OutputRef>),
         ve_factory: Bundled<VEFactorySnapshot, Bearer>,
         offchain_order: RedeemVotingEscrowOffChainOrder,
     ) -> Option<ToRoutine>
@@ -1744,6 +1746,7 @@ where
                     .and_then(|a| a.erased().0.get().last_processed_epoch);
 
                 let mut dao_order_utxo = None;
+                // let mut voting_escrow_in_input = None;
                 let mut voting_escrow_in_output = None;
 
                 for input in inputs {
@@ -1769,6 +1772,10 @@ where
                             }
                         }
                     }
+
+                    // if voting_escrow_in_input.is_none() {
+                    //     if let Some(ve_id) = self.voting_escrow.get_id(input_output_ref).await {}
+                    // }
 
                     if let Some(last_processed_epoch) = last_processed_epoch {
                         if epoch_of_eliminated_wpoll.is_none() {
@@ -1904,8 +1911,9 @@ where
                 }
 
                 for ix in 0..outputs.len() {
+                    let output_ref = OutputRef::new(hash, ix as u64);
                     let ver = TimedOutputRef {
-                        output_ref: OutputRef::new(hash, ix as u64),
+                        output_ref,
                         slot: Slot(slot),
                     };
                     if let Some(id) = self.inflation_box.get_id(ver).await {
@@ -1914,7 +1922,7 @@ where
                         self.poll_factory.remove(id).await;
                     } else if let Some(id) = self.weighting_poll.get_id(ver).await {
                         self.weighting_poll.remove(id).await;
-                    } else if let Some(id) = self.voting_escrow.get_id(ver).await {
+                    } else if let Some(id) = self.voting_escrow.get_id(output_ref).await {
                         self.voting_escrow.remove(id).await;
                     } else if let Some(id) = self.smart_farm.get_id(ver).await {
                         self.smart_farm.remove(id).await;
@@ -2206,7 +2214,7 @@ pub enum DaoOrderInputs<Bearer> {
     RedeemVE {
         offchain_order: RedeemVotingEscrowOffChainOrder,
         ve_bundle: Bundled<VotingEscrowSnapshot, Bearer>,
-        ve_prev_state_id: Option<TimedOutputRef>,
+        ve_prev_state_id: Option<OutputRef>,
         ve_factory_bundle: Bundled<VEFactorySnapshot, Bearer>,
     },
 }
@@ -2381,7 +2389,7 @@ pub enum NextPendingOrder<Out> {
         offchain_order: RedeemVotingEscrowOffChainOrder,
         ve_factory_bundle: Bundled<VEFactorySnapshot, Out>,
         ve_bundle: Bundled<VotingEscrowSnapshot, Out>,
-        ve_prev_state_id: Option<TimedOutputRef>,
+        ve_prev_state_id: Option<OutputRef>,
     },
 }
 
