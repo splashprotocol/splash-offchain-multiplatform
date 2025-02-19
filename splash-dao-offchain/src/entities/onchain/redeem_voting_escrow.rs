@@ -47,18 +47,3 @@ pub fn make_redeem_ve_witness_redeemer(
         mint_composition_token_policy_pd,
     ])
 }
-
-//pub fn compute_redeem_ve_witness_validator() -> PlutusV3Script {
-//    let mint_composition_token_policy = DaoScriptData::global()
-//        .mint_ve_composition_token.script_bytes
-//        .script_bytes
-//        .clone();
-//    let script = PlutusV3Script::new(hex::decode(script_bytes).unwrap());
-//    let params_pd = uplc::PlutusData::Array(MaybeIndefArray::Indef(vec![uplc::PlutusData::BoundedBytes(
-//        BoundedBytes::from(mint_composition_token_policy.to_raw_bytes().to_vec()),
-//    )]));
-//    apply_params_validator_plutus_v3(
-//        params_pd,
-//        &DaoScriptData::global().redeem_voting_escrow_witness.script_bytes,
-//    )
-//}
