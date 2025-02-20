@@ -1746,7 +1746,7 @@ where
                     .and_then(|a| a.erased().0.get().last_processed_epoch);
 
                 let mut dao_order_utxo = None;
-                // let mut voting_escrow_in_input = None;
+                let mut voting_escrow_in_input = None;
                 let mut voting_escrow_in_output = None;
 
                 for input in inputs {
@@ -1758,24 +1758,19 @@ where
                             .await;
                         if let Some(dao_bundle) = orders.pop() {
                             assert!(orders.is_empty());
-                            match dao_bundle.order {
-                                DaoOrder::MakeVE(make_voting_escrow_order) => {
-                                    dao_order_utxo =
-                                        Some((make_voting_escrow_order.ve_datum.owner, input_output_ref));
-                                }
-                                DaoOrder::ExtendVE(extend_voting_escrow_onchain_order) => {
-                                    dao_order_utxo = Some((
-                                        extend_voting_escrow_onchain_order.ve_datum.owner,
-                                        input_output_ref,
-                                    ));
-                                }
-                            }
+                            dao_order_utxo = Some((dao_bundle.order, input_output_ref));
                         }
                     }
 
-                    // if voting_escrow_in_input.is_none() {
-                    //     if let Some(ve_id) = self.voting_escrow.get_id(input_output_ref).await {}
-                    // }
+                    if voting_escrow_in_input.is_none() {
+                        if let Some(ve_id) = self.voting_escrow.get_id(input_output_ref).await {
+                            if let Some(ve_snapshot) = self.voting_escrow.read(ve_id).await {
+                                let ve_output_ref = ve_snapshot.erased().version();
+                                assert_eq!(input_output_ref, ve_output_ref);
+                                voting_escrow_in_input = Some(ve_id);
+                            }
+                        }
+                    }
 
                     if let Some(last_processed_epoch) = last_processed_epoch {
                         if epoch_of_eliminated_wpoll.is_none() {
@@ -1819,11 +1814,17 @@ where
                             wpoll_eliminated: epoch_of_eliminated_wpoll.is_some(),
                         };
 
-                        if dao_order_utxo.is_some() {
+                        if let Some((ref order, _)) = dao_order_utxo {
                             if let Some(voting_escrow) =
                                 VotingEscrowSnapshot::try_from_ledger(&output.1, &ctx)
                             {
                                 let id = voting_escrow.stable_id();
+                                if voting_escrow_in_input.is_some() {
+                                    assert!(matches!(order, DaoOrder::ExtendVE(_)));
+                                }
+                                if let Some(ref input_ve_id) = voting_escrow_in_input {
+                                    assert_eq!(*input_ve_id, id);
+                                }
                                 voting_escrow_in_output = Some(DaoOrderStatus::SpentToFormVotingEscrow(id));
                             }
                         }
@@ -1850,7 +1851,7 @@ where
                         ix = ix.saturating_sub(1);
                     }
 
-                    if let Some((owner, order_output_ref)) = dao_order_utxo {
+                    if let Some((order, order_output_ref)) = dao_order_utxo {
                         // Whether through the creation of a voting_escrow or refunded, this user
                         // order is gone.
                         self.dao_order_backlog.remove(order_output_ref).await;
@@ -1859,11 +1860,27 @@ where
                         } else {
                             DaoOrderStatus::Refunded
                         };
-                        self.owner_to_voting_escrow.insert(owner, status).await;
+                        self.owner_to_voting_escrow
+                            .insert(order.get_owner(), status)
+                            .await;
+                    } else if let Some(ve_id) = voting_escrow_in_input {
+                        if voting_escrow_in_output.is_none() {
+                            info!("Confirmed: VE (id: {}) redeemed", ve_id);
+                            let b = self.voting_escrow.read(ve_id).await.unwrap();
+                            let prev_state_id = match &b {
+                                AnyMod::Confirmed(traced) => traced.prev_state_id,
+                                AnyMod::Predicted(traced) => traced.prev_state_id,
+                            };
+                            let mut bundle = b.erased();
+                            bundle.0.get_mut().redeemed = true;
+                            self.voting_escrow
+                                .write_confirmed(Traced::new(Confirmed(bundle), prev_state_id))
+                                .await;
+                        }
                     }
 
                     if let Some(eliminated_epoch) = epoch_of_eliminated_wpoll {
-                        info!("wpoll (epoch {}) eliminated", eliminated_epoch);
+                        info!("Confirmed: wpoll (epoch {}) eliminated", eliminated_epoch);
                         let b = self
                             .weighting_poll
                             .read(WeightingPollId(eliminated_epoch))

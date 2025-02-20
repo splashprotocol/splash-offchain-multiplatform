@@ -14,7 +14,7 @@ use spectrum_offchain::{
     ledger::TryFromLedger,
 };
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
-use voting_escrow::{VotingEscrow, VotingEscrowSnapshot};
+use voting_escrow::{Owner, VotingEscrow, VotingEscrowSnapshot};
 use voting_escrow_factory::{VEFactory, VEFactorySnapshot};
 use weighting_poll::{WeightingPoll, WeightingPollSnapshot};
 
@@ -139,6 +139,15 @@ where
 pub enum DaoOrder {
     MakeVE(MakeVotingEscrowOrder),
     ExtendVE(ExtendVotingEscrowOnchainOrder),
+}
+
+impl DaoOrder {
+    pub fn get_owner(&self) -> Owner {
+        match self {
+            DaoOrder::MakeVE(order) => order.ve_datum.owner,
+            DaoOrder::ExtendVE(order) => order.ve_datum.owner,
+        }
+    }
 }
 
 #[derive(Hash, PartialEq, Eq, Serialize, Deserialize, Clone, Debug)]
