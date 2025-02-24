@@ -4,7 +4,7 @@ macro_rules! retry {
         let mut retries = 0;
         let result = loop {
             let result = $f;
-            if result.is_ok() || retries > $count {
+            if result.is_some() || retries > $count {
                 break result;
             } else {
                 retries += 1;
