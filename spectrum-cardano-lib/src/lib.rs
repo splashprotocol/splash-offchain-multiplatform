@@ -59,7 +59,7 @@ impl AssetName {
         hex::decode(s).ok().and_then(|xs| Self::try_from(xs).ok())
     }
 
-    pub fn utf8_unsafe(tn: String) -> Self {
+    pub fn from_utf8(tn: String) -> Self {
         let orig_len = tn.len();
         let tn = if orig_len > 32 { &tn[0..32] } else { &*tn };
         let mut bf = [0u8; 32];
@@ -85,7 +85,7 @@ impl<'de> serde::de::Deserialize<'de> for AssetName {
         D: serde::de::Deserializer<'de>,
     {
         let s = <String as serde::de::Deserialize>::deserialize(deserializer)?;
-        Ok(AssetName::try_from_hex(&s).unwrap_or_else(|| Self::utf8_unsafe(s.clone())))
+        Ok(AssetName::try_from_hex(&s).unwrap_or_else(|| Self::from_utf8(s.clone())))
     }
 }
 

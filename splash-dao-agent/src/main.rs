@@ -24,7 +24,7 @@ use spectrum_cardano_lib::constants::{CONWAY_ERA_ID, SAFE_BLOCK_TIME};
 use spectrum_offchain::{
     backlog::{persistence::BacklogStoreRocksDB, BacklogConfig, PersistentPriorityBacklog},
     event_sink::{
-        event_handler::{forward_to, EventHandler},
+        event_handler::{forward_with, EventHandler},
         process_events,
     },
     kv_store::KVStoreRocksDB,
@@ -239,7 +239,7 @@ async fn main() {
 
     let handlers: Vec<Box<dyn EventHandler<LedgerTxEvent<TxViewMut>> + Send>> = vec![
         Box::new(DaoHandler::new(ledger_event_snd)),
-        Box::new(forward_to(confirmed_txs_snd, succinct_tx)),
+        Box::new(forward_with(confirmed_txs_snd, succinct_tx)),
     ];
     let process_ledger_events_stream = process_events(ledger_stream, handlers);
 

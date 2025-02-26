@@ -1,12 +1,11 @@
+use crate::data::ior::Ior;
+use crate::domain::{EntitySnapshot, SeqState, Stable};
 use serde::__private::de::missing_field;
 use serde::ser::SerializeStruct;
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::marker::PhantomData;
-
-use crate::data::ior::Ior;
-use crate::domain::{EntitySnapshot, Stable};
 
 /// A unique, persistent, self-reproducible, on-chiain entity.
 #[derive(Debug, Clone)]
@@ -282,16 +281,16 @@ impl<T: EntitySnapshot> AnyMod<T> {
 }
 
 /// Channel from which [T] was obtained.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Channel<T> {
-    Ledger(Confirmed<T>),
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub enum Channel<T, LedgerCx> {
+    Ledger(Confirmed<T>, LedgerCx),
     Mempool(Unconfirmed<T>),
     LocalTxSubmit(Predicted<T>),
 }
 
-impl<T> Channel<T> {
-    pub fn ledger(t: T) -> Self {
-        Self::Ledger(Confirmed(t))
+impl<T, Meta> Channel<T, Meta> {
+    pub fn ledger(t: T, meta: Meta) -> Self {
+        Self::Ledger(Confirmed(t), meta)
     }
 
     pub fn mempool(t: T) -> Self {
@@ -304,25 +303,44 @@ impl<T> Channel<T> {
 
     pub fn erased(&self) -> &T {
         match self {
-            Channel::Ledger(Confirmed(t)) => t,
+            Channel::Ledger(Confirmed(t), _) => t,
             Channel::Mempool(Unconfirmed(t)) => t,
             Channel::LocalTxSubmit(Predicted(t)) => t,
         }
     }
-    pub fn map<B, F>(self, f: F) -> Channel<B>
+
+    pub fn map<B, F>(self, f: F) -> Channel<B, Meta>
     where
         F: FnOnce(T) -> B,
     {
         match self {
-            Channel::Ledger(Confirmed(x)) => Channel::Ledger(Confirmed(f(x))),
+            Channel::Ledger(Confirmed(x), m) => Channel::Ledger(Confirmed(f(x)), m),
             Channel::Mempool(Unconfirmed(x)) => Channel::Mempool(Unconfirmed(f(x))),
             Channel::LocalTxSubmit(Predicted(x)) => Channel::LocalTxSubmit(Predicted(f(x))),
         }
     }
 }
 
+impl<T: Stable, LedgerCx> Stable for Channel<T, LedgerCx> {
+    type StableId = T::StableId;
+
+    fn stable_id(&self) -> Self::StableId {
+        self.erased().stable_id()
+    }
+
+    fn is_quasi_permanent(&self) -> bool {
+        self.erased().is_quasi_permanent()
+    }
+}
+
+impl<T: SeqState, LedgerCx> SeqState for Channel<T, LedgerCx> {
+    fn is_initial(&self) -> bool {
+        self.erased().is_initial()
+    }
+}
+
 /// State `T` is confirmed to be included into blockchain.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Confirmed<T>(pub T);
 
 impl<T: Stable> Stable for Confirmed<T> {
@@ -336,6 +354,12 @@ impl<T: Stable> Stable for Confirmed<T> {
     }
 }
 
+impl<T: SeqState> SeqState for Confirmed<T> {
+    fn is_initial(&self) -> bool {
+        self.0.is_initial()
+    }
+}
+
 impl<T: EntitySnapshot> EntitySnapshot for Confirmed<T> {
     type Version = T::Version;
 
@@ -345,7 +369,7 @@ impl<T: EntitySnapshot> EntitySnapshot for Confirmed<T> {
 }
 
 /// State `T` was observed in mempool.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Unconfirmed<T>(pub T);
 
 impl<T: Stable> Stable for Unconfirmed<T> {
@@ -356,6 +380,12 @@ impl<T: Stable> Stable for Unconfirmed<T> {
     }
     fn is_quasi_permanent(&self) -> bool {
         self.0.is_quasi_permanent()
+    }
+}
+
+impl<T: SeqState> SeqState for Unconfirmed<T> {
+    fn is_initial(&self) -> bool {
+        self.0.is_initial()
     }
 }
 
@@ -391,6 +421,12 @@ impl<T: Stable> Stable for Predicted<T> {
     }
 }
 
+impl<T: SeqState> SeqState for Predicted<T> {
+    fn is_initial(&self) -> bool {
+        self.0.is_initial()
+    }
+}
+
 impl<T: EntitySnapshot> EntitySnapshot for Predicted<T> {
     type Version = T::Version;
 
@@ -399,12 +435,33 @@ impl<T: EntitySnapshot> EntitySnapshot for Predicted<T> {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Transition<T> {
     /// State transition (left: old state, right: new state).
     Forward(Ior<T, T>),
     /// State transition rollback (left: rolled back state, right: revived state).
     Backward(Ior<T, T>),
+}
+
+impl<T> Transition<T> {
+    pub fn is_rollback(&self) -> bool {
+        matches!(self, Transition::Backward(_))
+    }
+}
+
+impl<T: Stable> Stable for Transition<T> {
+    type StableId = T::StableId;
+
+    fn stable_id(&self) -> Self::StableId {
+        match self {
+            Transition::Forward(ior) | Transition::Backward(ior) => ior.stable_id(),
+        }
+    }
+    fn is_quasi_permanent(&self) -> bool {
+        match self {
+            Transition::Forward(ior) | Transition::Backward(ior) => ior.is_quasi_permanent(),
+        }
+    }
 }
 
 impl<T> Display for Transition<T>
@@ -427,6 +484,16 @@ impl<T> Transition<T> {
         match self {
             Transition::Forward(ior) => Transition::Forward(ior.bimap(&f, &f)),
             Transition::Backward(ior) => Transition::Backward(ior.bimap(&f, &f)),
+        }
+    }
+
+    pub fn inspect<F>(&self, f: F) -> bool
+    where
+        F: Fn(&T) -> bool + Clone,
+    {
+        match self {
+            Transition::Forward(ior) => ior.inspect(f),
+            Transition::Backward(ior) => ior.inspect(f),
         }
     }
 }

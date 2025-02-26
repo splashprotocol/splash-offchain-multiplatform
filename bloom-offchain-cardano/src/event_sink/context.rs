@@ -18,7 +18,9 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHashes};
-use spectrum_offchain_cardano::handler_context::{ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers};
+use spectrum_offchain_cardano::handler_context::{
+    ConsumedIdentifiers, ConsumedInputs, Mints, ProducedIdentifiers,
+};
 
 use crate::orders::adhoc::AdhocFeeStructure;
 use crate::orders::limit::{BeaconMode, LimitOrderValidation};
@@ -30,6 +32,7 @@ pub struct EventContext<I: Copy> {
     pub consumed_utxos: ConsumedInputs,
     pub consumed_identifiers: ConsumedIdentifiers<I>,
     pub produced_identifiers: ProducedIdentifiers<I>,
+    pub mints: Option<Mints>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -52,6 +55,7 @@ pub struct HandlerContext<I: Copy> {
     pub bounds: ValidationRules,
     pub adhoc_fee_structure: AdhocFeeStructure,
     pub dao_context: DAOContext,
+    pub mints: Option<Mints>,
 }
 
 impl<I: Copy> From<(HandlerContextProto, EventContext<I>)> for HandlerContext<I> {
@@ -67,7 +71,14 @@ impl<I: Copy> From<(HandlerContextProto, EventContext<I>)> for HandlerContext<I>
             bounds: ctx_proto.validation_rules,
             adhoc_fee_structure: ctx_proto.adhoc_fee_structure,
             dao_context: ctx_proto.dao_context,
+            mints: event_ctx.mints,
         }
+    }
+}
+
+impl<I: Copy> Has<Option<Mints>> for HandlerContext<I> {
+    fn select<U: IsEqual<Option<Mints>>>(&self) -> Option<Mints> {
+        self.mints
     }
 }
 
