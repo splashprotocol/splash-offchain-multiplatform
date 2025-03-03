@@ -15,7 +15,7 @@ use actix_cors::Cors;
 use actix_web::error::InternalError;
 use actix_web::http::header::ContentType;
 use actix_web::web::Data;
-use actix_web::{post, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{post, get, web, App, HttpResponse, HttpServer, Responder};
 use bloom_offchain_cardano::orders::adhoc::beacon_from_oref;
 use clap::Parser;
 use cml_crypto::{Bip32PrivateKey, PrivateKey, RawBytesEncoding};
@@ -23,7 +23,8 @@ use derive_more::From;
 use graphite::graphite::GraphiteConfig;
 use graphite::metrics::Metrics;
 use log::{error, info};
-use spectrum_cardano_lib::{AssetClass, OutputRef};
+use cml_chain::PolicyId;
+use spectrum_cardano_lib::{AssetClass, OutputRef, Token, AssetName};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod analytics;
@@ -88,6 +89,21 @@ fn create_error_response(code: ProcessingErrorCode) -> HttpResponse {
     HttpResponse::BadRequest()
         .content_type(ContentType::json())
         .body(body)
+}
+
+#[get("/healthcheck")]
+async fn healtcheck(analytics: Data<Analytics>) -> impl Responder {
+    let test_token = Token(
+        PolicyId::from_hex("2b3bf22efec7742d2a193d5d1547f14d0f5f33e1da3a7eaa2ed13ce9").unwrap(),
+        AssetName::utf8_unsafe("ADA GREAT AGAIN".to_string())
+    );
+    
+    // The Snek Auth backend relies on the Analytics service. To verify the correctness of Snek Auth, 
+    // we query Analytics with a test token. If the response is not 200, we return ServiceUnavailable.
+    match analytics.get_token_pool_info(test_token).await {
+        Ok(_) =>  HttpResponse::Ok(),
+        Err(_) => HttpResponse::ServiceUnavailable()
+    }
 }
 
 #[post("/auth")]
@@ -280,6 +296,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(Data::new(config.limits))
             .app_data(Data::new(metrics))
             .service(auth)
+            .service(healtcheck)
     })
     .bind((args.host, args.port))?
     .workers(8)
