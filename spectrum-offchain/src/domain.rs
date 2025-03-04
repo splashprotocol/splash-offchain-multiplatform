@@ -34,12 +34,12 @@ pub trait Stable {
     fn is_quasi_permanent(&self) -> bool;
 }
 
-/// A marker trait for types that represent a sequence state for an entity.
+/// One state in a sequence states of an entity.
 ///
 /// Types implementing this trait must also implement the `Stable` trait,
 /// ensuring they have a stable identifier and can persist across versions.
 pub trait SeqState: Stable {
-    /// Whether the state is initial.
+    /// Whether the state is initial in the sequence.
     fn is_initial(&self) -> bool;
 }
 
