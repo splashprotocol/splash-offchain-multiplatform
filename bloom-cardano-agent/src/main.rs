@@ -7,9 +7,8 @@ use futures::stream::FuturesUnordered;
 use futures::{stream_select, Stream, StreamExt};
 use log::info;
 use std::future;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::Mutex;
 use tracing_subscriber::fmt::Subscriber;
 
 use crate::config::AppConfig;
@@ -25,7 +24,7 @@ use bloom_offchain::execution_engine::storage::InMemoryStateIndex;
 use bloom_offchain_cardano::event_sink::context::{HandlerContext, HandlerContextProto};
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
 use bloom_offchain_cardano::event_sink::handler::{
-    FundingEventHandler, PairUpdateHandler, SpecializedHandler,
+    FundingEventHandler, LedgerCx, PairUpdateHandler, SpecializedHandler,
 };
 use bloom_offchain_cardano::event_sink::order_index::InMemoryKvIndex;
 use bloom_offchain_cardano::event_sink::processed_tx::TxViewMut;
@@ -54,7 +53,7 @@ use spectrum_offchain::clock::SystemClock;
 use spectrum_offchain::domain::event::{Channel, Transition};
 use spectrum_offchain::domain::order::OrderUpdate;
 use spectrum_offchain::domain::Baked;
-use spectrum_offchain::event_sink::event_handler::{forward_to, EventHandler};
+use spectrum_offchain::event_sink::event_handler::{forward_with, EventHandler};
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::reporting::{reporting_stream, ReportingAgent};
@@ -161,33 +160,41 @@ async fn main() {
         .await
         .expect("Couldn't retrieve collateral");
 
-    let (pair_upd_snd_p1, pair_upd_recv_p1) =
-        mpsc::channel::<(PairId, Channel<Transition<EvolvingCardanoEntity>>)>(config.event_feed_buffer_size);
-    let (pair_upd_snd_p2, pair_upd_recv_p2) =
-        mpsc::channel::<(PairId, Channel<Transition<EvolvingCardanoEntity>>)>(config.event_feed_buffer_size);
-    let (pair_upd_snd_p3, pair_upd_recv_p3) =
-        mpsc::channel::<(PairId, Channel<Transition<EvolvingCardanoEntity>>)>(config.event_feed_buffer_size);
-    let (pair_upd_snd_p4, pair_upd_recv_p4) =
-        mpsc::channel::<(PairId, Channel<Transition<EvolvingCardanoEntity>>)>(config.event_feed_buffer_size);
+    let (pair_upd_snd_p1, pair_upd_recv_p1) = mpsc::channel::<(
+        PairId,
+        Channel<Transition<EvolvingCardanoEntity>, LedgerCx>,
+    )>(config.event_feed_buffer_size);
+    let (pair_upd_snd_p2, pair_upd_recv_p2) = mpsc::channel::<(
+        PairId,
+        Channel<Transition<EvolvingCardanoEntity>, LedgerCx>,
+    )>(config.event_feed_buffer_size);
+    let (pair_upd_snd_p3, pair_upd_recv_p3) = mpsc::channel::<(
+        PairId,
+        Channel<Transition<EvolvingCardanoEntity>, LedgerCx>,
+    )>(config.event_feed_buffer_size);
+    let (pair_upd_snd_p4, pair_upd_recv_p4) = mpsc::channel::<(
+        PairId,
+        Channel<Transition<EvolvingCardanoEntity>, LedgerCx>,
+    )>(config.event_feed_buffer_size);
 
     let partitioned_pair_upd_snd =
         Partitioned::new([pair_upd_snd_p1, pair_upd_snd_p2, pair_upd_snd_p3, pair_upd_snd_p4]);
 
     let (spec_upd_snd_p1, spec_upd_recv_p1) = mpsc::channel::<(
         PairId,
-        Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
+        Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>, LedgerCx>,
     )>(config.event_feed_buffer_size);
     let (spec_upd_snd_p2, spec_upd_recv_p2) = mpsc::channel::<(
         PairId,
-        Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
+        Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>, LedgerCx>,
     )>(config.event_feed_buffer_size);
     let (spec_upd_snd_p3, spec_upd_recv_p3) = mpsc::channel::<(
         PairId,
-        Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
+        Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>, LedgerCx>,
     )>(config.event_feed_buffer_size);
     let (spec_upd_snd_p4, spec_upd_recv_p4) = mpsc::channel::<(
         PairId,
-        Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
+        Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>, LedgerCx>,
     )>(config.event_feed_buffer_size);
 
     let partitioned_spec_upd_snd =
@@ -247,7 +254,7 @@ async fn main() {
         Box::new(general_upd_handler.clone()),
         Box::new(spec_upd_handler.clone()),
         Box::new(funding_event_handler.clone()),
-        Box::new(forward_to(confirmed_txs_snd, succinct_tx)),
+        Box::new(forward_with(confirmed_txs_snd, succinct_tx)),
     ];
 
     let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<TxViewMut>> + Send>> = vec![
@@ -416,19 +423,23 @@ async fn main() {
             tx,
             slot,
             block_number,
+            block_hash,
         } => LedgerTxEvent::TxApplied {
             tx: TxViewMut::from(tx),
             slot,
             block_number,
+            block_hash,
         },
         LedgerTxEvent::TxUnapplied {
             tx,
             slot,
             block_number,
+            block_hash,
         } => LedgerTxEvent::TxUnapplied {
             tx: TxViewMut::from(tx),
             slot,
             block_number,
+            block_hash,
         },
     });
 
@@ -487,11 +498,11 @@ fn succinct_tx(tx: LedgerTxEvent<TxViewMut>) -> (TransactionHash, u64) {
 }
 
 fn merge_upstreams(
-    xs: impl Stream<Item = (PairId, Channel<Transition<EvolvingCardanoEntity>>)> + Unpin,
+    xs: impl Stream<Item = (PairId, Channel<Transition<EvolvingCardanoEntity>, LedgerCx>)> + Unpin,
     ys: impl Stream<
             Item = (
                 PairId,
-                Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
+                Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>, LedgerCx>,
             ),
         > + Unpin,
 ) -> impl Stream<
@@ -502,8 +513,9 @@ fn merge_upstreams(
                 Transition<
                     Bundled<Either<Baked<AnyOrder, OutputRef>, Baked<AnyPool, OutputRef>>, FinalizedTxOut>,
                 >,
+                LedgerCx,
             >,
-            Channel<OrderUpdate<Bundled<Order, FinalizedTxOut>, Order>>,
+            Channel<OrderUpdate<Bundled<Order, FinalizedTxOut>, Order>, LedgerCx>,
         >,
     ),
 > {

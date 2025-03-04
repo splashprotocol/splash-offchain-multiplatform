@@ -34,6 +34,7 @@ pub struct AppConfig {
     pub event_feed_buffering_duration: Duration,
     pub partitioning: Partitioning,
     pub adhoc_fee: AdhocFeeConfig,
+    pub sequencing: SequencingConfig,
     #[serde(default = "default_disable_mempool")]
     pub disable_mempool: bool,
 }
@@ -56,6 +57,13 @@ impl CheckIntegrity for AppConfig {
         };
         partitioning_violations
     }
+}
+
+#[derive(Copy, Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SequencingConfig {
+    pub session_duration: Slot,
+    pub session_settlement: Slot,
 }
 
 #[derive(Copy, Clone, Debug, serde::Deserialize)]

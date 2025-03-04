@@ -27,6 +27,7 @@ use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::DegenQuadraticPoolV1;
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::fees::FeeExtension;
+use crate::handler_context::Mints;
 use crate::pool_math::degen_quadratic_math::{
     degen_quadratic_output_amount, A_DENOM, B_DENOM, FULL_PERCENTILE, MAX_ALLOWED_ADA_EXTRAS_PERCENTILE,
     MIN_ADA, TOKEN_EMISSION,
@@ -45,7 +46,7 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass, Token};
-use spectrum_offchain::domain::{Has, Stable, Tradable};
+use spectrum_offchain::domain::{Has, SeqState, Stable, Tradable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
 pub struct DegenQuadraticPoolConfig {
@@ -142,6 +143,7 @@ pub struct DegenQuadraticPool {
     pub ver: DegenQuadraticPoolVer,
     pub marginal_cost: ExUnits,
     pub bounds: PoolValidation,
+    pub virgin: bool,
 }
 
 impl Display for DegenQuadraticPool {
@@ -651,6 +653,12 @@ impl Stable for DegenQuadraticPool {
     }
 }
 
+impl SeqState for DegenQuadraticPool {
+    fn is_initial(&self) -> bool {
+        self.virgin
+    }
+}
+
 impl Tradable for DegenQuadraticPool {
     type PairId = PairId;
     fn pair_id(&self) -> Self::PairId {
@@ -660,52 +668,52 @@ impl Tradable for DegenQuadraticPool {
 
 impl<Ctx> TryFromLedger<TransactionOutput, Ctx> for DegenQuadraticPool
 where
-    Ctx: Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>> + Has<PoolValidation> + Has<OperatorCred>,
+    Ctx: Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>>
+        + Has<PoolValidation>
+        + Has<OperatorCred>
+        + Has<Option<Mints>>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
         if let Some(pool_ver) = DegenQuadraticPoolVer::try_from_address(repr.address(), ctx) {
             let value = repr.value();
             let pd = repr.datum().clone()?.into_pd()?;
             let bounds = ctx.select::<PoolValidation>();
-            let marginal_cost = match pool_ver {
-                DegenQuadraticPoolVer::V1 => {
-                    ctx.select::<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>>()
-                        .marginal_cost
-                }
-            };
-            match pool_ver {
-                DegenQuadraticPoolVer::V1 => {
-                    let conf = DegenQuadraticPoolConfig::try_from_pd(pd.clone())?;
-                    let reserves_x: TaggedAmount<Rx> =
-                        TaggedAmount::new(value.amount_of(conf.asset_x.into())?);
-                    let executable = conf.operator_pkh == ctx.select::<OperatorCred>().into();
-                    let x_is_native = conf.asset_x.is_native();
-                    let reserves_in_bounds = reserves_x.untag() < conf.ada_cap_thr;
-                    if executable && x_is_native && reserves_in_bounds {
-                        return Some(DegenQuadraticPool {
-                            id: PoolId::try_from(conf.pool_nft).ok()?,
-                            reserves_x,
-                            reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
-                            asset_x: conf.asset_x,
-                            asset_y: conf.asset_y,
-                            a_num: conf.a_num,
-                            b_num: conf.b_num,
-                            ver: pool_ver,
-                            marginal_cost,
-                            bounds,
-                            ada_cap_thr: conf.ada_cap_thr,
-                        });
-                    } else {
-                        trace!(
-                            "QuadraticPool: {}, executable: {}, x_is_native: {}, reserves_in_bounds: {}",
-                            conf.pool_nft.untag(),
-                            executable,
-                            x_is_native,
-                            reserves_in_bounds
-                        );
-                    }
-                }
-            };
+            let marginal_cost = ctx
+                .select::<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>>()
+                .marginal_cost;
+            let conf = DegenQuadraticPoolConfig::try_from_pd(pd.clone())?;
+            let reserves_x: TaggedAmount<Rx> = TaggedAmount::new(value.amount_of(conf.asset_x.into())?);
+            let executable = conf.operator_pkh == ctx.select::<OperatorCred>().into();
+            let x_is_native = conf.asset_x.is_native();
+            let reserves_in_bounds = reserves_x.untag() < conf.ada_cap_thr;
+            let pool_id = PoolId::try_from(conf.pool_nft).ok()?;
+            let virgin = ctx
+                .select::<Option<Mints>>()
+                .is_some_and(|mnt| mnt.contains_mint(pool_id.into()));
+            if executable && x_is_native && reserves_in_bounds {
+                return Some(DegenQuadraticPool {
+                    id: pool_id,
+                    reserves_x,
+                    reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
+                    asset_x: conf.asset_x,
+                    asset_y: conf.asset_y,
+                    a_num: conf.a_num,
+                    b_num: conf.b_num,
+                    ver: pool_ver,
+                    marginal_cost,
+                    bounds,
+                    ada_cap_thr: conf.ada_cap_thr,
+                    virgin,
+                });
+            } else {
+                trace!(
+                    "QuadraticPool: {}, executable: {}, x_is_native: {}, reserves_in_bounds: {}",
+                    conf.pool_nft.untag(),
+                    executable,
+                    x_is_native,
+                    reserves_in_bounds
+                );
+            }
         };
         None
     }
@@ -780,7 +788,7 @@ mod tests {
         b_num: u64,
         ada_thr: u64,
     ) -> DegenQuadraticPool {
-        return DegenQuadraticPool {
+        DegenQuadraticPool {
             id: PoolId::from(Token(
                 ScriptHash::from([
                     162, 206, 112, 95, 150, 240, 52, 167, 61, 102, 158, 92, 11, 47, 25, 41, 48, 224, 188,
@@ -819,7 +827,8 @@ mod tests {
                 min_t2t_lovelace: 10000000,
             },
             ada_cap_thr: ada_thr + MIN_ADA,
-        };
+            virgin: false,
+        }
     }
 
     #[test]

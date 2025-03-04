@@ -15,7 +15,7 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     DegenQuadraticPoolV1, LimitOrderV1, LimitOrderWitnessV1,
 };
 use spectrum_offchain_cardano::handler_context::{
-    AuthVerificationKey, ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers,
+    AuthVerificationKey, ConsumedIdentifiers, ConsumedInputs, Mints, ProducedIdentifiers,
 };
 
 #[derive(Copy, Clone, Debug)]
@@ -39,6 +39,7 @@ pub struct SnekHandlerContext<I: Copy> {
     pub bounds: SnekValidationRules,
     pub adhoc_fee_structure: AdhocFeeStructure,
     pub auth_verification_key: AuthVerificationKey,
+    pub mints: Option<Mints>,
 }
 
 impl<I: Copy> From<(SnekHandlerContextProto, EventContext<I>)> for SnekHandlerContext<I> {
@@ -55,7 +56,14 @@ impl<I: Copy> From<(SnekHandlerContextProto, EventContext<I>)> for SnekHandlerCo
             bounds: ctx_proto.validation_rules,
             adhoc_fee_structure: ctx_proto.adhoc_fee_structure,
             auth_verification_key: ctx_proto.auth_verification_key,
+            mints: event_ctx.mints,
         }
+    }
+}
+
+impl<I: Copy> Has<Option<Mints>> for SnekHandlerContext<I> {
+    fn select<U: IsEqual<Option<Mints>>>(&self) -> Option<Mints> {
+        self.mints
     }
 }
 

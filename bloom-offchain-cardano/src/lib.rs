@@ -4,5 +4,5 @@ pub mod integrity;
 pub mod orders;
 pub mod partitioning;
 pub mod pools;
-mod relative_side;
+pub mod relative_side;
 pub mod validation_rules;

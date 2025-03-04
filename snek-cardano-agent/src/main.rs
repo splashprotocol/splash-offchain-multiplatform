@@ -1,12 +1,14 @@
 use crate::config::AppConfig;
 use crate::context::{ExecutionContext, MakerContext};
-use crate::entity::{AtomicCardanoEntity, EvolvingCardanoEntity};
+use crate::entity::EvolvingCardanoEntity;
+use crate::seq::with_sequencing;
 use crate::snek_handler_context::{SnekHandlerContext, SnekHandlerContextProto};
 use crate::snek_protocol_deployment::{
     SnekDeployedValidators, SnekProtocolDeployment, SnekProtocolScriptHashes,
 };
 use crate::snek_validation_rules::SnekValidationRules;
 use async_primitives::beacon::Beacon;
+use async_primitives::channel_group::ChannelGroupUnordered;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_part_stream;
 use bloom_offchain::execution_engine::funding_effect::FundingEvent;
@@ -14,7 +16,7 @@ use bloom_offchain::execution_engine::liquidity_book::TLB;
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
 use bloom_offchain::execution_engine::storage::InMemoryStateIndex;
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
-use bloom_offchain_cardano::event_sink::handler::{FundingEventHandler, PairUpdateHandler};
+use bloom_offchain_cardano::event_sink::handler::{FundingEventHandler, LedgerCx, PairUpdateHandler};
 use bloom_offchain_cardano::event_sink::order_index::InMemoryKvIndex;
 use bloom_offchain_cardano::event_sink::processed_tx::TxViewMut;
 use bloom_offchain_cardano::execution_engine::backlog::interpreter::SpecializedInterpreterViaRunOrder;
@@ -38,7 +40,7 @@ use cml_multi_era::MultiEraBlock;
 use either::Either;
 use futures::channel::mpsc;
 use futures::stream::FuturesUnordered;
-use futures::{stream_select, Stream, StreamExt};
+use futures::{Stream, StreamExt};
 use log::info;
 use spectrum_cardano_lib::constants::{CONWAY_ERA_ID, SAFE_BLOCK_TIME};
 use spectrum_cardano_lib::ex_units::ExUnits;
@@ -49,7 +51,7 @@ use spectrum_offchain::clock::SystemClock;
 use spectrum_offchain::domain::event::{Channel, Transition};
 use spectrum_offchain::domain::order::OrderUpdate;
 use spectrum_offchain::domain::Baked;
-use spectrum_offchain::event_sink::event_handler::{forward_to, EventHandler};
+use spectrum_offchain::event_sink::event_handler::{forward_with, try_forward_with, EventHandler};
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::reporting::{reporting_stream, ReportingAgent};
@@ -60,17 +62,17 @@ use spectrum_offchain_cardano::data::order::Order;
 use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
-use spectrum_offchain_cardano::tx_tracker::{new_tx_tracker_bundle, TxTrackerAgent};
-use spectrum_streaming::{run_stream, StreamExt as StreamExtAlt};
+use spectrum_offchain_cardano::tx_tracker::new_tx_tracker_bundle;
+use spectrum_streaming::run_stream;
 use std::future;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::Mutex;
 use tracing_subscriber::fmt::Subscriber;
 
 mod config;
 mod context;
 mod entity;
+mod seq;
 mod snek_handler_context;
 mod snek_protocol_deployment;
 mod snek_validation_rules;
@@ -109,12 +111,14 @@ async fn main() {
 
     let protocol_deployment = SnekProtocolDeployment::unsafe_pull(deployment, &explorer).await;
 
+    let starting_point = config.chain_sync.starting_point;
+
     let chain_sync_cache = Arc::new(Mutex::new(LedgerCacheRocksDB::new(config.chain_sync.db_path)));
     let chain_sync: ChainSyncClient<MultiEraBlock> = ChainSyncClient::init(
         Arc::clone(&chain_sync_cache),
         config.node.path.clone(),
         config.node.magic,
-        config.chain_sync.starting_point,
+        starting_point,
     )
     .await
     .expect("ChainSync initialization failed");
@@ -124,6 +128,22 @@ async fn main() {
         LocalTxMonitorClient::<Transaction>::connect(config.node.path.as_str(), config.node.magic)
             .await
             .expect("MempoolSync initialization failed");
+
+    let (ledger_clock_upgrades_snd_1, ledger_clock_upgrades_recv_p1) =
+        mpsc::channel(config.event_feed_buffer_size);
+    let (ledger_clock_upgrades_snd_2, ledger_clock_upgrades_recv_p2) =
+        mpsc::channel(config.event_feed_buffer_size);
+    let (ledger_clock_upgrades_snd_3, ledger_clock_upgrades_recv_p3) =
+        mpsc::channel(config.event_feed_buffer_size);
+    let (ledger_clock_upgrades_snd_4, ledger_clock_upgrades_recv_p4) =
+        mpsc::channel(config.event_feed_buffer_size);
+
+    let ledger_clock_upgrades_snd = ChannelGroupUnordered::new([
+        ledger_clock_upgrades_snd_1,
+        ledger_clock_upgrades_snd_2,
+        ledger_clock_upgrades_snd_3,
+        ledger_clock_upgrades_snd_4,
+    ]);
 
     let (failed_txs_snd, failed_txs_recv) = mpsc::channel(config.tx_submission_buffer_size);
     let (confirmed_txs_snd, confirmed_txs_recv) = mpsc::channel(config.tx_submission_buffer_size);
@@ -160,34 +180,25 @@ async fn main() {
         .await
         .expect("Couldn't retrieve collateral");
 
-    let (pair_upd_snd_p1, pair_upd_recv_p1) =
-        mpsc::channel::<(PairId, Channel<Transition<EvolvingCardanoEntity>>)>(config.event_feed_buffer_size);
-    let (pair_upd_snd_p2, pair_upd_recv_p2) =
-        mpsc::channel::<(PairId, Channel<Transition<EvolvingCardanoEntity>>)>(config.event_feed_buffer_size);
-    let (pair_upd_snd_p3, pair_upd_recv_p3) =
-        mpsc::channel::<(PairId, Channel<Transition<EvolvingCardanoEntity>>)>(config.event_feed_buffer_size);
-    let (pair_upd_snd_p4, pair_upd_recv_p4) =
-        mpsc::channel::<(PairId, Channel<Transition<EvolvingCardanoEntity>>)>(config.event_feed_buffer_size);
+    let (pair_upd_snd_p1, pair_upd_recv_p1) = mpsc::channel::<(
+        PairId,
+        Channel<Transition<EvolvingCardanoEntity>, LedgerCx>,
+    )>(config.event_feed_buffer_size);
+    let (pair_upd_snd_p2, pair_upd_recv_p2) = mpsc::channel::<(
+        PairId,
+        Channel<Transition<EvolvingCardanoEntity>, LedgerCx>,
+    )>(config.event_feed_buffer_size);
+    let (pair_upd_snd_p3, pair_upd_recv_p3) = mpsc::channel::<(
+        PairId,
+        Channel<Transition<EvolvingCardanoEntity>, LedgerCx>,
+    )>(config.event_feed_buffer_size);
+    let (pair_upd_snd_p4, pair_upd_recv_p4) = mpsc::channel::<(
+        PairId,
+        Channel<Transition<EvolvingCardanoEntity>, LedgerCx>,
+    )>(config.event_feed_buffer_size);
 
     let partitioned_pair_upd_snd =
         Partitioned::new([pair_upd_snd_p1, pair_upd_snd_p2, pair_upd_snd_p3, pair_upd_snd_p4]);
-
-    let (_, spec_upd_recv_p1) = mpsc::channel::<(
-        PairId,
-        Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
-    )>(config.event_feed_buffer_size);
-    let (_, spec_upd_recv_p2) = mpsc::channel::<(
-        PairId,
-        Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
-    )>(config.event_feed_buffer_size);
-    let (_, spec_upd_recv_p3) = mpsc::channel::<(
-        PairId,
-        Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
-    )>(config.event_feed_buffer_size);
-    let (_, spec_upd_recv_p4) = mpsc::channel::<(
-        PairId,
-        Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
-    )>(config.event_feed_buffer_size);
 
     let (funding_upd_snd_p1, funding_upd_recv_p1) =
         mpsc::channel::<FundingEvent<FinalizedTxOut>>(config.event_feed_buffer_size);
@@ -243,7 +254,12 @@ async fn main() {
     let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<TxViewMut>> + Send>> = vec![
         Box::new(general_upd_handler.clone()),
         Box::new(funding_event_handler.clone()),
-        Box::new(forward_to(confirmed_txs_snd, succinct_tx)),
+        Box::new(try_forward_with(
+            ledger_clock_upgrades_snd,
+            starting_point.get_slot(),
+            try_read_slot_upgrade,
+        )),
+        Box::new(forward_with(confirmed_txs_snd, succinct_tx)),
     ];
 
     let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<TxViewMut>> + Send>> =
@@ -275,6 +291,12 @@ async fn main() {
         MultiPair::new::<HotPriorityBacklog<Bundled<Order, FinalizedTxOut>>>(maker_context, "Backlog");
     let state_index = InMemoryStateIndex::with_tracing();
 
+    let upstream_p1 = adapt_events(with_sequencing(
+        ledger_clock_upgrades_recv_p1,
+        select_partition(pair_upd_recv_p1, config.partitioning.clone()),
+        config.sequencing.session_duration,
+        config.sequencing.session_settlement,
+    ));
     let execution_stream_p1 = execution_part_stream(
         state_index.clone(),
         multi_book.clone(),
@@ -283,16 +305,19 @@ async fn main() {
         recipe_interpreter,
         spec_interpreter,
         prover.clone(),
-        select_partition(
-            merge_upstreams(pair_upd_recv_p1, spec_upd_recv_p1),
-            config.partitioning.clone(),
-        ),
+        upstream_p1,
         funding_upd_recv_p1,
         tx_submission_channel.clone(),
         reporting_channel.clone(),
         state_synced.clone(),
         rollback_in_progress.clone(),
     );
+    let upstream_p2 = adapt_events(with_sequencing(
+        ledger_clock_upgrades_recv_p2,
+        select_partition(pair_upd_recv_p2, config.partitioning.clone()),
+        config.sequencing.session_duration,
+        config.sequencing.session_settlement,
+    ));
     let execution_stream_p2 = execution_part_stream(
         state_index.clone(),
         multi_book.clone(),
@@ -301,16 +326,19 @@ async fn main() {
         recipe_interpreter,
         spec_interpreter,
         prover.clone(),
-        select_partition(
-            merge_upstreams(pair_upd_recv_p2, spec_upd_recv_p2),
-            config.partitioning.clone(),
-        ),
+        upstream_p2,
         funding_upd_recv_p2,
         tx_submission_channel.clone(),
         reporting_channel.clone(),
         state_synced.clone(),
         rollback_in_progress.clone(),
     );
+    let upstream_p3 = adapt_events(with_sequencing(
+        ledger_clock_upgrades_recv_p3,
+        select_partition(pair_upd_recv_p3, config.partitioning.clone()),
+        config.sequencing.session_duration,
+        config.sequencing.session_settlement,
+    ));
     let execution_stream_p3 = execution_part_stream(
         state_index.clone(),
         multi_book.clone(),
@@ -319,16 +347,19 @@ async fn main() {
         recipe_interpreter,
         spec_interpreter,
         prover.clone(),
-        select_partition(
-            merge_upstreams(pair_upd_recv_p3, spec_upd_recv_p3),
-            config.partitioning.clone(),
-        ),
+        upstream_p3,
         funding_upd_recv_p3,
         tx_submission_channel.clone(),
         reporting_channel.clone(),
         state_synced.clone(),
         rollback_in_progress.clone(),
     );
+    let upstream_p4 = adapt_events(with_sequencing(
+        ledger_clock_upgrades_recv_p4,
+        select_partition(pair_upd_recv_p4, config.partitioning.clone()),
+        config.sequencing.session_duration,
+        config.sequencing.session_settlement,
+    ));
     let execution_stream_p4 = execution_part_stream(
         state_index,
         multi_book,
@@ -337,10 +368,7 @@ async fn main() {
         recipe_interpreter,
         spec_interpreter,
         prover,
-        select_partition(
-            merge_upstreams(pair_upd_recv_p4, spec_upd_recv_p4),
-            config.partitioning,
-        ),
+        upstream_p4,
         funding_upd_recv_p4,
         tx_submission_channel,
         reporting_channel,
@@ -355,26 +383,7 @@ async fn main() {
         rollback_in_progress,
     ))
     .await
-    .map(|ev| match ev {
-        LedgerTxEvent::TxApplied {
-            tx,
-            slot,
-            block_number,
-        } => LedgerTxEvent::TxApplied {
-            tx: TxViewMut::from(tx),
-            slot,
-            block_number,
-        },
-        LedgerTxEvent::TxUnapplied {
-            tx,
-            slot,
-            block_number,
-        } => LedgerTxEvent::TxUnapplied {
-            tx: TxViewMut::from(tx),
-            slot,
-            block_number,
-        },
-    });
+    .map(|ev| ev.map(TxViewMut::from));
 
     let mempool_stream =
         mempool_stream(mempool_sync, tx_tracker_channel, failed_txs_recv, state_synced).map(|ev| match ev {
@@ -433,14 +442,15 @@ fn succinct_tx(tx: LedgerTxEvent<TxViewMut>) -> (TransactionHash, u64) {
     (tx.hash, block_number)
 }
 
-fn merge_upstreams(
-    xs: impl Stream<Item = (PairId, Channel<Transition<EvolvingCardanoEntity>>)> + Unpin,
-    ys: impl Stream<
-            Item = (
-                PairId,
-                Channel<OrderUpdate<AtomicCardanoEntity, AtomicCardanoEntity>>,
-            ),
-        > + Unpin,
+fn try_read_slot_upgrade(current_slot: u64, tx: &LedgerTxEvent<TxViewMut>) -> Option<(u64, u64)> {
+    match tx {
+        LedgerTxEvent::TxApplied { slot, .. } if *slot > current_slot => Some((*slot, *slot)),
+        _ => None,
+    }
+}
+
+fn adapt_events(
+    xs: impl Stream<Item = (PairId, Channel<Transition<EvolvingCardanoEntity>, LedgerCx>)> + Unpin,
 ) -> impl Stream<
     Item = (
         PairId,
@@ -452,21 +462,13 @@ fn merge_upstreams(
                         FinalizedTxOut,
                     >,
                 >,
+                LedgerCx,
             >,
-            Channel<OrderUpdate<Bundled<Order, FinalizedTxOut>, Order>>,
+            Channel<OrderUpdate<Bundled<Order, FinalizedTxOut>, Order>, LedgerCx>,
         >,
     ),
 > {
-    stream_select!(
-        xs.map(|(p, m)| (p, Either::Left(m.map(|s| s.map(|EvolvingCardanoEntity(e)| e))))),
-        ys.map(|(p, m)| (
-            p,
-            Either::Right(m.map(|upd| match upd {
-                OrderUpdate::Created(AtomicCardanoEntity(i)) => OrderUpdate::Created(i),
-                OrderUpdate::Eliminated(AtomicCardanoEntity(Bundled(i, _))) => OrderUpdate::Eliminated(i),
-            }))
-        ))
-    )
+    xs.map(|(p, m)| (p, Either::Left(m.map(|s| s.map(|EvolvingCardanoEntity(e)| e)))))
 }
 
 #[derive(Parser)]
