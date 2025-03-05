@@ -7,6 +7,8 @@ use serde::Serialize;
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::backlog::data::OrderWeight;
 use spectrum_offchain::backlog::data::Weighted;
+use spectrum_offchain::domain::order::PendingOrder;
+use spectrum_offchain::domain::order::ProgressingOrder;
 use spectrum_offchain::domain::order::UniqueOrder;
 use voting_order::VotingOrder;
 
@@ -29,9 +31,66 @@ impl From<OffChainOrderId> for VotingEscrowId {
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OffChainOrder {
-    Extend(ExtendVotingEscrowOffChainOrder),
-    Redeem(RedeemVotingEscrowOffChainOrder),
-    Vote(VotingOrder),
+    Extend {
+        order: ExtendVotingEscrowOffChainOrder,
+        timestamp: i64,
+    },
+    Redeem {
+        order: RedeemVotingEscrowOffChainOrder,
+        timestamp: i64,
+    },
+    Vote {
+        order: VotingOrder,
+        timestamp: i64,
+    },
+}
+
+impl OffChainOrder {
+    pub fn get_timestamp(&self) -> i64 {
+        match self {
+            OffChainOrder::Extend { timestamp, .. }
+            | OffChainOrder::Redeem { timestamp, .. }
+            | OffChainOrder::Vote { timestamp, .. } => *timestamp,
+        }
+    }
+}
+
+impl From<OffChainOrder> for ProgressingOrder<OffChainOrder> {
+    fn from(value: OffChainOrder) -> Self {
+        let timestamp = value.get_timestamp();
+        ProgressingOrder {
+            order: value,
+            timestamp,
+        }
+    }
+}
+
+impl From<OffChainOrder> for PendingOrder<OffChainOrder> {
+    fn from(value: OffChainOrder) -> Self {
+        let timestamp = value.get_timestamp();
+        PendingOrder {
+            order: value,
+            timestamp,
+        }
+    }
+}
+
+impl OffChainOrder {
+    pub fn get_order_id(&self) -> OffChainOrderId {
+        match self {
+            OffChainOrder::Extend { order, .. } => order.id,
+            OffChainOrder::Redeem { order, .. } => order.id,
+            OffChainOrder::Vote { order, .. } => order.id,
+        }
+    }
+
+    pub fn order_type_str(&self) -> &str {
+        match self {
+            OffChainOrder::Extend { .. } => "Extend",
+            OffChainOrder::Redeem { .. } => "Redeem",
+            OffChainOrder::Vote { .. } => "Vote",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
@@ -49,13 +108,9 @@ impl UniqueOrder for OffChainOrder {
 
     fn get_self_ref(&self) -> Self::TOrderId {
         match self {
-            OffChainOrder::Extend(extend_voting_escrow_off_chain_order) => {
-                extend_voting_escrow_off_chain_order.id
-            }
-            OffChainOrder::Redeem(redeem_voting_escrow_off_chain_order) => {
-                redeem_voting_escrow_off_chain_order.id
-            }
-            OffChainOrder::Vote(order) => order.id,
+            OffChainOrder::Extend { order, .. } => order.id,
+            OffChainOrder::Redeem { order, .. } => order.id,
+            OffChainOrder::Vote { order, .. } => order.id,
         }
     }
 }

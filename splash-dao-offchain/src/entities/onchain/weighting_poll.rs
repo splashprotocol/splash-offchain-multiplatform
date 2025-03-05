@@ -33,7 +33,7 @@ use crate::entities::onchain::smart_farm::FarmId;
 use crate::entities::Snapshot;
 use crate::protocol_config::{GTAuthPolicy, MintWPAuthPolicy, SplashPolicy, WeightingPowerPolicy};
 use crate::routines::inflation::actions::compute_epoch_asset_name;
-use crate::routines::inflation::{slot_to_epoch, TimedOutputRef, WeightingPollEliminated};
+use crate::routines::inflation::{slot_to_epoch, TimedOutputRef};
 use crate::time::{epoch_end, epoch_start, NetworkTime, ProtocolEpoch};
 use crate::GenesisEpochStartTime;
 
@@ -230,7 +230,6 @@ where
     C: Has<GenesisEpochStartTime>
         + Has<DeployedScriptInfo<{ ProtocolValidator::MintWpAuthPolicy as u8 }>>
         + Has<MintWPAuthPolicy>
-        + Has<WeightingPollEliminated>
         + Has<NetworkId>
         + Has<TimedOutputRef>,
 {
@@ -267,7 +266,7 @@ where
                         distribution,
                         emission_rate: TaggedAmount::new(emission_rate),
                         weighting_power,
-                        eliminated: ctx.select::<WeightingPollEliminated>().0,
+                        eliminated: false,
                     };
                     return Some(Snapshot::new(weighting_poll, TimedOutputRef { output_ref, slot }));
                 }

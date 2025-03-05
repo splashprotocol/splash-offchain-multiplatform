@@ -416,8 +416,8 @@ where
 {
     let store = BacklogStoreRocksDB::new(RocksConfig { db_path });
     let backlog_config = BacklogConfig {
-        order_lifespan: Duration::try_hours(72).unwrap(),
-        order_exec_time: Duration::try_hours(72).unwrap(),
+        order_lifespan: Duration::try_hours(1).unwrap(),
+        order_exec_time: Duration::try_minutes(5).unwrap(),
         retry_suspended_prob: BoundedU8::new(60).unwrap(),
     };
 

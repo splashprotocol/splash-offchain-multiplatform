@@ -2,10 +2,10 @@
   "deposits": [{
     "asset_name_utf8": "SPLASH",
     "policy_id": "7876492e3b82a31b1ce97a8f454cec653a0f6be5c09b90e62d24c152",
-    "quantity": 400000
+    "quantity": 40000
   }],
   "max_ex_fee": 2000000,
   "ada_balance": 100000000,
-  "lock_duration_in_seconds": 2000,
+  "lock_duration_in_seconds": 5000,
   "creation_epoch": 0
 }

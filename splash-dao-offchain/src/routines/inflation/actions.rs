@@ -759,8 +759,8 @@ where
 
         if version != order.version {
             return Err(ExecuteOrderError::Witness(
-                WitnessError::VotingEscrowVersionMismatch {
-                    voting_escrow_version: version,
+                WitnessError::VEVersionMismatchWithOffchainOrder {
+                    voting_escrow_input_version: version,
                     order_version: order.version,
                 },
             ));
@@ -840,7 +840,10 @@ where
 
         let distribution_weighting_power = order.distribution.iter().fold(0, |acc, &(_, w)| acc + w);
         if distribution_weighting_power != weighting_power {
-            return Err(ExecuteOrderError::WeightingExceedsAvailableVotingPower);
+            return Err(ExecuteOrderError::WeightingExceedsAvailableVotingPower {
+                order_weighting_power: distribution_weighting_power,
+                voting_escrow_weighting_power: weighting_power,
+            });
         }
 
         let mut next_weighting_poll = weighting_poll.get().clone();
@@ -1646,9 +1649,18 @@ where
 
         if version != eve_offchain_order.id.version as u32 {
             return Err(ExtendVotingEscrowError::Witness(
-                WitnessError::VotingEscrowVersionMismatch {
-                    voting_escrow_version: version,
+                WitnessError::VEVersionMismatchWithOffchainOrder {
+                    voting_escrow_input_version: version,
                     order_version: eve_offchain_order.id.version as u32,
+                },
+            ));
+        }
+
+        if eve_onchain_order.order.ve_datum.version != version + 1 {
+            return Err(ExtendVotingEscrowError::Witness(
+                WitnessError::VEVersionMismatchWithOnchainProxy {
+                    voting_escrow_output_version: version + 1,
+                    proxy_version: eve_offchain_order.id.version as u32,
                 },
             ));
         }
@@ -2042,8 +2054,8 @@ where
         let order_version = offchain_order.id.version as u32;
         if version != order_version {
             return Err(RedeemVotingEscrowError::Witness(
-                WitnessError::VotingEscrowVersionMismatch {
-                    voting_escrow_version: version,
+                WitnessError::VEVersionMismatchWithOffchainOrder {
+                    voting_escrow_input_version: version,
                     order_version,
                 },
             ));
@@ -2479,7 +2491,10 @@ where
 #[derive(Clone, Debug, Serialize)]
 pub enum ExecuteOrderError {
     BadOrMissingInput,
-    WeightingExceedsAvailableVotingPower,
+    WeightingExceedsAvailableVotingPower {
+        order_weighting_power: u64,
+        voting_escrow_weighting_power: u64,
+    },
     InVotingPower,
     Witness(WitnessError),
     Other(String),
@@ -2520,9 +2535,13 @@ pub enum WitnessError {
         last_wp_epoch: i32,
         current_epoch: i32,
     },
-    VotingEscrowVersionMismatch {
-        voting_escrow_version: u32,
+    VEVersionMismatchWithOffchainOrder {
+        voting_escrow_input_version: u32,
         order_version: u32,
+    },
+    VEVersionMismatchWithOnchainProxy {
+        voting_escrow_output_version: u32,
+        proxy_version: u32,
     },
     CannotDecodeRedeemer,
 }

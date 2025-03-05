@@ -403,28 +403,28 @@ pub async fn user_simulator<'a>(
                                 )
                                 .await;
                             }
-                            //let eve_order_exists_onchain =
-                            //    pull_onchain_entity::<ExtendVotingEscrowOnchainOrder, _>(
-                            //        &op_inputs.explorer,
-                            //        protocol_deployment.extend_ve_order.hash,
-                            //        op_inputs.network_id,
-                            //        &deployment_config,
-                            //        owner,
-                            //    )
-                            //    .await
-                            //    .is_some();
-                            //if eve_order_exists_onchain {
-                            //    println!("VEState::Waiting: EVE order exists on-chain");
-                            //    ve_state = VEState::PredictedOnChainExtendedVE(
-                            //        Epoch(current_epoch),
-                            //        owner,
-                            //        ve_snapshot.version().output_ref,
-                            //        VEVersion(ve_snapshot.get().version as u64),
-                            //    );
-                            //} else {
-                            //    println!("VEState::Waiting: no EVE order exists");
-                            //    ve_state = VEState::ConfirmedVotingEscrow(ve_snapshot, Epoch(current_epoch));
-                            //}
+                            let eve_order_exists_onchain =
+                                pull_onchain_entity::<ExtendVotingEscrowOnchainOrder, _>(
+                                    &op_inputs.explorer,
+                                    protocol_deployment.extend_ve_order.hash,
+                                    op_inputs.network_id,
+                                    &deployment_config,
+                                    owner,
+                                )
+                                .await
+                                .is_some();
+                            if eve_order_exists_onchain {
+                                println!("VEState::Waiting: EVE order exists on-chain");
+                                ve_state = VEState::PredictedOnChainExtendedVE(
+                                    Epoch(current_epoch),
+                                    owner,
+                                    *ve_snapshot.version(),
+                                    VEVersion(ve_snapshot.get().version as u64),
+                                );
+                            } else {
+                                println!("VEState::Waiting: no EVE order exists");
+                                ve_state = VEState::ConfirmedVotingEscrow(ve_snapshot, Epoch(current_epoch));
+                            }
                         }
                     }
                     VEState::PredictedRedeem => {

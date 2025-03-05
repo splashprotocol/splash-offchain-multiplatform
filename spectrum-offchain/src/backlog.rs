@@ -416,14 +416,15 @@ where
 
     async fn revisit_progressing_orders(&self) {
         let mut too_recent_order = None;
-        while let Some(ord) = self.state.lock().await.revisit_queue.pop_front() {
+        let mut state = self.state.lock().await;
+        while let Some(ord) = state.revisit_queue.pop_front() {
             let ts_now = Utc::now().timestamp();
             let elapsed_secs = ts_now - ord.timestamp;
             if elapsed_secs > self.conf.order_exec_time.num_seconds() {
                 if elapsed_secs <= self.conf.order_lifespan.num_seconds() {
                     if let Some(ord) = self.store.get(ord.order).await {
                         let wt = ord.order.weight();
-                        self.state.lock().await.pending_pq.push((&ord).into(), wt);
+                        state.pending_pq.push((&ord).into(), wt);
                     }
                 } else {
                     self.store.remove(ord.order).await;
@@ -436,7 +437,7 @@ where
         }
 
         if let Some(ord) = too_recent_order {
-            self.state.lock().await.revisit_queue.push_front(ord);
+            state.revisit_queue.push_front(ord);
         }
     }
 }

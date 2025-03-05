@@ -1352,7 +1352,6 @@ where
                 behaviour: deployment_config,
                 timed_output_ref,
                 current_epoch: CurrentEpoch::from(0),
-                wpoll_eliminated: false,
             };
             if let Some(t) = T::try_from_ledger(&utxo.output, &ctx) {
                 println!("  ID: {}, slot: {}", t.stable_id(), slot);
