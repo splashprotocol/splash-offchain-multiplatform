@@ -1,7 +1,8 @@
+use crate::domain::{SeqState, Stable};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Ior<O1, O2> {
     Left(O1),
     Right(O2),
@@ -40,6 +41,19 @@ impl<O1, O2> Ior<O1, O2> {
     }
 }
 
+impl<O> Ior<O, O> {
+    pub fn inspect<F>(&self, predicate: F) -> bool
+    where
+        F: Fn(&O) -> bool,
+    {
+        match self {
+            Ior::Left(a) => predicate(a),
+            Ior::Right(b) => predicate(b),
+            Ior::Both(a, b) => predicate(a) && predicate(b),
+        }
+    }
+}
+
 impl<O1, O2> TryFrom<(Option<O1>, Option<O2>)> for Ior<O1, O2> {
     type Error = ();
     fn try_from(pair: (Option<O1>, Option<O2>)) -> Result<Self, Self::Error> {
@@ -48,6 +62,29 @@ impl<O1, O2> TryFrom<(Option<O1>, Option<O2>)> for Ior<O1, O2> {
             (Some(l), None) => Ok(Self::Left(l)),
             (None, Some(r)) => Ok(Self::Right(r)),
             _ => Err(()),
+        }
+    }
+}
+
+impl<T> Stable for Ior<T, T>
+where
+    T: Stable,
+{
+    type StableId = T::StableId;
+
+    fn stable_id(&self) -> Self::StableId {
+        match self {
+            Ior::Left(a) => a.stable_id(),
+            Ior::Right(b) => b.stable_id(),
+            Ior::Both(a, _) => a.stable_id(), // Choosing `a`'s stable ID as the representative
+        }
+    }
+
+    fn is_quasi_permanent(&self) -> bool {
+        match self {
+            Ior::Left(a) => a.is_quasi_permanent(),
+            Ior::Right(b) => b.is_quasi_permanent(),
+            Ior::Both(a, _) => a.is_quasi_permanent(),
         }
     }
 }

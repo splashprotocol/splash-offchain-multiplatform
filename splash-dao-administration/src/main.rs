@@ -1337,7 +1337,7 @@ impl From<TokenDeposit> for BuiltPolicy {
 
 impl From<&TokenDeposit> for Token {
     fn from(value: &TokenDeposit) -> Self {
-        let asset_name = spectrum_cardano_lib::AssetName::utf8_unsafe(value.asset_name_utf8.clone());
+        let asset_name = spectrum_cardano_lib::AssetName::from_utf8(value.asset_name_utf8.clone());
         Token(value.policy_id, asset_name)
     }
 }

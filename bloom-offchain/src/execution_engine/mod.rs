@@ -62,8 +62,10 @@ pub mod types;
 /// Class of entities that evolve upon execution.
 type EvolvingEntity<CO, P, V, B> = Bundled<Either<Baked<CO, V>, Baked<P, V>>, B>;
 
-pub type Event<CO, SO, P, B, V> =
-    Either<Channel<Transition<EvolvingEntity<CO, P, V, B>>>, Channel<OrderUpdate<Bundled<SO, B>, SO>>>;
+pub type Event<CO, SO, P, B, V, LCX> = Either<
+    Channel<Transition<EvolvingEntity<CO, P, V, B>>, LCX>,
+    Channel<OrderUpdate<Bundled<SO, B>, SO>, LCX>,
+>;
 
 #[derive(Clone)]
 enum ExecutionEffects<CompOrd, SpecOrd, Pool, Ver, Bearer> {
@@ -121,6 +123,7 @@ pub fn execution_part_stream<
     Rep,
     Meta,
     Err,
+    LedgerCx,
 >(
     index: Index,
     book: MultiPair<Pair, Book, MakerCtx>,
@@ -137,7 +140,7 @@ pub fn execution_part_stream<
     rollback_in_progress: Beacon,
 ) -> impl Stream<Item = ()> + 'a
 where
-    Upstream: Stream<Item = (Pair, Event<CompOrd, SpecOrd, Pool, Bearer, Ver>)> + Unpin + 'a,
+    Upstream: Stream<Item = (Pair, Event<CompOrd, SpecOrd, Pool, Bearer, Ver, LedgerCx>)> + Unpin + 'a,
     Funding: Stream<Item = FundingEvent<Bearer>> + Unpin + 'a,
     Pair: Copy + Eq + Ord + Hash + Display + Unpin + 'a,
     StableId: Copy + Eq + Hash + Debug + Display + Unpin + Send + Sync + 'a,
@@ -166,6 +169,7 @@ where
     Meta: Clone + Unpin + 'a,
     Rep: Reporting<ExecutionReport<StableId, Ver, TxHash, Pair, Meta>> + Clone + 'a,
     Err: TryInto<HashSet<Ver>> + Clone + Unpin + Debug + Display + 'a,
+    LedgerCx: Unpin + 'a,
 {
     let (feedback_out, feedback_in) = mpsc::channel(100);
     let executor = Executor::new(
@@ -221,6 +225,7 @@ pub struct Executor<
     Prover,
     Meta,
     Err,
+    LedgerCx,
 > {
     /// Storage for all on-chain states.
     index: Index,
@@ -248,11 +253,11 @@ pub struct Executor<
     /// Rollback is currently in progress.
     rollback_in_progress: Beacon,
     blocker: Option<Once>,
-    pd: PhantomData<(Id, Ver, TxCandidate, Tx, Meta, Err)>,
+    pd: PhantomData<(Id, Ver, TxCandidate, Tx, Meta, Err, LedgerCx)>,
 }
 
-impl<S, FN, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E>
-    Executor<S, FN, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E>
+impl<S, FN, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E, LCX>
+    Executor<S, FN, PR, SID, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E, LCX>
 where
     V: Send + Sync,
     SID: Send + Sync,
@@ -293,7 +298,7 @@ where
         }
     }
 
-    fn sync_backlog(&mut self, pair: &PR, update: Channel<OrderUpdate<Bundled<SO, B>, SO>>)
+    fn sync_backlog(&mut self, pair: &PR, update: Channel<OrderUpdate<Bundled<SO, B>, SO>, LCX>)
     where
         PR: Copy + Eq + Hash + Display,
         V: Copy + Eq + Hash + Display,
@@ -301,8 +306,8 @@ where
         L: HotBacklog<Bundled<SO, B>> + Maker<PR, MC>,
         MC: Clone,
     {
-        let is_confirmed = matches!(update, Channel::Ledger(_));
-        let (Channel::Ledger(Confirmed(upd))
+        let is_confirmed = matches!(update, Channel::Ledger(_, _));
+        let (Channel::Ledger(Confirmed(upd), _)
         | Channel::Mempool(Unconfirmed(upd))
         | Channel::LocalTxSubmit(Predicted(upd))) = update;
         match upd {
@@ -415,7 +420,7 @@ where
         Ok(())
     }
 
-    fn update_state<T>(&mut self, update: Channel<Transition<Bundled<T, B>>>) -> Option<Ior<T, T>>
+    fn update_state<T>(&mut self, update: Channel<Transition<Bundled<T, B>>, LCX>) -> Option<Ior<T, T>>
     where
         SID: Copy + Eq + Hash + Display,
         V: Copy + Eq + Hash + Display,
@@ -423,9 +428,9 @@ where
         B: Clone,
         IX: StateIndex<Bundled<T, B>>,
     {
-        let from_ledger = matches!(update, Channel::Ledger(_));
+        let from_ledger = matches!(update, Channel::Ledger(_, _));
         let from_mempool = matches!(update, Channel::Mempool(_));
-        let (Channel::Ledger(Confirmed(upd))
+        let (Channel::Ledger(Confirmed(upd), _)
         | Channel::Mempool(Unconfirmed(upd))
         | Channel::LocalTxSubmit(Predicted(upd))) = update;
         trace!(
@@ -705,7 +710,7 @@ where
         self.skip_filter.add(ver);
     }
 
-    fn on_pair_event(&mut self, pair: PR, event: Event<CO, SO, P, B, V>)
+    fn on_pair_event(&mut self, pair: PR, event: Event<CO, SO, P, B, V, LCX>)
     where
         SID: Eq + Hash + Copy + Display + Debug,
         V: Eq + Hash + Copy + Display + Serialize + DeserializeOwned,
@@ -759,10 +764,10 @@ fn to_transition<T, B>(prev: Option<Bundled<T, B>>, next: Option<Bundled<T, B>>)
     }
 }
 
-impl<S, FN, PR, I, V, CO, SO, P, B, TC, TX, TH, U, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E> Stream
-    for Executor<S, FN, PR, I, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E>
+impl<S, FN, PR, I, V, CO, SO, P, B, TC, TX, TH, U, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E, LCX> Stream
+    for Executor<S, FN, PR, I, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E, LCX>
 where
-    S: Stream<Item = (PR, Event<CO, SO, P, B, V>)> + Unpin,
+    S: Stream<Item = (PR, Event<CO, SO, P, B, V, LCX>)> + Unpin,
     FN: Stream<Item = FundingEvent<B>> + Unpin,
     PR: Copy + Eq + Ord + Hash + Display + Unpin,
     I: Copy + Eq + Hash + Debug + Display + Unpin + Send + Sync,
@@ -784,6 +789,7 @@ where
     PRV: TxProver<TC, TX> + Unpin,
     M: Unpin,
     E: TryInto<HashSet<V>> + Clone + Unpin + Debug + Display,
+    LCX: Unpin,
 {
     type Item = (TX, Option<ExecutionReport<I, V, TH, PR, M>>);
 
@@ -935,10 +941,10 @@ where
     }
 }
 
-impl<S, FN, PR, ST, V, CO, SO, P, B, TC, TX, TH, U, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E> FusedStream
-    for Executor<S, FN, PR, ST, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E>
+impl<S, FN, PR, ST, V, CO, SO, P, B, TC, TX, TH, U, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E, LCX> FusedStream
+    for Executor<S, FN, PR, ST, V, CO, SO, P, B, TC, TX, TH, C, MC, IX, TLB, L, RIR, SIR, PRV, M, E, LCX>
 where
-    S: Stream<Item = (PR, Event<CO, SO, P, B, V>)> + Unpin,
+    S: Stream<Item = (PR, Event<CO, SO, P, B, V, LCX>)> + Unpin,
     FN: Stream<Item = FundingEvent<B>> + Unpin,
     PR: Copy + Eq + Ord + Hash + Display + Unpin,
     ST: Copy + Eq + Hash + Debug + Display + Unpin + Send + Sync,
@@ -960,6 +966,7 @@ where
     PRV: TxProver<TC, TX> + Unpin,
     M: Unpin,
     E: TryInto<HashSet<V>> + Clone + Unpin + Debug + Display,
+    LCX: Unpin,
 {
     fn is_terminated(&self) -> bool {
         false

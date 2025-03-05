@@ -4,7 +4,7 @@ use std::hash::{Hash, Hasher};
 use serde::{Deserialize, Serialize};
 use spectrum_offchain::backlog;
 use spectrum_offchain::domain::order::SpecializedOrder;
-use spectrum_offchain::domain::{EntitySnapshot, Stable, Tradable};
+use spectrum_offchain::domain::{EntitySnapshot, SeqState, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 
 use crate::execution_engine::liquidity_book;
@@ -31,6 +31,12 @@ impl<T, Bearer> Bundled<T, Bearer> {
         F: FnOnce(Bearer) -> B2,
     {
         Bundled(self.0, f(self.1))
+    }
+    pub fn inspect<F>(self, f: F)
+    where
+        F: FnOnce(&T),
+    {
+        f(&self.0)
     }
 }
 
@@ -71,6 +77,15 @@ where
     }
     fn is_quasi_permanent(&self) -> bool {
         self.0.is_quasi_permanent()
+    }
+}
+
+impl<T, Bearer> SeqState for Bundled<T, Bearer>
+where
+    T: SeqState,
+{
+    fn is_initial(&self) -> bool {
+        self.0.is_initial()
     }
 }
 
