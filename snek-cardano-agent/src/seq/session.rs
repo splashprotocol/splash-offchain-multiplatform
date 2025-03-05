@@ -104,7 +104,6 @@ impl<K, T> SessionInProgress<K, T> {
             // Apply deterministic sequencing
             let num_settled_events = settled_events.len();
             let window_size = seq_window_size(num_settled_events, self.opening_event_cx.block_hash);
-            println!("Deterministic sequencing window size: {}", window_size);
             settled_events[..window_size].sort_by(|a, b| a.stable_id().cmp(&b.stable_id()));
 
             return Some(
