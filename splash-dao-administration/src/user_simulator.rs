@@ -1,20 +1,23 @@
 use cardano_explorer::retry;
-use cml_chain::plutus::{PlutusScript, PlutusV2Script};
+use cml_chain::certs::StakeCredential;
+use cml_chain::plutus::{PlutusScript, PlutusV2Script, PlutusV3Script};
+use cml_chain::PolicyId;
 use cml_crypto::PrivateKey;
 use cml_crypto::RawBytesEncoding;
 use futures_timer::Delay;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::OutputRef;
+use splash_dao_offchain::entities::offchain::ExtendVotingEscrowOffChainOrder;
+use splash_dao_offchain::entities::offchain::OffChainOrderId;
+use splash_dao_offchain::entities::offchain::RedeemVotingEscrowOffChainOrder;
+use splash_dao_offchain::entities::onchain::redeem_voting_escrow::make_redeem_ve_witness_redeemer;
+use splash_dao_offchain::entities::onchain::voting_escrow::Lock;
 use splash_dao_offchain::entities::onchain::voting_escrow_factory::VEFactoryId;
 use splash_dao_offchain::entities::onchain::voting_escrow_factory::VEFactorySnapshot;
 use splash_dao_offchain::{
     deployment::{CompleteDeployment, DaoScriptData, ProtocolDeployment},
     entities::{
-        offchain::{
-            compute_voting_escrow_witness_message,
-            extend_voting_escrow_order::{ExtendVotingEscrowOffChainOrder, ExtendVotingEscrowOrderId},
-            voting_order::{VotingOrder, VotingOrderId},
-        },
+        offchain::{compute_voting_escrow_witness_message, voting_order::VotingOrder},
         onchain::{
             extend_voting_escrow_order::{
                 compute_extend_ve_witness_validator, make_extend_ve_witness_redeemer,
@@ -161,7 +164,6 @@ pub async fn user_simulator<'a>(
                 let voting_escrow_id = VotingEscrowId(spectrum_cardano_lib::AssetName::from(ve_id.clone()));
                 match ve_state {
                     VEState::PredictedVoteCast(e) => {
-                        assert_eq!(e.0, current_epoch);
                         if let Some((ve_snapshot, _)) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
                             &op_inputs.explorer,
                             protocol_deployment.voting_escrow.hash,
@@ -196,7 +198,7 @@ pub async fn user_simulator<'a>(
                             let voting_power = ve_snapshot.get().voting_power(now);
                             let wpoll_policy_id =
                                 deployment_config.deployed_validators.mint_wpauth_token.hash;
-                            let voting_order_id = VotingOrderId {
+                            let voting_order_id = OffChainOrderId {
                                 voting_escrow_id,
                                 version,
                             };
@@ -215,13 +217,14 @@ pub async fn user_simulator<'a>(
                         } else if !ve_extended_this_epoch {
                             let owner =
                                 extend_voting_escrow_order(voting_escrow_id, &ve_settings, op_inputs).await;
-                            let ve_output_ref = ve_snapshot.version().output_ref;
+                            let ve_output_ref = *ve_snapshot.version();
                             ve_state = VEState::PredictedOnChainExtendedVE(
                                 Epoch(current_epoch),
                                 owner,
                                 ve_output_ref,
                                 VEVersion(version),
                             );
+                        } else {
                         }
                     }
                     VEState::PredictedOnChainExtendedVE(e, owner, ve_output_ref, VEVersion(version)) => {
@@ -273,7 +276,7 @@ pub async fn user_simulator<'a>(
                                 voting_escrow_input_ix,
                                 ve_factory_input_ix,
                             };
-                            let id = ExtendVotingEscrowOrderId {
+                            let id = OffChainOrderId {
                                 voting_escrow_id,
                                 version,
                             };
@@ -320,7 +323,7 @@ pub async fn user_simulator<'a>(
                             ve_state, epoch, voting_power, version
                         );
                         let wpoll_policy_id = deployment_config.deployed_validators.mint_wpauth_token.hash;
-                        let voting_order_id = VotingOrderId {
+                        let voting_order_id = OffChainOrderId {
                             voting_escrow_id,
                             version,
                         };
@@ -352,6 +355,54 @@ pub async fn user_simulator<'a>(
                         .await
                         {
                             println!("VEState::Waiting: found VE");
+                            let can_redeem = match ve_snapshot.get().locked_until {
+                                Lock::Def(until) => {
+                                    let now = SystemTime::now()
+                                        .duration_since(SystemTime::UNIX_EPOCH)
+                                        .unwrap()
+                                        .as_millis() as u64;
+                                    now > until
+                                }
+                                Lock::Indef(duration) => todo!(),
+                            };
+                            if can_redeem {
+                                println!("Redeem VE---------------------------");
+                                let ve_factory_output_ref = pull_onchain_entity::<VEFactorySnapshot, _>(
+                                    &op_inputs.explorer,
+                                    protocol_deployment.ve_factory.hash,
+                                    op_inputs.network_id,
+                                    &deployment_config,
+                                    VEFactoryId,
+                                )
+                                .await
+                                .map(|(_, ve_factory_output)| OutputRef::from(ve_factory_output.input))
+                                .unwrap();
+
+                                let ve_output_ref = *ve_snapshot.version();
+                                let (voting_escrow_input_ix, ve_factory_input_ix) =
+                                    if ve_output_ref < ve_factory_output_ref {
+                                        (0, 1)
+                                    } else {
+                                        (1, 0)
+                                    };
+                                let id = OffChainOrderId {
+                                    voting_escrow_id,
+                                    version: ve_snapshot.get().version as u64,
+                                };
+                                let order = create_redeem_ve_offchain_order(
+                                    id,
+                                    voting_escrow_input_ix,
+                                    ve_factory_input_ix,
+                                    &deployment_config,
+                                    &op_inputs.operator_sk,
+                                    op_inputs.stake_credential.clone(),
+                                );
+                                send_redeem_ve_offchain_order(
+                                    order,
+                                    &op_inputs.voting_order_listener_endpoint,
+                                )
+                                .await;
+                            }
                             let eve_order_exists_onchain =
                                 pull_onchain_entity::<ExtendVotingEscrowOnchainOrder, _>(
                                     &op_inputs.explorer,
@@ -367,7 +418,7 @@ pub async fn user_simulator<'a>(
                                 ve_state = VEState::PredictedOnChainExtendedVE(
                                     Epoch(current_epoch),
                                     owner,
-                                    ve_snapshot.version().output_ref,
+                                    *ve_snapshot.version(),
                                     VEVersion(ve_snapshot.get().version as u64),
                                 );
                             } else {
@@ -375,6 +426,9 @@ pub async fn user_simulator<'a>(
                                 ve_state = VEState::ConfirmedVotingEscrow(ve_snapshot, Epoch(current_epoch));
                             }
                         }
+                    }
+                    VEState::PredictedRedeem => {
+                        panic!("Predicted redeem");
                     }
                 }
             }
@@ -386,7 +440,7 @@ pub async fn user_simulator<'a>(
 }
 
 fn create_extend_ve_offchain_order(
-    id: ExtendVotingEscrowOrderId,
+    id: OffChainOrderId,
     order_action: ExtendVotingEscrowOrderAction,
     order_output_ref: OutputRef,
     config: &CompleteDeployment,
@@ -415,6 +469,52 @@ fn create_extend_ve_offchain_order(
         witness: witness.hash(),
         witness_input: redeemer_hex,
         order_output_ref,
+    }
+}
+
+fn create_redeem_ve_offchain_order(
+    id: OffChainOrderId,
+    voting_escrow_input_ix: u32,
+    ve_factory_input_ix: u32,
+    config: &CompleteDeployment,
+    operator_sk: &PrivateKey,
+    stake_credential: StakeCredential,
+) -> RedeemVotingEscrowOffChainOrder {
+    use cml_chain::Serialize;
+    let witness: PlutusScript = PlutusV3Script::new(
+        hex::decode(&DaoScriptData::global().redeem_voting_escrow_witness.script_bytes).unwrap(),
+    )
+    .into();
+    let ve_ident = (
+        config.deployed_validators.mint_identifier.hash,
+        cml_chain::assets::AssetName::from(id.voting_escrow_id.0),
+    );
+    let ve_factory = (
+        config.minted_deployment_tokens.ve_factory_auth.policy_id,
+        config.minted_deployment_tokens.ve_factory_auth.asset_name.clone(),
+    );
+    let witness_redeemer = make_redeem_ve_witness_redeemer(
+        Some(stake_credential.clone()),
+        voting_escrow_input_ix,
+        ve_factory_input_ix,
+        ve_ident,
+        ve_factory,
+        //    config.splash_tokens.policy_id,
+        PolicyId::from_hex("7876492e3b82a31b1ce97a8f454cec653a0f6be5c09b90e62d24c152").unwrap(),
+        config.deployed_validators.mint_ve_composition_token.hash,
+    );
+    let redeemer_hex = hex::encode(witness_redeemer.to_cbor_bytes());
+    println!("redeemer: {}", redeemer_hex);
+    let message =
+        compute_voting_escrow_witness_message(witness.hash(), redeemer_hex.clone(), id.version).unwrap();
+    println!("message: {}", hex::encode(&message));
+    let signature = operator_sk.sign(&message).to_raw_bytes().to_vec();
+    RedeemVotingEscrowOffChainOrder {
+        id,
+        stake_credential: Some(stake_credential),
+        proof: signature,
+        witness: witness.hash(),
+        witness_input: redeemer_hex,
     }
 }
 
@@ -482,6 +582,38 @@ async fn send_extend_ve_offchain_order(
     }
 }
 
+async fn send_redeem_ve_offchain_order(
+    order: RedeemVotingEscrowOffChainOrder,
+    voting_order_listener_endpoint: &SocketAddr,
+) {
+    let client = reqwest::Client::new();
+
+    // Send the PUT request with JSON body
+    let response = retry!(
+        {
+            let url = format!("http://{}{}", &voting_order_listener_endpoint, "/submit/redeemve");
+            client
+                .put(url)
+                .json(&order) // Serialize the payload as JSON
+                .send()
+                .await
+        },
+        100,
+        2000
+    );
+
+    if let Ok(response) = response {
+        if response.status().is_success() {
+            let text = response.text().await.unwrap();
+            println!("Vote response: {}", text);
+        } else {
+            println!("Failed with status: {}", response.status());
+            let error_text = response.text().await.unwrap();
+            println!("Error: {}", error_text);
+        }
+    }
+}
+
 async fn request_mve_status(
     owner: Owner,
     voting_order_listener_endpoint: &SocketAddr,
@@ -521,6 +653,7 @@ enum VEState {
     PredictedOnChainExtendedVE(Epoch, Owner, OutputRef, VEVersion),
     PredictedOffChainExtendedVESent(Epoch, VEVersion),
     PredictedVoteCast(Epoch),
+    PredictedRedeem,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
