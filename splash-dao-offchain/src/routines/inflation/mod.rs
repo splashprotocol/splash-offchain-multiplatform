@@ -96,7 +96,7 @@ pub struct Behaviour<
     DOB,
     OVE,
     TDOB,
-    ExtendVEOrderBacklog,
+    OffchainOrderBacklog,
     PTX,
     Time,
     Actions,
@@ -119,8 +119,8 @@ pub struct Behaviour<
     /// Maps an output reference to an associated DAO order UTxO. This is used to properly restore
     /// orders on chain-rollback.
     tx_hash_to_dao_order: TDOB,
-    /// Backlog for all extend `voting_escrow` orders.
-    extend_ve_order_backlog: ExtendVEOrderBacklog,
+    /// Backlog for all off-chain orders.
+    offchain_order_backlog: OffchainOrderBacklog,
     predicted_tx_backlog: PTX,
     ntp: Time,
     actions: Actions,
@@ -150,7 +150,7 @@ impl<
         DOB,
         OVE,
         TDOB,
-        ExtendVEOrderBacklog,
+        OffchainOrderBacklog,
         PTX,
         Time,
         Actions,
@@ -169,7 +169,7 @@ impl<
         DOB,
         OVE,
         TDOB,
-        ExtendVEOrderBacklog,
+        OffchainOrderBacklog,
         PTX,
         Time,
         Actions,
@@ -197,7 +197,7 @@ where
         + StateProjectionWrite<VotingEscrowSnapshot, Bearer>
         + Send
         + Sync,
-    ExtendVEOrderBacklog: ResilientBacklog<OffChainOrder> + Send + Sync,
+    OffchainOrderBacklog: ResilientBacklog<OffChainOrder> + Send + Sync,
     PTX: KvStore<TransactionHash, PredictedEntityWrites<Bearer>> + Send + Sync,
     SF: StateProjectionRead<SmartFarmSnapshot, Bearer>
         + StateProjectionWrite<SmartFarmSnapshot, Bearer>
@@ -385,7 +385,7 @@ impl<
         DOB,
         OVE,
         TDOB,
-        ExtendVEOrderBacklog,
+        OffchainOrderBacklog,
         PTX,
         Time,
         Actions,
@@ -404,7 +404,7 @@ impl<
         DOB,
         OVE,
         TDOB,
-        ExtendVEOrderBacklog,
+        OffchainOrderBacklog,
         PTX,
         Time,
         Actions,
@@ -424,7 +424,7 @@ impl<
         dao_order_backlog: DOB,
         owner_to_voting_escrow: OVE,
         tx_hash_to_mve: TDOB,
-        extend_ve_order_backlog: ExtendVEOrderBacklog,
+        extend_ve_order_backlog: OffchainOrderBacklog,
         predicted_tx_backlog: PTX,
         ntp: Time,
         actions: Actions,
@@ -448,7 +448,7 @@ impl<
             dao_order_backlog,
             owner_to_voting_escrow,
             tx_hash_to_dao_order: tx_hash_to_mve,
-            extend_ve_order_backlog,
+            offchain_order_backlog: extend_ve_order_backlog,
             predicted_tx_backlog,
             ntp,
             actions,
@@ -533,11 +533,11 @@ impl<
         DOB: ResilientBacklog<DaoOrderBundle<Bearer>> + Send + Sync,
         VE: StateProjectionRead<VotingEscrowSnapshot, Bearer> + Send + Sync,
         VEF: StateProjectionRead<VEFactorySnapshot, Bearer> + Send + Sync,
-        ExtendVEOrderBacklog: ResilientBacklog<OffChainOrder> + Send + Sync,
+        OffchainOrderBacklog: ResilientBacklog<OffChainOrder> + Send + Sync,
         Bearer: std::fmt::Debug,
     {
         let mut orders_to_put_back = vec![];
-        while let Some(ord) = self.extend_ve_order_backlog.try_pop().await {
+        while let Some(ord) = self.offchain_order_backlog.try_pop().await {
             // If the version of order < VE's version, don't bother trying to apply the order. But
             // we can't just throw it away at this point, there could be a rollback where the order
             // may need to be applied again.
@@ -597,7 +597,7 @@ impl<
         }
 
         for order in orders_to_put_back {
-            self.extend_ve_order_backlog.check_later(order).await;
+            self.offchain_order_backlog.check_later(order).await;
         }
         None
     }
@@ -686,7 +686,7 @@ impl<
         VE: StateProjectionRead<VotingEscrowSnapshot, Bearer> + Send + Sync,
         SF: StateProjectionRead<SmartFarmSnapshot, Bearer> + Send + Sync,
         VEF: StateProjectionRead<VEFactorySnapshot, Bearer> + Send + Sync,
-        ExtendVEOrderBacklog: ResilientBacklog<OffChainOrder> + Send + Sync,
+        OffchainOrderBacklog: ResilientBacklog<OffChainOrder> + Send + Sync,
         Bearer: std::fmt::Debug + Clone,
         Time: NetworkTimeProvider + Send + Sync,
     {
@@ -1094,7 +1094,7 @@ impl<
         Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
         WP: StateProjectionWrite<WeightingPollSnapshot, Bearer> + Send + Sync,
         VE: StateProjectionWrite<VotingEscrowSnapshot, Bearer> + Send + Sync,
-        ExtendVEOrderBacklog: ResilientBacklog<OffChainOrder> + Send + Sync,
+        OffchainOrderBacklog: ResilientBacklog<OffChainOrder> + Send + Sync,
         PTX: KvStore<TransactionHash, PredictedEntityWrites<Bearer>> + Send + Sync,
     {
         if self.current_slot.is_none() {
@@ -1131,7 +1131,7 @@ impl<
 
                         self.weighting_poll.write_predicted(next_wpoll).await;
                         self.voting_escrow.write_predicted(next_ve).await;
-                        self.extend_ve_order_backlog
+                        self.offchain_order_backlog
                             .check_later(
                                 OffChainOrder::Vote {
                                     order: offchain_order,
@@ -1155,7 +1155,7 @@ impl<
                             )
                         }) {
                             info!("`execute_order`: TX failed on bad/missing input error");
-                            self.extend_ve_order_backlog
+                            self.offchain_order_backlog
                                 .suspend(OffChainOrder::Vote {
                                     order: offchain_order,
                                     timestamp: order_timestamp,
@@ -1164,19 +1164,19 @@ impl<
                         } else {
                             // For all other errors we discard the order.
                             error!("`execute_order`: TX submit failed on errors: {:?}", node_errors);
-                            self.extend_ve_order_backlog.remove(order_id).await;
+                            self.offchain_order_backlog.remove(order_id).await;
                         }
                     }
                     Err(RejectReasons(None)) => {
                         error!("`execute_order`: TX submit failed on unknown error");
-                        self.extend_ve_order_backlog.remove(order_id).await;
+                        self.offchain_order_backlog.remove(order_id).await;
                     }
                 }
             }
             Err(e) => {
                 error!("`execute_order`: Inadmissible order, error: {:?}", e);
                 // Here the order has been deemed inadmissible and so it will be removed.
-                self.extend_ve_order_backlog.remove(order_id).await;
+                self.offchain_order_backlog.remove(order_id).await;
             }
         }
         None
@@ -1197,7 +1197,7 @@ impl<
         Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
         VEF: StateProjectionWrite<VEFactorySnapshot, Bearer> + Send + Sync,
         VE: StateProjectionWrite<VotingEscrowSnapshot, Bearer> + Send + Sync,
-        ExtendVEOrderBacklog: ResilientBacklog<OffChainOrder> + Send + Sync,
+        OffchainOrderBacklog: ResilientBacklog<OffChainOrder> + Send + Sync,
         PTX: KvStore<TransactionHash, PredictedEntityWrites<Bearer>> + Send + Sync,
         Bearer: Clone,
     {
@@ -1246,7 +1246,7 @@ impl<
                             },
                             timestamp: order_timestamp,
                         };
-                        self.extend_ve_order_backlog.check_later(progressing_order).await;
+                        self.offchain_order_backlog.check_later(progressing_order).await;
                     }
                     Err(RejectReasons(Some(ApplyTxError { node_errors }))) => {
                         // We suspend the order if there are bad/missing inputs. With this TX the
@@ -1262,7 +1262,7 @@ impl<
                             )
                         }) {
                             info!("`extend_voting_escrow`: TX failed on bad/missing input error");
-                            self.extend_ve_order_backlog
+                            self.offchain_order_backlog
                                 .suspend(OffChainOrder::Extend {
                                     order: offchain_order,
                                     timestamp: order_timestamp,
@@ -1274,19 +1274,19 @@ impl<
                                 "`extend_voting_escrow`: TX submit failed on errors: {:?}",
                                 node_errors
                             );
-                            self.extend_ve_order_backlog.remove(order_id).await;
+                            self.offchain_order_backlog.remove(order_id).await;
                         }
                     }
                     Err(RejectReasons(None)) => {
                         error!("`extend_voting_escrow`: TX submit failed on unknown error");
-                        self.extend_ve_order_backlog.remove(order_id).await;
+                        self.offchain_order_backlog.remove(order_id).await;
                     }
                 }
             }
             Err(e) => {
                 error!("`extend_voting_escrow`: Inadmissible order, error: {:?}", e);
                 // Here the order has been deemed inadmissible and so it will be removed.
-                self.extend_ve_order_backlog.remove(order_id).await;
+                self.offchain_order_backlog.remove(order_id).await;
             }
         }
         None
@@ -1304,7 +1304,7 @@ impl<
         Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
         VEF: StateProjectionWrite<VEFactorySnapshot, Bearer> + Send + Sync,
         VE: StateProjectionWrite<VotingEscrowSnapshot, Bearer> + Send + Sync,
-        ExtendVEOrderBacklog: ResilientBacklog<OffChainOrder> + Send + Sync,
+        OffchainOrderBacklog: ResilientBacklog<OffChainOrder> + Send + Sync,
         PTX: KvStore<TransactionHash, PredictedEntityWrites<Bearer>> + Send + Sync,
         Bearer: Clone,
     {
@@ -1353,7 +1353,7 @@ impl<
                             },
                             timestamp: order_timestamp,
                         };
-                        self.extend_ve_order_backlog.check_later(progressing_order).await;
+                        self.offchain_order_backlog.check_later(progressing_order).await;
                     }
                     Err(RejectReasons(Some(ApplyTxError { node_errors }))) => {
                         // We suspend the order if there are bad/missing inputs. With this TX the
@@ -1369,7 +1369,7 @@ impl<
                             )
                         }) {
                             info!("`redeem_voting_escrow`: TX failed on bad/missing input error");
-                            self.extend_ve_order_backlog
+                            self.offchain_order_backlog
                                 .suspend(OffChainOrder::Redeem {
                                     order: offchain_order,
                                     timestamp: order_timestamp,
@@ -1381,19 +1381,19 @@ impl<
                                 "`redeem_voting_escrow`: TX submit failed on errors: {:?}",
                                 node_errors
                             );
-                            self.extend_ve_order_backlog.remove(order_id).await;
+                            self.offchain_order_backlog.remove(order_id).await;
                         }
                     }
                     Err(RejectReasons(None)) => {
                         error!("`redeem_voting_escrow`: TX submit failed on unknown error");
-                        self.extend_ve_order_backlog.remove(order_id).await;
+                        self.offchain_order_backlog.remove(order_id).await;
                     }
                 }
             }
             Err(e) => {
                 error!("`redeem_voting_escrow`: Inadmissible order, error: {:?}", e);
                 // Here the order has been deemed inadmissible and so it will be removed.
-                self.extend_ve_order_backlog.remove(order_id).await;
+                self.offchain_order_backlog.remove(order_id).await;
             }
         }
         None
@@ -1716,7 +1716,7 @@ impl<
     }
 }
 
-impl<IB, PF, VEF, WP, VE, SF, PM, FB, DOB, OVE, TDOB, ExtendVEOrderBacklog, PTX, Time, Actions, Net>
+impl<IB, PF, VEF, WP, VE, SF, PM, FB, DOB, OVE, TDOB, OffchainOrderBacklog, PTX, Time, Actions, Net>
     Behaviour<
         IB,
         PF,
@@ -1729,7 +1729,7 @@ impl<IB, PF, VEF, WP, VE, SF, PM, FB, DOB, OVE, TDOB, ExtendVEOrderBacklog, PTX,
         DOB,
         OVE,
         TDOB,
-        ExtendVEOrderBacklog,
+        OffchainOrderBacklog,
         PTX,
         Time,
         Actions,
@@ -1757,7 +1757,7 @@ where
         + StateProjectionWrite<VotingEscrowSnapshot, TransactionOutput>
         + Send
         + Sync,
-    ExtendVEOrderBacklog: ResilientBacklog<OffChainOrder> + Send + Sync,
+    OffchainOrderBacklog: ResilientBacklog<OffChainOrder> + Send + Sync,
     PTX: KvStore<TransactionHash, PredictedEntityWrites<TransactionOutput>> + Send + Sync,
     SF: StateProjectionRead<SmartFarmSnapshot, TransactionOutput>
         + StateProjectionWrite<SmartFarmSnapshot, TransactionOutput>
@@ -2102,7 +2102,7 @@ where
         let timestamp = time_src.network_time().await as i64;
         let send_response_result = match command {
             DaoBotCommand::VotingOrder(VotingOrderCommand::Submit(voting_order)) => {
-                if !self.extend_ve_order_backlog.exists(voting_order.id).await {
+                if !self.offchain_order_backlog.exists(voting_order.id).await {
                     let ord = PendingOrder {
                         order: OffChainOrder::Vote {
                             order: voting_order,
@@ -2110,7 +2110,7 @@ where
                         },
                         timestamp,
                     };
-                    self.extend_ve_order_backlog.put(ord).await;
+                    self.offchain_order_backlog.put(ord).await;
                     Some(response_sender.send(DaoBotResponse::VotingOrder(VotingOrderStatus::Queued)))
                 } else {
                     trace!("Order already exists in backlog");
@@ -2118,7 +2118,7 @@ where
                 }
             }
             DaoBotCommand::VotingOrder(VotingOrderCommand::GetStatus(order_id)) => {
-                if self.extend_ve_order_backlog.exists(order_id).await {
+                if self.offchain_order_backlog.exists(order_id).await {
                     Some(response_sender.send(DaoBotResponse::VotingOrder(VotingOrderStatus::Queued)))
                 } else if let Some(ve) = self.voting_escrow.read(order_id.voting_escrow_id).await {
                     let ve_version = ve.as_erased().0.get().version as u64;
@@ -2135,7 +2135,7 @@ where
             }
             DaoBotCommand::ExtendVotingEscrowOrder(extend_ve_offchain_order) => {
                 let id = extend_ve_offchain_order.id;
-                if !self.extend_ve_order_backlog.exists(id).await {
+                if !self.offchain_order_backlog.exists(id).await {
                     let ord = PendingOrder {
                         order: OffChainOrder::Extend {
                             order: extend_ve_offchain_order,
@@ -2143,7 +2143,7 @@ where
                         },
                         timestamp,
                     };
-                    self.extend_ve_order_backlog.put(ord).await;
+                    self.offchain_order_backlog.put(ord).await;
                     Some(response_sender.send(DaoBotResponse::VotingOrder(VotingOrderStatus::Queued)))
                 } else {
                     trace!("Order already exists in backlog");
@@ -2152,12 +2152,12 @@ where
             }
             DaoBotCommand::RedeemVotingEscrowOrder(order) => {
                 let id = order.id;
-                if !self.extend_ve_order_backlog.exists(id).await {
+                if !self.offchain_order_backlog.exists(id).await {
                     let ord = PendingOrder {
                         order: OffChainOrder::Redeem { order, timestamp },
                         timestamp,
                     };
-                    self.extend_ve_order_backlog.put(ord).await;
+                    self.offchain_order_backlog.put(ord).await;
                     Some(response_sender.send(DaoBotResponse::VotingOrder(VotingOrderStatus::Queued)))
                 } else {
                     trace!("Order already exists in backlog");
@@ -2221,7 +2221,7 @@ where
                         },
                         timestamp,
                     };
-                    self.extend_ve_order_backlog.put(ord).await;
+                    self.offchain_order_backlog.put(ord).await;
                 }
                 PredictedEntityWrites::DistributeInflation {
                     wpoll_id,
@@ -2297,7 +2297,7 @@ where
                         },
                         timestamp,
                     };
-                    self.extend_ve_order_backlog.put(ord).await;
+                    self.offchain_order_backlog.put(ord).await;
                     self.tx_hash_to_dao_order.remove(version).await;
                 }
                 PredictedEntityWrites::RedeemVotingEscrow {
@@ -2314,7 +2314,7 @@ where
                         },
                         timestamp,
                     };
-                    self.extend_ve_order_backlog.put(ord).await;
+                    self.offchain_order_backlog.put(ord).await;
                     self.voting_escrow_set_redeemed_status(ve_id, false).await;
                 }
             }
@@ -2437,7 +2437,7 @@ where
     }
 }
 
-impl<IB, PF, VEF, WP, VE, SF, PM, FB, DOB, OVE, TDOB, ExtendVEOrderBacklog, PTX, Time, Actions, Net, H> Has<H>
+impl<IB, PF, VEF, WP, VE, SF, PM, FB, DOB, OVE, TDOB, OffchainOrderBacklog, PTX, Time, Actions, Net, H> Has<H>
     for Behaviour<
         IB,
         PF,
@@ -2450,7 +2450,7 @@ impl<IB, PF, VEF, WP, VE, SF, PM, FB, DOB, OVE, TDOB, ExtendVEOrderBacklog, PTX,
         DOB,
         OVE,
         TDOB,
-        ExtendVEOrderBacklog,
+        OffchainOrderBacklog,
         PTX,
         Time,
         Actions,
