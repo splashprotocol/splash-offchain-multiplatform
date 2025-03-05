@@ -62,10 +62,10 @@ serde_yaml = "0.9.25"
 void = "1.0.2"
 minicbor = { version = "0.20", features = ["std", "half", "derive"] }
 either = "1.10.0"
-uplc = "0.0.29"
-uplc-pallas-codec = { package = "pallas-codec", version = "0.16" }
-uplc-pallas-traverse = { package = "pallas-traverse", version = "0.16" }
-uplc-pallas-primitives = { package = "pallas-primitives", version = "0.16" }
+uplc = "1.1"
+uplc-pallas-codec = { package = "pallas-codec", version = "0.31" }
+uplc-pallas-traverse = { package = "pallas-traverse", version = "0.31" }
+uplc-pallas-primitives = { package = "pallas-primitives", version = "0.31" }
 
 [dev-dependencies]
 rocksdb = "0.22.*"
