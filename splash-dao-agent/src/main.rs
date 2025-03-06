@@ -147,19 +147,23 @@ async fn main() {
             tx,
             slot,
             block_number,
+            block_hash,
         } => LedgerTxEvent::TxApplied {
             tx: TxViewMut::from(tx),
             slot,
             block_number,
+            block_hash,
         },
         LedgerTxEvent::TxUnapplied {
             tx,
             slot,
             block_number,
+            block_hash,
         } => LedgerTxEvent::TxUnapplied {
             tx: TxViewMut::from(tx),
             slot,
             block_number,
+            block_hash,
         },
     });
 

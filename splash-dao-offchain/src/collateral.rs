@@ -1,4 +1,4 @@
-use cardano_explorer::CardanoNetwork;
+use cardano_explorer::{CardanoNetwork, ExtendedCardanoNetwork};
 use cml_chain::{
     address::Address,
     builders::{
@@ -65,7 +65,7 @@ pub async fn pull_collateral<Net: CardanoNetwork>(
     collateral.map(|out| out.into())
 }
 
-pub async fn send_assets<Net: CardanoNetwork, TX>(
+pub async fn send_assets<Net: ExtendedCardanoNetwork, TX>(
     coin_before_change_deduction: u64,
     change_output_coin: u64,
     required_tokens: Vec<BuiltPolicy>,
@@ -139,7 +139,7 @@ where
     Ok(())
 }
 
-pub async fn register_staking_address<Net: CardanoNetwork, TX>(
+pub async fn register_staking_address<Net: ExtendedCardanoNetwork, TX>(
     script: PlutusScript,
     coin_before_change_deduction: u64,
     explorer: &Net,

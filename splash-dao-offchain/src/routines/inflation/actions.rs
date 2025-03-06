@@ -287,7 +287,7 @@ where
         }
         let splash_policy = self.ctx.select::<SplashPolicy>().0;
         let splash_asset_class =
-            AssetClass::Token(Token(splash_policy, AssetName::utf8_unsafe(SPLASH_NAME.into())));
+            AssetClass::Token(Token(splash_policy, AssetName::from_utf8(SPLASH_NAME.into())));
         inflation_box_out.sub_asset(splash_asset_class, emission_rate.untag());
         set_min_ada(&mut inflation_box_out);
         let inflation_output = SingleOutputBuilderResult::new(inflation_box_out.clone());
@@ -1161,7 +1161,7 @@ where
         let mut weighting_poll_out = weighting_poll_in.clone();
         let splash_policy = self.ctx.select::<SplashPolicy>().0;
         let splash_asset_class =
-            AssetClass::Token(Token(splash_policy, AssetName::utf8_unsafe(SPLASH_NAME.into())));
+            AssetClass::Token(Token(splash_policy, AssetName::from_utf8(SPLASH_NAME.into())));
         weighting_poll_out.sub_asset(splash_asset_class, splash_emission);
 
         let mut farm_out = farm_in.clone();
