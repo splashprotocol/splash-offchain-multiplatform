@@ -14,7 +14,7 @@ use spectrum_offchain::{
     ledger::TryFromLedger,
 };
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
-use voting_escrow::{VotingEscrow, VotingEscrowSnapshot};
+use voting_escrow::{Owner, VotingEscrow, VotingEscrowSnapshot};
 use voting_escrow_factory::{VEFactory, VEFactorySnapshot};
 use weighting_poll::{WeightingPoll, WeightingPollSnapshot};
 
@@ -24,7 +24,7 @@ use crate::{
         FarmAuthPolicy, GTAuthPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy, OperatorCreds,
         PermManagerAuthPolicy, SplashPolicy, VEFactoryAuthPolicy,
     },
-    routines::inflation::{TimedOutputRef, WeightingPollEliminated},
+    routines::inflation::TimedOutputRef,
     CurrentEpoch, GenesisEpochStartTime,
 };
 
@@ -37,6 +37,7 @@ pub mod inflation_box;
 pub mod make_voting_escrow_order;
 pub mod permission_manager;
 pub mod poll_factory;
+pub mod redeem_voting_escrow;
 pub mod smart_farm;
 pub mod voting_escrow;
 pub mod voting_escrow_factory;
@@ -79,7 +80,6 @@ where
         + Has<DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>>
         + Has<OperatorCreds>
-        + Has<WeightingPollEliminated>
         + Has<NetworkId>
         + Has<TimedOutputRef>
         + Has<OutputRef>,
@@ -105,7 +105,8 @@ where
         } else if let Some(Snapshot(voting_escrow, output_ref)) =
             VotingEscrowSnapshot::try_from_ledger(repr, ctx)
         {
-            Some(Snapshot(DaoEntity::VotingEscrow(voting_escrow), output_ref))
+            let timed_output_ref = ctx.select::<TimedOutputRef>();
+            Some(Snapshot(DaoEntity::VotingEscrow(voting_escrow), timed_output_ref))
         } else if let Some(Snapshot(weighting_poll, output_ref)) =
             WeightingPollSnapshot::try_from_ledger(repr, ctx)
         {
@@ -137,6 +138,15 @@ where
 pub enum DaoOrder {
     MakeVE(MakeVotingEscrowOrder),
     ExtendVE(ExtendVotingEscrowOnchainOrder),
+}
+
+impl DaoOrder {
+    pub fn get_owner(&self) -> Owner {
+        match self {
+            DaoOrder::MakeVE(order) => order.ve_datum.owner,
+            DaoOrder::ExtendVE(order) => order.ve_datum.owner,
+        }
+    }
 }
 
 #[derive(Hash, PartialEq, Eq, Serialize, Deserialize, Clone, Debug)]

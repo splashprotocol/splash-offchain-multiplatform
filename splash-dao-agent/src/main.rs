@@ -1,5 +1,6 @@
 use std::{fmt::Debug, hash::Hash, marker::PhantomData, sync::Arc};
 
+use api_endpoints::{handle_extend_ve_put, handle_get_mve_status, handle_redeem_ve_put, handle_voting_put};
 use async_primitives::beacon::Beacon;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use bloom_offchain_cardano::event_sink::processed_tx::TxViewMut;
@@ -43,8 +44,10 @@ use splash_dao_offchain::{
     constants::DAO_SCRIPT_BYTES,
     deployment::{CompleteDeployment, DaoScriptData, DeploymentProgress, ProtocolDeployment},
     entities::{
-        offchain::{extend_voting_escrow_order::ExtendVotingEscrowOffChainOrder, voting_order::VotingOrder},
-        onchain::{make_voting_escrow_order::MakeVotingEscrowOrderBundle, voting_escrow::Owner},
+        offchain::{
+            voting_order::VotingOrder, ExtendVotingEscrowOffChainOrder, RedeemVotingEscrowOffChainOrder,
+        },
+        onchain::voting_escrow::Owner,
     },
     funding::FundingRepoRocksDB,
     handler::DaoHandler,
@@ -60,6 +63,7 @@ use tokio::sync::Mutex;
 use tracing::info;
 use tracing_subscriber::fmt::Subscriber;
 
+mod api_endpoints;
 mod config;
 
 #[tokio::main]
@@ -177,6 +181,7 @@ async fn main() {
         operator_sk: config.batcher_private_key.into(),
         network_id: config.network_id,
         node_magic: node_magic as u64,
+        splash_policy_id: deployment.splash_tokens.policy_id,
         reward_address,
         collateral,
         genesis_time: deployment.genesis_epoch_start_time.into(),
@@ -193,6 +198,7 @@ async fn main() {
     let app = axum::Router::new()
         .route("/submit/votingorder", axum::routing::put(handle_voting_put))
         .route("/submit/extendve", axum::routing::put(handle_extend_ve_put))
+        .route("/submit/redeemve", axum::routing::put(handle_redeem_ve_put))
         .route(
             "/query/ve/identifier/name",
             axum::routing::put(handle_get_mve_status),
@@ -227,8 +233,7 @@ async fn main() {
         setup_order_backlog(mk_path("dao_order_backlog")).await,
         KVStoreRocksDB::new(mk_path("voting_escrow_by_owner")),
         KVStoreRocksDB::new(mk_path("tx_hash_to_dob")),
-        setup_order_backlog(mk_path("voting_order_backlog_config")).await,
-        setup_order_backlog(mk_path("extend_ve_order_backlog_config")).await,
+        setup_order_backlog(mk_path("order_backlog_config")).await,
         KVStoreRocksDB::new(mk_path("predicted_txs_backlog")),
         NetworkTimeSource {},
         inflation_actions,
@@ -272,96 +277,6 @@ async fn main() {
     run_stream(processes).await;
 }
 
-async fn handle_voting_put(
-    State(state): State<AppState>,
-    axum::Json(payload): axum::Json<VotingOrder>,
-) -> impl IntoResponse {
-    let AppState { sender } = state;
-    let (response_sender, recv) = tokio::sync::oneshot::channel();
-    let msg = DaoBotMessage {
-        command: DaoBotCommand::VotingOrder(VotingOrderCommand::Submit(payload)),
-        response_sender,
-    };
-    sender.send(msg).await.unwrap();
-    match recv.await {
-        Ok(response) => match response {
-            DaoBotResponse::VotingOrder(voting_order_status) => match voting_order_status {
-                VotingOrderStatus::Queued | VotingOrderStatus::Success => {
-                    (StatusCode::OK, format!("{:?}", voting_order_status))
-                }
-                VotingOrderStatus::Failed => {
-                    (StatusCode::UNPROCESSABLE_ENTITY, "TX submission failed".into())
-                }
-                VotingOrderStatus::VotingEscrowNotFound => (
-                    StatusCode::NOT_FOUND,
-                    "Cannot find associated voting_escrow".into(),
-                ),
-            },
-            DaoBotResponse::MVEStatus(mve_status) => (
-                StatusCode::UNPROCESSABLE_ENTITY,
-                format!("Unexpected response: MVEStatus: {:?}", mve_status),
-            ),
-        },
-        Err(_err) => (StatusCode::UNPROCESSABLE_ENTITY, "Unknown error".into()),
-    }
-}
-
-async fn handle_extend_ve_put(
-    State(state): State<AppState>,
-    axum::Json(payload): axum::Json<ExtendVotingEscrowOffChainOrder>,
-) -> impl IntoResponse {
-    let AppState { sender } = state;
-    let (response_sender, recv) = tokio::sync::oneshot::channel();
-    let msg = DaoBotMessage {
-        command: DaoBotCommand::ExtendVotingEscrowOrder(payload),
-        response_sender,
-    };
-    sender.send(msg).await.unwrap();
-    match recv.await {
-        Ok(response) => match response {
-            DaoBotResponse::VotingOrder(voting_order_status) => match voting_order_status {
-                VotingOrderStatus::Queued | VotingOrderStatus::Success => {
-                    (StatusCode::OK, format!("{:?}", voting_order_status))
-                }
-                VotingOrderStatus::Failed => {
-                    (StatusCode::UNPROCESSABLE_ENTITY, "TX submission failed".into())
-                }
-                VotingOrderStatus::VotingEscrowNotFound => (
-                    StatusCode::NOT_FOUND,
-                    "Cannot find associated voting_escrow".into(),
-                ),
-            },
-            DaoBotResponse::MVEStatus(mve_status) => (
-                StatusCode::UNPROCESSABLE_ENTITY,
-                format!("Unexpected response: MVEStatus: {:?}", mve_status),
-            ),
-        },
-        Err(_err) => (StatusCode::UNPROCESSABLE_ENTITY, "Unknown error".into()),
-    }
-}
-
-async fn handle_get_mve_status(
-    State(state): State<AppState>,
-    axum::Json(owner): axum::Json<Owner>,
-) -> impl IntoResponse {
-    let AppState { sender } = state;
-    let (response_sender, recv) = tokio::sync::oneshot::channel();
-    let msg = DaoBotMessage {
-        command: DaoBotCommand::GetMVEOrderStatus {
-            mve_order_owner: owner,
-        },
-        response_sender,
-    };
-    sender.send(msg).await.unwrap();
-    match recv.await {
-        Ok(status) => match status {
-            DaoBotResponse::MVEStatus(status) => (StatusCode::OK, Json(Some(status))),
-            DaoBotResponse::VotingOrder(_) => (StatusCode::UNPROCESSABLE_ENTITY, Json(None)),
-        },
-        Err(_err) => (StatusCode::UNPROCESSABLE_ENTITY, Json(None)),
-    }
-}
-
 fn succinct_tx(tx: LedgerTxEvent<TxViewMut>) -> (TransactionHash, u64) {
     let (LedgerTxEvent::TxApplied { tx, block_number, .. }
     | LedgerTxEvent::TxUnapplied { tx, block_number, .. }) = tx;
@@ -380,8 +295,8 @@ where
 {
     let store = BacklogStoreRocksDB::new(RocksConfig { db_path });
     let backlog_config = BacklogConfig {
-        order_lifespan: Duration::try_hours(72).unwrap(),
-        order_exec_time: Duration::try_hours(72).unwrap(),
+        order_lifespan: Duration::try_hours(1).unwrap(),
+        order_exec_time: Duration::try_minutes(5).unwrap(),
         retry_suspended_prob: BoundedU8::new(60).unwrap(),
     };
 
