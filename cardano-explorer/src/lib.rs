@@ -1,31 +1,24 @@
 use async_trait::async_trait;
-use blockfrost::{BlockFrostSettings, BlockfrostAPI, BlockfrostResult, Order, Pagination, RetrySettings};
+use blockfrost::{BlockFrostSettings, BlockfrostAPI, Order, Pagination};
 use blockfrost_openapi::models::{
     AddressUtxoContentInner, TxContentOutputAmountInner, TxContentUtxoOutputsInner,
 };
 use cml_chain::address::Address;
 use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::plutus::{PlutusData, PlutusV2Script};
-use cml_chain::transaction::{DatumOption, ScriptRef, TransactionInput, TransactionOutput};
-use cml_chain::Script::PlutusV2;
+use cml_chain::transaction::{DatumOption, TransactionInput, TransactionOutput};
 use cml_chain::{Script, Value};
 use cml_core::serialization::Deserialize;
-use cml_crypto::chain_core::property::TransactionId;
 use cml_crypto::{DatumHash, TransactionHash};
 use futures::future::join_all;
-use futures::{FutureExt, TryFutureExt};
-use isahc::{AsyncReadResponseExt, Request};
 use maestro_rust_sdk::client::maestro;
 use maestro_rust_sdk::models::addresses::UtxosAtAddress;
 use maestro_rust_sdk::models::transactions::RedeemerEvaluation;
 use maestro_rust_sdk::utils::Parameters;
-use pallas_primitives::alonzo::Value::Multiasset;
 use std::collections::HashMap;
 use std::io::Error;
-use std::num::ParseIntError;
 use std::path::Path;
 use std::string::ToString;
-use std::time::Duration;
 use tokio::fs;
 
 use crate::config::ExplorerConfig;

@@ -29,8 +29,7 @@ use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::ChainSyncClient;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_chain_sync::event_source::ledger_transactions;
-use cardano_explorer::config::ExplorerConfig;
-use cardano_explorer::{AnyExplorer, Blockfrost, CardanoNetwork, Maestro, Network};
+use cardano_explorer::{AnyExplorer, CardanoNetwork, Maestro, Network};
 use cardano_mempool_sync::client::LocalTxMonitorClient;
 use cardano_mempool_sync::data::MempoolUpdate;
 use cardano_mempool_sync::mempool_stream;
@@ -64,7 +63,7 @@ use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
 use spectrum_offchain_cardano::tx_tracker::new_tx_tracker_bundle;
-use spectrum_streaming::run_stream;
+use spectrum_streaming::{run_stream, StreamExt as StreamExtAlt};
 use std::future;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -295,7 +294,8 @@ async fn main() {
 
     let upstream_p1 = adapt_events(with_sequencing(
         ledger_clock_upgrades_recv_p1,
-        select_partition(pair_upd_recv_p1, config.partitioning.clone()),
+        select_partition(pair_upd_recv_p1, config.partitioning.clone())
+            .buffered_within(config.event_feed_buffering_duration),
         config.sequencing.session_duration,
         config.sequencing.session_settlement,
     ));
@@ -316,7 +316,8 @@ async fn main() {
     );
     let upstream_p2 = adapt_events(with_sequencing(
         ledger_clock_upgrades_recv_p2,
-        select_partition(pair_upd_recv_p2, config.partitioning.clone()),
+        select_partition(pair_upd_recv_p2, config.partitioning.clone())
+            .buffered_within(config.event_feed_buffering_duration),
         config.sequencing.session_duration,
         config.sequencing.session_settlement,
     ));
@@ -337,7 +338,8 @@ async fn main() {
     );
     let upstream_p3 = adapt_events(with_sequencing(
         ledger_clock_upgrades_recv_p3,
-        select_partition(pair_upd_recv_p3, config.partitioning.clone()),
+        select_partition(pair_upd_recv_p3, config.partitioning.clone())
+            .buffered_within(config.event_feed_buffering_duration),
         config.sequencing.session_duration,
         config.sequencing.session_settlement,
     ));
@@ -358,7 +360,8 @@ async fn main() {
     );
     let upstream_p4 = adapt_events(with_sequencing(
         ledger_clock_upgrades_recv_p4,
-        select_partition(pair_upd_recv_p4, config.partitioning.clone()),
+        select_partition(pair_upd_recv_p4, config.partitioning.clone())
+            .buffered_within(config.event_feed_buffering_duration),
         config.sequencing.session_duration,
         config.sequencing.session_settlement,
     ));

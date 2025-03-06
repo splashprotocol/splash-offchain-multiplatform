@@ -13,3 +13,6 @@ pin-project-lite = "0.2.14"
 futures-core = "0.3.30"
 futures-timer = "3.0.3"
 log = "0.4.20"
+
+[dev-dependencies]
+tokio = { version = "1.43.0", features = ["full"] }
