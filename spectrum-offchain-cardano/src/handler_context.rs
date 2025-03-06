@@ -1,10 +1,42 @@
+use cml_chain::assets::Mint;
+use cml_chain::PolicyId;
 use cml_core::serialization::RawBytesEncoding;
 use cml_crypto::PublicKey;
+use cml_multi_era::babbage::utils::BabbageMint;
 use derive_more::{From, Into};
 use serde::de::Error;
 use serde::{Deserialize, Deserializer};
-use spectrum_cardano_lib::OutputRef;
+use spectrum_cardano_lib::{AssetName, OutputRef, Token};
 use spectrum_offchain::data::small_vec::SmallVec;
+
+#[derive(Debug, Copy, Clone, Into, From, Default)]
+pub struct Mints(pub SmallVec<Token>);
+
+impl Mints {
+    pub fn contains_mint(&self, pol: PolicyId) -> bool {
+        self.0.exists(|token| token.0 == pol)
+    }
+}
+
+impl From<Mint> for Mints {
+    fn from(mint: Mint) -> Self {
+        let assets = mint.iter().flat_map(move |(pol, v)| {
+            v.iter()
+                .map(move |(tn, _)| Token(*pol, AssetName::from(tn.clone())))
+        });
+        Self(SmallVec::new(assets))
+    }
+}
+
+impl From<BabbageMint> for Mints {
+    fn from(value: BabbageMint) -> Self {
+        let assets = value
+            .assets
+            .into_iter()
+            .flat_map(move |(pol, v)| v.into_iter().map(move |(tn, _)| Token(pol, AssetName::from(tn))));
+        Self(SmallVec::new(assets))
+    }
+}
 
 #[derive(Debug, Copy, Clone, Into, From, Default)]
 pub struct ConsumedInputs(pub SmallVec<OutputRef>);

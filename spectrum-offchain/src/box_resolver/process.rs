@@ -11,22 +11,23 @@ use crate::domain::event::{Channel, Confirmed, Predicted, Transition, Unconfirme
 use crate::domain::EntitySnapshot;
 use crate::partitioning::Partitioned;
 
-pub fn pool_tracking_stream<'a, const N: usize, S, Repo, Pool>(
+pub fn pool_tracking_stream<'a, const N: usize, S, Repo, Pool, Meta>(
     upstream: S,
     pools: Partitioned<N, Pool::StableId, Arc<Mutex<Repo>>>,
 ) -> impl Stream<Item = ()> + 'a
 where
-    S: Stream<Item = Channel<Transition<Pool>>> + 'a,
+    S: Stream<Item = Channel<Transition<Pool>, Meta>> + 'a,
     Pool: EntitySnapshot + 'a,
     Pool::StableId: Display,
     Repo: EntityRepo<Pool> + 'a,
+    Meta: 'a,
 {
     let pools = Arc::new(pools);
     upstream.then(move |upd_in_mode| {
         let pools = Arc::clone(&pools);
         async move {
-            let is_confirmed = matches!(upd_in_mode, Channel::Ledger(_));
-            let (Channel::Ledger(Confirmed(upd))
+            let is_confirmed = matches!(upd_in_mode, Channel::Ledger(_, _));
+            let (Channel::Ledger(Confirmed(upd), _)
             | Channel::Mempool(Unconfirmed(upd))
             | Channel::LocalTxSubmit(Predicted(upd))) = upd_in_mode;
             match upd {

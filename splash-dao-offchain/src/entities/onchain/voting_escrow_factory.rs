@@ -226,7 +226,7 @@ impl From<Vec<AcceptedAsset>> for VEFactoryDatum {
                      policy_id,
                      exchange_rate,
                  }| {
-                    let asset_name = AssetName::utf8_unsafe(asset_name_utf8);
+                    let asset_name = AssetName::from_utf8(asset_name_utf8);
                     (Token(policy_id, asset_name), exchange_rate)
                 },
             )

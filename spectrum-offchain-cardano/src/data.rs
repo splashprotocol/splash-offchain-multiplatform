@@ -70,7 +70,7 @@ impl PoolId {
         let mut bf = [0u8; 28];
         thread_rng().fill_bytes(&mut bf);
         let mp = PolicyId::from(bf);
-        let tn = AssetName::utf8_unsafe(String::from("nft"));
+        let tn = AssetName::from_utf8(String::from("nft"));
         PoolId(Token(mp, tn))
     }
 }
@@ -78,6 +78,12 @@ impl PoolId {
 impl Display for PoolId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(format!("{}.{}", self.0 .0, self.0 .1).as_str())
+    }
+}
+
+impl From<PoolId> for PolicyId {
+    fn from(value: PoolId) -> Self {
+        value.0 .0
     }
 }
 

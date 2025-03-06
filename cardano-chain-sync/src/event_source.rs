@@ -9,13 +9,14 @@ use cml_chain::block::Block;
 use cml_chain::transaction::Transaction;
 use cml_core::serialization::Deserialize;
 use cml_core::Slot;
+use cml_crypto::BlockHeaderHash;
 use cml_multi_era::babbage::{BabbageBlock, BabbageTransaction};
 use cml_multi_era::MultiEraBlock;
 use either::Either;
 use futures::stream::StreamExt;
 use futures::{stream, Stream};
 use log::{info, warn};
-use spectrum_cardano_lib::hash::hash_block_header_canonical_multi_era;
+use spectrum_cardano_lib::hash::{hash_block_header_canonical, hash_block_header_canonical_multi_era};
 use tokio::sync::Mutex;
 
 use crate::cache::{LedgerCache, LinkedBlock};
@@ -117,10 +118,11 @@ where
             );
             let applied_txs: Vec<_> = unpack_valid_transactions_multi_era(blk)
                 .into_iter()
-                .map(|(tx, slot, block_number)| LedgerTxEvent::TxApplied {
+                .map(|(tx, slot, block_number, block_hash)| LedgerTxEvent::TxApplied {
                     tx,
                     slot,
                     block_number,
+                    block_hash,
                 })
                 .collect();
             Box::pin(stream::iter(applied_txs))
@@ -131,11 +133,14 @@ where
                 rollback(cache, point.into(), rollback_in_progress).flat_map(|blk| {
                     let unapplied_txs: Vec<_> = unpack_valid_transactions_multi_era(blk)
                         .into_iter()
-                        .map(|(tx, slot, block_number)| LedgerTxEvent::TxUnapplied {
-                            tx,
-                            slot,
-                            block_number,
-                        })
+                        .map(
+                            |(tx, slot, block_number, block_hash)| LedgerTxEvent::TxUnapplied {
+                                tx,
+                                slot,
+                                block_number,
+                                block_hash,
+                            },
+                        )
                         .rev()
                         .collect();
                     stream::iter(unapplied_txs)
@@ -171,13 +176,13 @@ async fn cache_point<Cache: LedgerCache>(cache: Arc<Mutex<Cache>>, blk: &MultiEr
 
 fn unpack_valid_transactions_multi_era(
     block: MultiEraBlock,
-) -> Vec<(Either<BabbageTransaction, Transaction>, u64, u64)> {
+) -> Vec<(Either<BabbageTransaction, Transaction>, u64, u64, BlockHeaderHash)> {
     match block {
         MultiEraBlock::Babbage(blk) => unpack_valid_transactions_babbage(blk)
-            .map(|(tx, slot, block_number)| (Either::Left(tx), slot, block_number))
+            .map(|(tx, slot, block_number, block_hash)| (Either::Left(tx), slot, block_number, block_hash))
             .collect(),
         MultiEraBlock::Conway(blk) => unpack_valid_transactions_conway(blk)
-            .map(|(tx, slot, block_number)| (Either::Right(tx), slot, block_number))
+            .map(|(tx, slot, block_number, block_hash)| (Either::Right(tx), slot, block_number, block_hash))
             .collect(),
         _ => vec![],
     }
@@ -185,7 +190,8 @@ fn unpack_valid_transactions_multi_era(
 
 fn unpack_valid_transactions_babbage(
     block: BabbageBlock,
-) -> impl DoubleEndedIterator<Item = (BabbageTransaction, u64, u64)> {
+) -> impl DoubleEndedIterator<Item = (BabbageTransaction, u64, u64, BlockHeaderHash)> {
+    let block_hash = hash_block_header_canonical(&block);
     let BabbageBlock {
         header,
         transaction_bodies,
@@ -209,13 +215,19 @@ fn unpack_valid_transactions_babbage(
                 auxiliary_data: auxiliary_data_set.remove(tx_ix),
                 encodings: None,
             };
-            (tx, header.header_body.slot, header.header_body.block_number)
+            (
+                tx,
+                header.header_body.slot,
+                header.header_body.block_number,
+                block_hash,
+            )
         })
 }
 
 fn unpack_valid_transactions_conway(
     block: Block,
-) -> impl DoubleEndedIterator<Item = (Transaction, u64, u64)> {
+) -> impl DoubleEndedIterator<Item = (Transaction, u64, u64, BlockHeaderHash)> {
+    let block_hash = hash_block_header_canonical(&block);
     let Block {
         header,
         transaction_bodies,
@@ -239,7 +251,12 @@ fn unpack_valid_transactions_conway(
                 auxiliary_data: auxiliary_data_set.remove(tx_ix),
                 encodings: None,
             };
-            (tx, header.header_body.slot, header.header_body.block_number)
+            (
+                tx,
+                header.header_body.slot,
+                header.header_body.block_number,
+                block_hash,
+            )
         })
 }
 

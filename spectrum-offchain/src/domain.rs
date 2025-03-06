@@ -34,6 +34,15 @@ pub trait Stable {
     fn is_quasi_permanent(&self) -> bool;
 }
 
+/// One state in a sequence states of an entity.
+///
+/// Types implementing this trait must also implement the `Stable` trait,
+/// ensuring they have a stable identifier and can persist across versions.
+pub trait SeqState: Stable {
+    /// Whether the state is initial in the sequence.
+    fn is_initial(&self) -> bool;
+}
+
 pub trait EntitySnapshot: Stable {
     /// Unique version of the [EntitySnapshot].
     type Version: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned;
@@ -58,6 +67,20 @@ where
         match self {
             Either::Left(a) => a.is_quasi_permanent(),
             Either::Right(b) => b.is_quasi_permanent(),
+        }
+    }
+}
+
+impl<StableId, A, B> SeqState for Either<A, B>
+where
+    A: SeqState<StableId = StableId>,
+    B: SeqState<StableId = StableId>,
+    StableId: Copy + Eq + Hash + Send + Sync + Debug + Display,
+{
+    fn is_initial(&self) -> bool {
+        match self {
+            Either::Left(a) => a.is_initial(),
+            Either::Right(b) => b.is_initial(),
         }
     }
 }
@@ -141,6 +164,17 @@ where
     }
     fn is_quasi_permanent(&self) -> bool {
         self.entity.is_quasi_permanent()
+    }
+}
+
+impl<StableId, Version, T> SeqState for Baked<T, Version>
+where
+    T: SeqState<StableId = StableId>,
+    StableId: Copy + Eq + Hash + Send + Sync + Debug + Display,
+    Version: Copy + Eq + Hash + Send + Sync + Display,
+{
+    fn is_initial(&self) -> bool {
+        self.entity.is_initial()
     }
 }
 

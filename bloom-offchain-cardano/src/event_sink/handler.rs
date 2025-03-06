@@ -14,6 +14,8 @@ use bloom_offchain::execution_engine::funding_effect::FundingEvent;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_mempool_sync::data::MempoolUpdate;
 use cml_chain::transaction::TransactionOutput;
+use cml_core::Slot;
+use cml_crypto::BlockHeaderHash;
 use either::Either;
 use futures::Sink;
 use log::trace;
@@ -31,6 +33,18 @@ use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::sink::{BatchSinkExt, KeyedBatchSinkExt};
 use spectrum_offchain_cardano::funding::FundingAddresses;
 use tokio::sync::{Mutex, MutexGuard};
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct LedgerCx {
+    pub block_hash: BlockHeaderHash,
+    pub slot: Slot,
+}
+
+impl LedgerCx {
+    pub fn new(block_hash: BlockHeaderHash, slot: Slot) -> Self {
+        Self { block_hash, slot }
+    }
+}
 
 #[derive(Clone)]
 pub struct FundingEventHandler<const N: usize, Topic, Index> {
@@ -137,6 +151,7 @@ where
                 tx,
                 slot,
                 block_number,
+                block_hash,
             } => {
                 match extract_funding_events(
                     tx,
@@ -165,12 +180,14 @@ where
                             tx,
                             slot,
                             block_number,
+                            block_hash,
                         })
                     }
                     Err(tx) => Some(LedgerTxEvent::TxApplied {
                         tx,
                         slot,
                         block_number,
+                        block_hash,
                     }),
                 }
             }
@@ -178,6 +195,7 @@ where
                 tx,
                 slot,
                 block_number,
+                block_hash,
             } => {
                 match extract_funding_events(
                     tx,
@@ -207,12 +225,14 @@ where
                             tx,
                             slot,
                             block_number,
+                            block_hash,
                         })
                     }
                     Err(tx) => Some(LedgerTxEvent::TxUnapplied {
                         tx,
                         slot,
                         block_number,
+                        block_hash,
                     }),
                 }
             }
@@ -369,7 +389,7 @@ where
     Proto: Copy + Send,
     Ctx: From<(Proto, EventContext<K>)> + Send,
     PairId: Copy + Hash + Eq + Send,
-    Topic: Sink<(PairId, Channel<OrderUpdate<Order, Order>>)> + Send + Unpin,
+    Topic: Sink<(PairId, Channel<OrderUpdate<Order, Order>, LedgerCx>)> + Send + Unpin,
     Topic::Error: Debug,
     Pool: EntitySnapshot + Tradable<PairId = PairId> + Send,
     Order: SpecializedOrder<TPoolId = Pool::StableId>
@@ -383,12 +403,13 @@ where
     K: Send + Copy,
 {
     async fn try_handle(&mut self, ev: LedgerTxEvent<TxViewMut>) -> Option<LedgerTxEvent<TxViewMut>> {
-        let mut updates: HashMap<PairId, Vec<Channel<OrderUpdate<Order, Order>>>> = HashMap::new();
+        let mut updates: HashMap<PairId, Vec<Channel<OrderUpdate<Order, Order>, LedgerCx>>> = HashMap::new();
         let remainder = match ev {
             LedgerTxEvent::TxApplied {
                 tx,
                 slot,
                 block_number,
+                block_hash,
             } => {
                 match extract_atomic_transitions(
                     Arc::clone(&self.order_index),
@@ -402,10 +423,11 @@ where
                         let pool_index = self.general_handler.index.lock().await;
                         let mut index = self.order_index.lock().await;
                         index.run_eviction();
+                        let cx = LedgerCx::new(block_hash, slot);
                         for tr in transitions {
                             if let Some(pair) = pool_index.pair_of(&pool_ref_of(&tr)) {
                                 index_atomic_transition(&mut index, &tr);
-                                let upd = Channel::ledger(tr.into());
+                                let upd = Channel::ledger(tr.into(), cx);
                                 match updates.entry(pair) {
                                     Entry::Occupied(mut entry) => {
                                         entry.get_mut().push(upd);
@@ -420,12 +442,14 @@ where
                             tx,
                             slot,
                             block_number,
+                            block_hash,
                         })
                     }
                     Err(tx) => Some(LedgerTxEvent::TxApplied {
                         tx,
                         slot,
                         block_number,
+                        block_hash,
                     }),
                 }
             }
@@ -433,6 +457,7 @@ where
                 tx,
                 slot,
                 block_number,
+                block_hash,
             } => {
                 match extract_atomic_transitions(
                     Arc::clone(&self.order_index),
@@ -445,12 +470,13 @@ where
                         trace!("{} entities found in unapplied TX", transitions.len());
                         let mut index = self.order_index.lock().await;
                         let pool_index = self.general_handler.index.lock().await;
+                        let cx = LedgerCx::new(block_hash, slot);
                         index.run_eviction();
                         for tr in transitions {
                             if let Some(pair) = pool_index.pair_of(&pool_ref_of(&tr)) {
                                 let inverse_tr = tr.flip();
                                 index_atomic_transition(&mut index, &inverse_tr);
-                                let upd = Channel::ledger(inverse_tr.into());
+                                let upd = Channel::ledger(inverse_tr.into(), cx);
                                 match updates.entry(pair) {
                                     Entry::Occupied(mut entry) => {
                                         entry.get_mut().push(upd);
@@ -465,12 +491,14 @@ where
                             tx,
                             slot,
                             block_number,
+                            block_hash,
                         })
                     }
                     Err(tx) => Some(LedgerTxEvent::TxUnapplied {
                         tx,
                         slot,
                         block_number,
+                        block_hash,
                     }),
                 }
             }
@@ -502,7 +530,7 @@ where
     Proto: Copy + Send,
     Ctx: From<(Proto, EventContext<K>)> + Send,
     PairId: Copy + Hash + Eq + Send,
-    Topic: Sink<(PairId, Channel<OrderUpdate<Order, Order>>)> + Send + Unpin,
+    Topic: Sink<(PairId, Channel<OrderUpdate<Order, Order>, LedgerCx>)> + Send + Unpin,
     Topic::Error: Debug,
     Pool: EntitySnapshot + Tradable<PairId = PairId> + Send,
     Order: SpecializedOrder<TPoolId = Pool::StableId>
@@ -516,7 +544,7 @@ where
     K: Copy + Send,
 {
     async fn try_handle(&mut self, ev: MempoolUpdate<TxViewMut>) -> Option<MempoolUpdate<TxViewMut>> {
-        let mut updates: HashMap<PairId, Vec<Channel<OrderUpdate<Order, Order>>>> = HashMap::new();
+        let mut updates: HashMap<PairId, Vec<Channel<OrderUpdate<Order, Order>, LedgerCx>>> = HashMap::new();
         let remainder = match ev {
             MempoolUpdate::TxAccepted(tx) => {
                 match extract_atomic_transitions(
@@ -645,6 +673,7 @@ where
             consumed_utxos: consumed_utxos.into(),
             consumed_identifiers: Default::default(),
             produced_identifiers: Default::default(),
+            mints: tx.mints,
         };
         match Order::try_from_ledger(&o, &Ctx::from((context_proto, event_context))) {
             Some(order) => {
@@ -726,6 +755,7 @@ where
             consumed_utxos: consumed_utxos.into(),
             consumed_identifiers: consumed_identifiers.into(),
             produced_identifiers: produced_identifiers.into(),
+            mints: tx.mints,
         };
         match Entity::try_from_ledger(&o, &Ctx::from((context_proto, event_context))) {
             Some(entity) => {
@@ -776,7 +806,7 @@ where
     Proto: Copy + Send,
     Ctx: From<(Proto, EventContext<Entity::StableId>)> + Send,
     PairId: Copy + Hash + Eq + Send,
-    Topic: Sink<(PairId, Channel<Transition<Entity>>)> + Unpin + Send,
+    Topic: Sink<(PairId, Channel<Transition<Entity>, LedgerCx>)> + Unpin + Send,
     Topic::Error: Debug,
     Entity: EntitySnapshot
         + Tradable<PairId = PairId>
@@ -788,22 +818,24 @@ where
     Index: TradableEntityIndex<Entity> + Send,
 {
     async fn try_handle(&mut self, ev: LedgerTxEvent<TxViewMut>) -> Option<LedgerTxEvent<TxViewMut>> {
-        let mut updates: HashMap<PairId, Vec<Channel<Transition<Entity>>>> = HashMap::new();
+        let mut updates: HashMap<PairId, Vec<Channel<Transition<Entity>, LedgerCx>>> = HashMap::new();
         let remainder = match ev {
             LedgerTxEvent::TxApplied {
                 tx,
                 slot,
                 block_number,
+                block_hash,
             } => {
                 match extract_continuous_transitions(Arc::clone(&self.index), self.context_proto, tx).await {
                     Ok((transitions, tx)) => {
                         trace!("{} transitions found in applied TX", transitions.len());
+                        let cx = LedgerCx::new(block_hash, slot);
                         let mut index = self.index.lock().await;
                         index.run_eviction();
                         for tr in transitions {
                             index_transition(&mut index, &tr);
                             let pair = pair_id_of(&tr);
-                            let upd = Channel::ledger(Transition::Forward(tr));
+                            let upd = Channel::ledger(Transition::Forward(tr), cx);
                             match updates.entry(pair) {
                                 Entry::Occupied(mut entry) => {
                                     entry.get_mut().push(upd);
@@ -817,12 +849,14 @@ where
                             tx,
                             slot,
                             block_number,
+                            block_hash,
                         })
                     }
                     Err(tx) => Some(LedgerTxEvent::TxApplied {
                         tx,
                         slot,
                         block_number,
+                        block_hash,
                     }),
                 }
             }
@@ -830,17 +864,19 @@ where
                 tx,
                 slot,
                 block_number,
+                block_hash,
             } => {
                 match extract_continuous_transitions(Arc::clone(&self.index), self.context_proto, tx).await {
                     Ok((transitions, tx)) => {
                         trace!("{} entities found in unapplied TX", transitions.len());
+                        let cx = LedgerCx::new(block_hash, slot);
                         let mut index = self.index.lock().await;
                         index.run_eviction();
                         for tr in transitions {
                             let inverse_tr = tr.swap();
                             index_transition(&mut index, &inverse_tr);
                             let pair = pair_id_of(&inverse_tr);
-                            let upd = Channel::ledger(Transition::Backward(inverse_tr));
+                            let upd = Channel::ledger(Transition::Backward(inverse_tr), cx);
                             match updates.entry(pair) {
                                 Entry::Occupied(mut entry) => {
                                     entry.get_mut().push(upd);
@@ -854,12 +890,14 @@ where
                             tx,
                             slot,
                             block_number,
+                            block_hash,
                         })
                     }
                     Err(tx) => Some(LedgerTxEvent::TxUnapplied {
                         tx,
                         slot,
                         block_number,
+                        block_hash,
                     }),
                 }
             }
@@ -884,7 +922,7 @@ where
     Proto: Copy + Send,
     Ctx: From<(Proto, EventContext<Entity::StableId>)> + Send,
     PairId: Copy + Hash + Eq + Send,
-    Topic: Sink<(PairId, Channel<Transition<Entity>>)> + Unpin + Send,
+    Topic: Sink<(PairId, Channel<Transition<Entity>, LedgerCx>)> + Unpin + Send,
     Topic::Error: Debug,
     Entity: EntitySnapshot
         + Tradable<PairId = PairId>
@@ -896,7 +934,7 @@ where
     Index: TradableEntityIndex<Entity> + Send,
 {
     async fn try_handle(&mut self, ev: MempoolUpdate<TxViewMut>) -> Option<MempoolUpdate<TxViewMut>> {
-        let mut updates: HashMap<PairId, Vec<Channel<Transition<Entity>>>> = HashMap::new();
+        let mut updates: HashMap<PairId, Vec<Channel<Transition<Entity>, LedgerCx>>> = HashMap::new();
         let remainder = match ev {
             MempoolUpdate::TxAccepted(tx) => {
                 match extract_continuous_transitions(Arc::clone(&self.index), self.context_proto, tx).await {
@@ -1007,19 +1045,14 @@ mod tests {
         ConwayFormatTxOut, Transaction, TransactionBody, TransactionInput, TransactionOutput,
         TransactionWitnessSet,
     };
-    use cml_chain::PolicyId;
-    use cml_crypto::{Ed25519KeyHash, ScriptHash};
-    use cml_multi_era::babbage::{
-        BabbageFormatTxOut, BabbageTransaction, BabbageTransactionBody, BabbageTransactionOutput,
-        BabbageTransactionWitnessSet,
-    };
+    use cml_crypto::{BlockHeaderHash, Ed25519KeyHash, ScriptHash};
     use futures::channel::mpsc;
     use futures::StreamExt;
     use tokio::sync::Mutex;
 
     use crate::event_sink::context::{HandlerContext, HandlerContextProto};
-    use crate::event_sink::entity_index::{EntityIndexTracing, InMemoryEntityIndex};
-    use crate::event_sink::handler::{PairUpdateHandler, TxViewMut};
+    use crate::event_sink::entity_index::InMemoryEntityIndex;
+    use crate::event_sink::handler::{LedgerCx, PairUpdateHandler, TxViewMut};
     use crate::orders::adhoc::AdhocFeeStructure;
     use crate::orders::limit::LimitOrderValidation;
     use crate::validation_rules::ValidationRules;
@@ -1042,7 +1075,6 @@ mod tests {
     use spectrum_offchain_cardano::data::redeem::RedeemOrderValidation;
     use spectrum_offchain_cardano::data::royalty_withdraw_request::RoyaltyWithdrawOrderValidation;
     use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHashes};
-    use spectrum_offchain_cardano::handler_context::AuthVerificationKey;
 
     #[derive(Clone, Eq, PartialEq)]
     struct TrivialEntity(OutputRef, u64);
@@ -1088,6 +1120,9 @@ mod tests {
 
     #[tokio::test]
     async fn apply_unapply_transaction() {
+        let block_hash = BlockHeaderHash::from([0u8; 32]);
+        let block_number = 1;
+        let slot = 1;
         let (amt_1, amt_2) = (1000u64, 98000u64);
         let fee = 1000;
         let utxo_1 = TransactionOutput::new_conway_format_tx_out(ConwayFormatTxOut::new(
@@ -1134,7 +1169,7 @@ mod tests {
         let tx_2_hash = hash_transaction_canonical(&tx_2.body);
         let entity_eviction_delay = Duration::from_secs(60 * 5);
         let index = Arc::new(Mutex::new(InMemoryEntityIndex::new(entity_eviction_delay)));
-        let (snd, mut recv) = mpsc::channel::<(u8, Channel<Transition<TrivialEntity>>)>(100);
+        let (snd, mut recv) = mpsc::channel::<(u8, Channel<Transition<TrivialEntity>, LedgerCx>)>(100);
         let ex_cred = OperatorCred(Ed25519KeyHash::from([0u8; 28]));
         let context = HandlerContextProto {
             validation_rules: ValidationRules {
@@ -1285,7 +1320,7 @@ mod tests {
         let mut handler: PairUpdateHandler<
             1,
             u8,
-            mpsc::Sender<(u8, Channel<Transition<TrivialEntity>>)>,
+            mpsc::Sender<(u8, Channel<Transition<TrivialEntity>, LedgerCx>)>,
             TrivialEntity,
             InMemoryEntityIndex<TrivialEntity>,
             HandlerContextProto,
@@ -1296,12 +1331,13 @@ mod tests {
             &mut handler,
             LedgerTxEvent::TxApplied {
                 tx: tx_1.into(),
-                slot: 0,
-                block_number: 1,
+                slot,
+                block_number,
+                block_hash,
             },
         )
         .await;
-        let (_, Channel::Ledger(Confirmed(Transition::Forward(Ior::Right(e1))))) =
+        let (_, Channel::Ledger(Confirmed(Transition::Forward(Ior::Right(e1))), _)) =
             recv.next().await.expect("Must result in new event")
         else {
             panic!("Must be a transition")
@@ -1310,12 +1346,13 @@ mod tests {
             &mut handler,
             LedgerTxEvent::TxApplied {
                 tx: tx_2.clone().into(),
-                slot: 1,
-                block_number: 1,
+                slot,
+                block_number,
+                block_hash,
             },
         )
         .await;
-        let (_, Channel::Ledger(Confirmed(Transition::Forward(Ior::Both(e1_reversed, e2))))) =
+        let (_, Channel::Ledger(Confirmed(Transition::Forward(Ior::Both(e1_reversed, e2))), _)) =
             recv.next().await.expect("Must result in new event")
         else {
             panic!("Must be a transition")
@@ -1325,12 +1362,13 @@ mod tests {
             &mut handler,
             LedgerTxEvent::TxUnapplied {
                 tx: tx_2.into(),
-                slot: 1,
-                block_number: 1,
+                slot,
+                block_number,
+                block_hash,
             },
         )
         .await;
-        let (_, Channel::Ledger(Confirmed(Transition::Backward(Ior::Both(e2_reversed, e1_revived))))) =
+        let (_, Channel::Ledger(Confirmed(Transition::Backward(Ior::Both(e2_reversed, e1_revived))), _)) =
             recv.next().await.expect("Must result in new event")
         else {
             panic!("Must be a transition")

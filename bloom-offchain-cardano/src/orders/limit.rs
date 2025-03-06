@@ -26,7 +26,7 @@ use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, Token};
-use spectrum_offchain::domain::{Has, Stable, Tradable};
+use spectrum_offchain::domain::{Has, SeqState, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::pair::{side_of, PairId};
@@ -74,13 +74,15 @@ pub struct LimitOrder {
     pub requires_executor_sig: bool,
     /// How many execution units each order consumes.
     pub marginal_cost: ExUnits,
+    /// If this state is untouched.
+    pub virgin: bool,
 }
 
 impl Display for LimitOrder {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(
             format!(
-                "LimitOrder({}, {}, {}, p={}, in={} {}, out={} {}, budget={}, fee={} {})",
+                "LimitOrder({}, {}, {}, p={}, in={} {}, out={} {}, budget={}, fee={} {}, init={})",
                 self.beacon,
                 self.side(),
                 self.pair_id(),
@@ -91,7 +93,8 @@ impl Display for LimitOrder {
                 self.output_asset,
                 self.execution_budget,
                 self.fee,
-                self.fee_asset
+                self.fee_asset,
+                self.virgin,
             )
             .as_str(),
         )
@@ -233,6 +236,12 @@ impl Stable for LimitOrder {
     }
     fn is_quasi_permanent(&self) -> bool {
         false
+    }
+}
+
+impl SeqState for LimitOrder {
+    fn is_initial(&self) -> bool {
+        self.virgin
     }
 }
 
@@ -457,6 +466,7 @@ where
                             cancellation_pkh: conf.cancellation_pkh,
                             requires_executor_sig: !is_permissionless,
                             marginal_cost: script_info.marginal_cost,
+                            virgin: matches!(order_state, Some(OrderState::New)),
                         });
                     } else {
                         trace!(

@@ -8,7 +8,7 @@ use bloom_offchain_cardano::orders::limit::{BeaconMode, LimitOrderValidation};
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::{OutputRef, Token};
 use spectrum_offchain::domain::order::SpecializedOrder;
-use spectrum_offchain::domain::{Baked, EntitySnapshot, Has, Stable, Tradable};
+use spectrum_offchain::domain::{Baked, EntitySnapshot, Has, SeqState, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::dao_request::DAOV1ActionOrderValidation;
@@ -27,7 +27,7 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     RoyaltyPoolV1RoyaltyWithdrawRequest, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use spectrum_offchain_cardano::handler_context::{
-    AuthVerificationKey, ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers,
+    AuthVerificationKey, ConsumedIdentifiers, ConsumedInputs, Mints, ProducedIdentifiers,
 };
 
 #[repr(transparent)]
@@ -97,6 +97,12 @@ impl Stable for EvolvingCardanoEntity {
     }
 }
 
+impl SeqState for EvolvingCardanoEntity {
+    fn is_initial(&self) -> bool {
+        self.0.is_initial()
+    }
+}
+
 impl EntitySnapshot for EvolvingCardanoEntity {
     type Version = OutputRef;
     fn version(&self) -> Self::Version {
@@ -126,7 +132,8 @@ where
         + Has<PoolValidation>
         + Has<AdhocFeeStructure>
         + Has<Option<Metadata>>
-        + Has<AuthVerificationKey>,
+        + Has<AuthVerificationKey>
+        + Has<Option<Mints>>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         <Either<Baked<AdhocOrder, OutputRef>, Baked<DegenQuadraticPool, OutputRef>>>::try_from_ledger(
