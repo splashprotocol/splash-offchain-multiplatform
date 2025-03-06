@@ -41,7 +41,7 @@ use cardano_chain_sync::client::ChainSyncClient;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_chain_sync::event_source::ledger_transactions;
 use cardano_explorer::config::ExplorerConfig;
-use cardano_explorer::{Blockfrost, CardanoNetwork, Maestro, Network};
+use cardano_explorer::{AnyExplorer, Blockfrost, CardanoNetwork, Maestro, Network};
 use cardano_mempool_sync::client::LocalTxMonitorClient;
 use cardano_mempool_sync::data::MempoolUpdate;
 use cardano_mempool_sync::mempool_stream;
@@ -103,18 +103,9 @@ async fn main() {
     let state_synced = Beacon::relaxed(false);
     let rollback_in_progress = Beacon::strong(false);
 
-    let explorer: Box<dyn CardanoNetwork> = match config.explorer {
-        ExplorerConfig::MaestroKeyPath(maestro_key_path) => Box::new(
-            Maestro::new(maestro_key_path, config.network_id.into())
-                .await
-                .expect("Maestro instantiation failed"),
-        ),
-        ExplorerConfig::BlockfrostKeyPath(blockfrost_key_path) => Box::new(
-            Blockfrost::new(blockfrost_key_path)
-                .await
-                .expect("Blockfrost instantiation failed"),
-        ),
-    };
+    let explorer = AnyExplorer::new(&config.explorer, config.network_id)
+        .await
+        .expect("Explorer initialization failed");
 
     let protocol_deployment = ProtocolDeployment::unsafe_pull(deployment, &explorer).await;
 

@@ -28,13 +28,13 @@ use std::string::ToString;
 use std::time::Duration;
 use tokio::fs;
 
+use crate::config::ExplorerConfig;
 use crate::constants::{MAINNET_PREFIX, PREPROD_PREFIX};
+use crate::Network::{Mainnet, Preprod};
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_cardano_lib::AssetClass::{Native, Token};
 use spectrum_cardano_lib::Token as RawToken;
 use spectrum_cardano_lib::{NetworkId, OutputRef, PaymentCredential};
-
-use crate::Network::{Mainnet, Preprod};
 
 pub mod client;
 
@@ -68,7 +68,7 @@ impl From<Network> for String {
 }
 
 #[async_trait]
-pub trait CardanoNetwork {
+pub trait CardanoNetwork: Sized {
     async fn utxo_by_ref(&self, oref: OutputRef) -> Option<TransactionUnspentOutput>;
     async fn utxos_by_pay_cred(
         &self,
@@ -82,6 +82,33 @@ pub trait CardanoNetwork {
         offset: u32,
         limit: u16,
     ) -> Vec<TransactionUnspentOutput>;
+}
+
+#[async_trait]
+impl<T: CardanoNetwork + Sync> CardanoNetwork for Box<T> {
+    async fn utxo_by_ref(&self, oref: OutputRef) -> Option<TransactionUnspentOutput> {
+        self.as_ref().utxo_by_ref(oref).await
+    }
+
+    async fn utxos_by_pay_cred(
+        &self,
+        payment_credential: PaymentCredential,
+        offset: u32,
+        limit: u16,
+    ) -> Vec<TransactionUnspentOutput> {
+        self.as_ref()
+            .utxos_by_pay_cred(payment_credential, offset, limit)
+            .await
+    }
+
+    async fn utxos_by_address(
+        &self,
+        address: Address,
+        offset: u32,
+        limit: u16,
+    ) -> Vec<TransactionUnspentOutput> {
+        self.as_ref().utxos_by_address(address, offset, limit).await
+    }
 }
 
 pub trait ExtendedCardanoNetwork: CardanoNetwork {
@@ -418,6 +445,66 @@ impl ExtendedCardanoNetwork for Maestro {
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
         }
         Ok(())
+    }
+}
+
+pub enum AnyExplorer {
+    Blockfrost(Blockfrost),
+    Maestro(Maestro),
+}
+
+impl AnyExplorer {
+    pub async fn new(config: &ExplorerConfig, network_id: NetworkId) -> Result<Self, Error> {
+        match config {
+            ExplorerConfig::MaestroKeyPath(maestro_key_path) => {
+                Maestro::new(maestro_key_path, network_id.into())
+                    .await
+                    .map(AnyExplorer::Maestro)
+            }
+            ExplorerConfig::BlockfrostKeyPath(blockfrost_key_path) => Blockfrost::new(blockfrost_key_path)
+                .await
+                .map(AnyExplorer::Blockfrost),
+        }
+    }
+}
+
+#[async_trait]
+impl CardanoNetwork for AnyExplorer {
+    async fn utxo_by_ref(&self, oref: OutputRef) -> Option<TransactionUnspentOutput> {
+        match self {
+            AnyExplorer::Blockfrost(blockfrost) => blockfrost.utxo_by_ref(oref).await,
+            AnyExplorer::Maestro(maestro) => maestro.utxo_by_ref(oref).await,
+        }
+    }
+
+    async fn utxos_by_pay_cred(
+        &self,
+        payment_credential: PaymentCredential,
+        offset: u32,
+        limit: u16,
+    ) -> Vec<TransactionUnspentOutput> {
+        match self {
+            AnyExplorer::Blockfrost(blockfrost) => {
+                blockfrost
+                    .utxos_by_pay_cred(payment_credential, offset, limit)
+                    .await
+            }
+            AnyExplorer::Maestro(maestro) => {
+                maestro.utxos_by_pay_cred(payment_credential, offset, limit).await
+            }
+        }
+    }
+
+    async fn utxos_by_address(
+        &self,
+        address: Address,
+        offset: u32,
+        limit: u16,
+    ) -> Vec<TransactionUnspentOutput> {
+        match self {
+            AnyExplorer::Blockfrost(blockfrost) => blockfrost.utxos_by_address(address, offset, limit).await,
+            AnyExplorer::Maestro(maestro) => maestro.utxos_by_address(address, offset, limit).await,
+        }
     }
 }
 

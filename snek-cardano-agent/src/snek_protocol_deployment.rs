@@ -19,7 +19,10 @@ pub struct SnekProtocolDeployment {
 }
 
 impl SnekProtocolDeployment {
-    pub async fn unsafe_pull(validators: SnekDeployedValidators, explorer: &Box<dyn CardanoNetwork>) -> Self {
+    pub async fn unsafe_pull<Net: CardanoNetwork>(
+        validators: SnekDeployedValidators,
+        explorer: &Net,
+    ) -> Self {
         Self {
             limit_order_witness: DeployedValidator::unsafe_pull(validators.limit_order_witness, explorer)
                 .await,
