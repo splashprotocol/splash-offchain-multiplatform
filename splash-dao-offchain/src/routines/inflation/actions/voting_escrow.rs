@@ -28,6 +28,7 @@ use crate::constants::fee_deltas::{
     EXTEND_VOTING_ESCROW_FEE_DELTA, MAKE_VOTING_ESCROW_FEE_DELTA, REDEEM_VOTING_ESCROW_FEE_DELTA,
 };
 use crate::constants::time::MAX_LOCK_TIME_SECONDS;
+use crate::constants::VOTING_ESCROW_TX_TTL;
 use crate::create_change_output::{self};
 use crate::deployment::DaoScriptData;
 use crate::entities::offchain::{
@@ -382,7 +383,7 @@ where
             .add_collateral(InputBuilderResult::from(self.ctx.select::<Collateral>()))
             .unwrap();
         tx_builder.set_validity_start_interval(current_slot.0);
-        tx_builder.set_ttl(current_slot.0 + 300);
+        tx_builder.set_ttl(current_slot.0 + VOTING_ESCROW_TX_TTL);
         tx_builder.set_fee(estimated_fee);
         let signed_tx_builder = tx_builder
             .build(ChangeSelectionAlgo::Default, &operator_addr)
@@ -784,7 +785,7 @@ where
             .add_collateral(InputBuilderResult::from(self.ctx.select::<Collateral>()))
             .unwrap();
         tx_builder.set_validity_start_interval(current_slot.0);
-        tx_builder.set_ttl(current_slot.0 + 300);
+        tx_builder.set_ttl(current_slot.0 + VOTING_ESCROW_TX_TTL);
         tx_builder.set_fee(estimated_fee);
         let signed_tx_builder = tx_builder
             .build(ChangeSelectionAlgo::Default, &operator_addr)
@@ -906,8 +907,8 @@ where
 
         let time_source = NetworkTimeSource;
         let still_locked = if let Lock::Def(until) = locked_until {
-            let now = time_source.network_time().await * 1000;
-            now <= until
+            let now_millis = time_source.network_time().await * 1000;
+            now_millis <= until
         } else {
             true
         };
@@ -1173,7 +1174,7 @@ where
             .add_collateral(InputBuilderResult::from(self.ctx.select::<Collateral>()))
             .unwrap();
         tx_builder.set_validity_start_interval(current_slot.0);
-        tx_builder.set_ttl(current_slot.0 + 300);
+        tx_builder.set_ttl(current_slot.0 + VOTING_ESCROW_TX_TTL);
         tx_builder.set_fee(estimated_fee);
         let signed_tx_builder = tx_builder
             .build(ChangeSelectionAlgo::Default, &operator_addr)
