@@ -6,7 +6,7 @@ use cml_crypto::PrivateKey;
 use cml_crypto::RawBytesEncoding;
 use futures_timer::Delay;
 use serde::{Deserialize, Serialize};
-use spectrum_cardano_lib::OutputRef;
+use spectrum_cardano_lib::{OutputRef, Token};
 use splash_dao_offchain::entities::offchain::ExtendVotingEscrowOffChainOrder;
 use splash_dao_offchain::entities::offchain::OffChainOrderId;
 use splash_dao_offchain::entities::offchain::RedeemVotingEscrowOffChainOrder;
@@ -485,13 +485,15 @@ fn create_redeem_ve_offchain_order(
         hex::decode(&DaoScriptData::global().redeem_voting_escrow_witness.script_bytes).unwrap(),
     )
     .into();
-    let ve_ident = (
+    let ve_ident = Token(
         config.deployed_validators.mint_identifier.hash,
-        cml_chain::assets::AssetName::from(id.voting_escrow_id.0),
+        id.voting_escrow_id.0,
     );
-    let ve_factory = (
+    let ve_factory = Token(
         config.minted_deployment_tokens.ve_factory_auth.policy_id,
-        config.minted_deployment_tokens.ve_factory_auth.asset_name.clone(),
+        spectrum_cardano_lib::AssetName::from(
+            config.minted_deployment_tokens.ve_factory_auth.asset_name.clone(),
+        ),
     );
     let witness_redeemer = make_redeem_ve_witness_redeemer(
         Some(stake_credential.clone()),

@@ -1998,14 +1998,17 @@ where
         let ve_ex_units = DaoScriptData::global().voting_escrow.ex_units.clone();
         let ve_factory_ex_units = DaoScriptData::global().ve_factory.ex_units.clone();
 
-        let mut values = [
+        let mut typed_inputs = [
             (T::VE, ve_out_ref, ve_ex_units),
             (T::VEFactory, ve_factory_out_ref, ve_factory_ex_units),
         ];
-        values.sort_by(|(_, x, _), (_, y, _)| x.cmp(y));
+        typed_inputs.sort_by(|(_, x, _), (_, y, _)| x.cmp(y));
 
-        let voting_escrow_input_ix = values.iter().position(|(t, _, _)| matches!(t, T::VE)).unwrap() as u64;
-        let ve_factory_input_ix = values
+        let voting_escrow_input_ix = typed_inputs
+            .iter()
+            .position(|(t, _, _)| matches!(t, T::VE))
+            .unwrap() as u64;
+        let ve_factory_input_ix = typed_inputs
             .iter()
             .position(|(t, _, _)| matches!(t, T::VEFactory))
             .unwrap() as u32;
@@ -2207,7 +2210,7 @@ where
                 .plutus_script_inline_datum(ve_factory_witness, vec![].into())
                 .unwrap();
 
-        let sorted_inputs = values
+        let sorted_inputs = typed_inputs
             .into_iter()
             .map(|(t, _, ex_units)| match t {
                 T::VE => (voting_escrow_input.clone(), ex_units),
@@ -2272,14 +2275,15 @@ where
 
         let ve_factory_bp = self.ctx.select::<VEFactoryAuthPolicy>().0;
         let ve_factory_auth_policy = ve_factory_bp.policy_id;
-        let ve_factory_auth_name = ve_factory_bp.asset_name;
+        let ve_factory_auth_name = spectrum_cardano_lib::AssetName::from(ve_factory_bp.asset_name);
+        let ve_identifier_name = spectrum_cardano_lib::AssetName::from(ve_identifier_token.asset_name);
 
         let witness_redeemer = make_redeem_ve_witness_redeemer(
             offchain_order.stake_credential,
             voting_escrow_input_ix as u32,
             ve_factory_input_ix,
-            (ve_identifier_token.policy_id, ve_identifier_token.asset_name),
-            (ve_factory_auth_policy, ve_factory_auth_name),
+            Token(ve_identifier_token.policy_id, ve_identifier_name),
+            Token(ve_factory_auth_policy, ve_factory_auth_name),
             //    SPLASH_AC.into_token().unwrap().0,
             PolicyId::from_hex("7876492e3b82a31b1ce97a8f454cec653a0f6be5c09b90e62d24c152").unwrap(),
             ve_composition_policy,

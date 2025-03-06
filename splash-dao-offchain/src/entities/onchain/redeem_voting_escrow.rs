@@ -1,19 +1,18 @@
 use cml_chain::{
-    assets::AssetName,
     certs::StakeCredential,
     plutus::{ConstrPlutusData, PlutusData},
     utils::BigInteger,
     PolicyId,
 };
 use cml_crypto::RawBytesEncoding;
-use spectrum_cardano_lib::plutus_data::make_constr_pd_indefinite_arr;
+use spectrum_cardano_lib::{plutus_data::make_constr_pd_indefinite_arr, Token};
 
 pub fn make_redeem_ve_witness_redeemer(
     stake_credential: Option<StakeCredential>,
     voting_escrow_input_ix: u32,
     ve_factory_input_ix: u32,
-    (ve_ident_policy_id, ve_ident_name): (PolicyId, AssetName),
-    (ve_factory_policy_id, ve_factory_name): (PolicyId, AssetName),
+    Token(ve_ident_policy_id, ve_ident_name): Token,
+    Token(ve_factory_policy_id, ve_factory_name): Token,
     splash_token_policy: PolicyId,
     mint_composition_token_policy: PolicyId,
 ) -> PlutusData {
@@ -28,11 +27,11 @@ pub fn make_redeem_ve_witness_redeemer(
     let ve_fac_ix = PlutusData::new_integer(BigInteger::from(ve_factory_input_ix));
     let ve_ident_asset_pd = make_constr_pd_indefinite_arr(vec![
         PlutusData::new_bytes(ve_ident_policy_id.to_raw_bytes().to_vec()),
-        PlutusData::new_bytes(ve_ident_name.to_raw_bytes().to_vec()),
+        PlutusData::new_bytes(ve_ident_name.as_bytes().to_vec()),
     ]);
     let ve_factory_asset_pd = make_constr_pd_indefinite_arr(vec![
         PlutusData::new_bytes(ve_factory_policy_id.to_raw_bytes().to_vec()),
-        PlutusData::new_bytes(ve_factory_name.to_raw_bytes().to_vec()),
+        PlutusData::new_bytes(ve_factory_name.as_bytes().to_vec()),
     ]);
     let splash_token_policy_pd = PlutusData::new_bytes(splash_token_policy.to_raw_bytes().to_vec());
     let mint_composition_token_policy_pd =
