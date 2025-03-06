@@ -29,6 +29,9 @@
   },
   "operatorKey": "",
   "serviceFeeAddress": "",
+  "explorerKeyPath": {
+    "maestroKeyPath": "bloom-cardano-agent/resources/maestro.key"
+  },
   "allowedPaymentDestinations": [],
   "maestroKeyPath": "bloom-cardano-agent/resources/maestro.key",
   "execution": {

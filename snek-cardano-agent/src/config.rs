@@ -7,6 +7,7 @@ use bounded_integer::BoundedU64;
 use cardano_chain_sync::client::Point;
 use cml_chain::address::{Address, BaseAddress, EnterpriseAddress};
 use cml_chain::certs::Credential;
+use cardano_explorer::config::ExplorerConfig;
 use cml_core::Slot;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::NetworkId;
@@ -31,7 +32,7 @@ pub struct AppConfig {
     pub event_cache_ttl: Duration,
     pub backlog_capacity: u32,
     pub network_id: NetworkId,
-    pub maestro_key_path: String,
+    pub explorer: ExplorerConfig,
     pub execution: ExecutionConfig,
     #[serde(alias = "channel_buffer_size")]
     pub event_feed_buffer_size: usize,

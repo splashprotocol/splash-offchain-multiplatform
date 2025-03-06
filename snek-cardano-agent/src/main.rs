@@ -29,7 +29,8 @@ use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::ChainSyncClient;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_chain_sync::event_source::ledger_transactions;
-use cardano_explorer::Maestro;
+use cardano_explorer::config::ExplorerConfig;
+use cardano_explorer::{AnyExplorer, Blockfrost, CardanoNetwork, Maestro, Network};
 use cardano_mempool_sync::client::LocalTxMonitorClient;
 use cardano_mempool_sync::data::MempoolUpdate;
 use cardano_mempool_sync::mempool_stream;
@@ -105,9 +106,9 @@ async fn main() {
     let state_synced = Beacon::relaxed(false);
     let rollback_in_progress = Beacon::strong(false);
 
-    let explorer = Maestro::new(config.maestro_key_path, config.network_id.into())
+    let explorer = AnyExplorer::new(&config.explorer, config.network_id)
         .await
-        .expect("Maestro instantiation failed");
+        .expect("Explorer initialization failed");
 
     let protocol_deployment = SnekProtocolDeployment::unsafe_pull(deployment, &explorer).await;
 

@@ -29,7 +29,9 @@
   },
   "operatorKey": "",
   "takeResidualFee": false,
-  "maestroKeyPath": "bloom-cardano-agent/resources/maestro.key",
+  "explorer": {
+    "maestroKeyPath": "bloom-cardano-agent/resources/maestro.key"
+  }
   "execution": {
     "executionCap": {
       "soft": {
