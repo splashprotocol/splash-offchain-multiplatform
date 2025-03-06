@@ -39,13 +39,14 @@ use tokio::net;
 use uplc::PlutusData;
 use uplc_pallas_primitives::Fragment;
 
-use crate::assets::SPLASH_AC;
 use crate::collect_utxos::collect_utxos;
 use crate::constants::fee_deltas::{
     CREATE_WPOLL_FEE_DELTA, DISTRIBUTE_INFLATION_FEE_DELTA, ELIMINATE_WPOLL_FEE_DELTA,
+    EXTEND_VOTING_ESCROW_FEE_DELTA, MAKE_VOTING_ESCROW_FEE_DELTA, REDEEM_VOTING_ESCROW_FEE_DELTA,
     VOTING_ESCROW_VOTING_FEE,
 };
 use crate::constants::time::{DISTRIBUTE_INFLATION_TX_TTL, MAX_LOCK_TIME_SECONDS, MAX_TIME_DRIFT_MILLIS};
+use crate::constants::SPLASH_NAME;
 use crate::create_change_output::{self, ChangeOutputCreator, CreateChangeOutput};
 use crate::deployment::{BuiltPolicy, DaoScriptData, ProtocolValidator};
 use crate::entities::offchain::voting_order::VotingOrder;
@@ -235,6 +236,7 @@ where
         + Has<GTBuiltPolicy>
         + Has<NetworkId>
         + Has<OperatorCreds>
+        + Has<SplashPolicy>
         + Has<GenesisEpochStartTime>
         + Has<DeployedScriptInfo<{ ProtocolValidator::GovProxy as u8 }>>,
 {
@@ -283,7 +285,10 @@ where
             // Following unwrap is safe due to the `.release_next_trache()` call above.
             unsafe_update_ibox_state(data_mut, next_inflation_box.last_processed_epoch.unwrap() + 1);
         }
-        inflation_box_out.sub_asset(*SPLASH_AC, emission_rate.untag());
+        let splash_policy = self.ctx.select::<SplashPolicy>().0;
+        let splash_asset_class =
+            AssetClass::Token(Token(splash_policy, AssetName::utf8_unsafe(SPLASH_NAME.into())));
+        inflation_box_out.sub_asset(splash_asset_class, emission_rate.untag());
         set_min_ada(&mut inflation_box_out);
         let inflation_output = SingleOutputBuilderResult::new(inflation_box_out.clone());
 
@@ -1154,10 +1159,13 @@ where
             / weighting_poll.get().weighting_power.unwrap();
 
         let mut weighting_poll_out = weighting_poll_in.clone();
-        weighting_poll_out.sub_asset(*SPLASH_AC, splash_emission);
+        let splash_policy = self.ctx.select::<SplashPolicy>().0;
+        let splash_asset_class =
+            AssetClass::Token(Token(splash_policy, AssetName::utf8_unsafe(SPLASH_NAME.into())));
+        weighting_poll_out.sub_asset(splash_asset_class, splash_emission);
 
         let mut farm_out = farm_in.clone();
-        farm_out.add_asset(*SPLASH_AC, splash_emission);
+        farm_out.add_asset(splash_asset_class, splash_emission);
 
         // Reduce weightings in weighting_poll's datum
         if let Some(data_mut) = weighting_poll_out.data_mut() {
@@ -1518,7 +1526,7 @@ where
             outputs,
             sorted_mints: mints,
             withdrawal: None,
-            fee_buffer: 320_000,
+            fee_buffer: MAKE_VOTING_ESCROW_FEE_DELTA,
             operator_address: operator_addr.clone(),
         };
 
@@ -1921,7 +1929,7 @@ where
             outputs,
             sorted_mints: mints,
             withdrawal,
-            fee_buffer: 320_000,
+            fee_buffer: EXTEND_VOTING_ESCROW_FEE_DELTA,
             operator_address: operator_addr.clone(),
         };
 
@@ -2309,7 +2317,7 @@ where
             outputs,
             sorted_mints: mints,
             withdrawal,
-            fee_buffer: 320_000,
+            fee_buffer: REDEEM_VOTING_ESCROW_FEE_DELTA,
             operator_address: operator_addr.clone(),
         };
 

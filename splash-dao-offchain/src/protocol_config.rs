@@ -11,7 +11,6 @@ use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use std::ops::Index;
 use type_equalities::IsEqual;
 
-use crate::assets::SPLASH_AC;
 use crate::deployment::{BuiltPolicy, MintedTokens, ProtocolDeployment, ProtocolValidator};
 use crate::entities::onchain::weighting_poll::WeightingPollId;
 use crate::time::ProtocolEpoch;
@@ -25,6 +24,7 @@ pub struct ProtocolConfig {
     pub node_magic: u64,
     pub network_id: NetworkId,
     pub reward_address: cml_chain::address::RewardAddress,
+    pub splash_policy_id: PolicyId,
     pub collateral: Collateral,
     pub genesis_time: GenesisEpochStartTime,
 }
@@ -172,7 +172,7 @@ impl Has<Collateral> for ProtocolConfig {
 
 impl Has<SplashPolicy> for ProtocolConfig {
     fn select<U: IsEqual<SplashPolicy>>(&self) -> SplashPolicy {
-        SplashPolicy(get_splash_token().0)
+        SplashPolicy(self.splash_policy_id)
     }
 }
 
@@ -484,11 +484,3 @@ impl Has<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>> for Pro
 }
 
 pub const TX_FEE_CORRECTION: u64 = 1000;
-
-fn get_splash_token() -> (PolicyId, AssetName) {
-    if let spectrum_cardano_lib::AssetClass::Token(Token(policy_id, name)) = *SPLASH_AC {
-        (policy_id, AssetName::from(name))
-    } else {
-        panic!("Splash token can't be a native asset")
-    }
-}

@@ -181,6 +181,7 @@ async fn main() {
         operator_sk: config.batcher_private_key.into(),
         network_id: config.network_id,
         node_magic: node_magic as u64,
+        splash_policy_id: deployment.splash_tokens.policy_id,
         reward_address,
         collateral,
         genesis_time: deployment.genesis_epoch_start_time.into(),

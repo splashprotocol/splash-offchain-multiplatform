@@ -70,6 +70,9 @@ pub mod fee_deltas {
     pub const ELIMINATE_WPOLL_FEE_DELTA: u64 = 50_000;
     pub const DISTRIBUTE_INFLATION_FEE_DELTA: u64 = 10_000;
     pub const VOTING_ESCROW_VOTING_FEE: u64 = 1_300_000;
+    pub const MAKE_VOTING_ESCROW_FEE_DELTA: u64 = 320_000;
+    pub const EXTEND_VOTING_ESCROW_FEE_DELTA: u64 = 320_000;
+    pub const REDEEM_VOTING_ESCROW_FEE_DELTA: u64 = 320_000;
 }
 
 #[cfg(feature = "test_30_min_epoch")]
