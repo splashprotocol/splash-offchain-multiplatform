@@ -27,7 +27,8 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     RoyaltyPoolV1RoyaltyWithdrawRequest, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use spectrum_offchain_cardano::handler_context::{
-    AuthVerificationKey, ConsumedIdentifiers, ConsumedInputs, Mints, ProducedIdentifiers,
+    AddedPaymentDestinations, AllowedAdditionalPaymentDestinations, AuthVerificationKey, ConsumedIdentifiers,
+    ConsumedInputs, Mints, ProducedIdentifiers,
 };
 
 #[repr(transparent)]
@@ -125,6 +126,8 @@ where
         + Has<ConsumedInputs>
         + Has<ConsumedIdentifiers<Token>>
         + Has<ProducedIdentifiers<Token>>
+        + Has<AddedPaymentDestinations>
+        + Has<AllowedAdditionalPaymentDestinations>
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
         + Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>>
         + Has<LimitOrderValidation>

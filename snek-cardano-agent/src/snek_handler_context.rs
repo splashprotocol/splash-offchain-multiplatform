@@ -15,7 +15,8 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     DegenQuadraticPoolV1, LimitOrderV1, LimitOrderWitnessV1,
 };
 use spectrum_offchain_cardano::handler_context::{
-    AuthVerificationKey, ConsumedIdentifiers, ConsumedInputs, Mints, ProducedIdentifiers,
+    AddedPaymentDestinations, AllowedAdditionalPaymentDestinations, AuthVerificationKey, ConsumedIdentifiers,
+    ConsumedInputs, Mints, ProducedIdentifiers,
 };
 
 #[derive(Copy, Clone, Debug)]
@@ -25,6 +26,7 @@ pub struct SnekHandlerContextProto {
     pub validation_rules: SnekValidationRules,
     pub adhoc_fee_structure: AdhocFeeStructure,
     pub auth_verification_key: AuthVerificationKey,
+    pub allowed_payment_destinations: AllowedAdditionalPaymentDestinations,
 }
 
 #[derive(Clone, Debug)]
@@ -39,6 +41,8 @@ pub struct SnekHandlerContext<I: Copy> {
     pub bounds: SnekValidationRules,
     pub adhoc_fee_structure: AdhocFeeStructure,
     pub auth_verification_key: AuthVerificationKey,
+    pub added_payment_destinations: AddedPaymentDestinations,
+    pub allowed_payment_destinations: AllowedAdditionalPaymentDestinations,
     pub mints: Option<Mints>,
 }
 
@@ -56,8 +60,24 @@ impl<I: Copy> From<(SnekHandlerContextProto, EventContext<I>)> for SnekHandlerCo
             bounds: ctx_proto.validation_rules,
             adhoc_fee_structure: ctx_proto.adhoc_fee_structure,
             auth_verification_key: ctx_proto.auth_verification_key,
+            added_payment_destinations: event_ctx.added_payment_destinations,
+            allowed_payment_destinations: ctx_proto.allowed_payment_destinations,
             mints: event_ctx.mints,
         }
+    }
+}
+
+impl<I: Copy> Has<AllowedAdditionalPaymentDestinations> for SnekHandlerContext<I> {
+    fn select<U: IsEqual<AllowedAdditionalPaymentDestinations>>(
+        &self,
+    ) -> AllowedAdditionalPaymentDestinations {
+        self.allowed_payment_destinations
+    }
+}
+
+impl<I: Copy> Has<AddedPaymentDestinations> for SnekHandlerContext<I> {
+    fn select<U: IsEqual<AddedPaymentDestinations>>(&self) -> AddedPaymentDestinations {
+        self.added_payment_destinations
     }
 }
 

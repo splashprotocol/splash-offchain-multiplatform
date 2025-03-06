@@ -5,11 +5,14 @@ use bloom_offchain_cardano::integrity::{CheckIntegrity, IntegrityViolations};
 use bloom_offchain_cardano::orders::adhoc::AdhocFeeStructure;
 use bounded_integer::BoundedU64;
 use cardano_chain_sync::client::Point;
+use cml_chain::address::{Address, BaseAddress, EnterpriseAddress};
+use cml_chain::certs::Credential;
 use cml_core::Slot;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::NetworkId;
+use spectrum_offchain::data::small_vec::SmallVec;
 use spectrum_offchain_cardano::creds::OperatorRewardAddress;
-use spectrum_offchain_cardano::handler_context::AuthVerificationKey;
+use spectrum_offchain_cardano::handler_context::{AllowedAdditionalPaymentDestinations, AuthVerificationKey};
 use spectrum_offchain_cardano::node::NodeConfig;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -24,6 +27,7 @@ pub struct AppConfig {
     pub operator_key: String,
     pub auth_verification_key: AuthVerificationKey,
     pub service_fee_address: OperatorRewardAddress,
+    pub allowed_payment_destinations: Vec<Address>,
     pub event_cache_ttl: Duration,
     pub backlog_capacity: u32,
     pub network_id: NetworkId,
@@ -37,6 +41,20 @@ pub struct AppConfig {
     pub sequencing: SequencingConfig,
     #[serde(default = "default_disable_mempool")]
     pub disable_mempool: bool,
+}
+
+pub fn allowed_payment_destinations(whitelist: Vec<Address>) -> AllowedAdditionalPaymentDestinations {
+    AllowedAdditionalPaymentDestinations(SmallVec::new(whitelist.iter().filter_map(|addr| match addr {
+        Address::Base(BaseAddress {
+            payment: Credential::PubKey { hash, .. },
+            ..
+        })
+        | Address::Enterprise(EnterpriseAddress {
+            payment: Credential::PubKey { hash, .. },
+            ..
+        }) => Some(*hash),
+        _ => None,
+    })))
 }
 
 fn default_disable_mempool() -> bool {
