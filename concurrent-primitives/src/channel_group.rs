@@ -113,11 +113,11 @@ mod tests {
         let received1_1 = rx1.next().await.unwrap();
         let received2_1 = rx2.next().await.unwrap();
         let received3_1 = rx3.next().await.unwrap();
-        
+
         let received1_2 = rx1.next().await.unwrap();
         let received2_2 = rx2.next().await.unwrap();
         let received3_2 = rx3.next().await.unwrap();
-        
+
         let received1_3 = rx1.next().await.unwrap();
         let received2_3 = rx2.next().await.unwrap();
         let received3_3 = rx3.next().await.unwrap();

@@ -21,7 +21,8 @@ use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
 use spectrum_offchain_cardano::handler_context::{
-    AuthVerificationKey, ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers,
+    AddedPaymentDestinations, AllowedAdditionalPaymentDestinations, AuthVerificationKey, ConsumedIdentifiers,
+    ConsumedInputs, ProducedIdentifiers,
 };
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
@@ -269,6 +270,8 @@ where
         + Has<ConsumedIdentifiers<Token>>
         + Has<ProducedIdentifiers<Token>>
         + Has<ConsumedInputs>
+        + Has<AddedPaymentDestinations>
+        + Has<AllowedAdditionalPaymentDestinations>
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
         + Has<LimitOrderValidation>
         + Has<BeaconMode>
@@ -288,7 +291,9 @@ where
             let is_valid_beacon =
                 is_valid_beacon(lo.beacon, lo.input_amount, lo.input_asset, lo.output_asset, ctx);
             let is_valid_auth = check_auth(lo.beacon, ctx);
-            if has_stake_part && is_valid_beacon && is_valid_auth {
+            let is_compliant = ctx.select::<AddedPaymentDestinations>()
+                .complies_with(&ctx.select::<AllowedAdditionalPaymentDestinations>());
+            if has_stake_part && is_valid_beacon && is_valid_auth && is_compliant {
                 Some(Self(
                     LimitOrder {
                         beacon: lo.beacon,
@@ -312,12 +317,13 @@ where
                 ))
             } else {
                 trace!(
-                    "UTxO {}, AdhocOrder {} :: has_stake_part: {}, is_valid_beacon: {}, is_valid_auth: {}",
+                    "UTxO {}, AdhocOrder {} :: has_stake_part: {}, is_valid_beacon: {}, is_valid_auth: {}, is_compliant: {}",
                     ctx.select::<OutputRef>(),
                     lo.beacon,
                     has_stake_part,
                     is_valid_beacon,
-                    is_valid_auth
+                    is_valid_auth,
+                    is_compliant
                 );
                 None
             }

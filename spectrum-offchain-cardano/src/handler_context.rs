@@ -1,7 +1,7 @@
 use cml_chain::assets::Mint;
 use cml_chain::PolicyId;
 use cml_core::serialization::RawBytesEncoding;
-use cml_crypto::PublicKey;
+use cml_crypto::{Ed25519KeyHash, PublicKey};
 use cml_multi_era::babbage::utils::BabbageMint;
 use derive_more::{From, Into};
 use serde::de::Error;
@@ -35,6 +35,18 @@ impl From<BabbageMint> for Mints {
             .into_iter()
             .flat_map(move |(pol, v)| v.into_iter().map(move |(tn, _)| Token(pol, AssetName::from(tn))));
         Self(SmallVec::new(assets))
+    }
+}
+
+#[derive(Debug, Copy, Clone, Into, From, Default)]
+pub struct AllowedAdditionalPaymentDestinations(pub SmallVec<Ed25519KeyHash>);
+
+/// PubKey hashes that didn't appear in TX inputs
+#[derive(Debug, Copy, Clone, Into, From, Default)]
+pub struct AddedPaymentDestinations(pub SmallVec<Ed25519KeyHash>);
+impl AddedPaymentDestinations {
+    pub fn complies_with(&self, whitelist: &AllowedAdditionalPaymentDestinations) -> bool {
+        !self.0.exists(|hash| !whitelist.0.contains(hash))
     }
 }
 
@@ -89,5 +101,27 @@ impl<'de> Deserialize<'de> for AuthVerificationKey {
                 })
             })
             .map(|bytes| AuthVerificationKey(bytes))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AddedPaymentDestinations, AllowedAdditionalPaymentDestinations, Ed25519KeyHash};
+    use spectrum_offchain::data::small_vec::SmallVec;
+
+    #[test]
+    fn test_complies_with() {
+        let whitelist = AllowedAdditionalPaymentDestinations(SmallVec::new(
+            vec![Ed25519KeyHash::from([1u8; 28]), Ed25519KeyHash::from([2u8; 28])].into_iter(),
+        ));
+        let added_destinations =
+            AddedPaymentDestinations(SmallVec::new(vec![Ed25519KeyHash::from([1u8; 28])].into_iter()));
+
+        assert!(added_destinations.complies_with(&whitelist));
+
+        let non_compliant_destinations =
+            AddedPaymentDestinations(SmallVec::new(vec![Ed25519KeyHash::from([3u8; 28])].into_iter()));
+
+        assert!(!non_compliant_destinations.complies_with(&whitelist));
     }
 }

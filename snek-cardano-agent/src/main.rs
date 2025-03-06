@@ -1,4 +1,4 @@
-use crate::config::AppConfig;
+use crate::config::{allowed_payment_destinations, AppConfig};
 use crate::context::{ExecutionContext, MakerContext};
 use crate::entity::EvolvingCardanoEntity;
 use crate::seq::with_sequencing;
@@ -226,6 +226,7 @@ async fn main() {
         executor_cred: operator_paycred,
         scripts: SnekProtocolScriptHashes::from(&protocol_deployment),
         validation_rules,
+        allowed_payment_destinations: allowed_payment_destinations(config.allowed_payment_destinations),
         adhoc_fee_structure: config.adhoc_fee.into(),
         auth_verification_key: config.auth_verification_key,
     };

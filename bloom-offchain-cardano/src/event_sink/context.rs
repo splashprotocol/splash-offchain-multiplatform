@@ -19,7 +19,7 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
 };
 use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolScriptHashes};
 use spectrum_offchain_cardano::handler_context::{
-    ConsumedIdentifiers, ConsumedInputs, Mints, ProducedIdentifiers,
+    AddedPaymentDestinations, ConsumedIdentifiers, ConsumedInputs, Mints, ProducedIdentifiers,
 };
 
 use crate::orders::adhoc::AdhocFeeStructure;
@@ -32,6 +32,7 @@ pub struct EventContext<I: Copy> {
     pub consumed_utxos: ConsumedInputs,
     pub consumed_identifiers: ConsumedIdentifiers<I>,
     pub produced_identifiers: ProducedIdentifiers<I>,
+    pub added_payment_destinations: AddedPaymentDestinations,
     pub mints: Option<Mints>,
 }
 

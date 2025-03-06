@@ -13,6 +13,8 @@ use async_trait::async_trait;
 use bloom_offchain::execution_engine::funding_effect::FundingEvent;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_mempool_sync::data::MempoolUpdate;
+use cml_chain::address::{Address, BaseAddress, EnterpriseAddress};
+use cml_chain::certs::Credential;
 use cml_chain::transaction::TransactionOutput;
 use cml_core::Slot;
 use cml_crypto::BlockHeaderHash;
@@ -32,6 +34,7 @@ use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::sink::{BatchSinkExt, KeyedBatchSinkExt};
 use spectrum_offchain_cardano::funding::FundingAddresses;
+use spectrum_offchain_cardano::handler_context::AddedPaymentDestinations;
 use tokio::sync::{Mutex, MutexGuard};
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -673,6 +676,7 @@ where
             consumed_utxos: consumed_utxos.into(),
             consumed_identifiers: Default::default(),
             produced_identifiers: Default::default(),
+            added_payment_destinations: Default::default(),
             mints: tx.mints,
         };
         match Order::try_from_ledger(&o, &Ctx::from((context_proto, event_context))) {
@@ -746,6 +750,28 @@ where
     let mut non_processed_outputs = VecDeque::new();
     let consumed_utxos = SmallVec::new(consumed_utxos.into_iter());
     let consumed_identifiers = SmallVec::new(consumed_entities.keys().cloned());
+    let outbound_keys = tx
+        .outputs
+        .iter()
+        .filter_map(|(_, o)| match o.address() {
+            Address::Base(BaseAddress {
+                payment: Credential::PubKey { hash, .. },
+                ..
+            })
+            | Address::Enterprise(EnterpriseAddress {
+                payment: Credential::PubKey { hash, .. },
+                ..
+            }) => Some(hash),
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+    let added_destinations = AddedPaymentDestinations(SmallVec::new(tx.signers.iter().filter_map(|s| {
+        if !outbound_keys.contains(s) {
+            Some(*s)
+        } else {
+            None
+        }
+    })));
     while let Some((ix, o)) = tx.outputs.pop() {
         let o_ref = OutputRef::new(tx.hash, ix as u64);
         let produced_identifiers = SmallVec::new(produced_entities.keys().cloned());
@@ -755,6 +781,7 @@ where
             consumed_utxos: consumed_utxos.into(),
             consumed_identifiers: consumed_identifiers.into(),
             produced_identifiers: produced_identifiers.into(),
+            added_payment_destinations: added_destinations,
             mints: tx.mints,
         };
         match Entity::try_from_ledger(&o, &Ctx::from((context_proto, event_context))) {

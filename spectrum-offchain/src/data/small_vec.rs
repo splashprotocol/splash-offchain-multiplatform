@@ -21,20 +21,35 @@ impl<T> SmallVec<T> {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.0.iter().all(|e| e.is_none())
+        self.0[0].is_none()
     }
 
     pub fn exists<F>(&self, f: F) -> bool
     where
         F: Fn(&T) -> bool,
     {
-        self.0
-            .iter()
-            .find(move |opt| match opt {
-                Some(oref) => f(oref),
-                None => false,
-            })
-            .is_some()
+        for cell in self.0.iter() {
+            match cell {
+                Some(t) if f(t) => return true,
+                None => break,
+                _ => (),
+            }
+        }
+        false
+    }
+
+    pub fn contains(&self, item: &T) -> bool
+    where
+        T: PartialEq,
+    {
+        for cell in self.0.iter() {
+            match cell {
+                Some(t) if t == item => return true,
+                None => break,
+                _ => (),
+            }
+        }
+        false
     }
 
     pub fn count<F>(&self, f: F) -> usize
