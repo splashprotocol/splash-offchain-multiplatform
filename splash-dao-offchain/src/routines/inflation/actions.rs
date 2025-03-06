@@ -24,6 +24,7 @@ use serde::Serialize;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::value::ValueExtension;
 use spectrum_offchain::domain::event::{Predicted, Traced};
+use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 
 use bloom_offchain::execution_engine::bundled::Bundled;
@@ -97,38 +98,6 @@ use super::{
 
 #[async_trait::async_trait]
 pub trait InflationActions<Bearer> {
-    async fn create_wpoll(
-        &self,
-        inflation_box: Bundled<InflationBoxSnapshot, Bearer>,
-        factory: Bundled<PollFactorySnapshot, Bearer>,
-        current_slot: Slot,
-        funding_boxes: AvailableFundingBoxes,
-    ) -> (
-        SignedTxBuilder,
-        Traced<Predicted<Bundled<InflationBoxSnapshot, Bearer>>>,
-        Traced<Predicted<Bundled<PollFactorySnapshot, Bearer>>>,
-        Traced<Predicted<Bundled<WeightingPollSnapshot, Bearer>>>,
-        FundingBoxChanges,
-    );
-    async fn eliminate_wpoll(
-        &self,
-        weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
-        funding_boxes: AvailableFundingBoxes,
-        current_slot: Slot,
-    ) -> (SignedTxBuilder, FundingBoxChanges);
-    async fn execute_order(
-        &self,
-        weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
-        order: (VotingOrder, Bundled<VotingEscrowSnapshot, Bearer>),
-        current_slot: Slot,
-    ) -> Result<
-        (
-            SignedTxBuilder,
-            Traced<Predicted<Bundled<WeightingPollSnapshot, Bearer>>>,
-            Traced<Predicted<Bundled<VotingEscrowSnapshot, Bearer>>>,
-        ),
-        ExecuteOrderError,
-    >;
     async fn distribute_inflation(
         &self,
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
@@ -143,6 +112,48 @@ pub trait InflationActions<Bearer> {
         Traced<Predicted<Bundled<SmartFarmSnapshot, Bearer>>>,
         FundingBoxChanges,
     );
+}
+
+#[async_trait::async_trait]
+pub trait WPollActions<Bearer> {
+    async fn create_wpoll(
+        &self,
+        inflation_box: Bundled<InflationBoxSnapshot, Bearer>,
+        factory: Bundled<PollFactorySnapshot, Bearer>,
+        current_slot: Slot,
+        funding_boxes: AvailableFundingBoxes,
+    ) -> (
+        SignedTxBuilder,
+        Traced<Predicted<Bundled<InflationBoxSnapshot, Bearer>>>,
+        Traced<Predicted<Bundled<PollFactorySnapshot, Bearer>>>,
+        Traced<Predicted<Bundled<WeightingPollSnapshot, Bearer>>>,
+        FundingBoxChanges,
+    );
+
+    async fn eliminate_wpoll(
+        &self,
+        weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
+        funding_boxes: AvailableFundingBoxes,
+        current_slot: Slot,
+    ) -> (SignedTxBuilder, FundingBoxChanges);
+
+    async fn execute_order(
+        &self,
+        weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
+        order: (VotingOrder, Bundled<VotingEscrowSnapshot, Bearer>),
+        current_slot: Slot,
+    ) -> Result<
+        (
+            SignedTxBuilder,
+            Traced<Predicted<Bundled<WeightingPollSnapshot, Bearer>>>,
+            Traced<Predicted<Bundled<VotingEscrowSnapshot, Bearer>>>,
+        ),
+        ExecuteOrderError,
+    >;
+}
+
+#[async_trait::async_trait]
+pub trait VoteEscrowActions<Bearer> {
     async fn make_voting_escrow(
         &self,
         make_voting_escrow_order: MakeVotingEscrowOrderBundle<Bearer>,
@@ -156,6 +167,7 @@ pub trait InflationActions<Bearer> {
         ),
         MakeVotingEscrowError,
     >;
+
     async fn extend_voting_escrow(
         &self,
         extend_voting_escrow_onchain_order: ExtendVotingEscrowOrderBundle<Bearer>,
@@ -171,6 +183,7 @@ pub trait InflationActions<Bearer> {
         ),
         ExtendVotingEscrowError,
     >;
+
     async fn redeem_voting_escrow(
         &self,
         offchain_order: RedeemVotingEscrowOffChainOrder,
@@ -195,50 +208,28 @@ pub struct CardanoInflationActions<Ctx> {
 }
 
 #[async_trait::async_trait]
-impl<Ctx> InflationActions<TransactionOutput> for CardanoInflationActions<Ctx>
+impl<Ctx> WPollActions<TransactionOutput> for CardanoInflationActions<Ctx>
 where
     Ctx: Send
         + Sync
         + Clone
-        + Has<Reward>
-        + Has<Collateral>
-        + Has<SplashPolicy>
         + Has<InflationBoxRefScriptOutput>
-        + Has<InflationAuthPolicy>
         + Has<DeployedScriptInfo<{ ProtocolValidator::Inflation as u8 }>>
+        + Has<SplashPolicy>
         + Has<PollFactoryRefScriptOutput>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>
+        + Has<OperatorCreds>
         + Has<MintWPAuthPolicy>
         + Has<MintWPAuthRefScriptOutput>
-        + Has<MintVEIdentifierPolicy>
-        + Has<MintVEIdentifierRefScriptOutput>
-        + Has<FarmAuthPolicy>
-        + Has<FarmAuthRefScriptOutput>
-        + Has<FarmFactoryAuthPolicy>
-        + Has<VEFactoryAuthPolicy>
-        + Has<VEFactoryScriptHash>
-        + Has<VEFactoryRefScriptOutput>
-        + Has<MintVECompositionPolicy>
-        + Has<MintVECompositionRefScriptOutput>
-        + Has<MakeVotingEscrowOrderScriptHash>
-        + Has<MakeVotingEscrowOrderRefScriptOutput>
-        + Has<ExtendVotingEscrowOrderScriptHash>
-        + Has<ExtendVotingEscrowOrderRefScriptOutput>
-        + Has<VotingEscrowScriptHash>
-        + Has<VotingEscrowRefScriptOutput>
+        + Has<GenesisEpochStartTime>
         + Has<WeightingPowerPolicy>
         + Has<WeightingPowerRefScriptOutput>
-        + Has<PermManagerBoxRefScriptOutput>
-        + Has<GovProxyRefScriptOutput>
-        + Has<EDaoMSigAuthPolicy>
-        + Has<PermManagerAuthPolicy>
         + Has<GTAuthPolicy>
-        + Has<GTBuiltPolicy>
         + Has<NetworkId>
-        + Has<OperatorCreds>
-        + Has<SplashPolicy>
-        + Has<GenesisEpochStartTime>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::GovProxy as u8 }>>,
+        + Has<Collateral>
+        + Has<Reward>
+        + Has<VotingEscrowScriptHash>
+        + Has<VotingEscrowRefScriptOutput>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>,
 {
     async fn create_wpoll(
         &self,
@@ -278,7 +269,6 @@ where
 
         tx_builder.add_reference_input(self.ctx.select::<InflationBoxRefScriptOutput>().0.clone());
 
-        let prev_ib_version = *inflation_box.version();
         let (next_inflation_box, emission_rate) = inflation_box.get().release_next_tranche();
         let mut inflation_box_out = inflation_box_in.clone();
         if let Some(data_mut) = inflation_box_out.data_mut() {
@@ -317,7 +307,6 @@ where
 
         tx_builder.add_reference_input(self.ctx.select::<PollFactoryRefScriptOutput>().0.clone());
 
-        let prev_factory_version = *factory.version();
         let (next_factory, fresh_wpoll) = factory.unwrap().next_weighting_poll(emission_rate);
         let mut factory_out = factory_in;
         if let Some(data_mut) = factory_out.data_mut() {
@@ -1003,7 +992,29 @@ where
 
         Ok((signed_tx_builder, fresh_wp, fresh_ve))
     }
+}
 
+#[async_trait::async_trait]
+impl<Ctx> InflationActions<TransactionOutput> for CardanoInflationActions<Ctx>
+where
+    Ctx: Send
+        + Sync
+        + Clone
+        + Has<Collateral>
+        + Has<InflationAuthPolicy>
+        + Has<MintWPAuthPolicy>
+        + Has<MintWPAuthRefScriptOutput>
+        + Has<FarmAuthPolicy>
+        + Has<FarmAuthRefScriptOutput>
+        + Has<FarmFactoryAuthPolicy>
+        + Has<PermManagerBoxRefScriptOutput>
+        + Has<GovProxyRefScriptOutput>
+        + Has<EDaoMSigAuthPolicy>
+        + Has<PermManagerAuthPolicy>
+        + Has<OperatorCreds>
+        + Has<SplashPolicy>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::GovProxy as u8 }>>,
+{
     async fn distribute_inflation(
         &self,
         Bundled(weighting_poll, weighting_poll_in): Bundled<WeightingPollSnapshot, TransactionOutput>,
@@ -1250,7 +1261,32 @@ where
 
         (signed_tx_builder, fresh_wp, fresh_farm, funding_box_changes)
     }
+}
 
+#[async_trait::async_trait]
+impl<Ctx> VoteEscrowActions<TransactionOutput> for CardanoInflationActions<Ctx>
+where
+    Ctx: Send
+        + Sync
+        + Clone
+        + Has<MintVECompositionPolicy>
+        + Has<GTBuiltPolicy>
+        + Has<VEFactoryRefScriptOutput>
+        + Has<VotingEscrowRefScriptOutput>
+        + Has<MintVECompositionRefScriptOutput>
+        + Has<MintVEIdentifierRefScriptOutput>
+        + Has<MakeVotingEscrowOrderRefScriptOutput>
+        + Has<VEFactoryScriptHash>
+        + Has<MakeVotingEscrowOrderScriptHash>
+        + Has<MintVEIdentifierPolicy>
+        + Has<NetworkId>
+        + Has<VotingEscrowScriptHash>
+        + Has<OperatorCreds>
+        + Has<ExtendVotingEscrowOrderScriptHash>
+        + Has<ExtendVotingEscrowOrderRefScriptOutput>
+        + Has<VEFactoryAuthPolicy>
+        + Has<Collateral>,
+{
     async fn make_voting_escrow(
         &self,
         MakeVotingEscrowOrderBundle {

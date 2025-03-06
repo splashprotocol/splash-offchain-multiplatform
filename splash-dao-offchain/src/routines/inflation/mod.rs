@@ -6,6 +6,7 @@ use std::pin::{pin, Pin};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use actions::{VoteEscrowActions, WPollActions};
 use async_primitives::beacon::Beacon;
 use async_stream::stream;
 use bloom_offchain::execution_engine::bundled::Bundled;
@@ -212,7 +213,7 @@ where
     OVE: KvStore<Owner, DaoOrderStatus> + Send + Sync,
     TDOB: KvStore<TimedOutputRef, PendingOrder<DaoOrderBundle<Bearer>>> + Send + Sync,
     Time: NetworkTimeProvider + Send + Sync,
-    Actions: InflationActions<Bearer> + Send + Sync,
+    Actions: InflationActions<Bearer> + WPollActions<Bearer> + VoteEscrowActions<Bearer> + Send + Sync,
     Bearer: Send + Sync + std::fmt::Debug + Clone,
     Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
 {
@@ -994,7 +995,7 @@ impl<
         }: PendingCreatePoll<Bearer>,
     ) -> Option<ToRoutine>
     where
-        Actions: InflationActions<Bearer> + Send + Sync,
+        Actions: WPollActions<Bearer> + Send + Sync,
         Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
         IB: StateProjectionWrite<InflationBoxSnapshot, Bearer> + Send + Sync,
         PF: StateProjectionWrite<PollFactorySnapshot, Bearer> + Send + Sync,
@@ -1090,7 +1091,7 @@ impl<
         order_timestamp: i64,
     ) -> Option<ToRoutine>
     where
-        Actions: InflationActions<Bearer> + Send + Sync,
+        Actions: WPollActions<Bearer> + Send + Sync,
         Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
         WP: StateProjectionWrite<WeightingPollSnapshot, Bearer> + Send + Sync,
         VE: StateProjectionWrite<VotingEscrowSnapshot, Bearer> + Send + Sync,
@@ -1193,7 +1194,7 @@ impl<
         order_timestamp: i64,
     ) -> Option<ToRoutine>
     where
-        Actions: InflationActions<Bearer> + Send + Sync,
+        Actions: VoteEscrowActions<Bearer> + Send + Sync,
         Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
         VEF: StateProjectionWrite<VEFactorySnapshot, Bearer> + Send + Sync,
         VE: StateProjectionWrite<VotingEscrowSnapshot, Bearer> + Send + Sync,
@@ -1300,7 +1301,7 @@ impl<
         order_timestamp: i64,
     ) -> Option<ToRoutine>
     where
-        Actions: InflationActions<Bearer> + Send + Sync,
+        Actions: VoteEscrowActions<Bearer> + Send + Sync,
         Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
         VEF: StateProjectionWrite<VEFactorySnapshot, Bearer> + Send + Sync,
         VE: StateProjectionWrite<VotingEscrowSnapshot, Bearer> + Send + Sync,
@@ -1499,7 +1500,7 @@ impl<
         PendingEliminatePoll { weighting_poll }: PendingEliminatePoll<Bearer>,
     ) -> Option<ToRoutine>
     where
-        Actions: InflationActions<Bearer> + Send + Sync,
+        Actions: WPollActions<Bearer> + Send + Sync,
         Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
         FB: FundingRepo + Send + Sync,
         PTX: KvStore<TransactionHash, PredictedEntityWrites<Bearer>> + Send + Sync,
@@ -1581,7 +1582,7 @@ impl<
 
     async fn try_make_voting_escrow(&mut self) -> Option<ToRoutine>
     where
-        Actions: InflationActions<Bearer> + Send + Sync,
+        Actions: VoteEscrowActions<Bearer> + Send + Sync,
         Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
         DOB: ResilientBacklog<DaoOrderBundle<Bearer>> + Send + Sync,
         OVE: KvStore<Owner, DaoOrderStatus> + Send + Sync,
@@ -1772,7 +1773,11 @@ where
     OVE: KvStore<Owner, DaoOrderStatus> + Send + Sync,
     TDOB: KvStore<TimedOutputRef, PendingOrder<DaoOrderBundle<TransactionOutput>>> + Send + Sync,
     Time: NetworkTimeProvider + Send + Sync,
-    Actions: InflationActions<TransactionOutput> + Send + Sync,
+    Actions: InflationActions<TransactionOutput>
+        + WPollActions<TransactionOutput>
+        + VoteEscrowActions<TransactionOutput>
+        + Send
+        + Sync,
     Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
 {
     async fn process_ledger_event(&mut self, ev: LedgerTxEvent<TxViewMut>) {
