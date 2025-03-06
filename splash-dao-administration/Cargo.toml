@@ -11,6 +11,7 @@ cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", 
 cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
 cml-multi-era = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
 futures-timer = "3.0.2"
+num-rational = "0.4.1"
 hex = "0.4.3"
 rand = "0.8.5"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
@@ -22,10 +23,10 @@ tokio = { version = "1.42.0", features = ["full"] }
 type-equalities = "0.3.1"
 serde = { version = "1.0.147", features = ["derive"] }
 serde_json = "1.0.88"
-uplc = "0.0.29"
-uplc-pallas-codec = { package = "pallas-codec", version = "0.16" }
-uplc-pallas-traverse = { package = "pallas-traverse", version = "0.16" }
-uplc-pallas-primitives = { package = "pallas-primitives", version = "0.16" }
+uplc = "1.1"
+uplc-pallas-codec = { package = "pallas-codec", version = "0.31" }
+uplc-pallas-traverse = { package = "pallas-traverse", version = "0.31" }
+uplc-pallas-primitives = { package = "pallas-primitives", version = "0.31" }
 
 [features]
 default = []

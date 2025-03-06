@@ -11,7 +11,6 @@ use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use std::ops::Index;
 use type_equalities::IsEqual;
 
-use crate::assets::SPLASH_AC;
 use crate::deployment::{BuiltPolicy, MintedTokens, ProtocolDeployment, ProtocolValidator};
 use crate::entities::onchain::weighting_poll::WeightingPollId;
 use crate::time::ProtocolEpoch;
@@ -25,6 +24,7 @@ pub struct ProtocolConfig {
     pub node_magic: u64,
     pub network_id: NetworkId,
     pub reward_address: cml_chain::address::RewardAddress,
+    pub splash_policy_id: PolicyId,
     pub collateral: Collateral,
     pub genesis_time: GenesisEpochStartTime,
 }
@@ -81,7 +81,7 @@ pub struct FarmFactoryAuthPolicy(pub PolicyId);
 pub struct WPFactoryAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
-pub struct VEFactoryAuthPolicy(pub PolicyId);
+pub struct VEFactoryAuthPolicy(pub BuiltPolicy);
 
 #[derive(Debug, Clone)]
 pub struct VEFactoryScriptHash(pub ScriptHash);
@@ -94,6 +94,12 @@ pub struct MakeVotingEscrowOrderScriptHash(pub ScriptHash);
 
 #[derive(Debug, Clone)]
 pub struct MakeVotingEscrowOrderRefScriptOutput(pub TransactionUnspentOutput);
+
+#[derive(Debug, Clone)]
+pub struct ExtendVotingEscrowOrderScriptHash(pub ScriptHash);
+
+#[derive(Debug, Clone)]
+pub struct ExtendVotingEscrowOrderRefScriptOutput(pub TransactionUnspentOutput);
 
 #[derive(Debug, Clone)]
 pub struct VotingEscrowRefScriptOutput(pub TransactionUnspentOutput);
@@ -166,7 +172,7 @@ impl Has<Collateral> for ProtocolConfig {
 
 impl Has<SplashPolicy> for ProtocolConfig {
     fn select<U: IsEqual<SplashPolicy>>(&self) -> SplashPolicy {
-        SplashPolicy(get_splash_token().0)
+        SplashPolicy(self.splash_policy_id)
     }
 }
 
@@ -256,7 +262,7 @@ impl Has<WPFactoryAuthPolicy> for ProtocolConfig {
 
 impl Has<VEFactoryAuthPolicy> for ProtocolConfig {
     fn select<U: IsEqual<VEFactoryAuthPolicy>>(&self) -> VEFactoryAuthPolicy {
-        VEFactoryAuthPolicy(self.tokens.ve_factory_auth.policy_id)
+        VEFactoryAuthPolicy(self.tokens.ve_factory_auth.clone())
     }
 }
 
@@ -283,6 +289,22 @@ impl Has<MakeVotingEscrowOrderRefScriptOutput> for ProtocolConfig {
         &self,
     ) -> MakeVotingEscrowOrderRefScriptOutput {
         MakeVotingEscrowOrderRefScriptOutput(self.deployed_validators.make_ve_order.reference_utxo.clone())
+    }
+}
+
+impl Has<ExtendVotingEscrowOrderScriptHash> for ProtocolConfig {
+    fn select<U: IsEqual<ExtendVotingEscrowOrderScriptHash>>(&self) -> ExtendVotingEscrowOrderScriptHash {
+        ExtendVotingEscrowOrderScriptHash(self.deployed_validators.extend_ve_order.hash)
+    }
+}
+
+impl Has<ExtendVotingEscrowOrderRefScriptOutput> for ProtocolConfig {
+    fn select<U: IsEqual<ExtendVotingEscrowOrderRefScriptOutput>>(
+        &self,
+    ) -> ExtendVotingEscrowOrderRefScriptOutput {
+        ExtendVotingEscrowOrderRefScriptOutput(
+            self.deployed_validators.extend_ve_order.reference_utxo.clone(),
+        )
     }
 }
 
@@ -453,12 +475,12 @@ impl Has<DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }>> for Proto
     }
 }
 
-pub const TX_FEE_CORRECTION: u64 = 1000;
-
-fn get_splash_token() -> (PolicyId, AssetName) {
-    if let spectrum_cardano_lib::AssetClass::Token(Token(policy_id, name)) = *SPLASH_AC {
-        (policy_id, AssetName::from(name))
-    } else {
-        panic!("Splash token can't be a native asset")
+impl Has<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>> for ProtocolConfig {
+    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }> {
+        DeployedScriptInfo::from(&self.deployed_validators.extend_ve_order)
     }
 }
+
+pub const TX_FEE_CORRECTION: u64 = 1000;

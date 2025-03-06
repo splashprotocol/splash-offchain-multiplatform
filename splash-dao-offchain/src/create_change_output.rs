@@ -17,6 +17,7 @@ use cml_crypto::ScriptHash;
 pub trait CreateChangeOutput {
     fn add_input<T: Into<AdaValue>>(&mut self, input: T);
     fn add_output<T: Into<AdaValue>>(&mut self, input: T);
+    fn mint_token(&mut self, token: Token);
     fn burn_token(&mut self, token: Token);
     fn create_change_output(self, fee: u64, change_address: Address) -> SingleOutputBuilderResult;
 }
@@ -63,6 +64,16 @@ impl CreateChangeOutput for ChangeOutputCreator {
                 self.tokens_in_inputs.remove(&(policy_id, asset_name));
             }
         }
+    }
+
+    fn mint_token(&mut self, token: Token) {
+        let Token {
+            policy_id,
+            asset_name,
+            quantity,
+        } = token;
+        let existing_quantity = self.tokens_in_inputs.entry((policy_id, asset_name)).or_insert(0);
+        *existing_quantity += quantity;
     }
 
     fn burn_token(&mut self, token: Token) {
@@ -115,6 +126,7 @@ pub struct AdaValue {
     tokens: Vec<Token>,
 }
 
+#[derive(Clone)]
 pub struct Token {
     pub policy_id: ScriptHash,
     pub asset_name: cml_chain::assets::AssetName,

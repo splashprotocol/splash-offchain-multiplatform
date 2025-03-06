@@ -23,9 +23,9 @@ use spectrum_offchain::{
 };
 use spectrum_offchain_cardano::{
     deployment::{test_address, DeployedScriptInfo},
-    parametrized_validators::apply_params_validator,
+    parametrized_validators::apply_params_validator_plutus_v2,
 };
-use uplc_pallas_codec::utils::PlutusBytes;
+use uplc_pallas_primitives::{BoundedBytes, MaybeIndefArray};
 
 use crate::{
     constants::{DEFAULT_AUTH_TOKEN_NAME, GT_NAME},
@@ -63,6 +63,32 @@ pub struct VEFactory {
     pub gt_tokens_available: u64,
 }
 
+impl VEFactory {
+    pub fn add_asset_to_inventory(&mut self, (token, qty): (Token, u64), is_legacy_asset: bool) {
+        let inventory = if is_legacy_asset {
+            &mut self.legacy_assets_inventory
+        } else {
+            &mut self.accepted_assets_inventory
+        };
+        if let Some(ix) = inventory.iter().position(|(t, _)| *t == token) {
+            inventory[ix].1 += qty;
+        } else {
+            inventory.push((token, qty));
+        }
+    }
+    pub fn remove_asset_from_inventory(&mut self, (token, qty): (Token, u64), is_legacy_asset: bool) {
+        let inventory = if is_legacy_asset {
+            &mut self.legacy_assets_inventory
+        } else {
+            &mut self.accepted_assets_inventory
+        };
+        let ix = inventory.iter().position(|(t, _)| *t == token).unwrap();
+
+        assert!(qty <= inventory[ix].1);
+        inventory[ix].1 -= qty;
+    }
+}
+
 impl<C> TryFromLedger<TransactionOutput, C> for VEFactorySnapshot
 where
     C: Has<TimedOutputRef>
@@ -81,7 +107,7 @@ where
             let gt_policy_id = ctx.select::<GTAuthPolicy>().0;
             let gt_asset_name = cml_chain::assets::AssetName::new(GT_NAME.to_be_bytes().to_vec()).unwrap();
 
-            let auth_token_policy_id = ctx.select::<VEFactoryAuthPolicy>().0;
+            let auth_token_policy_id = ctx.select::<VEFactoryAuthPolicy>().0.policy_id;
             let auth_token_name =
                 spectrum_cardano_lib::AssetName::try_from(DEFAULT_AUTH_TOKEN_NAME.to_be_bytes().to_vec())
                     .unwrap();
@@ -137,17 +163,17 @@ pub fn compute_ve_factory_validator(
     voting_escrow_scripthash: ScriptHash,
     gov_proxy_scripthash: ScriptHash,
 ) -> PlutusV2Script {
-    let params_pd = uplc::PlutusData::Array(vec![
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(ve_factory_auth_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(ve_identifier_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(ve_composition_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(gt_policy.to_raw_bytes().to_vec())),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(
+    let params_pd = uplc::PlutusData::Array(MaybeIndefArray::Indef(vec![
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(ve_factory_auth_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(ve_identifier_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(ve_composition_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(gt_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(
             voting_escrow_scripthash.to_raw_bytes().to_vec(),
         )),
-        uplc::PlutusData::BoundedBytes(PlutusBytes::from(gov_proxy_scripthash.to_raw_bytes().to_vec())),
-    ]);
-    apply_params_validator(params_pd, &DaoScriptData::global().ve_factory.script_bytes)
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(gov_proxy_scripthash.to_raw_bytes().to_vec())),
+    ]));
+    apply_params_validator_plutus_v2(params_pd, &DaoScriptData::global().ve_factory.script_bytes)
 }
 
 fn is_token_accepted(token: Token, accepted_assets: &[(Token, Ratio<u128>)]) -> bool {

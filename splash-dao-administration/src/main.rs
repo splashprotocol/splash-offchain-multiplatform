@@ -5,6 +5,7 @@ pub mod voting_order;
 use std::{
     collections::HashMap,
     net::SocketAddr,
+    str::FromStr,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -22,21 +23,23 @@ use cml_chain::{
         withdrawal_builder::SingleWithdrawalBuilder,
         witness_builder::{PartialPlutusWitness, PlutusScriptWitness},
     },
+    certs::StakeCredential,
     crypto::utils::make_vkey_witness,
-    plutus::{ConstrPlutusData, PlutusData, RedeemerTag},
+    plutus::{ConstrPlutusData, PlutusData, PlutusScript, PlutusV2Script, PlutusV3Script, RedeemerTag},
     transaction::{DatumOption, Transaction, TransactionOutput},
     utils::BigInteger,
-    Coin, Serialize, Value,
+    Coin, PolicyId, Serialize, Value,
 };
 use cml_crypto::{Ed25519KeyHash, PrivateKey, RawBytesEncoding, ScriptHash, TransactionHash};
 use mint_token::{script_address, DaoDeploymentParameters, LQ_NAME};
+use num_rational::Ratio;
 use spectrum_cardano_lib::{
     collateral::Collateral,
     hash::hash_transaction_canonical,
     protocol_params::{constant_tx_builder, COINS_PER_UTXO_BYTE},
     transaction::TransactionOutputExtension,
     value::ValueExtension,
-    AssetClass, NetworkId, OutputRef, PaymentCredential, Token,
+    AssetClass, AssetName, NetworkId, OutputRef, PaymentCredential, Token,
 };
 use spectrum_cardano_lib::{plutus_data::IntoPlutusData, types::TryFromPData};
 use spectrum_offchain::domain::Stable;
@@ -51,18 +54,19 @@ use splash_dao_offchain::{
     create_change_output::{ChangeOutputCreator, CreateChangeOutput},
     deployment::{
         write_deployment_to_disk, BuiltPolicy, CompleteDeployment, DaoScriptData, DeployedValidators,
-        DeploymentProgress, NFTUtxoInputs, ProtocolDeployment,
+        DeploymentProgress, ExternallyMintedToken, NFTUtxoInputs, ProtocolDeployment,
     },
     entities::{
-        offchain::voting_order::VotingOrderId,
+        offchain::OffChainOrderId,
         onchain::{
+            extend_voting_escrow_order::compute_extend_ve_witness_validator,
             farm_factory::{FarmFactoryAction, FarmFactoryDatum},
             inflation_box::InflationBoxSnapshot,
             permission_manager::{PermManagerDatum, PermManagerSnapshot},
             poll_factory::{PollFactoryConfig, PollFactorySnapshot},
             smart_farm::{FarmId, MintAction},
             voting_escrow::{Lock, Owner, VotingEscrowConfig, VotingEscrowId, VotingEscrowSnapshot},
-            voting_escrow_factory::{VEFactoryDatum, VEFactoryId, VEFactorySnapshot},
+            voting_escrow_factory::{AcceptedAsset, VEFactoryDatum, VEFactoryId, VEFactorySnapshot},
         },
     },
     routines::inflation::{actions::compute_farm_name, ProcessLedgerEntityContext, Slot, TimedOutputRef},
@@ -95,29 +99,25 @@ async fn main() {
         Command::SimulateUser {
             ve_identifier_json_path,
             assets_json_path,
+            existing_splash_policy_id_hex,
         } => {
+            let existing_splash_policy_id =
+                existing_splash_policy_id_hex.and_then(|s| PolicyId::from_hex(&s).ok());
             user_simulator(
                 &mut op_inputs,
                 config,
                 &ve_identifier_json_path,
                 &assets_json_path,
+                existing_splash_policy_id,
             )
             .await;
         }
-        Command::SimulateUser {
-            ve_identifier_json_path,
-            assets_json_path,
+        Command::Deploy {
+            existing_splash_policy_id_hex,
         } => {
-            user_simulator(
-                &mut op_inputs,
-                config,
-                &ve_identifier_json_path,
-                &assets_json_path,
-            )
-            .await;
-        }
-        Command::Deploy => {
-            deploy(&mut op_inputs, config).await;
+            let existing_splash_policy_id =
+                existing_splash_policy_id_hex.and_then(|s| PolicyId::from_hex(&s).ok());
+            deploy(&mut op_inputs, config, existing_splash_policy_id).await;
         }
         Command::CreateFarm => {
             create_initial_farms(&op_inputs).await;
@@ -142,13 +142,38 @@ async fn main() {
         Command::SendEDaoToken { destination_addr } => {
             send_edao_token(&op_inputs, destination_addr).await;
         }
-        Command::RegisterWitnessStakingAddress { script_hash_hex } => {
-            register_witness_staking_addr(&op_inputs, script_hash_hex).await;
+        Command::RegisterVotingWitnessStakingAddress => {
+            let script: PlutusScript = PlutusV2Script::new(
+                hex::decode(DaoScriptData::global().voting_witness.script_bytes.clone()).unwrap(),
+            )
+            .into();
+            register_witness_staking_addr(&op_inputs, script).await;
+        }
+        Command::RegisterExtendVotingEscrowWitnessStakingAddress => {
+            let script: PlutusScript = compute_extend_ve_witness_validator().into();
+            register_witness_staking_addr(&op_inputs, script).await;
+        }
+        Command::RegisterRedeemVotingEscrowWitnessStakingAddress => {
+            let script: PlutusScript = PlutusV3Script::new(
+                hex::decode(
+                    DaoScriptData::global()
+                        .redeem_voting_escrow_witness
+                        .script_bytes
+                        .clone(),
+                )
+                .unwrap(),
+            )
+            .into();
+            register_witness_staking_addr(&op_inputs, script).await;
         }
     };
 }
 
-async fn deploy<'a>(op_inputs: &mut OperationInputs, config: AppConfig<'a>) -> CompleteDeployment {
+async fn deploy<'a>(
+    op_inputs: &mut OperationInputs,
+    config: AppConfig<'a>,
+    existing_splash_policy_id: Option<PolicyId>,
+) -> CompleteDeployment {
     let OperationInputs {
         explorer,
         addr,
@@ -197,7 +222,7 @@ async fn deploy<'a>(op_inputs: &mut OperationInputs, config: AppConfig<'a>) -> C
             addr,
             explorer.chain_tip_slot_number().await.unwrap(),
         );
-        let tx = Transaction::from(prover.prove(signed_tx_builder));
+        let tx = prover.prove(signed_tx_builder);
         let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
         println!("tx_hash: {}", tx_hash.to_hex());
         let tx_bytes = tx.to_cbor_bytes();
@@ -211,29 +236,42 @@ async fn deploy<'a>(op_inputs: &mut OperationInputs, config: AppConfig<'a>) -> C
     }
 
     if deployment_progress.splash_tokens.is_none() {
-        println!("Minting SPLASH tokens ----------------------------------------------------------");
+        if let Some(splash_policy_id) = existing_splash_policy_id {
+            let asset_name = cml_chain::assets::AssetName::try_from(SPLASH_NAME.as_bytes().to_vec()).unwrap();
 
-        let input_result = get_largest_utxo(explorer, addr).await;
+            let minted_token = ExternallyMintedToken {
+                policy_id: splash_policy_id,
+                asset_name,
+                quantity: INFLATION_BOX_INITIAL_SPLASH_QTY as u64,
+            };
 
-        let (signed_tx_builder, minted_token) = mint_token::mint_token(
-            SPLASH_NAME,
-            2 * INFLATION_BOX_INITIAL_SPLASH_QTY,
-            pk_hash,
-            input_result,
-            addr,
-            explorer.chain_tip_slot_number().await.unwrap(),
-        );
-        let tx = prover.prove(signed_tx_builder);
-        let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
-        println!("tx_hash: {}", tx_hash.to_hex());
-        let tx_bytes = tx.to_cbor_bytes();
-        println!("tx_bytes: {}", hex::encode(&tx_bytes));
+            deployment_progress.splash_tokens = Some(minted_token);
+            write_deployment_to_disk(&deployment_progress, config.deployment_json_path).await;
+        } else {
+            println!("Minting SPLASH tokens ----------------------------------------------------------");
 
-        explorer.submit_tx(&tx_bytes).await.unwrap();
-        explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
+            let input_result = get_largest_utxo(explorer, addr).await;
 
-        deployment_progress.splash_tokens = Some(minted_token);
-        write_deployment_to_disk(&deployment_progress, config.deployment_json_path).await;
+            let (signed_tx_builder, minted_token) = mint_token::mint_token(
+                SPLASH_NAME,
+                i64::MAX,
+                pk_hash,
+                input_result,
+                addr,
+                explorer.chain_tip_slot_number().await.unwrap(),
+            );
+            let tx = prover.prove(signed_tx_builder);
+            let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
+            println!("tx_hash: {}", tx_hash.to_hex());
+            let tx_bytes = tx.to_cbor_bytes();
+            println!("tx_bytes: {}", hex::encode(&tx_bytes));
+
+            explorer.submit_tx(&tx_bytes).await.unwrap();
+            explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
+
+            deployment_progress.splash_tokens = Some(minted_token);
+            write_deployment_to_disk(&deployment_progress, config.deployment_json_path).await;
+        }
     }
 
     let need_create_token_inputs = deployment_progress.nft_utxo_inputs.is_none()
@@ -424,6 +462,12 @@ async fn deploy<'a>(op_inputs: &mut OperationInputs, config: AppConfig<'a>) -> C
                 cost: (&dsd.make_voting_escrow_order.ex_units).into(),
                 marginal_cost: None,
             },
+            extend_ve_order: DeployedValidatorRef {
+                hash: reference_input_script_hashes.extend_ve_order,
+                reference_utxo: make_ref_utxo(2, 4),
+                cost: (&dsd.extend_voting_escrow_order.ex_units).into(),
+                marginal_cost: None,
+            },
         };
 
         deployment_progress.deployed_validators = Some(d);
@@ -488,7 +532,7 @@ async fn create_dao_entities(
     let splash_built_policy = BuiltPolicy {
         policy_id: deployment_config.splash_tokens.policy_id,
         asset_name: deployment_config.splash_tokens.asset_name.clone(),
-        quantity: BigInteger::from(deployment_config.splash_tokens.quantity),
+        quantity: BigInteger::from(INFLATION_BOX_INITIAL_SPLASH_QTY),
     };
     let required_tokens = vec![
         minted_tokens.perm_auth.clone(),
@@ -579,7 +623,7 @@ async fn create_dao_entities(
     inflation_assets.set(
         deployment_config.splash_tokens.policy_id,
         deployment_config.splash_tokens.asset_name.clone(),
-        deployment_config.splash_tokens.quantity,
+        INFLATION_BOX_INITIAL_SPLASH_QTY as u64,
     );
     let inflation_out = make_output(
         protocol_deployment.inflation.hash,
@@ -638,7 +682,15 @@ async fn create_dao_entities(
     output_coin += wp_factory_out.output.amount().coin;
     tx_builder.add_output(wp_factory_out).unwrap();
 
-    let ve_factory_datum = VEFactoryDatum::from(deployment_params.accepted_assets.clone());
+    // ve_factory ----------------------------------------------------------------------------------
+
+    // Only SPLASH is accepted, in 1-to-1 ratio with governance tokens.
+    let accepted_assets = vec![AcceptedAsset {
+        asset_name_utf8: SPLASH_NAME.into(),
+        policy_id: deployment_config.splash_tokens.policy_id,
+        exchange_rate: Ratio::new_raw(1, 1),
+    }];
+    let ve_factory_datum = VEFactoryDatum::from(accepted_assets);
     let mut ve_factory_assets = MultiAsset::default();
     ve_factory_assets.set(
         minted_tokens.ve_factory_auth.policy_id,
@@ -751,7 +803,7 @@ async fn make_voting_escrow_order(
     } = op_inputs;
 
     let VotingEscrowSettings {
-        deposits,
+        splash_deposit_amount,
         max_ex_fee,
         ada_balance,
         lock_duration_in_seconds,
@@ -770,21 +822,18 @@ async fn make_voting_escrow_order(
     let mut order_out_value = Value::zero();
 
     // Deposit assets into ve_factory -------------------------------------------
-    let VEFactoryDatum { accepted_assets, .. } = VEFactoryDatum::from(dao_parameters.accepted_assets.clone());
 
-    let mut built_policies = vec![];
+    let splash_name = AssetName::utf8_unsafe(SPLASH_NAME.into());
+    let splash_policy_id = deployment_config.splash_tokens.policy_id;
+    let built_policy = BuiltPolicy {
+        policy_id: splash_policy_id,
+        asset_name: cml_chain::assets::AssetName::from(splash_name),
+        quantity: BigInteger::from(*splash_deposit_amount),
+    };
+    let ac = AssetClass::Token(Token(splash_policy_id, splash_name));
 
-    for token_deposit in deposits {
-        let token = Token::from(token_deposit);
-        let accepted_asset = accepted_assets.iter().any(|(tok, _)| *tok == token);
-        let ac = AssetClass::from(token);
-        if accepted_asset {
-            order_out_value.add_unsafe(ac, token_deposit.quantity);
-            built_policies.push(BuiltPolicy::from(token_deposit.clone()));
-        } else {
-            panic!("{} is not accepted by the DAO!", ac);
-        }
-    }
+    order_out_value.add_unsafe(ac, *splash_deposit_amount);
+    let built_policies = vec![built_policy];
 
     println!("seeking input value: {}", ada_balance + 10_000_000);
     let utxos = collect_utxos(
@@ -840,7 +889,7 @@ async fn make_voting_escrow_order(
     tx_builder.add_output(mve_output).unwrap();
 
     let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
-    let actual_fee = estimated_tx_fee + 300_000;
+    let actual_fee = estimated_tx_fee + 310_000;
     let change_output = change_output_creator.create_change_output(actual_fee, addr.clone());
     tx_builder.add_output(change_output).unwrap();
     tx_builder
@@ -862,6 +911,146 @@ async fn make_voting_escrow_order(
     explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
     println!("TX confirmed");
     owner
+}
+
+async fn extend_voting_escrow_order(
+    voting_escrow_id: VotingEscrowId,
+    ve_settings: &VotingEscrowSettings,
+    op_inputs: &mut OperationInputs,
+) -> Owner {
+    let OperationInputs {
+        explorer,
+        addr,
+        deployment_progress,
+        dao_parameters,
+        collateral,
+        prover,
+        network_id,
+        owner_pub_key,
+        ..
+    } = op_inputs;
+
+    let VotingEscrowSettings {
+        splash_deposit_amount,
+        ada_balance,
+        lock_duration_in_seconds,
+        ..
+    } = ve_settings;
+
+    if *lock_duration_in_seconds > MAX_LOCK_TIME_SECONDS {
+        panic!("Locktime exceeds limits!");
+    }
+
+    let deployment_config = CompleteDeployment::try_from((deployment_progress.clone(), *network_id))
+        .expect(INCOMPLETE_DEPLOYMENT_ERR_MSG);
+    let protocol_deployment =
+        ProtocolDeployment::unsafe_pull(deployment_config.deployed_validators.clone(), explorer).await;
+
+    let mut order_out_value = Value::zero();
+
+    // Deposit assets into ve_factory -------------------------------------------
+    let splash_name = AssetName::utf8_unsafe(SPLASH_NAME.into());
+    let splash_policy_id = deployment_config.splash_tokens.policy_id;
+    let built_policy = BuiltPolicy {
+        policy_id: splash_policy_id,
+        asset_name: cml_chain::assets::AssetName::from(splash_name),
+        quantity: BigInteger::from(*splash_deposit_amount),
+    };
+    let ac = AssetClass::Token(Token(splash_policy_id, splash_name));
+
+    order_out_value.add_unsafe(ac, *splash_deposit_amount);
+    let built_policies = vec![built_policy];
+
+    println!("seeking input value: {}", ada_balance + 10_000_000);
+    let utxos = collect_utxos(
+        addr,
+        ada_balance + 10_000_000,
+        built_policies,
+        collateral,
+        explorer,
+    )
+    .await;
+
+    let mut change_output_creator = ChangeOutputCreator::default();
+    let mut tx_builder = constant_tx_builder();
+    tx_builder.add_reference_input(protocol_deployment.make_ve_order.reference_utxo);
+
+    // Add inputs --------------------------------------------------------
+    for utxo in utxos {
+        println!("add_input coin: {}", utxo.utxo_info.value().coin);
+        change_output_creator.add_input(&utxo);
+        tx_builder.add_input(utxo).unwrap();
+    }
+
+    let voting_escrow_datum = if let Some((ve_snapshot, _)) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
+        explorer,
+        protocol_deployment.voting_escrow.hash,
+        *network_id,
+        &deployment_config,
+        voting_escrow_id,
+    )
+    .await
+    {
+        let ve = ve_snapshot.get();
+        let time_source = NetworkTimeSource;
+        let locked_until = Lock::Def((time_source.network_time().await + *lock_duration_in_seconds) * 1000);
+        // Note that this datum is for the newly extended `voting_escrow` (in the output)
+        DatumOption::new_datum(
+            VotingEscrowConfig {
+                locked_until, // Extend by old locktime duration.
+                owner: ve.owner,
+                max_ex_fee: ve.max_ex_fee,
+                version: ve.version + 1,
+                last_wp_epoch: ve.last_wp_epoch,
+                last_gp_deadline: ve.last_gp_deadline,
+            }
+            .into_pd(),
+        )
+    } else {
+        panic!("VE NOT FOUND");
+    };
+
+    order_out_value.coin = *ada_balance;
+
+    let eve_output = TransactionOutputBuilder::new()
+        .with_address(script_address(
+            protocol_deployment.extend_ve_order.hash,
+            *network_id,
+        ))
+        .with_data(voting_escrow_datum)
+        .next()
+        .unwrap()
+        .with_value(order_out_value)
+        .build()
+        .unwrap();
+    change_output_creator.add_output(&eve_output);
+    tx_builder.add_output(eve_output).unwrap();
+
+    let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
+    let actual_fee = estimated_tx_fee + 300_000;
+    let change_output = change_output_creator.create_change_output(actual_fee, addr.clone());
+    tx_builder.add_output(change_output).unwrap();
+    tx_builder
+        .add_collateral(InputBuilderResult::from(collateral.clone()))
+        .unwrap();
+
+    let start_slot = explorer.chain_tip_slot_number().await.unwrap();
+    tx_builder.set_validity_start_interval(start_slot);
+    tx_builder.set_ttl(start_slot + 300);
+
+    let signed_tx_builder = tx_builder.build(ChangeSelectionAlgo::Default, addr).unwrap();
+    let tx = prover.prove(signed_tx_builder);
+    let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
+    println!("tx_hash: {:?}", tx_hash);
+    let tx_bytes = tx.to_cbor_bytes();
+    println!("tx_bytes: {}", hex::encode(&tx_bytes));
+
+    explorer.submit_tx(&tx_bytes).await.unwrap();
+    explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
+    println!("TX confirmed");
+
+    let owner_bytes = owner_pub_key.to_raw_bytes().try_into().unwrap();
+    Owner::PubKey(owner_bytes)
 }
 
 async fn create_initial_farms(op_inputs: &OperationInputs) {
@@ -1087,7 +1276,7 @@ async fn cast_vote(op_inputs: &OperationInputs, id: VotingEscrowId) {
     .await
     .unwrap();
 
-    let id = VotingOrderId {
+    let id = OffChainOrderId {
         voting_escrow_id: voting_escrow.get().stable_id(),
         version: voting_escrow.get().version as u64,
     };
@@ -1166,7 +1355,7 @@ async fn pull_onchain_entity<'a, T, D>(
     id: T::StableId,
 ) -> Option<(T, TransactionUnspentOutput)>
 where
-    T: TryFromLedger<TransactionOutput, ProcessLedgerEntityContext<'a, D>> + EntitySnapshot,
+    T: TryFromLedger<TransactionOutput, ProcessLedgerEntityContext<'a, D>> + Stable,
 {
     let mut entity = None;
     let mut offset = 0u64;
@@ -1190,7 +1379,6 @@ where
                 behaviour: deployment_config,
                 timed_output_ref,
                 current_epoch: CurrentEpoch::from(0),
-                wpoll_eliminated: false,
             };
             if let Some(t) = T::try_from_ledger(&utxo.output, &ctx) {
                 println!("  ID: {}, slot: {}", t.stable_id(), slot);
@@ -1220,11 +1408,17 @@ async fn send_edao_token(op_inputs: &OperationInputs, destination_addr: String) 
         .expect(INCOMPLETE_DEPLOYMENT_ERR_MSG);
 
     let minted_tokens = &deployment_config.minted_deployment_tokens;
-    let required_tokens = vec![minted_tokens.edao_msig.clone()];
+    let bp = BuiltPolicy {
+        policy_id: PolicyId::from_hex("7876492e3b82a31b1ce97a8f454cec653a0f6be5c09b90e62d24c152").unwrap(),
+        asset_name: cml_chain::assets::AssetName::from(AssetName::utf8_unsafe("SPLASH".to_string())),
+        quantity: BigInteger::from(1_000_000),
+    };
+
+    let required_tokens = vec![bp];
     send_assets(
-        5_000_000,
-        1_800_000,
-        vec![],
+        10_000_000,
+        7_800_000,
+        required_tokens,
         explorer,
         addr,
         &destination_addr,
@@ -1234,7 +1428,7 @@ async fn send_edao_token(op_inputs: &OperationInputs, destination_addr: String) 
     .unwrap();
 }
 
-async fn register_witness_staking_addr(op_inputs: &OperationInputs, script_hash_hex: String) {
+async fn register_witness_staking_addr(op_inputs: &OperationInputs, script: PlutusScript) {
     let OperationInputs {
         explorer,
         addr,
@@ -1242,25 +1436,9 @@ async fn register_witness_staking_addr(op_inputs: &OperationInputs, script_hash_
         collateral,
         ..
     } = op_inputs;
-    let staking_validator_script_hash = ScriptHash::from_hex(&script_hash_hex).unwrap();
-    //println!(
-    //    "ZZZZ: {}",
-    //    hex::encode(vec![
-    //        158, 118, 55, 184, 13, 29, 242, 39, 236, 32, 97, 168, 142, 119, 32, 223, 131, 28, 159, 233, 162,
-    //        22, 58, 3, 52, 9, 157, 158
-    //    ])
-    //);
-    register_staking_address(
-        14_000_000,
-        8_030_000,
-        explorer,
-        addr,
-        &staking_validator_script_hash,
-        collateral,
-        prover,
-    )
-    .await
-    .unwrap();
+    register_staking_address(script, 14_000_000, explorer, addr, collateral, prover)
+        .await
+        .unwrap();
 }
 
 #[derive(Parser)]
@@ -1281,7 +1459,10 @@ struct AppArgs {
 
 #[derive(Subcommand)]
 enum Command {
-    Deploy,
+    Deploy {
+        #[arg(long)]
+        existing_splash_policy_id_hex: Option<String>,
+    },
     CreateFarm,
     MakeVotingEscrow {
         #[arg(long)]
@@ -1301,16 +1482,17 @@ enum Command {
         ve_identifier_json_path: String,
         #[arg(long)]
         assets_json_path: String,
-    },
-    RegisterWitnessStakingAddress {
         #[arg(long)]
-        script_hash_hex: String,
+        existing_splash_policy_id_hex: Option<String>,
     },
+    RegisterVotingWitnessStakingAddress,
+    RegisterExtendVotingEscrowWitnessStakingAddress,
+    RegisterRedeemVotingEscrowWitnessStakingAddress,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct VotingEscrowSettings {
-    deposits: Vec<TokenDeposit>,
+    splash_deposit_amount: u64,
     max_ex_fee: u64,
     ada_balance: u64,
     lock_duration_in_seconds: u64,
@@ -1369,6 +1551,7 @@ struct OperationInputs {
     owner_pub_key: cml_crypto::PublicKey,
     operator_public_key_hash: PaymentCredential,
     operator_sk: PrivateKey,
+    stake_credential: StakeCredential,
     deployment_progress: DeploymentProgress,
     dao_parameters: DaoDeploymentParameters,
     collateral: Collateral,
@@ -1385,6 +1568,10 @@ async fn create_operation_inputs<'a>(config: &'a AppConfig<'a>) -> OperationInpu
     let (addr, _, operator_pkh, _operator_cred, operator_sk) =
         operator_creds_base_address(config.batcher_private_key, config.network_id);
     let sk_bech32 = operator_sk.to_bech32();
+    let Address::Base(ref b) = addr else {
+        panic!("Only work with BaseAddress");
+    };
+    let stake_credential = b.stake.clone();
     let prover = OperatorProver::new(sk_bech32);
     //let prover = OperatorProver::new(config.batcher_private_key.into());
     let owner_pub_key = operator_sk.to_public();
@@ -1413,6 +1600,7 @@ async fn create_operation_inputs<'a>(config: &'a AppConfig<'a>) -> OperationInpu
         owner_pub_key,
         operator_public_key_hash: operator_pkh,
         operator_sk,
+        stake_credential,
         collateral,
         dao_parameters,
         deployment_progress,

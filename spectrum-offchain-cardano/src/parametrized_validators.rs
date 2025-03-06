@@ -2,7 +2,7 @@ use cml_chain::plutus::PlutusV2Script;
 use cml_crypto::{RawBytesEncoding, ScriptHash};
 use uplc::tx::apply_params_to_script;
 
-pub fn apply_params_validator(
+pub fn apply_params_validator_plutus_v2(
     params_pd: uplc::PlutusData,
     script: &str,
 ) -> cml_chain::plutus::PlutusV2Script {

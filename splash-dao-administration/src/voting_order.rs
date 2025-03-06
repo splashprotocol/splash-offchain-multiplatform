@@ -7,18 +7,16 @@ use cml_chain::utils::BigInteger;
 use cml_chain::{LenEncoding, PolicyId, Serialize};
 use cml_crypto::{PrivateKey, RawBytesEncoding, ScriptHash};
 use rand::Rng;
+use spectrum_cardano_lib::plutus_data::make_constr_pd_indefinite_arr;
 use splash_dao_offchain::deployment::DaoScriptData;
-use splash_dao_offchain::entities::offchain::voting_order::compute_voting_witness_message;
-use splash_dao_offchain::entities::{
-    offchain::voting_order::{VotingOrder, VotingOrderId},
-    onchain::smart_farm::FarmId,
-};
+use splash_dao_offchain::entities::offchain::{compute_voting_escrow_witness_message, OffChainOrderId};
+use splash_dao_offchain::entities::{offchain::voting_order::VotingOrder, onchain::smart_farm::FarmId};
 use splash_dao_offchain::routines::inflation::actions::{compute_epoch_asset_name, compute_farm_name};
-use uplc_pallas_primitives::Fragment;
+use uplc_pallas_primitives::{BoundedBytes, Fragment};
 
 pub fn create_voting_order(
     operator_sk: &PrivateKey,
-    id: VotingOrderId,
+    id: OffChainOrderId,
     voting_power: u64,
     wpoll_policy_id: PolicyId,
     epoch: u32,
@@ -55,7 +53,7 @@ pub fn create_voting_order(
     let redeemer_hex = hex::encode(redeemer.to_cbor_bytes());
     println!("redeemer: {}", redeemer_hex);
     let message =
-        compute_voting_witness_message(voting_witness_script.hash(), redeemer_hex.clone(), id.version)
+        compute_voting_escrow_witness_message(voting_witness_script.hash(), redeemer_hex.clone(), id.version)
             .unwrap();
     println!("message: {}", hex::encode(&message));
     let signature = operator_sk.sign(&message).to_raw_bytes().to_vec();
@@ -110,13 +108,12 @@ fn make_pallas_redeemer(
 ) -> uplc::PlutusData {
     let wpoll_auth_token_name = compute_epoch_asset_name(epoch);
 
-    let to_plutus_bytes =
-        |bytes: Vec<u8>| uplc::PlutusData::BoundedBytes(uplc_pallas_codec::utils::PlutusBytes::from(bytes));
+    let to_plutus_bytes = |bytes: Vec<u8>| uplc::PlutusData::BoundedBytes(BoundedBytes::from(bytes));
     let to_plutus_cstr = |fields: Vec<uplc::PlutusData>| {
         uplc::PlutusData::Constr(uplc::Constr {
             tag: 121,
             any_constructor: None,
-            fields,
+            fields: uplc_pallas_primitives::MaybeIndefArray::Indef(fields),
         })
     };
     let asset_pd = to_plutus_cstr(vec![
@@ -136,69 +133,27 @@ fn make_pallas_redeemer(
         })
         .collect();
 
-    let distribution_pd = uplc::PlutusData::Array(distribution);
+    let distribution_pd =
+        uplc::PlutusData::Array(uplc_pallas_primitives::MaybeIndefArray::Indef(distribution));
     to_plutus_cstr(vec![asset_pd, distribution_pd])
-}
-
-fn make_constr_pd_indefinite_arr(fields: Vec<PlutusData>) -> PlutusData {
-    let enc = ConstrPlutusDataEncoding {
-        len_encoding: LenEncoding::Indefinite,
-        prefer_compact: true,
-        tag_encoding: None,
-        alternative_encoding: None,
-        fields_encoding: LenEncoding::Indefinite,
-    };
-    PlutusData::new_constr_plutus_data(ConstrPlutusData {
-        alternative: 0,
-        fields,
-        encodings: Some(enc),
-    })
-}
-
-fn make_witness_redeemer(
-    distribution: &[(FarmId, u64)],
-    wpoll_policy_id: ScriptHash,
-    epoch: u32,
-) -> PlutusData {
-    let wpoll_auth_token_name = compute_epoch_asset_name(epoch);
-    println!("wpoll_auth_name: {}", wpoll_auth_token_name.to_raw_hex());
-
-    let asset_pd = make_constr_pd_indefinite_arr(vec![
-        PlutusData::new_bytes(wpoll_policy_id.to_raw_bytes().to_vec()),
-        PlutusData::new_bytes(wpoll_auth_token_name.to_raw_bytes().to_vec()),
-    ]);
-
-    let distribution = distribution
-        .iter()
-        .map(|&(farm_id, weight)| {
-            make_constr_pd_indefinite_arr(vec![
-                PlutusData::new_bytes(cml_chain::assets::AssetName::from(farm_id.0).inner),
-                PlutusData::new_integer(BigInteger::from(weight)),
-            ])
-        })
-        .collect();
-
-    let distribution_pd = PlutusData::List {
-        list: distribution,
-        list_encoding: LenEncoding::Indefinite,
-    };
-    make_constr_pd_indefinite_arr(vec![asset_pd, distribution_pd])
 }
 
 #[cfg(test)]
 mod tests {
     use cml_chain::plutus::PlutusData;
     use cml_chain::Deserialize;
+    use cml_chain::PolicyId;
     use cml_chain::Serialize;
     use cml_crypto::RawBytesEncoding;
     use cml_crypto::ScriptHash;
     use spectrum_cardano_lib::NetworkId;
     use spectrum_offchain_cardano::creds::operator_creds_base_address;
-    use splash_dao_offchain::entities::offchain::voting_order::compute_voting_witness_message;
+    use splash_dao_offchain::entities::offchain::compute_voting_escrow_witness_message;
     use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
     use splash_dao_offchain::routines::inflation::actions::compute_farm_name;
     use uplc_pallas_primitives::Fragment;
 
+    use crate::mint_token::script_address;
     use crate::OperatorProver;
 
     use super::make_cml_witness_redeemer;
@@ -229,7 +184,7 @@ mod tests {
 
         let witness_sh =
             ScriptHash::from_hex("9e7637b80d1df227ec2061a88e7720df831c9fe9a2163a0334099d9e").unwrap();
-        let message = compute_voting_witness_message(witness_sh, redeemer_hex.clone(), 0).unwrap();
+        let message = compute_voting_escrow_witness_message(witness_sh, redeemer_hex.clone(), 0).unwrap();
         println!("message: {}", hex::encode(&message));
 
         let (addr, _, operator_pkh, _operator_cred, operator_sk) =

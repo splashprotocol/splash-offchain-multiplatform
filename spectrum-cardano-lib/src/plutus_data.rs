@@ -248,3 +248,20 @@ impl DatumExtension for DatumOption {
         }
     }
 }
+
+/// Constructs a ConstrPlutusData instance which is bitwise-exact with how Aiken constructs such
+/// values. This is essential if we want to check equality of serialised PlutusData values.
+pub fn make_constr_pd_indefinite_arr(fields: Vec<PlutusData>) -> PlutusData {
+    let enc = ConstrPlutusDataEncoding {
+        len_encoding: LenEncoding::Indefinite,
+        prefer_compact: true,
+        tag_encoding: None,
+        alternative_encoding: None,
+        fields_encoding: LenEncoding::Indefinite,
+    };
+    PlutusData::new_constr_plutus_data(ConstrPlutusData {
+        alternative: 0,
+        fields,
+        encodings: Some(enc),
+    })
+}

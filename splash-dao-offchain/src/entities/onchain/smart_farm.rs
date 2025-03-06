@@ -14,7 +14,8 @@ use spectrum_cardano_lib::AssetName;
 use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
-use spectrum_offchain_cardano::parametrized_validators::apply_params_validator;
+use spectrum_offchain_cardano::parametrized_validators::apply_params_validator_plutus_v2;
+use uplc_pallas_primitives::{BoundedBytes, MaybeIndefArray};
 
 use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::Snapshot;
@@ -150,15 +151,11 @@ pub fn compute_mint_farm_auth_token_validator(
     splash_policy: PolicyId,
     factory_auth_policy: PolicyId,
 ) -> PlutusV2Script {
-    let params_pd = uplc::PlutusData::Array(vec![
-        uplc::PlutusData::BoundedBytes(uplc_pallas_codec::utils::PlutusBytes::from(
-            splash_policy.to_raw_bytes().to_vec(),
-        )),
-        uplc::PlutusData::BoundedBytes(uplc_pallas_codec::utils::PlutusBytes::from(
-            factory_auth_policy.to_raw_bytes().to_vec(),
-        )),
-    ]);
-    apply_params_validator(
+    let params_pd = uplc::PlutusData::Array(MaybeIndefArray::Indef(vec![
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(splash_policy.to_raw_bytes().to_vec())),
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(factory_auth_policy.to_raw_bytes().to_vec())),
+    ]));
+    apply_params_validator_plutus_v2(
         params_pd,
         &DaoScriptData::global().mint_farm_auth_token.script_bytes,
     )

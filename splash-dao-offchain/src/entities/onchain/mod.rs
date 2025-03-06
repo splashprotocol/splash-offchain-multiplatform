@@ -1,14 +1,20 @@
 use cml_chain::transaction::TransactionOutput;
+use extend_voting_escrow_order::ExtendVotingEscrowOnchainOrder;
 use funding_box::{FundingBox, FundingBoxSnapshot};
 use inflation_box::{InflationBox, InflationBoxSnapshot};
 use make_voting_escrow_order::MakeVotingEscrowOrder;
 use permission_manager::{PermManager, PermManagerSnapshot};
 use poll_factory::{PollFactory, PollFactorySnapshot};
+use serde::{Deserialize, Serialize};
 use smart_farm::{SmartFarm, SmartFarmSnapshot};
 use spectrum_cardano_lib::{NetworkId, OutputRef};
-use spectrum_offchain::{domain::Has, ledger::TryFromLedger};
+use spectrum_offchain::{
+    backlog::data::{OrderWeight, Weighted},
+    domain::{order::UniqueOrder, Has},
+    ledger::TryFromLedger,
+};
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
-use voting_escrow::{VotingEscrow, VotingEscrowSnapshot};
+use voting_escrow::{Owner, VotingEscrow, VotingEscrowSnapshot};
 use voting_escrow_factory::{VEFactory, VEFactorySnapshot};
 use weighting_poll::{WeightingPoll, WeightingPollSnapshot};
 
@@ -18,18 +24,20 @@ use crate::{
         FarmAuthPolicy, GTAuthPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy, OperatorCreds,
         PermManagerAuthPolicy, SplashPolicy, VEFactoryAuthPolicy,
     },
-    routines::inflation::{TimedOutputRef, WeightingPollEliminated},
+    routines::inflation::TimedOutputRef,
     CurrentEpoch, GenesisEpochStartTime,
 };
 
 use super::Snapshot;
 
+pub mod extend_voting_escrow_order;
 pub mod farm_factory;
 pub mod funding_box;
 pub mod inflation_box;
 pub mod make_voting_escrow_order;
 pub mod permission_manager;
 pub mod poll_factory;
+pub mod redeem_voting_escrow;
 pub mod smart_farm;
 pub mod voting_escrow;
 pub mod voting_escrow_factory;
@@ -46,6 +54,7 @@ pub enum DaoEntity {
     WeightingPoll(WeightingPoll),
     FundingBox(FundingBox),
     MakeVotingEscrowOrder(MakeVotingEscrowOrder),
+    ExtendVotingEscrowOrder(ExtendVotingEscrowOnchainOrder),
 }
 
 pub type DaoEntitySnapshot = Snapshot<DaoEntity, TimedOutputRef>;
@@ -69,8 +78,8 @@ where
         + Has<DeployedScriptInfo<{ ProtocolValidator::VeFactory as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }>>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>>
         + Has<OperatorCreds>
-        + Has<WeightingPollEliminated>
         + Has<NetworkId>
         + Has<TimedOutputRef>
         + Has<OutputRef>,
@@ -96,7 +105,8 @@ where
         } else if let Some(Snapshot(voting_escrow, output_ref)) =
             VotingEscrowSnapshot::try_from_ledger(repr, ctx)
         {
-            Some(Snapshot(DaoEntity::VotingEscrow(voting_escrow), output_ref))
+            let timed_output_ref = ctx.select::<TimedOutputRef>();
+            Some(Snapshot(DaoEntity::VotingEscrow(voting_escrow), timed_output_ref))
         } else if let Some(Snapshot(weighting_poll, output_ref)) =
             WeightingPollSnapshot::try_from_ledger(repr, ctx)
         {
@@ -112,8 +122,61 @@ where
                 DaoEntity::MakeVotingEscrowOrder(mve_order),
                 timed_output_ref,
             ))
+        } else if let Some(eve_order) = ExtendVotingEscrowOnchainOrder::try_from_ledger(repr, ctx) {
+            let timed_output_ref = ctx.select::<TimedOutputRef>();
+            Some(Snapshot(
+                DaoEntity::ExtendVotingEscrowOrder(eve_order),
+                timed_output_ref,
+            ))
         } else {
             None
         }
+    }
+}
+
+#[derive(Hash, PartialEq, Eq, Serialize, Deserialize, Clone, Debug, derive_more::From)]
+pub enum DaoOrder {
+    MakeVE(MakeVotingEscrowOrder),
+    ExtendVE(ExtendVotingEscrowOnchainOrder),
+}
+
+impl DaoOrder {
+    pub fn get_owner(&self) -> Owner {
+        match self {
+            DaoOrder::MakeVE(order) => order.ve_datum.owner,
+            DaoOrder::ExtendVE(order) => order.ve_datum.owner,
+        }
+    }
+}
+
+#[derive(Hash, PartialEq, Eq, Serialize, Deserialize, Clone, Debug)]
+pub struct DaoOrderBundle<Bearer> {
+    pub order: DaoOrder,
+    pub output_ref: TimedOutputRef,
+    pub bearer: Bearer,
+}
+
+impl<Bearer> DaoOrderBundle<Bearer> {
+    pub fn new(order: DaoOrder, output_ref: TimedOutputRef, bearer: Bearer) -> Self {
+        Self {
+            order,
+            output_ref,
+            bearer,
+        }
+    }
+}
+
+impl<Bearer> UniqueOrder for DaoOrderBundle<Bearer> {
+    type TOrderId = OutputRef;
+
+    fn get_self_ref(&self) -> Self::TOrderId {
+        self.output_ref.output_ref
+    }
+}
+
+impl<Bearer> Weighted for DaoOrderBundle<Bearer> {
+    fn weight(&self) -> OrderWeight {
+        // Older orders first
+        OrderWeight::from(u64::MAX - self.output_ref.slot.0)
     }
 }
