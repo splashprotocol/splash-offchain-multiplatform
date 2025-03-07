@@ -1,6 +1,6 @@
 use bloom_offchain_cardano::event_sink::context::EventContext;
 use bloom_offchain_cardano::orders::adhoc::AdhocFeeStructure;
-use bloom_offchain_cardano::orders::limit::{BeaconMode, LimitOrderValidation};
+use bloom_offchain_cardano::orders::limit::LimitOrderValidation;
 use cml_chain::auxdata::Metadata;
 use type_equalities::IsEqual;
 
@@ -168,11 +168,5 @@ impl<I: Copy> Has<OutputRef> for SnekHandlerContext<I> {
 impl<I: Copy> Has<OperatorCred> for SnekHandlerContext<I> {
     fn select<U: IsEqual<OperatorCred>>(&self) -> OperatorCred {
         self.executor_cred
-    }
-}
-
-impl<I: Copy> Has<BeaconMode> for SnekHandlerContext<I> {
-    fn select<U: IsEqual<BeaconMode>>(&self) -> BeaconMode {
-        BeaconMode::Adhoc
     }
 }

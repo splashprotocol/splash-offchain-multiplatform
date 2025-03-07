@@ -1522,13 +1522,10 @@ mod tests {
             405793826,
             1029672612,
         );
-        let final_pool_distinct_swaps = distinct_swaps.iter().fold(pool_0, |acc, x| {
-            acc.swap(Ask(*x)).get().fold(identity, |_| panic!())
-        });
-        let final_pool_aggregate_swap = pool_0
-            .swap(Ask(aggregate_swap))
-            .get()
-            .fold(identity, |_| panic!());
+        let final_pool_distinct_swaps = distinct_swaps
+            .iter()
+            .fold(pool_0, |acc, x| acc.swap(Ask(*x)).fold(identity, |_| panic!()));
+        let final_pool_aggregate_swap = pool_0.swap(Ask(aggregate_swap)).fold(identity, |_| panic!());
         assert_ne!(final_pool_distinct_swaps, final_pool_aggregate_swap);
         let (balanced_pool_distinct_swaps, _) =
             MakeInProgress::finalized(Trans::new(pool_0, Next::Succ(final_pool_distinct_swaps))).unwrap();

@@ -1,5 +1,4 @@
 use cml_chain::auxdata::Metadata;
-use cml_chain::crypto::Vkeywitness;
 use cml_chain::transaction::{ConwayFormatTxOut, Transaction, TransactionInput, TransactionOutput};
 use cml_crypto::{Ed25519KeyHash, TransactionHash};
 use cml_multi_era::babbage::{BabbageAuxiliaryData, BabbageTransaction};
