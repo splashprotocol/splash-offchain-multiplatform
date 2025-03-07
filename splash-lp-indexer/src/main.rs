@@ -1,6 +1,8 @@
 use crate::config::AppConfig;
 use crate::context::Context;
 use crate::db::RocksDB;
+use crate::feed::event::ExportAccountEvent;
+use crate::feed::event_publisher::EventPublisher;
 use crate::http_api::build_api_server;
 use crate::pipeline::{log_events, process_mature_events};
 use async_primitives::beacon::Beacon;
@@ -13,6 +15,8 @@ use clap::Parser;
 use futures::stream::FuturesUnordered;
 use futures::FutureExt;
 use log::info;
+use rdkafka::producer::FutureProducer;
+use rdkafka::ClientConfig;
 use spectrum_offchain_cardano::deployment::{DeployedValidators, ProtocolDeployment};
 use spectrum_offchain_cardano::persistent_index::IndexRocksDB;
 use spectrum_streaming::run_stream;
@@ -89,6 +93,12 @@ async fn main() {
         .expect("Error setting up api server")
         .map(|r| r.unwrap());
 
+    let kafka = ClientConfig::new()
+        .create::<FutureProducer>()
+        .expect("Failed to create kafka producer");
+    let publisher =
+        EventPublisher::<ExportAccountEvent, _>::new(db.clone(), kafka, config.events_export_topic);
+
     let processes = FuturesUnordered::new();
 
     let flow_driver_handle = tokio::spawn(flow_driver.run());
@@ -100,6 +110,9 @@ async fn main() {
     let process_mature_events_handle =
         tokio::spawn(process_mature_events(db, config.confirmation_delay_blocks));
     processes.push(process_mature_events_handle);
+
+    let export_events_handle = tokio::spawn(publisher.run());
+    processes.push(export_events_handle);
 
     let server_handle = tokio::spawn(server);
     processes.push(server_handle);

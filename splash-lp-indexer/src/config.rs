@@ -21,6 +21,7 @@ pub struct AppConfig {
     pub utxo_index_db_path: String,
     pub accounts_db_path: String,
     pub confirmation_delay_blocks: u64,
+    pub events_export_topic: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -30,40 +31,4 @@ pub struct ChainSyncConfig {
     pub replay_from_point: Option<Point>,
     pub disable_rollbacks_until: Slot,
     pub db_path: String,
-}
-
-#[derive(Copy, Clone, serde::Deserialize)]
-pub struct ExecutionCap {
-    pub soft: ExUnits,
-    pub hard: ExUnits,
-}
-
-impl From<ExecutionCap> for liquidity_book::config::ExecutionCap<ExUnits> {
-    fn from(value: ExecutionCap) -> Self {
-        Self {
-            soft: value.soft,
-            hard: value.hard,
-        }
-    }
-}
-
-#[derive(Copy, Clone, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ExecutionConfig {
-    pub execution_cap: ExecutionCap,
-    /// Order-order matchmaking allowed.
-    pub o2o_allowed: bool,
-}
-
-impl ExecutionConfig {
-    pub fn into_lb_config(
-        self,
-        base_step_budget: BaseStepBudget,
-    ) -> liquidity_book::config::ExecutionConfig<ExUnits> {
-        liquidity_book::config::ExecutionConfig {
-            execution_cap: self.execution_cap.into(),
-            o2o_allowed: self.o2o_allowed,
-            base_step_budget,
-        }
-    }
 }
