@@ -155,7 +155,7 @@ pub struct CardanoInflationActions<Ctx> {
     ctx: Ctx,
 }
 
-fn compute_identifier_token_asset_name(output_ref: OutputRef) -> cml_chain::assets::AssetName {
+pub(crate) fn compute_identifier_token_asset_name(output_ref: OutputRef) -> cml_chain::assets::AssetName {
     use cml_chain::Serialize;
     let mut bytes = output_ref.tx_hash().to_raw_bytes().to_vec();
     bytes.extend_from_slice(
@@ -165,7 +165,7 @@ fn compute_identifier_token_asset_name(output_ref: OutputRef) -> cml_chain::asse
     cml_chain::assets::AssetName::new(token_name.to_vec()).unwrap()
 }
 
-fn script_address(script_hash: ScriptHash, network_id: NetworkId) -> Address {
+pub(crate) fn script_address(script_hash: ScriptHash, network_id: NetworkId) -> Address {
     EnterpriseAddress::new(u8::from(network_id), StakeCredential::new_script(script_hash)).to_address()
 }
 
@@ -194,7 +194,7 @@ pub fn compute_farm_name(farm_id: u32) -> cml_chain::assets::AssetName {
     cml_chain::assets::AssetName::try_from(bytes).unwrap()
 }
 
-fn select_funding_boxes<Ctx>(
+pub fn select_funding_boxes<Ctx>(
     target: Coin,
     required_tokens: Vec<BuiltPolicy>,
     boxes: Vec<FundingBox>,
@@ -292,7 +292,7 @@ pub enum WitnessError {
     CannotDecodeRedeemer,
 }
 
-struct DaoTxBlueprint {
+pub(crate) struct DaoTxBlueprint {
     reference_inputs: Vec<TransactionUnspentOutput>,
     sorted_inputs: Vec<(InputBuilderResult, ExUnits)>,
     outputs: Vec<SingleOutputBuilderResult>,
@@ -307,7 +307,7 @@ struct DaoTxBlueprint {
     operator_address: Address,
 }
 
-struct BlueprintEstimates {
+pub(crate) struct BlueprintEstimates {
     estimated_fee: u64,
     change_output: SingleOutputBuilderResult,
     tx_builder: TransactionBuilder,

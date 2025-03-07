@@ -59,8 +59,8 @@ use crate::protocol_config::{
     PollFactoryRefScriptOutput, Reward, SplashPolicy, VotingEscrowRefScriptOutput, VotingEscrowScriptHash,
     WeightingPowerPolicy, WeightingPowerRefScriptOutput,
 };
-use crate::routines::inflation::actions::WitnessError;
-use crate::routines::inflation::{AvailableFundingBoxes, FundingBoxChanges, Slot, TimedOutputRef};
+use crate::routines::actions::{AvailableFundingBoxes, FundingBoxChanges, Slot, WitnessError};
+use crate::routines::TimedOutputRef;
 use crate::util::set_min_ada;
 use crate::GenesisEpochStartTime;
 

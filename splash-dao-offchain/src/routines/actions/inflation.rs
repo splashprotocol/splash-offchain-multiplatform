@@ -32,8 +32,8 @@ use crate::protocol_config::{
     GovProxyRefScriptOutput, InflationAuthPolicy, MintWPAuthPolicy, MintWPAuthRefScriptOutput, OperatorCreds,
     PermManagerAuthPolicy, PermManagerBoxRefScriptOutput, SplashPolicy,
 };
-use crate::routines::inflation::actions::select_funding_boxes;
-use crate::routines::inflation::TimedOutputRef;
+use crate::routines::actions::select_funding_boxes;
+use crate::routines::TimedOutputRef;
 
 use super::{
     AvailableFundingBoxes, CardanoInflationActions, FundingBoxChanges, InflationActions, PermManagerSnapshot,

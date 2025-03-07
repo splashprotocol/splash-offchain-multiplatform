@@ -54,10 +54,10 @@ use crate::protocol_config::{
     VEFactoryAuthPolicy, VEFactoryRefScriptOutput, VEFactoryScriptHash, VotingEscrowRefScriptOutput,
     VotingEscrowScriptHash,
 };
-use crate::routines::inflation::actions::{
+use crate::routines::actions::{
     compute_identifier_token_asset_name, script_address, BlueprintEstimates, DaoTxBlueprint, WitnessError,
 };
-use crate::routines::inflation::TimedOutputRef;
+use crate::routines::TimedOutputRef;
 use crate::time::NetworkTimeProvider;
 use crate::NetworkTimeSource;
 
