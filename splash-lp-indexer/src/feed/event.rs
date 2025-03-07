@@ -1,8 +1,9 @@
+use crate::account::AccountInPool;
 use cml_chain::certs::Credential;
+use serde::{Deserialize, Serialize};
 
-pub struct AccountEvent {
-    account_key: Credential,
-    update: AccountUpdate,
+#[derive(Serialize, Deserialize)]
+pub struct ExportAccountEvent {
+    pub account_cred: Credential,
+    pub update: AccountInPool,
 }
-
-pub enum AccountUpdate {}

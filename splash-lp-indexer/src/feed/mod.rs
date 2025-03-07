@@ -1,2 +1,2 @@
-mod event;
-mod event_publisher;
+pub mod event;
+pub mod event_publisher;

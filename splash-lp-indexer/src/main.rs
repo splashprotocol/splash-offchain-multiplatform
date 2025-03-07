@@ -26,6 +26,7 @@ use tracing_subscriber::fmt::Subscriber;
 
 mod account;
 mod config;
+mod constants;
 mod context;
 mod db;
 mod feed;

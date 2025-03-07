@@ -2,13 +2,14 @@ use cml_chain::certs::Credential;
 use cml_core::Slot;
 use rocksdb::{
     ColumnFamily, DBIteratorWithThreadMode, Direction, IteratorMode, Options, ReadOptions, Transaction,
-    TransactionDB, TransactionDBOptions,
+    TransactionDB, TransactionDBOptions, DB,
 };
+use serde::de::DeserializeOwned;
 use spectrum_offchain_cardano::data::PoolId;
 use std::path::Path;
 use std::sync::Arc;
 
-mod account_feed;
+pub mod account_feed;
 pub mod accounts;
 pub mod event_log;
 pub mod mature_events;
@@ -51,6 +52,19 @@ pub(crate) fn read_max_key(tx: &Transaction<TransactionDB>, cf: &ColumnFamily) -
     seq_num
 }
 
+pub(crate) fn read_min_kv<T: DeserializeOwned>(
+    db: &Arc<TransactionDB>,
+    cf: &ColumnFamily,
+) -> Option<(u64, T)> {
+    let readopts = ReadOptions::default();
+    let mut iter = db.iterator_cf_opt(cf, readopts, IteratorMode::Start);
+    if let Some(Ok((key, value))) = iter.next() {
+        let max_seq_num = rmp_serde::from_slice(&key).unwrap();
+        return Some((max_seq_num, rmp_serde::from_slice(&value).unwrap()));
+    }
+    None
+}
+
 pub(crate) fn account_key(pool_id: PoolId, credential: Credential) -> Vec<u8> {
     rmp_serde::to_vec(&(pool_id, credential)).unwrap()
 }
@@ -75,7 +89,7 @@ pub(crate) fn from_sus_event_key(key: Vec<u8>) -> Option<(Credential, Slot)> {
     rmp_serde::from_slice(&key).ok()
 }
 
-pub(crate) fn cred_index_key(credential: Credential, pool_id: PoolId) -> Vec<u8> {
+pub(crate) fn cred_index_key(credential: &Credential, pool_id: PoolId) -> Vec<u8> {
     rmp_serde::to_vec(&(credential, pool_id)).unwrap()
 }
 
