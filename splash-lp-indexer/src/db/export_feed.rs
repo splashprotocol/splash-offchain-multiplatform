@@ -1,4 +1,4 @@
-use crate::db::{read_max_key, read_min_kv, ACCOUNT_FEED_CF};
+use crate::db::{read_max_key, read_min_kv, RocksDB, ACCOUNT_FEED_CF};
 use crate::feed::event::ExportAccountEvent;
 use async_trait::async_trait;
 use rocksdb::{Transaction, TransactionDB};
@@ -20,15 +20,15 @@ pub(crate) fn batch_append(
 }
 
 #[async_trait]
-pub trait AccountEventFeed {
+pub trait ExportEventFeed {
     async fn next(&self) -> Option<(u64, ExportAccountEvent)>;
     async fn delete(&self, seq_num: u64);
 }
 
 #[async_trait]
-impl AccountEventFeed for Arc<TransactionDB> {
+impl ExportEventFeed for RocksDB {
     async fn next(&self) -> Option<(u64, ExportAccountEvent)> {
-        let db = self.clone();
+        let db = self.db.clone();
         spawn_blocking(move || {
             let account_feed_cf = db.cf_handle(ACCOUNT_FEED_CF).unwrap();
             read_min_kv(&db, account_feed_cf)
@@ -38,7 +38,7 @@ impl AccountEventFeed for Arc<TransactionDB> {
     }
 
     async fn delete(&self, seq_num: u64) {
-        let db = self.clone();
+        let db = self.db.clone();
         spawn_blocking(move || {
             let account_feed_cf = db.cf_handle(ACCOUNT_FEED_CF).unwrap();
             let event_key = rmp_serde::to_vec(&seq_num).unwrap();

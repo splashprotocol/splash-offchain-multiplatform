@@ -1,28 +1,39 @@
+use crate::db::export_feed::ExportEventFeed;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use serde::Serialize;
 use std::marker::PhantomData;
 use std::time::Duration;
-use crate::db::account_feed::AccountEventFeed;
 
-pub struct EventPublisher<'a, E, Q> {
+pub struct EventPublisher<E, Q> {
     queue: Q,
-    pd: PhantomData<E>,
     kafka: FutureProducer,
-    topic: &'a str,
+    topic: String,
+    pd: PhantomData<E>,
+}
+
+impl<E, Q> EventPublisher<E, Q> {
+    pub fn new(queue: Q, kafka: FutureProducer, topic: String) -> Self {
+        Self {
+            queue,
+            kafka,
+            topic,
+            pd: PhantomData,
+        }
+    }
 }
 
 const POLL_INTERVAL: Duration = Duration::from_secs(3);
 
-impl<'a, E, Q> EventPublisher<'a, E, Q> {
-    async fn run(self)
+impl<E, Q> EventPublisher<E, Q> {
+    pub async fn run(self)
     where
         E: Serialize + Send,
-        Q: AccountEventFeed,
+        Q: ExportEventFeed,
     {
         loop {
             while let Some((key, event)) = self.queue.next().await {
                 let event_bytes = serde_json::to_vec(&event).unwrap();
-                let record = FutureRecord::<(), _>::to(self.topic).payload(&event_bytes);
+                let record = FutureRecord::<(), _>::to(self.topic.as_str()).payload(&event_bytes);
                 self.kafka.send(record, Duration::from_secs(0)).await.unwrap();
                 self.queue.delete(key).await;
             }

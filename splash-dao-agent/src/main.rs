@@ -2,7 +2,7 @@ use std::{fmt::Debug, hash::Hash, marker::PhantomData, sync::Arc};
 
 use api_endpoints::{handle_extend_ve_put, handle_get_mve_status, handle_redeem_ve_put, handle_voting_put};
 use async_primitives::beacon::Beacon;
-use bloom_offchain_cardano::event_sink::processed_tx::TxViewMut;
+use bloom_offchain_cardano::event_sink::tx_view::TxViewMut;
 use bounded_integer::BoundedU8;
 use cardano_chain_sync::{
     cache::LedgerCacheRocksDB, chain_sync_stream, client::ChainSyncClient, data::LedgerTxEvent,

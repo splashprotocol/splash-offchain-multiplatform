@@ -9,7 +9,7 @@ use spectrum_offchain_cardano::data::PoolId;
 use std::path::Path;
 use std::sync::Arc;
 
-pub mod account_feed;
+pub mod export_feed;
 pub mod accounts;
 pub mod event_log;
 pub mod mature_events;

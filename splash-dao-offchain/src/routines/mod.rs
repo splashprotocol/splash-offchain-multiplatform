@@ -13,7 +13,7 @@ use async_primitives::beacon::Beacon;
 use async_stream::stream;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::liquidity_book::core::Trans;
-use bloom_offchain_cardano::event_sink::processed_tx::TxViewMut;
+use bloom_offchain_cardano::event_sink::tx_view::TxViewMut;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cml_chain::plutus::{PlutusData, PlutusScript, PlutusV2Script};
 use cml_chain::transaction::{Transaction, TransactionOutput};
