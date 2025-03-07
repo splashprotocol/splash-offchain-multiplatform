@@ -32,8 +32,8 @@ use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::onchain::smart_farm::FarmId;
 use crate::entities::Snapshot;
 use crate::protocol_config::{GTAuthPolicy, MintWPAuthPolicy, SplashPolicy, WeightingPowerPolicy};
-use crate::routines::inflation::actions::compute_epoch_asset_name;
-use crate::routines::inflation::{slot_to_epoch, TimedOutputRef};
+use crate::routines::actions::compute_epoch_asset_name;
+use crate::routines::{slot_to_epoch, TimedOutputRef};
 use crate::time::{epoch_end, epoch_start, NetworkTime, ProtocolEpoch};
 use crate::GenesisEpochStartTime;
 

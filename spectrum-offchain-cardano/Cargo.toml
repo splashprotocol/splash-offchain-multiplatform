@@ -64,7 +64,7 @@ num = "0.2.1"
 bigdecimal = "0.4.3"
 bignumber = "0.1.1"
 cbor_event = "2.4.0"
-uplc = "1.1"
+uplc = "=1.1.12"
 num-bigint = "0.4.6"
 
 uplc-pallas-codec = { package = "pallas-codec", version = "0.31" }

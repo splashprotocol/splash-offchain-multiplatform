@@ -9,7 +9,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use cardano_explorer::{CardanoNetwork, Maestro};
+use cardano_explorer::{CardanoNetwork, ExtendedCardanoNetwork, Maestro};
 use clap::{command, Parser, Subcommand};
 use cml_chain::{
     address::Address,
@@ -69,7 +69,7 @@ use splash_dao_offchain::{
             voting_escrow_factory::{AcceptedAsset, VEFactoryDatum, VEFactoryId, VEFactorySnapshot},
         },
     },
-    routines::inflation::{actions::compute_farm_name, ProcessLedgerEntityContext, Slot, TimedOutputRef},
+    routines::{actions::compute_farm_name, ProcessLedgerEntityContext, Slot, TimedOutputRef},
     time::NetworkTimeProvider,
     util::generate_collateral,
     CurrentEpoch, NetworkTimeSource,
@@ -823,7 +823,7 @@ async fn make_voting_escrow_order(
 
     // Deposit assets into ve_factory -------------------------------------------
 
-    let splash_name = AssetName::utf8_unsafe(SPLASH_NAME.into());
+    let splash_name = AssetName::from_utf8(SPLASH_NAME.into());
     let splash_policy_id = deployment_config.splash_tokens.policy_id;
     let built_policy = BuiltPolicy {
         policy_id: splash_policy_id,
@@ -949,7 +949,7 @@ async fn extend_voting_escrow_order(
     let mut order_out_value = Value::zero();
 
     // Deposit assets into ve_factory -------------------------------------------
-    let splash_name = AssetName::utf8_unsafe(SPLASH_NAME.into());
+    let splash_name = AssetName::from_utf8(SPLASH_NAME.into());
     let splash_policy_id = deployment_config.splash_tokens.policy_id;
     let built_policy = BuiltPolicy {
         policy_id: splash_policy_id,
@@ -1410,7 +1410,7 @@ async fn send_edao_token(op_inputs: &OperationInputs, destination_addr: String) 
     let minted_tokens = &deployment_config.minted_deployment_tokens;
     let bp = BuiltPolicy {
         policy_id: PolicyId::from_hex("7876492e3b82a31b1ce97a8f454cec653a0f6be5c09b90e62d24c152").unwrap(),
-        asset_name: cml_chain::assets::AssetName::from(AssetName::utf8_unsafe("SPLASH".to_string())),
+        asset_name: cml_chain::assets::AssetName::from(AssetName::from_utf8("SPLASH".to_string())),
         quantity: BigInteger::from(1_000_000),
     };
 

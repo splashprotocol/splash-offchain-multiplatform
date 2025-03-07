@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use cardano_explorer::CardanoNetwork;
+use cardano_explorer::{CardanoNetwork, ExtendedCardanoNetwork};
 use cml_chain::{
     address::Address,
     builders::{
@@ -24,7 +24,7 @@ use spectrum_offchain_cardano::prover::operator::OperatorProver;
 
 use crate::{collateral::COLLATERAL_LOVELACES, collect_utxos::collect_utxos};
 
-pub async fn generate_collateral<Net: CardanoNetwork, TX>(
+pub async fn generate_collateral<Net: ExtendedCardanoNetwork, TX>(
     explorer: &Net,
     addr: &Address,
     collateral_addr: &Address,

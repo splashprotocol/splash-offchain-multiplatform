@@ -75,6 +75,8 @@ pub mod fee_deltas {
     pub const REDEEM_VOTING_ESCROW_FEE_DELTA: u64 = 320_000;
 }
 
+pub const VOTING_ESCROW_TX_TTL: u64 = 300;
+
 #[cfg(feature = "test_30_min_epoch")]
 pub mod time {
     /// Length of one emission epoch in milliseconds (30 min.).

@@ -2,7 +2,6 @@ use std::{fmt::Debug, hash::Hash, marker::PhantomData, sync::Arc};
 
 use api_endpoints::{handle_extend_ve_put, handle_get_mve_status, handle_redeem_ve_put, handle_voting_put};
 use async_primitives::beacon::Beacon;
-use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use bloom_offchain_cardano::event_sink::processed_tx::TxViewMut;
 use bounded_integer::BoundedU8;
 use cardano_chain_sync::{
@@ -43,16 +42,10 @@ use splash_dao_offchain::{
     collateral::pull_collateral,
     constants::DAO_SCRIPT_BYTES,
     deployment::{CompleteDeployment, DaoScriptData, DeploymentProgress, ProtocolDeployment},
-    entities::{
-        offchain::{
-            voting_order::VotingOrder, ExtendVotingEscrowOffChainOrder, RedeemVotingEscrowOffChainOrder,
-        },
-        onchain::voting_escrow::Owner,
-    },
     funding::FundingRepoRocksDB,
     handler::DaoHandler,
     protocol_config::ProtocolConfig,
-    routines::inflation::{
+    routines::{
         actions::CardanoInflationActions, Behaviour, DaoBotCommand, DaoBotMessage, DaoBotResponse,
         VotingOrderCommand, VotingOrderStatus,
     },
@@ -147,19 +140,23 @@ async fn main() {
             tx,
             slot,
             block_number,
+            block_hash,
         } => LedgerTxEvent::TxApplied {
             tx: TxViewMut::from(tx),
             slot,
             block_number,
+            block_hash,
         },
         LedgerTxEvent::TxUnapplied {
             tx,
             slot,
             block_number,
+            block_hash,
         } => LedgerTxEvent::TxUnapplied {
             tx: TxViewMut::from(tx),
             slot,
             block_number,
+            block_hash,
         },
     });
 

@@ -28,7 +28,7 @@ use splash_dao_offchain::{
             weighting_poll::{WeightingPollId, WeightingPollSnapshot},
         },
     },
-    routines::inflation::time_millis_to_epoch,
+    routines::time_millis_to_epoch,
     time::epoch_start,
     CurrentEpoch, GenesisEpochStartTime,
 };
@@ -536,12 +536,13 @@ async fn send_vote(voting_order: VotingOrder, voting_order_listener_endpoint: &S
                 .json(&voting_order) // Serialize the payload as JSON
                 .send()
                 .await
+                .ok()
         },
         100,
         2000
     );
 
-    if let Ok(response) = response {
+    if let Some(response) = response {
         if response.status().is_success() {
             let text = response.text().await.unwrap();
             println!("Vote response: {}", text);
@@ -568,12 +569,13 @@ async fn send_extend_ve_offchain_order(
                 .json(&order) // Serialize the payload as JSON
                 .send()
                 .await
+                .ok()
         },
         100,
         2000
     );
 
-    if let Ok(response) = response {
+    if let Some(response) = response {
         if response.status().is_success() {
             let text = response.text().await.unwrap();
             println!("Vote response: {}", text);
@@ -600,12 +602,13 @@ async fn send_redeem_ve_offchain_order(
                 .json(&order) // Serialize the payload as JSON
                 .send()
                 .await
+                .ok()
         },
         100,
         2000
     );
 
-    if let Ok(response) = response {
+    if let Some(response) = response {
         if response.status().is_success() {
             let text = response.text().await.unwrap();
             println!("Vote response: {}", text);
@@ -635,6 +638,7 @@ async fn request_mve_status(
                 .json(&owner) // Serialize the payload as JSON
                 .send()
                 .await
+                .ok()
         },
         100,
         2000

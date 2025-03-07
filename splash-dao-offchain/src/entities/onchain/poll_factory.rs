@@ -21,7 +21,7 @@ use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::onchain::smart_farm::FarmId;
 use crate::entities::onchain::weighting_poll::WeightingPoll;
 use crate::entities::Snapshot;
-use crate::routines::inflation::TimedOutputRef;
+use crate::routines::TimedOutputRef;
 use crate::time::ProtocolEpoch;
 
 pub type PollFactorySnapshot = Snapshot<PollFactory, TimedOutputRef>;

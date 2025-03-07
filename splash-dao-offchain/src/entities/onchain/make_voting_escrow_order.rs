@@ -26,7 +26,7 @@ use uplc_pallas_primitives::{BoundedBytes, MaybeIndefArray};
 use crate::{
     constants::MAKE_VOTING_ESCROW_ORDER_MIN_LOVELACES,
     deployment::{DaoScriptData, ProtocolValidator},
-    routines::inflation::TimedOutputRef,
+    routines::TimedOutputRef,
 };
 
 use super::voting_escrow::{VotingEscrowConfig, VotingEscrowId};
