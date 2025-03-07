@@ -26,7 +26,7 @@ use crate::{
     deployment::{DaoScriptData, ProtocolValidator},
     entities::Snapshot,
     protocol_config::PermManagerAuthPolicy,
-    routines::inflation::TimedOutputRef,
+    routines::TimedOutputRef,
 };
 
 use super::smart_farm::FarmId;

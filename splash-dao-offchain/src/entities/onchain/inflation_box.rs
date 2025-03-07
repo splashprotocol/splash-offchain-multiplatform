@@ -22,7 +22,7 @@ use crate::constants::SPLASH_NAME;
 use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::Snapshot;
 use crate::protocol_config::SplashPolicy;
-use crate::routines::inflation::TimedOutputRef;
+use crate::routines::TimedOutputRef;
 use crate::time::{epoch_end, NetworkTime, ProtocolEpoch};
 use crate::{constants, GenesisEpochStartTime};
 

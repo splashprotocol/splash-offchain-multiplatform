@@ -24,7 +24,7 @@ use crate::{
         FarmAuthPolicy, GTAuthPolicy, MintVEIdentifierPolicy, MintWPAuthPolicy, OperatorCreds,
         PermManagerAuthPolicy, SplashPolicy, VEFactoryAuthPolicy,
     },
-    routines::inflation::TimedOutputRef,
+    routines::TimedOutputRef,
     CurrentEpoch, GenesisEpochStartTime,
 };
 

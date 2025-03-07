@@ -11,7 +11,7 @@ use spectrum_cardano_lib::plutus_data::make_constr_pd_indefinite_arr;
 use splash_dao_offchain::deployment::DaoScriptData;
 use splash_dao_offchain::entities::offchain::{compute_voting_escrow_witness_message, OffChainOrderId};
 use splash_dao_offchain::entities::{offchain::voting_order::VotingOrder, onchain::smart_farm::FarmId};
-use splash_dao_offchain::routines::inflation::actions::{compute_epoch_asset_name, compute_farm_name};
+use splash_dao_offchain::routines::actions::{compute_epoch_asset_name, compute_farm_name};
 use uplc_pallas_primitives::{BoundedBytes, Fragment};
 
 pub fn create_voting_order(
@@ -150,7 +150,7 @@ mod tests {
     use spectrum_offchain_cardano::creds::operator_creds_base_address;
     use splash_dao_offchain::entities::offchain::compute_voting_escrow_witness_message;
     use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
-    use splash_dao_offchain::routines::inflation::actions::compute_farm_name;
+    use splash_dao_offchain::routines::actions::compute_farm_name;
     use uplc_pallas_primitives::Fragment;
 
     use crate::mint_token::script_address;

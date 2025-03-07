@@ -32,7 +32,7 @@ use crate::{
     deployment::{DaoScriptData, ProtocolValidator},
     entities::Snapshot,
     protocol_config::{GTAuthPolicy, VEFactoryAuthPolicy},
-    routines::inflation::TimedOutputRef,
+    routines::TimedOutputRef,
 };
 
 pub type VEFactorySnapshot = Snapshot<VEFactory, TimedOutputRef>;

@@ -69,7 +69,7 @@ use splash_dao_offchain::{
             voting_escrow_factory::{AcceptedAsset, VEFactoryDatum, VEFactoryId, VEFactorySnapshot},
         },
     },
-    routines::inflation::{actions::compute_farm_name, ProcessLedgerEntityContext, Slot, TimedOutputRef},
+    routines::{actions::compute_farm_name, ProcessLedgerEntityContext, Slot, TimedOutputRef},
     time::NetworkTimeProvider,
     util::generate_collateral,
     CurrentEpoch, NetworkTimeSource,

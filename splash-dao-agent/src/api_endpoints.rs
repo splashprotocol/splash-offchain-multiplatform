@@ -6,9 +6,7 @@ use splash_dao_offchain::{
         },
         onchain::voting_escrow::Owner,
     },
-    routines::inflation::{
-        DaoBotCommand, DaoBotMessage, DaoBotResponse, VotingOrderCommand, VotingOrderStatus,
-    },
+    routines::{DaoBotCommand, DaoBotMessage, DaoBotResponse, VotingOrderCommand, VotingOrderStatus},
 };
 
 use crate::AppState;

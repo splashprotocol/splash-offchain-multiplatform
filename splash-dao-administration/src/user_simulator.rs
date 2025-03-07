@@ -28,7 +28,7 @@ use splash_dao_offchain::{
             weighting_poll::{WeightingPollId, WeightingPollSnapshot},
         },
     },
-    routines::inflation::time_millis_to_epoch,
+    routines::time_millis_to_epoch,
     time::epoch_start,
     CurrentEpoch, GenesisEpochStartTime,
 };

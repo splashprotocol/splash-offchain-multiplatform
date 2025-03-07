@@ -20,7 +20,7 @@ use uplc_pallas_primitives::{BoundedBytes, MaybeIndefArray};
 use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::Snapshot;
 use crate::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy};
-use crate::routines::inflation::TimedOutputRef;
+use crate::routines::TimedOutputRef;
 
 pub type SmartFarmSnapshot = Snapshot<SmartFarm, TimedOutputRef>;
 

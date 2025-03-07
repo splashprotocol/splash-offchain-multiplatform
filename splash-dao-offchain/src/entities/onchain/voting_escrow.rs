@@ -30,7 +30,7 @@ use crate::constants::GT_NAME;
 use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::Snapshot;
 use crate::protocol_config::{GTAuthPolicy, MintVEIdentifierPolicy};
-use crate::routines::inflation::TimedOutputRef;
+use crate::routines::TimedOutputRef;
 use crate::{
     constants::time::MAX_LOCK_TIME_SECONDS,
     time::{NetworkTime, ProtocolEpoch},

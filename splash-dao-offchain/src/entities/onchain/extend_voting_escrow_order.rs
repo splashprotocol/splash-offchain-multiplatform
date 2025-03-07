@@ -1,7 +1,7 @@
 use crate::{
     deployment::{DaoScriptData, ProtocolValidator},
     protocol_config::MintVECompositionPolicy,
-    routines::inflation::TimedOutputRef,
+    routines::TimedOutputRef,
 };
 use cml_chain::{
     assets::AssetName,
