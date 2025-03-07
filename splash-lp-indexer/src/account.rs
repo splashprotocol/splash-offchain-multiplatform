@@ -1,10 +1,11 @@
+use crate::constants::EVENT_LOCK_TTL_SLOTS;
 use crate::onchain::event::{Harvest, PositionEvent, SuspendedPositionEvents};
 use cml_core::Slot;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Serialize, Deserialize, Debug)]
 pub struct AccountInPool {
-    /// Accumulator of avg share over period from `created_at` to `activated_at`
+    /// Accumulator of avg share over period from `activated_at` to `updated_at`
     avg_share_bps: u64,
     /// Latest share as (personal_share, total_share)
     share: (u64, u64),
@@ -22,6 +23,11 @@ impl AccountInPool {
             activated_at: if activated { Some(current_slot) } else { None },
             locked_at: None,
         }
+    }
+
+    pub fn should_unlock(&self, current_slot: Slot) -> bool {
+        self.locked_at
+            .is_some_and(|locked_at| current_slot - locked_at > EVENT_LOCK_TTL_SLOTS)
     }
 
     pub fn activated(mut self, slot: Slot) -> Self {
@@ -133,7 +139,6 @@ mod tests {
         )
     }
 
-
     #[test]
     fn deposit_redeem() {
         let s0 = 10;
@@ -169,19 +174,15 @@ mod tests {
             lp_supply: total_lq_2,
         })];
         let updated_acc_2 = updated_acc_0.try_adjust_position(s2, total_lq_2, events_2);
-        assert_eq!(updated_acc_2, Ok(
-            AccountInPool {
+        assert_eq!(
+            updated_acc_2,
+            Ok(AccountInPool {
                 avg_share_bps: 2500,
-                share: (
-                    1000000,
-                    4000000,
-                ),
+                share: (1000000, 4000000,),
                 updated_at: 30,
-                activated_at: Some(
-                    10,
-                ),
+                activated_at: Some(10,),
                 locked_at: None,
-            },
-        ));
+            },)
+        );
     }
 }

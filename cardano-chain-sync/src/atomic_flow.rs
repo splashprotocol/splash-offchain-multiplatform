@@ -111,7 +111,7 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
                     let applied_txs = BlockEvents::RollForward {
                         events: unpack_valid_transactions_multi_era(blk)
                             .into_iter()
-                            .map(|(tx, _, _)| tx)
+                            .map(|(tx, _, _, _)| tx)
                             .collect(),
                         slot: hdr.slot(),
                     };
@@ -136,7 +136,7 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
                                     let unapplied_txs = BlockEvents::RollBackward {
                                         events: unpack_valid_transactions_multi_era(block)
                                             .into_iter()
-                                            .map(|(tx, _, _)| tx)
+                                            .map(|(tx, _, _, _)| tx)
                                             .rev()
                                             .collect(),
                                         slot,
