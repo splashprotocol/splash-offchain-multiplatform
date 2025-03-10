@@ -26,7 +26,6 @@ pub struct AppConfig {
     pub reporting_endpoint: SocketAddr,
     pub tx_submission_buffer_size: usize,
     pub operator_key: String,
-    pub auth_verification_key: AuthVerificationKey,
     pub service_fee_address: OperatorRewardAddress,
     pub allowed_payment_destinations: Vec<Address>,
     pub event_cache_ttl: Duration,

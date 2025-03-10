@@ -4,12 +4,14 @@ use crate::seq::session::SessionInProgress;
 use bloom_offchain_cardano::event_sink::handler::LedgerCx;
 use cml_core::Slot;
 use futures::Stream;
+use log::{info, trace};
 use spectrum_offchain::data::ior::Ior;
 use spectrum_offchain::domain::event::{Channel, Confirmed, Transition};
 use spectrum_offchain::domain::{SeqState, Stable};
 use spectrum_offchain_cardano::data::pair::PairId;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::fmt::Display;
 use std::hash::Hash;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -74,14 +76,16 @@ impl<Ticks, Events, K, T> WithDeterministicSeq<Ticks, Events, K, T> {
             Some(upgraded_to) => {
                 let mut closed_sessions = vec![];
                 let mut pending_events = vec![];
-                for (key, sess) in self.active_sessions.iter_mut() {
+                for (pair, sess) in self.active_sessions.iter_mut() {
                     if let Some(released_events) = sess.upgrade(upgraded_to) {
-                        closed_sessions.push(*key);
-                        pending_events.push((*key, released_events));
+                        info!("Pair {} graduated", pair);
+                        closed_sessions.push(*pair);
+                        pending_events.push((*pair, released_events));
                     }
                 }
                 for key in closed_sessions {
                     self.active_sessions.remove(&key);
+                    self.completed_sessions.insert(key);
                 }
                 for (pair, events) in pending_events {
                     for event in events {
@@ -95,7 +99,7 @@ impl<Ticks, Events, K, T> WithDeterministicSeq<Ticks, Events, K, T> {
 
     fn update_session(&mut self, pair: PairId, event: Channel<Transition<T>, LedgerCx>)
     where
-        K: Copy + Eq + Hash + Unpin,
+        K: Copy + Eq + Hash + Display + Unpin,
         T: SeqState<StableId = K> + Unpin,
     {
         match self.active_sessions.entry(pair) {
@@ -103,6 +107,7 @@ impl<Ticks, Events, K, T> WithDeterministicSeq<Ticks, Events, K, T> {
                 if let Channel::Ledger(Confirmed(Transition::Forward(Ior::Right(state))), cx) = event {
                     if state.is_quasi_permanent() && state.is_initial() {
                         // New session is triggered
+                        trace!("New session {} created", pair);
                         let session_sealed_at = self.current_slot + self.session_duration;
                         entry.insert(SessionInProgress::new(
                             Transition::Forward(Ior::Right(state)),
@@ -115,6 +120,7 @@ impl<Ticks, Events, K, T> WithDeterministicSeq<Ticks, Events, K, T> {
             }
             Entry::Occupied(mut entry) => {
                 if let Err(_) = entry.get_mut().register_event(event) {
+                    trace!("Session trigger was rolled back, discarded session {}", pair);
                     // Session trigger was rolled back, discard session.
                     entry.remove();
                 }
@@ -127,7 +133,7 @@ impl<Ticks, Events, K, T> Stream for WithDeterministicSeq<Ticks, Events, K, T>
 where
     Ticks: Stream<Item = Slot> + Unpin,
     Events: Stream<Item = (PairId, Channel<Transition<T>, LedgerCx>)> + Unpin,
-    K: Copy + Eq + Hash + Ord + Unpin,
+    K: Copy + Eq + Hash + Ord + Display + Unpin,
     T: SeqState<StableId = K> + Unpin,
 {
     type Item = (PairId, Channel<Transition<T>, LedgerCx>);
@@ -161,6 +167,7 @@ where
                     return Poll::Ready(Some((pair, event)));
                 }
                 self.update_session(pair, event);
+                continue;
             }
             break;
         }
@@ -315,7 +322,7 @@ mod tests {
             yielded_events.push((pair_id, event));
         }
 
-        assert_eq!(yielded_events.len(), 3);
+        assert_eq!(yielded_events.len(), 4);
         let pair_ids: HashSet<_> = yielded_events.iter().map(|(pair_id, _)| pair_id).collect();
         assert!(pair_ids.contains(&pair_id_1));
         assert!(!pair_ids.contains(&pair_id_2));

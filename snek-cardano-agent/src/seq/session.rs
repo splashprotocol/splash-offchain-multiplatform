@@ -1,12 +1,14 @@
 use bloom_offchain_cardano::event_sink::handler::LedgerCx;
 use cml_core::Slot;
 use cml_crypto::BlockHeaderHash;
+use log::trace;
 use spectrum_offchain::data::ior::Ior;
 use spectrum_offchain::domain::event::{Channel, Confirmed, Transition};
 use spectrum_offchain::domain::{SeqState, Stable};
 use spectrum_offchain::partitioning::hash_partitioning_key;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
+use std::fmt::Display;
 use std::hash::Hash;
 
 pub(crate) struct SessionInProgress<K, T> {
@@ -39,7 +41,7 @@ impl<K, T> SessionInProgress<K, T> {
 
     pub(crate) fn register_event(&mut self, event: Channel<Transition<T>, LedgerCx>) -> Result<(), ()>
     where
-        K: Copy + Eq + Hash,
+        K: Copy + Eq + Hash + Display,
         T: Stable<StableId = K>,
     {
         let event_key = event.stable_id();
@@ -54,6 +56,7 @@ impl<K, T> SessionInProgress<K, T> {
                     }
                 } else {
                     if let Some(confirmed_at) = is_confirmation(current, &event) {
+                        trace!("Registering initial event for entity: {}", event.stable_id());
                         self.confirmation_ordering.push_back((event_key, confirmed_at));
                         entry.insert(event);
                     }
@@ -66,6 +69,7 @@ impl<K, T> SessionInProgress<K, T> {
                     } else {
                         self.original_ordering.push_back(event_key);
                     }
+                    trace!("Registering subsequent event for entity: {}", event.stable_id());
                     entry.insert(event);
                 }
             }

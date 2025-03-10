@@ -25,7 +25,6 @@ pub struct SnekHandlerContextProto {
     pub scripts: SnekProtocolScriptHashes,
     pub validation_rules: SnekValidationRules,
     pub adhoc_fee_structure: AdhocFeeStructure,
-    pub auth_verification_key: AuthVerificationKey,
     pub allowed_payment_destinations: AllowedAdditionalPaymentDestinations,
 }
 
@@ -40,7 +39,6 @@ pub struct SnekHandlerContext<I: Copy> {
     pub scripts: SnekProtocolScriptHashes,
     pub bounds: SnekValidationRules,
     pub adhoc_fee_structure: AdhocFeeStructure,
-    pub auth_verification_key: AuthVerificationKey,
     pub added_payment_destinations: AddedPaymentDestinations,
     pub allowed_payment_destinations: AllowedAdditionalPaymentDestinations,
     pub mints: Option<Mints>,
@@ -59,7 +57,6 @@ impl<I: Copy> From<(SnekHandlerContextProto, EventContext<I>)> for SnekHandlerCo
             scripts: ctx_proto.scripts,
             bounds: ctx_proto.validation_rules,
             adhoc_fee_structure: ctx_proto.adhoc_fee_structure,
-            auth_verification_key: ctx_proto.auth_verification_key,
             added_payment_destinations: event_ctx.added_payment_destinations,
             allowed_payment_destinations: ctx_proto.allowed_payment_destinations,
             mints: event_ctx.mints,
@@ -84,12 +81,6 @@ impl<I: Copy> Has<AddedPaymentDestinations> for SnekHandlerContext<I> {
 impl<I: Copy> Has<Option<Mints>> for SnekHandlerContext<I> {
     fn select<U: IsEqual<Option<Mints>>>(&self) -> Option<Mints> {
         self.mints
-    }
-}
-
-impl<I: Copy> Has<AuthVerificationKey> for SnekHandlerContext<I> {
-    fn select<U: IsEqual<AuthVerificationKey>>(&self) -> AuthVerificationKey {
-        self.auth_verification_key
     }
 }
 

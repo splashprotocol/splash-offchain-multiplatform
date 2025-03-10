@@ -29,7 +29,7 @@ use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::ChainSyncClient;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_chain_sync::event_source::ledger_transactions;
-use cardano_explorer::{AnyExplorer, CardanoNetwork, Maestro, Network};
+use cardano_explorer::{AnyExplorer, Maestro, Network};
 use cardano_mempool_sync::client::LocalTxMonitorClient;
 use cardano_mempool_sync::data::MempoolUpdate;
 use cardano_mempool_sync::mempool_stream;
@@ -228,7 +228,6 @@ async fn main() {
         validation_rules,
         allowed_payment_destinations: allowed_payment_destinations(config.allowed_payment_destinations),
         adhoc_fee_structure: config.adhoc_fee.into(),
-        auth_verification_key: config.auth_verification_key,
     };
     let general_upd_handler: PairUpdateHandler<
         4,

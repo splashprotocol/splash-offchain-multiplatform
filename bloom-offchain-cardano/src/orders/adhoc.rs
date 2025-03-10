@@ -197,8 +197,7 @@ where
         + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
         + Has<LimitOrderValidation>
         + Has<AdhocFeeStructure>
-        + Has<Option<Metadata>>
-        + Has<AuthVerificationKey>,
+        + Has<Option<Metadata>>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         LimitOrder::try_from_ledger(repr, ctx).and_then(|lo| {
