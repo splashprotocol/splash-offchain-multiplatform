@@ -3,6 +3,7 @@ use cml_core::Slot;
 use bloom_offchain::execution_engine::liquidity_book;
 use bloom_offchain::execution_engine::liquidity_book::core::BaseStepBudget;
 use cardano_chain_sync::client::Point;
+use cardano_explorer::config::ExplorerConfig;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain_cardano::node::NodeConfig;
@@ -15,8 +16,7 @@ pub struct AppConfig {
     pub chain_sync: ChainSyncConfig,
     pub node: NodeConfig,
     pub network_id: NetworkId,
-    pub maestro_key_path: String,
-    pub event_feed_buffer_size: usize,
+    pub explorer: ExplorerConfig,
     pub pool_validation: PoolValidation,
     pub utxo_index_db_path: String,
     pub accounts_db_path: String,

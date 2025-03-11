@@ -10,7 +10,7 @@ use cardano_chain_sync::atomic_flow::atomic_block_flow;
 use cardano_chain_sync::cache::LedgerCacheRocksDB;
 use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::ChainSyncClient;
-use cardano_explorer::Maestro;
+use cardano_explorer::{AnyExplorer, Maestro};
 use clap::Parser;
 use futures::stream::FuturesUnordered;
 use futures::FutureExt;
@@ -55,9 +55,9 @@ async fn main() {
 
     info!("Starting LP indexer ..");
 
-    let explorer = Maestro::new(config.maestro_key_path, config.network_id.into())
+    let explorer = AnyExplorer::new(&config.explorer, config.network_id)
         .await
-        .expect("Maestro instantiation failed");
+        .expect("Explorer initialization failed");
 
     let protocol_deployment = ProtocolDeployment::unsafe_pull(deployment, &explorer).await;
 
@@ -72,7 +72,6 @@ async fn main() {
     .expect("ChainSync initialization failed");
 
     let state_synced = Beacon::relaxed(false);
-    let rollback_in_progress = Arc::new(AtomicBool::new(false));
     let (flow_driver, block_events) = atomic_block_flow(
         Box::pin(chain_sync_stream(chain_sync, state_synced)),
         chain_sync_cache,
@@ -80,7 +79,14 @@ async fn main() {
 
     let index = IndexRocksDB::new(config.utxo_index_db_path);
     let db = RocksDB::new(config.accounts_db_path);
-    let filter = HashSet::from([protocol_deployment.balance_fn_pool_v1.hash]);
+    let filter = HashSet::from([
+        protocol_deployment.balance_fn_pool_v1.hash,
+        protocol_deployment.balance_fn_pool_v2.hash,
+        protocol_deployment.const_fn_pool_v1.hash,
+        protocol_deployment.const_fn_pool_v2.hash,
+        protocol_deployment.royalty_pool.hash,
+        protocol_deployment.stable_fn_pool_t2t.hash,
+    ]);
     let cx = Context {
         deployment: protocol_deployment,
         pool_validation: config.pool_validation,
