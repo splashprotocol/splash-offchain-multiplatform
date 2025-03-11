@@ -3,6 +3,7 @@ use cml_core::Slot;
 use cml_crypto::BlockHeaderHash;
 use log::trace;
 use spectrum_offchain::data::ior::Ior;
+use spectrum_offchain::display::display_vec;
 use spectrum_offchain::domain::event::{Channel, Confirmed, Transition};
 use spectrum_offchain::domain::{SeqState, Stable};
 use spectrum_offchain::partitioning::hash_partitioning_key;
@@ -81,7 +82,7 @@ impl<K, T> SessionInProgress<K, T> {
     /// and accumulated events being released.
     pub(crate) fn upgrade(&mut self, slot: Slot) -> Option<Vec<Channel<Transition<T>, LedgerCx>>>
     where
-        K: Copy + Eq + Ord + Hash,
+        K: Copy + Eq + Ord + Hash + Display,
         T: Stable<StableId = K>,
     {
         if slot >= self.sealed_at + self.settlement_delay {
@@ -108,7 +109,20 @@ impl<K, T> SessionInProgress<K, T> {
             // Apply deterministic sequencing
             let num_settled_events = settled_events.len();
             let window_size = seq_window_size(num_settled_events, self.opening_event_cx.block_hash);
+            trace!(
+                "Total events sealed: {}, window size: {}",
+                num_settled_events,
+                window_size
+            );
+            trace!(
+                "Initial ordering: {}",
+                display_vec(&settled_events.iter().map(|x| x.stable_id()).collect())
+            );
             settled_events[..window_size].sort_by(|a, b| a.stable_id().cmp(&b.stable_id()));
+            trace!(
+                "Updated ordering: {}",
+                display_vec(&settled_events.iter().map(|x| x.stable_id()).collect())
+            );
 
             return Some(
                 settled_events

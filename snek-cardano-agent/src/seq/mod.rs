@@ -61,7 +61,7 @@ impl<Ticks, Events, K, T> WithDeterministicSeq<Ticks, Events, K, T> {
 
     fn update_clocks(&mut self, slot: Slot) -> bool
     where
-        K: Copy + Eq + Ord + Hash,
+        K: Copy + Eq + Ord + Hash + Display,
         T: Stable<StableId = K>,
     {
         let upgrade = match slot.cmp(&self.current_slot) {
@@ -78,7 +78,7 @@ impl<Ticks, Events, K, T> WithDeterministicSeq<Ticks, Events, K, T> {
                 let mut pending_events = vec![];
                 for (pair, sess) in self.active_sessions.iter_mut() {
                     if let Some(released_events) = sess.upgrade(upgraded_to) {
-                        info!("Pair {} graduated", pair);
+                        info!("Pair {} graduated at {}", pair, upgraded_to);
                         closed_sessions.push(*pair);
                         pending_events.push((*pair, released_events));
                     }
@@ -107,8 +107,13 @@ impl<Ticks, Events, K, T> WithDeterministicSeq<Ticks, Events, K, T> {
                 if let Channel::Ledger(Confirmed(Transition::Forward(Ior::Right(state))), cx) = event {
                     if state.is_quasi_permanent() && state.is_initial() {
                         // New session is triggered
-                        trace!("New session {} created", pair);
                         let session_sealed_at = self.current_slot + self.session_duration;
+                        trace!(
+                            "New session {} created at {}, sealed at {}",
+                            pair,
+                            self.current_slot,
+                            session_sealed_at
+                        );
                         entry.insert(SessionInProgress::new(
                             Transition::Forward(Ior::Right(state)),
                             cx,

@@ -1,4 +1,4 @@
-use crate::domain::{SeqState, Stable};
+use crate::domain::Stable;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 
