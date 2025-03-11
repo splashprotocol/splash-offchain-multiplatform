@@ -2,7 +2,6 @@ use crate::db::{read_max_key, read_min_kv, RocksDB, ACCOUNT_FEED_CF};
 use crate::feed::event::ExportAccountEvent;
 use async_trait::async_trait;
 use rocksdb::{Transaction, TransactionDB};
-use std::sync::Arc;
 use tokio::task::spawn_blocking;
 
 pub(crate) fn batch_append(

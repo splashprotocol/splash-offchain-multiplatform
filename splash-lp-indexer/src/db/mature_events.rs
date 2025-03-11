@@ -1,6 +1,6 @@
 use crate::account::AccountInPool;
 use crate::db::{
-    export_feed, account_key, cred_index_key, from_account_key, from_event_key, get_range_iterator,
+    account_key, cred_index_key, export_feed, from_account_key, from_event_key, get_range_iterator,
     sus_event_key, RocksDB, ACCOUNTS_CF, ACCOUNT_FEED_CF, ACTIVE_FARMS_CF, AGGREGATE_CF, CREDS_INDEX_CF,
     EVENTS_CF, MAX_BLOCK_KEY, SUS_EVENTS_CF,
 };
@@ -163,6 +163,7 @@ impl MatureEvents for RocksDB {
                             tx.put_cf(cred_index_cf, cred_index, vec![]).unwrap();
                             export_events.push(ExportAccountEvent {
                                 account_cred,
+                                pool_id: pool,
                                 update: next_account_state,
                             });
                         }
