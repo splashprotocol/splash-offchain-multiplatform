@@ -2050,7 +2050,7 @@ where
                         self.dao_order_backlog.remove(ver.output_ref).await;
                     } else {
                         self.funding_box
-                            .spend_confirmed(FundingBoxId::from(ver.output_ref))
+                            .eliminate_confirmed(FundingBoxId::from(ver.output_ref))
                             .await;
                     }
                 }
@@ -2205,6 +2205,10 @@ where
                     for p in funding_box_changes.spent {
                         self.funding_box.unspend_predicted(p).await;
                     }
+
+                    for predicted in funding_box_changes.created {
+                        self.funding_box.eliminate_predicted(predicted.0.id).await;
+                    }
                 }
                 PredictedEntityWrites::ApplyVotingOrder {
                     voting_order,
@@ -2244,7 +2248,12 @@ where
                     for p in funding_box_changes.spent {
                         self.funding_box.unspend_predicted(p).await;
                     }
+
+                    for predicted in funding_box_changes.created {
+                        self.funding_box.eliminate_predicted(predicted.0.id).await;
+                    }
                 }
+
                 PredictedEntityWrites::EiminateWPoll {
                     wpoll_id,
                     funding_box_changes,
@@ -2255,8 +2264,14 @@ where
                     for p in funding_box_changes.spent {
                         self.funding_box.unspend_predicted(p).await;
                     }
+
+                    for predicted in funding_box_changes.created {
+                        self.funding_box.eliminate_predicted(predicted.0.id).await;
+                    }
+
                     self.wpoll_set_elimination_status(wpoll_id.0, false).await;
                 }
+
                 PredictedEntityWrites::MakeVotingEscrow {
                     voting_escrow_id,
                     mve_order,
@@ -2277,6 +2292,7 @@ where
                     self.dao_order_backlog.put(order).await;
                     self.tx_hash_to_dao_order.remove(version).await;
                 }
+
                 PredictedEntityWrites::ExtendVotingEscrow {
                     offchain_order,
                     eve_order,
@@ -2305,6 +2321,7 @@ where
                     self.offchain_order_backlog.put(ord).await;
                     self.tx_hash_to_dao_order.remove(version).await;
                 }
+
                 PredictedEntityWrites::RedeemVotingEscrow {
                     offchain_order,
                     order_timestamp: timestamp,

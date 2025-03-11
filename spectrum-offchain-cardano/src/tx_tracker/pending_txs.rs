@@ -3,12 +3,13 @@ use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Display;
 use std::hash::Hash;
+use std::time::Instant;
 
 pub(crate) struct PendingTxs<TxHash, Tx> {
     max_confirmation_delay_blocks: u64,
     current_block: u64,
     index: HashMap<TxHash, u64>,
-    queue: BTreeMap<u64, HashMap<TxHash, Tx>>,
+    queue: BTreeMap<u64, HashMap<(TxHash, Instant), Tx>>,
 }
 
 impl<TxHash, Tx> PendingTxs<TxHash, Tx> {
@@ -27,51 +28,62 @@ impl<TxHash, Tx> PendingTxs<TxHash, Tx> {
     {
         let should_confirm_until = self.current_block + self.max_confirmation_delay_blocks;
         self.index.insert(tx, should_confirm_until);
+        let now = Instant::now();
         match self.queue.entry(should_confirm_until) {
             Entry::Vacant(entry) => {
                 let mut txs = HashMap::new();
-                txs.insert(tx, trs);
+                txs.insert((tx, now), trs);
                 entry.insert(txs);
             }
             Entry::Occupied(mut entry) => {
-                entry.get_mut().insert(tx, trs);
+                entry.get_mut().insert((tx, now), trs);
             }
         }
     }
 
     pub fn confirm_tx(&mut self, tx: TxHash)
     where
-        TxHash: Eq + Hash + Display,
+        TxHash: Copy + Eq + Hash + Display,
     {
         if let Some(key) = self.index.remove(&tx) {
             if let Some(txs) = self.queue.get_mut(&key) {
-                let removed = txs.remove(&tx);
+                let instant = txs
+                    .keys()
+                    .find_map(|(tx_inner, instant)| if *tx_inner == tx { Some(instant) } else { None })
+                    .unwrap();
+                let removed = txs.remove(&(tx, *instant));
                 trace!("[PendingTxs]: removed confirmed TX {}: {}", tx, removed.is_some());
             }
         }
     }
 
+    /// Returns unsuccessful TXs in reverse-submission order so that chained-TXs are properly
+    /// ordered for correct rollback.
     pub fn try_advance(&mut self, new_block: u64) -> Option<Vec<Tx>>
     where
-        TxHash: Eq + Hash + Display,
+        TxHash: Copy + Eq + Hash + Display,
     {
         if self.current_block < new_block {
             self.current_block = new_block;
-            let mut failed_txs = Vec::new();
+            let mut failed_txs_with_timestamp = Vec::new();
             loop {
                 if let Some(entry) = self.queue.first_entry() {
                     if *entry.key() <= new_block {
                         let txs = entry.remove();
                         for (hash, tx) in txs {
-                            trace!("Tx {} failed", hash);
-                            self.index.remove(&hash);
-                            failed_txs.push(tx);
+                            trace!("Tx {} failed", hash.0);
+                            self.index.remove(&hash.0);
+                            failed_txs_with_timestamp.push((hash.1, tx));
                         }
                         continue;
                     }
                 }
                 break;
             }
+
+            // Reverse chronological order
+            failed_txs_with_timestamp.sort_by(|a, b| b.0.cmp(&a.0));
+            let failed_txs = failed_txs_with_timestamp.into_iter().map(|x| x.1).collect();
             trace!(
                 "[TxTracker] Queue size: {}, pending transactions: {}",
                 self.queue.len(),
@@ -86,7 +98,6 @@ impl<TxHash, Tx> PendingTxs<TxHash, Tx> {
 #[cfg(test)]
 mod tests {
     use crate::tx_tracker::pending_txs::PendingTxs;
-    use std::collections::HashSet;
 
     #[test]
     fn track_transaction_successful() {
@@ -109,10 +120,7 @@ mod tests {
         txs.append(tx1.0, tx1.1.clone());
         txs.append(tx2.0, tx2.1.clone());
         let unsuccessful_txs = txs.try_advance(128);
-        assert_eq!(
-            HashSet::<Vec<i32>>::from_iter(unsuccessful_txs.unwrap()),
-            HashSet::from_iter(vec![tx1.1, tx2.1])
-        );
+        assert_eq!(unsuccessful_txs.unwrap(), vec![tx2.1, tx1.1]);
         assert!(txs.index.is_empty());
     }
 
@@ -130,10 +138,7 @@ mod tests {
         assert!(!txs.index.is_empty());
         txs.append(tx3.0, tx3.1.clone());
         let unsuccessful_txs = txs.try_advance(130);
-        assert_eq!(
-            HashSet::<Vec<i32>>::from_iter(unsuccessful_txs.unwrap()),
-            HashSet::from_iter(vec![tx1.1, tx2.1])
-        );
+        assert_eq!(unsuccessful_txs.unwrap(), vec![tx2.1, tx1.1]);
         let unsuccessful_txs = txs.try_advance(138);
         assert_eq!(unsuccessful_txs, Some(vec![tx3.1]));
     }

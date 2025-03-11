@@ -162,10 +162,11 @@ async fn main() {
 
     // We assume the batcher's private key is associated with a Cardano base address, which also
     // includes a reward address.
-    let (addr, collateral_addr, _funding_addresses) =
+    let (op_cred, collateral_addr, _funding_addresses) =
         operator_creds(config.batcher_private_key, config.network_id);
 
-    let reward_address = RewardAddress::new(config.network_id.into(), StakeCredential::new_pub_key(addr.0));
+    let reward_address =
+        RewardAddress::new(config.network_id.into(), StakeCredential::new_pub_key(op_cred.0));
 
     let collateral = pull_collateral(collateral_addr, &explorer)
         .await

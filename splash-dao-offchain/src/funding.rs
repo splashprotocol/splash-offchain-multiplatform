@@ -18,6 +18,8 @@ pub trait FundingRepo {
     async fn unspend_confirmed(&mut self, f_id: FundingBoxId);
     async fn spend_predicted(&mut self, f_id: FundingBoxId);
     async fn unspend_predicted(&mut self, f_id: FundingBoxId);
+    async fn eliminate_predicted(&mut self, f_id: FundingBoxId);
+    async fn eliminate_confirmed(&mut self, f_id: FundingBoxId);
 }
 
 const STATE_PREFIX: &str = "s:";
@@ -48,7 +50,7 @@ impl FundingRepo for FundingRepoRocksDB {
         let db = Arc::clone(&self.db);
         let mut res = vec![];
         spawn_blocking(move || {
-            let prefix = funding_key_prefix(STATE_PREFIX, CONFIRMED_AVAILABLE);
+            let prefix = rmp_serde::to_vec(STATE_PREFIX.as_bytes()).unwrap();
             let mut readopts = ReadOptions::default();
             readopts.set_iterate_range(rocksdb::PrefixRange(prefix.clone()));
             let mut iter = db.iterator_opt(IteratorMode::From(&prefix, Direction::Forward), readopts);
@@ -164,6 +166,28 @@ impl FundingRepo for FundingRepoRocksDB {
             let confirmed_key = funding_key(STATE_PREFIX, CONFIRMED_AVAILABLE, &f_id);
             tx.put(confirmed_key, spent_box_bytes).unwrap();
             tx.commit().unwrap();
+        })
+        .await
+    }
+
+    async fn eliminate_predicted(&mut self, f_id: FundingBoxId) {
+        trace!("FB.eliminate_predicted: {:?}", f_id);
+        let db = self.db.clone();
+        let predicted_key = funding_key(STATE_PREFIX, PREDICTED_AVAILABLE, &f_id);
+        spawn_blocking(move || {
+            assert!(db.get(&predicted_key).unwrap().is_some());
+            db.delete(predicted_key).unwrap();
+        })
+        .await
+    }
+
+    async fn eliminate_confirmed(&mut self, f_id: FundingBoxId) {
+        trace!("FB.eliminate_confirmed: {:?}", f_id);
+        let db = self.db.clone();
+        let confirmed_key = funding_key(STATE_PREFIX, CONFIRMED_AVAILABLE, &f_id);
+        spawn_blocking(move || {
+            assert!(db.get(&confirmed_key).unwrap().is_some());
+            db.delete(confirmed_key).unwrap();
         })
         .await
     }
