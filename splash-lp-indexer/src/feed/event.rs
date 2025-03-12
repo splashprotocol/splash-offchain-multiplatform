@@ -3,7 +3,7 @@ use cml_chain::certs::Credential;
 use serde::{Deserialize, Serialize};
 use spectrum_offchain_cardano::data::PoolId;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ExportAccountEvent {
     pub account_cred: Credential,
     pub pool_id: PoolId,

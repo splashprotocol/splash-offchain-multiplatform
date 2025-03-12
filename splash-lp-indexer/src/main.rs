@@ -6,6 +6,7 @@ use crate::feed::event_publisher::EventPublisher;
 use crate::http_api::build_api_server;
 use crate::pipeline::{log_events, process_mature_events};
 use async_primitives::beacon::Beacon;
+use bloom_offchain_cardano::validation_rules::ValidationRules;
 use cardano_chain_sync::atomic_flow::atomic_block_flow;
 use cardano_chain_sync::cache::LedgerCacheRocksDB;
 use cardano_chain_sync::chain_sync_stream;
@@ -51,6 +52,11 @@ async fn main() {
     let deployment: DeployedValidators =
         serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
 
+    let raw_validation_rules =
+        std::fs::read_to_string(args.validation_rules_path).expect("Cannot load bounds file");
+    let validation_rules: ValidationRules =
+        serde_json::from_str(&raw_validation_rules).expect("Invalid bounds file");
+
     log4rs::init_file(args.log4rs_path, Default::default()).unwrap();
 
     info!("Starting LP indexer ..");
@@ -89,7 +95,7 @@ async fn main() {
     ]);
     let cx = Context {
         deployment: protocol_deployment,
-        pool_validation: config.pool_validation,
+        pool_validation: validation_rules.pool,
     };
 
     let ip_addr = IpAddr::from_str(&*args.host).expect("Invalid host address");
@@ -100,6 +106,7 @@ async fn main() {
         .map(|r| r.unwrap());
 
     let kafka = ClientConfig::new()
+        .set("bootstrap.servers", &config.bootstrap_servers)
         .create::<FutureProducer>()
         .expect("Failed to create kafka producer");
     let publisher =
@@ -144,6 +151,9 @@ struct AppArgs {
     /// Path to the deployment JSON configuration file .
     #[arg(long, short)]
     deployment_path: String,
+    /// Path to the bounds JSON configuration file .
+    #[arg(long, short)]
+    validation_rules_path: String,
     /// Path to the log4rs YAML configuration file.
     #[arg(long, short)]
     log4rs_path: String,

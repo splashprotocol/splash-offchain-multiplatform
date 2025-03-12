@@ -23,8 +23,8 @@ use tokio::sync::Mutex;
 
 #[derive(Clone)]
 pub enum BlockEvents<T> {
-    RollForward { events: Vec<T>, slot: Slot },
-    RollBackward { events: Vec<T>, slot: Slot },
+    RollForward { events: Vec<T>, block_num: u64 },
+    RollBackward { events: Vec<T>, block_num: u64 },
 }
 
 impl<T> BlockEvents<T> {
@@ -33,13 +33,13 @@ impl<T> BlockEvents<T> {
         F: FnOnce(Vec<T>) -> Vec<T2>,
     {
         match self {
-            BlockEvents::RollForward { events, slot } => BlockEvents::RollForward {
+            BlockEvents::RollForward { events, block_num } => BlockEvents::RollForward {
                 events: f(events),
-                slot,
+                block_num,
             },
-            BlockEvents::RollBackward { events, slot } => BlockEvents::RollBackward {
+            BlockEvents::RollBackward { events, block_num } => BlockEvents::RollBackward {
                 events: f(events),
-                slot,
+                block_num,
             },
         }
     }
@@ -113,7 +113,7 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
                             .into_iter()
                             .map(|(tx, _, _, _)| tx)
                             .collect(),
-                        slot: hdr.slot(),
+                        block_num: hdr.block_number(),
                     };
                     let (snd, recv) = oneshot::channel();
                     downstream.send((applied_txs, snd.into())).await.unwrap();
@@ -123,7 +123,7 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
                 ChainUpgrade::RollBackward(point) => {
                     info!("Node requested rollback to point {:?}", point);
                     loop {
-                        let mut cache = cache.lock().await;
+                        let cache = cache.lock().await;
                         if let Some(tip) = cache.get_tip().await {
                             let rollback_finished = tip == point;
                             if !rollback_finished {
@@ -132,14 +132,14 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
                                 {
                                     let block = MultiEraBlock::from_cbor_bytes(&block_bytes)
                                         .expect("Block deserialization failed");
-                                    let slot = block.header().slot();
+                                    let block_num = block.header().block_number();
                                     let unapplied_txs = BlockEvents::RollBackward {
                                         events: unpack_valid_transactions_multi_era(block)
                                             .into_iter()
                                             .map(|(tx, _, _, _)| tx)
                                             .rev()
                                             .collect(),
-                                        slot,
+                                        block_num,
                                     };
                                     let (snd, recv) = oneshot::channel();
                                     downstream.send((unapplied_txs, snd.into())).await.unwrap();
@@ -163,7 +163,7 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
 #[derive(From)]
 pub struct TransactionHandle(oneshot::Sender<()>);
 impl TransactionHandle {
-    pub fn commit(mut self) {
+    pub fn commit(self) {
         let _ = self.0.send(());
     }
 }
@@ -174,7 +174,7 @@ async fn cache_block<Cache: LedgerCache>(
     blk_bytes: Vec<u8>,
 ) {
     let point = Point::Specific(hdr.slot(), hash_block_header_canonical_multi_era(&hdr));
-    let mut cache = cache.lock().await;
+    let cache = cache.lock().await;
     let prev_point = cache.get_tip().await.unwrap_or(Point::Origin);
     cache.set_tip(point).await;
     cache.put_block(point, LinkedBlock(blk_bytes, prev_point)).await;

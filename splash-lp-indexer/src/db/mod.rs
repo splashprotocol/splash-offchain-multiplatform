@@ -1,8 +1,9 @@
 use cml_chain::certs::Credential;
+use cml_core::serialization::{Deserialize, Serialize, ToBytes};
 use cml_core::Slot;
 use rocksdb::{
     ColumnFamily, DBIteratorWithThreadMode, Direction, IteratorMode, Options, ReadOptions, Transaction,
-    TransactionDB, TransactionDBOptions, DB,
+    TransactionDB, TransactionDBOptions,
 };
 use serde::de::DeserializeOwned;
 use spectrum_offchain_cardano::data::PoolId;
@@ -65,20 +66,40 @@ pub(crate) fn read_min_kv<T: DeserializeOwned>(
     None
 }
 
+pub(crate) fn pool_key(pool_id: PoolId) -> Vec<u8> {
+    pool_id.into()
+}
+
 pub(crate) fn account_key(pool_id: PoolId, credential: Credential) -> Vec<u8> {
-    rmp_serde::to_vec(&(pool_id, credential)).unwrap()
+    let mut key: Vec<u8> = pool_id.into();
+    key.extend(credential.to_canonical_cbor_bytes());
+    key
 }
 
 pub(crate) fn from_account_key(key: Vec<u8>) -> Option<(PoolId, Credential)> {
-    rmp_serde::from_slice(&key).ok()
+    PoolId::try_from(&key[..PoolId::BYTE_COUNT])
+        .ok()
+        .and_then(|pool_id| {
+            Credential::from_cbor_bytes(&key[PoolId::BYTE_COUNT..])
+                .ok()
+                .map(|cred| (pool_id, cred))
+        })
 }
 
 pub(crate) fn event_key(slot: Slot, event_index: usize) -> Vec<u8> {
-    rmp_serde::to_vec(&(slot, event_index)).unwrap()
+    let mut event_key: Vec<u8> = slot.to_be_bytes().to_vec();
+    event_key.extend(event_index.to_be_bytes());
+    event_key
 }
 
 pub(crate) fn from_event_key(key: Vec<u8>) -> Option<(Slot, usize)> {
-    rmp_serde::from_slice(&key).ok()
+    if key.len() >= size_of::<Slot>() {
+        let (slot_bytes, event_index_bytes) = key.split_at(size_of::<Slot>());
+        let slot = Slot::from_be_bytes(slot_bytes.try_into().ok()?);
+        let event_index = usize::from_be_bytes(event_index_bytes.try_into().ok()?);
+        return Some((slot, event_index));
+    }
+    None
 }
 
 pub(crate) fn sus_event_key(cred: Credential, slot: Slot) -> Vec<u8> {
@@ -119,11 +140,12 @@ pub(crate) const CREDS_INDEX_CF: &str = "creds_index";
 
 pub(crate) const ACCOUNT_FEED_CF: &str = "account_events";
 
-pub(crate) const MAX_BLOCK_KEY: [u8; 4] = [0u8; 4];
+pub(crate) const MAX_BLOCK_NUM_KEY: [u8; 4] = [0u8; 4];
 
-pub(crate) const COLUMN_FAMILIES: [&str; 6] = [
+pub(crate) const COLUMN_FAMILIES: [&str; 7] = [
     EVENTS_CF,
     ACCOUNTS_CF,
+    ACTIVE_FARMS_CF,
     AGGREGATE_CF,
     SUS_EVENTS_CF,
     CREDS_INDEX_CF,

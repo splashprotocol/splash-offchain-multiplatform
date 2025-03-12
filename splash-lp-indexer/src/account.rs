@@ -6,11 +6,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Copy, Clone, Eq, PartialEq, Serialize, Deserialize, Debug)]
 pub struct AccountInPool {
     /// Accumulator of avg share over period from `activated_at` to `updated_at`
-    avg_share_bps: u64,
+    pub avg_share_bps: u64,
     /// Latest share as (personal_share, total_share)
-    share: (u64, u64),
-    updated_at: Slot,
-    activated_at: Option<Slot>,
+    pub share: (u64, u64),
+    pub updated_at: Slot,
+    pub activated_at: Option<Slot>,
     pub locked_at: Option<Slot>,
 }
 

@@ -1,4 +1,4 @@
-use crate::db::{event_key, RocksDB, EVENTS_CF};
+use crate::db::{event_key, RocksDB, AGGREGATE_CF, EVENTS_CF, MAX_BLOCK_NUM_KEY};
 use crate::onchain::event::OnChainEvent;
 use async_trait::async_trait;
 use tokio::task::spawn_blocking;
@@ -15,7 +15,14 @@ impl EventLog for RocksDB {
         let db = self.db.clone();
         spawn_blocking(move || {
             let events_cf = db.cf_handle(EVENTS_CF).unwrap();
+            let aggregates_cf = db.cf_handle(AGGREGATE_CF).unwrap();
             let tx = db.transaction();
+            tx.put_cf(
+                aggregates_cf,
+                MAX_BLOCK_NUM_KEY,
+                &rmp_serde::to_vec(&block_num).unwrap(),
+            )
+            .unwrap();
             for (n, event) in events.iter().enumerate() {
                 let key = event_key(block_num, n);
                 tx.put_cf(events_cf, key, rmp_serde::to_vec_named(&event).unwrap())
