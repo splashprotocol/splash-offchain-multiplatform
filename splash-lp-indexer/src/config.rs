@@ -17,11 +17,11 @@ pub struct AppConfig {
     pub node: NodeConfig,
     pub network_id: NetworkId,
     pub explorer: ExplorerConfig,
-    pub pool_validation: PoolValidation,
     pub utxo_index_db_path: String,
     pub accounts_db_path: String,
     pub confirmation_delay_blocks: u64,
     pub events_export_topic: String,
+    pub bootstrap_servers: String,
 }
 
 #[derive(serde::Deserialize)]

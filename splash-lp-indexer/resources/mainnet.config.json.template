@@ -1,5 +1,4 @@
 {
-  "eventFeedBufferSize": 1024,
   "chainSync": {
     "startingPoint": {
       "Specific": [
@@ -20,46 +19,13 @@
     "path": "/data/cardano-node/ipc/node.socket",
     "magic": 764824073
   },
-  "txSubmissionBufferSize": 64,
-  "backlogCapacity": 512,
   "networkId": 1,
-  "eventCacheTtl": {
-    "secs": 240,
-    "nanos": 0
-  },
-  "operatorKey": "",
-  "takeResidualFee": false,
   "explorer": {
     "maestroKeyPath": "bloom-cardano-agent/resources/maestro.key"
   }
-  "execution": {
-    "executionCap": {
-      "soft": {
-        "mem": 5000000,
-        "steps": 4000000000
-      },
-      "hard": {
-        "mem": 14000000,
-        "steps": 10000000000
-      }
-    },
-    "o2o_allowed": true
-  },
-  "partitioning": {
-    "numPartitionsTotal": 1,
-    "assignedPartitions": [0]
-  },
-  "eventFeedBufferingDuration": {
-    "secs": 2,
-    "nanos": 0
-  },
-  "reportingEndpoint": "127.0.0.1:9021",
-  "daoConfig": {
-    "publicKeys": [],
-    "threshold": 0,
-    "exFee": 1500000
-  },
-  "royaltyWithdraw": {
-    "transactionFee": 1500000
-  },
+  "utxoIndexDbPath": "index/utxo",
+  "accountsDbPath": "index/accounts",
+  "confirmationDelayBlocks": 6,
+  "bootstrapServers": "0.0.0.0:19094",
+  "eventsExportTopic": "events_export",
 }

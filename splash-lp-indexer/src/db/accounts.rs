@@ -1,7 +1,7 @@
 use crate::account::AccountInPool;
 use crate::db::{
     account_key, cred_index_prefix, from_cred_index_key, get_range_iterator, RocksDB, ACCOUNTS_CF,
-    AGGREGATE_CF, CREDS_INDEX_CF, MAX_BLOCK_KEY,
+    AGGREGATE_CF, CREDS_INDEX_CF, MAX_BLOCK_NUM_KEY,
 };
 use cml_chain::certs::Credential;
 use cml_core::Slot;
@@ -23,7 +23,7 @@ impl Accounts for RocksDB {
             let aggregates_cf = db.cf_handle(AGGREGATE_CF).unwrap();
             let prefix = cred_index_prefix(key.clone());
             let current_slot = tx
-                .get_cf(aggregates_cf, MAX_BLOCK_KEY)
+                .get_cf(aggregates_cf, MAX_BLOCK_NUM_KEY)
                 .unwrap()
                 .map(|raw| rmp_serde::from_slice::<u64>(&raw).unwrap())?;
             let mut iter = get_range_iterator(&db, cred_index_cf, prefix);

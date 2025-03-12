@@ -238,6 +238,7 @@ impl From<OutputRef> for String {
 pub struct Token(pub PolicyId, pub AssetName);
 
 impl Token {
+    pub const BYTE_COUNT: usize = 60;
     pub fn try_from_string(s: &str) -> Option<Token> {
         let (pol, an) = s.split_once(".")?;
         Some(Self(PolicyId::from_hex(pol).ok()?, AssetName::try_from_hex(an)?))
@@ -263,9 +264,9 @@ impl TryFrom<String> for Token {
     }
 }
 
-impl From<Token> for [u8; 60] {
+impl From<Token> for [u8; Token::BYTE_COUNT] {
     fn from(value: Token) -> Self {
-        let mut arr = [0u8; 60];
+        let mut arr = [0u8; Token::BYTE_COUNT];
         for (ix, b) in value
             .0
             .to_raw_bytes()
@@ -276,6 +277,29 @@ impl From<Token> for [u8; 60] {
             arr[ix] = *b;
         }
         arr
+    }
+}
+
+impl From<[u8; Token::BYTE_COUNT]> for Token {
+    fn from(value: [u8; Token::BYTE_COUNT]) -> Self {
+        let policy_id = PolicyId::from_raw_bytes(&value[0..PolicyId::BYTE_COUNT]).unwrap();
+        let asset_name = AssetName::try_from(value[PolicyId::BYTE_COUNT..].to_vec()).unwrap();
+        Self(policy_id, asset_name)
+    }
+}
+
+impl From<Token> for Vec<u8> {
+    fn from(value: Token) -> Self {
+        <[u8; Token::BYTE_COUNT]>::from(value).into()
+    }
+}
+
+impl TryFrom<&[u8]> for Token {
+    type Error = ();
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        let policy_id = PolicyId::from_raw_bytes(&value[0..PolicyId::BYTE_COUNT]).map_err(|_| ())?;
+        let asset_name = AssetName::try_from(value[PolicyId::BYTE_COUNT..].to_vec()).map_err(|_| ())?;
+        Ok(Self(policy_id, asset_name))
     }
 }
 

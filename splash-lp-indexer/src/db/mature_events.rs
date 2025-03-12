@@ -1,8 +1,8 @@
 use crate::account::AccountInPool;
 use crate::db::{
-    account_key, cred_index_key, export_feed, from_account_key, from_event_key, get_range_iterator,
+    account_key, cred_index_key, export_feed, from_account_key, from_event_key, get_range_iterator, pool_key,
     sus_event_key, RocksDB, ACCOUNTS_CF, ACCOUNT_FEED_CF, ACTIVE_FARMS_CF, AGGREGATE_CF, CREDS_INDEX_CF,
-    EVENTS_CF, MAX_BLOCK_KEY, SUS_EVENTS_CF,
+    EVENTS_CF, MAX_BLOCK_NUM_KEY, SUS_EVENTS_CF,
 };
 use crate::feed::event::ExportAccountEvent;
 use crate::onchain::event::{
@@ -18,18 +18,18 @@ use tokio::task::spawn_blocking;
 
 #[async_trait]
 pub trait MatureEvents {
-    async fn try_process_mature_events(&self, confirmation_delay_slots: u64) -> bool;
+    async fn try_process_mature_events(&self, confirmation_delay_blocks: u64) -> bool;
 }
 
 #[async_trait]
 impl MatureEvents for RocksDB {
-    async fn try_process_mature_events(&self, confirmation_delay_slots: u64) -> bool {
+    async fn try_process_mature_events(&self, confirmation_delay_blocks: u64) -> bool {
         let db = self.db.clone();
         spawn_blocking(move || {
             let tx = db.transaction();
             let aggregates_cf = db.cf_handle(AGGREGATE_CF).unwrap();
-            if let Some(max_slot) = tx
-                .get_cf(aggregates_cf, MAX_BLOCK_KEY)
+            if let Some(max_block_num) = tx
+                .get_cf(aggregates_cf, MAX_BLOCK_NUM_KEY)
                 .unwrap()
                 .map(|raw| rmp_serde::from_slice::<u64>(&raw).unwrap())
             {
@@ -41,16 +41,16 @@ impl MatureEvents for RocksDB {
                     let mut events = vec![];
                     let mut export_events = vec![];
                     while let Some(Ok((event_key, value))) = iter_events.next() {
-                        let (slot, _) = from_event_key(event_key.clone().to_vec()).unwrap();
+                        let (block_num, _) = from_event_key(event_key.clone().to_vec()).unwrap();
                         if let Some(current_slot) = current_slot {
-                            if current_slot != slot {
+                            if current_slot != block_num {
                                 break;
                             }
                         } else {
-                            if max_slot - slot <= confirmation_delay_slots {
+                            if max_block_num - block_num <= confirmation_delay_blocks {
                                 return false;
                             }
-                            current_slot = Some(slot);
+                            current_slot = Some(block_num);
                         };
                         let event = rmp_serde::from_slice::<OnChainEvent>(&value).unwrap();
                         events.push(event);
@@ -59,8 +59,8 @@ impl MatureEvents for RocksDB {
                     let accounts_cf = db.cf_handle(ACCOUNTS_CF).unwrap();
                     let cred_index_cf = db.cf_handle(CREDS_INDEX_CF).unwrap();
                     let frames = aggregate_events(events);
-                    for (pool, mut pool_frame) in frames {
-                        let pool_key = rmp_serde::to_vec(&pool).unwrap();
+                    for (pool_id, mut pool_frame) in frames {
+                        let pool_key = pool_key(pool_id);
                         let current_slot = current_slot.unwrap();
                         let active_farms_cf = db.cf_handle(ACTIVE_FARMS_CF).unwrap();
                         for farm_event in pool_frame.farm_events {
@@ -78,12 +78,15 @@ impl MatureEvents for RocksDB {
                             .get_cf(active_farms_cf, pool_key.clone())
                             .unwrap()
                             .map(|raw| rmp_serde::from_slice::<u64>(&raw).unwrap());
+                        println!("Farm activated at {:?}", farm_activated_at);
+                        println!("Account key prefix: {:?}", pool_key);
                         let mut iter_accounts = get_range_iterator(&db, accounts_cf, pool_key);
                         let mut accounts_for_update: HashMap<Credential, (AccountInPool, AccountFrame)> =
                             HashMap::new();
                         let suspended_events_cf = db.cf_handle(SUS_EVENTS_CF).unwrap();
                         while let Some(Ok((key, value))) = iter_accounts.next() {
                             let (_, account_cred) = from_account_key(key.to_vec()).unwrap();
+                            println!("Iterating over account: {:?}", account_cred);
                             let account = rmp_serde::from_slice::<AccountInPool>(&value).unwrap();
                             let updated_account = if let Some(farm_activated_at) = farm_activated_at {
                                 account.activated(farm_activated_at)
@@ -106,6 +109,7 @@ impl MatureEvents for RocksDB {
                         }
                         // Left events relate to yet non-existent accounts
                         for (new_account_key, account_frame) in pool_frame.account_frames {
+                            println!("New key: {:?}", new_account_key);
                             accounts_for_update.insert(
                                 new_account_key,
                                 (
@@ -135,7 +139,8 @@ impl MatureEvents for RocksDB {
                                         account_state
                                     }
                                 };
-                            let account_key = account_key(pool, account_cred.clone());
+                            let account_key = account_key(pool_id, account_cred.clone());
+                            println!("Account key: {:?}", account_key);
                             let next_account_state = match next_account_state.try_adjust_position(
                                 current_slot,
                                 lp_supply,
@@ -159,11 +164,11 @@ impl MatureEvents for RocksDB {
                             let updated_account_value = rmp_serde::to_vec_named(&next_account_state).unwrap();
                             tx.put_cf(accounts_cf, account_key, updated_account_value)
                                 .unwrap();
-                            let cred_index = cred_index_key(&account_cred, pool);
+                            let cred_index = cred_index_key(&account_cred, pool_id);
                             tx.put_cf(cred_index_cf, cred_index, vec![]).unwrap();
                             export_events.push(ExportAccountEvent {
                                 account_cred,
-                                pool_id: pool,
+                                pool_id,
                                 update: next_account_state,
                             });
                         }
@@ -199,6 +204,7 @@ fn aggregate_events(events: Vec<OnChainEvent>) -> HashMap<PoolId, PoolFrame> {
     aggregated_events
 }
 
+#[derive(Debug)]
 struct AccountFrame {
     harvest_events: VecDeque<Harvest>,
     suspended_position_events: Vec<SuspendedPositionEvents>,
@@ -230,6 +236,7 @@ impl AccountFrame {
     }
 }
 
+#[derive(Debug)]
 struct PoolFrame {
     farm_events: Vec<FarmEvent>,
     account_frames: HashMap<Credential, AccountFrame>,
@@ -264,5 +271,74 @@ impl PoolFrame {
                 self.farm_events.push(farm_event);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::event_log::EventLog;
+    use crate::db::export_feed::ExportEventFeed;
+    use crate::db::tests::DBPath;
+    use crate::onchain::event::{Deposit, FarmActivation};
+    use cml_crypto::Ed25519KeyHash;
+
+    #[tokio::test]
+    async fn process_export_mature_events() {
+        let db_path = DBPath::new("_test_read_max_key");
+        let db = RocksDB::new(&db_path);
+
+        let pid = PoolId::random();
+        let account = Credential::new_pub_key(Ed25519KeyHash::from([0u8; 28]));
+
+        let r2 = (1_000u64, 1_000_000u64);
+        let r3 = (1_000u64, 2_000_000u64);
+        let r4 = (2_000u64, 8_000_000u64);
+
+        // Generate a few OnChainEvents
+        let event1 = OnChainEvent::FarmEvent(FarmEvent::FarmActivation(FarmActivation { pool_id: pid }));
+        let event2 = OnChainEvent::Account(AccountEvent::Position(PositionEvent::Deposit(Deposit {
+            pool_id: pid,
+            account: account.clone(),
+            lp_mint: r2.0,
+            lp_supply: r2.1,
+        })));
+        let event3 = OnChainEvent::Account(AccountEvent::Position(PositionEvent::Deposit(Deposit {
+            pool_id: pid,
+            account: account.clone(),
+            lp_mint: r3.0,
+            lp_supply: r3.1,
+        })));
+        let event4 = OnChainEvent::Account(AccountEvent::Position(PositionEvent::Deposit(Deposit {
+            pool_id: pid,
+            account: account.clone(),
+            lp_mint: r4.0,
+            lp_supply: r4.1,
+        })));
+
+        db.batch_append(1, vec![event1, event2]).await;
+        db.batch_append(10, vec![event3]).await;
+
+        let ok = db.try_process_mature_events(5).await;
+
+        assert!(ok);
+
+        let Some((sn, export_event_1)) = db.next().await else {
+            panic!("No event")
+        };
+        db.delete(sn).await;
+        println!("{:?}", export_event_1);
+        assert_eq!(export_event_1.account_cred, account);
+        assert_eq!(export_event_1.update.share, r2);
+
+        db.batch_append(25, vec![event4]).await;
+        let ok = db.try_process_mature_events(5).await;
+        assert!(ok);
+
+        let Some((sn, export_event_2)) = db.next().await else {
+            panic!("No event")
+        };
+        db.delete(sn).await;
+        println!("{:?}", export_event_2);
     }
 }

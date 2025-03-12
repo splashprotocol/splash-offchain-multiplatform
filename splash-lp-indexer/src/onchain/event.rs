@@ -245,7 +245,7 @@ impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for Harvest {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct FarmActivation {
-    pool_id: PoolId,
+    pub pool_id: PoolId,
 }
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for FarmActivation {
