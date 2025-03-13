@@ -27,7 +27,7 @@ use spectrum_offchain::ledger::IntoLedger;
 use uplc::PlutusData;
 use uplc_pallas_primitives::Fragment;
 
-use crate::collect_utxos::collect_utxos;
+use crate::collect_utxos::collect_tagged_utxos;
 use crate::constants::time::MAX_TIME_DRIFT_MILLIS;
 use crate::create_change_output::{ChangeOutputCreator, CreateChangeOutput};
 use crate::deployment::BuiltPolicy;
@@ -37,11 +37,12 @@ use crate::entities::onchain::extend_voting_escrow_order::ExtendVotingEscrowOrde
 use crate::entities::onchain::funding_box::FundingBox;
 use crate::entities::onchain::make_voting_escrow_order::MakeVotingEscrowOrderBundle;
 use crate::entities::onchain::voting_escrow_factory::VEFactorySnapshot;
+use crate::funding::AvailableFundingBoxes;
 use crate::protocol_config::OperatorCreds;
 
 use super::{
-    AvailableFundingBoxes, FundingBoxChanges, InflationBoxSnapshot, PermManagerSnapshot, PollFactorySnapshot,
-    Slot, SmartFarmSnapshot, VotingEscrowSnapshot, WeightingPollSnapshot,
+    FundingBoxChanges, InflationBoxSnapshot, PermManagerSnapshot, PollFactorySnapshot, Slot,
+    SmartFarmSnapshot, VotingEscrowSnapshot, WeightingPollSnapshot,
 };
 
 #[async_trait::async_trait]
@@ -197,27 +198,40 @@ pub fn compute_farm_name(farm_id: u32) -> cml_chain::assets::AssetName {
 pub fn select_funding_boxes<Ctx>(
     target: Coin,
     required_tokens: Vec<BuiltPolicy>,
-    boxes: Vec<FundingBox>,
+    AvailableFundingBoxes { confirmed, predicted }: AvailableFundingBoxes,
     ctx: &Ctx,
-) -> (Vec<InputBuilderResult>, Vec<FundingBox>)
+) -> (Vec<InputBuilderResult>, AvailableFundingBoxes)
 where
     Ctx: Has<OperatorCreds> + Clone,
 {
+    #[derive(Clone, Copy)]
+    enum T {
+        Predicted,
+        Confirmed,
+    }
+
+    let boxes: Vec<_> = confirmed
+        .into_iter()
+        .map(|f| (T::Confirmed, f))
+        .chain(predicted.into_iter().map(|f| (T::Predicted, f)))
+        .collect();
     let mut all_utxos = vec![];
-    for funding_box in &boxes {
+    for (t, funding_box) in &boxes {
         let output = funding_box.clone().into_ledger(ctx.clone());
         let output_ref: OutputRef = funding_box.id.into();
         let input = TransactionInput::from(output_ref);
-        all_utxos.push(TransactionUnspentOutput::new(input, output));
+        all_utxos.push((t, TransactionUnspentOutput::new(input, output)));
     }
-    let input_results = collect_utxos(all_utxos, target, required_tokens, None);
+    let input_results = collect_tagged_utxos(all_utxos, target, required_tokens, None);
 
-    let mut selected_boxes = vec![];
-    for i in &input_results {
+    let mut predicted = vec![];
+    let mut confirmed = vec![];
+
+    for (t, i) in &input_results {
         let output_ref = OutputRef::new(i.input.transaction_id, i.input.index);
         let id = boxes
             .iter()
-            .find_map(|f| {
+            .find_map(|(_, f)| {
                 let funding_output_ref: OutputRef = f.id.into();
                 if funding_output_ref == output_ref {
                     Some(f.id)
@@ -226,12 +240,21 @@ where
                 }
             })
             .unwrap();
-        selected_boxes.push(FundingBox {
+        let funding_box = FundingBox {
             value: i.utxo_info.value().clone(),
             id,
-        });
+        };
+        match t {
+            T::Predicted => {
+                predicted.push(funding_box);
+            }
+            T::Confirmed => {
+                confirmed.push(funding_box);
+            }
+        }
     }
-    (input_results, selected_boxes)
+    let inputs = input_results.into_iter().map(|(_, i)| i).collect();
+    (inputs, AvailableFundingBoxes { predicted, confirmed })
 }
 
 #[derive(Clone, Debug, Serialize)]

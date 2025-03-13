@@ -11,12 +11,12 @@ use spectrum_cardano_lib::{collateral::Collateral, transaction::TransactionOutpu
 
 use crate::deployment::BuiltPolicy;
 
-pub fn collect_utxos(
-    all_utxos: Vec<TransactionUnspentOutput>,
+pub fn collect_tagged_utxos<T>(
+    all_utxos: Vec<(T, TransactionUnspentOutput)>,
     required_coin: Coin,
     required_tokens: Vec<BuiltPolicy>,
     collateral: Option<&Collateral>,
-) -> Vec<InputBuilderResult> {
+) -> Vec<(T, InputBuilderResult)> {
     if required_tokens.is_empty() {
         return collect_utxos_with_no_assets(all_utxos, required_coin, collateral);
     }
@@ -30,7 +30,7 @@ pub fn collect_utxos(
 
     let mut token_count = HashMap::new();
 
-    for utxo in all_utxos {
+    for (t, utxo) in all_utxos {
         let output_ref = OutputRef::new(utxo.input.transaction_id, utxo.input.index);
         let to_add = collateral.is_none() || collateral.unwrap().reference() != output_ref;
         if to_add {
@@ -59,12 +59,12 @@ pub fn collect_utxos(
                     let input_builder = SingleInputBuilder::new(utxo.input, utxo.output)
                         .payment_key()
                         .unwrap();
-                    res.push(input_builder);
+                    res.push((t, input_builder));
                 } else {
-                    skipped_utxos.push(utxo);
+                    skipped_utxos.push((t, utxo));
                 }
             } else {
-                skipped_utxos.push(utxo);
+                skipped_utxos.push((t, utxo));
             }
         }
     }
@@ -75,13 +75,13 @@ pub fn collect_utxos(
 
     // Here we've got all the required tokens but haven't met the required amount of lovelaces.
     // First sort UTxOs by coin, largest-to-smallest then select until target is met.
-    skipped_utxos.sort_by_key(|u| u.output.amount().coin);
-    while let Some(utxo) = skipped_utxos.pop() {
+    skipped_utxos.sort_by_key(|(_, u)| u.output.amount().coin);
+    while let Some((t, utxo)) = skipped_utxos.pop() {
         lovelaces_collected += utxo.output.amount().coin;
         let input_builder = SingleInputBuilder::new(utxo.input, utxo.output)
             .payment_key()
             .unwrap();
-        res.push(input_builder);
+        res.push((t, input_builder));
         if lovelaces_collected >= required_coin {
             break;
         }
@@ -90,29 +90,42 @@ pub fn collect_utxos(
     res
 }
 
-fn collect_utxos_with_no_assets(
-    mut all_utxos: Vec<TransactionUnspentOutput>,
+pub fn collect_utxos(
+    all_utxos: Vec<TransactionUnspentOutput>,
     required_coin: Coin,
+    required_tokens: Vec<BuiltPolicy>,
     collateral: Option<&Collateral>,
 ) -> Vec<InputBuilderResult> {
+    let all_utxos = all_utxos.into_iter().map(|u| ((), u)).collect();
+    collect_tagged_utxos(all_utxos, required_coin, required_tokens, collateral)
+        .into_iter()
+        .map(|(_, u)| u)
+        .collect()
+}
+
+fn collect_utxos_with_no_assets<T>(
+    mut all_utxos: Vec<(T, TransactionUnspentOutput)>,
+    required_coin: Coin,
+    collateral: Option<&Collateral>,
+) -> Vec<(T, InputBuilderResult)> {
     let mut res = vec![];
     let mut lovelaces_collected = 0;
 
     // We choose inputs with the fewest number of tokens and also the smallest ADA balances, to keep
     // the number of UTxOs in the wallet down.
     all_utxos.sort_by(|a, b| {
-        let num_tokens_a = a.output.amount().multiasset.len();
-        let num_tokens_b = b.output.amount().multiasset.len();
+        let num_tokens_a = a.1.output.amount().multiasset.len();
+        let num_tokens_b = b.1.output.amount().multiasset.len();
         if num_tokens_a < num_tokens_b {
             Ordering::Less
         } else if num_tokens_a == num_tokens_b {
-            a.output.amount().coin.cmp(&b.output.amount().coin)
+            a.1.output.amount().coin.cmp(&b.1.output.amount().coin)
         } else {
             Ordering::Greater
         }
     });
 
-    for utxo in all_utxos {
+    for (t, utxo) in all_utxos {
         let output_ref = OutputRef::new(utxo.input.transaction_id, utxo.input.index);
         let to_add = collateral.is_none() || collateral.unwrap().reference() != output_ref;
         if to_add {
@@ -125,7 +138,7 @@ fn collect_utxos_with_no_assets(
             let input_builder = SingleInputBuilder::new(utxo.input, utxo.output)
                 .payment_key()
                 .unwrap();
-            res.push(input_builder);
+            res.push((t, input_builder));
         }
     }
     res
