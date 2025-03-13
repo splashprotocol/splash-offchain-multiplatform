@@ -78,15 +78,12 @@ impl MatureEvents for RocksDB {
                             .get_cf(active_farms_cf, pool_key.clone())
                             .unwrap()
                             .map(|raw| rmp_serde::from_slice::<u64>(&raw).unwrap());
-                        println!("Farm activated at {:?}", farm_activated_at);
-                        println!("Account key prefix: {:?}", pool_key);
                         let mut iter_accounts = get_range_iterator(&db, accounts_cf, pool_key);
                         let mut accounts_for_update: HashMap<Credential, (AccountInPool, AccountFrame)> =
                             HashMap::new();
                         let suspended_events_cf = db.cf_handle(SUS_EVENTS_CF).unwrap();
                         while let Some(Ok((key, value))) = iter_accounts.next() {
                             let (_, account_cred) = from_account_key(key.to_vec()).unwrap();
-                            println!("Iterating over account: {:?}", account_cred);
                             let account = rmp_serde::from_slice::<AccountInPool>(&value).unwrap();
                             let updated_account = if let Some(farm_activated_at) = farm_activated_at {
                                 account.activated(farm_activated_at)
@@ -109,7 +106,6 @@ impl MatureEvents for RocksDB {
                         }
                         // Left events relate to yet non-existent accounts
                         for (new_account_key, account_frame) in pool_frame.account_frames {
-                            println!("New key: {:?}", new_account_key);
                             accounts_for_update.insert(
                                 new_account_key,
                                 (
@@ -140,7 +136,6 @@ impl MatureEvents for RocksDB {
                                     }
                                 };
                             let account_key = account_key(pool_id, account_cred.clone());
-                            println!("Account key: {:?}", account_key);
                             let next_account_state = match next_account_state.try_adjust_position(
                                 current_slot,
                                 lp_supply,
