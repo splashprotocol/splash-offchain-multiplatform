@@ -30,7 +30,9 @@ use cml_chain::{
     utils::BigInteger,
     Coin, PolicyId, Serialize, Value,
 };
-use cml_crypto::{Ed25519KeyHash, PrivateKey, RawBytesEncoding, ScriptHash, TransactionHash};
+use cml_crypto::{
+    Bip32PrivateKey, Ed25519KeyHash, PrivateKey, RawBytesEncoding, ScriptHash, TransactionHash,
+};
 use mint_token::{script_address, DaoDeploymentParameters, LQ_NAME};
 use num_rational::Ratio;
 use spectrum_cardano_lib::{
@@ -45,7 +47,7 @@ use spectrum_cardano_lib::{plutus_data::IntoPlutusData, types::TryFromPData};
 use spectrum_offchain::domain::Stable;
 use spectrum_offchain::{domain::EntitySnapshot, ledger::TryFromLedger, tx_prover::TxProver};
 use spectrum_offchain_cardano::{
-    creds::operator_creds_base_address,
+    creds::{operator_creds, operator_creds_base_address},
     deployment::{DeployedValidatorRef, ReferenceUTxO},
 };
 use splash_dao_offchain::{
@@ -74,6 +76,7 @@ use splash_dao_offchain::{
     util::generate_collateral,
     CurrentEpoch, NetworkTimeSource,
 };
+use std::ops::Index;
 use user_simulator::user_simulator;
 use voting_order::create_voting_order;
 
@@ -165,6 +168,11 @@ async fn main() {
             )
             .into();
             register_witness_staking_addr(&op_inputs, script).await;
+        }
+
+        Command::ConsolidateBotUTxOs => {
+            let op_inputs = create_dao_bot_operation_inputs(&config).await;
+            consolidate_utxos(&op_inputs).await;
         }
     };
 }
@@ -1428,6 +1436,61 @@ async fn send_edao_token(op_inputs: &OperationInputs, destination_addr: String) 
     .unwrap();
 }
 
+async fn consolidate_utxos(op_inputs: &OperationInputs) {
+    let OperationInputs {
+        explorer,
+        addr,
+        prover,
+        collateral,
+        ..
+    } = op_inputs;
+    let all_utxos = explorer.utxos_by_address(addr.clone(), 0, 100).await;
+    let mut required_coin = 0;
+    for utxo in &all_utxos {
+        required_coin += utxo.output.amount().coin;
+    }
+    required_coin -= 500_000;
+    let utxos =
+        splash_dao_offchain::collect_utxos::collect_utxos(all_utxos, required_coin, vec![], Some(collateral));
+    let mut change_output_creator = ChangeOutputCreator::default();
+    let mut tx_builder = constant_tx_builder();
+    let mut amount = 0;
+    for (i, utxo) in utxos.into_iter().enumerate() {
+        let utxo_coin = utxo.utxo_info.value().coin;
+        amount += utxo_coin;
+        println!("utxo #{}: {} lovelaces", i, utxo_coin);
+        change_output_creator.add_input(&utxo);
+        tx_builder.add_input(utxo).unwrap();
+    }
+    let output_value = Value::from(amount - 2_000_000);
+    let output_result = TransactionOutputBuilder::new()
+        .with_address(addr.clone())
+        .next()
+        .unwrap()
+        .with_value(output_value)
+        .build()
+        .unwrap();
+    change_output_creator.add_output(&output_result);
+    tx_builder.add_output(output_result).unwrap();
+
+    let estimated_tx_fee = tx_builder.min_fee(false).unwrap();
+    let actual_fee = estimated_tx_fee + 200_000;
+    let change_output = change_output_creator.create_change_output(actual_fee, addr.clone());
+    tx_builder.set_fee(actual_fee);
+    tx_builder.add_output(change_output).unwrap();
+
+    let signed_tx_builder = tx_builder.build(ChangeSelectionAlgo::Default, addr).unwrap();
+
+    let tx = prover.prove(signed_tx_builder);
+    let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
+    println!("tx_hash: {:?}", tx_hash);
+    let tx_bytes = tx.to_cbor_bytes();
+    println!("tx_bytes: {}", hex::encode(&tx_bytes));
+
+    explorer.submit_tx(&tx_bytes).await.unwrap();
+    explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
+}
+
 async fn register_witness_staking_addr(op_inputs: &OperationInputs, script: PlutusScript) {
     let OperationInputs {
         explorer,
@@ -1488,6 +1551,7 @@ enum Command {
     RegisterVotingWitnessStakingAddress,
     RegisterExtendVotingEscrowWitnessStakingAddress,
     RegisterRedeemVotingEscrowWitnessStakingAddress,
+    ConsolidateBotUTxOs,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -1565,7 +1629,7 @@ async fn create_operation_inputs<'a>(config: &'a AppConfig<'a>) -> OperationInpu
         .await
         .expect("Maestro instantiation failed");
 
-    let (addr, _, operator_pkh, _operator_cred, operator_sk) =
+    let (addr, _, operator_public_key_hash, _operator_cred, operator_sk) =
         operator_creds_base_address(config.batcher_private_key, config.network_id);
     let sk_bech32 = operator_sk.to_bech32();
     let Address::Base(ref b) = addr else {
@@ -1598,7 +1662,60 @@ async fn create_operation_inputs<'a>(config: &'a AppConfig<'a>) -> OperationInpu
         explorer,
         addr,
         owner_pub_key,
-        operator_public_key_hash: operator_pkh,
+        operator_public_key_hash,
+        operator_sk,
+        stake_credential,
+        collateral,
+        dao_parameters,
+        deployment_progress,
+        prover,
+        network_id: config.network_id,
+        voting_order_listener_endpoint: config.voting_order_listener_endpoint,
+    }
+}
+
+async fn create_dao_bot_operation_inputs<'a>(config: &'a AppConfig<'a>) -> OperationInputs {
+    let explorer = Maestro::new(config.maestro_key_path, config.network_id.into())
+        .await
+        .expect("Maestro instantiation failed");
+
+    let (operator_cred, _collateral_addr, funding_addresses) =
+        operator_creds(config.batcher_private_key, config.network_id);
+    let payment_cred: PaymentCredential = operator_cred.0.to_bech32("addr_vkh").unwrap().into();
+    let addr = funding_addresses.index(0).clone();
+    let operator_sk = Bip32PrivateKey::from_bech32(config.batcher_private_key)
+        .unwrap()
+        .to_raw_key();
+    let sk_bech32 = operator_sk.to_bech32();
+    let Address::Base(ref b) = addr else {
+        panic!("Only work with BaseAddress");
+    };
+    let owner_pub_key = operator_sk.to_public();
+    let stake_credential = b.stake.clone();
+    let prover = OperatorProver::new(sk_bech32);
+    let collateral = if let Some(c) = pull_collateral(addr.clone().into(), &explorer).await {
+        c
+    } else {
+        generate_collateral(&explorer, &addr, &addr, &prover)
+            .await
+            .unwrap()
+    };
+
+    let dao_parameters_str =
+        std::fs::read_to_string(config.parameters_json_path).expect("Cannot load dao parameters file");
+    let dao_parameters: DaoDeploymentParameters =
+        serde_json::from_str(&dao_parameters_str).expect("Invalid parameters file");
+
+    let raw_deployment_config =
+        std::fs::read_to_string(config.deployment_json_path).expect("Cannot load configuration file");
+    let deployment_progress: DeploymentProgress =
+        serde_json::from_str(&raw_deployment_config).expect("Invalid configuration file");
+
+    OperationInputs {
+        explorer,
+        addr,
+        owner_pub_key,
+        operator_public_key_hash: payment_cred,
         operator_sk,
         stake_credential,
         collateral,

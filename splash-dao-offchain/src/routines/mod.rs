@@ -52,6 +52,7 @@ use type_equalities::IsEqual;
 use crate::constants::time::{
     COOLDOWN_PERIOD_EXTRA_BUFFER, COOLDOWN_PERIOD_MILLIS, EPOCH_LEN, MAX_LOCK_TIME_SECONDS,
 };
+use crate::constants::{CREATE_WPOLL_MINIMUM_FUNDING, DISTRIBUTE_INFLATION_MINIMUM_FUNDING};
 use crate::deployment::ProtocolValidator;
 use crate::entities::offchain::voting_order::VotingOrder;
 use crate::entities::offchain::{
@@ -136,7 +137,7 @@ pub struct Behaviour<
     failed_to_confirm_txs_recv: Receiver<Transaction>,
 }
 
-const DEF_DELAY: Duration = Duration::new(5, 0);
+const DEF_DELAY: Duration = Duration::new(0, 100_000_000);
 
 #[async_trait::async_trait]
 impl<
@@ -303,7 +304,6 @@ where
                     self.try_create_wpoll(state).await
                 }
                 EpochRoutineState::WeightingInProgress(state) => {
-                    trace!("Try making voting escrow");
                     let _ = self.try_make_voting_escrow().await;
 
                     match state {
@@ -349,10 +349,7 @@ where
                             )
                             .await
                         }
-                        None => {
-                            trace!("No pending order");
-                            retry_in(DEF_DELAY)
-                        }
+                        None => retry_in(DEF_DELAY),
                     }
                 }
 
@@ -507,11 +504,6 @@ impl<
             let wpoll = a.as_erased().0.get();
             if wpoll.eliminated {
                 // We don't return a weighting_poll that's already been eliminated
-                trace!(
-                    "Behaviour::weighting_poll({}) with ver: {} already eliminated -------------",
-                    epoch,
-                    ver
-                );
                 Either::Left(WPollEliminated)
             } else {
                 Either::Right(a)
@@ -762,11 +754,7 @@ impl<
                 }
                 Some(Either::Right(wp)) => match wp.as_erased().0.get().state(genesis, now_millis) {
                     PollState::WeightingOngoing(_st) => {
-                        trace!("Weighting on going @ epoch {}", current_epoch);
-
                         let next_pending_order = self.next_order(wp).await;
-                        trace!("next_pending_order.is_some(): {}", next_pending_order.is_some());
-
                         EpochRoutineState::WeightingInProgress(next_pending_order)
                     }
                     PollState::DistributionOngoing(_) => {
@@ -775,10 +763,7 @@ impl<
                     PollState::PollExhaustedAndReadyToEliminate => {
                         unreachable!("Impossible to eliminate wpoll on current epoch");
                     }
-                    PollState::PollExhaustedButNotReadyToEliminate => {
-                        trace!("WPoll in current epoch exhausted");
-                        EpochRoutineState::WaitingToEliminate
-                    }
+                    PollState::PollExhaustedButNotReadyToEliminate => EpochRoutineState::WaitingToEliminate,
                     PollState::Eliminated => EpochRoutineState::Eliminated,
                     PollState::WaitingForDistributionToStart => {
                         EpochRoutineState::WaitingForDistributionToStart
@@ -1010,9 +995,8 @@ impl<
                 return retry_in(DEF_DELAY);
             }
             let current_slot = self.current_slot.unwrap();
-            let funding_boxes = AvailableFundingBoxes(self.funding_box.collect().await.unwrap());
-            let lovelaces_input_value = funding_boxes.0.iter().fold(0, |acc, x| acc + x.value.coin);
-            if lovelaces_input_value >= 5_000_000 {
+            let funding_boxes = self.funding_box.collect().await.unwrap();
+            if funding_boxes.total_lovelaces() >= CREATE_WPOLL_MINIMUM_FUNDING {
                 let (signed_tx, next_inflation_box, next_factory, next_wpoll, funding_box_changes) = self
                     .actions
                     .create_wpoll(
@@ -1045,8 +1029,12 @@ impl<
                         self.poll_factory.write_predicted(next_factory).await;
                         self.weighting_poll.write_predicted(next_wpoll).await;
 
-                        for p in funding_box_changes.spent {
+                        for p in funding_box_changes.spent_predicted {
                             self.funding_box.spend_predicted(p).await;
+                        }
+
+                        for p in funding_box_changes.spent_confirmed {
+                            self.funding_box.spend_confirmed(p).await;
                         }
 
                         for fb in funding_box_changes.created {
@@ -1081,7 +1069,7 @@ impl<
                 info!("`create_wpoll`: Insufficient ADA. Waiting for other funding boxes to be confirmed.");
             }
         }
-        retry_in(DEF_DELAY)
+        None
     }
 
     async fn try_apply_votes(
@@ -1422,9 +1410,8 @@ impl<
             return retry_in(DEF_DELAY);
         }
         let current_slot = self.current_slot.unwrap();
-        let funding_boxes = AvailableFundingBoxes(self.funding_box.collect().await.unwrap());
-        let lovelaces_input_value = funding_boxes.0.iter().fold(0, |acc, x| acc + x.value.coin);
-        if lovelaces_input_value >= 5_000_000 {
+        let funding_boxes = self.funding_box.collect().await.unwrap();
+        if funding_boxes.total_lovelaces() >= DISTRIBUTE_INFLATION_MINIMUM_FUNDING {
             let (signed_tx, next_wpoll, next_sf, funding_box_changes) = self
                 .actions
                 .distribute_inflation(
@@ -1454,8 +1441,12 @@ impl<
                     self.predicted_tx_backlog.insert(tx_hash, predicted_write).await;
                     self.weighting_poll.write_predicted(next_wpoll).await;
                     self.smart_farm.write_predicted(next_sf).await;
-                    for p in funding_box_changes.spent {
+                    for p in funding_box_changes.spent_predicted {
                         self.funding_box.spend_predicted(p).await;
+                    }
+
+                    for p in funding_box_changes.spent_confirmed {
+                        self.funding_box.spend_confirmed(p).await;
                     }
 
                     for fb in funding_box_changes.created {
@@ -1492,7 +1483,7 @@ impl<
                 "`distribute_inflation`: Insufficient ADA. Waiting for other funding boxes to be confirmed."
             );
         }
-        retry_in(DEF_DELAY)
+        None
     }
 
     async fn try_eliminate_poll(
@@ -1518,8 +1509,8 @@ impl<
             let epoch = wp.epoch;
             let time_millis = slot_to_time_millis(current_slot, NetworkId::from(0));
 
-            let funding_boxes = AvailableFundingBoxes(self.funding_box.collect().await.unwrap());
-            let lovelaces_input_value = funding_boxes.0.iter().fold(0, |acc, x| acc + x.value.coin);
+            let funding_boxes = self.funding_box.collect().await.unwrap();
+            let lovelaces_input_value = funding_boxes.total_lovelaces();
             if lovelaces_input_value >= 3_000_000 && wp.can_be_eliminated(self.conf.genesis_time, time_millis)
             {
                 info!("Eliminating wpoll @ epoch {}", epoch);
@@ -1544,8 +1535,12 @@ impl<
                             epoch, tx_hash
                         );
 
-                        for p in funding_box_changes.spent {
+                        for p in funding_box_changes.spent_predicted {
                             self.funding_box.spend_predicted(p).await;
+                        }
+
+                        for p in funding_box_changes.spent_confirmed {
+                            self.funding_box.spend_confirmed(p).await;
                         }
 
                         for fb in funding_box_changes.created {
@@ -1577,7 +1572,7 @@ impl<
                 }
             }
         }
-        retry_in(DEF_DELAY)
+        None
     }
 
     async fn try_make_voting_escrow(&mut self) -> Option<ToRoutine>
@@ -1692,7 +1687,7 @@ impl<
                 }
             }
         }
-        retry_in(DEF_DELAY)
+        None
     }
 
     async fn get_latest_wpoll_to_eliminate(
@@ -2050,7 +2045,7 @@ where
                         self.dao_order_backlog.remove(ver.output_ref).await;
                     } else {
                         self.funding_box
-                            .spend_confirmed(FundingBoxId::from(ver.output_ref))
+                            .eliminate_confirmed(FundingBoxId::from(ver.output_ref))
                             .await;
                     }
                 }
@@ -2202,8 +2197,16 @@ where
                     self.poll_factory.remove(wp_factory_id).await;
                     self.weighting_poll.remove(wpoll_id).await;
 
-                    for p in funding_box_changes.spent {
-                        self.funding_box.unspend_predicted(p).await;
+                    for f_id in funding_box_changes.spent_predicted {
+                        self.funding_box.unspend_predicted(f_id).await;
+                    }
+
+                    for f_id in funding_box_changes.spent_confirmed {
+                        self.funding_box.unspend_confirmed(f_id).await;
+                    }
+
+                    for predicted in funding_box_changes.created {
+                        self.funding_box.eliminate_predicted(predicted.0.id).await;
                     }
                 }
                 PredictedEntityWrites::ApplyVotingOrder {
@@ -2241,10 +2244,19 @@ where
                     self.weighting_poll.remove(wpoll_id).await;
                     self.smart_farm.remove(smart_farm_id).await;
 
-                    for p in funding_box_changes.spent {
-                        self.funding_box.unspend_predicted(p).await;
+                    for f_id in funding_box_changes.spent_predicted {
+                        self.funding_box.unspend_predicted(f_id).await;
+                    }
+
+                    for f_id in funding_box_changes.spent_confirmed {
+                        self.funding_box.unspend_confirmed(f_id).await;
+                    }
+
+                    for predicted in funding_box_changes.created {
+                        self.funding_box.eliminate_predicted(predicted.0.id).await;
                     }
                 }
+
                 PredictedEntityWrites::EiminateWPoll {
                     wpoll_id,
                     funding_box_changes,
@@ -2252,11 +2264,21 @@ where
                 } => {
                     info!("revert_bot_action(): Eliminate WPOLL timed out, reverting bot state",);
                     // Recall that on wpoll
-                    for p in funding_box_changes.spent {
-                        self.funding_box.unspend_predicted(p).await;
+                    for f_id in funding_box_changes.spent_predicted {
+                        self.funding_box.unspend_predicted(f_id).await;
                     }
+
+                    for f_id in funding_box_changes.spent_confirmed {
+                        self.funding_box.unspend_confirmed(f_id).await;
+                    }
+
+                    for predicted in funding_box_changes.created {
+                        self.funding_box.eliminate_predicted(predicted.0.id).await;
+                    }
+
                     self.wpoll_set_elimination_status(wpoll_id.0, false).await;
                 }
+
                 PredictedEntityWrites::MakeVotingEscrow {
                     voting_escrow_id,
                     mve_order,
@@ -2277,6 +2299,7 @@ where
                     self.dao_order_backlog.put(order).await;
                     self.tx_hash_to_dao_order.remove(version).await;
                 }
+
                 PredictedEntityWrites::ExtendVotingEscrow {
                     offchain_order,
                     eve_order,
@@ -2305,6 +2328,7 @@ where
                     self.offchain_order_backlog.put(ord).await;
                     self.tx_hash_to_dao_order.remove(version).await;
                 }
+
                 PredictedEntityWrites::RedeemVotingEscrow {
                     offchain_order,
                     order_timestamp: timestamp,
@@ -2563,12 +2587,10 @@ pub struct PendingEliminatePoll<Out> {
 #[derive(Clone, PartialEq, Eq, Debug, Hash, serde::Serialize, serde::Deserialize)]
 /// Changes to operator funding boxes resulting from inflation action TXs.
 pub struct FundingBoxChanges {
-    pub spent: Vec<FundingBoxId>,
+    pub spent_predicted: Vec<FundingBoxId>,
+    pub spent_confirmed: Vec<FundingBoxId>,
     pub created: Vec<Predicted<FundingBox>>,
 }
-
-#[derive(Debug, Clone)]
-pub struct AvailableFundingBoxes(pub Vec<FundingBox>);
 
 pub struct DaoBotMessage {
     pub command: DaoBotCommand,

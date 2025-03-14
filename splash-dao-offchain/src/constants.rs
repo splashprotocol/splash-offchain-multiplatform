@@ -76,6 +76,9 @@ pub mod fee_deltas {
 }
 
 pub const VOTING_ESCROW_TX_TTL: u64 = 300;
+pub const ELIMINATE_WPOLL_MINIMUM_FUNDING: u64 = 3_000_000;
+pub const CREATE_WPOLL_MINIMUM_FUNDING: u64 = 5_000_000;
+pub const DISTRIBUTE_INFLATION_MINIMUM_FUNDING: u64 = 5_000_000;
 
 #[cfg(feature = "test_30_min_epoch")]
 pub mod time {

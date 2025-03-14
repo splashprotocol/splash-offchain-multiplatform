@@ -288,6 +288,10 @@ pub async fn user_simulator<'a>(
                                 &deployment_config,
                                 &op_inputs.operator_sk,
                             );
+                            println!(
+                                "extend_ve_offchain_order: {}",
+                                serde_json::to_string_pretty(&offchain_order).unwrap()
+                            );
                             send_extend_ve_offchain_order(
                                 offchain_order,
                                 &op_inputs.voting_order_listener_endpoint,
@@ -335,6 +339,10 @@ pub async fn user_simulator<'a>(
                             wpoll_policy_id,
                             epoch,
                             op_inputs.dao_parameters.num_active_farms,
+                        );
+                        println!(
+                            "voting_order JSON: {}",
+                            serde_json::to_string_pretty(&voting_order).unwrap()
                         );
 
                         send_vote(voting_order, &op_inputs.voting_order_listener_endpoint).await;
@@ -397,6 +405,10 @@ pub async fn user_simulator<'a>(
                                     &deployment_config,
                                     &op_inputs.operator_sk,
                                     op_inputs.stake_credential.clone(),
+                                );
+                                println!(
+                                    "redeem VE JSON: {}",
+                                    serde_json::to_string_pretty(&order).unwrap()
                                 );
                                 send_redeem_ve_offchain_order(
                                     order,

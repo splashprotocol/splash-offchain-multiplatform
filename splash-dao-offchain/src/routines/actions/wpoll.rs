@@ -36,7 +36,7 @@ use spectrum_offchain::ledger::IntoLedger;
 use crate::constants::fee_deltas::{
     CREATE_WPOLL_FEE_DELTA, ELIMINATE_WPOLL_FEE_DELTA, VOTING_ESCROW_VOTING_FEE,
 };
-use crate::constants::SPLASH_NAME;
+use crate::constants::{CREATE_WPOLL_MINIMUM_FUNDING, ELIMINATE_WPOLL_MINIMUM_FUNDING, SPLASH_NAME};
 use crate::create_change_output::{ChangeOutputCreator, CreateChangeOutput};
 use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::offchain::compute_voting_escrow_witness_message;
@@ -176,7 +176,7 @@ where
         }
 
         let (input_results, funding_boxes_to_spend) =
-            select_funding_boxes(10_000_000, vec![], funding_boxes.0, &self.ctx);
+            select_funding_boxes(CREATE_WPOLL_MINIMUM_FUNDING, vec![], funding_boxes, &self.ctx);
 
         let mut unsorted_inputs: Vec<_> = input_results
             .into_iter()
@@ -331,10 +331,20 @@ where
             })
             .collect();
 
-        let spent_funding_boxes: Vec<_> = funding_boxes_to_spend.into_iter().map(|f| f.id).collect();
+        let spent_predicted = funding_boxes_to_spend
+            .predicted
+            .into_iter()
+            .map(|f| f.id)
+            .collect();
+        let spent_confirmed = funding_boxes_to_spend
+            .confirmed
+            .into_iter()
+            .map(|f| f.id)
+            .collect();
 
         let funding_box_changes = FundingBoxChanges {
-            spent: spent_funding_boxes,
+            spent_predicted,
+            spent_confirmed,
             created: created_funding_boxes,
         };
 
@@ -402,7 +412,7 @@ where
         };
 
         let (input_results, funding_boxes_to_spend) =
-            select_funding_boxes(3_000_000, vec![], funding_boxes.0, &self.ctx);
+            select_funding_boxes(ELIMINATE_WPOLL_MINIMUM_FUNDING, vec![], funding_boxes, &self.ctx);
 
         let mut inputs: Vec<_> = input_results
             .into_iter()
@@ -539,10 +549,20 @@ where
             })
             .collect();
 
-        let spent_funding_boxes: Vec<_> = funding_boxes_to_spend.into_iter().map(|f| f.id).collect();
+        let spent_predicted = funding_boxes_to_spend
+            .predicted
+            .into_iter()
+            .map(|f| f.id)
+            .collect();
+        let spent_confirmed = funding_boxes_to_spend
+            .confirmed
+            .into_iter()
+            .map(|f| f.id)
+            .collect();
 
         let funding_box_changes = FundingBoxChanges {
-            spent: spent_funding_boxes,
+            spent_predicted,
+            spent_confirmed,
             created: created_funding_boxes,
         };
 
