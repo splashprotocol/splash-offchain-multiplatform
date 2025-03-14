@@ -1,4 +1,5 @@
 use log::trace;
+use std::cmp::Reverse;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Display;
@@ -9,7 +10,7 @@ pub(crate) struct PendingTxs<TxHash, Tx> {
     max_confirmation_delay_blocks: u64,
     current_block: u64,
     index: HashMap<TxHash, u64>,
-    queue: BTreeMap<u64, HashMap<(TxHash, Instant), Tx>>,
+    queue: BTreeMap<u64, HashMap<TxHash, (Tx, Instant)>>,
 }
 
 impl<TxHash, Tx> PendingTxs<TxHash, Tx> {
@@ -32,11 +33,11 @@ impl<TxHash, Tx> PendingTxs<TxHash, Tx> {
         match self.queue.entry(should_confirm_until) {
             Entry::Vacant(entry) => {
                 let mut txs = HashMap::new();
-                txs.insert((tx, now), trs);
+                txs.insert(tx, (trs, now));
                 entry.insert(txs);
             }
             Entry::Occupied(mut entry) => {
-                entry.get_mut().insert((tx, now), trs);
+                entry.get_mut().insert(tx, (trs, now));
             }
         }
     }
@@ -47,11 +48,7 @@ impl<TxHash, Tx> PendingTxs<TxHash, Tx> {
     {
         if let Some(key) = self.index.remove(&tx) {
             if let Some(txs) = self.queue.get_mut(&key) {
-                let instant = txs
-                    .keys()
-                    .find_map(|(tx_inner, instant)| if *tx_inner == tx { Some(instant) } else { None })
-                    .unwrap();
-                let removed = txs.remove(&(tx, *instant));
+                let removed = txs.remove(&tx);
                 trace!("[PendingTxs]: removed confirmed TX {}: {}", tx, removed.is_some());
             }
         }
@@ -65,15 +62,15 @@ impl<TxHash, Tx> PendingTxs<TxHash, Tx> {
     {
         if self.current_block < new_block {
             self.current_block = new_block;
-            let mut failed_txs_with_timestamp = Vec::new();
+            let mut failed_txs_with_timestamp = BTreeMap::new();
             loop {
                 if let Some(entry) = self.queue.first_entry() {
                     if *entry.key() <= new_block {
                         let txs = entry.remove();
-                        for (hash, tx) in txs {
-                            trace!("Tx {} failed", hash.0);
-                            self.index.remove(&hash.0);
-                            failed_txs_with_timestamp.push((hash.1, tx));
+                        for (hash, (tx, instant)) in txs {
+                            trace!("Tx {} failed", hash);
+                            self.index.remove(&hash);
+                            failed_txs_with_timestamp.insert(Reverse(instant), tx);
                         }
                         continue;
                     }
@@ -82,7 +79,6 @@ impl<TxHash, Tx> PendingTxs<TxHash, Tx> {
             }
 
             // Reverse chronological order
-            failed_txs_with_timestamp.sort_by(|a, b| b.0.cmp(&a.0));
             let failed_txs = failed_txs_with_timestamp.into_iter().map(|x| x.1).collect();
             trace!(
                 "[TxTracker] Queue size: {}, pending transactions: {}",
