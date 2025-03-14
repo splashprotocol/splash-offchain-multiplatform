@@ -3,6 +3,7 @@ use rdkafka::producer::{FutureProducer, FutureRecord};
 use serde::Serialize;
 use std::marker::PhantomData;
 use std::time::Duration;
+use log::trace;
 
 pub struct EventPublisher<E, Q> {
     queue: Q,
@@ -33,6 +34,7 @@ impl<E, Q> EventPublisher<E, Q> {
         loop {
             while let Some((key, event)) = self.queue.next().await {
                 let event_bytes = serde_json::to_vec(&event).unwrap();
+                trace!("Exporting event: {}", serde_json::to_string(&event).unwrap());
                 let record = FutureRecord::<(), _>::to(self.topic.as_str()).payload(&event_bytes);
                 self.kafka.send(record, Duration::from_secs(0)).await.unwrap();
                 self.queue.delete(key).await;

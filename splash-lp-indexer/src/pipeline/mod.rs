@@ -4,7 +4,6 @@ use crate::pipeline::log_events::log_lp_events;
 use crate::pipeline::read_events::read_events;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use cml_chain::transaction::{Transaction, TransactionOutput};
-use cml_core::Slot;
 use cml_crypto::ScriptHash;
 use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
@@ -16,6 +15,7 @@ use spectrum_offchain_cardano::data::pool::PoolValidation;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::*;
 use std::collections::HashSet;
+use futures::FutureExt;
 
 mod log_events;
 pub mod read_events;
@@ -48,8 +48,7 @@ pub async fn log_events<U, Log, Cx, Index>(
 {
     log_lp_events(
         upstream.then(|(block, tx_handle)| {
-            let lp_events = read_events(block, &context, &index, &utxo_filter);
-            async move { (lp_events.await, tx_handle) }
+            read_events(block, &context, &index, &utxo_filter).map(|events| (events, tx_handle))
         }),
         &log,
     )
