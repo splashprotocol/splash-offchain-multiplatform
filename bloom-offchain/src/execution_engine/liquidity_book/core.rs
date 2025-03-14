@@ -903,7 +903,7 @@ impl ExecutionMeta {
     pub fn add_price_point(&mut self, price: SpotPrice) {
         self.mean_spot_price = match self.mean_spot_price {
             None => Some(price),
-            Some(p0) => Some(p0 + price / 2),
+            Some(p0) => Some((p0 + price) / 2),
         };
     }
 }
