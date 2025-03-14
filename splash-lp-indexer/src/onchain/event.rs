@@ -35,7 +35,7 @@ where
         + Has<PoolValidation>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
-        todo!()
+        AccountEvent::try_from_ledger(repr, ctx).map(OnChainEvent::Account)
     }
 }
 
@@ -66,6 +66,24 @@ impl AccountEvent {
             AccountEvent::Position(d) => d.account(),
             AccountEvent::Harvest(h) => h.account.clone(),
         }
+    }
+}
+
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for AccountEvent
+where
+    Cx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+        + Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>
+        + Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>
+        + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
+        + Has<PoolValidation>,
+{
+    fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
+        PositionEvent::try_from_ledger(repr, ctx).map(AccountEvent::Position)
     }
 }
 
