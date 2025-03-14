@@ -1,9 +1,8 @@
-use async_std::task::spawn_blocking;
 use async_trait::async_trait;
 use serde::Serialize;
-use spectrum_offchain::kv_store::KvStore;
 use spectrum_offchain::persistent_index::PersistentIndex;
 use std::sync::Arc;
+use tokio::task::spawn_blocking;
 
 #[derive(Clone)]
 pub struct IndexRocksDB {
@@ -34,6 +33,7 @@ where
             tx.commit().unwrap();
         })
         .await
+        .unwrap()
     }
 
     async fn get(&self, key: K) -> Option<V> {
@@ -43,6 +43,7 @@ where
             db.get(&key).unwrap().map(|v| V::from_cbor_bytes(&*v).unwrap())
         })
         .await
+        .unwrap()
     }
 
     async fn remove(&self, key: K) {
@@ -52,5 +53,6 @@ where
             db.delete(&key).unwrap();
         })
         .await
+        .unwrap()
     }
 }

@@ -1,9 +1,9 @@
 use crate::db::export_feed::ExportEventFeed;
+use log::trace;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use serde::Serialize;
 use std::marker::PhantomData;
 use std::time::Duration;
-use log::trace;
 
 pub struct EventPublisher<E, Q> {
     queue: Q,

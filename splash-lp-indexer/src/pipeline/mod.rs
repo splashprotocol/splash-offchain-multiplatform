@@ -7,6 +7,7 @@ use cml_chain::transaction::{Transaction, TransactionOutput};
 use cml_crypto::ScriptHash;
 use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
+use futures::FutureExt;
 use futures::{Stream, StreamExt};
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::domain::Has;
@@ -15,7 +16,6 @@ use spectrum_offchain_cardano::data::pool::PoolValidation;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::*;
 use std::collections::HashSet;
-use futures::FutureExt;
 
 mod log_events;
 pub mod read_events;

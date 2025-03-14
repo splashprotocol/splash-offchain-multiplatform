@@ -24,14 +24,9 @@ where
     Index: PersistentIndex<OutputRef, TransactionOutput>,
 {
     let txs = match &mut block {
-        BlockEvents::RollForward {
-            events,
-            ..
+        BlockEvents::RollForward { events, .. } | BlockEvents::RollBackward { events, .. } => {
+            events.drain(0..)
         }
-        | BlockEvents::RollBackward {
-            events,
-            ..
-        } => events.drain(0..),
     };
     let events = stream::iter(txs)
         .map(TxView::from)
