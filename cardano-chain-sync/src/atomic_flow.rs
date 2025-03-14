@@ -15,7 +15,7 @@ use either::Either;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures::channel::{mpsc, oneshot};
 use futures::{Sink, SinkExt, StreamExt};
-use log::info;
+use log::{info, trace};
 use spectrum_cardano_lib::hash::hash_block_header_canonical_multi_era;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -117,7 +117,9 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
                     };
                     let (snd, recv) = oneshot::channel();
                     downstream.send((applied_txs, snd.into())).await.unwrap();
+                    trace!("Transaction started");
                     recv.await.unwrap();
+                    trace!("Transaction completed");
                     cache_block(cache.clone(), &hdr, blk_bytes).await;
                 }
                 ChainUpgrade::RollBackward(point) => {

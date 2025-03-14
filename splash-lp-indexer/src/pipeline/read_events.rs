@@ -26,11 +26,11 @@ where
     let txs = match &mut block {
         BlockEvents::RollForward {
             events,
-            block_num: slot,
+            ..
         }
         | BlockEvents::RollBackward {
             events,
-            block_num: slot,
+            ..
         } => events.drain(0..),
     };
     let events = stream::iter(txs)
