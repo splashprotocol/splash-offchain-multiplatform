@@ -13,7 +13,7 @@ use crate::execution_engine::liquidity_book::types::{AbsolutePrice, RelativePric
 use crate::execution_engine::types::Time;
 use algebra_core::monoid::Monoid;
 use either::Either;
-use log::trace;
+use log::{info, trace};
 use num_rational::Ratio;
 use primitive_types::U256;
 use spectrum_offchain::display::{display_option, display_tuple};
@@ -141,8 +141,11 @@ where
             );
             let mut batch: MatchmakingAttempt<Taker, Maker, U> = MatchmakingAttempt::empty();
             let mut meta = ExecutionMeta::empty();
+            info!("Execution meta created");
             while batch.execution_units_consumed() < self.conf.execution_cap.soft && batch.num_takes() < 15 {
                 if let Some(spot_price) = self.spot_price() {
+                    info!("Going to add spot_price: {}", spot_price);
+                    info!("Current meta: {:?}", meta);
                     meta.add_price_point(spot_price);
                     let price_range = self.state.allowed_price_range();
                     trace!(
