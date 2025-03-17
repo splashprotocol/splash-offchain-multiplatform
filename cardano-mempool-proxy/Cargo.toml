@@ -1,5 +1,5 @@
 [package]
-name = "splash-mempool-proxy"
+name = "cardano-mempool-proxy"
 version = "1.0.0"
 edition = "2021"
 rust-version = "1.80.0"
