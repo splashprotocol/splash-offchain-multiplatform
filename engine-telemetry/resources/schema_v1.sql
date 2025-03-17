@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS executions
     removed_input BIGINT    NOT NULL,
     added_output  BIGINT    NOT NULL,
     side          VARCHAR   NOT NULL,
-    meta          VARCHAR   NOT NULL,
+    meta          NUMERIC   NULL,
     reporter      VARCHAR   NOT NULL,
     created_at    TIMESTAMP NOT NULL
 );
