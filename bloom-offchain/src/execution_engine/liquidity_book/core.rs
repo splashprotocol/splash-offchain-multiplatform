@@ -9,7 +9,7 @@ use algebra_core::monoid::Monoid;
 use algebra_core::semigroup::Semigroup;
 use derive_more::{Display, From, Into};
 use either::Either;
-use log::{trace, warn};
+use log::{info, trace, warn};
 use nonempty::NonEmpty;
 use num_rational::Ratio;
 use serde::{Deserialize, Serialize};
@@ -901,9 +901,18 @@ impl ExecutionMeta {
     }
 
     pub fn add_price_point(&mut self, price: SpotPrice) {
+        info!("Adding new price to execution meta. Current spot price: {:?}. to add {:?}", self, price);
         self.mean_spot_price = match self.mean_spot_price {
-            None => Some(price),
-            Some(p0) => Some(p0 + price / 2),
+            None => {
+                info!("Current is empty. Use {}", price);
+                Some(price)
+            },
+            Some(p0) => {
+                info!("Going to add to {:?}", self);
+                let res = Some((p0 + price) / 2);
+                info!("Result is {:?}", res);
+                res
+            },
         };
     }
 }
