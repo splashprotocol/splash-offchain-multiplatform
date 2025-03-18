@@ -4,15 +4,16 @@ use crate::execution_engine::liquidity_book::market_maker::{
 };
 use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
 use crate::execution_engine::liquidity_book::side::{OnSide, Side};
-use crate::execution_engine::liquidity_book::types::{FeeAsset, InputAsset, OutputAsset};
+use crate::execution_engine::liquidity_book::types::{AbsolutePrice, FeeAsset, InputAsset, OutputAsset};
 use algebra_core::monoid::Monoid;
 use algebra_core::semigroup::Semigroup;
 use derive_more::{Display, From, Into};
 use either::Either;
 use log::{info, trace, warn};
 use nonempty::NonEmpty;
-use num_rational::Ratio;
-use serde::{Deserialize, Serialize};
+use num_bigint::BigInt;
+use num_rational::{BigRational, Ratio};
+use serde::{Deserialize, Serialize, Serializer};
 use spectrum_offchain::display::display_vec;
 use spectrum_offchain::domain::{Has, Stable};
 use std::cmp::{max, min};
@@ -21,6 +22,7 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::mem;
 use std::ops::AddAssign;
+use serde::ser::SerializeStruct;
 use void::Void;
 
 /// Terminal state of a take that was fulfilled.
@@ -888,9 +890,29 @@ impl<T, M, B> ExecutionRecipe<T, M, B> {
     }
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ExecutionMeta {
-    pub mean_spot_price: Option<SpotPrice>,
+    pub mean_spot_price: Option<Ratio<BigInt>>,
+}
+
+impl Serialize for ExecutionMeta {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("ExecutionMeta", 1)?;
+
+        let serialized_price = self.mean_spot_price.as_ref().map(|ratio| {
+            (
+                ratio.numer().to_string(),
+                ratio.denom().to_string(),
+            )
+        });
+
+        // Serialize as a struct field
+        state.serialize_field("mean_spot_price", &serialized_price)?;
+        state.end()
+    }
 }
 
 impl ExecutionMeta {
@@ -901,18 +923,19 @@ impl ExecutionMeta {
     }
 
     pub fn add_price_point(&mut self, price: SpotPrice) {
-        info!("Adding new price to execution meta. Current spot price: {:?}. to add {:?}", self, price);
-        self.mean_spot_price = match self.mean_spot_price {
-            None => {
-                info!("Current is empty. Use {}", price);
-                Some(price)
-            },
+        self.mean_spot_price = match self.clone().mean_spot_price {
+            None => Some(BigRational::new_raw(
+                BigInt::from(*price.unwrap().numer()),
+                BigInt::from(*price.unwrap().denom()),
+            )),
             Some(p0) => {
-                info!("Going to add to {:?}", self);
-                let res = Some((p0 + price) / 2);
-                info!("Result is {:?}", res);
-                res
-            },
+                let update_price_to_add = BigRational::new_raw(
+                    BigInt::from(*price.unwrap().numer()),
+                    BigInt::from(*price.unwrap().denom()),
+                );
+
+                Some((p0 + update_price_to_add) / BigInt::from(2))
+            }
         };
     }
 }
