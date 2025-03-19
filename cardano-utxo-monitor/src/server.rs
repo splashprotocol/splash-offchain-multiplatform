@@ -79,6 +79,7 @@ where
         }
         let resource = actix_web::Resource::new("/getUtxos")
             .name("getUtxos")
+            .guard(guard::Post())
             .guard(guard::Header("content-type", "application/json"))
             .to(get_utxos::<R>);
         HttpServiceFactory::register(resource, config);
