@@ -36,18 +36,20 @@ impl From<(OutputRef, TransactionOutput)> for UTxO {
             transaction_hash: oref.tx_hash(),
             index: oref.index() as usize,
             address: txo.address().clone(),
-            value: txo
-                .value()
-                .multiasset
-                .iter()
-                .flat_map(|(pol, assets)| {
-                    assets.iter().map(|(name, amt)| Asset {
-                        policy_id: pol.to_string(),
-                        base16_name: name.to_raw_hex(),
-                        amount: amt.to_string(),
-                    })
+            value: vec![Asset {
+                policy_id: "".to_string(),
+                base16_name: "".to_string(),
+                amount: txo.value().coin.to_string(),
+            }]
+            .into_iter()
+            .chain(txo.value().multiasset.iter().flat_map(|(pol, assets)| {
+                assets.iter().map(|(name, amt)| Asset {
+                    policy_id: pol.to_string(),
+                    base16_name: name.to_raw_hex(),
+                    amount: amt.to_string(),
                 })
-                .collect(),
+            }))
+            .collect(),
         }
     }
 }
