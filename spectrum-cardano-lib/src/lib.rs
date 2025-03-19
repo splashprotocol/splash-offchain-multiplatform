@@ -12,7 +12,7 @@ use cml_chain::transaction::TransactionInput;
 use cml_chain::utils::BigInteger;
 use cml_chain::{PolicyId, Value};
 use cml_core::serialization::LenEncoding::Indefinite;
-use cml_core::{DeserializeError, DeserializeFailure};
+use cml_core::DeserializeError;
 use cml_crypto::{PublicKey, RawBytesEncoding, TransactionHash};
 use derivative::Derivative;
 use derive_more::{From, Into};
@@ -325,6 +325,20 @@ impl IntoPlutusData for Token {
                 prefer_compact: true,
             }),
         })
+    }
+}
+
+impl TryFromPData for Token {
+    fn try_from_pd(data: PlutusData) -> Option<Self> {
+        let mut cpd = data.into_constr_pd()?;
+        let policy_bytes = cpd.take_field(0)?.into_bytes()?;
+        let asset_name_bytes = cpd.take_field(1)?.into_bytes()?;
+        if !policy_bytes.is_empty() {
+            let policy_id = PolicyId::from_raw_bytes(&*policy_bytes).ok()?;
+            let asset_name = AssetName::try_from(asset_name_bytes).ok()?;
+            return Some(Token(policy_id, asset_name));
+        }
+        None
     }
 }
 
