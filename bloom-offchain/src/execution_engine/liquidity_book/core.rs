@@ -10,7 +10,7 @@ use algebra_core::semigroup::Semigroup;
 use bigdecimal::BigDecimal;
 use derive_more::{Display, From, Into};
 use either::Either;
-use log::{info, trace, warn};
+use log::{trace, warn};
 use nonempty::NonEmpty;
 use num_bigint::BigInt;
 use num_rational::{BigRational, Ratio};
@@ -906,7 +906,7 @@ where
     S: Serializer,
 {
     match value {
-        Some(decimal) => serializer.serialize_some(&decimal.to_string()), // Convert to string
+        Some(decimal) => serializer.serialize_some(&decimal.to_string()),
         None => serializer.serialize_none(),
     }
 }

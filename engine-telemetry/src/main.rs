@@ -29,6 +29,7 @@ async fn main() {
     let subscriber = Subscriber::new();
     tracing::subscriber::set_global_default(subscriber).expect("setting tracing default failed");
     let args = AppArgs::parse();
+    log4rs::init_file(args.clone().log4rs_path, Default::default()).unwrap();
     let (archiver_sender, archiver_receiver) = mpsc::unbounded();
     let archiver = spawn_and_log_error(archiver_loop(args.clone().into(), archiver_receiver));
     let _ = accept_loop(archiver_sender.clone(), args.bind_addr).await;
@@ -71,8 +72,8 @@ async fn connection_loop(
 
 async fn archiver_loop(pg: Pg, mut reports: Receiver<(SocketAddr, ExecutionReport)>) -> Result<()> {
     let url = format!(
-        "host={} port={} user={} password={}",
-        pg.host, pg.port, pg.user, pg.pass
+        "host={} port={} user={} password={} dbname={}",
+        pg.host, pg.port, pg.user, pg.pass, pg.db_name
     );
     let (client, conn) = tokio_postgres::connect(url.as_str(), NoTls).await?;
     info!("Connected to database");
@@ -99,6 +100,7 @@ struct Pg {
     port: u16,
     user: String,
     pass: String,
+    db_name: String
 }
 
 impl From<AppArgs> for Pg {
@@ -108,6 +110,7 @@ impl From<AppArgs> for Pg {
             port: args.port,
             user: args.user,
             pass: args.pass,
+            db_name: args.db_name,
         }
     }
 }
@@ -126,5 +129,9 @@ struct AppArgs {
     #[arg(long)]
     pass: String,
     #[arg(long)]
+    db_name: String,
+    #[arg(long)]
     bind_addr: String,
+    #[arg(long, short)]
+    log4rs_path: String,
 }
