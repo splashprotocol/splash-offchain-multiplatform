@@ -6,7 +6,7 @@ use spectrum_offchain_cardano::node::NodeConfig;
 #[serde(rename_all = "camelCase")]
 pub struct AppConfig {
     pub node: NodeConfig,
-    pub tx_submission_buffer_size: usize,
+    pub tx_tracker_buffer_size: usize,
     pub chain_sync: ChainSyncConfig,
     pub index_path: String,
 }

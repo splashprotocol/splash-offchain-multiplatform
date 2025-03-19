@@ -64,13 +64,13 @@ async fn main() {
             .await
             .expect("MempoolSync initialization failed");
 
-    let (failed_txs_snd, failed_txs_recv) = mpsc::channel(config.tx_submission_buffer_size);
-    let (confirmed_txs_snd, confirmed_txs_recv) = mpsc::channel(config.tx_submission_buffer_size);
+    let (failed_txs_snd, failed_txs_recv) = mpsc::channel(config.tx_tracker_buffer_size);
+    let (confirmed_txs_snd, confirmed_txs_recv) = mpsc::channel(config.tx_tracker_buffer_size);
     let max_confirmation_delay_blocks = 6;
     let (tx_tracker_agent, tx_tracker_channel) = new_tx_tracker_bundle(
         confirmed_txs_recv,
         failed_txs_snd,
-        config.tx_submission_buffer_size,
+        config.tx_tracker_buffer_size,
         max_confirmation_delay_blocks,
     );
 
