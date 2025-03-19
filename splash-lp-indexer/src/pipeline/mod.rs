@@ -2,6 +2,7 @@ use crate::db::event_log::EventLog;
 use crate::db::mature_events::MatureEvents;
 use crate::pipeline::log_events::log_lp_events;
 use crate::pipeline::read_events::read_events;
+use crate::pipeline::resolve_farms::resolve_farms;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use cml_chain::transaction::{Transaction, TransactionOutput};
 use cml_crypto::ScriptHash;
@@ -19,6 +20,7 @@ use std::collections::HashSet;
 
 mod log_events;
 pub mod read_events;
+mod resolve_farms;
 
 pub async fn log_events<U, Log, Cx, Index>(
     upstream: U,
@@ -48,7 +50,9 @@ pub async fn log_events<U, Log, Cx, Index>(
 {
     log_lp_events(
         upstream.then(|(block, tx_handle)| {
-            read_events(block, &context, &index, &utxo_filter).map(|events| (events, tx_handle))
+            read_events(block, &context, &index, &utxo_filter)
+                .then(resolve_farms)
+                .map(|events| (events, tx_handle))
         }),
         &log,
     )

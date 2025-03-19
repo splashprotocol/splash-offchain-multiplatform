@@ -5,9 +5,7 @@ use crate::db::{
     EVENTS_CF, MAX_BLOCK_NUM_KEY, SUS_EVENTS_CF,
 };
 use crate::feed::event::ExportAccountEvent;
-use crate::onchain::event::{
-    AccountEvent, FarmEvent, Harvest, OnChainEvent, PositionEvent,
-};
+use crate::onchain::event::{AccountEvent, FarmEvent, Harvest, OnChainEvent, PositionEvent};
 use async_trait::async_trait;
 use cml_chain::certs::Credential;
 use rocksdb::{IteratorMode, ReadOptions};

@@ -14,6 +14,13 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolV1, BalanceFnPoolV2, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,
     ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, RoyaltyPoolV1, StableFnPoolT2T,
 };
+use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub enum RawOnChainEvent {
+    Account(AccountEvent),
+    FarmEvent(RawFarmEvent),
+}
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum OnChainEvent {
@@ -21,7 +28,7 @@ pub enum OnChainEvent {
     FarmEvent(FarmEvent),
 }
 
-impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for OnChainEvent
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for RawOnChainEvent
 where
     Cx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
@@ -35,7 +42,7 @@ where
         + Has<PoolValidation>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
-        AccountEvent::try_from_ledger(repr, ctx).map(OnChainEvent::Account)
+        AccountEvent::try_from_ledger(repr, ctx).map(RawOnChainEvent::Account)
     }
 }
 
@@ -110,21 +117,6 @@ impl PositionEvent {
         match self {
             PositionEvent::Deposit(d) => d.lp_supply,
             PositionEvent::Redeem(r) => r.lp_supply,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub enum FarmEvent {
-    FarmActivation(FarmActivation),
-    FarmDeactivation(FarmDeactivation),
-}
-
-impl FarmEvent {
-    pub fn pool_id(&self) -> PoolId {
-        match self {
-            FarmEvent::FarmActivation(a) => a.pool_id,
-            FarmEvent::FarmDeactivation(d) => d.pool_id,
         }
     }
 }
@@ -262,22 +254,50 @@ impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for Harvest {
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct FarmActivation {
+pub enum RawFarmEvent {
+    FarmActivation(FarmActivation<FarmId>),
+    FarmDeactivation(FarmDeactivation<FarmId>),
+    FarmCreation(FarmCreation),
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct FarmCreation {
+    pub farm_id: FarmId,
     pub pool_id: PoolId,
 }
 
-impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for FarmActivation {
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub enum FarmEvent {
+    FarmActivation(FarmActivation<PoolId>),
+    FarmDeactivation(FarmDeactivation<PoolId>),
+}
+
+impl FarmEvent {
+    pub fn pool_id(&self) -> PoolId {
+        match self {
+            FarmEvent::FarmActivation(a) => a.pool_id,
+            FarmEvent::FarmDeactivation(d) => d.pool_id,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct FarmActivation<FarmBinder> {
+    pub pool_id: FarmBinder,
+}
+
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for FarmActivation<FarmId> {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         todo!()
     }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct FarmDeactivation {
-    pool_id: PoolId,
+pub struct FarmDeactivation<FarmBinder> {
+    pool_id: FarmBinder,
 }
 
-impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for FarmDeactivation {
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for FarmDeactivation<FarmId> {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         todo!()
     }
