@@ -2,7 +2,7 @@
 name = "spectrum-offchain-cardano"
 version = "1.0.0"
 edition = "2021"
-rust-version = "1.80.0"
+rust-version = "1.84.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -30,7 +30,7 @@ dashu-base = "0.4.1"
 dashu-float = "0.4.1"
 rand = { version = "0.8.5", features = ["small_rng"] }
 rand_chacha = "0.3.1"
-async-trait = "0.1.58"
+async-trait = "0.1.88"
 async-stream = "0.3.5"
 type-equalities = "0.3.1"
 tailcall = "1.0.*"

@@ -14,6 +14,7 @@ use spectrum_offchain_cardano::handler_context::Mints;
 pub struct TxViewMut {
     pub hash: TransactionHash,
     pub inputs: Vec<TransactionInput>,
+    /// Indexed outputs
     pub outputs: Vec<(usize, TransactionOutput)>,
     pub metadata: Option<Metadata>,
     pub mints: Option<Mints>,

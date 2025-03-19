@@ -40,8 +40,7 @@ use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::ChainSyncClient;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_chain_sync::event_source::ledger_transactions;
-use cardano_explorer::config::ExplorerConfig;
-use cardano_explorer::{AnyExplorer, Blockfrost, CardanoNetwork, Maestro, Network};
+use cardano_explorer::{AnyExplorer, Maestro, Network};
 use cardano_mempool_sync::client::LocalTxMonitorClient;
 use cardano_mempool_sync::data::MempoolUpdate;
 use cardano_mempool_sync::mempool_stream;
@@ -419,30 +418,7 @@ async fn main() {
         rollback_in_progress,
     ))
     .await
-    .map(|ev| match ev {
-        LedgerTxEvent::TxApplied {
-            tx,
-            slot,
-            block_number,
-            block_hash,
-        } => LedgerTxEvent::TxApplied {
-            tx: TxViewMut::from(tx),
-            slot,
-            block_number,
-            block_hash,
-        },
-        LedgerTxEvent::TxUnapplied {
-            tx,
-            slot,
-            block_number,
-            block_hash,
-        } => LedgerTxEvent::TxUnapplied {
-            tx: TxViewMut::from(tx),
-            slot,
-            block_number,
-            block_hash,
-        },
-    });
+    .map(|ev| ev.map(TxViewMut::from));
 
     let mempool_stream = mempool_stream(mempool_sync, tx_tracker_channel, failed_txs_recv, state_synced)
         .map(|ev| ev.map(TxViewMut::from));

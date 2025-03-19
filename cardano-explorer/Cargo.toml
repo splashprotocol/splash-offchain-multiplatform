@@ -2,7 +2,7 @@
 name = "cardano-explorer"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.80.0"
+rust-version = "1.84.0"
 
 [dependencies]
 maestro-rust-sdk = { git = "https://github.com/kettlebell/rust-sdk.git", branch = "cbor_fix" }
@@ -13,7 +13,7 @@ cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", 
 cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
 futures = "0.3.25"
 tokio = { version = "1.42.0", features = ["full"] }
-async-trait = "0.1.58"
+async-trait = "0.1.88"
 serde = { version = "1.0.147", features = ["derive"] }
 hex = "0.4.3"
 blockfrost = { git = "https://github.com/Bromel777/blockfrost-rust.git", branch = "fix-scripts-endpoints" }
