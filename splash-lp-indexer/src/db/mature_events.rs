@@ -1,4 +1,4 @@
-use crate::account::AccountInPool;
+use crate::account::{AccountInPool, SuspendedPositionEvents};
 use crate::db::{
     account_key, cred_index_key, export_feed, from_account_key, from_event_key, get_range_iterator, pool_key,
     sus_event_key, RocksDB, ACCOUNTS_CF, ACCOUNT_FEED_CF, ACTIVE_FARMS_CF, AGGREGATE_CF, CREDS_INDEX_CF,
@@ -6,7 +6,7 @@ use crate::db::{
 };
 use crate::feed::event::ExportAccountEvent;
 use crate::onchain::event::{
-    AccountEvent, FarmEvent, Harvest, OnChainEvent, PositionEvent, SuspendedPositionEvents,
+    AccountEvent, FarmEvent, Harvest, OnChainEvent, PositionEvent,
 };
 use async_trait::async_trait;
 use cml_chain::certs::Credential;

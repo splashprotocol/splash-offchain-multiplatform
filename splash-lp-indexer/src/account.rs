@@ -1,7 +1,14 @@
 use crate::constants::EVENT_LOCK_TTL_SLOTS;
-use crate::onchain::event::{Harvest, PositionEvent, SuspendedPositionEvents};
+use crate::onchain::event::{Harvest, PositionEvent};
 use cml_core::Slot;
 use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct SuspendedPositionEvents {
+    pub current_slot: Slot,
+    pub total_lq: u64,
+    pub events: Vec<PositionEvent>,
+}
 
 #[derive(Copy, Clone, Eq, PartialEq, Serialize, Deserialize, Debug)]
 pub struct AccountInPool {

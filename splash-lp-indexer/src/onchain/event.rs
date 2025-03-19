@@ -282,10 +282,3 @@ impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for FarmDeactivation {
         todo!()
     }
 }
-
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct SuspendedPositionEvents {
-    pub current_slot: Slot,
-    pub total_lq: u64,
-    pub events: Vec<PositionEvent>,
-}
