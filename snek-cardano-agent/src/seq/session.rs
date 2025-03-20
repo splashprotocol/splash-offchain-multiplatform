@@ -1,7 +1,7 @@
 use bloom_offchain_cardano::event_sink::handler::LedgerCx;
 use cml_core::Slot;
 use cml_crypto::BlockHeaderHash;
-use log::trace;
+use log::{trace, warn};
 use spectrum_offchain::data::ior::Ior;
 use spectrum_offchain::display::display_vec;
 use spectrum_offchain::domain::event::{Channel, Confirmed, Transition};
@@ -73,6 +73,7 @@ impl<K, T> SessionInProgress<K, T> {
                     trace!("Registering subsequent event for entity: {}", event.stable_id());
                     entry.insert(event);
                 }
+                warn!("Event {} is not registered", event_key,);
             }
         }
         Ok(())
