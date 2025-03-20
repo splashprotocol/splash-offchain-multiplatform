@@ -297,6 +297,7 @@ async fn main() {
             .buffered_within(config.event_feed_buffering_duration),
         config.sequencing.session_duration,
         config.sequencing.session_settlement,
+        config.sequencing.disable,
     ));
     let execution_stream_p1 = execution_part_stream(
         state_index.clone(),
@@ -319,6 +320,7 @@ async fn main() {
             .buffered_within(config.event_feed_buffering_duration),
         config.sequencing.session_duration,
         config.sequencing.session_settlement,
+        config.sequencing.disable,
     ));
     let execution_stream_p2 = execution_part_stream(
         state_index.clone(),
@@ -341,6 +343,7 @@ async fn main() {
             .buffered_within(config.event_feed_buffering_duration),
         config.sequencing.session_duration,
         config.sequencing.session_settlement,
+        config.sequencing.disable,
     ));
     let execution_stream_p3 = execution_part_stream(
         state_index.clone(),
@@ -363,6 +366,7 @@ async fn main() {
             .buffered_within(config.event_feed_buffering_duration),
         config.sequencing.session_duration,
         config.sequencing.session_settlement,
+        config.sequencing.disable,
     ));
     let execution_stream_p4 = execution_part_stream(
         state_index,

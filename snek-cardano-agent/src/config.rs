@@ -82,6 +82,7 @@ impl CheckIntegrity for AppConfig {
 pub struct SequencingConfig {
     pub session_duration: Slot,
     pub session_settlement: Slot,
+    pub disable: bool,
 }
 
 #[derive(Copy, Clone, Debug, serde::Deserialize)]

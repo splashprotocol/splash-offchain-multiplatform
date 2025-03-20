@@ -22,6 +22,7 @@ pub fn with_sequencing<Ticks, Events, K, T>(
     events: Events,
     session_duration: Slot,
     session_settlement: Slot,
+    disable: bool,
 ) -> WithDeterministicSeq<Ticks, Events, K, T>
 where
     Ticks: Stream<Item = Slot> + Unpin,
@@ -29,7 +30,7 @@ where
     K: Copy + Eq + Hash + Ord + Unpin,
     T: SeqState<StableId = K> + Unpin,
 {
-    WithDeterministicSeq::new(clock_ticks, events, session_duration, session_settlement)
+    WithDeterministicSeq::new(clock_ticks, events, session_duration, session_settlement, disable)
 }
 
 pub struct WithDeterministicSeq<Ticks, Events, K, T> {
@@ -42,10 +43,17 @@ pub struct WithDeterministicSeq<Ticks, Events, K, T> {
     active_sessions: HashMap<PairId, SessionInProgress<K, T>>,
     session_duration: Slot,
     session_settlement: Slot,
+    disable: bool,
 }
 
 impl<Ticks, Events, K, T> WithDeterministicSeq<Ticks, Events, K, T> {
-    pub fn new(clock_ticks: Ticks, events: Events, session_duration: Slot, session_settlement: Slot) -> Self {
+    pub fn new(
+        clock_ticks: Ticks,
+        events: Events,
+        session_duration: Slot,
+        session_settlement: Slot,
+        disable: bool,
+    ) -> Self {
         Self {
             clock_ticks,
             events,
@@ -56,6 +64,7 @@ impl<Ticks, Events, K, T> WithDeterministicSeq<Ticks, Events, K, T> {
             active_sessions: HashMap::new(),
             session_duration,
             session_settlement,
+            disable,
         }
     }
 
@@ -168,7 +177,7 @@ where
                         continue;
                     }
                 }
-                if self.completed_sessions.contains(&pair) {
+                if self.completed_sessions.contains(&pair) || self.disable {
                     return Poll::Ready(Some((pair, event)));
                 }
                 self.update_session(pair, event);
@@ -247,7 +256,8 @@ mod tests {
         );
 
         let timeout = std::time::Duration::from_millis(100);
-        let mut stream = WithDeterministicSeq::new(tick_rx, event_rx, session_duration, session_settlement);
+        let mut stream =
+            WithDeterministicSeq::new(tick_rx, event_rx, session_duration, session_settlement, false);
 
         // Simulated events
         // Event 0: Starting a new session
@@ -349,7 +359,8 @@ mod tests {
         );
 
         let timeout = std::time::Duration::from_millis(100);
-        let mut stream = WithDeterministicSeq::new(tick_rx, event_rx, session_duration, session_settlement);
+        let mut stream =
+            WithDeterministicSeq::new(tick_rx, event_rx, session_duration, session_settlement, false);
 
         // Event 1: Starting a new session
         let state_1 = TestEvent::Pool { id: 1, init: true };
@@ -423,7 +434,8 @@ mod tests {
         );
 
         let timeout = std::time::Duration::from_millis(100);
-        let mut stream = WithDeterministicSeq::new(tick_rx, event_rx, session_duration, session_settlement);
+        let mut stream =
+            WithDeterministicSeq::new(tick_rx, event_rx, session_duration, session_settlement, false);
 
         // Event 1: Starting session for pair_id_1
         let state_1 = TestEvent::Pool { id: 1, init: true };
