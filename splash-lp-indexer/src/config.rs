@@ -19,6 +19,7 @@ pub struct AppConfig {
     pub explorer: ExplorerConfig,
     pub utxo_index_db_path: String,
     pub accounts_db_path: String,
+    pub gauges_db_path: String,
     pub confirmation_delay_blocks: u64,
     pub events_export_topic: String,
     pub bootstrap_servers: String,

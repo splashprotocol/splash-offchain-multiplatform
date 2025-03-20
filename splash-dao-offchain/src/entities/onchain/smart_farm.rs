@@ -9,6 +9,7 @@ use cml_chain::{
     plutus::{ConstrPlutusData, PlutusData},
     PolicyId,
 };
+use cml_core::serialization::ToBytes;
 use cml_crypto::RawBytesEncoding;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::plutus_data::{
@@ -30,6 +31,12 @@ pub type SmartFarmSnapshot = Snapshot<SmartFarm, TimedOutputRef>;
     Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Debug, Hash, derive_more::Display, Serialize, Deserialize,
 )]
 pub struct FarmId(pub AssetName);
+
+impl From<FarmId> for Vec<u8> {
+    fn from(FarmId(value): FarmId) -> Self {
+        value.as_bytes().to_bytes()
+    }
+}
 
 impl IntoPlutusData for FarmId {
     fn into_pd(self) -> PlutusData {

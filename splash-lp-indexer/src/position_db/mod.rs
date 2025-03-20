@@ -16,11 +16,11 @@ pub mod export_feed;
 pub mod mature_events;
 
 #[derive(Clone)]
-pub struct RocksDB {
+pub struct PositionDB {
     pub db: Arc<TransactionDB>,
 }
 
-impl RocksDB {
+impl PositionDB {
     pub fn new<P: AsRef<Path>>(db_path: P) -> Self {
         let mut opts = Options::default();
         opts.create_if_missing(true);
@@ -154,7 +154,7 @@ pub(crate) const COLUMN_FAMILIES: [&str; 7] = [
 
 #[cfg(test)]
 mod tests {
-    use crate::db::read_max_key;
+    use crate::position_db::read_max_key;
     use rocksdb::{Options, SingleThreaded, TransactionDB, TransactionDBOptions};
     use std::path::{Path, PathBuf};
     use std::sync::Arc;

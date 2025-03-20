@@ -1,11 +1,11 @@
 use crate::account::{AccountInPool, SuspendedPositionEvents};
-use crate::db::{
-    account_key, cred_index_key, export_feed, from_account_key, from_event_key, get_range_iterator, pool_key,
-    sus_event_key, RocksDB, ACCOUNTS_CF, ACCOUNT_FEED_CF, ACTIVE_FARMS_CF, AGGREGATE_CF, CREDS_INDEX_CF,
-    EVENTS_CF, MAX_BLOCK_NUM_KEY, SUS_EVENTS_CF,
-};
 use crate::feed::event::ExportAccountEvent;
 use crate::onchain::event::{AccountEvent, FarmEvent, Harvest, OnChainEvent, PositionEvent};
+use crate::position_db::{
+    account_key, cred_index_key, export_feed, from_account_key, from_event_key, get_range_iterator, pool_key,
+    sus_event_key, PositionDB, ACCOUNTS_CF, ACCOUNT_FEED_CF, ACTIVE_FARMS_CF, AGGREGATE_CF, CREDS_INDEX_CF,
+    EVENTS_CF, MAX_BLOCK_NUM_KEY, SUS_EVENTS_CF,
+};
 use async_trait::async_trait;
 use cml_chain::certs::Credential;
 use rocksdb::{IteratorMode, ReadOptions};
@@ -20,7 +20,7 @@ pub trait MatureEvents {
 }
 
 #[async_trait]
-impl MatureEvents for RocksDB {
+impl MatureEvents for PositionDB {
     async fn try_process_mature_events(&self, confirmation_delay_blocks: u64) -> bool {
         let db = self.db.clone();
         spawn_blocking(move || {
@@ -270,16 +270,16 @@ impl PoolFrame {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::event_log::EventLog;
-    use crate::db::export_feed::ExportEventFeed;
-    use crate::db::tests::DBPath;
     use crate::onchain::event::{Deposit, FarmActivation};
+    use crate::position_db::event_log::EventLog;
+    use crate::position_db::export_feed::ExportEventFeed;
+    use crate::position_db::tests::DBPath;
     use cml_crypto::Ed25519KeyHash;
 
     #[tokio::test]
     async fn process_export_mature_events() {
         let db_path = DBPath::new("_test_read_max_key");
-        let db = RocksDB::new(&db_path);
+        let db = PositionDB::new(&db_path);
 
         let pid = PoolId::random();
         let account = Credential::new_pub_key(Ed25519KeyHash::from([0u8; 28]));
@@ -289,7 +289,7 @@ mod tests {
         let r4 = (2_000u64, 8_000_000u64);
 
         // Generate a few OnChainEvents
-        let event1 = OnChainEvent::FarmEvent(FarmEvent::FarmActivation(FarmActivation { pool_id: pid }));
+        let event1 = OnChainEvent::FarmEvent(FarmEvent::FarmActivation(FarmActivation { binder: pid }));
         let event2 = OnChainEvent::Account(AccountEvent::Position(PositionEvent::Deposit(Deposit {
             pool_id: pid,
             account: account.clone(),

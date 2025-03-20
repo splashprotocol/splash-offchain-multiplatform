@@ -266,6 +266,12 @@ pub struct FarmCreation {
     pub pool_id: PoolId,
 }
 
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for FarmCreation {
+    fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
+        todo!()
+    }
+}
+
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum FarmEvent {
     FarmActivation(FarmActivation<PoolId>),
@@ -275,15 +281,15 @@ pub enum FarmEvent {
 impl FarmEvent {
     pub fn pool_id(&self) -> PoolId {
         match self {
-            FarmEvent::FarmActivation(a) => a.pool_id,
-            FarmEvent::FarmDeactivation(d) => d.pool_id,
+            FarmEvent::FarmActivation(a) => a.binder,
+            FarmEvent::FarmDeactivation(d) => d.binder,
         }
     }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct FarmActivation<FarmBinder> {
-    pub pool_id: FarmBinder,
+    pub binder: FarmBinder,
 }
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for FarmActivation<FarmId> {
@@ -294,7 +300,7 @@ impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for FarmActivation<FarmId> {
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct FarmDeactivation<FarmBinder> {
-    pool_id: FarmBinder,
+    pub binder: FarmBinder,
 }
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for FarmDeactivation<FarmId> {

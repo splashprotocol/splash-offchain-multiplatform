@@ -1,5 +1,5 @@
-use crate::db::{event_key, RocksDB, AGGREGATE_CF, EVENTS_CF, MAX_BLOCK_NUM_KEY};
 use crate::onchain::event::OnChainEvent;
+use crate::position_db::{event_key, PositionDB, AGGREGATE_CF, EVENTS_CF, MAX_BLOCK_NUM_KEY};
 use async_trait::async_trait;
 use tokio::task::spawn_blocking;
 
@@ -10,7 +10,7 @@ pub trait EventLog {
 }
 
 #[async_trait]
-impl EventLog for RocksDB {
+impl EventLog for PositionDB {
     async fn batch_append(&self, block_num: u64, events: Vec<OnChainEvent>) {
         let db = self.db.clone();
         spawn_blocking(move || {

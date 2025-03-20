@@ -1,10 +1,11 @@
 use crate::config::AppConfig;
 use crate::context::Context;
-use crate::db::RocksDB;
 use crate::feed::event::ExportAccountEvent;
 use crate::feed::event_publisher::EventPublisher;
+use crate::gauge_index::GaugeIndexDB;
 use crate::http_api::build_api_server;
 use crate::pipeline::{log_events, process_mature_events};
+use crate::position_db::PositionDB;
 use async_primitives::beacon::Beacon;
 use bloom_offchain_cardano::validation_rules::ValidationRules;
 use cardano_chain_sync::atomic_flow::atomic_block_flow;
@@ -33,11 +34,12 @@ mod account;
 mod config;
 mod constants;
 mod context;
-mod db;
 mod feed;
+mod gauge_index;
 mod http_api;
 mod onchain;
 mod pipeline;
+mod position_db;
 mod tx_view;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 8)]
@@ -83,8 +85,8 @@ async fn main() {
         chain_sync_cache,
     );
 
-    let index = IndexRocksDB::new(config.utxo_index_db_path);
-    let db = RocksDB::new(config.accounts_db_path);
+    let utxo_index = IndexRocksDB::new(config.utxo_index_db_path);
+    let position_db = PositionDB::new(config.accounts_db_path);
     let filter = HashSet::from([
         protocol_deployment.balance_fn_pool_v1.hash,
         protocol_deployment.balance_fn_pool_v2.hash,
@@ -100,7 +102,7 @@ async fn main() {
 
     let ip_addr = IpAddr::from_str(&*args.host).expect("Invalid host address");
     let bind_addr = SocketAddr::new(ip_addr, args.port);
-    let server = build_api_server(db.clone(), bind_addr)
+    let server = build_api_server(position_db.clone(), bind_addr)
         .await
         .expect("Error setting up api server")
         .map(|r| r.unwrap());
@@ -110,18 +112,29 @@ async fn main() {
         .create::<FutureProducer>()
         .expect("Failed to create kafka producer");
     let publisher =
-        EventPublisher::<ExportAccountEvent, _>::new(db.clone(), kafka, config.events_export_topic);
+        EventPublisher::<ExportAccountEvent, _>::new(position_db.clone(), kafka, config.events_export_topic);
+
+    let gauges_db = GaugeIndexDB::new(config.gauges_db_path);
 
     let processes = FuturesUnordered::new();
 
     let flow_driver_handle = tokio::spawn(flow_driver.run());
     processes.push(flow_driver_handle);
 
-    let log_events_handle = tokio::spawn(log_events(block_events, db.clone(), cx, index, filter));
+    let log_events_handle = tokio::spawn(log_events(
+        block_events,
+        position_db.clone(),
+        cx,
+        utxo_index,
+        gauges_db,
+        filter,
+    ));
     processes.push(log_events_handle);
 
-    let process_mature_events_handle =
-        tokio::spawn(process_mature_events(db, config.confirmation_delay_blocks));
+    let process_mature_events_handle = tokio::spawn(process_mature_events(
+        position_db,
+        config.confirmation_delay_blocks,
+    ));
     processes.push(process_mature_events_handle);
 
     let export_events_handle = tokio::spawn(publisher.run());

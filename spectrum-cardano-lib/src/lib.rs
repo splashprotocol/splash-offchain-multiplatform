@@ -239,10 +239,12 @@ pub struct Token(pub PolicyId, pub AssetName);
 
 impl Token {
     pub const BYTE_COUNT: usize = 60;
+
     pub fn try_from_string(s: &str) -> Option<Token> {
         let (pol, an) = s.split_once(".")?;
         Some(Self(PolicyId::from_hex(pol).ok()?, AssetName::try_from_hex(an)?))
     }
+
     pub fn from_string_unsafe(s: &str) -> Token {
         let parts = s.split(".").collect::<Vec<_>>();
         Self(

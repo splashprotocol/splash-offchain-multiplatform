@@ -1,6 +1,6 @@
 use crate::account::AccountInPool;
-use crate::db::{
-    account_key, cred_index_prefix, from_cred_index_key, get_range_iterator, RocksDB, ACCOUNTS_CF,
+use crate::position_db::{
+    account_key, cred_index_prefix, from_cred_index_key, get_range_iterator, PositionDB, ACCOUNTS_CF,
     AGGREGATE_CF, CREDS_INDEX_CF, MAX_BLOCK_NUM_KEY,
 };
 use cml_chain::certs::Credential;
@@ -13,7 +13,7 @@ pub trait Accounts {
 }
 
 #[async_trait::async_trait]
-impl Accounts for RocksDB {
+impl Accounts for PositionDB {
     async fn lock(&self, key: Credential) -> Option<Slot> {
         let db = self.db.clone();
         spawn_blocking(move || {

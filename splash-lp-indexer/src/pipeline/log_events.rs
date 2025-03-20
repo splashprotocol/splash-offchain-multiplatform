@@ -1,5 +1,5 @@
-use crate::db::event_log::EventLog;
 use crate::onchain::event::OnChainEvent;
+use crate::position_db::event_log::EventLog;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use futures::Stream;
 use futures::StreamExt;

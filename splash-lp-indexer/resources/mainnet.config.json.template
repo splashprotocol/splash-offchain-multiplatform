@@ -25,6 +25,7 @@
   }
   "utxoIndexDbPath": "index/utxo",
   "accountsDbPath": "index/accounts",
+  "gaugesDbPath": "index/gauges",
   "confirmationDelayBlocks": 6,
   "bootstrapServers": "0.0.0.0:19094",
   "eventsExportTopic": "events_export",

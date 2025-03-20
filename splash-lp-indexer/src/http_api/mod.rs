@@ -1,7 +1,7 @@
 mod accounts;
 
-use crate::db;
 use crate::http_api::accounts::AccountsApi;
+use crate::position_db;
 use actix_web::web::Data;
 use actix_web::{App, HttpServer};
 use std::future::Future;
@@ -9,7 +9,7 @@ use std::io;
 use std::marker::PhantomData;
 use std::net::SocketAddr;
 
-pub async fn build_api_server<Accounts: db::accounts::Accounts + Send + Sync + 'static>(
+pub async fn build_api_server<Accounts: position_db::accounts::Accounts + Send + Sync + 'static>(
     accounts: Accounts,
     bind_addr: SocketAddr,
 ) -> Result<impl Future<Output = io::Result<()>>, io::Error> {

@@ -1,8 +1,9 @@
-use crate::db::event_log::EventLog;
-use crate::db::mature_events::MatureEvents;
+use crate::gauge_index::GaugeIndex;
 use crate::pipeline::log_events::log_lp_events;
 use crate::pipeline::read_events::read_events;
 use crate::pipeline::resolve_farms::resolve_farms;
+use crate::position_db::event_log::EventLog;
+use crate::position_db::mature_events::MatureEvents;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use cml_chain::transaction::{Transaction, TransactionOutput};
 use cml_crypto::ScriptHash;
@@ -22,11 +23,12 @@ mod log_events;
 pub mod read_events;
 mod resolve_farms;
 
-pub async fn log_events<U, Log, Cx, Index>(
+pub async fn log_events<U, Log, Cx, Utxos, Gauges>(
     upstream: U,
     log: Log,
     context: Cx,
-    index: Index,
+    utxos: Utxos,
+    gauges: Gauges,
     utxo_filter: HashSet<ScriptHash>,
 ) where
     U: Stream<
@@ -36,7 +38,8 @@ pub async fn log_events<U, Log, Cx, Index>(
         ),
     >,
     Log: EventLog,
-    Index: PersistentIndex<OutputRef, TransactionOutput>,
+    Utxos: PersistentIndex<OutputRef, TransactionOutput>,
+    Gauges: GaugeIndex,
     Cx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
         + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
@@ -50,8 +53,8 @@ pub async fn log_events<U, Log, Cx, Index>(
 {
     log_lp_events(
         upstream.then(|(block, tx_handle)| {
-            read_events(block, &context, &index, &utxo_filter)
-                .then(resolve_farms)
+            read_events(block, &context, &utxos, &utxo_filter)
+                .then(|batch| resolve_farms(batch, &gauges))
                 .map(|events| (events, tx_handle))
         }),
         &log,

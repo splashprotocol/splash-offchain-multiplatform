@@ -1,5 +1,5 @@
-use crate::db::{read_max_key, read_min_kv, RocksDB, ACCOUNT_FEED_CF};
 use crate::feed::event::ExportAccountEvent;
+use crate::position_db::{read_max_key, read_min_kv, PositionDB, ACCOUNT_FEED_CF};
 use async_trait::async_trait;
 use rocksdb::{Transaction, TransactionDB};
 use tokio::task::spawn_blocking;
@@ -25,7 +25,7 @@ pub trait ExportEventFeed {
 }
 
 #[async_trait]
-impl ExportEventFeed for RocksDB {
+impl ExportEventFeed for PositionDB {
     async fn next(&self) -> Option<(u64, ExportAccountEvent)> {
         let db = self.db.clone();
         spawn_blocking(move || {
