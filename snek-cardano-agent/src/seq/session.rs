@@ -148,8 +148,12 @@ impl<K, T> SessionInProgress<K, T> {
 }
 
 // Determine sequencing window based on deterministic block data
-fn seq_window_size(num_settled_events: usize, block_hash: BlockHeaderHash) -> usize {
-    (hash_partitioning_key(block_hash) % (num_settled_events as u64)) as usize
+fn seq_window_size(max_win_size: usize, block_hash: BlockHeaderHash) -> usize {
+    if max_win_size != 0 {
+        (hash_partitioning_key(block_hash) % (max_win_size as u64)) as usize
+    } else {
+        0
+    }
 }
 
 fn is_confirmation<T>(
