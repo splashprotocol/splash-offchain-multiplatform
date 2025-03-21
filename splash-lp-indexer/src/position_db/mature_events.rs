@@ -63,11 +63,11 @@ impl MatureEvents for PositionDB {
                         let active_farms_cf = db.cf_handle(ACTIVE_FARMS_CF).unwrap();
                         for farm_event in pool_frame.farm_events {
                             match farm_event {
-                                FarmEvent::FarmActivation(_) => {
+                                FarmEvent::FarmActivated(_) => {
                                     let value = rmp_serde::to_vec(&current_slot).unwrap();
                                     tx.put_cf(active_farms_cf, pool_key.clone(), value).unwrap();
                                 }
-                                FarmEvent::FarmDeactivation(_) => {
+                                FarmEvent::FarmDeactivated(_) => {
                                     tx.delete_cf(active_farms_cf, pool_key.clone()).unwrap();
                                 }
                             }
@@ -270,7 +270,7 @@ impl PoolFrame {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::onchain::event::{Deposit, FarmActivation};
+    use crate::onchain::event::{Deposit, FarmActivated};
     use crate::position_db::event_log::EventLog;
     use crate::position_db::export_feed::ExportEventFeed;
     use crate::position_db::tests::DBPath;
@@ -289,7 +289,7 @@ mod tests {
         let r4 = (2_000u64, 8_000_000u64);
 
         // Generate a few OnChainEvents
-        let event1 = OnChainEvent::FarmEvent(FarmEvent::FarmActivation(FarmActivation { binder: pid }));
+        let event1 = OnChainEvent::FarmEvent(FarmEvent::FarmActivated(FarmActivated { pool_id: pid }));
         let event2 = OnChainEvent::Account(AccountEvent::Position(PositionEvent::Deposit(Deposit {
             pool_id: pid,
             account: account.clone(),

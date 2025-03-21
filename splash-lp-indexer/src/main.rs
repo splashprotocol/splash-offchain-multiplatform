@@ -2,10 +2,10 @@ use crate::config::AppConfig;
 use crate::context::Context;
 use crate::feed::event::ExportAccountEvent;
 use crate::feed::event_publisher::EventPublisher;
-use crate::gauge_index::GaugeIndexDB;
 use crate::http_api::build_api_server;
 use crate::pipeline::{log_events, process_mature_events};
 use crate::position_db::PositionDB;
+use crate::ve_index::VoteEscrowDB;
 use async_primitives::beacon::Beacon;
 use bloom_offchain_cardano::validation_rules::ValidationRules;
 use cardano_chain_sync::atomic_flow::atomic_block_flow;
@@ -35,12 +35,12 @@ mod config;
 mod constants;
 mod context;
 mod feed;
-mod gauge_index;
 mod http_api;
 mod onchain;
 mod pipeline;
 mod position_db;
 mod tx_view;
+mod ve_index;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 8)]
 async fn main() {
@@ -114,7 +114,7 @@ async fn main() {
     let publisher =
         EventPublisher::<ExportAccountEvent, _>::new(position_db.clone(), kafka, config.events_export_topic);
 
-    let gauges_db = GaugeIndexDB::new(config.gauges_db_path);
+    let gauges_db = VoteEscrowDB::new(config.gauges_db_path);
 
     let processes = FuturesUnordered::new();
 
