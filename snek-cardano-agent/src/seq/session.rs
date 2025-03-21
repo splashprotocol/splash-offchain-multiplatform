@@ -14,6 +14,7 @@ use std::hash::Hash;
 
 pub(crate) struct SessionInProgress<K, T> {
     opening_event: K,
+    opening_event_followups: VecDeque<Channel<Transition<T>, LedgerCx>>,
     opening_event_cx: LedgerCx,
     original_ordering: VecDeque<K>,
     confirmation_ordering: VecDeque<(K, Slot)>,
@@ -31,6 +32,7 @@ impl<K, T> SessionInProgress<K, T> {
         let key = event.stable_id();
         SessionInProgress {
             opening_event: key,
+            opening_event_followups: VecDeque::new(),
             opening_event_cx: cx,
             original_ordering: VecDeque::new(),
             confirmation_ordering: VecDeque::new(),
@@ -57,9 +59,13 @@ impl<K, T> SessionInProgress<K, T> {
                     }
                 } else {
                     if let Some(confirmed_at) = is_confirmation(current, &event) {
+                        // Confirmation of previously seen event
                         trace!("Registering initial event for entity: {}", event.stable_id());
                         self.confirmation_ordering.push_back((event_key, confirmed_at));
                         entry.insert(event);
+                    } else if self.opening_event == event_key {
+                        trace!("Registering follow-up for opening event: {}", event.stable_id());
+                        self.opening_event_followups.push_back(event);
                     }
                 }
             }
@@ -72,8 +78,9 @@ impl<K, T> SessionInProgress<K, T> {
                     }
                     trace!("Registering subsequent event for entity: {}", event.stable_id());
                     entry.insert(event);
+                } else {
+                    warn!("Event {} is not registered", event_key,);
                 }
-                warn!("Event {} is not registered", event_key,);
             }
         }
         Ok(())
@@ -92,6 +99,10 @@ impl<K, T> SessionInProgress<K, T> {
             if let Some(event) = self.event_registry.remove(&self.opening_event) {
                 settled_events.push(event);
             }
+            while let Some(event) = self.opening_event_followups.pop_front() {
+                settled_events.push(event);
+            }
+            let to_skip = settled_events.len();
             while let Some((key, s)) = self.confirmation_ordering.pop_front() {
                 if let Some(event) = self.event_registry.remove(&key) {
                     if s <= self.sealed_at {
@@ -119,7 +130,7 @@ impl<K, T> SessionInProgress<K, T> {
                 "Initial ordering: {}",
                 display_vec(&settled_events.iter().map(|x| x.stable_id()).collect())
             );
-            settled_events[..window_size].sort_by(|a, b| a.stable_id().cmp(&b.stable_id()));
+            settled_events[to_skip..to_skip + window_size].sort_by(|a, b| a.stable_id().cmp(&b.stable_id()));
             trace!(
                 "Updated ordering: {}",
                 display_vec(&settled_events.iter().map(|x| x.stable_id()).collect())
