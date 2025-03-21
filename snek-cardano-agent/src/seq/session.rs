@@ -119,11 +119,11 @@ impl<K, T> SessionInProgress<K, T> {
             }
 
             // Apply deterministic sequencing
-            let num_settled_events = settled_events.len();
-            let window_size = seq_window_size(num_settled_events, self.opening_event_cx.block_hash);
+            let max_window_size = settled_events.len() - to_skip;
+            let window_size = seq_window_size(max_window_size, self.opening_event_cx.block_hash);
             trace!(
                 "Total events sealed: {}, window size: {}",
-                num_settled_events,
+                max_window_size,
                 window_size
             );
             trace!(
