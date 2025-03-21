@@ -1,7 +1,7 @@
 use bloom_offchain_cardano::event_sink::handler::LedgerCx;
 use cml_core::Slot;
 use cml_crypto::BlockHeaderHash;
-use log::trace;
+use log::{trace, warn};
 use spectrum_offchain::data::ior::Ior;
 use spectrum_offchain::display::display_vec;
 use spectrum_offchain::domain::event::{Channel, Confirmed, Transition};
@@ -14,6 +14,7 @@ use std::hash::Hash;
 
 pub(crate) struct SessionInProgress<K, T> {
     opening_event: K,
+    opening_event_followups: VecDeque<Channel<Transition<T>, LedgerCx>>,
     opening_event_cx: LedgerCx,
     original_ordering: VecDeque<K>,
     confirmation_ordering: VecDeque<(K, Slot)>,
@@ -31,6 +32,7 @@ impl<K, T> SessionInProgress<K, T> {
         let key = event.stable_id();
         SessionInProgress {
             opening_event: key,
+            opening_event_followups: VecDeque::new(),
             opening_event_cx: cx,
             original_ordering: VecDeque::new(),
             confirmation_ordering: VecDeque::new(),
@@ -57,9 +59,13 @@ impl<K, T> SessionInProgress<K, T> {
                     }
                 } else {
                     if let Some(confirmed_at) = is_confirmation(current, &event) {
+                        // Confirmation of previously seen event
                         trace!("Registering initial event for entity: {}", event.stable_id());
                         self.confirmation_ordering.push_back((event_key, confirmed_at));
                         entry.insert(event);
+                    } else if self.opening_event == event_key {
+                        trace!("Registering follow-up for opening event: {}", event.stable_id());
+                        self.opening_event_followups.push_back(event);
                     }
                 }
             }
@@ -72,6 +78,8 @@ impl<K, T> SessionInProgress<K, T> {
                     }
                     trace!("Registering subsequent event for entity: {}", event.stable_id());
                     entry.insert(event);
+                } else {
+                    warn!("Event {} is not registered", event_key,);
                 }
             }
         }
@@ -91,6 +99,10 @@ impl<K, T> SessionInProgress<K, T> {
             if let Some(event) = self.event_registry.remove(&self.opening_event) {
                 settled_events.push(event);
             }
+            while let Some(event) = self.opening_event_followups.pop_front() {
+                settled_events.push(event);
+            }
+            let to_skip = settled_events.len();
             while let Some((key, s)) = self.confirmation_ordering.pop_front() {
                 if let Some(event) = self.event_registry.remove(&key) {
                     if s <= self.sealed_at {
@@ -107,18 +119,18 @@ impl<K, T> SessionInProgress<K, T> {
             }
 
             // Apply deterministic sequencing
-            let num_settled_events = settled_events.len();
-            let window_size = seq_window_size(num_settled_events, self.opening_event_cx.block_hash);
+            let max_window_size = settled_events.len() - to_skip;
+            let window_size = seq_window_size(max_window_size, self.opening_event_cx.block_hash);
             trace!(
                 "Total events sealed: {}, window size: {}",
-                num_settled_events,
+                max_window_size,
                 window_size
             );
             trace!(
                 "Initial ordering: {}",
                 display_vec(&settled_events.iter().map(|x| x.stable_id()).collect())
             );
-            settled_events[..window_size].sort_by(|a, b| a.stable_id().cmp(&b.stable_id()));
+            settled_events[to_skip..to_skip + window_size].sort_by(|a, b| a.stable_id().cmp(&b.stable_id()));
             trace!(
                 "Updated ordering: {}",
                 display_vec(&settled_events.iter().map(|x| x.stable_id()).collect())
@@ -136,8 +148,12 @@ impl<K, T> SessionInProgress<K, T> {
 }
 
 // Determine sequencing window based on deterministic block data
-fn seq_window_size(num_settled_events: usize, block_hash: BlockHeaderHash) -> usize {
-    (hash_partitioning_key(block_hash) % (num_settled_events as u64)) as usize
+fn seq_window_size(max_win_size: usize, block_hash: BlockHeaderHash) -> usize {
+    if max_win_size != 0 {
+        (hash_partitioning_key(block_hash) % (max_win_size as u64)) as usize
+    } else {
+        0
+    }
 }
 
 fn is_confirmation<T>(
