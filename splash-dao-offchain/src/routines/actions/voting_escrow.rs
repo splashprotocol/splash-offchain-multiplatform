@@ -32,7 +32,7 @@ use crate::constants::VOTING_ESCROW_TX_TTL;
 use crate::create_change_output::{self};
 use crate::deployment::DaoScriptData;
 use crate::entities::offchain::{
-    compute_voting_escrow_witness_message, ExtendVotingEscrowOffChainOrder, RedeemVotingEscrowOffChainOrder,
+    compute_witness_message, ExtendVotingEscrowOffChainOrder, RedeemVotingEscrowOffChainOrder,
 };
 use crate::entities::onchain::extend_voting_escrow_order::{
     compute_extend_ve_witness_validator, make_extend_ve_witness_redeemer, ExtendVotingEscrowOrderAction,
@@ -328,7 +328,6 @@ where
             locked_until: ve_datum.locked_until,
             ve_identifier_name,
             owner: ve_datum.owner,
-            max_ex_fee: ve_datum.max_ex_fee,
             version: ve_datum.version,
             last_wp_epoch: ve_datum.last_wp_epoch,
             last_gp_deadline: ve_datum.last_gp_deadline,
@@ -336,7 +335,7 @@ where
         };
 
         let voting_escrow_datum = DatumOption::new_datum(ve_datum.into_pd());
-        voting_escrow_value.coin = mve_coin - 3_000_000;
+        voting_escrow_value.coin = mve_coin - 1_010_000;
 
         let voting_escrow_output = TransactionOutputBuilder::new()
             .with_address(script_address(
@@ -476,7 +475,7 @@ where
             println!("extend_ve_script hash: {}", eve_offchain_order.witness.to_hex());
             println!(" redeemer: {}", eve_offchain_order.witness_input);
             println!(" version: {}", eve_offchain_order.id.version);
-            let message = compute_voting_escrow_witness_message(
+            let message = compute_witness_message(
                 eve_offchain_order.witness,
                 eve_offchain_order.witness_input.clone(),
                 eve_offchain_order.id.version,
@@ -751,7 +750,10 @@ where
 
         let withdrawal = Some((
             withdrawal_result,
-            DaoScriptData::global().voting_witness.ex_units.clone(),
+            DaoScriptData::global()
+                .extend_voting_escrow_witness
+                .ex_units
+                .clone(),
         ));
 
         // TODO: change should be sent to the owner.
@@ -874,7 +876,7 @@ where
             println!("redeem_ve_script hash: {}", offchain_order.witness.to_hex());
             println!(" redeemer: {}", offchain_order.witness_input);
             println!(" version: {}", offchain_order.id.version);
-            let message = compute_voting_escrow_witness_message(
+            let message = compute_witness_message(
                 offchain_order.witness,
                 offchain_order.witness_input.clone(),
                 offchain_order.id.version,

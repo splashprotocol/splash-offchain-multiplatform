@@ -357,6 +357,9 @@ pub fn create_dao_reference_input_utxos(
 
     let perm_manager_script = compute_perm_manager_validator(edao_msig, perm_manager_auth_policy);
 
+    let wpoll_vote_order_script =
+        PlutusV2Script::new(hex::decode(&DaoScriptData::global().wpoll_vote_order.script_bytes).unwrap());
+
     let make_ve_order_script = compute_make_ve_order_validator(mint_ve_composition_token_script.hash());
 
     let extend_ve_order_script = compute_extend_ve_order_validator(mint_ve_composition_token_script.hash());
@@ -376,6 +379,7 @@ pub fn create_dao_reference_input_utxos(
         smart_farm: mint_farm_auth_token_script.hash(),
         make_ve_order: make_ve_order_script.hash(),
         extend_ve_order: extend_ve_order_script.hash(),
+        wpoll_vote_order: wpoll_vote_order_script.hash(),
     };
 
     let script_before =
@@ -412,6 +416,9 @@ pub fn create_dao_reference_input_utxos(
         .unwrap();
     tx_builder_1
         .add_output(make_output(mint_identifier_script))
+        .unwrap();
+    tx_builder_1
+        .add_output(make_output(wpoll_vote_order_script))
         .unwrap();
     let mut tx_builder_2 = constant_tx_builder();
     tx_builder_2
@@ -491,6 +498,7 @@ pub struct ReferenceInputScriptHashes {
     pub mint_ve_composition_token: ScriptHash,
     pub weighting_power: ScriptHash,
     pub smart_farm: ScriptHash,
+    pub wpoll_vote_order: ScriptHash,
     pub make_ve_order: ScriptHash,
     pub extend_ve_order: ScriptHash,
 }

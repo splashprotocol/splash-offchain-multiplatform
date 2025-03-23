@@ -72,7 +72,8 @@ pub mod fee_deltas {
     pub const VOTING_ESCROW_VOTING_FEE: u64 = 1_300_000;
     pub const MAKE_VOTING_ESCROW_FEE_DELTA: u64 = 320_000;
     pub const EXTEND_VOTING_ESCROW_FEE_DELTA: u64 = 320_000;
-    pub const REDEEM_VOTING_ESCROW_FEE_DELTA: u64 = 320_000;
+    pub const REDEEM_VOTING_ESCROW_FEE_DELTA: u64 = 120_000;
+    pub const WPOLL_VOTE_ORDER_FEE_DELTA: u64 = 100_000;
 }
 
 pub const VOTING_ESCROW_TX_TTL: u64 = 300;
@@ -139,6 +140,8 @@ pub const FARM_OUT_INDEX: usize = 1;
 /// Constant index of the weighting poll.
 pub const WP_OUT_IX: usize = 1;
 
-pub const MAKE_VOTING_ESCROW_ORDER_MIN_LOVELACES: u64 = 10_000_000;
+pub const MAKE_VOTING_ESCROW_ORDER_MIN_LOVELACES: u64 = 3_000_000;
+
+pub const WPOLL_VOTE_ORDER_MIN_LOVELACES: u64 = 2_000_000;
 
 pub static DAO_SCRIPT_BYTES: OnceCell<DaoScriptData> = OnceCell::new();

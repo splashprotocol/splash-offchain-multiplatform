@@ -2,14 +2,14 @@
   "chainSync": {
     "startingPoint": {
       "Specific": [
-        85980559,
-        "4392fb0d1662f458f0cf67de1cc18703befad103ad8e1b9e3f0584af1d4347a0"
+        87053520,
+        "d1339e86e84838f2d975da8f4dd22f850b063b913c73222506d5e69e6c8b1294"
       ]
     },
     "replayFromPoint": {
       "Specific": [
-        85980559,
-        "4392fb0d1662f458f0cf67de1cc18703befad103ad8e1b9e3f0584af1d4347a0"
+        87053520,
+        "d1339e86e84838f2d975da8f4dd22f850b063b913c73222506d5e69e6c8b1294"
       ]
     },
     "disableRollbacksUntil": 74410411,

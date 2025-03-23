@@ -2,7 +2,7 @@ use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use splash_dao_offchain::{
     entities::{
         offchain::{
-            voting_order::VotingOrder, ExtendVotingEscrowOffChainOrder, RedeemVotingEscrowOffChainOrder,
+            ExtendVotingEscrowOffChainOrder, RedeemVotingEscrowOffChainOrder, WPollVoteOffChainOrder,
         },
         onchain::voting_escrow::Owner,
     },
@@ -13,7 +13,7 @@ use crate::AppState;
 
 pub async fn handle_voting_put(
     State(state): State<AppState>,
-    axum::Json(payload): axum::Json<VotingOrder>,
+    axum::Json(payload): axum::Json<WPollVoteOffChainOrder>,
 ) -> impl IntoResponse {
     let AppState { sender } = state;
     let (response_sender, recv) = tokio::sync::oneshot::channel();

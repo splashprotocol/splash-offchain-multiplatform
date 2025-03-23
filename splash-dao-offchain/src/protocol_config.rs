@@ -96,6 +96,12 @@ pub struct MakeVotingEscrowOrderScriptHash(pub ScriptHash);
 pub struct MakeVotingEscrowOrderRefScriptOutput(pub TransactionUnspentOutput);
 
 #[derive(Debug, Clone)]
+pub struct WPollVoteOrderScriptHash(pub ScriptHash);
+
+#[derive(Debug, Clone)]
+pub struct WPollVoteOrderRefScriptOutput(pub TransactionUnspentOutput);
+
+#[derive(Debug, Clone)]
 pub struct ExtendVotingEscrowOrderScriptHash(pub ScriptHash);
 
 #[derive(Debug, Clone)]
@@ -292,6 +298,18 @@ impl Has<MakeVotingEscrowOrderRefScriptOutput> for ProtocolConfig {
     }
 }
 
+impl Has<WPollVoteOrderScriptHash> for ProtocolConfig {
+    fn select<U: IsEqual<WPollVoteOrderScriptHash>>(&self) -> WPollVoteOrderScriptHash {
+        WPollVoteOrderScriptHash(self.deployed_validators.wpoll_vote_order.hash)
+    }
+}
+
+impl Has<WPollVoteOrderRefScriptOutput> for ProtocolConfig {
+    fn select<U: IsEqual<WPollVoteOrderRefScriptOutput>>(&self) -> WPollVoteOrderRefScriptOutput {
+        WPollVoteOrderRefScriptOutput(self.deployed_validators.wpoll_vote_order.reference_utxo.clone())
+    }
+}
+
 impl Has<ExtendVotingEscrowOrderScriptHash> for ProtocolConfig {
     fn select<U: IsEqual<ExtendVotingEscrowOrderScriptHash>>(&self) -> ExtendVotingEscrowOrderScriptHash {
         ExtendVotingEscrowOrderScriptHash(self.deployed_validators.extend_ve_order.hash)
@@ -480,6 +498,14 @@ impl Has<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>> for Pro
         &self,
     ) -> DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }> {
         DeployedScriptInfo::from(&self.deployed_validators.extend_ve_order)
+    }
+}
+
+impl Has<DeployedScriptInfo<{ ProtocolValidator::WPollVoteOrder as u8 }>> for ProtocolConfig {
+    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::WPollVoteOrder as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ ProtocolValidator::WPollVoteOrder as u8 }> {
+        DeployedScriptInfo::from(&self.deployed_validators.wpoll_vote_order)
     }
 }
 
