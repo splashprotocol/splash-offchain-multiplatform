@@ -41,6 +41,7 @@ use std::{
 };
 use tokio::io::AsyncWriteExt;
 
+use crate::create_wpoll_vote_onchain_order;
 use crate::{
     create_extend_voting_escrow_onchain_order, deploy, make_voting_escrow_order, pull_onchain_entity,
     voting_order::create_offchain_voting_order, AppConfig, OperationInputs, VotingEscrowSettings,

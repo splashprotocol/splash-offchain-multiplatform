@@ -1048,8 +1048,7 @@ impl<
                     .insert(owner, DaoOrderStatus::Unspent)
                     .await;
             }
-
-            DaoEntity::ExtendVotingEscrowOrder(order) => {
+            DaoEntity::ExtendVotingEscrowOrder(eve_order) => {
                 trace!(
                     "extend_voting_escrow_order confirmed: owner {}, version: {:?}",
                     order.ve_datum.owner,
@@ -1057,7 +1056,7 @@ impl<
                 );
                 let time_src = NetworkTimeSource {};
                 let timestamp = time_src.network_time().await as i64;
-                let order = DaoOrderBundle::new(order.clone().into(), *entity.version(), bearer);
+                let order = DaoOrderBundle::new(eve_order.clone().into(), *entity.version(), bearer);
                 let ord = PendingOrder { order, timestamp };
                 self.dao_order_backlog.put(ord.clone()).await;
                 self.tx_hash_to_dao_order.insert(*entity.version(), ord).await;
@@ -1817,12 +1816,6 @@ impl<
                 DaoOrder::ExtendVE(_extend_voting_escrow_onchain_order) => {
                     // We skip over extend VE orders here. It will be processed when we get to an
                     // associated off-chain order.
-                }
-                DaoOrder::WPollVote(_wpoll_vote_order) => {
-                    // Similarly we process this one when we get the off-chain order.
-                }
-                DaoOrder::RedeemVE(_) => {
-                    // Similarly we process this one when we get the off-chain order.
                 }
             }
         }
