@@ -33,6 +33,7 @@ mod tests {
     use cml_crypto::TransactionHash;
     use spectrum_cardano_lib::{AssetClass, OutputRef, Token};
     use spectrum_offchain_cardano::data::pair::PairId;
+    use bigdecimal::{BigDecimal, One};
 
     #[test]
     fn sample_report_json_roundtrip() {
@@ -56,7 +57,7 @@ mod tests {
             pair,
             executions: vec![order_execution],
             meta: ExecutionMeta {
-                mean_spot_price: Some(AbsolutePrice::new_unsafe(1, 2).into()),
+                mean_spot_price: Some(BigDecimal::one() / BigDecimal::from(2)),
             },
             tx_hash: TransactionHash::from_hex(
                 "8064bf12c840f8c5abd319359a31d181c5bec3237b903fa8577a081669638a08",

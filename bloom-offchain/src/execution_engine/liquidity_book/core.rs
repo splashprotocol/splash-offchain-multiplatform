@@ -4,15 +4,18 @@ use crate::execution_engine::liquidity_book::market_maker::{
 };
 use crate::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
 use crate::execution_engine::liquidity_book::side::{OnSide, Side};
-use crate::execution_engine::liquidity_book::types::{FeeAsset, InputAsset, OutputAsset};
+use crate::execution_engine::liquidity_book::types::{AbsolutePrice, FeeAsset, InputAsset, OutputAsset};
 use algebra_core::monoid::Monoid;
 use algebra_core::semigroup::Semigroup;
+use bigdecimal::BigDecimal;
 use derive_more::{Display, From, Into};
 use either::Either;
 use log::{trace, warn};
 use nonempty::NonEmpty;
-use num_rational::Ratio;
-use serde::{Deserialize, Serialize};
+use num_bigint::BigInt;
+use num_rational::{BigRational, Ratio};
+use serde::ser::SerializeStruct;
+use serde::{Deserialize, Serialize, Serializer};
 use spectrum_offchain::display::display_vec;
 use spectrum_offchain::domain::{Has, Stable};
 use std::cmp::{max, min};
@@ -21,6 +24,7 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::mem;
 use std::ops::AddAssign;
+use std::str::FromStr;
 use void::Void;
 
 /// Terminal state of a take that was fulfilled.
@@ -888,9 +892,34 @@ impl<T, M, B> ExecutionRecipe<T, M, B> {
     }
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ExecutionMeta {
-    pub mean_spot_price: Option<SpotPrice>,
+    #[serde(
+        serialize_with = "serialize_bigdecimal",
+        deserialize_with = "deserialize_bigdecimal"
+    )]
+    pub mean_spot_price: Option<BigDecimal>,
+}
+
+fn serialize_bigdecimal<S>(value: &Option<BigDecimal>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match value {
+        Some(decimal) => serializer.serialize_some(&decimal.to_string()),
+        None => serializer.serialize_none(),
+    }
+}
+
+fn deserialize_bigdecimal<'de, D>(deserializer: D) -> Result<Option<BigDecimal>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value: Option<String> = Option::deserialize(deserializer)?;
+    match value {
+        Some(s) => Ok(Some(BigDecimal::from_str(&s).map_err(serde::de::Error::custom)?)),
+        None => Ok(None),
+    }
 }
 
 impl ExecutionMeta {
@@ -901,9 +930,13 @@ impl ExecutionMeta {
     }
 
     pub fn add_price_point(&mut self, price: SpotPrice) {
-        self.mean_spot_price = match self.mean_spot_price {
-            None => Some(price),
-            Some(p0) => Some((p0 + price) / 2),
+        self.mean_spot_price = match self.clone().mean_spot_price {
+            None => Some(BigDecimal::from(price.unwrap().numer()) / BigDecimal::from(price.unwrap().denom())),
+            Some(p0) => {
+                let to_add =
+                    BigDecimal::from(price.unwrap().numer()) / BigDecimal::from(price.unwrap().denom());
+                Some((p0 + to_add) / 2)
+            }
         };
     }
 }
@@ -911,7 +944,7 @@ impl ExecutionMeta {
 #[cfg(test)]
 mod tests {
     use crate::execution_engine::liquidity_book::core::{
-        BaseStepBudget, Final, FinalRecipe, MatchmakingRecipe, Next, TerminalTake, Trans,
+        BaseStepBudget, ExecutionMeta, Final, FinalRecipe, MatchmakingRecipe, Next, TerminalTake, Trans,
     };
     use crate::execution_engine::liquidity_book::market_taker::MarketTaker;
     use crate::execution_engine::liquidity_book::side::Side;
@@ -920,6 +953,28 @@ mod tests {
     use spectrum_offchain::domain::{Has, Stable};
     use std::collections::HashMap;
     use type_equalities::IsEqual;
+
+    #[test]
+    fn meta_price_overflow_resistance_test() {
+        let mut meta = ExecutionMeta::empty();
+        meta.add_price_point(
+            AbsolutePrice::new_raw(
+                1000000000000000000000000000000000_u128,
+                2547072491085674268426422359000000_u128,
+            )
+            .into(),
+        );
+
+        meta.add_price_point(
+            AbsolutePrice::new_raw(
+                1000000000000000000000000000000000_u128,
+                2552657596724075478456090204000000_u128,
+            )
+            .into(),
+        );
+
+        assert_eq!(meta.mean_spot_price.is_some(), true);
+    }
 
     #[test]
     fn recipe_complexity_estimation_ok() {

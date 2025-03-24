@@ -1,7 +1,11 @@
 use crate::message::ExecutionReport;
 use std::net::SocketAddr;
+use std::str::FromStr;
+use bigdecimal::ToPrimitive;
+use log::info;
 use tokio_postgres::Client;
-use tracing::info;
+use pg_bigdecimal::BigDecimal as PgBigDecimal;
+use pg_bigdecimal::PgNumeric;
 
 pub(crate) async fn write_report(
     client: &Client,
@@ -11,7 +15,10 @@ pub(crate) async fn write_report(
     let num_executions = report.executions.len();
     for exec in report.executions {
         let (price_num, price_den) = exec.mean_price.unwrap().reduced().into_raw();
-        let meta = serde_json::to_string(&report.meta)?;
+        let pg_big_decimal = report.meta.clone().mean_spot_price.map(|x| {
+            PgBigDecimal::from(x.as_bigint_and_exponent())
+        });
+        let pg_numeric = PgNumeric::new(pg_big_decimal);
         client
             .execute(
                 INSERT_ST,
@@ -24,7 +31,7 @@ pub(crate) async fn write_report(
                     &(exec.removed_input as i64),
                     &(exec.added_output as i64),
                     &exec.side.to_string(),
-                    &meta,
+                    &pg_numeric,
                     &reporter.to_string(),
                 ],
             )
