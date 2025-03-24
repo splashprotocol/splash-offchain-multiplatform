@@ -1,4 +1,9 @@
-use cml_chain::{plutus::PlutusData, transaction::TransactionOutput, utils::BigInteger, LenEncoding};
+use cml_chain::{
+    plutus::{ConstrPlutusData, PlutusData},
+    transaction::TransactionOutput,
+    utils::BigInteger,
+    LenEncoding,
+};
 use cml_crypto::RawBytesEncoding;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
@@ -91,52 +96,60 @@ impl Stable for WPollVoteOnchainOrder {
 }
 
 #[derive(Debug, Clone)]
-pub struct WPollVoteAction {
-    pub weighting_poll_auth_token: Token,
-    pub ve_identifier_token: Token,
-    pub voting_escrow_input_ix: u32,
-    pub wpoll_input_ix: u32,
-    pub expected_diff: Vec<(FarmId, u64)>,
+pub enum WPollVoteAction {
+    CastVote {
+        weighting_poll_auth_token: Token,
+        ve_identifier_token: Token,
+        voting_escrow_input_ix: u32,
+        wpoll_input_ix: u32,
+        expected_diff: Vec<(FarmId, u64)>,
+    },
+    Refund,
 }
 
 impl IntoPlutusData for WPollVoteAction {
     fn into_pd(self) -> PlutusData {
-        let WPollVoteAction {
-            weighting_poll_auth_token,
-            ve_identifier_token,
-            voting_escrow_input_ix,
-            wpoll_input_ix,
-            expected_diff,
-        } = self;
-        let wpoll_auth_token_pd = make_constr_pd_indefinite_arr(vec![
-            PlutusData::new_bytes(weighting_poll_auth_token.0.to_raw_bytes().to_vec()),
-            PlutusData::new_bytes(weighting_poll_auth_token.1.as_bytes().to_vec()),
-        ]);
-        let ve_identifier_pd = make_constr_pd_indefinite_arr(vec![
-            PlutusData::new_bytes(ve_identifier_token.0.to_raw_bytes().to_vec()),
-            PlutusData::new_bytes(ve_identifier_token.1.as_bytes().to_vec()),
-        ]);
+        match self {
+            WPollVoteAction::CastVote {
+                weighting_poll_auth_token,
+                ve_identifier_token,
+                voting_escrow_input_ix,
+                wpoll_input_ix,
+                expected_diff,
+            } => {
+                let wpoll_auth_token_pd = make_constr_pd_indefinite_arr(vec![
+                    PlutusData::new_bytes(weighting_poll_auth_token.0.to_raw_bytes().to_vec()),
+                    PlutusData::new_bytes(weighting_poll_auth_token.1.as_bytes().to_vec()),
+                ]);
+                let ve_identifier_pd = make_constr_pd_indefinite_arr(vec![
+                    PlutusData::new_bytes(ve_identifier_token.0.to_raw_bytes().to_vec()),
+                    PlutusData::new_bytes(ve_identifier_token.1.as_bytes().to_vec()),
+                ]);
 
-        let expected_diff = expected_diff
-            .iter()
-            .map(|&(farm_id, weight)| {
-                make_constr_pd_indefinite_arr(vec![
-                    PlutusData::new_bytes(cml_chain::assets::AssetName::from(farm_id.0).inner),
-                    PlutusData::new_integer(BigInteger::from(weight)),
-                ])
-            })
-            .collect();
+                let expected_diff = expected_diff
+                    .iter()
+                    .map(|&(farm_id, weight)| {
+                        make_constr_pd_indefinite_arr(vec![
+                            PlutusData::new_bytes(cml_chain::assets::AssetName::from(farm_id.0).inner),
+                            PlutusData::new_integer(BigInteger::from(weight)),
+                        ])
+                    })
+                    .collect();
 
-        let expected_diff_pd = PlutusData::List {
-            list: expected_diff,
-            list_encoding: LenEncoding::Indefinite,
-        };
-        make_constr_pd_indefinite_arr(vec![
-            wpoll_auth_token_pd,
-            ve_identifier_pd,
-            PlutusData::new_integer(BigInteger::from(voting_escrow_input_ix)),
-            PlutusData::new_integer(BigInteger::from(wpoll_input_ix)),
-            expected_diff_pd,
-        ])
+                let expected_diff_pd = PlutusData::List {
+                    list: expected_diff,
+                    list_encoding: LenEncoding::Indefinite,
+                };
+                let inner = make_constr_pd_indefinite_arr(vec![
+                    wpoll_auth_token_pd,
+                    ve_identifier_pd,
+                    PlutusData::new_integer(BigInteger::from(voting_escrow_input_ix)),
+                    PlutusData::new_integer(BigInteger::from(wpoll_input_ix)),
+                    expected_diff_pd,
+                ]);
+                make_constr_pd_indefinite_arr(vec![inner])
+            }
+            WPollVoteAction::Refund => PlutusData::new_constr_plutus_data(ConstrPlutusData::new(1, vec![])),
+        }
     }
 }

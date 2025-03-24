@@ -314,7 +314,7 @@ pub async fn user_simulator<'a>(
                                 })
                                 .collect();
 
-                            let wpoll_vote_order_redeemer = WPollVoteAction {
+                            let wpoll_vote_order_redeemer = WPollVoteAction::CastVote {
                                 weighting_poll_auth_token,
                                 ve_identifier_token,
                                 voting_escrow_input_ix,

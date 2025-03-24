@@ -714,7 +714,7 @@ where
             self.ctx.select::<MintVEIdentifierPolicy>().0,
             voting_escrow.get().ve_identifier_name,
         );
-        let order_action = WPollVoteAction {
+        let order_action = WPollVoteAction::CastVote {
             weighting_poll_auth_token,
             ve_identifier_token,
             voting_escrow_input_ix,
