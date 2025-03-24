@@ -135,30 +135,7 @@ async fn main() {
         rollback_in_progress,
     ))
     .await
-    .map(|ev| match ev {
-        LedgerTxEvent::TxApplied {
-            tx,
-            slot,
-            block_number,
-            block_hash,
-        } => LedgerTxEvent::TxApplied {
-            tx: TxViewMut::from(tx),
-            slot,
-            block_number,
-            block_hash,
-        },
-        LedgerTxEvent::TxUnapplied {
-            tx,
-            slot,
-            block_number,
-            block_hash,
-        } => LedgerTxEvent::TxUnapplied {
-            tx: TxViewMut::from(tx),
-            slot,
-            block_number,
-            block_hash,
-        },
-    });
+    .map(|ev| ev.map(TxViewMut::from));
 
     // We assume the batcher's private key is associated with a Cardano base address, which also
     // includes a reward address.

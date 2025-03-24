@@ -1,10 +1,9 @@
 use crate::tx_view::TxViewPartiallyResolved;
 use cml_chain::address::Address;
 use cml_chain::certs::Credential;
-use cml_core::Slot;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
-use spectrum_cardano_lib::{AssetClass, Token};
+use spectrum_cardano_lib::{AssetClass, OutputRef, Token};
 use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::data::pool::{AnyPool, PoolValidation};
@@ -17,10 +16,14 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
 use splash_dao_offchain::deployment::ProtocolValidator;
 use splash_dao_offchain::entities::onchain::poll_factory::{PollFactory, PollFactorySnapshot};
 use splash_dao_offchain::entities::onchain::smart_farm::{FarmId, SmartFarmSnapshot};
-use splash_dao_offchain::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy};
-use splash_dao_offchain::routines::TimedOutputRef;
+use splash_dao_offchain::protocol_config::{
+    FarmAuthPolicy, NotOutputRefNorSlotNumber, PermManagerAuthPolicy,
+};
+use splash_dao_offchain::routines::{ProvideTimedOref, Slot, TimedOutputRef};
 use std::collections::HashSet;
+use type_equalities::IsEqual;
 
+/// Events extracted from on-chain transactions.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum StatelessOnChainEvent {
     Account(AccountEvent),
@@ -28,6 +31,7 @@ pub enum StatelessOnChainEvent {
     PollFactoryUpdated(PollFactoryUpdated),
 }
 
+/// Events that happened on-chain but derived from a broad on-chain context.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum OnChainEvent {
     Account(AccountEvent),
@@ -45,10 +49,19 @@ where
         + Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
-        + Has<PoolValidation>,
+        + Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
+        + Has<PoolValidation>
+        + Has<PermManagerAuthPolicy>
+        + Has<FarmAuthPolicy>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
-        AccountEvent::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::Account)
+        AccountEvent::try_from_ledger(repr, ctx)
+            .map(StatelessOnChainEvent::Account)
+            .or_else(|| FarmCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::FarmCreated))
+            .or_else(|| {
+                PollFactoryUpdated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::PollFactoryUpdated)
+            })
     }
 }
 
@@ -250,7 +263,7 @@ pub struct Redeem {
 pub struct Harvest {
     pub pool_id: PoolId,
     pub account: Credential,
-    pub harvested_till: Slot,
+    pub harvested_till: cml_chain::Slot,
 }
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for Harvest {
@@ -269,21 +282,23 @@ impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for FarmCreated
 where
     Cx: Has<PermManagerAuthPolicy>
         + Has<FarmAuthPolicy>
-        + Has<TimedOutputRef>
         + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         let farms_in_inputs: HashSet<_> =
-            HashSet::from_iter(repr.inputs.iter().filter_map(|(_, maybe_utxo)| {
+            HashSet::from_iter(repr.inputs.iter().filter_map(|(i, maybe_utxo)| {
                 maybe_utxo
                     .as_ref()
-                    .and_then(|u| SmartFarmSnapshot::try_from_ledger(u, ctx))
+                    .and_then(|u| {
+                        let oref = TimedOutputRef::new(OutputRef::from(i.clone()), Slot(0));
+                        SmartFarmSnapshot::try_from_ledger(u, &ProvideTimedOref(ctx, oref))
+                    })
                     .map(|farm| farm.get().farm_id)
             }));
-        let farms_in_outputs = repr
-            .outputs
-            .iter()
-            .filter_map(|utxo| SmartFarmSnapshot::try_from_ledger(utxo, ctx));
+        let farms_in_outputs = repr.outputs.iter().enumerate().filter_map(|(ix, utxo)| {
+            let oref = TimedOutputRef::new(OutputRef::new(repr.hash, ix as u64), Slot(0));
+            SmartFarmSnapshot::try_from_ledger(utxo, &ProvideTimedOref(ctx, oref))
+        });
         let mut new_farms = farms_in_outputs.filter_map(|farm| {
             if farms_in_inputs.contains(&farm.get().farm_id) {
                 Some(farm.unwrap())
@@ -305,14 +320,18 @@ pub struct PollFactoryUpdated {
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for PollFactoryUpdated
 where
-    Cx: Has<TimedOutputRef> + Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>,
+    Cx: Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         repr.outputs
             .iter()
-            .filter_map(|utxo| {
-                PollFactorySnapshot::try_from_ledger(utxo, ctx).map(|snapshot| PollFactoryUpdated {
-                    new_state: snapshot.get().clone(),
+            .enumerate()
+            .filter_map(|(ix, utxo)| {
+                let oref = TimedOutputRef::new(OutputRef::new(repr.hash, ix as u64), Slot(0));
+                PollFactorySnapshot::try_from_ledger(utxo, &ProvideTimedOref(ctx, oref)).map(|snapshot| {
+                    PollFactoryUpdated {
+                        new_state: snapshot.get().clone(),
+                    }
                 })
             })
             .next()

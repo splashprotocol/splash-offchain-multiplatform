@@ -19,9 +19,14 @@ use futures::FutureExt;
 use log::info;
 use rdkafka::producer::FutureProducer;
 use rdkafka::ClientConfig;
-use spectrum_offchain_cardano::deployment::{DeployedValidators, ProtocolDeployment};
+use spectrum_offchain_cardano::deployment::{
+    DeployedValidators as DexValidators, ProtocolDeployment as DexDeployment,
+};
 use spectrum_offchain_cardano::persistent_index::IndexRocksDB;
 use spectrum_streaming::run_stream;
+use splash_dao_offchain::deployment::{
+    DeployedValidators as DaoValidators, ProtocolDeployment as DaoDeployment, ProtocolTokens,
+};
 use std::collections::HashSet;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
@@ -50,9 +55,18 @@ async fn main() {
     let raw_config = std::fs::read_to_string(args.config_path).expect("Cannot load configuration file");
     let config: AppConfig = serde_json::from_str(&raw_config).expect("Invalid configuration file");
 
-    let raw_deployment = std::fs::read_to_string(args.deployment_path).expect("Cannot load deployment file");
-    let deployment: DeployedValidators =
+    let raw_deployment =
+        std::fs::read_to_string(args.dex_deployment_path).expect("Cannot load DEX deployment file");
+    let dex_validators: DexValidators =
         serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
+
+    let raw_deployment =
+        std::fs::read_to_string(args.dao_deployment_path).expect("Cannot load DAO deployment file");
+    let dao_validators: DaoValidators =
+        serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
+
+    let raw_tokens = std::fs::read_to_string(args.dao_tokens_path).expect("Cannot load DAO assets file");
+    let dao_tokens: ProtocolTokens = serde_json::from_str(&raw_tokens).expect("Invalid deployment file");
 
     let raw_validation_rules =
         std::fs::read_to_string(args.validation_rules_path).expect("Cannot load bounds file");
@@ -67,7 +81,8 @@ async fn main() {
         .await
         .expect("Explorer initialization failed");
 
-    let protocol_deployment = ProtocolDeployment::unsafe_pull(deployment, &explorer).await;
+    let dex_protocol_deployment = DexDeployment::unsafe_pull(dex_validators, &explorer).await;
+    let dao_protocol_deployment = DaoDeployment::unsafe_pull(dao_validators, &explorer).await;
 
     let chain_sync_cache = Arc::new(Mutex::new(LedgerCacheRocksDB::new(config.chain_sync.db_path)));
     let chain_sync = ChainSyncClient::init(
@@ -88,15 +103,17 @@ async fn main() {
     let utxo_index = IndexRocksDB::new(config.utxo_index_db_path);
     let position_db = PositionDB::new(config.accounts_db_path);
     let filter = HashSet::from([
-        protocol_deployment.balance_fn_pool_v1.hash,
-        protocol_deployment.balance_fn_pool_v2.hash,
-        protocol_deployment.const_fn_pool_v1.hash,
-        protocol_deployment.const_fn_pool_v2.hash,
-        protocol_deployment.royalty_pool.hash,
-        protocol_deployment.stable_fn_pool_t2t.hash,
+        dex_protocol_deployment.balance_fn_pool_v1.hash,
+        dex_protocol_deployment.balance_fn_pool_v2.hash,
+        dex_protocol_deployment.const_fn_pool_v1.hash,
+        dex_protocol_deployment.const_fn_pool_v2.hash,
+        dex_protocol_deployment.royalty_pool.hash,
+        dex_protocol_deployment.stable_fn_pool_t2t.hash,
     ]);
     let cx = Context {
-        deployment: protocol_deployment,
+        dex_deployment: dex_protocol_deployment,
+        dao_deployment: dao_protocol_deployment,
+        dao_tokens,
         pool_validation: validation_rules.pool,
     };
 
@@ -161,9 +178,14 @@ struct AppArgs {
     /// Path to the JSON configuration file.
     #[arg(long, short)]
     config_path: String,
-    /// Path to the deployment JSON configuration file .
+    /// Path to the DEX deployment JSON configuration file .
     #[arg(long, short)]
-    deployment_path: String,
+    dex_deployment_path: String,
+    /// Path to the DAO deployment JSON configuration file .
+    #[arg(long, short)]
+    dao_deployment_path: String,
+    #[arg(long, short)]
+    dao_tokens_path: String,
     /// Path to the bounds JSON configuration file .
     #[arg(long, short)]
     validation_rules_path: String,

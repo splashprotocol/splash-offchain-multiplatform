@@ -30,7 +30,7 @@ use uplc_pallas_primitives::Fragment;
 use crate::collect_utxos::collect_tagged_utxos;
 use crate::constants::time::MAX_TIME_DRIFT_MILLIS;
 use crate::create_change_output::{ChangeOutputCreator, CreateChangeOutput};
-use crate::deployment::BuiltPolicy;
+use crate::deployment::IssuedAsset;
 use crate::entities::offchain::voting_order::VotingOrder;
 use crate::entities::offchain::{ExtendVotingEscrowOffChainOrder, RedeemVotingEscrowOffChainOrder};
 use crate::entities::onchain::extend_voting_escrow_order::ExtendVotingEscrowOrderBundle;
@@ -197,7 +197,7 @@ pub fn compute_farm_name(farm_id: u32) -> cml_chain::assets::AssetName {
 
 pub fn select_funding_boxes<Ctx>(
     target: Coin,
-    required_tokens: Vec<BuiltPolicy>,
+    required_tokens: Vec<IssuedAsset>,
     AvailableFundingBoxes { confirmed, predicted }: AvailableFundingBoxes,
     ctx: &Ctx,
 ) -> (Vec<InputBuilderResult>, AvailableFundingBoxes)

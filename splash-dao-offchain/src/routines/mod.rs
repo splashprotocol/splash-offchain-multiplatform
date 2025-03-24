@@ -2426,9 +2426,33 @@ pub struct TimedOutputRef {
     pub slot: Slot,
 }
 
+impl TimedOutputRef {
+    pub fn new(output_ref: OutputRef, slot: Slot) -> Self {
+        Self { output_ref, slot }
+    }
+}
+
 impl Display for TimedOutputRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(format!("{}, {}", self.output_ref, self.slot).as_str())
+    }
+}
+
+pub struct ProvideTimedOref<'a, Cx>(pub &'a Cx, pub TimedOutputRef);
+
+impl<'a, Cx> Has<TimedOutputRef> for ProvideTimedOref<'a, Cx> {
+    fn select<U: IsEqual<TimedOutputRef>>(&self) -> TimedOutputRef {
+        self.1
+    }
+}
+
+impl<'a, Cx, T> Has<T> for ProvideTimedOref<'a, Cx>
+where
+    Cx: Has<T>,
+    T: NotOutputRefNorSlotNumber,
+{
+    fn select<U: IsEqual<T>>(&self) -> T {
+        self.0.select::<U>()
     }
 }
 

@@ -29,7 +29,7 @@ use spectrum_cardano_lib::{
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator_plutus_v2;
 use splash_dao_offchain::{
     constants::{DEFAULT_AUTH_TOKEN_NAME, GT_NAME, MAX_GT_SUPPLY},
-    deployment::{BuiltPolicy, DaoScriptData, ExternallyMintedToken, MintedTokens},
+    deployment::{DaoScriptData, ExternallyMintedToken, IssuedAsset, ProtocolTokens},
     entities::onchain::{
         extend_voting_escrow_order::compute_extend_ve_order_validator,
         farm_factory::compute_farm_factory_validator,
@@ -130,7 +130,7 @@ pub fn mint_deployment_tokens(
     addr: &Address,
     public_key_hash: Ed25519KeyHash,
     collateral: Collateral,
-) -> (SignedTxBuilder, MintedTokens) {
+) -> (SignedTxBuilder, ProtocolTokens) {
     let mut tx_builder = constant_tx_builder();
     for input in &inputs {
         tx_builder.add_input(input.clone()).unwrap();
@@ -161,7 +161,7 @@ pub fn mint_deployment_tokens(
             GT_NAME.to_be_bytes().to_vec()
         };
         let asset_name = AssetName::new(inner).unwrap();
-        let bp = BuiltPolicy {
+        let bp = IssuedAsset {
             policy_id,
             asset_name: asset_name.clone(),
             quantity: BigInteger::from(quantity),
@@ -209,7 +209,7 @@ pub fn mint_deployment_tokens(
         .unwrap();
     let signed_tx_builder = tx_builder.build(ChangeSelectionAlgo::Default, addr).unwrap();
 
-    let minted_tokens = MintedTokens {
+    let minted_tokens = ProtocolTokens {
         factory_auth: built_policies.pop_front().unwrap(),
         wp_factory_auth: built_policies.pop_front().unwrap(),
         ve_factory_auth: built_policies.pop_front().unwrap(),

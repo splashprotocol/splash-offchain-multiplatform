@@ -11,7 +11,7 @@ use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use std::ops::Index;
 use type_equalities::IsEqual;
 
-use crate::deployment::{BuiltPolicy, MintedTokens, ProtocolDeployment, ProtocolValidator};
+use crate::deployment::{IssuedAsset, ProtocolDeployment, ProtocolTokens, ProtocolValidator};
 use crate::entities::onchain::weighting_poll::WeightingPollId;
 use crate::time::ProtocolEpoch;
 use crate::GenesisEpochStartTime;
@@ -19,7 +19,7 @@ use crate::GenesisEpochStartTime;
 #[derive(Clone)]
 pub struct ProtocolConfig {
     pub deployed_validators: ProtocolDeployment,
-    pub tokens: MintedTokens,
+    pub tokens: ProtocolTokens,
     pub operator_sk: String,
     pub node_magic: u64,
     pub network_id: NetworkId,
@@ -81,7 +81,7 @@ pub struct FarmFactoryAuthPolicy(pub PolicyId);
 pub struct WPFactoryAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
-pub struct VEFactoryAuthPolicy(pub BuiltPolicy);
+pub struct VEFactoryAuthPolicy(pub IssuedAsset);
 
 #[derive(Debug, Clone)]
 pub struct VEFactoryScriptHash(pub ScriptHash);
@@ -129,7 +129,7 @@ pub struct PermManagerAuthPolicy(pub PolicyId);
 pub struct GTAuthPolicy(pub PolicyId);
 
 #[derive(Debug, Clone)]
-pub struct GTBuiltPolicy(pub BuiltPolicy);
+pub struct GTBuiltPolicy(pub IssuedAsset);
 
 #[derive(Debug, Clone)]
 pub struct NodeMagic(pub u64);

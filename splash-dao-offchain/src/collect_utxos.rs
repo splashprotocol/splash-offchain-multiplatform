@@ -9,12 +9,12 @@ use cml_chain::{
 };
 use spectrum_cardano_lib::{collateral::Collateral, transaction::TransactionOutputExtension, OutputRef};
 
-use crate::deployment::BuiltPolicy;
+use crate::deployment::IssuedAsset;
 
 pub fn collect_tagged_utxos<T>(
     all_utxos: Vec<(T, TransactionUnspentOutput)>,
     required_coin: Coin,
-    required_tokens: Vec<BuiltPolicy>,
+    required_tokens: Vec<IssuedAsset>,
     collateral: Option<&Collateral>,
 ) -> Vec<(T, InputBuilderResult)> {
     if required_tokens.is_empty() {
@@ -93,7 +93,7 @@ pub fn collect_tagged_utxos<T>(
 pub fn collect_utxos(
     all_utxos: Vec<TransactionUnspentOutput>,
     required_coin: Coin,
-    required_tokens: Vec<BuiltPolicy>,
+    required_tokens: Vec<IssuedAsset>,
     collateral: Option<&Collateral>,
 ) -> Vec<InputBuilderResult> {
     let all_utxos = all_utxos.into_iter().map(|u| ((), u)).collect();

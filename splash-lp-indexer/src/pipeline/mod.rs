@@ -17,6 +17,9 @@ use spectrum_offchain::persistent_index::PersistentIndex;
 use spectrum_offchain_cardano::data::pool::PoolValidation;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::*;
+use splash_dao_offchain::deployment::ProtocolValidator;
+use splash_dao_offchain::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy};
+use splash_dao_offchain::routines::TimedOutputRef;
 use std::collections::HashSet;
 
 mod log_events;
@@ -49,7 +52,12 @@ pub async fn log_events<U, Log, Cx, Utxos, Gauges>(
         + Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
-        + Has<PoolValidation>,
+        + Has<PoolValidation>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
+        + Has<PoolValidation>
+        + Has<PermManagerAuthPolicy>
+        + Has<FarmAuthPolicy>,
 {
     log_lp_events(
         upstream.then(|(block, tx_handle)| {
