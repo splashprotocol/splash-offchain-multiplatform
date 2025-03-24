@@ -31,7 +31,7 @@ pub type PollFactorySnapshot = Snapshot<PollFactory, TimedOutputRef>;
 )]
 pub struct PollFactoryId(pub ProtocolEpoch);
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct PollFactory {
     pub last_poll_epoch: Option<ProtocolEpoch>,
     pub active_farms: Vec<FarmId>,

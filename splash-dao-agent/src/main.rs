@@ -2,7 +2,7 @@ use std::{fmt::Debug, hash::Hash, marker::PhantomData, sync::Arc};
 
 use api_endpoints::{handle_extend_ve_put, handle_get_mve_status, handle_redeem_ve_put, handle_voting_put};
 use async_primitives::beacon::Beacon;
-use bloom_offchain_cardano::event_sink::processed_tx::TxViewMut;
+use bloom_offchain_cardano::event_sink::tx_view::TxViewMut;
 use bounded_integer::BoundedU8;
 use cardano_chain_sync::{
     cache::LedgerCacheRocksDB, chain_sync_stream, client::ChainSyncClient, data::LedgerTxEvent,
@@ -135,30 +135,7 @@ async fn main() {
         rollback_in_progress,
     ))
     .await
-    .map(|ev| match ev {
-        LedgerTxEvent::TxApplied {
-            tx,
-            slot,
-            block_number,
-            block_hash,
-        } => LedgerTxEvent::TxApplied {
-            tx: TxViewMut::from(tx),
-            slot,
-            block_number,
-            block_hash,
-        },
-        LedgerTxEvent::TxUnapplied {
-            tx,
-            slot,
-            block_number,
-            block_hash,
-        } => LedgerTxEvent::TxUnapplied {
-            tx: TxViewMut::from(tx),
-            slot,
-            block_number,
-            block_hash,
-        },
-    });
+    .map(|ev| ev.map(TxViewMut::from));
 
     // We assume the batcher's private key is associated with a Cardano base address, which also
     // includes a reward address.

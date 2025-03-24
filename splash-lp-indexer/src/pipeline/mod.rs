@@ -1,0 +1,79 @@
+use crate::pipeline::log_events::log_lp_events;
+use crate::pipeline::read_events::read_events;
+use crate::pipeline::resolve_gauges::resolve_gauges;
+use crate::position_db::event_log::EventLog;
+use crate::position_db::mature_events::MatureEvents;
+use crate::ve_index::VoteEscrowIndex;
+use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
+use cml_chain::transaction::{Transaction, TransactionOutput};
+use cml_crypto::ScriptHash;
+use cml_multi_era::babbage::BabbageTransaction;
+use either::Either;
+use futures::FutureExt;
+use futures::{Stream, StreamExt};
+use spectrum_cardano_lib::OutputRef;
+use spectrum_offchain::domain::Has;
+use spectrum_offchain::persistent_index::PersistentIndex;
+use spectrum_offchain_cardano::data::pool::PoolValidation;
+use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
+use spectrum_offchain_cardano::deployment::ProtocolValidator::*;
+use splash_dao_offchain::deployment::ProtocolValidator;
+use splash_dao_offchain::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy};
+use splash_dao_offchain::routines::TimedOutputRef;
+use std::collections::HashSet;
+
+mod log_events;
+pub mod read_events;
+mod resolve_gauges;
+
+pub async fn log_events<U, Log, Cx, Utxos, Gauges>(
+    upstream: U,
+    log: Log,
+    context: Cx,
+    utxos: Utxos,
+    gauges: Gauges,
+    utxo_filter: HashSet<ScriptHash>,
+) where
+    U: Stream<
+        Item = (
+            BlockEvents<Either<BabbageTransaction, Transaction>>,
+            TransactionHandle,
+        ),
+    >,
+    Log: EventLog,
+    Utxos: PersistentIndex<OutputRef, TransactionOutput>,
+    Gauges: VoteEscrowIndex,
+    Cx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+        + Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>
+        + Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>
+        + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
+        + Has<PoolValidation>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
+        + Has<PoolValidation>
+        + Has<PermManagerAuthPolicy>
+        + Has<FarmAuthPolicy>,
+{
+    log_lp_events(
+        upstream.then(|(block, tx_handle)| {
+            read_events(block, &context, &utxos, &utxo_filter)
+                .then(|batch| resolve_gauges(batch, &gauges))
+                .map(|events| (events, tx_handle))
+        }),
+        &log,
+    )
+    .await
+}
+
+pub async fn process_mature_events<DB: MatureEvents>(db: DB, confirmation_delay_blocks: u64) {
+    loop {
+        if !db.try_process_mature_events(confirmation_delay_blocks).await {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        }
+    }
+}

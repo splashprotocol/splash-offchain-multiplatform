@@ -13,6 +13,7 @@ use futures_timer::Delay;
 use log::trace;
 use tokio::sync::broadcast;
 
+pub mod atomic_flow;
 pub mod cache;
 pub mod client;
 pub mod data;

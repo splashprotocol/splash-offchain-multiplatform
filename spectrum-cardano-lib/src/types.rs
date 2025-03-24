@@ -1,7 +1,9 @@
-use cml_chain::plutus::PlutusData;
-use num_rational::Ratio;
-
 use crate::plutus_data::{ConstrPlutusDataExtension, PlutusDataExtension};
+use crate::{AssetClass, AssetName, Token};
+use cml_chain::plutus::PlutusData;
+use cml_chain::PolicyId;
+use cml_core::serialization::RawBytesEncoding;
+use num_rational::Ratio;
 
 /// Tries to parse `Self` from `PlutusData`.
 pub trait TryFromPData: Sized {
@@ -58,5 +60,11 @@ impl TryFromPData for Ratio<u128> {
         } else {
             None
         }
+    }
+}
+
+impl TryFromPData for PolicyId {
+    fn try_from_pd(data: PlutusData) -> Option<Self> {
+        Some(PolicyId::from(<[u8; 28]>::try_from(data.into_bytes()?).ok()?))
     }
 }

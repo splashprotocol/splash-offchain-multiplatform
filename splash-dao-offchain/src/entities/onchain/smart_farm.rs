@@ -1,3 +1,7 @@
+use crate::deployment::{DaoScriptData, ProtocolValidator};
+use crate::entities::Snapshot;
+use crate::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy};
+use crate::routines::TimedOutputRef;
 use cml_chain::plutus::PlutusV2Script;
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::utils::BigInteger;
@@ -5,22 +9,21 @@ use cml_chain::{
     plutus::{ConstrPlutusData, PlutusData},
     PolicyId,
 };
+use cml_core::serialization::ToBytes;
 use cml_crypto::RawBytesEncoding;
 use serde::{Deserialize, Serialize};
-use spectrum_cardano_lib::plutus_data::{DatumExtension, IntoPlutusData, PlutusDataExtension};
+use spectrum_cardano_lib::plutus_data::{
+    ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
+};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
-use spectrum_cardano_lib::AssetName;
+use spectrum_cardano_lib::{AssetName, Token};
 use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
+use spectrum_offchain_cardano::data::PoolId;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator_plutus_v2;
 use uplc_pallas_primitives::{BoundedBytes, MaybeIndefArray};
-
-use crate::deployment::{DaoScriptData, ProtocolValidator};
-use crate::entities::Snapshot;
-use crate::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy};
-use crate::routines::TimedOutputRef;
 
 pub type SmartFarmSnapshot = Snapshot<SmartFarm, TimedOutputRef>;
 
@@ -29,9 +32,15 @@ pub type SmartFarmSnapshot = Snapshot<SmartFarm, TimedOutputRef>;
 )]
 pub struct FarmId(pub AssetName);
 
+impl From<FarmId> for Vec<u8> {
+    fn from(FarmId(value): FarmId) -> Self {
+        value.as_bytes().to_bytes()
+    }
+}
+
 impl IntoPlutusData for FarmId {
-    fn into_pd(self) -> cml_chain::plutus::PlutusData {
-        cml_chain::plutus::PlutusData::new_bytes(cml_chain::assets::AssetName::from(self.0).inner)
+    fn into_pd(self) -> PlutusData {
+        PlutusData::new_bytes(cml_chain::assets::AssetName::from(self.0).inner)
     }
 }
 
@@ -44,9 +53,25 @@ impl TryFromPData for FarmId {
     }
 }
 
+pub struct SmartFarmConfig {
+    pub perm_manager_auth_policy: PolicyId,
+    pub pool_id: PoolId,
+}
+
+impl TryFromPData for SmartFarmConfig {
+    fn try_from_pd(data: PlutusData) -> Option<Self> {
+        let mut cpd = data.into_constr_pd()?;
+        Some(Self {
+            perm_manager_auth_policy: PolicyId::try_from_pd(cpd.take_field(0)?)?,
+            pool_id: Token::try_from_pd(cpd.take_field(1)?)?.into(),
+        })
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct SmartFarm {
     pub farm_id: FarmId,
+    pub pool_id: PoolId,
 }
 
 impl Stable for SmartFarm {
@@ -85,7 +110,7 @@ pub enum Action {
 }
 
 impl IntoPlutusData for Action {
-    fn into_pd(self) -> cml_chain::plutus::PlutusData {
+    fn into_pd(self) -> PlutusData {
         match self {
             Action::Charge => PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![])),
             Action::DistributeRewards {
@@ -108,17 +133,17 @@ where
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         let addr = repr.address();
         if test_address(addr, ctx) {
-            if let Ok(auth_policy) = PolicyId::from_raw_bytes(&repr.datum()?.into_pd()?.into_bytes()?) {
-                if ctx.select::<PermManagerAuthPolicy>().0 == auth_policy {
-                    let value = repr.value();
-                    let farm_auth_policy = ctx.select::<FarmAuthPolicy>().0;
-                    for (policy_id, by_names) in value.multiasset.iter() {
-                        if *policy_id == farm_auth_policy {
-                            assert_eq!(by_names.len(), 1);
-                            let (farm_name, quantity) = by_names.front().unwrap();
-                            assert_eq!(*quantity, 1);
+            let conf = SmartFarmConfig::try_from_pd(repr.datum()?.into_pd()?)?;
+            if ctx.select::<PermManagerAuthPolicy>().0 == conf.perm_manager_auth_policy {
+                let value = repr.value();
+                let farm_auth_policy = ctx.select::<FarmAuthPolicy>().0;
+                for (policy_id, by_names) in value.multiasset.iter() {
+                    if *policy_id == farm_auth_policy && by_names.len() == 1 {
+                        let (farm_name, quantity) = by_names.front()?;
+                        if *quantity == 1 {
                             let smart_farm = SmartFarm {
                                 farm_id: FarmId(spectrum_cardano_lib::AssetName::from(farm_name.clone())),
+                                pool_id: conf.pool_id,
                             };
                             let version = ctx.select::<TimedOutputRef>();
                             return Some(Snapshot::new(smart_farm, version));

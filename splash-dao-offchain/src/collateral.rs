@@ -26,7 +26,7 @@ use spectrum_offchain_cardano::creds::CollateralAddress;
 use crate::{
     collect_utxos::collect_utxos,
     create_change_output::{ChangeOutputCreator, CreateChangeOutput},
-    deployment::{BuiltPolicy, DaoScriptData},
+    deployment::{DaoScriptData, IssuedAsset},
     entities::onchain::extend_voting_escrow_order::compute_extend_ve_witness_validator,
 };
 
@@ -68,7 +68,7 @@ pub async fn pull_collateral<Net: CardanoNetwork>(
 pub async fn send_assets<Net: ExtendedCardanoNetwork, TX>(
     coin_before_change_deduction: u64,
     change_output_coin: u64,
-    required_tokens: Vec<BuiltPolicy>,
+    required_tokens: Vec<IssuedAsset>,
     explorer: &Net,
     wallet_addr: &Address,
     destination_addr: &Address,
@@ -97,7 +97,7 @@ where
         tx_builder.add_input(utxo).unwrap();
     }
     let mut output_value = Value::from(amount - change_output_coin);
-    for BuiltPolicy {
+    for IssuedAsset {
         policy_id,
         asset_name,
         quantity,

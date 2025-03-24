@@ -55,8 +55,8 @@ use splash_dao_offchain::{
     constants::{time::MAX_LOCK_TIME_SECONDS, DAO_SCRIPT_BYTES, SPLASH_NAME},
     create_change_output::{ChangeOutputCreator, CreateChangeOutput},
     deployment::{
-        write_deployment_to_disk, BuiltPolicy, CompleteDeployment, DaoScriptData, DeployedValidators,
-        DeploymentProgress, ExternallyMintedToken, NFTUtxoInputs, ProtocolDeployment,
+        write_deployment_to_disk, CompleteDeployment, DaoScriptData, DeployedValidators, DeploymentProgress,
+        ExternallyMintedToken, IssuedAsset, NFTUtxoInputs, ProtocolDeployment,
     },
     entities::{
         offchain::OffChainOrderId,
@@ -537,7 +537,7 @@ async fn create_dao_entities(
     deployment_params: &DaoDeploymentParameters,
 ) {
     let minted_tokens = &deployment_config.minted_deployment_tokens;
-    let splash_built_policy = BuiltPolicy {
+    let splash_built_policy = IssuedAsset {
         policy_id: deployment_config.splash_tokens.policy_id,
         asset_name: deployment_config.splash_tokens.asset_name.clone(),
         quantity: BigInteger::from(INFLATION_BOX_INITIAL_SPLASH_QTY),
@@ -568,7 +568,7 @@ async fn create_dao_entities(
     println!("# {} tokens in inputs", tokens_in_inputs.len());
 
     // Now remove tokens that will be placed into entities
-    for BuiltPolicy {
+    for IssuedAsset {
         policy_id,
         asset_name,
         quantity,
@@ -833,7 +833,7 @@ async fn make_voting_escrow_order(
 
     let splash_name = AssetName::from_utf8(SPLASH_NAME.into());
     let splash_policy_id = deployment_config.splash_tokens.policy_id;
-    let built_policy = BuiltPolicy {
+    let built_policy = IssuedAsset {
         policy_id: splash_policy_id,
         asset_name: cml_chain::assets::AssetName::from(splash_name),
         quantity: BigInteger::from(*splash_deposit_amount),
@@ -959,7 +959,7 @@ async fn extend_voting_escrow_order(
     // Deposit assets into ve_factory -------------------------------------------
     let splash_name = AssetName::from_utf8(SPLASH_NAME.into());
     let splash_policy_id = deployment_config.splash_tokens.policy_id;
-    let built_policy = BuiltPolicy {
+    let built_policy = IssuedAsset {
         policy_id: splash_policy_id,
         asset_name: cml_chain::assets::AssetName::from(splash_name),
         quantity: BigInteger::from(*splash_deposit_amount),
@@ -1341,7 +1341,7 @@ pub async fn get_largest_utxo<Net: CardanoNetwork>(explorer: &Net, addr: &Addres
 async fn collect_utxos(
     addr: &Address,
     required_coin: Coin,
-    required_tokens: Vec<BuiltPolicy>,
+    required_tokens: Vec<IssuedAsset>,
     collateral: &Collateral,
     explorer: &Maestro,
 ) -> Vec<InputBuilderResult> {
@@ -1416,7 +1416,7 @@ async fn send_edao_token(op_inputs: &OperationInputs, destination_addr: String) 
         .expect(INCOMPLETE_DEPLOYMENT_ERR_MSG);
 
     let minted_tokens = &deployment_config.minted_deployment_tokens;
-    let bp = BuiltPolicy {
+    let bp = IssuedAsset {
         policy_id: PolicyId::from_hex("7876492e3b82a31b1ce97a8f454cec653a0f6be5c09b90e62d24c152").unwrap(),
         asset_name: cml_chain::assets::AssetName::from(AssetName::from_utf8("SPLASH".to_string())),
         quantity: BigInteger::from(1_000_000),
@@ -1570,7 +1570,7 @@ pub struct TokenDeposit {
     pub quantity: u64,
 }
 
-impl From<TokenDeposit> for BuiltPolicy {
+impl From<TokenDeposit> for IssuedAsset {
     fn from(value: TokenDeposit) -> Self {
         let asset_name = cml_chain::assets::AssetName::try_from(&*value.asset_name_utf8).unwrap();
         Self {

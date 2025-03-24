@@ -3,10 +3,11 @@ use std::fmt::{Display, Formatter};
 use cml_chain::address::Address;
 use cml_chain::transaction::TransactionInput;
 use cml_chain::PolicyId;
+use cml_core::DeserializeError;
 use cml_crypto::{RawBytesEncoding, TransactionHash};
 use num_rational::Ratio;
 use rand::{thread_rng, RngCore};
-
+use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAssetClass, Token};
 
 use crate::data::order::PoolNft;
@@ -62,16 +63,36 @@ impl OnChainOrderId {
 }
 
 #[repr(transparent)]
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, derive_more::From, derive_more::Into)]
+#[derive(
+    Debug,
+    Copy,
+    Clone,
+    Eq,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Hash,
+    Serialize,
+    Deserialize,
+    derive_more::From,
+    derive_more::Into,
+)]
 pub struct PoolId(Token);
 
 impl PoolId {
+    pub const BYTE_COUNT: usize = Token::BYTE_COUNT;
     pub fn random() -> PoolId {
         let mut bf = [0u8; 28];
         thread_rng().fill_bytes(&mut bf);
         let mp = PolicyId::from(bf);
         let tn = AssetName::from_utf8(String::from("nft"));
         PoolId(Token(mp, tn))
+    }
+}
+
+impl From<PoolId> for Vec<u8> {
+    fn from(PoolId(value): PoolId) -> Self {
+        value.into()
     }
 }
 
@@ -90,6 +111,19 @@ impl From<PoolId> for PolicyId {
 impl Into<[u8; 60]> for PoolId {
     fn into(self) -> [u8; 60] {
         self.0.into()
+    }
+}
+
+impl From<[u8; 60]> for PoolId {
+    fn from(value: [u8; 60]) -> Self {
+        Self(Token::from(value))
+    }
+}
+
+impl TryFrom<&[u8]> for PoolId {
+    type Error = ();
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        Ok(Self(Token::try_from(value)?))
     }
 }
 

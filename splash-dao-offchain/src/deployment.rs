@@ -1,7 +1,7 @@
 use cardano_explorer::CardanoNetwork;
 use cml_chain::{plutus::ExUnits, utils::BigInteger};
 use cml_crypto::{ScriptHash, TransactionHash};
-use spectrum_cardano_lib::NetworkId;
+use spectrum_cardano_lib::{NetworkId, Token};
 use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::deployment::{
     DeployedScriptInfo, DeployedValidator, DeployedValidatorRef, Script,
@@ -36,28 +36,50 @@ pub struct DeployedValidators {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-pub struct BuiltPolicy {
+#[serde(try_from = "String")]
+pub struct IssuedAsset {
     pub policy_id: ScriptHash,
     pub asset_name: cml_chain::assets::AssetName,
     pub quantity: BigInteger,
 }
 
+impl IssuedAsset {
+    fn try_from_string(value: String) -> Option<Self> {
+        let mut chunks = value.split(":");
+        let Token(policy_id, asset_name) = Token::try_from_string(chunks.next()?)?;
+        let quantity = chunks.next()?.parse().ok()?;
+        Some(Self {
+            policy_id,
+            asset_name: asset_name.into(),
+            quantity,
+        })
+    }
+}
+
+impl TryFrom<String> for IssuedAsset {
+    type Error = String;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from_string(value)
+            .ok_or("IssuedAsset must be in format: policy_id.asset_name:quantity".to_string())
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
-pub struct MintedTokens {
-    pub factory_auth: BuiltPolicy,
-    pub wp_factory_auth: BuiltPolicy,
-    pub ve_factory_auth: BuiltPolicy,
-    pub perm_auth: BuiltPolicy,
-    pub proposal_auth: BuiltPolicy,
-    pub edao_msig: BuiltPolicy,
-    pub inflation_auth: BuiltPolicy,
-    pub gt: BuiltPolicy,
+pub struct ProtocolTokens {
+    pub factory_auth: IssuedAsset,
+    pub wp_factory_auth: IssuedAsset,
+    pub ve_factory_auth: IssuedAsset,
+    pub perm_auth: IssuedAsset,
+    pub proposal_auth: IssuedAsset,
+    pub edao_msig: IssuedAsset,
+    pub inflation_auth: IssuedAsset,
+    pub gt: IssuedAsset,
 }
 
 #[derive(serde::Deserialize)]
 pub struct Deployment {
     pub validators: DeployedValidators,
-    pub nfts: MintedTokens,
+    pub nfts: ProtocolTokens,
     pub script_bytes: DaoScriptData,
 }
 
@@ -110,20 +132,20 @@ pub struct TokenPolicyBytesAndCosts {
 #[repr(u8)]
 #[derive(Eq, PartialEq)]
 pub enum ProtocolValidator {
-    Inflation,
-    VotingEscrow,
-    SmartFarm,
-    FarmFactory,
-    WpFactory,
-    VeFactory,
-    GovProxy,
-    PermManager,
-    MintWpAuthPolicy,
-    MintIdentifier,
-    MintVeCompositionToken,
-    WeightingPower,
-    MakeVeOrder,
-    ExtendVeOrder,
+    Inflation = 100,
+    VotingEscrow = 101,
+    SmartFarm = 102,
+    FarmFactory = 103,
+    WpFactory = 104,
+    VeFactory = 105,
+    GovProxy = 106,
+    PermManager = 107,
+    MintWpAuthPolicy = 108,
+    MintIdentifier = 109,
+    MintVeCompositionToken = 110,
+    WeightingPower = 111,
+    MakeVeOrder = 112,
+    ExtendVeOrder = 113,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -213,7 +235,7 @@ pub struct DeploymentProgress {
     pub lq_tokens: Option<ExternallyMintedToken>,
     pub splash_tokens: Option<ExternallyMintedToken>,
     pub nft_utxo_inputs: Option<NFTUtxoInputs>,
-    pub minted_deployment_tokens: Option<MintedTokens>,
+    pub minted_deployment_tokens: Option<ProtocolTokens>,
     pub deployed_validators: Option<DeployedValidators>,
     pub genesis_epoch_start_time: Option<u64>,
     pub num_initial_farms: u32,
@@ -230,7 +252,7 @@ pub struct CompleteDeployment {
     pub lq_tokens: ExternallyMintedToken,
     pub splash_tokens: ExternallyMintedToken,
     pub nft_utxo_inputs: NFTUtxoInputs,
-    pub minted_deployment_tokens: MintedTokens,
+    pub minted_deployment_tokens: ProtocolTokens,
     pub deployed_validators: DeployedValidators,
     pub genesis_epoch_start_time: u64,
     pub network_id: NetworkId,
