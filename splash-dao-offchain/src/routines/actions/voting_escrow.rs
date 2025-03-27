@@ -9,7 +9,7 @@ use cml_chain::certs::{Credential, StakeCredential};
 use cml_chain::plutus::{PlutusScript, PlutusV3Script};
 use cml_chain::transaction::{DatumOption, TransactionInput, TransactionOutput};
 use cml_chain::utils::BigInteger;
-use cml_chain::{PolicyId, RequiredSigners, Value};
+use cml_chain::{Deserialize, PolicyId, RequiredSigners, Value};
 use cml_crypto::{blake2b256, Ed25519Signature, RawBytesEncoding, TransactionHash};
 use log::trace;
 use spectrum_cardano_lib::types::TryFromPData;
@@ -41,6 +41,7 @@ use crate::entities::onchain::extend_voting_escrow_order::{
 use crate::entities::onchain::make_voting_escrow_order::{
     MakeVotingEscrowOrderAction, MakeVotingEscrowOrderBundle,
 };
+use crate::entities::onchain::proxy_order_witness::WitnessAction;
 use crate::entities::onchain::redeem_voting_escrow::make_redeem_ve_witness_redeemer;
 use crate::entities::onchain::voting_escrow::{
     Lock, Owner, VotingEscrow, VotingEscrowAction, VotingEscrowAuthorizedAction, VotingEscrowConfig,
@@ -478,7 +479,7 @@ where
             let message = compute_witness_message(
                 eve_offchain_order.witness,
                 eve_offchain_order.witness_input.clone(),
-                eve_offchain_order.id.version,
+                eve_offchain_order.id.version as u64,
             )
             .map_err(|_| ExtendVotingEscrowError::Witness(WitnessError::CannotDecodeRedeemer))?;
             println!("message: {}", hex::encode(&message));
@@ -500,7 +501,7 @@ where
             return Err(ExtendVotingEscrowError::Witness(
                 WitnessError::VEVersionMismatchWithOnchainProxy {
                     voting_escrow_output_version: version + 1,
-                    proxy_version: eve_offchain_order.id.version as u32,
+                    proxy_version: eve_onchain_order.order.ve_datum.version,
                 },
             ));
         }
@@ -728,22 +729,23 @@ where
             Credential::new_script(eve_offchain_order.witness),
         );
 
-        let witness_script: PlutusScript = compute_extend_ve_witness_validator().into();
+        let witness_script = PlutusScript::PlutusV3(PlutusV3Script::new(
+            hex::decode(&DaoScriptData::global().proxy_order_witness.script_bytes).unwrap(),
+        ));
 
-        let ve_identifier_policy_id = self.ctx.select::<MintVEIdentifierPolicy>().0;
-        let ve_factory_bp = self.ctx.select::<VEFactoryAuthPolicy>().0;
-        let ve_factory_auth_policy = ve_factory_bp.policy_id;
-        let ve_factory_auth_name = ve_factory_bp.asset_name;
+        assert_eq!(witness_script.hash(), eve_offchain_order.witness);
 
-        let ve_identifier_name = cml_chain::assets::AssetName::from(eve_offchain_order.id.voting_escrow_id.0);
-        let eve_redeemer = make_extend_ve_witness_redeemer(
-            order_out_ref,
-            order_action,
-            (ve_identifier_policy_id, ve_identifier_name.clone()),
-            (ve_factory_auth_policy, ve_factory_auth_name),
-        );
+        let witness_action = WitnessAction {
+            proxy_order_input_ix: order_input_ix as u32,
+            proxy_order_output_reference: order_out_ref,
+            proxy_order_script_hash: eve_script_hash,
+            proxy_order_redeemer: order_action.into_pd(),
+            proxy_order_datum: eve_onchain_order.order.ve_datum.into_pd(),
+            owner_redemption: None,
+        }
+        .into_pd();
         let order_witness =
-            PartialPlutusWitness::new(PlutusScriptWitness::Script(witness_script), eve_redeemer);
+            PartialPlutusWitness::new(PlutusScriptWitness::Script(witness_script), witness_action);
         let withdrawal_result = SingleWithdrawalBuilder::new(withdrawal_address, 0)
             .plutus_script(order_witness, RequiredSigners::from(vec![]))
             .unwrap();
@@ -756,7 +758,6 @@ where
                 .clone(),
         ));
 
-        // TODO: change should be sent to the owner.
         let OperatorCreds(_operator_pkh, operator_addr) = self.ctx.select::<OperatorCreds>();
         let mut blueprint = DaoTxBlueprint {
             reference_inputs,
@@ -879,7 +880,7 @@ where
             let message = compute_witness_message(
                 offchain_order.witness,
                 offchain_order.witness_input.clone(),
-                offchain_order.id.version,
+                offchain_order.id.version as u64,
             )
             .map_err(|_| RedeemVotingEscrowError::Witness(WitnessError::CannotDecodeRedeemer))?;
             println!("message: {}", hex::encode(&message));

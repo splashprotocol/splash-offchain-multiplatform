@@ -948,7 +948,7 @@ async fn create_wpoll_vote_onchain_order(
     let protocol_deployment =
         ProtocolDeployment::unsafe_pull(deployment_config.deployed_validators.clone(), explorer).await;
 
-    if let Some((ve_snapshot, ve_unspent_output)) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
+    if let Some(mut results) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
         explorer,
         protocol_deployment.voting_escrow.hash,
         *network_id,
@@ -957,6 +957,8 @@ async fn create_wpoll_vote_onchain_order(
     )
     .await
     {
+        assert_eq!(results.len(), 1);
+        let (ve_snapshot, ve_unspent_output) = results.pop().unwrap();
         let utxos = collect_utxos(addr, 5_000_000, vec![], collateral, explorer).await;
 
         let mut change_output_creator = ChangeOutputCreator::default();
@@ -1074,7 +1076,7 @@ async fn extend_voting_escrow_order(
         tx_builder.add_input(utxo).unwrap();
     }
 
-    let voting_escrow_datum = if let Some((ve_snapshot, _)) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
+    let voting_escrow_datum = if let Some(mut results) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
         explorer,
         protocol_deployment.voting_escrow.hash,
         *network_id,
@@ -1083,10 +1085,13 @@ async fn extend_voting_escrow_order(
     )
     .await
     {
+        assert_eq!(results.len(), 1);
+        let (ve_snapshot, _) = results.pop().unwrap();
         let ve = ve_snapshot.get();
         let time_source = NetworkTimeSource;
         let locked_until = Lock::Def((time_source.network_time().await + *lock_duration_in_seconds) * 1000);
         // Note that this datum is for the newly extended `voting_escrow` (in the output)
+        println!("EXTEND VE PROXY_ORDER: VERSION == {}", ve.version + 1);
         DatumOption::new_datum(
             VotingEscrowConfig {
                 locked_until, // Extend by old locktime duration.
@@ -1444,14 +1449,14 @@ async fn pull_onchain_entity<'a, T, D>(
     network_id: NetworkId,
     deployment_config: &'a D,
     id: T::StableId,
-) -> Option<(T, TransactionUnspentOutput)>
+) -> Option<Vec<(T, TransactionUnspentOutput)>>
 where
     T: TryFromLedger<TransactionOutput, ProcessLedgerEntityContext<'a, D>> + Stable,
 {
-    let mut entity = None;
+    let mut res = vec![];
     let mut offset = 0u64;
 
-    while entity.is_none() {
+    loop {
         let utxos = explorer
             .slot_indexed_utxos_by_address(script_address(script_hash, network_id), offset as u32, LIMIT)
             .await;
@@ -1474,7 +1479,7 @@ where
             if let Some(t) = T::try_from_ledger(&utxo.output, &ctx) {
                 println!("  ID: {}, slot: {}", t.stable_id(), slot);
                 if t.stable_id() == id {
-                    entity = Some((t, utxo));
+                    res.push((t, utxo));
                 }
                 if offset < slot {
                     offset = slot + 1;
@@ -1482,7 +1487,11 @@ where
             }
         }
     }
-    entity
+    if res.is_empty() {
+        None
+    } else {
+        Some(res)
+    }
 }
 
 async fn send_edao_token(op_inputs: &OperationInputs, destination_addr: String) {

@@ -142,6 +142,8 @@ pub const WP_OUT_IX: usize = 1;
 
 pub const MAKE_VOTING_ESCROW_ORDER_MIN_LOVELACES: u64 = 3_000_000;
 
+pub const EXTEND_VOTING_ESCROW_ORDER_MIN_LOVELACES: u64 = 3_000_000;
+
 pub const WPOLL_VOTE_ORDER_MIN_LOVELACES: u64 = 2_000_000;
 
 pub static DAO_SCRIPT_BYTES: OnceCell<DaoScriptData> = OnceCell::new();

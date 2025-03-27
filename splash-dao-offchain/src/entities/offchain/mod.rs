@@ -19,7 +19,7 @@ use super::onchain::voting_escrow::VotingEscrowId;
 pub struct OffChainOrderId {
     pub voting_escrow_id: VotingEscrowId,
     /// Current version of voting_escrow that this order will apply to.
-    pub version: u64,
+    pub version: u32,
 }
 
 impl From<OffChainOrderId> for VotingEscrowId {
@@ -158,7 +158,6 @@ pub struct WPollVoteOffChainOrder {
     pub proof: Vec<u8>,
     pub witness: ScriptHash,
     pub witness_input: String,
-    pub version: u32,
     pub order_output_ref: OutputRef,
     // pub proposal_auth_policy: PolicyId,
 }

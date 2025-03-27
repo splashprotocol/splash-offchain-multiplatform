@@ -11,7 +11,10 @@ use cml_crypto::{blake2b256, ScriptHash};
 use num_rational::Ratio;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
-    plutus_data::{ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension},
+    plutus_data::{
+        make_constr_pd_indefinite_arr, ConstrPlutusDataExtension, DatumExtension, IntoPlutusData,
+        PlutusDataExtension,
+    },
     transaction::TransactionOutputExtension,
     types::TryFromPData,
     value::ValueExtension,
@@ -288,6 +291,20 @@ impl IntoPlutusData for FactoryAction {
             FactoryAction::Deposit => ConstrPlutusData::new(0, vec![]),
             FactoryAction::ExtendPosition { ve_in_ix } => ConstrPlutusData::new(1, vec![ve_in_ix.into_pd()]),
             FactoryAction::RedeemFromVE { ve_in_ix } => ConstrPlutusData::new(2, vec![ve_in_ix.into_pd()]),
+            //FactoryAction::ExtendPosition { ve_in_ix } => {
+            //    let mut inner = make_constr_pd_indefinite_arr(vec![ve_in_ix.into_pd()])
+            //        .into_constr_pd()
+            //        .unwrap();
+            //    inner.alternative = 1;
+            //    inner
+            //}
+            //FactoryAction::RedeemFromVE { ve_in_ix } => {
+            //    let mut inner = make_constr_pd_indefinite_arr(vec![ve_in_ix.into_pd()])
+            //        .into_constr_pd()
+            //        .unwrap();
+            //    inner.alternative = 2;
+            //    inner
+            //}
             FactoryAction::ExecuteProposal => ConstrPlutusData::new(3, vec![]),
         })
     }

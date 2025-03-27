@@ -610,11 +610,11 @@ where
                 .map_err(|_| ExecuteOrderError::Other("Can't extract Ed25519Signature from bytes".into()))?;
             println!("witness_script hash: {}", offchain_order.witness.to_hex());
             println!("redeemer: {}", offchain_order.witness_input);
-            println!("version: {}", offchain_order.version);
+            println!("version: {}", offchain_order.id.version);
             let message = compute_witness_message(
                 offchain_order.witness,
                 offchain_order.witness_input.clone(),
-                offchain_order.version as u64,
+                offchain_order.id.version as u64,
             )
             .map_err(|_| ExecuteOrderError::Witness(WitnessError::CannotDecodeRedeemer))?;
             println!("message: {}", hex::encode(&message));
@@ -635,11 +635,11 @@ where
             ));
         }
 
-        if version != offchain_order.version {
+        if version != offchain_order.id.version {
             return Err(ExecuteOrderError::Witness(
                 WitnessError::VEVersionMismatchWithOffchainOrder {
                     voting_escrow_input_version: version,
-                    order_version: offchain_order.version,
+                    order_version: offchain_order.id.version,
                 },
             ));
         }
@@ -740,7 +740,7 @@ where
         let authorized_action = VotingEscrowAuthorizedAction {
             action: VotingEscrowAction::Governance,
             witness: offchain_order.witness,
-            version: offchain_order.version,
+            version: offchain_order.id.version,
             signature: offchain_order.proof,
         };
         let voting_escrow_witness = PartialPlutusWitness::new(

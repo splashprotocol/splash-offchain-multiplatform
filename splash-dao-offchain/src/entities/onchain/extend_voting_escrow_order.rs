@@ -1,4 +1,5 @@
 use crate::{
+    constants::EXTEND_VOTING_ESCROW_ORDER_MIN_LOVELACES,
     deployment::{DaoScriptData, ProtocolValidator},
     protocol_config::MintVECompositionPolicy,
     routines::TimedOutputRef,
@@ -15,6 +16,7 @@ use log::error;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
     plutus_data::{make_constr_pd_indefinite_arr, DatumExtension, IntoPlutusData},
+    transaction::TransactionOutputExtension,
     types::TryFromPData,
     OutputRef,
 };
@@ -74,8 +76,11 @@ where
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
-            let ve_datum = VotingEscrowConfig::try_from_pd(repr.datum()?.into_pd()?)?;
-            return Some(Self { ve_datum });
+            let value = repr.value().clone();
+            if value.coin >= EXTEND_VOTING_ESCROW_ORDER_MIN_LOVELACES {
+                let ve_datum = VotingEscrowConfig::try_from_pd(repr.datum()?.into_pd()?)?;
+                return Some(Self { ve_datum });
+            }
         }
         None
     }

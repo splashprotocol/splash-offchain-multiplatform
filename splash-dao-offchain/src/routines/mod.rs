@@ -552,7 +552,7 @@ impl<
                 version,
             } = ord.get_order_id();
             if let Some(traced_ve) = self.voting_escrow.read(voting_escrow_id).await {
-                let ve_version = traced_ve.as_erased().0.get().version as u64;
+                let ve_version = traced_ve.as_erased().0.get().version;
                 if ve_version > version {
                     trace!(
                         "SKIPPING {} Order version {} < VE's version (VE ID: {})",
@@ -2210,7 +2210,7 @@ where
                 if self.offchain_order_backlog.exists(order_id).await {
                     Some(response_sender.send(DaoBotResponse::VotingOrder(VotingOrderStatus::Queued)))
                 } else if let Some(ve) = self.voting_escrow.read(order_id.voting_escrow_id).await {
-                    let ve_version = ve.as_erased().0.get().version as u64;
+                    let ve_version = ve.as_erased().0.get().version;
                     if ve_version > order_id.version {
                         Some(response_sender.send(DaoBotResponse::VotingOrder(VotingOrderStatus::Success)))
                     } else {

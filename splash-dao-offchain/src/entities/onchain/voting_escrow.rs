@@ -331,12 +331,24 @@ impl IntoPlutusData for VotingEscrowAction {
     fn into_pd(self) -> PlutusData {
         match self {
             VotingEscrowAction::Governance => PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![])),
-            VotingEscrowAction::AddBudgetOrExtend { ve_out_ix } => PlutusData::ConstrPlutusData(
-                ConstrPlutusData::new(1, vec![PlutusData::Integer(BigInteger::from(ve_out_ix))]),
-            ),
-            VotingEscrowAction::Redeem { ve_factory_in_ix } => PlutusData::ConstrPlutusData(
-                ConstrPlutusData::new(2, vec![PlutusData::Integer(BigInteger::from(ve_factory_in_ix))]),
-            ),
+            VotingEscrowAction::AddBudgetOrExtend { ve_out_ix } => {
+                let mut inner =
+                    make_constr_pd_indefinite_arr(vec![PlutusData::Integer(BigInteger::from(ve_out_ix))])
+                        .into_constr_pd()
+                        .unwrap();
+                inner.alternative = 1;
+                PlutusData::new_constr_plutus_data(inner)
+            }
+
+            VotingEscrowAction::Redeem { ve_factory_in_ix } => {
+                let mut inner = make_constr_pd_indefinite_arr(vec![PlutusData::Integer(BigInteger::from(
+                    ve_factory_in_ix,
+                ))])
+                .into_constr_pd()
+                .unwrap();
+                inner.alternative = 2;
+                PlutusData::new_constr_plutus_data(inner)
+            }
         }
     }
 }
@@ -361,26 +373,14 @@ pub struct RedeemerVotingEscrowAuthorizedActionMapping {
     pub signature: usize,
 }
 
-const VEAA_REDEEMER_MAPPING: RedeemerVotingEscrowAuthorizedActionMapping =
-    RedeemerVotingEscrowAuthorizedActionMapping {
-        action: 0,
-        witness: 1,
-        version: 2,
-        signature: 3,
-    };
-
 impl IntoPlutusData for VotingEscrowAuthorizedAction {
     fn into_pd(self) -> PlutusData {
-        let cpd = ConstrPlutusData::new(
-            VEAA_REDEEMER_MAPPING.action as u64,
-            vec![
-                self.action.into_pd(),
-                PlutusData::new_bytes(self.witness.to_raw_bytes().to_vec()),
-                PlutusData::new_integer(BigInteger::from(self.version)),
-                PlutusData::new_bytes(self.signature),
-            ],
-        );
-        PlutusData::ConstrPlutusData(cpd)
+        make_constr_pd_indefinite_arr(vec![
+            self.action.into_pd(),
+            PlutusData::new_bytes(self.witness.to_raw_bytes().to_vec()),
+            PlutusData::new_integer(BigInteger::from(self.version)),
+            PlutusData::new_bytes(self.signature),
+        ])
     }
 }
 

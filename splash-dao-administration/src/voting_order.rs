@@ -31,9 +31,12 @@ pub fn create_offchain_voting_order(
     println!("witness_script hash: {}", voting_witness_script.hash().to_hex());
     let redeemer_hex = hex::encode(witness_redeemer.to_cbor_bytes());
     println!("redeemer: {}", redeemer_hex);
-    let message =
-        compute_witness_message(voting_witness_script.hash(), redeemer_hex.clone(), id.version)
-            .unwrap();
+    let message = compute_witness_message(
+        voting_witness_script.hash(),
+        redeemer_hex.clone(),
+        id.version as u64,
+    )
+    .unwrap();
     println!("message: {}", hex::encode(&message));
     let signature = operator_sk.sign(&message).to_raw_bytes().to_vec();
 
@@ -43,7 +46,6 @@ pub fn create_offchain_voting_order(
         proof: signature,
         witness: voting_witness_script.hash(),
         witness_input: redeemer_hex,
-        version: id.version as u32,
         order_output_ref,
     }
 }

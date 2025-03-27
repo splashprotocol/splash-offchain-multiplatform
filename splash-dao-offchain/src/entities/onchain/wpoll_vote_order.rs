@@ -140,14 +140,13 @@ impl IntoPlutusData for WPollVoteAction {
                     list: expected_diff,
                     list_encoding: LenEncoding::Indefinite,
                 };
-                let inner = make_constr_pd_indefinite_arr(vec![
+                make_constr_pd_indefinite_arr(vec![
                     wpoll_auth_token_pd,
                     ve_identifier_pd,
                     PlutusData::new_integer(BigInteger::from(voting_escrow_input_ix)),
                     PlutusData::new_integer(BigInteger::from(wpoll_input_ix)),
                     expected_diff_pd,
-                ]);
-                make_constr_pd_indefinite_arr(vec![inner])
+                ])
             }
             WPollVoteAction::Refund => PlutusData::new_constr_plutus_data(ConstrPlutusData::new(1, vec![])),
         }
