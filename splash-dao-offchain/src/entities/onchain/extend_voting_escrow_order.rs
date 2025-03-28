@@ -161,18 +161,3 @@ pub fn compute_extend_ve_order_validator(mint_composition_token_policy: PolicyId
         &DaoScriptData::global().extend_voting_escrow_order.script_bytes,
     )
 }
-
-pub fn compute_extend_ve_witness_validator() -> PlutusV2Script {
-    let script_bytes = DaoScriptData::global()
-        .extend_voting_escrow_order
-        .script_bytes
-        .clone();
-    let script = PlutusV2Script::new(hex::decode(script_bytes).unwrap());
-    let params_pd = uplc::PlutusData::Array(MaybeIndefArray::Indef(vec![uplc::PlutusData::BoundedBytes(
-        BoundedBytes::from(script.hash().to_raw_bytes().to_vec()),
-    )]));
-    apply_params_validator_plutus_v2(
-        params_pd,
-        &DaoScriptData::global().extend_voting_escrow_witness.script_bytes,
-    )
-}

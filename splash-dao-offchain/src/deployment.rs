@@ -104,7 +104,6 @@ pub struct DaoScriptData {
     pub wpoll_vote_order: ScriptBytesAndCosts,
     pub make_voting_escrow_order: ScriptBytesAndCosts,
     pub extend_voting_escrow_order: ScriptBytesAndCosts,
-    pub extend_voting_escrow_witness: ScriptBytesAndCosts,
     pub redeem_voting_escrow_witness: ScriptBytesAndCosts,
     pub proxy_order_witness: ScriptBytesAndCosts,
 }

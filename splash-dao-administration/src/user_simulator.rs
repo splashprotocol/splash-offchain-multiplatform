@@ -24,10 +24,7 @@ use splash_dao_offchain::routines::actions::{compute_epoch_asset_name, compute_f
 use splash_dao_offchain::{
     deployment::{CompleteDeployment, DaoScriptData, ProtocolDeployment},
     entities::onchain::{
-        extend_voting_escrow_order::{
-            compute_extend_ve_witness_validator, make_extend_ve_witness_redeemer,
-            ExtendVotingEscrowOnchainOrder, ExtendVotingEscrowOrderAction,
-        },
+        extend_voting_escrow_order::{ExtendVotingEscrowOnchainOrder, ExtendVotingEscrowOrderAction},
         make_voting_escrow_order::DaoOrderStatus,
         voting_escrow::{Owner, VotingEscrowId, VotingEscrowSnapshot},
         weighting_poll::{WeightingPollId, WeightingPollSnapshot},

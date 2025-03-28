@@ -61,7 +61,6 @@ use splash_dao_offchain::{
     entities::{
         offchain::OffChainOrderId,
         onchain::{
-            extend_voting_escrow_order::compute_extend_ve_witness_validator,
             farm_factory::{FarmFactoryAction, FarmFactoryDatum},
             inflation_box::InflationBoxSnapshot,
             permission_manager::{PermManagerDatum, PermManagerSnapshot},
@@ -146,15 +145,11 @@ async fn main() {
         Command::SendEDaoToken { destination_addr } => {
             send_edao_token(&op_inputs, destination_addr).await;
         }
-        Command::RegisterVotingEscrowWitnessStakingAddress => {
+        Command::RegisterProxyOrderWitnessStakingAddress => {
             let script: PlutusScript = PlutusV3Script::new(
                 hex::decode(DaoScriptData::global().proxy_order_witness.script_bytes.clone()).unwrap(),
             )
             .into();
-            register_witness_staking_addr(&op_inputs, script).await;
-        }
-        Command::RegisterExtendVotingEscrowWitnessStakingAddress => {
-            let script: PlutusScript = compute_extend_ve_witness_validator().into();
             register_witness_staking_addr(&op_inputs, script).await;
         }
         Command::RegisterRedeemVotingEscrowWitnessStakingAddress => {
@@ -1640,8 +1635,7 @@ enum Command {
         #[arg(long)]
         existing_splash_policy_id_hex: Option<String>,
     },
-    RegisterVotingEscrowWitnessStakingAddress,
-    RegisterExtendVotingEscrowWitnessStakingAddress,
+    RegisterProxyOrderWitnessStakingAddress,
     RegisterRedeemVotingEscrowWitnessStakingAddress,
     ConsolidateBotUTxOs,
 }

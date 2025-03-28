@@ -27,7 +27,6 @@ use crate::{
     collect_utxos::collect_utxos,
     create_change_output::{ChangeOutputCreator, CreateChangeOutput},
     deployment::{DaoScriptData, IssuedAsset},
-    entities::onchain::extend_voting_escrow_order::compute_extend_ve_witness_validator,
 };
 
 const LIMIT: u16 = 50;

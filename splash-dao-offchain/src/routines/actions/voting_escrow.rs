@@ -35,8 +35,7 @@ use crate::entities::offchain::{
     compute_witness_message, ExtendVotingEscrowOffChainOrder, RedeemVotingEscrowOffChainOrder,
 };
 use crate::entities::onchain::extend_voting_escrow_order::{
-    compute_extend_ve_witness_validator, make_extend_ve_witness_redeemer, ExtendVotingEscrowOrderAction,
-    ExtendVotingEscrowOrderBundle,
+    ExtendVotingEscrowOrderAction, ExtendVotingEscrowOrderBundle,
 };
 use crate::entities::onchain::make_voting_escrow_order::{
     MakeVotingEscrowOrderAction, MakeVotingEscrowOrderBundle,
@@ -752,10 +751,7 @@ where
 
         let withdrawal = Some((
             withdrawal_result,
-            DaoScriptData::global()
-                .extend_voting_escrow_witness
-                .ex_units
-                .clone(),
+            DaoScriptData::global().proxy_order_witness.ex_units.clone(),
         ));
 
         let OperatorCreds(_operator_pkh, operator_addr) = self.ctx.select::<OperatorCreds>();
