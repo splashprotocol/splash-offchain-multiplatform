@@ -404,8 +404,6 @@ mod test {
         a: u64,
     ) -> StablePoolT2T {
         let an2n = a * 16;
-        let reserves_x = reserves_x;
-        let reserves_y = reserves_y;
         let (multiplier_x, multiplier_y) = if (x_decimals > y_decimals) {
             (1, 10_u32.pow(x_decimals - y_decimals))
         } else if (x_decimals < y_decimals) {
