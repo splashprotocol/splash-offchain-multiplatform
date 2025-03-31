@@ -151,6 +151,8 @@ pub enum ProtocolValidator {
     MakeVeOrder = 112,
     ExtendVeOrder = 113,
     HarvestOrder = 114,
+    WPollVoteOrder = 115,
+    RedeemVeOrder = 116,
 }
 
 #[derive(Debug, Copy, Clone)]

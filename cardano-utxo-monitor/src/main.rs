@@ -4,6 +4,7 @@ mod index;
 mod server;
 
 use crate::server::build_api_server;
+use bloom_offchain_cardano::event_sink::tx_view::TxViewMut;
 use clap::Parser;
 use cml_chain::transaction::Transaction;
 use derive_more::From;
@@ -13,7 +14,6 @@ use spectrum_streaming::run_stream;
 
 use crate::config::AppConfig;
 use async_primitives::beacon::Beacon;
-use bloom_offchain_cardano::event_sink::processed_tx::TxViewMut;
 use cardano_chain_sync::cache::LedgerCacheRocksDB;
 use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::ChainSyncClient;
