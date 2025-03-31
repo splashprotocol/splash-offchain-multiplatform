@@ -37,6 +37,7 @@ use splash_dao_offchain::{
         make_voting_escrow_order::compute_make_ve_order_validator,
         permission_manager::compute_perm_manager_validator,
         poll_factory::compute_wp_factory_validator,
+        redeem_voting_escrow::compute_redeem_ve_order_validator,
         smart_farm::compute_mint_farm_auth_token_validator,
         voting_escrow::{
             compute_mint_governance_power_validator, compute_mint_weighting_power_validator,
@@ -362,6 +363,13 @@ pub fn create_dao_reference_input_utxos(
 
     let make_ve_order_script = compute_make_ve_order_validator(mint_ve_composition_token_script.hash());
 
+    let redeem_ve_order_script = compute_redeem_ve_order_validator(
+        mint_ve_composition_token_script.hash(),
+        splash_policy,
+        mint_identifier_script.hash(),
+        ve_factory_auth_policy,
+    );
+
     let extend_ve_order_script = compute_extend_ve_order_validator(mint_ve_composition_token_script.hash());
 
     let reference_input_script_hashes = ReferenceInputScriptHashes {
@@ -380,6 +388,7 @@ pub fn create_dao_reference_input_utxos(
         make_ve_order: make_ve_order_script.hash(),
         extend_ve_order: extend_ve_order_script.hash(),
         wpoll_vote_order: wpoll_vote_order_script.hash(),
+        redeem_ve_order: redeem_ve_order_script.hash(),
     };
 
     let script_before =
@@ -436,6 +445,17 @@ pub fn create_dao_reference_input_utxos(
     tx_builder_2
         .add_output(make_output(extend_ve_order_script))
         .unwrap();
+
+    let redeem_ve_builder = TransactionOutputBuilder::new()
+        .with_address(script_address(redeem_ve_order_script.hash(), network_id))
+        .with_reference_script(cml_chain::Script::new_plutus_v3(redeem_ve_order_script))
+        .next()
+        .unwrap()
+        .with_asset_and_min_required_coin(MultiAsset::default(), COINS_PER_UTXO_BYTE)
+        .unwrap()
+        .build()
+        .unwrap();
+    tx_builder_2.add_output(redeem_ve_builder).unwrap();
 
     (
         tx_builder_0,
@@ -501,6 +521,7 @@ pub struct ReferenceInputScriptHashes {
     pub wpoll_vote_order: ScriptHash,
     pub make_ve_order: ScriptHash,
     pub extend_ve_order: ScriptHash,
+    pub redeem_ve_order: ScriptHash,
 }
 
 #[derive(Deserialize)]

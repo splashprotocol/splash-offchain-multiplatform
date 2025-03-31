@@ -5,6 +5,7 @@ use inflation_box::{InflationBox, InflationBoxSnapshot};
 use make_voting_escrow_order::MakeVotingEscrowOrder;
 use permission_manager::{PermManager, PermManagerSnapshot};
 use poll_factory::{PollFactory, PollFactorySnapshot};
+use redeem_voting_escrow::RedeemVotingEscrowOnchainOrder;
 use serde::{Deserialize, Serialize};
 use smart_farm::{SmartFarm, SmartFarmSnapshot};
 use spectrum_cardano_lib::{NetworkId, OutputRef};
@@ -58,6 +59,7 @@ pub enum DaoEntity {
     FundingBox(FundingBox),
     MakeVotingEscrowOrder(MakeVotingEscrowOrder),
     ExtendVotingEscrowOrder(ExtendVotingEscrowOnchainOrder),
+    RedeemVotingEscrowOrder(RedeemVotingEscrowOnchainOrder),
     WPollVoteOrder(WPollVoteOnchainOrder),
 }
 
@@ -84,6 +86,7 @@ where
         + Has<DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::WPollVoteOrder as u8 }>>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::RedeemVeOrder as u8 }>>
         + Has<OperatorCreds>
         + Has<NetworkId>
         + Has<TimedOutputRef>
@@ -136,6 +139,12 @@ where
         } else if let Some(order) = WPollVoteOnchainOrder::try_from_ledger(repr, ctx) {
             let timed_output_ref = ctx.select::<TimedOutputRef>();
             Some(Snapshot(DaoEntity::WPollVoteOrder(order), timed_output_ref))
+        } else if let Some(order) = RedeemVotingEscrowOnchainOrder::try_from_ledger(repr, ctx) {
+            let timed_output_ref = ctx.select::<TimedOutputRef>();
+            Some(Snapshot(
+                DaoEntity::RedeemVotingEscrowOrder(order),
+                timed_output_ref,
+            ))
         } else {
             None
         }
@@ -147,6 +156,7 @@ pub enum DaoOrder {
     WPollVote(WPollVoteOnchainOrder),
     MakeVE(MakeVotingEscrowOrder),
     ExtendVE(ExtendVotingEscrowOnchainOrder),
+    RedeemVE(RedeemVotingEscrowOnchainOrder),
 }
 
 impl DaoOrder {
@@ -155,6 +165,7 @@ impl DaoOrder {
             DaoOrder::MakeVE(order) => order.ve_datum.owner,
             DaoOrder::ExtendVE(order) => order.ve_datum.owner,
             DaoOrder::WPollVote(order) => order.ve_datum.owner,
+            DaoOrder::RedeemVE(order) => order.ve_datum.owner,
         }
     }
 }

@@ -37,6 +37,7 @@ use crate::entities::offchain::{
 use crate::entities::onchain::extend_voting_escrow_order::ExtendVotingEscrowOrderBundle;
 use crate::entities::onchain::funding_box::FundingBox;
 use crate::entities::onchain::make_voting_escrow_order::MakeVotingEscrowOrderBundle;
+use crate::entities::onchain::redeem_voting_escrow::RedeemVotingEscrowOrderBundle;
 use crate::entities::onchain::voting_escrow_factory::VEFactorySnapshot;
 use crate::entities::onchain::wpoll_vote_order::{WPollVoteOnchainOrder, WPollVoteOrderBundle};
 use crate::funding::AvailableFundingBoxes;
@@ -139,6 +140,7 @@ pub trait VoteEscrowActions<Bearer> {
 
     async fn redeem_voting_escrow(
         &self,
+        onchain_order: RedeemVotingEscrowOrderBundle<Bearer>,
         offchain_order: RedeemVotingEscrowOffChainOrder,
         voting_escrow: Bundled<VotingEscrowSnapshot, Bearer>,
         ve_factory: Bundled<VEFactorySnapshot, Bearer>,
@@ -297,6 +299,7 @@ pub enum RedeemVotingEscrowError {
     InsufficientAdaInOrder,
     VEFactoryDatumNotPresent,
     VEStillLocked,
+    OwnerStakeCredentialMissingInRedeemer,
     Witness(WitnessError),
     Other(String),
 }

@@ -108,6 +108,12 @@ pub struct ExtendVotingEscrowOrderScriptHash(pub ScriptHash);
 pub struct ExtendVotingEscrowOrderRefScriptOutput(pub TransactionUnspentOutput);
 
 #[derive(Debug, Clone)]
+pub struct RedeemVotingEscrowOrderScriptHash(pub ScriptHash);
+
+#[derive(Debug, Clone)]
+pub struct RedeemVotingEscrowOrderRefScriptOutput(pub TransactionUnspentOutput);
+
+#[derive(Debug, Clone)]
 pub struct VotingEscrowRefScriptOutput(pub TransactionUnspentOutput);
 
 #[derive(Debug, Clone)]
@@ -326,6 +332,22 @@ impl Has<ExtendVotingEscrowOrderRefScriptOutput> for ProtocolConfig {
     }
 }
 
+impl Has<RedeemVotingEscrowOrderScriptHash> for ProtocolConfig {
+    fn select<U: IsEqual<RedeemVotingEscrowOrderScriptHash>>(&self) -> RedeemVotingEscrowOrderScriptHash {
+        RedeemVotingEscrowOrderScriptHash(self.deployed_validators.redeem_ve_order.hash)
+    }
+}
+
+impl Has<RedeemVotingEscrowOrderRefScriptOutput> for ProtocolConfig {
+    fn select<U: IsEqual<RedeemVotingEscrowOrderRefScriptOutput>>(
+        &self,
+    ) -> RedeemVotingEscrowOrderRefScriptOutput {
+        RedeemVotingEscrowOrderRefScriptOutput(
+            self.deployed_validators.redeem_ve_order.reference_utxo.clone(),
+        )
+    }
+}
+
 impl Has<VotingEscrowRefScriptOutput> for ProtocolConfig {
     fn select<U: IsEqual<VotingEscrowRefScriptOutput>>(&self) -> VotingEscrowRefScriptOutput {
         VotingEscrowRefScriptOutput(self.deployed_validators.voting_escrow.reference_utxo.clone())
@@ -506,6 +528,14 @@ impl Has<DeployedScriptInfo<{ ProtocolValidator::WPollVoteOrder as u8 }>> for Pr
         &self,
     ) -> DeployedScriptInfo<{ ProtocolValidator::WPollVoteOrder as u8 }> {
         DeployedScriptInfo::from(&self.deployed_validators.wpoll_vote_order)
+    }
+}
+
+impl Has<DeployedScriptInfo<{ ProtocolValidator::RedeemVeOrder as u8 }>> for ProtocolConfig {
+    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::RedeemVeOrder as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ ProtocolValidator::RedeemVeOrder as u8 }> {
+        DeployedScriptInfo::from(&self.deployed_validators.redeem_ve_order)
     }
 }
 

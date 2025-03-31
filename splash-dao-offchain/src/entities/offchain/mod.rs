@@ -134,6 +134,7 @@ pub struct RedeemVotingEscrowOffChainOrder {
     pub proof: Vec<u8>,
     pub witness: ScriptHash,
     pub witness_input: String,
+    pub order_output_ref: OutputRef,
 }
 
 pub fn compute_witness_message(

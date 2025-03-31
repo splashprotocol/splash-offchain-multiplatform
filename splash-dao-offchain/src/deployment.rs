@@ -34,6 +34,7 @@ pub struct DeployedValidators {
     pub make_ve_order: DeployedValidatorRef,
     pub extend_ve_order: DeployedValidatorRef,
     pub harvest_order: DeployedValidatorRef,
+    pub redeem_ve_order: DeployedValidatorRef,
     pub wpoll_vote_order: DeployedValidatorRef,
 }
 
@@ -104,6 +105,7 @@ pub struct DaoScriptData {
     pub wpoll_vote_order: ScriptBytesAndCosts,
     pub make_voting_escrow_order: ScriptBytesAndCosts,
     pub extend_voting_escrow_order: ScriptBytesAndCosts,
+    pub redeem_voting_escrow_order: ScriptBytesAndCosts,
     pub redeem_voting_escrow_witness: ScriptBytesAndCosts,
     pub proxy_order_witness: ScriptBytesAndCosts,
 }
@@ -169,6 +171,7 @@ pub struct ProtocolScriptHashes {
     pub extend_ve_order: DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>,
     pub harvest_order: DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>,
     pub wpoll_vote_order: DeployedScriptInfo<{ ProtocolValidator::WPollVoteOrder as u8 }>,
+    pub redeem_ve_order: DeployedScriptInfo<{ ProtocolValidator::RedeemVeOrder as u8 }>,
 }
 
 impl From<&ProtocolDeployment> for ProtocolScriptHashes {
@@ -190,6 +193,7 @@ impl From<&ProtocolDeployment> for ProtocolScriptHashes {
             extend_ve_order: DeployedScriptInfo::from(&deployment.extend_ve_order),
             harvest_order: DeployedScriptInfo::from(&deployment.harvest_order),
             wpoll_vote_order: DeployedScriptInfo::from(&deployment.wpoll_vote_order),
+            redeem_ve_order: DeployedScriptInfo::from(&deployment.redeem_ve_order),
         }
     }
 }
@@ -212,6 +216,7 @@ pub struct ProtocolDeployment {
     pub extend_ve_order: DeployedValidator<{ ProtocolValidator::ExtendVeOrder as u8 }>,
     pub harvest_order: DeployedValidator<{ ProtocolValidator::HarvestOrder as u8 }>,
     pub wpoll_vote_order: DeployedValidator<{ ProtocolValidator::WPollVoteOrder as u8 }>,
+    pub redeem_ve_order: DeployedValidator<{ ProtocolValidator::RedeemVeOrder as u8 }>,
 }
 
 impl ProtocolDeployment {
@@ -237,6 +242,7 @@ impl ProtocolDeployment {
             extend_ve_order: DeployedValidator::unsafe_pull(validators.extend_ve_order, explorer).await,
             harvest_order: DeployedValidator::unsafe_pull(validators.harvest_order, explorer).await,
             wpoll_vote_order: DeployedValidator::unsafe_pull(validators.wpoll_vote_order, explorer).await,
+            redeem_ve_order: DeployedValidator::unsafe_pull(validators.redeem_ve_order, explorer).await,
         }
     }
 }
@@ -349,6 +355,14 @@ impl Has<DeployedScriptInfo<{ ProtocolValidator::WPollVoteOrder as u8 }>> for Co
         &self,
     ) -> DeployedScriptInfo<{ ProtocolValidator::WPollVoteOrder as u8 }> {
         DeployedScriptInfo::from(&self.deployed_validators.wpoll_vote_order)
+    }
+}
+
+impl Has<DeployedScriptInfo<{ ProtocolValidator::RedeemVeOrder as u8 }>> for CompleteDeployment {
+    fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::RedeemVeOrder as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ ProtocolValidator::RedeemVeOrder as u8 }> {
+        DeployedScriptInfo::from(&self.deployed_validators.redeem_ve_order)
     }
 }
 

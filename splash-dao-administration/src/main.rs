@@ -38,6 +38,7 @@ use num_rational::Ratio;
 use spectrum_cardano_lib::{
     collateral::Collateral,
     hash::hash_transaction_canonical,
+    plutus_data::DatumExtension,
     protocol_params::{constant_tx_builder, COINS_PER_UTXO_BYTE},
     transaction::TransactionOutputExtension,
     value::ValueExtension,
@@ -52,7 +53,9 @@ use spectrum_offchain_cardano::{
 };
 use splash_dao_offchain::{
     collateral::{pull_collateral, register_staking_address, send_assets},
-    constants::{time::MAX_LOCK_TIME_SECONDS, DAO_SCRIPT_BYTES, SPLASH_NAME},
+    constants::{
+        time::MAX_LOCK_TIME_SECONDS, DAO_SCRIPT_BYTES, REDEEM_VOTING_ESCROW_ORDER_MIN_LOVELACES, SPLASH_NAME,
+    },
     create_change_output::{ChangeOutputCreator, CreateChangeOutput},
     deployment::{
         write_deployment_to_disk, CompleteDeployment, DaoScriptData, DeployedValidators, DeploymentProgress,
@@ -476,6 +479,12 @@ async fn deploy<'a>(
                 hash: reference_input_script_hashes.extend_ve_order,
                 reference_utxo: make_ref_utxo(2, 4),
                 cost: (&dsd.extend_voting_escrow_order.ex_units).into(),
+                marginal_cost: None,
+            },
+            redeem_ve_order: DeployedValidatorRef {
+                hash: reference_input_script_hashes.redeem_ve_order,
+                reference_utxo: make_ref_utxo(2, 5),
+                cost: (&dsd.redeem_voting_escrow_order.ex_units).into(),
                 marginal_cost: None,
             },
         };
@@ -1002,7 +1011,7 @@ async fn create_wpoll_vote_onchain_order(
     }
 }
 
-async fn extend_voting_escrow_order(
+async fn create_extend_voting_escrow_onchain_order(
     voting_escrow_id: VotingEscrowId,
     ve_settings: &VotingEscrowSettings,
     op_inputs: &mut OperationInputs,
@@ -1142,6 +1151,85 @@ async fn extend_voting_escrow_order(
 
     let owner_bytes = owner_pub_key.to_raw_bytes().try_into().unwrap();
     Owner::PubKey(owner_bytes)
+}
+
+async fn create_redeem_voting_escrow_onchain_order(
+    voting_escrow_datum: DatumOption,
+    op_inputs: &mut OperationInputs,
+) -> OutputRef {
+    let OperationInputs {
+        explorer,
+        addr,
+        deployment_progress,
+        collateral,
+        prover,
+        network_id,
+        ..
+    } = op_inputs;
+    let deployment_config = CompleteDeployment::try_from((deployment_progress.clone(), *network_id))
+        .expect(INCOMPLETE_DEPLOYMENT_ERR_MSG);
+    let protocol_deployment =
+        ProtocolDeployment::unsafe_pull(deployment_config.deployed_validators.clone(), explorer).await;
+
+    let utxos = collect_utxos(
+        addr,
+        REDEEM_VOTING_ESCROW_ORDER_MIN_LOVELACES + 1_000_000,
+        vec![],
+        collateral,
+        explorer,
+    )
+    .await;
+
+    let mut change_output_creator = ChangeOutputCreator::default();
+    let mut tx_builder = constant_tx_builder();
+    tx_builder.add_reference_input(protocol_deployment.redeem_ve_order.reference_utxo);
+
+    for utxo in utxos {
+        println!("add_input coin: {}", utxo.utxo_info.value().coin);
+        change_output_creator.add_input(&utxo);
+        tx_builder.add_input(utxo).unwrap();
+    }
+
+    let mut order_value = Value::zero();
+    order_value.coin = REDEEM_VOTING_ESCROW_ORDER_MIN_LOVELACES;
+    let order_output = TransactionOutputBuilder::new()
+        .with_address(script_address(
+            protocol_deployment.redeem_ve_order.hash,
+            *network_id,
+        ))
+        .with_data(voting_escrow_datum)
+        .next()
+        .unwrap()
+        .with_value(order_value)
+        .build()
+        .unwrap();
+
+    change_output_creator.add_output(&order_output);
+    tx_builder.add_output(order_output).unwrap();
+
+    let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
+    let actual_fee = estimated_tx_fee + 300_000;
+    let change_output = change_output_creator.create_change_output(actual_fee, addr.clone());
+    tx_builder.add_output(change_output).unwrap();
+    tx_builder
+        .add_collateral(InputBuilderResult::from(collateral.clone()))
+        .unwrap();
+
+    let start_slot = explorer.chain_tip_slot_number().await.unwrap();
+    tx_builder.set_validity_start_interval(start_slot);
+    tx_builder.set_ttl(start_slot + 300);
+
+    let signed_tx_builder = tx_builder.build(ChangeSelectionAlgo::Default, addr).unwrap();
+    let tx = prover.prove(signed_tx_builder);
+    let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
+    println!("tx_hash: {:?}", tx_hash);
+    let tx_bytes = tx.to_cbor_bytes();
+    println!("tx_bytes: {}", hex::encode(&tx_bytes));
+
+    explorer.submit_tx(&tx_bytes).await.unwrap();
+    explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
+    println!("TX confirmed");
+    OutputRef::new(tx_hash, 0)
 }
 
 async fn create_initial_farms(op_inputs: &OperationInputs) {
@@ -1499,20 +1587,19 @@ async fn send_edao_token(op_inputs: &OperationInputs, destination_addr: String) 
         ..
     } = op_inputs;
     let destination_addr = Address::from_bech32(&destination_addr).unwrap();
-    let deployment_config = CompleteDeployment::try_from((deployment_progress.clone(), *network_id))
-        .expect(INCOMPLETE_DEPLOYMENT_ERR_MSG);
+    //let deployment_config = CompleteDeployment::try_from((deployment_progress.clone(), *network_id))
+    //    .expect(INCOMPLETE_DEPLOYMENT_ERR_MSG);
 
-    let minted_tokens = &deployment_config.minted_deployment_tokens;
     let bp = IssuedAsset {
         policy_id: PolicyId::from_hex("7876492e3b82a31b1ce97a8f454cec653a0f6be5c09b90e62d24c152").unwrap(),
         asset_name: cml_chain::assets::AssetName::from(AssetName::from_utf8("SPLASH".to_string())),
-        quantity: BigInteger::from(1_000_000),
+        quantity: BigInteger::from(63_999_977_870_000_u64),
     };
 
     let required_tokens = vec![bp];
     send_assets(
-        10_000_000,
-        7_800_000,
+        5_750_000_000,
+        20_000_000,
         required_tokens,
         explorer,
         addr,

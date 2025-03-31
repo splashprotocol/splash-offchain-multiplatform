@@ -55,8 +55,13 @@ impl IntoPlutusData for WitnessAction {
                 owner_stake_credential,
             } = owner_redemption;
             let owner_output_ix_pd = PlutusData::new_integer(BigInteger::from(owner_output_ix));
-            let stake_cred = PlutusData::new_bytes(owner_stake_credential.to_raw_bytes().to_vec());
-            make_constr_pd_indefinite_arr(vec![owner_output_ix_pd, stake_cred])
+            let stake_cred_bytes = PlutusData::new_bytes(owner_stake_credential.to_raw_bytes().to_vec());
+            let stake_cred =
+                make_constr_pd_indefinite_arr(vec![make_constr_pd_indefinite_arr(vec![stake_cred_bytes])]);
+            make_constr_pd_indefinite_arr(vec![make_constr_pd_indefinite_arr(vec![
+                owner_output_ix_pd,
+                stake_cred,
+            ])])
         } else {
             PlutusData::new_constr_plutus_data(ConstrPlutusData::new(1, vec![]))
         };
