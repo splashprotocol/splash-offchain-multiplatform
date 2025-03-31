@@ -1048,7 +1048,8 @@ impl<
                     .insert(owner, DaoOrderStatus::Unspent)
                     .await;
             }
-            DaoEntity::ExtendVotingEscrowOrder(eve_order) => {
+
+            DaoEntity::ExtendVotingEscrowOrder(order) => {
                 trace!(
                     "extend_voting_escrow_order confirmed: owner {}, version: {:?}",
                     order.ve_datum.owner,
@@ -1816,6 +1817,12 @@ impl<
                 DaoOrder::ExtendVE(_extend_voting_escrow_onchain_order) => {
                     // We skip over extend VE orders here. It will be processed when we get to an
                     // associated off-chain order.
+                }
+                DaoOrder::WPollVote(_wpoll_vote_order) => {
+                    // Similarly we process this one when we get the off-chain order.
+                }
+                DaoOrder::RedeemVE(_) => {
+                    // Similarly we process this one when we get the off-chain order.
                 }
             }
         }
