@@ -43,6 +43,13 @@ impl<T> BlockEvents<T> {
             },
         }
     }
+
+    pub fn block_num(self) -> u64 {
+        match self {
+            BlockEvents::RollForward { block_num, .. } => block_num,
+            BlockEvents::RollBackward { block_num, .. } => block_num,
+        }
+    }
 }
 
 pub fn atomic_block_flow<Upstream, Cache>(

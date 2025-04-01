@@ -23,6 +23,7 @@ pub struct AppConfig {
     pub confirmation_delay_blocks: u64,
     pub events_export_topic: String,
     pub bootstrap_servers: String,
+    pub harvest_limits: HarvestLimits
 }
 
 #[derive(serde::Deserialize)]
@@ -32,4 +33,10 @@ pub struct ChainSyncConfig {
     pub replay_from_point: Option<Point>,
     pub disable_rollbacks_until: Slot,
     pub db_path: String,
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarvestLimits {
+    pub minimal_lovelace_per_single_harvest: u64,
 }

@@ -115,6 +115,7 @@ async fn main() {
         dao_deployment: dao_protocol_deployment,
         dao_tokens,
         pool_validation: validation_rules.pool,
+        harvest_limits: config.harvest_limits,
     };
 
     let ip_addr = IpAddr::from_str(&*args.host).expect("Invalid host address");

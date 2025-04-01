@@ -33,6 +33,7 @@ pub struct DeployedValidators {
     pub smart_farm: DeployedValidatorRef,
     pub make_ve_order: DeployedValidatorRef,
     pub extend_ve_order: DeployedValidatorRef,
+    pub harvest_order: DeployedValidatorRef,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -146,6 +147,7 @@ pub enum ProtocolValidator {
     WeightingPower = 111,
     MakeVeOrder = 112,
     ExtendVeOrder = 113,
+    HarvestOrder = 114,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -164,6 +166,7 @@ pub struct ProtocolScriptHashes {
     pub smart_farm: DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>,
     pub make_ve_order: DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }>,
     pub extend_ve_order: DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>,
+    pub harvest_order: DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>,
 }
 
 impl From<&ProtocolDeployment> for ProtocolScriptHashes {
@@ -183,6 +186,7 @@ impl From<&ProtocolDeployment> for ProtocolScriptHashes {
             smart_farm: DeployedScriptInfo::from(&deployment.smart_farm),
             make_ve_order: DeployedScriptInfo::from(&deployment.make_ve_order),
             extend_ve_order: DeployedScriptInfo::from(&deployment.extend_ve_order),
+            harvest_order: DeployedScriptInfo::from(&deployment.harvest_order),
         }
     }
 }
@@ -203,6 +207,7 @@ pub struct ProtocolDeployment {
     pub smart_farm: DeployedValidator<{ ProtocolValidator::SmartFarm as u8 }>,
     pub make_ve_order: DeployedValidator<{ ProtocolValidator::MakeVeOrder as u8 }>,
     pub extend_ve_order: DeployedValidator<{ ProtocolValidator::ExtendVeOrder as u8 }>,
+    pub harvest_order: DeployedValidator<{ ProtocolValidator::HarvestOrder as u8 }>,
 }
 
 impl ProtocolDeployment {
@@ -226,6 +231,7 @@ impl ProtocolDeployment {
             weighting_power: DeployedValidator::unsafe_pull(validators.weighting_power, explorer).await,
             make_ve_order: DeployedValidator::unsafe_pull(validators.make_ve_order, explorer).await,
             extend_ve_order: DeployedValidator::unsafe_pull(validators.extend_ve_order, explorer).await,
+            harvest_order: DeployedValidator::unsafe_pull(validators.harvest_order, explorer).await,
         }
     }
 }

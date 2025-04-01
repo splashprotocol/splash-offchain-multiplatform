@@ -8,25 +8,24 @@ use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::data::pool::{AnyPool, PoolValidation};
 use spectrum_offchain_cardano::data::PoolId;
-use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolV1, BalanceFnPoolV2, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,
     ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, RoyaltyPoolV1, StableFnPoolT2T,
 };
+use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use splash_dao_offchain::deployment::ProtocolValidator;
 use splash_dao_offchain::entities::onchain::poll_factory::{PollFactory, PollFactorySnapshot};
 use splash_dao_offchain::entities::onchain::smart_farm::{FarmId, SmartFarmSnapshot};
-use splash_dao_offchain::protocol_config::{
-    FarmAuthPolicy, NotOutputRefNorSlotNumber, PermManagerAuthPolicy,
-};
+use splash_dao_offchain::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy};
 use splash_dao_offchain::routines::{ProvideTimedOref, Slot, TimedOutputRef};
 use std::collections::HashSet;
-use type_equalities::IsEqual;
+use crate::config::HarvestLimits;
 
 /// Events extracted from on-chain transactions.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum StatelessOnChainEvent {
-    Account(AccountEvent),
+    Position(PositionEvent),
+    MultipleHarvest(MultipleAccountsHarvest),
     FarmCreated(FarmCreated),
     PollFactoryUpdated(PollFactoryUpdated),
 }
@@ -51,16 +50,22 @@ where
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>>
         + Has<PoolValidation>
         + Has<PermManagerAuthPolicy>
-        + Has<FarmAuthPolicy>,
+        + Has<FarmAuthPolicy>
+        + Has<HarvestLimits>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
-        AccountEvent::try_from_ledger(repr, ctx)
-            .map(StatelessOnChainEvent::Account)
+        PositionEvent::try_from_ledger(repr, ctx)
+            .map(StatelessOnChainEvent::Position)
             .or_else(|| FarmCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::FarmCreated))
             .or_else(|| {
                 PollFactoryUpdated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::PollFactoryUpdated)
+            })
+            .or_else(|| {
+                MultipleAccountsHarvest::try_from_ledger(repr, ctx)
+                    .map(StatelessOnChainEvent::MultipleHarvest)
             })
     }
 }
@@ -92,24 +97,6 @@ impl AccountEvent {
             AccountEvent::Position(d) => d.account(),
             AccountEvent::Harvest(h) => h.account.clone(),
         }
-    }
-}
-
-impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for AccountEvent
-where
-    Cx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
-        + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
-        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
-        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>
-        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
-        + Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>
-        + Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>
-        + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
-        + Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
-        + Has<PoolValidation>,
-{
-    fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
-        PositionEvent::try_from_ledger(repr, ctx).map(AccountEvent::Position)
     }
 }
 
@@ -266,9 +253,34 @@ pub struct Harvest {
     pub harvested_till: cml_chain::Slot,
 }
 
-impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for Harvest {
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct MultipleAccountsHarvest {
+    pub accounts: Vec<Credential>,
+    pub harvested_till: Slot,
+}
+
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for MultipleAccountsHarvest
+where
+    Cx: Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>> + Has<HarvestLimits>,
+{
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
-        todo!()
+        let accounts: Vec<Credential> = repr
+            .signatures_public_keys
+            .iter()
+            .map(|public_key| Credential::new_pub_key(public_key.hash()))
+            .collect();
+        repr.outputs.iter().find_map(|output| {
+            let correct_lovelace_value = output.value().coin as u64
+                >= (accounts.clone().len() as u64 * ctx.select::<HarvestLimits>().minimal_lovelace_per_single_harvest);
+            if test_address(output.address(), ctx) && correct_lovelace_value {
+                Some(MultipleAccountsHarvest {
+                    accounts: accounts.clone(),
+                    harvested_till: Slot(repr.dao_slot),
+                })
+            } else {
+                None
+            }
+        })
     }
 }
 

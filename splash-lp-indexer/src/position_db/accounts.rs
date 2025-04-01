@@ -5,11 +5,14 @@ use crate::position_db::{
 };
 use cml_chain::certs::Credential;
 use cml_core::Slot;
+use spectrum_offchain_cardano::data::PoolId;
 use tokio::task::spawn_blocking;
 
 #[async_trait::async_trait]
 pub trait Accounts {
     async fn lock(&self, key: Credential) -> Option<Slot>;
+
+    async fn get_account_pools(&self, account: Credential) -> Vec<PoolId>;
 }
 
 #[async_trait::async_trait]
@@ -49,5 +52,22 @@ impl Accounts for PositionDB {
         })
         .await
         .unwrap()
+    }
+
+    async fn get_account_pools(&self, account: Credential) -> Vec<PoolId> {
+        let db = self.db.clone();
+        spawn_blocking(move || {
+            let cred_index_cf = db.cf_handle(CREDS_INDEX_CF).unwrap();
+            let prefix = cred_index_prefix(account.clone());
+            let mut iter = get_range_iterator(&db, cred_index_cf, prefix);
+            let mut pools = vec![];
+            while let Some(Ok((index_value, _))) = iter.next() {
+                let (_, pool) = from_cred_index_key(index_value.to_vec()).unwrap();
+                pools.push(pool);
+            }
+            pools
+        })
+        .await
+        .unwrap_or(vec![])
     }
 }

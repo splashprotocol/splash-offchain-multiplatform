@@ -1,14 +1,12 @@
 use cml_chain::transaction::{ConwayFormatTxOut, Transaction, TransactionInput, TransactionOutput};
-use cml_crypto::TransactionHash;
+use cml_core::Slot;
+use cml_crypto::{PublicKey, TransactionHash};
 use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::OutputRef;
-use spectrum_offchain::kv_store::KvStore;
 use spectrum_offchain::persistent_index::PersistentIndex;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
 /// A Tx view giving access to its mandatory fields, inputs are partially resolved.
 #[derive(Debug, Clone)]
@@ -16,6 +14,7 @@ pub struct TxView {
     pub hash: TransactionHash,
     pub inputs: Vec<TransactionInput>,
     pub outputs: Vec<TransactionOutput>,
+    pub signatures_public_keys: Vec<PublicKey>,
 }
 
 impl From<Either<BabbageTransaction, Transaction>> for TxView {
@@ -38,11 +37,23 @@ impl From<Either<BabbageTransaction, Transaction>> for TxView {
                         })
                     })
                     .collect(),
+                signatures_public_keys: tx
+                    .witness_set
+                    .vkeywitnesses
+                    .into_iter()
+                    .flat_map(|witnesses| witnesses.into_iter().map(|witness| witness.vkey))
+                    .collect(),
             },
             Either::Right(tx) => Self {
                 hash: hash_transaction_canonical(&tx.body),
                 inputs: tx.body.inputs.into(),
                 outputs: tx.body.outputs,
+                signatures_public_keys: tx
+                    .witness_set
+                    .vkeywitnesses
+                    .into_iter()
+                    .flat_map(|witnesses| witnesses.into_iter().map(|witness| witness.vkey))
+                    .collect(),
             },
         }
     }
@@ -54,17 +65,22 @@ pub struct TxViewPartiallyResolved {
     pub hash: TransactionHash,
     pub inputs: Vec<(TransactionInput, Option<TransactionOutput>)>,
     pub outputs: Vec<TransactionOutput>,
+    pub signatures_public_keys: Vec<PublicKey>,
+    pub dao_slot: u64,
 }
 
 impl TxViewPartiallyResolved {
     pub async fn resolve<Index: PersistentIndex<OutputRef, TransactionOutput>>(
         tx: TxView,
         index: &Index,
+        dao_slot: Slot,
     ) -> Self {
         Self {
             hash: tx.hash,
             inputs: try_resolve_inputs(tx.inputs, index).await,
             outputs: tx.outputs,
+            signatures_public_keys: tx.signatures_public_keys,
+            dao_slot,
         }
     }
 }
