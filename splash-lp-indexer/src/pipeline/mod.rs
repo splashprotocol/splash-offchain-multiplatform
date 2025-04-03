@@ -1,6 +1,7 @@
 use crate::pipeline::log_events::log_lp_events;
 use crate::pipeline::read_events::read_events;
 use crate::pipeline::resolve_gauges::resolve_gauges;
+use crate::position_db::accounts::Accounts;
 use crate::position_db::event_log::EventLog;
 use crate::position_db::mature_events::MatureEvents;
 use crate::ve_index::VoteEscrowIndex;
@@ -21,6 +22,7 @@ use splash_dao_offchain::deployment::ProtocolValidator;
 use splash_dao_offchain::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy};
 use splash_dao_offchain::routines::TimedOutputRef;
 use std::collections::HashSet;
+use crate::config::HarvestLimits;
 
 mod log_events;
 pub mod read_events;
@@ -40,7 +42,7 @@ pub async fn log_events<U, Log, Cx, Utxos, Gauges>(
             TransactionHandle,
         ),
     >,
-    Log: EventLog,
+    Log: EventLog + Accounts,
     Utxos: PersistentIndex<OutputRef, TransactionOutput>,
     Gauges: VoteEscrowIndex,
     Cx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
@@ -55,14 +57,16 @@ pub async fn log_events<U, Log, Cx, Utxos, Gauges>(
         + Has<PoolValidation>
         + Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>>
         + Has<PoolValidation>
         + Has<PermManagerAuthPolicy>
-        + Has<FarmAuthPolicy>,
+        + Has<FarmAuthPolicy>
+        + Has<HarvestLimits>,
 {
     log_lp_events(
         upstream.then(|(block, tx_handle)| {
             read_events(block, &context, &utxos, &utxo_filter)
-                .then(|batch| resolve_gauges(batch, &gauges))
+                .then(|batch| resolve_gauges(batch, &gauges, &log))
                 .map(|events| (events, tx_handle))
         }),
         &log,

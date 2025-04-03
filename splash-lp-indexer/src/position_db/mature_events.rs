@@ -1,6 +1,8 @@
 use crate::account::{AccountInPool, SuspendedPositionEvents};
 use crate::feed::event::ExportAccountEvent;
-use crate::onchain::event::{AccountEvent, FarmEvent, Harvest, OnChainEvent, PositionEvent};
+use crate::onchain::event::{
+    AccountEvent, FarmEvent, Harvest, MultipleAccountsHarvest, OnChainEvent, PositionEvent,
+};
 use crate::position_db::{
     account_key, cred_index_key, export_feed, from_account_key, from_event_key, get_range_iterator, pool_key,
     sus_event_key, PositionDB, ACCOUNTS_CF, ACCOUNT_FEED_CF, ACTIVE_FARMS_CF, AGGREGATE_CF, CREDS_INDEX_CF,

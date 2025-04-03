@@ -1,6 +1,5 @@
 use crate::tx_view::{TxView, TxViewPartiallyResolved};
 use cardano_chain_sync::atomic_flow::BlockEvents;
-use cardano_chain_sync::data::LedgerBlockEvent;
 use cml_chain::address::Address;
 use cml_chain::certs::StakeCredential;
 use cml_chain::transaction::{Transaction, TransactionOutput};
@@ -23,18 +22,19 @@ where
     Out: TryFromLedger<TxViewPartiallyResolved, Cx>,
     Index: PersistentIndex<OutputRef, TransactionOutput>,
 {
-    let txs = match &mut block {
-        BlockEvents::RollForward { events, .. } | BlockEvents::RollBackward { events, .. } => {
-            events.drain(0..)
+    let (txs, slot) = match &mut block {
+        BlockEvents::RollForward { events, block_slot, .. } | BlockEvents::RollBackward { events, block_slot, .. } => {
+            (events.drain(0..), block_slot)
         }
     };
+
     let events = stream::iter(txs)
         .map(TxView::from)
         .then(|tx| async move {
             index_utxos(&tx, index, utxo_filter).await;
             tx
         })
-        .then(|tx| TxViewPartiallyResolved::resolve(tx, index))
+        .then(|tx| TxViewPartiallyResolved::resolve(tx, index, *slot))
         .collect::<Vec<_>>()
         .await
         .into_iter()

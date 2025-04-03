@@ -23,10 +23,10 @@ where
 {
     match events {
         BlockEvents::RollForward {
-            events, block_num, ..
-        } => log.batch_append(block_num, events).await,
+            events, block_slot, ..
+        } => log.batch_append(block_slot, events).await,
         BlockEvents::RollBackward {
-            events, block_num, ..
-        } => log.batch_discard(block_num, events).await,
+            events, block_slot, ..
+        } => log.batch_discard(block_slot, events).await,
     }
 }

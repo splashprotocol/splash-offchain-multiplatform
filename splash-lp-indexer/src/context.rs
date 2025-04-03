@@ -6,12 +6,14 @@ use splash_dao_offchain::deployment::ProtocolValidator::*;
 use splash_dao_offchain::deployment::{ProtocolDeployment as DaoDeployment, ProtocolTokens as DaoTokens};
 use splash_dao_offchain::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy};
 use type_equalities::IsEqual;
+use crate::config::HarvestLimits;
 
 pub struct Context {
     pub dex_deployment: DexDeployment,
     pub dao_deployment: DaoDeployment,
     pub dao_tokens: DaoTokens,
     pub pool_validation: PoolValidation,
+    pub harvest_limits: HarvestLimits,
 }
 
 impl Has<DeployedScriptInfo<{ WpFactory as u8 }>> for Context {
@@ -117,5 +119,19 @@ impl Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>> for Context {
 impl Has<PoolValidation> for Context {
     fn select<U: IsEqual<PoolValidation>>(&self) -> PoolValidation {
         self.pool_validation.clone()
+    }
+}
+
+impl Has<DeployedScriptInfo<{ HarvestOrder as u8 }>> for Context {
+    fn select<U: IsEqual<DeployedScriptInfo<{ HarvestOrder as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ HarvestOrder as u8 }> {
+        (&self.dao_deployment.harvest_order).into()
+    }
+}
+
+impl Has<HarvestLimits> for Context {
+    fn select<U: IsEqual<HarvestLimits>>(&self) -> HarvestLimits {
+        self.harvest_limits
     }
 }
