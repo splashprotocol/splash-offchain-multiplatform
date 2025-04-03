@@ -160,5 +160,4 @@ pub struct WPollVoteOffChainOrder {
     pub witness: ScriptHash,
     pub witness_input: String,
     pub order_output_ref: OutputRef,
-    // pub proposal_auth_policy: PolicyId,
 }

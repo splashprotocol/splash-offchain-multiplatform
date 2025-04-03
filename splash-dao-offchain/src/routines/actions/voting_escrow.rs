@@ -25,7 +25,8 @@ use spectrum_cardano_lib::{AssetClass, AssetName, NetworkId, OutputRef, Token};
 use spectrum_offchain::domain::Has;
 
 use crate::constants::fee_deltas::{
-    EXTEND_VOTING_ESCROW_FEE_DELTA, MAKE_VOTING_ESCROW_FEE_DELTA, REDEEM_VOTING_ESCROW_FEE_DELTA,
+    EXTEND_VOTING_ESCROW_FEE_DELTA, MAKE_VOTING_ESCROW_FEE_DELTA, MAKE_VOTING_ESCROW_VE_FEE_OFFSET,
+    REDEEM_VOTING_ESCROW_FEE_DELTA,
 };
 use crate::constants::time::MAX_LOCK_TIME_SECONDS;
 use crate::constants::VOTING_ESCROW_TX_TTL;
@@ -339,7 +340,7 @@ where
         };
 
         let voting_escrow_datum = DatumOption::new_datum(ve_datum.into_pd());
-        voting_escrow_value.coin = mve_coin - 1_010_000;
+        voting_escrow_value.coin = mve_coin - MAKE_VOTING_ESCROW_VE_FEE_OFFSET;
 
         let voting_escrow_output = TransactionOutputBuilder::new()
             .with_address(script_address(
