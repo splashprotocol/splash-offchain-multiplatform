@@ -22,11 +22,9 @@ where
     Out: TryFromLedger<TxViewPartiallyResolved, Cx>,
     Index: PersistentIndex<OutputRef, TransactionOutput>,
 {
-    let slot = block.clone().block_num();
-
-    let txs = match &mut block {
-        BlockEvents::RollForward { events, .. } | BlockEvents::RollBackward { events, .. } => {
-            events.drain(0..)
+    let (txs, slot) = match &mut block {
+        BlockEvents::RollForward { events, block_slot, .. } | BlockEvents::RollBackward { events, block_slot, .. } => {
+            (events.drain(0..), block_slot)
         }
     };
 
@@ -36,7 +34,7 @@ where
             index_utxos(&tx, index, utxo_filter).await;
             tx
         })
-        .then(|tx| TxViewPartiallyResolved::resolve(tx, index, slot))
+        .then(|tx| TxViewPartiallyResolved::resolve(tx, index, *slot))
         .collect::<Vec<_>>()
         .await
         .into_iter()

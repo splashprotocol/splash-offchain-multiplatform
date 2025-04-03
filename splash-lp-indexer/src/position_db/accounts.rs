@@ -68,6 +68,6 @@ impl Accounts for PositionDB {
             pools
         })
         .await
-        .unwrap_or(vec![])
+        .unwrap()
     }
 }

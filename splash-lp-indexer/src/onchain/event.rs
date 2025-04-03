@@ -264,18 +264,14 @@ where
     Cx: Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>> + Has<HarvestLimits>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
-        let accounts: Vec<Credential> = repr
-            .signatures_public_keys
-            .iter()
-            .map(|public_key| Credential::new_pub_key(public_key.hash()))
-            .collect();
         repr.outputs.iter().find_map(|output| {
             let correct_lovelace_value = output.value().coin as u64
-                >= (accounts.clone().len() as u64 * ctx.select::<HarvestLimits>().minimal_lovelace_per_single_harvest);
+                >= (repr.signers.len() as u64 * ctx.select::<HarvestLimits>().minimal_lovelace_per_single_harvest);
             if test_address(output.address(), ctx) && correct_lovelace_value {
+                let accounts = repr.signers.clone().into_iter().map(Credential::new_pub_key).collect();
                 Some(MultipleAccountsHarvest {
-                    accounts: accounts.clone(),
-                    harvested_till: Slot(repr.dao_slot),
+                    accounts,
+                    harvested_till: Slot(repr.slot),
                 })
             } else {
                 None

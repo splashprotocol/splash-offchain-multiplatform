@@ -23,8 +23,8 @@ use tokio::sync::Mutex;
 
 #[derive(Clone)]
 pub enum BlockEvents<T> {
-    RollForward { events: Vec<T>, block_num: u64 },
-    RollBackward { events: Vec<T>, block_num: u64 },
+    RollForward { events: Vec<T>, block_num: u64, block_slot: Slot },
+    RollBackward { events: Vec<T>, block_num: u64, block_slot: Slot },
 }
 
 impl<T> BlockEvents<T> {
@@ -33,21 +33,23 @@ impl<T> BlockEvents<T> {
         F: FnOnce(Vec<T>) -> Vec<T2>,
     {
         match self {
-            BlockEvents::RollForward { events, block_num } => BlockEvents::RollForward {
+            BlockEvents::RollForward { events, block_num, block_slot } => BlockEvents::RollForward {
                 events: f(events),
                 block_num,
+                block_slot
             },
-            BlockEvents::RollBackward { events, block_num } => BlockEvents::RollBackward {
+            BlockEvents::RollBackward { events, block_num, block_slot } => BlockEvents::RollBackward {
                 events: f(events),
                 block_num,
+                block_slot
             },
         }
     }
 
-    pub fn block_num(self) -> u64 {
+    pub fn block_slot(self) -> Slot {
         match self {
-            BlockEvents::RollForward { block_num, .. } => block_num,
-            BlockEvents::RollBackward { block_num, .. } => block_num,
+            BlockEvents::RollForward { block_slot, .. } => block_slot,
+            BlockEvents::RollBackward { block_slot, .. } => block_slot,
         }
     }
 }
@@ -121,6 +123,7 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
                             .map(|(tx, _, _, _)| tx)
                             .collect(),
                         block_num: hdr.block_number(),
+                        block_slot: hdr.slot(),
                     };
                     let (snd, recv) = oneshot::channel();
                     downstream.send((applied_txs, snd.into())).await.unwrap();
@@ -142,6 +145,7 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
                                     let block = MultiEraBlock::from_cbor_bytes(&block_bytes)
                                         .expect("Block deserialization failed");
                                     let block_num = block.header().block_number();
+                                    let block_slot = block.header().slot();
                                     let unapplied_txs = BlockEvents::RollBackward {
                                         events: unpack_valid_transactions_multi_era(block)
                                             .into_iter()
@@ -149,6 +153,7 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
                                             .rev()
                                             .collect(),
                                         block_num,
+                                        block_slot,
                                     };
                                     let (snd, recv) = oneshot::channel();
                                     downstream.send((unapplied_txs, snd.into())).await.unwrap();
