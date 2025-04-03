@@ -77,7 +77,7 @@ impl OnChainOrderId {
     derive_more::From,
     derive_more::Into,
 )]
-pub struct PoolId(Token);
+pub struct PoolId(pub Token);
 
 impl PoolId {
     pub const BYTE_COUNT: usize = Token::BYTE_COUNT;

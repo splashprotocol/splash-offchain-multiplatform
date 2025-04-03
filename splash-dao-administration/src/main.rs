@@ -35,20 +35,21 @@ use cml_crypto::{
 };
 use mint_token::{script_address, DaoDeploymentParameters, LQ_NAME};
 use num_rational::Ratio;
+use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::{
     collateral::Collateral,
     hash::hash_transaction_canonical,
-    plutus_data::DatumExtension,
+    plutus_data::{DatumExtension, IntoPlutusData},
     protocol_params::{constant_tx_builder, COINS_PER_UTXO_BYTE},
     transaction::TransactionOutputExtension,
     value::ValueExtension,
     AssetClass, AssetName, NetworkId, OutputRef, PaymentCredential, Token,
 };
-use spectrum_cardano_lib::{plutus_data::IntoPlutusData, types::TryFromPData};
 use spectrum_offchain::domain::Stable;
 use spectrum_offchain::{domain::EntitySnapshot, ledger::TryFromLedger, tx_prover::TxProver};
 use spectrum_offchain_cardano::{
     creds::{operator_creds, operator_creds_base_address},
+    data::PoolId,
     deployment::{DeployedValidatorRef, ReferenceUTxO},
 };
 use splash_dao_offchain::{
@@ -68,7 +69,7 @@ use splash_dao_offchain::{
             inflation_box::InflationBoxSnapshot,
             permission_manager::{PermManagerDatum, PermManagerSnapshot},
             poll_factory::{PollFactoryConfig, PollFactorySnapshot},
-            smart_farm::{FarmId, MintAction},
+            smart_farm::{FarmId, MintAction, SmartFarmConfig},
             voting_escrow::{Lock, Owner, VotingEscrowConfig, VotingEscrowId, VotingEscrowSnapshot},
             voting_escrow_factory::{AcceptedAsset, VEFactoryDatum, VEFactoryId, VEFactorySnapshot},
             weighting_poll::{WeightingPollId, WeightingPollSnapshot},
@@ -1381,14 +1382,14 @@ async fn create_initial_farms(op_inputs: &OperationInputs) {
     // smart_farm output ------------------------------------------
     let mut smart_farm_assets = MultiAsset::default();
     smart_farm_assets.set(protocol_deployment.smart_farm.hash, mint_farm_auth_asset_name, 1);
-    let smart_farm_datum_pd = PlutusData::new_bytes(
-        deployment_config
-            .minted_deployment_tokens
-            .perm_auth
-            .policy_id
-            .to_raw_bytes()
-            .to_vec(),
-    );
+    let perm_manager_auth_policy = deployment_config.minted_deployment_tokens.perm_auth.policy_id;
+
+    let pool_id = PoolId::random();
+    let smart_farm_datum_pd = SmartFarmConfig {
+        perm_manager_auth_policy,
+        pool_id,
+    }
+    .into_pd();
     println!(
         "smart_farm datum: {}",
         hex::encode(smart_farm_datum_pd.to_cbor_bytes())

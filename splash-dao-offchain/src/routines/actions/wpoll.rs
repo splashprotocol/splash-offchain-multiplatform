@@ -618,7 +618,16 @@ where
             )
             .map_err(|_| ExecuteOrderError::Witness(WitnessError::CannotDecodeRedeemer))?;
             println!("message: {}", hex::encode(&message));
-            if !pk.verify(&message, &signature) {
+            // Message with both prefix and postfix bytes.
+            let full_message: Vec<u8> = offchain_order
+                .prefix_bytes
+                .iter()
+                .chain(message.iter())
+                .chain(offchain_order.postfix_bytes.iter())
+                .cloned()
+                .collect();
+            println!("pre/post-fixed message: {}", hex::encode(&full_message));
+            if !pk.verify(&full_message, &signature) {
                 return Err(ExecuteOrderError::Witness(WitnessError::OwnerAuthFailure));
             }
         }
@@ -742,6 +751,8 @@ where
             witness: offchain_order.witness,
             version: offchain_order.id.version,
             signature: offchain_order.proof,
+            prefix_bytes: offchain_order.prefix_bytes,
+            postfix_bytes: offchain_order.postfix_bytes,
         };
         let voting_escrow_witness = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(voting_escrow_script_hash),

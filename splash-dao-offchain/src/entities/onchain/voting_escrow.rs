@@ -146,10 +146,13 @@ where
                     }
                 })?
                 .clone();
-            assert_eq!(identifier_token_names.len(), 1);
-            let (ve_identifier_name_cml, qty) = identifier_token_names.pop_front()?;
+
+            // ve_identifier name should be unique
+            if identifier_token_names.len() != 1 {
+                return None;
+            }
+            let (ve_identifier_name_cml, _) = identifier_token_names.pop_front()?;
             let ve_identifier_name = AssetName::from(ve_identifier_name_cml);
-            assert_eq!(qty, 1);
             let gt_policy = ctx.select::<GTAuthPolicy>().0;
             let cml_gt_policy_name =
                 cml_chain::assets::AssetName::new(GT_NAME.to_be_bytes().to_vec()).unwrap();
@@ -361,6 +364,10 @@ pub struct VotingEscrowAuthorizedAction {
     pub version: u32,
     /// Proof that the owner did authorize the action with the specified version of the voting escrow.
     pub signature: Vec<u8>,
+    /// Prefix bytes from the CIP-030 formatted signature that is signed by user's wallet
+    pub prefix_bytes: Vec<u8>,
+    /// Postfix bytes from the CIP-030 formatted signature (will be non-empty if indefinite arrays are)
+    pub postfix_bytes: Vec<u8>,
 }
 
 pub struct RedeemerVotingEscrowAuthorizedActionMapping {
@@ -380,6 +387,8 @@ impl IntoPlutusData for VotingEscrowAuthorizedAction {
             PlutusData::new_bytes(self.witness.to_raw_bytes().to_vec()),
             PlutusData::new_integer(BigInteger::from(self.version)),
             PlutusData::new_bytes(self.signature),
+            PlutusData::new_bytes(self.prefix_bytes),
+            PlutusData::new_bytes(self.postfix_bytes),
         ])
     }
 }

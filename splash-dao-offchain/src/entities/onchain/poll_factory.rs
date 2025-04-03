@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::plutus_data::{
     ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
 };
+use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::{AssetName, TaggedAmount};
 use spectrum_offchain::domain::{Has, Stable};
@@ -17,10 +18,12 @@ use spectrum_offchain_cardano::parametrized_validators::apply_params_validator_p
 use uplc_pallas_primitives::{BoundedBytes, MaybeIndefArray};
 
 use crate::assets::Splash;
+use crate::constants;
 use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::onchain::smart_farm::FarmId;
 use crate::entities::onchain::weighting_poll::WeightingPoll;
 use crate::entities::Snapshot;
+use crate::protocol_config::WPFactoryAuthPolicy;
 use crate::routines::TimedOutputRef;
 use crate::time::ProtocolEpoch;
 
@@ -62,7 +65,9 @@ impl PollFactory {
 
 impl<C> TryFromLedger<TransactionOutput, C> for PollFactorySnapshot
 where
-    C: Has<TimedOutputRef> + Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>,
+    C: Has<TimedOutputRef>
+        + Has<WPFactoryAuthPolicy>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
@@ -81,15 +86,26 @@ where
                 Some(last_poll_epoch as u32)
             };
 
-            let poll_factory = PollFactory {
-                last_poll_epoch,
-                active_farms,
-                stable_id: ctx
-                    .select::<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>()
-                    .script_hash,
-            };
+            let auth_token_policy_id = ctx.select::<WPFactoryAuthPolicy>().0;
+            let auth_token_name =
+                cml_chain::assets::AssetName::new(constants::DEFAULT_AUTH_TOKEN_NAME.to_be_bytes().to_vec())
+                    .unwrap();
+            let quantity = repr
+                .value()
+                .multiasset
+                .get(&auth_token_policy_id, &auth_token_name)?;
 
-            return Some(Snapshot::new(poll_factory, version));
+            if quantity == 1 {
+                let poll_factory = PollFactory {
+                    last_poll_epoch,
+                    active_farms,
+                    stable_id: ctx
+                        .select::<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>()
+                        .script_hash,
+                };
+
+                return Some(Snapshot::new(poll_factory, version));
+            }
         }
         None
     }

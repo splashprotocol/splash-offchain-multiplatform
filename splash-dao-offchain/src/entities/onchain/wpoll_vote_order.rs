@@ -20,9 +20,7 @@ use spectrum_offchain::{
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 
 use crate::{
-    constants::{MAKE_VOTING_ESCROW_ORDER_MIN_LOVELACES, WPOLL_VOTE_ORDER_MIN_LOVELACES},
-    deployment::ProtocolValidator,
-    routines::TimedOutputRef,
+    constants::WPOLL_VOTE_ORDER_MIN_LOVELACES, deployment::ProtocolValidator, routines::TimedOutputRef,
 };
 
 use super::{

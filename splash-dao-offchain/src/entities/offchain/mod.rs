@@ -103,6 +103,8 @@ pub struct ExtendVotingEscrowOffChainOrder {
     pub witness: ScriptHash,
     pub witness_input: String,
     pub order_output_ref: OutputRef,
+    pub prefix_bytes: Vec<u8>,
+    pub postfix_bytes: Vec<u8>,
 }
 
 impl UniqueOrder for OffChainOrder {
@@ -135,6 +137,8 @@ pub struct RedeemVotingEscrowOffChainOrder {
     pub witness: ScriptHash,
     pub witness_input: String,
     pub order_output_ref: OutputRef,
+    pub prefix_bytes: Vec<u8>,
+    pub postfix_bytes: Vec<u8>,
 }
 
 pub fn compute_witness_message(
@@ -160,4 +164,6 @@ pub struct WPollVoteOffChainOrder {
     pub witness: ScriptHash,
     pub witness_input: String,
     pub order_output_ref: OutputRef,
+    pub prefix_bytes: Vec<u8>,
+    pub postfix_bytes: Vec<u8>,
 }
