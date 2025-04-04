@@ -254,21 +254,6 @@ fn compute_one_time_mint_validator(tx_hash: TransactionHash, index: usize, quant
         quantity_pd,
     ]));
     apply_params_validator_plutus_v2(params_pd, &DaoScriptData::global().one_time_mint.script_bytes)
-    //let buf: Vec<u8> = vec![];
-    //let mut encoder = uplc_pallas_codec::minicbor::Encoder::new(buf);
-    //tx_hash_constr_pd.encode(&mut encoder, &mut ()).unwrap();
-    //let pallas_bytes = encoder.writer();
-
-    //// CML
-    //let cml = PlutusData::new_constr_plutus_data(ConstrPlutusData::new(
-    //    0,
-    //    vec![PlutusData::new_integer(BigInteger::from(100_i64))],
-    //))
-    //.to_cbor_bytes();
-
-    //println!("CML PD HEX: {}", hex::encode(&cml));
-
-    //assert_eq!(cml, *pallas_bytes);
 }
 
 /// Computes the scripts of all DAO reference inputs, and forms `TransactionBuilder` instances containing
@@ -304,6 +289,9 @@ pub fn create_dao_reference_input_utxos(
 
     let mint_identifier_script =
         PlutusV2Script::new(hex::decode(&DaoScriptData::global().mint_identifier.script_bytes).unwrap());
+
+    let harvest_order_script =
+        PlutusV2Script::new(hex::decode(&DaoScriptData::global().harvest_order.script_bytes).unwrap());
 
     let voting_escrow_script = compute_voting_escrow_validator(
         mint_identifier_script.hash(),
@@ -389,6 +377,7 @@ pub fn create_dao_reference_input_utxos(
         extend_ve_order: extend_ve_order_script.hash(),
         wpoll_vote_order: wpoll_vote_order_script.hash(),
         redeem_ve_order: redeem_ve_order_script.hash(),
+        harvest_order: harvest_order_script.hash(),
     };
 
     let script_before =
@@ -444,6 +433,9 @@ pub fn create_dao_reference_input_utxos(
         .unwrap();
     tx_builder_2
         .add_output(make_output(extend_ve_order_script))
+        .unwrap();
+    tx_builder_2
+        .add_output(make_output(harvest_order_script))
         .unwrap();
 
     let redeem_ve_builder = TransactionOutputBuilder::new()
@@ -522,6 +514,7 @@ pub struct ReferenceInputScriptHashes {
     pub make_ve_order: ScriptHash,
     pub extend_ve_order: ScriptHash,
     pub redeem_ve_order: ScriptHash,
+    pub harvest_order: ScriptHash,
 }
 
 #[derive(Deserialize)]

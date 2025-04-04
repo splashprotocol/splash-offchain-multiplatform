@@ -481,9 +481,15 @@ async fn deploy<'a>(
                 cost: (&dsd.extend_voting_escrow_order.ex_units).into(),
                 marginal_cost: None,
             },
+            harvest_order: DeployedValidatorRef {
+                hash: reference_input_script_hashes.harvest_order,
+                reference_utxo: make_ref_utxo(2, 5),
+                cost: (&dsd.harvest_order.ex_units).into(),
+                marginal_cost: None,
+            },
             redeem_ve_order: DeployedValidatorRef {
                 hash: reference_input_script_hashes.redeem_ve_order,
-                reference_utxo: make_ref_utxo(2, 5),
+                reference_utxo: make_ref_utxo(2, 6),
                 cost: (&dsd.redeem_voting_escrow_order.ex_units).into(),
                 marginal_cost: None,
             },

@@ -39,7 +39,6 @@ pub struct DeployedValidators {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-#[serde(try_from = "String")]
 pub struct IssuedAsset {
     pub policy_id: ScriptHash,
     pub asset_name: cml_chain::assets::AssetName,
@@ -108,6 +107,7 @@ pub struct DaoScriptData {
     pub redeem_voting_escrow_order: ScriptBytesAndCosts,
     pub redeem_voting_escrow_witness: ScriptBytesAndCosts,
     pub proxy_order_witness: ScriptBytesAndCosts,
+    pub harvest_order: ScriptBytesAndCosts,
 }
 
 impl DaoScriptData {
