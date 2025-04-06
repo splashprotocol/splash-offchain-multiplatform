@@ -10,17 +10,16 @@ use spectrum_offchain::backlog::data::Weighted;
 use spectrum_offchain::domain::order::PendingOrder;
 use spectrum_offchain::domain::order::ProgressingOrder;
 use spectrum_offchain::domain::order::UniqueOrder;
-use voting_order::VotingOrder;
 
+use super::onchain::smart_farm::FarmId;
 use super::onchain::voting_escrow::VotingEscrowId;
-pub mod voting_order;
 
 /// The id for off-chain order to extend/redeem voting escrow.
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OffChainOrderId {
     pub voting_escrow_id: VotingEscrowId,
     /// Current version of voting_escrow that this order will apply to.
-    pub version: u64,
+    pub version: u32,
 }
 
 impl From<OffChainOrderId> for VotingEscrowId {
@@ -40,7 +39,7 @@ pub enum OffChainOrder {
         timestamp: i64,
     },
     Vote {
-        order: VotingOrder,
+        offchain_order: WPollVoteOffChainOrder,
         timestamp: i64,
     },
 }
@@ -80,7 +79,10 @@ impl OffChainOrder {
         match self {
             OffChainOrder::Extend { order, .. } => order.id,
             OffChainOrder::Redeem { order, .. } => order.id,
-            OffChainOrder::Vote { order, .. } => order.id,
+            OffChainOrder::Vote {
+                offchain_order: order,
+                ..
+            } => order.id,
         }
     }
 
@@ -110,7 +112,10 @@ impl UniqueOrder for OffChainOrder {
         match self {
             OffChainOrder::Extend { order, .. } => order.id,
             OffChainOrder::Redeem { order, .. } => order.id,
-            OffChainOrder::Vote { order, .. } => order.id,
+            OffChainOrder::Vote {
+                offchain_order: order,
+                ..
+            } => order.id,
         }
     }
 }
@@ -129,9 +134,10 @@ pub struct RedeemVotingEscrowOffChainOrder {
     pub proof: Vec<u8>,
     pub witness: ScriptHash,
     pub witness_input: String,
+    pub order_output_ref: OutputRef,
 }
 
-pub fn compute_voting_escrow_witness_message(
+pub fn compute_witness_message(
     witness: ScriptHash,
     witness_input: String,
     authenticated_version: u64,
@@ -144,4 +150,14 @@ pub fn compute_voting_escrow_witness_message(
         &PlutusData::new_integer(cml_chain::utils::BigInteger::from(authenticated_version)).to_cbor_bytes(),
     );
     Ok(cml_crypto::blake2b256(bytes.as_ref()).to_vec())
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WPollVoteOffChainOrder {
+    pub id: OffChainOrderId,
+    pub distribution: Vec<(FarmId, u64)>,
+    pub proof: Vec<u8>,
+    pub witness: ScriptHash,
+    pub witness_input: String,
+    pub order_output_ref: OutputRef,
 }

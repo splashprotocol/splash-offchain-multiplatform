@@ -11,7 +11,10 @@ use cml_crypto::{blake2b256, ScriptHash};
 use num_rational::Ratio;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
-    plutus_data::{ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension},
+    plutus_data::{
+        make_constr_pd_indefinite_arr, ConstrPlutusDataExtension, DatumExtension, IntoPlutusData,
+        PlutusDataExtension,
+    },
     transaction::TransactionOutputExtension,
     types::TryFromPData,
     value::ValueExtension,

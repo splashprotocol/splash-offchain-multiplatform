@@ -5,6 +5,7 @@ use inflation_box::{InflationBox, InflationBoxSnapshot};
 use make_voting_escrow_order::MakeVotingEscrowOrder;
 use permission_manager::{PermManager, PermManagerSnapshot};
 use poll_factory::{PollFactory, PollFactorySnapshot};
+use redeem_voting_escrow::RedeemVotingEscrowOnchainOrder;
 use serde::{Deserialize, Serialize};
 use smart_farm::{SmartFarm, SmartFarmSnapshot};
 use spectrum_cardano_lib::{NetworkId, OutputRef};
@@ -17,6 +18,7 @@ use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use voting_escrow::{Owner, VotingEscrow, VotingEscrowSnapshot};
 use voting_escrow_factory::{VEFactory, VEFactorySnapshot};
 use weighting_poll::{WeightingPoll, WeightingPollSnapshot};
+use wpoll_vote_order::WPollVoteOnchainOrder;
 
 use crate::{
     deployment::ProtocolValidator,
@@ -37,11 +39,13 @@ pub mod inflation_box;
 pub mod make_voting_escrow_order;
 pub mod permission_manager;
 pub mod poll_factory;
+pub mod proxy_order_witness;
 pub mod redeem_voting_escrow;
 pub mod smart_farm;
 pub mod voting_escrow;
 pub mod voting_escrow_factory;
 pub mod weighting_poll;
+pub mod wpoll_vote_order;
 
 #[derive(Debug)]
 pub enum DaoEntity {
@@ -55,6 +59,8 @@ pub enum DaoEntity {
     FundingBox(FundingBox),
     MakeVotingEscrowOrder(MakeVotingEscrowOrder),
     ExtendVotingEscrowOrder(ExtendVotingEscrowOnchainOrder),
+    RedeemVotingEscrowOrder(RedeemVotingEscrowOnchainOrder),
+    WPollVoteOrder(WPollVoteOnchainOrder),
 }
 
 pub type DaoEntitySnapshot = Snapshot<DaoEntity, TimedOutputRef>;
@@ -79,6 +85,8 @@ where
         + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::MakeVeOrder as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::WPollVoteOrder as u8 }>>
+        + Has<DeployedScriptInfo<{ ProtocolValidator::RedeemVeOrder as u8 }>>
         + Has<OperatorCreds>
         + Has<NetworkId>
         + Has<TimedOutputRef>
@@ -128,6 +136,15 @@ where
                 DaoEntity::ExtendVotingEscrowOrder(eve_order),
                 timed_output_ref,
             ))
+        } else if let Some(order) = WPollVoteOnchainOrder::try_from_ledger(repr, ctx) {
+            let timed_output_ref = ctx.select::<TimedOutputRef>();
+            Some(Snapshot(DaoEntity::WPollVoteOrder(order), timed_output_ref))
+        } else if let Some(order) = RedeemVotingEscrowOnchainOrder::try_from_ledger(repr, ctx) {
+            let timed_output_ref = ctx.select::<TimedOutputRef>();
+            Some(Snapshot(
+                DaoEntity::RedeemVotingEscrowOrder(order),
+                timed_output_ref,
+            ))
         } else {
             None
         }
@@ -136,8 +153,10 @@ where
 
 #[derive(Hash, PartialEq, Eq, Serialize, Deserialize, Clone, Debug, derive_more::From)]
 pub enum DaoOrder {
+    WPollVote(WPollVoteOnchainOrder),
     MakeVE(MakeVotingEscrowOrder),
     ExtendVE(ExtendVotingEscrowOnchainOrder),
+    RedeemVE(RedeemVotingEscrowOnchainOrder),
 }
 
 impl DaoOrder {
@@ -145,6 +164,8 @@ impl DaoOrder {
         match self {
             DaoOrder::MakeVE(order) => order.ve_datum.owner,
             DaoOrder::ExtendVE(order) => order.ve_datum.owner,
+            DaoOrder::WPollVote(order) => order.ve_datum.owner,
+            DaoOrder::RedeemVE(order) => order.ve_datum.owner,
         }
     }
 }
