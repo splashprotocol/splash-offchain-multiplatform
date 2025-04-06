@@ -10,7 +10,7 @@ use cml_chain::{
 use cml_crypto::{RawBytesEncoding, ScriptHash};
 use log::{error, info};
 use serde::{Deserialize, Serialize};
-use spectrum_cardano_lib::plutus_data::{make_constr_pd_indefinite_arr, DatumExtension};
+use spectrum_cardano_lib::plutus_data::DatumExtension;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::{AssetName, OutputRef};
@@ -64,6 +64,7 @@ pub struct VotingEscrow {
     pub locked_until: Lock,
     pub ve_identifier_name: AssetName,
     pub owner: Owner,
+    pub max_ex_fee: u32,
     pub version: u32,
     pub last_wp_epoch: i32,
     pub last_gp_deadline: i32,
@@ -119,6 +120,7 @@ where
             let VotingEscrowConfig {
                 locked_until,
                 owner,
+                max_ex_fee,
                 version,
                 last_wp_epoch,
                 last_gp_deadline,
@@ -164,6 +166,7 @@ where
                 locked_until,
                 ve_identifier_name,
                 owner,
+                max_ex_fee,
                 version,
                 last_wp_epoch,
                 last_gp_deadline,
@@ -181,6 +184,7 @@ where
 pub struct VotingEscrowConfig {
     pub locked_until: Lock,
     pub owner: Owner,
+    pub max_ex_fee: u32,
     pub version: u32,
     pub last_wp_epoch: i32,
     pub last_gp_deadline: i32,
@@ -190,16 +194,21 @@ impl IntoPlutusData for VotingEscrowConfig {
     fn into_pd(self) -> PlutusData {
         let locked_until = self.locked_until.into_pd();
         let owner = self.owner.into_pd();
+        let max_ex_fee = PlutusData::new_integer(BigInteger::from(self.max_ex_fee));
         let version = PlutusData::new_integer(BigInteger::from(self.version));
         let last_wp_epoch = PlutusData::new_integer(BigInteger::from(self.last_wp_epoch));
         let last_gp_deadline = PlutusData::new_integer(BigInteger::from(self.last_gp_deadline));
-        make_constr_pd_indefinite_arr(vec![
-            locked_until,
-            owner,
-            version,
-            last_wp_epoch,
-            last_gp_deadline,
-        ])
+        PlutusData::new_constr_plutus_data(ConstrPlutusData::new(
+            0,
+            vec![
+                locked_until,
+                owner,
+                max_ex_fee,
+                version,
+                last_wp_epoch,
+                last_gp_deadline,
+            ],
+        ))
     }
 }
 
@@ -208,13 +217,15 @@ impl TryFromPData for VotingEscrowConfig {
         let mut cpd = data.into_constr_pd()?;
         let locked_until = Lock::try_from_pd(cpd.take_field(0)?)?;
         let owner = Owner::try_from_pd(cpd.take_field(1)?)?;
-        let version = cpd.take_field(2)?.into_u64()? as u32;
-        let last_wp_epoch = cpd.take_field(3)?.into_i128()? as i32;
-        let last_gp_deadline = cpd.take_field(4)?.into_i128()? as i32;
+        let max_ex_fee = cpd.take_field(2)?.into_u64()? as u32;
+        let version = cpd.take_field(3)?.into_u64()? as u32;
+        let last_wp_epoch = cpd.take_field(4)?.into_i128()? as i32;
+        let last_gp_deadline = cpd.take_field(5)?.into_i128()? as i32;
 
         Some(Self {
             locked_until,
             owner,
+            max_ex_fee,
             version,
             last_wp_epoch,
             last_gp_deadline,
@@ -231,15 +242,14 @@ pub enum Lock {
 impl IntoPlutusData for Lock {
     fn into_pd(self) -> PlutusData {
         match self {
-            Lock::Def(n) => make_constr_pd_indefinite_arr(vec![PlutusData::new_integer(n.into())]),
-            Lock::Indef(d) => {
-                let mut constr =
-                    make_constr_pd_indefinite_arr(vec![PlutusData::new_integer(d.as_millis().into())])
-                        .into_constr_pd()
-                        .unwrap();
-                constr.alternative = 1;
-                PlutusData::new_constr_plutus_data(constr)
-            }
+            Lock::Def(n) => PlutusData::ConstrPlutusData(ConstrPlutusData::new(
+                0,
+                vec![PlutusData::new_integer(n.into())],
+            )),
+            Lock::Indef(d) => PlutusData::ConstrPlutusData(ConstrPlutusData::new(
+                1,
+                vec![PlutusData::new_integer(d.as_millis().into())],
+            )),
         }
     }
 }
@@ -281,17 +291,13 @@ impl std::fmt::Display for Owner {
 
 impl IntoPlutusData for Owner {
     fn into_pd(self) -> PlutusData {
-        match self {
-            Owner::PubKey(vec) => make_constr_pd_indefinite_arr(vec![PlutusData::new_bytes(vec.to_vec())]),
+        PlutusData::new_constr_plutus_data(match self {
+            Owner::PubKey(vec) => ConstrPlutusData::new(0, vec![PlutusData::new_bytes(vec.to_vec())]),
             Owner::Script(script_hash) => {
                 let bytes = script_hash.to_raw_bytes().to_vec();
-                let mut constr = make_constr_pd_indefinite_arr(vec![PlutusData::new_bytes(bytes)])
-                    .into_constr_pd()
-                    .unwrap();
-                constr.alternative = 1;
-                PlutusData::new_constr_plutus_data(constr)
+                ConstrPlutusData::new(1, vec![PlutusData::new_bytes(bytes)])
             }
-        }
+        })
     }
 }
 
@@ -315,8 +321,8 @@ impl TryFromPData for Owner {
 
 pub fn unsafe_update_ve_state(data: &mut PlutusData, last_poll_epoch: ProtocolEpoch, new_version: u32) {
     let cpd = data.get_constr_pd_mut().unwrap();
-    cpd.set_field(2, PlutusData::new_integer(new_version.into()));
-    cpd.set_field(3, PlutusData::new_integer(last_poll_epoch.into()))
+    cpd.set_field(3, PlutusData::new_integer(new_version.into()));
+    cpd.set_field(4, PlutusData::new_integer(last_poll_epoch.into()))
 }
 pub enum VotingEscrowAction {
     /// Apply governance action.
@@ -331,24 +337,12 @@ impl IntoPlutusData for VotingEscrowAction {
     fn into_pd(self) -> PlutusData {
         match self {
             VotingEscrowAction::Governance => PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![])),
-            VotingEscrowAction::AddBudgetOrExtend { ve_out_ix } => {
-                let mut inner =
-                    make_constr_pd_indefinite_arr(vec![PlutusData::Integer(BigInteger::from(ve_out_ix))])
-                        .into_constr_pd()
-                        .unwrap();
-                inner.alternative = 1;
-                PlutusData::new_constr_plutus_data(inner)
-            }
-
-            VotingEscrowAction::Redeem { ve_factory_in_ix } => {
-                let mut inner = make_constr_pd_indefinite_arr(vec![PlutusData::Integer(BigInteger::from(
-                    ve_factory_in_ix,
-                ))])
-                .into_constr_pd()
-                .unwrap();
-                inner.alternative = 2;
-                PlutusData::new_constr_plutus_data(inner)
-            }
+            VotingEscrowAction::AddBudgetOrExtend { ve_out_ix } => PlutusData::ConstrPlutusData(
+                ConstrPlutusData::new(1, vec![PlutusData::Integer(BigInteger::from(ve_out_ix))]),
+            ),
+            VotingEscrowAction::Redeem { ve_factory_in_ix } => PlutusData::ConstrPlutusData(
+                ConstrPlutusData::new(2, vec![PlutusData::Integer(BigInteger::from(ve_factory_in_ix))]),
+            ),
         }
     }
 }
@@ -373,14 +367,26 @@ pub struct RedeemerVotingEscrowAuthorizedActionMapping {
     pub signature: usize,
 }
 
+const VEAA_REDEEMER_MAPPING: RedeemerVotingEscrowAuthorizedActionMapping =
+    RedeemerVotingEscrowAuthorizedActionMapping {
+        action: 0,
+        witness: 1,
+        version: 2,
+        signature: 3,
+    };
+
 impl IntoPlutusData for VotingEscrowAuthorizedAction {
     fn into_pd(self) -> PlutusData {
-        make_constr_pd_indefinite_arr(vec![
-            self.action.into_pd(),
-            PlutusData::new_bytes(self.witness.to_raw_bytes().to_vec()),
-            PlutusData::new_integer(BigInteger::from(self.version)),
-            PlutusData::new_bytes(self.signature),
-        ])
+        let cpd = ConstrPlutusData::new(
+            VEAA_REDEEMER_MAPPING.action as u64,
+            vec![
+                self.action.into_pd(),
+                PlutusData::new_bytes(self.witness.to_raw_bytes().to_vec()),
+                PlutusData::new_integer(BigInteger::from(self.version)),
+                PlutusData::new_bytes(self.signature),
+            ],
+        );
+        PlutusData::ConstrPlutusData(cpd)
     }
 }
 

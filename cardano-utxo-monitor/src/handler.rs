@@ -1,6 +1,6 @@
 use crate::index::UtxoIndex;
 use async_trait::async_trait;
-use bloom_offchain_cardano::event_sink::tx_view::TxViewMut;
+use bloom_offchain_cardano::event_sink::processed_tx::TxViewMut;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_mempool_sync::data::MempoolUpdate;
 use spectrum_cardano_lib::address::AddressExtension;
