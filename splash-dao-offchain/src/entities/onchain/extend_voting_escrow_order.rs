@@ -1,5 +1,4 @@
 use crate::{
-    constants::EXTEND_VOTING_ESCROW_ORDER_MIN_LOVELACES,
     deployment::{DaoScriptData, ProtocolValidator},
     protocol_config::MintVECompositionPolicy,
     routines::TimedOutputRef,
@@ -16,7 +15,6 @@ use log::error;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
     plutus_data::{make_constr_pd_indefinite_arr, DatumExtension, IntoPlutusData},
-    transaction::TransactionOutputExtension,
     types::TryFromPData,
     OutputRef,
 };
@@ -76,11 +74,8 @@ where
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
-            let value = repr.value().clone();
-            if value.coin >= EXTEND_VOTING_ESCROW_ORDER_MIN_LOVELACES {
-                let ve_datum = VotingEscrowConfig::try_from_pd(repr.datum()?.into_pd()?)?;
-                return Some(Self { ve_datum });
-            }
+            let ve_datum = VotingEscrowConfig::try_from_pd(repr.datum()?.into_pd()?)?;
+            return Some(Self { ve_datum });
         }
         None
     }
@@ -159,5 +154,20 @@ pub fn compute_extend_ve_order_validator(mint_composition_token_policy: PolicyId
     apply_params_validator_plutus_v2(
         params_pd,
         &DaoScriptData::global().extend_voting_escrow_order.script_bytes,
+    )
+}
+
+pub fn compute_extend_ve_witness_validator() -> PlutusV2Script {
+    let script_bytes = DaoScriptData::global()
+        .extend_voting_escrow_order
+        .script_bytes
+        .clone();
+    let script = PlutusV2Script::new(hex::decode(script_bytes).unwrap());
+    let params_pd = uplc::PlutusData::Array(MaybeIndefArray::Indef(vec![uplc::PlutusData::BoundedBytes(
+        BoundedBytes::from(script.hash().to_raw_bytes().to_vec()),
+    )]));
+    apply_params_validator_plutus_v2(
+        params_pd,
+        &DaoScriptData::global().extend_voting_escrow_witness.script_bytes,
     )
 }

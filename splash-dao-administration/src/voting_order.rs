@@ -2,51 +2,69 @@
 //!
 
 use cml_chain::plutus::utils::ConstrPlutusDataEncoding;
-use cml_chain::plutus::{ConstrPlutusData, PlutusData, PlutusScript, PlutusV3Script};
+use cml_chain::plutus::{ConstrPlutusData, PlutusData, PlutusScript, PlutusV2Script};
 use cml_chain::utils::BigInteger;
 use cml_chain::{LenEncoding, PolicyId, Serialize};
 use cml_crypto::{PrivateKey, RawBytesEncoding, ScriptHash};
 use rand::Rng;
 use spectrum_cardano_lib::plutus_data::make_constr_pd_indefinite_arr;
-use spectrum_cardano_lib::OutputRef;
 use splash_dao_offchain::deployment::DaoScriptData;
-use splash_dao_offchain::entities::offchain::{
-    compute_witness_message, OffChainOrderId, WPollVoteOffChainOrder,
-};
-use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
+use splash_dao_offchain::entities::offchain::{compute_voting_escrow_witness_message, OffChainOrderId};
+use splash_dao_offchain::entities::{offchain::voting_order::VotingOrder, onchain::smart_farm::FarmId};
 use splash_dao_offchain::routines::actions::{compute_epoch_asset_name, compute_farm_name};
 use uplc_pallas_primitives::{BoundedBytes, Fragment};
 
-pub fn create_offchain_voting_order(
+pub fn create_voting_order(
     operator_sk: &PrivateKey,
-    distribution: Vec<(FarmId, u64)>,
     id: OffChainOrderId,
-    witness_redeemer: PlutusData,
-    order_output_ref: OutputRef,
-) -> WPollVoteOffChainOrder {
-    let voting_witness_script = PlutusScript::PlutusV3(PlutusV3Script::new(
-        hex::decode(&DaoScriptData::global().proxy_order_witness.script_bytes).unwrap(),
+    voting_power: u64,
+    wpoll_policy_id: PolicyId,
+    epoch: u32,
+    num_farms: u32,
+) -> VotingOrder {
+    let voting_witness_script = PlutusScript::PlutusV2(PlutusV2Script::new(
+        hex::decode(&DaoScriptData::global().voting_witness.script_bytes).unwrap(),
     ));
 
+    // Randomly choose a farm to apply the full weight towards
+    let mut rng = rand::thread_rng();
+    let chosen_id = rng.gen_range(0..num_farms);
+    let distribution: Vec<_> = (0..num_farms)
+        .filter_map(|id| {
+            if id == chosen_id {
+                Some((
+                    FarmId(spectrum_cardano_lib::AssetName::from(compute_farm_name(id))),
+                    voting_power,
+                ))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let redeemer = make_cml_witness_redeemer(&distribution, wpoll_policy_id, epoch);
+    let redeemer_pallas = make_pallas_redeemer(&distribution, wpoll_policy_id, epoch);
+
+    assert_eq!(
+        hex::encode(redeemer.to_cbor_bytes()),
+        hex::encode(redeemer_pallas.encode_fragment().unwrap()),
+    );
     println!("witness_script hash: {}", voting_witness_script.hash().to_hex());
-    let redeemer_hex = hex::encode(witness_redeemer.to_cbor_bytes());
+    let redeemer_hex = hex::encode(redeemer.to_cbor_bytes());
     println!("redeemer: {}", redeemer_hex);
-    let message = compute_witness_message(
-        voting_witness_script.hash(),
-        redeemer_hex.clone(),
-        id.version as u64,
-    )
-    .unwrap();
+    let message =
+        compute_voting_escrow_witness_message(voting_witness_script.hash(), redeemer_hex.clone(), id.version)
+            .unwrap();
     println!("message: {}", hex::encode(&message));
     let signature = operator_sk.sign(&message).to_raw_bytes().to_vec();
 
-    WPollVoteOffChainOrder {
+    VotingOrder {
         id,
         distribution,
         proof: signature,
         witness: voting_witness_script.hash(),
         witness_input: redeemer_hex,
-        order_output_ref,
+        version: id.version as u32,
     }
 }
 
@@ -130,7 +148,7 @@ mod tests {
     use cml_crypto::ScriptHash;
     use spectrum_cardano_lib::NetworkId;
     use spectrum_offchain_cardano::creds::operator_creds_base_address;
-    use splash_dao_offchain::entities::offchain::compute_witness_message;
+    use splash_dao_offchain::entities::offchain::compute_voting_escrow_witness_message;
     use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
     use splash_dao_offchain::routines::actions::compute_farm_name;
     use uplc_pallas_primitives::Fragment;
@@ -166,7 +184,7 @@ mod tests {
 
         let witness_sh =
             ScriptHash::from_hex("9e7637b80d1df227ec2061a88e7720df831c9fe9a2163a0334099d9e").unwrap();
-        let message = compute_witness_message(witness_sh, redeemer_hex.clone(), 0).unwrap();
+        let message = compute_voting_escrow_witness_message(witness_sh, redeemer_hex.clone(), 0).unwrap();
         println!("message: {}", hex::encode(&message));
 
         let (addr, _, operator_pkh, _operator_cred, operator_sk) =

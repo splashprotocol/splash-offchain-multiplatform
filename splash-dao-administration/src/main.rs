@@ -38,7 +38,6 @@ use num_rational::Ratio;
 use spectrum_cardano_lib::{
     collateral::Collateral,
     hash::hash_transaction_canonical,
-    plutus_data::DatumExtension,
     protocol_params::{constant_tx_builder, COINS_PER_UTXO_BYTE},
     transaction::TransactionOutputExtension,
     value::ValueExtension,
@@ -53,9 +52,7 @@ use spectrum_offchain_cardano::{
 };
 use splash_dao_offchain::{
     collateral::{pull_collateral, register_staking_address, send_assets},
-    constants::{
-        time::MAX_LOCK_TIME_SECONDS, DAO_SCRIPT_BYTES, REDEEM_VOTING_ESCROW_ORDER_MIN_LOVELACES, SPLASH_NAME,
-    },
+    constants::{time::MAX_LOCK_TIME_SECONDS, DAO_SCRIPT_BYTES, SPLASH_NAME},
     create_change_output::{ChangeOutputCreator, CreateChangeOutput},
     deployment::{
         write_deployment_to_disk, CompleteDeployment, DaoScriptData, DeployedValidators, DeploymentProgress,
@@ -64,6 +61,7 @@ use splash_dao_offchain::{
     entities::{
         offchain::OffChainOrderId,
         onchain::{
+            extend_voting_escrow_order::compute_extend_ve_witness_validator,
             farm_factory::{FarmFactoryAction, FarmFactoryDatum},
             inflation_box::InflationBoxSnapshot,
             permission_manager::{PermManagerDatum, PermManagerSnapshot},
@@ -71,7 +69,6 @@ use splash_dao_offchain::{
             smart_farm::{FarmId, MintAction},
             voting_escrow::{Lock, Owner, VotingEscrowConfig, VotingEscrowId, VotingEscrowSnapshot},
             voting_escrow_factory::{AcceptedAsset, VEFactoryDatum, VEFactoryId, VEFactorySnapshot},
-            weighting_poll::{WeightingPollId, WeightingPollSnapshot},
         },
     },
     routines::{actions::compute_farm_name, ProcessLedgerEntityContext, Slot, TimedOutputRef},
@@ -81,7 +78,7 @@ use splash_dao_offchain::{
 };
 use std::ops::Index;
 use user_simulator::user_simulator;
-use voting_order::create_offchain_voting_order;
+use voting_order::create_voting_order;
 
 const INFLATION_BOX_INITIAL_SPLASH_QTY: i64 = 32000000000000;
 
@@ -142,17 +139,21 @@ async fn main() {
             let id = VotingEscrowId::from(
                 spectrum_cardano_lib::AssetName::try_from_hex(&ve_identifier_hex).unwrap(),
             );
-            //cast_vote(&op_inputs, id).await;
+            cast_vote(&op_inputs, id).await;
         }
 
         Command::SendEDaoToken { destination_addr } => {
             send_edao_token(&op_inputs, destination_addr).await;
         }
-        Command::RegisterProxyOrderWitnessStakingAddress => {
-            let script: PlutusScript = PlutusV3Script::new(
-                hex::decode(DaoScriptData::global().proxy_order_witness.script_bytes.clone()).unwrap(),
+        Command::RegisterVotingWitnessStakingAddress => {
+            let script: PlutusScript = PlutusV2Script::new(
+                hex::decode(DaoScriptData::global().voting_witness.script_bytes.clone()).unwrap(),
             )
             .into();
+            register_witness_staking_addr(&op_inputs, script).await;
+        }
+        Command::RegisterExtendVotingEscrowWitnessStakingAddress => {
+            let script: PlutusScript = compute_extend_ve_witness_validator().into();
             register_witness_staking_addr(&op_inputs, script).await;
         }
         Command::RegisterRedeemVotingEscrowWitnessStakingAddress => {
@@ -445,12 +446,6 @@ async fn deploy<'a>(
                 cost: (&dsd.mint_identifier.ex_units).into(),
                 marginal_cost: None,
             },
-            wpoll_vote_order: DeployedValidatorRef {
-                hash: reference_input_script_hashes.wpoll_vote_order,
-                reference_utxo: make_ref_utxo(1, 4),
-                cost: (&dsd.wpoll_vote_order.ex_units).into(),
-                marginal_cost: None,
-            },
             mint_ve_composition_token: DeployedValidatorRef {
                 hash: reference_input_script_hashes.mint_ve_composition_token,
                 reference_utxo: make_ref_utxo(2, 0),
@@ -479,18 +474,6 @@ async fn deploy<'a>(
                 hash: reference_input_script_hashes.extend_ve_order,
                 reference_utxo: make_ref_utxo(2, 4),
                 cost: (&dsd.extend_voting_escrow_order.ex_units).into(),
-                marginal_cost: None,
-            },
-            harvest_order: DeployedValidatorRef {
-                hash: reference_input_script_hashes.harvest_order,
-                reference_utxo: make_ref_utxo(2, 5),
-                cost: (&dsd.harvest_order.ex_units).into(),
-                marginal_cost: None,
-            },
-            redeem_ve_order: DeployedValidatorRef {
-                hash: reference_input_script_hashes.redeem_ve_order,
-                reference_utxo: make_ref_utxo(2, 6),
-                cost: (&dsd.redeem_voting_escrow_order.ex_units).into(),
                 marginal_cost: None,
             },
         };
@@ -829,6 +812,7 @@ async fn make_voting_escrow_order(
 
     let VotingEscrowSettings {
         splash_deposit_amount,
+        max_ex_fee,
         ada_balance,
         lock_duration_in_seconds,
         ..
@@ -888,6 +872,7 @@ async fn make_voting_escrow_order(
         VotingEscrowConfig {
             locked_until,
             owner,
+            max_ex_fee: *max_ex_fee as u32,
             version: 0,
             last_wp_epoch: -1,
             last_gp_deadline: -1,
@@ -936,88 +921,7 @@ async fn make_voting_escrow_order(
     owner
 }
 
-async fn create_wpoll_vote_onchain_order(
-    voting_escrow_id: VotingEscrowId,
-    CurrentEpoch(current_epoch): CurrentEpoch,
-    op_inputs: &mut OperationInputs,
-) {
-    let OperationInputs {
-        explorer,
-        addr,
-        deployment_progress,
-        dao_parameters,
-        collateral,
-        prover,
-        network_id,
-        owner_pub_key,
-        ..
-    } = op_inputs;
-
-    let deployment_config = CompleteDeployment::try_from((deployment_progress.clone(), *network_id))
-        .expect(INCOMPLETE_DEPLOYMENT_ERR_MSG);
-    let protocol_deployment =
-        ProtocolDeployment::unsafe_pull(deployment_config.deployed_validators.clone(), explorer).await;
-
-    if let Some(mut results) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
-        explorer,
-        protocol_deployment.voting_escrow.hash,
-        *network_id,
-        &deployment_config,
-        voting_escrow_id,
-    )
-    .await
-    {
-        assert_eq!(results.len(), 1);
-        let (ve_snapshot, ve_unspent_output) = results.pop().unwrap();
-        let utxos = collect_utxos(addr, 5_000_000, vec![], collateral, explorer).await;
-
-        let mut change_output_creator = ChangeOutputCreator::default();
-        let mut tx_builder = constant_tx_builder();
-        for utxo in utxos {
-            println!("add_input coin: {}", utxo.utxo_info.value().coin);
-            change_output_creator.add_input(&utxo);
-            tx_builder.add_input(utxo).unwrap();
-        }
-
-        // wpoll_vote_order output
-        let voting_escrow_datum = ve_unspent_output.output.datum().unwrap();
-        let mut value = Value::zero();
-        value.coin = 2_000_000;
-        let wpoll_vote_order_output = TransactionOutputBuilder::new()
-            .with_address(script_address(
-                protocol_deployment.wpoll_vote_order.hash,
-                *network_id,
-            ))
-            .with_data(voting_escrow_datum)
-            .next()
-            .unwrap()
-            .with_value(value)
-            .build()
-            .unwrap();
-
-        change_output_creator.add_output(&wpoll_vote_order_output);
-        tx_builder.add_output(wpoll_vote_order_output).unwrap();
-        let estimated_tx_fee = tx_builder.min_fee(false).unwrap();
-        let actual_fee = estimated_tx_fee + 200_000;
-        let change_output = change_output_creator.create_change_output(actual_fee, addr.clone());
-        tx_builder.set_fee(actual_fee);
-        tx_builder.add_output(change_output).unwrap();
-
-        let signed_tx_builder = tx_builder.build(ChangeSelectionAlgo::Default, addr).unwrap();
-
-        let tx = prover.prove(signed_tx_builder);
-        let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
-        println!("tx_hash: {:?}", tx_hash);
-        let tx_bytes = tx.to_cbor_bytes();
-        println!("tx_bytes: {}", hex::encode(&tx_bytes));
-
-        explorer.submit_tx(&tx_bytes).await.unwrap();
-        explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
-        println!("TX confirmed");
-    }
-}
-
-async fn create_extend_voting_escrow_onchain_order(
+async fn extend_voting_escrow_order(
     voting_escrow_id: VotingEscrowId,
     ve_settings: &VotingEscrowSettings,
     op_inputs: &mut OperationInputs,
@@ -1086,7 +990,7 @@ async fn create_extend_voting_escrow_onchain_order(
         tx_builder.add_input(utxo).unwrap();
     }
 
-    let voting_escrow_datum = if let Some(mut results) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
+    let voting_escrow_datum = if let Some((ve_snapshot, _)) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
         explorer,
         protocol_deployment.voting_escrow.hash,
         *network_id,
@@ -1095,17 +999,15 @@ async fn create_extend_voting_escrow_onchain_order(
     )
     .await
     {
-        assert_eq!(results.len(), 1);
-        let (ve_snapshot, _) = results.pop().unwrap();
         let ve = ve_snapshot.get();
         let time_source = NetworkTimeSource;
         let locked_until = Lock::Def((time_source.network_time().await + *lock_duration_in_seconds) * 1000);
         // Note that this datum is for the newly extended `voting_escrow` (in the output)
-        println!("EXTEND VE PROXY_ORDER: VERSION == {}", ve.version + 1);
         DatumOption::new_datum(
             VotingEscrowConfig {
                 locked_until, // Extend by old locktime duration.
                 owner: ve.owner,
+                max_ex_fee: ve.max_ex_fee,
                 version: ve.version + 1,
                 last_wp_epoch: ve.last_wp_epoch,
                 last_gp_deadline: ve.last_gp_deadline,
@@ -1157,85 +1059,6 @@ async fn create_extend_voting_escrow_onchain_order(
 
     let owner_bytes = owner_pub_key.to_raw_bytes().try_into().unwrap();
     Owner::PubKey(owner_bytes)
-}
-
-async fn create_redeem_voting_escrow_onchain_order(
-    voting_escrow_datum: DatumOption,
-    op_inputs: &mut OperationInputs,
-) -> OutputRef {
-    let OperationInputs {
-        explorer,
-        addr,
-        deployment_progress,
-        collateral,
-        prover,
-        network_id,
-        ..
-    } = op_inputs;
-    let deployment_config = CompleteDeployment::try_from((deployment_progress.clone(), *network_id))
-        .expect(INCOMPLETE_DEPLOYMENT_ERR_MSG);
-    let protocol_deployment =
-        ProtocolDeployment::unsafe_pull(deployment_config.deployed_validators.clone(), explorer).await;
-
-    let utxos = collect_utxos(
-        addr,
-        REDEEM_VOTING_ESCROW_ORDER_MIN_LOVELACES + 1_000_000,
-        vec![],
-        collateral,
-        explorer,
-    )
-    .await;
-
-    let mut change_output_creator = ChangeOutputCreator::default();
-    let mut tx_builder = constant_tx_builder();
-    tx_builder.add_reference_input(protocol_deployment.redeem_ve_order.reference_utxo);
-
-    for utxo in utxos {
-        println!("add_input coin: {}", utxo.utxo_info.value().coin);
-        change_output_creator.add_input(&utxo);
-        tx_builder.add_input(utxo).unwrap();
-    }
-
-    let mut order_value = Value::zero();
-    order_value.coin = REDEEM_VOTING_ESCROW_ORDER_MIN_LOVELACES;
-    let order_output = TransactionOutputBuilder::new()
-        .with_address(script_address(
-            protocol_deployment.redeem_ve_order.hash,
-            *network_id,
-        ))
-        .with_data(voting_escrow_datum)
-        .next()
-        .unwrap()
-        .with_value(order_value)
-        .build()
-        .unwrap();
-
-    change_output_creator.add_output(&order_output);
-    tx_builder.add_output(order_output).unwrap();
-
-    let estimated_tx_fee = tx_builder.min_fee(true).unwrap();
-    let actual_fee = estimated_tx_fee + 300_000;
-    let change_output = change_output_creator.create_change_output(actual_fee, addr.clone());
-    tx_builder.add_output(change_output).unwrap();
-    tx_builder
-        .add_collateral(InputBuilderResult::from(collateral.clone()))
-        .unwrap();
-
-    let start_slot = explorer.chain_tip_slot_number().await.unwrap();
-    tx_builder.set_validity_start_interval(start_slot);
-    tx_builder.set_ttl(start_slot + 300);
-
-    let signed_tx_builder = tx_builder.build(ChangeSelectionAlgo::Default, addr).unwrap();
-    let tx = prover.prove(signed_tx_builder);
-    let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
-    println!("tx_hash: {:?}", tx_hash);
-    let tx_bytes = tx.to_cbor_bytes();
-    println!("tx_bytes: {}", hex::encode(&tx_bytes));
-
-    explorer.submit_tx(&tx_bytes).await.unwrap();
-    explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
-    println!("TX confirmed");
-    OutputRef::new(tx_hash, 0)
 }
 
 async fn create_initial_farms(op_inputs: &OperationInputs) {
@@ -1433,76 +1256,76 @@ async fn create_initial_farms(op_inputs: &OperationInputs) {
     explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
 }
 
-//async fn cast_vote(op_inputs: &OperationInputs, id: VotingEscrowId) {
-//    let OperationInputs {
-//        voting_order_listener_endpoint,
-//        operator_sk,
-//        deployment_progress,
-//        explorer,
-//        network_id,
-//        dao_parameters,
-//        ..
-//    } = op_inputs;
-//
-//    let deployment_config = CompleteDeployment::try_from((deployment_progress.clone(), *network_id))
-//        .expect(INCOMPLETE_DEPLOYMENT_ERR_MSG);
-//    let protocol_deployment =
-//        ProtocolDeployment::unsafe_pull(deployment_config.deployed_validators.clone(), explorer).await;
-//
-//    let voting_escrow_script_hash = protocol_deployment.voting_escrow.hash;
-//
-//    let (voting_escrow, _voting_escrow_unspent_output) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
-//        explorer,
-//        voting_escrow_script_hash,
-//        *network_id,
-//        &deployment_config,
-//        id,
-//    )
-//    .await
-//    .unwrap();
-//
-//    let id = OffChainOrderId {
-//        voting_escrow_id: voting_escrow.get().stable_id(),
-//        version: voting_escrow.get().version as u64,
-//    };
-//
-//    let current_posix_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
-//    let voting_power = voting_escrow.get().voting_power(current_posix_time);
-//
-//    let wpoll_policy_id = deployment_config.deployed_validators.mint_wpauth_token.hash;
-//    let voting_order = create_offchain_voting_order(
-//        operator_sk,
-//        id,
-//        voting_power,
-//        wpoll_policy_id,
-//        0,
-//        dao_parameters.num_active_farms,
-//    );
-//
-//    let client = reqwest::Client::new();
-//
-//    let url = format!(
-//        "http://{}{}",
-//        voting_order_listener_endpoint, "/submit/votingorder"
-//    );
-//
-//    // Send the PUT request with JSON body
-//    let response = client
-//        .put(url)
-//        .json(&voting_order) // Serialize the payload as JSON
-//        .send()
-//        .await
-//        .unwrap();
-//
-//    if response.status().is_success() {
-//        let text = response.text().await.unwrap();
-//        println!("Response: {}", text);
-//    } else {
-//        println!("Failed with status: {}", response.status());
-//        let error_text = response.text().await.unwrap();
-//        println!("Error: {}", error_text);
-//    }
-//}
+async fn cast_vote(op_inputs: &OperationInputs, id: VotingEscrowId) {
+    let OperationInputs {
+        voting_order_listener_endpoint,
+        operator_sk,
+        deployment_progress,
+        explorer,
+        network_id,
+        dao_parameters,
+        ..
+    } = op_inputs;
+
+    let deployment_config = CompleteDeployment::try_from((deployment_progress.clone(), *network_id))
+        .expect(INCOMPLETE_DEPLOYMENT_ERR_MSG);
+    let protocol_deployment =
+        ProtocolDeployment::unsafe_pull(deployment_config.deployed_validators.clone(), explorer).await;
+
+    let voting_escrow_script_hash = protocol_deployment.voting_escrow.hash;
+
+    let (voting_escrow, _voting_escrow_unspent_output) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
+        explorer,
+        voting_escrow_script_hash,
+        *network_id,
+        &deployment_config,
+        id,
+    )
+    .await
+    .unwrap();
+
+    let id = OffChainOrderId {
+        voting_escrow_id: voting_escrow.get().stable_id(),
+        version: voting_escrow.get().version as u64,
+    };
+
+    let current_posix_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+    let voting_power = voting_escrow.get().voting_power(current_posix_time);
+
+    let wpoll_policy_id = deployment_config.deployed_validators.mint_wpauth_token.hash;
+    let voting_order = create_voting_order(
+        operator_sk,
+        id,
+        voting_power,
+        wpoll_policy_id,
+        0,
+        dao_parameters.num_active_farms,
+    );
+
+    let client = reqwest::Client::new();
+
+    let url = format!(
+        "http://{}{}",
+        voting_order_listener_endpoint, "/submit/votingorder"
+    );
+
+    // Send the PUT request with JSON body
+    let response = client
+        .put(url)
+        .json(&voting_order) // Serialize the payload as JSON
+        .send()
+        .await
+        .unwrap();
+
+    if response.status().is_success() {
+        let text = response.text().await.unwrap();
+        println!("Response: {}", text);
+    } else {
+        println!("Failed with status: {}", response.status());
+        let error_text = response.text().await.unwrap();
+        println!("Error: {}", error_text);
+    }
+}
 
 pub async fn get_largest_utxo<Net: CardanoNetwork>(explorer: &Net, addr: &Address) -> InputBuilderResult {
     let mut utxos = explorer.utxos_by_address(addr.clone(), 0, 100).await;
@@ -1538,14 +1361,14 @@ async fn pull_onchain_entity<'a, T, D>(
     network_id: NetworkId,
     deployment_config: &'a D,
     id: T::StableId,
-) -> Option<Vec<(T, TransactionUnspentOutput)>>
+) -> Option<(T, TransactionUnspentOutput)>
 where
     T: TryFromLedger<TransactionOutput, ProcessLedgerEntityContext<'a, D>> + Stable,
 {
-    let mut res = vec![];
+    let mut entity = None;
     let mut offset = 0u64;
 
-    loop {
+    while entity.is_none() {
         let utxos = explorer
             .slot_indexed_utxos_by_address(script_address(script_hash, network_id), offset as u32, LIMIT)
             .await;
@@ -1568,7 +1391,7 @@ where
             if let Some(t) = T::try_from_ledger(&utxo.output, &ctx) {
                 println!("  ID: {}, slot: {}", t.stable_id(), slot);
                 if t.stable_id() == id {
-                    res.push((t, utxo));
+                    entity = Some((t, utxo));
                 }
                 if offset < slot {
                     offset = slot + 1;
@@ -1576,11 +1399,7 @@ where
             }
         }
     }
-    if res.is_empty() {
-        None
-    } else {
-        Some(res)
-    }
+    entity
 }
 
 async fn send_edao_token(op_inputs: &OperationInputs, destination_addr: String) {
@@ -1593,19 +1412,20 @@ async fn send_edao_token(op_inputs: &OperationInputs, destination_addr: String) 
         ..
     } = op_inputs;
     let destination_addr = Address::from_bech32(&destination_addr).unwrap();
-    //let deployment_config = CompleteDeployment::try_from((deployment_progress.clone(), *network_id))
-    //    .expect(INCOMPLETE_DEPLOYMENT_ERR_MSG);
+    let deployment_config = CompleteDeployment::try_from((deployment_progress.clone(), *network_id))
+        .expect(INCOMPLETE_DEPLOYMENT_ERR_MSG);
 
+    let minted_tokens = &deployment_config.minted_deployment_tokens;
     let bp = IssuedAsset {
         policy_id: PolicyId::from_hex("7876492e3b82a31b1ce97a8f454cec653a0f6be5c09b90e62d24c152").unwrap(),
         asset_name: cml_chain::assets::AssetName::from(AssetName::from_utf8("SPLASH".to_string())),
-        quantity: BigInteger::from(63_999_977_870_000_u64),
+        quantity: BigInteger::from(1_000_000),
     };
 
     let required_tokens = vec![bp];
     send_assets(
-        5_750_000_000,
-        20_000_000,
+        10_000_000,
+        7_800_000,
         required_tokens,
         explorer,
         addr,
@@ -1728,7 +1548,8 @@ enum Command {
         #[arg(long)]
         existing_splash_policy_id_hex: Option<String>,
     },
-    RegisterProxyOrderWitnessStakingAddress,
+    RegisterVotingWitnessStakingAddress,
+    RegisterExtendVotingEscrowWitnessStakingAddress,
     RegisterRedeemVotingEscrowWitnessStakingAddress,
     ConsolidateBotUTxOs,
 }
@@ -1736,6 +1557,7 @@ enum Command {
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct VotingEscrowSettings {
     splash_deposit_amount: u64,
+    max_ex_fee: u64,
     ada_balance: u64,
     lock_duration_in_seconds: u64,
     creation_epoch: u32,
