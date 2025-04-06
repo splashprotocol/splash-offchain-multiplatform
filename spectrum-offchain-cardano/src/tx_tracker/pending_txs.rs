@@ -80,11 +80,11 @@ impl<TxHash, Tx> PendingTxs<TxHash, Tx> {
 
             // Reverse chronological order
             let failed_txs = failed_txs_with_timestamp.into_iter().map(|x| x.1).collect();
-            //trace!(
-            //    "[TxTracker] Queue size: {}, pending transactions: {}",
-            //    self.queue.len(),
-            //    self.index.len()
-            //);
+            trace!(
+                "[TxTracker] Queue size: {}, pending transactions: {}",
+                self.queue.len(),
+                self.index.len()
+            );
             return Some(failed_txs);
         }
         None
