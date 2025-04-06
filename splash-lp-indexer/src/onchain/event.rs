@@ -1,3 +1,4 @@
+use crate::config::HarvestLimits;
 use crate::tx_view::TxViewPartiallyResolved;
 use cml_chain::address::Address;
 use cml_chain::certs::Credential;
@@ -16,10 +17,9 @@ use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use splash_dao_offchain::deployment::ProtocolValidator;
 use splash_dao_offchain::entities::onchain::poll_factory::{PollFactory, PollFactorySnapshot};
 use splash_dao_offchain::entities::onchain::smart_farm::{FarmId, SmartFarmSnapshot};
-use splash_dao_offchain::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy};
+use splash_dao_offchain::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy, WPFactoryAuthPolicy};
 use splash_dao_offchain::routines::{ProvideTimedOref, Slot, TimedOutputRef};
 use std::collections::HashSet;
-use crate::config::HarvestLimits;
 
 /// Events extracted from on-chain transactions.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -53,6 +53,7 @@ where
         + Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>>
         + Has<PoolValidation>
         + Has<PermManagerAuthPolicy>
+        + Has<WPFactoryAuthPolicy>
         + Has<FarmAuthPolicy>
         + Has<HarvestLimits>,
 {
@@ -266,9 +267,15 @@ where
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         repr.outputs.iter().find_map(|output| {
             let correct_lovelace_value = output.value().coin as u64
-                >= (repr.signers.len() as u64 * ctx.select::<HarvestLimits>().minimal_lovelace_per_single_harvest);
+                >= (repr.signers.len() as u64
+                    * ctx.select::<HarvestLimits>().minimal_lovelace_per_single_harvest);
             if test_address(output.address(), ctx) && correct_lovelace_value {
-                let accounts = repr.signers.clone().into_iter().map(Credential::new_pub_key).collect();
+                let accounts = repr
+                    .signers
+                    .clone()
+                    .into_iter()
+                    .map(Credential::new_pub_key)
+                    .collect();
                 Some(MultipleAccountsHarvest {
                     accounts,
                     harvested_till: Slot(repr.slot),
@@ -328,7 +335,7 @@ pub struct PollFactoryUpdated {
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for PollFactoryUpdated
 where
-    Cx: Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>,
+    Cx: Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>> + Has<WPFactoryAuthPolicy>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
         repr.outputs

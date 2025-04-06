@@ -1057,7 +1057,7 @@ impl<
                 );
                 let time_src = NetworkTimeSource {};
                 let timestamp = time_src.network_time().await as i64;
-                let order = DaoOrderBundle::new(eve_order.clone().into(), *entity.version(), bearer);
+                let order = DaoOrderBundle::new(order.clone().into(), *entity.version(), bearer);
                 let ord = PendingOrder { order, timestamp };
                 self.dao_order_backlog.put(ord.clone()).await;
                 self.tx_hash_to_dao_order.insert(*entity.version(), ord).await;
