@@ -75,15 +75,14 @@ where
             let value = repr.value();
             let auth_token_name =
                 AssetName::new(constants::DEFAULT_AUTH_TOKEN_NAME.to_be_bytes().to_vec()).unwrap();
-            if let Some(quantity) = value.multiasset.get(&auth_token_policy_id, &auth_token_name) {
-                if quantity == 1 {
-                    let farm_factory = FarmFactory {
-                        last_farm_id,
-                        farm_seed_data,
-                    };
+            let quantity = value.multiasset.get(&auth_token_policy_id, &auth_token_name)?;
+            if quantity == 1 {
+                let farm_factory = FarmFactory {
+                    last_farm_id,
+                    farm_seed_data,
+                };
 
-                    return Some(Snapshot::new(farm_factory, output_ref));
-                }
+                return Some(Snapshot::new(farm_factory, output_ref));
             }
         }
         None

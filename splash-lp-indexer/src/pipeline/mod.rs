@@ -1,3 +1,4 @@
+use crate::config::HarvestLimits;
 use crate::pipeline::log_events::log_lp_events;
 use crate::pipeline::read_events::read_events;
 use crate::pipeline::resolve_gauges::resolve_gauges;
@@ -19,10 +20,9 @@ use spectrum_offchain_cardano::data::pool::PoolValidation;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::*;
 use splash_dao_offchain::deployment::ProtocolValidator;
-use splash_dao_offchain::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy};
+use splash_dao_offchain::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy, WPFactoryAuthPolicy};
 use splash_dao_offchain::routines::TimedOutputRef;
 use std::collections::HashSet;
-use crate::config::HarvestLimits;
 
 mod log_events;
 pub mod read_events;
@@ -60,6 +60,7 @@ pub async fn log_events<U, Log, Cx, Utxos, Gauges>(
         + Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>>
         + Has<PoolValidation>
         + Has<PermManagerAuthPolicy>
+        + Has<WPFactoryAuthPolicy>
         + Has<FarmAuthPolicy>
         + Has<HarvestLimits>,
 {

@@ -732,13 +732,20 @@ fn create_extend_ve_offchain_order(
     println!("redeemer: {}", redeemer_hex);
     let message = compute_witness_message(witness.hash(), redeemer_hex.clone(), id.version as u64).unwrap();
     println!("message: {}", hex::encode(&message));
-    let signature = operator_sk.sign(&message).to_raw_bytes().to_vec();
+    let prefix_bytes = vec![0x9F, 1, 2, 3];
+    let postfix_bytes = vec![0xFF];
+    let mut full_payload: Vec<u8> = prefix_bytes.clone();
+    full_payload.extend_from_slice(&message);
+    full_payload.extend_from_slice(&postfix_bytes);
+    let signature = operator_sk.sign(&full_payload).to_raw_bytes().to_vec();
     ExtendVotingEscrowOffChainOrder {
         id,
         proof: signature,
         witness: witness.hash(),
         witness_input: redeemer_hex,
         order_output_ref,
+        prefix_bytes,
+        postfix_bytes,
     }
 }
 
@@ -757,7 +764,12 @@ fn create_redeem_ve_offchain_order(
     println!("redeemer: {}", redeemer_hex);
     let message = compute_witness_message(witness.hash(), redeemer_hex.clone(), id.version as u64).unwrap();
     println!("message: {}", hex::encode(&message));
-    let signature = operator_sk.sign(&message).to_raw_bytes().to_vec();
+    let prefix_bytes = vec![0x9F, 1, 2, 3];
+    let postfix_bytes = vec![0xFF];
+    let mut full_payload: Vec<u8> = prefix_bytes.clone();
+    full_payload.extend_from_slice(&message);
+    full_payload.extend_from_slice(&postfix_bytes);
+    let signature = operator_sk.sign(&full_payload).to_raw_bytes().to_vec();
     RedeemVotingEscrowOffChainOrder {
         id,
         stake_credential: Some(stake_credential),
@@ -765,6 +777,8 @@ fn create_redeem_ve_offchain_order(
         witness: witness.hash(),
         witness_input: redeemer_hex,
         order_output_ref,
+        prefix_bytes,
+        postfix_bytes,
     }
 }
 

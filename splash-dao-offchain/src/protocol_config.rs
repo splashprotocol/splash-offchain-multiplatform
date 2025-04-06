@@ -153,6 +153,8 @@ pub trait NotOutputRefNorSlotNumber {}
 impl NotOutputRefNorSlotNumber for OperatorCreds {}
 impl NotOutputRefNorSlotNumber for SplashPolicy {}
 impl NotOutputRefNorSlotNumber for FarmAuthPolicy {}
+impl NotOutputRefNorSlotNumber for InflationAuthPolicy {}
+impl NotOutputRefNorSlotNumber for WPFactoryAuthPolicy {}
 impl NotOutputRefNorSlotNumber for PermManagerAuthPolicy {}
 impl NotOutputRefNorSlotNumber for MintWPAuthPolicy {}
 impl NotOutputRefNorSlotNumber for MintVEIdentifierPolicy {}

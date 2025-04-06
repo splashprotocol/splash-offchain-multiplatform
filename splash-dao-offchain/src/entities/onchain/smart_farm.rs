@@ -13,7 +13,8 @@ use cml_core::serialization::ToBytes;
 use cml_crypto::RawBytesEncoding;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::plutus_data::{
-    ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension,
+    make_constr_pd_indefinite_arr, ConstrPlutusDataExtension, DatumExtension, IntoPlutusData,
+    PlutusDataExtension,
 };
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::types::TryFromPData;
@@ -65,6 +66,19 @@ impl TryFromPData for SmartFarmConfig {
             perm_manager_auth_policy: PolicyId::try_from_pd(cpd.take_field(0)?)?,
             pool_id: Token::try_from_pd(cpd.take_field(1)?)?.into(),
         })
+    }
+}
+
+impl IntoPlutusData for SmartFarmConfig {
+    fn into_pd(self) -> PlutusData {
+        let pool_id_pd = make_constr_pd_indefinite_arr(vec![
+            PlutusData::new_bytes(self.pool_id.0 .0.to_raw_bytes().to_vec()),
+            PlutusData::new_bytes(self.pool_id.0 .1.as_bytes().to_vec()),
+        ]);
+        make_constr_pd_indefinite_arr(vec![
+            PlutusData::new_bytes(self.perm_manager_auth_policy.to_raw_bytes().to_vec()),
+            pool_id_pd,
+        ])
     }
 }
 

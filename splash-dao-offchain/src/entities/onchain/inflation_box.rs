@@ -21,7 +21,7 @@ use crate::constants::time::EPOCH_BOUNDARY_SHIFT;
 use crate::constants::SPLASH_NAME;
 use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::Snapshot;
-use crate::protocol_config::SplashPolicy;
+use crate::protocol_config::{InflationAuthPolicy, SplashPolicy};
 use crate::routines::TimedOutputRef;
 use crate::time::{epoch_end, NetworkTime, ProtocolEpoch};
 use crate::{constants, GenesisEpochStartTime};
@@ -97,6 +97,7 @@ impl Stable for InflationBox {
 impl<C> TryFromLedger<TransactionOutput, C> for InflationBoxSnapshot
 where
     C: Has<SplashPolicy>
+        + Has<InflationAuthPolicy>
         + Has<DeployedScriptInfo<{ ProtocolValidator::Inflation as u8 }>>
         + Has<TimedOutputRef>,
 {
@@ -112,14 +113,20 @@ where
                 .get(&ctx.select::<SplashPolicy>().0, &splash_asset_name)?;
             let script_hash = repr.script_hash()?;
 
-            let inflation_box = InflationBox {
-                last_processed_epoch,
-                splash_reserves: TaggedAmount::new(splash),
-                script_hash,
-            };
-            let version = ctx.select::<TimedOutputRef>();
+            let auth_token_policy_id = ctx.select::<InflationAuthPolicy>().0;
+            let auth_token_name =
+                AssetName::new(constants::DEFAULT_AUTH_TOKEN_NAME.to_be_bytes().to_vec()).unwrap();
+            let quantity = value.multiasset.get(&auth_token_policy_id, &auth_token_name)?;
+            if quantity == 1 {
+                let inflation_box = InflationBox {
+                    last_processed_epoch,
+                    splash_reserves: TaggedAmount::new(splash),
+                    script_hash,
+                };
+                let version = ctx.select::<TimedOutputRef>();
 
-            return Some(Snapshot::new(inflation_box, version));
+                return Some(Snapshot::new(inflation_box, version));
+            }
         }
         None
     }
