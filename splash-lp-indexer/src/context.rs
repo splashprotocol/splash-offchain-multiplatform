@@ -1,12 +1,12 @@
+use crate::config::HarvestLimits;
 use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::data::pool::PoolValidation;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::*;
 use spectrum_offchain_cardano::deployment::{DeployedScriptInfo, ProtocolDeployment as DexDeployment};
 use splash_dao_offchain::deployment::ProtocolValidator::*;
 use splash_dao_offchain::deployment::{ProtocolDeployment as DaoDeployment, ProtocolTokens as DaoTokens};
-use splash_dao_offchain::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy};
+use splash_dao_offchain::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy, WPFactoryAuthPolicy};
 use type_equalities::IsEqual;
-use crate::config::HarvestLimits;
 
 pub struct Context {
     pub dex_deployment: DexDeployment,
@@ -35,6 +35,12 @@ impl Has<DeployedScriptInfo<{ SmartFarm as u8 }>> for Context {
 impl Has<PermManagerAuthPolicy> for Context {
     fn select<U: IsEqual<PermManagerAuthPolicy>>(&self) -> PermManagerAuthPolicy {
         PermManagerAuthPolicy(self.dao_tokens.perm_auth.policy_id)
+    }
+}
+
+impl Has<WPFactoryAuthPolicy> for Context {
+    fn select<U: IsEqual<WPFactoryAuthPolicy>>(&self) -> WPFactoryAuthPolicy {
+        WPFactoryAuthPolicy(self.dao_tokens.wp_factory_auth.policy_id)
     }
 }
 

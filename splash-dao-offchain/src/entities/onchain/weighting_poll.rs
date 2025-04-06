@@ -253,22 +253,25 @@ where
             for epoch in 0..=current_epoch.0 {
                 // wp_auth_token and weighting_power tokens have same asset name
                 let token_asset_name = compute_epoch_asset_name(epoch);
-                if value.multiasset.get(&wp_auth_policy, &token_asset_name).is_some() {
-                    let weighting_power = value.multiasset.get(&weighting_power_policy, &token_asset_name);
+                if let Some(quantity) = value.multiasset.get(&wp_auth_policy, &token_asset_name) {
+                    if quantity == 1 {
+                        let weighting_power =
+                            value.multiasset.get(&weighting_power_policy, &token_asset_name);
 
-                    trace!(
-                        "FOUND WEIGHTING_POLL: epoch: {}, weighting_power: {:?}",
-                        epoch,
-                        weighting_power
-                    );
-                    let weighting_poll = WeightingPoll {
-                        epoch,
-                        distribution,
-                        emission_rate: TaggedAmount::new(emission_rate),
-                        weighting_power,
-                        eliminated: false,
-                    };
-                    return Some(Snapshot::new(weighting_poll, TimedOutputRef { output_ref, slot }));
+                        trace!(
+                            "FOUND WEIGHTING_POLL: epoch: {}, weighting_power: {:?}",
+                            epoch,
+                            weighting_power
+                        );
+                        let weighting_poll = WeightingPoll {
+                            epoch,
+                            distribution,
+                            emission_rate: TaggedAmount::new(emission_rate),
+                            weighting_power,
+                            eliminated: false,
+                        };
+                        return Some(Snapshot::new(weighting_poll, TimedOutputRef { output_ref, slot }));
+                    }
                 }
             }
         }

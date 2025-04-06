@@ -68,17 +68,18 @@ where
                 .value()
                 .multiasset
                 .get(&perm_manager_auth_policy, &auth_token_cml_asset_name)?;
-            assert_eq!(auth_token_qty, 1);
-            let datum = repr.datum()?;
-            let perm_manager_datum = datum
-                .into_pd()
-                .map(|pd| PermManagerDatum::try_from_pd(pd).unwrap())?;
-            let version = ctx.select::<TimedOutputRef>();
-            let perm_manager = PermManager {
-                datum: perm_manager_datum,
-            };
+            if auth_token_qty == 1 {
+                let datum = repr.datum()?;
+                let perm_manager_datum = datum
+                    .into_pd()
+                    .map(|pd| PermManagerDatum::try_from_pd(pd).unwrap())?;
+                let version = ctx.select::<TimedOutputRef>();
+                let perm_manager = PermManager {
+                    datum: perm_manager_datum,
+                };
 
-            return Some(Snapshot::new(perm_manager, version));
+                return Some(Snapshot::new(perm_manager, version));
+            }
         }
         None
     }

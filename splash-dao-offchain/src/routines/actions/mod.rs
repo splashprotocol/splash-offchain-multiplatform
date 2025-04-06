@@ -31,12 +31,15 @@ use crate::collect_utxos::collect_tagged_utxos;
 use crate::constants::time::MAX_TIME_DRIFT_MILLIS;
 use crate::create_change_output::{ChangeOutputCreator, CreateChangeOutput};
 use crate::deployment::IssuedAsset;
-use crate::entities::offchain::voting_order::VotingOrder;
-use crate::entities::offchain::{ExtendVotingEscrowOffChainOrder, RedeemVotingEscrowOffChainOrder};
+use crate::entities::offchain::{
+    ExtendVotingEscrowOffChainOrder, RedeemVotingEscrowOffChainOrder, WPollVoteOffChainOrder,
+};
 use crate::entities::onchain::extend_voting_escrow_order::ExtendVotingEscrowOrderBundle;
 use crate::entities::onchain::funding_box::FundingBox;
 use crate::entities::onchain::make_voting_escrow_order::MakeVotingEscrowOrderBundle;
+use crate::entities::onchain::redeem_voting_escrow::RedeemVotingEscrowOrderBundle;
 use crate::entities::onchain::voting_escrow_factory::VEFactorySnapshot;
+use crate::entities::onchain::wpoll_vote_order::{WPollVoteOnchainOrder, WPollVoteOrderBundle};
 use crate::funding::AvailableFundingBoxes;
 use crate::protocol_config::OperatorCreds;
 
@@ -89,7 +92,9 @@ pub trait WPollActions<Bearer> {
     async fn execute_order(
         &self,
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
-        order: (VotingOrder, Bundled<VotingEscrowSnapshot, Bearer>),
+        voting_escrow: Bundled<VotingEscrowSnapshot, Bearer>,
+        onchain_order: WPollVoteOrderBundle<Bearer>,
+        offchain_order: WPollVoteOffChainOrder,
         current_slot: Slot,
     ) -> Result<
         (
@@ -135,6 +140,7 @@ pub trait VoteEscrowActions<Bearer> {
 
     async fn redeem_voting_escrow(
         &self,
+        onchain_order: RedeemVotingEscrowOrderBundle<Bearer>,
         offchain_order: RedeemVotingEscrowOffChainOrder,
         voting_escrow: Bundled<VotingEscrowSnapshot, Bearer>,
         ve_factory: Bundled<VEFactorySnapshot, Bearer>,
@@ -293,6 +299,7 @@ pub enum RedeemVotingEscrowError {
     InsufficientAdaInOrder,
     VEFactoryDatumNotPresent,
     VEStillLocked,
+    OwnerStakeCredentialMissingInRedeemer,
     Witness(WitnessError),
     Other(String),
 }

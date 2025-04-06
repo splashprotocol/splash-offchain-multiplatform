@@ -27,7 +27,6 @@ use crate::{
     collect_utxos::collect_utxos,
     create_change_output::{ChangeOutputCreator, CreateChangeOutput},
     deployment::{DaoScriptData, IssuedAsset},
-    entities::onchain::extend_voting_escrow_order::compute_extend_ve_witness_validator,
 };
 
 const LIMIT: u16 = 50;
@@ -170,6 +169,7 @@ where
     let redeemer = PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![]));
 
     let staking_validator_script_hash = script.hash();
+    println!("staking validator script hash: {}", staking_validator_script_hash);
 
     let cert_reg =
         Certificate::new_reg_cert(Credential::new_script(staking_validator_script_hash), 2_000_000);

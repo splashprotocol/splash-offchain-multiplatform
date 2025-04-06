@@ -11,7 +11,10 @@ use cml_crypto::{blake2b256, ScriptHash};
 use num_rational::Ratio;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
-    plutus_data::{ConstrPlutusDataExtension, DatumExtension, IntoPlutusData, PlutusDataExtension},
+    plutus_data::{
+        make_constr_pd_indefinite_arr, ConstrPlutusDataExtension, DatumExtension, IntoPlutusData,
+        PlutusDataExtension,
+    },
     transaction::TransactionOutputExtension,
     types::TryFromPData,
     value::ValueExtension,
@@ -124,7 +127,7 @@ where
                     for (token_name, qty) in by_names.iter() {
                         let token_name = spectrum_cardano_lib::AssetName::from(token_name.clone());
                         let token = Token(*policy_id, token_name);
-                        if token == expected_auth_token {
+                        if token == expected_auth_token && *qty == 1 {
                             auth_token_present = true;
                         } else if is_token_accepted(token, &accepted_assets) {
                             accepted_assets_inventory.push((token, *qty));
