@@ -100,7 +100,7 @@ struct Pg {
     port: u16,
     user: String,
     pass: String,
-    db_name: String
+    db_name: String,
 }
 
 impl From<AppArgs> for Pg {

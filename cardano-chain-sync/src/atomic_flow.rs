@@ -23,8 +23,16 @@ use tokio::sync::Mutex;
 
 #[derive(Clone)]
 pub enum BlockEvents<T> {
-    RollForward { events: Vec<T>, block_num: u64, block_slot: Slot },
-    RollBackward { events: Vec<T>, block_num: u64, block_slot: Slot },
+    RollForward {
+        events: Vec<T>,
+        block_num: u64,
+        block_slot: Slot,
+    },
+    RollBackward {
+        events: Vec<T>,
+        block_num: u64,
+        block_slot: Slot,
+    },
 }
 
 impl<T> BlockEvents<T> {
@@ -33,15 +41,23 @@ impl<T> BlockEvents<T> {
         F: FnOnce(Vec<T>) -> Vec<T2>,
     {
         match self {
-            BlockEvents::RollForward { events, block_num, block_slot } => BlockEvents::RollForward {
+            BlockEvents::RollForward {
+                events,
+                block_num,
+                block_slot,
+            } => BlockEvents::RollForward {
                 events: f(events),
                 block_num,
-                block_slot
+                block_slot,
             },
-            BlockEvents::RollBackward { events, block_num, block_slot } => BlockEvents::RollBackward {
+            BlockEvents::RollBackward {
+                events,
+                block_num,
+                block_slot,
+            } => BlockEvents::RollBackward {
                 events: f(events),
                 block_num,
-                block_slot
+                block_slot,
             },
         }
     }

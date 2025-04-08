@@ -23,9 +23,12 @@ where
     Index: PersistentIndex<OutputRef, TransactionOutput>,
 {
     let (txs, slot) = match &mut block {
-        BlockEvents::RollForward { events, block_slot, .. } | BlockEvents::RollBackward { events, block_slot, .. } => {
-            (events.drain(0..), block_slot)
+        BlockEvents::RollForward {
+            events, block_slot, ..
         }
+        | BlockEvents::RollBackward {
+            events, block_slot, ..
+        } => (events.drain(0..), block_slot),
     };
 
     let events = stream::iter(txs)

@@ -14,15 +14,23 @@ pub async fn resolve_gauges<I: VoteEscrowIndex, DB: Accounts>(
     accounts: &DB,
 ) -> BlockEvents<OnChainEvent> {
     match events {
-        BlockEvents::RollForward { events, block_num, block_slot } => BlockEvents::RollForward {
+        BlockEvents::RollForward {
+            events,
+            block_num,
+            block_slot,
+        } => BlockEvents::RollForward {
             events: resolve_events(events, index, accounts).await,
             block_num,
-            block_slot
+            block_slot,
         },
-        BlockEvents::RollBackward { events, block_num, block_slot } => BlockEvents::RollBackward {
+        BlockEvents::RollBackward {
+            events,
+            block_num,
+            block_slot,
+        } => BlockEvents::RollBackward {
             events: resolve_events(events, index, accounts).await,
             block_num,
-            block_slot
+            block_slot,
         },
     }
 }

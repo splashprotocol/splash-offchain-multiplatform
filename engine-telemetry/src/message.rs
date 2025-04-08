@@ -27,13 +27,13 @@ pub struct ExecutionReport {
 #[cfg(test)]
 mod tests {
     use crate::message::{ExecutionReport, OrderExecution};
+    use bigdecimal::{BigDecimal, One};
     use bloom_offchain::execution_engine::liquidity_book::core::ExecutionMeta;
     use bloom_offchain::execution_engine::liquidity_book::side::Side;
     use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
     use cml_crypto::TransactionHash;
     use spectrum_cardano_lib::{AssetClass, OutputRef, Token};
     use spectrum_offchain_cardano::data::pair::PairId;
-    use bigdecimal::{BigDecimal, One};
 
     #[test]
     fn sample_report_json_roundtrip() {

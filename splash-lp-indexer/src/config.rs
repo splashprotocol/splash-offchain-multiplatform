@@ -23,7 +23,7 @@ pub struct AppConfig {
     pub confirmation_delay_blocks: u64,
     pub events_export_topic: String,
     pub bootstrap_servers: String,
-    pub harvest_limits: HarvestLimits
+    pub harvest_limits: HarvestLimits,
 }
 
 #[derive(serde::Deserialize)]
