@@ -3,9 +3,9 @@ use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use rocksdb::{IteratorMode, Transaction, TransactionDB};
 use serde::de::DeserializeOwned;
-use serde::Serialize;
 use std::path::Path;
 use std::sync::Arc;
+use serde::Serialize;
 use tokio::task::spawn_blocking;
 
 #[async_trait]

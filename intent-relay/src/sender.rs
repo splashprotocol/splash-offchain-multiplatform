@@ -1,6 +1,7 @@
 use log::error;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
+use crate::intent::AuthedIntent;
 
 #[async_trait::async_trait]
 pub trait Sender<T> {
@@ -22,9 +23,9 @@ impl TcpSender {
 }
 
 #[async_trait::async_trait]
-impl Sender<String> for TcpSender {
-    async fn send(&mut self, message: String) {
-        if let Err(e) = self.conn.write_all(message.as_bytes()).await {
+impl Sender<AuthedIntent> for TcpSender {
+    async fn send(&mut self, message: AuthedIntent) {
+        if let Err(e) = self.conn.write_all(message.encode().as_slice()).await {
             error!("Failed to send message: {}", e);
         }
     }
