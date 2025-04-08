@@ -268,7 +268,7 @@ pub enum ExecuteOrderError {
     BadOrMissingInput,
     WeightingExceedsAvailableVotingPower {
         order_weighting_power: u64,
-        voting_escrow_weighting_power: u64,
+        available_weighting_power: u64,
     },
     InVotingPower,
     Witness(WitnessError),

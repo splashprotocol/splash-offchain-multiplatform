@@ -304,7 +304,9 @@ pub async fn user_simulator<'a>(
                                 let mut rng = rand::thread_rng();
                                 let num_farms = op_inputs.dao_parameters.num_active_farms;
                                 let chosen_id = rng.gen_range(0..num_farms);
-                                let voting_power = ve_snapshot.get().voting_power(now);
+
+                                // Set intentional lower bound, 2 less than current voting power.
+                                let voting_power = ve_snapshot.get().voting_power(now) - 2;
                                 let expected_diff: Vec<_> = (0..num_farms)
                                     .filter_map(|id| {
                                         if id == chosen_id {

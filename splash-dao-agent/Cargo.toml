@@ -42,3 +42,4 @@ serde_json = "1.0.88"
 [features]
 default = []
 enable_test_30_min_epoch = ["splash-dao-offchain/test_30_min_epoch"]
+enable_test_10_hour_epoch = ["splash-dao-offchain/test_10_hour_epoch"]
