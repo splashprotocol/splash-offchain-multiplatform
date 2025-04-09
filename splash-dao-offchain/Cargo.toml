@@ -73,5 +73,7 @@ rocksdb = "0.22.*"
 cbor_event = "2.4.0"
 
 [features]
-default = []
+default = ["normal_epoch"]
+normal_epoch = [] 
 test_30_min_epoch = []
+test_10_hour_epoch = []

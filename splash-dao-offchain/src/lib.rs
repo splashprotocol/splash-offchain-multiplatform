@@ -22,6 +22,13 @@ pub mod state_projection;
 pub mod time;
 pub mod util;
 
+#[cfg(all(
+    feature = "test_30_min_epoch",
+    feature = "test_10_hour_epoch",
+    not(feature = "default")
+))]
+compile_error!("Features `test_30_min_epoch` and `test_10_hour_epoch` cannot be enabled at the same time.");
+
 #[derive(Copy, Clone, Eq, PartialEq, From, Into, Debug)]
 pub struct GenesisEpochStartTime(NetworkTime);
 

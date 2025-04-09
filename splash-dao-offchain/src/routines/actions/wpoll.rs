@@ -796,20 +796,24 @@ where
         let current_posix_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
 
         let mut wpoll_out = weighting_poll_in.clone();
-        let weighting_power = voting_escrow.get().voting_power(current_posix_time);
-        println!("weighting_power: {}", weighting_power);
+        let available_weighting_power = voting_escrow.get().voting_power(current_posix_time);
 
-        let distribution_weighting_power = offchain_order.distribution.iter().fold(0, |acc, &(_, w)| acc + w);
-        if distribution_weighting_power != weighting_power {
+        let order_weighting_power = offchain_order.distribution.iter().fold(0, |acc, &(_, w)| acc + w);
+        println!(
+            "available weighting_power: {}, order weighting_power: {}",
+            available_weighting_power, order_weighting_power
+        );
+
+        if order_weighting_power > available_weighting_power {
             return Err(ExecuteOrderError::WeightingExceedsAvailableVotingPower {
-                order_weighting_power: distribution_weighting_power,
-                voting_escrow_weighting_power: weighting_power,
+                order_weighting_power,
+                available_weighting_power,
             });
         }
 
         let mut next_weighting_poll = weighting_poll.get().clone();
         next_weighting_poll.apply_votes(&offchain_order.distribution);
-        next_weighting_poll.weighting_power = Some(weighting_power);
+        next_weighting_poll.weighting_power = Some(order_weighting_power);
 
         if let Some(data_mut) = wpoll_out.data_mut() {
             unsafe_update_wp_state(data_mut, &next_weighting_poll.distribution);
@@ -819,7 +823,7 @@ where
                 mint_weighting_power_policy,
                 AssetName::from(weighting_power_asset_name.clone()),
             )),
-            weighting_power,
+            order_weighting_power,
         );
 
         // Set TX outputs --------------------------------------------------------------------------
@@ -858,16 +862,18 @@ where
         );
 
         let OperatorCreds(operator_pkh, _) = self.ctx.select::<OperatorCreds>();
-        let weighting_power_minting_policy =
-            SingleMintBuilder::new_single_asset(weighting_power_asset_name.clone(), weighting_power as i64)
-                .plutus_script(
-                    mint_weighting_power_script,
-                    RequiredSigners::from(vec![operator_pkh]),
-                );
+        let weighting_power_minting_policy = SingleMintBuilder::new_single_asset(
+            weighting_power_asset_name.clone(),
+            order_weighting_power as i64,
+        )
+        .plutus_script(
+            mint_weighting_power_script,
+            RequiredSigners::from(vec![operator_pkh]),
+        );
         let token = crate::create_change_output::Token {
             policy_id: mint_weighting_power_policy,
             asset_name: weighting_power_asset_name,
-            quantity: weighting_power,
+            quantity: order_weighting_power,
         };
         let mint_ex_units = dsd.mint_weighting_power.mint_ex_units.clone();
         let mints = vec![(weighting_power_minting_policy, token, true, mint_ex_units)];
