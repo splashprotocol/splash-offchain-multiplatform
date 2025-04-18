@@ -15,7 +15,7 @@ use spectrum_offchain::{
     ledger::TryFromLedger,
 };
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
-use voting_escrow::{Owner, VotingEscrow, VotingEscrowSnapshot};
+use voting_escrow::{Lock, Owner, VotingEscrow, VotingEscrowSnapshot};
 use voting_escrow_factory::{VEFactory, VEFactorySnapshot};
 use weighting_poll::{WeightingPoll, WeightingPollSnapshot};
 use wpoll_vote_order::WPollVoteOnchainOrder;

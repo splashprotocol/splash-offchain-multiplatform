@@ -179,6 +179,11 @@ where
         } else {
             (1, 0)
         };
+        trace!(
+            "make_ve: mve_in_ix: {}, ve_factory_in_ix: {}",
+            mve_in_ix,
+            ve_factory_in_ix
+        );
 
         let reference_inputs = vec![
             self.ctx.select::<VEFactoryRefScriptOutput>().0,
@@ -469,6 +474,13 @@ where
             .iter()
             .position(|(t, _, _)| matches!(t, T::VEFactory))
             .unwrap();
+
+        trace!(
+            "extend_ve: order_input_ix: {}, voting_escrow_input_ix: {}, ve_factory_input_ix: {}",
+            order_input_ix,
+            voting_escrow_input_ix,
+            ve_factory_input_ix
+        );
 
         // Verification of off-chain message with input `voting_escrow` ----------------------------
         let mut voting_escrow_out = ve_box_in.clone();
@@ -887,6 +899,13 @@ where
             .iter()
             .position(|(t, _, _)| matches!(t, T::VEFactory))
             .unwrap() as u32;
+
+        trace!(
+            "redeem_ve: order_input_ix: {}, voting_escrow_input_ix: {}, ve_factory_input_ix: {}",
+            order_input_ix,
+            voting_escrow_input_ix,
+            ve_factory_input_ix
+        );
 
         // Verification of off-chain message with input `voting_escrow` ----------------------------
         let mut voting_escrow_out = ve_box_in.clone();

@@ -29,7 +29,7 @@ use crate::{
     routines::TimedOutputRef,
 };
 
-use super::voting_escrow::{VotingEscrowConfig, VotingEscrowId};
+use super::voting_escrow::{Lock, VotingEscrowConfig, VotingEscrowId};
 
 #[derive(Hash, PartialEq, Eq, Serialize, Deserialize, Clone, Debug)]
 pub struct MakeVotingEscrowOrderBundle<Bearer> {
