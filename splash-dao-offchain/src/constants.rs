@@ -30,7 +30,7 @@ pub const TAIL_REDUCTION_RATE_NUM: u64 = 94_524;
 
 pub const TAIL_REDUCTION_RATE_DEN: u64 = 100_000;
 
-#[cfg(feature = "normal_epoch")]
+#[cfg(not(feature = "test_10_hour_epoch"))]
 pub mod time {
     /// Length of one emission epoch in milliseconds.
     pub const EPOCH_LEN: u64 = 604_800_000;
@@ -82,57 +82,7 @@ pub const ELIMINATE_WPOLL_MINIMUM_FUNDING: u64 = 3_000_000;
 pub const CREATE_WPOLL_MINIMUM_FUNDING: u64 = 5_000_000;
 pub const DISTRIBUTE_INFLATION_MINIMUM_FUNDING: u64 = 5_000_000;
 
-#[cfg(all(
-    feature = "test_30_min_epoch",
-    not(feature = "normal_epoch"),
-    not(feature = "test_10_hour_epoch")
-))]
-pub mod time {
-    /// Length of one emission epoch in milliseconds (30 min.).
-    pub const EPOCH_LEN: u64 = 1_800_000;
-
-    /// Maximum tolerable time inaccuracy. (10 min.)
-    pub const MAX_TIME_DRIFT_MILLIS: u64 = 600_000;
-
-    /// Max lock timespan in seconds. (30 min. * 52 == 1560 min.)
-    pub const MAX_LOCK_TIME_SECONDS: u64 = 93_600;
-
-    /// Max length of voting on proposal. (2 hours)
-    pub const MAX_VOTING_TIME_MILLIS: u64 = 14_400_000;
-
-    /// Min length of voting on proposal. (5 min)
-    pub const MIN_VOTING_TIME_MILLIS: u64 = 300_000;
-
-    /// Period after poll deadline after which it is allowed to destroy the poll. 30 min.
-    pub const COOLDOWN_PERIOD_MILLIS: u64 = 1_800_000;
-
-    /// Extra buffer period after COOLDOWN_PERIOD_MILLIS to ensure poll elimination TX validates. 2 min.
-    pub const COOLDOWN_PERIOD_EXTRA_BUFFER: u64 = 120_000;
-
-    /// Period after poll deadline after which it is allowed to start distributing inflation. 2 min.
-    pub const DISTRIBUTE_INFLATION_START_DELAY_MILLIS: u64 = 120_000;
-
-    /// This constant represents the number of milliseconds to add on top of the POSIX time of the
-    /// right-side epoch boundary. This is used to ensure that a TX's validity interval is entirely
-    /// within the next epoch. 2 min.
-    pub const EPOCH_BOUNDARY_SHIFT: u64 = 120_000;
-
-    /// TX time-to-live (TTL) for `distribute_inflation` TX (# slots).
-    pub const DISTRIBUTE_INFLATION_TX_TTL: u64 = 300;
-
-    //----------------------------------------------------------------------------------------------
-    // NOTE: the following constants from governance/weighting_poll.ak were also modified:
-    //
-    // Period after poll deadline after which it is allowed to destroy the poll. 30 days.
-    //   const cooldown_period_millis = 1_800_000
-    //   const wp_preinit_period_millis = 600_000 // 10 min.
-}
-
-#[cfg(all(
-    feature = "test_10_hour_epoch",
-    not(feature = "normal_epoch"),
-    not(feature = "test_30_min_epoch")
-))]
+#[cfg(feature = "test_10_hour_epoch")]
 pub mod time {
     /// Length of one emission epoch in milliseconds (10 hours).
     pub const EPOCH_LEN: u64 = 36_000_000;
@@ -170,8 +120,8 @@ pub mod time {
     // NOTE: the following constants from governance/weighting_poll.ak were also modified:
     //
     // Period after poll deadline after which it is allowed to destroy the poll. 30 days.
-    //   const cooldown_period_millis = 1_800_000
-    //   const wp_preinit_period_millis = 600_000 // 10 min.
+    //   const cooldown_period_millis = 86_400_000
+    //   const wp_preinit_period_millis = 43_200_000 // 10 min.
 }
 
 pub const MIN_PROPOSAL_OPTIONS: usize = 2;
@@ -197,6 +147,6 @@ pub const EXTEND_VOTING_ESCROW_ORDER_MIN_LOVELACES: u64 = 3_000_000;
 
 pub const REDEEM_VOTING_ESCROW_ORDER_MIN_LOVELACES: u64 = 2_000_000;
 
-pub const WPOLL_VOTE_ORDER_MIN_LOVELACES: u64 = 2_000_000;
+pub const WPOLL_VOTE_ORDER_MIN_LOVELACES: u64 = 2_500_000;
 
 pub static DAO_SCRIPT_BYTES: OnceCell<DaoScriptData> = OnceCell::new();

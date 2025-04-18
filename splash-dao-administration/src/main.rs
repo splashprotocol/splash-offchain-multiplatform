@@ -26,7 +26,7 @@ use cml_chain::{
     certs::StakeCredential,
     crypto::utils::make_vkey_witness,
     plutus::{ConstrPlutusData, PlutusData, PlutusScript, PlutusV2Script, PlutusV3Script, RedeemerTag},
-    transaction::{DatumOption, Transaction, TransactionOutput},
+    transaction::{DatumOption, Transaction, TransactionInput, TransactionOutput},
     utils::BigInteger,
     Coin, PolicyId, Serialize, Value,
 };
@@ -56,6 +56,7 @@ use splash_dao_offchain::{
     collateral::{pull_collateral, register_staking_address, send_assets},
     constants::{
         time::MAX_LOCK_TIME_SECONDS, DAO_SCRIPT_BYTES, REDEEM_VOTING_ESCROW_ORDER_MIN_LOVELACES, SPLASH_NAME,
+        WPOLL_VOTE_ORDER_MIN_LOVELACES,
     },
     create_change_output::{ChangeOutputCreator, CreateChangeOutput},
     deployment::{
@@ -517,7 +518,11 @@ async fn deploy<'a>(
 
     op_inputs.deployment_progress = deployment_progress;
 
-    for _ in 0..deployment_config.num_initial_farms {
+    for ix in 0..deployment_config.num_initial_farms {
+        println!(
+            "FARM {} -----------------------------------------------------------------------",
+            ix
+        );
         create_initial_farms(op_inputs).await;
     }
     deployment_config
@@ -673,17 +678,23 @@ async fn create_dao_entities(
         last_farm_id: -1,
         farm_seed_data,
     };
-    let farm_factory_out = make_output(
-        protocol_deployment.farm_factory.hash,
-        DatumOption::new_datum(farm_factory_datum.into_pd()),
-        farm_assets,
-    );
+
+    let farm_value = Value::new(2_000_000, farm_assets);
+    let farm_factory_out = TransactionOutputBuilder::new()
+        .with_address(script_address(protocol_deployment.farm_factory.hash, network_id))
+        .with_data(DatumOption::new_datum(farm_factory_datum.into_pd()))
+        .next()
+        .unwrap()
+        .with_value(farm_value)
+        .build()
+        .unwrap();
+
     output_coin += farm_factory_out.output.value().coin;
     tx_builder.add_output(farm_factory_out).unwrap();
 
     // wp_factory ----------------------------------------------------------------------------------
 
-    let active_farms = (0..deployment_params.num_active_farms)
+    let active_farms = (0..deployment_config.num_initial_farms)
         .map(|farm_id| {
             let name = spectrum_cardano_lib::AssetName::from(compute_farm_name(farm_id));
             FarmId(name)
@@ -941,7 +952,7 @@ async fn create_wpoll_vote_onchain_order(
     voting_escrow_id: VotingEscrowId,
     CurrentEpoch(current_epoch): CurrentEpoch,
     op_inputs: &mut OperationInputs,
-) {
+) -> Option<TransactionUnspentOutput> {
     let OperationInputs {
         explorer,
         addr,
@@ -983,7 +994,7 @@ async fn create_wpoll_vote_onchain_order(
         // wpoll_vote_order output
         let voting_escrow_datum = ve_unspent_output.output.datum().unwrap();
         let mut value = Value::zero();
-        value.coin = 2_000_000;
+        value.coin = WPOLL_VOTE_ORDER_MIN_LOVELACES;
         let wpoll_vote_order_output = TransactionOutputBuilder::new()
             .with_address(script_address(
                 protocol_deployment.wpoll_vote_order.hash,
@@ -1008,6 +1019,9 @@ async fn create_wpoll_vote_onchain_order(
 
         let tx = prover.prove(signed_tx_builder);
         let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
+        let output = tx.body.outputs[0].clone();
+        let input = TransactionInput::new(tx_hash, 0);
+        let result = TransactionUnspentOutput::new(input, output);
         println!("tx_hash: {:?}", tx_hash);
         let tx_bytes = tx.to_cbor_bytes();
         println!("tx_bytes: {}", hex::encode(&tx_bytes));
@@ -1015,7 +1029,9 @@ async fn create_wpoll_vote_onchain_order(
         explorer.submit_tx(&tx_bytes).await.unwrap();
         explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
         println!("TX confirmed");
+        return Some(result);
     }
+    None
 }
 
 async fn create_extend_voting_escrow_onchain_order(
@@ -1363,7 +1379,7 @@ async fn create_initial_farms(op_inputs: &OperationInputs) {
     );
 
     // farm_factory output ---------------------------------------
-    let farm_factory_assets = farm_factory_input_builder.utxo_info.amount().multiasset.clone();
+    // let farm_factory_assets = farm_factory_input_builder.utxo_info.amount().multiasset.clone();
     let mut farm_factory_out_datum = farm_factory_in_datum.clone();
     farm_factory_out_datum.last_farm_id += 1;
     let farm_factory_output = TransactionOutputBuilder::new()
@@ -1371,8 +1387,8 @@ async fn create_initial_farms(op_inputs: &OperationInputs) {
         .with_data(DatumOption::new_datum(farm_factory_out_datum.into_pd()))
         .next()
         .unwrap()
-        .with_asset_and_min_required_coin(farm_factory_assets, COINS_PER_UTXO_BYTE)
-        .unwrap()
+        .with_value(farm_factory_input_builder.utxo_info.amount().clone())
+        // .with_asset_and_min_required_coin(farm_factory_assets, COINS_PER_UTXO_BYTE)
         .build()
         .unwrap();
 
@@ -1555,6 +1571,7 @@ where
         }
 
         println!("pulled utxos from slot {}: # pulled: {}", offset, utxos.len(),);
+        let original_offset = offset;
 
         for (utxo, slot) in utxos {
             let timed_output_ref = TimedOutputRef {
@@ -1575,6 +1592,10 @@ where
                     offset = slot + 1;
                 }
             }
+        }
+        if original_offset == offset {
+            println!("pull_onchain_entity(): No progress made...");
+            break;
         }
     }
     if res.is_empty() {

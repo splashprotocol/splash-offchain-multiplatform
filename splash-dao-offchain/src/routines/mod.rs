@@ -68,10 +68,12 @@ use crate::entities::onchain::permission_manager::{PermManager, PermManagerId, P
 use crate::entities::onchain::poll_factory::{PollFactory, PollFactoryId, PollFactorySnapshot};
 use crate::entities::onchain::redeem_voting_escrow::RedeemVotingEscrowOrderBundle;
 use crate::entities::onchain::smart_farm::{FarmId, SmartFarm, SmartFarmSnapshot};
-use crate::entities::onchain::voting_escrow::{Owner, VotingEscrow, VotingEscrowId, VotingEscrowSnapshot};
+use crate::entities::onchain::voting_escrow::{
+    Lock, Owner, VotingEscrow, VotingEscrowId, VotingEscrowSnapshot,
+};
 use crate::entities::onchain::voting_escrow_factory::{VEFactoryId, VEFactorySnapshot};
 use crate::entities::onchain::weighting_poll::{
-    PollState, WeightingOngoing, WeightingPoll, WeightingPollId, WeightingPollSnapshot,
+    DistributionOngoing, PollState, WeightingOngoing, WeightingPoll, WeightingPollId, WeightingPollSnapshot,
 };
 use crate::entities::onchain::wpoll_vote_order::{WPollVoteOnchainOrder, WPollVoteOrderBundle};
 use crate::entities::onchain::{DaoEntity, DaoEntitySnapshot, DaoOrder, DaoOrderBundle};
@@ -691,7 +693,7 @@ impl<
             assert!(orders.is_empty());
 
             let DaoOrder::WPollVote(order) = order_bundle.order else {
-                panic!("Must be ExtendVE");
+                panic!("Must be WPollVote");
             };
             let onchain_order = WPollVoteOrderBundle {
                 order,
@@ -740,7 +742,7 @@ impl<
             assert!(orders.is_empty());
 
             let DaoOrder::RedeemVE(order) = order_bundle.order else {
-                panic!("Must be ExtendVE");
+                panic!("Must be RedeemVE");
             };
             let onchain_order = RedeemVotingEscrowOrderBundle {
                 order,
@@ -793,44 +795,70 @@ impl<
                     .get_latest_wpoll_to_eliminate(current_epoch - 1, genesis, now_millis)
                     .await
                     .map(|(weighting_poll, epoch)| (PendingEliminatePoll { weighting_poll }, epoch));
-                let previous_epoch_state = match self.weighting_poll(current_epoch - 1).await {
-                    Some(Either::Right(prev_wp)) => {
-                        match prev_wp.as_erased().0.get().state(genesis, now_millis) {
-                            PollState::WeightingOngoing(_st) => {
-                                unreachable!("Weighting is over for epoch {}", current_epoch - 1);
-                            }
-                            PollState::DistributionOngoing(next_farm) => {
-                                trace!("Previous wpoll still exists, distributing inflation");
-                                Some(EpochRoutineState::DistributionInProgress(
-                                    DistributionInProgress {
-                                        next_farm: self
-                                            .smart_farm
-                                            .read(next_farm.farm_id())
-                                            .await
-                                            .expect("State is inconsistent"),
+
+                let previous_epoch_state = if let Some((prev_wp, next_farm, old_epoch)) = self
+                    .get_oldest_wpoll_to_distribute_inflation(current_epoch - 1, genesis, now_millis)
+                    .await
+                {
+                    info!(
+                        "Inflation remains to be distributed from older epoch {}",
+                        old_epoch
+                    );
+                    Some(EpochRoutineState::DistributionInProgress(
+                        DistributionInProgress {
+                            next_farm: self
+                                .smart_farm
+                                .read(next_farm.farm_id())
+                                .await
+                                .expect("State is inconsistent"),
+                            weighting_poll: prev_wp,
+                            next_farm_weight: next_farm.farm_weight(),
+                            perm_manager: perm_manager.clone(),
+                        },
+                    ))
+                } else {
+                    match self.weighting_poll(current_epoch - 1).await {
+                        Some(Either::Right(prev_wp)) => {
+                            match prev_wp.as_erased().0.get().state(genesis, now_millis) {
+                                PollState::WeightingOngoing(_st) => {
+                                    unreachable!("Weighting is over for epoch {}", current_epoch - 1);
+                                }
+                                PollState::DistributionOngoing(next_farm) => {
+                                    trace!("Previous wpoll still exists, distributing inflation");
+                                    Some(EpochRoutineState::DistributionInProgress(
+                                        DistributionInProgress {
+                                            next_farm: self
+                                                .smart_farm
+                                                .read(next_farm.farm_id())
+                                                .await
+                                                .expect("State is inconsistent"),
+                                            weighting_poll: prev_wp,
+                                            next_farm_weight: next_farm.farm_weight(),
+                                            perm_manager: perm_manager.clone(),
+                                        },
+                                    ))
+                                }
+                                PollState::PollExhaustedButNotReadyToEliminate => {
+                                    Some(EpochRoutineState::WaitingToEliminate)
+                                }
+                                PollState::PollExhaustedAndReadyToEliminate => {
+                                    Some(EpochRoutineState::PendingEliminatePoll(PendingEliminatePoll {
                                         weighting_poll: prev_wp,
-                                        next_farm_weight: next_farm.farm_weight(),
-                                        perm_manager: perm_manager.clone(),
-                                    },
-                                ))
-                            }
-                            PollState::PollExhaustedButNotReadyToEliminate => {
-                                Some(EpochRoutineState::WaitingToEliminate)
-                            }
-                            PollState::PollExhaustedAndReadyToEliminate => {
-                                Some(EpochRoutineState::PendingEliminatePoll(PendingEliminatePoll {
-                                    weighting_poll: prev_wp,
-                                }))
-                            }
-                            PollState::Eliminated => Some(EpochRoutineState::Eliminated),
-                            PollState::WaitingForDistributionToStart => {
-                                trace!("Waiting for distribution of epoch {} to start", current_epoch - 1);
-                                Some(EpochRoutineState::WaitingForDistributionToStart)
+                                    }))
+                                }
+                                PollState::Eliminated => Some(EpochRoutineState::Eliminated),
+                                PollState::WaitingForDistributionToStart => {
+                                    trace!(
+                                        "Waiting for distribution of epoch {} to start",
+                                        current_epoch - 1
+                                    );
+                                    Some(EpochRoutineState::WaitingForDistributionToStart)
+                                }
                             }
                         }
+                        Some(Either::Left(WPollEliminated)) => Some(EpochRoutineState::Eliminated),
+                        None => None,
                     }
-                    Some(Either::Left(WPollEliminated)) => Some(EpochRoutineState::Eliminated),
-                    None => None,
                 };
                 (previous_epoch_state, eliminate_wpoll)
             } else {
@@ -1131,7 +1159,11 @@ impl<
                 let outbound_tx = prover.prove(signed_tx);
                 let tx = outbound_tx.clone();
                 let tx_hash = tx.body.hash();
-                info!("`create_wpoll`: submitting TX (hash: {})", tx_hash);
+                info!(
+                    "`create_wpoll`: submitting TX (hash: {}) (bytes: {})",
+                    tx_hash,
+                    hex::encode(tx.to_cbor_bytes()),
+                );
                 match self.network.submit_tx(outbound_tx).await {
                     Ok(()) => {
                         let inflation_box_id = next_inflation_box.state.stable_id();
@@ -1231,7 +1263,11 @@ impl<
                 let outbound_tx = prover.prove(signed_tx);
                 let tx = outbound_tx.clone();
                 let tx_hash = tx.body.hash();
-                info!("`execute_order`: submitting TX (hash: {})", tx_hash);
+                info!(
+                    "`execute_order`: submitting TX (hash: {}) (bytes: {})",
+                    tx_hash,
+                    hex::encode(tx.to_cbor_bytes()),
+                );
                 match self.network.submit_tx(outbound_tx).await {
                     Ok(()) => {
                         info!("`execute_order`: TX submission SUCCESS");
@@ -1343,7 +1379,11 @@ impl<
                 let outbound_tx = prover.prove(signed_tx);
                 let tx = outbound_tx.clone();
                 let tx_hash = tx.body.hash();
-                info!("`extend_voting_escrow`: submitting TX (hash: {})", tx_hash);
+                info!(
+                    "`extend_voting_escrow`: submitting TX (hash: {}), (bytes: {})",
+                    tx_hash,
+                    hex::encode(tx.to_cbor_bytes()),
+                );
                 match self.network.submit_tx(outbound_tx).await {
                     Ok(()) => {
                         info!("`extend_voting_escrow`: TX submission SUCCESS");
@@ -1449,7 +1489,11 @@ impl<
                 let outbound_tx = prover.prove(signed_tx);
                 let tx = outbound_tx.clone();
                 let tx_hash = tx.body.hash();
-                info!("`redeem_voting_escrow`: submitting TX (hash: {})", tx_hash);
+                info!(
+                    "`redeem_voting_escrow`: submitting TX (hash: {}) (bytes: {}",
+                    tx_hash,
+                    hex::encode(tx.to_cbor_bytes()),
+                );
                 match self.network.submit_tx(outbound_tx).await {
                     Ok(()) => {
                         info!("`redeem_voting_escrow`: TX submission SUCCESS");
@@ -1560,7 +1604,11 @@ impl<
             let outbound_tx = prover.prove(signed_tx);
             let tx = outbound_tx.clone();
             let tx_hash = tx.body.hash();
-            info!("`distribute_inflation`: submitting TX (hash: {})", tx_hash);
+            info!(
+                "`distribute_inflation`: submitting TX (hash: {}), (bytes: {})",
+                tx_hash,
+                hex::encode(tx.to_cbor_bytes()),
+            );
             match self.network.submit_tx(outbound_tx).await {
                 Ok(()) => {
                     info!("`distribute_inflation`: TX submission SUCCESS");
@@ -1654,6 +1702,11 @@ impl<
                 let prover = OperatorProver::new(self.conf.operator_sk.clone());
                 let outbound_tx = prover.prove(signed_tx);
                 let tx = outbound_tx.clone();
+                info!(
+                    "Eliminating wpoll @ epoch {} (TX bytes: {})",
+                    epoch,
+                    hex::encode(tx.to_cbor_bytes()),
+                );
                 let tx_hash = tx.body.hash();
                 match self.network.submit_tx(outbound_tx).await {
                     Ok(()) => {
@@ -1751,7 +1804,11 @@ impl<
                             println!("make_voting_escrow: PROVED");
                             let tx = outbound_tx.clone();
                             let tx_hash = tx.body.hash();
-                            info!("`make_voting_escrow`: submitting TX (hash: {})", tx_hash);
+                            info!(
+                                "`make_voting_escrow`: submitting TX (hash: {}), (bytes: {})",
+                                tx_hash,
+                                hex::encode(tx.to_cbor_bytes()),
+                            );
                             match self.network.submit_tx(outbound_tx).await {
                                 Ok(()) => {
                                     let voting_escrow_id = next_ve.state.stable_id();
@@ -1838,12 +1895,37 @@ impl<
     where
         WP: StateProjectionRead<WeightingPollSnapshot, Bearer> + Send + Sync,
     {
-        for epoch in (1..=starting_epoch).rev() {
+        for epoch in (0..=starting_epoch).rev() {
             if let Some(Either::Right(wp)) = self.weighting_poll(epoch).await {
                 if let PollState::PollExhaustedAndReadyToEliminate =
                     wp.as_erased().0.get().state(genesis, now_millis)
                 {
                     return Some((wp, epoch));
+                }
+            }
+        }
+        None
+    }
+
+    async fn get_oldest_wpoll_to_distribute_inflation(
+        &self,
+        before_epoch: ProtocolEpoch,
+        genesis: GenesisEpochStartTime,
+        now_millis: u64,
+    ) -> Option<(
+        AnyMod<Bundled<WeightingPollSnapshot, Bearer>>,
+        DistributionOngoing,
+        ProtocolEpoch,
+    )>
+    where
+        WP: StateProjectionRead<WeightingPollSnapshot, Bearer> + Send + Sync,
+    {
+        for epoch in 0..before_epoch {
+            if let Some(Either::Right(wp)) = self.weighting_poll(epoch).await {
+                if let PollState::DistributionOngoing(next_farm) =
+                    wp.as_erased().0.get().state(genesis, now_millis)
+                {
+                    return Some((wp, next_farm, epoch));
                 }
             }
         }
@@ -2041,6 +2123,16 @@ where
                             }
                         }
                         if let Some(entity) = DaoEntitySnapshot::try_from_ledger(&output.1, &ctx) {
+                            let time_millis = self.ntp.network_time().await * 1000;
+                            if let DaoEntity::MakeVotingEscrowOrder(MakeVotingEscrowOrder { ve_datum }) =
+                                entity.get()
+                            {
+                                if let Lock::Def(until_millis) = ve_datum.locked_until {
+                                    if time_millis > until_millis {
+                                        return;
+                                    }
+                                }
+                            }
                             trace!(
                                 "entity found: {:?}, epoch: {}, block_timestamp: {}, EPOCH_LEN: {}, DAO GEN time: {}",
                                 entity, current_epoch.0, time_millis, EPOCH_LEN, self.conf.genesis_time.0
