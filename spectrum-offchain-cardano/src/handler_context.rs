@@ -4,6 +4,7 @@ use cml_core::serialization::RawBytesEncoding;
 use cml_crypto::{Ed25519KeyHash, PublicKey};
 use cml_multi_era::babbage::utils::BabbageMint;
 use derive_more::{From, Into};
+use log::trace;
 use serde::de::Error;
 use serde::{Deserialize, Deserializer};
 use spectrum_cardano_lib::{AssetName, OutputRef, Token};
@@ -46,7 +47,12 @@ pub struct AllowedAdditionalPaymentDestinations(pub SmallVec<Ed25519KeyHash>);
 pub struct AddedPaymentDestinations(pub SmallVec<Ed25519KeyHash>);
 impl AddedPaymentDestinations {
     pub fn complies_with(&self, whitelist: &AllowedAdditionalPaymentDestinations) -> bool {
-        !self.0.exists(|hash| !whitelist.0.contains(hash))
+        let is_compliant = !self.0.exists(|hash| !whitelist.0.contains(hash));
+        if !is_compliant {
+            trace!("AddedPaymentDestinations: {}", self.0);
+            trace!("AllowedAdditionalPaymentDestinations: {}", whitelist.0);
+        }
+        is_compliant
     }
 }
 

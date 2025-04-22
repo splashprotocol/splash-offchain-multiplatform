@@ -80,3 +80,22 @@ impl<T: Copy> Default for SmallVec<T> {
         Self([None; SIZE])
     }
 }
+
+impl<T: std::fmt::Display> std::fmt::Display for SmallVec<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[")?;
+        let mut first = true;
+        for cell in self.0.iter() {
+            if let Some(val) = cell {
+                if !first {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{}", val)?;
+                first = false;
+            } else {
+                break;
+            }
+        }
+        write!(f, "]")
+    }
+}
