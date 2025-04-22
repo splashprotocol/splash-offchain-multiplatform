@@ -763,11 +763,10 @@ where
                 ..
             }) => Some(hash),
             _ => None,
-        })
-        .collect::<HashSet<_>>();
-    let added_destinations = AddedPaymentDestinations(SmallVec::new(tx.signers.iter().filter_map(|s| {
-        if !outbound_keys.contains(s) {
-            Some(*s)
+        });
+    let added_destinations = AddedPaymentDestinations(SmallVec::new(outbound_keys.filter_map(|dst| {
+        if !tx.signers.contains(dst) {
+            Some(*dst)
         } else {
             None
         }
