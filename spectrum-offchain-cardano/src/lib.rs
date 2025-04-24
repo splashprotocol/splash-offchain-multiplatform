@@ -11,6 +11,7 @@ pub mod parametrized_validators;
 pub mod persistent_index;
 pub mod pool_math;
 pub mod prover;
+pub mod raw_bytes;
 pub mod script;
 pub mod tx_submission;
 pub mod tx_tracker;

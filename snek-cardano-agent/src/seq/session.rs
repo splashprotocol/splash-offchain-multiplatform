@@ -6,7 +6,7 @@ use spectrum_offchain::data::ior::Ior;
 use spectrum_offchain::display::display_vec;
 use spectrum_offchain::domain::event::{Channel, Confirmed, Transition};
 use spectrum_offchain::domain::{SeqState, Stable};
-use spectrum_offchain::partitioning::hash_partitioning_key;
+use spectrum_offchain_cardano::raw_bytes::RawBytes;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Display;
@@ -90,7 +90,7 @@ impl<K, T> SessionInProgress<K, T> {
     /// and accumulated events being released.
     pub(crate) fn upgrade(&mut self, slot: Slot) -> Option<Vec<Channel<Transition<T>, LedgerCx>>>
     where
-        K: Copy + Eq + Ord + Hash + Display,
+        K: Copy + Eq + Ord + Hash + Display + RawBytes,
         T: Stable<StableId = K>,
     {
         if slot >= self.sealed_at + self.settlement_delay {
@@ -123,21 +123,20 @@ impl<K, T> SessionInProgress<K, T> {
             let window_size = seq_window_size(max_window_size, self.opening_event_cx.block_hash);
             trace!(
                 "Total events sealed: {}, window size: {}",
-                max_window_size,
-                window_size
+                max_window_size, window_size
             );
             trace!(
                 "Initial ordering: {}",
                 display_vec(&settled_events.iter().map(|x| x.stable_id()).collect())
             );
-            settled_events[to_skip..to_skip + window_size].sort_by(|a, b| a.stable_id().cmp(&b.stable_id()));
+            let reordered_events = do_sequencing(settled_events, to_skip, window_size);
             trace!(
                 "Updated ordering: {}",
-                display_vec(&settled_events.iter().map(|x| x.stable_id()).collect())
+                display_vec(&reordered_events.iter().map(|x| x.stable_id()).collect())
             );
 
             return Some(
-                settled_events
+                reordered_events
                     .into_iter()
                     .chain(remaining_events.into_iter())
                     .collect(),
@@ -147,10 +146,32 @@ impl<K, T> SessionInProgress<K, T> {
     }
 }
 
+fn do_sequencing<T, K>(
+    mut input: Vec<Channel<Transition<T>, LedgerCx>>,
+    skip: usize,
+    window_size: usize,
+) -> Vec<Channel<Transition<T>, LedgerCx>>
+where
+    T: Stable<StableId = K>,
+    K: RawBytes,
+{
+    let salt = key_to_int(input[(skip + window_size).saturating_sub(1)].stable_id());
+    input[skip..skip + window_size]
+        .sort_by(|a, b| (key_to_int(a.stable_id()) ^ salt).cmp(&(key_to_int(b.stable_id()) ^ salt)));
+    input
+}
+
+fn key_to_int<K: RawBytes>(key: K) -> u64 {
+    let bytes = key.to_raw_bytes();
+    bytes.iter().fold(0u64, |acc, &byte| (acc << 8) | byte as u64)
+}
+
 // Determine sequencing window based on deterministic block data
 fn seq_window_size(max_win_size: usize, block_hash: BlockHeaderHash) -> usize {
     if max_win_size != 0 {
-        (hash_partitioning_key(block_hash) % (max_win_size as u64)) as usize
+        let max_cut_size = max_win_size / 4;
+        let cut = key_to_int(block_hash) % (max_cut_size as u64);
+        max_win_size - cut as usize
     } else {
         0
     }
@@ -177,9 +198,12 @@ fn is_cancellation<T, C>(new: &Channel<Transition<T>, C>) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use crate::seq::session::key_to_int;
+    use bloom_offchain_cardano::event_sink::handler::LedgerCx;
     use cml_crypto::BlockHeaderHash;
     use rand::RngCore;
     use spectrum_offchain::data::ior::Ior;
+    use spectrum_offchain::domain::event::{Channel, Confirmed, Transition};
     use spectrum_offchain::domain::{SeqState, Stable};
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -213,6 +237,79 @@ mod tests {
                 TestEvent::Pool { init, .. } => *init,
             }
         }
+    }
+
+    #[test]
+    fn test_key_to_int_deterministic() {
+        use super::key_to_int;
+
+        // Define example keys
+        let key1 = [0u8; 8]; // All zeros
+        let key2 = [0xABu8; 8]; // All bytes set to 0xAB
+        let key3 = [0xFFu8; 8]; // All bytes set to 0xFF
+        let key4 = [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]; // Sequential bytes
+
+        // Use keys multiple times to ensure determinism
+        let key1_result1: u64 = key_to_int(key1);
+        let key1_result2: u64 = key_to_int(key1);
+        let key2_result1: u64 = key_to_int(key2);
+        let key2_result2: u64 = key_to_int(key2);
+        let key3_result1: u64 = key_to_int(key3);
+        let key3_result2: u64 = key_to_int(key3);
+        let key4_result1: u64 = key_to_int(key4);
+        let key4_result2: u64 = key_to_int(key4);
+
+        // Ensure consistency in results
+        assert_eq!(
+            key1_result1, key1_result2,
+            "Key1 should produce consistent results"
+        );
+        assert_eq!(
+            key2_result1, key2_result2,
+            "Key2 should produce consistent results"
+        );
+        assert_eq!(
+            key3_result1, key3_result2,
+            "Key3 should produce consistent results"
+        );
+        assert_eq!(
+            key4_result1, key4_result2,
+            "Key4 should produce consistent results"
+        );
+    }
+
+    #[test]
+    fn test_do_sequencing_deterministic() {
+        use super::do_sequencing;
+
+        let ledger_context = LedgerCx {
+            block_hash: BlockHeaderHash::from([0u8; 32]),
+            slot: 100, // example slot number
+                       // Add any necessary fields for LedgerCx initialization
+        };
+
+        // Create a set of test events
+        let event0 = TestEvent::Pool { id: 0, init: true };
+        let event1 = TestEvent::Order { id: 1, init: true };
+        let event2 = TestEvent::Order { id: 2, init: true };
+        let event3 = TestEvent::Order { id: 3, init: true };
+        let event4 = TestEvent::Order { id: 4, init: true };
+        let event5 = TestEvent::Order { id: 5, init: true };
+
+        let events_sequence = vec![event0, event3, event1, event4, event2, event5]
+            .into_iter()
+            .map(|e| Channel::Ledger(Confirmed(Transition::Forward(Ior::Right(e))), ledger_context))
+            .collect::<Vec<_>>();
+
+        // Perform sequencing on each sequence independently
+        let result1 = do_sequencing(events_sequence.clone(), 1, 5);
+        let result2 = do_sequencing(events_sequence, 1, 5);
+
+        // Ensure all results are the same regardless of input order
+        assert_eq!(
+            result1, result2,
+            "do_sequencing should be deterministic"
+        );
     }
 
     #[test]
@@ -278,7 +375,7 @@ mod tests {
 
         // Create a mock LedgerCx
         let ledger_context_1 = LedgerCx {
-            block_hash: BlockHeaderHash::from([0u8; 32]),
+            block_hash: BlockHeaderHash::from([9u8; 32]),
             slot: 100,
         };
 
@@ -288,11 +385,11 @@ mod tests {
         };
 
         let ledger_context_3 = LedgerCx {
-            block_hash: BlockHeaderHash::from([1u8; 32]),
+            block_hash: BlockHeaderHash::from([2u8; 32]),
             slot: 140,
         };
 
-        let expected_window_size = 12;
+        let expected_window_size = 27usize;
 
         // Create initial events
         let pool_init = Transition::Forward(Ior::Right(TestEvent::Pool { id: 1, init: true }));
@@ -303,21 +400,24 @@ mod tests {
 
         let mut rng = rand::thread_rng();
 
+        let mut original_ordering = vec![event1.stable_id()];
+
         for i in 1..=30 {
             let order_event = Channel::Ledger(
                 Confirmed(Transition::Forward(Ior::Right(TestEvent::Order {
                     id: rng.next_u64() % 1_000_000,
                     init: true,
                 }))),
-                if i >= 10 {
-                    ledger_context_2
-                } else if i >= 20 {
+                if i >= 20 {
                     ledger_context_3
+                } else if i >= 10 {
+                    ledger_context_2
                 } else {
                     ledger_context_1
                 },
             );
 
+            original_ordering.push(order_event.stable_id());
             // Register the generated order event
             assert!(session.register_event(order_event).is_ok(),);
         }
@@ -328,11 +428,13 @@ mod tests {
             .expect("Session events must be released at this point");
         let events_ordering = yielded_events.iter().map(|e| e.stable_id()).collect::<Vec<_>>();
 
-        // Check that all events in events_ordering are lexicographically ordered within the single window
+        // Verify that events ordered properly within sequencing window
+        let salt = key_to_int(original_ordering[(1 + expected_window_size).saturating_sub(1)]);
         assert!(
-            events_ordering[0..expected_window_size]
+            events_ordering[1..expected_window_size]
                 .into_iter()
-                .fold((true, 0), |(acc, prev), x| (acc && prev <= *x, *x))
+                .map(|x| key_to_int(*x) ^ salt)
+                .fold((true, 0u64), |(acc, prev), x| (acc && prev <= x, x))
                 .0,
             "Events should be ordered within session window"
         );

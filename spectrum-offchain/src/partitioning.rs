@@ -61,3 +61,16 @@ pub fn hash_partitioning_key<K: Hash>(key: K) -> u64 {
     key.hash(&mut hasher);
     hasher.finish()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hash_partitioning_key_deterministic() {
+        let key = "test_key";
+        let hash1 = hash_partitioning_key(key);
+        let hash2 = hash_partitioning_key(key);
+        assert_eq!(hash1, hash2, "Hash values are not deterministic");
+    }
+}

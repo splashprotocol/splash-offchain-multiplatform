@@ -750,20 +750,17 @@ where
     let mut non_processed_outputs = VecDeque::new();
     let consumed_utxos = SmallVec::new(consumed_utxos.into_iter());
     let consumed_identifiers = SmallVec::new(consumed_entities.keys().cloned());
-    let outbound_keys = tx
-        .outputs
-        .iter()
-        .filter_map(|(_, o)| match o.address() {
-            Address::Base(BaseAddress {
-                payment: Credential::PubKey { hash, .. },
-                ..
-            })
-            | Address::Enterprise(EnterpriseAddress {
-                payment: Credential::PubKey { hash, .. },
-                ..
-            }) => Some(hash),
-            _ => None,
-        });
+    let outbound_keys = tx.outputs.iter().filter_map(|(_, o)| match o.address() {
+        Address::Base(BaseAddress {
+            payment: Credential::PubKey { hash, .. },
+            ..
+        })
+        | Address::Enterprise(EnterpriseAddress {
+            payment: Credential::PubKey { hash, .. },
+            ..
+        }) => Some(hash),
+        _ => None,
+    });
     let added_destinations = AddedPaymentDestinations(SmallVec::new(outbound_keys.filter_map(|dst| {
         if !tx.signers.contains(dst) {
             Some(*dst)

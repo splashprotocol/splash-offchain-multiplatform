@@ -7,7 +7,6 @@ pub struct AuthedIntent {
     pub credential: [u8; 32],
 }
 
-
 impl AuthedIntent {
     pub fn encode(&self) -> Vec<u8> {
         let mut encoded = Vec::new();
@@ -101,7 +100,6 @@ impl TryFrom<&[u8]> for AuthedIntent {
 mod tests {
     use super::*;
 
-
     #[test]
     fn test_encode_decode_authed_intent() {
         let authed_intent = AuthedIntent {
@@ -134,10 +132,10 @@ mod tests {
         // Incomplete credential
         let incomplete_credential: Vec<u8> = vec![
             0, 0, 0, 4, 1, 2, 3, 4, // Intent
-            0, 0, 0, 3, 5, 6, 7,     // Prefix
-            0, 0, 0, 2, 8, 9,        // Postfix
+            0, 0, 0, 3, 5, 6, 7, // Prefix
+            0, 0, 0, 2, 8, 9, // Postfix
             0, 0, 0, 5, 10, 11, 12, 13, 14, // Signature
-            15, 15, 15,              // Incomplete credential
+            15, 15, 15, // Incomplete credential
         ];
         let result = AuthedIntent::decode(&incomplete_credential);
 

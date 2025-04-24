@@ -1,7 +1,7 @@
+use crate::intent::AuthedIntent;
 use log::error;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
-use crate::intent::AuthedIntent;
 
 #[async_trait::async_trait]
 pub trait Sender<T> {

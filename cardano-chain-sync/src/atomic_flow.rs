@@ -1,9 +1,8 @@
 use crate::cache::{LedgerCache, LinkedBlock};
 use crate::client::Point;
-use crate::data::{ChainUpgrade, LedgerBlockEvent};
+use crate::data::ChainUpgrade;
 use crate::event_source::unpack_valid_transactions_multi_era;
 use async_std::prelude::Stream;
-use async_std::stream::FusedStream;
 use cml_chain::transaction::Transaction;
 use cml_core::serialization::Deserialize;
 use cml_core::Slot;

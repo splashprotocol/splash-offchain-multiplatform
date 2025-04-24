@@ -9,6 +9,7 @@ use spectrum_offchain::data::ior::Ior;
 use spectrum_offchain::domain::event::{Channel, Confirmed, Transition};
 use spectrum_offchain::domain::{SeqState, Stable};
 use spectrum_offchain_cardano::data::pair::PairId;
+use spectrum_offchain_cardano::raw_bytes::RawBytes;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Display;
@@ -70,7 +71,7 @@ impl<Ticks, Events, K, T> WithDeterministicSeq<Ticks, Events, K, T> {
 
     fn update_clocks(&mut self, slot: Slot) -> bool
     where
-        K: Copy + Eq + Ord + Hash + Display,
+        K: Copy + Eq + Ord + Hash + Display + RawBytes,
         T: Stable<StableId = K>,
     {
         let upgrade = match slot.cmp(&self.current_slot) {
@@ -147,7 +148,7 @@ impl<Ticks, Events, K, T> Stream for WithDeterministicSeq<Ticks, Events, K, T>
 where
     Ticks: Stream<Item = Slot> + Unpin,
     Events: Stream<Item = (PairId, Channel<Transition<T>, LedgerCx>)> + Unpin,
-    K: Copy + Eq + Hash + Ord + Display + Unpin,
+    K: Copy + Eq + Hash + Ord + Display + Unpin + RawBytes,
     T: SeqState<StableId = K> + Unpin,
 {
     type Item = (PairId, Channel<Transition<T>, LedgerCx>);
