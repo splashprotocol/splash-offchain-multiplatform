@@ -170,7 +170,11 @@ fn key_to_int<K: RawBytes>(key: K) -> u64 {
 fn seq_window_size(max_win_size: usize, block_hash: BlockHeaderHash) -> usize {
     if max_win_size != 0 {
         let max_cut_size = max_win_size / 4;
-        let cut = key_to_int(block_hash) % (max_cut_size as u64);
+        let cut = if max_cut_size > 0 {
+            key_to_int(block_hash) % (max_cut_size as u64)
+        } else {
+            0
+        };
         max_win_size - cut as usize
     } else {
         0
