@@ -6,11 +6,10 @@ use spectrum_offchain::data::ior::Ior;
 use spectrum_offchain::display::display_vec;
 use spectrum_offchain::domain::event::{Channel, Confirmed, Transition};
 use spectrum_offchain::domain::{SeqState, Stable};
-use spectrum_offchain_cardano::raw_bytes::RawBytes;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Display;
-use std::hash::Hash;
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 pub(crate) struct SessionInProgress<K, T> {
     opening_event: K,
@@ -90,7 +89,7 @@ impl<K, T> SessionInProgress<K, T> {
     /// and accumulated events being released.
     pub(crate) fn upgrade(&mut self, slot: Slot) -> Option<Vec<Channel<Transition<T>, LedgerCx>>>
     where
-        K: Copy + Eq + Ord + Hash + Display + RawBytes,
+        K: Copy + Eq + Ord + Hash + Display,
         T: Stable<StableId = K>,
     {
         if slot >= self.sealed_at + self.settlement_delay {
@@ -154,7 +153,7 @@ fn do_sequencing<T, K>(
 ) -> Vec<Channel<Transition<T>, LedgerCx>>
 where
     T: Stable<StableId = K>,
-    K: RawBytes,
+    K: Hash,
 {
     let salt = key_to_int(input[(skip + window_size).saturating_sub(1)].stable_id());
     input[skip..skip + window_size]
@@ -162,9 +161,10 @@ where
     input
 }
 
-fn key_to_int<K: RawBytes>(key: K) -> u64 {
-    let bytes = key.to_raw_bytes();
-    bytes.iter().fold(0u64, |acc, &byte| (acc << 8) | byte as u64)
+fn key_to_int<K: Hash>(key: K) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    key.hash(&mut hasher);
+    hasher.finish()
 }
 
 // Determine sequencing window based on deterministic block data
@@ -203,13 +203,38 @@ fn is_cancellation<T, C>(new: &Channel<Transition<T>, C>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::seq::session::key_to_int;
+    use crate::seq::session::{do_sequencing, key_to_int};
     use bloom_offchain_cardano::event_sink::handler::LedgerCx;
     use cml_crypto::BlockHeaderHash;
     use rand::RngCore;
+    use spectrum_cardano_lib::Token;
     use spectrum_offchain::data::ior::Ior;
+    use spectrum_offchain::display::display_vec;
     use spectrum_offchain::domain::event::{Channel, Confirmed, Transition};
     use spectrum_offchain::domain::{SeqState, Stable};
+
+    struct Ev {
+        id: Token,
+        init: bool,
+    }
+
+    impl Stable for Ev {
+        type StableId = Token;
+
+        fn stable_id(&self) -> Self::StableId {
+            self.id
+        }
+
+        fn is_quasi_permanent(&self) -> bool {
+            false
+        }
+    }
+
+    impl SeqState for Ev {
+        fn is_initial(&self) -> bool {
+            self.init
+        }
+    }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     enum TestEvent {
@@ -243,6 +268,60 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_do_sequencing() {
+        let ledger_context = LedgerCx {
+            block_hash: BlockHeaderHash::from([0u8; 32]),
+            slot: 100, // example slot number
+            // Add any necessary fields for LedgerCx initialization
+        };
+        let raw_ids = vec![
+            "63f947b8d9535bc4e4ce6919e3dc056547e8d30ada12f29aa5f826b8.ed375f4db261ca9d22949d433183aafdeb773e117466cfbdb6a6f29d03e7d05e",
+            "29c2c5760b8ebf9ecec8954d800b928b91ce0aea9881bd13f886a5cf.",
+            "a7c243562e714dfcc2524cbb6a296daace69199697a15013ee91bb33.",
+            "fa2051580d1639012cc7acc2c6487b7ece2d653118358412183f4aae.",
+            "63e9ed4170eb1a8713858481c09843e8021d6dfa662fdbe4b7ce53a2.",
+            "98a5169a516c52a9001feaabeb2c979acefffb4b19dd4ef924c5d348.",
+            "9d779bca6853a435f2b055ea07173e8b184f9f4a5aeea0224c54270d.",
+            "6b8bfa90fd17ccf29c45d3fe36e3ae8b83c50ed5c11307fb9c237416.",
+            "155155ad0247f40051475f9441dfa09a81bbe785c24f9986ef00ac50.",
+            "fbfc6a74e4667c3b467eadb2210b0a80f2308fbcbd8a62e70fd055c9.",
+            "378f54110c9e0f5414e3a6b12b22b1165f9c8bc69ff8badf2aea550d.",
+            "709cf120bb3943d6d2f6a6a6e48b301a8fa25d6cc5b5559760623fbc.",
+            "708367cb738024a13c59fef7d2fa0ce29ca08ea2fb433851331fc4d6.",
+            "41472275619a632a89223d35f98687d63a8ceaeff0990cbfe605090f.",
+            "7507d5829183bb6567282f54aac7e40eb0b1aebb8fd21d2036a23f58.",
+            "faa114e5c56e7e304c1c9fecbe9e39c050357d7165c1995837a50d25.",
+            "74e28a8bc69f3a264f2e20c49d3db5083e67c1dcb25d60af8dfbd616.",
+            "c0626432ce882b68f438973043613f7c7e4c37df5bc0cfb35d35fc80.",
+            "47cf15cdad313ede6acf8ff1a6fe552430c4f07a0aa3b884883c21e8.",
+            "347d18837b41470b099c565a299fb36543a205c25a1561b3737ed807.",
+            "8c63952bdb0748f700d2c2b82508e929f93b0c6db87eef1a920d8ee8.",
+            "dfdebeca11d9d4477994c8b9a8c87009b27747a08561eba226c4f060.",
+            "835cce927448203cbee812e32c0831227ffb2735a827d407be3361b7.",
+            "bfaff6340c624aff28c4b2d4d068fec08205f0153b83ee66daed274b.",
+            "6d25b761046b051dd5a89c5c93022b80826c203493543eccd32dc6b9.",
+            "f336fc8a9e28d139f565a178c5195e957d7339c74c065cf5aa79dede.",
+            "365fb57d6fffdec1c86517c03506866b32d88a4ae923ec1023f7adf5.",
+            "b1177875facdee3705320f2f870118af0153527eea4894978257c4e4.",
+            "fce10d72e2ae15f0a1ef128d84147fec9d82ff832e0ecd541498cd5c.",
+            "2fcc1c514cd6f959edbb8962d599b14fc9e4309f5926d726ab5208f3.",
+            "be894b73a1935777d118b1dae641257991b92da665d25c975b46db7e.",
+            "6a8c54e1038a1aec04d221cc02829c08d3fa41aa672173cd6a026a7b.",
+            "b1a31783f54486da21db9a5d999fd09bc8381d70820a387304c697ea.",
+            "95b4763601f964ac84b1138d7358ed6a246b8499a742453b889a8ef1.",
+            "1d430c4d8ce1cdc9af79c5961fc55156f62995289dc88f5766ff8314.",
+            "9fbf06f58ecdc66567f91ba6bdc5dfb3f9ba6f2637ac433931f8be74.",
+            "97f9eea517b442da50405b0a31277d419dc0298d67b5ac6d7c891404.",
+            "639eb59c6c27261d308b215ec6454b879a61b5b0bfc7ad0e0f1da1f2.",
+            "bae90e6a4273bc433bc6f2815d3897bfad51c597e6546a3c70afbfd9.",
+        ];
+        let orders = raw_ids.into_iter().map(Token::from_string_unsafe).map(|id| Ev { id, init: true }).map(|e| Channel::Ledger(Confirmed(Transition::Forward(Ior::Right(e))), ledger_context)).collect();
+        let result1 = do_sequencing(orders, 1, 33);
+        println!("Ord: {}", display_vec(&result1.iter().map(|x| x.stable_id()).collect()))
+    }
+        
 
     #[test]
     fn test_key_to_int_deterministic() {
@@ -391,7 +470,7 @@ mod tests {
             slot: 140,
         };
 
-        let expected_window_size = 27usize;
+        let expected_window_size = 25usize;
 
         // Create initial events
         let pool_init = Transition::Forward(Ior::Right(TestEvent::Pool { id: 1, init: true }));
