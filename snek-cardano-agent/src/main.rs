@@ -72,6 +72,7 @@ use tracing_subscriber::fmt::Subscriber;
 mod config;
 mod context;
 mod entity;
+mod fifo;
 mod seq;
 mod snek_handler_context;
 mod snek_protocol_deployment;

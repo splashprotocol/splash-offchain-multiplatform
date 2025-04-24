@@ -626,7 +626,7 @@ pub struct FillPreview {
     pub input: u64,
 }
 
-fn dummy_swap<M: MarketMaker + Stable>(
+pub fn dummy_swap<M: MarketMaker + Stable>(
     demand: u64,
     side: Side,
     maker: &M,
@@ -641,7 +641,7 @@ fn dummy_swap<M: MarketMaker + Stable>(
     ))
 }
 
-fn try_optimized_swap<M: MarketMaker + Stable>(
+pub fn try_optimized_swap<M: MarketMaker + Stable>(
     price: AbsolutePrice,
     demand: u64,
     side: Side,

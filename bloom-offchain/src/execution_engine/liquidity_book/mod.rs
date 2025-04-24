@@ -29,7 +29,7 @@ pub mod market_maker;
 pub mod market_taker;
 pub mod side;
 pub mod stashing_option;
-mod state;
+pub mod state;
 pub mod time;
 pub mod types;
 pub mod weight;

@@ -123,7 +123,8 @@ impl<K, T> SessionInProgress<K, T> {
             let window_size = seq_window_size(max_window_size, self.opening_event_cx.block_hash);
             trace!(
                 "Total events sealed: {}, window size: {}",
-                max_window_size, window_size
+                max_window_size,
+                window_size
             );
             trace!(
                 "Initial ordering: {}",
@@ -310,10 +311,7 @@ mod tests {
         let result2 = do_sequencing(events_sequence, 1, 5);
 
         // Ensure all results are the same regardless of input order
-        assert_eq!(
-            result1, result2,
-            "do_sequencing should be deterministic"
-        );
+        assert_eq!(result1, result2, "do_sequencing should be deterministic");
     }
 
     #[test]
