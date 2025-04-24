@@ -68,6 +68,7 @@ use std::future;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing_subscriber::fmt::Subscriber;
+use crate::fifo::Fifo;
 
 mod config;
 mod context;
@@ -287,7 +288,7 @@ async fn main() {
         adhoc_fee_structure: config.adhoc_fee.into(),
     };
     let multi_book =
-        MultiPair::new::<TLB<AdhocOrder, DegenQuadraticPool, PairId, ExUnits>>(maker_context.clone(), "Book");
+        MultiPair::new::<Fifo<AdhocOrder, DegenQuadraticPool, PairId, ExUnits>>(maker_context.clone(), "Book");
     let multi_backlog =
         MultiPair::new::<HotPriorityBacklog<Bundled<Order, FinalizedTxOut>>>(maker_context, "Backlog");
     let state_index = InMemoryStateIndex::with_tracing();

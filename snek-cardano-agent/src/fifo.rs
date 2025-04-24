@@ -1,25 +1,25 @@
-use std::cmp::max;
 use algebra_core::monoid::Monoid;
-use bloom_offchain::execution_engine::liquidity_book::config::{ExecutionCap, ExecutionConfig};
+use bloom_offchain::execution_engine::liquidity_book::config::ExecutionConfig;
 use bloom_offchain::execution_engine::liquidity_book::core::{
-    BaseStepBudget, ExecutionMeta, MakeInProgress, MatchmakingAttempt, MatchmakingRecipe, Next,
-    TakeInProgress, Trans,
+    ExecutionMeta, MakeInProgress, MatchmakingAttempt, MatchmakingRecipe, Next, TakeInProgress, Trans,
 };
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker, SpotPrice};
 use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
 use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
-use bloom_offchain::execution_engine::liquidity_book::stashing_option::StashingOption;
 use bloom_offchain::execution_engine::liquidity_book::state::{dummy_swap, try_optimized_swap, FillPreview};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use bloom_offchain::execution_engine::liquidity_book::{ExternalLBEvents, LBFeedback, LiquidityBook, TLB};
+use bloom_offchain::execution_engine::types::Time;
 use either::Either;
 use log::trace;
 use spectrum_offchain::display::{display_option, display_tuple};
-use spectrum_offchain::domain::Stable;
+use spectrum_offchain::domain::{Has, Stable};
+use spectrum_offchain::maker::Maker;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Display;
 use std::ops::AddAssign;
 
+#[derive(Clone)]
 struct FifoState<Taker: Stable, Maker: Stable> {
     queue: VecDeque<Taker::StableId>,
     takers: HashMap<Taker::StableId, Taker>,
@@ -106,11 +106,27 @@ impl<Taker: Stable, Maker: Stable> FifoState<Taker, Maker> {
     }
 }
 
-struct Fifo<Taker: Stable, Maker: Stable, Pair, U> {
+#[derive(Clone)]
+pub struct Fifo<Taker: Stable, Maker: Stable, Pair, U> {
     state: FifoState<Taker, Maker>,
     backup: Option<FifoState<Taker, Maker>>,
     conf: ExecutionConfig<U>,
     pair: Pair,
+}
+
+impl<T, M, P, Ctx, U> Maker<P, Ctx> for Fifo<T, M, P, U>
+where
+    T: Stable,
+    M: Stable,
+    Ctx: Has<Time> + Has<ExecutionConfig<U>>,
+{
+    fn make(key: P, ctx: &Ctx) -> Self {
+        Self::new(
+            ctx.select::<Time>().into(),
+            ctx.select::<ExecutionConfig<U>>(),
+            key,
+        )
+    }
 }
 
 impl<Taker, Maker, P, U> LBFeedback<Taker, Maker> for Fifo<Taker, Maker, P, U>
@@ -145,6 +161,14 @@ impl<Taker: Stable, Maker: Stable, P, U> Fifo<Taker, Maker, P, U> {
         Maker: MarketMaker + Copy,
     {
         self.state.best_market_maker().map(|mm| mm.static_price())
+    }
+
+    fn backup(&mut self)
+    where
+        Taker: Clone,
+        Maker: Clone,
+    {
+        self.backup.replace(self.state.clone());
     }
 }
 
@@ -185,6 +209,7 @@ where
             let mut batch: MatchmakingAttempt<Taker, Maker, U> = MatchmakingAttempt::empty();
             let mut meta = ExecutionMeta::empty();
             let mut max_attempts = self.state.queue_size();
+            self.backup();
             while batch.execution_units_consumed() < self.conf.execution_cap.soft && batch.num_takes() < 15 {
                 if let Some(spot_price) = self.spot_price() {
                     meta.add_price_point(spot_price);
@@ -250,7 +275,10 @@ where
                         "{} Matchmaking attempt failed due to taker limits, retrying",
                         self.pair
                     );
-                    self.state.rollback(StashingOption::Stash(unsatisfied_takers));
+                    self.on_recipe_failed();
+                    for t in unsatisfied_takers {
+                        self.state.append_taker(t);
+                    }
                     continue;
                 }
                 Err(Some(Either::Right(_downgrade_required))) => {
@@ -258,7 +286,7 @@ where
                         "{} Matchmaking attempt failed due to high execution complexity, retrying",
                         self.pair
                     );
-                    self.state.rollback(StashingOption::Stash(vec![]));
+                    self.on_recipe_failed();
                     optimized_matchmaking = false;
                     continue;
                 }
@@ -286,21 +314,21 @@ where
 }
 
 impl<Taker: Stable, Maker: Stable, Pair, U> ExternalLBEvents<Taker, Maker> for Fifo<Taker, Maker, Pair, U> {
-    fn advance_clocks(&mut self, new_time: u64) {}
+    fn advance_clocks(&mut self, _: u64) {}
 
-    fn update_taker(&mut self, fr: Taker) {
-        todo!()
+    fn update_taker(&mut self, tk: Taker) {
+        self.state.append_taker(tk)
     }
 
-    fn remove_taker(&mut self, fr: Taker) {
-        todo!()
+    fn remove_taker(&mut self, tk: Taker) {
+        self.state.remove_taker(tk)
     }
 
-    fn update_maker(&mut self, pool: Maker) {
-        todo!()
+    fn update_maker(&mut self, mk: Maker) {
+        self.state.add_maker(mk)
     }
 
-    fn remove_maker(&mut self, pool: Maker) {
-        todo!()
+    fn remove_maker(&mut self, mk: Maker) {
+        self.state.remove_maker(mk)
     }
 }
