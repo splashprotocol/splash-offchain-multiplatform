@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize, Serializer};
 use spectrum_offchain::display::display_vec;
 use spectrum_offchain::domain::{Has, Stable};
 use std::cmp::{max, min};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::mem;
@@ -557,6 +557,7 @@ impl<T> TakeInProgress<T> {
 pub struct FinalRecipe<Taker: Stable, Maker: Stable> {
     pub(crate) takes: HashMap<Taker::StableId, FinalTake<Taker>>,
     pub(crate) makes: HashMap<Maker::StableId, FinalMake<Maker>>,
+    pub(crate) ordering: Vec<Taker::StableId>,
 }
 
 impl<T: Stable, M: Stable> FinalRecipe<T, M> {
@@ -582,6 +583,7 @@ impl<T: Stable, M: Stable> FinalRecipe<T, M> {
 pub struct MatchmakingAttempt<Taker: Stable, Maker: Stable, U> {
     takes: HashMap<Taker::StableId, TakeInProgress<Taker>>,
     makes: HashMap<Maker::StableId, MakeInProgress<Maker>>,
+    ordering: Vec<Taker::StableId>,
     execution_units_consumed: U,
     /// Number of distinct makes aggregated into one.
     num_aggregated_makes: usize,
@@ -609,6 +611,7 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
         Self {
             takes: HashMap::new(),
             makes: HashMap::new(),
+            ordering: Vec::new(),
             execution_units_consumed: U::empty(),
             num_aggregated_makes: 0,
         }
@@ -666,6 +669,7 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
         let take_combined = match self.takes.remove(&sid) {
             None => {
                 self.execution_units_consumed += take.target.marginal_cost_hint();
+                self.ordering.push(sid);
                 take
             }
             Some(existing_transition) => existing_transition.combine(take),
@@ -698,7 +702,12 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
         Taker: MarketTaker + TakerBehaviour,
     {
         let (mut excess_base, mut excess_quote) = (0u64, 0u64);
-        let Self { takes, makes, .. } = self;
+        let Self {
+            takes,
+            makes,
+            ordering,
+            ..
+        } = self;
         let mut balanced_makes = vec![];
         for (id, make) in makes {
             let (final_make, Excess { base, quote }) = make.finalized()?;
@@ -719,6 +728,7 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
             return Some(FinalRecipe {
                 takes: HashMap::from_iter(balanced_takes),
                 makes: HashMap::from_iter(balanced_makes),
+                ordering,
             });
         }
         None
@@ -780,9 +790,24 @@ where
                 let unsatisfied_fragments = final_recipe.unsatisfied_fragments();
                 return if unsatisfied_fragments.is_empty() {
                     let complexity_ok = Self::check_recipe_complexity(&final_recipe, cx);
-                    let FinalRecipe { takes, makes } = final_recipe;
+                    let FinalRecipe {
+                        takes,
+                        makes,
+                        ordering,
+                    } = final_recipe;
+                    let mut ordering = ordering
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, id)| (id, i))
+                        .collect::<HashMap<_, _>>();
+                    let mut takes = takes.into_values().collect::<Vec<_>>();
+                    takes.sort_by_cached_key(|x| {
+                        ordering
+                            .remove(&x.0.target.stable_id())
+                            .expect("Recipe is inconsistent")
+                    });
                     let mut instructions = vec![];
-                    for Final(take) in takes.into_values() {
+                    for Final(take) in takes {
                         instructions.push(Either::Left(take));
                     }
                     let mut has_zero_makes = false;
@@ -1001,6 +1026,7 @@ mod tests {
                 ),
                 (2, Final(Trans::new(Maker { id: 2 }, Next::Succ(Maker { id: 2 })))),
             ]),
+            ordering: vec![],
         };
         let ok = MatchmakingRecipe::check_recipe_complexity(
             &recipe,
@@ -1034,6 +1060,7 @@ mod tests {
                 (2, Final(Trans::new(Maker { id: 2 }, Next::Succ(Maker { id: 2 })))),
                 (3, Final(Trans::new(Maker { id: 3 }, Next::Succ(Maker { id: 3 })))),
             ]),
+            ordering: vec![],
         };
         let ok = MatchmakingRecipe::check_recipe_complexity(
             &recipe,
@@ -1084,6 +1111,7 @@ mod tests {
                 (2, Final(Trans::new(Maker { id: 2 }, Next::Succ(Maker { id: 2 })))),
                 (3, Final(Trans::new(Maker { id: 3 }, Next::Succ(Maker { id: 3 })))),
             ]),
+            ordering: vec![],
         };
         let ok = MatchmakingRecipe::check_recipe_complexity(
             &recipe,
@@ -1117,6 +1145,7 @@ mod tests {
                 (2, Final(Trans::new(Maker { id: 2 }, Next::Succ(Maker { id: 2 })))),
                 (3, Final(Trans::new(Maker { id: 3 }, Next::Succ(Maker { id: 3 })))),
             ]),
+            ordering: vec![],
         };
         let ok = MatchmakingRecipe::check_recipe_complexity(
             &recipe,
