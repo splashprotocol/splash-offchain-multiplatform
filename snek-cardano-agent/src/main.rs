@@ -1,6 +1,7 @@
 use crate::config::{allowed_payment_destinations, AppConfig};
 use crate::context::{ExecutionContext, MakerContext};
 use crate::entity::EvolvingCardanoEntity;
+use crate::fifo::Fifo;
 use crate::seq::with_sequencing;
 use crate::snek_handler_context::{SnekHandlerContext, SnekHandlerContextProto};
 use crate::snek_protocol_deployment::{
@@ -68,7 +69,6 @@ use std::future;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing_subscriber::fmt::Subscriber;
-use crate::fifo::Fifo;
 
 mod config;
 mod context;
@@ -287,8 +287,10 @@ async fn main() {
         operator_cred: operator_paycred,
         adhoc_fee_structure: config.adhoc_fee.into(),
     };
-    let multi_book =
-        MultiPair::new::<Fifo<AdhocOrder, DegenQuadraticPool, PairId, ExUnits>>(maker_context.clone(), "Book");
+    let multi_book = MultiPair::new::<Fifo<AdhocOrder, DegenQuadraticPool, PairId, ExUnits>>(
+        maker_context.clone(),
+        "Book",
+    );
     let multi_backlog =
         MultiPair::new::<HotPriorityBacklog<Bundled<Order, FinalizedTxOut>>>(maker_context, "Backlog");
     let state_index = InMemoryStateIndex::with_tracing();

@@ -6,6 +6,7 @@ use spectrum_offchain::data::ior::Ior;
 use spectrum_offchain::display::display_vec;
 use spectrum_offchain::domain::event::{Channel, Confirmed, Transition};
 use spectrum_offchain::domain::{SeqState, Stable};
+use spectrum_offchain_cardano::raw_bytes::RawBytes;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Display;
@@ -89,7 +90,7 @@ impl<K, T> SessionInProgress<K, T> {
     /// and accumulated events being released.
     pub(crate) fn upgrade(&mut self, slot: Slot) -> Option<Vec<Channel<Transition<T>, LedgerCx>>>
     where
-        K: Copy + Eq + Ord + Hash + Display,
+        K: Copy + Eq + Ord + Hash + Display + RawBytes,
         T: Stable<StableId = K>,
     {
         if slot >= self.sealed_at + self.settlement_delay {
@@ -153,12 +154,21 @@ fn do_sequencing<T, K>(
 ) -> Vec<Channel<Transition<T>, LedgerCx>>
 where
     T: Stable<StableId = K>,
-    K: Hash,
+    K: Copy + RawBytes,
 {
-    let salt = key_to_int(input[(skip + window_size).saturating_sub(1)].stable_id());
+    let salt = input[(skip + window_size).saturating_sub(1)].stable_id();
     input[skip..skip + window_size]
-        .sort_by(|a, b| (key_to_int(a.stable_id()) ^ salt).cmp(&(key_to_int(b.stable_id()) ^ salt)));
+        .sort_by(|a, b| seq_key(a.stable_id(), salt).cmp(&seq_key(b.stable_id(), salt)));
     input
+}
+
+fn seq_key<K: RawBytes>(key: K, salt: K) -> u64 {
+    let raw_key = key.to_raw_bytes();
+    let raw_salt = salt.to_raw_bytes();
+    let mut hasher = DefaultHasher::new();
+    raw_key.hash(&mut hasher);
+    raw_salt.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn key_to_int<K: Hash>(key: K) -> u64 {
@@ -203,7 +213,7 @@ fn is_cancellation<T, C>(new: &Channel<Transition<T>, C>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::seq::session::{do_sequencing, key_to_int};
+    use crate::seq::session::{do_sequencing, key_to_int, seq_key};
     use bloom_offchain_cardano::event_sink::handler::LedgerCx;
     use cml_crypto::BlockHeaderHash;
     use rand::RngCore;
@@ -274,7 +284,7 @@ mod tests {
         let ledger_context = LedgerCx {
             block_hash: BlockHeaderHash::from([0u8; 32]),
             slot: 100, // example slot number
-            // Add any necessary fields for LedgerCx initialization
+                       // Add any necessary fields for LedgerCx initialization
         };
         let raw_ids = vec![
             "63f947b8d9535bc4e4ce6919e3dc056547e8d30ada12f29aa5f826b8.ed375f4db261ca9d22949d433183aafdeb773e117466cfbdb6a6f29d03e7d05e",
@@ -317,11 +327,18 @@ mod tests {
             "639eb59c6c27261d308b215ec6454b879a61b5b0bfc7ad0e0f1da1f2.",
             "bae90e6a4273bc433bc6f2815d3897bfad51c597e6546a3c70afbfd9.",
         ];
-        let orders = raw_ids.into_iter().map(Token::from_string_unsafe).map(|id| Ev { id, init: true }).map(|e| Channel::Ledger(Confirmed(Transition::Forward(Ior::Right(e))), ledger_context)).collect();
+        let orders = raw_ids
+            .into_iter()
+            .map(Token::from_string_unsafe)
+            .map(|id| Ev { id, init: true })
+            .map(|e| Channel::Ledger(Confirmed(Transition::Forward(Ior::Right(e))), ledger_context))
+            .collect();
         let result1 = do_sequencing(orders, 1, 33);
-        println!("Ord: {}", display_vec(&result1.iter().map(|x| x.stable_id()).collect()))
+        println!(
+            "Ord: {}",
+            display_vec(&result1.iter().map(|x| x.stable_id()).collect())
+        )
     }
-        
 
     #[test]
     fn test_key_to_int_deterministic() {
@@ -359,6 +376,57 @@ mod tests {
         assert_eq!(
             key4_result1, key4_result2,
             "Key4 should produce consistent results"
+        );
+    }
+
+    #[test]
+    fn test_seq_key_with_salt_deterministic() {
+        use super::seq_key;
+
+        // Define example sequences and salts (both arguments must have the same type)
+        let seq1: [u8; 16] = [0u8; 16]; // All zeros
+        let seq2: [u8; 16] = [0xABu8; 16]; // All bytes set to 0xAB
+        let seq3: [u8; 16] = [0xFFu8; 16]; // All bytes set to 0xFF
+        let seq4: [u8; 16] = [
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
+        ]; // Sequential bytes
+
+        let salt1: [u8; 16] = [0u8; 16]; // Salt all zeros
+        let salt2: [u8; 16] = [0xFFu8; 16]; // Salt all 0xFF
+
+        // Use sequences with salts multiple times to ensure determinism
+        let seq1_result1: u64 = seq_key(seq1, salt1);
+        let seq1_result2: u64 = seq_key(seq1, salt1);
+        let seq2_result1: u64 = seq_key(seq2, salt2);
+        let seq2_result2: u64 = seq_key(seq2, salt2);
+        let seq3_result1: u64 = seq_key(seq3, salt1);
+        let seq3_result2: u64 = seq_key(seq3, salt1);
+        let seq4_result1: u64 = seq_key(seq4, salt2);
+        let seq4_result2: u64 = seq_key(seq4, salt2);
+
+        // Ensure consistency in results
+        assert_eq!(
+            seq1_result1, seq1_result2,
+            "Seq1 with salt1 should produce consistent results"
+        );
+        assert_eq!(
+            seq2_result1, seq2_result2,
+            "Seq2 with salt2 should produce consistent results"
+        );
+        assert_eq!(
+            seq3_result1, seq3_result2,
+            "Seq3 with salt1 should produce consistent results"
+        );
+        assert_eq!(
+            seq4_result1, seq4_result2,
+            "Seq4 with salt2 should produce consistent results"
+        );
+
+        // Further ensure different salt affects result
+        let seq1_salt2_result = seq_key(seq1, salt2);
+        assert_ne!(
+            seq1_result1, seq1_salt2_result,
+            "Seq1 results should differ with different salts"
         );
     }
 
@@ -510,11 +578,11 @@ mod tests {
         let events_ordering = yielded_events.iter().map(|e| e.stable_id()).collect::<Vec<_>>();
 
         // Verify that events ordered properly within sequencing window
-        let salt = key_to_int(original_ordering[(1 + expected_window_size).saturating_sub(1)]);
+        let salt = original_ordering[(1 + expected_window_size).saturating_sub(1)];
         assert!(
             events_ordering[1..expected_window_size]
                 .into_iter()
-                .map(|x| key_to_int(*x) ^ salt)
+                .map(|x| seq_key(*x, salt))
                 .fold((true, 0u64), |(acc, prev), x| (acc && prev <= x, x))
                 .0,
             "Events should be ordered within session window"
