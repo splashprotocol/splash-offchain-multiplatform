@@ -165,8 +165,8 @@ impl DaoOrder {
     pub fn get_owner(&self) -> Owner {
         match self {
             DaoOrder::MakeVE(order) => order.ve_datum.owner,
-            DaoOrder::ExtendVE(order) => order.ve_datum.owner,
-            DaoOrder::WPollVote(order) => order.ve_datum.owner,
+            DaoOrder::ExtendVE(order) => order.datum.ve_state.owner,
+            DaoOrder::WPollVote(order) => order.datum.ve_state.owner,
             DaoOrder::RedeemVE(order) => order.ve_datum.owner,
         }
     }

@@ -1080,7 +1080,7 @@ impl<
             DaoEntity::ExtendVotingEscrowOrder(order) => {
                 trace!(
                     "extend_voting_escrow_order confirmed: owner {}, version: {:?}",
-                    order.ve_datum.owner,
+                    order.datum.ve_state.owner,
                     entity.version(),
                 );
                 let time_src = NetworkTimeSource {};
@@ -1108,7 +1108,7 @@ impl<
             DaoEntity::WPollVoteOrder(order) => {
                 trace!(
                     "wpoll_vote_order confirmed: owner {}, version: {:?}",
-                    order.ve_datum.owner,
+                    order.datum.ve_state.owner,
                     entity.version(),
                 );
                 let time_src = NetworkTimeSource {};

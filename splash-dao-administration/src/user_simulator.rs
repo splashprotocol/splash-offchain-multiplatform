@@ -22,7 +22,9 @@ use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
 use splash_dao_offchain::entities::onchain::voting_escrow::{Lock, VotingEscrowConfig};
 use splash_dao_offchain::entities::onchain::voting_escrow_factory::VEFactoryId;
 use splash_dao_offchain::entities::onchain::voting_escrow_factory::VEFactorySnapshot;
-use splash_dao_offchain::entities::onchain::wpoll_vote_order::{WPollVoteAction, WPollVoteOnchainOrder};
+use splash_dao_offchain::entities::onchain::wpoll_vote_order::{
+    WPollVoteAction, WPollVoteOnchainOrder, WPollVoteState,
+};
 use splash_dao_offchain::routines::actions::{compute_epoch_asset_name, compute_farm_name};
 use splash_dao_offchain::{
     deployment::{CompleteDeployment, DaoScriptData, ProtocolDeployment},
@@ -174,6 +176,9 @@ pub async fn user_simulator<'a>(
         if pulled_current_epoch {
             if let Some(ve_id) = user_ve_identifier.identifier_name {
                 let voting_escrow_id = VotingEscrowId(spectrum_cardano_lib::AssetName::from(ve_id.clone()));
+                let ve_identifier_token_name = spectrum_cardano_lib::AssetName::from(ve_id.clone());
+                let weighting_poll_auth_token_name =
+                    spectrum_cardano_lib::AssetName::from(compute_epoch_asset_name(current_epoch));
                 match ve_state {
                     VEState::PredictedVoteCast(e) => {
                         if let Some(mut results) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
@@ -228,12 +233,14 @@ pub async fn user_simulator<'a>(
                                 .await
                             {
                                 if let Some((_, order_output)) =
-                                    results.iter().find(|(order, _)| order.ve_datum == ve_datum)
+                                    results.iter().find(|(order, _)| order.datum.ve_state == ve_datum)
                                 {
                                     order_output.clone()
                                 } else {
                                     create_wpoll_vote_onchain_order(
                                         voting_escrow_id,
+                                        ve_identifier_token_name,
+                                        weighting_poll_auth_token_name,
                                         CurrentEpoch(current_epoch),
                                         op_inputs,
                                     )
@@ -243,6 +250,8 @@ pub async fn user_simulator<'a>(
                             } else {
                                 create_wpoll_vote_onchain_order(
                                     voting_escrow_id,
+                                    ve_identifier_token_name,
+                                    weighting_poll_auth_token_name,
                                     CurrentEpoch(current_epoch),
                                     op_inputs,
                                 )
@@ -250,14 +259,21 @@ pub async fn user_simulator<'a>(
                                 .unwrap()
                             };
 
+                            let order_datum = WPollVoteState {
+                                ve_state: ve_datum,
+                                weighting_poll_auth_token_name,
+                                ve_identifier_token_name,
+                            };
+
                             ve_state = VEState::ConfirmedOnChainWPollVote {
                                 ve_snapshot: ve_snapshot.clone(),
-                                ve_datum,
+                                order_datum,
                                 onchain_order_output_ref,
                             };
                         } else if !ve_extended_this_epoch {
                             let owner = create_extend_voting_escrow_onchain_order(
                                 voting_escrow_id,
+                                ve_identifier_token_name,
                                 &ve_settings,
                                 op_inputs,
                             )
@@ -268,7 +284,7 @@ pub async fn user_simulator<'a>(
                     }
                     VEState::ConfirmedOnChainWPollVote {
                         ref ve_snapshot,
-                        ve_datum,
+                        order_datum,
                         onchain_order_output_ref,
                     } => {
                         //
@@ -313,14 +329,6 @@ pub async fn user_simulator<'a>(
                             .position(|(t, _)| matches!(t, T::WPoll))
                             .unwrap() as u32;
 
-                        let ve_identifier_token = Token(
-                            deployment_config.deployed_validators.mint_identifier.hash,
-                            spectrum_cardano_lib::AssetName::from(ve_id),
-                        );
-                        let weighting_poll_auth_token = Token(
-                            deployment_config.deployed_validators.mint_wpauth_token.hash,
-                            spectrum_cardano_lib::AssetName::from(compute_epoch_asset_name(current_epoch)),
-                        );
                         let mut rng = rand::thread_rng();
                         let num_farms = op_inputs.deployment_progress.num_initial_farms;
                         let chosen_id = rng.gen_range(0..num_farms);
@@ -351,8 +359,6 @@ pub async fn user_simulator<'a>(
                             .collect();
 
                         let wpoll_vote_order_redeemer = WPollVoteAction::CastVote {
-                            weighting_poll_auth_token,
-                            ve_identifier_token,
                             voting_escrow_input_ix,
                             wpoll_input_ix,
                             expected_diff: expected_diff.clone(),
@@ -362,7 +368,7 @@ pub async fn user_simulator<'a>(
                             proxy_order_output_reference: order_output_ref,
                             proxy_order_script_hash,
                             proxy_order_redeemer: wpoll_vote_order_redeemer.into_pd(),
-                            proxy_order_datum: ve_datum.into_pd(),
+                            proxy_order_datum: order_datum.into_pd(),
                             owner_redemption: None,
                         };
                         let version = ve_snapshot.get().version;
@@ -406,7 +412,7 @@ pub async fn user_simulator<'a>(
                                     last_wp_epoch,
                                     last_gp_deadline,
                                     ..
-                                } = order.ve_datum;
+                                } = order.datum.ve_state;
                                 owner == ve_datum.owner
                                     && version == ve_datum.version + 1
                                     && last_gp_deadline == ve_datum.last_gp_deadline
@@ -445,23 +451,17 @@ pub async fn user_simulator<'a>(
                                     values.iter().position(|(t, _)| matches!(t, T::Order)).unwrap() as u32;
                                 let voting_escrow_input_ix =
                                     values.iter().position(|(t, _)| matches!(t, T::VE)).unwrap() as u32;
-                                let ve_factory_input_ix = values
-                                    .iter()
-                                    .position(|(t, _)| matches!(t, T::VEFactory))
-                                    .unwrap()
-                                    as u32;
 
                                 let order_action = ExtendVotingEscrowOrderAction::Extend {
                                     order_input_ix,
                                     voting_escrow_input_ix,
-                                    ve_factory_input_ix,
                                 };
                                 let witness_action = WitnessAction {
                                     proxy_order_input_ix: order_input_ix,
                                     proxy_order_output_reference: order_output_ref,
                                     proxy_order_script_hash,
                                     proxy_order_redeemer: order_action.into_pd(),
-                                    proxy_order_datum: order.ve_datum.into_pd(),
+                                    proxy_order_datum: order.datum.clone().into_pd(),
                                     owner_redemption: None,
                                 };
                                 let version = ve_snapshot.get().version;
@@ -559,6 +559,7 @@ pub async fn user_simulator<'a>(
                             proxy_order_datum: ve_datum.into_pd(),
                             owner_redemption: Some(OwnerRedemptionUTxO {
                                 owner_output_ix: 1,
+                                owner,
                                 owner_stake_credential: owner_stake_credential.clone(),
                             }),
                         }
@@ -615,12 +616,14 @@ pub async fn user_simulator<'a>(
                             .await
                         {
                             if let Some((_, order_output)) =
-                                results.iter().find(|(order, _)| order.ve_datum == ve_datum)
+                                results.iter().find(|(order, _)| order.datum.ve_state == ve_datum)
                             {
                                 order_output.clone()
                             } else {
                                 create_wpoll_vote_onchain_order(
                                     voting_escrow_id,
+                                    ve_identifier_token_name,
+                                    weighting_poll_auth_token_name,
                                     CurrentEpoch(current_epoch),
                                     op_inputs,
                                 )
@@ -630,15 +633,22 @@ pub async fn user_simulator<'a>(
                         } else {
                             create_wpoll_vote_onchain_order(
                                 voting_escrow_id,
+                                ve_identifier_token_name,
+                                weighting_poll_auth_token_name,
                                 CurrentEpoch(current_epoch),
                                 op_inputs,
                             )
                             .await
                             .unwrap()
                         };
+                        let order_datum = WPollVoteState {
+                            ve_state: ve_datum,
+                            weighting_poll_auth_token_name,
+                            ve_identifier_token_name,
+                        };
                         ve_state = VEState::ConfirmedOnChainWPollVote {
                             ve_snapshot: ve_snapshot.clone(),
-                            ve_datum,
+                            order_datum,
                             onchain_order_output_ref,
                         };
                     }
@@ -728,7 +738,7 @@ pub async fn user_simulator<'a>(
                                             last_wp_epoch,
                                             last_gp_deadline,
                                             ..
-                                        } = order.ve_datum;
+                                        } = order.datum.ve_state;
                                         owner == ve_datum.owner
                                             && version == ve_datum.version + 1
                                             && last_gp_deadline == ve_datum.last_gp_deadline
@@ -979,7 +989,7 @@ enum VEState {
     },
     ConfirmedOnChainWPollVote {
         ve_snapshot: VotingEscrowSnapshot,
-        ve_datum: VotingEscrowConfig,
+        order_datum: WPollVoteState,
         onchain_order_output_ref: TransactionUnspentOutput,
     },
     ConfirmedOnChainExtendedVE(VotingEscrowSnapshot, VotingEscrowConfig),

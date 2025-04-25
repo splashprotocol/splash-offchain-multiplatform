@@ -279,7 +279,7 @@ where
             .outputs
             .iter()
             .enumerate()
-            .skip(3)
+            .skip(2)
             .map(|(ix, output)| {
                 assert_eq!(*output.address(), operator_addr);
                 let output_ref = OutputRef::new(tx_hash, ix as u64);

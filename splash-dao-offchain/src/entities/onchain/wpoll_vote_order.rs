@@ -1,26 +1,36 @@
 use cml_chain::{
-    plutus::{ConstrPlutusData, PlutusData},
+    plutus::{ConstrPlutusData, PlutusData, PlutusV2Script},
     transaction::TransactionOutput,
     utils::BigInteger,
-    LenEncoding,
+    LenEncoding, PolicyId,
 };
 use cml_crypto::RawBytesEncoding;
+use log::trace;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::{
-    plutus_data::{make_constr_pd_indefinite_arr, DatumExtension, IntoPlutusData},
+    plutus_data::{
+        make_constr_pd_indefinite_arr, ConstrPlutusDataExtension, DatumExtension, IntoPlutusData,
+        PlutusDataExtension,
+    },
     transaction::TransactionOutputExtension,
     types::TryFromPData,
-    OutputRef, Token,
+    AssetName, OutputRef, Token,
 };
 use spectrum_offchain::{
     backlog::data::{OrderWeight, Weighted},
     domain::{order::UniqueOrder, Has, Stable},
     ledger::TryFromLedger,
 };
-use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
+use spectrum_offchain_cardano::{
+    deployment::{test_address, DeployedScriptInfo},
+    parametrized_validators::apply_params_validator_plutus_v2,
+};
+use uplc_pallas_primitives::{BoundedBytes, MaybeIndefArray};
 
 use crate::{
-    constants::WPOLL_VOTE_ORDER_MIN_LOVELACES, deployment::ProtocolValidator, routines::TimedOutputRef,
+    constants::WPOLL_VOTE_ORDER_MIN_LOVELACES,
+    deployment::{DaoScriptData, ProtocolValidator},
+    routines::TimedOutputRef,
 };
 
 use super::{
@@ -62,7 +72,7 @@ impl<Bearer> Weighted for WPollVoteOrderBundle<Bearer> {
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, Hash)]
 pub struct WPollVoteOnchainOrder {
-    pub ve_datum: VotingEscrowConfig,
+    pub datum: WPollVoteState,
 }
 
 impl<C> TryFromLedger<TransactionOutput, C> for WPollVoteOnchainOrder
@@ -73,8 +83,8 @@ where
         if test_address(repr.address(), ctx) {
             let value = repr.value().clone();
             if value.coin >= WPOLL_VOTE_ORDER_MIN_LOVELACES {
-                let ve_datum = VotingEscrowConfig::try_from_pd(repr.datum()?.into_pd()?)?;
-                return Some(Self { ve_datum });
+                let datum = WPollVoteState::try_from_pd(repr.datum()?.into_pd()?)?;
+                return Some(Self { datum });
             }
         }
         None
@@ -85,7 +95,7 @@ impl Stable for WPollVoteOnchainOrder {
     type StableId = Owner;
 
     fn stable_id(&self) -> Self::StableId {
-        self.ve_datum.owner
+        self.datum.ve_state.owner
     }
 
     fn is_quasi_permanent(&self) -> bool {
@@ -96,8 +106,6 @@ impl Stable for WPollVoteOnchainOrder {
 #[derive(Debug, Clone)]
 pub enum WPollVoteAction {
     CastVote {
-        weighting_poll_auth_token: Token,
-        ve_identifier_token: Token,
         voting_escrow_input_ix: u32,
         wpoll_input_ix: u32,
         expected_diff: Vec<(FarmId, u64)>,
@@ -109,21 +117,10 @@ impl IntoPlutusData for WPollVoteAction {
     fn into_pd(self) -> PlutusData {
         match self {
             WPollVoteAction::CastVote {
-                weighting_poll_auth_token,
-                ve_identifier_token,
                 voting_escrow_input_ix,
                 wpoll_input_ix,
                 expected_diff,
             } => {
-                let wpoll_auth_token_pd = make_constr_pd_indefinite_arr(vec![
-                    PlutusData::new_bytes(weighting_poll_auth_token.0.to_raw_bytes().to_vec()),
-                    PlutusData::new_bytes(weighting_poll_auth_token.1.as_bytes().to_vec()),
-                ]);
-                let ve_identifier_pd = make_constr_pd_indefinite_arr(vec![
-                    PlutusData::new_bytes(ve_identifier_token.0.to_raw_bytes().to_vec()),
-                    PlutusData::new_bytes(ve_identifier_token.1.as_bytes().to_vec()),
-                ]);
-
                 let expected_diff = expected_diff
                     .iter()
                     .map(|&(farm_id, weight)| {
@@ -139,8 +136,6 @@ impl IntoPlutusData for WPollVoteAction {
                     list_encoding: LenEncoding::Indefinite,
                 };
                 make_constr_pd_indefinite_arr(vec![
-                    wpoll_auth_token_pd,
-                    ve_identifier_pd,
                     PlutusData::new_integer(BigInteger::from(voting_escrow_input_ix)),
                     PlutusData::new_integer(BigInteger::from(wpoll_input_ix)),
                     expected_diff_pd,
@@ -149,4 +144,52 @@ impl IntoPlutusData for WPollVoteAction {
             WPollVoteAction::Refund => PlutusData::new_constr_plutus_data(ConstrPlutusData::new(1, vec![])),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Hash, Deserialize, PartialEq, Eq)]
+pub struct WPollVoteState {
+    pub ve_state: VotingEscrowConfig,
+    pub weighting_poll_auth_token_name: AssetName,
+    pub ve_identifier_token_name: AssetName,
+}
+
+impl IntoPlutusData for WPollVoteState {
+    fn into_pd(self) -> PlutusData {
+        let wpoll_auth_token_pd =
+            PlutusData::new_bytes(self.weighting_poll_auth_token_name.as_bytes().to_vec());
+        let ve_identifier_pd = PlutusData::new_bytes(self.ve_identifier_token_name.as_bytes().to_vec());
+        let ve_state_pd = self.ve_state.into_pd();
+        make_constr_pd_indefinite_arr(vec![ve_state_pd, wpoll_auth_token_pd, ve_identifier_pd])
+    }
+}
+
+impl TryFromPData for WPollVoteState {
+    fn try_from_pd(data: PlutusData) -> Option<Self> {
+        let mut cpd = data.into_constr_pd()?;
+        let ve_state = VotingEscrowConfig::try_from_pd(cpd.take_field(0)?)?;
+        let wpoll_auth_token_name_bytes = cpd.take_field(1)?.into_bytes()?;
+        let weighting_poll_auth_token_name = AssetName::try_from(wpoll_auth_token_name_bytes).ok()?;
+        let ve_ident_name_bytes = cpd.take_field(2)?.into_bytes()?;
+        let ve_identifier_token_name = AssetName::try_from(ve_ident_name_bytes).ok()?;
+        Some(Self {
+            ve_state,
+            weighting_poll_auth_token_name,
+            ve_identifier_token_name,
+        })
+    }
+}
+
+pub fn compute_wpoll_vote_order_validator(wpoll_auth_token_policy: PolicyId) -> PlutusV2Script {
+    let ve_identifier_token_policy =
+        PlutusV2Script::new(hex::decode(&DaoScriptData::global().mint_identifier.script_bytes).unwrap())
+            .hash();
+    let params_pd = uplc::PlutusData::Array(MaybeIndefArray::Indef(vec![
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(
+            wpoll_auth_token_policy.to_raw_bytes().to_vec(),
+        )),
+        uplc::PlutusData::BoundedBytes(BoundedBytes::from(
+            ve_identifier_token_policy.to_raw_bytes().to_vec(),
+        )),
+    ]));
+    apply_params_validator_plutus_v2(params_pd, &DaoScriptData::global().wpoll_vote_order.script_bytes)
 }

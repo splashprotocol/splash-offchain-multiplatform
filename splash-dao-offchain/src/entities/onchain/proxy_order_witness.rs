@@ -10,6 +10,8 @@ use spectrum_cardano_lib::{
     OutputRef,
 };
 
+use super::voting_escrow::Owner;
+
 pub struct WitnessAction {
     pub proxy_order_input_ix: u32,
     pub proxy_order_output_reference: OutputRef,
@@ -25,6 +27,7 @@ pub struct WitnessAction {
 pub struct OwnerRedemptionUTxO {
     /// Output index of owner's UTxO in redeem TX.
     pub owner_output_ix: u32,
+    pub owner: Owner,
     /// Owner's stake credential. Needed to properly address returned assets to owner.
     pub owner_stake_credential: StakeCredential,
 }
@@ -52,15 +55,28 @@ impl IntoPlutusData for WitnessAction {
         let owner_redemption_pd = if let Some(owner_redemption) = owner_redemption {
             let OwnerRedemptionUTxO {
                 owner_output_ix,
+                owner,
                 owner_stake_credential,
             } = owner_redemption;
             let owner_output_ix_pd = PlutusData::new_integer(BigInteger::from(owner_output_ix));
             let stake_cred_bytes = PlutusData::new_bytes(owner_stake_credential.to_raw_bytes().to_vec());
-            let stake_cred =
-                make_constr_pd_indefinite_arr(vec![make_constr_pd_indefinite_arr(vec![stake_cred_bytes])]);
+            let stake_cred = make_constr_pd_indefinite_arr(vec![make_constr_pd_indefinite_arr(vec![
+                make_constr_pd_indefinite_arr(vec![stake_cred_bytes]),
+            ])]);
+            let Owner::PubKey(pk_bytes) = owner else {
+                panic!("WitnessAction::into_pd(): ScriptHash owner not accepted")
+            };
+            let pk = make_constr_pd_indefinite_arr(vec![PlutusData::new_bytes(
+                cml_crypto::PublicKey::from_raw_bytes(&pk_bytes)
+                    .unwrap()
+                    .hash()
+                    .to_raw_bytes()
+                    .to_vec(),
+            )]);
+            let address_pd = make_constr_pd_indefinite_arr(vec![pk, stake_cred]);
             make_constr_pd_indefinite_arr(vec![make_constr_pd_indefinite_arr(vec![
                 owner_output_ix_pd,
-                stake_cred,
+                address_pd,
             ])])
         } else {
             PlutusData::new_constr_plutus_data(ConstrPlutusData::new(1, vec![]))

@@ -729,17 +729,7 @@ where
 
         // order input -----------------------------------------------------------------------------
         let order_script_hash = self.ctx.select::<WPollVoteOrderScriptHash>().0;
-        let weighting_poll_auth_token = Token(
-            self.ctx.select::<MintWPAuthPolicy>().0,
-            spectrum_cardano_lib::AssetName::from(compute_epoch_asset_name(weighting_poll.get().epoch)),
-        );
-        let ve_identifier_token = Token(
-            self.ctx.select::<MintVEIdentifierPolicy>().0,
-            voting_escrow.get().ve_identifier_name,
-        );
         let order_action = WPollVoteAction::CastVote {
-            weighting_poll_auth_token,
-            ve_identifier_token,
             voting_escrow_input_ix,
             wpoll_input_ix,
             expected_diff: offchain_order.distribution.clone(),
