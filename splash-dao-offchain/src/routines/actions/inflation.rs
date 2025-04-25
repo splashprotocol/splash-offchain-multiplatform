@@ -6,6 +6,7 @@ use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWit
 use cml_chain::plutus::RedeemerTag;
 use cml_chain::transaction::{TransactionInput, TransactionOutput};
 use cml_chain::RequiredSigners;
+use log::trace;
 use spectrum_offchain::domain::event::{Predicted, Traced};
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 
@@ -121,6 +122,8 @@ where
             .position(|(_, t)| matches!(t, DistributeInflationInputType::Farm))
             .unwrap() as u32;
 
+        trace!("distribute_inflation: farm_in_ix: {}", farm_in_ix);
+
         let OperatorCreds(operator_pkh, operator_addr) = self.ctx.select::<OperatorCreds>();
 
         let perm_manager_unspent_input = TransactionUnspentOutput::new(
@@ -155,6 +158,8 @@ where
                         RedeemerWitnessKey::new(RedeemerTag::Spend, i as u64),
                         DaoScriptData::global().mint_wp_auth_token.mint_ex_units.clone(),
                     );
+
+                    trace!("distribute_inflation: wpoll_in_ix: {}", i);
                 }
 
                 DistributeInflationInputType::Farm => {
@@ -274,7 +279,7 @@ where
             .outputs
             .iter()
             .enumerate()
-            .skip(3)
+            .skip(2)
             .map(|(ix, output)| {
                 assert_eq!(*output.address(), operator_addr);
                 let output_ref = OutputRef::new(tx_hash, ix as u64);

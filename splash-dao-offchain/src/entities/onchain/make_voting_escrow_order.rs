@@ -29,7 +29,7 @@ use crate::{
     routines::TimedOutputRef,
 };
 
-use super::voting_escrow::{VotingEscrowConfig, VotingEscrowId};
+use super::voting_escrow::{Lock, VotingEscrowConfig, VotingEscrowId};
 
 #[derive(Hash, PartialEq, Eq, Serialize, Deserialize, Clone, Debug)]
 pub struct MakeVotingEscrowOrderBundle<Bearer> {
@@ -64,18 +64,15 @@ impl<Bearer> Weighted for MakeVotingEscrowOrderBundle<Bearer> {
 }
 
 pub enum MakeVotingEscrowOrderAction {
-    Deposit { ve_factory_input_ix: u32 },
+    Deposit,
     Refund,
 }
 
 impl IntoPlutusData for MakeVotingEscrowOrderAction {
     fn into_pd(self) -> cml_chain::plutus::PlutusData {
         match self {
-            MakeVotingEscrowOrderAction::Deposit { ve_factory_input_ix } => {
-                PlutusData::ConstrPlutusData(ConstrPlutusData::new(
-                    0,
-                    vec![PlutusData::new_integer(BigInteger::from(ve_factory_input_ix))],
-                ))
+            MakeVotingEscrowOrderAction::Deposit => {
+                PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, vec![]))
             }
 
             MakeVotingEscrowOrderAction::Refund => {

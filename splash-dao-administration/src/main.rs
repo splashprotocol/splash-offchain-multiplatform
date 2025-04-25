@@ -26,7 +26,7 @@ use cml_chain::{
     certs::StakeCredential,
     crypto::utils::make_vkey_witness,
     plutus::{ConstrPlutusData, PlutusData, PlutusScript, PlutusV2Script, PlutusV3Script, RedeemerTag},
-    transaction::{DatumOption, Transaction, TransactionOutput},
+    transaction::{DatumOption, Transaction, TransactionInput, TransactionOutput},
     utils::BigInteger,
     Coin, PolicyId, Serialize, Value,
 };
@@ -56,6 +56,7 @@ use splash_dao_offchain::{
     collateral::{pull_collateral, register_staking_address, send_assets},
     constants::{
         time::MAX_LOCK_TIME_SECONDS, DAO_SCRIPT_BYTES, REDEEM_VOTING_ESCROW_ORDER_MIN_LOVELACES, SPLASH_NAME,
+        WPOLL_VOTE_ORDER_MIN_LOVELACES,
     },
     create_change_output::{ChangeOutputCreator, CreateChangeOutput},
     deployment::{
@@ -65,6 +66,7 @@ use splash_dao_offchain::{
     entities::{
         offchain::OffChainOrderId,
         onchain::{
+            extend_voting_escrow_order::ExtendVotingEscrowOrderState,
             farm_factory::{FarmFactoryAction, FarmFactoryDatum},
             inflation_box::InflationBoxSnapshot,
             permission_manager::{PermManagerDatum, PermManagerSnapshot},
@@ -73,6 +75,7 @@ use splash_dao_offchain::{
             voting_escrow::{Lock, Owner, VotingEscrowConfig, VotingEscrowId, VotingEscrowSnapshot},
             voting_escrow_factory::{AcceptedAsset, VEFactoryDatum, VEFactoryId, VEFactorySnapshot},
             weighting_poll::{WeightingPollId, WeightingPollSnapshot},
+            wpoll_vote_order::WPollVoteState,
         },
     },
     routines::{actions::compute_farm_name, ProcessLedgerEntityContext, Slot, TimedOutputRef},
@@ -517,7 +520,11 @@ async fn deploy<'a>(
 
     op_inputs.deployment_progress = deployment_progress;
 
-    for _ in 0..deployment_config.num_initial_farms {
+    for ix in 0..deployment_config.num_initial_farms {
+        println!(
+            "FARM {} -----------------------------------------------------------------------",
+            ix
+        );
         create_initial_farms(op_inputs).await;
     }
     deployment_config
@@ -673,17 +680,23 @@ async fn create_dao_entities(
         last_farm_id: -1,
         farm_seed_data,
     };
-    let farm_factory_out = make_output(
-        protocol_deployment.farm_factory.hash,
-        DatumOption::new_datum(farm_factory_datum.into_pd()),
-        farm_assets,
-    );
+
+    let farm_value = Value::new(2_000_000, farm_assets);
+    let farm_factory_out = TransactionOutputBuilder::new()
+        .with_address(script_address(protocol_deployment.farm_factory.hash, network_id))
+        .with_data(DatumOption::new_datum(farm_factory_datum.into_pd()))
+        .next()
+        .unwrap()
+        .with_value(farm_value)
+        .build()
+        .unwrap();
+
     output_coin += farm_factory_out.output.value().coin;
     tx_builder.add_output(farm_factory_out).unwrap();
 
     // wp_factory ----------------------------------------------------------------------------------
 
-    let active_farms = (0..deployment_params.num_active_farms)
+    let active_farms = (0..deployment_config.num_initial_farms)
         .map(|farm_id| {
             let name = spectrum_cardano_lib::AssetName::from(compute_farm_name(farm_id));
             FarmId(name)
@@ -939,9 +952,11 @@ async fn make_voting_escrow_order(
 
 async fn create_wpoll_vote_onchain_order(
     voting_escrow_id: VotingEscrowId,
+    ve_identifier_token_name: AssetName,
+    weighting_poll_auth_token_name: AssetName,
     CurrentEpoch(current_epoch): CurrentEpoch,
     op_inputs: &mut OperationInputs,
-) {
+) -> Option<TransactionUnspentOutput> {
     let OperationInputs {
         explorer,
         addr,
@@ -981,45 +996,61 @@ async fn create_wpoll_vote_onchain_order(
         }
 
         // wpoll_vote_order output
-        let voting_escrow_datum = ve_unspent_output.output.datum().unwrap();
-        let mut value = Value::zero();
-        value.coin = 2_000_000;
-        let wpoll_vote_order_output = TransactionOutputBuilder::new()
-            .with_address(script_address(
-                protocol_deployment.wpoll_vote_order.hash,
-                *network_id,
-            ))
-            .with_data(voting_escrow_datum)
-            .next()
-            .unwrap()
-            .with_value(value)
-            .build()
-            .unwrap();
+        if let Some(DatumOption::Datum { datum, .. }) = ve_unspent_output.output.datum() {
+            let ve_state = VotingEscrowConfig::try_from_pd(datum)?;
+            let order_datum = DatumOption::new_datum(
+                WPollVoteState {
+                    ve_state,
+                    weighting_poll_auth_token_name,
+                    ve_identifier_token_name,
+                }
+                .into_pd(),
+            );
+            let mut value = Value::zero();
+            value.coin = WPOLL_VOTE_ORDER_MIN_LOVELACES;
+            let wpoll_vote_order_output = TransactionOutputBuilder::new()
+                .with_address(script_address(
+                    protocol_deployment.wpoll_vote_order.hash,
+                    *network_id,
+                ))
+                .with_data(order_datum)
+                .next()
+                .unwrap()
+                .with_value(value)
+                .build()
+                .unwrap();
 
-        change_output_creator.add_output(&wpoll_vote_order_output);
-        tx_builder.add_output(wpoll_vote_order_output).unwrap();
-        let estimated_tx_fee = tx_builder.min_fee(false).unwrap();
-        let actual_fee = estimated_tx_fee + 200_000;
-        let change_output = change_output_creator.create_change_output(actual_fee, addr.clone());
-        tx_builder.set_fee(actual_fee);
-        tx_builder.add_output(change_output).unwrap();
+            change_output_creator.add_output(&wpoll_vote_order_output);
+            tx_builder.add_output(wpoll_vote_order_output).unwrap();
+            let estimated_tx_fee = tx_builder.min_fee(false).unwrap();
+            let actual_fee = estimated_tx_fee + 200_000;
+            let change_output = change_output_creator.create_change_output(actual_fee, addr.clone());
+            tx_builder.set_fee(actual_fee);
+            tx_builder.add_output(change_output).unwrap();
 
-        let signed_tx_builder = tx_builder.build(ChangeSelectionAlgo::Default, addr).unwrap();
+            let signed_tx_builder = tx_builder.build(ChangeSelectionAlgo::Default, addr).unwrap();
 
-        let tx = prover.prove(signed_tx_builder);
-        let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
-        println!("tx_hash: {:?}", tx_hash);
-        let tx_bytes = tx.to_cbor_bytes();
-        println!("tx_bytes: {}", hex::encode(&tx_bytes));
+            let tx = prover.prove(signed_tx_builder);
+            let tx_hash = TransactionHash::from_hex(&tx.body.hash().to_hex()).unwrap();
+            let output = tx.body.outputs[0].clone();
+            let input = TransactionInput::new(tx_hash, 0);
+            let result = TransactionUnspentOutput::new(input, output);
+            println!("tx_hash: {:?}", tx_hash);
+            let tx_bytes = tx.to_cbor_bytes();
+            println!("tx_bytes: {}", hex::encode(&tx_bytes));
 
-        explorer.submit_tx(&tx_bytes).await.unwrap();
-        explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
-        println!("TX confirmed");
+            explorer.submit_tx(&tx_bytes).await.unwrap();
+            explorer.wait_for_transaction_confirmation(tx_hash).await.unwrap();
+            println!("TX confirmed");
+            return Some(result);
+        }
     }
+    None
 }
 
 async fn create_extend_voting_escrow_onchain_order(
     voting_escrow_id: VotingEscrowId,
+    ve_identifier_token_name: AssetName,
     ve_settings: &VotingEscrowSettings,
     op_inputs: &mut OperationInputs,
 ) -> Owner {
@@ -1087,7 +1118,7 @@ async fn create_extend_voting_escrow_onchain_order(
         tx_builder.add_input(utxo).unwrap();
     }
 
-    let voting_escrow_datum = if let Some(mut results) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
+    let order_datum = if let Some(mut results) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
         explorer,
         protocol_deployment.voting_escrow.hash,
         *network_id,
@@ -1103,13 +1134,17 @@ async fn create_extend_voting_escrow_onchain_order(
         let locked_until = Lock::Def((time_source.network_time().await + *lock_duration_in_seconds) * 1000);
         // Note that this datum is for the newly extended `voting_escrow` (in the output)
         println!("EXTEND VE PROXY_ORDER: VERSION == {}", ve.version + 1);
+        let ve_state = VotingEscrowConfig {
+            locked_until, // Extend by old locktime duration.
+            owner: ve.owner,
+            version: ve.version + 1,
+            last_wp_epoch: ve.last_wp_epoch,
+            last_gp_deadline: ve.last_gp_deadline,
+        };
         DatumOption::new_datum(
-            VotingEscrowConfig {
-                locked_until, // Extend by old locktime duration.
-                owner: ve.owner,
-                version: ve.version + 1,
-                last_wp_epoch: ve.last_wp_epoch,
-                last_gp_deadline: ve.last_gp_deadline,
+            ExtendVotingEscrowOrderState {
+                ve_state,
+                ve_identifier_token_name,
             }
             .into_pd(),
         )
@@ -1124,7 +1159,7 @@ async fn create_extend_voting_escrow_onchain_order(
             protocol_deployment.extend_ve_order.hash,
             *network_id,
         ))
-        .with_data(voting_escrow_datum)
+        .with_data(order_datum)
         .next()
         .unwrap()
         .with_value(order_out_value)
@@ -1363,7 +1398,7 @@ async fn create_initial_farms(op_inputs: &OperationInputs) {
     );
 
     // farm_factory output ---------------------------------------
-    let farm_factory_assets = farm_factory_input_builder.utxo_info.amount().multiasset.clone();
+    // let farm_factory_assets = farm_factory_input_builder.utxo_info.amount().multiasset.clone();
     let mut farm_factory_out_datum = farm_factory_in_datum.clone();
     farm_factory_out_datum.last_farm_id += 1;
     let farm_factory_output = TransactionOutputBuilder::new()
@@ -1371,8 +1406,8 @@ async fn create_initial_farms(op_inputs: &OperationInputs) {
         .with_data(DatumOption::new_datum(farm_factory_out_datum.into_pd()))
         .next()
         .unwrap()
-        .with_asset_and_min_required_coin(farm_factory_assets, COINS_PER_UTXO_BYTE)
-        .unwrap()
+        .with_value(farm_factory_input_builder.utxo_info.amount().clone())
+        // .with_asset_and_min_required_coin(farm_factory_assets, COINS_PER_UTXO_BYTE)
         .build()
         .unwrap();
 
@@ -1555,6 +1590,7 @@ where
         }
 
         println!("pulled utxos from slot {}: # pulled: {}", offset, utxos.len(),);
+        let original_offset = offset;
 
         for (utxo, slot) in utxos {
             let timed_output_ref = TimedOutputRef {
@@ -1575,6 +1611,10 @@ where
                     offset = slot + 1;
                 }
             }
+        }
+        if original_offset == offset {
+            println!("pull_onchain_entity(): No progress made...");
+            break;
         }
     }
     if res.is_empty() {
@@ -1598,9 +1638,9 @@ async fn send_edao_token(op_inputs: &OperationInputs, destination_addr: String) 
     //    .expect(INCOMPLETE_DEPLOYMENT_ERR_MSG);
 
     let bp = IssuedAsset {
-        policy_id: PolicyId::from_hex("7876492e3b82a31b1ce97a8f454cec653a0f6be5c09b90e62d24c152").unwrap(),
+        policy_id: PolicyId::from_hex("551a2b469e168128f53e81c61bbd9a0d3470ca46924830d542a16584").unwrap(),
         asset_name: cml_chain::assets::AssetName::from(AssetName::from_utf8("SPLASH".to_string())),
-        quantity: BigInteger::from(63_999_977_870_000_u64),
+        quantity: BigInteger::from(10_000_000_u64),
     };
 
     let required_tokens = vec![bp];

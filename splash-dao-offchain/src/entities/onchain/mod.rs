@@ -15,7 +15,7 @@ use spectrum_offchain::{
     ledger::TryFromLedger,
 };
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
-use voting_escrow::{Owner, VotingEscrow, VotingEscrowSnapshot};
+use voting_escrow::{Lock, Owner, VotingEscrow, VotingEscrowSnapshot};
 use voting_escrow_factory::{VEFactory, VEFactorySnapshot};
 use weighting_poll::{WeightingPoll, WeightingPollSnapshot};
 use wpoll_vote_order::WPollVoteOnchainOrder;
@@ -165,8 +165,8 @@ impl DaoOrder {
     pub fn get_owner(&self) -> Owner {
         match self {
             DaoOrder::MakeVE(order) => order.ve_datum.owner,
-            DaoOrder::ExtendVE(order) => order.ve_datum.owner,
-            DaoOrder::WPollVote(order) => order.ve_datum.owner,
+            DaoOrder::ExtendVE(order) => order.datum.ve_state.owner,
+            DaoOrder::WPollVote(order) => order.datum.ve_state.owner,
             DaoOrder::RedeemVE(order) => order.ve_datum.owner,
         }
     }

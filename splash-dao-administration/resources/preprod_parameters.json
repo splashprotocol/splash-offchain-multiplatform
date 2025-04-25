@@ -2,6 +2,5 @@
   "zeroth_epoch_start_offset": 100,
   "authorized_executors": [
     "3ebe44c8660ee99edd6f462455109117f0c8a96d06825212fea79be8"
-  ],
-  "num_active_farms": 2
+  ]
 }

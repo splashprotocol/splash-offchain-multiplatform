@@ -179,6 +179,11 @@ where
         } else {
             (1, 0)
         };
+        trace!(
+            "make_ve: mve_in_ix: {}, ve_factory_in_ix: {}",
+            mve_in_ix,
+            ve_factory_in_ix
+        );
 
         let reference_inputs = vec![
             self.ctx.select::<VEFactoryRefScriptOutput>().0,
@@ -209,10 +214,7 @@ where
 
         // `make_voting_escrow_order` input --------------------------------------------------------
         let mve_script_hash = self.ctx.select::<MakeVotingEscrowOrderScriptHash>().0;
-        let mve_redeemer = MakeVotingEscrowOrderAction::Deposit {
-            ve_factory_input_ix: ve_factory_in_ix,
-        }
-        .into_pd();
+        let mve_redeemer = MakeVotingEscrowOrderAction::Deposit.into_pd();
         let mve_witness = PartialPlutusWitness::new(PlutusScriptWitness::Ref(mve_script_hash), mve_redeemer);
 
         let mve_input_builder =
@@ -470,6 +472,13 @@ where
             .position(|(t, _, _)| matches!(t, T::VEFactory))
             .unwrap();
 
+        trace!(
+            "extend_ve: order_input_ix: {}, voting_escrow_input_ix: {}, ve_factory_input_ix: {}",
+            order_input_ix,
+            voting_escrow_input_ix,
+            ve_factory_input_ix
+        );
+
         // Verification of off-chain message with input `voting_escrow` ----------------------------
         let mut voting_escrow_out = ve_box_in.clone();
         let data_mut = voting_escrow_out.data_mut().unwrap();
@@ -516,17 +525,17 @@ where
             ));
         }
 
-        if onchain_order.order.ve_datum.version != version + 1 {
+        if onchain_order.order.datum.ve_state.version != version + 1 {
             return Err(ExtendVotingEscrowError::Witness(
                 WitnessError::VEVersionMismatchWithOnchainProxy {
                     voting_escrow_output_version: version + 1,
-                    proxy_version: onchain_order.order.ve_datum.version,
+                    proxy_version: onchain_order.order.datum.ve_state.version,
                 },
             ));
         }
 
         let time_source = NetworkTimeSource;
-        let locktime_exceeds_limit = match onchain_order.order.ve_datum.locked_until {
+        let locktime_exceeds_limit = match onchain_order.order.datum.ve_state.locked_until {
             Lock::Def(until) => {
                 let now_in_seconds = time_source.network_time().await;
                 let until_secs = until / 1000;
@@ -652,7 +661,6 @@ where
         let order_action = ExtendVotingEscrowOrderAction::Extend {
             order_input_ix: order_input_ix as u32,
             voting_escrow_input_ix: voting_escrow_input_ix as u32,
-            ve_factory_input_ix: ve_factory_input_ix as u32,
         };
 
         let order_witness = PartialPlutusWitness::new(
@@ -722,7 +730,7 @@ where
             .unwrap();
 
         // Add `voting_escrow` output --------------------------------------------------------------
-        let ve_datum = onchain_order.order.ve_datum;
+        let ve_datum = onchain_order.order.datum.ve_state;
         assert_eq!(ve_datum.version, version + 1);
         let mut next_ve = voting_escrow.get().clone();
         next_ve.version = ve_datum.version;
@@ -761,7 +769,7 @@ where
             proxy_order_output_reference: order_out_ref,
             proxy_order_script_hash: order_script_hash,
             proxy_order_redeemer: order_action.into_pd(),
-            proxy_order_datum: onchain_order.order.ve_datum.into_pd(),
+            proxy_order_datum: onchain_order.order.datum.into_pd(),
             owner_redemption: None,
         }
         .into_pd();
@@ -887,6 +895,13 @@ where
             .iter()
             .position(|(t, _, _)| matches!(t, T::VEFactory))
             .unwrap() as u32;
+
+        trace!(
+            "redeem_ve: order_input_ix: {}, voting_escrow_input_ix: {}, ve_factory_input_ix: {}",
+            order_input_ix,
+            voting_escrow_input_ix,
+            ve_factory_input_ix
+        );
 
         // Verification of off-chain message with input `voting_escrow` ----------------------------
         let mut voting_escrow_out = ve_box_in.clone();
@@ -1193,6 +1208,7 @@ where
             proxy_order_datum: onchain_order.order.ve_datum.into_pd(),
             owner_redemption: Some(OwnerRedemptionUTxO {
                 owner_output_ix: 1,
+                owner,
                 owner_stake_credential: owner_stake_credential.clone(),
             }),
         }

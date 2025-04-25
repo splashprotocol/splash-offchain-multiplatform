@@ -203,6 +203,12 @@ where
             },
         ) = sort_create_wp_poll_tx_inputs(unsorted_inputs);
 
+        trace!(
+            "create_wpoll: factory_in_ix: {}, inflation_box_in_ix: {}",
+            factory_in_ix,
+            inflation_box_in_ix
+        );
+
         for input in input_results {
             change_output_creator.add_input(&input);
             tx_builder.add_input(input).unwrap();
@@ -434,6 +440,7 @@ where
             .iter()
             .position(|(input_type, _)| matches!(input_type, EliminateWPollInputType::WPoll))
             .unwrap() as u64;
+        trace!("`eliminate_wpoll` input: wpoll_ix: {}", wpoll_ix);
 
         tx_builder.add_reference_input(mint_weighting_power_ref_script);
         tx_builder.add_reference_input(wpoll_auth_ref_script);
@@ -690,6 +697,13 @@ where
             .position(|(t, _, _)| matches!(t, T::WPoll))
             .unwrap() as u32;
 
+        trace!(
+            "`execute_order` inputs: order_ix: {}, voting_escrow_ix: {}, wpoll_ix: {}",
+            order_input_ix,
+            voting_escrow_input_ix,
+            wpoll_input_ix
+        );
+
         let new_ve_version = voting_escrow.get().version + 1;
         unsafe_update_ve_state(data_mut, new_wp_epoch, new_ve_version);
         let mut next_ve = voting_escrow.get().clone();
@@ -715,17 +729,7 @@ where
 
         // order input -----------------------------------------------------------------------------
         let order_script_hash = self.ctx.select::<WPollVoteOrderScriptHash>().0;
-        let weighting_poll_auth_token = Token(
-            self.ctx.select::<MintWPAuthPolicy>().0,
-            spectrum_cardano_lib::AssetName::from(compute_epoch_asset_name(weighting_poll.get().epoch)),
-        );
-        let ve_identifier_token = Token(
-            self.ctx.select::<MintVEIdentifierPolicy>().0,
-            voting_escrow.get().ve_identifier_name,
-        );
         let order_action = WPollVoteAction::CastVote {
-            weighting_poll_auth_token,
-            ve_identifier_token,
             voting_escrow_input_ix,
             wpoll_input_ix,
             expected_diff: offchain_order.distribution.clone(),

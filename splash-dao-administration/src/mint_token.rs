@@ -45,6 +45,7 @@ use splash_dao_offchain::{
         },
         voting_escrow_factory::{compute_ve_factory_validator, AcceptedAsset},
         weighting_poll::compute_mint_wp_auth_token_validator,
+        wpoll_vote_order::compute_wpoll_vote_order_validator,
     },
 };
 use uplc_pallas_primitives::BoundedBytes;
@@ -346,8 +347,7 @@ pub fn create_dao_reference_input_utxos(
 
     let perm_manager_script = compute_perm_manager_validator(edao_msig, perm_manager_auth_policy);
 
-    let wpoll_vote_order_script =
-        PlutusV2Script::new(hex::decode(&DaoScriptData::global().wpoll_vote_order.script_bytes).unwrap());
+    let wpoll_vote_order_script = compute_wpoll_vote_order_validator(mint_wp_auth_token_script.hash());
 
     let make_ve_order_script = compute_make_ve_order_validator(mint_ve_composition_token_script.hash());
 
@@ -522,5 +522,4 @@ pub struct DaoDeploymentParameters {
     /// Posix timestamp when first emission occurs.
     pub zeroth_epoch_start_offset: u64,
     pub authorized_executors: Vec<Ed25519KeyHash>,
-    pub num_active_farms: u32,
 }
