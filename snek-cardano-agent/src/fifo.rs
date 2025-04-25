@@ -18,6 +18,7 @@ use spectrum_offchain::maker::Maker;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Display;
 use std::ops::AddAssign;
+use bloom_offchain::execution_engine::liquidity_book::stashing_option::StashingOption;
 
 #[derive(Clone)]
 struct FifoState<Taker: Stable, Maker: Stable> {
@@ -110,6 +111,7 @@ impl<Taker: Stable, Maker: Stable> FifoState<Taker, Maker> {
 pub struct Fifo<Taker: Stable, Maker: Stable, Pair, U> {
     state: FifoState<Taker, Maker>,
     backup: Option<FifoState<Taker, Maker>>,
+    stash: Vec<Taker>,
     conf: ExecutionConfig<U>,
     pair: Pair,
 }
@@ -118,11 +120,10 @@ impl<T, M, P, Ctx, U> Maker<P, Ctx> for Fifo<T, M, P, U>
 where
     T: Stable,
     M: Stable,
-    Ctx: Has<Time> + Has<ExecutionConfig<U>>,
+    Ctx: Has<ExecutionConfig<U>>,
 {
     fn make(key: P, ctx: &Ctx) -> Self {
         Self::new(
-            ctx.select::<Time>().into(),
             ctx.select::<ExecutionConfig<U>>(),
             key,
         )
@@ -139,17 +140,16 @@ where
     }
 
     fn on_recipe_failed(&mut self) {
-        if let Some(backup) = self.backup.take() {
-            self.state = backup;
-        };
+        self.rollback(StashingOption::Unstash)
     }
 }
 
 impl<Taker: Stable, Maker: Stable, P, U> Fifo<Taker, Maker, P, U> {
-    pub fn new(time: u64, conf: ExecutionConfig<U>, pair: P) -> Self {
+    pub fn new(conf: ExecutionConfig<U>, pair: P) -> Self {
         Self {
             state: FifoState::new(),
             backup: None,
+            stash: vec![],
             conf,
             pair,
         }
@@ -169,6 +169,28 @@ impl<Taker: Stable, Maker: Stable, P, U> Fifo<Taker, Maker, P, U> {
         Maker: Clone,
     {
         self.backup.replace(self.state.clone());
+    }
+
+    fn rollback(&mut self, stashing_opt: StashingOption<Taker>) where Taker: Copy {
+        match stashing_opt {
+            StashingOption::Stash(mut to_stash) => {
+                if let Some(mut backup) = self.backup.take() {
+                    for taker in &to_stash {
+                        backup.remove_taker(*taker);
+                    }
+                    self.state = backup;
+                    self.stash.append(&mut to_stash);
+                };
+            }
+            StashingOption::Unstash => {
+                if let Some(mut backup) = self.backup.take() {
+                    for taker in self.stash.drain(..) {
+                        backup.append_taker(taker);
+                    }
+                    self.state = backup;
+                };
+            }
+        }
     }
 }
 
@@ -210,7 +232,7 @@ where
             let mut meta = ExecutionMeta::empty();
             let mut max_attempts = self.state.queue_size();
             self.backup();
-            while batch.execution_units_consumed() < self.conf.execution_cap.soft && batch.num_takes() < 15 {
+            while batch.execution_units_consumed() < self.conf.execution_cap.soft && batch.num_takes() < 17 {
                 if let Some(spot_price) = self.spot_price() {
                     meta.add_price_point(spot_price);
                     trace!("{} spot_price: {}", self.pair, spot_price,);
@@ -250,6 +272,8 @@ where
                                 self.state.append_taker(target_taker);
                             }
                         }
+                    } else {
+                        break;
                     }
                 } else {
                     trace!("{} No liquidity source is available", self.pair);
@@ -268,17 +292,14 @@ where
                 }
                 Err(None) => {
                     trace!("{} Matchmaking attempt failed", self.pair);
-                    self.on_recipe_failed();
+                    self.rollback(StashingOption::Unstash);
                 }
                 Err(Some(Either::Left(unsatisfied_takers))) => {
                     trace!(
                         "{} Matchmaking attempt failed due to taker limits, retrying",
                         self.pair
                     );
-                    self.on_recipe_failed();
-                    for t in unsatisfied_takers {
-                        self.state.append_taker(t);
-                    }
+                    self.rollback(StashingOption::Stash(unsatisfied_takers));
                     continue;
                 }
                 Err(Some(Either::Right(_downgrade_required))) => {
@@ -286,7 +307,7 @@ where
                         "{} Matchmaking attempt failed due to high execution complexity, retrying",
                         self.pair
                     );
-                    self.on_recipe_failed();
+                    self.rollback(StashingOption::Stash(vec![]));
                     optimized_matchmaking = false;
                     continue;
                 }
