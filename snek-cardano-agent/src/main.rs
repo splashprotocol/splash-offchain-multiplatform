@@ -1,6 +1,7 @@
 use crate::config::{allowed_payment_destinations, AppConfig};
 use crate::context::{ExecutionContext, MakerContext};
 use crate::entity::EvolvingCardanoEntity;
+use crate::fifo::Fifo;
 use crate::seq::with_sequencing;
 use crate::snek_handler_context::{SnekHandlerContext, SnekHandlerContextProto};
 use crate::snek_protocol_deployment::{
@@ -12,7 +13,6 @@ use async_primitives::channel_group::ChannelGroupUnordered;
 use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::execution_part_stream;
 use bloom_offchain::execution_engine::funding_effect::FundingEvent;
-use bloom_offchain::execution_engine::liquidity_book::TLB;
 use bloom_offchain::execution_engine::multi_pair::MultiPair;
 use bloom_offchain::execution_engine::storage::InMemoryStateIndex;
 use bloom_offchain_cardano::event_sink::entity_index::InMemoryEntityIndex;
@@ -29,7 +29,7 @@ use cardano_chain_sync::chain_sync_stream;
 use cardano_chain_sync::client::ChainSyncClient;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_chain_sync::event_source::ledger_transactions;
-use cardano_explorer::{AnyExplorer, Maestro, Network};
+use cardano_explorer::{AnyExplorer, Network};
 use cardano_mempool_sync::client::LocalTxMonitorClient;
 use cardano_mempool_sync::data::MempoolUpdate;
 use cardano_mempool_sync::mempool_stream;
@@ -72,6 +72,7 @@ use tracing_subscriber::fmt::Subscriber;
 mod config;
 mod context;
 mod entity;
+mod fifo;
 mod seq;
 mod snek_handler_context;
 mod snek_protocol_deployment;
@@ -285,8 +286,10 @@ async fn main() {
         operator_cred: operator_paycred,
         adhoc_fee_structure: config.adhoc_fee.into(),
     };
-    let multi_book =
-        MultiPair::new::<TLB<AdhocOrder, DegenQuadraticPool, PairId, ExUnits>>(maker_context.clone(), "Book");
+    let multi_book = MultiPair::new::<Fifo<AdhocOrder, DegenQuadraticPool, PairId, ExUnits>>(
+        maker_context.clone(),
+        "Book",
+    );
     let multi_backlog =
         MultiPair::new::<HotPriorityBacklog<Bundled<Order, FinalizedTxOut>>>(maker_context, "Backlog");
     let state_index = InMemoryStateIndex::with_tracing();

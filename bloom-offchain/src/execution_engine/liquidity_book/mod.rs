@@ -29,7 +29,7 @@ pub mod market_maker;
 pub mod market_taker;
 pub mod side;
 pub mod stashing_option;
-mod state;
+pub mod state;
 pub mod time;
 pub mod types;
 pub mod weight;
@@ -42,10 +42,10 @@ pub trait LiquidityBook<Taker, Maker, Meta> {
 /// TLB API for external events affecting its state.
 pub trait ExternalLBEvents<T, M> {
     fn advance_clocks(&mut self, new_time: u64);
-    fn update_taker(&mut self, fr: T);
-    fn remove_taker(&mut self, fr: T);
-    fn update_maker(&mut self, pool: M);
-    fn remove_maker(&mut self, pool: M);
+    fn update_taker(&mut self, tk: T);
+    fn remove_taker(&mut self, tk: T);
+    fn update_maker(&mut self, mk: M);
+    fn remove_maker(&mut self, mk: M);
 }
 
 /// TLB API for feedback events affecting its state.

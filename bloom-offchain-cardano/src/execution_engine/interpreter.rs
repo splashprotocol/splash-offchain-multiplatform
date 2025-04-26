@@ -1,10 +1,11 @@
-use std::fmt::Debug;
-
+use cml_chain::auxdata::{AuxiliaryData, ConwayFormatAuxData, Metadata, TransactionMetadatum};
 use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionBuilder};
 use cml_chain::transaction::TransactionOutput;
+use cml_core::serialization::StringEncoding;
 use either::Either;
 use log::trace;
 use num_rational::Ratio;
+use std::fmt::Debug;
 use tailcall::tailcall;
 
 use bloom_offchain::execution_engine::batch_exec::BatchExec;
@@ -40,13 +41,13 @@ impl CardanoRecipeInterpreter {
     }
 }
 
-impl<'a, Fr, Pl, Ctx> RecipeInterpreter<Fr, Pl, Ctx, OutputRef, FinalizedTxOut, SignedTxBuilder>
+impl<'a, T, M, Ctx> RecipeInterpreter<T, M, Ctx, OutputRef, FinalizedTxOut, SignedTxBuilder>
     for CardanoRecipeInterpreter
 where
-    Fr: MarketTaker + TakerBehaviour + Copy + Debug,
-    Pl: Copy + Debug,
-    Magnet<Take<Fr, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Fr>, Ctx>,
-    Magnet<Make<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Pl>, Ctx>,
+    T: MarketTaker + TakerBehaviour + Copy + Debug,
+    M: Copy + Debug,
+    Magnet<Take<T, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<T>, Ctx>,
+    Magnet<Make<M, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<M>, Ctx>,
     Ctx: Clone
         + Sized
         + Has<Collateral>
@@ -56,20 +57,33 @@ where
 {
     fn run(
         &mut self,
-        ExecutionRecipe(instructions): ExecutionRecipe<Fr, Pl, FinalizedTxOut>,
+        ExecutionRecipe(instructions): ExecutionRecipe<T, M, FinalizedTxOut>,
         funding: FinalizedTxOut,
         ctx: Ctx,
-    ) -> ExecutionResult<Fr, Pl, OutputRef, FinalizedTxOut, SignedTxBuilder> {
-        let (mut tx_builder, effects, funding_io_preview, ctx) =
+    ) -> ExecutionResult<T, M, OutputRef, FinalizedTxOut, SignedTxBuilder> {
+        let (tx_builder, effects, funding_io_preview, ctx) =
             execute_recipe(funding, self.take_residual_fee, ctx, instructions, 0);
+
+        let mut order_of_execution = vec![];
+        for (execution_seq_num, eff) in effects.iter().enumerate() {
+            if let EffectPreview::Updated(Bundled(Either::Left(_), utxo), _) | EffectPreview::Eliminated(Bundled(Either::Left(_), utxo)) = eff {
+                let input_ix = tx_builder
+                    .get_inputs()
+                    .iter()
+                    .position(|input| input.output == utxo.0)
+                    .expect("Tx.inputs must be coherent with effects!");
+                order_of_execution.push((input_ix, execution_seq_num));
+            }
+        }
+
         let execution_fee_address = ctx.select::<OperatorRewardAddress>().into();
         // Build tx, change is execution fee.
-        let tx = tx_builder
+        let tx = with_metadata(tx_builder, order_of_execution)
             .build(ChangeSelectionAlgo::Default, &execution_fee_address)
             .unwrap();
-        let tx_body_cloned = tx.body();
-        let tx_hash = hash_transaction_canonical(&tx_body_cloned);
-        let tx_outputs = tx_body_cloned.outputs;
+        let tx_body = tx.body_ref();
+        let tx_hash = hash_transaction_canonical(tx_body);
+        let tx_outputs = &tx_body.outputs;
 
         // Map finalized outputs to states of corresponding domain entities.
         let mut finalized_effects = vec![];
@@ -82,7 +96,7 @@ where
                         .expect("Tx.outputs must be coherent with effects!");
                     let out_ref = OutputRef::new(tx_hash, output_ix as u64);
                     p.map(|inner| {
-                        inner.map_either(|lh| Baked::new(lh, out_ref), |rh| Baked::new(rh, out_ref))
+                        inner.map_either(|tk| Baked::new(tk, out_ref), |mk| Baked::new(mk, out_ref))
                     })
                     .map_bearer(|out| FinalizedTxOut(out, out_ref))
                 },
@@ -90,8 +104,8 @@ where
                     let Bundled(_, FinalizedTxOut(_, consumed_out_ref)) = c;
                     c.map(|fr| {
                         fr.map_either(
-                            |fr| Baked::new(fr, consumed_out_ref),
-                            |pl| Baked::new(pl, consumed_out_ref),
+                            |tk| Baked::new(tk, consumed_out_ref),
+                            |mk| Baked::new(mk, consumed_out_ref),
                         )
                     })
                 },
@@ -116,24 +130,55 @@ where
     }
 }
 
+const ORDERING_KEY: u64 = 0;
+
+fn with_metadata(
+    mut tx_builder: TransactionBuilder,
+    order_of_execution: Vec<(usize, usize)>,
+) -> TransactionBuilder {
+    let mut encoded_ordering = vec![];
+    for (output_ix, execution_seq_num) in order_of_execution {
+        encoded_ordering.push(output_ix as u8);
+        encoded_ordering.push(execution_seq_num as u8);
+    }
+    tx_builder.add_auxiliary_data(AuxiliaryData::Conway(ConwayFormatAuxData {
+        metadata: Some(Metadata {
+            entries: vec![(
+                ORDERING_KEY,
+                TransactionMetadatum::Bytes {
+                    bytes: encoded_ordering,
+                    bytes_encoding: StringEncoding::Canonical,
+                },
+            )],
+            encodings: None,
+        }),
+        native_scripts: None,
+        plutus_v1_scripts: None,
+        plutus_v2_scripts: None,
+        plutus_v3_scripts: None,
+        encodings: None,
+    }));
+    tx_builder
+}
+
 #[tailcall]
-fn execute_recipe<Fr, Pl, Ctx>(
+fn execute_recipe<Tk, Mk, Ctx>(
     funding: FinalizedTxOut,
     take_residual_fee: bool,
     ctx: Ctx,
-    instructions: Vec<Execution<Fr, Pl, FinalizedTxOut>>,
+    instructions: Vec<Execution<Tk, Mk, FinalizedTxOut>>,
     accumulated_residue: Lovelace,
 ) -> (
     TransactionBuilder,
-    Vec<EffectPreview<Either<Fr, Pl>>>,
+    Vec<EffectPreview<Either<Tk, Mk>>>,
     FundingIO<FinalizedTxOut, TransactionOutput>,
     Ctx,
 )
 where
-    Fr: MarketTaker + TakerBehaviour + Copy,
-    Pl: Copy,
-    Magnet<Take<Fr, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Fr>, Ctx>,
-    Magnet<Make<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Pl>, Ctx>,
+    Tk: MarketTaker + TakerBehaviour + Copy,
+    Mk: Copy,
+    Magnet<Take<Tk, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Tk>, Ctx>,
+    Magnet<Make<Mk, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Mk>, Ctx>,
     Ctx: Clone
         + Sized
         + Has<Collateral>
@@ -213,36 +258,36 @@ where
     instructions
 }
 
-#[tailcall]
-fn execute<Fr, Pl, Ctx>(
-    ctx: Ctx,
-    state: ExecutionState,
-    mut updates_acc: Vec<EffectPreview<Either<Fr, Pl>>>,
-    mut rem: Vec<Execution<Fr, Pl, FinalizedTxOut>>,
-) -> (ExecutionState, Vec<EffectPreview<Either<Fr, Pl>>>, Ctx)
+fn execute<Tk, Mk, Ctx>(
+    mut ctx: Ctx,
+    mut state: ExecutionState,
+    mut effects: Vec<EffectPreview<Either<Tk, Mk>>>,
+    instructions: Vec<Execution<Tk, Mk, FinalizedTxOut>>,
+) -> (ExecutionState, Vec<EffectPreview<Either<Tk, Mk>>>, Ctx)
 where
-    Fr: Copy,
-    Pl: Copy,
-    Magnet<Take<Fr, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Fr>, Ctx>,
-    Magnet<Make<Pl, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Pl>, Ctx>,
+    Tk: Copy,
+    Mk: Copy,
+    Magnet<Take<Tk, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Tk>, Ctx>,
+    Magnet<Make<Mk, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Mk>, Ctx>,
     Ctx: Clone,
 {
-    if let Some(instruction) = rem.pop() {
+    for instruction in instructions {
         match instruction {
             Either::Left(take) => {
-                let (state, result, ctx) = Magnet(take).exec(state, ctx);
-                updates_acc.push(result.bimap(|u| u.map(Either::Left), |e| e.map(Either::Left)));
-                execute(ctx, state, updates_acc, rem)
+                let (new_state, result, new_ctx) = Magnet(take).exec(state, ctx);
+                effects.push(result.bimap(|u| u.map(Either::Left), |e| e.map(Either::Left)));
+                state = new_state;
+                ctx = new_ctx;
             }
             Either::Right(make) => {
-                let (state, result, ctx) = Magnet(make).exec(state, ctx);
-                updates_acc.push(result.bimap(|u| u.map(Either::Right), |e| e.map(Either::Right)));
-                execute(ctx, state, updates_acc, rem)
+                let (new_state, result, new_ctx) = Magnet(make).exec(state, ctx);
+                effects.push(result.bimap(|u| u.map(Either::Right), |e| e.map(Either::Right)));
+                state = new_state;
+                ctx = new_ctx;
             }
         }
-    } else {
-        return (state, updates_acc, ctx);
     }
+    (state, effects, ctx)
 }
 
 #[cfg(test)]

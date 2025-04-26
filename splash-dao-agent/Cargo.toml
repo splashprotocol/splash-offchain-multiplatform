@@ -15,10 +15,10 @@ bounded-integer = { version = "0.5.7", features = ["types", "serde1"] }
 cardano-chain-sync = { version = "0.1.0", path = "../cardano-chain-sync" }
 cardano-explorer = { version = "0.1.0", path = "../cardano-explorer" }
 chrono = "0.4.28"
-cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
-cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
-cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
-cml-multi-era = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
+cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "13c35772222fc46b26177a62726720502bdf21e4" }
+cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "13c35772222fc46b26177a62726720502bdf21e4" }
+cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "13c35772222fc46b26177a62726720502bdf21e4" }
+cml-multi-era = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "13c35772222fc46b26177a62726720502bdf21e4" }
 cardano-submit-api = { version = "0.1.0", path = "../cardano-submit-api" }
 hex = "0.4.3"
 minicbor = { version = "0.20", features = ["std", "half", "derive"] }

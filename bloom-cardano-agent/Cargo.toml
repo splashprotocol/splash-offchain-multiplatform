@@ -17,9 +17,9 @@ cardano-chain-sync = { version = "0.1.0", path = "../cardano-chain-sync" }
 cardano-explorer = { version = "0.1.0", path = "../cardano-explorer" }
 cardano-mempool-sync = { version = "0.1.0", path = "../cardano-mempool-sync" }
 spectrum-cardano-lib = { version = "0.1.0", path = "../spectrum-cardano-lib" }
-cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
-cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
-cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", branch = "fix-datum-hash" }
+cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "13c35772222fc46b26177a62726720502bdf21e4" }
+cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "13c35772222fc46b26177a62726720502bdf21e4" }
+cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "13c35772222fc46b26177a62726720502bdf21e4" }
 futures = "0.3.25"
 tokio = { version = "1.42.0", features = ["full"] }
 log = "0.4.17"

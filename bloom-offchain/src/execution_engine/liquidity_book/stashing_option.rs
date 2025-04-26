@@ -1,4 +1,4 @@
-pub enum StashingOption<Fr> {
-    Stash(Vec<Fr>),
+pub enum StashingOption<T> {
+    Stash(Vec<T>),
     Unstash,
 }
