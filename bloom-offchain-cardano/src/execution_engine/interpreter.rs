@@ -61,21 +61,20 @@ where
         funding: FinalizedTxOut,
         ctx: Ctx,
     ) -> ExecutionResult<T, M, OutputRef, FinalizedTxOut, SignedTxBuilder> {
-        let (mut tx_builder, effects, funding_io_preview, ctx) =
+        let (tx_builder, effects, funding_io_preview, ctx) =
             execute_recipe(funding, self.take_residual_fee, ctx, instructions, 0);
 
         let mut order_of_execution = vec![];
         for (execution_seq_num, eff) in effects.iter().enumerate() {
             match eff {
-                EffectPreview::Updated(_, Bundled(_, bearer)) => {
+                EffectPreview::Updated(Bundled(_, utxo), _) | EffectPreview::Eliminated(Bundled(_, utxo)) => {
                     let output_ix = tx_builder
-                        .get_outputs()
+                        .get_inputs()
                         .iter()
-                        .position(|out| out == bearer)
-                        .expect("Tx.outputs must be coherent with effects!");
+                        .position(|input| input.output == utxo.0)
+                        .expect("Tx.inputs must be coherent with effects!");
                     order_of_execution.push((output_ix, execution_seq_num));
                 }
-                EffectPreview::Eliminated(_) => {}
             }
         }
 
