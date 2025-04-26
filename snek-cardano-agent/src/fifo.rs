@@ -6,10 +6,10 @@ use bloom_offchain::execution_engine::liquidity_book::core::{
 use bloom_offchain::execution_engine::liquidity_book::market_maker::{MakerBehavior, MarketMaker, SpotPrice};
 use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
 use bloom_offchain::execution_engine::liquidity_book::side::{OnSide, Side};
+use bloom_offchain::execution_engine::liquidity_book::stashing_option::StashingOption;
 use bloom_offchain::execution_engine::liquidity_book::state::{dummy_swap, try_optimized_swap, FillPreview};
 use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
 use bloom_offchain::execution_engine::liquidity_book::{ExternalLBEvents, LBFeedback, LiquidityBook, TLB};
-use bloom_offchain::execution_engine::types::Time;
 use either::Either;
 use log::trace;
 use spectrum_offchain::display::{display_option, display_tuple};
@@ -18,7 +18,6 @@ use spectrum_offchain::maker::Maker;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Display;
 use std::ops::AddAssign;
-use bloom_offchain::execution_engine::liquidity_book::stashing_option::StashingOption;
 
 #[derive(Clone)]
 struct FifoState<Taker: Stable, Maker: Stable> {
@@ -123,10 +122,7 @@ where
     Ctx: Has<ExecutionConfig<U>>,
 {
     fn make(key: P, ctx: &Ctx) -> Self {
-        Self::new(
-            ctx.select::<ExecutionConfig<U>>(),
-            key,
-        )
+        Self::new(ctx.select::<ExecutionConfig<U>>(), key)
     }
 }
 
@@ -171,7 +167,10 @@ impl<Taker: Stable, Maker: Stable, P, U> Fifo<Taker, Maker, P, U> {
         self.backup.replace(self.state.clone());
     }
 
-    fn rollback(&mut self, stashing_opt: StashingOption<Taker>) where Taker: Copy {
+    fn rollback(&mut self, stashing_opt: StashingOption<Taker>)
+    where
+        Taker: Copy,
+    {
         match stashing_opt {
             StashingOption::Stash(mut to_stash) => {
                 if let Some(mut backup) = self.backup.take() {
