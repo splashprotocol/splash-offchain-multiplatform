@@ -6,10 +6,10 @@ edition = "2021"
 [dependencies]
 cardano-explorer = { version = "0.1.0", path = "../cardano-explorer" }
 clap = { version = "4.0", features = ["derive"] }
-cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "20d8c963a17098d3448a2b88fbeae4e2b3a3f150" }
-cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "20d8c963a17098d3448a2b88fbeae4e2b3a3f150" }
-cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "20d8c963a17098d3448a2b88fbeae4e2b3a3f150" }
-cml-multi-era = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "20d8c963a17098d3448a2b88fbeae4e2b3a3f150" }
+cml-core = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "13c35772222fc46b26177a62726720502bdf21e4" }
+cml-crypto = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "13c35772222fc46b26177a62726720502bdf21e4" }
+cml-chain = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "13c35772222fc46b26177a62726720502bdf21e4" }
+cml-multi-era = { git = "https://github.com/oskin1/cardano-multiplatform-lib.git", rev = "13c35772222fc46b26177a62726720502bdf21e4" }
 futures-timer = "3.0.2"
 num-rational = "0.4.1"
 hex = "0.4.3"
