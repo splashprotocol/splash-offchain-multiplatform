@@ -66,15 +66,13 @@ where
 
         let mut order_of_execution = vec![];
         for (execution_seq_num, eff) in effects.iter().enumerate() {
-            match eff {
-                EffectPreview::Updated(Bundled(_, utxo), _) | EffectPreview::Eliminated(Bundled(_, utxo)) => {
-                    let input_ix = tx_builder
-                        .get_inputs()
-                        .iter()
-                        .position(|input| input.output == utxo.0)
-                        .expect("Tx.inputs must be coherent with effects!");
-                    order_of_execution.push((input_ix, execution_seq_num));
-                }
+            if let EffectPreview::Updated(Bundled(Either::Left(_), utxo), _) | EffectPreview::Eliminated(Bundled(Either::Left(_), utxo)) = eff {
+                let input_ix = tx_builder
+                    .get_inputs()
+                    .iter()
+                    .position(|input| input.output == utxo.0)
+                    .expect("Tx.inputs must be coherent with effects!");
+                order_of_execution.push((input_ix, execution_seq_num));
             }
         }
 
