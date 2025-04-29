@@ -1,6 +1,6 @@
 use crate::onchain::event::{
     AccountEvent, FarmActivated, FarmCreated, FarmDeactivated, FarmEvent, Harvest, OnChainEvent,
-    PollFactoryUpdated, StatelessOnChainEvent,
+    PollFactoryEvents, StatelessOnChainEvent,
 };
 use crate::position_db::accounts::Accounts;
 use crate::ve_index::VoteEscrowIndex;
@@ -46,9 +46,25 @@ async fn resolve_events<I: VoteEscrowIndex, DB: Accounts>(
             StatelessOnChainEvent::FarmCreated(FarmCreated { farm_id, pool_id }) => {
                 index.put_gauge(farm_id, pool_id).await;
             }
-            StatelessOnChainEvent::PollFactoryUpdated(PollFactoryUpdated { new_state }) => {
-                if let Some(old_state) = index.get_poll_factory_snapshot().await {
-                    let old_gauges: HashSet<FarmId> = HashSet::from_iter(old_state.active_farms);
+            StatelessOnChainEvent::PollFactory(factory_event) => {
+                let mut previous_active_farms = None;
+                let mut new_state;
+                match factory_event {
+                    PollFactoryEvents::NewFactory(poll_state) => {
+                        previous_active_farms = Some(vec![]);
+                        new_state = poll_state
+                    }
+                    PollFactoryEvents::FactoryStateUpdate(updated_factory_state) => {
+                        previous_active_farms = index
+                            .get_poll_factory_snapshot()
+                            .await
+                            .map(|old_state| old_state.active_farms);
+                        new_state = updated_factory_state.new_state
+                    }
+                }
+
+                if let Some(previous_active_farms) = previous_active_farms {
+                    let old_gauges: HashSet<FarmId> = HashSet::from_iter(previous_active_farms);
                     let new_gauges = HashSet::from_iter(new_state.active_farms.clone());
                     let removed_gauges = old_gauges.difference(&new_gauges);
                     for gauge in removed_gauges {
@@ -66,8 +82,9 @@ async fn resolve_events<I: VoteEscrowIndex, DB: Accounts>(
                             )))
                         }
                     }
+
+                    index.update_poll_factory_snapshot(new_state).await;
                 }
-                index.update_poll_factory_snapshot(new_state).await;
             }
             StatelessOnChainEvent::Position(e) => {
                 translated_events.push(OnChainEvent::Account(AccountEvent::Position(e)))
