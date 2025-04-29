@@ -316,7 +316,7 @@ where
             SmartFarmSnapshot::try_from_ledger(utxo, &ProvideTimedOref(ctx, oref))
         });
         let mut new_farms = farms_in_outputs.filter_map(|farm| {
-            if farms_in_inputs.contains(&farm.get().farm_id) {
+            if !farms_in_inputs.contains(&farm.get().farm_id) {
                 Some(farm.unwrap())
             } else {
                 None
