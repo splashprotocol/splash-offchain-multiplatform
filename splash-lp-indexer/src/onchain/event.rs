@@ -20,6 +20,7 @@ use splash_dao_offchain::entities::onchain::smart_farm::{FarmId, SmartFarmSnapsh
 use splash_dao_offchain::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy, WPFactoryAuthPolicy};
 use splash_dao_offchain::routines::{ProvideTimedOref, Slot, TimedOutputRef};
 use std::collections::HashSet;
+use crate::onchain::event::PollFactoryEvents::{FactoryStateUpdate, NewFactory};
 
 /// Events extracted from on-chain transactions.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -27,7 +28,7 @@ pub enum StatelessOnChainEvent {
     Position(PositionEvent),
     MultipleHarvest(MultipleAccountsHarvest),
     FarmCreated(FarmCreated),
-    PollFactoryUpdated(PollFactoryUpdated),
+    PollFactory(PollFactoryEvents),
 }
 
 /// Events that happened on-chain but derived from a broad on-chain context.
@@ -62,7 +63,7 @@ where
             .map(StatelessOnChainEvent::Position)
             .or_else(|| FarmCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::FarmCreated))
             .or_else(|| {
-                PollFactoryUpdated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::PollFactoryUpdated)
+                PollFactoryEvents::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::PollFactory)
             })
             .or_else(|| {
                 MultipleAccountsHarvest::try_from_ledger(repr, ctx)
@@ -329,28 +330,50 @@ where
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub struct PollFactoryUpdated {
-    pub new_state: PollFactory,
+pub enum PollFactoryEvents {
+    NewFactory(PollFactory),
+    FactoryStateUpdate(PollFactoryUpdated)
 }
 
-impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for PollFactoryUpdated
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for PollFactoryEvents
 where
     Cx: Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>> + Has<WPFactoryAuthPolicy>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
+        let factory_in_inputs: HashSet<_> =
+            HashSet::from_iter(repr.inputs.iter().filter_map(|(i, maybe_utxo)| {
+                maybe_utxo
+                    .as_ref()
+                    .and_then(|u| {
+                        let oref = TimedOutputRef::new(OutputRef::from(i.clone()), Slot(0));
+                        PollFactorySnapshot::try_from_ledger(u, &ProvideTimedOref(ctx, oref))
+                    })
+                    .map(|farm| farm.get().stable_id)
+            }));
         repr.outputs
             .iter()
             .enumerate()
             .filter_map(|(ix, utxo)| {
                 let oref = TimedOutputRef::new(OutputRef::new(repr.hash, ix as u64), Slot(0));
                 PollFactorySnapshot::try_from_ledger(utxo, &ProvideTimedOref(ctx, oref)).map(|snapshot| {
-                    PollFactoryUpdated {
-                        new_state: snapshot.get().clone(),
+                    if factory_in_inputs.contains(&snapshot.get().stable_id) {
+                        FactoryStateUpdate(
+                            PollFactoryUpdated {
+                                new_state: snapshot.get().clone(),
+                            }
+                        )
+                    } else {
+                        NewFactory(snapshot.get().clone())
                     }
                 })
             })
             .next()
     }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct PollFactoryUpdated {
+    pub new_state: PollFactory,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
