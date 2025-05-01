@@ -18,7 +18,6 @@ use serde::{Deserialize, Serialize};
 use spectrum_offchain_cardano::data::PoolId;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
-use tokio::runtime::Handle;
 use tokio::task::spawn_blocking;
 
 #[async_trait]
@@ -29,7 +28,6 @@ pub trait MatureEvents {
 #[async_trait]
 impl MatureEvents for PositionDB {
     async fn try_process_mature_events(&self, confirmation_delay_blocks: u64) -> bool {
-        let handle = Handle::current();
         let db = self.db.clone();
         spawn_blocking(move || {
             let tx = db.transaction();
