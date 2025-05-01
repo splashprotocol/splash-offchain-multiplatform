@@ -144,7 +144,7 @@ where
         if let Some(pool) = PoolDiff::try_from_ledger(repr, ctx) {
             let (plus_sign, diff) = pool.lp_diff;
             if diff != 0 {
-                if let Some(account) = find_lp_recv(pool.lp_asset.into_token().unwrap(), repr) {
+                if let Some(account) = find_lp_recv(pool.lp_asset.into_token().unwrap(), pool.pool_id, repr) {
                     let account = account.payment_cred().unwrap().clone();
                     return Some(if plus_sign {
                         PositionEvent::Deposit(Deposit {
@@ -228,13 +228,19 @@ pub struct Deposit {
     pub lp_supply: u64,
 }
 
-fn find_lp_recv(Token(pol, tn): Token, tx: &TxViewPartiallyResolved) -> Option<Address> {
+fn find_lp_recv(Token(pol, tn): Token, PoolId(Token(pool_nft_pol, pool_nft_tn)): PoolId, tx: &TxViewPartiallyResolved) -> Option<Address> {
     tx.outputs.iter().find_map(|output| {
-        output
-            .value()
-            .multiasset
-            .get(&pol, &tn.into())
-            .map(|_| output.address().clone())
+        if output.value().multiasset.get(&pol, &tn.into()).is_some()
+            && output
+                .value()
+                .multiasset
+                .get(&pool_nft_pol, &pool_nft_tn.into())
+                .is_none()
+        {
+            Some(output.address().clone())
+        } else {
+            None
+        }
     })
 }
 

@@ -7,11 +7,13 @@ use crate::ve_index::VoteEscrowIndex;
 use cardano_chain_sync::atomic_flow::BlockEvents;
 use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
 use std::collections::HashSet;
+use log::info;
+use crate::position_db::pool_frames::PoolFrames;
 
-pub async fn resolve_gauges<I: VoteEscrowIndex, DB: Accounts>(
+pub async fn resolve_gauges<I: VoteEscrowIndex, DB: Accounts + PoolFrames>(
     events: BlockEvents<StatelessOnChainEvent>,
     index: &I,
-    accounts: &DB,
+    events_log: &DB,
 ) -> BlockEvents<OnChainEvent> {
     match events {
         BlockEvents::RollForward {
@@ -19,7 +21,7 @@ pub async fn resolve_gauges<I: VoteEscrowIndex, DB: Accounts>(
             block_num,
             block_slot,
         } => BlockEvents::RollForward {
-            events: resolve_events(events, index, accounts).await,
+            events: resolve_events(events, index, events_log).await,
             block_num,
             block_slot,
         },
@@ -28,23 +30,27 @@ pub async fn resolve_gauges<I: VoteEscrowIndex, DB: Accounts>(
             block_num,
             block_slot,
         } => BlockEvents::RollBackward {
-            events: resolve_events(events, index, accounts).await,
+            events: resolve_events(events, index, events_log).await,
             block_num,
             block_slot,
         },
     }
 }
 
-async fn resolve_events<I: VoteEscrowIndex, DB: Accounts>(
+async fn resolve_events<I: VoteEscrowIndex, DB: Accounts + PoolFrames>(
     events: Vec<StatelessOnChainEvent>,
     index: &I,
-    accounts: &DB,
+    events_log: &DB,
 ) -> Vec<OnChainEvent> {
     let mut translated_events = vec![];
     for ev in events {
         match ev {
             StatelessOnChainEvent::FarmCreated(FarmCreated { farm_id, pool_id }) => {
-                index.put_gauge(farm_id, pool_id).await;
+                if events_log.get_pool_lq_supply(pool_id).await.is_some() {
+                    index.put_gauge(farm_id, pool_id).await
+                } else {
+                    info!("Attempt to create farm for non-existent pool {}, farm_id {}", pool_id, farm_id);
+                }
             }
             StatelessOnChainEvent::PollFactory(factory_event) => {
                 let mut previous_active_farms = None;
@@ -91,7 +97,7 @@ async fn resolve_events<I: VoteEscrowIndex, DB: Accounts>(
             }
             StatelessOnChainEvent::MultipleHarvest(multiple_harvest) => {
                 for account in multiple_harvest.accounts {
-                    let account_pools = accounts.get_account_pools(account.clone()).await;
+                    let account_pools = events_log.get_account_pools(account.clone()).await;
                     for pool_id in account_pools {
                         translated_events.push(OnChainEvent::Account(AccountEvent::Harvest(Harvest {
                             pool_id,
