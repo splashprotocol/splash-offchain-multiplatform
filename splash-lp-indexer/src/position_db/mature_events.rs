@@ -3,17 +3,22 @@ use crate::feed::event::ExportAccountEvent;
 use crate::onchain::event::{
     AccountEvent, FarmEvent, Harvest, MultipleAccountsHarvest, OnChainEvent, PositionEvent,
 };
+use crate::position_db::accounts::Accounts;
+use crate::position_db::pool_frames::PoolFrames;
 use crate::position_db::{
     account_key, cred_index_key, export_feed, from_account_key, from_event_key, get_range_iterator, pool_key,
     sus_event_key, PositionDB, ACCOUNTS_CF, ACCOUNT_FEED_CF, ACTIVE_FARMS_CF, AGGREGATE_CF, CREDS_INDEX_CF,
-    EVENTS_CF, MAX_BLOCK_NUM_KEY, SUS_EVENTS_CF,
+    EVENTS_CF, MAX_BLOCK_NUM_KEY, POOL_LQ_FRAMES_INDEX_CF, SUS_EVENTS_CF,
 };
 use async_trait::async_trait;
 use cml_chain::certs::Credential;
+use log::info;
 use rocksdb::{IteratorMode, ReadOptions};
+use serde::{Deserialize, Serialize};
 use spectrum_offchain_cardano::data::PoolId;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
+use tokio::runtime::Handle;
 use tokio::task::spawn_blocking;
 
 #[async_trait]
@@ -24,6 +29,7 @@ pub trait MatureEvents {
 #[async_trait]
 impl MatureEvents for PositionDB {
     async fn try_process_mature_events(&self, confirmation_delay_blocks: u64) -> bool {
+        let handle = Handle::current();
         let db = self.db.clone();
         spawn_blocking(move || {
             let tx = db.transaction();
@@ -60,6 +66,40 @@ impl MatureEvents for PositionDB {
                     let cred_index_cf = db.cf_handle(CREDS_INDEX_CF).unwrap();
                     let frames = aggregate_events(events);
                     for (pool_id, mut pool_frame) in frames {
+                        let mut lp_supply;
+
+                        let tx = db.transaction();
+                        let pool_lq_frames_cf = db.cf_handle(POOL_LQ_FRAMES_INDEX_CF).unwrap();
+                        let readopts = ReadOptions::default();
+
+                        // if there is no deposit, redeem events in frame we should restore
+                        // previous frame to get lq_supply
+                        if let Some(new_lq_supply) = pool_frame.lp_supply {
+                            lp_supply = new_lq_supply
+                        } else {
+                            if let Ok(Some(raw_lq_value)) = tx.get_cf_opt(
+                                pool_lq_frames_cf,
+                                &rmp_serde::to_vec(&pool_id).unwrap(),
+                                &readopts,
+                            ) {
+                                lp_supply = rmp_serde::from_slice::<u64>(&raw_lq_value).unwrap();
+                            } else {
+                                info!(
+                                    "No LQ supply found for pool {}. Skip processing events for this frame",
+                                    pool_id
+                                );
+                                continue;
+                            }
+                        }
+
+                        // update pool lq value
+                        tx.put_cf(
+                            pool_lq_frames_cf,
+                            &rmp_serde::to_vec(&pool_id).unwrap(),
+                            &rmp_serde::to_vec(&lp_supply).unwrap(),
+                        )
+                        .unwrap();
+
                         let pool_key = pool_key(pool_id);
                         let current_slot = current_slot.unwrap();
                         let active_farms_cf = db.cf_handle(ACTIVE_FARMS_CF).unwrap();
@@ -114,7 +154,6 @@ impl MatureEvents for PositionDB {
                                 ),
                             );
                         }
-                        let lp_supply = pool_frame.lp_supply.unwrap();
                         for (account_cred, (account_state, mut account_frame)) in accounts_for_update {
                             let next_account_state =
                                 if let Some(first_harvest) = account_frame.harvest_events.pop_front() {

@@ -23,6 +23,7 @@ use splash_dao_offchain::deployment::ProtocolValidator;
 use splash_dao_offchain::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy, WPFactoryAuthPolicy};
 use splash_dao_offchain::routines::TimedOutputRef;
 use std::collections::HashSet;
+use crate::position_db::pool_frames::PoolFrames;
 
 mod log_events;
 pub mod read_events;
@@ -42,7 +43,7 @@ pub async fn log_events<U, Log, Cx, Utxos, Gauges>(
             TransactionHandle,
         ),
     >,
-    Log: EventLog + Accounts,
+    Log: EventLog + Accounts + PoolFrames,
     Utxos: PersistentIndex<OutputRef, TransactionOutput>,
     Gauges: VoteEscrowIndex,
     Cx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>

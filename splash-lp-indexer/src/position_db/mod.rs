@@ -14,6 +14,7 @@ pub mod accounts;
 pub mod event_log;
 pub mod export_feed;
 pub mod mature_events;
+pub mod pool_frames;
 
 #[derive(Clone)]
 pub struct PositionDB {
@@ -138,11 +139,13 @@ pub(crate) const SUS_EVENTS_CF: &str = "sus_events";
 
 pub(crate) const CREDS_INDEX_CF: &str = "creds_index";
 
+pub(crate) const POOL_LQ_FRAMES_INDEX_CF: &str = "pool_frames_index";
+
 pub(crate) const ACCOUNT_FEED_CF: &str = "account_events";
 
 pub(crate) const MAX_BLOCK_NUM_KEY: [u8; 4] = [0u8; 4];
 
-pub(crate) const COLUMN_FAMILIES: [&str; 7] = [
+pub(crate) const COLUMN_FAMILIES: [&str; 8] = [
     EVENTS_CF,
     ACCOUNTS_CF,
     ACTIVE_FARMS_CF,
@@ -150,6 +153,7 @@ pub(crate) const COLUMN_FAMILIES: [&str; 7] = [
     SUS_EVENTS_CF,
     CREDS_INDEX_CF,
     ACCOUNT_FEED_CF,
+    POOL_LQ_FRAMES_INDEX_CF
 ];
 
 #[cfg(test)]
