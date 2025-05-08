@@ -180,12 +180,12 @@ struct AppArgs {
     #[arg(long, short)]
     config_path: String,
     /// Path to the DEX deployment JSON configuration file .
-    #[arg(long, short)]
+    #[arg(long)]
     dex_deployment_path: String,
     /// Path to the DAO deployment JSON configuration file .
-    #[arg(long, short)]
+    #[arg(long)]
     dao_deployment_path: String,
-    #[arg(long, short)]
+    #[arg(long)]
     dao_tokens_path: String,
     /// Path to the bounds JSON configuration file .
     #[arg(long, short)]
