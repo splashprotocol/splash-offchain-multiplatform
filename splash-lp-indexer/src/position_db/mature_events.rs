@@ -1,8 +1,6 @@
 use crate::account::{AccountInPool, SuspendedPositionEvents};
 use crate::feed::event::ExportAccountEvent;
-use crate::onchain::event::{
-    AccountEvent, FarmEvent, Harvest, MultipleAccountsHarvest, OnChainEvent, PositionEvent,
-};
+use crate::onchain::event::{AccountEvent, FarmEvent, Harvest, MultipleAccountsHarvest, OnChainEvent, PoolEvent, PositionEvent};
 use crate::position_db::accounts::Accounts;
 use crate::position_db::pool_frames::PoolFrames;
 use crate::position_db::{
@@ -66,12 +64,11 @@ impl MatureEvents for PositionDB {
                     for (pool_id, mut pool_frame) in frames {
                         let mut lp_supply;
 
-                        let tx = db.transaction();
                         let pool_lq_frames_cf = db.cf_handle(POOL_LQ_FRAMES_INDEX_CF).unwrap();
                         let readopts = ReadOptions::default();
 
                         // if there is no deposit, redeem events in frame we should restore
-                        // previous frame to get lq_supply
+                        // previous frame lq_supply
                         if let Some(new_lq_supply) = pool_frame.lp_supply {
                             lp_supply = new_lq_supply
                         } else {
@@ -301,6 +298,11 @@ impl PoolFrame {
             }
             OnChainEvent::FarmEvent(farm_event) => {
                 self.farm_events.push(farm_event);
+            }
+            OnChainEvent::PoolEvent(pool_event) => match pool_event {
+                PoolEvent::PoolCreated(pool_creation_event) => {
+                    self.lp_supply.replace(pool_creation_event.supply_lq);
+                }
             }
         }
     }

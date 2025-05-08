@@ -29,6 +29,7 @@ pub enum StatelessOnChainEvent {
     MultipleHarvest(MultipleAccountsHarvest),
     FarmCreated(FarmCreated),
     PollFactory(PollFactoryEvents),
+    PoolCreated(PoolCreated),
 }
 
 /// Events that happened on-chain but derived from a broad on-chain context.
@@ -36,6 +37,7 @@ pub enum StatelessOnChainEvent {
 pub enum OnChainEvent {
     Account(AccountEvent),
     FarmEvent(FarmEvent),
+    PoolEvent(PoolEvent),
 }
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for StatelessOnChainEvent
@@ -67,6 +69,7 @@ where
                 MultipleAccountsHarvest::try_from_ledger(repr, ctx)
                     .map(StatelessOnChainEvent::MultipleHarvest)
             })
+            .or_else(|| PoolCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::PoolCreated))
     }
 }
 
@@ -75,6 +78,7 @@ impl OnChainEvent {
         match self {
             OnChainEvent::Account(dr) => dr.pool_id(),
             OnChainEvent::FarmEvent(fe) => fe.pool_id(),
+            OnChainEvent::PoolEvent(fe) => fe.pool_id(),
         }
     }
 }
@@ -141,24 +145,26 @@ where
         + Has<PoolValidation>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
-        if let Some(pool) = PoolDiff::try_from_ledger(repr, ctx) {
-            let (plus_sign, diff) = pool.lp_diff;
+        if let Some(pool_diff) = PoolDiff::try_from_ledger(repr, ctx) {
+            let (plus_sign, diff) = pool_diff.lp_diff;
             if diff != 0 {
-                if let Some(account) = find_lp_recv(pool.lp_asset.into_token().unwrap(), pool.pool_id, repr) {
+                if let Some(account) =
+                    find_lp_recv(pool_diff.lp_asset.into_token().unwrap(), pool_diff.pool_id, repr)
+                {
                     let account = account.payment_cred().unwrap().clone();
                     return Some(if plus_sign {
                         PositionEvent::Deposit(Deposit {
-                            pool_id: pool.pool_id,
+                            pool_id: pool_diff.pool_id,
                             account,
                             lp_mint: diff,
-                            lp_supply: pool.lp_supply,
+                            lp_supply: pool_diff.lp_supply,
                         })
                     } else {
                         PositionEvent::Redeem(Redeem {
-                            pool_id: pool.pool_id,
+                            pool_id: pool_diff.pool_id,
                             account,
                             lp_burned: diff,
-                            lp_supply: pool.lp_supply,
+                            lp_supply: pool_diff.lp_supply,
                         })
                     });
                 }
@@ -168,6 +174,7 @@ where
     }
 }
 
+#[derive(Debug)]
 struct PoolDiff {
     pool_id: PoolId,
     lp_asset: AssetClass,
@@ -336,7 +343,7 @@ where
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum PollFactoryEvents {
     NewFactory(PollFactory),
-    FactoryStateUpdate(PollFactoryUpdated),
+    FactoryStateUpdate(PollFactoryUpdated)
 }
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for PollFactoryEvents
@@ -401,4 +408,56 @@ pub struct FarmActivated {
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct FarmDeactivated {
     pub pool_id: PoolId,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub enum PoolEvent {
+    PoolCreated(PoolCreated),
+}
+
+impl PoolEvent {
+    pub fn pool_id(&self) -> PoolId {
+        match self {
+            PoolEvent::PoolCreated(d) => d.pool_id,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub struct PoolCreated {
+    pub pool_id: PoolId,
+    pub supply_lq: u64,
+}
+
+impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for PoolCreated
+where
+    Cx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolV2 as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitch as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchV2 as u8 }>>
+        + Has<DeployedScriptInfo<{ ConstFnPoolFeeSwitchBiDirFee as u8 }>>
+        + Has<DeployedScriptInfo<{ BalanceFnPoolV1 as u8 }>>
+        + Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>
+        + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
+        + Has<PoolValidation>,
+{
+    fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
+        let pool_in = repr.inputs.iter().find_map(|(input, maybe_utxo)| {
+            maybe_utxo.as_ref().and_then(|u| AnyPool::try_from_ledger(u, ctx))
+        });
+        let pool_out = repr.outputs.iter().find_map(|u| AnyPool::try_from_ledger(u, ctx));
+        if let (None, Some(pout)) = (pool_in, pool_out) {
+            let lp_out = match pout {
+                AnyPool::PureCFMM(p) => p.liquidity,
+                AnyPool::BalancedCFMM(p) => p.liquidity,
+                AnyPool::StableCFMM(p) => p.liquidity,
+            };
+            return Some(PoolCreated {
+                pool_id: pout.stable_id().into(),
+                supply_lq: lp_out.untag(),
+            });
+        }
+        None
+    }
 }

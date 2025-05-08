@@ -1,7 +1,4 @@
-use crate::onchain::event::{
-    AccountEvent, FarmActivated, FarmCreated, FarmDeactivated, FarmEvent, Harvest, OnChainEvent,
-    PollFactoryEvents, StatelessOnChainEvent,
-};
+use crate::onchain::event::{AccountEvent, FarmActivated, FarmCreated, FarmDeactivated, FarmEvent, Harvest, OnChainEvent, PollFactoryEvents, PoolEvent, StatelessOnChainEvent};
 use crate::position_db::accounts::Accounts;
 use crate::ve_index::VoteEscrowIndex;
 use cardano_chain_sync::atomic_flow::BlockEvents;
@@ -106,6 +103,9 @@ async fn resolve_events<I: VoteEscrowIndex, DB: Accounts + PoolFrames>(
                         })))
                     }
                 }
+            }
+            StatelessOnChainEvent::PoolCreated(e) => {
+                translated_events.push(OnChainEvent::PoolEvent(PoolEvent::PoolCreated(e)))
             }
         }
     }
