@@ -466,10 +466,16 @@ impl MarketMaker for ConstFnPool {
 
         let [base, _] = order_canonical(self.asset_x.untag(), self.asset_y.untag());
 
-        let tradable_x_reserves =
-            BigNumber::from((self.reserves_x - self.treasury_x - self.royalty_x).untag() as f64);
-        let tradable_y_reserves =
-            BigNumber::from((self.reserves_y - self.treasury_y - self.royalty_y).untag() as f64);
+        let tradable_x_reserves = if self.asset_x.is_native() {
+            BigNumber::from((self.reserves_x - self.treasury_x - self.royalty_x - TaggedAmount::new(3_000_000)).untag() as f64)
+        } else {
+            BigNumber::from((self.reserves_x - self.treasury_x - self.royalty_x).untag() as f64)
+        };
+        let tradable_y_reserves = if self.asset_y.is_native() {
+            BigNumber::from((self.reserves_y - self.treasury_y - self.royalty_y - TaggedAmount::new(3_000_000)).untag() as f64)
+        } else {
+            BigNumber::from((self.reserves_y - self.treasury_y - self.royalty_y).untag() as f64)
+        };
         let raw_fee_x = self
             .lp_fee_x
             .checked_sub(&self.treasury_fee)
