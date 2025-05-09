@@ -132,7 +132,7 @@ impl TxBlueprint {
                     TransactionOutput::new(reward_dest_address, Value::from(operator_interest), None, None);
                 all_io.push(Either::Right((None, operator_output.clone())));
                 if reward_dest_coincides_with_funding {
-                    // If reward dest address coincide with funding address then it can be used as funding.
+                    // If reward dest address coincides with funding address, then it can be used as funding.
                     FundingIO::Added(operator_funding, operator_output)
                 } else {
                     FundingIO::NotUsed(operator_funding)
@@ -195,6 +195,7 @@ impl TxBlueprint {
                         .unwrap();
                     let output = SingleOutputBuilderResult::new(output);
                     txb.add_input(input).expect("add script input ok");
+                    trace!("Adding output: {} -> {}", serde_json::to_string(output.output.value()).unwrap(), output.output.address().to_bech32(None).unwrap_or_else(|_| "_".to_string()));
                     txb.add_output(output).expect("add script output ok");
                     let ctx = ScriptContextPreview { self_index: ix };
                     txb.set_exunits(
