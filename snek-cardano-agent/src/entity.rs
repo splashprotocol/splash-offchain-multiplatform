@@ -133,7 +133,6 @@ where
         + Has<LimitOrderValidation>
         + Has<PoolValidation>
         + Has<AdhocFeeStructure>
-        + Has<Option<Metadata>>
         + Has<Option<Mints>>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
