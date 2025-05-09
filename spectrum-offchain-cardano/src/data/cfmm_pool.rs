@@ -266,8 +266,16 @@ impl AMMOps for ConstFnPool {
     ) -> TaggedAmount<Quote> {
         classic_cfmm_output_amount(
             self.asset_x,
-            self.reserves_x - self.treasury_x - self.royalty_x,
-            self.reserves_y - self.treasury_y - self.royalty_y,
+            if self.asset_x.is_native() {
+                self.reserves_x - self.treasury_x - self.royalty_x - TaggedAmount::new(3_000_000)
+            } else {
+                self.reserves_x - self.treasury_x - self.royalty_x
+            },
+            if self.asset_y.is_native() {
+                self.reserves_y - self.treasury_y - self.royalty_y - TaggedAmount::new(3_000_000)
+            } else { 
+                self.reserves_y - self.treasury_y - self.royalty_y
+            },
             base_asset,
             base_amount,
             self.lp_fee_x - self.treasury_fee - self.royalty_fee,
