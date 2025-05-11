@@ -15,6 +15,7 @@ use bloom_offchain::execution_engine::bundled::Bundled;
 use bloom_offchain::execution_engine::liquidity_book::core::Trans;
 use bloom_offchain_cardano::event_sink::tx_view::TxViewMut;
 use cardano_chain_sync::data::LedgerTxEvent;
+use cml_chain::auxdata::Metadata;
 use cml_chain::plutus::{PlutusData, PlutusScript, PlutusV2Script};
 use cml_chain::transaction::{Transaction, TransactionOutput};
 use cml_chain::Serialize;
@@ -2004,6 +2005,7 @@ where
                         hash,
                         inputs,
                         mut outputs,
+                        metadata,
                         ..
                     },
                 slot,
@@ -2099,6 +2101,7 @@ where
                             behaviour: self,
                             timed_output_ref,
                             current_epoch,
+                            metadata: metadata.clone(),
                         };
 
                         if let Some(voting_escrow) = VotingEscrowSnapshot::try_from_ledger(&output.1, &ctx) {
@@ -2174,6 +2177,7 @@ where
                         hash,
                         inputs,
                         outputs,
+                        metadata,
                         ..
                     },
                 slot,
@@ -2249,6 +2253,7 @@ where
                         behaviour: self,
                         timed_output_ref: ver,
                         current_epoch,
+                        metadata: metadata.clone(),
                     };
                     if let Some(id) = self.inflation_box.get_id(ver).await {
                         self.inflation_box.remove(id).await;
@@ -2713,6 +2718,7 @@ pub struct ProcessLedgerEntityContext<'a, D> {
     pub behaviour: &'a D,
     pub timed_output_ref: TimedOutputRef,
     pub current_epoch: CurrentEpoch,
+    pub metadata: Option<Metadata>,
 }
 
 impl<'a, D> Has<OutputRef> for ProcessLedgerEntityContext<'a, D> {
@@ -2730,6 +2736,12 @@ impl<'a, D> Has<TimedOutputRef> for ProcessLedgerEntityContext<'a, D> {
 impl<'a, D> Has<CurrentEpoch> for ProcessLedgerEntityContext<'a, D> {
     fn select<U: IsEqual<CurrentEpoch>>(&self) -> CurrentEpoch {
         self.current_epoch
+    }
+}
+
+impl<'a, D> Has<Option<Metadata>> for ProcessLedgerEntityContext<'a, D> {
+    fn select<U: IsEqual<Option<Metadata>>>(&self) -> Option<Metadata> {
+        self.metadata.clone()
     }
 }
 

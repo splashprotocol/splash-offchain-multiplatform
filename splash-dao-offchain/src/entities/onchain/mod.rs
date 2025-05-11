@@ -1,4 +1,8 @@
-use cml_chain::transaction::TransactionOutput;
+use cml_chain::{
+    auxdata::{Metadata, TransactionMetadatum},
+    transaction::TransactionOutput,
+};
+use cml_core::{serialization::FromBytes, Int};
 use extend_voting_escrow_order::ExtendVotingEscrowOnchainOrder;
 use funding_box::{FundingBox, FundingBoxSnapshot};
 use inflation_box::{InflationBox, InflationBoxSnapshot};
@@ -90,6 +94,7 @@ where
         + Has<DeployedScriptInfo<{ ProtocolValidator::WPollVoteOrder as u8 }>>
         + Has<DeployedScriptInfo<{ ProtocolValidator::RedeemVeOrder as u8 }>>
         + Has<OperatorCreds>
+        + Has<Option<Metadata>>
         + Has<NetworkId>
         + Has<TimedOutputRef>
         + Has<OutputRef>,
@@ -151,6 +156,65 @@ where
             None
         }
     }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, Hash)]
+pub struct ProxyOrderMetadata {
+    pub message: Vec<u8>,
+    pub prefix_bytes: Vec<u8>,
+    pub postfix_bytes: Vec<u8>,
+    pub version: u64,
+}
+
+pub fn get_proxy_order_metadata(value: Metadata) -> Option<ProxyOrderMetadata> {
+    let extract = |ix| {
+        let res = value.get_all(ix)?;
+        if res.len() != 1 {
+            None
+        } else {
+            Some((**res.last().unwrap()).clone())
+        }
+    };
+    let message_md = extract(0)?;
+    let prefix_bytes_md = extract(1)?;
+    let postfix_bytes_md = extract(2)?;
+    let version_md = extract(3)?;
+    if let (
+        TransactionMetadatum::Bytes { bytes: message, .. },
+        TransactionMetadatum::Bytes {
+            bytes: prefix_bytes, ..
+        },
+        TransactionMetadatum::Bytes {
+            bytes: postfix_bytes, ..
+        },
+        TransactionMetadatum::Int(Int::Uint { value: version, .. }),
+    ) = (message_md, prefix_bytes_md, postfix_bytes_md, version_md)
+    {
+        return Some(ProxyOrderMetadata {
+            message,
+            prefix_bytes,
+            postfix_bytes,
+            version,
+        });
+    }
+    None
+}
+
+impl From<ProxyOrderMetadata> for Metadata {
+    fn from(value: ProxyOrderMetadata) -> Self {
+        let mut metadata = Metadata::new();
+        metadata.set(0, TransactionMetadatum::from_bytes(value.message).unwrap());
+        metadata.set(1, TransactionMetadatum::from_bytes(value.prefix_bytes).unwrap());
+        metadata.set(2, TransactionMetadatum::from_bytes(value.postfix_bytes).unwrap());
+        metadata.set(3, TransactionMetadatum::new_int(Int::from(value.version)));
+        metadata
+    }
+}
+
+/// The plutus-data element that is part of the signature for VE TX authorisation.
+pub enum ProxyOrderSignatureElement {
+    WPollVote,
+    RedeemVE,
 }
 
 #[derive(Hash, PartialEq, Eq, Serialize, Deserialize, Clone, Debug, derive_more::From)]

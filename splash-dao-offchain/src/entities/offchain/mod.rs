@@ -156,6 +156,21 @@ pub fn compute_witness_message(
     Ok(cml_crypto::blake2b256(bytes.as_ref()).to_vec())
 }
 
+pub fn compute_witness_message_corrected(
+    witness: ScriptHash,
+    witness_input: String,
+    authenticated_version: u64,
+) -> Result<Vec<u8>, ()> {
+    use cml_chain::Serialize;
+    let mut bytes = cml_crypto::blake2b256(&hex::decode(witness_input).map_err(|_| ())?).to_vec();
+    let witness_script_bytes = witness.to_raw_bytes().to_vec();
+    bytes.extend_from_slice(&witness_script_bytes);
+    bytes.extend_from_slice(
+        &PlutusData::new_integer(cml_chain::utils::BigInteger::from(authenticated_version)).to_cbor_bytes(),
+    );
+    Ok(cml_crypto::blake2b256(bytes.as_ref()).to_vec())
+}
+
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WPollVoteOffChainOrder {
     pub id: OffChainOrderId,
