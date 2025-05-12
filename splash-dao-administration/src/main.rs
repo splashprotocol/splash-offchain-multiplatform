@@ -87,7 +87,7 @@ use splash_dao_offchain::{
     CurrentEpoch, NetworkTimeSource,
 };
 use std::ops::Index;
-use user_simulator::user_simulator;
+use user_simulator::{create_ve_metadata, user_simulator};
 use voting_order::create_offchain_voting_order;
 
 const INFLATION_BOX_INITIAL_SPLASH_QTY: i64 = 32000000000000;
@@ -1121,14 +1121,15 @@ async fn create_extend_voting_escrow_onchain_order(
         tx_builder.add_input(utxo).unwrap();
     }
 
-    let order_datum = if let Some(mut results) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
-        explorer,
-        protocol_deployment.voting_escrow.hash,
-        *network_id,
-        &deployment_config,
-        voting_escrow_id,
-    )
-    .await
+    let (order_datum_for_tx, order_datum) = if let Some(mut results) =
+        pull_onchain_entity::<VotingEscrowSnapshot, _>(
+            explorer,
+            protocol_deployment.voting_escrow.hash,
+            *network_id,
+            &deployment_config,
+            voting_escrow_id,
+        )
+        .await
     {
         assert_eq!(results.len(), 1);
         let (ve_snapshot, _) = results.pop().unwrap();
@@ -1144,13 +1145,12 @@ async fn create_extend_voting_escrow_onchain_order(
             last_wp_epoch: ve.last_wp_epoch,
             last_gp_deadline: ve.last_gp_deadline,
         };
-        DatumOption::new_datum(
-            ExtendVotingEscrowOrderState {
-                ve_state,
-                ve_identifier_token_name,
-            }
-            .into_pd(),
-        )
+
+        let datum = ExtendVotingEscrowOrderState {
+            ve_state,
+            ve_identifier_token_name,
+        };
+        (DatumOption::new_datum(datum.clone().into_pd()), datum)
     } else {
         panic!("VE NOT FOUND");
     };
@@ -1162,7 +1162,7 @@ async fn create_extend_voting_escrow_onchain_order(
             protocol_deployment.extend_ve_order.hash,
             *network_id,
         ))
-        .with_data(order_datum)
+        .with_data(order_datum_for_tx)
         .next()
         .unwrap()
         .with_value(order_out_value)
@@ -1178,6 +1178,17 @@ async fn create_extend_voting_escrow_onchain_order(
     tx_builder
         .add_collateral(InputBuilderResult::from(collateral.clone()))
         .unwrap();
+
+    let order_metadata = create_ve_metadata(
+        order_datum.clone(),
+        protocol_deployment.redeem_ve_order.hash,
+        order_datum.ve_state.version,
+        &op_inputs.operator_sk,
+    );
+    let mut conway_aux_data = ConwayFormatAuxData::new();
+    conway_aux_data.metadata = Some(cml_chain::auxdata::Metadata::from(order_metadata));
+    let aux_data = AuxiliaryData::new_conway(conway_aux_data);
+    tx_builder.set_auxiliary_data(aux_data);
 
     let start_slot = explorer.chain_tip_slot_number().await.unwrap();
     tx_builder.set_validity_start_interval(start_slot);

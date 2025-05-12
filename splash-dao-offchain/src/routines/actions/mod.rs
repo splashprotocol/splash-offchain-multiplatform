@@ -125,7 +125,6 @@ pub trait VoteEscrowActions<Bearer> {
     async fn extend_voting_escrow(
         &self,
         extend_voting_escrow_onchain_order: ExtendVotingEscrowOrderBundle<Bearer>,
-        extend_voting_escrow_offchain_order: ExtendVotingEscrowOffChainOrder,
         voting_escrow: Bundled<VotingEscrowSnapshot, Bearer>,
         ve_factory: Bundled<VEFactorySnapshot, Bearer>,
         current_slot: Slot,

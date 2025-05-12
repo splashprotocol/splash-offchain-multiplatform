@@ -1368,7 +1368,6 @@ impl<
             .actions
             .extend_voting_escrow(
                 onchain_bundle.clone(),
-                offchain_order.clone(),
                 voting_escrow,
                 ve_factory,
                 Slot(current_slot),
