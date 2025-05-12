@@ -3,6 +3,7 @@ use cml_chain::{
     transaction::TransactionOutput,
 };
 use cml_core::{serialization::FromBytes, Int};
+use cml_crypto::{RawBytesEncoding, ScriptHash};
 use extend_voting_escrow_order::ExtendVotingEscrowOnchainOrder;
 use funding_box::{FundingBox, FundingBoxSnapshot};
 use inflation_box::{InflationBox, InflationBoxSnapshot};
@@ -18,7 +19,7 @@ use spectrum_offchain::{
     domain::{order::UniqueOrder, Has},
     ledger::TryFromLedger,
 };
-use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
+use spectrum_offchain_cardano::{deployment::DeployedScriptInfo, raw_bytes::RawBytes};
 use voting_escrow::{Lock, Owner, VotingEscrow, VotingEscrowSnapshot};
 use voting_escrow_factory::{VEFactory, VEFactorySnapshot};
 use weighting_poll::{WeightingPoll, WeightingPollSnapshot};
@@ -160,10 +161,11 @@ where
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, Hash)]
 pub struct ProxyOrderMetadata {
-    pub message: Vec<u8>,
+    pub signature: Vec<u8>,
+    pub witness_script_hash: ScriptHash,
     pub prefix_bytes: Vec<u8>,
     pub postfix_bytes: Vec<u8>,
-    pub version: u64,
+    pub version: u32,
 }
 
 pub fn get_proxy_order_metadata(value: Metadata) -> Option<ProxyOrderMetadata> {
@@ -176,11 +178,16 @@ pub fn get_proxy_order_metadata(value: Metadata) -> Option<ProxyOrderMetadata> {
         }
     };
     let message_md = extract(0)?;
-    let prefix_bytes_md = extract(1)?;
-    let postfix_bytes_md = extract(2)?;
-    let version_md = extract(3)?;
+    let witness_script_hash_md = extract(1)?;
+    let prefix_bytes_md = extract(2)?;
+    let postfix_bytes_md = extract(3)?;
+    let version_md = extract(4)?;
     if let (
         TransactionMetadatum::Bytes { bytes: message, .. },
+        TransactionMetadatum::Bytes {
+            bytes: witness_script_hash_bytes,
+            ..
+        },
         TransactionMetadatum::Bytes {
             bytes: prefix_bytes, ..
         },
@@ -188,13 +195,21 @@ pub fn get_proxy_order_metadata(value: Metadata) -> Option<ProxyOrderMetadata> {
             bytes: postfix_bytes, ..
         },
         TransactionMetadatum::Int(Int::Uint { value: version, .. }),
-    ) = (message_md, prefix_bytes_md, postfix_bytes_md, version_md)
-    {
+    ) = (
+        message_md,
+        witness_script_hash_md,
+        prefix_bytes_md,
+        postfix_bytes_md,
+        version_md,
+    ) {
+        let witness_script_hash = ScriptHash::from_raw_bytes(&witness_script_hash_bytes).ok()?;
+
         return Some(ProxyOrderMetadata {
-            message,
+            signature: message,
+            witness_script_hash,
             prefix_bytes,
             postfix_bytes,
-            version,
+            version: version as u32,
         });
     }
     None
@@ -203,10 +218,14 @@ pub fn get_proxy_order_metadata(value: Metadata) -> Option<ProxyOrderMetadata> {
 impl From<ProxyOrderMetadata> for Metadata {
     fn from(value: ProxyOrderMetadata) -> Self {
         let mut metadata = Metadata::new();
-        metadata.set(0, TransactionMetadatum::from_bytes(value.message).unwrap());
-        metadata.set(1, TransactionMetadatum::from_bytes(value.prefix_bytes).unwrap());
-        metadata.set(2, TransactionMetadatum::from_bytes(value.postfix_bytes).unwrap());
-        metadata.set(3, TransactionMetadatum::new_int(Int::from(value.version)));
+        metadata.set(0, TransactionMetadatum::from_bytes(value.signature).unwrap());
+        metadata.set(
+            2,
+            TransactionMetadatum::from_bytes(value.witness_script_hash.to_raw_bytes()).unwrap(),
+        );
+        metadata.set(2, TransactionMetadatum::from_bytes(value.prefix_bytes).unwrap());
+        metadata.set(3, TransactionMetadatum::from_bytes(value.postfix_bytes).unwrap());
+        metadata.set(4, TransactionMetadatum::new_int(Int::from(value.version as u64)));
         metadata
     }
 }
@@ -231,7 +250,7 @@ impl DaoOrder {
             DaoOrder::MakeVE(order) => order.ve_datum.owner,
             DaoOrder::ExtendVE(order) => order.datum.ve_state.owner,
             DaoOrder::WPollVote(order) => order.datum.ve_state.owner,
-            DaoOrder::RedeemVE(order) => order.ve_datum.owner,
+            DaoOrder::RedeemVE(order) => order.datum.ve_state.owner,
         }
     }
 }

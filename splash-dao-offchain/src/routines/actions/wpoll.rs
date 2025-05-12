@@ -752,7 +752,7 @@ where
 
         let authorized_action = VotingEscrowAuthorizedAction {
             action: VotingEscrowAction::Governance,
-            witness: offchain_order.witness,
+            witness_ix: order_input_ix as u32,
             version: offchain_order.id.version,
             signature: offchain_order.proof,
             prefix_bytes: offchain_order.prefix_bytes,

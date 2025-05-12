@@ -3,20 +3,22 @@ use cml_chain::builders::tx_builder::TransactionUnspentOutput;
 use cml_chain::certs::StakeCredential;
 use cml_chain::plutus::{PlutusData, PlutusScript, PlutusV2Script, PlutusV3Script};
 use cml_chain::PolicyId;
-use cml_crypto::PrivateKey;
 use cml_crypto::RawBytesEncoding;
+use cml_crypto::{PrivateKey, ScriptHash};
 use futures_timer::Delay;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::plutus_data::{DatumExtension, IntoPlutusData};
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::{OutputRef, Token};
-use splash_dao_offchain::entities::offchain::RedeemVotingEscrowOffChainOrder;
 use splash_dao_offchain::entities::offchain::{compute_witness_message, OffChainOrderId};
+use splash_dao_offchain::entities::offchain::{
+    compute_witness_message_corrected, RedeemVotingEscrowOffChainOrder,
+};
 use splash_dao_offchain::entities::offchain::{ExtendVotingEscrowOffChainOrder, WPollVoteOffChainOrder};
 use splash_dao_offchain::entities::onchain::proxy_order_witness::{OwnerRedemptionUTxO, WitnessAction};
 use splash_dao_offchain::entities::onchain::redeem_voting_escrow::{
-    RedeemVEOrderAction, RedeemVotingEscrowOnchainOrder,
+    RedeemVEOrderAction, RedeemVotingEscrowOnchainOrder, RedeemVotingEscrowOrderState,
 };
 use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
 use splash_dao_offchain::entities::onchain::voting_escrow::{Lock, VotingEscrowConfig};
@@ -25,6 +27,7 @@ use splash_dao_offchain::entities::onchain::voting_escrow_factory::VEFactorySnap
 use splash_dao_offchain::entities::onchain::wpoll_vote_order::{
     WPollVoteAction, WPollVoteOnchainOrder, WPollVoteState,
 };
+use splash_dao_offchain::entities::onchain::ProxyOrderMetadata;
 use splash_dao_offchain::routines::actions::{compute_epoch_asset_name, compute_farm_name};
 use splash_dao_offchain::{
     deployment::{CompleteDeployment, DaoScriptData, ProtocolDeployment},
@@ -495,88 +498,10 @@ pub async fn user_simulator<'a>(
                         ve_datum,
                         order_output_ref,
                     } => {
-                        //
-                        println!("Redeem VE---------------------------");
-                        let ve_factory_output_ref = pull_onchain_entity::<VEFactorySnapshot, _>(
-                            &op_inputs.explorer,
-                            protocol_deployment.ve_factory.hash,
-                            op_inputs.network_id,
-                            &deployment_config,
-                            VEFactoryId,
-                        )
-                        .await
-                        .map(|mut result| {
-                            assert_eq!(result.len(), 1);
-                            let (_, ve_factory_output) = result.pop().unwrap();
-                            OutputRef::from(ve_factory_output.input)
-                        })
-                        .unwrap();
-
-                        enum T {
-                            VE,
-                            VeFactory,
-                            Order,
-                        }
-                        let mut typed_output_refs = [
-                            (T::VE, ve_output_ref),
-                            (T::VeFactory, ve_factory_output_ref),
-                            (T::Order, order_output_ref),
-                        ];
-
-                        typed_output_refs.sort_by(|(_, x), (_, y)| x.cmp(y));
-
-                        let voting_escrow_input_ix = typed_output_refs
-                            .iter()
-                            .position(|(t, _)| matches!(t, T::VE))
-                            .unwrap() as u32;
-                        let ve_factory_input_ix = typed_output_refs
-                            .iter()
-                            .position(|(t, _)| matches!(t, T::VeFactory))
-                            .unwrap() as u32;
-                        let proxy_order_input_ix = typed_output_refs
-                            .iter()
-                            .position(|(t, _)| matches!(t, T::Order))
-                            .unwrap() as u32;
-                        let id = OffChainOrderId {
-                            voting_escrow_id,
-                            version: ve_version,
-                        };
-
-                        let owner_stake_credential = op_inputs.stake_credential.clone();
-                        let proxy_order_redeemer = RedeemVEOrderAction::RedeemVE {
-                            ve_identifier_token_name: voting_escrow_id.0,
-                            owner_stake_credential: Some(owner_stake_credential.clone()),
-                            voting_escrow_input_ix,
-                            ve_factory_input_ix,
-                        }
-                        .into_pd();
-
-                        let witness_redeemer = WitnessAction {
-                            proxy_order_input_ix,
-                            proxy_order_output_reference: order_output_ref,
-                            proxy_order_script_hash: protocol_deployment.redeem_ve_order.hash,
-                            proxy_order_redeemer,
-                            proxy_order_datum: ve_datum.into_pd(),
-                            owner_redemption: Some(OwnerRedemptionUTxO {
-                                owner_output_ix: 1,
-                                owner,
-                                owner_stake_credential: owner_stake_credential.clone(),
-                            }),
-                        }
-                        .into_pd();
-
-                        let order = create_redeem_ve_offchain_order(
-                            id,
-                            witness_redeemer,
-                            order_output_ref,
-                            &op_inputs.operator_sk,
-                            owner_stake_credential,
-                        );
                         println!(
-                            "redeem VE JSON: {}",
-                            serde_json::to_string_pretty(&order).unwrap()
+                            "Redeemed VE. Identifier: {}",
+                            hex::encode(ve_identifier_token_name.as_bytes())
                         );
-                        send_redeem_ve_offchain_order(order, &op_inputs.voting_order_listener_endpoint).await;
                     }
                     VEState::PredictedOffChainExtendedVESent(VEVersion(version)) => {
                         if let Some(mut results) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
@@ -696,7 +621,7 @@ pub async fn user_simulator<'a>(
                                     .await
                                     .map(|order_results| {
                                         order_results.iter().find_map(|(order, unspent_output)| {
-                                            if order.ve_datum == ve_datum {
+                                            if order.datum.ve_state == ve_datum {
                                                 Some(OutputRef::from(unspent_output.input.clone()))
                                             } else {
                                                 None
@@ -707,8 +632,20 @@ pub async fn user_simulator<'a>(
                                     order_output_ref
                                 } else {
                                     println!("Creating new redeem proxy order");
+                                    let owner_stake_credential = Some(op_inputs.stake_credential.clone());
+                                    let order_datum = RedeemVotingEscrowOrderState {
+                                        ve_state: ve_datum,
+                                        ve_identifier_token_name,
+                                        owner_stake_credential,
+                                    };
+                                    let order_metadata = create_redeem_ve_metadata(
+                                        order_datum.clone(),
+                                        protocol_deployment.extend_ve_order.hash,
+                                        &op_inputs.operator_sk,
+                                    );
                                     create_redeem_voting_escrow_onchain_order(
-                                        unspent_output.output.datum().unwrap(),
+                                        order_datum,
+                                        order_metadata,
                                         op_inputs,
                                     )
                                     .await
@@ -817,20 +754,19 @@ fn create_extend_ve_offchain_order(
     }
 }
 
-fn create_redeem_ve_offchain_order(
-    id: OffChainOrderId,
-    witness_redeemer: PlutusData,
-    order_output_ref: OutputRef,
+fn create_redeem_ve_metadata(
+    order_datum: RedeemVotingEscrowOrderState,
+    witness_script_hash: ScriptHash,
     operator_sk: &PrivateKey,
-    stake_credential: StakeCredential,
-) -> RedeemVotingEscrowOffChainOrder {
+) -> ProxyOrderMetadata {
     use cml_chain::Serialize;
     let witness: PlutusScript =
         PlutusV3Script::new(hex::decode(&DaoScriptData::global().proxy_order_witness.script_bytes).unwrap())
             .into();
-    let redeemer_hex = hex::encode(witness_redeemer.to_cbor_bytes());
-    println!("redeemer: {}", redeemer_hex);
-    let message = compute_witness_message(witness.hash(), redeemer_hex.clone(), id.version as u64).unwrap();
+    let datum_hex = hex::encode(order_datum.clone().into_pd().to_cbor_bytes());
+    let version = order_datum.ve_state.version;
+    println!("redeem_ve_order_datum: {}", datum_hex);
+    let message = compute_witness_message_corrected(witness.hash(), &order_datum.into_pd(), version).unwrap();
     println!("message: {}", hex::encode(&message));
     let prefix_bytes = vec![0x9F, 1, 2, 3];
     let postfix_bytes = vec![0xFF];
@@ -838,15 +774,12 @@ fn create_redeem_ve_offchain_order(
     full_payload.extend_from_slice(&message);
     full_payload.extend_from_slice(&postfix_bytes);
     let signature = operator_sk.sign(&full_payload).to_raw_bytes().to_vec();
-    RedeemVotingEscrowOffChainOrder {
-        id,
-        stake_credential: Some(stake_credential),
-        proof: signature,
-        witness: witness.hash(),
-        witness_input: redeemer_hex,
-        order_output_ref,
+    ProxyOrderMetadata {
+        signature,
+        witness_script_hash,
         prefix_bytes,
         postfix_bytes,
+        version,
     }
 }
 
@@ -893,39 +826,6 @@ async fn send_extend_ve_offchain_order(
     let response = retry!(
         {
             let url = format!("http://{}{}", &voting_order_listener_endpoint, "/submit/extendve");
-            client
-                .put(url)
-                .json(&order) // Serialize the payload as JSON
-                .send()
-                .await
-                .ok()
-        },
-        100,
-        2000
-    );
-
-    if let Some(response) = response {
-        if response.status().is_success() {
-            let text = response.text().await.unwrap();
-            println!("Vote response: {}", text);
-        } else {
-            println!("Failed with status: {}", response.status());
-            let error_text = response.text().await.unwrap();
-            println!("Error: {}", error_text);
-        }
-    }
-}
-
-async fn send_redeem_ve_offchain_order(
-    order: RedeemVotingEscrowOffChainOrder,
-    voting_order_listener_endpoint: &SocketAddr,
-) {
-    let client = reqwest::Client::new();
-
-    // Send the PUT request with JSON body
-    let response = retry!(
-        {
-            let url = format!("http://{}{}", &voting_order_listener_endpoint, "/submit/redeemve");
             client
                 .put(url)
                 .json(&order) // Serialize the payload as JSON

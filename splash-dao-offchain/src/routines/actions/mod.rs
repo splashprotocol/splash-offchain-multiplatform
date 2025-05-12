@@ -141,7 +141,6 @@ pub trait VoteEscrowActions<Bearer> {
     async fn redeem_voting_escrow(
         &self,
         onchain_order: RedeemVotingEscrowOrderBundle<Bearer>,
-        offchain_order: RedeemVotingEscrowOffChainOrder,
         voting_escrow: Bundled<VotingEscrowSnapshot, Bearer>,
         ve_factory: Bundled<VEFactorySnapshot, Bearer>,
         current_slot: Slot,

@@ -1095,7 +1095,7 @@ impl<
             DaoEntity::RedeemVotingEscrowOrder(order) => {
                 trace!(
                     "redeem_voting_escrow_order confirmed: owner {}, version: {:?}",
-                    order.ve_datum.owner,
+                    order.datum.ve_state.owner,
                     entity.version(),
                 );
                 let time_src = NetworkTimeSource {};
@@ -1478,7 +1478,6 @@ impl<
             .actions
             .redeem_voting_escrow(
                 onchain_order.clone(),
-                offchain_order.clone(),
                 voting_escrow.clone(),
                 ve_factory,
                 Slot(current_slot),

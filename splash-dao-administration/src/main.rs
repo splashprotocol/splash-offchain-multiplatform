@@ -14,6 +14,7 @@ use clap::{command, Parser, Subcommand};
 use cml_chain::{
     address::Address,
     assets::MultiAsset,
+    auxdata::{AuxiliaryData, ConwayFormatAuxData},
     builders::{
         input_builder::{InputBuilderResult, SingleInputBuilder},
         mint_builder::SingleMintBuilder,
@@ -71,11 +72,13 @@ use splash_dao_offchain::{
             inflation_box::InflationBoxSnapshot,
             permission_manager::{PermManagerDatum, PermManagerSnapshot},
             poll_factory::{PollFactoryConfig, PollFactorySnapshot},
+            redeem_voting_escrow::RedeemVotingEscrowOrderState,
             smart_farm::{FarmId, MintAction, SmartFarmConfig},
             voting_escrow::{Lock, Owner, VotingEscrowConfig, VotingEscrowId, VotingEscrowSnapshot},
             voting_escrow_factory::{AcceptedAsset, VEFactoryDatum, VEFactoryId, VEFactorySnapshot},
             weighting_poll::{WeightingPollId, WeightingPollSnapshot},
             wpoll_vote_order::WPollVoteState,
+            ProxyOrderMetadata,
         },
     },
     routines::{actions::compute_farm_name, ProcessLedgerEntityContext, Slot, TimedOutputRef},
@@ -1196,7 +1199,8 @@ async fn create_extend_voting_escrow_onchain_order(
 }
 
 async fn create_redeem_voting_escrow_onchain_order(
-    voting_escrow_datum: DatumOption,
+    order_state: RedeemVotingEscrowOrderState,
+    order_metadata: ProxyOrderMetadata,
     op_inputs: &mut OperationInputs,
 ) -> OutputRef {
     let OperationInputs {
@@ -1239,7 +1243,7 @@ async fn create_redeem_voting_escrow_onchain_order(
             protocol_deployment.redeem_ve_order.hash,
             *network_id,
         ))
-        .with_data(voting_escrow_datum)
+        .with_data(DatumOption::new_datum(order_state.into_pd()))
         .next()
         .unwrap()
         .with_value(order_value)
@@ -1256,6 +1260,11 @@ async fn create_redeem_voting_escrow_onchain_order(
     tx_builder
         .add_collateral(InputBuilderResult::from(collateral.clone()))
         .unwrap();
+
+    let mut conway_aux_data = ConwayFormatAuxData::new();
+    conway_aux_data.metadata = Some(cml_chain::auxdata::Metadata::from(order_metadata));
+    let aux_data = AuxiliaryData::new_conway(conway_aux_data);
+    tx_builder.set_auxiliary_data(aux_data);
 
     let start_slot = explorer.chain_tip_slot_number().await.unwrap();
     tx_builder.set_validity_start_interval(start_slot);

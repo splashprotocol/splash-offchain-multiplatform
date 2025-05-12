@@ -157,13 +157,13 @@ pub fn compute_witness_message(
 }
 
 pub fn compute_witness_message_corrected(
-    witness: ScriptHash,
-    witness_input: String,
-    authenticated_version: u64,
+    witness_script: ScriptHash,
+    datum: &PlutusData,
+    authenticated_version: u32,
 ) -> Result<Vec<u8>, ()> {
     use cml_chain::Serialize;
-    let mut bytes = cml_crypto::blake2b256(&hex::decode(witness_input).map_err(|_| ())?).to_vec();
-    let witness_script_bytes = witness.to_raw_bytes().to_vec();
+    let mut bytes = cml_crypto::blake2b256(&datum.to_cbor_bytes()).to_vec();
+    let witness_script_bytes = witness_script.to_raw_bytes().to_vec();
     bytes.extend_from_slice(&witness_script_bytes);
     bytes.extend_from_slice(
         &PlutusData::new_integer(cml_chain::utils::BigInteger::from(authenticated_version)).to_cbor_bytes(),

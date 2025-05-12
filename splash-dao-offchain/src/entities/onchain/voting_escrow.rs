@@ -358,8 +358,8 @@ impl IntoPlutusData for VotingEscrowAction {
 
 pub struct VotingEscrowAuthorizedAction {
     pub action: VotingEscrowAction,
-    /// Hash of the script authorized to witness the TX.
-    pub witness: ScriptHash,
+    /// Index of the input authorized to witness the tx.
+    pub witness_ix: u32,
     /// Version to which the action can be applied.
     pub version: u32,
     /// Proof that the owner did authorize the action with the specified version of the voting escrow.
@@ -384,7 +384,7 @@ impl IntoPlutusData for VotingEscrowAuthorizedAction {
     fn into_pd(self) -> PlutusData {
         make_constr_pd_indefinite_arr(vec![
             self.action.into_pd(),
-            PlutusData::new_bytes(self.witness.to_raw_bytes().to_vec()),
+            PlutusData::new_integer(self.witness_ix.into()),
             PlutusData::new_integer(BigInteger::from(self.version)),
             PlutusData::new_bytes(self.signature),
             PlutusData::new_bytes(self.prefix_bytes),
