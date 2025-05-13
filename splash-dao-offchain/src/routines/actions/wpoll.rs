@@ -732,7 +732,6 @@ where
         let order_action = WPollVoteAction::CastVote {
             voting_escrow_input_ix,
             wpoll_input_ix,
-            expected_diff: offchain_order.distribution.clone(),
         };
 
         let order_witness = PartialPlutusWitness::new(

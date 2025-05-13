@@ -114,7 +114,6 @@ pub enum WPollVoteAction {
     CastVote {
         voting_escrow_input_ix: u32,
         wpoll_input_ix: u32,
-        expected_diff: Vec<(FarmId, u64)>,
     },
     Refund,
 }
@@ -125,28 +124,10 @@ impl IntoPlutusData for WPollVoteAction {
             WPollVoteAction::CastVote {
                 voting_escrow_input_ix,
                 wpoll_input_ix,
-                expected_diff,
-            } => {
-                let expected_diff = expected_diff
-                    .iter()
-                    .map(|&(farm_id, weight)| {
-                        make_constr_pd_indefinite_arr(vec![
-                            PlutusData::new_bytes(cml_chain::assets::AssetName::from(farm_id.0).inner),
-                            PlutusData::new_integer(BigInteger::from(weight)),
-                        ])
-                    })
-                    .collect();
-
-                let expected_diff_pd = PlutusData::List {
-                    list: expected_diff,
-                    list_encoding: LenEncoding::Indefinite,
-                };
-                make_constr_pd_indefinite_arr(vec![
-                    PlutusData::new_integer(BigInteger::from(voting_escrow_input_ix)),
-                    PlutusData::new_integer(BigInteger::from(wpoll_input_ix)),
-                    expected_diff_pd,
-                ])
-            }
+            } => make_constr_pd_indefinite_arr(vec![
+                PlutusData::new_integer(BigInteger::from(voting_escrow_input_ix)),
+                PlutusData::new_integer(BigInteger::from(wpoll_input_ix)),
+            ]),
             WPollVoteAction::Refund => PlutusData::new_constr_plutus_data(ConstrPlutusData::new(1, vec![])),
         }
     }
@@ -157,6 +138,7 @@ pub struct WPollVoteState {
     pub ve_state: VotingEscrowConfig,
     pub weighting_poll_auth_token_name: AssetName,
     pub ve_identifier_token_name: AssetName,
+    pub expected_diff: Vec<(FarmId, u64)>,
 }
 
 impl IntoPlutusData for WPollVoteState {
@@ -165,7 +147,27 @@ impl IntoPlutusData for WPollVoteState {
             PlutusData::new_bytes(self.weighting_poll_auth_token_name.as_bytes().to_vec());
         let ve_identifier_pd = PlutusData::new_bytes(self.ve_identifier_token_name.as_bytes().to_vec());
         let ve_state_pd = self.ve_state.into_pd();
-        make_constr_pd_indefinite_arr(vec![ve_state_pd, wpoll_auth_token_pd, ve_identifier_pd])
+        let expected_diff = self
+            .expected_diff
+            .iter()
+            .map(|&(farm_id, weight)| {
+                make_constr_pd_indefinite_arr(vec![
+                    PlutusData::new_bytes(cml_chain::assets::AssetName::from(farm_id.0).inner),
+                    PlutusData::new_integer(BigInteger::from(weight)),
+                ])
+            })
+            .collect();
+
+        let expected_diff_pd = PlutusData::List {
+            list: expected_diff,
+            list_encoding: LenEncoding::Indefinite,
+        };
+        make_constr_pd_indefinite_arr(vec![
+            ve_state_pd,
+            wpoll_auth_token_pd,
+            ve_identifier_pd,
+            expected_diff_pd,
+        ])
     }
 }
 
@@ -176,11 +178,19 @@ impl TryFromPData for WPollVoteState {
         let wpoll_auth_token_name_bytes = cpd.take_field(1)?.into_bytes()?;
         let weighting_poll_auth_token_name = AssetName::try_from(wpoll_auth_token_name_bytes).ok()?;
         let ve_ident_name_bytes = cpd.take_field(2)?.into_bytes()?;
+        let expected_diff = cpd.take_field(3)?.into_vec_pd(|pd| {
+            let mut pair = pd.into_constr_pd()?;
+            let asset_name_bytes = pair.take_field(0)?.into_bytes()?;
+            let asset_name = FarmId(AssetName::try_from(asset_name_bytes).ok()?);
+            let weight = pair.take_field(1)?.into_u64()?;
+            Some((asset_name, weight))
+        })?;
         let ve_identifier_token_name = AssetName::try_from(ve_ident_name_bytes).ok()?;
         Some(Self {
             ve_state,
             weighting_poll_auth_token_name,
             ve_identifier_token_name,
+            expected_diff,
         })
     }
 }

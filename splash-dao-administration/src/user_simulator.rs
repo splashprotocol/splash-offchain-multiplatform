@@ -134,7 +134,11 @@ pub async fn user_simulator<'a>(
                     unspent_output.output.datum().unwrap().into_pd().unwrap(),
                 )
                 .unwrap();
-                ve_state = VEState::ConfirmedVotingEscrow(ve_snapshot, ve_datum, Epoch(current_epoch));
+                ve_state = VEState::WithVotingEscrow {
+                    ve_snapshot,
+                    ve_datum,
+                    ve_extended_this_epoch: true, // set this to true to prevent lock extension to next epoch
+                };
             }
             let mut file = tokio::fs::File::create(ve_identifier_json_path).await.unwrap();
             file.write_all(
@@ -183,34 +187,7 @@ pub async fn user_simulator<'a>(
                 let weighting_poll_auth_token_name =
                     spectrum_cardano_lib::AssetName::from(compute_epoch_asset_name(current_epoch));
                 match ve_state {
-                    VEState::PredictedVoteCast(e) => {
-                        if let Some(mut results) = pull_onchain_entity::<VotingEscrowSnapshot, _>(
-                            &op_inputs.explorer,
-                            protocol_deployment.voting_escrow.hash,
-                            op_inputs.network_id,
-                            &deployment_config,
-                            voting_escrow_id,
-                        )
-                        .await
-                        {
-                            assert_eq!(results.len(), 1);
-                            let (ve_snapshot, unspent_output) = results.pop().unwrap();
-                            let last_wp_epoch = ve_snapshot.get().last_wp_epoch;
-                            if current_epoch as i32 == last_wp_epoch {
-                                println!("Vote confirmed for epoch {}", current_epoch);
-                                let ve_datum = VotingEscrowConfig::try_from_pd(
-                                    unspent_output.output.datum().unwrap().into_pd().unwrap(),
-                                )
-                                .unwrap();
-                                ve_state = VEState::ConfirmedVoteCast {
-                                    ve_snapshot,
-                                    ve_datum,
-                                    ve_extended_this_epoch: false,
-                                };
-                            }
-                        }
-                    }
-                    VEState::ConfirmedVoteCast {
+                    VEState::WithVotingEscrow {
                         ref ve_snapshot,
                         ve_datum,
                         ve_extended_this_epoch,
@@ -224,6 +201,16 @@ pub async fn user_simulator<'a>(
                                 ve_state, current_epoch, version
                             );
 
+                            let voting_power = ve_snapshot.get().voting_power(now) - 2;
+                            let num_farms = op_inputs.deployment_progress.num_initial_farms;
+                            let expected_diff: Vec<_> = (0..num_farms)
+                                .map(|id| {
+                                    (
+                                        FarmId(spectrum_cardano_lib::AssetName::from(compute_farm_name(id))),
+                                        voting_power / num_farms as u64,
+                                    )
+                                })
+                                .collect();
                             let proxy_order_script_hash = protocol_deployment.wpoll_vote_order.hash;
                             let onchain_order_output_ref = if let Some(results) =
                                 pull_onchain_entity::<WPollVoteOnchainOrder, _>(
@@ -238,13 +225,17 @@ pub async fn user_simulator<'a>(
                                 if let Some((_, order_output)) =
                                     results.iter().find(|(order, _)| order.datum.ve_state == ve_datum)
                                 {
+                                    println!(
+                                        "Waiting for bot to process wpoll vote for VE {}",
+                                        hex::encode(ve_snapshot.get().ve_identifier_name.as_bytes())
+                                    );
                                     order_output.clone()
                                 } else {
                                     create_wpoll_vote_onchain_order(
                                         voting_escrow_id,
                                         ve_identifier_token_name,
                                         weighting_poll_auth_token_name,
-                                        CurrentEpoch(current_epoch),
+                                        expected_diff.clone(),
                                         op_inputs,
                                     )
                                     .await
@@ -255,7 +246,7 @@ pub async fn user_simulator<'a>(
                                     voting_escrow_id,
                                     ve_identifier_token_name,
                                     weighting_poll_auth_token_name,
-                                    CurrentEpoch(current_epoch),
+                                    expected_diff.clone(),
                                     op_inputs,
                                 )
                                 .await
@@ -266,6 +257,7 @@ pub async fn user_simulator<'a>(
                                 ve_state: ve_datum,
                                 weighting_poll_auth_token_name,
                                 ve_identifier_token_name,
+                                expected_diff,
                             };
 
                             ve_state = VEState::ConfirmedOnChainWPollVote {
@@ -287,113 +279,32 @@ pub async fn user_simulator<'a>(
                     }
                     VEState::ConfirmedOnChainWPollVote {
                         ref ve_snapshot,
-                        order_datum,
-                        onchain_order_output_ref,
+                        ref order_datum,
+                        ..
                     } => {
-                        //
-                        // If order UTxO is found we can then send off-chain order to the bot.
+                        // Check if bot has processed it!!!!!!!
                         let proxy_order_script_hash = protocol_deployment.wpoll_vote_order.hash;
-                        enum T {
-                            Order,
-                            VE,
-                            WPoll,
-                        }
-                        let order_output_ref = OutputRef::from(onchain_order_output_ref.input.clone());
-                        let wpoll_output_ref = pull_onchain_entity::<WeightingPollSnapshot, _>(
+                        if pull_onchain_entity::<WPollVoteOnchainOrder, _>(
                             &op_inputs.explorer,
-                            protocol_deployment.mint_wpauth_token.hash,
+                            proxy_order_script_hash,
                             op_inputs.network_id,
                             &deployment_config,
-                            WeightingPollId(current_epoch),
+                            owner,
                         )
                         .await
-                        .map(|mut result| {
-                            assert_eq!(result.len(), 1);
-                            let (_, output) = result.pop().unwrap();
-                            OutputRef::from(output.input)
-                        })
-                        .unwrap();
-                        let mut typed_output_refs = [
-                            (T::Order, order_output_ref),
-                            (T::VE, *ve_snapshot.version()),
-                            (T::WPoll, wpoll_output_ref),
-                        ];
-                        typed_output_refs.sort_by(|(_, x), (_, y)| x.cmp(y));
-                        let proxy_order_input_ix = typed_output_refs
-                            .iter()
-                            .position(|(t, _)| matches!(t, T::Order))
-                            .unwrap() as u32;
-                        let voting_escrow_input_ix = typed_output_refs
-                            .iter()
-                            .position(|(t, _)| matches!(t, T::VE))
-                            .unwrap() as u32;
-                        let wpoll_input_ix = typed_output_refs
-                            .iter()
-                            .position(|(t, _)| matches!(t, T::WPoll))
-                            .unwrap() as u32;
+                        .is_none()
+                        {
+                            println!(
+                                "VE {}: WPoll vote order processed by bot",
+                                hex::encode(ve_snapshot.get().ve_identifier_name.as_bytes())
+                            );
 
-                        let mut rng = rand::thread_rng();
-                        let num_farms = op_inputs.deployment_progress.num_initial_farms;
-                        let chosen_id = rng.gen_range(0..num_farms);
-
-                        // Set intentional lower bound, 2 less than current voting power.
-                        let voting_power = ve_snapshot.get().voting_power(now) - 2;
-                        //let expected_diff: Vec<_> = (0..num_farms)
-                        //    .filter_map(|id| {
-                        //        if id == chosen_id {
-                        //            Some((
-                        //                FarmId(spectrum_cardano_lib::AssetName::from(
-                        //                    compute_farm_name(id),
-                        //                )),
-                        //                voting_power,
-                        //            ))
-                        //        } else {
-                        //            None
-                        //        }
-                        //    })
-                        //    .collect();
-                        let expected_diff: Vec<_> = (0..num_farms)
-                            .map(|id| {
-                                (
-                                    FarmId(spectrum_cardano_lib::AssetName::from(compute_farm_name(id))),
-                                    voting_power / num_farms as u64,
-                                )
-                            })
-                            .collect();
-
-                        let wpoll_vote_order_redeemer = WPollVoteAction::CastVote {
-                            voting_escrow_input_ix,
-                            wpoll_input_ix,
-                            expected_diff: expected_diff.clone(),
-                        };
-                        let witness_action = WitnessAction {
-                            proxy_order_input_ix,
-                            proxy_order_output_reference: order_output_ref,
-                            proxy_order_script_hash,
-                            proxy_order_redeemer: wpoll_vote_order_redeemer.into_pd(),
-                            proxy_order_datum: order_datum.into_pd(),
-                            owner_redemption: None,
-                        };
-                        let version = ve_snapshot.get().version;
-                        let voting_order_id = OffChainOrderId {
-                            voting_escrow_id,
-                            version,
-                        };
-
-                        let offchain_order = create_offchain_voting_order(
-                            &op_inputs.operator_sk,
-                            expected_diff,
-                            voting_order_id,
-                            witness_action.into_pd(),
-                            order_output_ref,
-                        );
-                        println!(
-                            "voting_order JSON: {}",
-                            serde_json::to_string_pretty(&offchain_order).unwrap()
-                        );
-
-                        send_vote(offchain_order, &op_inputs.voting_order_listener_endpoint).await;
-                        ve_state = VEState::PredictedVoteCast(Epoch(current_epoch));
+                            ve_state = VEState::WithVotingEscrow {
+                                ve_snapshot: ve_snapshot.clone(),
+                                ve_datum: order_datum.ve_state,
+                                ve_extended_this_epoch: false, // user always votes before extending VE
+                            };
+                        }
                     }
                     VEState::ConfirmedOnChainExtendedVE(ref ve_snapshot, ve_datum) => {
                         // If order UTxO is found we can then send off-chain order to the bot.
@@ -406,9 +317,13 @@ pub async fn user_simulator<'a>(
                             owner,
                         )
                         .await
-                        .is_some()
+                        .is_none()
                         {
-                            ve_state = VEState::ConfirmedVoteCast {
+                            println!(
+                                "VE {} extended by bot",
+                                hex::encode(ve_snapshot.get().ve_identifier_name.as_bytes())
+                            );
+                            ve_state = VEState::WithVotingEscrow {
                                 ve_snapshot: ve_snapshot.clone(),
                                 ve_datum,
                                 ve_extended_this_epoch: true,
@@ -425,55 +340,6 @@ pub async fn user_simulator<'a>(
                             "Redeemed VE. Identifier: {}",
                             hex::encode(ve_identifier_token_name.as_bytes())
                         );
-                    }
-                    VEState::ConfirmedVotingEscrow(ref ve_snapshot, ve_datum, Epoch(epoch)) => {
-                        let proxy_order_script_hash = protocol_deployment.wpoll_vote_order.hash;
-                        let onchain_order_output_ref = if let Some(results) =
-                            pull_onchain_entity::<WPollVoteOnchainOrder, _>(
-                                &op_inputs.explorer,
-                                proxy_order_script_hash,
-                                op_inputs.network_id,
-                                &deployment_config,
-                                owner,
-                            )
-                            .await
-                        {
-                            if let Some((_, order_output)) =
-                                results.iter().find(|(order, _)| order.datum.ve_state == ve_datum)
-                            {
-                                order_output.clone()
-                            } else {
-                                create_wpoll_vote_onchain_order(
-                                    voting_escrow_id,
-                                    ve_identifier_token_name,
-                                    weighting_poll_auth_token_name,
-                                    CurrentEpoch(current_epoch),
-                                    op_inputs,
-                                )
-                                .await
-                                .unwrap()
-                            }
-                        } else {
-                            create_wpoll_vote_onchain_order(
-                                voting_escrow_id,
-                                ve_identifier_token_name,
-                                weighting_poll_auth_token_name,
-                                CurrentEpoch(current_epoch),
-                                op_inputs,
-                            )
-                            .await
-                            .unwrap()
-                        };
-                        let order_datum = WPollVoteState {
-                            ve_state: ve_datum,
-                            weighting_poll_auth_token_name,
-                            ve_identifier_token_name,
-                        };
-                        ve_state = VEState::ConfirmedOnChainWPollVote {
-                            ve_snapshot: ve_snapshot.clone(),
-                            order_datum,
-                            onchain_order_output_ref,
-                        };
                     }
                     VEState::Waiting(owner) => {
                         let voting_escrow_id =
@@ -592,20 +458,11 @@ pub async fn user_simulator<'a>(
                                     ve_state = VEState::ConfirmedOnChainExtendedVE(ve_snapshot, ve_datum);
                                 } else {
                                     println!("VEState::Waiting: no EVE order exists");
-                                    if ve_datum.last_wp_epoch == current_epoch as i32 {
-                                        ve_state = VEState::ConfirmedVoteCast {
-                                            ve_snapshot,
-                                            ve_datum,
-                                            ve_extended_this_epoch: false,
-                                        };
-                                    } else {
-                                        println!("Haven't cast vote in epoch {}", current_epoch);
-                                        ve_state = VEState::ConfirmedVotingEscrow(
-                                            ve_snapshot,
-                                            ve_datum,
-                                            Epoch(current_epoch),
-                                        );
-                                    }
+                                    ve_state = VEState::WithVotingEscrow {
+                                        ve_snapshot,
+                                        ve_datum,
+                                        ve_extended_this_epoch: false,
+                                    };
                                 }
                             }
                         }
@@ -616,37 +473,6 @@ pub async fn user_simulator<'a>(
 
         const DEFAULT_DELAY_MILLIS: u64 = 20_000;
         Delay::new(Duration::from_millis(DEFAULT_DELAY_MILLIS)).await;
-    }
-}
-
-fn create_extend_ve_offchain_order(
-    id: OffChainOrderId,
-    witness_redeemer: PlutusData,
-    order_output_ref: OutputRef,
-    operator_sk: &PrivateKey,
-) -> ExtendVotingEscrowOffChainOrder {
-    use cml_chain::Serialize;
-    let witness = PlutusScript::PlutusV3(PlutusV3Script::new(
-        hex::decode(&DaoScriptData::global().proxy_order_witness.script_bytes).unwrap(),
-    ));
-    let redeemer_hex = hex::encode(witness_redeemer.to_cbor_bytes());
-    println!("redeemer: {}", redeemer_hex);
-    let message = compute_witness_message(witness.hash(), redeemer_hex.clone(), id.version as u64).unwrap();
-    println!("message: {}", hex::encode(&message));
-    let prefix_bytes = vec![0x9F, 1, 2, 3];
-    let postfix_bytes = vec![0xFF];
-    let mut full_payload: Vec<u8> = prefix_bytes.clone();
-    full_payload.extend_from_slice(&message);
-    full_payload.extend_from_slice(&postfix_bytes);
-    let signature = operator_sk.sign(&full_payload).to_raw_bytes().to_vec();
-    ExtendVotingEscrowOffChainOrder {
-        id,
-        proof: signature,
-        witness: witness.hash(),
-        witness_input: redeemer_hex,
-        order_output_ref,
-        prefix_bytes,
-        postfix_bytes,
     }
 }
 
@@ -676,72 +502,6 @@ pub(crate) fn create_ve_metadata<T: IntoPlutusData + Clone>(
         prefix_bytes,
         postfix_bytes,
         version,
-    }
-}
-
-async fn send_vote(voting_order: WPollVoteOffChainOrder, voting_order_listener_endpoint: &SocketAddr) {
-    let client = reqwest::Client::new();
-
-    // Send the PUT request with JSON body
-    let response = retry!(
-        {
-            let url = format!(
-                "http://{}{}",
-                &voting_order_listener_endpoint, "/submit/votingorder"
-            );
-            client
-                .put(url)
-                .json(&voting_order) // Serialize the payload as JSON
-                .send()
-                .await
-                .ok()
-        },
-        100,
-        2000
-    );
-
-    if let Some(response) = response {
-        if response.status().is_success() {
-            let text = response.text().await.unwrap();
-            println!("Vote response: {}", text);
-        } else {
-            println!("Failed with status: {}", response.status());
-            let error_text = response.text().await.unwrap();
-            println!("Error: {}", error_text);
-        }
-    }
-}
-
-async fn send_extend_ve_offchain_order(
-    order: ExtendVotingEscrowOffChainOrder,
-    voting_order_listener_endpoint: &SocketAddr,
-) {
-    let client = reqwest::Client::new();
-
-    // Send the PUT request with JSON body
-    let response = retry!(
-        {
-            let url = format!("http://{}{}", &voting_order_listener_endpoint, "/submit/extendve");
-            client
-                .put(url)
-                .json(&order) // Serialize the payload as JSON
-                .send()
-                .await
-                .ok()
-        },
-        100,
-        2000
-    );
-
-    if let Some(response) = response {
-        if response.status().is_success() {
-            let text = response.text().await.unwrap();
-            println!("Vote response: {}", text);
-        } else {
-            println!("Failed with status: {}", response.status());
-            let error_text = response.text().await.unwrap();
-            println!("Error: {}", error_text);
-        }
     }
 }
 
@@ -777,12 +537,12 @@ async fn request_mve_status(
 #[derive(Clone, Debug)]
 enum VEState {
     Waiting(Owner),
-    ConfirmedVotingEscrow(VotingEscrowSnapshot, VotingEscrowConfig, Epoch),
-    ConfirmedVoteCast {
+    WithVotingEscrow {
         ve_snapshot: VotingEscrowSnapshot,
         ve_datum: VotingEscrowConfig,
         ve_extended_this_epoch: bool,
     },
+    /// UTxO for wpoll vote proxy-order was created.
     ConfirmedOnChainWPollVote {
         ve_snapshot: VotingEscrowSnapshot,
         order_datum: WPollVoteState,
@@ -795,7 +555,6 @@ enum VEState {
         ve_datum: VotingEscrowConfig,
         order_output_ref: OutputRef,
     },
-    PredictedVoteCast(Epoch),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

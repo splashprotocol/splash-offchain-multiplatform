@@ -215,16 +215,41 @@ pub fn get_proxy_order_metadata(value: Metadata) -> Option<ProxyOrderMetadata> {
     None
 }
 
+/// Try to create a ProxyOrderMetadata-compatible Metadata instance from a JSON map. Format of this
+/// map is obtained from the Maestro API.
+pub fn try_make_proxy_order_metadata_from_json(json: serde_json::Value) -> Option<Metadata> {
+    let mut metadata = Metadata::new();
+    let signature_hex = json.get("0")?.as_str()?;
+    let signature = hex::decode(signature_hex).ok()?;
+    let witness_script_hash_hex = json.get("1")?.as_str()?;
+    let witness_script_hash = ScriptHash::from_hex(witness_script_hash_hex).ok()?;
+    let prefix_bytes_hex = json.get("2")?.as_str()?;
+    let prefix_bytes = hex::decode(prefix_bytes_hex).ok()?;
+    let postfix_bytes_hex = json.get("3")?.as_str()?;
+    let postfix_bytes = hex::decode(postfix_bytes_hex).ok()?;
+    let version = json.get("4")?.as_u64()? as u32;
+
+    metadata.set(0, TransactionMetadatum::new_bytes(signature).unwrap());
+    metadata.set(
+        1,
+        TransactionMetadatum::new_bytes(witness_script_hash.to_raw_bytes()).unwrap(),
+    );
+    metadata.set(2, TransactionMetadatum::new_bytes(prefix_bytes).unwrap());
+    metadata.set(3, TransactionMetadatum::new_bytes(postfix_bytes).unwrap());
+    metadata.set(4, TransactionMetadatum::new_int(Int::from(version as u64)));
+    Some(metadata)
+}
+
 impl From<ProxyOrderMetadata> for Metadata {
     fn from(value: ProxyOrderMetadata) -> Self {
         let mut metadata = Metadata::new();
-        metadata.set(0, TransactionMetadatum::from_bytes(value.signature).unwrap());
+        metadata.set(0, TransactionMetadatum::new_bytes(value.signature).unwrap());
         metadata.set(
-            2,
-            TransactionMetadatum::from_bytes(value.witness_script_hash.to_raw_bytes()).unwrap(),
+            1,
+            TransactionMetadatum::new_bytes(value.witness_script_hash.to_raw_bytes()).unwrap(),
         );
-        metadata.set(2, TransactionMetadatum::from_bytes(value.prefix_bytes).unwrap());
-        metadata.set(3, TransactionMetadatum::from_bytes(value.postfix_bytes).unwrap());
+        metadata.set(2, TransactionMetadatum::new_bytes(value.prefix_bytes).unwrap());
+        metadata.set(3, TransactionMetadatum::new_bytes(value.postfix_bytes).unwrap());
         metadata.set(4, TransactionMetadatum::new_int(Int::from(value.version as u64)));
         metadata
     }

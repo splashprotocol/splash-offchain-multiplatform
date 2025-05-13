@@ -9,7 +9,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use cardano_explorer::{CardanoNetwork, ExtendedCardanoNetwork, Maestro};
+use cardano_explorer::{CardanoNetwork, ExtendedCardanoNetwork, Maestro, UTxOInfo};
 use clap::{command, Parser, Subcommand};
 use cml_chain::{
     address::Address,
@@ -74,6 +74,7 @@ use splash_dao_offchain::{
             poll_factory::{PollFactoryConfig, PollFactorySnapshot},
             redeem_voting_escrow::RedeemVotingEscrowOrderState,
             smart_farm::{FarmId, MintAction, SmartFarmConfig},
+            try_make_proxy_order_metadata_from_json,
             voting_escrow::{Lock, Owner, VotingEscrowConfig, VotingEscrowId, VotingEscrowSnapshot},
             voting_escrow_factory::{AcceptedAsset, VEFactoryDatum, VEFactoryId, VEFactorySnapshot},
             weighting_poll::{WeightingPollId, WeightingPollSnapshot},
@@ -957,7 +958,7 @@ async fn create_wpoll_vote_onchain_order(
     voting_escrow_id: VotingEscrowId,
     ve_identifier_token_name: AssetName,
     weighting_poll_auth_token_name: AssetName,
-    CurrentEpoch(current_epoch): CurrentEpoch,
+    expected_diff: Vec<(FarmId, u64)>,
     op_inputs: &mut OperationInputs,
 ) -> Option<TransactionUnspentOutput> {
     let OperationInputs {
@@ -1006,6 +1007,7 @@ async fn create_wpoll_vote_onchain_order(
                     ve_state,
                     weighting_poll_auth_token_name,
                     ve_identifier_token_name,
+                    expected_diff,
                 }
                 .into_pd(),
             );
@@ -1612,7 +1614,13 @@ where
         println!("pulled utxos from slot {}: # pulled: {}", offset, utxos.len(),);
         let original_offset = offset;
 
-        for (utxo, slot) in utxos {
+        for UTxOInfo {
+            utxo,
+            slot,
+            metadata_json,
+        } in utxos
+        {
+            let metadata = try_make_proxy_order_metadata_from_json(metadata_json);
             let timed_output_ref = TimedOutputRef {
                 output_ref: OutputRef::from(utxo.clone().input),
                 slot: Slot(slot),
@@ -1621,7 +1629,7 @@ where
                 behaviour: deployment_config,
                 timed_output_ref,
                 current_epoch: CurrentEpoch::from(0),
-                metadata: None, // FIXME ------------------------------------------------------------------
+                metadata,
             };
             if let Some(t) = T::try_from_ledger(&utxo.output, &ctx) {
                 println!("  ID: {}, slot: {}", t.stable_id(), slot);
