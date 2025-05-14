@@ -19,16 +19,17 @@ mod tests {
         DeployedValidators as DaoValidators, ProtocolDeployment as DaoDeployment,
     };
     use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
-    use splash_lp_index::config::AppConfig;
-    use splash_lp_index::context::Context;
-    use splash_lp_index::pipeline::log_events::log_event;
-    use splash_lp_index::pipeline::read_events::read_events;
-    use splash_lp_index::pipeline::resolve_gauges::resolve_gauges;
-    use splash_lp_index::position_db::event_log::EventLog;
-    use splash_lp_index::position_db::export_feed::ExportEventFeed;
-    use splash_lp_index::position_db::mature_events::MatureEvents;
-    use splash_lp_index::position_db::PositionDB;
-    use splash_lp_index::ve_index::VoteEscrowDB;
+    use splash_lp_indexer::config::AppConfig;
+    use splash_lp_indexer::context::Context;
+    use splash_lp_indexer::pipeline::log_events::log_event;
+    use splash_lp_indexer::pipeline::read_events::read_events;
+    use splash_lp_indexer::pipeline::resolve_gauges::resolve_gauges;
+    use splash_lp_indexer::position_db::accounts::Accounts;
+    use splash_lp_indexer::position_db::event_log::EventLog;
+    use splash_lp_indexer::position_db::export_feed::ExportEventFeed;
+    use splash_lp_indexer::position_db::mature_events::MatureEvents;
+    use splash_lp_indexer::position_db::PositionDB;
+    use splash_lp_indexer::ve_index::VoteEscrowDB;
     use splash_testing::db_path::DBPath;
     use std::collections::HashSet;
 
@@ -61,6 +62,8 @@ mod tests {
             std::fs::read_to_string(validation_rules_path).expect("Cannot load bounds file");
         let validation_rules: ValidationRules =
             serde_json::from_str(&raw_validation_rules).expect("Invalid bounds file");
+
+        log4rs::init_file("/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/splash-lp-indexer/tests/resources/log4rs.yaml", Default::default()).unwrap();
 
         let explorer = AnyExplorer::new(&config.explorer, config.network_id)
             .await
@@ -118,7 +121,7 @@ mod tests {
             user_deposit_tx_raw,
         ];
 
-        for (fake_block_num, raw_tx) in txs_ordering_to_simulate.into_iter().enumerate() {
+        for (fake_block_num, raw_tx) in txs_ordering_to_simulate.iter().enumerate() {
             let tx_to_run = Transaction::from_cbor_bytes(hex::decode(raw_tx).unwrap().as_ref()).unwrap();
             let block_num = fake_block_num as u64;
             let block_slot = block_num * 10;
@@ -145,5 +148,25 @@ mod tests {
         let account_is_activated = last_event.map(|(_, event)| event.update.activated_at.is_some());
 
         assert_eq!(account_is_activated, Some(true));
+
+        // simulate new several blocks
+
+        db.batch_append((txs_ordering_to_simulate.len() * 10) as u64 + 100, vec![])
+            .await;
+
+        let user_cred = Credential::from_cbor_bytes(
+            hex::decode("8200581c8d4be10d934b60a22f267699ea3f7ebdade1f8e535d1bd0ef7ce18b6")
+                .unwrap()
+                .as_ref(),
+        )
+            .unwrap();
+
+        let locked_account = db.lock(user_cred.clone()).await;
+
+        println!("locked account: {:?}", locked_account);
+
+        let user_share = db.get_user_shares(user_cred).await;
+
+        println!("user_share: {:?}", user_share);
     }
 }

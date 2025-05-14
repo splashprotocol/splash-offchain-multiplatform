@@ -609,6 +609,7 @@ mod tests {
     use async_trait::async_trait;
     use bounded_integer::BoundedU8;
     use chrono::{Duration, Utc};
+    use cml_chain::crypto::ScriptHash;
     use rand::RngCore;
     use serde::{Deserialize, Serialize};
     use tokio::sync::Mutex;

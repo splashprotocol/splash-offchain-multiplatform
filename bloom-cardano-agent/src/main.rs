@@ -8,6 +8,7 @@ use futures::{stream_select, Stream, StreamExt};
 use log::info;
 use std::future;
 use std::sync::Arc;
+use futures::channel::mpsc::{Receiver, Sender};
 use tokio::sync::Mutex;
 use tracing_subscriber::fmt::Subscriber;
 
@@ -66,7 +67,7 @@ use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::data::pool::AnyPool;
 use spectrum_offchain_cardano::deployment::{DeployedValidators, ProtocolDeployment, ProtocolScriptHashes};
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
-use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
+use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent, TxSubmissionChannel};
 use spectrum_offchain_cardano::tx_tracker::{new_tx_tracker_bundle, TxTrackerChannel};
 use spectrum_streaming::{run_stream, StreamExt as StreamExtAlt};
 
@@ -134,7 +135,7 @@ async fn main() {
         max_confirmation_delay_blocks,
     );
 
-    let (tx_submission_agent, tx_submission_channel) =
+    let (tx_submission_agent, tx_submission_channel): (TxSubmissionAgent<6, Transaction, TxTrackerChannel<TransactionHash, Transaction>>, TxSubmissionChannel<6, Transaction>) =
         TxSubmissionAgent::<CONWAY_ERA_ID, Transaction, TxTrackerChannel<TransactionHash, Transaction>>::new(
             tx_tracker_channel.clone(),
             config.node.clone(),
@@ -263,7 +264,7 @@ async fn main() {
         Box::new(funding_event_handler),
     ];
 
-    let prover = OperatorProver::new(config.operator_key);
+    let prover: OperatorProver = OperatorProver::new(config.operator_key);
     let recipe_interpreter = CardanoRecipeInterpreter::new(config.take_residual_fee);
     let spec_interpreter = SpecializedInterpreterViaRunOrder;
     let maker_context = MakerContext {

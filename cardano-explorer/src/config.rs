@@ -1,4 +1,4 @@
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub enum ExplorerConfig {
     MaestroKeyPath(String),

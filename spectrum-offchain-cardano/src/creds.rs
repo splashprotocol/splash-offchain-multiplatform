@@ -140,6 +140,7 @@ mod tests {
     use cml_chain::address::{Address, BaseAddress, EnterpriseAddress};
     use cml_chain::certs::{Credential, StakeCredential};
     use cml_chain::genesis::network_info::NetworkInfo;
+    use cml_core::serialization::ToBytes;
     use cml_crypto::Bip32PrivateKey;
 
     #[test]
@@ -147,6 +148,7 @@ mod tests {
         let network = NetworkInfo::mainnet().network_id();
 
         let operator_prv_bip32 = Bip32PrivateKey::generate_ed25519_bip32();
+        println!("pk: {}", operator_prv_bip32.to_raw_key().to_bech32());
         let operator_pk_main = operator_prv_bip32.to_public();
 
         let child_pkh_1 = operator_pk_main.derive(1).unwrap().to_raw_key().hash();

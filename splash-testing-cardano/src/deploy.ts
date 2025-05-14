@@ -13,7 +13,7 @@ import {generateConfigJson} from "./config.ts";
 import {setupWallet} from "./wallet.ts";
 import {
     FactoryValidateFactory,
-    GridGridNative,
+    GridGridNative, HarvestHarvest,
     LimitOrderBatchWitness,
     LimitOrderLimitOrder,
     RoyaltyPoolDaoV1RequestValidate,
@@ -60,6 +60,8 @@ export class Deployment {
         const royaltyDAOV1RequestHash = validatorToScriptHash(royaltyDAOV1Request);
         const degenFactory = new FactoryValidateFactory();
         const degenFactoryHash = validatorToScriptHash(degenFactory);
+        const harvestOrder = new HarvestHarvest();
+        const harvestOrderHash = validatorToScriptHash(harvestOrder);
         return {
             royaltyPool: {
                 script: royaltyPool,
@@ -92,6 +94,10 @@ export class Deployment {
             factory: {
                 script: degenFactory,
                 hash: degenFactoryHash,
+            },
+            harvest: {
+                script: harvestOrder,
+                hash: harvestOrderHash
             }
         }
     }
@@ -120,20 +126,20 @@ export class Deployment {
                 lockScript,
                 {kind: "inline", value: "00"},
                 undefined,
-                builtValidators.royaltyDAOV1Pool.script,
+                builtValidators.harvest.script,
             )
-            .pay.ToAddressWithData(
-                lockScript,
-                {kind: "inline", value: "00"},
-                undefined,
-                builtValidators.factory.script,
-            )
-            .pay.ToAddressWithData(
-                lockScript,
-                {kind: "inline", value: "00"},
-                undefined,
-                builtValidators.royaltyDAOV1Request.script,
-            )
+            // .pay.ToAddressWithData(
+            //     lockScript,
+            //     {kind: "inline", value: "00"},
+            //     undefined,
+            //     builtValidators.factory.script,
+            // )
+            // .pay.ToAddressWithData(
+            //     lockScript,
+            //     {kind: "inline", value: "00"},
+            //     undefined,
+            //     builtValidators.royaltyDAOV1Request.script,
+            // )
             // .pay.ToAddressWithData(
             //     lockScript,
             //     {kind: "inline", value: "00"},
@@ -146,8 +152,8 @@ export class Deployment {
             //     undefined,
             //     builtValidators.royaltyWithdrawRequest.script,
             // )
-            .registerStake(degenFactoryAddr)
-            .registerStake(daoV1Addr)
+            // .registerStake(degenFactoryAddr)
+            // .registerStake(daoV1Addr)
             .complete();
 
         return tx;

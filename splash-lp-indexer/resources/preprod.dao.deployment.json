@@ -126,10 +126,10 @@
     "marginalCost": null
   },
   "harvest_order": {
-    "hash": "c058ed3400fb537d7dcf58cdc07effa62b1d8a870189fd5527b3f7b1",
+    "hash": "7df8e5fd9f02bf01dac434bce324c2587d2a3f7d8de67aed993c5d53",
     "referenceUtxo": {
-      "txHash": "1a1b53aef701c194ada363bf35d063ec56be430ee48bdce9c097f01246f295d0",
-      "outputIndex": 5
+      "txHash": "1dd5dd867cc632688d7d5c0e7bc825d49e9ab4b74aefc198b174ddb27724c466",
+      "outputIndex": 1
     },
     "cost": { "mem": 1000000, "steps": 10000000 },
     "marginalCost": null

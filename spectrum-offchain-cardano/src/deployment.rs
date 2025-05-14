@@ -10,7 +10,7 @@ use cml_core::DeserializeError;
 use cml_crypto::{ScriptHash, TransactionHash};
 use derive_more::{From, Into};
 use hex::FromHexError;
-
+use log::info;
 use algebra_core::monoid::Monoid;
 use cardano_explorer::CardanoNetwork;
 use spectrum_cardano_lib::ex_units::ExUnits;
@@ -185,6 +185,7 @@ where
         StakeCredential::PubKey { .. } => None,
         StakeCredential::Script { hash, .. } => Some(hash),
     });
+   // info!("Going to test maybe_hash {} against {}", maybe_hash.map(|h| h.to_hex()).unwrap_or("unknown".to_string()), ctx.get().script_hash.to_hex());
     if let Some(this_hash) = maybe_hash {
         return *this_hash == ctx.get().script_hash;
     }

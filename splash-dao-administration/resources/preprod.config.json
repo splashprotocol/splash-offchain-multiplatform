@@ -1,8 +1,8 @@
 {
-  "maestro_key_path": "splash-dao-administration/resources/preprod.maestro.key",
+  "maestro_key_path": "/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/splash-testing-cardano/maestro.key",
   "network_id": 0,
-  "batcher_private_key": "",
-  "deployment_json_path": "splash-dao-administration/resources/preprod_deployment.json",
-  "parameters_json_path": "splash-dao-administration/resources/preprod_parameters.json",
+  "batcher_private_key": "xprv1xzgau3xxnmrs47slygdulk3r9r0egkshpzjeeshqhet9uxw8kdfeknr4hgat4a9n7gh6drqgt8n5jcsp7wlnfftv9tln6j9hr6dkxghz2407wwacz9yvjravd4mc9zmty4sk6neztkj6rp80zryyc5gksyc5m2l3",
+  "deployment_json_path": "/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/splash-dao-administration/resources/preprod_deployment.json",
+  "parameters_json_path": "/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/splash-dao-administration/resources/preprod_parameters.json",
   "voting_order_listener_endpoint": "127.0.0.1:1244"
 }

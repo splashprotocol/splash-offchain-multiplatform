@@ -3,7 +3,11 @@ use crate::onchain::event::PollFactoryEvents::{FactoryStateUpdate, NewFactory};
 use crate::tx_view::TxViewPartiallyResolved;
 use cml_chain::address::Address;
 use cml_chain::certs::Credential;
+use cml_chain::transaction::TransactionOutput;
+use cml_crypto::Ed25519KeyHash;
 use derive_more::Display;
+use log::info;
+use log::kv::Source;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::{AssetClass, OutputRef, Token};
@@ -19,13 +23,14 @@ use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use splash_dao_offchain::deployment::ProtocolValidator;
 use splash_dao_offchain::entities::onchain::poll_factory::{PollFactory, PollFactorySnapshot};
 use splash_dao_offchain::entities::onchain::smart_farm::{FarmId, SmartFarmSnapshot};
+use splash_dao_offchain::entities::Snapshot;
 use splash_dao_offchain::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy, WPFactoryAuthPolicy};
 use splash_dao_offchain::routines::{ProvideTimedOref, Slot, TimedOutputRef};
 use std::collections::HashSet;
-use std::fmt::{Display, Formatter};
+use std::fmt::Formatter;
 
 /// Events extracted from on-chain transactions.
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum StatelessOnChainEvent {
     Position(PositionEvent),
     MultipleHarvest(MultipleAccountsHarvest),
@@ -34,8 +39,12 @@ pub enum StatelessOnChainEvent {
     PoolCreated(PoolCreated),
 }
 
+pub trait WithOptionalSlot {
+    fn slot(&self) -> Option<Slot>;
+}
+
 /// Events that happened on-chain but derived from a broad on-chain context.
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
 pub enum OnChainEvent {
     Account(AccountEvent),
     FarmEvent(FarmEvent),
@@ -63,7 +72,16 @@ where
         + Has<HarvestLimits>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
-        PositionEvent::try_from_ledger(repr, ctx)
+        info!(
+            "[On-chain event] Testing tx: {}. Inputs: {}",
+            repr.hash,
+            repr.inputs
+                .clone()
+                .iter()
+                .map(|(tx_input, output)| { format!("{:?} -> {:?},", tx_input, output.is_some()) })
+                .fold(String::new(), |acc, x| acc + &x)
+        );
+        let event = PositionEvent::try_from_ledger(repr, ctx)
             .map(StatelessOnChainEvent::Position)
             .or_else(|| FarmCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::FarmCreated))
             .or_else(|| PollFactoryEvents::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::PollFactory))
@@ -71,7 +89,18 @@ where
                 MultipleAccountsHarvest::try_from_ledger(repr, ctx)
                     .map(StatelessOnChainEvent::MultipleHarvest)
             })
-            .or_else(|| PoolCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::PoolCreated))
+            .or_else(|| PoolCreated::try_from_ledger(repr, ctx).map(StatelessOnChainEvent::PoolCreated));
+        info!("[On-chain event] event: {:?}", event);
+        event
+    }
+}
+
+impl WithOptionalSlot for OnChainEvent {
+    fn slot(&self) -> Option<Slot> {
+        match self {
+            OnChainEvent::FarmEvent(FarmEvent::FarmActivated(event)) => Some(event.slot),
+            _ => None,
+        }
     }
 }
 
@@ -92,7 +121,7 @@ impl OnChainEvent {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
 pub enum AccountEvent {
     Position(PositionEvent),
     Harvest(Harvest),
@@ -113,7 +142,7 @@ impl AccountEvent {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
 pub enum PositionEvent {
     Deposit(Deposit),
     Redeem(Redeem),
@@ -154,14 +183,20 @@ where
         + Has<PoolValidation>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
+        info!("[On-chain event] Testing PositionEvent");
         if let Some(pool_diff) = PoolDiff::try_from_ledger(repr, ctx) {
+            info!("[On-chain event] pool diff is defined: {:?}", pool_diff);
             let (plus_sign, diff) = pool_diff.lp_diff;
+            info!("[On-chain event] pool plus sign: {}, diff {}", plus_sign, diff);
             if diff != 0 {
+                info!("[On-chain event] Going to find acc");
                 if let Some(account) =
                     find_lp_recv(pool_diff.lp_asset.into_token().unwrap(), pool_diff.pool_id, repr)
                 {
+                    info!("[On-chain event] Found account: {}", account.to_hex());
                     let account = account.payment_cred().unwrap().clone();
                     return Some(if plus_sign {
+                        info!("[On-chain event] PositionEvent is deposit");
                         PositionEvent::Deposit(Deposit {
                             pool_id: pool_diff.pool_id,
                             account,
@@ -169,6 +204,7 @@ where
                             lp_supply: pool_diff.lp_supply,
                         })
                     } else {
+                        info!("[On-chain event] PositionEvent is redeem");
                         PositionEvent::Redeem(Redeem {
                             pool_id: pool_diff.pool_id,
                             account,
@@ -179,6 +215,7 @@ where
                 }
             }
         }
+        info!("[On-chain event] PositionEvent is none");
         None
     }
 }
@@ -205,26 +242,32 @@ where
         + Has<PoolValidation>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
+        info!("[On-chain event] Testing PoolDiff for {}", repr.hash.to_hex());
         let pool_in = repr.inputs.iter().find_map(|(input, maybe_utxo)| {
             maybe_utxo.as_ref().and_then(|u| AnyPool::try_from_ledger(u, ctx))
         });
+        info!("[On-chain event] pool_in is defined: {:?}", pool_in.is_some());
         let pool_out = repr.outputs.iter().find_map(|u| AnyPool::try_from_ledger(u, ctx));
+        info!("[On-chain event] pool_out is defined: {:?}", pool_out.is_some());
         if let (Some(pin), Some(pout)) = (pool_in, pool_out) {
             let (lp_in, lp_asset) = match pin {
                 AnyPool::PureCFMM(p) => (p.liquidity.untag(), p.asset_lq.untag()),
                 AnyPool::BalancedCFMM(p) => (p.liquidity.untag(), p.asset_lq.untag()),
                 AnyPool::StableCFMM(p) => (p.liquidity.untag(), p.asset_lq.untag()),
             };
+            info!("[On-chain event] lp_in: {:?}", lp_in);
             let lp_out = match pout {
                 AnyPool::PureCFMM(p) => p.liquidity,
                 AnyPool::BalancedCFMM(p) => p.liquidity,
                 AnyPool::StableCFMM(p) => p.liquidity,
             }
             .untag();
+            info!("[On-chain event] lp_out: {:?}", lp_out);
             let lp_diff = lp_out
                 .checked_sub(lp_in)
                 .map(|r| (true, r))
                 .unwrap_or_else(|| (false, lp_in - lp_out));
+            info!("[On-chain event] lp_diff: {:?}", lp_diff);
             return Some(PoolDiff {
                 pool_id: pin.stable_id().into(),
                 lp_asset,
@@ -236,7 +279,7 @@ where
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct Deposit {
     pub pool_id: PoolId,
     pub account: Credential,
@@ -261,13 +304,16 @@ fn find_lp_recv(
     tx: &TxViewPartiallyResolved,
 ) -> Option<Address> {
     tx.outputs.iter().find_map(|output| {
-        if output.value().multiasset.get(&pol, &tn.into()).is_some()
-            && output
-                .value()
-                .multiasset
-                .get(&pool_nft_pol, &pool_nft_tn.into())
-                .is_none()
-        {
+        info!("[On-chain event] Testing output {}", output.address().to_hex());
+        let test1 = output.value().multiasset.get(&pol, &tn.into()).is_some();
+        let test2 = output
+            .value()
+            .multiasset
+            .get(&pool_nft_pol, &pool_nft_tn.into())
+            .is_none();
+        info!("[On-chain event] Test 1: {}", test1);
+        info!("[On-chain event] Test 2: {}", test2);
+        if test1 && test2 {
             Some(output.address().clone())
         } else {
             None
@@ -275,7 +321,7 @@ fn find_lp_recv(
     })
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct Redeem {
     pub pool_id: PoolId,
     pub account: Credential,
@@ -294,7 +340,7 @@ impl Display for Redeem {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct Harvest {
     pub pool_id: PoolId,
     pub account: Credential,
@@ -312,10 +358,34 @@ impl Display for Harvest {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct MultipleAccountsHarvest {
     pub accounts: Vec<Credential>,
     pub harvested_till: Slot,
+}
+
+impl<Cx> TryFromLedger<TransactionOutput, Cx> for MultipleAccountsHarvest
+where
+    Cx: Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>>
+        + Has<HarvestLimits>
+        + Has<Slot>
+        + Has<Vec<Ed25519KeyHash>>,
+{
+    fn try_from_ledger(repr: &TransactionOutput, ctx: &Cx) -> Option<Self> {
+        let signers: Vec<Ed25519KeyHash> = ctx.get();
+        let slot: Slot = ctx.get();
+        let correct_lovelace_value = repr.value().coin as u64
+            >= (signers.len() as u64 * ctx.select::<HarvestLimits>().minimal_lovelace_per_single_harvest);
+        if test_address(repr.address(), ctx) && correct_lovelace_value {
+            let accounts = signers.clone().into_iter().map(Credential::new_pub_key).collect();
+            Some(MultipleAccountsHarvest {
+                accounts,
+                harvested_till: slot,
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for MultipleAccountsHarvest
@@ -345,7 +415,7 @@ where
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct FarmCreated {
     pub farm_id: FarmId,
     pub pool_id: PoolId,
@@ -358,35 +428,53 @@ where
         + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
+        info!(
+            "[On-chain event] Testing farm created. Inputs len: {}",
+            repr.inputs.len()
+        );
         let farms_in_inputs: HashSet<_> =
             HashSet::from_iter(repr.inputs.iter().filter_map(|(i, maybe_utxo)| {
                 maybe_utxo
                     .as_ref()
                     .and_then(|u| {
-                        let oref = TimedOutputRef::new(OutputRef::from(i.clone()), Slot(0));
-                        SmartFarmSnapshot::try_from_ledger(u, &ProvideTimedOref(ctx, oref))
+                        let oref = TimedOutputRef::new(OutputRef::from(i.clone()), Slot(repr.slot));
+                        info!("[On-chain event] Going to test SmartFarmSnapshot parsing ++++");
+                        let result = SmartFarmSnapshot::try_from_ledger(u, &ProvideTimedOref(ctx, oref));
+                        info!("[On-chain event] SmartFarmSnapshot {}", result.is_some());
+                        result
                     })
-                    .map(|farm| farm.get().farm_id)
+                    .map(|farm| {
+                        info!("[On-chain event] SmartFarmSnapshot {:?}", farm);
+                        farm.get().farm_id
+                    })
             }));
+        info!("[On-chain event] farms_in_inputs len: {}", farms_in_inputs.len());
         let farms_in_outputs = repr.outputs.iter().enumerate().filter_map(|(ix, utxo)| {
-            let oref = TimedOutputRef::new(OutputRef::new(repr.hash, ix as u64), Slot(0));
+            let oref = TimedOutputRef::new(OutputRef::new(repr.hash, ix as u64), Slot(repr.slot));
             SmartFarmSnapshot::try_from_ledger(utxo, &ProvideTimedOref(ctx, oref))
         });
         let mut new_farms = farms_in_outputs.filter_map(|farm| {
+            info!("[On-chain event] Farm in output {:?}", farm);
             if !farms_in_inputs.contains(&farm.get().farm_id) {
                 Some(farm.unwrap())
             } else {
                 None
             }
         });
-        new_farms.next().map(|sm| FarmCreated {
-            farm_id: sm.farm_id,
-            pool_id: sm.pool_id,
+        new_farms.next().map(|sm| {
+            info!(
+                "[On-chain event] SmartFarmSnapshot ({}) created for pool {}",
+                sm.farm_id, sm.pool_id
+            );
+            FarmCreated {
+                farm_id: sm.farm_id,
+                pool_id: sm.pool_id,
+            }
         })
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
 pub enum PollFactoryEvents {
     NewFactory(PollFactory),
     FactoryStateUpdate(PollFactoryUpdated),
@@ -397,6 +485,11 @@ where
     Cx: Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>> + Has<WPFactoryAuthPolicy>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
+        info!(
+            "[On-chain event] PollFactoryEvents. Testing PollFactoryUpdated on {}. Resolved inputs {} ",
+            repr.hash,
+            repr.inputs.len()
+        );
         let factory_in_inputs: HashSet<_> =
             HashSet::from_iter(repr.inputs.iter().filter_map(|(i, maybe_utxo)| {
                 maybe_utxo
@@ -412,26 +505,39 @@ where
             .enumerate()
             .filter_map(|(ix, utxo)| {
                 let oref = TimedOutputRef::new(OutputRef::new(repr.hash, ix as u64), Slot(0));
-                PollFactorySnapshot::try_from_ledger(utxo, &ProvideTimedOref(ctx, oref)).map(|snapshot| {
+                let result = PollFactorySnapshot::try_from_ledger(utxo, &ProvideTimedOref(ctx, oref)).map(|snapshot| {
+                    let mut inputs_factory = String::new();
+                    factory_in_inputs.iter().for_each(|i| {
+                        inputs_factory.push_str(format!(", {:?}", i).as_str());
+                    });
+                    info!("[On-chain event] PollFactoryEvents. Trying to determine kind of event, factory_in_inputs: {} (len {}), Current snapshot id {},  TxHash {}", inputs_factory, factory_in_inputs.len(), &snapshot.get().stable_id.to_hex(), repr.hash);
                     if factory_in_inputs.contains(&snapshot.get().stable_id) {
-                        FactoryStateUpdate(PollFactoryUpdated {
-                            new_state: snapshot.get().clone(),
-                        })
+                        FactoryStateUpdate(
+                            PollFactoryUpdated {
+                                new_state: snapshot.get().clone(),
+                            }
+                        )
                     } else {
                         NewFactory(snapshot.get().clone())
                     }
-                })
+                });
+                if let Some(farm) = result {
+                    info!("[On-chain event] PollFactoryEvents. Result of parsing smartFarmSnapshot {} for tx {}", farm, repr.hash);
+                    Some(farm)
+                } else {
+                    None
+                }
             })
             .next()
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
 pub struct PollFactoryUpdated {
     pub new_state: PollFactory,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
 pub enum FarmEvent {
     FarmActivated(FarmActivated),
     FarmDeactivated(FarmDeactivated),
@@ -446,20 +552,20 @@ impl FarmEvent {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
 #[display("FarmActivated ( pool_id = {}, slot = {})", pool_id, slot)]
 pub struct FarmActivated {
     pub pool_id: PoolId,
     pub slot: Slot,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
 #[display("FarmDeactivated ( pool_id = {})", pool_id)]
 pub struct FarmDeactivated {
     pub pool_id: PoolId,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
 pub enum PoolEvent {
     PoolCreated(PoolCreated),
 }
@@ -472,7 +578,7 @@ impl PoolEvent {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
 #[display("PoolCreated (pool_id = {}, supply_lq = {})", pool_id, supply_lq)]
 pub struct PoolCreated {
     pub pool_id: PoolId,
@@ -493,10 +599,13 @@ where
         + Has<PoolValidation>,
 {
     fn try_from_ledger(repr: &TxViewPartiallyResolved, ctx: &Cx) -> Option<Self> {
+        info!("[On-chain event] Testing PoolCreated for {}", repr.hash);
         let pool_in = repr.inputs.iter().find_map(|(input, maybe_utxo)| {
             maybe_utxo.as_ref().and_then(|u| AnyPool::try_from_ledger(u, ctx))
         });
+        info!("[On-chain event] pool_in is defined: {:?}", pool_in.is_some());
         let pool_out = repr.outputs.iter().find_map(|u| AnyPool::try_from_ledger(u, ctx));
+        info!("[On-chain event] pool_out is defined: {:?}", pool_in.is_some());
         if let (None, Some(pout)) = (pool_in, pool_out) {
             let lp_out = match pout {
                 AnyPool::PureCFMM(p) => p.liquidity,
@@ -508,6 +617,80 @@ where
                 supply_lq: lp_out.untag(),
             });
         }
+        info!("[On-chain event] PoolCreated is none");
         None
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::config::HarvestLimits;
+    use crate::onchain::event::MultipleAccountsHarvest;
+    use bloom_offchain_cardano::orders::grid::GridOrder;
+    use cml_chain::transaction::TransactionOutput;
+    use cml_core::serialization::Deserialize;
+    use cml_crypto::Ed25519KeyHash;
+    use type_equalities::IsEqual;
+    use spectrum_offchain::domain::Has;
+    use spectrum_offchain::ledger::TryFromLedger;
+    use spectrum_offchain_cardano::deployment::ProtocolValidator::GridOrderNative;
+    use spectrum_offchain_cardano::deployment::{
+        DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes,
+    };
+    use splash_dao_offchain::deployment::{
+        DeployedValidators as DaoValidators, ProtocolDeployment as DaoDeployment, ProtocolTokens,
+        ProtocolValidator,
+    };
+    use splash_dao_offchain::routines::Slot;
+
+    struct Context {
+        harvest_order: DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>,
+        harvest_limits: HarvestLimits,
+        slot: Slot,
+        signers: Vec<Ed25519KeyHash>,
+    }
+
+    impl Has<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>> for Context{
+        fn select<U: IsEqual<DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }>>>(&self) -> DeployedScriptInfo<{ ProtocolValidator::HarvestOrder as u8 }> {
+            self.harvest_order
+        }
+    }
+
+    impl Has<HarvestLimits> for Context {
+        fn select<U: IsEqual<HarvestLimits>>(&self) -> HarvestLimits {
+            self.harvest_limits
+        }
+    }
+
+    impl Has<Slot> for Context {
+        fn select<U: IsEqual<Slot>>(&self) -> Slot {
+            self.slot
+        }
+    }
+
+    impl Has<Vec<Ed25519KeyHash>> for Context {
+        fn select<U: IsEqual<Vec<Ed25519KeyHash>>>(&self) -> Vec<Ed25519KeyHash> {
+            self.signers.clone()
+        }
+    }
+
+    #[test]
+    fn try_read() {
+        let raw_deployment = std::fs::read_to_string("/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/splash-lp-indexer/resources/preprod.dao.deployment.json").expect("Cannot load deployment file");
+        let deployment: DaoValidators =
+            serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
+        let ctx = Context {
+            harvest_order: (&deployment.harvest_order).into(),
+            harvest_limits: HarvestLimits {
+                minimal_lovelace_per_single_harvest: 1000000,
+            },
+            slot: Slot(1234),
+            signers: vec![],
+        };
+        let bearer = TransactionOutput::from_cbor_bytes(&*hex::decode(UTXO).unwrap()).unwrap();
+        let ord = MultipleAccountsHarvest::try_from_ledger(&bearer, &ctx).unwrap();
+        println!("Order: {:?}", ord);
+    }
+
+    const UTXO: &str = "a300581d707df8e5fd9f02bf01dac434bce324c2587d2a3f7d8de67aed993c5d53011a01312d00028201d8185840d8799f581c8d4be10d934b60a22f267699ea3f7ebdade1f8e535d1bd0ef7ce18b6581c79c7b50d79c32ea7b6bde64d4dfd5f595a725966bfdf1155385bddacff";
 }

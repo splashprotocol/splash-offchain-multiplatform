@@ -126,7 +126,7 @@ pub struct AdaValue {
     tokens: Vec<Token>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Hash, PartialEq, Eq)]
 pub struct Token {
     pub policy_id: ScriptHash,
     pub asset_name: cml_chain::assets::AssetName,

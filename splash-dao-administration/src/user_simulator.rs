@@ -61,7 +61,7 @@ pub async fn user_simulator<'a>(
     existing_splash_policy_id: Option<PolicyId>,
 ) -> ! {
     // 1. deploy
-    let deployment_config = deploy(op_inputs, config, existing_splash_policy_id).await;
+    let deployment_config: CompleteDeployment = deploy(op_inputs, config, existing_splash_policy_id).await;
 
     let owner_bytes = op_inputs.owner_pub_key.to_raw_bytes().try_into().unwrap();
     let owner = Owner::PubKey(owner_bytes);

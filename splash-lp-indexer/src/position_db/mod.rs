@@ -28,6 +28,9 @@ impl PositionDB {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         opts.create_missing_column_families(true);
+        opts.set_db_log_dir(
+            "/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/splash-lp-indexer/rocksdb-logs",
+        );
         let db_opts = TransactionDBOptions::default();
         Self {
             db: Arc::new(TransactionDB::open_cf(&opts, &db_opts, db_path, COLUMN_FAMILIES).unwrap()),
@@ -163,16 +166,17 @@ pub(crate) const COLUMN_FAMILIES: [&str; 8] = [
 #[cfg(test)]
 pub mod tests {
     use crate::position_db::{cred_index_key, cred_index_prefix, read_max_key};
+    use rocksdb::{Options, SingleThreaded, TransactionDB, TransactionDBOptions};
+    use splash_testing::db_path::DBPath;
+    use std::sync::Arc;
     use cml_chain::certs::Credential;
     use cml_crypto::Ed25519KeyHash;
     use rand::RngCore;
-    use rocksdb::{Options, SingleThreaded, TransactionDB, TransactionDBOptions};
     use spectrum_offchain_cardano::data::PoolId;
-    use splash_testing::db_path::DBPath;
-    use std::sync::Arc;
 
     #[test]
     fn credential_keys_test() {
+
         let mut bf = [0u8; 28];
         rand::thread_rng().fill_bytes(&mut bf);
 

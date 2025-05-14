@@ -1,4 +1,4 @@
-use log::trace;
+use log::{info, trace};
 use std::cmp::Reverse;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, HashMap};
@@ -80,7 +80,7 @@ impl<TxHash, Tx> PendingTxs<TxHash, Tx> {
 
             // Reverse chronological order
             let failed_txs = failed_txs_with_timestamp.into_iter().map(|x| x.1).collect();
-            trace!(
+            info!(
                 "[TxTracker] Queue size: {}, pending transactions: {}",
                 self.queue.len(),
                 self.index.len()

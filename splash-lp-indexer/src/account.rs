@@ -1,7 +1,9 @@
 use crate::constants::EVENT_LOCK_TTL_SLOTS;
 use crate::onchain::event::{Harvest, PositionEvent};
 use cml_core::Slot;
+use log::info;
 use serde::{Deserialize, Serialize};
+use tracing_subscriber::fmt::format;
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct SuspendedPositionEvents {
@@ -13,6 +15,7 @@ pub struct SuspendedPositionEvents {
 #[derive(Copy, Clone, Eq, PartialEq, Serialize, Deserialize, Debug)]
 pub struct AccountInPool {
     /// Accumulator of avg share over period from `activated_at` to `updated_at`
+    /// Determine numerator only, where denom - 10000
     pub avg_share_bps: u64,
     /// Latest share as (personal_share, total_share)
     pub share: (u64, u64),
@@ -38,6 +41,7 @@ impl AccountInPool {
     }
 
     pub fn activated(mut self, slot: Slot) -> Self {
+        info!("Activating account {:?} at slot {}", self, slot);
         self.activated_at.replace(slot);
         self
     }
@@ -76,6 +80,11 @@ impl AccountInPool {
         total_lq: u64,
         events: Vec<PositionEvent>,
     ) -> Result<Self, (Self, SuspendedPositionEvents)> {
+        let mut events_formatted = String::new();
+        events.iter().for_each(|event| {
+            events_formatted.push_str(format!(", {}", event).as_str())
+        });
+        info!("[ACCOUNT] Going to adjust position for {:?} at slot {} where total_lq is {}. Events are {}", self, current_slot, total_lq, events_formatted);
         if self.locked_at.is_some() {
             return Err((
                 self,
@@ -87,6 +96,7 @@ impl AccountInPool {
             ));
         }
         if let Some(activated_at) = self.activated_at {
+            info!("[ACCOUNT] is activated at {:?}", activated_at);
             let prev_avg_share_bps = self.avg_share_bps;
             let past_period_weight = self.updated_at - activated_at;
             let curr_period_weight = current_slot - self.updated_at;
@@ -96,18 +106,27 @@ impl AccountInPool {
             let new_avg_share_bps =
                 new_avg_share_bps_num.checked_div(past_period_weight + curr_period_weight);
             self.avg_share_bps = new_avg_share_bps.unwrap_or(0);
+        } else {
+            info!("[ACCOUNT] is not activated");
         }
         let prev_abs_share = self.share.0;
         let new_abs_share = events.into_iter().fold(prev_abs_share, |acc, ev| match ev {
-            PositionEvent::Deposit(deposit) => acc.saturating_add(deposit.lp_mint),
-            PositionEvent::Redeem(redeem) => acc.saturating_sub(redeem.lp_burned),
+            PositionEvent::Deposit(deposit) => {
+                info!("[ACCOUNT] Adding deposit to account. Deposit {}", deposit);
+                acc.saturating_add(deposit.lp_mint)
+            },
+            PositionEvent::Redeem(redeem) => {
+                info!("[ACCOUNT] Sub redeem to account. Deposit {}", redeem);
+                acc.saturating_sub(redeem.lp_burned)
+            },
         });
+        info!("[ACCOUNT] new_abs_share at {:?}", new_abs_share);
         self.share = (new_abs_share, total_lq);
         self.updated_at = current_slot;
         Ok(self)
     }
 
-    fn share_bps(&self) -> u64 {
+    pub fn share_bps(&self) -> u64 {
         self.share.0 * 10_000 / self.share.1
     }
 }

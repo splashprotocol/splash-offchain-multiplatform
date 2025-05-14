@@ -43,7 +43,7 @@ use crate::data::operation_output::{OperationResultBlueprint, OperationResultOut
 use crate::data::order::{ClassicalOrderAction, ClassicalOrderRedeemer, Quote};
 use crate::data::pair::PairId;
 use crate::data::pool::AnyPool::{BalancedCFMM, PureCFMM, StableCFMM};
-use crate::data::stable_pool_t2t::{StablePoolRedeemer, StablePoolT2T as StablePoolT2TData};
+pub use crate::data::stable_pool_t2t::{StablePoolRedeemer, StablePoolT2T as StablePoolT2TData};
 use crate::data::OnChainOrderId;
 use crate::deployment::ProtocolValidator::{
     BalanceFnPoolV1, BalanceFnPoolV2, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,

@@ -11,12 +11,13 @@ use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain::persistent_index::PersistentIndex;
 use std::collections::HashSet;
+use log::info;
 
 pub async fn read_events<Out, Cx, Index>(
     mut block: BlockEvents<Either<BabbageTransaction, Transaction>>,
     context: &Cx,
     index: &Index,
-    utxo_filter: &HashSet<ScriptHash>,
+    persistable_entities_hashes: &HashSet<ScriptHash>,
 ) -> BlockEvents<Out>
 where
     Out: TryFromLedger<TxViewPartiallyResolved, Cx>,
@@ -34,7 +35,7 @@ where
     let events = stream::iter(txs)
         .map(TxView::from)
         .then(|tx| async move {
-            index_utxos(&tx, index, utxo_filter).await;
+            persist_suitable_entities(&tx, index, persistable_entities_hashes).await;
             tx
         })
         .then(|tx| TxViewPartiallyResolved::resolve(tx, index, *slot))
@@ -46,13 +47,14 @@ where
     block.map(|_| events)
 }
 
-async fn index_utxos<Index: PersistentIndex<OutputRef, TransactionOutput>>(
+async fn persist_suitable_entities<Index: PersistentIndex<OutputRef, TransactionOutput>>(
     tx: &TxView,
     index: &Index,
-    utxo_filter: &HashSet<ScriptHash>,
+    persistable_entities_hashes: &HashSet<ScriptHash>,
 ) {
     for (ix, o) in tx.outputs.iter().enumerate() {
-        if test_address(o.address(), utxo_filter) {
+        if test_address(o.address(), persistable_entities_hashes) {
+            info!("[Persist] Persist entity {}#{}", tx.hash.to_hex(), ix);
             let oref = OutputRef::new(tx.hash, ix as u64);
             index.insert(oref, o.clone()).await;
         }

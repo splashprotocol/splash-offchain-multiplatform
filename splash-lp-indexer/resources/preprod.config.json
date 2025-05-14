@@ -13,19 +13,19 @@
       ]
     },
     "disableRollbacksUntil": 90336103,
-    "dbPath": "state"
+    "dbPath": "/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/splash-lp-indexer/state"
   },
   "node": {
-    "path": "",
+    "path": "/Users/aleksandr/node-external/node.socket",
     "magic": 1
   },
   "networkId": 0,
   "explorer": {
-    "maestroKeyPath": ""
+    "maestroKeyPath": "/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/splash-testing-cardano/maestro.key"
   },
-  "utxoIndexDbPath": "index/utxo",
-  "accountsDbPath": "index/accounts",
-  "gaugesDbPath": "index/gauges",
+  "utxoIndexDbPath": "/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/splash-lp-indexer/index/utxo",
+  "accountsDbPath": "/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/splash-lp-indexer/index/accounts",
+  "gaugesDbPath": "/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/splash-lp-indexer/index/gauges",
   "confirmationDelayBlocks": 6,
   "bootstrapServers": "0.0.0.0:19094",
   "eventsExportTopic": "events_export",

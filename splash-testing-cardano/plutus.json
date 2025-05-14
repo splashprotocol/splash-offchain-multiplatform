@@ -303,6 +303,23 @@
       "hash": "85464fe25143040e68c3c2a86b1d9cd8477a9d15a3afbefef09e299d"
     },
     {
+      "title": "token/harvest.harvest",
+      "datum": {
+        "title": "state",
+        "schema": {
+          "$ref": "#/definitions/token~1harvest~1HarvestState"
+        }
+      },
+      "redeemer": {
+        "title": "action",
+        "schema": {
+          "$ref": "#/definitions/token~1harvest~1HarvestAction"
+        }
+      },
+      "compiledCode": "59012f010000323232323232323222232325333008323232323232323232323232323253330163370e9001180a80589919299980c19b87480080084cc00400cdd7180e180e980b00a8998008019bae301c301601522323300100100322533301e00114a026464a66603a66e3c00801452889980200200098108011bae301f0013015012163758603200260320026030002602e002602c002602a0026028002602600260240026014006601e002601e004601a002600c00629309b2b19299980419b874800000454ccc02cc01801052616153330083370e90010008a99980598030020a4c2c2c600c00664a66600e66e1d2000001132323232533300e3010002149858dd7180700098070011bae300c0013005004163005003230053754002460066ea80055cd2ab9d5573caae7d5d0aba201",
+      "hash": "7df8e5fd9f02bf01dac434bce324c2587d2a3f7d8de67aed993c5d53"
+    },
+    {
       "title": "stable_pool/deposit.deposit",
       "datum": {
         "title": "datum",
@@ -660,6 +677,43 @@
           "dataType": "constructor",
           "index": 1,
           "fields": []
+        }
+      ]
+    },
+    "token/harvest/HarvestAction": {
+      "title": "HarvestAction",
+      "anyOf": [
+        {
+          "title": "Refund",
+          "dataType": "constructor",
+          "index": 0,
+          "fields": []
+        },
+        {
+          "title": "Harvest",
+          "dataType": "constructor",
+          "index": 1,
+          "fields": []
+        }
+      ]
+    },
+    "token/harvest/HarvestState": {
+      "title": "HarvestState",
+      "anyOf": [
+        {
+          "title": "HarvestState",
+          "dataType": "constructor",
+          "index": 0,
+          "fields": [
+            {
+              "title": "refund_key",
+              "$ref": "#/definitions/ByteArray"
+            },
+            {
+              "title": "distribution_agent_key",
+              "$ref": "#/definitions/ByteArray"
+            }
+          ]
         }
       ]
     },

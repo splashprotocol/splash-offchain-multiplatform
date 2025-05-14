@@ -83,8 +83,8 @@ impl Display for PollFactory {
 impl<C> TryFromLedger<TransactionOutput, C> for PollFactorySnapshot
 where
     C: Has<TimedOutputRef>
-        + Has<WPFactoryAuthPolicy>
-        + Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>,
+    + Has<WPFactoryAuthPolicy>
+    + Has<DeployedScriptInfo<{ ProtocolValidator::WpFactory as u8 }>>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {

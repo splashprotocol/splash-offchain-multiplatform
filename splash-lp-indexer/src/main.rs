@@ -19,14 +19,6 @@ use spectrum_streaming::run_stream;
 use splash_dao_offchain::deployment::{
     DeployedValidators as DaoValidators, ProtocolDeployment as DaoDeployment, ProtocolTokens,
 };
-use splash_lp_index::config::AppConfig;
-use splash_lp_index::context::Context;
-use splash_lp_index::feed::event::ExportAccountEvent;
-use splash_lp_index::feed::event_publisher::EventPublisher;
-use splash_lp_index::http_api::build_api_server;
-use splash_lp_index::pipeline::{log_events, process_mature_events};
-use splash_lp_index::position_db::PositionDB;
-use splash_lp_index::ve_index::VoteEscrowDB;
 use std::collections::HashSet;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
@@ -34,6 +26,14 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing_subscriber::fmt::Subscriber;
+use splash_lp_indexer::config::AppConfig;
+use splash_lp_indexer::context::Context;
+use splash_lp_indexer::feed::event::ExportAccountEvent;
+use splash_lp_indexer::feed::event_publisher::EventPublisher;
+use splash_lp_indexer::http_api::build_api_server;
+use splash_lp_indexer::pipeline::{log_events, process_mature_events};
+use splash_lp_indexer::position_db::PositionDB;
+use splash_lp_indexer::ve_index::VoteEscrowDB;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 8)]
 async fn main() {
@@ -90,13 +90,20 @@ async fn main() {
 
     let utxo_index = IndexRocksDB::new(config.utxo_index_db_path);
     let position_db = PositionDB::new(config.accounts_db_path);
-    let filter = HashSet::from([
+    let persistable_entites = HashSet::from([
         dex_protocol_deployment.balance_fn_pool_v1.hash,
         dex_protocol_deployment.balance_fn_pool_v2.hash,
         dex_protocol_deployment.const_fn_pool_v1.hash,
         dex_protocol_deployment.const_fn_pool_v2.hash,
+        dex_protocol_deployment.const_fn_pool_fee_switch.hash,
+        dex_protocol_deployment.const_fn_pool_fee_switch_v2.hash,
+        dex_protocol_deployment.const_fn_pool_fee_switch_bidir_fee.hash,
         dex_protocol_deployment.royalty_pool.hash,
         dex_protocol_deployment.stable_fn_pool_t2t.hash,
+        dao_protocol_deployment.smart_farm.hash,
+        dao_protocol_deployment.farm_factory.hash,
+        dao_protocol_deployment.wp_factory.hash,
+        dao_protocol_deployment.ve_factory.hash,
     ]);
     let cx = Context {
         dex_deployment: dex_protocol_deployment,
@@ -133,7 +140,7 @@ async fn main() {
         cx,
         utxo_index,
         gauges_db,
-        filter,
+        persistable_entites,
     ));
     processes.push(log_events_handle);
 

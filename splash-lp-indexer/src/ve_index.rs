@@ -8,6 +8,7 @@ use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::task::spawn_blocking;
+use tracing_subscriber::fmt::format;
 
 #[async_trait]
 pub trait VoteEscrowIndex {
@@ -49,18 +50,45 @@ const POLL_FACTORY_SNAPSHOT_KEY: &[u8] = b"poll_factory_snapshot";
 impl VoteEscrowIndex for VoteEscrowDB {
     async fn put_gauge(&self, gauge_id: FarmId, pool_id: PoolId) {
         let db = self.db.clone();
+        info!(
+            "Going to put gauge {} binding",
+            hex::encode(gauge_id.0.as_bytes())
+        );
         spawn_blocking(move || {
-            db.put(gauge_id.0.as_bytes(), Vec::from(pool_id)).unwrap();
+            let value = Vec::from(pool_id);
+            info!("Going to put key: {}", hex::encode(gauge_id.0.as_bytes()));
+            let result = db.put(gauge_id.0.as_bytes(), value);
+            info!("Put result is {}", result.is_ok());
+            let get_test = db.get(gauge_id.0.as_bytes()).unwrap();
+            info!("Get result is {}", get_test.is_some());
         })
         .await
         .unwrap()
     }
     async fn get_gauge_binding(&self, gauge_id: FarmId) -> Option<PoolId> {
         let db = self.db.clone();
+        info!(
+            "Going to get gauge {} binding",
+            hex::encode(gauge_id.0.as_bytes())
+        );
         spawn_blocking(move || {
-            db.get(gauge_id.0.as_bytes())
-                .unwrap()
-                .and_then(|bytes| PoolId::try_from(&*bytes).ok())
+            info!("Going to get key: {}", hex::encode(gauge_id.0.as_bytes()));
+            let some_res = db.get(gauge_id.0.as_bytes()).unwrap();
+            info!("Gauge from db {}", some_res.is_some());
+            info!(
+                "Gauge from db encoded {}",
+                some_res
+                    .clone()
+                    .map(|res| hex::encode(&res))
+                    .unwrap_or("unknown".to_string())
+            );
+            info!(
+                "Gauge from db encoded {:?}",
+                some_res
+                    .clone()
+                    .map(|res| PoolId::try_from(&*res).unwrap_or(PoolId::random()))
+            );
+            some_res.and_then(|bytes| PoolId::try_from(&*bytes).ok())
         })
         .await
         .unwrap()
@@ -68,12 +96,15 @@ impl VoteEscrowIndex for VoteEscrowDB {
 
     async fn add_pre_activated_gauge(&self, gauge_id: FarmId, slot: Slot) {
         let db = self.db.clone();
+        info!(
+            "Going to put pre activated {} gauge at key {}",
+            hex::encode(gauge_id.0.as_bytes()), hex::encode(VoteEscrowDB::gauge_pre_activated_key(gauge_id))
+        );
         spawn_blocking(move || {
-            db.put(
-                VoteEscrowDB::gauge_pre_activated_key(gauge_id),
-                rmp_serde::to_vec(&slot).unwrap(),
-            )
-            .unwrap();
+            let value = rmp_serde::to_vec(&slot).unwrap();
+            info!("Going to put key: {}", hex::encode(gauge_id.0.as_bytes()));
+            let result = db.put(VoteEscrowDB::gauge_pre_activated_key(gauge_id), value);
+            info!("Put result is {}", result.is_ok());
         })
         .await
         .unwrap()

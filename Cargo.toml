@@ -25,6 +25,9 @@ members = [
     "cardano-utxo-monitor",
     "graphite",
     "splash-lp-indexer",
+    "splash-distribution",
+    "splash-distribution-withdraw-agent",
+    "splash-distribution-validator-agent",
     "intent-relay",
     "splash-testing"
 ]

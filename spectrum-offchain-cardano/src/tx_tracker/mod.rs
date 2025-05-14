@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use futures::channel::mpsc;
 use futures::stream::FusedStream;
 use futures::{select, FutureExt, Sink, SinkExt, StreamExt};
-use log::trace;
+use log::{info, trace};
 use spectrum_offchain::data::circular_filter::CircularFilter;
 use spectrum_offchain::sink::BatchSinkExt;
 use std::fmt::{Debug, Display};
@@ -128,6 +128,7 @@ impl<TxHash, Tx, UnconfirmedIn, ConfirmedIn, FailedOut>
         TxHash: Copy + Eq + Hash + Display,
     {
         loop {
+            //info!("trying to get next process_confirmed_txs");
             let (tx, block) = ledger_stream.select_next_some().await;
             recent_txs.lock().unwrap().add(tx);
             let advance_result = {
@@ -136,7 +137,10 @@ impl<TxHash, Tx, UnconfirmedIn, ConfirmedIn, FailedOut>
                 pending_txs.try_advance(block)
             };
             if let Some(unsuccessful_txs) = advance_result {
-                failed_txs.batch_send(unsuccessful_txs).await.unwrap();
+                if !unsuccessful_txs.is_empty() {
+                    info!("have some unsuccessful_txs. {:?}", unsuccessful_txs.len());
+                    failed_txs.batch_send(unsuccessful_txs).await.unwrap();
+                }
             }
         }
     }

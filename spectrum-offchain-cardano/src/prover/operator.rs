@@ -1,6 +1,7 @@
 use cml_chain::builders::tx_builder::SignedTxBuilder;
 use cml_chain::crypto::utils::make_vkey_witness;
-use cml_chain::transaction::Transaction;
+use cml_chain::crypto::Vkeywitness;
+use cml_chain::transaction::{Transaction, TransactionBody};
 use cml_crypto::Bip32PrivateKey;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_offchain::tx_prover::TxProver;
@@ -28,5 +29,13 @@ impl<'a> TxProver<SignedTxBuilder, Transaction> for OperatorProver {
             Ok(tx) => tx,
             Err(err) => panic!("CML returned error: {}", err),
         }
+    }
+
+    fn add_signature(&self, body: TransactionBody) -> Vkeywitness {
+        let tx_hash = hash_transaction_canonical(&body);
+        let sk = Bip32PrivateKey::from_bech32(self.0.as_str())
+            .unwrap()
+            .to_raw_key();
+        make_vkey_witness(&tx_hash, &sk)
     }
 }

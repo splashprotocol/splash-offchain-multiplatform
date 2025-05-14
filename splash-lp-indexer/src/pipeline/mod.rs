@@ -5,7 +5,6 @@ use crate::pipeline::resolve_gauges::resolve_gauges;
 use crate::position_db::accounts::Accounts;
 use crate::position_db::event_log::EventLog;
 use crate::position_db::mature_events::MatureEvents;
-use crate::position_db::pool_frames::PoolFrames;
 use crate::ve_index::VoteEscrowIndex;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use cml_chain::transaction::{Transaction, TransactionOutput};
@@ -24,6 +23,8 @@ use splash_dao_offchain::deployment::ProtocolValidator;
 use splash_dao_offchain::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy, WPFactoryAuthPolicy};
 use splash_dao_offchain::routines::TimedOutputRef;
 use std::collections::HashSet;
+use crate::onchain::event::OnChainEvent;
+use crate::position_db::pool_frames::PoolFrames;
 
 pub mod log_events;
 pub mod read_events;
@@ -31,11 +32,11 @@ pub mod resolve_gauges;
 
 pub async fn log_events<U, Log, Cx, Utxos, Gauges>(
     upstream: U,
-    log: Log,
+    events_log: Log,
     context: Cx,
     utxos: Utxos,
     gauges: Gauges,
-    utxo_filter: HashSet<ScriptHash>,
+    persistable_entities_hashes: HashSet<ScriptHash>,
 ) where
     U: Stream<
         Item = (
@@ -43,7 +44,7 @@ pub async fn log_events<U, Log, Cx, Utxos, Gauges>(
             TransactionHandle,
         ),
     >,
-    Log: EventLog + Accounts + PoolFrames,
+    Log: EventLog<OnChainEvent> + Accounts + PoolFrames,
     Utxos: PersistentIndex<OutputRef, TransactionOutput>,
     Gauges: VoteEscrowIndex,
     Cx: Has<DeployedScriptInfo<{ ConstFnPoolV1 as u8 }>>
@@ -67,18 +68,18 @@ pub async fn log_events<U, Log, Cx, Utxos, Gauges>(
 {
     log_lp_events(
         upstream.then(|(block, tx_handle)| {
-            read_events(block, &context, &utxos, &utxo_filter)
-                .then(|batch| resolve_gauges(batch, &gauges, &log))
+            read_events(block, &context, &utxos, &persistable_entities_hashes)
+                .then(|batch| resolve_gauges(batch, &gauges, &events_log))
                 .map(|events| (events, tx_handle))
         }),
-        &log,
+        &events_log,
     )
     .await
 }
 
-pub async fn process_mature_events<DB: MatureEvents>(db: DB, confirmation_delay_blocks: u64) {
+pub async fn process_mature_events<DB: MatureEvents>(events_log: DB, confirmation_delay_blocks: u64) {
     loop {
-        if !db.try_process_mature_events(confirmation_delay_blocks).await {
+        if !events_log.try_process_mature_events(confirmation_delay_blocks).await {
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         }
     }

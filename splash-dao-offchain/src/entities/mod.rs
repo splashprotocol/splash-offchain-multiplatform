@@ -55,3 +55,17 @@ where
         self.1
     }
 }
+
+pub trait HasStatus {
+    type Status;
+
+    fn get_status(self) -> Self::Status;
+}
+
+impl<Entity: HasStatus, Version> HasStatus for Snapshot<Entity, Version> {
+    type Status = <Entity as HasStatus>::Status;
+
+    fn get_status(self) -> Self::Status {
+        self.0.get_status()
+    }
+}

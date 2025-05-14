@@ -111,9 +111,13 @@ mod tests {
             ScriptHash::from_hex("6da073591bfaffa99618d0b587434f5d7e681c4b78a70a53af816d98").unwrap();
 
         let pk = cml_crypto::PublicKey::from_raw_hex(
-            "f27b7e514487a1f862c48889127289add9d96ce246c70c411df7fb46c4ec1225",
+            "04e3a257bcb0306c27e796bc16d1b7bde8f2306dc1d6aa344f6043ef48bd7fd8",
         )
         .unwrap();
+
+
+        println!("pkh: {:?}", pk.hash().to_hex());
+
         let mut distribution = generate_distribution(1);
         distribution[0].1 = 20;
 

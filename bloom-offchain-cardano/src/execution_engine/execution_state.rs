@@ -272,14 +272,217 @@ impl ExecutionState {
 
 #[cfg(test)]
 mod test {
+    use crate::orders::limit::LimitOrder;
+    use bloom_offchain::execution_engine::liquidity_book::core::Next::{Succ, Term};
+    use bloom_offchain::execution_engine::liquidity_book::core::{
+        MakeInProgress, MatchmakingAttempt, TakeInProgress, TerminalTake,
+    };
+    use bloom_offchain::execution_engine::liquidity_book::types::{AbsolutePrice, RelativePrice};
+    use bloom_offchain::execution_engine::types::StableId;
     use cml_chain::plutus::PlutusV2Script;
+    use cml_chain::PolicyId;
     use cml_core::serialization::Deserialize;
+    use cml_crypto::Ed25519KeyHash;
+    use num_rational::Ratio;
+    use spectrum_cardano_lib::address::PlutusAddress;
+    use spectrum_cardano_lib::ex_units::ExUnits;
+    use spectrum_cardano_lib::{AssetClass, AssetName, TaggedAmount, TaggedAssetClass, Token};
+    use spectrum_offchain_cardano::constants::FEE_DEN;
+    use spectrum_offchain_cardano::data::pool::AnyPool;
+    use spectrum_offchain_cardano::data::pool::StablePoolT2TData;
+    use spectrum_offchain_cardano::data::stable_pool_t2t::StablePoolT2TVer;
+    use spectrum_offchain_cardano::data::PoolId;
+    use std::collections::HashMap;
 
     #[test]
     fn hash_script_cml() {
         let script = PlutusV2Script::from_cbor_bytes(&*hex::decode(SCRIPT).unwrap()).unwrap();
         let sh = script.hash();
         println!("{}", sh)
+    }
+
+    #[test]
+    fn test() {
+        fn gen_random_policy_id() -> PolicyId {
+            use cml_chain::PolicyId;
+            use rand::Rng;
+            let mut rng = rand::thread_rng();
+            let bytes: [u8; 28] = rng.gen(); // Policy IDs are 28 bytes long
+            PolicyId::from(bytes)
+        }
+
+        fn gen_random_token() -> Token {
+            use rand::Rng;
+            let mut rng = rand::thread_rng();
+            let policy_id = gen_random_policy_id();
+            let asset_name_len = rng.gen_range(0..32); // Asset names can be between 0 and 32 bytes
+            let asset_name_bytes: Vec<u8> = (0..asset_name_len).map(|_| rng.gen()).collect();
+            let asset_name = AssetName::from(asset_name_bytes);
+            Token(policy_id, asset_name)
+        }
+
+        fn gen_random_pub_key_plutus_address() -> PlutusAddress {
+            use cml_chain::certs::Credential;
+            use rand::Rng;
+            use spectrum_cardano_lib::address::{PlutusAddress, PlutusCredential};
+
+            let mut rng = rand::thread_rng();
+            let pub_key_hash: [u8; 28] = rng.gen(); // Public key hashes are 28 bytes long
+            let payment_cred = PlutusCredential::PubKey(pub_key_hash.into());
+            PlutusAddress {
+                payment_cred,
+                stake_cred: None, // No stake credential for this random address
+            }
+        }
+
+        fn gen_random_ed25519_key_hash() -> Ed25519KeyHash {
+            use rand::Rng;
+            let mut rng = rand::thread_rng();
+            let bytes: [u8; 28] = rng.gen(); // Policy IDs are 28 bytes long
+            Ed25519KeyHash::from(bytes)
+        }
+
+        fn create_limit_order(
+            lovelace_qty: u64,
+            oada_qty: u64,
+            abs_price: AbsolutePrice,
+            execution_budget: u64,
+            fee: u64,
+            max_cost_per_ex_step: u64,
+            min_marginal_output: u64,
+            remaining_input: u64,
+            accumulated_output: u64,
+            remaining_budget: u64,
+            remaining_fee: u64,
+        ) -> TakeInProgress<LimitOrder, LimitOrder> {
+            let order = LimitOrder {
+                beacon: gen_random_policy_id(),
+                input_asset: AssetClass::Native,
+                input_amount: lovelace_qty,
+                output_asset: AssetClass::from(Token::from_string_unsafe(
+                    "f6099832f9563e4cf59602b3351c3c5a8a7dda2d44575ef69b82cf8d.",
+                )),
+                output_amount: oada_qty,
+                base_price: abs_price.unwrap().pow(-1),
+                fee_asset: AssetClass::Native,
+                execution_budget,
+                fee,
+                max_cost_per_ex_step: 100_000,
+                min_marginal_output: 100_000,
+                redeemer_address: gen_random_pub_key_plutus_address(),
+                cancellation_pkh: gen_random_ed25519_key_hash(),
+                requires_executor_sig: false,
+                marginal_cost: ExUnits { mem: 0, steps: 0 },
+                virgin: false,
+            };
+
+            let terminal_take = TerminalTake {
+                remaining_input,
+                accumulated_output,
+                remaining_budget,
+                remaining_fee,
+            };
+
+            TakeInProgress {
+                target: order,
+                result: Term(terminal_take),
+            }
+        }
+
+        fn create_maker(
+            reserves_x: u64,
+            reserves_y: u64,
+            lq: u64,
+            new_reserves_x: u64,
+            new_reserves_y: u64,
+        ) -> MakeInProgress<StablePoolT2TData> {
+            use rand::Rng;
+
+            let mut rng = rand::thread_rng();
+
+            let base_amount: u64 = rng.gen_range(1_000_000..10_000_000); // Random base amount
+            let quote_amount: u64 = rng.gen_range(1_000_000..10_000_000); // Random quote amount
+
+            let pool_data = StablePoolT2TData {
+                id: PoolId(gen_random_token()),
+                an2n: rng.gen(),
+                reserves_x: TaggedAmount::new(reserves_x),
+                multiplier_x: rng.gen(),
+                reserves_y: TaggedAmount::new(reserves_y),
+                multiplier_y: rng.gen(),
+                liquidity: TaggedAmount::new(lq),
+                asset_x: TaggedAssetClass::new(AssetClass::Native),
+                asset_y: TaggedAssetClass::new(AssetClass::from(Token::from_string_unsafe(
+                    "f6099832f9563e4cf59602b3351c3c5a8a7dda2d44575ef69b82cf8d.",
+                ))),
+                asset_lq: TaggedAssetClass::new(AssetClass::from(Token::from_string_unsafe(
+                    "66eabfc9d78f7bbfb4a5ad9ae7de59f0a8bebcc96f0f57c33044f110.6e6674",
+                ))),
+                lp_fee_x: Ratio::new(100, FEE_DEN),
+                lp_fee_y: Ratio::new(100, FEE_DEN),
+                treasury_fee: Ratio::new(0, FEE_DEN),
+                treasury_x: TaggedAmount::new(0),
+                treasury_y: TaggedAmount::new(0),
+                ver: StablePoolT2TVer::V1,
+                marginal_cost: ExUnits {
+                    mem: 650000,
+                    steps: 251947893,
+                },
+            };
+
+            let mut new_pool = pool_data.clone();
+
+            new_pool.reserves_x = TaggedAmount::new(new_reserves_x);
+            new_pool.reserves_y = TaggedAmount::new(new_reserves_y);
+
+            MakeInProgress {
+                target: pool_data,
+                result: Succ(new_pool),
+            }
+        }
+
+        let pool = create_maker(16039269692009, 23402071455130, 9223332707871688484);
+
+        let take_1 = create_limit_order(
+            1_000_000,                             // lovelace_qty
+            500,                                   // oada_qty
+            AbsolutePrice::from(Ratio::new(1, 1)), // abs_price
+            10_000,                                // execution_budget
+            1_000,                                 // fee
+            100,                                   // max_cost_per_ex_step
+            50,                                    // min_marginal_output
+            0,
+            350746000368,
+            5500000,
+            1000000,
+        );
+
+        let take_2 = create_limit_order(
+            1_000_000,                             // lovelace_qty
+            500,                                   // oada_qty
+            AbsolutePrice::from(Ratio::new(1, 1)), // abs_price
+            10_000,                                // execution_budget
+            1_000,                                 // fee
+            100,                                   // max_cost_per_ex_step
+            50,                                    // min_marginal_output
+            0,
+            350746000368,
+            5500000,
+            1000000,
+        );
+
+        let takes_hashmap = HashMap::from([(StableId::random(), take_1), (StableId::random(), take_2)]);
+
+        let makes_hashmap = HashMap::from([(StableId::random(), pool)]);
+
+        let match_making_attempt = MatchmakingAttempt {
+            takes: takes_hashmap,
+            makes: makes_hashmap,
+            ordering: Vec::new(),
+            execution_units_consumed: ExUnits { mem: 0, steps: 0 },
+            /// Number of distinct makes aggregated into one.
+            num_aggregated_makes: 2,
+        };
     }
 
     const SCRIPT: &str = "59041459041101000033232323232323232322222323253330093232533300b003132323300100100222533301100114a02646464a66602266ebc0380045288998028028011808801180a80118098009bab301030113011301130113011301130090011323232533300e3370e900118068008991919299980899b8748000c0400044c8c8c8c8c94ccc0594ccc05802c400852808008a503375e601860260046034603660366036603660366036603660366036602602266ebcc020c048c020c048008c020c048004c060dd6180c180c980c9808804980b80098078008b19191980080080111299980b0008a60103d87a80001323253330153375e6018602600400c266e952000330190024bd70099802002000980d001180c0009bac3007300e0063014001300c001163001300b0072301230130013322323300100100322533301200114a026464a66602266e3c008014528899802002000980b0011bae3014001375860206022602260226022602260226022602260120026eb8c040c044c044c044c044c044c044c044c044c044c044c02401cc004c0200108c03c004526136563370e900118049baa003323232533300a3370e90000008991919191919191919191919191919191919191919191919299981298140010991919191924c646600200200c44a6660560022930991980180198178011bae302d0013253330263370e9000000899191919299981698180010991924c64a66605866e1d20000011323253330313034002132498c94ccc0bccdc3a400000226464a666068606e0042649318150008b181a80098168010a99981799b87480080044c8c8c8c8c8c94ccc0e0c0ec00852616375a607200260720046eb4c0dc004c0dc008dd6981a80098168010b18168008b181900098150018a99981619b874800800454ccc0bcc0a800c5261616302a002302300316302e001302e002302c00130240091630240083253330253370e9000000899191919299981618178010a4c2c6eb4c0b4004c0b4008dd6981580098118060b1811805980d806180d0098b1bac30260013026002375c60480026048004604400260440046eb4c080004c080008c078004c078008c070004c070008dd6980d000980d0011bad30180013018002375a602c002602c004602800260280046eb8c048004c048008dd7180800098040030b1804002919299980519b87480000044c8c8c8c94ccc044c05000852616375c602400260240046eb8c040004c02000858c0200048c94ccc024cdc3a400000226464a66601c60220042930b1bae300f0013007002153330093370e900100089919299980718088010a4c2c6eb8c03c004c01c00858c01c0048c014dd5000918019baa0015734aae7555cf2ab9f5740ae855d126126d8799fd87a9f581ce7feddaece029040c973d5bf806fa9497314c0a63dfdc47fc47ac557ffff0001";

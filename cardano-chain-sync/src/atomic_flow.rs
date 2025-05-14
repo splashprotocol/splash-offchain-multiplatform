@@ -61,10 +61,17 @@ impl<T> BlockEvents<T> {
         }
     }
 
-    pub fn block_slot(self) -> Slot {
+    pub fn block_slot(&self) -> Slot {
         match self {
-            BlockEvents::RollForward { block_slot, .. } => block_slot,
-            BlockEvents::RollBackward { block_slot, .. } => block_slot,
+            BlockEvents::RollForward { block_slot, .. } => *block_slot,
+            BlockEvents::RollBackward { block_slot, .. } => *block_slot,
+        }
+    }
+
+    pub fn block_num(&self) -> u64 {
+        match self {
+            BlockEvents::RollForward { block_num, .. } => *block_num,
+            BlockEvents::RollBackward { block_num, .. } => *block_num,
         }
     }
 }
@@ -129,8 +136,9 @@ impl<Upstream, Downstream, Cache> AtomicFlow<Upstream, Downstream, Cache> {
                 ChainUpgrade::RollForward { blk, blk_bytes, .. } => {
                     let hdr = blk.header();
                     info!(
-                        "Scanning Block {}",
-                        hash_block_header_canonical_multi_era(&hdr).to_hex()
+                        "Scanning Block {} at slot {}",
+                        hash_block_header_canonical_multi_era(&hdr).to_hex(),
+                        hdr.slot()
                     );
                     let applied_txs = BlockEvents::RollForward {
                         events: unpack_valid_transactions_multi_era(blk)

@@ -3,6 +3,7 @@ use cml_core::Slot;
 use cml_crypto::{Ed25519KeyHash, TransactionHash};
 use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
+use log::info;
 use spectrum_cardano_lib::hash::hash_transaction_canonical;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::OutputRef;
@@ -89,9 +90,14 @@ async fn try_resolve_inputs<Index: PersistentIndex<OutputRef, TransactionOutput>
     inputs: Vec<TransactionInput>,
     index: &Index,
 ) -> Vec<(TransactionInput, Option<TransactionOutput>)> {
+    // info!("Trying to resolve inputs {:?}", inputs.iter().map(|i| {
+    //     format!("input hash {}, idx: {}", i.transaction_id.to_hex(), i.index)
+    // }));
     let mut processed_inputs = vec![];
     for input in inputs {
+        //info!("Trying to resolve input: {}#{}", input.transaction_id.to_hex(), input.index);
         let maybe_output = index.get(OutputRef::new(input.transaction_id, input.index)).await;
+        //info!("Resolving result for {}#{} is {}", input.transaction_id.to_hex(), input.index, maybe_output.is_some());
         processed_inputs.push((input, maybe_output));
     }
     processed_inputs

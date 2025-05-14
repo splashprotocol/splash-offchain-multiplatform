@@ -7,7 +7,7 @@ use futures::StreamExt;
 pub async fn log_lp_events<U, Log>(upstream: U, log: &Log)
 where
     U: Stream<Item = (BlockEvents<OnChainEvent>, TransactionHandle)>,
-    Log: EventLog,
+    Log: EventLog<OnChainEvent>,
 {
     upstream
         .for_each(|(block, transaction_handle)| async move {
@@ -19,7 +19,7 @@ where
 
 pub async fn log_event<Log>(events: BlockEvents<OnChainEvent>, log: &Log)
 where
-    Log: EventLog,
+    Log: EventLog<OnChainEvent>,
 {
     match events {
         BlockEvents::RollForward {

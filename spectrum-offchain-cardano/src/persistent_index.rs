@@ -16,6 +16,12 @@ impl IndexRocksDB {
             db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(db_path).unwrap()),
         }
     }
+
+    // pub fn new(db_path: String) -> Self {
+    //     Self {
+    //         db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(db_path).unwrap()),
+    //     }
+    // }
 }
 
 #[async_trait]

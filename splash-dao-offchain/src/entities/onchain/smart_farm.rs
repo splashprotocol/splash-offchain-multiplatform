@@ -13,7 +13,8 @@ use cml_chain::{
 use cml_core::serialization::ToBytes;
 use cml_crypto::RawBytesEncoding;
 use rand::distributions::Alphanumeric;
-use rand::Rng;
+use log::info;
+use rand::{thread_rng, Rng, RngCore};
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::plutus_data::{
     make_constr_pd_indefinite_arr, ConstrPlutusDataExtension, DatumExtension, IntoPlutusData,
@@ -161,27 +162,52 @@ where
         + Has<DeployedScriptInfo<{ ProtocolValidator::SmartFarm as u8 }>>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
+        info!("Testing SmartFarmSnapshot parsing");
         let addr = repr.address();
+        let test_address_result = test_address(addr, ctx);
+        info!(
+            "Testing SmartFarmSnapshot for addr {}. Result is {}",
+            addr.to_hex(),
+            test_address_result
+        );
         if test_address(addr, ctx) {
             let conf = SmartFarmConfig::try_from_pd(repr.datum()?.into_pd()?)?;
+            let perm_manager = ctx.select::<PermManagerAuthPolicy>().0;
+            info!(
+                "Perm manager is: {}. Conf perm manager is {}",
+                perm_manager.to_hex(),
+                conf.perm_manager_auth_policy.to_hex()
+            );
+            info!(
+                "Testing SmartFarmSnapshot for addr {}. Result is {}",
+                addr.to_hex(),
+                test_address_result
+            );
             if ctx.select::<PermManagerAuthPolicy>().0 == conf.perm_manager_auth_policy {
                 let value = repr.value();
                 let farm_auth_policy = ctx.select::<FarmAuthPolicy>().0;
+                info!("farm_auth_policy is {}", farm_auth_policy.to_hex());
                 for (policy_id, by_names) in value.multiasset.iter() {
-                    if *policy_id == farm_auth_policy && by_names.len() == 1 {
+                    let verify_condition = *policy_id == farm_auth_policy && by_names.len() == 1;
+                    info!("Testing values from multiasset value. Current policy_id is {}, by_names.len(): {}. Result is: {}", policy_id.to_hex(), by_names.len(), verify_condition);
+                    if verify_condition {
+                        info!("testing quantity");
                         let (farm_name, quantity) = by_names.front()?;
+                        info!("testing quantity: {}", quantity);
                         if *quantity == 1 {
                             let smart_farm = SmartFarm {
                                 farm_id: FarmId(spectrum_cardano_lib::AssetName::from(farm_name.clone())),
                                 pool_id: conf.pool_id,
                             };
                             let version = ctx.select::<TimedOutputRef>();
+                            info!("Going to return snapshot");
                             return Some(Snapshot::new(smart_farm, version));
                         }
                     }
                 }
             }
         }
+        //info!("Return none");
         None
     }
 }

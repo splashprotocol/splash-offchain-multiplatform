@@ -581,12 +581,12 @@ impl<T: Stable, M: Stable> FinalRecipe<T, M> {
 
 #[derive(Debug, Clone)]
 pub struct MatchmakingAttempt<Taker: Stable, Maker: Stable, U> {
-    takes: HashMap<Taker::StableId, TakeInProgress<Taker>>,
-    makes: HashMap<Maker::StableId, MakeInProgress<Maker>>,
-    ordering: Vec<Taker::StableId>,
-    execution_units_consumed: U,
+    pub takes: HashMap<Taker::StableId, TakeInProgress<Taker>>,
+    pub makes: HashMap<Maker::StableId, MakeInProgress<Maker>>,
+    pub ordering: Vec<Taker::StableId>,
+    pub execution_units_consumed: U,
     /// Number of distinct makes aggregated into one.
-    num_aggregated_makes: usize,
+    pub num_aggregated_makes: usize,
 }
 
 impl<T: Stable + Display, M: Stable + Display, U> Display for MatchmakingAttempt<T, M, U> {
@@ -1039,6 +1039,41 @@ mod tests {
 
     #[test]
     fn recipe_complexity_estimation_double_budget_ok() {
+        let recipe = FinalRecipe::<Taker, Maker> {
+            takes: HashMap::from([(
+                0usize,
+                Final(Trans::new(
+                    Taker {
+                        id: 0,
+                        budget: 1100000 * 2,
+                    },
+                    Next::Term(TerminalTake {
+                        remaining_input: 0,
+                        accumulated_output: 0,
+                        remaining_budget: 0,
+                        remaining_fee: 0,
+                    }),
+                )),
+            )]),
+            makes: HashMap::from([
+                (1, Final(Trans::new(Maker { id: 1 }, Next::Succ(Maker { id: 1 })))),
+                (2, Final(Trans::new(Maker { id: 2 }, Next::Succ(Maker { id: 2 })))),
+                (3, Final(Trans::new(Maker { id: 3 }, Next::Succ(Maker { id: 3 })))),
+            ]),
+            ordering: vec![],
+        };
+        let ok = MatchmakingRecipe::check_recipe_complexity(
+            &recipe,
+            Cx {
+                base_step_budget: 1100000.into(),
+            },
+        );
+        assert!(ok)
+    }
+
+    #[test]
+    fn test123() {
+
         let recipe = FinalRecipe::<Taker, Maker> {
             takes: HashMap::from([(
                 0usize,

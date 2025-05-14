@@ -1,0 +1,78 @@
+{
+  "chainSync": {
+    "startingPoint": {
+      "Specific": [
+        90336144,
+        "3cf8e4f4dec93d03398f6ac5b81d996fec14ea590bf29ecc9febface39116a71"
+      ]
+    },
+    "replayFromPoint": {
+      "Specific": [
+        90336144,
+        "3cf8e4f4dec93d03398f6ac5b81d996fec14ea590bf29ecc9febface39116a71"
+      ]
+    },
+    "disableRollbacksUntil": 90336144,
+    "dbPath": "/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/splash-distribution-withdraw-agent/storage/state"
+  },
+  "node": {
+    "path": "/Users/aleksandr/node-external/node.socket",
+    "magic": 1
+  },
+  "networkId": 0,
+  "explorer": {
+    "maestroKeyPath": "/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/splash-testing-cardano/maestro.key"
+  },
+  "harvestLimits": {
+    "minimalLovelacePerSingleHarvest": 1000000
+  },
+  "utxoIndexDbPath": "/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/splash-distribution-withdraw-agent/storage/index/utxo",
+  "smartFarm": {
+    "hash": "278dce1b47da9cb4642bafb2e0e3379c3b4ae67525e61d1d129f3e09",
+    "referenceUtxo": {
+      "txHash": "1a1b53aef701c194ada363bf35d063ec56be430ee48bdce9c097f01246f295d0",
+      "outputIndex": 2
+    },
+    "cost": { "mem": 500000, "steps": 200000000 },
+    "marginalCost": null
+  },
+  "eventCacheTtl": {
+    "secs": 240,
+    "nanos": 0
+  },
+  "permManager": {
+    "hash": "bce96f6c202a99e58e4d3079b93df0a2b35fef1982570dae0498d573",
+    "referenceUtxo": {
+      "txHash": "53b92c52e460381bfe640299d37735c3c905555359e3030cb40d9fd627824bd8",
+      "outputIndex": 1
+    },
+    "cost": { "mem": 500000, "steps": 200000000 },
+    "marginalCost": null
+  },
+  "positionDb": "/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/splash-distribution-withdraw-agent/storage/position_db",
+  "dbPath": "/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/splash-distribution-withdraw-agent/storage/distributionDb",
+  "bufferedWalletsDb": "/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/splash-distribution-withdraw-agent/storage/bufferedWallets",
+  "usersWithdrawStorage": "/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/splash-distribution-withdraw-agent/storage/userWithdraw",
+  "bufferedWalletsStorage": "/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/splash-distribution-withdraw-agent/storage/bufferedWalletsStorage",
+  "smartFarmStorage": "/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/splash-distribution-withdraw-agent/storage/smartFarmStorage",
+  "permManagerStorage": "/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/splash-distribution-withdraw-agent/storage/permManagerStorage",
+  "txSubmissionBufferSize": 64,
+  "harvestOrder": {
+    "hash": "7df8e5fd9f02bf01dac434bce324c2587d2a3f7d8de67aed993c5d53",
+    "referenceUtxo": {
+      "txHash": "1dd5dd867cc632688d7d5c0e7bc825d49e9ab4b74aefc198b174ddb27724c466",
+      "outputIndex": 1
+    },
+    "cost": { "mem": 1000000, "steps": 10000000 },
+    "marginalCost": null
+  },
+  "permAuth": {
+    "policy_id":"2f50134295af8c9197f30e3fd9df164d190bb001d0f5d6c64f8ef48b",
+    "asset_name":"a4",
+    "quantity":"1"
+  },
+  "bufferedWallet": "7df8e5fd9f02bf01dac434bce324c2587d2a3f7d8de67aed993c5d53",
+  "splashPolicyId": "551a2b469e168128f53e81c61bbd9a0d3470ca46924830d542a16584",
+  "distributorKey": "",
+  "persistenceStoresRootDir": "/Users/aleksandr/IdeaProjects/spectrum-offchain-multiplatform/splash-distribution-withdraw-agent/storage/persistenceStoresRootDir"
+}

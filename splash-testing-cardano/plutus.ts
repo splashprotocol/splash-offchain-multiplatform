@@ -1656,6 +1656,52 @@ export const FactoryValidateFactory = Object.assign(
   { _: { "title": "Data", "description": "Any Plutus data." } },
 ) as unknown as IFactoryValidateFactory;
 
+export interface IHarvestHarvest {
+  new (): Validator;
+  state: { refundKey: string; distributionAgentKey: string };
+  action: "Refund" | "Harvest";
+}
+
+export const HarvestHarvest = Object.assign(
+  function () {
+    return {
+      type: "PlutusV2",
+      script:
+        "59012f010000323232323232323222232325333008323232323232323232323232323253330163370e9001180a80589919299980c19b87480080084cc00400cdd7180e180e980b00a8998008019bae301c301601522323300100100322533301e00114a026464a66603a66e3c00801452889980200200098108011bae301f0013015012163758603200260320026030002602e002602c002602a0026028002602600260240026014006601e002601e004601a002600c00629309b2b19299980419b874800000454ccc02cc01801052616153330083370e90010008a99980598030020a4c2c2c600c00664a66600e66e1d2000001132323232533300e3010002149858dd7180700098070011bae300c0013005004163005003230053754002460066ea80055cd2ab9d5573caae7d5d0aba201",
+    };
+  },
+  {
+    state: {
+      "title": "HarvestState",
+      "anyOf": [{
+        "title": "HarvestState",
+        "dataType": "constructor",
+        "index": 0,
+        "fields": [{ "dataType": "bytes", "title": "refundKey" }, {
+          "dataType": "bytes",
+          "title": "distributionAgentKey",
+        }],
+      }],
+    },
+  },
+  {
+    action: {
+      "title": "HarvestAction",
+      "anyOf": [{
+        "title": "Refund",
+        "dataType": "constructor",
+        "index": 0,
+        "fields": [],
+      }, {
+        "title": "Harvest",
+        "dataType": "constructor",
+        "index": 1,
+        "fields": [],
+      }],
+    },
+  },
+) as unknown as IHarvestHarvest;
+
 export interface IDepositDeposit {
   new (): Validator;
   datum: {
