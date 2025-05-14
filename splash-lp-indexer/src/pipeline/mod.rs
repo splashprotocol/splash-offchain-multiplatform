@@ -25,9 +25,9 @@ use splash_dao_offchain::routines::TimedOutputRef;
 use std::collections::HashSet;
 use crate::position_db::pool_frames::PoolFrames;
 
-mod log_events;
+pub mod log_events;
 pub mod read_events;
-mod resolve_gauges;
+pub mod resolve_gauges;
 
 pub async fn log_events<U, Log, Cx, Utxos, Gauges>(
     upstream: U,

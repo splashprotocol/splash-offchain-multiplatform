@@ -17,7 +17,7 @@ where
         .await
 }
 
-async fn log_event<Log>(events: BlockEvents<OnChainEvent>, log: &Log)
+pub async fn log_event<Log>(events: BlockEvents<OnChainEvent>, log: &Log)
 where
     Log: EventLog,
 {
