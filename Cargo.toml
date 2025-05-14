@@ -25,7 +25,8 @@ members = [
     "cardano-utxo-monitor",
     "graphite",
     "splash-lp-indexer",
-    "intent-relay"
+    "intent-relay",
+    "splash-testing"
 ]
 
 [profile.release]

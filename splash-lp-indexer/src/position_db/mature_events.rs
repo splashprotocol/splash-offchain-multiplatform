@@ -1,6 +1,8 @@
 use crate::account::{AccountInPool, SuspendedPositionEvents};
 use crate::feed::event::ExportAccountEvent;
-use crate::onchain::event::{AccountEvent, FarmEvent, Harvest, MultipleAccountsHarvest, OnChainEvent, PoolEvent, PositionEvent};
+use crate::onchain::event::{
+    AccountEvent, FarmEvent, Harvest, MultipleAccountsHarvest, OnChainEvent, PoolEvent, PositionEvent,
+};
 use crate::position_db::accounts::Accounts;
 use crate::position_db::pool_frames::PoolFrames;
 use crate::position_db::{
@@ -303,7 +305,7 @@ impl PoolFrame {
                 PoolEvent::PoolCreated(pool_creation_event) => {
                     self.lp_supply.replace(pool_creation_event.supply_lq);
                 }
-            }
+            },
         }
     }
 }
@@ -314,8 +316,9 @@ mod tests {
     use crate::onchain::event::{Deposit, FarmActivated};
     use crate::position_db::event_log::EventLog;
     use crate::position_db::export_feed::ExportEventFeed;
-    use crate::position_db::tests::DBPath;
     use cml_crypto::Ed25519KeyHash;
+    use splash_dao_offchain::routines::Slot;
+    use splash_testing::db_path::DBPath;
 
     #[tokio::test]
     async fn process_export_mature_events() {
@@ -330,7 +333,7 @@ mod tests {
         let r4 = (2_000u64, 8_000_000u64);
 
         // Generate a few OnChainEvents
-        let event1 = OnChainEvent::FarmEvent(FarmEvent::FarmActivated(FarmActivated { pool_id: pid }));
+        let event1 = OnChainEvent::FarmEvent(FarmEvent::FarmActivated(FarmActivated { pool_id: pid, slot: Slot(100) }));
         let event2 = OnChainEvent::Account(AccountEvent::Position(PositionEvent::Deposit(Deposit {
             pool_id: pid,
             account: account.clone(),

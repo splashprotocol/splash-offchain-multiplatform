@@ -3,6 +3,7 @@ use crate::onchain::event::PollFactoryEvents::{FactoryStateUpdate, NewFactory};
 use crate::tx_view::TxViewPartiallyResolved;
 use cml_chain::address::Address;
 use cml_chain::certs::Credential;
+use derive_more::Display;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::{AssetClass, OutputRef, Token};
@@ -21,6 +22,7 @@ use splash_dao_offchain::entities::onchain::smart_farm::{FarmId, SmartFarmSnapsh
 use splash_dao_offchain::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy, WPFactoryAuthPolicy};
 use splash_dao_offchain::routines::{ProvideTimedOref, Slot, TimedOutputRef};
 use std::collections::HashSet;
+use std::fmt::{Display, Formatter};
 
 /// Events extracted from on-chain transactions.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -33,7 +35,7 @@ pub enum StatelessOnChainEvent {
 }
 
 /// Events that happened on-chain but derived from a broad on-chain context.
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
 pub enum OnChainEvent {
     Account(AccountEvent),
     FarmEvent(FarmEvent),
@@ -74,6 +76,13 @@ where
 }
 
 impl OnChainEvent {
+    pub fn slot(&self) -> Option<Slot> {
+        match self {
+            OnChainEvent::FarmEvent(FarmEvent::FarmActivated(event)) => Some(event.slot),
+            _ => None,
+        }
+    }
+
     pub fn pool_id(&self) -> PoolId {
         match self {
             OnChainEvent::Account(dr) => dr.pool_id(),
@@ -83,7 +92,7 @@ impl OnChainEvent {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
 pub enum AccountEvent {
     Position(PositionEvent),
     Harvest(Harvest),
@@ -104,7 +113,7 @@ impl AccountEvent {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
 pub enum PositionEvent {
     Deposit(Deposit),
     Redeem(Redeem),
@@ -235,7 +244,22 @@ pub struct Deposit {
     pub lp_supply: u64,
 }
 
-fn find_lp_recv(Token(pol, tn): Token, PoolId(Token(pool_nft_pol, pool_nft_tn)): PoolId, tx: &TxViewPartiallyResolved) -> Option<Address> {
+impl Display for Deposit {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let account = hex::encode(self.account.to_raw_bytes());
+        write!(
+            f,
+            "Deposit (pool_id: {}, account: {:?}, lp_mint: {}, lp_supply: {})",
+            self.pool_id, account, self.lp_mint, self.lp_supply
+        )
+    }
+}
+
+fn find_lp_recv(
+    Token(pol, tn): Token,
+    PoolId(Token(pool_nft_pol, pool_nft_tn)): PoolId,
+    tx: &TxViewPartiallyResolved,
+) -> Option<Address> {
     tx.outputs.iter().find_map(|output| {
         if output.value().multiasset.get(&pol, &tn.into()).is_some()
             && output
@@ -259,11 +283,33 @@ pub struct Redeem {
     pub lp_supply: u64,
 }
 
+impl Display for Redeem {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let account = hex::encode(self.account.to_raw_bytes());
+        write!(
+            f,
+            "Redeem (pool_id: {}, account: {:?}, lp_burned: {}, lp_supply: {})",
+            self.pool_id, account, self.lp_burned, self.lp_supply
+        )
+    }
+}
+
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct Harvest {
     pub pool_id: PoolId,
     pub account: Credential,
     pub harvested_till: cml_chain::Slot,
+}
+
+impl Display for Harvest {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let account = hex::encode(self.account.to_raw_bytes());
+        write!(
+            f,
+            "Harvest(pool_id = {}, account = {}, harvested_till = {})",
+            self.pool_id, account, self.harvested_till
+        )
+    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -340,10 +386,10 @@ where
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
 pub enum PollFactoryEvents {
     NewFactory(PollFactory),
-    FactoryStateUpdate(PollFactoryUpdated)
+    FactoryStateUpdate(PollFactoryUpdated),
 }
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx> for PollFactoryEvents
@@ -380,12 +426,12 @@ where
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
 pub struct PollFactoryUpdated {
     pub new_state: PollFactory,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
 pub enum FarmEvent {
     FarmActivated(FarmActivated),
     FarmDeactivated(FarmDeactivated),
@@ -400,17 +446,20 @@ impl FarmEvent {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
+#[display("FarmActivated ( pool_id = {}, slot = {})", pool_id, slot)]
 pub struct FarmActivated {
     pub pool_id: PoolId,
+    pub slot: Slot,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
+#[display("FarmDeactivated ( pool_id = {})", pool_id)]
 pub struct FarmDeactivated {
     pub pool_id: PoolId,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
 pub enum PoolEvent {
     PoolCreated(PoolCreated),
 }
@@ -423,7 +472,8 @@ impl PoolEvent {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Display)]
+#[display("PoolCreated (pool_id = {}, supply_lq = {})", pool_id, supply_lq)]
 pub struct PoolCreated {
     pub pool_id: PoolId,
     pub supply_lq: u64,

@@ -11,6 +11,8 @@ use cml_chain::{
 };
 use cml_core::serialization::ToBytes;
 use cml_crypto::RawBytesEncoding;
+use rand::distributions::Alphanumeric;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::plutus_data::{
     make_constr_pd_indefinite_arr, ConstrPlutusDataExtension, DatumExtension, IntoPlutusData,
@@ -25,6 +27,7 @@ use spectrum_offchain_cardano::data::PoolId;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator_plutus_v2;
 use uplc_pallas_primitives::{BoundedBytes, MaybeIndefArray};
+use crate::entities::onchain::weighting_poll::Farm;
 
 pub type SmartFarmSnapshot = Snapshot<SmartFarm, TimedOutputRef>;
 
@@ -32,6 +35,19 @@ pub type SmartFarmSnapshot = Snapshot<SmartFarm, TimedOutputRef>;
     Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Debug, Hash, derive_more::Display, Serialize, Deserialize,
 )]
 pub struct FarmId(pub AssetName);
+
+impl FarmId {
+    pub fn random() -> Self {
+        let random_string: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(6)
+            .map(char::from)
+            .collect();
+
+        let tn = AssetName::from_utf8(random_string);
+        FarmId(tn)
+    }
+}
 
 impl From<FarmId> for Vec<u8> {
     fn from(FarmId(value): FarmId) -> Self {
