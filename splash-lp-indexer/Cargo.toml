@@ -40,7 +40,9 @@ clap = { version = "4.0", features = ["derive"] }
 either = "1.9.0"
 hex = "0.4.3"
 tempfile = "3.10.1"
+derive_more = "2.0.1"
 
 [dev-dependencies]
 rocksdb = "0.22.*"
 spectrum-offchain-cardano = { version = "1.0.0", path = "../spectrum-offchain-cardano" }
+splash-testing = { version = "1.0.0", path = "../splash-testing" }

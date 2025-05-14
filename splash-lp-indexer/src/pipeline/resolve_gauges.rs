@@ -1,11 +1,15 @@
-use crate::onchain::event::{AccountEvent, FarmActivated, FarmCreated, FarmDeactivated, FarmEvent, Harvest, OnChainEvent, PollFactoryEvents, PoolEvent, StatelessOnChainEvent};
+use crate::onchain::event::{
+    AccountEvent, FarmActivated, FarmCreated, FarmDeactivated, FarmEvent, Harvest, OnChainEvent,
+    PollFactoryEvents, PoolEvent, StatelessOnChainEvent,
+};
 use crate::position_db::accounts::Accounts;
+use crate::position_db::pool_frames::PoolFrames;
 use crate::ve_index::VoteEscrowIndex;
 use cardano_chain_sync::atomic_flow::BlockEvents;
-use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
-use std::collections::HashSet;
 use log::info;
-use crate::position_db::pool_frames::PoolFrames;
+use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
+use splash_dao_offchain::routines::Slot;
+use std::collections::HashSet;
 
 pub async fn resolve_gauges<I: VoteEscrowIndex, DB: Accounts + PoolFrames>(
     events: BlockEvents<StatelessOnChainEvent>,
@@ -18,7 +22,7 @@ pub async fn resolve_gauges<I: VoteEscrowIndex, DB: Accounts + PoolFrames>(
             block_num,
             block_slot,
         } => BlockEvents::RollForward {
-            events: resolve_events(events, index, events_log).await,
+            events: resolve_events(events, index, events_log, block_slot).await,
             block_num,
             block_slot,
         },
@@ -27,7 +31,7 @@ pub async fn resolve_gauges<I: VoteEscrowIndex, DB: Accounts + PoolFrames>(
             block_num,
             block_slot,
         } => BlockEvents::RollBackward {
-            events: resolve_events(events, index, events_log).await,
+            events: resolve_events(events, index, events_log, block_slot).await,
             block_num,
             block_slot,
         },
@@ -38,15 +42,37 @@ async fn resolve_events<I: VoteEscrowIndex, DB: Accounts + PoolFrames>(
     events: Vec<StatelessOnChainEvent>,
     index: &I,
     events_log: &DB,
+    block_slot: u64,
 ) -> Vec<OnChainEvent> {
     let mut translated_events = vec![];
     for ev in events {
         match ev {
             StatelessOnChainEvent::FarmCreated(FarmCreated { farm_id, pool_id }) => {
+                info!(
+                    "Processing farm created event for farm {} and pool id {} at slot {}",
+                    farm_id, pool_id, block_slot
+                );
                 if events_log.get_pool_lq_supply(pool_id).await.is_some() {
-                    index.put_gauge(farm_id, pool_id).await
+                    index.put_gauge(farm_id, pool_id).await;
+                    if let Some(gauge_pre_activation_slot) = index.get_pre_activated_gauge(farm_id).await
+                    {
+                        info!(
+                            "Gauge {} was pre activated at {} and pool id {}",
+                            farm_id, gauge_pre_activation_slot, pool_id
+                        );
+                        index.delete_pre_activated_gauge(farm_id).await;
+                        translated_events.push(OnChainEvent::FarmEvent(FarmEvent::FarmActivated(
+                            FarmActivated {
+                                pool_id,
+                                slot: Slot(gauge_pre_activation_slot),
+                            },
+                        )))
+                    }
                 } else {
-                    info!("Attempt to create farm for non-existent pool {}, farm_id {}", pool_id, farm_id);
+                    info!(
+                        "Attempt to create farm for non-existent pool {}, farm_id {}",
+                        pool_id, farm_id
+                    );
                 }
             }
             StatelessOnChainEvent::PollFactory(factory_event) => {
@@ -81,13 +107,17 @@ async fn resolve_events<I: VoteEscrowIndex, DB: Accounts + PoolFrames>(
                     for gauge in added_gauges {
                         if let Some(pool_id) = index.get_gauge_binding(*gauge).await {
                             translated_events.push(OnChainEvent::FarmEvent(FarmEvent::FarmActivated(
-                                FarmActivated { pool_id },
+                                FarmActivated {
+                                    pool_id,
+                                    slot: Slot(block_slot),
+                                },
                             )))
+                        } else {
+                            index.add_pre_activated_gauge(gauge.clone(), block_slot).await;
                         }
                     }
-
-                    index.update_poll_factory_snapshot(new_state).await;
                 }
+                index.update_poll_factory_snapshot(new_state).await;
             }
             StatelessOnChainEvent::Position(e) => {
                 translated_events.push(OnChainEvent::Account(AccountEvent::Position(e)))

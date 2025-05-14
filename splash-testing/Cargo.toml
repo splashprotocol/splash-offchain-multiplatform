@@ -1,0 +1,8 @@
+[package]
+name = "splash-testing"
+version = "1.0.0"
+edition = "2024"
+
+[dependencies]
+rocksdb = "0.22.*"
+tempfile = "3.20.0"

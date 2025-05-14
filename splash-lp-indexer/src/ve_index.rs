@@ -1,4 +1,6 @@
 use async_trait::async_trait;
+use cml_core::Slot;
+use log::info;
 use rocksdb::OptimisticTransactionDB;
 use spectrum_offchain_cardano::data::PoolId;
 use splash_dao_offchain::entities::onchain::poll_factory::PollFactory;
@@ -11,6 +13,13 @@ use tokio::task::spawn_blocking;
 pub trait VoteEscrowIndex {
     async fn put_gauge(&self, gauge_id: FarmId, pool_id: PoolId);
     async fn get_gauge_binding(&self, gauge_id: FarmId) -> Option<PoolId>;
+
+    async fn add_pre_activated_gauge(&self, gauge_id: FarmId, slot: Slot);
+
+    async fn get_pre_activated_gauge(&self, gauge_id: FarmId) -> Option<Slot>;
+
+    async fn delete_pre_activated_gauge(&self, gauge_id: FarmId);
+
     async fn update_poll_factory_snapshot(&self, state: PollFactory);
     async fn get_poll_factory_snapshot(&self) -> Option<PollFactory>;
 }
@@ -25,6 +34,12 @@ impl VoteEscrowDB {
         Self {
             db: Arc::new(OptimisticTransactionDB::open_default(db_path).unwrap()),
         }
+    }
+
+    pub fn gauge_pre_activated_key(gauge_id: FarmId) -> Vec<u8> {
+        let mut key = "pre-activated".as_bytes().to_vec();
+        key.extend(gauge_id.0.as_bytes());
+        key
     }
 }
 
@@ -50,6 +65,41 @@ impl VoteEscrowIndex for VoteEscrowDB {
         .await
         .unwrap()
     }
+
+    async fn add_pre_activated_gauge(&self, gauge_id: FarmId, slot: Slot) {
+        let db = self.db.clone();
+        spawn_blocking(move || {
+            db.put(
+                VoteEscrowDB::gauge_pre_activated_key(gauge_id),
+                rmp_serde::to_vec(&slot).unwrap(),
+            )
+            .unwrap();
+        })
+        .await
+        .unwrap()
+    }
+
+    async fn get_pre_activated_gauge(&self, gauge_id: FarmId) -> Option<Slot> {
+        let db = self.db.clone();
+        spawn_blocking(move || {
+            db.get(VoteEscrowDB::gauge_pre_activated_key(gauge_id))
+                .unwrap()
+                .and_then(|bytes| rmp_serde::from_slice(bytes.as_slice()).ok())
+        })
+        .await
+        .unwrap()
+    }
+
+    async fn delete_pre_activated_gauge(&self, gauge_id: FarmId) {
+        let db = self.db.clone();
+        spawn_blocking(move || {
+            db.delete(VoteEscrowDB::gauge_pre_activated_key(gauge_id))
+                .unwrap()
+        })
+        .await
+        .unwrap()
+    }
+
     async fn update_poll_factory_snapshot(&self, state: PollFactory) {
         let db = self.db.clone();
         spawn_blocking(move || {

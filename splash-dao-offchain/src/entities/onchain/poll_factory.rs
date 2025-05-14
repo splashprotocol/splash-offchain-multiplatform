@@ -1,4 +1,5 @@
 use cml_chain::plutus::{ConstrPlutusData, PlutusData, PlutusV2Script};
+use std::fmt::{Display, Formatter};
 
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::utils::BigInteger;
@@ -60,6 +61,22 @@ impl PollFactory {
         };
         self.last_poll_epoch = Some(next_epoch);
         (self, next_poll)
+    }
+}
+
+impl Display for PollFactory {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut active_farms_formatted = String::new();
+        self.active_farms.iter().for_each(|farm| {
+            active_farms_formatted.push_str(format!(", {}", farm).as_str());
+        });
+        write!(
+            f,
+            "PollFactory (last_poll_epoch = {:?}, active_farms = {}, stable_id = {})",
+            self.last_poll_epoch,
+            active_farms_formatted,
+            self.stable_id.to_hex()
+        )
     }
 }
 

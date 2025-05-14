@@ -1,0 +1,35 @@
+{
+  "chainSync": {
+    "startingPoint": {
+      "Specific": [
+        90336103,
+        "b5e26950bb89be23d7df7b62252fbc3293aba4bc3c7eacbad6ccb5ec639cca40"
+      ]
+    },
+    "replayFromPoint": {
+      "Specific": [
+        90336103,
+        "b5e26950bb89be23d7df7b62252fbc3293aba4bc3c7eacbad6ccb5ec639cca40"
+      ]
+    },
+    "disableRollbacksUntil": 90336103,
+    "dbPath": "state"
+  },
+  "node": {
+    "path": "",
+    "magic": 1
+  },
+  "networkId": 0,
+  "explorer": {
+    "maestroKeyPath": ""
+  },
+  "utxoIndexDbPath": "index/utxo",
+  "accountsDbPath": "index/accounts",
+  "gaugesDbPath": "index/gauges",
+  "confirmationDelayBlocks": 6,
+  "bootstrapServers": "0.0.0.0:19094",
+  "eventsExportTopic": "events_export",
+  "harvestLimits": {
+    "minimalLovelacePerSingleHarvest": 1000000
+  }
+}

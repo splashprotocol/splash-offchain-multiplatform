@@ -1,3 +1,4 @@
+use std::path::Path;
 use async_trait::async_trait;
 use serde::Serialize;
 use spectrum_offchain::persistent_index::PersistentIndex;
@@ -10,7 +11,7 @@ pub struct IndexRocksDB {
 }
 
 impl IndexRocksDB {
-    pub fn new(db_path: String) -> Self {
+    pub fn new<P: AsRef<Path>>(db_path: P) -> Self {
         Self {
             db: Arc::new(rocksdb::OptimisticTransactionDB::open_default(db_path).unwrap()),
         }

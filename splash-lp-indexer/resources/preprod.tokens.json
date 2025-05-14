@@ -1,0 +1,42 @@
+{
+  "factory_auth": {
+    "policy_id": "be1ae5c0c60d1dca30113e4cb2f94ee8eddb6ee6e3d6316b3c019f94",
+    "asset_name": "a4",
+    "quantity": "1"
+  },
+  "wp_factory_auth": {
+    "policy_id": "43ecc63ca36d76042fdac669a140f0495cb7d82eec470f58a4d9a0fd",
+    "asset_name": "a4",
+    "quantity": "1"
+  },
+  "ve_factory_auth": {
+    "policy_id": "2fc4af50dd2d339345d7fc13f9ac5b8dd47d9fe6ae8f40459a912f34",
+    "asset_name": "a4",
+    "quantity": "1"
+  },
+  "perm_auth": {
+    "policy_id": "2f50134295af8c9197f30e3fd9df164d190bb001d0f5d6c64f8ef48b",
+    "asset_name": "a4",
+    "quantity": "1"
+  },
+  "proposal_auth": {
+    "policy_id": "c4d19ee0ac465ffc32f9264398a3a825d861895752e4f9bad74083c7",
+    "asset_name": "a4",
+    "quantity": "1"
+  },
+  "edao_msig": {
+    "policy_id": "4364178b675b6ca944efa325c8d35ffb453b0a9e2ec1352bc5d33a85",
+    "asset_name": "a4",
+    "quantity": "1"
+  },
+  "inflation_auth": {
+    "policy_id": "63a4f24efff23238e1ac5158a2b4ce1a7aaf6cebb8c6915f75d972b6",
+    "asset_name": "a4",
+    "quantity": "1"
+  },
+  "gt": {
+    "policy_id": "27b20af131ddff716b7d32dd29192a65a81a4645f6205bd0e7d2d490",
+    "asset_name": "f4",
+    "quantity": "45000000000000000"
+  }
+}
