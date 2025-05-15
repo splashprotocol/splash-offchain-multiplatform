@@ -94,7 +94,6 @@ pub trait WPollActions<Bearer> {
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
         voting_escrow: Bundled<VotingEscrowSnapshot, Bearer>,
         onchain_order: WPollVoteOrderBundle<Bearer>,
-        offchain_order: WPollVoteOffChainOrder,
         current_slot: Slot,
     ) -> Result<
         (

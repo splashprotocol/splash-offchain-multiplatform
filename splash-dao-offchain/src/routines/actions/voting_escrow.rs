@@ -33,8 +33,7 @@ use crate::constants::VOTING_ESCROW_TX_TTL;
 use crate::create_change_output::{self};
 use crate::deployment::DaoScriptData;
 use crate::entities::offchain::{
-    compute_witness_message, compute_witness_message_corrected, ExtendVotingEscrowOffChainOrder,
-    RedeemVotingEscrowOffChainOrder,
+    compute_witness_message, ExtendVotingEscrowOffChainOrder, RedeemVotingEscrowOffChainOrder,
 };
 use crate::entities::onchain::extend_voting_escrow_order::{
     ExtendVotingEscrowOrderAction, ExtendVotingEscrowOrderBundle,
@@ -501,12 +500,11 @@ where
                 hex::encode(onchain_order.order.datum.clone().into_pd().to_cbor_bytes())
             );
             println!(" version: {}", order_version);
-            let message = compute_witness_message_corrected(
+            let message = compute_witness_message(
                 metadata.witness_script_hash,
                 &onchain_order.order.datum.clone().into_pd(),
                 metadata.version,
-            )
-            .map_err(|_| ExtendVotingEscrowError::Witness(WitnessError::CannotDecodeRedeemer))?;
+            );
             println!("message: {}", hex::encode(&message));
             // Message with both prefix and postfix bytes.
             let full_message: Vec<u8> = metadata
@@ -902,12 +900,11 @@ where
                 hex::encode(onchain_order.order.datum.clone().into_pd().to_cbor_bytes())
             );
             println!(" version: {}", order_version);
-            let message = compute_witness_message_corrected(
+            let message = compute_witness_message(
                 metadata.witness_script_hash,
                 &onchain_order.order.datum.clone().into_pd(),
                 metadata.version,
-            )
-            .map_err(|_| RedeemVotingEscrowError::Witness(WitnessError::CannotDecodeRedeemer))?;
+            );
             println!("message: {}", hex::encode(&message));
             // Message with both prefix and postfix bytes.
             let full_message: Vec<u8> = metadata

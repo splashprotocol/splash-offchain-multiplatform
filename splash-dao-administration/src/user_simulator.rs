@@ -11,10 +11,8 @@ use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::plutus_data::{DatumExtension, IntoPlutusData};
 use spectrum_cardano_lib::types::TryFromPData;
 use spectrum_cardano_lib::{OutputRef, Token};
-use splash_dao_offchain::entities::offchain::{compute_witness_message, OffChainOrderId};
-use splash_dao_offchain::entities::offchain::{
-    compute_witness_message_corrected, RedeemVotingEscrowOffChainOrder,
-};
+use splash_dao_offchain::entities::offchain::OffChainOrderId;
+use splash_dao_offchain::entities::offchain::{compute_witness_message, RedeemVotingEscrowOffChainOrder};
 use splash_dao_offchain::entities::offchain::{ExtendVotingEscrowOffChainOrder, WPollVoteOffChainOrder};
 use splash_dao_offchain::entities::onchain::proxy_order_witness::{OwnerRedemptionUTxO, WitnessAction};
 use splash_dao_offchain::entities::onchain::redeem_voting_escrow::{
@@ -49,7 +47,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::{
     create_extend_voting_escrow_onchain_order, deploy, make_voting_escrow_order, pull_onchain_entity,
-    voting_order::create_offchain_voting_order, AppConfig, OperationInputs, VotingEscrowSettings,
+    AppConfig, OperationInputs, VotingEscrowSettings,
 };
 use crate::{create_redeem_voting_escrow_onchain_order, create_wpoll_vote_onchain_order};
 
@@ -488,7 +486,7 @@ pub(crate) fn create_ve_metadata<T: IntoPlutusData + Clone>(
             .into();
     let datum_hex = hex::encode(order_datum.clone().into_pd().to_cbor_bytes());
     println!("datum: {}", datum_hex);
-    let message = compute_witness_message_corrected(witness.hash(), &order_datum.into_pd(), version).unwrap();
+    let message = compute_witness_message(witness.hash(), &order_datum.into_pd(), version);
     println!("message: {}", hex::encode(&message));
     let prefix_bytes = vec![0x9F, 1, 2, 3];
     let postfix_bytes = vec![0xFF];

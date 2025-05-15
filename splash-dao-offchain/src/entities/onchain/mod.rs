@@ -4,13 +4,13 @@ use cml_chain::{
 };
 use cml_core::{serialization::FromBytes, Int};
 use cml_crypto::{RawBytesEncoding, ScriptHash};
-use extend_voting_escrow_order::ExtendVotingEscrowOnchainOrder;
+use extend_voting_escrow_order::{ExtendVotingEscrowOnchainOrder, ExtendVotingEscrowOrderBundle};
 use funding_box::{FundingBox, FundingBoxSnapshot};
 use inflation_box::{InflationBox, InflationBoxSnapshot};
 use make_voting_escrow_order::MakeVotingEscrowOrder;
 use permission_manager::{PermManager, PermManagerSnapshot};
 use poll_factory::{PollFactory, PollFactorySnapshot};
-use redeem_voting_escrow::RedeemVotingEscrowOnchainOrder;
+use redeem_voting_escrow::{RedeemVotingEscrowOnchainOrder, RedeemVotingEscrowOrderBundle};
 use serde::{Deserialize, Serialize};
 use smart_farm::{SmartFarm, SmartFarmSnapshot};
 use spectrum_cardano_lib::{NetworkId, OutputRef};
@@ -23,7 +23,7 @@ use spectrum_offchain_cardano::{deployment::DeployedScriptInfo, raw_bytes::RawBy
 use voting_escrow::{Lock, Owner, VotingEscrow, VotingEscrowSnapshot};
 use voting_escrow_factory::{VEFactory, VEFactorySnapshot};
 use weighting_poll::{WeightingPoll, WeightingPollSnapshot};
-use wpoll_vote_order::WPollVoteOnchainOrder;
+use wpoll_vote_order::{WPollVoteOnchainOrder, WPollVoteOrderBundle};
 
 use crate::{
     deployment::ProtocolValidator,
@@ -309,5 +309,35 @@ impl<Bearer> Weighted for DaoOrderBundle<Bearer> {
     fn weight(&self) -> OrderWeight {
         // Older orders first
         OrderWeight::from(u64::MAX - self.output_ref.slot.0)
+    }
+}
+
+impl<Bearer> From<WPollVoteOrderBundle<Bearer>> for DaoOrderBundle<Bearer> {
+    fn from(value: WPollVoteOrderBundle<Bearer>) -> Self {
+        Self {
+            order: DaoOrder::WPollVote(value.order),
+            output_ref: value.output_ref,
+            bearer: value.bearer,
+        }
+    }
+}
+
+impl<Bearer> From<ExtendVotingEscrowOrderBundle<Bearer>> for DaoOrderBundle<Bearer> {
+    fn from(value: ExtendVotingEscrowOrderBundle<Bearer>) -> Self {
+        Self {
+            order: DaoOrder::ExtendVE(value.order),
+            output_ref: value.output_ref,
+            bearer: value.bearer,
+        }
+    }
+}
+
+impl<Bearer> From<RedeemVotingEscrowOrderBundle<Bearer>> for DaoOrderBundle<Bearer> {
+    fn from(value: RedeemVotingEscrowOrderBundle<Bearer>) -> Self {
+        Self {
+            order: DaoOrder::RedeemVE(value.order),
+            output_ref: value.output_ref,
+            bearer: value.bearer,
+        }
     }
 }

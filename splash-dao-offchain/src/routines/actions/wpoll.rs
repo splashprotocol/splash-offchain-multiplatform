@@ -589,7 +589,6 @@ where
         Bundled(weighting_poll, weighting_poll_in): Bundled<WeightingPollSnapshot, TransactionOutput>,
         Bundled(voting_escrow, ve_box_in): Bundled<VotingEscrowSnapshot, TransactionOutput>,
         onchain_order: WPollVoteOrderBundle<TransactionOutput>,
-        offchain_order: WPollVoteOffChainOrder,
         current_slot: Slot,
     ) -> Result<
         (
@@ -609,28 +608,33 @@ where
             ..
         } = VotingEscrowConfig::try_from_pd(data_mut.clone()).unwrap();
 
+        let order_version = onchain_order.order.datum.ve_state.version;
+        let metadata = onchain_order.order.metadata;
         // Verify that witness is authorized by the owner.
         if let Owner::PubKey(bytes) = owner {
             let pk = cml_crypto::PublicKey::from_raw_bytes(&bytes)
                 .map_err(|_| ExecuteOrderError::Other("Can't extrat PublicKey from bytes".into()))?;
-            let signature = Ed25519Signature::from_raw_bytes(&offchain_order.proof)
+            let signature = Ed25519Signature::from_raw_bytes(&metadata.signature)
                 .map_err(|_| ExecuteOrderError::Other("Can't extract Ed25519Signature from bytes".into()))?;
-            println!("witness_script hash: {}", offchain_order.witness.to_hex());
-            println!("redeemer: {}", offchain_order.witness_input);
-            println!("version: {}", offchain_order.id.version);
+            println!("execute_order hash: {}", metadata.witness_script_hash.to_hex());
+            use cml_chain::Serialize;
+            println!(
+                " order datum: {}",
+                hex::encode(onchain_order.order.datum.clone().into_pd().to_cbor_bytes())
+            );
+            println!("version: {}", order_version);
             let message = compute_witness_message(
-                offchain_order.witness,
-                offchain_order.witness_input.clone(),
-                offchain_order.id.version as u64,
-            )
-            .map_err(|_| ExecuteOrderError::Witness(WitnessError::CannotDecodeRedeemer))?;
+                metadata.witness_script_hash,
+                &onchain_order.order.datum.clone().into_pd(),
+                metadata.version,
+            );
             println!("message: {}", hex::encode(&message));
             // Message with both prefix and postfix bytes.
-            let full_message: Vec<u8> = offchain_order
+            let full_message: Vec<u8> = metadata
                 .prefix_bytes
                 .iter()
                 .chain(message.iter())
-                .chain(offchain_order.postfix_bytes.iter())
+                .chain(metadata.postfix_bytes.iter())
                 .cloned()
                 .collect();
             println!("pre/post-fixed message: {}", hex::encode(&full_message));
@@ -651,11 +655,11 @@ where
             ));
         }
 
-        if version != offchain_order.id.version {
+        if version != order_version {
             return Err(ExecuteOrderError::Witness(
                 WitnessError::VEVersionMismatchWithOffchainOrder {
                     voting_escrow_input_version: version,
-                    order_version: offchain_order.id.version,
+                    order_version,
                 },
             ));
         }
@@ -752,10 +756,10 @@ where
         let authorized_action = VotingEscrowAuthorizedAction {
             action: VotingEscrowAction::Governance,
             witness_ix: order_input_ix as u32,
-            version: offchain_order.id.version,
-            signature: offchain_order.proof,
-            prefix_bytes: offchain_order.prefix_bytes,
-            postfix_bytes: offchain_order.postfix_bytes,
+            version,
+            signature: metadata.signature,
+            prefix_bytes: metadata.prefix_bytes,
+            postfix_bytes: metadata.postfix_bytes,
         };
         let voting_escrow_witness = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(voting_escrow_script_hash),
@@ -801,7 +805,9 @@ where
         let mut wpoll_out = weighting_poll_in.clone();
         let available_weighting_power = voting_escrow.get().voting_power(current_posix_time);
 
-        let order_weighting_power = offchain_order.distribution.iter().fold(0, |acc, &(_, w)| acc + w);
+        let distribution = &onchain_order.order.datum.expected_diff;
+
+        let order_weighting_power = distribution.iter().fold(0, |acc, &(_, w)| acc + w);
         println!(
             "available weighting_power: {}, order weighting_power: {}",
             available_weighting_power, order_weighting_power
@@ -815,7 +821,7 @@ where
         }
 
         let mut next_weighting_poll = weighting_poll.get().clone();
-        next_weighting_poll.apply_votes(&offchain_order.distribution);
+        next_weighting_poll.apply_votes(distribution);
         next_weighting_poll.weighting_power = Some(order_weighting_power);
 
         if let Some(data_mut) = wpoll_out.data_mut() {
@@ -881,36 +887,13 @@ where
         let mint_ex_units = dsd.mint_weighting_power.mint_ex_units.clone();
         let mints = vec![(weighting_power_minting_policy, token, true, mint_ex_units)];
 
-        // Set witness script (needed by voting_escrow) --------------------------------------------
-        let withdrawal_address = cml_chain::address::RewardAddress::new(
-            self.ctx.select::<NetworkId>().into(),
-            Credential::new_script(offchain_order.witness),
-        );
-
-        let voting_witness_script = PlutusScript::PlutusV3(PlutusV3Script::new(
-            hex::decode(&DaoScriptData::global().proxy_order_witness.script_bytes).unwrap(),
-        ));
-
-        let witness_input = cml_chain::plutus::PlutusData::from_cbor_bytes(
-            &hex::decode(offchain_order.witness_input).unwrap(),
-        )
-        .map_err(|_| ExecuteOrderError::Witness(WitnessError::CannotDecodeRedeemer))?;
-        dbg!(&witness_input);
-        let order_witness =
-            PartialPlutusWitness::new(PlutusScriptWitness::Script(voting_witness_script), witness_input);
-        let withdrawal_result = SingleWithdrawalBuilder::new(withdrawal_address, 0)
-            .plutus_script(order_witness, RequiredSigners::from(vec![]))
-            .unwrap();
-        let witness_ex_units = dsd.proxy_order_witness.ex_units.clone();
-        let withdrawal = Some((withdrawal_result, witness_ex_units));
-
         let OperatorCreds(_operator_pkh, operator_addr) = self.ctx.select::<OperatorCreds>();
         let mut blueprint = DaoTxBlueprint {
             reference_inputs,
             sorted_inputs,
             outputs,
             sorted_mints: mints,
-            withdrawal,
+            withdrawal: None,
             fee_buffer: WPOLL_VOTE_ORDER_FEE_DELTA,
             operator_address: operator_addr.clone(),
         };

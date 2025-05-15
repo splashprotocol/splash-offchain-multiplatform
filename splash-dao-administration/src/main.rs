@@ -89,7 +89,6 @@ use splash_dao_offchain::{
 };
 use std::ops::Index;
 use user_simulator::{create_ve_metadata, user_simulator};
-use voting_order::create_offchain_voting_order;
 
 const INFLATION_BOX_INITIAL_SPLASH_QTY: i64 = 32000000000000;
 

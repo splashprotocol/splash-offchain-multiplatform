@@ -10,52 +10,10 @@ use rand::Rng;
 use spectrum_cardano_lib::plutus_data::make_constr_pd_indefinite_arr;
 use spectrum_cardano_lib::OutputRef;
 use splash_dao_offchain::deployment::DaoScriptData;
-use splash_dao_offchain::entities::offchain::{
-    compute_witness_message, OffChainOrderId, WPollVoteOffChainOrder,
-};
+use splash_dao_offchain::entities::offchain::{OffChainOrderId, WPollVoteOffChainOrder};
 use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
 use splash_dao_offchain::routines::actions::{compute_epoch_asset_name, compute_farm_name};
 use uplc_pallas_primitives::{BoundedBytes, Fragment};
-
-pub fn create_offchain_voting_order(
-    operator_sk: &PrivateKey,
-    distribution: Vec<(FarmId, u64)>,
-    id: OffChainOrderId,
-    witness_redeemer: PlutusData,
-    order_output_ref: OutputRef,
-) -> WPollVoteOffChainOrder {
-    let voting_witness_script = PlutusScript::PlutusV3(PlutusV3Script::new(
-        hex::decode(&DaoScriptData::global().proxy_order_witness.script_bytes).unwrap(),
-    ));
-
-    println!("witness_script hash: {}", voting_witness_script.hash().to_hex());
-    let redeemer_hex = hex::encode(witness_redeemer.to_cbor_bytes());
-    println!("redeemer: {}", redeemer_hex);
-    let message = compute_witness_message(
-        voting_witness_script.hash(),
-        redeemer_hex.clone(),
-        id.version as u64,
-    )
-    .unwrap();
-    println!("message: {}", hex::encode(&message));
-    let prefix_bytes = vec![0x9F, 1, 2, 3];
-    let postfix_bytes = vec![0xFF];
-    let mut full_payload: Vec<u8> = prefix_bytes.clone();
-    full_payload.extend_from_slice(&message);
-    full_payload.extend_from_slice(&postfix_bytes);
-    let signature = operator_sk.sign(&full_payload).to_raw_bytes().to_vec();
-
-    WPollVoteOffChainOrder {
-        id,
-        distribution,
-        proof: signature,
-        witness: voting_witness_script.hash(),
-        witness_input: redeemer_hex,
-        order_output_ref,
-        prefix_bytes,
-        postfix_bytes,
-    }
-}
 
 fn make_cml_witness_redeemer(
     distribution: &[(FarmId, u64)],
@@ -137,7 +95,6 @@ mod tests {
     use cml_crypto::ScriptHash;
     use spectrum_cardano_lib::NetworkId;
     use spectrum_offchain_cardano::creds::operator_creds_base_address;
-    use splash_dao_offchain::entities::offchain::compute_witness_message;
     use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
     use splash_dao_offchain::routines::actions::compute_farm_name;
     use uplc_pallas_primitives::Fragment;
@@ -170,23 +127,6 @@ mod tests {
 
         let cml_cbor_bytes = cml_rdmr.to_cbor_bytes();
         assert_eq!(cml_rdmr, PlutusData::from_cbor_bytes(&cml_cbor_bytes).unwrap());
-
-        let witness_sh =
-            ScriptHash::from_hex("9e7637b80d1df227ec2061a88e7720df831c9fe9a2163a0334099d9e").unwrap();
-        let message = compute_witness_message(witness_sh, redeemer_hex.clone(), 0).unwrap();
-        println!("message: {}", hex::encode(&message));
-
-        let (addr, _, operator_pkh, _operator_cred, operator_sk) =
-        operator_creds_base_address("xprv18zms3y4qkekv08jecrggtdvrxs3a2skf4cz7elfn8lsvq2nf39tqzd8mhh5kv9dp27kf3fy80uunz9k83rtg6gw5vvyu04f6tl8uw5pryslfc3g6wnjffneazpxh5t2nea7hq72hdsuc4m7ftry07yglwysze4ep",
-    NetworkId::from(0) );
-        let sk_bech32 = operator_sk.to_bech32();
-        let prover = OperatorProver::new(sk_bech32);
-        //let prover = OperatorProver::new(config.batcher_private_key.into());
-        let owner_pub_key = operator_sk.to_public();
-        assert_eq!(pk, owner_pub_key);
-
-        let signature = operator_sk.sign(&message).to_raw_bytes().to_vec();
-        println!("sig: {}", hex::encode(signature));
     }
 
     fn generate_distribution(n: usize) -> Vec<(FarmId, u64)> {
