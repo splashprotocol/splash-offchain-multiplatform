@@ -25,7 +25,7 @@ where
     async fn try_handle(&mut self, ev: LedgerTxEvent<TxViewMut>) -> Option<LedgerTxEvent<TxViewMut>> {
         match ev {
             LedgerTxEvent::TxApplied { tx, .. } => {
-                apply_tx(&self.index, tx, false).await;
+                apply_tx(&self.index, tx, true).await;
             }
             LedgerTxEvent::TxUnapplied { tx, .. } => unapply_tx(&self.index, tx).await,
         }
@@ -40,7 +40,7 @@ where
 {
     async fn try_handle(&mut self, ev: MempoolUpdate<TxViewMut>) -> Option<MempoolUpdate<TxViewMut>> {
         match ev {
-            MempoolUpdate::TxAccepted(tx) => apply_tx(&self.index, tx, true).await,
+            MempoolUpdate::TxAccepted(tx) => apply_tx(&self.index, tx, false).await,
             MempoolUpdate::TxDropped(tx) => unapply_tx(&self.index, tx).await,
         }
         None

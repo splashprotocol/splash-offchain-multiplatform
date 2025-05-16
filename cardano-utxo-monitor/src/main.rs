@@ -35,7 +35,7 @@ use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_mempool_sync::data::MempoolUpdate;
 use futures::stream::StreamExt;
 use tracing_subscriber::fmt::Subscriber;
-use spectrum_offchain::event_sink::event_handler::{forward_with, EventHandler};
+use spectrum_offchain::event_sink::event_handler::{forward_with, forward_with_ref, EventHandler};
 
 #[tokio::main]
 async fn main() {
@@ -94,8 +94,8 @@ async fn main() {
     let handler = TxHandler::new(db.clone());
 
     let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<TxViewMut>> + Send>> = vec![
+        Box::new(forward_with_ref(confirmed_txs_snd, succinct_tx)),
         Box::new(handler.clone()),
-        Box::new(forward_with(confirmed_txs_snd, succinct_tx)),
     ];
 
     let handlers_mempool: Vec<Box<dyn EventHandler<MempoolUpdate<TxViewMut>> + Send>> =
@@ -151,8 +151,8 @@ struct AppArgs {
     port: u16,
 }
 
-fn succinct_tx(tx: LedgerTxEvent<TxViewMut>) -> (TransactionHash, u64) {
+fn succinct_tx(tx: &LedgerTxEvent<TxViewMut>) -> (TransactionHash, u64) {
     let (LedgerTxEvent::TxApplied { tx, block_number, .. }
     | LedgerTxEvent::TxUnapplied { tx, block_number, .. }) = tx;
-    (tx.hash, block_number)
+    (tx.hash, *block_number)
 }

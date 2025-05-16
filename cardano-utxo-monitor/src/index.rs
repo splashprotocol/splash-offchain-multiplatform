@@ -8,7 +8,6 @@ use rocksdb::{
     SnapshotWithThreadMode, TransactionDB, TransactionDBOptions,
 };
 use spectrum_cardano_lib::OutputRef;
-use spectrum_offchain::domain::event::Confirmed;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::task::spawn_blocking;

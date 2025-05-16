@@ -54,6 +54,32 @@ where
     }
 }
 
+/// Forward events from upstream to [S] applying transformation [F].
+/// Consumes event, so must be put last in handlers array.
+pub fn forward_with_ref<S, F>(sink: S, transform: F) -> ForwardWithRef<S, F> {
+    ForwardWithRef { sink, transform }
+}
+
+pub struct ForwardWithRef<S, F> {
+    sink: S,
+    transform: F,
+}
+
+#[async_trait]
+impl<A, B, S, F> EventHandler<A> for ForwardWithRef<S, F>
+where
+    A: Send + 'static,
+    B: Send,
+    S: Sink<B> + Unpin + Send,
+    S::Error: Debug,
+    F: Send + Fn(&A) -> B,
+{
+    async fn try_handle(&mut self, ev: A) -> Option<A> {
+        self.sink.send((self.transform)(&ev)).await.unwrap();
+        Some(ev)
+    }
+}
+
 /// Forward some events from upstream to [S] applying transformation [F] that depends on state [T].
 pub fn try_forward_with<S, T, F>(sink: S, state: T, transform: F) -> TryForwardWithState<S, F, T> {
     TryForwardWithState {
