@@ -128,6 +128,7 @@ async fn main() {
     let shutdown = tokio::spawn(async move {
         tokio::signal::ctrl_c().await.unwrap();
         server_handle.stop(true).await;
+        std::process::exit(0);
     });
     processes.push(shutdown);
 
