@@ -34,10 +34,13 @@ use crate::index::RocksDB;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_mempool_sync::data::MempoolUpdate;
 use futures::stream::StreamExt;
+use tracing_subscriber::fmt::Subscriber;
 use spectrum_offchain::event_sink::event_handler::{forward_with, EventHandler};
 
 #[tokio::main]
 async fn main() {
+    let subscriber = Subscriber::new();
+    tracing::subscriber::set_global_default(subscriber).expect("setting tracing default failed");
     let args = AppArgs::parse();
 
     log4rs::init_file(args.log4rs_path, Default::default()).unwrap();
