@@ -34,8 +34,8 @@ use crate::index::RocksDB;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_mempool_sync::data::MempoolUpdate;
 use futures::stream::StreamExt;
-use tracing_subscriber::fmt::Subscriber;
 use spectrum_offchain::event_sink::event_handler::{forward_with, forward_with_ref, EventHandler};
+use tracing_subscriber::fmt::Subscriber;
 
 #[tokio::main]
 async fn main() {
@@ -108,8 +108,7 @@ async fn main() {
     let bind_addr = SocketAddr::new(ip_addr, args.port);
     let server = build_api_server(db, bind_addr)
         .await
-        .expect("Error setting up api server")
-        .map(|r| r.unwrap());
+        .expect("Error setting up api server");
 
     let processes = FuturesUnordered::new();
 
@@ -122,8 +121,15 @@ async fn main() {
     let tx_tracker_handle = tokio::spawn(tx_tracker_agent.run());
     processes.push(tx_tracker_handle);
 
-    let server_handle = tokio::spawn(server);
-    processes.push(server_handle);
+    let server_handle = server.handle();
+    let server_process_handle = tokio::spawn(server.map(|r| r.unwrap()));
+    processes.push(server_process_handle);
+
+    let shutdown = tokio::spawn(async move {
+        tokio::signal::ctrl_c().await.unwrap();
+        server_handle.stop(true).await;
+    });
+    processes.push(shutdown);
 
     let default_panic = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {

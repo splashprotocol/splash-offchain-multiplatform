@@ -1,6 +1,6 @@
 use crate::index::UtxoResolver;
 use actix_cors::Cors;
-use actix_web::dev::{AppService, HttpServiceFactory};
+use actix_web::dev::{AppService, HttpServiceFactory, Server};
 use actix_web::web::Data;
 use actix_web::{guard, web, App, HttpResponse, HttpServer, Responder};
 use cml_chain::address::Address;
@@ -88,10 +88,7 @@ where
     }
 }
 
-pub async fn build_api_server<R>(
-    db: R,
-    bind_addr: SocketAddr,
-) -> Result<impl Future<Output = io::Result<()>>, io::Error>
+pub async fn build_api_server<R>(db: R, bind_addr: SocketAddr) -> Result<Server, io::Error>
 where
     R: UtxoResolver + Send + Clone + 'static,
 {
@@ -108,5 +105,6 @@ where
     })
     .bind(bind_addr)?
     .workers(8)
+    .disable_signals()
     .run())
 }
