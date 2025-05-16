@@ -20,13 +20,13 @@ appenders:
         count: 50
         pattern: "logs/smp.{}.log"
 root:
-  level: debug
+  level: trace
   appenders:
     - file
 
 loggers:
   agent_main:
-    level: debug
+    level: trace
     appenders:
       - file
     additive: false
