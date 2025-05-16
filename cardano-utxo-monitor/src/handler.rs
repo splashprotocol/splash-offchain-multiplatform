@@ -67,6 +67,7 @@ async fn apply_tx<Index>(
                 .into_iter()
                 .filter(|(_, o)| o.address().script_hash().is_none())
                 .collect(),
+            confirmed,
         )
         .await;
 }

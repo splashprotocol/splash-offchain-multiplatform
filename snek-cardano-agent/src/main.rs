@@ -396,11 +396,8 @@ async fn main() {
     .await
     .map(|ev| ev.map(TxViewMut::from));
 
-    let mempool_stream =
-        mempool_stream(mempool_sync, tx_tracker_channel, failed_txs_recv, state_synced).map(|ev| match ev {
-            MempoolUpdate::TxAccepted(tx) => MempoolUpdate::TxAccepted(TxViewMut::from(tx)),
-            MempoolUpdate::TxDropped(tx) => MempoolUpdate::TxDropped(TxViewMut::from(tx)),
-        });
+    let mempool_stream = mempool_stream(mempool_sync, tx_tracker_channel, failed_txs_recv, state_synced)
+        .map(|ev| ev.map(TxViewMut::from));
 
     let process_ledger_events_stream = process_events(ledger_stream, handlers_ledger);
     let process_mempool_events_stream = process_events(mempool_stream, handlers_mempool);

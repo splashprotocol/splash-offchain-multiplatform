@@ -1,13 +1,14 @@
 use async_trait::async_trait;
-use cml_chain::address::Address;
+use cml_chain::certs::Credential;
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::{Deserialize, Serialize};
-use cml_crypto::TransactionHash;
+use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, TransactionHash};
 use rocksdb::{
     ColumnFamily, DBIteratorWithThreadMode, Direction, IteratorMode, Options, ReadOptions,
     SnapshotWithThreadMode, TransactionDB, TransactionDBOptions,
 };
 use spectrum_cardano_lib::OutputRef;
+use spectrum_offchain::domain::event::Confirmed;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::task::spawn_blocking;
@@ -19,6 +20,7 @@ pub trait UtxoIndex {
         tx_hash: TransactionHash,
         inputs: Vec<OutputRef>,
         outputs: Vec<(usize, TransactionOutput)>,
+        confirmed: bool,
     );
     async fn unapply(
         &self,
@@ -32,10 +34,10 @@ pub trait UtxoIndex {
 pub trait UtxoResolver {
     async fn get_utxos(
         &self,
-        addr: Address,
+        pkh: Ed25519KeyHash,
         offset: usize,
         limit: usize,
-    ) -> Vec<(OutputRef, TransactionOutput)>;
+    ) -> Vec<(OutputRef, (TransactionOutput, bool))>;
 }
 
 #[derive(Clone)]
@@ -61,18 +63,18 @@ fn utxo_key(rf: OutputRef) -> Vec<u8> {
     rmp_serde::to_vec(&rf).unwrap()
 }
 
-fn addr_key(addr: &Address) -> Vec<u8> {
-    addr.to_raw_bytes().to_vec()
+fn pkh_key(pkh: &Ed25519KeyHash) -> Vec<u8> {
+    pkh.to_raw_bytes().to_vec()
 }
 
-fn addr_to_utxo_key(addr: &Address, rf: OutputRef) -> Vec<u8> {
-    let mut bf = addr_key(addr);
+fn pkh_to_utxo_key(pkh: &Ed25519KeyHash, rf: OutputRef) -> Vec<u8> {
+    let mut bf = pkh_key(pkh);
     bf.extend(utxo_key(rf));
     bf
 }
 
-fn unsafe_utxo_key_from_index(addr_len: usize, bytes: &[u8]) -> &[u8] {
-    &bytes[addr_len..]
+fn unsafe_utxo_key_from_index(pkh_len: usize, bytes: &[u8]) -> &[u8] {
+    &bytes[pkh_len..]
 }
 
 #[async_trait]
@@ -82,6 +84,7 @@ impl UtxoIndex for RocksDB {
         tx_hash: TransactionHash,
         inputs: Vec<OutputRef>,
         outputs: Vec<(usize, TransactionOutput)>,
+        confirmed: bool,
     ) {
         let db = self.db.clone();
         spawn_blocking(move || {
@@ -90,21 +93,24 @@ impl UtxoIndex for RocksDB {
             let addrs = db.cf_handle(TABLES[2]).unwrap();
             let tx = db.transaction();
             for i in inputs {
-                tx.put_cf(spent_utxos, utxo_key(i), vec![]).unwrap();
                 if let Some(out) = tx
                     .get_cf(utxos, utxo_key(i))
                     .unwrap()
                     .and_then(|bytes| TransactionOutput::from_cbor_bytes(&bytes).ok())
                 {
-                    tx.delete_cf(addrs, addr_to_utxo_key(out.address(), i)).unwrap();
+                    if let Some(Credential::PubKey { hash, .. }) = out.address().payment_cred() {
+                        tx.put_cf(spent_utxos, utxo_key(i), vec![]).unwrap();
+                        tx.delete_cf(addrs, pkh_to_utxo_key(hash, i)).unwrap();
+                    }
                 }
             }
             for (i, o) in outputs {
-                let rf = OutputRef::new(tx_hash, i as u64);
-                let bytes = o.to_canonical_cbor_bytes();
-                tx.put_cf(utxos, utxo_key(rf), bytes).unwrap();
-                tx.put_cf(addrs, addr_to_utxo_key(o.address(), rf), vec![])
-                    .unwrap();
+                if let Some(Credential::PubKey { hash, .. }) = o.address().payment_cred() {
+                    let rf = OutputRef::new(tx_hash, i as u64);
+                    let bytes = rmp_serde::to_vec(&(o.to_canonical_cbor_bytes(), confirmed)).unwrap();
+                    tx.put_cf(utxos, utxo_key(rf), bytes).unwrap();
+                    tx.put_cf(addrs, pkh_to_utxo_key(hash, rf), vec![]).unwrap();
+                }
             }
             tx.commit().unwrap();
         })
@@ -125,20 +131,23 @@ impl UtxoIndex for RocksDB {
             let addrs = db.cf_handle(TABLES[2]).unwrap();
             let tx = db.transaction();
             for rf in inputs {
-                tx.delete_cf(spent_utxos, utxo_key(rf)).unwrap();
                 if let Some(out) = tx
                     .get_cf(utxos, utxo_key(rf))
                     .unwrap()
                     .and_then(|bytes| TransactionOutput::from_cbor_bytes(&bytes).ok())
                 {
-                    tx.put_cf(addrs, addr_to_utxo_key(out.address(), rf), vec![])
-                        .unwrap();
+                    if let Some(Credential::PubKey { hash, .. }) = out.address().payment_cred() {
+                        tx.delete_cf(spent_utxos, utxo_key(rf)).unwrap();
+                        tx.put_cf(addrs, pkh_to_utxo_key(hash, rf), vec![]).unwrap();
+                    }
                 }
             }
             for (ix, o) in outputs {
-                let rf = OutputRef::new(tx_hash, ix as u64);
-                tx.delete_cf(utxos, utxo_key(rf)).unwrap();
-                tx.delete_cf(addrs, addr_to_utxo_key(o.address(), rf)).unwrap();
+                if let Some(Credential::PubKey { hash, .. }) = o.address().payment_cred() {
+                    let rf = OutputRef::new(tx_hash, ix as u64);
+                    tx.delete_cf(utxos, utxo_key(rf)).unwrap();
+                    tx.delete_cf(addrs, pkh_to_utxo_key(hash, rf)).unwrap();
+                }
             }
             tx.commit().unwrap();
         })
@@ -151,30 +160,33 @@ impl UtxoIndex for RocksDB {
 impl UtxoResolver for RocksDB {
     async fn get_utxos(
         &self,
-        addr: Address,
+        pkh: Ed25519KeyHash,
         offset: usize,
         limit: usize,
-    ) -> Vec<(OutputRef, TransactionOutput)> {
+    ) -> Vec<(OutputRef, (TransactionOutput, bool))> {
         let db = self.db.clone();
         spawn_blocking(move || {
             let utxos = db.cf_handle(TABLES[0]).unwrap();
             let spent_utxos = db.cf_handle(TABLES[1]).unwrap();
             let addrs = db.cf_handle(TABLES[2]).unwrap();
             let snap = db.snapshot();
-            let addr_key = addr_key(&addr);
-            let addr_key_len = addr_key.len();
-            let mut utxos_at_address = get_range_iterator(&snap, addrs, addr_key)
-                .skip(offset)
-                .take(limit);
+            let pkh_key = pkh_key(&pkh);
+            let pkh_key_len = pkh_key.len();
+            let mut utxos_at_address = get_range_iterator(&snap, addrs, pkh_key).skip(offset).take(limit);
             let mut utxo_set = vec![];
             while let Some(Ok(bytes)) = utxos_at_address.next() {
-                let utxo_key = unsafe_utxo_key_from_index(addr_key_len, &bytes.0);
+                let utxo_key = unsafe_utxo_key_from_index(pkh_key_len, &bytes.0);
                 let unspent = snap.get_cf(spent_utxos, utxo_key).unwrap().is_none();
                 if unspent {
                     if let Some(utxo) = snap
                         .get_cf(utxos, utxo_key)
                         .unwrap()
-                        .and_then(|bytes| TransactionOutput::from_cbor_bytes(&bytes).ok())
+                        .and_then(|bytes| rmp_serde::from_slice::<(Vec<u8>, bool)>(&bytes).ok())
+                        .and_then(|(utxo_bytes, confirmed)| {
+                            TransactionOutput::from_cbor_bytes(&utxo_bytes)
+                                .ok()
+                                .map(|o| (o, confirmed))
+                        })
                     {
                         let fr = rmp_serde::from_slice::<OutputRef>(&utxo_key).unwrap();
                         utxo_set.push((fr, utxo));
@@ -202,6 +214,7 @@ pub(crate) fn get_range_iterator<'a: 'b, 'b>(
 mod tests {
     use crate::index::{RocksDB, UtxoIndex, UtxoResolver};
     use cml_chain::address::Address;
+    use cml_chain::certs::Credential;
     use cml_chain::transaction::Transaction;
     use cml_chain::Deserialize;
     use rocksdb::{Options, SingleThreaded, TransactionDB};
@@ -214,6 +227,9 @@ mod tests {
         let db = RocksDB::new(&db_path);
 
         let addr = Address::from_bech32(ADDR).unwrap();
+        let Credential::PubKey { hash: pkh, .. } = addr.payment_cred().unwrap() else {
+            panic!()
+        };
 
         for rtx in [TX_FUN_1, TX_FUN_2, TX_ORD, TX_EXE] {
             let tx = Transaction::from_cbor_bytes(&*hex::decode(rtx).unwrap()).unwrap();
@@ -222,11 +238,12 @@ mod tests {
                 hash,
                 tx.body.inputs.into_iter().map(|i| i.into()).collect(),
                 tx.body.outputs.to_vec().into_iter().enumerate().collect(),
+                true,
             )
             .await;
         }
 
-        let utxos = db.get_utxos(addr, 0, 100).await;
+        let utxos = db.get_utxos(*pkh, 0, 100).await;
 
         dbg!(&utxos);
     }

@@ -5,7 +5,7 @@ use actix_web::web::Data;
 use actix_web::{guard, web, App, HttpResponse, HttpServer, Responder};
 use cml_chain::address::Address;
 use cml_chain::transaction::TransactionOutput;
-use cml_crypto::{RawBytesEncoding, TransactionHash};
+use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, TransactionHash};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::OutputRef;
 use std::future::Future;
@@ -16,7 +16,7 @@ use std::net::SocketAddr;
 #[derive(Clone, serde::Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct GetUTxOsRequest {
-    address: Address,
+    pkh: Ed25519KeyHash,
     offset: usize,
     limit: usize,
 }
@@ -28,10 +28,11 @@ pub struct UTxO {
     pub index: usize,
     pub address: Address,
     pub value: Vec<Asset>,
+    pub confirmed: bool,
 }
 
-impl From<(OutputRef, TransactionOutput)> for UTxO {
-    fn from((oref, txo): (OutputRef, TransactionOutput)) -> Self {
+impl From<(OutputRef, (TransactionOutput, bool))> for UTxO {
+    fn from((oref, (txo, confirmed)): (OutputRef, (TransactionOutput, bool))) -> Self {
         Self {
             transaction_hash: oref.tx_hash(),
             index: oref.index() as usize,
@@ -50,6 +51,7 @@ impl From<(OutputRef, TransactionOutput)> for UTxO {
                 })
             }))
             .collect(),
+            confirmed,
         }
     }
 }
@@ -73,7 +75,7 @@ where
         where
             R: UtxoResolver + 'static,
         {
-            let utxos = db.get_utxos(req.address.clone(), req.offset, req.limit).await;
+            let utxos = db.get_utxos(req.pkh, req.offset, req.limit).await;
             let result = utxos.into_iter().map(UTxO::from).collect::<Vec<_>>();
             HttpResponse::Ok().json(result)
         }

@@ -66,7 +66,9 @@ where
 
         let mut order_of_execution = vec![];
         for (execution_seq_num, eff) in effects.iter().enumerate() {
-            if let EffectPreview::Updated(Bundled(Either::Left(_), utxo), _) | EffectPreview::Eliminated(Bundled(Either::Left(_), utxo)) = eff {
+            if let EffectPreview::Updated(Bundled(Either::Left(_), utxo), _)
+            | EffectPreview::Eliminated(Bundled(Either::Left(_), utxo)) = eff
+            {
                 let input_ix = tx_builder
                     .get_inputs()
                     .iter()
