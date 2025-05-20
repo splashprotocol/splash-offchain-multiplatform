@@ -22,6 +22,8 @@ pub struct PositionDB {
 }
 
 impl PositionDB {
+    const TUPLE_PREFIX: u8 = 0x92;
+
     pub fn new<P: AsRef<Path>>(db_path: P) -> Self {
         let mut opts = Options::default();
         opts.create_if_missing(true);
@@ -116,7 +118,9 @@ pub(crate) fn cred_index_key(credential: &Credential, pool_id: PoolId) -> Vec<u8
 }
 
 pub(crate) fn cred_index_prefix(credential: Credential) -> Vec<u8> {
-    rmp_serde::to_vec(&credential).unwrap()
+    let mut prefix: Vec<u8> = vec![PositionDB::TUPLE_PREFIX];
+    prefix.extend(rmp_serde::to_vec(&credential).unwrap());
+    prefix
 }
 
 pub(crate) fn from_cred_index_key(key: Vec<u8>) -> Option<(Credential, PoolId)> {
@@ -153,15 +157,38 @@ pub(crate) const COLUMN_FAMILIES: [&str; 8] = [
     SUS_EVENTS_CF,
     CREDS_INDEX_CF,
     ACCOUNT_FEED_CF,
-    POOL_LQ_FRAMES_INDEX_CF
+    POOL_LQ_FRAMES_INDEX_CF,
 ];
 
 #[cfg(test)]
-mod tests {
-    use crate::position_db::read_max_key;
+pub mod tests {
+    use crate::position_db::{cred_index_key, cred_index_prefix, read_max_key};
     use rocksdb::{Options, SingleThreaded, TransactionDB, TransactionDBOptions};
-    use std::sync::Arc;
     use splash_testing::db_path::DBPath;
+    use std::sync::Arc;
+    use cml_chain::certs::Credential;
+    use cml_crypto::Ed25519KeyHash;
+    use rand::RngCore;
+    use spectrum_offchain_cardano::data::PoolId;
+
+    #[test]
+    fn credential_keys_test() {
+
+        let mut bf = [0u8; 28];
+        rand::thread_rng().fill_bytes(&mut bf);
+
+        let random_cred_bytes = Ed25519KeyHash::from(bf);
+        let random_credential = Credential::new_pub_key(random_cred_bytes);
+        let random_pool_id = PoolId::random();
+
+        let credential_index_key = cred_index_key(&random_credential, random_pool_id);
+
+        let cred_index_prefix = cred_index_prefix(random_credential);
+
+        let cred_index_prefix_is_correct = credential_index_key.starts_with(cred_index_prefix.as_ref());
+
+        assert!(cred_index_prefix_is_correct);
+    }
 
     #[test]
     fn test_read_max_key() {
