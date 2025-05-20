@@ -9,6 +9,7 @@ use cml_chain::certs::{Credential, StakeCredential};
 use cml_chain::plutus::{PlutusScript, PlutusV3Script};
 use cml_chain::transaction::{DatumOption, TransactionInput, TransactionOutput};
 use cml_chain::utils::BigInteger;
+use cml_chain::Serialize;
 use cml_chain::{Deserialize, PolicyId, RequiredSigners, Value};
 use cml_crypto::{blake2b256, Ed25519Signature, RawBytesEncoding, TransactionHash};
 use log::trace;
@@ -36,7 +37,7 @@ use crate::entities::offchain::{
     compute_witness_message, ExtendVotingEscrowOffChainOrder, RedeemVotingEscrowOffChainOrder,
 };
 use crate::entities::onchain::extend_voting_escrow_order::{
-    ExtendVotingEscrowOrderAction, ExtendVotingEscrowOrderBundle,
+    compute_extend_ve_order_validator, ExtendVotingEscrowOrderAction, ExtendVotingEscrowOrderBundle,
 };
 use crate::entities::onchain::make_voting_escrow_order::{
     MakeVotingEscrowOrderAction, MakeVotingEscrowOrderBundle,
@@ -494,7 +495,6 @@ where
                 ExtendVotingEscrowError::Other("Can't extract Ed25519Signature from bytes".into())
             })?;
             println!("extend_ve_script hash: {}", metadata.witness_script_hash.to_hex());
-            use cml_chain::Serialize;
             println!(
                 " order_datum: {}",
                 hex::encode(onchain_order.order.datum.clone().into_pd().to_cbor_bytes())
@@ -520,20 +520,21 @@ where
             }
         }
 
-        if version != order_version {
+        if metadata.version != version {
             return Err(ExtendVotingEscrowError::Witness(
-                WitnessError::VEVersionMismatchWithOffchainOrder {
-                    voting_escrow_input_version: version,
-                    order_version,
+                WitnessError::VEVersionMismatchWithTXMetadata {
+                    voting_escrow_input_version: metadata.version,
+                    order_version: version,
                 },
             ));
         }
 
-        if onchain_order.order.datum.ve_state.version != version + 1 {
+        // Note: the proxy order's `ve_state` is the datum for the VE in the TX OUTPUT
+        if (version + 1) != order_version {
             return Err(ExtendVotingEscrowError::Witness(
                 WitnessError::VEVersionMismatchWithOnchainProxy {
                     voting_escrow_output_version: version + 1,
-                    proxy_version: onchain_order.order.datum.ve_state.version,
+                    proxy_version: order_version,
                 },
             ));
         }
@@ -623,12 +624,17 @@ where
             signature: metadata.signature,
             prefix_bytes: metadata.prefix_bytes,
             postfix_bytes: metadata.postfix_bytes,
-        };
+        }
+        .into_pd();
+        trace!(
+            "voting_escrow redeemer: {}",
+            hex::encode(authorized_action.to_cbor_bytes())
+        );
         let voting_escrow_script_hash = self.ctx.select::<VotingEscrowScriptHash>().0;
 
         let voting_escrow_witness = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(voting_escrow_script_hash),
-            authorized_action.into_pd(),
+            authorized_action,
         );
 
         let voting_escrow_input = SingleInputBuilder::new(
@@ -650,6 +656,10 @@ where
             ve_in_ix: voting_escrow_input_ix as u64,
         }
         .into_pd();
+        trace!(
+            "ve_factory_order redeemer: {}",
+            hex::encode(ve_factory_redeemer.to_cbor_bytes())
+        );
         let ve_factory_witness = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(ve_factory_script_hash),
             ve_factory_redeemer,
@@ -662,10 +672,19 @@ where
 
         // `extend_voting_escrow_order` input --------------------------------------------------------
         let order_script_hash = self.ctx.select::<ExtendVotingEscrowOrderScriptHash>().0;
+
+        let expected_extend_ve_script_hash =
+            compute_extend_ve_order_validator(self.ctx.select::<MintVECompositionPolicy>().0).hash();
+        assert_eq!(order_script_hash, expected_extend_ve_script_hash);
         let order_action = ExtendVotingEscrowOrderAction::Extend {
             order_input_ix: order_input_ix as u32,
             voting_escrow_input_ix: voting_escrow_input_ix as u32,
         };
+
+        trace!(
+            "extend_ve_order redeemer: {}",
+            hex::encode(order_action.clone().into_pd().to_cbor_bytes())
+        );
 
         let order_witness = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(order_script_hash),
@@ -893,19 +912,11 @@ where
             let signature = Ed25519Signature::from_raw_bytes(&metadata.signature).map_err(|_| {
                 RedeemVotingEscrowError::Other("Can't extract Ed25519Signature from bytes".into())
             })?;
-            println!("redeem_ve_script hash: {}", metadata.witness_script_hash.to_hex());
-            use cml_chain::Serialize;
-            println!(
-                " order_datum: {}",
-                hex::encode(onchain_order.order.datum.clone().into_pd().to_cbor_bytes())
-            );
-            println!(" version: {}", order_version);
             let message = compute_witness_message(
                 metadata.witness_script_hash,
                 &onchain_order.order.datum.clone().into_pd(),
                 metadata.version,
             );
-            println!("message: {}", hex::encode(&message));
             // Message with both prefix and postfix bytes.
             let full_message: Vec<u8> = metadata
                 .prefix_bytes
@@ -914,7 +925,13 @@ where
                 .chain(metadata.postfix_bytes.iter())
                 .cloned()
                 .collect();
-            println!("pre/post-fixed message: {}", hex::encode(&full_message));
+            trace!(
+                "redeem_ve_script: script_hash = {}, order_datum = {}, version = {}, message = {}, pre/post-fixed message = {}",
+                metadata.witness_script_hash.to_hex(),
+                hex::encode(onchain_order.order.datum.clone().into_pd().to_cbor_bytes()),
+                order_version,hex::encode(&message),
+                hex::encode(&full_message)
+            );
             if !pk.verify(&full_message, &signature) {
                 return Err(RedeemVotingEscrowError::Witness(WitnessError::OwnerAuthFailure));
             }
@@ -931,7 +948,7 @@ where
 
         if version != order_version {
             return Err(RedeemVotingEscrowError::Witness(
-                WitnessError::VEVersionMismatchWithOffchainOrder {
+                WitnessError::VEVersionMismatchWithTXMetadata {
                     voting_escrow_input_version: version,
                     order_version,
                 },

@@ -242,44 +242,47 @@ where
                 | EpochRoutineState::WaitingForDistributionToStart
                 | EpochRoutineState::WaitingToEliminate => retry_in(DEF_DELAY),
                 EpochRoutineState::PendingCreatePoll(state) => self.try_create_wpoll(state).await,
-                EpochRoutineState::WeightingInProgress(state) => {
-                    let _ = self.try_make_voting_escrow().await;
-
-                    match state {
-                        Some(NextPendingOrder::Voting {
-                            weighting_poll,
-                            onchain_order,
-                            ve_bundle,
-                        }) => {
-                            trace!("Try apply votes (epoch 0)");
-                            self.try_apply_votes(weighting_poll, ve_bundle, onchain_order)
-                                .await
-                        }
-                        Some(NextPendingOrder::ExtendVotingEscrow {
-                            onchain_order,
-                            ve_factory_bundle,
-                            ve_bundle,
-                        }) => {
-                            trace!("Try extend voting_escrow (epoch 0)");
-                            self.try_extend_voting_escrow(ve_bundle, ve_factory_bundle, onchain_order)
-                                .await
-                        }
-                        Some(NextPendingOrder::RedeemVotingEscrow {
-                            onchain_order,
-                            ve_factory_bundle,
-                            ve_bundle,
-                            ve_prev_state_id,
-                        }) => {
-                            self.try_redeem_voting_escrow(
-                                (ve_bundle, ve_prev_state_id),
-                                ve_factory_bundle,
-                                onchain_order,
-                            )
+                EpochRoutineState::WeightingInProgress(state) => match state {
+                    Some(NextPendingOrder::Voting {
+                        weighting_poll,
+                        onchain_order,
+                        ve_bundle,
+                    }) => {
+                        trace!("Try apply votes (epoch 0)");
+                        self.try_apply_votes(weighting_poll, ve_bundle, onchain_order)
                             .await
-                        }
-                        None => retry_in(DEF_DELAY),
                     }
-                }
+                    Some(NextPendingOrder::ExtendVotingEscrow {
+                        onchain_order,
+                        ve_factory_bundle,
+                        ve_bundle,
+                    }) => {
+                        trace!("Try extend voting_escrow (epoch 0)");
+                        self.try_extend_voting_escrow(ve_bundle, ve_factory_bundle, onchain_order)
+                            .await
+                    }
+                    Some(NextPendingOrder::RedeemVotingEscrow {
+                        onchain_order,
+                        ve_factory_bundle,
+                        ve_bundle,
+                        ve_prev_state_id,
+                    }) => {
+                        self.try_redeem_voting_escrow(
+                            (ve_bundle, ve_prev_state_id),
+                            ve_factory_bundle,
+                            onchain_order,
+                        )
+                        .await
+                    }
+                    Some(NextPendingOrder::MakeVotingEscrow {
+                        onchain_order,
+                        ve_factory_bundle,
+                    }) => {
+                        self.try_make_voting_escrow(onchain_order, ve_factory_bundle)
+                            .await
+                    }
+                    None => retry_in(DEF_DELAY),
+                },
                 EpochRoutineState::DistributionInProgress(state) => {
                     self.try_distribute_inflation(state).await
                 }
@@ -298,52 +301,49 @@ where
                     trace!("Creating wpoll for current epoch");
                     self.try_create_wpoll(state).await
                 }
-                EpochRoutineState::WeightingInProgress(state) => {
-                    let _ = self.try_make_voting_escrow().await;
-
-                    match state {
-                        Some(NextPendingOrder::Voting {
-                            weighting_poll,
-                            onchain_order,
-                            ve_bundle,
-                        }) => {
-                            trace!("Try apply votes");
-                            self.try_apply_votes(weighting_poll, ve_bundle, onchain_order)
-                                .await
-                        }
-                        Some(NextPendingOrder::ExtendVotingEscrow {
-                            onchain_order,
-                            ve_factory_bundle,
-                            ve_bundle,
-                        }) => {
-                            trace!("Try extend voting_escrow");
-                            self.try_extend_voting_escrow(ve_bundle, ve_factory_bundle, onchain_order)
-                                .await
-                        }
-                        Some(NextPendingOrder::RedeemVotingEscrow {
-                            onchain_order,
-                            ve_factory_bundle,
-                            ve_bundle,
-                            ve_prev_state_id,
-                        }) => {
-                            trace!("Try redeem voting_escrow");
-                            self.try_redeem_voting_escrow(
-                                (ve_bundle, ve_prev_state_id),
-                                ve_factory_bundle,
-                                onchain_order,
-                            )
+                EpochRoutineState::WeightingInProgress(state) => match state {
+                    Some(NextPendingOrder::Voting {
+                        weighting_poll,
+                        onchain_order,
+                        ve_bundle,
+                    }) => {
+                        trace!("Try apply votes");
+                        self.try_apply_votes(weighting_poll, ve_bundle, onchain_order)
                             .await
-                        }
-                        Some(NextPendingOrder::MakeVotingEscrow {
-                            onchain_order,
-                            ve_factory_bundle,
-                        }) => {
-                            trace!("Try make voting_escrow");
-                            self.try_make_voting_escrow().await
-                        }
-                        None => retry_in(DEF_DELAY),
                     }
-                }
+                    Some(NextPendingOrder::ExtendVotingEscrow {
+                        onchain_order,
+                        ve_factory_bundle,
+                        ve_bundle,
+                    }) => {
+                        trace!("Try extend voting_escrow");
+                        self.try_extend_voting_escrow(ve_bundle, ve_factory_bundle, onchain_order)
+                            .await
+                    }
+                    Some(NextPendingOrder::RedeemVotingEscrow {
+                        onchain_order,
+                        ve_factory_bundle,
+                        ve_bundle,
+                        ve_prev_state_id,
+                    }) => {
+                        trace!("Try redeem voting_escrow");
+                        self.try_redeem_voting_escrow(
+                            (ve_bundle, ve_prev_state_id),
+                            ve_factory_bundle,
+                            onchain_order,
+                        )
+                        .await
+                    }
+                    Some(NextPendingOrder::MakeVotingEscrow {
+                        onchain_order,
+                        ve_factory_bundle,
+                    }) => {
+                        trace!("Try make voting_escrow");
+                        self.try_make_voting_escrow(onchain_order, ve_factory_bundle)
+                            .await
+                    }
+                    None => retry_in(DEF_DELAY),
+                },
 
                 EpochRoutineState::WaitingToEliminate
                 | EpochRoutineState::PendingEliminatePoll(_)
@@ -565,7 +565,7 @@ impl<
                     let ve_factory_bundle = self.ve_factory.read(VEFactoryId).await.map(|v| v.erased())?;
                     let ve_bundle = self.voting_escrow.read(VotingEscrowId(ve_id)).await?.erased();
                     let ve_version = ve_bundle.0.get().version;
-                    assert_eq!(order_version, ve_version);
+                    // assert_eq!(order_version, ve_version);
                     Some(NextPendingOrder::ExtendVotingEscrow {
                         onchain_order,
                         ve_bundle,
@@ -1568,7 +1568,11 @@ impl<
         None
     }
 
-    async fn try_make_voting_escrow(&mut self) -> Option<ToRoutine>
+    async fn try_make_voting_escrow(
+        &mut self,
+        onchain_order: MakeVotingEscrowOrderBundle<Bearer>,
+        ve_factory_bundle: Bundled<VEFactorySnapshot, Bearer>,
+    ) -> Option<ToRoutine>
     where
         Actions: VoteEscrowActions<Bearer> + Send + Sync,
         Net: Network<Transaction, RejectReasons> + Clone + Sync + Send,
@@ -1590,104 +1594,76 @@ impl<
         }
         let current_slot = Slot(self.current_slot.unwrap());
 
-        if let Some(dao_bundle) = self.dao_order_backlog.try_pop().await {
-            match dao_bundle.order {
-                DaoOrder::MakeVE(ref mve_order) => {
-                    let mve_bundle = MakeVotingEscrowOrderBundle::new(
-                        mve_order.clone(),
-                        dao_bundle.output_ref,
-                        dao_bundle.bearer.clone(),
-                    );
-                    let ve_factory = self.ve_factory.read(VEFactoryId).await.unwrap().erased();
-                    let result = self
-                        .actions
-                        .make_voting_escrow(mve_bundle.clone(), ve_factory, current_slot)
-                        .await;
-                    match result {
-                        Ok((signed_tx, next_ve_factory, next_ve)) => {
-                            let prover = OperatorProver::new(self.conf.operator_sk.clone());
-                            println!("make_voting_escrow: trying to prove");
-                            let outbound_tx = prover.prove(signed_tx);
-                            println!("make_voting_escrow: PROVED");
-                            let tx = outbound_tx.clone();
-                            let tx_hash = tx.body.hash();
-                            info!(
-                                "`make_voting_escrow`: submitting TX (hash: {}), (bytes: {})",
-                                tx_hash,
-                                hex::encode(tx.to_cbor_bytes()),
-                            );
-                            match self.network.submit_tx(outbound_tx).await {
-                                Ok(()) => {
-                                    let voting_escrow_id = next_ve.state.stable_id();
-                                    let predicted_write = PredictedEntityWrites::MakeVotingEscrow {
-                                        tx_hash,
-                                        voting_escrow_id,
-                                        mve_order: mve_bundle,
-                                    };
-                                    self.predicted_tx_backlog.insert(tx_hash, predicted_write).await;
-                                    info!(
-                                        "Created voting_escrow with id = {}: SUCCESS (tx hash: {})",
-                                        voting_escrow_id, tx_hash
-                                    );
-                                    self.ve_factory.write_predicted(next_ve_factory).await;
-                                    self.voting_escrow.write_predicted(next_ve).await;
-
-                                    return None;
-                                }
-                                Err(RejectReasons(Some(ApplyTxError { node_errors }))) => {
-                                    if node_errors.iter().any(|err| {
-                                        matches!(
-                                            err,
-                                            ConwayLedgerPredFailure::UtxowFailure(
-                                                ConwayUtxowPredFailure::UtxoFailure(
-                                                    ConwayUtxoPredFailure::BadInputsUtxo(_)
-                                                ),
-                                            )
-                                        )
-                                    }) {
-                                        info!("`make_voting_escrow`: Bad/missing input UTxO. Retrying...");
-                                        self.dao_order_backlog.suspend(dao_bundle).await;
-                                        return None;
-                                    } else {
-                                        // For all other errors we discard the order.
-                                        error!(
-                                            "`make_voting_escrow`: TX submit failed on errors: {:?}",
-                                            node_errors
-                                        );
-                                        self.dao_order_backlog
-                                            .remove(dao_bundle.output_ref.output_ref)
-                                            .await;
-                                        return None;
-                                    }
-                                }
-                                Err(RejectReasons(None)) => {
-                                    error!("`make_voting_escrow`: TX submit failed on UNKNOWN error");
-                                    self.dao_order_backlog
-                                        .remove(dao_bundle.output_ref.output_ref)
-                                        .await;
-                                    return None;
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            error!("`make_voting_escrow`: invalid order, error: {:?}", e);
+        let result = self
+            .actions
+            .make_voting_escrow(onchain_order.clone(), ve_factory_bundle, current_slot)
+            .await;
+        match result {
+            Ok((signed_tx, next_ve_factory, next_ve)) => {
+                let prover = OperatorProver::new(self.conf.operator_sk.clone());
+                println!("make_voting_escrow: trying to prove");
+                let outbound_tx = prover.prove(signed_tx);
+                println!("make_voting_escrow: PROVED");
+                let tx = outbound_tx.clone();
+                let tx_hash = tx.body.hash();
+                info!(
+                    "`make_voting_escrow`: submitting TX (hash: {}), (bytes: {})",
+                    tx_hash,
+                    hex::encode(tx.to_cbor_bytes()),
+                );
+                match self.network.submit_tx(outbound_tx).await {
+                    Ok(()) => {
+                        let voting_escrow_id = next_ve.state.stable_id();
+                        let predicted_write = PredictedEntityWrites::MakeVotingEscrow {
+                            tx_hash,
+                            voting_escrow_id,
+                            mve_order: onchain_order,
+                        };
+                        self.predicted_tx_backlog.insert(tx_hash, predicted_write).await;
+                        info!(
+                            "Created voting_escrow with id = {}: SUCCESS (tx hash: {})",
+                            voting_escrow_id, tx_hash
+                        );
+                        self.ve_factory.write_predicted(next_ve_factory).await;
+                        self.voting_escrow.write_predicted(next_ve).await;
+                    }
+                    Err(RejectReasons(Some(ApplyTxError { node_errors }))) => {
+                        if node_errors.iter().any(|err| {
+                            matches!(
+                                err,
+                                ConwayLedgerPredFailure::UtxowFailure(ConwayUtxowPredFailure::UtxoFailure(
+                                    ConwayUtxoPredFailure::BadInputsUtxo(_)
+                                ),)
+                            )
+                        }) {
+                            info!("`make_voting_escrow`: Bad/missing input UTxO. Retrying...");
                             self.dao_order_backlog
-                                .remove(dao_bundle.output_ref.output_ref)
+                                .suspend(DaoOrderBundle::from(onchain_order))
                                 .await;
-                            return None;
+                        } else {
+                            // For all other errors we discard the order.
+                            error!(
+                                "`make_voting_escrow`: TX submit failed on errors: {:?}",
+                                node_errors
+                            );
+                            self.dao_order_backlog
+                                .remove(onchain_order.output_ref.output_ref)
+                                .await;
                         }
                     }
+                    Err(RejectReasons(None)) => {
+                        error!("`make_voting_escrow`: TX submit failed on UNKNOWN error");
+                        self.dao_order_backlog
+                            .remove(onchain_order.output_ref.output_ref)
+                            .await;
+                    }
                 }
-                DaoOrder::ExtendVE(_extend_voting_escrow_onchain_order) => {
-                    // We skip over extend VE orders here. It will be processed when we get to an
-                    // associated off-chain order.
-                }
-                DaoOrder::WPollVote(_wpoll_vote_order) => {
-                    // Similarly we process this one when we get the off-chain order.
-                }
-                DaoOrder::RedeemVE(_) => {
-                    // Similarly we process this one when we get the off-chain order.
-                }
+            }
+            Err(e) => {
+                error!("`make_voting_escrow`: invalid order, error: {:?}", e);
+                self.dao_order_backlog
+                    .remove(onchain_order.output_ref.output_ref)
+                    .await;
             }
         }
         None

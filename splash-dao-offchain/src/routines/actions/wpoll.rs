@@ -46,8 +46,7 @@ use crate::entities::onchain::poll_factory::{
     unsafe_update_factory_state, FactoryRedeemer, PollFactoryAction, PollFactorySnapshot,
 };
 use crate::entities::onchain::voting_escrow::{
-    self, unsafe_update_ve_state, Owner, VotingEscrowAction, VotingEscrowAuthorizedAction,
-    VotingEscrowConfig, VotingEscrowSnapshot,
+    self, Owner, VotingEscrowAction, VotingEscrowAuthorizedAction, VotingEscrowConfig, VotingEscrowSnapshot,
 };
 use crate::entities::onchain::weighting_poll::{
     self, unsafe_update_wp_state, MintAction, WeightingPollSnapshot,
@@ -58,8 +57,8 @@ use crate::entities::onchain::wpoll_vote_order::{
 use crate::entities::Snapshot;
 use crate::protocol_config::{
     GTAuthPolicy, InflationBoxRefScriptOutput, MintVEIdentifierPolicy, MintWPAuthPolicy,
-    MintWPAuthRefScriptOutput, OperatorCreds, PollFactoryRefScriptOutput, Reward, SplashPolicy,
-    VotingEscrowRefScriptOutput, VotingEscrowScriptHash, WPollVoteOrderRefScriptOutput,
+    MintWPAuthRefScriptOutput, OperatorCreds, PermManagerAuthPolicy, PollFactoryRefScriptOutput, Reward,
+    SplashPolicy, VotingEscrowRefScriptOutput, VotingEscrowScriptHash, WPollVoteOrderRefScriptOutput,
     WPollVoteOrderScriptHash, WeightingPowerPolicy, WeightingPowerRefScriptOutput,
 };
 use crate::routines::actions::{
@@ -89,6 +88,7 @@ where
         + Has<MintWPAuthRefScriptOutput>
         + Has<MintVEIdentifierPolicy>
         + Has<GenesisEpochStartTime>
+        + Has<PermManagerAuthPolicy>
         + Has<WeightingPowerPolicy>
         + Has<WeightingPowerRefScriptOutput>
         + Has<WPollVoteOrderScriptHash>
@@ -601,7 +601,7 @@ where
         // Voting escrow ---------------------------------------------------------------------------
         let mut voting_escrow_out = ve_box_in.clone();
         let data_mut = voting_escrow_out.data_mut().unwrap();
-        let VotingEscrowConfig {
+        let mut ve_state @ VotingEscrowConfig {
             owner,
             last_wp_epoch,
             version,
@@ -657,7 +657,7 @@ where
 
         if version != order_version {
             return Err(ExecuteOrderError::Witness(
-                WitnessError::VEVersionMismatchWithOffchainOrder {
+                WitnessError::VEVersionMismatchWithTXMetadata {
                     voting_escrow_input_version: version,
                     order_version,
                 },
@@ -709,7 +709,14 @@ where
         );
 
         let new_ve_version = voting_escrow.get().version + 1;
-        unsafe_update_ve_state(data_mut, new_wp_epoch, new_ve_version);
+        ve_state.last_wp_epoch = new_wp_epoch as i32;
+        ve_state.version = new_ve_version;
+
+        // We create a new instance of the datum, because extracting the underlying
+        // PlutusData::Constr to update fields in-place means we lose the original indefinite-array
+        // containing the fields (CML uses definite-arrays by default).
+        *data_mut = ve_state.into_pd();
+
         let mut next_ve = voting_escrow.get().clone();
         next_ve.last_wp_epoch = new_wp_epoch as i32;
         next_ve.version = new_ve_version;

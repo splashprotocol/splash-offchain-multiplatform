@@ -308,7 +308,7 @@ pub enum WitnessError {
         last_wp_epoch: i32,
         current_epoch: i32,
     },
-    VEVersionMismatchWithOffchainOrder {
+    VEVersionMismatchWithTXMetadata {
         voting_escrow_input_version: u32,
         order_version: u32,
     },

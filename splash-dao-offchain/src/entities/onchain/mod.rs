@@ -7,7 +7,7 @@ use cml_crypto::{RawBytesEncoding, ScriptHash};
 use extend_voting_escrow_order::{ExtendVotingEscrowOnchainOrder, ExtendVotingEscrowOrderBundle};
 use funding_box::{FundingBox, FundingBoxSnapshot};
 use inflation_box::{InflationBox, InflationBoxSnapshot};
-use make_voting_escrow_order::MakeVotingEscrowOrder;
+use make_voting_escrow_order::{MakeVotingEscrowOrder, MakeVotingEscrowOrderBundle};
 use permission_manager::{PermManager, PermManagerSnapshot};
 use poll_factory::{PollFactory, PollFactorySnapshot};
 use redeem_voting_escrow::{RedeemVotingEscrowOnchainOrder, RedeemVotingEscrowOrderBundle};
@@ -316,6 +316,16 @@ impl<Bearer> From<WPollVoteOrderBundle<Bearer>> for DaoOrderBundle<Bearer> {
     fn from(value: WPollVoteOrderBundle<Bearer>) -> Self {
         Self {
             order: DaoOrder::WPollVote(value.order),
+            output_ref: value.output_ref,
+            bearer: value.bearer,
+        }
+    }
+}
+
+impl<Bearer> From<MakeVotingEscrowOrderBundle<Bearer>> for DaoOrderBundle<Bearer> {
+    fn from(value: MakeVotingEscrowOrderBundle<Bearer>) -> Self {
+        Self {
+            order: DaoOrder::MakeVE(value.order),
             output_ref: value.output_ref,
             bearer: value.bearer,
         }

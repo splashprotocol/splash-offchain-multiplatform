@@ -997,19 +997,25 @@ async fn create_wpoll_vote_onchain_order(
             change_output_creator.add_input(&utxo);
             tx_builder.add_input(utxo).unwrap();
         }
-
         // wpoll_vote_order output
         if let Some(DatumOption::Datum { datum, .. }) = ve_unspent_output.output.datum() {
             let ve_state = VotingEscrowConfig::try_from_pd(datum)?;
-            let order_datum = DatumOption::new_datum(
-                WPollVoteState {
-                    ve_state,
-                    weighting_poll_auth_token_name,
-                    ve_identifier_token_name,
-                    expected_diff,
-                }
-                .into_pd(),
+            let order_datum = WPollVoteState {
+                ve_state,
+                weighting_poll_auth_token_name,
+                ve_identifier_token_name,
+                expected_diff,
+            };
+
+            let proxy_order_script_hash = protocol_deployment.wpoll_vote_order.hash;
+            let order_metadata = create_ve_metadata(
+                order_datum.clone(),
+                proxy_order_script_hash,
+                ve_state.version,
+                &op_inputs.operator_sk,
             );
+
+            let order_datum = DatumOption::new_datum(order_datum.into_pd());
             let mut value = Value::zero();
             value.coin = WPOLL_VOTE_ORDER_MIN_LOVELACES;
             let wpoll_vote_order_output = TransactionOutputBuilder::new()
@@ -1031,6 +1037,11 @@ async fn create_wpoll_vote_onchain_order(
             let change_output = change_output_creator.create_change_output(actual_fee, addr.clone());
             tx_builder.set_fee(actual_fee);
             tx_builder.add_output(change_output).unwrap();
+
+            let mut conway_aux_data = ConwayFormatAuxData::new();
+            conway_aux_data.metadata = Some(cml_chain::auxdata::Metadata::from(order_metadata));
+            let aux_data = AuxiliaryData::new_conway(conway_aux_data);
+            tx_builder.set_auxiliary_data(aux_data);
 
             let signed_tx_builder = tx_builder.build(ChangeSelectionAlgo::Default, addr).unwrap();
 
@@ -1182,8 +1193,8 @@ async fn create_extend_voting_escrow_onchain_order(
 
     let order_metadata = create_ve_metadata(
         order_datum.clone(),
-        protocol_deployment.redeem_ve_order.hash,
-        order_datum.ve_state.version,
+        protocol_deployment.extend_ve_order.hash,
+        order_datum.ve_state.version - 1,
         &op_inputs.operator_sk,
     );
     let mut conway_aux_data = ConwayFormatAuxData::new();
@@ -1231,7 +1242,7 @@ async fn create_redeem_voting_escrow_onchain_order(
 
     let utxos = collect_utxos(
         addr,
-        REDEEM_VOTING_ESCROW_ORDER_MIN_LOVELACES + 1_000_000,
+        REDEEM_VOTING_ESCROW_ORDER_MIN_LOVELACES + 2_000_000,
         vec![],
         collateral,
         explorer,

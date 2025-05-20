@@ -135,7 +135,7 @@ pub async fn user_simulator<'a>(
                 ve_state = VEState::WithVotingEscrow {
                     ve_snapshot,
                     ve_datum,
-                    ve_extended_this_epoch: true, // set this to true to prevent lock extension to next epoch
+                    ve_extended_this_epoch: false, // set this to true to prevent lock extension to next epoch
                 };
             }
             let mut file = tokio::fs::File::create(ve_identifier_json_path).await.unwrap();
@@ -199,7 +199,7 @@ pub async fn user_simulator<'a>(
                                 ve_state, current_epoch, version
                             );
 
-                            let voting_power = ve_snapshot.get().voting_power(now) - 2;
+                            let voting_power = ve_snapshot.get().voting_power(now) - 100;
                             let num_farms = op_inputs.deployment_progress.num_initial_farms;
                             let expected_diff: Vec<_> = (0..num_farms)
                                 .map(|id| {
@@ -481,12 +481,9 @@ pub(crate) fn create_ve_metadata<T: IntoPlutusData + Clone>(
     operator_sk: &PrivateKey,
 ) -> ProxyOrderMetadata {
     use cml_chain::Serialize;
-    let witness: PlutusScript =
-        PlutusV3Script::new(hex::decode(&DaoScriptData::global().proxy_order_witness.script_bytes).unwrap())
-            .into();
     let datum_hex = hex::encode(order_datum.clone().into_pd().to_cbor_bytes());
     println!("datum: {}", datum_hex);
-    let message = compute_witness_message(witness.hash(), &order_datum.into_pd(), version);
+    let message = compute_witness_message(witness_script_hash, &order_datum.into_pd(), version);
     println!("message: {}", hex::encode(&message));
     let prefix_bytes = vec![0x9F, 1, 2, 3];
     let postfix_bytes = vec![0xFF];

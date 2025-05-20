@@ -316,11 +316,6 @@ impl TryFromPData for Owner {
     }
 }
 
-pub fn unsafe_update_ve_state(data: &mut PlutusData, last_poll_epoch: ProtocolEpoch, new_version: u32) {
-    let cpd = data.get_constr_pd_mut().unwrap();
-    cpd.set_field(2, PlutusData::new_integer(new_version.into()));
-    cpd.set_field(3, PlutusData::new_integer(last_poll_epoch.into()))
-}
 pub enum VotingEscrowAction {
     /// Apply governance action.
     Governance,
