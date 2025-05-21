@@ -31,4 +31,4 @@ uplc-pallas-primitives = { package = "pallas-primitives", version = "0.31" }
 [features]
 default = []
 enable_test_30_min_epoch = ["splash-dao-offchain/test_30_min_epoch"]
-enable_test_10_hour_epoch = ["splash-dao-offchain/test_10_hour_epoch"]
+enable_test_8_hour_epoch = ["splash-dao-offchain/test_8_hour_epoch"]

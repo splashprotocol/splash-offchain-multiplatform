@@ -30,7 +30,7 @@ pub const TAIL_REDUCTION_RATE_NUM: u64 = 94_524;
 
 pub const TAIL_REDUCTION_RATE_DEN: u64 = 100_000;
 
-#[cfg(not(feature = "test_10_hour_epoch"))]
+#[cfg(not(feature = "test_8_hour_epoch"))]
 pub mod time {
     /// Length of one emission epoch in milliseconds.
     pub const EPOCH_LEN: u64 = 604_800_000;
@@ -82,7 +82,7 @@ pub const ELIMINATE_WPOLL_MINIMUM_FUNDING: u64 = 3_000_000;
 pub const CREATE_WPOLL_MINIMUM_FUNDING: u64 = 5_000_000;
 pub const DISTRIBUTE_INFLATION_MINIMUM_FUNDING: u64 = 5_000_000;
 
-#[cfg(feature = "test_10_hour_epoch")]
+#[cfg(feature = "test_8_hour_epoch")]
 pub mod time {
     /// Length of one emission epoch in milliseconds (8 hours).
     pub const EPOCH_LEN: u64 = 28_800_000;
