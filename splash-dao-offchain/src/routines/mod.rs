@@ -636,7 +636,15 @@ impl<
                 let eliminate_wpoll = self
                     .get_latest_wpoll_to_eliminate(current_epoch - 1, genesis, now_millis)
                     .await
-                    .map(|(weighting_poll, epoch)| (PendingEliminatePoll { weighting_poll }, epoch));
+                    .map(|(weighting_poll, epoch)| {
+                        (
+                            PendingEliminatePoll {
+                                weighting_poll,
+                                perm_manager: perm_manager.clone(),
+                            },
+                            epoch,
+                        )
+                    });
 
                 let previous_epoch_state = if let Some((prev_wp, next_farm, old_epoch)) = self
                     .get_oldest_wpoll_to_distribute_inflation(current_epoch - 1, genesis, now_millis)
@@ -686,6 +694,7 @@ impl<
                                 PollState::PollExhaustedAndReadyToEliminate => {
                                     Some(EpochRoutineState::PendingEliminatePoll(PendingEliminatePoll {
                                         weighting_poll: prev_wp,
+                                        perm_manager: perm_manager.clone(),
                                     }))
                                 }
                                 PollState::Eliminated => Some(EpochRoutineState::Eliminated),
@@ -1476,7 +1485,10 @@ impl<
 
     async fn try_eliminate_poll(
         &mut self,
-        PendingEliminatePoll { weighting_poll }: PendingEliminatePoll<Bearer>,
+        PendingEliminatePoll {
+            weighting_poll,
+            perm_manager,
+        }: PendingEliminatePoll<Bearer>,
     ) -> Option<ToRoutine>
     where
         Actions: WPollActions<Bearer> + Send + Sync,
@@ -1504,7 +1516,12 @@ impl<
                 info!("Eliminating wpoll @ epoch {}", epoch);
                 let (signed_tx, funding_box_changes) = self
                     .actions
-                    .eliminate_wpoll(weighting_poll, funding_boxes, Slot(current_slot))
+                    .eliminate_wpoll(
+                        weighting_poll,
+                        perm_manager.erased(),
+                        funding_boxes,
+                        Slot(current_slot),
+                    )
                     .await;
                 let prover = OperatorProver::new(self.conf.operator_sk.clone());
                 let outbound_tx = prover.prove(signed_tx);
@@ -1680,6 +1697,7 @@ impl<
     {
         for epoch in (0..=starting_epoch).rev() {
             if let Some(Either::Right(wp)) = self.weighting_poll(epoch).await {
+                trace!("Checking to eliminate wpoll @epoch {}", epoch);
                 if let PollState::PollExhaustedAndReadyToEliminate =
                     wp.as_erased().0.get().state(genesis, now_millis)
                 {
@@ -2557,6 +2575,7 @@ pub struct DistributionInProgress<Out> {
 
 pub struct PendingEliminatePoll<Out> {
     weighting_poll: AnyMod<Bundled<WeightingPollSnapshot, Out>>,
+    perm_manager: AnyMod<Bundled<PermManagerSnapshot, Out>>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Hash, serde::Serialize, serde::Deserialize)]

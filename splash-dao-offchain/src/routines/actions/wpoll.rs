@@ -7,7 +7,7 @@ use cml_chain::builders::input_builder::{InputBuilderResult, SingleInputBuilder}
 use cml_chain::builders::mint_builder::SingleMintBuilder;
 use cml_chain::builders::output_builder::{SingleOutputBuilderResult, TransactionOutputBuilder};
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
-use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder};
+use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput};
 use cml_chain::builders::withdrawal_builder::SingleWithdrawalBuilder;
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
 use cml_chain::certs::Credential;
@@ -42,6 +42,7 @@ use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::offchain::{compute_witness_message, WPollVoteOffChainOrder};
 use crate::entities::onchain::funding_box::{FundingBox, FundingBoxId};
 use crate::entities::onchain::inflation_box::{unsafe_update_ibox_state, InflationBoxSnapshot};
+use crate::entities::onchain::permission_manager::PermManagerSnapshot;
 use crate::entities::onchain::poll_factory::{
     unsafe_update_factory_state, FactoryRedeemer, PollFactoryAction, PollFactorySnapshot,
 };
@@ -398,6 +399,7 @@ where
     async fn eliminate_wpoll(
         &self,
         Bundled(weighting_poll, weighting_poll_in): Bundled<WeightingPollSnapshot, TransactionOutput>,
+        Bundled(perm_manager, perm_manager_in): Bundled<PermManagerSnapshot, TransactionOutput>,
         funding_boxes: AvailableFundingBoxes,
         current_slot: Slot,
     ) -> (SignedTxBuilder, FundingBoxChanges) {
@@ -409,7 +411,35 @@ where
         let wpoll_auth_ref_script = self.ctx.select::<MintWPAuthRefScriptOutput>().0;
         let wpoll_script_hash = self.ctx.select::<MintWPAuthPolicy>().0;
 
-        let redeemer = weighting_poll::PollAction::Destroy;
+        enum T {
+            PermManager,
+            Other,
+        }
+
+        let perm_manager_unspent_input = TransactionUnspentOutput::new(
+            TransactionInput::from(perm_manager.version().output_ref),
+            perm_manager_in.clone(),
+        );
+
+        // Need to determine the index of `perm_manager` within `reference_inputs`
+        let mut indexed_ref_inputs = vec![
+            (perm_manager_unspent_input, T::PermManager),
+            (mint_weighting_power_ref_script, T::Other),
+            (wpoll_auth_ref_script, T::Other),
+        ];
+        indexed_ref_inputs.sort_by_key(|(input, _)| input.input.clone());
+        let perm_manager_input_ix = indexed_ref_inputs
+            .iter()
+            .position(|(_, typ)| matches!(typ, T::PermManager))
+            .unwrap() as u32;
+
+        for (ref_input, _) in indexed_ref_inputs {
+            tx_builder.add_reference_input(ref_input);
+        }
+
+        let redeemer = weighting_poll::PollAction::Destroy {
+            perm_manager_input_ix,
+        };
         let weighting_poll_script =
             PartialPlutusWitness::new(PlutusScriptWitness::Ref(wpoll_script_hash), redeemer.into_pd());
 
@@ -442,8 +472,6 @@ where
             .unwrap() as u64;
         trace!("`eliminate_wpoll` input: wpoll_ix: {}", wpoll_ix);
 
-        tx_builder.add_reference_input(mint_weighting_power_ref_script);
-        tx_builder.add_reference_input(wpoll_auth_ref_script);
         let mut change_output_creator = ChangeOutputCreator::default();
         for (_, input) in inputs {
             change_output_creator.add_input(&input);
@@ -474,44 +502,47 @@ where
         tx_builder.add_mint(wp_auth_minting_policy).unwrap();
 
         // Burn weighting_power tokens -------------------------------------------------------------
-        let mint_weighting_power_policy = self.ctx.select::<WeightingPowerPolicy>().0;
-        let weighting_power = weighting_poll.get().weighting_power.unwrap();
-        let mut names = output_value
-            .multiasset
-            .deref_mut()
-            .remove(&mint_weighting_power_policy)
-            .unwrap();
-        assert_eq!(names.len(), 1);
-        let (mint_weighting_power_token_name, qty) = names.pop_front().unwrap();
-        assert_eq!(qty, weighting_power);
-        assert_eq!(mint_weighting_power_token_name, name);
-
-        let mint_action = voting_escrow::MintAction::Burn;
-        let mint_wp_auth_token_witness = PartialPlutusWitness::new(
-            PlutusScriptWitness::Ref(mint_weighting_power_policy),
-            mint_action.into_pd(),
-        );
-        let mint_weighting_power_builder_result =
-            SingleMintBuilder::new_single_asset(name.clone(), -(weighting_power as i64))
-                .plutus_script(mint_wp_auth_token_witness, RequiredSigners::from(vec![]));
-        tx_builder.add_mint(mint_weighting_power_builder_result).unwrap();
 
         let dsd = DaoScriptData::global();
         tx_builder.set_exunits(
             RedeemerWitnessKey::new(RedeemerTag::Mint, 0),
             dsd.mint_wp_auth_token.burn_ex_units.clone(),
         );
-        tx_builder.set_exunits(
-            RedeemerWitnessKey::new(RedeemerTag::Mint, 1),
-            dsd.mint_weighting_power.burn_ex_units.clone(),
-        );
 
-        // ------------------
-        change_output_creator.burn_token(crate::create_change_output::Token {
-            policy_id: mint_weighting_power_policy,
-            asset_name: mint_weighting_power_token_name,
-            quantity: weighting_power,
-        });
+        let mint_weighting_power_policy = self.ctx.select::<WeightingPowerPolicy>().0;
+
+        // If there exists weighting power, burn it.
+        if let Some(weighting_power) = weighting_poll.get().weighting_power {
+            let mut names = output_value
+                .multiasset
+                .deref_mut()
+                .remove(&mint_weighting_power_policy)
+                .unwrap();
+            assert_eq!(names.len(), 1);
+            let (mint_weighting_power_token_name, qty) = names.pop_front().unwrap();
+            assert_eq!(qty, weighting_power);
+            assert_eq!(mint_weighting_power_token_name, name);
+
+            let mint_action = voting_escrow::MintAction::Burn;
+            let mint_wp_auth_token_witness = PartialPlutusWitness::new(
+                PlutusScriptWitness::Ref(mint_weighting_power_policy),
+                mint_action.into_pd(),
+            );
+            let mint_weighting_power_builder_result =
+                SingleMintBuilder::new_single_asset(name.clone(), -(weighting_power as i64))
+                    .plutus_script(mint_wp_auth_token_witness, RequiredSigners::from(vec![]));
+            tx_builder.add_mint(mint_weighting_power_builder_result).unwrap();
+
+            change_output_creator.burn_token(crate::create_change_output::Token {
+                policy_id: mint_weighting_power_policy,
+                asset_name: mint_weighting_power_token_name,
+                quantity: weighting_power,
+            });
+            tx_builder.set_exunits(
+                RedeemerWitnessKey::new(RedeemerTag::Mint, 1),
+                dsd.mint_weighting_power.burn_ex_units.clone(),
+            );
+        }
 
         let OperatorCreds(_, operator_addr) = self.ctx.select::<OperatorCreds>();
         let output = TransactionOutputBuilder::new()
@@ -533,6 +564,10 @@ where
             change_output_creator.create_change_output(estimated_tx_fee, operator_addr.clone());
         tx_builder.add_output(change_output).unwrap();
         tx_builder.set_fee(estimated_tx_fee);
+
+        // Add operator as signatory
+        let OperatorCreds(operator_pkh, _) = self.ctx.select::<OperatorCreds>();
+        tx_builder.add_required_signer(operator_pkh);
 
         tx_builder
             .add_collateral(InputBuilderResult::from(self.ctx.select::<Collateral>()))

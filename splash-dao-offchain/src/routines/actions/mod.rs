@@ -85,6 +85,7 @@ pub trait WPollActions<Bearer> {
     async fn eliminate_wpoll(
         &self,
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
+        perm_manager: Bundled<PermManagerSnapshot, Bearer>,
         funding_boxes: AvailableFundingBoxes,
         current_slot: Slot,
     ) -> (SignedTxBuilder, FundingBoxChanges);

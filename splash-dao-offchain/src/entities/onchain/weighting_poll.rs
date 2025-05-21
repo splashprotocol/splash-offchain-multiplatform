@@ -62,7 +62,8 @@ pub struct WeightingPoll {
     pub epoch: ProtocolEpoch,
     pub distribution: Vec<(FarmId, u64)>,
     pub emission_rate: TaggedAmount<Splash>,
-    /// Note: weighting power is not determined until vote stage.
+    /// Note: weighting power is not determined until vote stage. If this field is None then no
+    /// votes have currently been cast for the current epoch.
     pub weighting_power: Option<u64>,
     pub eliminated: bool,
 }
@@ -163,10 +164,7 @@ impl WeightingPoll {
         let epoch_end = epoch_end(genesis, self.epoch);
         let past_cooling_off_period =
             time_now > epoch_end + COOLDOWN_PERIOD_MILLIS + COOLDOWN_PERIOD_EXTRA_BUFFER;
-        self.distribution_finished()
-            && self.weighting_power.is_some()
-            && !self.eliminated
-            && past_cooling_off_period
+        self.distribution_finished() && !self.eliminated && past_cooling_off_period
     }
 
     pub fn reserves_splash(&self) -> u64 {
@@ -404,7 +402,9 @@ pub enum PollAction {
         /// Index of the farm input.
         farm_in_ix: u32,
     },
-    Destroy,
+    Destroy {
+        perm_manager_input_ix: u32,
+    },
 }
 
 impl IntoPlutusData for PollAction {
@@ -420,7 +420,12 @@ impl IntoPlutusData for PollAction {
                     ],
                 ))
             }
-            PollAction::Destroy => PlutusData::ConstrPlutusData(ConstrPlutusData::new(2, vec![])),
+            PollAction::Destroy {
+                perm_manager_input_ix,
+            } => PlutusData::ConstrPlutusData(ConstrPlutusData::new(
+                2,
+                vec![PlutusData::Integer(BigInteger::from(perm_manager_input_ix))],
+            )),
         };
 
         // Need this wrapping since `weighting_poll` is a multivalidator.
