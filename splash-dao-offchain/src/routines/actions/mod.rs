@@ -269,6 +269,7 @@ pub enum ExecuteOrderError {
         available_weighting_power: u64,
     },
     InVotingPower,
+    LockTimeBeforeEpochEnd,
     Witness(WitnessError),
     Other(String),
 }

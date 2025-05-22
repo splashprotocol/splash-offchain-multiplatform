@@ -47,7 +47,8 @@ use crate::entities::onchain::poll_factory::{
     unsafe_update_factory_state, FactoryRedeemer, PollFactoryAction, PollFactorySnapshot,
 };
 use crate::entities::onchain::voting_escrow::{
-    self, Owner, VotingEscrowAction, VotingEscrowAuthorizedAction, VotingEscrowConfig, VotingEscrowSnapshot,
+    self, Lock, Owner, VotingEscrowAction, VotingEscrowAuthorizedAction, VotingEscrowConfig,
+    VotingEscrowSnapshot,
 };
 use crate::entities::onchain::weighting_poll::{
     self, unsafe_update_wp_state, MintAction, WeightingPollSnapshot,
@@ -66,6 +67,7 @@ use crate::routines::actions::{
     AvailableFundingBoxes, BlueprintEstimates, DaoTxBlueprint, FundingBoxChanges, Slot, WitnessError,
 };
 use crate::routines::TimedOutputRef;
+use crate::time::epoch_end;
 use crate::util::set_min_ada;
 use crate::GenesisEpochStartTime;
 
@@ -640,6 +642,7 @@ where
             owner,
             last_wp_epoch,
             version,
+            locked_until,
             ..
         } = VotingEscrowConfig::try_from_pd(data_mut.clone()).unwrap();
 
@@ -697,6 +700,13 @@ where
                     order_version,
                 },
             ));
+        }
+
+        if let Lock::Def(until_millis) = locked_until {
+            let gen_epoch_start = self.ctx.select::<GenesisEpochStartTime>();
+            if until_millis < epoch_end(gen_epoch_start, new_wp_epoch) {
+                return Err(ExecuteOrderError::LockTimeBeforeEpochEnd);
+            }
         }
 
         // Sort inputs -----------------------------------------------------------------------------

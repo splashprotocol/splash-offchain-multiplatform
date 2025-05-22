@@ -199,7 +199,9 @@ pub async fn user_simulator<'a>(
                                 ve_state, current_epoch, version
                             );
 
-                            let voting_power = ve_snapshot.get().voting_power(now) - 100;
+                            let available_voting_power = ve_snapshot.get().voting_power(now);
+                            assert!(available_voting_power > 200);
+                            let voting_power = available_voting_power - 200;
                             let num_farms = op_inputs.deployment_progress.num_initial_farms;
                             let expected_diff: Vec<_> = (0..num_farms)
                                 .map(|id| {
