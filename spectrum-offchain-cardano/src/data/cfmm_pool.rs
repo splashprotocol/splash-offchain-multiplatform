@@ -469,10 +469,12 @@ impl MarketMaker for ConstFnPool {
 
         let [base, quote] = order_canonical(self.asset_x.untag(), self.asset_y.untag());
 
+        let tradable_x_reserves_int = (self.reserves_x - self.treasury_x - self.royalty_x).untag();
         let tradable_x_reserves =
-            BigNumber::from((self.reserves_x - self.treasury_x - self.royalty_x).untag() as f64);
+            BigNumber::from(tradable_x_reserves_int as f64);
+        let tradable_y_reserves_int = (self.reserves_y - self.treasury_y - self.royalty_y).untag();
         let tradable_y_reserves =
-            BigNumber::from((self.reserves_y - self.treasury_y - self.royalty_y).untag() as f64);
+            BigNumber::from(tradable_y_reserves_int as f64);
         let raw_fee_x = self
             .lp_fee_x
             .checked_sub(&self.treasury_fee)
@@ -488,15 +490,15 @@ impl MarketMaker for ConstFnPool {
         let ask_price = BigNumber::from(*worst_price.unwrap().numer() as f64)
             / BigNumber::from(*worst_price.unwrap().denom() as f64);
 
-        let (tradable_reserves_base, tradable_reserves_quote, total_fee_mult, avg_price) = match worst_price {
+        let (tradable_reserves_base_int, tradable_reserves_quote_int, tradable_reserves_base, tradable_reserves_quote, total_fee_mult, avg_price) = match worst_price {
             OnSide::Bid(_) if base == self.asset_x.untag() => {
-                (tradable_y_reserves, tradable_x_reserves, fee_y, bid_price)
+                (tradable_y_reserves_int, tradable_x_reserves_int, tradable_y_reserves, tradable_x_reserves, fee_y, bid_price)
             }
-            OnSide::Bid(_) => (tradable_x_reserves, tradable_y_reserves, fee_x, bid_price),
+            OnSide::Bid(_) => (tradable_x_reserves_int, tradable_y_reserves_int, tradable_x_reserves, tradable_y_reserves, fee_x, bid_price),
             OnSide::Ask(_) if base == self.asset_x.untag() => {
-                (tradable_x_reserves, tradable_y_reserves, fee_x, ask_price)
+                (tradable_x_reserves_int, tradable_y_reserves_int, tradable_x_reserves, tradable_y_reserves, fee_x, ask_price)
             }
-            OnSide::Ask(_) => (tradable_y_reserves, tradable_x_reserves, fee_y, ask_price),
+            OnSide::Ask(_) => (tradable_y_reserves_int, tradable_x_reserves_int, tradable_y_reserves, tradable_x_reserves, fee_y, ask_price),
         };
 
         let lq_balance = (tradable_reserves_base.clone() * tradable_reserves_quote.clone()).pow(&sqrt_degree);
@@ -515,8 +517,20 @@ impl MarketMaker for ConstFnPool {
         let output_amount_val = <u64>::try_from(output_amount.value.to_int().value()).ok()?;
 
         let capped_output_amount = match worst_price {
-            OnSide::Bid(_) if base.is_native() => output_amount_val - UNTOUCHABLE_LOVELACE_AMOUNT,
-            OnSide::Ask(_) if quote.is_native() => output_amount_val - UNTOUCHABLE_LOVELACE_AMOUNT,
+            OnSide::Bid(_) if base.is_native() => {
+                if tradable_reserves_base_int - output_amount_val < UNTOUCHABLE_LOVELACE_AMOUNT {
+                    tradable_reserves_base_int - UNTOUCHABLE_LOVELACE_AMOUNT
+                } else {
+                    output_amount_val
+                }
+            }
+            OnSide::Ask(_) if quote.is_native() => {
+                if tradable_reserves_quote_int - output_amount_val < UNTOUCHABLE_LOVELACE_AMOUNT {
+                    tradable_reserves_quote_int - UNTOUCHABLE_LOVELACE_AMOUNT
+                } else {
+                    output_amount_val
+                }
+            },
             _ => output_amount_val,
         };
         Some(AvailableLiquidity {
