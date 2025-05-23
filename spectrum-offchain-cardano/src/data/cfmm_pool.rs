@@ -467,14 +467,12 @@ impl MarketMaker for ConstFnPool {
     fn available_liquidity_on_side(&self, worst_price: OnSide<AbsolutePrice>) -> Option<AvailableLiquidity> {
         let sqrt_degree = BigNumber::from(0.5);
 
-        let [base, quote] = order_canonical(self.asset_x.untag(), self.asset_y.untag());
+        let [base, _] = order_canonical(self.asset_x.untag(), self.asset_y.untag());
 
         let tradable_x_reserves_int = (self.reserves_x - self.treasury_x - self.royalty_x).untag();
-        let tradable_x_reserves =
-            BigNumber::from(tradable_x_reserves_int as f64);
+        let tradable_x_reserves = BigNumber::from(tradable_x_reserves_int as f64);
         let tradable_y_reserves_int = (self.reserves_y - self.treasury_y - self.royalty_y).untag();
-        let tradable_y_reserves =
-            BigNumber::from(tradable_y_reserves_int as f64);
+        let tradable_y_reserves = BigNumber::from(tradable_y_reserves_int as f64);
         let raw_fee_x = self
             .lp_fee_x
             .checked_sub(&self.treasury_fee)
@@ -490,15 +488,41 @@ impl MarketMaker for ConstFnPool {
         let ask_price = BigNumber::from(*worst_price.unwrap().numer() as f64)
             / BigNumber::from(*worst_price.unwrap().denom() as f64);
 
-        let (tradable_reserves_base_int, tradable_reserves_quote_int, tradable_reserves_base, tradable_reserves_quote, total_fee_mult, avg_price) = match worst_price {
-            OnSide::Bid(_) if base == self.asset_x.untag() => {
-                (tradable_y_reserves_int, tradable_x_reserves_int, tradable_y_reserves, tradable_x_reserves, fee_y, bid_price)
-            }
-            OnSide::Bid(_) => (tradable_x_reserves_int, tradable_y_reserves_int, tradable_x_reserves, tradable_y_reserves, fee_x, bid_price),
-            OnSide::Ask(_) if base == self.asset_x.untag() => {
-                (tradable_x_reserves_int, tradable_y_reserves_int, tradable_x_reserves, tradable_y_reserves, fee_x, ask_price)
-            }
-            OnSide::Ask(_) => (tradable_y_reserves_int, tradable_x_reserves_int, tradable_y_reserves, tradable_x_reserves, fee_y, ask_price),
+        let (
+            tradable_reserves_quote_int,
+            tradable_reserves_base,
+            tradable_reserves_quote,
+            total_fee_mult,
+            avg_price,
+        ) = match worst_price {
+            OnSide::Bid(_) if base == self.asset_x.untag() => (
+                tradable_x_reserves_int,
+                tradable_y_reserves,
+                tradable_x_reserves,
+                fee_y,
+                bid_price,
+            ),
+            OnSide::Bid(_) => (
+                tradable_y_reserves_int,
+                tradable_x_reserves,
+                tradable_y_reserves,
+                fee_x,
+                bid_price,
+            ),
+            OnSide::Ask(_) if base == self.asset_x.untag() => (
+                tradable_y_reserves_int,
+                tradable_x_reserves,
+                tradable_y_reserves,
+                fee_x,
+                ask_price,
+            ),
+            OnSide::Ask(_) => (
+                tradable_x_reserves_int,
+                tradable_y_reserves,
+                tradable_x_reserves,
+                fee_y,
+                ask_price,
+            ),
         };
 
         let lq_balance = (tradable_reserves_base.clone() * tradable_reserves_quote.clone()).pow(&sqrt_degree);
@@ -515,24 +539,13 @@ impl MarketMaker for ConstFnPool {
 
         let input_amount_val = <u64>::try_from(input_amount.value.to_int().value()).ok()?;
         let output_amount_val = <u64>::try_from(output_amount.value.to_int().value()).ok()?;
+        let remain_quote = tradable_reserves_quote_int.checked_sub(output_amount_val)?;
 
-        let capped_output_amount = match worst_price {
-            OnSide::Bid(_) if base.is_native() => {
-                if tradable_reserves_base_int - output_amount_val < UNTOUCHABLE_LOVELACE_AMOUNT {
-                    tradable_reserves_base_int - UNTOUCHABLE_LOVELACE_AMOUNT
-                } else {
-                    output_amount_val
-                }
-            }
-            OnSide::Ask(_) if quote.is_native() => {
-                if tradable_reserves_quote_int - output_amount_val < UNTOUCHABLE_LOVELACE_AMOUNT {
-                    tradable_reserves_quote_int - UNTOUCHABLE_LOVELACE_AMOUNT
-                } else {
-                    output_amount_val
-                }
-            },
-            _ => output_amount_val,
+        let capped_output_amount = match UNTOUCHABLE_LOVELACE_AMOUNT.checked_sub(remain_quote) {
+            Some(_) => tradable_reserves_quote_int.checked_sub(UNTOUCHABLE_LOVELACE_AMOUNT)?,
+            None => output_amount_val,
         };
+
         Some(AvailableLiquidity {
             input: input_amount_val,
             output: capped_output_amount,
@@ -1409,13 +1422,13 @@ where
 
 #[cfg(test)]
 mod tests {
-    use cml_chain::address::Address;
+    use std::convert::identity;
+
     use cml_chain::transaction::TransactionOutput;
     use cml_core::serialization::Deserialize;
     use cml_crypto::ScriptHash;
     use num_rational::Ratio;
     use num_traits::ToPrimitive;
-    use std::convert::identity;
     use type_equalities::IsEqual;
 
     use bloom_offchain::execution_engine::liquidity_book::core::{Excess, MakeInProgress, Next, Trans};
@@ -1450,6 +1463,7 @@ mod tests {
         treasury_fee: u64,
         treasury_x: u64,
         treasury_y: u64,
+        native_ind: u64,
     ) -> ConstFnPool {
         return ConstFnPool {
             id: PoolId::from(Token(
@@ -1468,20 +1482,40 @@ mod tests {
             reserves_x: TaggedAmount::new(reserves_x),
             reserves_y: TaggedAmount::new(reserves_y),
             liquidity: TaggedAmount::new(liquidity),
-            asset_x: TaggedAssetClass::new(AssetClass::Native),
-            asset_y: TaggedAssetClass::new(AssetClass::Token(Token(
-                ScriptHash::from([
-                    75, 52, 89, 253, 24, 161, 219, 171, 226, 7, 205, 25, 201, 149, 26, 159, 172, 159, 92, 15,
-                    156, 56, 78, 61, 151, 239, 186, 38,
-                ]),
-                AssetName::from((
-                    5,
-                    [
-                        116, 101, 115, 116, 67, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0,
-                    ],
-                )),
-            ))),
+            asset_x: if native_ind == 0 {
+                TaggedAssetClass::new(AssetClass::Native)
+            } else {
+                TaggedAssetClass::new(AssetClass::Token(Token(
+                    ScriptHash::from([
+                        75, 52, 89, 253, 24, 161, 219, 171, 226, 7, 205, 25, 201, 149, 26, 159, 172, 159, 92,
+                        15, 156, 56, 78, 61, 151, 239, 186, 38,
+                    ]),
+                    AssetName::from((
+                        5,
+                        [
+                            116, 101, 115, 116, 67, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                            0, 0, 0, 0, 0, 0, 0, 0,
+                        ],
+                    )),
+                )))
+            },
+            asset_y: if native_ind == 1 {
+                TaggedAssetClass::new(AssetClass::Native)
+            } else {
+                TaggedAssetClass::new(AssetClass::Token(Token(
+                    ScriptHash::from([
+                        75, 52, 89, 253, 24, 161, 219, 171, 226, 7, 205, 25, 201, 149, 26, 159, 172, 159, 92,
+                        15, 156, 56, 78, 61, 151, 239, 186, 38,
+                    ]),
+                    AssetName::from((
+                        5,
+                        [
+                            116, 101, 115, 116, 67, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                            0, 0, 0, 0, 0, 0, 0, 0,
+                        ],
+                    )),
+                )))
+            },
             asset_lq: TaggedAssetClass::new(AssetClass::Token(Token(
                 ScriptHash::from([
                     114, 191, 27, 172, 195, 20, 1, 41, 111, 158, 228, 210, 254, 123, 132, 165, 36, 56, 38,
@@ -1543,6 +1577,7 @@ mod tests {
             100,
             405793826,
             1029672612,
+            0,
         );
         let final_pool_distinct_swaps = distinct_swaps
             .iter()
@@ -1562,12 +1597,11 @@ mod tests {
             balanced_pool_aggregate_swap.0.result.fold(identity, |_| panic!()),
             final_pool_aggregate_swap
         );
-        assert_eq!(1, 2)
     }
 
     #[test]
     fn treasury_x_test() {
-        let pool = gen_ada_token_pool(1632109645, 1472074052, 0, 99970, 99970, 10, 11500, 2909);
+        let pool = gen_ada_token_pool(1632109645, 1472074052, 0, 99970, 99970, 10, 11500, 2909, 0);
 
         let resulted_pool = pool.swap(OnSide::Ask(900000000));
         let trans = Trans::new(pool, resulted_pool);
@@ -1664,30 +1698,74 @@ mod tests {
     #[test]
     fn available_liquidity_test_bug() {
         let fee_num = 99100;
-        let reserves_x = 2562678905; // OADA
-        let reserves_y = 484492; // NIKE
+        let reserves_x = 2562678905;
+        let reserves_y = 484492;
 
         let pool = gen_ada_token_pool(
-            reserves_x, reserves_y, 34991018, fee_num, fee_num, 90, 873404, 401,
+            reserves_x, reserves_y, 34991018, fee_num, fee_num, 90, 873404, 401, 0,
         );
         let spot = pool.static_price().unwrap().to_f64().unwrap();
-        let worst_price = AbsolutePrice::new(283321878, 60797).unwrap();
+        let worst_price = AbsolutePrice::new(60797, 283321878).unwrap();
         let Some(AvailableLiquidity {
             input: inp,
             output: out,
-        }) = pool.available_liquidity_on_side(Ask(worst_price))
+        }) = pool.available_liquidity_on_side(Bid(worst_price))
         else {
             !panic!();
         };
 
-        let Next::Succ(pool1) = pool.swap(OnSide::Ask(60797)) else {
+        let Next::Succ(pool1) = pool.swap(OnSide::Bid(60797)) else {
             panic!()
         };
-        let y_rec = pool.reserves_x.untag() - pool1.reserves_x.untag();
+        let x_rec = pool.reserves_x.untag() - pool1.reserves_x.untag();
 
-        assert_eq!(y_rec, 283321878);
+        assert_eq!(x_rec, 283321878);
         assert_eq!(inp, 60797);
         assert_eq!(out, 283321885);
+    }
+
+    #[test]
+    fn available_liquidity_low_lq_test() {
+        let fee_num = 99100;
+        let reserves_x = 10_000_000;
+        let reserves_y = 1_000_000;
+
+        let pool = gen_ada_token_pool(reserves_x, reserves_y, 0, fee_num, fee_num, 90, 0, 0, 0);
+        let Next::Succ(pool1) = pool.swap(OnSide::Bid(100_000_000)) else {
+            panic!()
+        };
+        let x_rec = pool.reserves_x.untag() - pool1.reserves_x.untag();
+        let worst_price = AbsolutePrice::new(100_000_000, 9900010).unwrap();
+        let Some(AvailableLiquidity {
+            input: inp,
+            output: out,
+        }) = pool.available_liquidity_on_side(Bid(worst_price))
+        else {
+            !panic!();
+        };
+
+        assert_eq!(x_rec, 7000000);
+        assert_eq!(inp, 100_000_000);
+        assert_eq!(out, 7000000);
+
+        let pool = gen_ada_token_pool(reserves_y, reserves_x, 0, fee_num, fee_num, 90, 0, 0, 1);
+        let Next::Succ(pool1) = pool.swap(OnSide::Bid(100_000_000)) else {
+            panic!()
+        };
+
+        let y_rec = pool.reserves_y.untag() - pool1.reserves_y.untag();
+        let worst_price = AbsolutePrice::new(100_000_000, 9900010).unwrap();
+        let Some(AvailableLiquidity {
+            input: inp,
+            output: out,
+        }) = pool.available_liquidity_on_side(Bid(worst_price))
+        else {
+            !panic!();
+        };
+
+        assert_eq!(y_rec, 7000000);
+        assert_eq!(inp, 100_000_000);
+        assert_eq!(out, 7000000);
     }
 
     #[test]
@@ -1696,7 +1774,7 @@ mod tests {
         let reserves_x = 1116854094529;
         let reserves_y = 4602859113047;
 
-        let pool = gen_ada_token_pool(reserves_x, reserves_y, 0, fee_num, fee_num, 0, 0, 0);
+        let pool = gen_ada_token_pool(reserves_x, reserves_y, 0, fee_num, fee_num, 0, 0, 0, 0);
 
         let worst_price = AbsolutePrice::new(4524831899687659, 1125899906842624).unwrap();
         let Some(AvailableLiquidity {
