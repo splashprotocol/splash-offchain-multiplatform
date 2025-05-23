@@ -27,13 +27,18 @@ pub fn classic_cfmm_output_amount<X, Y>(
             / ((reserves_y.untag() as u128) * (*pool_fee_y.denom() as u128)
                 + (base_amount.untag() as u128) * (*pool_fee_y.numer() as u128))
     };
-    let output_asset = if base_asset.untag() == asset_x.untag() {
-        asset_y.untag()
+    let (output_asset, liquidity) = if base_asset.untag() == asset_x.untag() {
+        (asset_y.untag(), reserves_y.untag())
     } else {
-        asset_x.untag()
+        (asset_x.untag(), reserves_x.untag())
     };
     let capped_quote = if output_asset.is_native() {
-        quote_amount as u64 - UNTOUCHABLE_LOVELACE_AMOUNT
+        let amount_left = liquidity - quote_amount as u64;
+        if amount_left < UNTOUCHABLE_LOVELACE_AMOUNT {
+            liquidity - UNTOUCHABLE_LOVELACE_AMOUNT
+        } else {
+            quote_amount as u64
+        }
     } else {
         quote_amount as u64
     };
