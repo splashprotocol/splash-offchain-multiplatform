@@ -6,6 +6,8 @@ use num_rational::Ratio;
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
 use std::cmp::min;
 
+pub const UNTOUCHABLE_LOVELACE_AMOUNT: u64 = 3_000_000;
+
 pub fn classic_cfmm_output_amount<X, Y>(
     asset_x: TaggedAssetClass<X>,
     reserves_x: TaggedAmount<X>,
@@ -24,7 +26,12 @@ pub fn classic_cfmm_output_amount<X, Y>(
             / ((reserves_y.untag() as u128) * (*pool_fee_y.denom() as u128)
                 + (base_amount.untag() as u128) * (*pool_fee_y.numer() as u128))
     };
-    TaggedAmount::new(quote_amount as u64)
+    let capped_quote = if base_asset.untag() == asset_x.untag() && asset_x.is_native() {
+        quote_amount as u64
+    } else {
+        quote_amount as u64 - UNTOUCHABLE_LOVELACE_AMOUNT
+    };
+    TaggedAmount::new(capped_quote)
 }
 
 pub fn classic_cfmm_reward_lp(
