@@ -43,10 +43,6 @@ use crate::deployment::ProtocolValidator::{
 use crate::deployment::{DeployedScriptInfo, DeployedValidator};
 use spectrum_cardano_lib::{NetworkId, OutputRef, Token};
 
-pub struct Input;
-
-pub struct Output;
-
 pub struct Base;
 
 pub struct Quote;
