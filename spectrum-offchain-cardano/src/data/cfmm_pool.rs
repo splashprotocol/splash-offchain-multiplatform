@@ -70,7 +70,10 @@ use crate::deployment::ProtocolValidator::{
 };
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::fees::FeeExtension;
-use crate::pool_math::cfmm_math::{classic_cfmm_output_amount, classic_cfmm_reward_lp, classic_cfmm_shares_amount, UNTOUCHABLE_LOVELACE_AMOUNT};
+use crate::pool_math::cfmm_math::{
+    classic_cfmm_output_amount, classic_cfmm_reward_lp, classic_cfmm_shares_amount,
+    UNTOUCHABLE_LOVELACE_AMOUNT,
+};
 
 pub struct LegacyCFMMPoolConfig {
     pub pool_nft: TaggedAssetClass<PoolNft>,
@@ -264,6 +267,7 @@ impl AMMOps for ConstFnPool {
     ) -> TaggedAmount<Quote> {
         classic_cfmm_output_amount(
             self.asset_x,
+            self.asset_y,
             self.reserves_x - self.treasury_x - self.royalty_x,
             self.reserves_y - self.treasury_y - self.royalty_y,
             base_asset,
@@ -459,14 +463,16 @@ impl MarketMaker for ConstFnPool {
             }
         }
     }
-    
+
     fn available_liquidity_on_side(&self, worst_price: OnSide<AbsolutePrice>) -> Option<AvailableLiquidity> {
         let sqrt_degree = BigNumber::from(0.5);
 
         let [base, quote] = order_canonical(self.asset_x.untag(), self.asset_y.untag());
 
-        let tradable_x_reserves = BigNumber::from((self.reserves_x - self.treasury_x - self.royalty_x).untag() as f64);
-        let tradable_y_reserves = BigNumber::from((self.reserves_y - self.treasury_y - self.royalty_y).untag() as f64);
+        let tradable_x_reserves =
+            BigNumber::from((self.reserves_x - self.treasury_x - self.royalty_x).untag() as f64);
+        let tradable_y_reserves =
+            BigNumber::from((self.reserves_y - self.treasury_y - self.royalty_y).untag() as f64);
         let raw_fee_x = self
             .lp_fee_x
             .checked_sub(&self.treasury_fee)
@@ -509,15 +515,9 @@ impl MarketMaker for ConstFnPool {
         let output_amount_val = <u64>::try_from(output_amount.value.to_int().value()).ok()?;
 
         let capped_output_amount = match worst_price {
-            OnSide::Bid(_) if base.is_native() => {
-                output_amount_val - UNTOUCHABLE_LOVELACE_AMOUNT
-            }
-            OnSide::Ask(_) if quote.is_native() => {
-                output_amount_val - UNTOUCHABLE_LOVELACE_AMOUNT
-            }
-            _ => {
-                output_amount_val
-            }
+            OnSide::Bid(_) if base.is_native() => output_amount_val - UNTOUCHABLE_LOVELACE_AMOUNT,
+            OnSide::Ask(_) if quote.is_native() => output_amount_val - UNTOUCHABLE_LOVELACE_AMOUNT,
+            _ => output_amount_val,
         };
         Some(AvailableLiquidity {
             input: input_amount_val,

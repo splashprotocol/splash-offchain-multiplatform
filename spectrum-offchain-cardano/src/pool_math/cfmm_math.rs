@@ -10,6 +10,7 @@ pub const UNTOUCHABLE_LOVELACE_AMOUNT: u64 = 3_000_000;
 
 pub fn classic_cfmm_output_amount<X, Y>(
     asset_x: TaggedAssetClass<X>,
+    asset_y: TaggedAssetClass<Y>,
     reserves_x: TaggedAmount<X>,
     reserves_y: TaggedAmount<Y>,
     base_asset: TaggedAssetClass<Base>,
@@ -26,10 +27,15 @@ pub fn classic_cfmm_output_amount<X, Y>(
             / ((reserves_y.untag() as u128) * (*pool_fee_y.denom() as u128)
                 + (base_amount.untag() as u128) * (*pool_fee_y.numer() as u128))
     };
-    let capped_quote = if base_asset.untag() == asset_x.untag() && asset_x.is_native() {
-        quote_amount as u64
+    let output_asset = if base_asset.untag() == asset_x.untag() {
+        asset_y.untag()
     } else {
+        asset_x.untag()
+    };
+    let capped_quote = if output_asset.is_native() {
         quote_amount as u64 - UNTOUCHABLE_LOVELACE_AMOUNT
+    } else {
+        quote_amount as u64
     };
     TaggedAmount::new(capped_quote)
 }

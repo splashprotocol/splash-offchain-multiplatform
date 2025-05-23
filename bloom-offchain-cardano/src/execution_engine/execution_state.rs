@@ -195,7 +195,15 @@ impl TxBlueprint {
                         .unwrap();
                     let output = SingleOutputBuilderResult::new(output);
                     txb.add_input(input).expect("add script input ok");
-                    trace!("Adding output: {} -> {}", serde_json::to_string(output.output.value()).unwrap(), output.output.address().to_bech32(None).unwrap_or_else(|_| "_".to_string()));
+                    trace!(
+                        "Adding output: {} -> {}",
+                        serde_json::to_string(output.output.value()).unwrap(),
+                        output
+                            .output
+                            .address()
+                            .to_bech32(None)
+                            .unwrap_or_else(|_| "_".to_string())
+                    );
                     txb.add_output(output).expect("add script output ok");
                     let ctx = ScriptContextPreview { self_index: ix };
                     txb.set_exunits(
