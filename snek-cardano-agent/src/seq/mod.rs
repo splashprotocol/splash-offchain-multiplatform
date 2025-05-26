@@ -1,5 +1,7 @@
+mod cond;
 mod session;
 
+use crate::seq::cond::{ConditionalValidation, Validations};
 use crate::seq::session::SessionInProgress;
 use bloom_offchain_cardano::event_sink::handler::LedgerCx;
 use cml_core::Slot;
@@ -110,7 +112,7 @@ impl<Ticks, Events, K, T> WithDeterministicSeq<Ticks, Events, K, T> {
     fn update_session(&mut self, pair: PairId, event: Channel<Transition<T>, LedgerCx>)
     where
         K: Copy + Eq + Hash + Display + Unpin,
-        T: SeqState<StableId = K> + Unpin,
+        T: SeqState<StableId = K> + ConditionalValidation<{ Validations::HypedLaunch as u8 }> + Unpin,
     {
         match self.active_sessions.entry(pair) {
             Entry::Vacant(entry) => {
@@ -118,17 +120,20 @@ impl<Ticks, Events, K, T> WithDeterministicSeq<Ticks, Events, K, T> {
                     if state.is_quasi_permanent() && state.is_initial() {
                         // New session is triggered
                         let session_sealed_at = self.current_slot + self.session_duration;
+                        let capped = state.cond();
                         trace!(
-                            "New session {} created at {}, sealed at {}",
+                            "New session {} created at {}, sealed at {}, capped = {}",
                             pair,
                             self.current_slot,
-                            session_sealed_at
+                            session_sealed_at,
+                            capped
                         );
                         entry.insert(SessionInProgress::new(
                             Transition::Forward(Ior::Right(state)),
                             cx,
                             session_sealed_at,
                             self.session_settlement,
+                            capped,
                         ));
                     }
                 }
@@ -149,7 +154,7 @@ where
     Ticks: Stream<Item = Slot> + Unpin,
     Events: Stream<Item = (PairId, Channel<Transition<T>, LedgerCx>)> + Unpin,
     K: Copy + Eq + Hash + Ord + Display + Unpin + RawBytes,
-    T: SeqState<StableId = K> + Unpin,
+    T: SeqState<StableId = K> + ConditionalValidation<{ Validations::HypedLaunch as u8 }> + Unpin,
 {
     type Item = (PairId, Channel<Transition<T>, LedgerCx>);
 
@@ -231,6 +236,22 @@ mod tests {
             match self {
                 TestEvent::Order { init, .. } => *init,
                 TestEvent::Pool { init, .. } => *init,
+            }
+        }
+    }
+
+    impl ConditionalValidation<{ Validations::HypedLaunch as u8 }> for TestEvent {
+        fn cond(&self) -> bool {
+            match self {
+                TestEvent::Order { .. } => false,
+                TestEvent::Pool { id, .. } => *id == 99,
+            }
+        }
+
+        fn is_valid(&self) -> bool {
+            match self {
+                TestEvent::Order { id, .. } => *id == 98,
+                TestEvent::Pool { .. } => true,
             }
         }
     }
@@ -512,5 +533,95 @@ mod tests {
         let pair_ids: HashSet<_> = yielded_events.iter().map(|(pair_id, _)| pair_id).collect();
         assert!(pair_ids.contains(&pair_id_1));
         assert!(pair_ids.contains(&pair_id_2));
+    }
+
+    #[tokio::test]
+    async fn session_does_not_contain_invalid_events() {
+        let (_, tick_rx) = mpsc::channel(50);
+        let (mut event_tx, event_rx) = mpsc::channel(50);
+
+        let session_duration = 10;
+        let session_settlement = 5;
+
+        let pair_id_1 = PairId::canonical(
+            AssetClass::Native,
+            AssetClass::Token(Token::from_string_unsafe(
+                "12536cb877860b2ed0d532f24ba170d084fe958ea02087f4540f2cd7.",
+            )),
+        );
+
+        let timeout = std::time::Duration::from_millis(100);
+        let mut stream =
+            WithDeterministicSeq::new(tick_rx, event_rx, session_duration, session_settlement, false);
+
+        // Simulated events
+        // Event 0: Starting a new session
+        let state_0 = TestEvent::Pool { id: 99, init: true };
+        let event_0 = Channel::Mempool(Unconfirmed(Transition::Forward(Ior::Right(state_0))));
+        event_tx.send((pair_id_1, event_0)).await.unwrap();
+
+        let _ = tokio::time::timeout(timeout, stream.next()).await;
+
+        // Unconfirmed pool doesn't trigger a session start
+        assert!(stream.active_sessions.is_empty());
+
+        // Event 1: Starting a new session
+        let state_1 = TestEvent::Pool { id: 99, init: true };
+        let event_1 = Channel::Ledger(
+            Confirmed(Transition::Forward(Ior::Right(state_1))),
+            LedgerCx {
+                slot: 5,
+                block_hash: BlockHeaderHash::from([0u8; 32]),
+            },
+        );
+        event_tx.send((pair_id_1, event_1)).await.unwrap();
+
+        let _ = tokio::time::timeout(timeout, stream.next()).await;
+
+        // Now a new session is triggered
+        assert!(stream.active_sessions.contains_key(&pair_id_1));
+
+        let state_3 = TestEvent::Order { id: 98, init: true };
+        let event_3 = Channel::Ledger(
+            Confirmed(Transition::Forward(Ior::Right(state_3))),
+            LedgerCx {
+                slot: 15,
+                block_hash: BlockHeaderHash::from([2u8; 32]),
+            },
+        );
+        event_tx.send((pair_id_1, event_3)).await.unwrap();
+
+        // Event 4: Another order event for the same session
+        let state_4 = TestEvent::Order { id: 4, init: false };
+        let event_4 = Channel::Ledger(
+            Confirmed(Transition::Forward(Ior::Right(state_4))),
+            LedgerCx {
+                slot: 18,
+                block_hash: BlockHeaderHash::from([3u8; 32]),
+            },
+        );
+        event_tx.send((pair_id_1, event_4)).await.unwrap();
+
+        // Event 5: Final order event leading to session completion
+        // This order itself won't get into session window.
+        let state_5 = TestEvent::Order { id: 5, init: false };
+        let event_5 = Channel::Ledger(
+            Confirmed(Transition::Forward(Ior::Right(state_5))),
+            LedgerCx {
+                slot: 20,
+                block_hash: BlockHeaderHash::from([4u8; 32]),
+            },
+        );
+        event_tx.send((pair_id_1, event_5)).await.unwrap();
+
+        let mut yielded_events = vec![];
+        while let Some((pair_id, event)) = tokio::time::timeout(timeout, stream.next()).await.unwrap_or(None)
+        {
+            yielded_events.push((pair_id, event));
+        }
+
+        assert_eq!(yielded_events.len(), 3);
+        let pair_ids: HashSet<_> = yielded_events.iter().map(|(pair_id, _)| pair_id).collect();
+        assert!(pair_ids.contains(&pair_id_1));
     }
 }

@@ -16,6 +16,7 @@ use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::PolicyId;
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding};
+use log::trace;
 use spectrum_cardano_lib::address::PlutusAddress;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{
@@ -409,7 +410,7 @@ where
                         virgin: matches!(order_state, Some(OrderState::New)),
                     });
                 } else {
-                    println!(
+                    trace!(
                             "UTxO {}, InstantOrder {} :: sufficient_input: {}, sufficient_execution_budget: {}, sufficient_fee: {}, executable: {}, valid_configuration: {}, is_valid_beacon: {}",
                             ctx.select::<OutputRef>(),
                             conf.beacon,

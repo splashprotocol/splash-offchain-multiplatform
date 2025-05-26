@@ -1,3 +1,4 @@
+use cml_chain::auxdata::Metadata;
 use cml_chain::transaction::TransactionOutput;
 use either::Either;
 
@@ -6,85 +7,23 @@ use bloom_offchain_cardano::orders::adhoc::{AdhocFeeStructure, AdhocOrder};
 use bloom_offchain_cardano::orders::limit::LimitOrderValidation;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::{OutputRef, Token};
-use spectrum_offchain::domain::order::SpecializedOrder;
 use spectrum_offchain::domain::{Baked, EntitySnapshot, Has, SeqState, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::creds::OperatorCred;
-use spectrum_offchain_cardano::data::dao_request::DAOV1ActionOrderValidation;
-use spectrum_offchain_cardano::data::degen_quadratic_pool::DegenQuadraticPool;
-use spectrum_offchain_cardano::data::deposit::DepositOrderValidation;
-use spectrum_offchain_cardano::data::order::Order;
 use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::data::pool::PoolValidation;
-use spectrum_offchain_cardano::data::redeem::RedeemOrderValidation;
-use spectrum_offchain_cardano::data::royalty_withdraw_request::RoyaltyWithdrawOrderValidation;
+use spectrum_offchain_cardano::data::quadratic_pool::QuadraticPool;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
-use spectrum_offchain_cardano::deployment::ProtocolValidator::{
-    BalanceFnPoolDeposit, BalanceFnPoolRedeem, ConstFnFeeSwitchPoolDeposit, ConstFnFeeSwitchPoolRedeem,
-    ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolRedeem, ConstFnPoolSwap, DegenQuadraticPoolV1,
-    InstantOrderV1, LimitOrderV1, RoyaltyPoolDAOV1Request, RoyaltyPoolV1Deposit, RoyaltyPoolV1Redeem,
-    RoyaltyPoolV1RoyaltyWithdrawRequest, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
-};
+use spectrum_offchain_cardano::deployment::ProtocolValidator::{DegenQuadraticPoolV1, InstantOrderV1};
 use spectrum_offchain_cardano::handler_context::{
-    AddedPaymentDestinations, AllowedAdditionalPaymentDestinations, AuthVerificationKey, ConsumedIdentifiers,
-    ConsumedInputs, Mints, ProducedIdentifiers,
+    AddedPaymentDestinations, AllowedAdditionalPaymentDestinations, ConsumedIdentifiers, ConsumedInputs,
+    Mints, ProducedIdentifiers,
 };
-
-#[repr(transparent)]
-#[derive(Debug, Clone)]
-pub struct AtomicCardanoEntity(pub Bundled<Order, FinalizedTxOut>);
-
-impl SpecializedOrder for AtomicCardanoEntity {
-    type TOrderId = OutputRef;
-    type TPoolId = Token;
-
-    fn get_self_ref(&self) -> Self::TOrderId {
-        self.0.get_self_ref()
-    }
-
-    fn get_pool_ref(&self) -> Self::TPoolId {
-        self.0.get_pool_ref()
-    }
-}
-
-impl<C> TryFromLedger<TransactionOutput, C> for AtomicCardanoEntity
-where
-    C: Copy
-        + Has<OperatorCred>
-        + Has<OutputRef>
-        + Has<DeployedScriptInfo<{ ConstFnPoolSwap as u8 }>>
-        + Has<DeployedScriptInfo<{ ConstFnPoolDeposit as u8 }>>
-        + Has<DeployedScriptInfo<{ ConstFnPoolRedeem as u8 }>>
-        + Has<DeployedScriptInfo<{ ConstFnFeeSwitchPoolSwap as u8 }>>
-        + Has<DeployedScriptInfo<{ ConstFnFeeSwitchPoolDeposit as u8 }>>
-        + Has<DeployedScriptInfo<{ ConstFnFeeSwitchPoolRedeem as u8 }>>
-        + Has<DeployedScriptInfo<{ BalanceFnPoolDeposit as u8 }>>
-        + Has<DeployedScriptInfo<{ BalanceFnPoolRedeem as u8 }>>
-        + Has<DeployedScriptInfo<{ StableFnPoolT2TDeposit as u8 }>>
-        + Has<DeployedScriptInfo<{ StableFnPoolT2TRedeem as u8 }>>
-        + Has<DeployedScriptInfo<{ RoyaltyPoolV1Deposit as u8 }>>
-        + Has<DeployedScriptInfo<{ RoyaltyPoolV1Redeem as u8 }>>
-        + Has<DeployedScriptInfo<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>
-        + Has<DeployedScriptInfo<{ RoyaltyPoolDAOV1Request as u8 }>>
-        + Has<DepositOrderValidation>
-        + Has<RedeemOrderValidation>
-        + Has<DAOV1ActionOrderValidation>
-        + Has<RoyaltyWithdrawOrderValidation>,
-{
-    fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
-        Order::try_from_ledger(repr, ctx).map(|inner| {
-            Self(Bundled(
-                inner,
-                FinalizedTxOut::new(repr.clone(), ctx.select::<OutputRef>()),
-            ))
-        })
-    }
-}
 
 #[repr(transparent)]
 #[derive(Debug, Clone)]
 pub struct EvolvingCardanoEntity(
-    pub Bundled<Either<Baked<AdhocOrder, OutputRef>, Baked<DegenQuadraticPool, OutputRef>>, FinalizedTxOut>,
+    pub Bundled<Either<Baked<AdhocOrder, OutputRef>, Baked<QuadraticPool, OutputRef>>, FinalizedTxOut>,
 );
 
 impl Stable for EvolvingCardanoEntity {
@@ -122,6 +61,7 @@ where
     C: Clone
         + Has<OperatorCred>
         + Has<OutputRef>
+        + Has<Option<Metadata>>
         + Has<ConsumedInputs>
         + Has<ConsumedIdentifiers<Token>>
         + Has<ProducedIdentifiers<Token>>
@@ -135,14 +75,12 @@ where
         + Has<Option<Mints>>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
-        <Either<Baked<AdhocOrder, OutputRef>, Baked<DegenQuadraticPool, OutputRef>>>::try_from_ledger(
-            repr, ctx,
-        )
-        .map(|inner| {
-            Self(Bundled(
-                inner,
-                FinalizedTxOut::new(repr.clone(), ctx.select::<OutputRef>()),
-            ))
-        })
+        <Either<Baked<AdhocOrder, OutputRef>, Baked<QuadraticPool, OutputRef>>>::try_from_ledger(repr, ctx)
+            .map(|inner| {
+                Self(Bundled(
+                    inner,
+                    FinalizedTxOut::new(repr.clone(), ctx.select::<OutputRef>()),
+                ))
+            })
     }
 }

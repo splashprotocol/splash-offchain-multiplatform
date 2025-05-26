@@ -17,8 +17,8 @@ use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::balance_pool::{BalancePool, BalancePoolRedeemer};
 use spectrum_offchain_cardano::data::cfmm_pool::ConstFnPoolVer::{FeeSwitch, FeeSwitchV2};
 use spectrum_offchain_cardano::data::cfmm_pool::{CFMMPoolRedeemer, ConstFnPool, ConstFnPoolVer};
-use spectrum_offchain_cardano::data::degen_quadratic_pool::{DegenQuadraticPool, DegenQuadraticPoolRedeemer};
 use spectrum_offchain_cardano::data::pool::{AnyPool, CFMMPoolAction, PoolAssetMapping};
+use spectrum_offchain_cardano::data::quadratic_pool::{QuadraticPool, QuadraticPoolRedeemer};
 use spectrum_offchain_cardano::data::stable_pool_t2t::{StablePoolRedeemer, StablePoolT2T};
 use spectrum_offchain_cardano::data::{balance_pool, cfmm_pool, stable_pool_t2t};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
@@ -673,8 +673,8 @@ where
     }
 }
 
-impl<Ctx> BatchExec<ExecutionState, EffectPreview<DegenQuadraticPool>, Ctx>
-    for Magnet<Make<DegenQuadraticPool, FinalizedTxOut>>
+impl<Ctx> BatchExec<ExecutionState, EffectPreview<QuadraticPool>, Ctx>
+    for Magnet<Make<QuadraticPool, FinalizedTxOut>>
 where
     Ctx: Has<DeployedValidator<{ DegenQuadraticPoolV1 as u8 }>>,
 {
@@ -682,7 +682,7 @@ where
         self,
         mut state: ExecutionState,
         context: Ctx,
-    ) -> (ExecutionState, EffectPreview<DegenQuadraticPool>, Ctx) {
+    ) -> (ExecutionState, EffectPreview<QuadraticPool>, Ctx) {
         let Magnet(trans) = self;
         let side = trans.trade_side().expect("Empty swaps aren't allowed");
         let removed_liquidity = trans.loss().expect("Something must be removed");
@@ -718,7 +718,7 @@ where
             },
             redeemer: delayed_redeemer(move |ordering| {
                 let pool_index = ordering.index_of(&in_ref) as u64;
-                DegenQuadraticPoolRedeemer {
+                QuadraticPoolRedeemer {
                     pool_input_index: pool_index,
                     pool_output_index: pool_index,
                     action: CFMMPoolAction::Swap,

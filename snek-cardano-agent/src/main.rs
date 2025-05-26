@@ -57,9 +57,9 @@ use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::reporting::{reporting_stream, ReportingAgent};
 use spectrum_offchain_cardano::collateral::pull_collateral;
 use spectrum_offchain_cardano::creds::operator_creds;
-use spectrum_offchain_cardano::data::degen_quadratic_pool::DegenQuadraticPool;
 use spectrum_offchain_cardano::data::order::Order;
 use spectrum_offchain_cardano::data::pair::PairId;
+use spectrum_offchain_cardano::data::quadratic_pool::QuadraticPool;
 use spectrum_offchain_cardano::prover::operator::OperatorProver;
 use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
 use spectrum_offchain_cardano::tx_tracker::new_tx_tracker_bundle;
@@ -286,10 +286,8 @@ async fn main() {
         operator_cred: operator_paycred,
         adhoc_fee_structure: config.adhoc_fee.into(),
     };
-    let multi_book = MultiPair::new::<Fifo<AdhocOrder, DegenQuadraticPool, PairId, ExUnits>>(
-        maker_context.clone(),
-        "Book",
-    );
+    let multi_book =
+        MultiPair::new::<Fifo<AdhocOrder, QuadraticPool, PairId, ExUnits>>(maker_context.clone(), "Book");
     let multi_backlog =
         MultiPair::new::<HotPriorityBacklog<Bundled<Order, FinalizedTxOut>>>(maker_context, "Backlog");
     let state_index = InMemoryStateIndex::with_tracing();
@@ -466,7 +464,7 @@ fn adapt_events(
             Channel<
                 Transition<
                     Bundled<
-                        Either<Baked<AdhocOrder, OutputRef>, Baked<DegenQuadraticPool, OutputRef>>,
+                        Either<Baked<AdhocOrder, OutputRef>, Baked<QuadraticPool, OutputRef>>,
                         FinalizedTxOut,
                     >,
                 >,

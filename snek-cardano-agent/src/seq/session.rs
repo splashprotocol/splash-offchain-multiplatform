@@ -1,3 +1,5 @@
+use crate::seq::cond::ConditionalValidation;
+use crate::seq::cond::Validations::HypedLaunch;
 use bloom_offchain_cardano::event_sink::handler::LedgerCx;
 use cml_core::Slot;
 use cml_crypto::BlockHeaderHash;
@@ -21,10 +23,17 @@ pub(crate) struct SessionInProgress<K, T> {
     event_registry: HashMap<K, Channel<Transition<T>, LedgerCx>>,
     sealed_at: Slot,
     settlement_delay: Slot,
+    capped: bool,
 }
 
 impl<K, T> SessionInProgress<K, T> {
-    pub(crate) fn new(event: Transition<T>, cx: LedgerCx, sealed_at: Slot, settlement_delay: Slot) -> Self
+    pub(crate) fn new(
+        event: Transition<T>,
+        cx: LedgerCx,
+        sealed_at: Slot,
+        settlement_delay: Slot,
+        capped: bool,
+    ) -> Self
     where
         K: Copy + Eq + Hash,
         T: SeqState<StableId = K>,
@@ -39,47 +48,52 @@ impl<K, T> SessionInProgress<K, T> {
             event_registry: HashMap::from([(key, Channel::ledger(event, cx))]),
             sealed_at,
             settlement_delay,
+            capped,
         }
     }
 
     pub(crate) fn register_event(&mut self, event: Channel<Transition<T>, LedgerCx>) -> Result<(), ()>
     where
         K: Copy + Eq + Hash + Display,
-        T: Stable<StableId = K>,
+        T: Stable<StableId = K> + ConditionalValidation<{ HypedLaunch as u8 }>,
     {
         let event_key = event.stable_id();
-        match self.event_registry.entry(event_key) {
-            Entry::Occupied(mut entry) => {
-                let current = entry.get();
-                if is_cancellation(&event) {
-                    self.original_ordering.retain(|k| *k != event_key);
-                    entry.remove();
-                    if event_key == self.opening_event {
-                        return Err(());
-                    }
-                } else {
-                    if let Some(confirmed_at) = is_confirmation(current, &event) {
-                        // Confirmation of previously seen event
-                        trace!("Registering initial event for entity: {}", event.stable_id());
-                        self.confirmation_ordering.push_back((event_key, confirmed_at));
-                        entry.insert(event);
-                    } else if self.opening_event == event_key {
-                        trace!("Registering follow-up for opening event: {}", event.stable_id());
-                        self.opening_event_followups.push_back(event);
+        if self.capped && !event.is_valid() {
+            trace!("Event {} is invalid", event_key,);
+        } else {
+            match self.event_registry.entry(event_key) {
+                Entry::Occupied(mut entry) => {
+                    let current = entry.get();
+                    if is_cancellation(&event) {
+                        self.original_ordering.retain(|k| *k != event_key);
+                        entry.remove();
+                        if event_key == self.opening_event {
+                            return Err(());
+                        }
+                    } else {
+                        if let Some(confirmed_at) = is_confirmation(current, &event) {
+                            // Confirmation of a previously seen event
+                            trace!("Registering initial event for entity: {}", event.stable_id());
+                            self.confirmation_ordering.push_back((event_key, confirmed_at));
+                            entry.insert(event);
+                        } else if self.opening_event == event_key {
+                            trace!("Registering follow-up for opening event: {}", event.stable_id());
+                            self.opening_event_followups.push_back(event);
+                        }
                     }
                 }
-            }
-            Entry::Vacant(entry) => {
-                if !is_cancellation(&event) {
-                    if let Channel::Ledger(Confirmed(Transition::Forward(_)), lcx) = &event {
-                        self.confirmation_ordering.push_back((event_key, lcx.slot));
+                Entry::Vacant(entry) => {
+                    if !is_cancellation(&event) {
+                        if let Channel::Ledger(Confirmed(Transition::Forward(_)), lcx) = &event {
+                            self.confirmation_ordering.push_back((event_key, lcx.slot));
+                        } else {
+                            self.original_ordering.push_back(event_key);
+                        }
+                        trace!("Registering subsequent event for entity: {}", event.stable_id());
+                        entry.insert(event);
                     } else {
-                        self.original_ordering.push_back(event_key);
+                        warn!("Event {} is not registered", event_key,);
                     }
-                    trace!("Registering subsequent event for entity: {}", event.stable_id());
-                    entry.insert(event);
-                } else {
-                    warn!("Event {} is not registered", event_key,);
                 }
             }
         }
@@ -177,7 +191,7 @@ fn key_to_int<K: Hash>(key: K) -> u64 {
     hasher.finish()
 }
 
-// Determine sequencing window based on deterministic block data
+// Determine the sequencing window based on deterministic block data
 fn seq_window_size(max_win_size: usize, block_hash: BlockHeaderHash) -> usize {
     if max_win_size != 0 {
         let max_cut_size = max_win_size / 4;
@@ -213,6 +227,7 @@ fn is_cancellation<T, C>(new: &Channel<Transition<T>, C>) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use crate::seq::cond::{ConditionalValidation, Validations};
     use crate::seq::session::{do_sequencing, key_to_int, seq_key};
     use bloom_offchain_cardano::event_sink::handler::LedgerCx;
     use cml_crypto::BlockHeaderHash;
@@ -276,6 +291,16 @@ mod tests {
                 TestEvent::Order { init, .. } => *init,
                 TestEvent::Pool { init, .. } => *init,
             }
+        }
+    }
+
+    impl ConditionalValidation<{ Validations::HypedLaunch as u8 }> for TestEvent {
+        fn cond(&self) -> bool {
+            false
+        }
+
+        fn is_valid(&self) -> bool {
+            false
         }
     }
 
@@ -493,7 +518,7 @@ mod tests {
         );
 
         // Initialize the SessionInProgress
-        let mut session = SessionInProgress::new(pool_init, ledger_context, 130, 20);
+        let mut session = SessionInProgress::new(pool_init, ledger_context, 130, 20, false);
 
         // Register event2
         assert!(session.register_event(event2.clone()).is_ok());
@@ -545,7 +570,7 @@ mod tests {
         let event1 = Channel::Ledger(Confirmed(pool_init.clone()), ledger_context_1);
 
         // Initialize the SessionInProgress
-        let mut session = SessionInProgress::new(pool_init, ledger_context_1, 140, 20);
+        let mut session = SessionInProgress::new(pool_init, ledger_context_1, 140, 20, false);
 
         let mut rng = rand::thread_rng();
 
@@ -618,7 +643,7 @@ mod tests {
             slot: 120, // Slot for event 3
         };
 
-        // Create initial events. First event is always a pool.
+        // Create initial events. The first event is always a pool.
         let pool_init = Transition::Forward(Ior::Right(TestEvent::Pool { id: 1, init: true }));
         let event1 = Channel::Ledger(Confirmed(pool_init.clone()), ledger_context_1);
 
@@ -647,7 +672,7 @@ mod tests {
         );
 
         // Initialize the SessionInProgress with the opening event (first event is a pool).
-        let mut session = SessionInProgress::new(pool_init, ledger_context_1, 110, 20);
+        let mut session = SessionInProgress::new(pool_init, ledger_context_1, 110, 20, false);
 
         // Register events
         assert!(

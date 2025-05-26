@@ -1,3 +1,6 @@
+use crate::config::ExplorerConfig;
+use crate::constants::{MAINNET_PREFIX, PREPROD_PREFIX};
+use crate::Network::{Mainnet, Preprod};
 use async_trait::async_trait;
 use blockfrost::{BlockFrostSettings, BlockfrostAPI, Order, Pagination};
 use blockfrost_openapi::models::{
@@ -11,23 +14,20 @@ use cml_chain::{Script, Value};
 use cml_core::serialization::Deserialize;
 use cml_crypto::{DatumHash, TransactionHash};
 use futures::future::join_all;
+use log::trace;
 use maestro_rust_sdk::client::maestro;
 use maestro_rust_sdk::models::addresses::UtxosAtAddress;
 use maestro_rust_sdk::models::transactions::RedeemerEvaluation;
 use maestro_rust_sdk::utils::Parameters;
+use spectrum_cardano_lib::value::ValueExtension;
+use spectrum_cardano_lib::AssetClass::{Native, Token};
+use spectrum_cardano_lib::Token as RawToken;
+use spectrum_cardano_lib::{NetworkId, OutputRef, PaymentCredential};
 use std::collections::HashMap;
 use std::io::Error;
 use std::path::Path;
 use std::string::ToString;
 use tokio::fs;
-
-use crate::config::ExplorerConfig;
-use crate::constants::{MAINNET_PREFIX, PREPROD_PREFIX};
-use crate::Network::{Mainnet, Preprod};
-use spectrum_cardano_lib::value::ValueExtension;
-use spectrum_cardano_lib::AssetClass::{Native, Token};
-use spectrum_cardano_lib::Token as RawToken;
-use spectrum_cardano_lib::{NetworkId, OutputRef, PaymentCredential};
 
 pub mod client;
 
@@ -411,7 +411,7 @@ impl ExtendedCardanoNetwork for Maestro {
 
     async fn submit_tx(&self, cbor_bytes: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
         let result = self.0.tx_manager_submit(cbor_bytes.to_vec()).await?;
-        println!("TX submit result: {}", result);
+        trace!("TX submit result: {}", result);
         Ok(())
     }
 

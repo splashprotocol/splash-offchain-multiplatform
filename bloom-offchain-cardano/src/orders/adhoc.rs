@@ -113,11 +113,7 @@ impl MarketTaker for AdhocOrder {
     }
 
     fn input(&self) -> u64 {
-        let original_input = self.0.input();
-        match self.side() {
-            Side::Bid => original_input,
-            Side::Ask => original_input,
-        }
+        self.0.input()
     }
 
     fn output(&self) -> OutputAsset<u64> {

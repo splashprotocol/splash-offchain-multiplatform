@@ -10,10 +10,10 @@ use spectrum_offchain::executor::{RunOrder, RunOrderError};
 use spectrum_offchain_cardano::creds::OperatorRewardAddress;
 use spectrum_offchain_cardano::data::balance_order::RunBalanceAMMOrderOverPool;
 use spectrum_offchain_cardano::data::dao_request::DAOContext;
-use spectrum_offchain_cardano::data::degen_quadratic_pool::DegenQuadraticPool;
 use spectrum_offchain_cardano::data::order::{Order, RunClassicalAMMOrderOverPool};
 use spectrum_offchain_cardano::data::pool::AnyPool;
 use spectrum_offchain_cardano::data::pool::AnyPool::{BalancedCFMM, PureCFMM, StableCFMM};
+use spectrum_offchain_cardano::data::quadratic_pool::QuadraticPool;
 use spectrum_offchain_cardano::data::royalty_withdraw_request::RoyaltyWithdrawContext;
 use spectrum_offchain_cardano::data::stable_order::RunStableAMMOrderOverPool;
 use spectrum_offchain_cardano::deployment::DeployedValidator;
@@ -86,7 +86,7 @@ where
 }
 
 impl<Ctx> RunOrder<Bundled<Order, FinalizedTxOut>, Ctx, SignedTxBuilder>
-    for PoolMagnet<Bundled<DegenQuadraticPool, FinalizedTxOut>>
+    for PoolMagnet<Bundled<QuadraticPool, FinalizedTxOut>>
 {
     fn try_run(
         self,

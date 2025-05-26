@@ -4,12 +4,14 @@ use std::ops::Div;
 use bignumber::BigNumber;
 use cml_chain::address::Address;
 use cml_chain::assets::MultiAsset;
+use cml_chain::auxdata::{Metadata, TransactionMetadatum};
 use cml_chain::certs::StakeCredential;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::{ConwayFormatTxOut, TransactionOutput};
 use cml_chain::utils::BigInteger;
 use cml_chain::Value;
 use cml_core::serialization::RawBytesEncoding;
+use cml_core::Int;
 use cml_crypto::Ed25519KeyHash;
 use dashu_float::DBig;
 use log::trace;
@@ -49,7 +51,7 @@ use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass, Token};
 use spectrum_offchain::domain::{Has, SeqState, Stable, Tradable};
 use spectrum_offchain::ledger::{IntoLedger, TryFromLedger};
 
-pub struct DegenQuadraticPoolConfig {
+pub struct QuadraticPoolConfig {
     pub pool_nft: TaggedAssetClass<PoolNft>,
     pub asset_x: TaggedAssetClass<Rx>,
     pub asset_y: TaggedAssetClass<Ry>,
@@ -79,7 +81,7 @@ const DATUM_MAPPING: DatumMapping = DatumMapping {
     ada_cap_thr: 6,
 };
 
-impl TryFromPData for DegenQuadraticPoolConfig {
+impl TryFromPData for QuadraticPoolConfig {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
         let pool_nft = TaggedAssetClass::try_from_pd(cpd.take_field(DATUM_MAPPING.pool_nft)?)?;
@@ -104,12 +106,12 @@ impl TryFromPData for DegenQuadraticPoolConfig {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum DegenQuadraticPoolVer {
+pub enum QuadraticPoolVer {
     V1,
 }
 
-impl DegenQuadraticPoolVer {
-    pub fn try_from_address<Ctx>(pool_addr: &Address, ctx: &Ctx) -> Option<DegenQuadraticPoolVer>
+impl QuadraticPoolVer {
+    pub fn try_from_address<Ctx>(pool_addr: &Address, ctx: &Ctx) -> Option<QuadraticPoolVer>
     where
         Ctx: Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>> + Has<PoolValidation>,
     {
@@ -123,7 +125,7 @@ impl DegenQuadraticPoolVer {
                 .script_hash
                 == *this_hash
             {
-                return Some(DegenQuadraticPoolVer::V1);
+                return Some(QuadraticPoolVer::V1);
             }
         }
         None
@@ -131,7 +133,7 @@ impl DegenQuadraticPoolVer {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct DegenQuadraticPool {
+pub struct QuadraticPool {
     pub id: PoolId,
     pub reserves_x: TaggedAmount<Rx>,
     pub reserves_y: TaggedAmount<Ry>,
@@ -140,16 +142,17 @@ pub struct DegenQuadraticPool {
     pub a_num: u64,
     pub b_num: u64,
     pub ada_cap_thr: u64,
-    pub ver: DegenQuadraticPoolVer,
+    pub ver: QuadraticPoolVer,
     pub marginal_cost: ExUnits,
     pub bounds: PoolValidation,
     pub virgin: bool,
+    pub capped: bool,
 }
 
-impl Display for DegenQuadraticPool {
+impl Display for QuadraticPool {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(&*format!(
-            "DegenPool(id: {}, static_price: {}, quality: {})",
+            "QuadraticPool(id: {}, static_price: {}, quality: {})",
             self.id,
             self.static_price(),
             self.quality()
@@ -157,7 +160,7 @@ impl Display for DegenQuadraticPool {
     }
 }
 
-impl DegenQuadraticPool {
+impl QuadraticPool {
     pub fn asset_mapping(&self, side: Side) -> PoolAssetMapping {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
@@ -198,15 +201,15 @@ impl DegenQuadraticPool {
     }
 }
 
-pub struct DegenQuadraticPoolRedeemer {
+pub struct QuadraticPoolRedeemer {
     pub pool_input_index: u64,
     pub pool_output_index: u64,
     pub action: CFMMPoolAction,
 }
 
-impl DegenQuadraticPoolRedeemer {
+impl QuadraticPoolRedeemer {
     pub fn to_plutus_data(self) -> PlutusData {
-        DegenQuadraticPool::create_redeemer(self.pool_input_index, self.pool_output_index)
+        QuadraticPool::create_redeemer(self.pool_input_index, self.pool_output_index)
     }
 }
 
@@ -218,7 +221,7 @@ pub trait AMMOps {
     ) -> TaggedAmount<Quote>;
 }
 
-impl AMMOps for DegenQuadraticPool {
+impl AMMOps for QuadraticPool {
     fn output_amount(
         &self,
         base_asset: TaggedAssetClass<Base>,
@@ -235,20 +238,20 @@ impl AMMOps for DegenQuadraticPool {
     }
 }
 
-impl<Ctx> RequiresValidator<Ctx> for DegenQuadraticPool
+impl<Ctx> RequiresValidator<Ctx> for QuadraticPool
 where
     Ctx: Has<DeployedValidator<{ DegenQuadraticPoolV1 as u8 }>>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self.ver {
-            DegenQuadraticPoolVer::V1 => ctx
+            QuadraticPoolVer::V1 => ctx
                 .select::<DeployedValidator<{ DegenQuadraticPoolV1 as u8 }>>()
                 .erased(),
         }
     }
 }
 
-impl MakerBehavior for DegenQuadraticPool {
+impl MakerBehavior for QuadraticPool {
     fn swap(mut self, input: OnSide<u64>) -> Next<Self, Void> {
         let x = self.asset_x.untag();
         let y = self.asset_y.untag();
@@ -300,7 +303,7 @@ impl MakerBehavior for DegenQuadraticPool {
     }
 }
 
-impl MarketMaker for DegenQuadraticPool {
+impl MarketMaker for QuadraticPool {
     type U = ExUnits;
 
     fn static_price(&self) -> SpotPrice {
@@ -637,13 +640,13 @@ impl MarketMaker for DegenQuadraticPool {
     }
 }
 
-impl Has<DegenQuadraticPoolVer> for DegenQuadraticPool {
-    fn select<U: IsEqual<DegenQuadraticPoolVer>>(&self) -> DegenQuadraticPoolVer {
+impl Has<QuadraticPoolVer> for QuadraticPool {
+    fn select<U: IsEqual<QuadraticPoolVer>>(&self) -> QuadraticPoolVer {
         self.ver
     }
 }
 
-impl Stable for DegenQuadraticPool {
+impl Stable for QuadraticPool {
     type StableId = Token;
     fn stable_id(&self) -> Self::StableId {
         self.id.into()
@@ -653,35 +656,50 @@ impl Stable for DegenQuadraticPool {
     }
 }
 
-impl SeqState for DegenQuadraticPool {
+impl SeqState for QuadraticPool {
     fn is_initial(&self) -> bool {
         self.virgin
     }
 }
 
-impl Tradable for DegenQuadraticPool {
+impl Tradable for QuadraticPool {
     type PairId = PairId;
     fn pair_id(&self) -> Self::PairId {
         PairId::canonical(self.asset_x.untag(), self.asset_y.untag())
     }
 }
 
-impl<Ctx> TryFromLedger<TransactionOutput, Ctx> for DegenQuadraticPool
+const CAP_META_KEY: u64 = 7;
+const CAP_META_VALUE: u64 = 1;
+
+fn is_capped<C: Has<Option<Metadata>>>(cx: &C) -> bool {
+    cx.select::<Option<Metadata>>()
+        .and_then(|meta| {
+            meta.get(CAP_META_KEY).map(|v| match v {
+                TransactionMetadatum::Int(Int::Uint { value, .. }) => *value == CAP_META_VALUE,
+                _ => false,
+            })
+        })
+        .unwrap_or(false)
+}
+
+impl<Ctx> TryFromLedger<TransactionOutput, Ctx> for QuadraticPool
 where
     Ctx: Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>>
         + Has<PoolValidation>
         + Has<OperatorCred>
-        + Has<Option<Mints>>,
+        + Has<Option<Mints>>
+        + Has<Option<Metadata>>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
-        if let Some(pool_ver) = DegenQuadraticPoolVer::try_from_address(repr.address(), ctx) {
+        if let Some(pool_ver) = QuadraticPoolVer::try_from_address(repr.address(), ctx) {
             let value = repr.value();
             let pd = repr.datum().clone()?.into_pd()?;
             let bounds = ctx.select::<PoolValidation>();
             let marginal_cost = ctx
                 .select::<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>>()
                 .marginal_cost;
-            let conf = DegenQuadraticPoolConfig::try_from_pd(pd.clone())?;
+            let conf = QuadraticPoolConfig::try_from_pd(pd.clone())?;
             let reserves_x: TaggedAmount<Rx> = TaggedAmount::new(value.amount_of(conf.asset_x.into())?);
             let executable = conf.operator_pkh == ctx.select::<OperatorCred>().into();
             let x_is_native = conf.asset_x.is_native();
@@ -691,7 +709,7 @@ where
                 .select::<Option<Mints>>()
                 .is_some_and(|mnt| mnt.contains_mint(pool_id.into()));
             if executable && x_is_native && reserves_in_bounds {
-                return Some(DegenQuadraticPool {
+                return Some(QuadraticPool {
                     id: pool_id,
                     reserves_x,
                     reserves_y: TaggedAmount::new(value.amount_of(conf.asset_y.into())?),
@@ -704,6 +722,7 @@ where
                     bounds,
                     ada_cap_thr: conf.ada_cap_thr,
                     virgin,
+                    capped: is_capped(ctx),
                 });
             } else {
                 trace!(
@@ -719,7 +738,7 @@ where
     }
 }
 
-impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for DegenQuadraticPool {
+impl IntoLedger<TransactionOutput, ImmutablePoolUtxo> for QuadraticPool {
     fn into_ledger(self, mut immut_pool: ImmutablePoolUtxo) -> TransactionOutput {
         let mut ma = MultiAsset::new();
         let coins = if self.asset_x.is_native() {
@@ -760,8 +779,8 @@ mod tests {
     use type_equalities::IsEqual;
 
     use crate::creds::OperatorCred;
-    use crate::data::degen_quadratic_pool::{DegenQuadraticPool, DegenQuadraticPoolVer};
     use crate::data::pool::PoolValidation;
+    use crate::data::quadratic_pool::{QuadraticPool, QuadraticPoolVer};
     use crate::data::PoolId;
     use crate::deployment::ProtocolValidator::DegenQuadraticPoolV1;
     use crate::deployment::{DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes};
@@ -787,8 +806,8 @@ mod tests {
         a_num: u64,
         b_num: u64,
         ada_thr: u64,
-    ) -> DegenQuadraticPool {
-        DegenQuadraticPool {
+    ) -> QuadraticPool {
+        QuadraticPool {
             id: PoolId::from(Token(
                 ScriptHash::from([
                     162, 206, 112, 95, 150, 240, 52, 167, 61, 102, 158, 92, 11, 47, 25, 41, 48, 224, 188,
@@ -820,7 +839,7 @@ mod tests {
             ))),
             a_num,
             b_num,
-            ver: DegenQuadraticPoolVer::V1,
+            ver: QuadraticPoolVer::V1,
             marginal_cost: ExUnits { mem: 100, steps: 100 },
             bounds: PoolValidation {
                 min_n2t_lovelace: 10000000,
@@ -828,6 +847,7 @@ mod tests {
             },
             ada_cap_thr: ada_thr + MIN_ADA,
             virgin: false,
+            capped: false,
         }
     }
 
