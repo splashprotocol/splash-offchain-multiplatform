@@ -29,6 +29,36 @@
       "steps": 10000000
     }
   },
+  "instantOrderWitness": {
+    "hash": "152e7a364d285842494bb356ddd54ab46eb8360c9fecf5e792525298",
+    "referenceUtxo": {
+      "txHash": "768e326756cec09641fc8b0b6c3bdcb92e5aa45636304ea30794c889bf68f481",
+      "outputIndex": 1
+    },
+    "cost": {
+      "mem": 360000,
+      "steps": 132100000
+    },
+    "marginalCost": {
+      "mem": 213000,
+      "steps": 78944000
+    }
+  },
+  "instantOrder": {
+    "hash": "64956ddc4df888a294bec79d53a91601b60fc46592e8b78e33a486ff",
+    "referenceUtxo": {
+      "txHash": "768e326756cec09641fc8b0b6c3bdcb92e5aa45636304ea30794c889bf68f481",
+      "outputIndex": 0
+    },
+    "cost": {
+      "mem": 162000,
+      "steps": 60000000
+    },
+    "marginalCost": {
+      "mem": 0,
+      "steps": 0
+    }
+  },
   "gridOrderNative": {
     "hash": "6eff899ca605c05c115f0d7b0d0397e2dd886cd366d77bcb4ac65922",
     "referenceUtxo": {
