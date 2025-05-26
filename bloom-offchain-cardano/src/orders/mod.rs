@@ -110,5 +110,9 @@ where
 
 pub(crate) fn harden_price(p: RelativePrice, input: u64) -> RelativePrice {
     let min_output = (input as u128 * *p.numer()).div_ceil(*p.denom());
-    RelativePrice::new(min_output, input as u128)
+    if min_output > 0 {
+        RelativePrice::new(min_output, input as u128)
+    } else {
+        RelativePrice::new(0, 1)
+    }
 }

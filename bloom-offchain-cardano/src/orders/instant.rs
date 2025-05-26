@@ -51,7 +51,7 @@ pub struct InstantOrder {
     pub input_asset: AssetClass,
     /// Remaining tradable input.
     pub input_amount: InputAsset<u64>,
-    /// What user receives.
+    /// What a user receives.
     pub output_asset: AssetClass,
     /// Accumulated output.
     pub output_amount: OutputAsset<u64>,
@@ -61,7 +61,7 @@ pub struct InstantOrder {
     pub fee_asset: AssetClass,
     /// Remaining ADA to facilitate execution.
     pub execution_budget: FeeAsset<u64>,
-    /// Fee reserved for whole swap.
+    /// Fee reserved for the whole swap.
     pub fee: FeeAsset<u64>,
     /// Assumed cost (in Lovelace) of one step of execution.
     pub max_cost_per_ex_step: FeeAsset<u64>,
