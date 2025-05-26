@@ -74,6 +74,8 @@ pub struct InstantOrder {
     pub marginal_cost: ExUnits,
     /// If this state is untouched.
     pub virgin: bool,
+    /// Order cannot be canceled before this point.
+    pub cancellation_after: u64,
 }
 
 impl Display for InstantOrder {
@@ -408,6 +410,7 @@ where
                         cancellation_pkh: conf.cancellation_pkh,
                         marginal_cost: script_info.marginal_cost,
                         virgin: matches!(order_state, Some(OrderState::New)),
+                        cancellation_after: conf.cancellation_after,
                     });
                 } else {
                     trace!(

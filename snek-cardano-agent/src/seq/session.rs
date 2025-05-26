@@ -1,5 +1,5 @@
-use crate::seq::cond::ConditionalValidation;
-use crate::seq::cond::Validations::HypedLaunch;
+use crate::seq::cond::Validations::{CancellationLock, HypedLaunch};
+use crate::seq::cond::{ConditionalValidation, Id};
 use bloom_offchain_cardano::event_sink::handler::LedgerCx;
 use cml_core::Slot;
 use cml_crypto::BlockHeaderHash;
@@ -55,45 +55,51 @@ impl<K, T> SessionInProgress<K, T> {
     pub(crate) fn register_event(&mut self, event: Channel<Transition<T>, LedgerCx>) -> Result<(), ()>
     where
         K: Copy + Eq + Hash + Display,
-        T: Stable<StableId = K> + ConditionalValidation<{ HypedLaunch as u8 }>,
+        T: Stable<StableId = K>
+            + ConditionalValidation<{ HypedLaunch as u8 }, ()>
+            + ConditionalValidation<{ CancellationLock as u8 }, Slot>,
     {
         let event_key = event.stable_id();
-        if self.capped && !event.is_valid() {
-            trace!("Event {} is invalid", event_key,);
-        } else {
-            match self.event_registry.entry(event_key) {
-                Entry::Occupied(mut entry) => {
-                    let current = entry.get();
-                    if is_cancellation(&event) {
-                        self.original_ordering.retain(|k| *k != event_key);
-                        entry.remove();
-                        if event_key == self.opening_event {
-                            return Err(());
-                        }
-                    } else {
-                        if let Some(confirmed_at) = is_confirmation(current, &event) {
-                            // Confirmation of a previously seen event
-                            trace!("Registering initial event for entity: {}", event.stable_id());
-                            self.confirmation_ordering.push_back((event_key, confirmed_at));
-                            entry.insert(event);
-                        } else if self.opening_event == event_key {
-                            trace!("Registering follow-up for opening event: {}", event.stable_id());
-                            self.opening_event_followups.push_back(event);
-                        }
+        if self.capped && !event.is_valid(Id, ()) {
+            trace!("Event {}, buy cap is invalid", event_key,);
+            return Ok(());
+        }
+        if !event.is_valid(Id, self.sealed_at + self.settlement_delay) {
+            trace!("Event {}, buy cap is invalid", event_key,);
+            return Ok(());
+        }
+        match self.event_registry.entry(event_key) {
+            Entry::Occupied(mut entry) => {
+                let current = entry.get();
+                if is_cancellation(&event) {
+                    self.original_ordering.retain(|k| *k != event_key);
+                    entry.remove();
+                    if event_key == self.opening_event {
+                        return Err(());
+                    }
+                } else {
+                    if let Some(confirmed_at) = is_confirmation(current, &event) {
+                        // Confirmation of a previously seen event
+                        trace!("Registering initial event for entity: {}", event.stable_id());
+                        self.confirmation_ordering.push_back((event_key, confirmed_at));
+                        entry.insert(event);
+                    } else if self.opening_event == event_key {
+                        trace!("Registering follow-up for opening event: {}", event.stable_id());
+                        self.opening_event_followups.push_back(event);
                     }
                 }
-                Entry::Vacant(entry) => {
-                    if !is_cancellation(&event) {
-                        if let Channel::Ledger(Confirmed(Transition::Forward(_)), lcx) = &event {
-                            self.confirmation_ordering.push_back((event_key, lcx.slot));
-                        } else {
-                            self.original_ordering.push_back(event_key);
-                        }
-                        trace!("Registering subsequent event for entity: {}", event.stable_id());
-                        entry.insert(event);
+            }
+            Entry::Vacant(entry) => {
+                if !is_cancellation(&event) {
+                    if let Channel::Ledger(Confirmed(Transition::Forward(_)), lcx) = &event {
+                        self.confirmation_ordering.push_back((event_key, lcx.slot));
                     } else {
-                        warn!("Event {} is not registered", event_key,);
+                        self.original_ordering.push_back(event_key);
                     }
+                    trace!("Registering subsequent event for entity: {}", event.stable_id());
+                    entry.insert(event);
+                } else {
+                    warn!("Event {} is not registered", event_key,);
                 }
             }
         }
@@ -227,7 +233,7 @@ fn is_cancellation<T, C>(new: &Channel<Transition<T>, C>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::seq::cond::{ConditionalValidation, Validations};
+    use crate::seq::cond::{ConditionalValidation, Id, Validations};
     use crate::seq::session::{do_sequencing, key_to_int, seq_key};
     use bloom_offchain_cardano::event_sink::handler::LedgerCx;
     use cml_crypto::BlockHeaderHash;
@@ -294,13 +300,23 @@ mod tests {
         }
     }
 
-    impl ConditionalValidation<{ Validations::HypedLaunch as u8 }> for TestEvent {
-        fn cond(&self) -> bool {
+    impl<Cx> ConditionalValidation<{ Validations::HypedLaunch as u8 }, Cx> for TestEvent {
+        fn cond(&self, _: Id<{ Validations::HypedLaunch as u8 }>) -> bool {
             false
         }
 
-        fn is_valid(&self) -> bool {
+        fn is_valid(&self, _: Id<{ Validations::HypedLaunch as u8 }>, _: Cx) -> bool {
             false
+        }
+    }
+
+    impl<Cx> ConditionalValidation<{ Validations::CancellationLock as u8 }, Cx> for TestEvent {
+        fn cond(&self, _: Id<{ Validations::CancellationLock as u8 }>) -> bool {
+            true
+        }
+
+        fn is_valid(&self, _: Id<{ Validations::CancellationLock as u8 }>, _: Cx) -> bool {
+            true
         }
     }
 

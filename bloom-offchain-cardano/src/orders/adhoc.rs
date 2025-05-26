@@ -44,7 +44,7 @@ impl AdhocFeeStructure {
 /// A version of [LimitOrder] with ad-hoc fee algorithm.
 /// Fee is charged as % of the trade from the side that contains ADA.
 #[derive(Debug, Copy, Clone)]
-pub struct AdhocOrder(pub(crate) InstantOrder, /*adhoc_fee_input*/ pub(crate) u64);
+pub struct AdhocOrder(pub InstantOrder, /*adhoc_fee_input*/ pub(crate) u64);
 
 impl Display for AdhocOrder {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

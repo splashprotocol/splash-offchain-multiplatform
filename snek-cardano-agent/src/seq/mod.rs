@@ -1,7 +1,7 @@
 mod cond;
 mod session;
 
-use crate::seq::cond::{ConditionalValidation, Validations};
+use crate::seq::cond::{ConditionalValidation, Id, Validations};
 use crate::seq::session::SessionInProgress;
 use bloom_offchain_cardano::event_sink::handler::LedgerCx;
 use cml_core::Slot;
@@ -112,7 +112,10 @@ impl<Ticks, Events, K, T> WithDeterministicSeq<Ticks, Events, K, T> {
     fn update_session(&mut self, pair: PairId, event: Channel<Transition<T>, LedgerCx>)
     where
         K: Copy + Eq + Hash + Display + Unpin,
-        T: SeqState<StableId = K> + ConditionalValidation<{ Validations::HypedLaunch as u8 }> + Unpin,
+        T: SeqState<StableId = K>
+            + ConditionalValidation<{ Validations::HypedLaunch as u8 }, ()>
+            + ConditionalValidation<{ Validations::CancellationLock as u8 }, Slot>
+            + Unpin,
     {
         match self.active_sessions.entry(pair) {
             Entry::Vacant(entry) => {
@@ -120,7 +123,7 @@ impl<Ticks, Events, K, T> WithDeterministicSeq<Ticks, Events, K, T> {
                     if state.is_quasi_permanent() && state.is_initial() {
                         // New session is triggered
                         let session_sealed_at = self.current_slot + self.session_duration;
-                        let capped = state.cond();
+                        let capped = state.cond(Id::<{ Validations::HypedLaunch as u8 }>);
                         trace!(
                             "New session {} created at {}, sealed at {}, capped = {}",
                             pair,
@@ -154,7 +157,10 @@ where
     Ticks: Stream<Item = Slot> + Unpin,
     Events: Stream<Item = (PairId, Channel<Transition<T>, LedgerCx>)> + Unpin,
     K: Copy + Eq + Hash + Ord + Display + Unpin + RawBytes,
-    T: SeqState<StableId = K> + ConditionalValidation<{ Validations::HypedLaunch as u8 }> + Unpin,
+    T: SeqState<StableId = K>
+        + ConditionalValidation<{ Validations::HypedLaunch as u8 }, ()>
+        + ConditionalValidation<{ Validations::CancellationLock as u8 }, Slot>
+        + Unpin,
 {
     type Item = (PairId, Channel<Transition<T>, LedgerCx>);
 
@@ -240,17 +246,33 @@ mod tests {
         }
     }
 
-    impl ConditionalValidation<{ Validations::HypedLaunch as u8 }> for TestEvent {
-        fn cond(&self) -> bool {
+    impl ConditionalValidation<{ Validations::HypedLaunch as u8 }, ()> for TestEvent {
+        fn cond(&self, id: Id<{ Validations::HypedLaunch as u8 }>) -> bool {
             match self {
                 TestEvent::Order { .. } => false,
                 TestEvent::Pool { id, .. } => *id == 99,
             }
         }
 
-        fn is_valid(&self) -> bool {
+        fn is_valid(&self, id: Id<{ Validations::HypedLaunch as u8 }>, cx: ()) -> bool {
             match self {
                 TestEvent::Order { id, .. } => *id == 98,
+                TestEvent::Pool { .. } => true,
+            }
+        }
+    }
+
+    impl ConditionalValidation<{ Validations::CancellationLock as u8 }, Slot> for TestEvent {
+        fn cond(&self, id: Id<{ Validations::CancellationLock as u8 }>) -> bool {
+            match self {
+                TestEvent::Order { .. } => false,
+                TestEvent::Pool { id, .. } => true,
+            }
+        }
+
+        fn is_valid(&self, id: Id<{ Validations::CancellationLock as u8 }>, cx: Slot) -> bool {
+            match self {
+                TestEvent::Order { id, .. } => true,
                 TestEvent::Pool { .. } => true,
             }
         }
