@@ -282,6 +282,8 @@ impl<const TYP: u8> DeployedValidator<TYP> {
 pub enum ProtocolValidator {
     LimitOrderWitnessV1,
     LimitOrderV1,
+    InstantOrderWitnessV1,
+    InstantOrderV1,
     GridOrderNative,
     ConstFnPoolV1,
     ConstFnPoolV2,

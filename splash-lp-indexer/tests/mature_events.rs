@@ -133,7 +133,8 @@ mod tests {
                 .then(|events| log_event(events, &db))
                 .await;
 
-            db.batch_append(block_slot + confirmation_blocks_delay + 1, vec![]).await;
+            db.batch_append(block_slot + confirmation_blocks_delay + 1, vec![])
+                .await;
 
             let ok = db.try_process_mature_events(confirmation_blocks_delay).await;
             assert!(ok)

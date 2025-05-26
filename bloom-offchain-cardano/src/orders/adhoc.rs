@@ -1,3 +1,4 @@
+use crate::orders::instant::InstantOrder;
 use crate::orders::limit::{LimitOrder, LimitOrderValidation};
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
 use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
@@ -7,7 +8,6 @@ use bloom_offchain::execution_engine::liquidity_book::types::{
     AbsolutePrice, FeeAsset, InputAsset, Lovelace, OutputAsset, RelativePrice,
 };
 use bounded_integer::BoundedU64;
-use cml_chain::auxdata::Metadata;
 use cml_chain::transaction::TransactionOutput;
 use log::trace;
 use spectrum_cardano_lib::ex_units::ExUnits;
@@ -16,10 +16,10 @@ use spectrum_offchain::domain::{Has, SeqState, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
-use spectrum_offchain_cardano::deployment::ProtocolValidator::LimitOrderV1;
+use spectrum_offchain_cardano::deployment::ProtocolValidator::InstantOrderV1;
 use spectrum_offchain_cardano::handler_context::{
-    AddedPaymentDestinations, AllowedAdditionalPaymentDestinations, AuthVerificationKey, ConsumedIdentifiers,
-    ConsumedInputs, ProducedIdentifiers,
+    AddedPaymentDestinations, AllowedAdditionalPaymentDestinations, ConsumedIdentifiers, ConsumedInputs,
+    ProducedIdentifiers,
 };
 use std::cmp::Ordering;
 use std::fmt::{Display, Formatter};
@@ -44,7 +44,7 @@ impl AdhocFeeStructure {
 /// A version of [LimitOrder] with ad-hoc fee algorithm.
 /// Fee is charged as % of the trade from the side that contains ADA.
 #[derive(Debug, Copy, Clone)]
-pub struct AdhocOrder(pub(crate) LimitOrder, /*adhoc_fee_input*/ pub(crate) u64);
+pub struct AdhocOrder(pub(crate) InstantOrder, /*adhoc_fee_input*/ pub(crate) u64);
 
 impl Display for AdhocOrder {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -194,41 +194,27 @@ where
         + Has<ConsumedInputs>
         + Has<AddedPaymentDestinations>
         + Has<AllowedAdditionalPaymentDestinations>
-        + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
+        + Has<DeployedScriptInfo<{ InstantOrderV1 as u8 }>>
         + Has<LimitOrderValidation>
         + Has<AdhocFeeStructure>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
-        LimitOrder::try_from_ledger(repr, ctx).and_then(|lo| {
-            let virtual_input_amount = match (lo.input_asset, lo.output_asset) {
-                (AssetClass::Native, _) => Some(subtract_adhoc_fee(lo.input_amount, ctx.get())),
-                (_, AssetClass::Native) => Some(lo.input_amount),
+        InstantOrder::try_from_ledger(repr, ctx).and_then(|io| {
+            let virtual_input_amount = match (io.input_asset, io.output_asset) {
+                (AssetClass::Native, _) => Some(subtract_adhoc_fee(io.input_amount, ctx.get())),
+                (_, AssetClass::Native) => Some(io.input_amount),
                 _ => None,
             }?;
-            let adhoc_fee_input = lo.input_amount.checked_sub(virtual_input_amount)?;
-            let has_stake_part = lo.redeemer_address.stake_cred.is_some();
+            let adhoc_fee_input = io.input_amount.checked_sub(virtual_input_amount)?;
+            let has_stake_part = io.redeemer_address.stake_cred.is_some();
             let is_compliant = ctx
                 .select::<AddedPaymentDestinations>()
                 .complies_with(&ctx.select::<AllowedAdditionalPaymentDestinations>());
             if has_stake_part && is_compliant {
                 Some(Self(
-                    LimitOrder {
-                        beacon: lo.beacon,
-                        input_asset: lo.input_asset,
+                    InstantOrder {
                         input_amount: virtual_input_amount,
-                        output_asset: lo.output_asset,
-                        output_amount: lo.output_amount,
-                        base_price: lo.base_price,
-                        fee_asset: lo.fee_asset,
-                        execution_budget: lo.execution_budget,
-                        fee: lo.fee,
-                        max_cost_per_ex_step: lo.max_cost_per_ex_step,
-                        min_marginal_output: lo.min_marginal_output,
-                        redeemer_address: lo.redeemer_address,
-                        cancellation_pkh: lo.cancellation_pkh,
-                        requires_executor_sig: lo.requires_executor_sig,
-                        marginal_cost: lo.marginal_cost,
-                        virgin: lo.virgin,
+                        ..io
                     },
                     adhoc_fee_input,
                 ))
@@ -236,7 +222,7 @@ where
                 trace!(
                     "UTxO {}, AdhocOrder {} :: has_stake_part: {}, is_compliant: {}",
                     ctx.select::<OutputRef>(),
-                    lo.beacon,
+                    io.beacon,
                     has_stake_part,
                     is_compliant
                 );

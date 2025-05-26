@@ -24,7 +24,7 @@ use spectrum_offchain_cardano::data::{balance_pool, cfmm_pool, stable_pool_t2t};
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolV1, BalanceFnPoolV2, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,
     ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, DegenQuadraticPoolV1, GridOrderNative,
-    LimitOrderV1, LimitOrderWitnessV1, RoyaltyPoolV1, StableFnPoolT2T,
+    InstantOrderV1, InstantOrderWitnessV1, LimitOrderV1, LimitOrderWitnessV1, RoyaltyPoolV1, StableFnPoolT2T,
 };
 use spectrum_offchain_cardano::deployment::{DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use spectrum_offchain_cardano::script::{
@@ -187,8 +187,8 @@ impl<Ctx> BatchExec<ExecutionState, EffectPreview<AdhocOrder>, Ctx>
 where
     Ctx: Has<NetworkId>
         + Has<OperatorCred>
-        + Has<DeployedValidator<{ LimitOrderV1 as u8 }>>
-        + Has<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>
+        + Has<DeployedValidator<{ InstantOrderV1 as u8 }>>
+        + Has<DeployedValidator<{ InstantOrderWitnessV1 as u8 }>>
         + Has<AdhocFeeStructure>,
 {
     fn exec(
@@ -219,7 +219,7 @@ where
             ex_budget,
             ..
         } = context
-            .select::<DeployedValidator<{ LimitOrderV1 as u8 }>>()
+            .select::<DeployedValidator<{ InstantOrderV1 as u8 }>>()
             .erased();
         let input = ScriptInputBlueprint {
             reference: in_ref,
@@ -229,11 +229,7 @@ where
                 cost: ready_cost(ex_budget),
             },
             redeemer: ready_redeemer(limit::EXEC_REDEEMER),
-            required_signers: if ord.requires_executor_sig {
-                vec![Ed25519KeyHash::from(context.select::<OperatorCred>())].into()
-            } else {
-                vec![].into()
-            },
+            required_signers: vec![Ed25519KeyHash::from(context.select::<OperatorCred>())].into(),
         };
         let full_adhoc_fee = match (ord.input_asset, ord.output_asset) {
             (AssetClass::Native, _) => adhoc_fee_input,
@@ -275,7 +271,7 @@ where
                 (candidate, ExecutionEff::Eliminated(consumed_bundle))
             }
         };
-        let witness = context.select::<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>();
+        let witness = context.select::<DeployedValidator<{ InstantOrderWitnessV1 as u8 }>>();
         state.add_tx_fee(consumed_budget);
         state.add_operator_interest(consumed_fee + proportional_fee);
         state

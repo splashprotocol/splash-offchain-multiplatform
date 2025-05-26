@@ -333,7 +333,10 @@ mod tests {
         let r4 = (2_000u64, 8_000_000u64);
 
         // Generate a few OnChainEvents
-        let event1 = OnChainEvent::FarmEvent(FarmEvent::FarmActivated(FarmActivated { pool_id: pid, slot: Slot(100) }));
+        let event1 = OnChainEvent::FarmEvent(FarmEvent::FarmActivated(FarmActivated {
+            pool_id: pid,
+            slot: Slot(100),
+        }));
         let event2 = OnChainEvent::Account(AccountEvent::Position(PositionEvent::Deposit(Deposit {
             pool_id: pid,
             account: account.clone(),

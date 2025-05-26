@@ -10,7 +10,7 @@ use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::creds::{OperatorCred, OperatorRewardAddress};
 use spectrum_offchain_cardano::deployment::DeployedValidator;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
-    DegenQuadraticPoolV1, LimitOrderV1, LimitOrderWitnessV1,
+    DegenQuadraticPoolV1, InstantOrderV1, InstantOrderWitnessV1, LimitOrderV1, LimitOrderWitnessV1,
 };
 use type_equalities::IsEqual;
 
@@ -93,19 +93,19 @@ impl Has<AdhocFeeStructure> for ExecutionContext {
     }
 }
 
-impl Has<DeployedValidator<{ LimitOrderV1 as u8 }>> for ExecutionContext {
-    fn select<U: IsEqual<DeployedValidator<{ LimitOrderV1 as u8 }>>>(
+impl Has<DeployedValidator<{ InstantOrderV1 as u8 }>> for ExecutionContext {
+    fn select<U: IsEqual<DeployedValidator<{ InstantOrderV1 as u8 }>>>(
         &self,
-    ) -> DeployedValidator<{ LimitOrderV1 as u8 }> {
-        self.deployment.limit_order.clone()
+    ) -> DeployedValidator<{ InstantOrderV1 as u8 }> {
+        self.deployment.instant_order.clone()
     }
 }
 
-impl Has<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>> for ExecutionContext {
-    fn select<U: IsEqual<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>>(
+impl Has<DeployedValidator<{ InstantOrderWitnessV1 as u8 }>> for ExecutionContext {
+    fn select<U: IsEqual<DeployedValidator<{ InstantOrderWitnessV1 as u8 }>>>(
         &self,
-    ) -> DeployedValidator<{ LimitOrderWitnessV1 as u8 }> {
-        self.deployment.limit_order_witness.clone()
+    ) -> DeployedValidator<{ InstantOrderWitnessV1 as u8 }> {
+        self.deployment.instant_order_witness.clone()
     }
 }
 
@@ -113,6 +113,6 @@ impl Has<DeployedValidator<{ DegenQuadraticPoolV1 as u8 }>> for ExecutionContext
     fn select<U: IsEqual<DeployedValidator<{ DegenQuadraticPoolV1 as u8 }>>>(
         &self,
     ) -> DeployedValidator<{ DegenQuadraticPoolV1 as u8 }> {
-        self.deployment.degen_fn_pool_v1.clone()
+        self.deployment.quadratic_pool_v1.clone()
     }
 }

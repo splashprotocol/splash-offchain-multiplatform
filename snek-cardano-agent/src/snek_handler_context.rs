@@ -12,7 +12,7 @@ use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::pool::PoolValidation;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
-    DegenQuadraticPoolV1, LimitOrderV1, LimitOrderWitnessV1,
+    DegenQuadraticPoolV1, InstantOrderV1, InstantOrderWitnessV1, LimitOrderV1, LimitOrderWitnessV1,
 };
 use spectrum_offchain_cardano::handler_context::{
     AddedPaymentDestinations, AllowedAdditionalPaymentDestinations, AuthVerificationKey, ConsumedIdentifiers,
@@ -120,19 +120,19 @@ impl<I: Copy> Has<ProducedIdentifiers<I>> for SnekHandlerContext<I> {
     }
 }
 
-impl<I: Copy> Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>> for SnekHandlerContext<I> {
-    fn select<U: IsEqual<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>>(
+impl<I: Copy> Has<DeployedScriptInfo<{ InstantOrderV1 as u8 }>> for SnekHandlerContext<I> {
+    fn select<U: IsEqual<DeployedScriptInfo<{ InstantOrderV1 as u8 }>>>(
         &self,
-    ) -> DeployedScriptInfo<{ LimitOrderV1 as u8 }> {
-        self.scripts.limit_order.clone()
+    ) -> DeployedScriptInfo<{ InstantOrderV1 as u8 }> {
+        self.scripts.instant_order.clone()
     }
 }
 
-impl<I: Copy> Has<DeployedScriptInfo<{ LimitOrderWitnessV1 as u8 }>> for SnekHandlerContext<I> {
-    fn select<U: IsEqual<DeployedScriptInfo<{ LimitOrderWitnessV1 as u8 }>>>(
+impl<I: Copy> Has<DeployedScriptInfo<{ InstantOrderWitnessV1 as u8 }>> for SnekHandlerContext<I> {
+    fn select<U: IsEqual<DeployedScriptInfo<{ InstantOrderWitnessV1 as u8 }>>>(
         &self,
-    ) -> DeployedScriptInfo<{ LimitOrderWitnessV1 as u8 }> {
-        self.scripts.limit_order_witness.clone()
+    ) -> DeployedScriptInfo<{ InstantOrderWitnessV1 as u8 }> {
+        self.scripts.instant_order_witness.clone()
     }
 }
 

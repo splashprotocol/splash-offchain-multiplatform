@@ -5,6 +5,7 @@ use crate::pipeline::resolve_gauges::resolve_gauges;
 use crate::position_db::accounts::Accounts;
 use crate::position_db::event_log::EventLog;
 use crate::position_db::mature_events::MatureEvents;
+use crate::position_db::pool_frames::PoolFrames;
 use crate::ve_index::VoteEscrowIndex;
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use cml_chain::transaction::{Transaction, TransactionOutput};
@@ -23,7 +24,6 @@ use splash_dao_offchain::deployment::ProtocolValidator;
 use splash_dao_offchain::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy, WPFactoryAuthPolicy};
 use splash_dao_offchain::routines::TimedOutputRef;
 use std::collections::HashSet;
-use crate::position_db::pool_frames::PoolFrames;
 
 pub mod log_events;
 pub mod read_events;

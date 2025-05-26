@@ -1,7 +1,7 @@
-use std::path::Path;
 use async_trait::async_trait;
 use serde::Serialize;
 use spectrum_offchain::persistent_index::PersistentIndex;
+use std::path::Path;
 use std::sync::Arc;
 use tokio::task::spawn_blocking;
 

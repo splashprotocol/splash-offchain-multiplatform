@@ -1,4 +1,3 @@
-use cml_chain::auxdata::Metadata;
 use cml_chain::transaction::TransactionOutput;
 use either::Either;
 
@@ -23,7 +22,7 @@ use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, ConstFnFeeSwitchPoolDeposit, ConstFnFeeSwitchPoolRedeem,
     ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolRedeem, ConstFnPoolSwap, DegenQuadraticPoolV1,
-    LimitOrderV1, RoyaltyPoolDAOV1Request, RoyaltyPoolV1Deposit, RoyaltyPoolV1Redeem,
+    InstantOrderV1, LimitOrderV1, RoyaltyPoolDAOV1Request, RoyaltyPoolV1Deposit, RoyaltyPoolV1Redeem,
     RoyaltyPoolV1RoyaltyWithdrawRequest, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use spectrum_offchain_cardano::handler_context::{
@@ -128,7 +127,7 @@ where
         + Has<ProducedIdentifiers<Token>>
         + Has<AddedPaymentDestinations>
         + Has<AllowedAdditionalPaymentDestinations>
-        + Has<DeployedScriptInfo<{ LimitOrderV1 as u8 }>>
+        + Has<DeployedScriptInfo<{ InstantOrderV1 as u8 }>>
         + Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>>
         + Has<LimitOrderValidation>
         + Has<PoolValidation>

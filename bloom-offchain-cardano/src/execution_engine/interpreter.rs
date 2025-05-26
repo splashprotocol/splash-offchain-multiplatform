@@ -48,12 +48,7 @@ where
     M: Copy + Debug,
     Magnet<Take<T, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<T>, Ctx>,
     Magnet<Make<M, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<M>, Ctx>,
-    Ctx: Clone
-        + Sized
-        + Has<Collateral>
-        + Has<NetworkId>
-        + Has<OperatorRewardAddress>
-        + Has<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>,
+    Ctx: Clone + Sized + Has<Collateral> + Has<NetworkId> + Has<OperatorRewardAddress>,
 {
     fn run(
         &mut self,
@@ -181,12 +176,7 @@ where
     Mk: Copy,
     Magnet<Take<Tk, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Tk>, Ctx>,
     Magnet<Make<Mk, FinalizedTxOut>>: BatchExec<ExecutionState, EffectPreview<Mk>, Ctx>,
-    Ctx: Clone
-        + Sized
-        + Has<Collateral>
-        + Has<NetworkId>
-        + Has<OperatorRewardAddress>
-        + Has<DeployedValidator<{ LimitOrderWitnessV1 as u8 }>>,
+    Ctx: Clone + Sized + Has<Collateral> + Has<NetworkId> + Has<OperatorRewardAddress>,
 {
     let state = ExecutionState::new();
     let (

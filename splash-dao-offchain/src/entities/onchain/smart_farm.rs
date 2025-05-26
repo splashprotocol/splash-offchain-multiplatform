@@ -1,4 +1,5 @@
 use crate::deployment::{DaoScriptData, ProtocolValidator};
+use crate::entities::onchain::weighting_poll::Farm;
 use crate::entities::Snapshot;
 use crate::protocol_config::{FarmAuthPolicy, PermManagerAuthPolicy};
 use crate::routines::TimedOutputRef;
@@ -27,7 +28,6 @@ use spectrum_offchain_cardano::data::PoolId;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use spectrum_offchain_cardano::parametrized_validators::apply_params_validator_plutus_v2;
 use uplc_pallas_primitives::{BoundedBytes, MaybeIndefArray};
-use crate::entities::onchain::weighting_poll::Farm;
 
 pub type SmartFarmSnapshot = Snapshot<SmartFarm, TimedOutputRef>;
 

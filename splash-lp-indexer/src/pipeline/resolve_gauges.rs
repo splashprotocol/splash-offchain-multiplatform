@@ -54,8 +54,7 @@ async fn resolve_events<I: VoteEscrowIndex, DB: Accounts + PoolFrames>(
                 );
                 if events_log.get_pool_lq_supply(pool_id).await.is_some() {
                     index.put_gauge(farm_id, pool_id).await;
-                    if let Some(gauge_pre_activation_slot) = index.get_pre_activated_gauge(farm_id).await
-                    {
+                    if let Some(gauge_pre_activation_slot) = index.get_pre_activated_gauge(farm_id).await {
                         info!(
                             "Gauge {} was pre activated at {} and pool id {}",
                             farm_id, gauge_pre_activation_slot, pool_id

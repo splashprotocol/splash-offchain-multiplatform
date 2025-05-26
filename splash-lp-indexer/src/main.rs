@@ -19,13 +19,6 @@ use spectrum_streaming::run_stream;
 use splash_dao_offchain::deployment::{
     DeployedValidators as DaoValidators, ProtocolDeployment as DaoDeployment, ProtocolTokens,
 };
-use std::collections::HashSet;
-use std::net::{IpAddr, SocketAddr};
-use std::str::FromStr;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use tracing_subscriber::fmt::Subscriber;
 use splash_lp_index::config::AppConfig;
 use splash_lp_index::context::Context;
 use splash_lp_index::feed::event::ExportAccountEvent;
@@ -34,6 +27,13 @@ use splash_lp_index::http_api::build_api_server;
 use splash_lp_index::pipeline::{log_events, process_mature_events};
 use splash_lp_index::position_db::PositionDB;
 use splash_lp_index::ve_index::VoteEscrowDB;
+use std::collections::HashSet;
+use std::net::{IpAddr, SocketAddr};
+use std::str::FromStr;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tracing_subscriber::fmt::Subscriber;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 8)]
 async fn main() {

@@ -1,5 +1,5 @@
-use std::path::{Path, PathBuf};
 use rocksdb::{Options, SingleThreaded, TransactionDB};
+use std::path::{Path, PathBuf};
 
 /// Temporary database path which calls DB::Destroy when DBPath is dropped.
 pub struct DBPath {
@@ -23,8 +23,7 @@ impl DBPath {
 impl Drop for DBPath {
     fn drop(&mut self) {
         let opts = Options::default();
-        TransactionDB::<SingleThreaded>::destroy(&opts, &self.path)
-            .expect("Failed to destroy temporary DB");
+        TransactionDB::<SingleThreaded>::destroy(&opts, &self.path).expect("Failed to destroy temporary DB");
     }
 }
 
