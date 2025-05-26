@@ -354,14 +354,14 @@ fn beacon_from_oref(some_input_oref: OutputRef, datum_hash: [u8; 28], order_inde
     blake2b224(&*bf).into()
 }
 
-const MIN_LOVELACE: u64 = 1_500_000;
+pub(super) const MIN_LOVELACE: u64 = 1_500_000;
 
-enum OrderState {
+pub(super) enum OrderState {
     New,
     Subsequent,
 }
 
-fn order_state<C>(beacon: PolicyId, datum: PlutusData, ctx: &C) -> Option<OrderState>
+pub(super) fn order_state<C>(beacon: PolicyId, datum: PlutusData, ctx: &C) -> Option<OrderState>
 where
     C: Has<ConsumedInputs> + Has<ConsumedIdentifiers<Token>> + Has<OutputRef>,
 {

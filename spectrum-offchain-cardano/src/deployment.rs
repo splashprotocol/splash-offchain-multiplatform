@@ -104,6 +104,8 @@ pub struct DeployedValidatorRef {
 pub struct DeployedValidators {
     pub limit_order_witness: DeployedValidatorRef,
     pub limit_order: DeployedValidatorRef,
+    pub instant_order_witness: DeployedValidatorRef,
+    pub instant_order: DeployedValidatorRef,
     pub grid_order_native: DeployedValidatorRef,
     pub const_fn_pool_v1: DeployedValidatorRef,
     pub const_fn_pool_v2: DeployedValidatorRef,
@@ -137,6 +139,8 @@ impl From<&DeployedValidators> for ProtocolScriptHashes {
         Self {
             limit_order_witness: From::from(&deployment.limit_order_witness),
             limit_order: From::from(&deployment.limit_order),
+            instant_order_witness: From::from(&deployment.instant_order_witness),
+            instant_order: From::from(&deployment.instant_order),
             grid_order_native: From::from(&deployment.grid_order_native),
             const_fn_pool_v1: From::from(&deployment.const_fn_pool_v1),
             const_fn_pool_v2: From::from(&deployment.const_fn_pool_v2),
@@ -318,6 +322,8 @@ pub enum ProtocolValidator {
 pub struct ProtocolScriptHashes {
     pub limit_order_witness: DeployedScriptInfo<{ ProtocolValidator::LimitOrderWitnessV1 as u8 }>,
     pub limit_order: DeployedScriptInfo<{ ProtocolValidator::LimitOrderV1 as u8 }>,
+    pub instant_order_witness: DeployedScriptInfo<{ ProtocolValidator::InstantOrderWitnessV1 as u8 }>,
+    pub instant_order: DeployedScriptInfo<{ ProtocolValidator::InstantOrderV1 as u8 }>,
     pub grid_order_native: DeployedScriptInfo<{ ProtocolValidator::GridOrderNative as u8 }>,
     pub const_fn_pool_v1: DeployedScriptInfo<{ ProtocolValidator::ConstFnPoolV1 as u8 }>,
     pub const_fn_pool_v2: DeployedScriptInfo<{ ProtocolValidator::ConstFnPoolV2 as u8 }>,
@@ -356,6 +362,8 @@ impl From<&ProtocolDeployment> for ProtocolScriptHashes {
         Self {
             limit_order_witness: From::from(&deployment.limit_order_witness),
             limit_order: From::from(&deployment.limit_order),
+            instant_order_witness: From::from(&deployment.instant_order_witness),
+            instant_order: From::from(&deployment.instant_order),
             grid_order_native: From::from(&deployment.grid_order_native),
             const_fn_pool_v1: From::from(&deployment.const_fn_pool_v1),
             const_fn_pool_v2: From::from(&deployment.const_fn_pool_v2),
@@ -390,6 +398,8 @@ impl From<&ProtocolDeployment> for ProtocolScriptHashes {
 pub struct ProtocolDeployment {
     pub limit_order_witness: DeployedValidator<{ ProtocolValidator::LimitOrderWitnessV1 as u8 }>,
     pub limit_order: DeployedValidator<{ ProtocolValidator::LimitOrderV1 as u8 }>,
+    pub instant_order_witness: DeployedValidator<{ ProtocolValidator::InstantOrderWitnessV1 as u8 }>,
+    pub instant_order: DeployedValidator<{ ProtocolValidator::InstantOrderV1 as u8 }>,
     pub grid_order_native: DeployedValidator<{ ProtocolValidator::GridOrderNative as u8 }>,
     pub const_fn_pool_v1: DeployedValidator<{ ProtocolValidator::ConstFnPoolV1 as u8 }>,
     pub const_fn_pool_v2: DeployedValidator<{ ProtocolValidator::ConstFnPoolV2 as u8 }>,
@@ -429,6 +439,9 @@ impl ProtocolDeployment {
             limit_order_witness: DeployedValidator::unsafe_pull(validators.limit_order_witness, explorer)
                 .await,
             limit_order: DeployedValidator::unsafe_pull(validators.limit_order, explorer).await,
+            instant_order_witness: DeployedValidator::unsafe_pull(validators.instant_order_witness, explorer)
+                .await,
+            instant_order: DeployedValidator::unsafe_pull(validators.instant_order, explorer).await,
             grid_order_native: DeployedValidator::unsafe_pull(validators.grid_order_native, explorer).await,
             const_fn_pool_v1: DeployedValidator::unsafe_pull(validators.const_fn_pool_v1, explorer).await,
             const_fn_pool_v2: DeployedValidator::unsafe_pull(validators.const_fn_pool_v2, explorer).await,

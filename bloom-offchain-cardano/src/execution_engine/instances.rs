@@ -35,7 +35,7 @@ use crate::execution_engine::execution_state::{ExecutionState, ScriptInputBluepr
 use crate::orders::adhoc::{AdhocFeeStructure, AdhocOrder};
 use crate::orders::grid::GridOrder;
 use crate::orders::limit::LimitOrder;
-use crate::orders::{grid, limit, AnyOrder};
+use crate::orders::{grid, instant, limit, AnyOrder};
 
 /// Magnet for local instances.
 #[repr(transparent)]
@@ -228,7 +228,7 @@ where
                 hash,
                 cost: ready_cost(ex_budget),
             },
-            redeemer: ready_redeemer(limit::EXEC_REDEEMER),
+            redeemer: ready_redeemer(instant::EXEC_REDEEMER),
             required_signers: vec![Ed25519KeyHash::from(context.select::<OperatorCred>())].into(),
         };
         let full_adhoc_fee = match (ord.input_asset, ord.output_asset) {

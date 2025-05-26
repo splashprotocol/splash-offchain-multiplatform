@@ -2,22 +2,20 @@ use std::cmp::{max, Ordering};
 use std::fmt::{Display, Formatter};
 
 use crate::orders::harden_price;
-use crate::orders::limit::LimitOrderValidation;
+use crate::orders::limit::{order_state, LimitOrderValidation, OrderState, MIN_LOVELACE};
 use bloom_offchain::execution_engine::liquidity_book::core::{Next, TerminalTake, Unit};
 use bloom_offchain::execution_engine::liquidity_book::linear_output_relative;
 use bloom_offchain::execution_engine::liquidity_book::market_taker::{MarketTaker, TakerBehaviour};
 use bloom_offchain::execution_engine::liquidity_book::side::Side;
 use bloom_offchain::execution_engine::liquidity_book::time::TimeBounds;
 use bloom_offchain::execution_engine::liquidity_book::types::{
-    AbsolutePrice, FeeAsset, InputAsset, Lovelace, OutputAsset, RelativePrice,
+    AbsolutePrice, FeeAsset, InputAsset, OutputAsset, RelativePrice,
 };
 use bloom_offchain::execution_engine::liquidity_book::weight::Weighted;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::PolicyId;
-use cml_core::serialization::Serialize;
-use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
-use log::trace;
+use cml_crypto::{Ed25519KeyHash, RawBytesEncoding};
 use spectrum_cardano_lib::address::PlutusAddress;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{
@@ -31,9 +29,9 @@ use spectrum_offchain::domain::{Has, SeqState, Stable, Tradable};
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::pair::{side_of, PairId};
-use spectrum_offchain_cardano::deployment::ProtocolValidator::{InstantOrderV1, LimitOrderV1};
+use spectrum_offchain_cardano::deployment::ProtocolValidator::InstantOrderV1;
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
-use spectrum_offchain_cardano::handler_context::{ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers};
+use spectrum_offchain_cardano::handler_context::{ConsumedIdentifiers, ConsumedInputs};
 
 pub const EXEC_REDEEMER: PlutusData = PlutusData::ConstrPlutusData(ConstrPlutusData {
     alternative: 1,
@@ -47,7 +45,7 @@ pub const EXEC_REDEEMER: PlutusData = PlutusData::ConstrPlutusData(ConstrPlutusD
 pub struct InstantOrder {
     /// Identifier of the order.
     pub beacon: PolicyId,
-    /// What user pays.
+    /// What a user pays.
     pub input_asset: AssetClass,
     /// Remaining tradable input.
     pub input_amount: InputAsset<u64>,
@@ -277,22 +275,22 @@ struct DatumMapping {
     pub fee: usize,
     pub redeemer_address: usize,
     pub cancellation_pkh: usize,
-    pub permitted_executors: usize,
+    pub authed_executor: usize,
     pub cancellation_after: usize,
 }
 
 const DATUM_MAPPING: DatumMapping = DatumMapping {
-    beacon: 1,
+    redeemer_address: 1,
     input: 2,
     tradable_input: 3,
     cost_per_ex_step: 4,
     output: 5,
     base_price: 6,
     fee: 7,
-    redeemer_address: 8,
-    cancellation_pkh: 9,
-    permitted_executors: 10,
-    cancellation_after: 11,
+    authed_executor: 8,
+    cancellation_after: 9,
+    cancellation_pkh: 10,
+    beacon: 11,
 };
 
 pub fn unsafe_update_datum(data: &mut PlutusData, tradable_input: InputAsset<u64>, fee: FeeAsset<u64>) {
@@ -321,10 +319,9 @@ impl TryFromPData for Datum {
         let cancellation_pkh =
             Ed25519KeyHash::from_raw_bytes(&*cpd.take_field(DATUM_MAPPING.cancellation_pkh)?.into_bytes()?)
                 .ok()?;
-        let authed_executor = Ed25519KeyHash::from_raw_bytes(
-            &*cpd.take_field(DATUM_MAPPING.permitted_executors)?.into_bytes()?,
-        )
-        .ok()?;
+        let authed_executor =
+            Ed25519KeyHash::from_raw_bytes(&*cpd.take_field(DATUM_MAPPING.authed_executor)?.into_bytes()?)
+                .ok()?;
         let cancellation_after = cpd.take_field(DATUM_MAPPING.cancellation_after)?.into_u64()?;
         Some(Datum {
             beacon,
@@ -339,45 +336,6 @@ impl TryFromPData for Datum {
             authed_executor,
             cancellation_after,
         })
-    }
-}
-
-fn beacon_from_oref(some_input_oref: OutputRef, datum_hash: [u8; 28], order_index: u64) -> PolicyId {
-    let mut bf = vec![];
-    bf.append(&mut some_input_oref.tx_hash().to_raw_bytes().to_vec());
-    bf.append(&mut some_input_oref.index().to_be_bytes().to_vec());
-    bf.append(&mut order_index.to_be_bytes().to_vec());
-    bf.append(&mut datum_hash.to_vec());
-    blake2b224(&*bf).into()
-}
-
-const MIN_LOVELACE: u64 = 1_500_000;
-
-enum OrderState {
-    New,
-    Subsequent,
-}
-
-fn order_state<C>(beacon: PolicyId, datum: PlutusData, ctx: &C) -> Option<OrderState>
-where
-    C: Has<ConsumedInputs> + Has<ConsumedIdentifiers<Token>> + Has<OutputRef>,
-{
-    let order_index = ctx.select::<OutputRef>().index();
-    let datum_without_beacon = with_erased_beacon_unsafe(datum);
-    let datum_hash = blake2b224(&*datum_without_beacon.to_cbor_bytes());
-    let valid_fresh_beacon = || {
-        ctx.select::<ConsumedInputs>()
-            .0
-            .exists(|o| beacon_from_oref(*o, datum_hash, order_index) == beacon)
-    };
-    let consumed_ids = ctx.select::<ConsumedIdentifiers<Token>>().0;
-    let consumed_beacons = consumed_ids.count(|b| b.0 == beacon);
-    if consumed_beacons == 1 {
-        Some(OrderState::Subsequent)
-    } else if valid_fresh_beacon() && consumed_ids.is_empty() {
-        Some(OrderState::New)
-    } else {
-        None
     }
 }
 
@@ -451,7 +409,7 @@ where
                         virgin: matches!(order_state, Some(OrderState::New)),
                     });
                 } else {
-                    trace!(
+                    println!(
                             "UTxO {}, InstantOrder {} :: sufficient_input: {}, sufficient_execution_budget: {}, sufficient_fee: {}, executable: {}, valid_configuration: {}, is_valid_beacon: {}",
                             ctx.select::<OutputRef>(),
                             conf.beacon,
@@ -467,4 +425,118 @@ where
         }
         None
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::orders::instant::InstantOrder;
+    use crate::orders::limit::LimitOrderValidation;
+    use bloom_offchain::execution_engine::liquidity_book::market_taker::MarketTaker;
+    use cml_chain::transaction::TransactionOutput;
+    use cml_core::serialization::Deserialize;
+    use cml_crypto::{Ed25519KeyHash, TransactionHash};
+    use spectrum_cardano_lib::{OutputRef, Token};
+    use spectrum_offchain::data::small_vec::SmallVec;
+    use spectrum_offchain::display::display_option;
+    use spectrum_offchain::domain::Has;
+    use spectrum_offchain::ledger::TryFromLedger;
+    use spectrum_offchain_cardano::creds::OperatorCred;
+    use spectrum_offchain_cardano::deployment::ProtocolValidator::InstantOrderV1;
+    use spectrum_offchain_cardano::deployment::{
+        DeployedScriptInfo, DeployedValidators, ProtocolScriptHashes,
+    };
+    use spectrum_offchain_cardano::handler_context::{
+        ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers,
+    };
+    use type_equalities::IsEqual;
+
+    struct Context {
+        oref: OutputRef,
+        instant_order: DeployedScriptInfo<{ InstantOrderV1 as u8 }>,
+        cred: OperatorCred,
+        consumed_inputs: ConsumedInputs,
+        consumed_identifiers: ConsumedIdentifiers<Token>,
+        produced_identifiers: ProducedIdentifiers<Token>,
+    }
+
+    impl Has<OutputRef> for Context {
+        fn select<U: IsEqual<OutputRef>>(&self) -> OutputRef {
+            self.oref
+        }
+    }
+
+    impl Has<ConsumedIdentifiers<Token>> for Context {
+        fn select<U: IsEqual<ConsumedIdentifiers<Token>>>(&self) -> ConsumedIdentifiers<Token> {
+            self.consumed_identifiers
+        }
+    }
+
+    impl Has<ProducedIdentifiers<Token>> for Context {
+        fn select<U: IsEqual<ProducedIdentifiers<Token>>>(&self) -> ProducedIdentifiers<Token> {
+            self.produced_identifiers
+        }
+    }
+
+    impl Has<LimitOrderValidation> for Context {
+        fn select<U: IsEqual<LimitOrderValidation>>(&self) -> LimitOrderValidation {
+            LimitOrderValidation {
+                min_cost_per_ex_step: 0,
+                min_fee_lovelace: 0,
+            }
+        }
+    }
+
+    impl Has<ConsumedInputs> for Context {
+        fn select<U: IsEqual<ConsumedInputs>>(&self) -> ConsumedInputs {
+            self.consumed_inputs
+        }
+    }
+
+    impl Has<OperatorCred> for Context {
+        fn select<U: IsEqual<OperatorCred>>(&self) -> OperatorCred {
+            self.cred
+        }
+    }
+
+    impl Has<DeployedScriptInfo<{ InstantOrderV1 as u8 }>> for Context {
+        fn select<U: IsEqual<DeployedScriptInfo<{ InstantOrderV1 as u8 }>>>(
+            &self,
+        ) -> DeployedScriptInfo<{ InstantOrderV1 as u8 }> {
+            self.instant_order
+        }
+    }
+
+    #[test]
+    fn try_read() {
+        const TX: &str = "b72f29953347030c5051bdba801d2c5dfdebc9574dfb28e139d0ef131033aee6";
+        const IX: u64 = 0;
+        let oref = OutputRef::new(TransactionHash::from_hex(TX).unwrap(), IX);
+        const TX_BC: &str = "99d8460a4f4c500bccd922e34db1536d784b0b5952fa8bc1bc90d48333344dde";
+        const IX_BC: u64 = 1;
+        let oref_bc = OutputRef::new(TransactionHash::from_hex(TX_BC).unwrap(), IX_BC);
+        let raw_deployment = std::fs::read_to_string("/Users/oskin/dev/spectrum/spectrum-offchain-multiplatform/bloom-cardano-agent/resources/mainnet.deployment.json").expect("Cannot load deployment file");
+        let deployment: DeployedValidators =
+            serde_json::from_str(&raw_deployment).expect("Invalid deployment file");
+        let scripts = ProtocolScriptHashes::from(&deployment);
+        let ctx = Context {
+            oref,
+            instant_order: scripts.instant_order,
+            cred: OperatorCred(Ed25519KeyHash::from([0u8; 28])),
+            consumed_inputs: SmallVec::new(vec![oref_bc].into_iter()).into(),
+            consumed_identifiers: SmallVec::new(
+                vec![Token::from_string_unsafe(
+                    "64b18826b8f4e3c6a870c84dcf10370b91f4add2550c92e061db356b.",
+                )]
+                .into_iter(),
+            )
+            .into(),
+            produced_identifiers: Default::default(),
+        };
+        let bearer = TransactionOutput::from_cbor_bytes(&*hex::decode(ORDER_UTXO).unwrap()).unwrap();
+        let ord = InstantOrder::try_from_ledger(&bearer, &ctx);
+        println!("Order: {}", display_option(&ord));
+        println!("P_abs: {}", display_option(&ord.map(|x| x.price())));
+    }
+
+    const ORDER_UTXO: &str = "a30058391164956ddc4df888a294bec79d53a91601b60fc46592e8b78e33a486ff7846f6bb07f5b2825885e4502679e699b4e60a0c4609a46bc35454cd011a0036ee80028201d81858f6d8798c4101d87982d87981581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b25d87981d87981d87981581c7846f6bb07f5b2825885e4502679e699b4e60a0c4609a46bc35454cdd8798240401a000f42401a000927c0d87982581c41f4454459daa1b6b856a7a5e28e6ea930bf9d593adec38d7700f7df4442415348d879821a001dad0d1a009896801a0007a120581cedbf33f5d6e083970648e39175c49ec1c093df76b6e6a0f1473e47761a68345fc9581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b25581ca83d20206ee7e3ae5cabfbdb6e026f53f5220dcc8980f1b10784530c";
 }

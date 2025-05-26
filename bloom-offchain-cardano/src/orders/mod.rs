@@ -17,7 +17,7 @@ use spectrum_offchain_cardano::handler_context::{ConsumedIdentifiers, ConsumedIn
 
 pub mod adhoc;
 pub mod grid;
-mod instant;
+pub mod instant;
 pub mod limit;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, MarketTaker, Stable, Tradable)]
