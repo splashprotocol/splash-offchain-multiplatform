@@ -258,7 +258,7 @@ where
         let (residual_order, effect) = match result {
             Next::Succ(AdhocOrder(next, fee)) => {
                 if let Some(data) = candidate.data_mut() {
-                    limit::unsafe_update_datum(data, next.input_amount, next.fee);
+                    instant::unsafe_update_datum(data, next.input_amount, next.fee);
                 }
                 (
                     candidate.clone(),

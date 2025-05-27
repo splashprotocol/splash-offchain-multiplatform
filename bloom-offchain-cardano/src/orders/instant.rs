@@ -15,7 +15,8 @@ use bloom_offchain::execution_engine::liquidity_book::weight::Weighted;
 use cml_chain::plutus::{ConstrPlutusData, PlutusData};
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::PolicyId;
-use cml_crypto::{Ed25519KeyHash, RawBytesEncoding};
+use cml_core::serialization::Serialize;
+use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
 use log::trace;
 use spectrum_cardano_lib::address::PlutusAddress;
 use spectrum_cardano_lib::ex_units::ExUnits;
@@ -302,12 +303,6 @@ pub fn unsafe_update_datum(data: &mut PlutusData, tradable_input: InputAsset<u64
     cpd.set_field(DATUM_MAPPING.fee, fee.into_pd());
 }
 
-fn with_erased_beacon_unsafe(data: PlutusData) -> PlutusData {
-    let mut cpd = data.into_constr_pd().unwrap();
-    cpd.set_field(DATUM_MAPPING.beacon, [0u8; 28].into_pd());
-    cpd.into_pd()
-}
-
 impl TryFromPData for Datum {
     fn try_from_pd(data: PlutusData) -> Option<Self> {
         let mut cpd = data.into_constr_pd()?;
@@ -379,7 +374,7 @@ where
                 let validation = ctx.select::<LimitOrderValidation>();
                 let valid_configuration = conf.cost_per_ex_step >= validation.min_cost_per_ex_step
                     && execution_budget >= conf.cost_per_ex_step;
-                let order_state = order_state(conf.beacon, datum, ctx);
+                let order_state = order_state(conf.beacon, datum, DATUM_MAPPING.beacon, ctx);
                 let sufficient_fee = match order_state {
                     Some(OrderState::New) | None => conf.fee >= validation.min_fee_lovelace,
                     _ => true,
