@@ -75,4 +75,4 @@ cbor_event = "2.4.0"
 [features]
 default = []
 test_30_min_epoch = []
-test_10_hour_epoch = []
+test_8_hour_epoch = []

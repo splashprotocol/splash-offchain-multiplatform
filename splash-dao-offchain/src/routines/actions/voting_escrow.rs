@@ -9,6 +9,7 @@ use cml_chain::certs::{Credential, StakeCredential};
 use cml_chain::plutus::{PlutusScript, PlutusV3Script};
 use cml_chain::transaction::{DatumOption, TransactionInput, TransactionOutput};
 use cml_chain::utils::BigInteger;
+use cml_chain::Serialize;
 use cml_chain::{Deserialize, PolicyId, RequiredSigners, Value};
 use cml_crypto::{blake2b256, Ed25519Signature, RawBytesEncoding, TransactionHash};
 use log::trace;
@@ -18,7 +19,7 @@ use spectrum_offchain::domain::event::{Predicted, Traced};
 
 use bloom_offchain::execution_engine::bundled::Bundled;
 use spectrum_cardano_lib::collateral::Collateral;
-use spectrum_cardano_lib::plutus_data::IntoPlutusData;
+use spectrum_cardano_lib::plutus_data::{IntoPlutusData, PlutusDataExtension};
 use spectrum_cardano_lib::protocol_params::COINS_PER_UTXO_BYTE;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
 use spectrum_cardano_lib::{AssetClass, AssetName, NetworkId, OutputRef, Token};
@@ -36,7 +37,7 @@ use crate::entities::offchain::{
     compute_witness_message, ExtendVotingEscrowOffChainOrder, RedeemVotingEscrowOffChainOrder,
 };
 use crate::entities::onchain::extend_voting_escrow_order::{
-    ExtendVotingEscrowOrderAction, ExtendVotingEscrowOrderBundle,
+    compute_extend_ve_order_validator, ExtendVotingEscrowOrderAction, ExtendVotingEscrowOrderBundle,
 };
 use crate::entities::onchain::make_voting_escrow_order::{
     MakeVotingEscrowOrderAction, MakeVotingEscrowOrderBundle,
@@ -424,7 +425,6 @@ where
     async fn extend_voting_escrow(
         &self,
         onchain_order: ExtendVotingEscrowOrderBundle<TransactionOutput>,
-        offchain_order: ExtendVotingEscrowOffChainOrder,
         Bundled(voting_escrow, ve_box_in): Bundled<VotingEscrowSnapshot, TransactionOutput>,
         Bundled(ve_factory, ve_factory_in): Bundled<VEFactorySnapshot, TransactionOutput>,
         current_slot: Slot,
@@ -485,29 +485,33 @@ where
         let VotingEscrowConfig { owner, version, .. } =
             VotingEscrowConfig::try_from_pd(data_mut.clone()).unwrap();
 
+        let order_version = onchain_order.order.datum.ve_state.version;
+        let metadata = onchain_order.order.metadata;
         // Verify that witness is authorized by the owner.
         if let Owner::PubKey(bytes) = owner {
             let pk = cml_crypto::PublicKey::from_raw_bytes(&bytes)
                 .map_err(|_| ExtendVotingEscrowError::Other("Can't extrat PublicKey from bytes".into()))?;
-            let signature = Ed25519Signature::from_raw_bytes(&offchain_order.proof).map_err(|_| {
+            let signature = Ed25519Signature::from_raw_bytes(&metadata.signature).map_err(|_| {
                 ExtendVotingEscrowError::Other("Can't extract Ed25519Signature from bytes".into())
             })?;
-            println!("extend_ve_script hash: {}", offchain_order.witness.to_hex());
-            println!(" redeemer: {}", offchain_order.witness_input);
-            println!(" version: {}", offchain_order.id.version);
+            println!("extend_ve_script hash: {}", metadata.witness_script_hash.to_hex());
+            println!(
+                " order_datum: {}",
+                hex::encode(onchain_order.order.datum.clone().into_pd().to_cbor_bytes())
+            );
+            println!(" version: {}", order_version);
             let message = compute_witness_message(
-                offchain_order.witness,
-                offchain_order.witness_input.clone(),
-                offchain_order.id.version as u64,
-            )
-            .map_err(|_| ExtendVotingEscrowError::Witness(WitnessError::CannotDecodeRedeemer))?;
+                metadata.witness_script_hash,
+                &onchain_order.order.datum.clone().into_pd(),
+                metadata.version,
+            );
             println!("message: {}", hex::encode(&message));
             // Message with both prefix and postfix bytes.
-            let full_message: Vec<u8> = offchain_order
+            let full_message: Vec<u8> = metadata
                 .prefix_bytes
                 .iter()
                 .chain(message.iter())
-                .chain(offchain_order.postfix_bytes.iter())
+                .chain(metadata.postfix_bytes.iter())
                 .cloned()
                 .collect();
             println!("pre/post-fixed message: {}", hex::encode(&full_message));
@@ -516,20 +520,21 @@ where
             }
         }
 
-        if version != offchain_order.id.version as u32 {
+        if metadata.version != version {
             return Err(ExtendVotingEscrowError::Witness(
-                WitnessError::VEVersionMismatchWithOffchainOrder {
-                    voting_escrow_input_version: version,
-                    order_version: offchain_order.id.version as u32,
+                WitnessError::VEVersionMismatchWithTXMetadata {
+                    voting_escrow_input_version: metadata.version,
+                    order_version: version,
                 },
             ));
         }
 
-        if onchain_order.order.datum.ve_state.version != version + 1 {
+        // Note: the proxy order's `ve_state` is the datum for the VE in the TX OUTPUT
+        if (version + 1) != order_version {
             return Err(ExtendVotingEscrowError::Witness(
                 WitnessError::VEVersionMismatchWithOnchainProxy {
                     voting_escrow_output_version: version + 1,
-                    proxy_version: onchain_order.order.datum.ve_state.version,
+                    proxy_version: order_version,
                 },
             ));
         }
@@ -614,17 +619,22 @@ where
 
         let authorized_action = VotingEscrowAuthorizedAction {
             action: VotingEscrowAction::AddBudgetOrExtend { ve_out_ix: 1 },
-            witness: offchain_order.witness,
-            version: offchain_order.id.version as u32,
-            signature: offchain_order.proof,
-            prefix_bytes: offchain_order.prefix_bytes,
-            postfix_bytes: offchain_order.postfix_bytes,
-        };
+            witness_ix: order_input_ix as u32,
+            version,
+            signature: metadata.signature,
+            prefix_bytes: metadata.prefix_bytes,
+            postfix_bytes: metadata.postfix_bytes,
+        }
+        .into_pd();
+        trace!(
+            "voting_escrow redeemer: {}",
+            hex::encode(authorized_action.to_cbor_bytes())
+        );
         let voting_escrow_script_hash = self.ctx.select::<VotingEscrowScriptHash>().0;
 
         let voting_escrow_witness = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(voting_escrow_script_hash),
-            authorized_action.into_pd(),
+            authorized_action,
         );
 
         let voting_escrow_input = SingleInputBuilder::new(
@@ -646,6 +656,10 @@ where
             ve_in_ix: voting_escrow_input_ix as u64,
         }
         .into_pd();
+        trace!(
+            "ve_factory_order redeemer: {}",
+            hex::encode(ve_factory_redeemer.to_cbor_bytes())
+        );
         let ve_factory_witness = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(ve_factory_script_hash),
             ve_factory_redeemer,
@@ -658,10 +672,19 @@ where
 
         // `extend_voting_escrow_order` input --------------------------------------------------------
         let order_script_hash = self.ctx.select::<ExtendVotingEscrowOrderScriptHash>().0;
+
+        let expected_extend_ve_script_hash =
+            compute_extend_ve_order_validator(self.ctx.select::<MintVECompositionPolicy>().0).hash();
+        assert_eq!(order_script_hash, expected_extend_ve_script_hash);
         let order_action = ExtendVotingEscrowOrderAction::Extend {
             order_input_ix: order_input_ix as u32,
             voting_escrow_input_ix: voting_escrow_input_ix as u32,
         };
+
+        trace!(
+            "extend_ve_order redeemer: {}",
+            hex::encode(order_action.clone().into_pd().to_cbor_bytes())
+        );
 
         let order_witness = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(order_script_hash),
@@ -752,45 +775,13 @@ where
 
         let outputs = vec![ve_factory_output.clone(), voting_escrow_output.clone()];
 
-        // Set witness script (needed by voting_escrow) --------------------------------------------
-        let withdrawal_address = cml_chain::address::RewardAddress::new(
-            self.ctx.select::<NetworkId>().into(),
-            Credential::new_script(offchain_order.witness),
-        );
-
-        let witness_script = PlutusScript::PlutusV3(PlutusV3Script::new(
-            hex::decode(&DaoScriptData::global().proxy_order_witness.script_bytes).unwrap(),
-        ));
-
-        assert_eq!(witness_script.hash(), offchain_order.witness);
-
-        let witness_action = WitnessAction {
-            proxy_order_input_ix: order_input_ix as u32,
-            proxy_order_output_reference: order_out_ref,
-            proxy_order_script_hash: order_script_hash,
-            proxy_order_redeemer: order_action.into_pd(),
-            proxy_order_datum: onchain_order.order.datum.into_pd(),
-            owner_redemption: None,
-        }
-        .into_pd();
-        let order_witness =
-            PartialPlutusWitness::new(PlutusScriptWitness::Script(witness_script), witness_action);
-        let withdrawal_result = SingleWithdrawalBuilder::new(withdrawal_address, 0)
-            .plutus_script(order_witness, RequiredSigners::from(vec![]))
-            .unwrap();
-
-        let withdrawal = Some((
-            withdrawal_result,
-            DaoScriptData::global().proxy_order_witness.ex_units.clone(),
-        ));
-
         let OperatorCreds(_operator_pkh, operator_addr) = self.ctx.select::<OperatorCreds>();
         let mut blueprint = DaoTxBlueprint {
             reference_inputs,
             sorted_inputs,
             outputs,
             sorted_mints: mints,
-            withdrawal,
+            withdrawal: None,
             fee_buffer: EXTEND_VOTING_ESCROW_FEE_DELTA,
             operator_address: operator_addr.clone(),
         };
@@ -849,7 +840,6 @@ where
     async fn redeem_voting_escrow(
         &self,
         onchain_order: RedeemVotingEscrowOrderBundle<TransactionOutput>,
-        offchain_order: RedeemVotingEscrowOffChainOrder,
         Bundled(voting_escrow, ve_box_in): Bundled<VotingEscrowSnapshot, TransactionOutput>,
         Bundled(ve_factory, ve_factory_in): Bundled<VEFactorySnapshot, TransactionOutput>,
         current_slot: Slot,
@@ -866,7 +856,6 @@ where
             VEFactory,
         }
         let order_out_ref = onchain_order.output_ref.output_ref;
-        assert_eq!(order_out_ref, offchain_order.order_output_ref);
         let order_ex_units = DaoScriptData::global()
             .redeem_voting_escrow_order
             .ex_units
@@ -914,37 +903,41 @@ where
         } = VotingEscrowConfig::try_from_pd(data_mut.clone()).unwrap();
 
         let network_id = self.ctx.select::<NetworkId>();
+        let order_version = onchain_order.order.datum.ve_state.version;
+        let metadata = onchain_order.order.metadata;
+        // let order_datum = onchain_order.order.ve_datum
         let ve_owner_addr = if let Owner::PubKey(bytes) = owner {
             let pk = cml_crypto::PublicKey::from_raw_bytes(&bytes)
                 .map_err(|_| RedeemVotingEscrowError::Other("Can't extrat PublicKey from bytes".into()))?;
-            let signature = Ed25519Signature::from_raw_bytes(&offchain_order.proof).map_err(|_| {
+            let signature = Ed25519Signature::from_raw_bytes(&metadata.signature).map_err(|_| {
                 RedeemVotingEscrowError::Other("Can't extract Ed25519Signature from bytes".into())
             })?;
-            println!("redeem_ve_script hash: {}", offchain_order.witness.to_hex());
-            println!(" redeemer: {}", offchain_order.witness_input);
-            println!(" version: {}", offchain_order.id.version);
             let message = compute_witness_message(
-                offchain_order.witness,
-                offchain_order.witness_input.clone(),
-                offchain_order.id.version as u64,
-            )
-            .map_err(|_| RedeemVotingEscrowError::Witness(WitnessError::CannotDecodeRedeemer))?;
-            println!("message: {}", hex::encode(&message));
+                metadata.witness_script_hash,
+                &onchain_order.order.datum.clone().into_pd(),
+                metadata.version,
+            );
             // Message with both prefix and postfix bytes.
-            let full_message: Vec<u8> = offchain_order
+            let full_message: Vec<u8> = metadata
                 .prefix_bytes
                 .iter()
                 .chain(message.iter())
-                .chain(offchain_order.postfix_bytes.iter())
+                .chain(metadata.postfix_bytes.iter())
                 .cloned()
                 .collect();
-            println!("pre/post-fixed message: {}", hex::encode(&full_message));
+            trace!(
+                "redeem_ve_script: script_hash = {}, order_datum = {}, version = {}, message = {}, pre/post-fixed message = {}",
+                metadata.witness_script_hash.to_hex(),
+                hex::encode(onchain_order.order.datum.clone().into_pd().to_cbor_bytes()),
+                order_version,hex::encode(&message),
+                hex::encode(&full_message)
+            );
             if !pk.verify(&full_message, &signature) {
                 return Err(RedeemVotingEscrowError::Witness(WitnessError::OwnerAuthFailure));
             }
 
             let payment_cred = StakeCredential::new_pub_key(pk.hash());
-            if let Some(ref stake_cred) = offchain_order.stake_credential {
+            if let Some(ref stake_cred) = onchain_order.order.datum.owner_stake_credential {
                 BaseAddress::new(network_id.into(), payment_cred, stake_cred.clone()).to_address()
             } else {
                 return Err(RedeemVotingEscrowError::OwnerStakeCredentialMissingInRedeemer);
@@ -953,10 +946,9 @@ where
             todo!("Script addresses not yet supported");
         };
 
-        let order_version = offchain_order.id.version;
         if version != order_version {
             return Err(RedeemVotingEscrowError::Witness(
-                WitnessError::VEVersionMismatchWithOffchainOrder {
+                WitnessError::VEVersionMismatchWithTXMetadata {
                     voting_escrow_input_version: version,
                     order_version,
                 },
@@ -1069,11 +1061,11 @@ where
             action: VotingEscrowAction::Redeem {
                 ve_factory_in_ix: ve_factory_input_ix,
             },
-            witness: offchain_order.witness,
-            version: offchain_order.id.version,
-            signature: offchain_order.proof,
-            prefix_bytes: offchain_order.prefix_bytes,
-            postfix_bytes: offchain_order.postfix_bytes,
+            witness_ix: order_input_ix as u32,
+            version,
+            signature: metadata.signature,
+            prefix_bytes: metadata.prefix_bytes,
+            postfix_bytes: metadata.postfix_bytes,
         };
 
         let voting_escrow_script_hash = self.ctx.select::<VotingEscrowScriptHash>().0;
@@ -1117,10 +1109,7 @@ where
         let ve_identifier_token_name =
             spectrum_cardano_lib::AssetName::from(ve_identifier_token.asset_name.clone());
         let order_script_hash = self.ctx.select::<RedeemVotingEscrowOrderScriptHash>().0;
-        let owner_stake_credential = offchain_order.stake_credential.unwrap().clone();
         let order_action = RedeemVEOrderAction::RedeemVE {
-            ve_identifier_token_name,
-            owner_stake_credential: Some(owner_stake_credential.clone()),
             voting_escrow_input_ix: voting_escrow_input_ix as u32,
             ve_factory_input_ix,
         };
@@ -1188,53 +1177,13 @@ where
 
         let outputs = vec![ve_factory_output.clone(), owner_output];
 
-        // Set witness script (needed by voting_escrow) --------------------------------------------
-        let withdrawal_address = cml_chain::address::RewardAddress::new(
-            self.ctx.select::<NetworkId>().into(),
-            Credential::new_script(offchain_order.witness),
-        );
-
-        let witness_script = PlutusScript::PlutusV3(PlutusV3Script::new(
-            hex::decode(&DaoScriptData::global().proxy_order_witness.script_bytes).unwrap(),
-        ));
-
-        assert_eq!(witness_script.hash(), offchain_order.witness);
-
-        let witness_action = WitnessAction {
-            proxy_order_input_ix: order_input_ix as u32,
-            proxy_order_output_reference: order_out_ref,
-            proxy_order_script_hash: order_script_hash,
-            proxy_order_redeemer: order_action.into_pd(),
-            proxy_order_datum: onchain_order.order.ve_datum.into_pd(),
-            owner_redemption: Some(OwnerRedemptionUTxO {
-                owner_output_ix: 1,
-                owner,
-                owner_stake_credential: owner_stake_credential.clone(),
-            }),
-        }
-        .into_pd();
-
-        let order_witness =
-            PartialPlutusWitness::new(PlutusScriptWitness::Script(witness_script), witness_action);
-        let withdrawal_result = SingleWithdrawalBuilder::new(withdrawal_address, 0)
-            .plutus_script(order_witness, RequiredSigners::from(vec![]))
-            .unwrap();
-
-        let withdrawal = Some((
-            withdrawal_result,
-            DaoScriptData::global()
-                .redeem_voting_escrow_witness
-                .ex_units
-                .clone(),
-        ));
-
         let OperatorCreds(_operator_pkh, operator_addr) = self.ctx.select::<OperatorCreds>();
         let mut blueprint = DaoTxBlueprint {
             reference_inputs,
             sorted_inputs,
             outputs,
             sorted_mints: mints,
-            withdrawal,
+            withdrawal: None,
             fee_buffer: REDEEM_VOTING_ESCROW_FEE_DELTA,
             operator_address: operator_addr.clone(),
         };

@@ -1,6 +1,6 @@
 {
   "splash_deposit_amount": 100000,
   "ada_balance": 3000000,
-  "lock_duration_in_seconds": 80000,
+  "lock_duration_in_seconds": 36000,
   "creation_epoch": 0
 }

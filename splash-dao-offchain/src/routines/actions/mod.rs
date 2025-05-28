@@ -85,6 +85,7 @@ pub trait WPollActions<Bearer> {
     async fn eliminate_wpoll(
         &self,
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
+        perm_manager: Bundled<PermManagerSnapshot, Bearer>,
         funding_boxes: AvailableFundingBoxes,
         current_slot: Slot,
     ) -> (SignedTxBuilder, FundingBoxChanges);
@@ -94,7 +95,6 @@ pub trait WPollActions<Bearer> {
         weighting_poll: Bundled<WeightingPollSnapshot, Bearer>,
         voting_escrow: Bundled<VotingEscrowSnapshot, Bearer>,
         onchain_order: WPollVoteOrderBundle<Bearer>,
-        offchain_order: WPollVoteOffChainOrder,
         current_slot: Slot,
     ) -> Result<
         (
@@ -125,7 +125,6 @@ pub trait VoteEscrowActions<Bearer> {
     async fn extend_voting_escrow(
         &self,
         extend_voting_escrow_onchain_order: ExtendVotingEscrowOrderBundle<Bearer>,
-        extend_voting_escrow_offchain_order: ExtendVotingEscrowOffChainOrder,
         voting_escrow: Bundled<VotingEscrowSnapshot, Bearer>,
         ve_factory: Bundled<VEFactorySnapshot, Bearer>,
         current_slot: Slot,
@@ -141,7 +140,6 @@ pub trait VoteEscrowActions<Bearer> {
     async fn redeem_voting_escrow(
         &self,
         onchain_order: RedeemVotingEscrowOrderBundle<Bearer>,
-        offchain_order: RedeemVotingEscrowOffChainOrder,
         voting_escrow: Bundled<VotingEscrowSnapshot, Bearer>,
         ve_factory: Bundled<VEFactorySnapshot, Bearer>,
         current_slot: Slot,
@@ -271,6 +269,7 @@ pub enum ExecuteOrderError {
         available_weighting_power: u64,
     },
     InVotingPower,
+    LockTimeBeforeEpochEnd,
     Witness(WitnessError),
     Other(String),
 }
@@ -311,7 +310,7 @@ pub enum WitnessError {
         last_wp_epoch: i32,
         current_epoch: i32,
     },
-    VEVersionMismatchWithOffchainOrder {
+    VEVersionMismatchWithTXMetadata {
         voting_escrow_input_version: u32,
         order_version: u32,
     },

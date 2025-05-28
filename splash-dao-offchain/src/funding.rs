@@ -120,7 +120,6 @@ impl FundingRepo for FundingRepoRocksDB {
         let predicted_key = funding_key(STATE_PREFIX, PREDICTED_AVAILABLE, &f_id);
         let confirmed_key = funding_key(STATE_PREFIX, CONFIRMED_AVAILABLE, &f_id);
         spawn_blocking(move || {
-            assert!(db.get(&predicted_key).unwrap().is_none());
             let tx = db.transaction();
             let predicted_spent_key = funding_key(STATE_PREFIX, PREDICTED_SPENT, &f_id);
 
@@ -195,7 +194,6 @@ impl FundingRepo for FundingRepoRocksDB {
         let db = self.db.clone();
         let predicted_key = funding_key(STATE_PREFIX, PREDICTED_AVAILABLE, &f_id);
         spawn_blocking(move || {
-            assert!(db.get(&predicted_key).unwrap().is_some());
             db.delete(predicted_key).unwrap();
         })
         .await

@@ -6,6 +6,7 @@ use crate::{
 };
 use cml_chain::{
     assets::AssetName,
+    auxdata::Metadata,
     plutus::{ConstrPlutusData, PlutusData, PlutusV2Script},
     transaction::TransactionOutput,
     utils::BigInteger,
@@ -34,7 +35,11 @@ use spectrum_offchain_cardano::{
 };
 use uplc_pallas_primitives::{BoundedBytes, MaybeIndefArray};
 
-use super::voting_escrow::{Owner, VotingEscrowConfig};
+use super::{
+    get_proxy_order_metadata,
+    voting_escrow::{Owner, VotingEscrowConfig},
+    ProxyOrderMetadata,
+};
 
 #[derive(Hash, PartialEq, Eq, Serialize, Deserialize, Clone, Debug)]
 pub struct ExtendVotingEscrowOrderBundle<Bearer> {
@@ -71,18 +76,21 @@ impl<Bearer> Weighted for ExtendVotingEscrowOrderBundle<Bearer> {
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize, Hash)]
 pub struct ExtendVotingEscrowOnchainOrder {
     pub datum: ExtendVotingEscrowOrderState,
+    pub metadata: ProxyOrderMetadata,
 }
 
 impl<C> TryFromLedger<TransactionOutput, C> for ExtendVotingEscrowOnchainOrder
 where
-    C: Has<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>>,
+    C: Has<DeployedScriptInfo<{ ProtocolValidator::ExtendVeOrder as u8 }>> + Has<Option<Metadata>>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         if test_address(repr.address(), ctx) {
             let value = repr.value().clone();
             if value.coin >= EXTEND_VOTING_ESCROW_ORDER_MIN_LOVELACES {
-                let ve_datum = ExtendVotingEscrowOrderState::try_from_pd(repr.datum()?.into_pd()?)?;
-                return Some(Self { datum: ve_datum });
+                let datum = ExtendVotingEscrowOrderState::try_from_pd(repr.datum()?.into_pd()?)?;
+                let tx_metadata = ctx.select::<Option<Metadata>>()?;
+                let metadata = get_proxy_order_metadata(tx_metadata)?;
+                return Some(Self { datum, metadata });
             }
         }
         None

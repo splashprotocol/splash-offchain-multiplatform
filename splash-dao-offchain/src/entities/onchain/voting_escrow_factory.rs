@@ -289,8 +289,20 @@ impl IntoPlutusData for FactoryAction {
     fn into_pd(self) -> PlutusData {
         PlutusData::ConstrPlutusData(match self {
             FactoryAction::Deposit => ConstrPlutusData::new(0, vec![]),
-            FactoryAction::ExtendPosition { ve_in_ix } => ConstrPlutusData::new(1, vec![ve_in_ix.into_pd()]),
-            FactoryAction::RedeemFromVE { ve_in_ix } => ConstrPlutusData::new(2, vec![ve_in_ix.into_pd()]),
+            FactoryAction::ExtendPosition { ve_in_ix } => {
+                let mut constr = make_constr_pd_indefinite_arr(vec![ve_in_ix.into_pd()])
+                    .into_constr_pd()
+                    .unwrap();
+                constr.alternative = 1;
+                constr
+            }
+            FactoryAction::RedeemFromVE { ve_in_ix } => {
+                let mut constr = make_constr_pd_indefinite_arr(vec![ve_in_ix.into_pd()])
+                    .into_constr_pd()
+                    .unwrap();
+                constr.alternative = 2;
+                constr
+            }
             FactoryAction::ExecuteProposal => ConstrPlutusData::new(3, vec![]),
         })
     }

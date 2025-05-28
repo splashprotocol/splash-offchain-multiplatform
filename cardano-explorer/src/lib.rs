@@ -105,12 +105,8 @@ impl<T: CardanoNetwork + Sync> CardanoNetwork for Box<T> {
 }
 
 pub trait ExtendedCardanoNetwork: CardanoNetwork {
-    async fn slot_indexed_utxos_by_address(
-        &self,
-        address: Address,
-        offset: u32,
-        limit: u16,
-    ) -> Vec<(TransactionUnspentOutput, u64)>;
+    async fn slot_indexed_utxos_by_address(&self, address: Address, offset: u32, limit: u16)
+        -> Vec<UTxOInfo>;
     async fn submit_tx(&self, cbor: &[u8]) -> Result<(), Box<dyn std::error::Error>>;
     async fn chain_tip_slot_number(&self) -> Result<u64, Box<dyn std::error::Error>>;
     async fn wait_for_transaction_confirmation(
@@ -394,7 +390,7 @@ impl ExtendedCardanoNetwork for Maestro {
         address: Address,
         offset: u32,
         limit: u16,
-    ) -> Vec<(TransactionUnspentOutput, u64)> {
+    ) -> Vec<UTxOInfo> {
         let utxos = self.utxos_by_address(address, offset, limit).await;
         let mut res = vec![];
 
@@ -404,7 +400,12 @@ impl ExtendedCardanoNetwork for Maestro {
                 .transaction_details(&utxo.input.transaction_id.to_hex())
                 .await
                 .unwrap();
-            res.push((utxo, tx_details.data.block_absolute_slot as u64));
+            let info = UTxOInfo {
+                utxo,
+                slot: tx_details.data.block_absolute_slot as u64,
+                metadata_json: tx_details.data.metadata,
+            };
+            res.push(info);
         }
         res
     }
@@ -439,6 +440,13 @@ impl ExtendedCardanoNetwork for Maestro {
         }
         Ok(())
     }
+}
+
+pub struct UTxOInfo {
+    pub utxo: TransactionUnspentOutput,
+    pub slot: u64,
+    /// Maestro-formatted JSON...
+    pub metadata_json: serde_json::Value,
 }
 
 pub enum AnyExplorer {

@@ -30,7 +30,7 @@ pub const TAIL_REDUCTION_RATE_NUM: u64 = 94_524;
 
 pub const TAIL_REDUCTION_RATE_DEN: u64 = 100_000;
 
-#[cfg(not(feature = "test_10_hour_epoch"))]
+#[cfg(not(feature = "test_8_hour_epoch"))]
 pub mod time {
     /// Length of one emission epoch in milliseconds.
     pub const EPOCH_LEN: u64 = 604_800_000;
@@ -82,10 +82,10 @@ pub const ELIMINATE_WPOLL_MINIMUM_FUNDING: u64 = 3_000_000;
 pub const CREATE_WPOLL_MINIMUM_FUNDING: u64 = 5_000_000;
 pub const DISTRIBUTE_INFLATION_MINIMUM_FUNDING: u64 = 5_000_000;
 
-#[cfg(feature = "test_10_hour_epoch")]
+#[cfg(feature = "test_8_hour_epoch")]
 pub mod time {
-    /// Length of one emission epoch in milliseconds (10 hours).
-    pub const EPOCH_LEN: u64 = 36_000_000;
+    /// Length of one emission epoch in milliseconds (8 hours).
+    pub const EPOCH_LEN: u64 = 28_800_000;
 
     /// Maximum tolerable time inaccuracy. (1 hour)
     pub const MAX_TIME_DRIFT_MILLIS: u64 = 3_600_000;
@@ -99,8 +99,8 @@ pub mod time {
     /// Min length of voting on proposal. (1 day)
     pub const MIN_VOTING_TIME_MILLIS: u64 = 86_400_000;
 
-    /// Period after poll deadline after which it is allowed to destroy the poll. 1 day.
-    pub const COOLDOWN_PERIOD_MILLIS: u64 = 86_400_000;
+    /// Period after poll deadline after which it is allowed to destroy the poll. 10 min.
+    pub const COOLDOWN_PERIOD_MILLIS: u64 = 600_000;
 
     /// Extra buffer period after COOLDOWN_PERIOD_MILLIS to ensure poll elimination TX validates. 2 min.
     pub const COOLDOWN_PERIOD_EXTRA_BUFFER: u64 = 120_000;
@@ -119,9 +119,7 @@ pub mod time {
     //----------------------------------------------------------------------------------------------
     // NOTE: the following constants from governance/weighting_poll.ak were also modified:
     //
-    // Period after poll deadline after which it is allowed to destroy the poll. 30 days.
-    //   const cooldown_period_millis = 86_400_000
-    //   const wp_preinit_period_millis = 43_200_000 // 10 min.
+    //   const wp_preinit_period_millis = 43_200_000
 }
 
 pub const MIN_PROPOSAL_OPTIONS: usize = 2;

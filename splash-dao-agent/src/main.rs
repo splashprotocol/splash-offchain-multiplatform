@@ -1,6 +1,6 @@
 use std::{fmt::Debug, hash::Hash, marker::PhantomData, sync::Arc};
 
-use api_endpoints::{handle_extend_ve_put, handle_get_mve_status, handle_redeem_ve_put, handle_voting_put};
+use api_endpoints::handle_get_mve_status;
 use async_primitives::beacon::Beacon;
 use bloom_offchain_cardano::event_sink::tx_view::TxViewMut;
 use bounded_integer::BoundedU8;
@@ -171,9 +171,6 @@ async fn main() {
 
     // Setup axum server to listen for incoming voting orders --------------------------------------
     let app = axum::Router::new()
-        .route("/submit/votingorder", axum::routing::put(handle_voting_put))
-        .route("/submit/extendve", axum::routing::put(handle_extend_ve_put))
-        .route("/submit/redeemve", axum::routing::put(handle_redeem_ve_put))
         .route(
             "/query/ve/identifier/name",
             axum::routing::put(handle_get_mve_status),

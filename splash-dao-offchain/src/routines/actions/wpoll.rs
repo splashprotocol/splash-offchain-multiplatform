@@ -7,7 +7,7 @@ use cml_chain::builders::input_builder::{InputBuilderResult, SingleInputBuilder}
 use cml_chain::builders::mint_builder::SingleMintBuilder;
 use cml_chain::builders::output_builder::{SingleOutputBuilderResult, TransactionOutputBuilder};
 use cml_chain::builders::redeemer_builder::RedeemerWitnessKey;
-use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder};
+use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionUnspentOutput};
 use cml_chain::builders::withdrawal_builder::SingleWithdrawalBuilder;
 use cml_chain::builders::witness_builder::{PartialPlutusWitness, PlutusScriptWitness};
 use cml_chain::certs::Credential;
@@ -42,12 +42,13 @@ use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::offchain::{compute_witness_message, WPollVoteOffChainOrder};
 use crate::entities::onchain::funding_box::{FundingBox, FundingBoxId};
 use crate::entities::onchain::inflation_box::{unsafe_update_ibox_state, InflationBoxSnapshot};
+use crate::entities::onchain::permission_manager::PermManagerSnapshot;
 use crate::entities::onchain::poll_factory::{
     unsafe_update_factory_state, FactoryRedeemer, PollFactoryAction, PollFactorySnapshot,
 };
 use crate::entities::onchain::voting_escrow::{
-    self, unsafe_update_ve_state, Owner, VotingEscrowAction, VotingEscrowAuthorizedAction,
-    VotingEscrowConfig, VotingEscrowSnapshot,
+    self, Lock, Owner, VotingEscrowAction, VotingEscrowAuthorizedAction, VotingEscrowConfig,
+    VotingEscrowSnapshot,
 };
 use crate::entities::onchain::weighting_poll::{
     self, unsafe_update_wp_state, MintAction, WeightingPollSnapshot,
@@ -58,14 +59,15 @@ use crate::entities::onchain::wpoll_vote_order::{
 use crate::entities::Snapshot;
 use crate::protocol_config::{
     GTAuthPolicy, InflationBoxRefScriptOutput, MintVEIdentifierPolicy, MintWPAuthPolicy,
-    MintWPAuthRefScriptOutput, OperatorCreds, PollFactoryRefScriptOutput, Reward, SplashPolicy,
-    VotingEscrowRefScriptOutput, VotingEscrowScriptHash, WPollVoteOrderRefScriptOutput,
+    MintWPAuthRefScriptOutput, OperatorCreds, PermManagerAuthPolicy, PollFactoryRefScriptOutput, Reward,
+    SplashPolicy, VotingEscrowRefScriptOutput, VotingEscrowScriptHash, WPollVoteOrderRefScriptOutput,
     WPollVoteOrderScriptHash, WeightingPowerPolicy, WeightingPowerRefScriptOutput,
 };
 use crate::routines::actions::{
     AvailableFundingBoxes, BlueprintEstimates, DaoTxBlueprint, FundingBoxChanges, Slot, WitnessError,
 };
 use crate::routines::TimedOutputRef;
+use crate::time::epoch_end;
 use crate::util::set_min_ada;
 use crate::GenesisEpochStartTime;
 
@@ -89,6 +91,7 @@ where
         + Has<MintWPAuthRefScriptOutput>
         + Has<MintVEIdentifierPolicy>
         + Has<GenesisEpochStartTime>
+        + Has<PermManagerAuthPolicy>
         + Has<WeightingPowerPolicy>
         + Has<WeightingPowerRefScriptOutput>
         + Has<WPollVoteOrderScriptHash>
@@ -398,6 +401,7 @@ where
     async fn eliminate_wpoll(
         &self,
         Bundled(weighting_poll, weighting_poll_in): Bundled<WeightingPollSnapshot, TransactionOutput>,
+        Bundled(perm_manager, perm_manager_in): Bundled<PermManagerSnapshot, TransactionOutput>,
         funding_boxes: AvailableFundingBoxes,
         current_slot: Slot,
     ) -> (SignedTxBuilder, FundingBoxChanges) {
@@ -409,7 +413,35 @@ where
         let wpoll_auth_ref_script = self.ctx.select::<MintWPAuthRefScriptOutput>().0;
         let wpoll_script_hash = self.ctx.select::<MintWPAuthPolicy>().0;
 
-        let redeemer = weighting_poll::PollAction::Destroy;
+        enum T {
+            PermManager,
+            Other,
+        }
+
+        let perm_manager_unspent_input = TransactionUnspentOutput::new(
+            TransactionInput::from(perm_manager.version().output_ref),
+            perm_manager_in.clone(),
+        );
+
+        // Need to determine the index of `perm_manager` within `reference_inputs`
+        let mut indexed_ref_inputs = vec![
+            (perm_manager_unspent_input, T::PermManager),
+            (mint_weighting_power_ref_script, T::Other),
+            (wpoll_auth_ref_script, T::Other),
+        ];
+        indexed_ref_inputs.sort_by_key(|(input, _)| input.input.clone());
+        let perm_manager_input_ix = indexed_ref_inputs
+            .iter()
+            .position(|(_, typ)| matches!(typ, T::PermManager))
+            .unwrap() as u32;
+
+        for (ref_input, _) in indexed_ref_inputs {
+            tx_builder.add_reference_input(ref_input);
+        }
+
+        let redeemer = weighting_poll::PollAction::Destroy {
+            perm_manager_input_ix,
+        };
         let weighting_poll_script =
             PartialPlutusWitness::new(PlutusScriptWitness::Ref(wpoll_script_hash), redeemer.into_pd());
 
@@ -442,8 +474,6 @@ where
             .unwrap() as u64;
         trace!("`eliminate_wpoll` input: wpoll_ix: {}", wpoll_ix);
 
-        tx_builder.add_reference_input(mint_weighting_power_ref_script);
-        tx_builder.add_reference_input(wpoll_auth_ref_script);
         let mut change_output_creator = ChangeOutputCreator::default();
         for (_, input) in inputs {
             change_output_creator.add_input(&input);
@@ -474,44 +504,47 @@ where
         tx_builder.add_mint(wp_auth_minting_policy).unwrap();
 
         // Burn weighting_power tokens -------------------------------------------------------------
-        let mint_weighting_power_policy = self.ctx.select::<WeightingPowerPolicy>().0;
-        let weighting_power = weighting_poll.get().weighting_power.unwrap();
-        let mut names = output_value
-            .multiasset
-            .deref_mut()
-            .remove(&mint_weighting_power_policy)
-            .unwrap();
-        assert_eq!(names.len(), 1);
-        let (mint_weighting_power_token_name, qty) = names.pop_front().unwrap();
-        assert_eq!(qty, weighting_power);
-        assert_eq!(mint_weighting_power_token_name, name);
-
-        let mint_action = voting_escrow::MintAction::Burn;
-        let mint_wp_auth_token_witness = PartialPlutusWitness::new(
-            PlutusScriptWitness::Ref(mint_weighting_power_policy),
-            mint_action.into_pd(),
-        );
-        let mint_weighting_power_builder_result =
-            SingleMintBuilder::new_single_asset(name.clone(), -(weighting_power as i64))
-                .plutus_script(mint_wp_auth_token_witness, RequiredSigners::from(vec![]));
-        tx_builder.add_mint(mint_weighting_power_builder_result).unwrap();
 
         let dsd = DaoScriptData::global();
         tx_builder.set_exunits(
             RedeemerWitnessKey::new(RedeemerTag::Mint, 0),
             dsd.mint_wp_auth_token.burn_ex_units.clone(),
         );
-        tx_builder.set_exunits(
-            RedeemerWitnessKey::new(RedeemerTag::Mint, 1),
-            dsd.mint_weighting_power.burn_ex_units.clone(),
-        );
 
-        // ------------------
-        change_output_creator.burn_token(crate::create_change_output::Token {
-            policy_id: mint_weighting_power_policy,
-            asset_name: mint_weighting_power_token_name,
-            quantity: weighting_power,
-        });
+        let mint_weighting_power_policy = self.ctx.select::<WeightingPowerPolicy>().0;
+
+        // If there exists weighting power, burn it.
+        if let Some(weighting_power) = weighting_poll.get().weighting_power {
+            let mut names = output_value
+                .multiasset
+                .deref_mut()
+                .remove(&mint_weighting_power_policy)
+                .unwrap();
+            assert_eq!(names.len(), 1);
+            let (mint_weighting_power_token_name, qty) = names.pop_front().unwrap();
+            assert_eq!(qty, weighting_power);
+            assert_eq!(mint_weighting_power_token_name, name);
+
+            let mint_action = voting_escrow::MintAction::Burn;
+            let mint_wp_auth_token_witness = PartialPlutusWitness::new(
+                PlutusScriptWitness::Ref(mint_weighting_power_policy),
+                mint_action.into_pd(),
+            );
+            let mint_weighting_power_builder_result =
+                SingleMintBuilder::new_single_asset(name.clone(), -(weighting_power as i64))
+                    .plutus_script(mint_wp_auth_token_witness, RequiredSigners::from(vec![]));
+            tx_builder.add_mint(mint_weighting_power_builder_result).unwrap();
+
+            change_output_creator.burn_token(crate::create_change_output::Token {
+                policy_id: mint_weighting_power_policy,
+                asset_name: mint_weighting_power_token_name,
+                quantity: weighting_power,
+            });
+            tx_builder.set_exunits(
+                RedeemerWitnessKey::new(RedeemerTag::Mint, 1),
+                dsd.mint_weighting_power.burn_ex_units.clone(),
+            );
+        }
 
         let OperatorCreds(_, operator_addr) = self.ctx.select::<OperatorCreds>();
         let output = TransactionOutputBuilder::new()
@@ -533,6 +566,10 @@ where
             change_output_creator.create_change_output(estimated_tx_fee, operator_addr.clone());
         tx_builder.add_output(change_output).unwrap();
         tx_builder.set_fee(estimated_tx_fee);
+
+        // Add operator as signatory
+        let OperatorCreds(operator_pkh, _) = self.ctx.select::<OperatorCreds>();
+        tx_builder.add_required_signer(operator_pkh);
 
         tx_builder
             .add_collateral(InputBuilderResult::from(self.ctx.select::<Collateral>()))
@@ -589,7 +626,6 @@ where
         Bundled(weighting_poll, weighting_poll_in): Bundled<WeightingPollSnapshot, TransactionOutput>,
         Bundled(voting_escrow, ve_box_in): Bundled<VotingEscrowSnapshot, TransactionOutput>,
         onchain_order: WPollVoteOrderBundle<TransactionOutput>,
-        offchain_order: WPollVoteOffChainOrder,
         current_slot: Slot,
     ) -> Result<
         (
@@ -602,35 +638,41 @@ where
         // Voting escrow ---------------------------------------------------------------------------
         let mut voting_escrow_out = ve_box_in.clone();
         let data_mut = voting_escrow_out.data_mut().unwrap();
-        let VotingEscrowConfig {
+        let mut ve_state @ VotingEscrowConfig {
             owner,
             last_wp_epoch,
             version,
+            locked_until,
             ..
         } = VotingEscrowConfig::try_from_pd(data_mut.clone()).unwrap();
 
+        let order_version = onchain_order.order.datum.ve_state.version;
+        let metadata = onchain_order.order.metadata;
         // Verify that witness is authorized by the owner.
         if let Owner::PubKey(bytes) = owner {
             let pk = cml_crypto::PublicKey::from_raw_bytes(&bytes)
                 .map_err(|_| ExecuteOrderError::Other("Can't extrat PublicKey from bytes".into()))?;
-            let signature = Ed25519Signature::from_raw_bytes(&offchain_order.proof)
+            let signature = Ed25519Signature::from_raw_bytes(&metadata.signature)
                 .map_err(|_| ExecuteOrderError::Other("Can't extract Ed25519Signature from bytes".into()))?;
-            println!("witness_script hash: {}", offchain_order.witness.to_hex());
-            println!("redeemer: {}", offchain_order.witness_input);
-            println!("version: {}", offchain_order.id.version);
+            println!("execute_order hash: {}", metadata.witness_script_hash.to_hex());
+            use cml_chain::Serialize;
+            println!(
+                " order datum: {}",
+                hex::encode(onchain_order.order.datum.clone().into_pd().to_cbor_bytes())
+            );
+            println!("version: {}", order_version);
             let message = compute_witness_message(
-                offchain_order.witness,
-                offchain_order.witness_input.clone(),
-                offchain_order.id.version as u64,
-            )
-            .map_err(|_| ExecuteOrderError::Witness(WitnessError::CannotDecodeRedeemer))?;
+                metadata.witness_script_hash,
+                &onchain_order.order.datum.clone().into_pd(),
+                metadata.version,
+            );
             println!("message: {}", hex::encode(&message));
             // Message with both prefix and postfix bytes.
-            let full_message: Vec<u8> = offchain_order
+            let full_message: Vec<u8> = metadata
                 .prefix_bytes
                 .iter()
                 .chain(message.iter())
-                .chain(offchain_order.postfix_bytes.iter())
+                .chain(metadata.postfix_bytes.iter())
                 .cloned()
                 .collect();
             println!("pre/post-fixed message: {}", hex::encode(&full_message));
@@ -651,13 +693,20 @@ where
             ));
         }
 
-        if version != offchain_order.id.version {
+        if version != order_version {
             return Err(ExecuteOrderError::Witness(
-                WitnessError::VEVersionMismatchWithOffchainOrder {
+                WitnessError::VEVersionMismatchWithTXMetadata {
                     voting_escrow_input_version: version,
-                    order_version: offchain_order.id.version,
+                    order_version,
                 },
             ));
+        }
+
+        if let Lock::Def(until_millis) = locked_until {
+            let gen_epoch_start = self.ctx.select::<GenesisEpochStartTime>();
+            if until_millis < epoch_end(gen_epoch_start, new_wp_epoch) {
+                return Err(ExecuteOrderError::LockTimeBeforeEpochEnd);
+            }
         }
 
         // Sort inputs -----------------------------------------------------------------------------
@@ -705,7 +754,14 @@ where
         );
 
         let new_ve_version = voting_escrow.get().version + 1;
-        unsafe_update_ve_state(data_mut, new_wp_epoch, new_ve_version);
+        ve_state.last_wp_epoch = new_wp_epoch as i32;
+        ve_state.version = new_ve_version;
+
+        // We create a new instance of the datum, because extracting the underlying
+        // PlutusData::Constr to update fields in-place means we lose the original indefinite-array
+        // containing the fields (CML uses definite-arrays by default).
+        *data_mut = ve_state.into_pd();
+
         let mut next_ve = voting_escrow.get().clone();
         next_ve.last_wp_epoch = new_wp_epoch as i32;
         next_ve.version = new_ve_version;
@@ -732,7 +788,6 @@ where
         let order_action = WPollVoteAction::CastVote {
             voting_escrow_input_ix,
             wpoll_input_ix,
-            expected_diff: offchain_order.distribution.clone(),
         };
 
         let order_witness = PartialPlutusWitness::new(
@@ -752,11 +807,11 @@ where
 
         let authorized_action = VotingEscrowAuthorizedAction {
             action: VotingEscrowAction::Governance,
-            witness: offchain_order.witness,
-            version: offchain_order.id.version,
-            signature: offchain_order.proof,
-            prefix_bytes: offchain_order.prefix_bytes,
-            postfix_bytes: offchain_order.postfix_bytes,
+            witness_ix: order_input_ix as u32,
+            version,
+            signature: metadata.signature,
+            prefix_bytes: metadata.prefix_bytes,
+            postfix_bytes: metadata.postfix_bytes,
         };
         let voting_escrow_witness = PartialPlutusWitness::new(
             PlutusScriptWitness::Ref(voting_escrow_script_hash),
@@ -802,7 +857,9 @@ where
         let mut wpoll_out = weighting_poll_in.clone();
         let available_weighting_power = voting_escrow.get().voting_power(current_posix_time);
 
-        let order_weighting_power = offchain_order.distribution.iter().fold(0, |acc, &(_, w)| acc + w);
+        let distribution = &onchain_order.order.datum.expected_diff;
+
+        let order_weighting_power = distribution.iter().fold(0, |acc, &(_, w)| acc + w);
         println!(
             "available weighting_power: {}, order weighting_power: {}",
             available_weighting_power, order_weighting_power
@@ -816,7 +873,7 @@ where
         }
 
         let mut next_weighting_poll = weighting_poll.get().clone();
-        next_weighting_poll.apply_votes(&offchain_order.distribution);
+        next_weighting_poll.apply_votes(distribution);
         next_weighting_poll.weighting_power = Some(order_weighting_power);
 
         if let Some(data_mut) = wpoll_out.data_mut() {
@@ -882,36 +939,13 @@ where
         let mint_ex_units = dsd.mint_weighting_power.mint_ex_units.clone();
         let mints = vec![(weighting_power_minting_policy, token, true, mint_ex_units)];
 
-        // Set witness script (needed by voting_escrow) --------------------------------------------
-        let withdrawal_address = cml_chain::address::RewardAddress::new(
-            self.ctx.select::<NetworkId>().into(),
-            Credential::new_script(offchain_order.witness),
-        );
-
-        let voting_witness_script = PlutusScript::PlutusV3(PlutusV3Script::new(
-            hex::decode(&DaoScriptData::global().proxy_order_witness.script_bytes).unwrap(),
-        ));
-
-        let witness_input = cml_chain::plutus::PlutusData::from_cbor_bytes(
-            &hex::decode(offchain_order.witness_input).unwrap(),
-        )
-        .map_err(|_| ExecuteOrderError::Witness(WitnessError::CannotDecodeRedeemer))?;
-        dbg!(&witness_input);
-        let order_witness =
-            PartialPlutusWitness::new(PlutusScriptWitness::Script(voting_witness_script), witness_input);
-        let withdrawal_result = SingleWithdrawalBuilder::new(withdrawal_address, 0)
-            .plutus_script(order_witness, RequiredSigners::from(vec![]))
-            .unwrap();
-        let witness_ex_units = dsd.proxy_order_witness.ex_units.clone();
-        let withdrawal = Some((withdrawal_result, witness_ex_units));
-
         let OperatorCreds(_operator_pkh, operator_addr) = self.ctx.select::<OperatorCreds>();
         let mut blueprint = DaoTxBlueprint {
             reference_inputs,
             sorted_inputs,
             outputs,
             sorted_mints: mints,
-            withdrawal,
+            withdrawal: None,
             fee_buffer: WPOLL_VOTE_ORDER_FEE_DELTA,
             operator_address: operator_addr.clone(),
         };

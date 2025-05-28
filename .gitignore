@@ -17,3 +17,4 @@ state_data/
 state/
 splash-dao-administration/resources/preprod_deployment.json
 splash-testing-cardano/package-lock.json
+splash-dao-administration/resources/test_wallet_keys.json

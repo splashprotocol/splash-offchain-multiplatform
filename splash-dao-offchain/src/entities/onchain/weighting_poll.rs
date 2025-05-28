@@ -31,7 +31,9 @@ use crate::constants::SPLASH_NAME;
 use crate::deployment::{DaoScriptData, ProtocolValidator};
 use crate::entities::onchain::smart_farm::FarmId;
 use crate::entities::Snapshot;
-use crate::protocol_config::{GTAuthPolicy, MintWPAuthPolicy, SplashPolicy, WeightingPowerPolicy};
+use crate::protocol_config::{
+    GTAuthPolicy, MintWPAuthPolicy, PermManagerAuthPolicy, SplashPolicy, WeightingPowerPolicy,
+};
 use crate::routines::actions::compute_epoch_asset_name;
 use crate::routines::{slot_to_epoch, TimedOutputRef};
 use crate::time::{epoch_end, epoch_start, NetworkTime, ProtocolEpoch};
@@ -60,7 +62,8 @@ pub struct WeightingPoll {
     pub epoch: ProtocolEpoch,
     pub distribution: Vec<(FarmId, u64)>,
     pub emission_rate: TaggedAmount<Splash>,
-    /// Note: weighting power is not determined until vote stage.
+    /// Note: weighting power is not determined until vote stage. If this field is None then no
+    /// votes have currently been cast for the current epoch.
     pub weighting_power: Option<u64>,
     pub eliminated: bool,
 }
@@ -79,6 +82,7 @@ impl<Ctx> IntoLedger<TransactionOutput, Ctx> for WeightingPoll
 where
     Ctx: Has<SplashPolicy>
         + Has<GenesisEpochStartTime>
+        + Has<PermManagerAuthPolicy>
         + Has<MintWPAuthPolicy>
         + Has<WeightingPowerPolicy>
         + Has<GTAuthPolicy>
@@ -90,6 +94,7 @@ where
             &self,
             ctx.select::<GenesisEpochStartTime>(),
             ctx.select::<WeightingPowerPolicy>().0,
+            ctx.select::<PermManagerAuthPolicy>().0,
         );
 
         let cred = StakeCredential::new_script(wp_auth_policy);
@@ -113,12 +118,14 @@ fn create_datum(
     wpoll: &WeightingPoll,
     genesis_epoch_start_time: GenesisEpochStartTime,
     weighting_power_policy: PolicyId,
+    perm_manager_auth_policy: PolicyId,
 ) -> PlutusData {
     let distribution_pd = distribution_to_plutus_data(&wpoll.distribution);
     let deadline_inner = wpoll.voting_deadline_time(genesis_epoch_start_time);
     let deadline = PlutusData::new_integer(BigInteger::from(deadline_inner));
     let emission_rate = PlutusData::new_integer(BigInteger::from(wpoll.emission_rate.untag()));
     let weighting_power_policy_pd = PlutusData::new_bytes(weighting_power_policy.to_raw_bytes().to_vec());
+    let perm_manager_auth_policy_pd = PlutusData::new_bytes(perm_manager_auth_policy.to_raw_bytes().to_vec());
 
     PlutusData::ConstrPlutusData(ConstrPlutusData::new(
         0,
@@ -127,6 +134,7 @@ fn create_datum(
             deadline,
             emission_rate,
             weighting_power_policy_pd,
+            perm_manager_auth_policy_pd,
         ],
     ))
 }
@@ -156,10 +164,7 @@ impl WeightingPoll {
         let epoch_end = epoch_end(genesis, self.epoch);
         let past_cooling_off_period =
             time_now > epoch_end + COOLDOWN_PERIOD_MILLIS + COOLDOWN_PERIOD_EXTRA_BUFFER;
-        self.distribution_finished()
-            && self.weighting_power.is_some()
-            && !self.eliminated
-            && past_cooling_off_period
+        self.distribution_finished() && !self.eliminated && past_cooling_off_period
     }
 
     pub fn reserves_splash(&self) -> u64 {
@@ -332,7 +337,15 @@ impl IntoPlutusData for WeightingPollConfig {
         let distribution = PlutusData::new_list(list);
         let weighting_power_policy =
             PlutusData::new_bytes(self.weighting_power_policy.to_raw_bytes().to_vec());
-        let fields = vec![distribution, deadline, emission_rate, weighting_power_policy];
+        let perm_manager_auth_policy =
+            PlutusData::new_bytes(self.perm_manager_auth_policy.to_raw_bytes().to_vec());
+        let fields = vec![
+            distribution,
+            deadline,
+            emission_rate,
+            weighting_power_policy,
+            perm_manager_auth_policy,
+        ];
         PlutusData::ConstrPlutusData(ConstrPlutusData::new(0, fields))
     }
 }
@@ -344,12 +357,14 @@ impl TryFromPData for WeightingPollConfig {
         let deadline = cpd.take_field(1)?.into_u64()?;
         let emission_rate = cpd.take_field(2)?.into_u64()?;
         let weighting_power_policy = PolicyId::from_raw_bytes(&cpd.take_field(3)?.into_bytes()?).ok()?;
+        let perm_manager_auth_policy = PolicyId::from_raw_bytes(&cpd.take_field(4)?.into_bytes()?).ok()?;
 
         Some(Self {
             distribution,
             deadline,
             emission_rate,
             weighting_power_policy,
+            perm_manager_auth_policy,
         })
     }
 }
@@ -368,6 +383,8 @@ pub struct WeightingPollConfig {
     emission_rate: u64,
     /// The validator will look for a token = (`w_power_policy`, `binder`) to validate usage of voting power in current epoch.
     weighting_power_policy: PolicyId,
+    /// The validator will search for an asset under this policy to authenticate Permission Manager
+    perm_manager_auth_policy: PolicyId,
 }
 
 pub fn unsafe_update_wp_state(data: &mut PlutusData, new_distribution: &[(FarmId, u64)]) {
@@ -385,7 +402,9 @@ pub enum PollAction {
         /// Index of the farm input.
         farm_in_ix: u32,
     },
-    Destroy,
+    Destroy {
+        perm_manager_input_ix: u32,
+    },
 }
 
 impl IntoPlutusData for PollAction {
@@ -401,7 +420,12 @@ impl IntoPlutusData for PollAction {
                     ],
                 ))
             }
-            PollAction::Destroy => PlutusData::ConstrPlutusData(ConstrPlutusData::new(2, vec![])),
+            PollAction::Destroy {
+                perm_manager_input_ix,
+            } => PlutusData::ConstrPlutusData(ConstrPlutusData::new(
+                2,
+                vec![PlutusData::Integer(BigInteger::from(perm_manager_input_ix))],
+            )),
         };
 
         // Need this wrapping since `weighting_poll` is a multivalidator.
