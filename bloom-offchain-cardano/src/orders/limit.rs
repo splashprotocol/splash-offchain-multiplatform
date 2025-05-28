@@ -302,7 +302,7 @@ pub fn unsafe_update_datum(data: &mut PlutusData, tradable_input: InputAsset<u64
     cpd.set_field(DATUM_MAPPING.fee, fee.into_pd());
 }
 
-fn with_erased_beacon_unsafe(data: PlutusData, index: usize) -> PlutusData {
+pub(super) fn with_erased_beacon_unsafe(data: PlutusData, index: usize) -> PlutusData {
     let mut cpd = data.into_constr_pd().unwrap();
     cpd.set_field(index, [0u8; 28].into_pd());
     cpd.into_pd()
@@ -345,7 +345,7 @@ impl TryFromPData for Datum {
     }
 }
 
-fn beacon_from_oref(some_input_oref: OutputRef, datum_hash: [u8; 28], order_index: u64) -> PolicyId {
+pub(super) fn beacon_from_oref(some_input_oref: OutputRef, datum_hash: [u8; 28], order_index: u64) -> PolicyId {
     let mut bf = vec![];
     bf.append(&mut some_input_oref.tx_hash().to_raw_bytes().to_vec());
     bf.append(&mut some_input_oref.index().to_be_bytes().to_vec());

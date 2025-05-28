@@ -428,12 +428,13 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::orders::instant::InstantOrder;
+    use cml_chain::plutus::PlutusData;
+    use crate::orders::instant::{InstantOrder, DATUM_MAPPING};
     use crate::orders::limit::LimitOrderValidation;
     use bloom_offchain::execution_engine::liquidity_book::market_taker::MarketTaker;
     use cml_chain::transaction::TransactionOutput;
-    use cml_core::serialization::Deserialize;
-    use cml_crypto::{Ed25519KeyHash, TransactionHash};
+    use cml_core::serialization::{Deserialize, Serialize};
+    use cml_crypto::{blake2b224, Ed25519KeyHash, TransactionHash};
     use spectrum_cardano_lib::{OutputRef, Token};
     use spectrum_offchain::data::small_vec::SmallVec;
     use spectrum_offchain::display::display_option;
@@ -538,4 +539,20 @@ mod tests {
     }
 
     const ORDER_UTXO: &str = "a30058391164956ddc4df888a294bec79d53a91601b60fc46592e8b78e33a486ff7846f6bb07f5b2825885e4502679e699b4e60a0c4609a46bc35454cd011a0036ee80028201d81858f6d8798c4101d87982d87981581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b25d87981d87981d87981581c7846f6bb07f5b2825885e4502679e699b4e60a0c4609a46bc35454cdd8798240401a000f42401a000927c0d87982581c41f4454459daa1b6b856a7a5e28e6ea930bf9d593adec38d7700f7df4442415348d879821a001dad0d1a009896801a0007a120581cedbf33f5d6e083970648e39175c49ec1c093df76b6e6a0f1473e47761a68345fc9581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b25581ca83d20206ee7e3ae5cabfbdb6e026f53f5220dcc8980f1b10784530c";
+
+    #[test]
+    fn beacon_derivation_eqv() {
+        const DT: &str = "d8798c4101d87982d87981581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b25d87981d87981d87981581c7846f6bb07f5b2825885e4502679e699b4e60a0c4609a46bc35454cdd8798240401a000f42401a000927c0d87982581c297b968a322f2b7ab777b6df775f69ae1f0555b60ce98cd59fc6b6c0484d6f6f6e4775696ed879821a0002f7b31a000f42401a0007a120581cedbf33f5d6e083970648e39175c49ec1c093df76b6e6a0f1473e47761a68359791581c719bee424a97b58b3dca88fe5da6feac6494aa7226f975f3506c5b25581cbb9b18c8d5e79db8b1457d1ffdd7430c090cbf4c1ca1756186ac40f2";
+        const TX: &str = "35e2698b2acbd453cfca7ba678aa120c299a230f42afa182b52a7922ed8bebc8";
+        const IX: u64 = 1;
+        const ORDER_IX: u64 = 0;
+        let pd = PlutusData::from_cbor_bytes(&*hex::decode(DT).unwrap()).unwrap();
+        let pd_without_beacon = crate::orders::limit::with_erased_beacon_unsafe(pd, DATUM_MAPPING.beacon);
+        let datum_hash = blake2b224(&*pd_without_beacon.to_cbor_bytes());
+        let oref = OutputRef::new(TransactionHash::from_hex(TX).unwrap(), IX);
+        assert_eq!(
+            crate::orders::limit::beacon_from_oref(oref, datum_hash, ORDER_IX).to_hex(),
+            "bb9b18c8d5e79db8b1457d1ffdd7430c090cbf4c1ca1756186ac40f2"
+        )
+    }
 }
