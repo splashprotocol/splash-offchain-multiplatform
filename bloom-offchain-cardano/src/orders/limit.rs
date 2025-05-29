@@ -345,7 +345,11 @@ impl TryFromPData for Datum {
     }
 }
 
-pub(super) fn beacon_from_oref(some_input_oref: OutputRef, datum_hash: [u8; 28], order_index: u64) -> PolicyId {
+pub(super) fn beacon_from_oref(
+    some_input_oref: OutputRef,
+    datum_hash: [u8; 28],
+    order_index: u64,
+) -> PolicyId {
     let mut bf = vec![];
     bf.append(&mut some_input_oref.tx_hash().to_raw_bytes().to_vec());
     bf.append(&mut some_input_oref.index().to_be_bytes().to_vec());
@@ -361,7 +365,12 @@ pub(super) enum OrderState {
     Subsequent,
 }
 
-pub(super) fn order_state<C>(beacon: PolicyId, datum: PlutusData, beacon_index: usize, ctx: &C) -> Option<OrderState>
+pub(super) fn order_state<C>(
+    beacon: PolicyId,
+    datum: PlutusData,
+    beacon_index: usize,
+    ctx: &C,
+) -> Option<OrderState>
 where
     C: Has<ConsumedInputs> + Has<ConsumedIdentifiers<Token>> + Has<OutputRef>,
 {
@@ -519,7 +528,10 @@ mod tests {
         ConsumedIdentifiers, ConsumedInputs, ProducedIdentifiers,
     };
 
-    use crate::orders::limit::{beacon_from_oref, unsafe_update_datum, with_erased_beacon_unsafe, Datum, LimitOrder, LimitOrderValidation, DATUM_MAPPING};
+    use crate::orders::limit::{
+        beacon_from_oref, unsafe_update_datum, with_erased_beacon_unsafe, Datum, LimitOrder,
+        LimitOrderValidation, DATUM_MAPPING,
+    };
 
     struct Context {
         oref: OutputRef,

@@ -35,6 +35,7 @@ pub mod hash;
 pub mod output;
 pub mod plutus_data;
 pub mod protocol_params;
+pub mod time;
 pub mod transaction;
 pub mod types;
 pub mod value;
@@ -593,6 +594,10 @@ pub type NetworkTime = u64;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Copy, Clone, From, Into, PartialEq, Eq)]
 pub struct NetworkId(u8);
+impl NetworkId {
+    pub const PREPROD: Self = NetworkId(0);
+    pub const MAINNET: Self = NetworkId(1);
+}
 
 /// Payment credential in bech32.
 #[derive(serde::Deserialize, Debug, Clone, From, Into)]

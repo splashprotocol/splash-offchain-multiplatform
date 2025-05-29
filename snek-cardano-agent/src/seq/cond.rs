@@ -2,6 +2,8 @@ use crate::entity::EvolvingCardanoEntity;
 use bloom_offchain::execution_engine::liquidity_book::market_taker::MarketTaker;
 use cml_core::Slot;
 use either::Either;
+use spectrum_cardano_lib::time::slot_to_posix;
+use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::data::ior::Ior;
 use spectrum_offchain::domain::event::{Channel, Transition};
 
@@ -98,7 +100,9 @@ impl ConditionalValidation<{ Validations::CancellationLock as u8 }, Slot> for Ev
 
     fn is_valid(&self, _: Id<{ Validations::CancellationLock as u8 }>, session_end: Slot) -> bool {
         match self.0 .0 {
-            Either::Left(o) => o.entity.0.cancellation_after > session_end + SAFETY_DELAY,
+            Either::Left(o) => {
+                o.entity.0.cancellation_after > slot_to_posix(session_end, NetworkId::MAINNET) + SAFETY_DELAY
+            }
             Either::Right(_) => true,
         }
     }

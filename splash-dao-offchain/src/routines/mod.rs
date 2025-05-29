@@ -8,48 +8,6 @@ use std::pin::{pin, Pin};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use actions::{VoteEscrowActions, WPollActions};
-use async_primitives::beacon::Beacon;
-use async_stream::stream;
-use bloom_offchain::execution_engine::bundled::Bundled;
-use bloom_offchain::execution_engine::liquidity_book::core::Trans;
-use bloom_offchain_cardano::event_sink::tx_view::TxViewMut;
-use cardano_chain_sync::data::LedgerTxEvent;
-use cml_chain::auxdata::Metadata;
-use cml_chain::plutus::{PlutusData, PlutusScript, PlutusV2Script};
-use cml_chain::transaction::{Transaction, TransactionOutput};
-use cml_chain::Serialize;
-use cml_crypto::{PrivateKey, RawBytesEncoding, ScriptHash, TransactionHash};
-use cml_multi_era::babbage::BabbageTransaction;
-use either::Either;
-use futures::{pin_mut, Future, FutureExt, Stream, StreamExt};
-use futures_timer::Delay;
-use isahc::http::header::RETRY_AFTER;
-use log::{error, info, trace};
-use pallas_network::miniprotocols::localtxsubmission::cardano_node_errors::{
-    ApplyTxError, ConwayLedgerPredFailure, ConwayUtxoPredFailure, ConwayUtxowPredFailure,
-};
-use spectrum_cardano_lib::output::FinalizedTxOut;
-use spectrum_cardano_lib::{AssetName, NetworkId, OutputRef};
-use spectrum_offchain::backlog::data::{OrderWeight, Weighted};
-use spectrum_offchain::backlog::ResilientBacklog;
-use spectrum_offchain::data::circular_filter::CircularFilter;
-use spectrum_offchain::domain::event::{AnyMod, Confirmed, Predicted, Traced, Unconfirmed};
-use spectrum_offchain::domain::order::{PendingOrder, ProgressingOrder, UniqueOrder};
-use spectrum_offchain::domain::{EntitySnapshot, Has, Stable};
-use spectrum_offchain::kv_store::KvStore;
-use spectrum_offchain::ledger::TryFromLedger;
-use spectrum_offchain::network::Network;
-use spectrum_offchain::tx_prover::TxProver;
-use spectrum_offchain_cardano::creds::operator_creds_base_address;
-use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
-use spectrum_offchain_cardano::prover::operator::OperatorProver;
-use spectrum_offchain_cardano::tx_submission::RejectReasons;
-use tokio::runtime::Runtime;
-use tokio::sync::mpsc::Receiver;
-use tokio::sync::Mutex;
-use type_equalities::IsEqual;
-
 use crate::constants::time::{
     COOLDOWN_PERIOD_EXTRA_BUFFER, COOLDOWN_PERIOD_MILLIS, EPOCH_LEN, MAX_LOCK_TIME_SECONDS,
 };
@@ -92,6 +50,48 @@ use crate::routines::actions::InflationActions;
 use crate::state_projection::{StateProjectionRead, StateProjectionWrite};
 use crate::time::{epoch_end, NetworkTimeProvider, ProtocolEpoch};
 use crate::{CurrentEpoch, GenesisEpochStartTime, NetworkTimeSource};
+use actions::{VoteEscrowActions, WPollActions};
+use async_primitives::beacon::Beacon;
+use async_stream::stream;
+use bloom_offchain::execution_engine::bundled::Bundled;
+use bloom_offchain::execution_engine::liquidity_book::core::Trans;
+use bloom_offchain_cardano::event_sink::tx_view::TxViewMut;
+use cardano_chain_sync::data::LedgerTxEvent;
+use cml_chain::auxdata::Metadata;
+use cml_chain::plutus::{PlutusData, PlutusScript, PlutusV2Script};
+use cml_chain::transaction::{Transaction, TransactionOutput};
+use cml_chain::Serialize;
+use cml_crypto::{PrivateKey, RawBytesEncoding, ScriptHash, TransactionHash};
+use cml_multi_era::babbage::BabbageTransaction;
+use either::Either;
+use futures::{pin_mut, Future, FutureExt, Stream, StreamExt};
+use futures_timer::Delay;
+use isahc::http::header::RETRY_AFTER;
+use log::{error, info, trace};
+use pallas_network::miniprotocols::localtxsubmission::cardano_node_errors::{
+    ApplyTxError, ConwayLedgerPredFailure, ConwayUtxoPredFailure, ConwayUtxowPredFailure,
+};
+use spectrum_cardano_lib::output::FinalizedTxOut;
+use spectrum_cardano_lib::time::slot_to_time_millis;
+use spectrum_cardano_lib::{AssetName, NetworkId, OutputRef};
+use spectrum_offchain::backlog::data::{OrderWeight, Weighted};
+use spectrum_offchain::backlog::ResilientBacklog;
+use spectrum_offchain::data::circular_filter::CircularFilter;
+use spectrum_offchain::domain::event::{AnyMod, Confirmed, Predicted, Traced, Unconfirmed};
+use spectrum_offchain::domain::order::{PendingOrder, ProgressingOrder, UniqueOrder};
+use spectrum_offchain::domain::{EntitySnapshot, Has, Stable};
+use spectrum_offchain::kv_store::KvStore;
+use spectrum_offchain::ledger::TryFromLedger;
+use spectrum_offchain::network::Network;
+use spectrum_offchain::tx_prover::TxProver;
+use spectrum_offchain_cardano::creds::operator_creds_base_address;
+use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
+use spectrum_offchain_cardano::prover::operator::OperatorProver;
+use spectrum_offchain_cardano::tx_submission::RejectReasons;
+use tokio::runtime::Runtime;
+use tokio::sync::mpsc::Receiver;
+use tokio::sync::Mutex;
+use type_equalities::IsEqual;
 
 pub struct Behaviour<
     IB,
@@ -2482,16 +2482,6 @@ where
 {
     fn select<U: IsEqual<H>>(&self) -> H {
         self.conf.select::<U>()
-    }
-}
-
-pub fn slot_to_time_millis(slot: u64, network_id: NetworkId) -> u64 {
-    if network_id == NetworkId::from(0) {
-        // Preprod
-        (1655683200 + slot) * 1000
-    } else {
-        // Mainnet
-        (1596491091 + slot - 4924800) * 1000
     }
 }
 

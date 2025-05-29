@@ -65,7 +65,7 @@ impl<K, T> SessionInProgress<K, T> {
             return Ok(());
         }
         if !event.is_valid(Id, self.sealed_at + self.settlement_delay) {
-            trace!("Event {}, buy cap is invalid", event_key,);
+            trace!("Event {}, cancellation delay too small", event_key,);
             return Ok(());
         }
         match self.event_registry.entry(event_key) {
