@@ -2,6 +2,7 @@ use crate::entity::EvolvingCardanoEntity;
 use bloom_offchain::execution_engine::liquidity_book::market_taker::MarketTaker;
 use cml_core::Slot;
 use either::Either;
+use log::trace;
 use spectrum_cardano_lib::time::{slot_to_posix, slot_to_time_millis};
 use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::data::ior::Ior;
@@ -91,7 +92,7 @@ impl<Cx> ConditionalValidation<{ Validations::HypedLaunch as u8 }, Cx> for Evolv
     }
 }
 
-const SAFETY_DELAY: Slot = 20 * 1000;
+const SAFETY_DELAY: u64 = 20 * 1000;
 
 impl ConditionalValidation<{ Validations::CancellationLock as u8 }, Slot> for EvolvingCardanoEntity {
     fn cond(&self, _: Id<{ Validations::CancellationLock as u8 }>) -> bool {
@@ -101,8 +102,18 @@ impl ConditionalValidation<{ Validations::CancellationLock as u8 }, Slot> for Ev
     fn is_valid(&self, _: Id<{ Validations::CancellationLock as u8 }>, session_end: Slot) -> bool {
         match self.0 .0 {
             Either::Left(o) => {
-                o.entity.0.cancellation_after
-                    > slot_to_time_millis(session_end, NetworkId::MAINNET) + SAFETY_DELAY
+                let order_cancellable_after = o.entity.0.cancellation_after;
+                let required_min_cancellation_delay =
+                    slot_to_time_millis(session_end, NetworkId::MAINNET) + SAFETY_DELAY;
+                if order_cancellable_after <= required_min_cancellation_delay {
+                    trace!(
+                        "Validations::CancellationLock failed: {} > {}",
+                        order_cancellable_after,
+                        required_min_cancellation_delay
+                    );
+                    return false;
+                }
+                true
             }
             Either::Right(_) => true,
         }
