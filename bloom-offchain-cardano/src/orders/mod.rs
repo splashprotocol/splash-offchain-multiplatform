@@ -108,11 +108,13 @@ where
     }
 }
 
+const MAX_PRICE_DENOM: u128 = 1125899906842624;
+
 pub(crate) fn harden_price(p: RelativePrice, input: u64) -> RelativePrice {
     let min_output = (input as u128 * *p.numer()).div_ceil(*p.denom());
     if min_output > 0 {
         RelativePrice::new(min_output, input as u128)
     } else {
-        RelativePrice::new(0, 1)
+        RelativePrice::new(1, MAX_PRICE_DENOM)
     }
 }
