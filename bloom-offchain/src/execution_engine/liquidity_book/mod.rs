@@ -409,8 +409,13 @@ fn to_unsigned(r: Ratio<i128>) -> Ratio<u128> {
 }
 
 pub fn linear_output_relative(input: u64, price: RelativePrice) -> Option<u64> {
-    u64::try_from((U256::from(input) * U256::from(*price.numer())).checked_div(U256::from(*price.denom()))?)
-        .ok()
+    match price {
+        RelativePrice::Limit(price) => u64::try_from(
+            (U256::from(input) * U256::from(*price.numer())).checked_div(U256::from(*price.denom()))?,
+        )
+        .ok(),
+        RelativePrice::Market => Some(1), // output cannot be zero
+    }
 }
 
 pub fn linear_output_unsafe(input: u64, price: OnSide<AbsolutePrice>) -> u64 {

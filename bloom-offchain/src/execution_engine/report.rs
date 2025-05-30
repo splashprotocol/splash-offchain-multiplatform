@@ -2,7 +2,7 @@ use crate::execution_engine::bundled::Bundled;
 use crate::execution_engine::liquidity_book::core::ExecutionRecipe;
 use crate::execution_engine::liquidity_book::market_taker::MarketTaker;
 use crate::execution_engine::liquidity_book::side::Side;
-use crate::execution_engine::liquidity_book::types::AbsolutePrice;
+use crate::execution_engine::liquidity_book::types::{AbsolutePrice, RelativePrice};
 use either::Either;
 use num_rational::Ratio;
 use serde::Serialize;
@@ -47,7 +47,7 @@ impl<I, V, Pair, Meta> ExecutionReportPartial<I, V, Pair, Meta> {
                     let input = take.removed_input();
                     let output = take.added_output();
                     let side = target.side();
-                    let rel_price = Ratio::new(output as u128, input as u128);
+                    let rel_price = RelativePrice::new(output as u128, input as u128);
                     executions.push(OrderExecution {
                         id: target.stable_id(),
                         version: br.get(),

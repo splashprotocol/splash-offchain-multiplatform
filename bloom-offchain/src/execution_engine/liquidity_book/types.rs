@@ -12,7 +12,27 @@ pub type Lovelace = u64;
 pub type ExCostUnits = u64;
 
 /// Price of input asset denominated in units of output asset (Output/Input).
-pub type RelativePrice = Ratio<u128>;
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum RelativePrice {
+    Limit(Ratio<u128>),
+    Market,
+}
+
+impl RelativePrice {
+    pub fn new(n: u128, d: u128) -> Self {
+        if n > 0 {
+            RelativePrice::Limit(Ratio::new(n, d))
+        } else {
+            RelativePrice::Market
+        }
+    }
+}
+
+impl From<Ratio<u128>> for RelativePrice {
+    fn from(value: Ratio<u128>) -> Self {
+        Self::new(*value.numer(), *value.denom())
+    }
+}
 
 pub type InputAsset<T> = T;
 pub type OutputAsset<T> = T;
@@ -87,8 +107,14 @@ impl AbsolutePrice {
     pub fn from_price(side: Side, price: RelativePrice) -> Self {
         Self(match side {
             // In case of bid the price in order is base/quote, so we inverse it.
-            Side::Bid => price.pow(-1),
-            Side::Ask => price,
+            Side::Bid => match price {
+                RelativePrice::Limit(lp) => lp.pow(-1),
+                RelativePrice::Market => Ratio::new(0, 1),
+            },
+            Side::Ask => match price {
+                RelativePrice::Limit(lp) => lp,
+                RelativePrice::Market => Ratio::new(0, 1),
+            },
         })
     }
 

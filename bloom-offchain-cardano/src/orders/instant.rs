@@ -18,6 +18,7 @@ use cml_chain::PolicyId;
 use cml_core::serialization::Serialize;
 use cml_crypto::{blake2b224, Ed25519KeyHash, RawBytesEncoding};
 use log::trace;
+use num_rational::Ratio;
 use spectrum_cardano_lib::address::PlutusAddress;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::plutus_data::{
@@ -311,7 +312,7 @@ impl TryFromPData for Datum {
         let tradable_input = cpd.take_field(DATUM_MAPPING.tradable_input)?.into_u64()?;
         let cost_per_ex_step = cpd.take_field(DATUM_MAPPING.cost_per_ex_step)?.into_u64()?;
         let output = AssetClass::try_from_pd(cpd.take_field(DATUM_MAPPING.output)?)?;
-        let base_price = RelativePrice::try_from_pd(cpd.take_field(DATUM_MAPPING.base_price)?)?;
+        let base_price = Ratio::try_from_pd(cpd.take_field(DATUM_MAPPING.base_price)?)?;
         let fee = cpd.take_field(DATUM_MAPPING.fee)?.into_u64()?;
         let redeemer_address = PlutusAddress::try_from_pd(cpd.take_field(DATUM_MAPPING.redeemer_address)?)?;
         let cancellation_pkh =
@@ -327,7 +328,7 @@ impl TryFromPData for Datum {
             tradable_input,
             cost_per_ex_step,
             output,
-            base_price,
+            base_price: base_price.into(),
             fee,
             redeemer_address,
             cancellation_pkh,
