@@ -186,26 +186,34 @@ where
                                         |ask: &Taker, bid: &Taker| settle_price(ask, bid, Some(spot_price));
                                     let (take_a, take_b) =
                                         execute_with_taker(target_taker, counter_taker, make_match);
-                                    trace!("Taker {} matched with {}", target_taker, counter_taker);
+                                    trace!("Taker {} matched with {} 1", target_taker, counter_taker);
                                     for take in [take_a, take_b] {
                                         batch.add_take(take);
                                         self.on_take(take.result);
                                     }
-                                    continue;
+                                    if batch.maker_is_stable_pool() {
+                                        break
+                                    } else {
+                                        continue
+                                    }
                                 }
                             }
                             (_, Some((maker_sid, FillPreview { price, input })))
                                 if target_price.overlaps(price) =>
                             {
                                 if let Some(maker) = self.state.pick_maker_by_id(&maker_sid) {
-                                    trace!("Taker {} matched with {}", target_taker, maker);
+                                    trace!("Taker {} matched with {} 2", target_taker, maker);
                                     let (take, make) =
                                         execute_with_maker(target_taker, maker, target_side.wrap(input));
                                     batch.add_make(make);
                                     batch.add_take(take);
                                     self.on_take(take.result);
                                     self.on_make(make.result);
-                                    continue;
+                                    if batch.maker_is_stable_pool() {
+                                        break
+                                    } else {
+                                        continue
+                                    }
                                 }
                             }
                             _ => {
