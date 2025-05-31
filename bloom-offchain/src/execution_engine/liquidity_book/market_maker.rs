@@ -68,6 +68,8 @@ pub trait MarketMaker {
     fn estimated_trade(&self, input: OnSide<u64>) -> Option<AvailableLiquidity>;
     /// Is this MM active at the moment or not.
     fn is_active(&self) -> bool;
+
+    fn with_rounding_issue(&self) -> bool;
 }
 
 /// Pooled liquidity.

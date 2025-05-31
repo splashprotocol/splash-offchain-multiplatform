@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use cml_chain::plutus::PlutusData;
 use cml_crypto::ScriptHash;
-
+use log::info;
 use spectrum_cardano_lib::ex_units::ExUnits;
 use spectrum_cardano_lib::OutputRef;
 
@@ -19,6 +19,19 @@ impl TxInputsOrdering {
     }
 
     pub fn index_of(&self, input: &OutputRef) -> usize {
+        info!(
+            "going to get index of {} in {}",
+            input,
+            self.0
+                .iter()
+                .map(|res| format!("ORef({}) -> idx {},", res.0, res.1))
+                .collect::<Vec<String>>()
+                .iter()
+                .fold(String::new(), |mut acc, to_add| {
+                    acc.push_str(to_add);
+                    acc
+                })
+        );
         *self
             .0
             .get(input)
@@ -59,10 +72,21 @@ pub enum DelayedRedeemer {
 
 impl DelayedRedeemer {
     pub fn compute(self, inputs_ordering: &TxInputsOrdering) -> PlutusData {
-        match self {
-            DelayedRedeemer::Ready(pd) => pd,
-            DelayedRedeemer::Delayed(closure) => closure(inputs_ordering),
-        }
+        info!("Computing redeemer");
+        let res = match self {
+            DelayedRedeemer::Ready(pd) => {
+                info!("Redeemer is ready");
+                pd
+            }
+            DelayedRedeemer::Delayed(closure) => {
+                info!("Redeemer is delayed - computing");
+                let res = closure(inputs_ordering);
+                info!("Redeemer is delayed - computed");
+                res
+            }
+        };
+        info!("After computing redeemer");
+        res
     }
 }
 

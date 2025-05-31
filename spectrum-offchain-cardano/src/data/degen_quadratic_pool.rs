@@ -633,6 +633,10 @@ impl MarketMaker for DegenQuadraticPool {
             output: output_amount,
         })
     }
+
+    fn with_rounding_issue(&self) -> bool {
+        false
+    }
 }
 
 impl Has<DegenQuadraticPoolVer> for DegenQuadraticPool {

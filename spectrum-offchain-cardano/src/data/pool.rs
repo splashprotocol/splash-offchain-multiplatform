@@ -371,6 +371,14 @@ impl MarketMaker for AnyPool {
             StableCFMM(p) => p.is_active(),
         }
     }
+
+    fn with_rounding_issue(&self) -> bool {
+        match self {
+            PureCFMM(p) => false,
+            BalancedCFMM(p) => false,
+            StableCFMM(p) => true,
+        }
+    }
 }
 
 impl<C> TryFromLedger<TransactionOutput, C> for AnyPool

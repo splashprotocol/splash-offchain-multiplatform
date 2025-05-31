@@ -2,6 +2,7 @@ use std::ops::Add;
 
 use bignumber::BigNumber;
 use dashu_base::UnsignedAbs;
+use log::info;
 use primitive_types::U512;
 
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
@@ -220,6 +221,7 @@ pub fn calculate_context_values_list(prev_state: StablePoolT2T, new_state: Stabl
     )?;
 
     while !valid_inv {
+        info!("in loop");
         inv += unit;
         valid_inv = check_exact_invariant(
             &quote_mult,

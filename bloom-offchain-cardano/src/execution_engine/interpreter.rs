@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use cml_chain::builders::tx_builder::{ChangeSelectionAlgo, SignedTxBuilder, TransactionBuilder};
 use cml_chain::transaction::TransactionOutput;
 use either::Either;
-use log::trace;
+use log::{info};
 use num_rational::Ratio;
 use tailcall::tailcall;
 
@@ -107,7 +107,7 @@ where
             FinalizedTxOut(o, out_ref)
         });
 
-        trace!("Finished Tx: {}", tx_hash);
+        info!("Finished Tx: {}", tx_hash);
         ExecutionResult {
             txc: tx,
             matchmaking_effects: finalized_effects,
@@ -151,7 +151,7 @@ where
         effects,
         ctx,
     ) = execute(ctx, state, Vec::new(), instructions.clone());
-    trace!("Going to interpret blueprint: {}", tx_blueprint);
+    info!("Going to interpret blueprint: {}", tx_blueprint);
     let (mut tx_builder, funding_io) = tx_blueprint.project_onto_builder(
         constant_tx_builder(),
         ctx.select::<NetworkId>(),
@@ -159,14 +159,16 @@ where
         funding.clone(),
         operator_interest + accumulated_residue,
     );
+    info!("After interpreting blueprint");
     tx_builder
         .add_collateral(ctx.select::<Collateral>().into())
         .unwrap();
+    info!("Add collateral interpreting blueprint");
 
     let estimated_fee = tx_builder.min_fee(true).unwrap() + ADDITIONAL_FEE;
     let updated_tx_fee = reserved_tx_fee - accumulated_residue;
     let fee_mismatch = updated_tx_fee as i64 - estimated_fee as i64;
-    trace!(
+    info!(
         "Est. fee: {}, reserved fee: {}, mismatch: {}",
         estimated_fee,
         reserved_tx_fee,

@@ -741,6 +741,10 @@ impl MarketMaker for StablePoolT2T {
         // swaps allowed all time
         true
     }
+
+    fn with_rounding_issue(&self) -> bool {
+        true
+    }
 }
 
 impl<Ctx> ApplyOrder<ClassicalOnChainDeposit, Ctx> for StablePoolT2T

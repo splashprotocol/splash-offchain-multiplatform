@@ -141,7 +141,7 @@ where
             );
             let mut batch: MatchmakingAttempt<Taker, Maker, U> = MatchmakingAttempt::empty();
             let mut meta = ExecutionMeta::empty();
-            while batch.execution_units_consumed() < self.conf.execution_cap.soft && batch.num_takes() < 15 {
+            while batch.execution_units_consumed() < self.conf.execution_cap.soft && ((batch.num_takes() < 15 && !batch.maker_is_stable_pool()) || (batch.num_takes() == 1 && batch.maker_is_stable_pool())) {
                 if let Some(spot_price) = self.spot_price() {
                     meta.add_price_point(spot_price);
                     let price_range = self.state.allowed_price_range();

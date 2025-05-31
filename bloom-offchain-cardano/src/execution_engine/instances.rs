@@ -1,7 +1,7 @@
 use cml_chain::plutus::PlutusData;
 use cml_chain::transaction::TransactionOutput;
 use cml_crypto::Ed25519KeyHash;
-use log::trace;
+use log::{info, trace};
 
 use bloom_offchain::execution_engine::batch_exec::BatchExec;
 use bloom_offchain::execution_engine::bundled::Bundled;
@@ -476,6 +476,7 @@ where
                 cost: delayed_cost(move |ctx| ex_budget + marginal_cost.scale(ctx.self_index as u64)),
             },
             redeemer: delayed_redeemer(move |ordering| {
+                info!("Computing CFMMPoolAction::Swap");
                 CFMMPoolRedeemer {
                     pool_input_index: ordering.index_of(&in_ref) as u64,
                     action: CFMMPoolAction::Swap,
@@ -573,6 +574,7 @@ where
                 cost: delayed_cost(move |ctx| ex_budget + marginal_cost.scale(ctx.self_index as u64)),
             },
             redeemer: delayed_redeemer(move |ordering| {
+                info!("Computing CFMMPoolAction::Swap BalancePoolRedeemer");
                 BalancePoolRedeemer {
                     pool_input_index: ordering.index_of(&in_ref) as u64,
                     action: CFMMPoolAction::Swap,
@@ -646,15 +648,19 @@ where
                 cost: delayed_cost(move |ctx| ex_budget + marginal_cost.scale(ctx.self_index as u64)),
             },
             redeemer: delayed_redeemer(move |ordering| {
+                info!("Computing CFMMPoolAction::Swap StablePoolRedeemer");
                 let pool_index = ordering.index_of(&in_ref) as u64;
-                StablePoolRedeemer {
+                info!("After getting pool_index in ordering");
+                let redeemer = StablePoolRedeemer {
                     pool_input_index: pool_index,
                     pool_output_index: pool_index,
                     action: CFMMPoolAction::Swap,
                     new_pool_state: transition,
                     prev_pool_state: pool,
                 }
-                .to_plutus_data()
+                .to_plutus_data();
+                info!("Redeemer created successfully");
+                redeemer
             }),
             required_signers: vec![].into(),
         };
@@ -721,6 +727,7 @@ where
                 cost: delayed_cost(move |ctx| ex_budget + marginal_cost.scale(ctx.self_index as u64)),
             },
             redeemer: delayed_redeemer(move |ordering| {
+                info!("Computing CFMMPoolAction::Swap DegenQuadraticPoolRedeemer");
                 let pool_index = ordering.index_of(&in_ref) as u64;
                 DegenQuadraticPoolRedeemer {
                     pool_input_index: pool_index,

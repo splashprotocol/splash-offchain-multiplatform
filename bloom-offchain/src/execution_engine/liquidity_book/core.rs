@@ -597,7 +597,7 @@ impl<T: Stable + Display, M: Stable + Display, U> Display for MatchmakingAttempt
     }
 }
 
-impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
+impl<Taker: Stable, Maker: Stable + MarketMaker, U> MatchmakingAttempt<Taker, Maker, U> {
     pub fn empty() -> Self
     where
         U: Monoid,
@@ -620,6 +620,16 @@ impl<Taker: Stable, Maker: Stable, U> MatchmakingAttempt<Taker, Maker, U> {
 
     pub fn num_takes(&self) -> usize {
         self.takes.len()
+    }
+
+    pub fn maker_is_stable_pool(&self) -> bool {
+        let mut maker_is_stable = false;
+        self.makes.iter().for_each(|maker | {
+           if maker.1.target.with_rounding_issue() {
+               maker_is_stable = true
+           };
+        });
+        self.makes.len() == 1 && maker_is_stable
     }
 
     pub fn execution_units_consumed(&self) -> U

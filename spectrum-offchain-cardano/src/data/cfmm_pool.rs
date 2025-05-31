@@ -534,6 +534,10 @@ impl MarketMaker for ConstFnPool {
             output,
         })
     }
+
+    fn with_rounding_issue(&self) -> bool {
+        false
+    }
 }
 
 impl Has<ConstFnPoolVer> for ConstFnPool {

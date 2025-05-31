@@ -16,7 +16,7 @@ use cml_chain::plutus::{PlutusData, RedeemerTag};
 use cml_chain::transaction::{TransactionInput, TransactionOutput};
 use cml_chain::{RequiredSigners, Value};
 use either::Either;
-use log::trace;
+use log::{info, trace};
 use spectrum_cardano_lib::funding::OperatorFunding;
 use spectrum_cardano_lib::output::FinalizedTxOut;
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
@@ -124,6 +124,8 @@ impl TxBlueprint {
             witness_scripts,
         } = self;
         let mut all_io = script_io.into_iter().map(Either::Left).collect::<Vec<_>>();
+
+        info!("Debug: Starting funding_io calculation");
         let funding_io = if operator_interest > 0 {
             if operator_interest >= MIN_SAFE_LOVELACE_VALUE {
                 let reward_dest_address = operator_address.address();
@@ -132,13 +134,13 @@ impl TxBlueprint {
                     TransactionOutput::new(reward_dest_address, Value::from(operator_interest), None, None);
                 all_io.push(Either::Right((None, operator_output.clone())));
                 if reward_dest_coincides_with_funding {
-                    // If reward dest address coincide with funding address then it can be used as funding.
+                    info!("Debug: FundingIO::Added");
                     FundingIO::Added(operator_funding, operator_output)
                 } else {
+                    info!("Debug: FundingIO::NotUsed");
                     FundingIO::NotUsed(operator_funding)
                 }
             } else {
-                // If funding utxo has to be used it is replaced with `operator_output`.
                 let reward_dest_address = operator_funding.0.address().clone();
                 let mut value = operator_funding.0.value().clone();
                 value.add_unsafe(AssetClass::Native, operator_interest);
@@ -147,11 +149,15 @@ impl TxBlueprint {
                     Some(operator_funding.clone()),
                     operator_output.clone(),
                 )));
+                info!("Debug: FundingIO::Replaced");
                 FundingIO::Replaced(operator_funding, operator_output)
             }
         } else {
+            info!("Debug: FundingIO::NotUsed");
             FundingIO::NotUsed(operator_funding)
         };
+
+        info!("Debug: Starting all_io sorting");
         all_io.sort_by(|lh, rh| match (lh, rh) {
             (Either::Left((lh_in, _)), Either::Left((rh_in, _))) => lh_in.reference.cmp(&rh_in.reference),
             (Either::Left((lh_in, _)), Either::Right((Some(rh_in), _))) => {
@@ -163,59 +169,97 @@ impl TxBlueprint {
             (_, Either::Right((None, _))) => Ordering::Less,
             _ => Ordering::Greater,
         });
+        info!("Debug: Completed all_io sorting");
+
+        info!("Debug: Enumerating all_io");
         let enumerated_io = all_io.into_iter().enumerate().collect::<Vec<_>>();
         let inputs_ordering = TxInputsOrdering::new(HashMap::from_iter(enumerated_io.iter().filter_map(
             |(ix, io)| match io {
-                Either::Left((i, _)) => Some((i.reference, *ix)),
-                Either::Right((Some(i), _)) => Some((i.reference(), *ix)),
+                Either::Left((i, _)) => {
+                    info!("Debug: Adding Left input to inputs_ordering");
+                    Some((i.reference, *ix))
+                },
+                Either::Right((Some(i), _)) => {
+                    info!("Debug: Adding Right input to inputs_ordering");
+                    Some((i.reference(), *ix))
+                },
                 _ => None,
             },
         )));
+        info!("Debug: Inputs ordering created");
+
         for (ref_in, ref_utxo) in reference_inputs {
+            info!("Debug: Adding reference input");
             txb.add_reference_input(TransactionUnspentOutput::new(ref_in, ref_utxo));
         }
+
         for (ix, io) in enumerated_io {
             match io {
                 Either::Left((
-                    ScriptInputBlueprint {
-                        reference,
-                        utxo,
-                        script,
-                        redeemer,
-                        required_signers,
-                    },
-                    output,
-                )) => {
+                                 ScriptInputBlueprint {
+                                     reference,
+                                     utxo,
+                                     script,
+                                     redeemer,
+                                     required_signers,
+                                 },
+                                 output,
+                             )) => {
+                    info!("Debug: Processing script input");
+                    info!("Debug: Creating PartialPlutusWitness");
                     let cml_script = PartialPlutusWitness::new(
                         PlutusScriptWitness::Ref(script.hash),
                         redeemer.compute(&inputs_ordering),
                     );
+                    info!("Debug: PartialPlutusWitness created");
+
+                    info!("Debug: Creating SingleInputBuilder");
                     let input = SingleInputBuilder::new(reference.into(), utxo)
                         .plutus_script_inline_datum(cml_script, required_signers)
                         .unwrap();
+                    info!("Debug: SingleInputBuilder created");
+
+                    info!("Debug: Creating SingleOutputBuilderResult");
                     let output = SingleOutputBuilderResult::new(output);
+                    info!("Debug: SingleOutputBuilderResult created");
+
+                    info!("Debug: Adding input to TransactionBuilder");
                     txb.add_input(input).expect("add script input ok");
+                    info!("Debug: Input added to TransactionBuilder");
+
+                    info!("Debug: Adding output to TransactionBuilder");
                     txb.add_output(output).expect("add script output ok");
+                    info!("Debug: Output added to TransactionBuilder");
+
+                    info!("Debug: Creating ScriptContextPreview");
                     let ctx = ScriptContextPreview { self_index: ix };
+                    info!("Debug: ScriptContextPreview created");
+
+                    info!("Debug: Setting execution units");
                     txb.set_exunits(
                         RedeemerWitnessKey::new(RedeemerTag::Spend, ix as u64),
                         script.cost.compute(&ctx).into(),
                     );
+                    info!("Debug: Execution units set");
+                    info!("Debug: Script input processed");
                 }
                 Either::Right((maybe_funding_input, funding_output)) => {
                     if let Some(FinalizedTxOut(utxo, reference)) = maybe_funding_input {
+                        info!("Debug: Adding funding input");
                         let input = SingleInputBuilder::new(reference.into(), utxo)
                             .payment_key()
                             .unwrap();
                         txb.add_input(input).expect("add funding input ok");
                     }
+                    info!("Debug: Adding funding output");
                     let output = SingleOutputBuilderResult::new(funding_output);
                     txb.add_output(output).expect("add funding output ok");
                 }
             }
         }
-        // Project common witness scripts.
+
         for (wit, (rdmr, scaling_factor)) in witness_scripts {
+            info!("Debug: Processing witness scripts");
             let reward_address =
                 cml_chain::address::RewardAddress::new(network_id.into(), Credential::new_script(wit.hash));
             let partial_witness = PartialPlutusWitness::new(PlutusScriptWitness::Ref(wit.hash), rdmr);
@@ -232,7 +276,10 @@ impl TxBlueprint {
             );
             let ex_units = wit.ex_budget + wit.marginal_cost.scale(scaling_factor);
             txb.set_exunits(RedeemerWitnessKey::new(RedeemerTag::Reward, 0), ex_units.into());
+            info!("Debug: Witness script processed");
         }
+
+        info!("Debug: Transaction builder and funding_io ready");
         (txb, funding_io)
     }
 }

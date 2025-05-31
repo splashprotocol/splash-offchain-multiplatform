@@ -669,6 +669,10 @@ impl MarketMaker for BalancePool {
             output,
         })
     }
+
+    fn with_rounding_issue(&self) -> bool {
+        false
+    }
 }
 
 impl<Ctx> ApplyOrder<ClassicalOnChainDeposit, Ctx> for BalancePool
