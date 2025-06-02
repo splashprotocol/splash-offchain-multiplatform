@@ -105,12 +105,13 @@ impl ConditionalValidation<{ Validations::CancellationLock as u8 }, Slot> for Ev
                 let order_cancellable_after = o.entity.0.cancellation_after;
                 let required_min_cancellation_delay =
                     slot_to_time_millis(session_end, NetworkId::MAINNET) + SAFETY_DELAY;
+                trace!(
+                    "Validations::CancellationLock check (session_end = {}): {} > {}",
+                    session_end,
+                    order_cancellable_after,
+                    required_min_cancellation_delay
+                );
                 if order_cancellable_after <= required_min_cancellation_delay {
-                    trace!(
-                        "Validations::CancellationLock failed: {} > {}",
-                        order_cancellable_after,
-                        required_min_cancellation_delay
-                    );
                     return false;
                 }
                 true
