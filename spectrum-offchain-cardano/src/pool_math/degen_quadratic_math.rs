@@ -2,6 +2,7 @@ use std::ops::Div;
 
 use bigdecimal::num_bigint::ToBigInt;
 use bigdecimal::BigDecimal;
+use log::info;
 use num_traits::{Pow, ToPrimitive};
 
 use spectrum_cardano_lib::{TaggedAmount, TaggedAssetClass};
@@ -24,9 +25,10 @@ pub fn degen_quadratic_output_amount<X, Y>(
     base_amount: TaggedAmount<Base>,
     a_num: u64,
     b_num: u64,
+    accumulated_x_fee: TaggedAmount<X>
 ) -> TaggedAmount<Quote> {
     let token_supply0 = BigDecimal::from(TOKEN_EMISSION - reserves_y.untag());
-    let base_amount = BigDecimal::from(base_amount.untag());
+    let available_base_amount = BigDecimal::from(base_amount.untag());
     let a_denom = BigDecimal::from(A_DENOM);
     let b_denom = BigDecimal::from(B_DENOM);
     let a_num = BigDecimal::from(a_num);
@@ -44,7 +46,7 @@ pub fn degen_quadratic_output_amount<X, Y>(
         let a_denom_x3 = a_denom.clone() * a_denom.clone() * a_denom.clone();
         let brackets = (b_denom.clone() * const_27 * a_num_x3.clone() * token_supply0_x3.clone()
             + a_denom_const_81_a_num_x2.clone() * b_num.clone() * token_supply0.clone()
-            + b_denom.clone() * a_denom_const_81_a_num_x2.clone() * base_amount.clone())
+            + b_denom.clone() * a_denom_const_81_a_num_x2.clone() * available_base_amount.clone())
         .div(b_denom.clone() * a_denom_x3.clone());
         let b_num_x3 = b_num.clone() * b_num.clone() * b_num.clone();
         let b_denom_x3 = b_denom.clone() * b_denom.clone() * b_denom.clone();
@@ -62,7 +64,7 @@ pub fn degen_quadratic_output_amount<X, Y>(
                 .div(brackets_comb.clone() * b_denom.clone());
         token_supply1 - token_supply0
     } else {
-        let token_supply1 = token_supply0.clone() - base_amount;
+        let token_supply1 = token_supply0.clone() - available_base_amount;
 
         a_num.clone()
             * (token_supply0_x3.clone()

@@ -136,7 +136,11 @@ async function createConfig(
         }
         , RoyaltyPoolDaoV1DummyValidate.conf)
 
-    let dataToSignHex = fromHex(dataToSign)
+        let dataToSignHex = fromHex(dataToSign)
+
+    console.log(`hex: ${dataToSign}`)
+    console.log(`public key: ${toHex(privateKey.to_public().to_raw_bytes())}`)
+    console.log(`public key: ${toHex(privateKey.to_public().to_raw_key().to_raw_bytes())}`)
 
     let signature = privateKey.to_raw_key().sign(dataToSignHex).to_hex()
 

@@ -409,16 +409,16 @@ where
                     });
                 } else {
                     trace!(
-                            "UTxO {}, InstantOrder {} :: sufficient_input: {}, sufficient_execution_budget: {}, sufficient_fee: {}, executable: {}, valid_configuration: {}, is_valid_beacon: {}",
-                            ctx.select::<OutputRef>(),
-                            conf.beacon,
-                            sufficient_input,
-                            sufficient_execution_budget,
-                            sufficient_fee,
-                            executable,
-                            valid_configuration,
-                            valid_beacon
-                        );
+                        "UTxO {}, InstantOrder {} :: sufficient_input: {}, sufficient_execution_budget: {}, sufficient_fee: {}, executable: {}, valid_configuration: {}, is_valid_beacon: {}",
+                        ctx.select::<OutputRef>(),
+                        conf.beacon,
+                        sufficient_input,
+                        sufficient_execution_budget,
+                        sufficient_fee,
+                        executable,
+                        valid_configuration,
+                        valid_beacon
+                    );
                 }
             }
         }

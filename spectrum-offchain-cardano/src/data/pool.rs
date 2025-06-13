@@ -47,8 +47,7 @@ use crate::data::stable_pool_t2t::{StablePoolRedeemer, StablePoolT2T as StablePo
 use crate::data::OnChainOrderId;
 use crate::deployment::ProtocolValidator::{
     BalanceFnPoolV1, BalanceFnPoolV2, ConstFnPoolFeeSwitch, ConstFnPoolFeeSwitchBiDirFee,
-    ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, DegenQuadraticPoolV1, RoyaltyPoolV1,
-    StableFnPoolT2T,
+    ConstFnPoolFeeSwitchV2, ConstFnPoolV1, ConstFnPoolV2, RoyaltyPoolV1, RoyaltyPoolV2, StableFnPoolT2T,
 };
 use crate::deployment::{DeployedScriptInfo, RequiresValidator};
 
@@ -251,45 +250,11 @@ pub struct PoolValidation {
     pub min_t2t_lovelace: u64,
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, derive_more::Display)]
 pub enum AnyPool {
     PureCFMM(ConstFnPool),
     BalancedCFMM(BalancePool),
     StableCFMM(StablePoolT2TData),
-}
-
-impl Display for AnyPool {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PureCFMM(p) => f.write_str(&*format!(
-                "PureCFMM(id: {}, static_price: {}, rx: {}, ry: {}, tx: {}, ty: {})",
-                p.id,
-                p.static_price(),
-                p.reserves_x,
-                p.reserves_y,
-                p.treasury_x,
-                p.treasury_y,
-            )),
-            BalancedCFMM(p) => f.write_str(&*format!(
-                "BalancedCFMM(id: {}, static_price: {}, rx: {}, ry: {}, tx: {}, ty: {})",
-                p.id,
-                p.static_price(),
-                p.reserves_x,
-                p.reserves_y,
-                p.treasury_x,
-                p.treasury_y,
-            )),
-            StableCFMM(p) => f.write_str(&*format!(
-                "StableCFMM(id: {}, static_price: {}, rx: {}, ry: {}, tx: {}, ty: {})",
-                p.id,
-                p.static_price(),
-                p.reserves_x,
-                p.reserves_y,
-                p.treasury_x,
-                p.treasury_y,
-            )),
-        }
-    }
 }
 
 pub struct PoolAssetMapping {
@@ -385,6 +350,7 @@ where
         + Has<DeployedScriptInfo<{ BalanceFnPoolV2 as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2T as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1 as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV2 as u8 }>>
         + Has<PoolValidation>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
@@ -399,7 +365,7 @@ impl Stable for AnyPool {
     type StableId = Token;
     fn stable_id(&self) -> Self::StableId {
         match self {
-            PureCFMM(p) => Token::from(p.id),
+            PureCFMM(p) => Token::from(p.stable_id()),
             BalancedCFMM(p) => Token::from(p.id),
             StableCFMM(p) => Token::from(p.id),
         }
@@ -413,7 +379,7 @@ impl Tradable for AnyPool {
     type PairId = PairId;
     fn pair_id(&self) -> Self::PairId {
         match self {
-            PureCFMM(p) => PairId::canonical(p.asset_x.untag(), p.asset_y.untag()),
+            PureCFMM(p) => PairId::canonical(p.asset_x().untag(), p.asset_y().untag()),
             BalancedCFMM(p) => PairId::canonical(p.asset_x.untag(), p.asset_y.untag()),
             StableCFMM(p) => PairId::canonical(p.asset_x.untag(), p.asset_y.untag()),
         }
@@ -697,11 +663,10 @@ pub struct CFMMPoolRefScriptOutput<const VER: u8>(pub TransactionUnspentOutput);
 
 #[cfg(test)]
 pub mod tests {
+    use crate::data::cfmm_pool::classic_pool::ClassicPool;
     use bloom_offchain::execution_engine::liquidity_book::core::{Next, Trans};
     use bloom_offchain::execution_engine::liquidity_book::market_maker::MakerBehavior;
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
-
-    use super::ConstFnPool;
 
     #[test]
     fn tlb_amm_pool_canonical_pair_ordering() {
@@ -773,7 +738,7 @@ pub mod tests {
         assert_eq!(next_reserve_x, final_pool.reserves_x.untag() - output_token_0);
     }
 
-    fn gen_pool(ada_first: bool) -> ConstFnPool {
+    fn gen_pool(ada_first: bool) -> ClassicPool {
         todo!()
     }
 }

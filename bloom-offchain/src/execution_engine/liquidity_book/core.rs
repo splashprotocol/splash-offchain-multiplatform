@@ -469,7 +469,7 @@ impl<Maker> MakeInProgress<Maker> {
                         Next::Term(_) => unreachable!(),
                     };
                     let rebalanced_reserves = rebalanced.liquidity();
-                    trace!("R_rebalanced {:?}", rebalanced_reserves);
+                    trace!("R_rebalanced in d_base {:?}", rebalanced_reserves);
                     let excess_quote = next_reserves.quote.checked_sub(rebalanced_reserves.quote)?;
                     let delta = Excess {
                         base: 0,
@@ -483,7 +483,7 @@ impl<Maker> MakeInProgress<Maker> {
                         Next::Term(_) => unreachable!(),
                     };
                     let rebalanced_reserves = rebalanced.liquidity();
-                    trace!("R_rebalanced {:?}", rebalanced_reserves);
+                    trace!("R_rebalanced in d_quote {:?}", rebalanced_reserves);
                     let excess_base = next_reserves.base.checked_sub(rebalanced_reserves.base)?;
                     let delta = Excess {
                         base: excess_base,

@@ -10,7 +10,7 @@ use spectrum_offchain::domain::Has;
 use spectrum_offchain_cardano::creds::{OperatorCred, OperatorRewardAddress};
 use spectrum_offchain_cardano::deployment::DeployedValidator;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
-    DegenQuadraticPoolV1, InstantOrderV1, InstantOrderWitnessV1, LimitOrderV1, LimitOrderWitnessV1,
+    DegenQuadraticPoolV1, DegenQuadraticPoolV1T2T, InstantOrderV1, InstantOrderWitnessV1,
 };
 use type_equalities::IsEqual;
 
@@ -114,5 +114,13 @@ impl Has<DeployedValidator<{ DegenQuadraticPoolV1 as u8 }>> for ExecutionContext
         &self,
     ) -> DeployedValidator<{ DegenQuadraticPoolV1 as u8 }> {
         self.deployment.quadratic_pool_v1.clone()
+    }
+}
+
+impl Has<DeployedValidator<{ DegenQuadraticPoolV1T2T as u8 }>> for ExecutionContext {
+    fn select<U: IsEqual<DeployedValidator<{ DegenQuadraticPoolV1T2T as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ DegenQuadraticPoolV1T2T as u8 }> {
+        self.deployment.quadratic_pool_v1_t2t.clone()
     }
 }

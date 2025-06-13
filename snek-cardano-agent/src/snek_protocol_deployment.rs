@@ -9,6 +9,7 @@ pub struct SnekDeployedValidators {
     pub instant_order_witness: DeployedValidatorRef,
     pub instant_order: DeployedValidatorRef,
     pub degen_fn_pool_v1: DeployedValidatorRef,
+    pub degen_fn_pool_v1_t2t: DeployedValidatorRef,
 }
 
 #[derive(Debug, Clone)]
@@ -16,6 +17,7 @@ pub struct SnekProtocolDeployment {
     pub instant_order_witness: DeployedValidator<{ ProtocolValidator::InstantOrderWitnessV1 as u8 }>,
     pub instant_order: DeployedValidator<{ ProtocolValidator::InstantOrderV1 as u8 }>,
     pub quadratic_pool_v1: DeployedValidator<{ ProtocolValidator::DegenQuadraticPoolV1 as u8 }>,
+    pub quadratic_pool_v1_t2t: DeployedValidator<{ ProtocolValidator::DegenQuadraticPoolV1T2T as u8 }>,
 }
 
 impl SnekProtocolDeployment {
@@ -28,6 +30,7 @@ impl SnekProtocolDeployment {
                 .await,
             instant_order: DeployedValidator::unsafe_pull(validators.instant_order, explorer).await,
             quadratic_pool_v1: DeployedValidator::unsafe_pull(validators.degen_fn_pool_v1, explorer).await,
+            quadratic_pool_v1_t2t: DeployedValidator::unsafe_pull(validators.degen_fn_pool_v1_t2t, explorer).await,
         }
     }
 }
@@ -37,6 +40,7 @@ pub struct SnekProtocolScriptHashes {
     pub instant_order_witness: DeployedScriptInfo<{ ProtocolValidator::InstantOrderWitnessV1 as u8 }>,
     pub instant_order: DeployedScriptInfo<{ ProtocolValidator::InstantOrderV1 as u8 }>,
     pub degen_fn_pool_v1: DeployedScriptInfo<{ ProtocolValidator::DegenQuadraticPoolV1 as u8 }>,
+    pub degen_fn_pool_v1_t2t: DeployedScriptInfo<{ ProtocolValidator::DegenQuadraticPoolV1T2T as u8 }>,
 }
 
 impl From<&SnekProtocolDeployment> for SnekProtocolScriptHashes {
@@ -45,6 +49,18 @@ impl From<&SnekProtocolDeployment> for SnekProtocolScriptHashes {
             instant_order_witness: From::from(&deployment.instant_order_witness),
             instant_order: From::from(&deployment.instant_order),
             degen_fn_pool_v1: From::from(&deployment.quadratic_pool_v1),
+            degen_fn_pool_v1_t2t: From::from(&deployment.quadratic_pool_v1_t2t),
+        }
+    }
+}
+
+impl From<&SnekDeployedValidators> for SnekProtocolScriptHashes {
+    fn from(deployment: &SnekDeployedValidators) -> Self {
+        Self {
+            instant_order_witness: From::from(&deployment.instant_order_witness),
+            instant_order: From::from(&deployment.instant_order),
+            degen_fn_pool_v1: From::from(&deployment.degen_fn_pool_v1),
+            degen_fn_pool_v1_t2t: From::from(&deployment.degen_fn_pool_v1_t2t),
         }
     }
 }

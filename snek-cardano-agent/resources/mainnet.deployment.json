@@ -1,0 +1,84 @@
+{
+  "instantOrderWitness": {
+    "hash": "152e7a364d285842494bb356ddd54ab46eb8360c9fecf5e792525298",
+    "referenceUtxo": {
+      "txHash": "768e326756cec09641fc8b0b6c3bdcb92e5aa45636304ea30794c889bf68f481",
+      "outputIndex": 1
+    },
+    "cost": {
+      "mem": 360000,
+      "steps": 132100000
+    },
+    "marginalCost": {
+      "mem": 213000,
+      "steps": 78944000
+    }
+  },
+  "instantOrder": {
+    "hash": "9e94e848482ffb2befe7fe6c2f5171c99086b53b3f73f535ff61ca09",
+    "referenceUtxo": {
+      "txHash": "75f04884fd3fe7780f9e0cbde69bf59e6ae0dd7927263b2db72303fb68c7352d",
+      "outputIndex": 0
+    },
+    "cost": {
+      "mem": 162000,
+      "steps": 60000000
+    },
+    "marginalCost": {
+      "mem": 0,
+      "steps": 0
+    }
+  },
+  "limitOrderWitness": {
+    "hash": "96f5c1bee23481335ff4aece32fe1dfa1aa40a944a66d2d6edc9a9a5",
+    "referenceUtxo": {
+      "txHash": "b91eda29d145ab6c0bc0d6b7093cb24b131440b7b015033205476f39c690a51f",
+      "outputIndex": 1
+    },
+    "cost": {
+      "mem": 210000,
+      "steps": 80000000
+    },
+    "marginalCost": {
+      "mem": 210000,
+      "steps": 80000000
+    }
+  },
+  "limitOrder": {
+    "hash": "464eeee89f05aff787d40045af2a40a83fd96c513197d32fbc54ff02",
+    "referenceUtxo": {
+      "txHash": "b91eda29d145ab6c0bc0d6b7093cb24b131440b7b015033205476f39c690a51f",
+      "outputIndex": 0
+    },
+    "cost": {
+      "mem": 100000,
+      "steps": 30000000
+    },
+    "marginalCost": {
+      "mem": 20000,
+      "steps": 10000000
+    }
+  },
+  "degenFnPoolV1": {
+    "hash": "905ab869961b094f1b8197278cfe15b45cbe49fa8f32c6b014f85a2d",
+    "referenceUtxo": {
+      "txHash": "c4a540ac2e06c217dd4fb3f39ca3863da394ba134677dafa9b98830ca71d584d",
+      "outputIndex": 3
+    },
+    "cost": {
+      "mem": 550000,
+      "steps": 220000000
+    }
+  },
+  "degenFnPoolV1T2t": {
+    "hash": "c876c435e1de1bd93ac71f0e9f956a844cd72493514d2740221bfea6",
+    "referenceUtxo": {
+      "txHash": "a8da13b829380dba089200a242cbb79a8ff225882bdf5fe8e05f483e143043e4",
+      "outputIndex": 0
+    },
+    "cost": {
+      "mem": 600000,
+      "steps": 200000000
+    }
+  }
+}
