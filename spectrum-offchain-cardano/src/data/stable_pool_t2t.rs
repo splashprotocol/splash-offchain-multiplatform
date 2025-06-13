@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
 use std::ops::Mul;
 
 use bignumber::BigNumber;
@@ -47,8 +47,8 @@ use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, ConstFnFeeSwitchPoolDeposit, ConstFnFeeSwitchPoolRedeem,
-    ConstFnPoolDeposit, ConstFnPoolRedeem, RoyaltyPoolV1Deposit, RoyaltyPoolV1Redeem, StableFnPoolT2T,
-    StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
+    ConstFnPoolDeposit, ConstFnPoolRedeem, RoyaltyPoolV1Deposit, RoyaltyPoolV1Redeem, RoyaltyPoolV2Deposit,
+    RoyaltyPoolV2Redeem, StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::pool_math::cfmm_math::classic_cfmm_shares_amount;
@@ -233,6 +233,20 @@ impl StablePoolT2T {
                 self_out_pd,
                 PlutusData::ConstrPlutusData(context_values_list),
             ]),
+        ))
+    }
+}
+
+impl Display for StablePoolT2T {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&*format!(
+            "StableCFMM(id: {}, static_price: {}, rx: {}, ry: {}, tx: {}, ty: {})",
+            self.id,
+            self.static_price(),
+            self.reserves_x,
+            self.reserves_y,
+            self.treasury_x,
+            self.treasury_y,
         ))
     }
 }
@@ -749,7 +763,8 @@ where
         + Has<DeployedValidator<{ ConstFnPoolDeposit as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>>
         + Has<DeployedValidator<{ StableFnPoolT2TDeposit as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }>>,
+        + Has<DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2Deposit as u8 }>>,
 {
     type Result = DepositOutput;
 
@@ -829,7 +844,8 @@ where
         + Has<DeployedValidator<{ ConstFnPoolRedeem as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolRedeem as u8 }>>
         + Has<DeployedValidator<{ StableFnPoolT2TRedeem as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>>,
+        + Has<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }>>,
 {
     type Result = RedeemOutput;
 
@@ -886,7 +902,7 @@ mod tests {
     use crate::data::{OnChainOrderId, PoolId};
     use crate::deployment::ProtocolValidator::{
         BalanceFnPoolRedeem, ConstFnFeeSwitchPoolRedeem, ConstFnPoolRedeem, RoyaltyPoolV1Redeem,
-        StableFnPoolT2TRedeem,
+        RoyaltyPoolV2Redeem, StableFnPoolT2TRedeem,
     };
     use crate::deployment::{DeployedValidator, DeployedValidators, ProtocolScriptHashes};
     use crate::pool_math::stable_pool_t2t_exact_math::{
@@ -986,6 +1002,19 @@ mod tests {
             DeployedValidator {
                 reference_utxo: self.mock_output.clone(),
                 hash: self.scripts.royalty_pool_redeem.script_hash,
+                cost: mock_ex_units,
+                marginal_cost: self.scripts.royalty_pool_redeem.marginal_cost,
+            }
+        }
+    }
+
+    impl Has<DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }>> for Ctx {
+        fn select<U: IsEqual<DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }>>>(
+            &self,
+        ) -> DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }> {
+            DeployedValidator {
+                reference_utxo: self.mock_output.clone(),
+                hash: self.scripts.royalty_pool_redeem_v2.script_hash,
                 cost: mock_ex_units,
                 marginal_cost: self.scripts.royalty_pool_redeem.marginal_cost,
             }

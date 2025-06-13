@@ -226,7 +226,7 @@ where
                     return Some((ex_recipe, meta));
                 }
                 Err(None) => {
-                    trace!("{} Matchmaking attempt failed", self.pair);
+                    trace!("{} Matchmaking attempt failed in liquidity_book", self.pair);
                     self.state.rollback(StashingOption::Unstash);
                 }
                 Err(Some(Either::Left(unsatisfied_takers))) => {

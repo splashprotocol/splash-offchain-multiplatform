@@ -31,12 +31,14 @@
   },
   "dependencies": {
     "@anastasia-labs/cardano-multiplatform-lib-nodejs": "^6.0.2-2",
+    "@cardano-sdk/core": "^0.46.1",
     "@lucid-evolution/lucid": "^0.3.44",
     "@lucid-evolution/utils": "^0.1.49",
     "@noble/ed25519": "^2.0.0",
     "bip39": "^3.1.0",
     "blakejs": "^1.2.1",
-    "hash-wasm": "^4.11.0",
+    "hash-wasm": "^4.12.0",
+    "int64-buffer": "^1.1.0",
     "js-encoding-utils": "^0.7.3"
   }
 }

@@ -12,11 +12,11 @@ use spectrum_offchain_cardano::creds::OperatorCred;
 use spectrum_offchain_cardano::data::pool::PoolValidation;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use spectrum_offchain_cardano::deployment::ProtocolValidator::{
-    DegenQuadraticPoolV1, InstantOrderV1, InstantOrderWitnessV1, LimitOrderV1, LimitOrderWitnessV1,
+    DegenQuadraticPoolV1, DegenQuadraticPoolV1T2T, InstantOrderV1, InstantOrderWitnessV1,
 };
 use spectrum_offchain_cardano::handler_context::{
-    AddedPaymentDestinations, AllowedAdditionalPaymentDestinations, AuthVerificationKey, ConsumedIdentifiers,
-    ConsumedInputs, Mints, ProducedIdentifiers,
+    AddedPaymentDestinations, AllowedAdditionalPaymentDestinations, ConsumedIdentifiers, ConsumedInputs,
+    Mints, ProducedIdentifiers,
 };
 
 #[derive(Copy, Clone, Debug)]
@@ -141,6 +141,14 @@ impl<I: Copy> Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>> for SnekHa
         &self,
     ) -> DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }> {
         self.scripts.degen_fn_pool_v1.clone()
+    }
+}
+
+impl<I: Copy> Has<DeployedScriptInfo<{ DegenQuadraticPoolV1T2T as u8 }>> for SnekHandlerContext<I> {
+    fn select<U: IsEqual<DeployedScriptInfo<{ DegenQuadraticPoolV1T2T as u8 }>>>(
+        &self,
+    ) -> DeployedScriptInfo<{ DegenQuadraticPoolV1T2T as u8 }> {
+        self.scripts.degen_fn_pool_v1_t2t.clone()
     }
 }
 

@@ -30,6 +30,6 @@ export type DeployedValidator = BuiltValidator & {
     referenceUtxo: UTxO;
 };
 
-export type ScriptNames = "limitOrder" | "limitOrderWitness" | "gridOrderNative" | "royaltyPool" | "royaltyWithdrawRequest" | "royaltyWithdrawPool" | "royaltyDeposit" | "royaltyRedeem" | "royaltyDAOV1Pool" | "royaltyDAOV1Request" | "factory"; //"limitOrder" | "limitOrderWitness" | "gridOrderNative" | "balancePool" | "balanceDeposit" | "balanceRedeem" | "stablePoolT2T" | "stableDeposit" | "stableRedeem";
+export type ScriptNames = "limitOrder" | "limitOrderWitness" | "gridOrderNative" | "royaltyPool" | "royaltyWithdrawRequest" | "royaltyWithdrawPool" | "royaltyDeposit" | "royaltyRedeem" | "royaltyDAOV1Pool" | "royaltyDAOV1Request" | "factory" | "doubleRoyaltyPool" | "doubleRoyaltyWithdrawPool" | "doubleRoyaltyDeposit" | "doubleRoyaltyRedeem" | "doubleRoyaltyDAOV1Pool" | "degenT2TPool" | "degenT2TFactory" | "degenT2TAdmin" | "degenT2TFeeWithdraw" |  "instantOrder" | "instantOrderWitness"; //"limitOrder" | "limitOrderWitness" | "gridOrderNative" | "balancePool" | "balanceDeposit" | "balanceRedeem" | "stablePoolT2T" | "stableDeposit" | "stableRedeem";
 export type BuiltValidators = Record<ScriptNames, BuiltValidator>;
 export type DeployedValidators = Record<ScriptNames, DeployedValidator>;

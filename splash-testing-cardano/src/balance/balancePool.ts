@@ -237,7 +237,7 @@ export function getUtxoWithToken(utxos: UTxO[], token2find: string) {
 export function getUtxoWithAda(utxos: UTxO[]) {
     return utxos.find( utxo =>
             {
-                return ((utxo.assets["lovelace"] > startLovelaceValue))
+                return ((utxo.assets["lovelace"] > startLovelaceValue) && utxo.scriptRef == null && utxo.datum == null && Object.keys(utxo.assets).length == 1)
             }
         )
 }

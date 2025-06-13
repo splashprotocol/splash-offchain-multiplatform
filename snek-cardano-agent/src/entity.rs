@@ -14,7 +14,9 @@ use spectrum_offchain_cardano::data::pair::PairId;
 use spectrum_offchain_cardano::data::pool::PoolValidation;
 use spectrum_offchain_cardano::data::quadratic_pool::QuadraticPool;
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
-use spectrum_offchain_cardano::deployment::ProtocolValidator::{DegenQuadraticPoolV1, InstantOrderV1};
+use spectrum_offchain_cardano::deployment::ProtocolValidator::{
+    DegenQuadraticPoolV1, DegenQuadraticPoolV1T2T, InstantOrderV1,
+};
 use spectrum_offchain_cardano::handler_context::{
     AddedPaymentDestinations, AllowedAdditionalPaymentDestinations, ConsumedIdentifiers, ConsumedInputs,
     Mints, ProducedIdentifiers,
@@ -69,6 +71,7 @@ where
         + Has<AllowedAdditionalPaymentDestinations>
         + Has<DeployedScriptInfo<{ InstantOrderV1 as u8 }>>
         + Has<DeployedScriptInfo<{ DegenQuadraticPoolV1 as u8 }>>
+        + Has<DeployedScriptInfo<{ DegenQuadraticPoolV1T2T as u8 }>>
         + Has<LimitOrderValidation>
         + Has<PoolValidation>
         + Has<AdhocFeeStructure>

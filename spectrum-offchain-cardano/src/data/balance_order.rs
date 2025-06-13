@@ -8,16 +8,15 @@ use crate::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2, ConstFnFeeSwitchPoolDeposit,
     ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolRedeem,
     ConstFnPoolSwap, ConstFnPoolV1, ConstFnPoolV2, RoyaltyPoolV1, RoyaltyPoolV1Deposit, RoyaltyPoolV1Redeem,
-    RoyaltyPoolV1RoyaltyWithdrawRequest, StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
+    RoyaltyPoolV1RoyaltyWithdrawRequest, RoyaltyPoolV2, RoyaltyPoolV2Deposit, RoyaltyPoolV2Redeem,
+    StableFnPoolT2T, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
 };
 use bloom_offchain::execution_engine::bundled::Bundled;
 use cml_chain::builders::tx_builder::SignedTxBuilder;
 use spectrum_cardano_lib::collateral::Collateral;
 use spectrum_cardano_lib::output::FinalizedTxOut;
-use spectrum_cardano_lib::{NetworkId, OutputRef};
-use spectrum_offchain::backlog::data::{OrderWeight, Weighted};
+use spectrum_cardano_lib::NetworkId;
 use spectrum_offchain::domain::event::Predicted;
-use spectrum_offchain::domain::order::{SpecializedOrder, UniqueOrder};
 use spectrum_offchain::domain::Has;
 use spectrum_offchain::executor::RunOrderError::Fatal;
 use spectrum_offchain::executor::{RunOrder, RunOrderError};
@@ -50,8 +49,11 @@ where
         + Has<DeployedValidator<{ StableFnPoolT2TDeposit as u8 }>>
         + Has<DeployedValidator<{ StableFnPoolT2TRedeem as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2Deposit as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }>>
         + Has<DeployedValidator<{ RoyaltyPoolV1RoyaltyWithdrawRequest as u8 }>>,
 {
     fn try_run(

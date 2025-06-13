@@ -18,7 +18,8 @@ export const TokenBCS = "4b3459fd18a1dbabe207cd19c9951a9fac9f5c0f9c384e3d97efba2
 
 const lqFee = 95000n
 const treasuryFee = 10000n
-const royaltyFee = 10000n
+const firstRoyaltyFee = 10000n
+const secondRoyaltyFee = 50000n
 
 const startLovelaceValue = 100000000
 const startTokenB        = 100000000
@@ -31,7 +32,7 @@ const nftTNBase16 = `6e6674`;
 const lqTNBase16 = `6c71`;
 const encodedTestB = TokenB;// stringToHex(TokenB);
 // ad977b5cfaf87b549051e5eab6bde917ed1f24037ced562b0f0449f981f9dda8
-export type RoyaltyPoolConfig = {
+export type DoubleRoyaltyPoolConfig = {
     poolNft: Asset,
     poolX: Asset,
     poolY: Asset,
@@ -39,11 +40,14 @@ export type RoyaltyPoolConfig = {
     lpFeeIsEditable: boolean,
     lpFeeNum: bigint,
     protocolFeeNum: bigint,
-    royaltyFeeNum: bigint,
+    firstRoyaltyFeeNum: bigint,
+    secondRoyaltyFeeNum: bigint,
     treasuryX: bigint,
     treasuryY: bigint,
-    royaltyX: bigint,
-    royaltyY: bigint,
+    firstRoyaltyX: bigint,
+    firstRoyaltyY: bigint,
+    secondRoyaltyX: bigint,
+    secondRoyaltyY: bigint,
     DAOPolicy: Array<{
         Inline: [
                 { VerificationKeyCredential: [string] } | {
@@ -59,11 +63,12 @@ export type RoyaltyPoolConfig = {
     }>,
     // treasuryAddress - is contract
     treasuryAddress: string,
-    royaltyPubKeyHash256: string,
+    firstRoyaltyPubKeyHash256: string,
+    secondRoyaltyPubKeyHash256: string,
     royaltyNonce: bigint,
 }
 
-function buildRoyaltyPoolDatum(lucid: Lucid, conf: RoyaltyPoolConfig): Datum {
+function buildRoyaltyPoolDatum(lucid: Lucid, conf: DoubleRoyaltyPoolConfig): Datum {
     return Data.to({
         poolnft: conf.poolNft,
         poolx: conf.poolX,
@@ -71,16 +76,20 @@ function buildRoyaltyPoolDatum(lucid: Lucid, conf: RoyaltyPoolConfig): Datum {
         poolLq: conf.poolLq,
         feenum: conf.lpFeeNum,
         treasuryFee: conf.protocolFeeNum,
-        royaltyFee: conf.royaltyFeeNum,
+        firstRoyaltyFee: conf.firstRoyaltyFeeNum,
+        secondRoyaltyFee: conf.secondRoyaltyFeeNum,
         treasuryx: conf.treasuryX,
         treasuryy: conf.treasuryY,
-        royaltyx: conf.royaltyX,
-        royaltyy: conf.royaltyY,
+        firstroyaltyx: conf.firstRoyaltyX,
+        firstroyaltyy: conf.firstRoyaltyY,
+        secondroyaltyx: conf.secondRoyaltyX,
+        secondroyaltyy: conf.secondRoyaltyY,
         daoPolicy: conf.DAOPolicy,
         treasuryAddress: conf.treasuryAddress,
-        royaltyPubKeyHash_256: conf.royaltyPubKeyHash256,
+        firstRoyaltyPubKeyHash_256: conf.firstRoyaltyPubKeyHash256,
+        _royaltyPubKeyHash_256: conf.secondRoyaltyPubKeyHash256,
         royaltyNonce: conf.royaltyNonce
-    }, RoyaltyPoolPoolValidatePool.conf)
+    }, DoubleRoyaltyPoolPoolValidatePool.conf)
 }
 
 async function main() {
@@ -140,7 +149,7 @@ async function main() {
             [nftUnit]: nftEmission
         }
 
-    const poolConfig: RoyaltyPoolConfig = {
+    const poolConfig: DoubleRoyaltyPoolConfig = {
         poolNft: {
             policy: nftInfo.policyId,
             name: nftTNBase16,
@@ -160,17 +169,21 @@ async function main() {
         lpFeeIsEditable: true,
         lpFeeNum: BigInt(lqFee),
         protocolFeeNum: BigInt(treasuryFee),
-        royaltyFeeNum: BigInt(royaltyFee),
+        firstRoyaltyFeeNum: BigInt(firstRoyaltyFee),
+        secondRoyaltyFeeNum: BigInt(secondRoyaltyFee),
         treasuryX: 0n,
         treasuryY: 0n,
-        royaltyX: 0n,
-        royaltyY: 0n,
+        firstRoyaltyX: 0n,
+        firstRoyaltyY: 0n,
+        secondRoyaltyX: 0n,
+        secondRoyaltyY: 0n,
         DAOPolicy: [{
             Inline: [{ ScriptCredential: [conf.validators!.royaltyDAOV1Pool.hash] }]
         }],
         // treasuryAddress - is contract
         treasuryAddress: conf.validators.royaltyPool.hash,
-        royaltyPubKeyHash256: "d4b74586f897798bdce8ca0d37c3e95ae1885c2b4c4f44338f01adf2d9b2ca14",
+        firstRoyaltyPubKeyHash256: "d4b74586f897798bdce8ca0d37c3e95ae1885c2b4c4f44338f01adf2d9b2ca14",
+        secondRoyaltyPubKeyHash256: "d4b74586f897798bdce8ca0d37c3e95ae1885c2b4c4f44338f01adf2d9b2ca14",
         royaltyNonce: 0n,
     }
 

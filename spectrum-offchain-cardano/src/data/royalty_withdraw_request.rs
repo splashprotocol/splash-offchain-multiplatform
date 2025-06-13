@@ -1,5 +1,4 @@
-use crate::data::deposit::DepositOrderValidation;
-use crate::data::order::{ClassicalOrder, PoolNft};
+use crate::data::order::ClassicalOrder;
 use crate::data::pool::{CFMMPoolAction, Rx, Ry};
 use crate::data::{OnChainOrderId, PoolId};
 use crate::deployment::ProtocolValidator::RoyaltyPoolV1RoyaltyWithdrawRequest;

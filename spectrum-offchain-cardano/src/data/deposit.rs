@@ -1,7 +1,6 @@
 use cml_chain::plutus::PlutusData;
 use cml_chain::transaction::TransactionOutput;
 use cml_crypto::Ed25519KeyHash;
-use cml_multi_era::babbage::BabbageTransactionOutput;
 
 use spectrum_cardano_lib::plutus_data::{ConstrPlutusDataExtension, DatumExtension, PlutusDataExtension};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
@@ -17,8 +16,8 @@ use crate::data::pool::CFMMPoolAction::Deposit as DepositAction;
 use crate::data::pool::{CFMMPoolAction, Lq, Rx, Ry};
 use crate::data::{OnChainOrderId, PoolId};
 use crate::deployment::ProtocolValidator::{
-    BalanceFnPoolDeposit, ConstFnFeeSwitchPoolDeposit, ConstFnPoolDeposit, RoyaltyPoolV1,
-    RoyaltyPoolV1Deposit, StableFnPoolT2TDeposit,
+    BalanceFnPoolDeposit, ConstFnFeeSwitchPoolDeposit, ConstFnPoolDeposit, RoyaltyPoolV1Deposit,
+    RoyaltyPoolV2Deposit, StableFnPoolT2TDeposit,
 };
 use crate::deployment::{
     test_address, DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator,
@@ -53,7 +52,8 @@ where
         + Has<DeployedValidator<{ ConstFnPoolDeposit as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>>
         + Has<DeployedValidator<{ StableFnPoolT2TDeposit as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }>>,
+        + Has<DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2Deposit as u8 }>>,
 {
     fn get_validator(&self, ctx: &Ctx) -> DeployedValidatorErased {
         match self.order.order_type {
@@ -73,8 +73,12 @@ where
                 let validator: DeployedValidator<{ StableFnPoolT2TDeposit as u8 }> = ctx.get();
                 validator.erased()
             }
-            OrderType::RoyaltyConstFn => {
+            OrderType::RoyaltyConstFnV1 => {
                 let validator: DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }> = ctx.get();
+                validator.erased()
+            }
+            OrderType::RoyaltyConstFnV2 => {
+                let validator: DeployedValidator<{ RoyaltyPoolV2Deposit as u8 }> = ctx.get();
                 validator.erased()
             }
         }
@@ -102,6 +106,7 @@ where
         + Has<DeployedScriptInfo<{ BalanceFnPoolDeposit as u8 }>>
         + Has<DeployedScriptInfo<{ StableFnPoolT2TDeposit as u8 }>>
         + Has<DeployedScriptInfo<{ RoyaltyPoolV1Deposit as u8 }>>
+        + Has<DeployedScriptInfo<{ RoyaltyPoolV2Deposit as u8 }>>
         + Has<DepositOrderValidation>,
 {
     fn try_from_ledger(repr: &TransactionOutput, ctx: &Ctx) -> Option<Self> {
@@ -112,15 +117,18 @@ where
             test_address::<{ BalanceFnPoolDeposit as u8 }, Ctx>(repr.address(), ctx);
         let is_stable_fn_pool_deposit =
             test_address::<{ StableFnPoolT2TDeposit as u8 }, Ctx>(repr.address(), ctx);
-        let is_royalty_fn_pool_deposit =
+        let is_royalty_v1_fn_pool_deposit =
             test_address::<{ RoyaltyPoolV1Deposit as u8 }, Ctx>(repr.address(), ctx);
+        let is_royalty_v2_fn_pool_deposit =
+            test_address::<{ RoyaltyPoolV2Deposit as u8 }, Ctx>(repr.address(), ctx);
         if is_const_fee_switch_pool_deposit
             || is_balance_fn_pool_deposit
             || is_const_fn_pool_deposit
             || is_stable_fn_pool_deposit
-            || is_royalty_fn_pool_deposit
+            || is_royalty_v1_fn_pool_deposit
+            || is_royalty_v2_fn_pool_deposit
         {
-            let order_type = if (is_const_fee_switch_pool_deposit) {
+            let order_type = if is_const_fee_switch_pool_deposit {
                 OrderType::ConstFnFeeSwitch
             } else if is_balance_fn_pool_deposit {
                 OrderType::BalanceFn
@@ -128,8 +136,10 @@ where
                 OrderType::ConstFn
             } else if is_stable_fn_pool_deposit {
                 OrderType::StableFn
+            } else if is_royalty_v1_fn_pool_deposit {
+                OrderType::RoyaltyConstFnV1
             } else {
-                OrderType::RoyaltyConstFn
+                OrderType::RoyaltyConstFnV2
             };
             let value = repr.value().clone();
             let conf = OnChainDepositConfig::try_from_pd(repr.clone().into_datum()?.into_pd()?)?;

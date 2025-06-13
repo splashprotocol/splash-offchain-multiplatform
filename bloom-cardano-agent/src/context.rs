@@ -13,8 +13,9 @@ use spectrum_offchain_cardano::deployment::ProtocolValidator::{
     ConstFnFeeSwitchPoolRedeem, ConstFnFeeSwitchPoolSwap, ConstFnPoolDeposit, ConstFnPoolFeeSwitch,
     ConstFnPoolFeeSwitchBiDirFee, ConstFnPoolFeeSwitchV2, ConstFnPoolRedeem, ConstFnPoolSwap, ConstFnPoolV1,
     ConstFnPoolV2, GridOrderNative, LimitOrderV1, LimitOrderWitnessV1, RoyaltyPoolDAOV1,
-    RoyaltyPoolDAOV1Request, RoyaltyPoolRoyaltyWithdraw, RoyaltyPoolV1, RoyaltyPoolV1Deposit,
-    RoyaltyPoolV1Redeem, RoyaltyPoolV1RoyaltyWithdrawRequest, StableFnPoolT2T, StableFnPoolT2TDeposit,
+    RoyaltyPoolDAOV1Request, RoyaltyPoolRoyaltyWithdraw, RoyaltyPoolRoyaltyWithdrawV2, RoyaltyPoolV1,
+    RoyaltyPoolV1Deposit, RoyaltyPoolV1Redeem, RoyaltyPoolV1RoyaltyWithdrawRequest, RoyaltyPoolV2,
+    RoyaltyPoolV2DAO, RoyaltyPoolV2Deposit, RoyaltyPoolV2Redeem, StableFnPoolT2T, StableFnPoolT2TDeposit,
     StableFnPoolT2TRedeem,
 };
 use spectrum_offchain_cardano::deployment::{DeployedValidator, ProtocolDeployment};
@@ -270,6 +271,14 @@ impl Has<DeployedValidator<{ RoyaltyPoolV1 as u8 }>> for ExecutionContext {
     }
 }
 
+impl Has<DeployedValidator<{ RoyaltyPoolV2 as u8 }>> for ExecutionContext {
+    fn select<U: IsEqual<DeployedValidator<{ RoyaltyPoolV2 as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ RoyaltyPoolV2 as u8 }> {
+        self.deployment.royalty_pool_v2.clone()
+    }
+}
+
 impl Has<DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }>> for ExecutionContext {
     fn select<U: IsEqual<DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }>>>(
         &self,
@@ -278,11 +287,27 @@ impl Has<DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }>> for ExecutionContext
     }
 }
 
+impl Has<DeployedValidator<{ RoyaltyPoolV2Deposit as u8 }>> for ExecutionContext {
+    fn select<U: IsEqual<DeployedValidator<{ RoyaltyPoolV2Deposit as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ RoyaltyPoolV2Deposit as u8 }> {
+        self.deployment.royalty_pool_deposit_v2.clone()
+    }
+}
+
 impl Has<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>> for ExecutionContext {
     fn select<U: IsEqual<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>>>(
         &self,
     ) -> DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }> {
         self.deployment.royalty_pool_redeem.clone()
+    }
+}
+
+impl Has<DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }>> for ExecutionContext {
+    fn select<U: IsEqual<DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }> {
+        self.deployment.royalty_pool_redeem_v2.clone()
     }
 }
 
@@ -310,11 +335,27 @@ impl Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdraw as u8 }>> for ExecutionC
     }
 }
 
+impl Has<DeployedValidator<{ RoyaltyPoolRoyaltyWithdrawV2 as u8 }>> for ExecutionContext {
+    fn select<U: IsEqual<DeployedValidator<{ RoyaltyPoolRoyaltyWithdrawV2 as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ RoyaltyPoolRoyaltyWithdrawV2 as u8 }> {
+        self.deployment.royalty_pool_withdraw_v2.clone()
+    }
+}
+
 impl Has<DeployedValidator<{ RoyaltyPoolDAOV1 as u8 }>> for ExecutionContext {
     fn select<U: IsEqual<DeployedValidator<{ RoyaltyPoolDAOV1 as u8 }>>>(
         &self,
     ) -> DeployedValidator<{ RoyaltyPoolDAOV1 as u8 }> {
         self.deployment.royalty_pool_dao.clone()
+    }
+}
+
+impl Has<DeployedValidator<{ RoyaltyPoolV2DAO as u8 }>> for ExecutionContext {
+    fn select<U: IsEqual<DeployedValidator<{ RoyaltyPoolV2DAO as u8 }>>>(
+        &self,
+    ) -> DeployedValidator<{ RoyaltyPoolV2DAO as u8 }> {
+        self.deployment.royalty_pool_v2_dao.clone()
     }
 }
 

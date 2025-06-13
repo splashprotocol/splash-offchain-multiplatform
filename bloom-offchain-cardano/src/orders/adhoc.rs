@@ -197,11 +197,15 @@ where
     fn try_from_ledger(repr: &TransactionOutput, ctx: &C) -> Option<Self> {
         InstantOrder::try_from_ledger(repr, ctx).and_then(|io| {
             let virtual_input_amount = match (io.input_asset, io.output_asset) {
-                (AssetClass::Native, _) => Some(subtract_adhoc_fee(io.input_amount, ctx.get())),
-                (_, AssetClass::Native) => Some(io.input_amount),
-                _ => None,
-            }?;
-            let adhoc_fee_input = io.input_amount.checked_sub(virtual_input_amount)?;
+                (AssetClass::Native, _) => subtract_adhoc_fee(io.input_amount, ctx.get()),
+                _ => io.input_amount,
+            };
+            // adhoc fee input is only applicable in case of ADA -> TOKEN swap
+            let adhoc_fee_input = if io.input_asset == AssetClass::Native {
+                io.input_amount.checked_sub(virtual_input_amount)?
+            } else {
+                0
+            };
             let has_stake_part = io.redeemer_address.stake_cred.is_some();
             let is_compliant = ctx
                 .select::<AddedPaymentDestinations>()
@@ -216,7 +220,7 @@ where
                 ))
             } else {
                 trace!(
-                    "UTxO {}, AdhocOrder {} :: has_stake_part: {}, is_compliant: {}",
+                    "AdhocOrder skipped for UTxO {}, AdhocOrder {} :: has_stake_part: {}, is_compliant: {}",
                     ctx.select::<OutputRef>(),
                     io.beacon,
                     has_stake_part,

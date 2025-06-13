@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
 use std::ops::Div;
 use std::ops::Mul;
 
@@ -51,8 +51,9 @@ use crate::data::redeem::ClassicalOnChainRedeem;
 use crate::data::PoolId;
 use crate::deployment::ProtocolValidator::{
     BalanceFnPoolDeposit, BalanceFnPoolRedeem, BalanceFnPoolV1, BalanceFnPoolV2, ConstFnFeeSwitchPoolDeposit,
-    ConstFnFeeSwitchPoolRedeem, ConstFnPoolDeposit, ConstFnPoolRedeem, ConstFnPoolV2, RoyaltyPoolV1Deposit,
-    RoyaltyPoolV1Redeem, StableFnPoolT2TDeposit, StableFnPoolT2TRedeem,
+    ConstFnFeeSwitchPoolRedeem, ConstFnPoolDeposit, ConstFnPoolRedeem, RoyaltyPoolV1Deposit,
+    RoyaltyPoolV1Redeem, RoyaltyPoolV2Deposit, RoyaltyPoolV2Redeem, StableFnPoolT2TDeposit,
+    StableFnPoolT2TRedeem,
 };
 use crate::deployment::{DeployedScriptInfo, DeployedValidator, DeployedValidatorErased, RequiresValidator};
 use crate::pool_math::balance_math::balance_cfmm_output_amount;
@@ -230,6 +231,20 @@ impl BalancePool {
                 prefer_compact: true,
             }),
         })
+    }
+}
+
+impl Display for BalancePool {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&*format!(
+            "BalancedCFMM(id: {}, static_price: {}, rx: {}, ry: {}, tx: {}, ty: {})",
+            self.id,
+            self.static_price(),
+            self.reserves_x,
+            self.reserves_y,
+            self.treasury_x,
+            self.treasury_y
+        ))
     }
 }
 
@@ -677,7 +692,8 @@ where
         + Has<DeployedValidator<{ ConstFnPoolDeposit as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolDeposit as u8 }>>
         + Has<DeployedValidator<{ StableFnPoolT2TDeposit as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }>>,
+        + Has<DeployedValidator<{ RoyaltyPoolV1Deposit as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2Deposit as u8 }>>,
 {
     type Result = DepositOutput;
 
@@ -757,7 +773,8 @@ where
         + Has<DeployedValidator<{ ConstFnPoolRedeem as u8 }>>
         + Has<DeployedValidator<{ BalanceFnPoolRedeem as u8 }>>
         + Has<DeployedValidator<{ StableFnPoolT2TRedeem as u8 }>>
-        + Has<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>>,
+        + Has<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>>
+        + Has<DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }>>,
 {
     type Result = RedeemOutput;
 
@@ -827,7 +844,6 @@ mod tests {
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide;
     use bloom_offchain::execution_engine::liquidity_book::side::OnSide::{Ask, Bid};
     use bloom_offchain::execution_engine::liquidity_book::types::AbsolutePrice;
-    use cardano_explorer::data::value::ExplorerValue;
     use spectrum_cardano_lib::ex_units::ExUnits;
     use spectrum_cardano_lib::types::TryFromPData;
     use spectrum_cardano_lib::{AssetClass, AssetName, OutputRef, TaggedAmount, TaggedAssetClass, Token};
@@ -841,7 +857,7 @@ mod tests {
     use crate::data::{OnChainOrderId, PoolId};
     use crate::deployment::ProtocolValidator::{
         BalanceFnPoolRedeem, ConstFnFeeSwitchPoolRedeem, ConstFnPoolRedeem, RoyaltyPoolV1Redeem,
-        StableFnPoolT2TRedeem,
+        RoyaltyPoolV2Redeem, StableFnPoolT2TRedeem,
     };
     use crate::deployment::{DeployedValidator, DeployedValidators, ProtocolScriptHashes};
 
@@ -915,6 +931,19 @@ mod tests {
         fn select<U: IsEqual<DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }>>>(
             &self,
         ) -> DeployedValidator<{ RoyaltyPoolV1Redeem as u8 }> {
+            DeployedValidator {
+                reference_utxo: self.mock_output.clone(),
+                hash: self.scripts.royalty_pool_redeem.script_hash,
+                cost: mock_ex_units,
+                marginal_cost: self.scripts.royalty_pool_redeem.marginal_cost,
+            }
+        }
+    }
+
+    impl Has<DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }>> for Ctx {
+        fn select<U: IsEqual<DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }>>>(
+            &self,
+        ) -> DeployedValidator<{ RoyaltyPoolV2Redeem as u8 }> {
             DeployedValidator {
                 reference_utxo: self.mock_output.clone(),
                 hash: self.scripts.royalty_pool_redeem.script_hash,
