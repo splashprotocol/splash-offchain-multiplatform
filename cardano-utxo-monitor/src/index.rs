@@ -114,6 +114,17 @@ fn unsafe_utxo_key_from_index(pkh_len: usize, bytes: &[u8]) -> &[u8] {
     &bytes[pkh_len..]
 }
 
+fn get_utxo_by_ref(
+    tx: &rocksdb::Transaction<rocksdb::TransactionDB>,
+    utxos: &rocksdb::ColumnFamily,
+    output_ref: OutputRef,
+) -> Option<TransactionOutput> {
+    tx.get_cf(utxos, utxo_key(output_ref))
+        .unwrap()
+        .and_then(|bytes| rmp_serde::from_slice::<(Vec<u8>, bool)>(&bytes).ok())
+        .and_then(|(utxo_bytes, _)| TransactionOutput::from_cbor_bytes(&utxo_bytes).ok())
+}
+
 #[async_trait]
 impl UtxoIndex for RocksDB {
     async fn apply(
@@ -130,12 +141,9 @@ impl UtxoIndex for RocksDB {
             let addrs = db.cf_handle(TABLES[2]).unwrap();
             let tx = db.transaction();
             for i in inputs {
-                if let Some(out) = tx
-                    .get_cf(utxos, utxo_key(i))
-                    .unwrap()
-                    .and_then(|bytes| TransactionOutput::from_cbor_bytes(&bytes).ok())
-                {
+                if let Some(out) = get_utxo_by_ref(&tx, utxos, i) {
                     if let Some(Credential::PubKey { hash, .. }) = out.address().payment_cred() {
+                        trace!("Registering spent {} at key {}", i, hex::encode(utxo_key(i)));
                         tx.put_cf(spent_utxos, utxo_key(i), vec![]).unwrap();
                         tx.delete_cf(addrs, pkh_to_utxo_key(hash, i)).unwrap();
                     }
@@ -144,6 +152,7 @@ impl UtxoIndex for RocksDB {
             for (i, o) in outputs {
                 if let Some(Credential::PubKey { hash, .. }) = o.address().payment_cred() {
                     let rf = OutputRef::new(tx_hash, i as u64);
+                    trace!("Registering unspent {} at key {}", rf, hex::encode(utxo_key(rf)));
                     let bytes = rmp_serde::to_vec(&(o.to_canonical_cbor_bytes(), confirmed)).unwrap();
                     tx.put_cf(utxos, utxo_key(rf), bytes).unwrap();
                     tx.put_cf(addrs, pkh_to_utxo_key(hash, rf), vec![]).unwrap();
@@ -167,21 +176,23 @@ impl UtxoIndex for RocksDB {
             let spent_utxos = db.cf_handle(TABLES[1]).unwrap();
             let addrs = db.cf_handle(TABLES[2]).unwrap();
             let tx = db.transaction();
-            for rf in inputs {
-                if let Some(out) = tx
-                    .get_cf(utxos, utxo_key(rf))
-                    .unwrap()
-                    .and_then(|bytes| TransactionOutput::from_cbor_bytes(&bytes).ok())
-                {
+            for i in inputs {
+                if let Some(out) = get_utxo_by_ref(&tx, utxos, i) {
                     if let Some(Credential::PubKey { hash, .. }) = out.address().payment_cred() {
-                        tx.delete_cf(spent_utxos, utxo_key(rf)).unwrap();
-                        tx.put_cf(addrs, pkh_to_utxo_key(hash, rf), vec![]).unwrap();
+                        trace!("Deregistering spent {} at key {}", i, hex::encode(utxo_key(i)));
+                        tx.delete_cf(spent_utxos, utxo_key(i)).unwrap();
+                        tx.put_cf(addrs, pkh_to_utxo_key(hash, i), vec![]).unwrap();
                     }
                 }
             }
             for (ix, o) in outputs {
                 if let Some(Credential::PubKey { hash, .. }) = o.address().payment_cred() {
                     let rf = OutputRef::new(tx_hash, ix as u64);
+                    trace!(
+                        "Deregistering unspent {} at key {}",
+                        rf,
+                        hex::encode(utxo_key(rf))
+                    );
                     tx.delete_cf(utxos, utxo_key(rf)).unwrap();
                     tx.delete_cf(addrs, pkh_to_utxo_key(hash, rf)).unwrap();
                 }
@@ -250,25 +261,34 @@ pub(crate) fn get_range_iterator<'a: 'b, 'b>(
 #[cfg(test)]
 mod tests {
     use crate::index::{RocksDB, UtxoIndex, UtxoResolver};
-    use cml_chain::address::Address;
-    use cml_chain::certs::Credential;
-    use cml_chain::transaction::Transaction;
+    use cml_chain::transaction::{Transaction, TransactionOutput};
     use cml_chain::Deserialize;
+    use cml_crypto::Ed25519KeyHash;
     use rocksdb::{Options, SingleThreaded, TransactionDB};
+    use spectrum_cardano_lib::OutputRef;
     use spectrum_offchain::tx_hash::CanonicalHash;
     use std::path::{Path, PathBuf};
 
     #[tokio::test]
     async fn index_applied_transactions() {
+        let must_consume_utxo = OutputRef::from_string_unsafe(
+            "13de3390f33b18faaeeb91eafc839e28c687f47f146e9c68779562a8a5385afc#0",
+        );
+        let utxos = test_utxo_resolving(
+            vec![TX_PRODUCE, TX_CONSUME],
+            "bed3c3bac9ddc7952cc91cf76db3dd808f99f4a0dd07e78e06657bc2",
+        )
+        .await;
+        assert!(utxos.iter().find(|(rf, _)| rf == &must_consume_utxo).is_none())
+    }
+
+    async fn test_utxo_resolving(txs: Vec<&str>, pkh: &str) -> Vec<(OutputRef, (TransactionOutput, bool))> {
         let db_path = DBPath::new("_index_applied_transactions");
         let db = RocksDB::new(&db_path);
 
-        let addr = Address::from_bech32(ADDR).unwrap();
-        let Credential::PubKey { hash: pkh, .. } = addr.payment_cred().unwrap() else {
-            panic!()
-        };
+        let pkh = Ed25519KeyHash::from_hex(pkh).unwrap();
 
-        for rtx in [TX_FUN_1, TX_FUN_2, TX_ORD, TX_EXE] {
+        for rtx in txs {
             let tx = Transaction::from_cbor_bytes(&*hex::decode(rtx).unwrap()).unwrap();
             let hash = tx.canonical_hash();
             db.apply(
@@ -279,11 +299,11 @@ mod tests {
             )
             .await;
         }
-
-        let utxos = db.get_utxos(*pkh, 0, 100).await;
-
-        dbg!(&utxos);
+        db.get_utxos(pkh, 0, 100).await
     }
+
+    const TX_PRODUCE: &str = "84a7008182582086ecf8a72d7d1744deefc1c923c7f1ed8eb09a549cb70fde3d572316e066bfa403018182583901bed3c3bac9ddc7952cc91cf76db3dd808f99f4a0dd07e78e06657bc21cc69f513f9551f517c5212855ece1b34d0128f9f9b54e47cebadd4b821b0000000103f98686ad581c0ece814aa1cc2c98981c7690083dbcb51c5bb1279ae408873d8c8762a15820595479793659676e546b3069574c396a4544315943352f49516873337252343701581c15509d4cb60f066ca4c7e982d764d6ceb4324cb33776d1711da1beeea24e42616279416c69656e3034373231014e42616279416c69656e303831313801581c279c909f348e533da5808898f87f9a14bb2c3dfbbacccd631d927a3fa144534e454b19a839581c29d222ce763455e3d7a09a665ce554f00ac89d2e99a1a83d267170c6a1434d494e194a31581c51a5e236c4de3af2b8020442e2a26f454fda3b04cb621c1294a0ef34a144424f4f4b1a0165f8a0581c530a197fe7c275f204c3396b3782fc738f4968f0c81dd2291cf07b8aa3581a434330303337303030303030303030303030303135323030303001581a434330303337303030303030303030303030303135323030363401581a434330313531303030303030303030303030303137363030363401581c5ee425062d88069b702a38a357895132b9b50c8f893c8cf87a4c8c32a14445574d5401581ca0028f350aaabe0545fdcb56b039bfb08e4bb4d8c4d7c3c7d481c235a145484f534b591a04277dbf581ca7904896a247d3aa09478e856769b82d1f2e060028b6bda5543b699fa64d4343434f4c4c41423030303337014d4343434f4c4c41423030313531014d4343434f4c4c41423038393235014d4343434f4c4c4142303930333901581c4375746543726561747572657343686164694e61737361723030333701581c4375746543726561747572657343686164694e61737361723031353101581ce5a42a1a1d3d1da71b0449663c32798725888d2eb0843c4dabeca05aa151576f726c644d6f62696c65546f6b656e581a000f4240581cecbe846aa1a535579d67f9480fa6173b64d7e239df0460eba36e3ad0a14a0014df1053617475726e1a000f4240581cf0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9aa14b736f667462696e61746f7201581cfe38ef97888dfde0292b7d2ed103543ecf92a419a29634f513a1d71fa14541534e454b1a00249f00021a00033cd9031a0936d6fe048183028200581c1cc69f513f9551f517c5212855ece1b34d0128f9f9b54e47cebadd4b581c538299a358e79a289c8de779f8cd09dd6a6bb286de717d1f744bb35705a1581de11cc69f513f9551f517c5212855ece1b34d0128f9f9b54e47cebadd4b1a002bdbc50758201c45c96126112c50a121c7bce6fa0b0fb8e7fa6990d0a9435a89a91a1460fccea1008282582061b2624741ddbcd41a6e3490b2e4a71bcc1cb6ff891137097540ad7fa8cf56115840a00c437ed8a787f4fbdd39ada04c3cf6191ee26abe44137a6eb4a2dcf55e4387bfbb565133d42df61f0ed45de43adeec019c2f8c5e0fae209534a266755b96038258201b775e64b1cb83f9420829d807b892da0c8c2ea89873028c620b8c04eb35ee4558400d97db78925083b9736b66ccf28593638cba828f5806311eb6d4aa7d861a53023a2ab27a5f56d65beafb177f756e746f98e093a8c56c5982667e4f2f5abf8403f5a11902a2a1636d736781781956455350523a20506172746e65722044656c65676174696f6e";
+    const TX_CONSUME: &str = "84a6008182582013de3390f33b18faaeeb91eafc839e28c687f47f146e9c68779562a8a5385afc00018182583901bed3c3bac9ddc7952cc91cf76db3dd808f99f4a0dd07e78e06657bc21cc69f513f9551f517c5212855ece1b34d0128f9f9b54e47cebadd4b821b0000000103f65035ad581c0ece814aa1cc2c98981c7690083dbcb51c5bb1279ae408873d8c8762a15820595479793659676e546b3069574c396a4544315943352f49516873337252343701581c15509d4cb60f066ca4c7e982d764d6ceb4324cb33776d1711da1beeea24e42616279416c69656e3034373231014e42616279416c69656e303831313801581c279c909f348e533da5808898f87f9a14bb2c3dfbbacccd631d927a3fa144534e454b19a839581c29d222ce763455e3d7a09a665ce554f00ac89d2e99a1a83d267170c6a1434d494e194a31581c51a5e236c4de3af2b8020442e2a26f454fda3b04cb621c1294a0ef34a144424f4f4b1a0165f8a0581c530a197fe7c275f204c3396b3782fc738f4968f0c81dd2291cf07b8aa3581a434330303337303030303030303030303030303135323030303001581a434330303337303030303030303030303030303135323030363401581a434330313531303030303030303030303030303137363030363401581c5ee425062d88069b702a38a357895132b9b50c8f893c8cf87a4c8c32a14445574d5401581ca0028f350aaabe0545fdcb56b039bfb08e4bb4d8c4d7c3c7d481c235a145484f534b591a04277dbf581ca7904896a247d3aa09478e856769b82d1f2e060028b6bda5543b699fa64d4343434f4c4c41423030303337014d4343434f4c4c41423030313531014d4343434f4c4c41423038393235014d4343434f4c4c4142303930333901581c4375746543726561747572657343686164694e61737361723030333701581c4375746543726561747572657343686164694e61737361723031353101581ce5a42a1a1d3d1da71b0449663c32798725888d2eb0843c4dabeca05aa151576f726c644d6f62696c65546f6b656e581a000f4240581cecbe846aa1a535579d67f9480fa6173b64d7e239df0460eba36e3ad0a14a0014df1053617475726e1a000f4240581cf0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9aa14b736f667462696e61746f7201581cfe38ef97888dfde0292b7d2ed103543ecf92a419a29634f513a1d71fa14541534e454b1a00249f00021a00033651031a0936d713048183028200581c1cc69f513f9551f517c5212855ece1b34d0128f9f9b54e47cebadd4b581cf423b19715cca49029ed13ff02a110b63de7d96ad7a0536dc5887a410758201c45c96126112c50a121c7bce6fa0b0fb8e7fa6990d0a9435a89a91a1460fccea1008282582061b2624741ddbcd41a6e3490b2e4a71bcc1cb6ff891137097540ad7fa8cf56115840b38ff68cbbbfcd3f9c17c968f584baa09b616321ed9cb28cfa1f6a58b39065f538968c87381b1da31692552cf5870fd85ff3e4739c0486046e5410a406222f0a8258201b775e64b1cb83f9420829d807b892da0c8c2ea89873028c620b8c04eb35ee4558409eb2d130f64a4e3338c73ac56d17a553ea8d4d7a796ba00dc08c068946999cefdccd3a699a5e6d464422d33ce483842bb63b5774036c73b10998762ecb675b0af5a11902a2a1636d736781781956455350523a20506172746e65722044656c65676174696f6e";
 
     const ADDR: &str = "addr1qxm9vre80nsqjtsp7w0u756t9ea9s2pzvr8sg3f878nlwnfnk2t57etkfqvkjup3udn836gra978y0pkf2selr94zqlqy7hy0z";
 
