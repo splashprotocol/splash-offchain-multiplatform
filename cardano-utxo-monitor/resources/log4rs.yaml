@@ -2,7 +2,7 @@ refresh_rate: 30 seconds
 appenders:
   file:
     kind: rolling_file
-    path: "logs/smp.log"
+    path: "logs/service.log"
     encoder:
       pattern: "{d(%Y-%m-%d %H:%M:%S)} {h({l}):5.5} {({T}):4.10} — {m}{n}"
     policy:
@@ -18,7 +18,7 @@ appenders:
         kind: fixed_window
         base: 1
         count: 50
-        pattern: "logs/smp.{}.log"
+        pattern: "logs/service.{}.log"
 root:
   level: trace
   appenders:
