@@ -22,7 +22,7 @@ use crate::display::display_option;
 use crate::domain::order::{PendingOrder, ProgressingOrder, SpecializedOrder, SuspendedOrder, UniqueOrder};
 use crate::domain::Has;
 use crate::maker::Maker;
-use crate::tracing::WithTracing;
+use crate::tracing::Tracing;
 
 pub mod data;
 pub mod persistence;
@@ -52,7 +52,7 @@ where
         TOrd: 'a;
 }
 
-impl<In, T> HotBacklog<T> for WithTracing<In>
+impl<In, T> HotBacklog<T> for Tracing<In>
 where
     In: HotBacklog<T>,
     T: UniqueOrder,
@@ -63,11 +63,11 @@ where
         T: 'a,
     {
         trace!("HotBacklog::put({})", ord.get_self_ref());
-        self.inner.put(ord);
+        self.component.put(ord);
     }
 
     fn try_pop(&mut self) -> Option<T> {
-        let res = self.inner.try_pop();
+        let res = self.component.try_pop();
         trace!(
             "HotBacklog::try_pop() -> {}",
             display_option(&res.as_ref().map(|o| o.get_self_ref()))
@@ -79,7 +79,7 @@ where
     where
         T::TOrderId: 'a,
     {
-        let res = self.inner.exists(id);
+        let res = self.component.exists(id);
         trace!("HotBacklog::exists({}) -> {}", id, res);
         res
     }
@@ -89,7 +89,7 @@ where
         T::TOrderId: 'a + Clone,
     {
         trace!("HotBacklog::remove({})", id);
-        self.inner.remove(id);
+        self.component.remove(id);
     }
 
     fn soft_evict<'a>(&mut self, id: T::TOrderId)
@@ -97,7 +97,7 @@ where
         T: 'a,
     {
         trace!("HotBacklog::soft_evict({})", id);
-        self.inner.soft_evict(id);
+        self.component.soft_evict(id);
     }
 }
 
@@ -227,7 +227,7 @@ where
 }
 
 #[async_trait]
-impl<TOrd, B> ResilientBacklog<TOrd> for WithTracing<B>
+impl<TOrd, B> ResilientBacklog<TOrd> for Tracing<B>
 where
     TOrd: UniqueOrder + Debug + Clone,
     TOrd::TOrderId: Debug + Clone + Send + Sync,
@@ -239,7 +239,7 @@ where
         TOrd: 'a,
     {
         trace!(target: "backlog", "put({:?})", ord);
-        self.inner.put(ord.clone()).await;
+        self.component.put(ord.clone()).await;
         trace!(target: "backlog", "put({:?}) -> ()", ord);
     }
 
@@ -248,7 +248,7 @@ where
         TOrd: 'a,
     {
         trace!(target: "backlog", "suspend({:?})", ord);
-        let res = self.inner.suspend(ord.clone()).await;
+        let res = self.component.suspend(ord.clone()).await;
         trace!(target: "backlog", "suspend({:?}) -> {:?}", ord, res);
         res
     }
@@ -258,14 +258,14 @@ where
         TOrd: 'a,
     {
         trace!(target: "backlog", "check_later({:?})", ord);
-        let res = self.inner.check_later(ord.clone()).await;
+        let res = self.component.check_later(ord.clone()).await;
         trace!(target: "backlog", "check_later({:?}) -> {:?}", ord, res);
         res
     }
 
     async fn try_pop(&self) -> Option<TOrd> {
         trace!(target: "backlog", "try_pop()");
-        let res = self.inner.try_pop().await;
+        let res = self.component.try_pop().await;
         trace!(target: "backlog", "try_pop() -> {:?}", res);
         res
     }
@@ -274,7 +274,7 @@ where
     where
         TOrd::TOrderId: 'a,
     {
-        self.inner.exists(ord_id.clone()).await
+        self.component.exists(ord_id.clone()).await
     }
 
     async fn remove<'a>(&self, ord_id: TOrd::TOrderId)
@@ -282,7 +282,7 @@ where
         TOrd::TOrderId: 'a,
     {
         trace!(target: "backlog", "remove({:?})", ord_id);
-        self.inner.remove(ord_id.clone()).await;
+        self.component.remove(ord_id.clone()).await;
         trace!(target: "backlog", "remove({:?}) -> ()", ord_id);
     }
 
@@ -291,7 +291,7 @@ where
         TOrd: 'a,
     {
         trace!(target: "backlog", "recharge({:?})", ord);
-        self.inner.recharge(ord.clone()).await;
+        self.component.recharge(ord.clone()).await;
         trace!(target: "backlog", "recharge({:?}) -> ()", ord);
     }
 
@@ -300,7 +300,7 @@ where
         F: Fn(&TOrd) -> bool + Send + 'static,
     {
         trace!(target: "backlog", "find_order()");
-        let res = self.inner.find_orders(f).await;
+        let res = self.component.find_orders(f).await;
         trace!(target: "backlog", "find_order() -> {:?}", res);
         res
     }

@@ -57,7 +57,7 @@ use spectrum_offchain::event_sink::event_handler::{forward_with, EventHandler};
 use spectrum_offchain::event_sink::process_events;
 use spectrum_offchain::partitioning::Partitioned;
 use spectrum_offchain::reporting::{reporting_stream, ReportingAgent};
-use spectrum_offchain::tracing::WithTracing;
+use spectrum_offchain::tracing::Tracing;
 use spectrum_offchain_cardano::collateral::pull_collateral;
 use spectrum_offchain_cardano::creds::operator_creds;
 use spectrum_offchain_cardano::data::dao_request::DAOContext;
@@ -319,7 +319,7 @@ async fn main() {
     };
 
     let multi_book = MultiPair::new::<TLB<AnyOrder, AnyPool, PairId, ExUnits>>(maker_context.clone(), "Book");
-    let multi_backlog = MultiPair::new::<WithTracing<HotPriorityBacklog<Bundled<Order, FinalizedTxOut>>>>(
+    let multi_backlog = MultiPair::new::<Tracing<HotPriorityBacklog<Bundled<Order, FinalizedTxOut>>>>(
         maker_context,
         "Backlog",
     );

@@ -3,11 +3,14 @@ use cml_chain::certs::Credential;
 use cml_chain::transaction::TransactionOutput;
 use cml_chain::{Deserialize, Serialize};
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, TransactionHash};
+use log::trace;
 use rocksdb::{
     ColumnFamily, DBIteratorWithThreadMode, Direction, IteratorMode, Options, ReadOptions,
     SnapshotWithThreadMode, TransactionDB, TransactionDBOptions,
 };
 use spectrum_cardano_lib::OutputRef;
+use spectrum_offchain::display::display_vec;
+use spectrum_offchain::tracing::Tracing;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::task::spawn_blocking;
@@ -27,6 +30,41 @@ pub trait UtxoIndex {
         inputs: Vec<OutputRef>,
         outputs: Vec<(usize, TransactionOutput)>,
     );
+}
+
+#[async_trait]
+impl<In: UtxoIndex + Sync> UtxoIndex for Tracing<In> {
+    async fn apply(
+        &self,
+        tx_hash: TransactionHash,
+        inputs: Vec<OutputRef>,
+        outputs: Vec<(usize, TransactionOutput)>,
+        confirmed: bool,
+    ) {
+        trace!(
+            "UtxoIndex::apply(tx_hash={}, inputs={}, outputs={}, confirmed={})",
+            tx_hash,
+            display_vec(&inputs),
+            display_vec(&outputs.iter().map(|(i, o)| *i).collect()),
+            confirmed
+        );
+        self.component.apply(tx_hash, inputs, outputs, confirmed).await;
+    }
+
+    async fn unapply(
+        &self,
+        tx_hash: TransactionHash,
+        inputs: Vec<OutputRef>,
+        outputs: Vec<(usize, TransactionOutput)>,
+    ) {
+        trace!(
+            "UtxoIndex::unapply(tx_hash={}, inputs={}, outputs={})",
+            tx_hash,
+            display_vec(&inputs),
+            display_vec(&outputs.iter().map(|(i, o)| *i).collect())
+        );
+        self.component.unapply(tx_hash, inputs, outputs).await;
+    }
 }
 
 #[async_trait]

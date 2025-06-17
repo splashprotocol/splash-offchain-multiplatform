@@ -35,6 +35,7 @@ use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_mempool_sync::data::MempoolUpdate;
 use futures::stream::StreamExt;
 use spectrum_offchain::event_sink::event_handler::{forward_with, forward_with_ref, EventHandler};
+use spectrum_offchain::tracing::Tracing;
 use tracing_subscriber::fmt::Subscriber;
 
 #[tokio::main]
@@ -91,7 +92,7 @@ async fn main() {
         .map(|ev| ev.map(TxViewMut::from));
 
     let db = RocksDB::new(config.index_path);
-    let handler = TxHandler::new(db.clone());
+    let handler = TxHandler::new(Tracing::attach(db.clone()));
 
     let handlers_ledger: Vec<Box<dyn EventHandler<LedgerTxEvent<TxViewMut>> + Send>> = vec![
         Box::new(forward_with_ref(confirmed_txs_snd, succinct_tx)),
