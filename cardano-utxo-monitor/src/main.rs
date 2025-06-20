@@ -88,8 +88,13 @@ async fn main() {
     .await
     .map(|ev| ev.map(TxViewMut::from));
 
-    let mempool_stream = mempool_stream(mempool_sync, tx_tracker_channel, failed_txs_recv, state_synced)
-        .map(|ev| ev.map(TxViewMut::from));
+    let mempool_stream = mempool_stream(
+        mempool_sync,
+        tx_tracker_channel,
+        failed_txs_recv,
+        state_synced.clone(),
+    )
+    .map(|ev| ev.map(TxViewMut::from));
 
     let db = RocksDB::new(config.index_path);
     let handler = TxHandler::new(Tracing::attach(db.clone()));
@@ -107,7 +112,7 @@ async fn main() {
 
     let ip_addr = IpAddr::from_str(&*args.host).expect("Invalid host address");
     let bind_addr = SocketAddr::new(ip_addr, args.port);
-    let server = build_api_server(db, bind_addr)
+    let server = build_api_server(db, state_synced.clone(), bind_addr)
         .await
         .expect("Error setting up api server");
 

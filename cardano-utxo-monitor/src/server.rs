@@ -3,6 +3,7 @@ use actix_cors::Cors;
 use actix_web::dev::{AppService, HttpServiceFactory, Server};
 use actix_web::web::Data;
 use actix_web::{guard, web, App, HttpResponse, HttpServer, Responder};
+use async_primitives::beacon::Beacon;
 use cml_chain::address::Address;
 use cml_chain::transaction::TransactionOutput;
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, TransactionHash};
@@ -66,29 +67,48 @@ pub struct Asset {
 
 pub struct Service<R>(PhantomData<R>);
 
+async fn get_utxos<R>(req: web::Json<GetUTxOsRequest>, db: Data<R>) -> impl Responder
+where
+    R: UtxoResolver + 'static,
+{
+    let utxos = db.get_utxos(req.pkh, req.offset, req.limit).await;
+    let result = utxos.into_iter().map(UTxO::from).collect::<Vec<_>>();
+    HttpResponse::Ok().json(result)
+}
+
+async fn healthcheck(state_synced: Data<Beacon>) -> impl Responder {
+    if state_synced.read() {
+        HttpResponse::Ok().body("OK")
+    } else {
+        HttpResponse::ServiceUnavailable().finish()
+    }
+}
+
 impl<R> HttpServiceFactory for Service<R>
 where
     R: UtxoResolver + 'static,
 {
     fn register(self, config: &mut AppService) {
-        async fn get_utxos<R>(req: web::Json<GetUTxOsRequest>, db: Data<R>) -> impl Responder
-        where
-            R: UtxoResolver + 'static,
-        {
-            let utxos = db.get_utxos(req.pkh, req.offset, req.limit).await;
-            let result = utxos.into_iter().map(UTxO::from).collect::<Vec<_>>();
-            HttpResponse::Ok().json(result)
-        }
-        let resource = actix_web::Resource::new("/getUtxos")
+        let utxos_resource = actix_web::Resource::new("/getUtxos")
             .name("getUtxos")
             .guard(guard::Post())
             .guard(guard::Header("content-type", "application/json"))
             .to(get_utxos::<R>);
-        HttpServiceFactory::register(resource, config);
+        HttpServiceFactory::register(utxos_resource, config);
+
+        let health_resource = actix_web::Resource::new("/health")
+            .name("health")
+            .guard(guard::Get())
+            .to(healthcheck);
+        HttpServiceFactory::register(health_resource, config);
     }
 }
 
-pub async fn build_api_server<R>(db: R, bind_addr: SocketAddr) -> Result<Server, io::Error>
+pub async fn build_api_server<R>(
+    db: R,
+    state_synced: Beacon,
+    bind_addr: SocketAddr,
+) -> Result<Server, io::Error>
 where
     R: UtxoResolver + Send + Clone + 'static,
 {
@@ -101,6 +121,7 @@ where
         App::new()
             .wrap(cors)
             .app_data(Data::new(db.clone()))
+            .app_data(Data::new(state_synced.clone()))
             .service(Service(PhantomData::<R>))
     })
     .bind(bind_addr)?
