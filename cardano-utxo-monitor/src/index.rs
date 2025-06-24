@@ -80,10 +80,16 @@ pub trait UtxoResolver {
     async fn get_utxos(
         &self,
         pkh: Ed25519KeyHash,
-        least_slot: Option<Slot>,
+        query: TxoQuery,
         offset: usize,
         limit: usize,
     ) -> Vec<TxoEvent>;
+}
+
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub enum TxoQuery {
+    All(Option<Slot>),
+    Unspent,
 }
 
 #[derive(Clone)]
@@ -105,22 +111,22 @@ impl RocksDB {
 
 struct Cols<'a> {
     txo_cf: &'a ColumnFamily,
-    pkh_to_txo_by_slots_cf: &'a ColumnFamily,
-    pkh_to_txo_by_spent_cf: &'a ColumnFamily,
+    pkh_to_txo_all_cf: &'a ColumnFamily,
+    pkh_to_txo_unspent_cf: &'a ColumnFamily,
 }
 
 fn get_columns(db: &Arc<TransactionDB>) -> Cols {
     let txo_cf = db.cf_handle(TABLES[0]).unwrap();
-    let pkh_to_txo_by_slots_cf = db.cf_handle(TABLES[1]).unwrap();
-    let pkh_to_txo_by_spent_cf = db.cf_handle(TABLES[2]).unwrap();
+    let pkh_to_txo_all_cf = db.cf_handle(TABLES[1]).unwrap();
+    let pkh_to_txo_unspent_cf = db.cf_handle(TABLES[2]).unwrap();
     Cols {
         txo_cf,
-        pkh_to_txo_by_slots_cf,
-        pkh_to_txo_by_spent_cf,
+        pkh_to_txo_all_cf,
+        pkh_to_txo_unspent_cf,
     }
 }
 
-const TABLES: [&str; 3] = ["txo", "pkh_to_txo_by_slots", "pkh_to_txo_by_spent"];
+const TABLES: [&str; 3] = ["txo", "pkh_to_txo_all", "pkh_to_txo_unspent"];
 
 fn utxo_key(rf: OutputRef) -> Vec<u8> {
     rmp_serde::to_vec(&rf).unwrap()
@@ -130,9 +136,13 @@ fn pkh_key_prefix(pkh: &Ed25519KeyHash) -> Vec<u8> {
     pkh.to_raw_bytes().to_vec()
 }
 
+fn settled_at_key(settled_at: Option<Slot>) -> Vec<u8> {
+    settled_at.unwrap_or(u64::MAX).to_be_bytes().to_vec()
+}
+
 fn pkh_to_utxo_all_key(pkh: &Ed25519KeyHash, settled_at: Option<Slot>, rf: OutputRef) -> Vec<u8> {
     let mut bf = pkh.to_raw_bytes().to_vec();
-    bf.extend(settled_at.unwrap_or(u64::MAX).to_be_bytes());
+    bf.extend(settled_at_key(settled_at));
     bf.extend(utxo_key(rf));
     bf
 }
@@ -172,18 +182,18 @@ fn write_txo(
 
 fn write_txo_indexes(
     tx: &Transaction<TransactionDB>,
-    pkh_to_txo_by_slots_cf: &ColumnFamily,
-    pkh_to_txo_by_spent_cf: &ColumnFamily,
+    pkh_to_txo_all_cf: &ColumnFamily,
+    pkh_to_txo_unspent_cf: &ColumnFamily,
     pkh: &Ed25519KeyHash,
     oref: OutputRef,
     settled_at: Option<Slot>,
     spent: bool,
 ) {
     let all_index_key = pkh_to_utxo_all_key(pkh, settled_at, oref);
-    tx.put_cf(pkh_to_txo_by_slots_cf, all_index_key, vec![]).unwrap();
+    tx.put_cf(pkh_to_txo_all_cf, all_index_key, vec![]).unwrap();
     if !spent {
         let unspent_index_key = pkh_to_utxo_unspent_key(pkh, oref);
-        tx.put_cf(pkh_to_txo_by_spent_cf, unspent_index_key, vec![])
+        tx.put_cf(pkh_to_txo_unspent_cf, unspent_index_key, vec![])
             .unwrap();
     }
 }
@@ -191,19 +201,19 @@ fn write_txo_indexes(
 fn update_txo(
     tx: &Transaction<TransactionDB>,
     txo_cf: &ColumnFamily,
-    pkh_to_txo_by_slots_cf: &ColumnFamily,
-    pkh_to_txo_by_spent_cf: &ColumnFamily,
+    pkh_to_txo_all_cf: &ColumnFamily,
+    pkh_to_txo_unspent_cf: &ColumnFamily,
     oref: OutputRef,
     txo: TransactionOutput,
     settled_at: Option<Slot>,
 ) {
     if let Some(Credential::PubKey { hash, .. }) = txo.address().payment_cred() {
         trace!("Updating unspent txo {} at pkh {}", oref, hash);
-        delete_txo_and_indexes(tx, txo_cf, pkh_to_txo_by_slots_cf, pkh_to_txo_by_spent_cf, oref);
+        delete_txo_and_indexes(tx, txo_cf, pkh_to_txo_all_cf, pkh_to_txo_unspent_cf, oref);
         write_txo_indexes(
             tx,
-            pkh_to_txo_by_slots_cf,
-            pkh_to_txo_by_spent_cf,
+            pkh_to_txo_all_cf,
+            pkh_to_txo_unspent_cf,
             hash,
             oref,
             settled_at,
@@ -216,8 +226,8 @@ fn update_txo(
 fn update_txo_by_ref(
     tx: &Transaction<TransactionDB>,
     txo_cf: &ColumnFamily,
-    pkh_to_txo_by_slots_cf: &ColumnFamily,
-    pkh_to_txo_by_spent_cf: &ColumnFamily,
+    pkh_to_txo_all_cf: &ColumnFamily,
+    pkh_to_txo_unspent_cf: &ColumnFamily,
     oref: OutputRef,
     spent: bool,
 ) {
@@ -226,16 +236,16 @@ fn update_txo_by_ref(
         if let Some(Credential::PubKey { hash, .. }) = out.address().payment_cred() {
             delete_indexes(
                 tx,
-                pkh_to_txo_by_slots_cf,
-                pkh_to_txo_by_spent_cf,
+                pkh_to_txo_all_cf,
+                pkh_to_txo_unspent_cf,
                 hash,
                 settled_at,
                 oref,
             );
             write_txo_indexes(
                 tx,
-                pkh_to_txo_by_slots_cf,
-                pkh_to_txo_by_spent_cf,
+                pkh_to_txo_all_cf,
+                pkh_to_txo_unspent_cf,
                 hash,
                 oref,
                 settled_at,
@@ -248,23 +258,23 @@ fn update_txo_by_ref(
 
 fn delete_indexes(
     tx: &Transaction<TransactionDB>,
-    pkh_to_txo_by_slots_cf: &ColumnFamily,
-    pkh_to_txo_by_spent_cf: &ColumnFamily,
+    pkh_to_txo_all_cf: &ColumnFamily,
+    pkh_to_txo_unspent_cf: &ColumnFamily,
     pkh: &Ed25519KeyHash,
     settled_at: Option<Slot>,
     oref: OutputRef,
 ) {
-    tx.delete_cf(pkh_to_txo_by_slots_cf, pkh_to_utxo_all_key(pkh, settled_at, oref))
+    tx.delete_cf(pkh_to_txo_all_cf, pkh_to_utxo_all_key(pkh, settled_at, oref))
         .unwrap();
-    tx.delete_cf(pkh_to_txo_by_spent_cf, pkh_to_utxo_unspent_key(pkh, oref))
+    tx.delete_cf(pkh_to_txo_unspent_cf, pkh_to_utxo_unspent_key(pkh, oref))
         .unwrap();
 }
 
 fn delete_txo_and_indexes(
     tx: &Transaction<TransactionDB>,
     txo_cf: &ColumnFamily,
-    pkh_to_txo_by_slots_cf: &ColumnFamily,
-    pkh_to_txo_by_spent_cf: &ColumnFamily,
+    pkh_to_txo_all_cf: &ColumnFamily,
+    pkh_to_txo_unspent_cf: &ColumnFamily,
     oref: OutputRef,
 ) {
     if let Some((out, settled_at, spent)) = get_utxo_by_ref(&tx, txo_cf, oref) {
@@ -272,8 +282,8 @@ fn delete_txo_and_indexes(
         if let Some(Credential::PubKey { hash, .. }) = out.address().payment_cred() {
             delete_indexes(
                 tx,
-                pkh_to_txo_by_slots_cf,
-                pkh_to_txo_by_spent_cf,
+                pkh_to_txo_all_cf,
+                pkh_to_txo_unspent_cf,
                 hash,
                 settled_at,
                 oref,
@@ -296,27 +306,20 @@ impl UtxoIndex for RocksDB {
         spawn_blocking(move || {
             let Cols {
                 txo_cf,
-                pkh_to_txo_by_slots_cf,
-                pkh_to_txo_by_spent_cf,
+                pkh_to_txo_all_cf,
+                pkh_to_txo_unspent_cf,
             } = get_columns(&db);
             let tx = db.transaction();
             for oref in inputs {
-                update_txo_by_ref(
-                    &tx,
-                    txo_cf,
-                    pkh_to_txo_by_slots_cf,
-                    pkh_to_txo_by_spent_cf,
-                    oref,
-                    true,
-                );
+                update_txo_by_ref(&tx, txo_cf, pkh_to_txo_all_cf, pkh_to_txo_unspent_cf, oref, true);
             }
             for (ix, o) in outputs {
                 let rf = OutputRef::new(tx_hash, ix as u64);
                 update_txo(
                     &tx,
                     txo_cf,
-                    pkh_to_txo_by_slots_cf,
-                    pkh_to_txo_by_spent_cf,
+                    pkh_to_txo_all_cf,
+                    pkh_to_txo_unspent_cf,
                     rf,
                     o,
                     confirmed_at,
@@ -338,23 +341,16 @@ impl UtxoIndex for RocksDB {
         spawn_blocking(move || {
             let Cols {
                 txo_cf,
-                pkh_to_txo_by_slots_cf,
-                pkh_to_txo_by_spent_cf,
+                pkh_to_txo_all_cf,
+                pkh_to_txo_unspent_cf,
             } = get_columns(&db);
             let tx = db.transaction();
             for oref in inputs {
-                update_txo_by_ref(
-                    &tx,
-                    txo_cf,
-                    pkh_to_txo_by_slots_cf,
-                    pkh_to_txo_by_spent_cf,
-                    oref,
-                    false,
-                );
+                update_txo_by_ref(&tx, txo_cf, pkh_to_txo_all_cf, pkh_to_txo_unspent_cf, oref, false);
             }
             for (ix, o) in outputs {
                 let rf = OutputRef::new(tx_hash, ix as u64);
-                delete_txo_and_indexes(&tx, txo_cf, pkh_to_txo_by_slots_cf, pkh_to_txo_by_spent_cf, rf);
+                delete_txo_and_indexes(&tx, txo_cf, pkh_to_txo_all_cf, pkh_to_txo_unspent_cf, rf);
             }
             tx.commit().unwrap();
         })
@@ -368,7 +364,7 @@ impl UtxoResolver for RocksDB {
     async fn get_utxos(
         &self,
         pkh: Ed25519KeyHash,
-        least_slot: Option<Slot>,
+        query: TxoQuery,
         offset: usize,
         limit: usize,
     ) -> Vec<TxoEvent> {
@@ -376,31 +372,22 @@ impl UtxoResolver for RocksDB {
         spawn_blocking(move || {
             let Cols {
                 txo_cf,
-                pkh_to_txo_by_slots_cf,
-                pkh_to_txo_by_spent_cf,
+                pkh_to_txo_all_cf,
+                pkh_to_txo_unspent_cf,
             } = get_columns(&db);
             let snap = db.snapshot();
             let index_prefix = pkh_key_prefix(&pkh);
-            let (num_key_bytes_to_drop, mut txo_iter) = if let Some(least_slot) = least_slot {
-                (
+            let (num_key_bytes_to_drop, index_cf, lb) = match query {
+                TxoQuery::All(least_slot) => (
                     index_prefix.len() + 8,
-                    get_range_iterator(
-                        &snap,
-                        pkh_to_txo_by_slots_cf,
-                        index_prefix,
-                        Some(least_slot.to_be_bytes().to_vec()),
-                    )
-                    .skip(offset)
-                    .take(limit),
-                )
-            } else {
-                (
-                    index_prefix.len(),
-                    get_range_iterator(&snap, pkh_to_txo_by_spent_cf, index_prefix, None)
-                        .skip(offset)
-                        .take(limit),
-                )
+                    pkh_to_txo_all_cf,
+                    Some(settled_at_key(least_slot)),
+                ),
+                TxoQuery::Unspent => (index_prefix.len(), pkh_to_txo_unspent_cf, None),
             };
+            let mut txo_iter = get_range_iterator(&snap, index_cf, index_prefix, lb)
+                .skip(offset)
+                .take(limit);
             let mut txo_set = vec![];
             while let Some(Ok(bytes)) = txo_iter.next() {
                 let utxo_key = &bytes.0[num_key_bytes_to_drop..];
@@ -448,7 +435,7 @@ pub(crate) fn get_range_iterator<'a: 'b, 'b>(
 
 #[cfg(test)]
 mod tests {
-    use crate::index::{RocksDB, TxoEvent, UtxoIndex, UtxoResolver};
+    use crate::index::{RocksDB, TxoEvent, TxoQuery, UtxoIndex, UtxoResolver};
     use cml_chain::transaction::Transaction;
     use cml_chain::{Deserialize, Slot};
     use cml_crypto::Ed25519KeyHash;
@@ -465,9 +452,10 @@ mod tests {
         let txos = test_utxo_resolving(
             vec![(TX_PRODUCE, None), (TX_CONSUME, None)],
             "bed3c3bac9ddc7952cc91cf76db3dd808f99f4a0dd07e78e06657bc2",
-            None,
+            TxoQuery::All(None),
         )
         .await;
+        println!("{:?}", txos.iter().map(|x| (x.oref, x.spent)).collect::<Vec<_>>());
         assert!(txos
             .iter()
             .find(|e| e.oref == must_consume_utxo)
@@ -483,7 +471,7 @@ mod tests {
         let txos = test_utxo_resolving(
             vec![(TX_PRODUCE, Some(1)), (TX_CONSUME, None)],
             "bed3c3bac9ddc7952cc91cf76db3dd808f99f4a0dd07e78e06657bc2",
-            None,
+            TxoQuery::Unspent,
         )
         .await;
         assert!(txos.iter().find(|e| e.oref == must_consume_utxo).is_none())
@@ -499,7 +487,7 @@ mod tests {
                 (TX_EXE, Some(4)),
             ],
             "b6560f277ce0092e01f39fcf534b2e7a58282260cf044527f1e7f74d",
-            Some(0),
+            TxoQuery::All(Some(0)),
         )
         .await;
         let lb_slot = 3;
@@ -511,7 +499,7 @@ mod tests {
                 (TX_EXE, Some(4)),
             ],
             "b6560f277ce0092e01f39fcf534b2e7a58282260cf044527f1e7f74d",
-            Some(lb_slot),
+            TxoQuery::All(Some(lb_slot)),
         )
         .await;
         assert_eq!(
@@ -527,11 +515,7 @@ mod tests {
         );
     }
 
-    async fn test_utxo_resolving(
-        txs: Vec<(&str, Option<Slot>)>,
-        pkh: &str,
-        least_slot: Option<Slot>,
-    ) -> Vec<TxoEvent> {
+    async fn test_utxo_resolving(txs: Vec<(&str, Option<Slot>)>, pkh: &str, q: TxoQuery) -> Vec<TxoEvent> {
         let db_path = DBPath::new("_index_applied_transactions");
         let db = RocksDB::new(&db_path);
         let pkh = Ed25519KeyHash::from_hex(pkh).unwrap();
@@ -546,7 +530,7 @@ mod tests {
             )
             .await;
         }
-        db.get_utxos(pkh, least_slot, 0, 100).await
+        db.get_utxos(pkh, q, 0, 100).await
     }
 
     const TX_PRODUCE: &str = "84a7008182582086ecf8a72d7d1744deefc1c923c7f1ed8eb09a549cb70fde3d572316e066bfa403018182583901bed3c3bac9ddc7952cc91cf76db3dd808f99f4a0dd07e78e06657bc21cc69f513f9551f517c5212855ece1b34d0128f9f9b54e47cebadd4b821b0000000103f98686ad581c0ece814aa1cc2c98981c7690083dbcb51c5bb1279ae408873d8c8762a15820595479793659676e546b3069574c396a4544315943352f49516873337252343701581c15509d4cb60f066ca4c7e982d764d6ceb4324cb33776d1711da1beeea24e42616279416c69656e3034373231014e42616279416c69656e303831313801581c279c909f348e533da5808898f87f9a14bb2c3dfbbacccd631d927a3fa144534e454b19a839581c29d222ce763455e3d7a09a665ce554f00ac89d2e99a1a83d267170c6a1434d494e194a31581c51a5e236c4de3af2b8020442e2a26f454fda3b04cb621c1294a0ef34a144424f4f4b1a0165f8a0581c530a197fe7c275f204c3396b3782fc738f4968f0c81dd2291cf07b8aa3581a434330303337303030303030303030303030303135323030303001581a434330303337303030303030303030303030303135323030363401581a434330313531303030303030303030303030303137363030363401581c5ee425062d88069b702a38a357895132b9b50c8f893c8cf87a4c8c32a14445574d5401581ca0028f350aaabe0545fdcb56b039bfb08e4bb4d8c4d7c3c7d481c235a145484f534b591a04277dbf581ca7904896a247d3aa09478e856769b82d1f2e060028b6bda5543b699fa64d4343434f4c4c41423030303337014d4343434f4c4c41423030313531014d4343434f4c4c41423038393235014d4343434f4c4c4142303930333901581c4375746543726561747572657343686164694e61737361723030333701581c4375746543726561747572657343686164694e61737361723031353101581ce5a42a1a1d3d1da71b0449663c32798725888d2eb0843c4dabeca05aa151576f726c644d6f62696c65546f6b656e581a000f4240581cecbe846aa1a535579d67f9480fa6173b64d7e239df0460eba36e3ad0a14a0014df1053617475726e1a000f4240581cf0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9aa14b736f667462696e61746f7201581cfe38ef97888dfde0292b7d2ed103543ecf92a419a29634f513a1d71fa14541534e454b1a00249f00021a00033cd9031a0936d6fe048183028200581c1cc69f513f9551f517c5212855ece1b34d0128f9f9b54e47cebadd4b581c538299a358e79a289c8de779f8cd09dd6a6bb286de717d1f744bb35705a1581de11cc69f513f9551f517c5212855ece1b34d0128f9f9b54e47cebadd4b1a002bdbc50758201c45c96126112c50a121c7bce6fa0b0fb8e7fa6990d0a9435a89a91a1460fccea1008282582061b2624741ddbcd41a6e3490b2e4a71bcc1cb6ff891137097540ad7fa8cf56115840a00c437ed8a787f4fbdd39ada04c3cf6191ee26abe44137a6eb4a2dcf55e4387bfbb565133d42df61f0ed45de43adeec019c2f8c5e0fae209534a266755b96038258201b775e64b1cb83f9420829d807b892da0c8c2ea89873028c620b8c04eb35ee4558400d97db78925083b9736b66ccf28593638cba828f5806311eb6d4aa7d861a53023a2ab27a5f56d65beafb177f756e746f98e093a8c56c5982667e4f2f5abf8403f5a11902a2a1636d736781781956455350523a20506172746e65722044656c65676174696f6e";

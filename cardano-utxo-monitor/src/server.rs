@@ -1,4 +1,4 @@
-use crate::index::{TxoEvent, UtxoResolver};
+use crate::index::{TxoEvent, TxoQuery, UtxoResolver};
 use actix_cors::Cors;
 use actix_web::dev::{AppService, HttpServiceFactory, Server};
 use actix_web::web::Data;
@@ -11,11 +11,11 @@ use std::io;
 use std::marker::PhantomData;
 use std::net::SocketAddr;
 
-#[derive(Clone, serde::Deserialize, Debug)]
+#[derive(Clone, serde::Deserialize, serde::Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct GetTxOsRequest {
     pkh: Ed25519KeyHash,
-    least_slot: Option<u64>,
+    query: TxoQuery,
     offset: usize,
     limit: usize,
 }
@@ -71,7 +71,7 @@ async fn get_utxos<R>(req: web::Json<GetTxOsRequest>, db: Data<R>) -> impl Respo
 where
     R: UtxoResolver + 'static,
 {
-    let utxos = db.get_utxos(req.pkh, req.least_slot, req.offset, req.limit).await;
+    let utxos = db.get_utxos(req.pkh, req.query, req.offset, req.limit).await;
     let result = utxos.into_iter().map(UTxO::from).collect::<Vec<_>>();
     HttpResponse::Ok().json(result)
 }
@@ -128,4 +128,35 @@ where
     .workers(8)
     .disable_signals()
     .run())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json;
+
+    #[test]
+    fn request_samples() {
+        let sample_request_all = GetTxOsRequest {
+            pkh: Ed25519KeyHash::from([0u8; 28]),
+            query: TxoQuery::All(Some(1)),
+            offset: 0,
+            limit: 10,
+        };
+
+        let json = serde_json::to_string_pretty(&sample_request_all).unwrap();
+        assert!(!json.is_empty());
+        println!("{}", json);
+
+        let sample_request_unspent = GetTxOsRequest {
+            pkh: Ed25519KeyHash::from([0u8; 28]),
+            query: TxoQuery::Unspent,
+            offset: 0,
+            limit: 10,
+        };
+
+        let json = serde_json::to_string_pretty(&sample_request_unspent).unwrap();
+        assert!(!json.is_empty());
+        println!("{}", json);
+    }
 }
