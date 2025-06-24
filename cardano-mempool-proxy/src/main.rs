@@ -1,8 +1,6 @@
 mod server;
-mod tx_submission;
 
 use crate::server::{build_api_server, Limits};
-use crate::tx_submission::TxSubmissionAgent;
 use clap::Parser;
 use cml_chain::transaction::Transaction;
 use constants::CONWAY_ERA_ID;
@@ -11,6 +9,8 @@ use futures::stream::FuturesUnordered;
 use futures::FutureExt;
 use spectrum_cardano_lib::constants;
 use spectrum_offchain_cardano::node::NodeConfig;
+use spectrum_offchain_cardano::tx_submission::{tx_submission_agent_stream, TxSubmissionAgent};
+use spectrum_offchain_cardano::tx_tracker::NoopTxTracker;
 use spectrum_streaming::run_stream;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
@@ -32,13 +32,15 @@ async fn main() {
     let raw_config = std::fs::File::open(args.config_path).expect("Cannot load configuration file");
     let config: AppConfig = serde_json::from_reader(raw_config).expect("Invalid configuration file");
 
-    let (tx_submission_agent, tx_submission_channel) = TxSubmissionAgent::<CONWAY_ERA_ID, Transaction>::new(
-        config.node.clone(),
-        config.tx_submission_buffer_size,
-    )
-    .await
-    .expect("LocalTxSubmission initialization failed");
-    let tx_submission_stream = tx_submission_agent.stream();
+    let (tx_submission_agent, tx_submission_channel) =
+        TxSubmissionAgent::<CONWAY_ERA_ID, Transaction, _>::new(
+            NoopTxTracker::new(),
+            config.node.clone(),
+            config.tx_submission_buffer_size,
+        )
+        .await
+        .expect("LocalTxSubmission initialization failed");
+    let tx_submission_stream = tx_submission_agent_stream(tx_submission_agent);
 
     let ip_addr = IpAddr::from_str(&*args.host).expect("Invalid host address");
     let bind_addr = SocketAddr::new(ip_addr, args.port);

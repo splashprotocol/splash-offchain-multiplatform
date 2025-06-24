@@ -1,11 +1,12 @@
-use crate::tx_submission::TxSubmissionChannel;
 use actix_cors::Cors;
 use actix_web::dev::{AppService, HttpServiceFactory};
 use actix_web::web::Data;
 use actix_web::{guard, web, App, HttpResponse, HttpServer, Responder};
 use cml_chain::Deserialize;
 use futures::StreamExt;
+use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_hash::CanonicalHash;
+use spectrum_offchain_cardano::tx_submission::{RejectReasons, TxSubmissionChannel};
 use std::future::Future;
 use std::io;
 use std::marker::PhantomData;
@@ -21,7 +22,7 @@ pub struct SubmitTx<const ERA: u16, Tx>(PhantomData<Tx>);
 
 impl<const ERA: u16, Tx> HttpServiceFactory for SubmitTx<ERA, Tx>
 where
-    Tx: CanonicalHash + Deserialize + 'static,
+    Tx: CanonicalHash + Deserialize + Send + 'static,
     Tx::Hash: ToString,
 {
     fn register(self, config: &mut AppService) {
@@ -31,7 +32,7 @@ where
             mut body: web::Payload,
         ) -> impl Responder
         where
-            Tx: CanonicalHash + Deserialize,
+            Tx: CanonicalHash + Deserialize + Send,
             Tx::Hash: ToString,
         {
             let mut bytes = web::BytesMut::new();
@@ -49,8 +50,10 @@ where
                 Ok(tx) => {
                     let hash = tx.canonical_hash();
                     let mut channel = tx_submission.get_ref().clone();
-                    channel.submit(tx).await;
-                    HttpResponse::Ok().body(hash.to_string())
+                    match channel.submit_tx(tx).await {
+                        Ok(_) => HttpResponse::Ok().body(hash.to_string()),
+                        Err(err) => HttpResponse::BadRequest().body(err.to_string()),
+                    }
                 }
                 Err(_) => HttpResponse::BadRequest().body("invalid cbor"),
             }

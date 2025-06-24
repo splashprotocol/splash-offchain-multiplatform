@@ -69,8 +69,13 @@ impl<'a, const ERA: u16, Tx, Tracker> TxSubmissionAgent<'a, ERA, Tx, Tracker> {
     }
 }
 
-#[derive(Clone)]
 pub struct TxSubmissionChannel<const ERA: u16, Tx>(mpsc::Sender<SubmitTx<Tx>>);
+
+impl<const ERA: u16, Tx> Clone for TxSubmissionChannel<ERA, Tx> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
 
 pub struct SubmitTx<Tx>(Tx, oneshot::Sender<SubmissionResult>);
 

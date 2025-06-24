@@ -11,11 +11,24 @@ use spectrum_offchain::data::circular_filter::CircularFilter;
 use spectrum_offchain::sink::BatchSinkExt;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
+use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
 #[async_trait]
 pub trait TxTracker<TxHash, Tx> {
     async fn track(&mut self, tx_hash: TxHash, tx: Tx);
+}
+
+pub struct NoopTxTracker<TxHash, Tx>(PhantomData<(TxHash, Tx)>);
+impl<TxHash, Tx> NoopTxTracker<TxHash, Tx> {
+    pub fn new() -> Self {
+        Self(PhantomData)
+    }
+}
+
+#[async_trait]
+impl<TxHash: Send, Tx: Send> TxTracker<TxHash, Tx> for NoopTxTracker<TxHash, Tx> {
+    async fn track(&mut self, _: TxHash, _: Tx) {}
 }
 
 #[derive(Clone)]
