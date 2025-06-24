@@ -22,51 +22,61 @@ pub struct Limits {
 
 pub struct SubmitTx<const ERA: u16, Tx>(PhantomData<Tx>);
 
+async fn submit_tx<const ERA: u16, Tx>(
+    limits: Data<Limits>,
+    tx_submission: Data<TxSubmissionChannel<ERA, Tx>>,
+    mut body: web::Payload,
+) -> impl Responder
+where
+    Tx: CanonicalHash + Deserialize + Send,
+    Tx::Hash: Display,
+{
+    let mut bytes = web::BytesMut::new();
+    while let Some(item) = body.next().await {
+        if let Ok(item) = item {
+            if bytes.len() > limits.max_payload_len_bytes {
+                return HttpResponse::PayloadTooLarge().finish();
+            }
+            bytes.extend_from_slice(&item);
+        } else {
+            return HttpResponse::InternalServerError().finish();
+        }
+    }
+    match Tx::from_cbor_bytes(&*bytes) {
+        Ok(tx) => {
+            let hash = tx.canonical_hash();
+            info!("Submitting Tx {}", hash);
+            let mut channel = tx_submission.get_ref().clone();
+            match channel.submit_tx(tx).await {
+                Ok(_) => HttpResponse::Ok().body(hash.to_string()),
+                Err(err) => HttpResponse::BadRequest().body(err.to_string()),
+            }
+        }
+        Err(_) => HttpResponse::BadRequest().body("invalid cbor"),
+    }
+}
+
+async fn healthcheck() -> impl Responder {
+    HttpResponse::Ok().body("OK")
+}
+
 impl<const ERA: u16, Tx> HttpServiceFactory for SubmitTx<ERA, Tx>
 where
     Tx: CanonicalHash + Deserialize + Send + 'static,
     Tx::Hash: Display,
 {
     fn register(self, config: &mut AppService) {
-        async fn submit_tx<const ERA: u16, Tx>(
-            limits: Data<Limits>,
-            tx_submission: Data<TxSubmissionChannel<ERA, Tx>>,
-            mut body: web::Payload,
-        ) -> impl Responder
-        where
-            Tx: CanonicalHash + Deserialize + Send,
-            Tx::Hash: Display,
-        {
-            let mut bytes = web::BytesMut::new();
-            while let Some(item) = body.next().await {
-                if let Ok(item) = item {
-                    if bytes.len() > limits.max_payload_len_bytes {
-                        return HttpResponse::PayloadTooLarge().finish();
-                    }
-                    bytes.extend_from_slice(&item);
-                } else {
-                    return HttpResponse::InternalServerError().finish();
-                }
-            }
-            match Tx::from_cbor_bytes(&*bytes) {
-                Ok(tx) => {
-                    let hash = tx.canonical_hash();
-                    info!("Submitting Tx {}", hash);
-                    let mut channel = tx_submission.get_ref().clone();
-                    match channel.submit_tx(tx).await {
-                        Ok(_) => HttpResponse::Ok().body(hash.to_string()),
-                        Err(err) => HttpResponse::BadRequest().body(err.to_string()),
-                    }
-                }
-                Err(_) => HttpResponse::BadRequest().body("invalid cbor"),
-            }
-        }
-        let resource = actix_web::Resource::new("/tx/submit")
+        let submit_tx_resource = actix_web::Resource::new("/tx/submit")
             .name("tx-submit")
             .guard(guard::Post())
             .guard(guard::Header("content-type", "application/cbor"))
             .to(submit_tx::<ERA, Tx>);
-        HttpServiceFactory::register(resource, config);
+        HttpServiceFactory::register(submit_tx_resource, config);
+        let health_resource = actix_web::Resource::new("/health")
+            .name("health")
+            .guard(guard::Get())
+            .to(healthcheck);
+        HttpServiceFactory::register(health_resource, config);
     }
 }
 
