@@ -1,23 +1,21 @@
-use crate::index::UtxoResolver;
+use crate::index::{TxoEvent, UtxoResolver};
 use actix_cors::Cors;
 use actix_web::dev::{AppService, HttpServiceFactory, Server};
 use actix_web::web::Data;
 use actix_web::{guard, web, App, HttpResponse, HttpServer, Responder};
 use async_primitives::beacon::Beacon;
 use cml_chain::address::Address;
-use cml_chain::transaction::TransactionOutput;
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, TransactionHash};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
-use spectrum_cardano_lib::OutputRef;
-use std::future::Future;
 use std::io;
 use std::marker::PhantomData;
 use std::net::SocketAddr;
 
 #[derive(Clone, serde::Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct GetUTxOsRequest {
+pub struct GetTxOsRequest {
     pkh: Ed25519KeyHash,
+    least_slot: Option<u64>,
     offset: usize,
     limit: usize,
 }
@@ -29,22 +27,23 @@ pub struct UTxO {
     pub index: usize,
     pub address: Address,
     pub value: Vec<Asset>,
-    pub confirmed: bool,
+    pub settled_at: Option<u64>,
+    pub spent: bool,
 }
 
-impl From<(OutputRef, (TransactionOutput, bool))> for UTxO {
-    fn from((oref, (txo, confirmed)): (OutputRef, (TransactionOutput, bool))) -> Self {
+impl From<TxoEvent> for UTxO {
+    fn from(txo: TxoEvent) -> Self {
         Self {
-            transaction_hash: oref.tx_hash(),
-            index: oref.index() as usize,
-            address: txo.address().clone(),
+            transaction_hash: txo.oref.tx_hash(),
+            index: txo.oref.index() as usize,
+            address: txo.output.address().clone(),
             value: vec![Asset {
                 policy_id: "".to_string(),
                 base16_name: "".to_string(),
-                amount: txo.value().coin.to_string(),
+                amount: txo.output.value().coin.to_string(),
             }]
             .into_iter()
-            .chain(txo.value().multiasset.iter().flat_map(|(pol, assets)| {
+            .chain(txo.output.value().multiasset.iter().flat_map(|(pol, assets)| {
                 assets.iter().map(|(name, amt)| Asset {
                     policy_id: pol.to_string(),
                     base16_name: name.to_raw_hex(),
@@ -52,7 +51,8 @@ impl From<(OutputRef, (TransactionOutput, bool))> for UTxO {
                 })
             }))
             .collect(),
-            confirmed,
+            settled_at: txo.settled_at,
+            spent: txo.spent,
         }
     }
 }
@@ -67,11 +67,11 @@ pub struct Asset {
 
 pub struct Service<R>(PhantomData<R>);
 
-async fn get_utxos<R>(req: web::Json<GetUTxOsRequest>, db: Data<R>) -> impl Responder
+async fn get_utxos<R>(req: web::Json<GetTxOsRequest>, db: Data<R>) -> impl Responder
 where
     R: UtxoResolver + 'static,
 {
-    let utxos = db.get_utxos(req.pkh, req.offset, req.limit).await;
+    let utxos = db.get_utxos(req.pkh, req.least_slot, req.offset, req.limit).await;
     let result = utxos.into_iter().map(UTxO::from).collect::<Vec<_>>();
     HttpResponse::Ok().json(result)
 }

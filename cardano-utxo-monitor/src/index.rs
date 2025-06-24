@@ -1,15 +1,15 @@
 use async_trait::async_trait;
 use cml_chain::certs::Credential;
 use cml_chain::transaction::TransactionOutput;
-use cml_chain::{Deserialize, Serialize};
+use cml_chain::{Deserialize, Serialize, Slot};
 use cml_crypto::{Ed25519KeyHash, RawBytesEncoding, TransactionHash};
 use log::trace;
 use rocksdb::{
     ColumnFamily, DBIteratorWithThreadMode, Direction, IteratorMode, Options, ReadOptions,
-    SnapshotWithThreadMode, TransactionDB, TransactionDBOptions,
+    SnapshotWithThreadMode, Transaction, TransactionDB, TransactionDBOptions,
 };
 use spectrum_cardano_lib::OutputRef;
-use spectrum_offchain::display::display_vec;
+use spectrum_offchain::display::{display_option, display_vec};
 use spectrum_offchain::tracing::Tracing;
 use std::path::Path;
 use std::sync::Arc;
@@ -22,7 +22,7 @@ pub trait UtxoIndex {
         tx_hash: TransactionHash,
         inputs: Vec<OutputRef>,
         outputs: Vec<(usize, TransactionOutput)>,
-        confirmed: bool,
+        settled_at: Option<Slot>,
     );
     async fn unapply(
         &self,
@@ -39,16 +39,16 @@ impl<In: UtxoIndex + Sync> UtxoIndex for Tracing<In> {
         tx_hash: TransactionHash,
         inputs: Vec<OutputRef>,
         outputs: Vec<(usize, TransactionOutput)>,
-        confirmed: bool,
+        confirmed_at: Option<Slot>,
     ) {
         trace!(
-            "UtxoIndex::apply(tx_hash={}, inputs={}, outputs={}, confirmed={})",
+            "UtxoIndex::apply(tx_hash={}, inputs={}, outputs={}, confirmed_at={})",
             tx_hash,
             display_vec(&inputs),
             display_vec(&outputs.iter().map(|(i, o)| *i).collect()),
-            confirmed
+            display_option(&confirmed_at),
         );
-        self.component.apply(tx_hash, inputs, outputs, confirmed).await;
+        self.component.apply(tx_hash, inputs, outputs, confirmed_at).await;
     }
 
     async fn unapply(
@@ -67,14 +67,23 @@ impl<In: UtxoIndex + Sync> UtxoIndex for Tracing<In> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct TxoEvent {
+    pub oref: OutputRef,
+    pub output: TransactionOutput,
+    pub settled_at: Option<Slot>,
+    pub spent: bool,
+}
+
 #[async_trait]
 pub trait UtxoResolver {
     async fn get_utxos(
         &self,
         pkh: Ed25519KeyHash,
+        least_slot: Option<Slot>,
         offset: usize,
         limit: usize,
-    ) -> Vec<(OutputRef, (TransactionOutput, bool))>;
+    ) -> Vec<TxoEvent>;
 }
 
 #[derive(Clone)]
@@ -94,35 +103,184 @@ impl RocksDB {
     }
 }
 
-const TABLES: [&str; 3] = ["utxos", "spent_utxos", "addrs"];
+struct Cols<'a> {
+    txo_cf: &'a ColumnFamily,
+    pkh_to_txo_by_slots_cf: &'a ColumnFamily,
+    pkh_to_txo_by_spent_cf: &'a ColumnFamily,
+}
+
+fn get_columns(db: &Arc<TransactionDB>) -> Cols {
+    let txo_cf = db.cf_handle(TABLES[0]).unwrap();
+    let pkh_to_txo_by_slots_cf = db.cf_handle(TABLES[1]).unwrap();
+    let pkh_to_txo_by_spent_cf = db.cf_handle(TABLES[2]).unwrap();
+    Cols {
+        txo_cf,
+        pkh_to_txo_by_slots_cf,
+        pkh_to_txo_by_spent_cf,
+    }
+}
+
+const TABLES: [&str; 3] = ["txo", "pkh_to_txo_by_slots", "pkh_to_txo_by_spent"];
 
 fn utxo_key(rf: OutputRef) -> Vec<u8> {
     rmp_serde::to_vec(&rf).unwrap()
 }
 
-fn pkh_key(pkh: &Ed25519KeyHash) -> Vec<u8> {
+fn pkh_key_prefix(pkh: &Ed25519KeyHash) -> Vec<u8> {
     pkh.to_raw_bytes().to_vec()
 }
 
-fn pkh_to_utxo_key(pkh: &Ed25519KeyHash, rf: OutputRef) -> Vec<u8> {
-    let mut bf = pkh_key(pkh);
+fn pkh_to_utxo_all_key(pkh: &Ed25519KeyHash, settled_at: Option<Slot>, rf: OutputRef) -> Vec<u8> {
+    let mut bf = pkh.to_raw_bytes().to_vec();
+    bf.extend(settled_at.unwrap_or(u64::MAX).to_be_bytes());
     bf.extend(utxo_key(rf));
     bf
 }
 
-fn unsafe_utxo_key_from_index(pkh_len: usize, bytes: &[u8]) -> &[u8] {
-    &bytes[pkh_len..]
+fn pkh_to_utxo_unspent_key(pkh: &Ed25519KeyHash, rf: OutputRef) -> Vec<u8> {
+    let mut bf = pkh.to_raw_bytes().to_vec();
+    bf.extend(utxo_key(rf));
+    bf
 }
 
 fn get_utxo_by_ref(
-    tx: &rocksdb::Transaction<rocksdb::TransactionDB>,
-    utxos: &rocksdb::ColumnFamily,
+    tx: &Transaction<TransactionDB>,
+    utxos: &ColumnFamily,
     output_ref: OutputRef,
-) -> Option<TransactionOutput> {
+) -> Option<(TransactionOutput, Option<Slot>, bool)> {
     tx.get_cf(utxos, utxo_key(output_ref))
         .unwrap()
-        .and_then(|bytes| rmp_serde::from_slice::<(Vec<u8>, bool)>(&bytes).ok())
-        .and_then(|(utxo_bytes, _)| TransactionOutput::from_cbor_bytes(&utxo_bytes).ok())
+        .and_then(|bytes| rmp_serde::from_slice::<(Vec<u8>, Option<Slot>, bool)>(&bytes).ok())
+        .and_then(|(utxo_bytes, settled_at, spent)| {
+            TransactionOutput::from_cbor_bytes(&utxo_bytes)
+                .ok()
+                .map(|o| (o, settled_at, spent))
+        })
+}
+
+fn write_txo(
+    tx: &Transaction<TransactionDB>,
+    txo_cf: &ColumnFamily,
+    oref: OutputRef,
+    txo: TransactionOutput,
+    settled_at: Option<Slot>,
+    spent: bool,
+) {
+    let bytes = rmp_serde::to_vec(&(txo.to_canonical_cbor_bytes(), settled_at, spent)).unwrap();
+    tx.put_cf(txo_cf, utxo_key(oref), bytes).unwrap();
+}
+
+fn write_txo_indexes(
+    tx: &Transaction<TransactionDB>,
+    pkh_to_txo_by_slots_cf: &ColumnFamily,
+    pkh_to_txo_by_spent_cf: &ColumnFamily,
+    pkh: &Ed25519KeyHash,
+    oref: OutputRef,
+    settled_at: Option<Slot>,
+    spent: bool,
+) {
+    let all_index_key = pkh_to_utxo_all_key(pkh, settled_at, oref);
+    tx.put_cf(pkh_to_txo_by_slots_cf, all_index_key, vec![]).unwrap();
+    if !spent {
+        let unspent_index_key = pkh_to_utxo_unspent_key(pkh, oref);
+        tx.put_cf(pkh_to_txo_by_spent_cf, unspent_index_key, vec![])
+            .unwrap();
+    }
+}
+
+fn update_txo(
+    tx: &Transaction<TransactionDB>,
+    txo_cf: &ColumnFamily,
+    pkh_to_txo_by_slots_cf: &ColumnFamily,
+    pkh_to_txo_by_spent_cf: &ColumnFamily,
+    oref: OutputRef,
+    txo: TransactionOutput,
+    settled_at: Option<Slot>,
+) {
+    if let Some(Credential::PubKey { hash, .. }) = txo.address().payment_cred() {
+        trace!("Updating unspent txo {} at pkh {}", oref, hash);
+        delete_txo_and_indexes(tx, txo_cf, pkh_to_txo_by_slots_cf, pkh_to_txo_by_spent_cf, oref);
+        write_txo_indexes(
+            tx,
+            pkh_to_txo_by_slots_cf,
+            pkh_to_txo_by_spent_cf,
+            hash,
+            oref,
+            settled_at,
+            false,
+        );
+        write_txo(tx, txo_cf, oref, txo, settled_at, false);
+    }
+}
+
+fn update_txo_by_ref(
+    tx: &Transaction<TransactionDB>,
+    txo_cf: &ColumnFamily,
+    pkh_to_txo_by_slots_cf: &ColumnFamily,
+    pkh_to_txo_by_spent_cf: &ColumnFamily,
+    oref: OutputRef,
+    spent: bool,
+) {
+    if let Some((out, settled_at, already_spent)) = get_utxo_by_ref(&tx, txo_cf, oref) {
+        trace!("Updating txo {}, spent: {} => {}", oref, already_spent, spent);
+        if let Some(Credential::PubKey { hash, .. }) = out.address().payment_cred() {
+            delete_indexes(
+                tx,
+                pkh_to_txo_by_slots_cf,
+                pkh_to_txo_by_spent_cf,
+                hash,
+                settled_at,
+                oref,
+            );
+            write_txo_indexes(
+                tx,
+                pkh_to_txo_by_slots_cf,
+                pkh_to_txo_by_spent_cf,
+                hash,
+                oref,
+                settled_at,
+                spent,
+            );
+        }
+        write_txo(tx, txo_cf, oref, out, settled_at, spent);
+    }
+}
+
+fn delete_indexes(
+    tx: &Transaction<TransactionDB>,
+    pkh_to_txo_by_slots_cf: &ColumnFamily,
+    pkh_to_txo_by_spent_cf: &ColumnFamily,
+    pkh: &Ed25519KeyHash,
+    settled_at: Option<Slot>,
+    oref: OutputRef,
+) {
+    tx.delete_cf(pkh_to_txo_by_slots_cf, pkh_to_utxo_all_key(pkh, settled_at, oref))
+        .unwrap();
+    tx.delete_cf(pkh_to_txo_by_spent_cf, pkh_to_utxo_unspent_key(pkh, oref))
+        .unwrap();
+}
+
+fn delete_txo_and_indexes(
+    tx: &Transaction<TransactionDB>,
+    txo_cf: &ColumnFamily,
+    pkh_to_txo_by_slots_cf: &ColumnFamily,
+    pkh_to_txo_by_spent_cf: &ColumnFamily,
+    oref: OutputRef,
+) {
+    if let Some((out, settled_at, spent)) = get_utxo_by_ref(&tx, txo_cf, oref) {
+        trace!("Deleting txo {}", oref);
+        if let Some(Credential::PubKey { hash, .. }) = out.address().payment_cred() {
+            delete_indexes(
+                tx,
+                pkh_to_txo_by_slots_cf,
+                pkh_to_txo_by_spent_cf,
+                hash,
+                settled_at,
+                oref,
+            );
+        }
+        tx.delete_cf(txo_cf, utxo_key(oref)).unwrap();
+    }
 }
 
 #[async_trait]
@@ -132,31 +290,37 @@ impl UtxoIndex for RocksDB {
         tx_hash: TransactionHash,
         inputs: Vec<OutputRef>,
         outputs: Vec<(usize, TransactionOutput)>,
-        confirmed: bool,
+        confirmed_at: Option<Slot>,
     ) {
         let db = self.db.clone();
         spawn_blocking(move || {
-            let utxos = db.cf_handle(TABLES[0]).unwrap();
-            let spent_utxos = db.cf_handle(TABLES[1]).unwrap();
-            let addrs = db.cf_handle(TABLES[2]).unwrap();
+            let Cols {
+                txo_cf,
+                pkh_to_txo_by_slots_cf,
+                pkh_to_txo_by_spent_cf,
+            } = get_columns(&db);
             let tx = db.transaction();
-            for i in inputs {
-                if let Some(out) = get_utxo_by_ref(&tx, utxos, i) {
-                    if let Some(Credential::PubKey { hash, .. }) = out.address().payment_cred() {
-                        trace!("Registering spent {} at key {}", i, hex::encode(utxo_key(i)));
-                        tx.put_cf(spent_utxos, utxo_key(i), vec![]).unwrap();
-                        tx.delete_cf(addrs, pkh_to_utxo_key(hash, i)).unwrap();
-                    }
-                }
+            for oref in inputs {
+                update_txo_by_ref(
+                    &tx,
+                    txo_cf,
+                    pkh_to_txo_by_slots_cf,
+                    pkh_to_txo_by_spent_cf,
+                    oref,
+                    true,
+                );
             }
-            for (i, o) in outputs {
-                if let Some(Credential::PubKey { hash, .. }) = o.address().payment_cred() {
-                    let rf = OutputRef::new(tx_hash, i as u64);
-                    trace!("Registering unspent {} at key {}", rf, hex::encode(utxo_key(rf)));
-                    let bytes = rmp_serde::to_vec(&(o.to_canonical_cbor_bytes(), confirmed)).unwrap();
-                    tx.put_cf(utxos, utxo_key(rf), bytes).unwrap();
-                    tx.put_cf(addrs, pkh_to_utxo_key(hash, rf), vec![]).unwrap();
-                }
+            for (ix, o) in outputs {
+                let rf = OutputRef::new(tx_hash, ix as u64);
+                update_txo(
+                    &tx,
+                    txo_cf,
+                    pkh_to_txo_by_slots_cf,
+                    pkh_to_txo_by_spent_cf,
+                    rf,
+                    o,
+                    confirmed_at,
+                );
             }
             tx.commit().unwrap();
         })
@@ -172,30 +336,25 @@ impl UtxoIndex for RocksDB {
     ) {
         let db = self.db.clone();
         spawn_blocking(move || {
-            let utxos = db.cf_handle(TABLES[0]).unwrap();
-            let spent_utxos = db.cf_handle(TABLES[1]).unwrap();
-            let addrs = db.cf_handle(TABLES[2]).unwrap();
+            let Cols {
+                txo_cf,
+                pkh_to_txo_by_slots_cf,
+                pkh_to_txo_by_spent_cf,
+            } = get_columns(&db);
             let tx = db.transaction();
-            for i in inputs {
-                if let Some(out) = get_utxo_by_ref(&tx, utxos, i) {
-                    if let Some(Credential::PubKey { hash, .. }) = out.address().payment_cred() {
-                        trace!("Deregistering spent {} at key {}", i, hex::encode(utxo_key(i)));
-                        tx.delete_cf(spent_utxos, utxo_key(i)).unwrap();
-                        tx.put_cf(addrs, pkh_to_utxo_key(hash, i), vec![]).unwrap();
-                    }
-                }
+            for oref in inputs {
+                update_txo_by_ref(
+                    &tx,
+                    txo_cf,
+                    pkh_to_txo_by_slots_cf,
+                    pkh_to_txo_by_spent_cf,
+                    oref,
+                    false,
+                );
             }
             for (ix, o) in outputs {
-                if let Some(Credential::PubKey { hash, .. }) = o.address().payment_cred() {
-                    let rf = OutputRef::new(tx_hash, ix as u64);
-                    trace!(
-                        "Deregistering unspent {} at key {}",
-                        rf,
-                        hex::encode(utxo_key(rf))
-                    );
-                    tx.delete_cf(utxos, utxo_key(rf)).unwrap();
-                    tx.delete_cf(addrs, pkh_to_utxo_key(hash, rf)).unwrap();
-                }
+                let rf = OutputRef::new(tx_hash, ix as u64);
+                delete_txo_and_indexes(&tx, txo_cf, pkh_to_txo_by_slots_cf, pkh_to_txo_by_spent_cf, rf);
             }
             tx.commit().unwrap();
         })
@@ -209,39 +368,62 @@ impl UtxoResolver for RocksDB {
     async fn get_utxos(
         &self,
         pkh: Ed25519KeyHash,
+        least_slot: Option<Slot>,
         offset: usize,
         limit: usize,
-    ) -> Vec<(OutputRef, (TransactionOutput, bool))> {
+    ) -> Vec<TxoEvent> {
         let db = self.db.clone();
         spawn_blocking(move || {
-            let utxos = db.cf_handle(TABLES[0]).unwrap();
-            let spent_utxos = db.cf_handle(TABLES[1]).unwrap();
-            let addrs = db.cf_handle(TABLES[2]).unwrap();
+            let Cols {
+                txo_cf,
+                pkh_to_txo_by_slots_cf,
+                pkh_to_txo_by_spent_cf,
+            } = get_columns(&db);
             let snap = db.snapshot();
-            let pkh_key = pkh_key(&pkh);
-            let pkh_key_len = pkh_key.len();
-            let mut utxos_at_address = get_range_iterator(&snap, addrs, pkh_key).skip(offset).take(limit);
-            let mut utxo_set = vec![];
-            while let Some(Ok(bytes)) = utxos_at_address.next() {
-                let utxo_key = unsafe_utxo_key_from_index(pkh_key_len, &bytes.0);
-                let unspent = snap.get_cf(spent_utxos, utxo_key).unwrap().is_none();
-                if unspent {
-                    if let Some(utxo) = snap
-                        .get_cf(utxos, utxo_key)
-                        .unwrap()
-                        .and_then(|bytes| rmp_serde::from_slice::<(Vec<u8>, bool)>(&bytes).ok())
-                        .and_then(|(utxo_bytes, confirmed)| {
-                            TransactionOutput::from_cbor_bytes(&utxo_bytes)
-                                .ok()
-                                .map(|o| (o, confirmed))
-                        })
-                    {
-                        let fr = rmp_serde::from_slice::<OutputRef>(&utxo_key).unwrap();
-                        utxo_set.push((fr, utxo));
-                    }
+            let index_prefix = pkh_key_prefix(&pkh);
+            let (num_key_bytes_to_drop, mut txo_iter) = if let Some(least_slot) = least_slot {
+                (
+                    index_prefix.len() + 8,
+                    get_range_iterator(
+                        &snap,
+                        pkh_to_txo_by_slots_cf,
+                        index_prefix,
+                        Some(least_slot.to_be_bytes().to_vec()),
+                    )
+                    .skip(offset)
+                    .take(limit),
+                )
+            } else {
+                (
+                    index_prefix.len(),
+                    get_range_iterator(&snap, pkh_to_txo_by_spent_cf, index_prefix, None)
+                        .skip(offset)
+                        .take(limit),
+                )
+            };
+            let mut txo_set = vec![];
+            while let Some(Ok(bytes)) = txo_iter.next() {
+                let utxo_key = &bytes.0[num_key_bytes_to_drop..];
+                if let Some((output, confirmed_at, spent)) = snap
+                    .get_cf(txo_cf, utxo_key)
+                    .unwrap()
+                    .and_then(|bytes| rmp_serde::from_slice::<(Vec<u8>, Option<Slot>, bool)>(&bytes).ok())
+                    .and_then(|(utxo_bytes, settled_at, spent)| {
+                        TransactionOutput::from_cbor_bytes(&utxo_bytes)
+                            .ok()
+                            .map(|o| (o, settled_at, spent))
+                    })
+                {
+                    let oref = rmp_serde::from_slice::<OutputRef>(&utxo_key).unwrap();
+                    txo_set.push(TxoEvent {
+                        oref,
+                        output,
+                        settled_at: confirmed_at,
+                        spent,
+                    });
                 }
             }
-            utxo_set
+            txo_set
         })
         .await
         .unwrap()
@@ -252,17 +434,23 @@ pub(crate) fn get_range_iterator<'a: 'b, 'b>(
     db: &'a SnapshotWithThreadMode<'b, TransactionDB>,
     cf: &ColumnFamily,
     prefix: Vec<u8>,
+    lower_bound: Option<Vec<u8>>,
 ) -> DBIteratorWithThreadMode<'b, TransactionDB> {
     let mut readopts = ReadOptions::default();
-    readopts.set_iterate_range(rocksdb::PrefixRange(prefix.clone()));
-    db.iterator_cf_opt(cf, readopts, IteratorMode::From(&prefix, Direction::Forward))
+    let from = if let Some(lower_bound) = lower_bound {
+        prefix.clone().into_iter().chain(lower_bound).collect::<Vec<_>>()
+    } else {
+        prefix.clone()
+    };
+    readopts.set_iterate_range(rocksdb::PrefixRange(prefix));
+    db.iterator_cf_opt(cf, readopts, IteratorMode::From(&from, Direction::Forward))
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::index::{RocksDB, UtxoIndex, UtxoResolver};
-    use cml_chain::transaction::{Transaction, TransactionOutput};
-    use cml_chain::Deserialize;
+    use crate::index::{RocksDB, TxoEvent, UtxoIndex, UtxoResolver};
+    use cml_chain::transaction::Transaction;
+    use cml_chain::{Deserialize, Slot};
     use cml_crypto::Ed25519KeyHash;
     use rocksdb::{Options, SingleThreaded, TransactionDB};
     use spectrum_cardano_lib::OutputRef;
@@ -270,36 +458,95 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     #[tokio::test]
+    async fn index_applied_transactions_include_spent() {
+        let must_consume_utxo = OutputRef::from_string_unsafe(
+            "13de3390f33b18faaeeb91eafc839e28c687f47f146e9c68779562a8a5385afc#0",
+        );
+        let txos = test_utxo_resolving(
+            vec![(TX_PRODUCE, None), (TX_CONSUME, None)],
+            "bed3c3bac9ddc7952cc91cf76db3dd808f99f4a0dd07e78e06657bc2",
+            None,
+        )
+        .await;
+        assert!(txos
+            .iter()
+            .find(|e| e.oref == must_consume_utxo)
+            .map(|txo| txo.spent)
+            .unwrap())
+    }
+
+    #[tokio::test]
     async fn index_applied_transactions() {
         let must_consume_utxo = OutputRef::from_string_unsafe(
             "13de3390f33b18faaeeb91eafc839e28c687f47f146e9c68779562a8a5385afc#0",
         );
-        let utxos = test_utxo_resolving(
-            vec![TX_PRODUCE, TX_CONSUME],
+        let txos = test_utxo_resolving(
+            vec![(TX_PRODUCE, Some(1)), (TX_CONSUME, None)],
             "bed3c3bac9ddc7952cc91cf76db3dd808f99f4a0dd07e78e06657bc2",
+            None,
         )
         .await;
-        assert!(utxos.iter().find(|(rf, _)| rf == &must_consume_utxo).is_none())
+        assert!(txos.iter().find(|e| e.oref == must_consume_utxo).is_none())
     }
 
-    async fn test_utxo_resolving(txs: Vec<&str>, pkh: &str) -> Vec<(OutputRef, (TransactionOutput, bool))> {
+    #[tokio::test]
+    async fn txo_set_slicing() {
+        let all_txos = test_utxo_resolving(
+            vec![
+                (TX_FUN_1, Some(1)),
+                (TX_FUN_2, Some(2)),
+                (TX_ORD, Some(3)),
+                (TX_EXE, Some(4)),
+            ],
+            "b6560f277ce0092e01f39fcf534b2e7a58282260cf044527f1e7f74d",
+            Some(0),
+        )
+        .await;
+        let lb_slot = 3;
+        let tail_txos = test_utxo_resolving(
+            vec![
+                (TX_FUN_1, Some(1)),
+                (TX_FUN_2, Some(2)),
+                (TX_ORD, Some(3)),
+                (TX_EXE, Some(4)),
+            ],
+            "b6560f277ce0092e01f39fcf534b2e7a58282260cf044527f1e7f74d",
+            Some(lb_slot),
+        )
+        .await;
+        assert_eq!(
+            tail_txos
+                .iter()
+                .filter(|x| match x.settled_at {
+                    None => true,
+                    Some(settled_at) => settled_at >= lb_slot,
+                })
+                .collect::<Vec<_>>()
+                .len(),
+            tail_txos.len()
+        );
+    }
+
+    async fn test_utxo_resolving(
+        txs: Vec<(&str, Option<Slot>)>,
+        pkh: &str,
+        least_slot: Option<Slot>,
+    ) -> Vec<TxoEvent> {
         let db_path = DBPath::new("_index_applied_transactions");
         let db = RocksDB::new(&db_path);
-
         let pkh = Ed25519KeyHash::from_hex(pkh).unwrap();
-
-        for rtx in txs {
+        for (rtx, settled_at) in txs {
             let tx = Transaction::from_cbor_bytes(&*hex::decode(rtx).unwrap()).unwrap();
             let hash = tx.canonical_hash();
             db.apply(
                 hash,
                 tx.body.inputs.into_iter().map(|i| i.into()).collect(),
                 tx.body.outputs.to_vec().into_iter().enumerate().collect(),
-                true,
+                settled_at,
             )
             .await;
         }
-        db.get_utxos(pkh, 0, 100).await
+        db.get_utxos(pkh, least_slot, 0, 100).await
     }
 
     const TX_PRODUCE: &str = "84a7008182582086ecf8a72d7d1744deefc1c923c7f1ed8eb09a549cb70fde3d572316e066bfa403018182583901bed3c3bac9ddc7952cc91cf76db3dd808f99f4a0dd07e78e06657bc21cc69f513f9551f517c5212855ece1b34d0128f9f9b54e47cebadd4b821b0000000103f98686ad581c0ece814aa1cc2c98981c7690083dbcb51c5bb1279ae408873d8c8762a15820595479793659676e546b3069574c396a4544315943352f49516873337252343701581c15509d4cb60f066ca4c7e982d764d6ceb4324cb33776d1711da1beeea24e42616279416c69656e3034373231014e42616279416c69656e303831313801581c279c909f348e533da5808898f87f9a14bb2c3dfbbacccd631d927a3fa144534e454b19a839581c29d222ce763455e3d7a09a665ce554f00ac89d2e99a1a83d267170c6a1434d494e194a31581c51a5e236c4de3af2b8020442e2a26f454fda3b04cb621c1294a0ef34a144424f4f4b1a0165f8a0581c530a197fe7c275f204c3396b3782fc738f4968f0c81dd2291cf07b8aa3581a434330303337303030303030303030303030303135323030303001581a434330303337303030303030303030303030303135323030363401581a434330313531303030303030303030303030303137363030363401581c5ee425062d88069b702a38a357895132b9b50c8f893c8cf87a4c8c32a14445574d5401581ca0028f350aaabe0545fdcb56b039bfb08e4bb4d8c4d7c3c7d481c235a145484f534b591a04277dbf581ca7904896a247d3aa09478e856769b82d1f2e060028b6bda5543b699fa64d4343434f4c4c41423030303337014d4343434f4c4c41423030313531014d4343434f4c4c41423038393235014d4343434f4c4c4142303930333901581c4375746543726561747572657343686164694e61737361723030333701581c4375746543726561747572657343686164694e61737361723031353101581ce5a42a1a1d3d1da71b0449663c32798725888d2eb0843c4dabeca05aa151576f726c644d6f62696c65546f6b656e581a000f4240581cecbe846aa1a535579d67f9480fa6173b64d7e239df0460eba36e3ad0a14a0014df1053617475726e1a000f4240581cf0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9aa14b736f667462696e61746f7201581cfe38ef97888dfde0292b7d2ed103543ecf92a419a29634f513a1d71fa14541534e454b1a00249f00021a00033cd9031a0936d6fe048183028200581c1cc69f513f9551f517c5212855ece1b34d0128f9f9b54e47cebadd4b581c538299a358e79a289c8de779f8cd09dd6a6bb286de717d1f744bb35705a1581de11cc69f513f9551f517c5212855ece1b34d0128f9f9b54e47cebadd4b1a002bdbc50758201c45c96126112c50a121c7bce6fa0b0fb8e7fa6990d0a9435a89a91a1460fccea1008282582061b2624741ddbcd41a6e3490b2e4a71bcc1cb6ff891137097540ad7fa8cf56115840a00c437ed8a787f4fbdd39ada04c3cf6191ee26abe44137a6eb4a2dcf55e4387bfbb565133d42df61f0ed45de43adeec019c2f8c5e0fae209534a266755b96038258201b775e64b1cb83f9420829d807b892da0c8c2ea89873028c620b8c04eb35ee4558400d97db78925083b9736b66ccf28593638cba828f5806311eb6d4aa7d861a53023a2ab27a5f56d65beafb177f756e746f98e093a8c56c5982667e4f2f5abf8403f5a11902a2a1636d736781781956455350523a20506172746e65722044656c65676174696f6e";

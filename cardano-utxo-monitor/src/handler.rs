@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use bloom_offchain_cardano::event_sink::tx_view::TxViewMut;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_mempool_sync::data::MempoolUpdate;
+use cml_chain::Slot;
 use spectrum_cardano_lib::address::AddressExtension;
 use spectrum_offchain::event_sink::event_handler::EventHandler;
 
@@ -24,8 +25,8 @@ where
 {
     async fn try_handle(&mut self, ev: LedgerTxEvent<TxViewMut>) -> Option<LedgerTxEvent<TxViewMut>> {
         match ev {
-            LedgerTxEvent::TxApplied { tx, .. } => {
-                apply_tx(&self.index, tx, true).await;
+            LedgerTxEvent::TxApplied { tx, slot, .. } => {
+                apply_tx(&self.index, tx, Some(slot)).await;
             }
             LedgerTxEvent::TxUnapplied { tx, .. } => unapply_tx(&self.index, tx).await,
         }
@@ -40,7 +41,7 @@ where
 {
     async fn try_handle(&mut self, ev: MempoolUpdate<TxViewMut>) -> Option<MempoolUpdate<TxViewMut>> {
         match ev {
-            MempoolUpdate::TxAccepted(tx) => apply_tx(&self.index, tx, false).await,
+            MempoolUpdate::TxAccepted(tx) => apply_tx(&self.index, tx, None).await,
             MempoolUpdate::TxDropped(tx) => unapply_tx(&self.index, tx).await,
         }
         None
@@ -55,7 +56,7 @@ async fn apply_tx<Index>(
         outputs,
         ..
     }: TxViewMut,
-    confirmed: bool,
+    settled_at: Option<Slot>,
 ) where
     Index: UtxoIndex + Send,
 {
@@ -67,7 +68,7 @@ async fn apply_tx<Index>(
                 .into_iter()
                 .filter(|(_, o)| o.address().script_hash().is_none())
                 .collect(),
-            confirmed,
+            settled_at,
         )
         .await;
 }

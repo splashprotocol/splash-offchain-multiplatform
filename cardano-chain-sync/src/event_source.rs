@@ -93,14 +93,14 @@ where
 
 async fn process_upstream_by_txs<'a, Cache>(
     cache: Arc<Mutex<Cache>>,
-    upgr: ChainUpgrade<MultiEraBlock>,
+    upgrade: ChainUpgrade<MultiEraBlock>,
     handle_rollbacks_after: Slot,
     rollback_in_progress: Beacon,
 ) -> Pin<Box<dyn Stream<Item = LedgerTxEvent<Either<BabbageTransaction, Transaction>>> + Send + 'a>>
 where
     Cache: LedgerCache + Send + 'a,
 {
-    match upgr {
+    match upgrade {
         ChainUpgrade::RollForward {
             blk,
             blk_bytes,
