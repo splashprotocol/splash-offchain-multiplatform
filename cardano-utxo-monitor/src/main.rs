@@ -34,7 +34,7 @@ use crate::index::RocksDB;
 use cardano_chain_sync::data::LedgerTxEvent;
 use cardano_mempool_sync::data::MempoolUpdate;
 use futures::stream::StreamExt;
-use spectrum_offchain::event_sink::event_handler::{forward_with, forward_with_ref, EventHandler};
+use spectrum_offchain::event_sink::event_handler::{forward_with_ref, EventHandler};
 use spectrum_offchain::tracing::Tracing;
 use tracing_subscriber::fmt::Subscriber;
 

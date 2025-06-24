@@ -14,6 +14,7 @@ use spectrum_offchain_cardano::tx_tracker::NoopTxTracker;
 use spectrum_streaming::run_stream;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
+use tracing_subscriber::fmt::Subscriber;
 
 #[derive(serde::Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -25,6 +26,8 @@ struct AppConfig {
 
 #[tokio::main]
 async fn main() {
+    let subscriber = Subscriber::new();
+    tracing::subscriber::set_global_default(subscriber).expect("setting tracing default failed");
     let args = AppArgs::parse();
 
     log4rs::init_file(args.log4rs_path, Default::default()).unwrap();
