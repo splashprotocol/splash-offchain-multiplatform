@@ -49,14 +49,22 @@ async fn main() {
     let bind_addr = SocketAddr::new(ip_addr, args.port);
     let server = build_api_server(config.limits, tx_submission_channel, bind_addr)
         .await
-        .expect("Error setting up api server")
-        .map(|r| r.unwrap());
+        .expect("Error setting up api server");
 
     let processes = FuturesUnordered::new();
     let tx_submission_handle = tokio::spawn(run_stream(tx_submission_stream));
     processes.push(tx_submission_handle);
-    let server_handle = tokio::spawn(server);
-    processes.push(server_handle);
+
+    let server_handle = server.handle();
+    let server_process_handle = tokio::spawn(server.map(|r| r.unwrap()));
+    processes.push(server_process_handle);
+
+    let shutdown = tokio::spawn(async move {
+        tokio::signal::ctrl_c().await.unwrap();
+        server_handle.stop(true).await;
+        std::process::exit(0);
+    });
+    processes.push(shutdown);
 
     let default_panic = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {

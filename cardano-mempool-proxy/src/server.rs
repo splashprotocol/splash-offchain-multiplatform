@@ -1,5 +1,5 @@
 use actix_cors::Cors;
-use actix_web::dev::{AppService, HttpServiceFactory};
+use actix_web::dev::{AppService, HttpServiceFactory, Server};
 use actix_web::web::Data;
 use actix_web::{guard, web, App, HttpResponse, HttpServer, Responder};
 use cml_chain::Deserialize;
@@ -56,35 +56,28 @@ where
     }
 }
 
-async fn healthcheck() -> impl Responder {
-    HttpResponse::Ok().body("OK")
-}
-
-impl<const ERA: u16, Tx> HttpServiceFactory for SubmitTx<ERA, Tx>
+fn submit_tx_service<const ERA: u16, Tx>() -> actix_web::Resource
 where
     Tx: CanonicalHash + Deserialize + Send + 'static,
     Tx::Hash: Display,
 {
-    fn register(self, config: &mut AppService) {
-        let submit_tx_resource = actix_web::Resource::new("/tx/submit")
-            .name("tx-submit")
+    web::resource("/tx/submit").route(
+        web::route()
             .guard(guard::Post())
             .guard(guard::Header("content-type", "application/cbor"))
-            .to(submit_tx::<ERA, Tx>);
-        HttpServiceFactory::register(submit_tx_resource, config);
-        let health_resource = actix_web::Resource::new("/health")
-            .name("health")
-            .guard(guard::Get())
-            .to(healthcheck);
-        HttpServiceFactory::register(health_resource, config);
-    }
+            .to(submit_tx::<ERA, Tx>),
+    )
+}
+
+fn healthcheck_service() -> actix_web::Resource {
+    web::resource("/health").route(web::route().guard(guard::Get()).to(HttpResponse::Ok))
 }
 
 pub async fn build_api_server<const ERA: u16, Tx>(
     limits: Limits,
     tx_submission: TxSubmissionChannel<ERA, Tx>,
     bind_addr: SocketAddr,
-) -> Result<impl Future<Output = io::Result<()>>, io::Error>
+) -> Result<Server, io::Error>
 where
     Tx: Send + Deserialize + CanonicalHash + 'static,
     Tx::Hash: Display,
@@ -100,9 +93,11 @@ where
             .wrap(cors)
             .app_data(tx_submission.clone())
             .app_data(Data::new(limits))
-            .service(SubmitTx::<ERA, Tx>(PhantomData))
+            .service(healthcheck_service())
+            .service(submit_tx_service::<ERA, Tx>())
     })
     .bind(bind_addr)?
     .workers(8)
+    .disable_signals()
     .run())
 }

@@ -76,32 +76,25 @@ where
     HttpResponse::Ok().json(result)
 }
 
+fn get_utxos_service<R: UtxoResolver + 'static>() -> actix_web::Resource {
+    web::resource("/getUtxos").route(
+        web::route()
+            .guard(guard::Post())
+            .guard(guard::Header("content-type", "application/json"))
+            .to(get_utxos::<R>),
+    )
+}
+
 async fn healthcheck(state_synced: Data<Beacon>) -> impl Responder {
     if state_synced.read() {
-        HttpResponse::Ok().body("OK")
+        HttpResponse::Ok().finish()
     } else {
         HttpResponse::ServiceUnavailable().finish()
     }
 }
 
-impl<R> HttpServiceFactory for Service<R>
-where
-    R: UtxoResolver + 'static,
-{
-    fn register(self, config: &mut AppService) {
-        let utxos_resource = actix_web::Resource::new("/getUtxos")
-            .name("getUtxos")
-            .guard(guard::Post())
-            .guard(guard::Header("content-type", "application/json"))
-            .to(get_utxos::<R>);
-        HttpServiceFactory::register(utxos_resource, config);
-
-        let health_resource = actix_web::Resource::new("/health")
-            .name("health")
-            .guard(guard::Get())
-            .to(healthcheck);
-        HttpServiceFactory::register(health_resource, config);
-    }
+fn healthcheck_service() -> actix_web::Resource {
+    web::resource("/health").route(web::route().guard(guard::Get()).to(healthcheck))
 }
 
 pub async fn build_api_server<R>(
@@ -122,7 +115,8 @@ where
             .wrap(cors)
             .app_data(Data::new(db.clone()))
             .app_data(Data::new(state_synced.clone()))
-            .service(Service(PhantomData::<R>))
+            .service(healthcheck_service())
+            .service(get_utxos_service::<R>())
     })
     .bind(bind_addr)?
     .workers(8)
