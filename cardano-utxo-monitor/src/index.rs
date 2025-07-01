@@ -68,7 +68,7 @@ impl<In: UtxoIndex + Sync> UtxoIndex for Tracing<In> {
 }
 
 #[derive(Debug, Clone)]
-pub struct TxoEvent {
+pub struct Txo {
     pub oref: OutputRef,
     pub output: TransactionOutput,
     pub settled_at: Option<Slot>,
@@ -77,13 +77,7 @@ pub struct TxoEvent {
 
 #[async_trait]
 pub trait UtxoResolver {
-    async fn get_utxos(
-        &self,
-        pkh: Ed25519KeyHash,
-        query: TxoQuery,
-        offset: usize,
-        limit: usize,
-    ) -> Vec<TxoEvent>;
+    async fn get_utxos(&self, pkh: Ed25519KeyHash, query: TxoQuery, offset: usize, limit: usize) -> Vec<Txo>;
 }
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
@@ -111,22 +105,22 @@ impl RocksDB {
 
 struct Cols<'a> {
     txo_cf: &'a ColumnFamily,
-    pkh_to_txo_all_cf: &'a ColumnFamily,
+    pkh_to_txo_events_cf: &'a ColumnFamily,
     pkh_to_txo_unspent_cf: &'a ColumnFamily,
 }
 
 fn get_columns(db: &Arc<TransactionDB>) -> Cols {
     let txo_cf = db.cf_handle(TABLES[0]).unwrap();
-    let pkh_to_txo_all_cf = db.cf_handle(TABLES[1]).unwrap();
+    let pkh_to_txo_events_cf = db.cf_handle(TABLES[1]).unwrap();
     let pkh_to_txo_unspent_cf = db.cf_handle(TABLES[2]).unwrap();
     Cols {
         txo_cf,
-        pkh_to_txo_all_cf,
+        pkh_to_txo_events_cf,
         pkh_to_txo_unspent_cf,
     }
 }
 
-const TABLES: [&str; 3] = ["txo", "pkh_to_txo_all", "pkh_to_txo_unspent"];
+const TABLES: [&str; 3] = ["txo", "pkh_to_txo_events", "pkh_to_txo_unspent"];
 
 fn utxo_key(rf: OutputRef) -> Vec<u8> {
     rmp_serde::to_vec(&rf).unwrap()
@@ -182,15 +176,15 @@ fn write_txo(
 
 fn write_txo_indexes(
     tx: &Transaction<TransactionDB>,
-    pkh_to_txo_all_cf: &ColumnFamily,
+    pkh_to_txo_events_cf: &ColumnFamily,
     pkh_to_txo_unspent_cf: &ColumnFamily,
     pkh: &Ed25519KeyHash,
     oref: OutputRef,
-    settled_at: Option<Slot>,
+    slot: Option<Slot>,
     spent: bool,
 ) {
-    let all_index_key = pkh_to_utxo_all_key(pkh, settled_at, oref);
-    tx.put_cf(pkh_to_txo_all_cf, all_index_key, vec![]).unwrap();
+    let all_index_key = pkh_to_utxo_all_key(pkh, slot, oref);
+    tx.put_cf(pkh_to_txo_events_cf, all_index_key, vec![]).unwrap();
     if !spent {
         let unspent_index_key = pkh_to_utxo_unspent_key(pkh, oref);
         tx.put_cf(pkh_to_txo_unspent_cf, unspent_index_key, vec![])
@@ -198,10 +192,10 @@ fn write_txo_indexes(
     }
 }
 
-fn update_txo(
+fn update_unspent_txo(
     tx: &Transaction<TransactionDB>,
     txo_cf: &ColumnFamily,
-    pkh_to_txo_all_cf: &ColumnFamily,
+    pkh_to_txo_events_cf: &ColumnFamily,
     pkh_to_txo_unspent_cf: &ColumnFamily,
     oref: OutputRef,
     txo: TransactionOutput,
@@ -209,10 +203,10 @@ fn update_txo(
 ) {
     if let Some(Credential::PubKey { hash, .. }) = txo.address().payment_cred() {
         trace!("Updating unspent txo {} at pkh {}", oref, hash);
-        delete_txo_and_indexes(tx, txo_cf, pkh_to_txo_all_cf, pkh_to_txo_unspent_cf, oref);
+        delete_txo_and_indexes(tx, txo_cf, pkh_to_txo_events_cf, pkh_to_txo_unspent_cf, oref);
         write_txo_indexes(
             tx,
-            pkh_to_txo_all_cf,
+            pkh_to_txo_events_cf,
             pkh_to_txo_unspent_cf,
             hash,
             oref,
@@ -226,9 +220,10 @@ fn update_txo(
 fn update_txo_by_ref(
     tx: &Transaction<TransactionDB>,
     txo_cf: &ColumnFamily,
-    pkh_to_txo_all_cf: &ColumnFamily,
+    pkh_to_txo_events_cf: &ColumnFamily,
     pkh_to_txo_unspent_cf: &ColumnFamily,
     oref: OutputRef,
+    slot: Option<Slot>,
     spent: bool,
 ) {
     if let Some((out, settled_at, already_spent)) = get_utxo_by_ref(&tx, txo_cf, oref) {
@@ -236,20 +231,21 @@ fn update_txo_by_ref(
         if let Some(Credential::PubKey { hash, .. }) = out.address().payment_cred() {
             delete_indexes(
                 tx,
-                pkh_to_txo_all_cf,
+                pkh_to_txo_events_cf,
                 pkh_to_txo_unspent_cf,
                 hash,
                 settled_at,
                 oref,
             );
+            let (slot, event) = if spent { (slot, true) } else { (settled_at, false) };
             write_txo_indexes(
                 tx,
-                pkh_to_txo_all_cf,
+                pkh_to_txo_events_cf,
                 pkh_to_txo_unspent_cf,
                 hash,
                 oref,
-                settled_at,
-                spent,
+                slot,
+                event,
             );
         }
         write_txo(tx, txo_cf, oref, out, settled_at, spent);
@@ -258,13 +254,13 @@ fn update_txo_by_ref(
 
 fn delete_indexes(
     tx: &Transaction<TransactionDB>,
-    pkh_to_txo_all_cf: &ColumnFamily,
+    pkh_to_txo_events_cf: &ColumnFamily,
     pkh_to_txo_unspent_cf: &ColumnFamily,
     pkh: &Ed25519KeyHash,
     settled_at: Option<Slot>,
     oref: OutputRef,
 ) {
-    tx.delete_cf(pkh_to_txo_all_cf, pkh_to_utxo_all_key(pkh, settled_at, oref))
+    tx.delete_cf(pkh_to_txo_events_cf, pkh_to_utxo_all_key(pkh, settled_at, oref))
         .unwrap();
     tx.delete_cf(pkh_to_txo_unspent_cf, pkh_to_utxo_unspent_key(pkh, oref))
         .unwrap();
@@ -273,7 +269,7 @@ fn delete_indexes(
 fn delete_txo_and_indexes(
     tx: &Transaction<TransactionDB>,
     txo_cf: &ColumnFamily,
-    pkh_to_txo_all_cf: &ColumnFamily,
+    pkh_to_txo_events_cf: &ColumnFamily,
     pkh_to_txo_unspent_cf: &ColumnFamily,
     oref: OutputRef,
 ) {
@@ -282,7 +278,7 @@ fn delete_txo_and_indexes(
         if let Some(Credential::PubKey { hash, .. }) = out.address().payment_cred() {
             delete_indexes(
                 tx,
-                pkh_to_txo_all_cf,
+                pkh_to_txo_events_cf,
                 pkh_to_txo_unspent_cf,
                 hash,
                 settled_at,
@@ -306,19 +302,27 @@ impl UtxoIndex for RocksDB {
         spawn_blocking(move || {
             let Cols {
                 txo_cf,
-                pkh_to_txo_all_cf,
+                pkh_to_txo_events_cf,
                 pkh_to_txo_unspent_cf,
             } = get_columns(&db);
             let tx = db.transaction();
             for oref in inputs {
-                update_txo_by_ref(&tx, txo_cf, pkh_to_txo_all_cf, pkh_to_txo_unspent_cf, oref, true);
+                update_txo_by_ref(
+                    &tx,
+                    txo_cf,
+                    pkh_to_txo_events_cf,
+                    pkh_to_txo_unspent_cf,
+                    oref,
+                    confirmed_at,
+                    true,
+                );
             }
             for (ix, o) in outputs {
                 let rf = OutputRef::new(tx_hash, ix as u64);
-                update_txo(
+                update_unspent_txo(
                     &tx,
                     txo_cf,
-                    pkh_to_txo_all_cf,
+                    pkh_to_txo_events_cf,
                     pkh_to_txo_unspent_cf,
                     rf,
                     o,
@@ -341,16 +345,24 @@ impl UtxoIndex for RocksDB {
         spawn_blocking(move || {
             let Cols {
                 txo_cf,
-                pkh_to_txo_all_cf,
+                pkh_to_txo_events_cf,
                 pkh_to_txo_unspent_cf,
             } = get_columns(&db);
             let tx = db.transaction();
             for oref in inputs {
-                update_txo_by_ref(&tx, txo_cf, pkh_to_txo_all_cf, pkh_to_txo_unspent_cf, oref, false);
+                update_txo_by_ref(
+                    &tx,
+                    txo_cf,
+                    pkh_to_txo_events_cf,
+                    pkh_to_txo_unspent_cf,
+                    oref,
+                    None,
+                    false,
+                );
             }
             for (ix, o) in outputs {
                 let rf = OutputRef::new(tx_hash, ix as u64);
-                delete_txo_and_indexes(&tx, txo_cf, pkh_to_txo_all_cf, pkh_to_txo_unspent_cf, rf);
+                delete_txo_and_indexes(&tx, txo_cf, pkh_to_txo_events_cf, pkh_to_txo_unspent_cf, rf);
             }
             tx.commit().unwrap();
         })
@@ -361,18 +373,12 @@ impl UtxoIndex for RocksDB {
 
 #[async_trait]
 impl UtxoResolver for RocksDB {
-    async fn get_utxos(
-        &self,
-        pkh: Ed25519KeyHash,
-        query: TxoQuery,
-        offset: usize,
-        limit: usize,
-    ) -> Vec<TxoEvent> {
+    async fn get_utxos(&self, pkh: Ed25519KeyHash, query: TxoQuery, offset: usize, limit: usize) -> Vec<Txo> {
         let db = self.db.clone();
         spawn_blocking(move || {
             let Cols {
                 txo_cf,
-                pkh_to_txo_all_cf,
+                pkh_to_txo_events_cf,
                 pkh_to_txo_unspent_cf,
             } = get_columns(&db);
             let snap = db.snapshot();
@@ -380,7 +386,7 @@ impl UtxoResolver for RocksDB {
             let (num_key_bytes_to_drop, index_cf, lb) = match query {
                 TxoQuery::All(least_slot) => (
                     index_prefix.len() + 8,
-                    pkh_to_txo_all_cf,
+                    pkh_to_txo_events_cf,
                     Some(settled_at_key(least_slot)),
                 ),
                 TxoQuery::Unspent => (index_prefix.len(), pkh_to_txo_unspent_cf, None),
@@ -389,8 +395,8 @@ impl UtxoResolver for RocksDB {
                 .skip(offset)
                 .take(limit);
             let mut txo_set = vec![];
-            while let Some(Ok(bytes)) = txo_iter.next() {
-                let utxo_key = &bytes.0[num_key_bytes_to_drop..];
+            while let Some(Ok((index, _))) = txo_iter.next() {
+                let utxo_key = &index[num_key_bytes_to_drop..];
                 if let Some((output, confirmed_at, spent)) = snap
                     .get_cf(txo_cf, utxo_key)
                     .unwrap()
@@ -402,7 +408,7 @@ impl UtxoResolver for RocksDB {
                     })
                 {
                     let oref = rmp_serde::from_slice::<OutputRef>(&utxo_key).unwrap();
-                    txo_set.push(TxoEvent {
+                    txo_set.push(Txo {
                         oref,
                         output,
                         settled_at: confirmed_at,
@@ -435,7 +441,7 @@ pub(crate) fn get_range_iterator<'a: 'b, 'b>(
 
 #[cfg(test)]
 mod tests {
-    use crate::index::{RocksDB, TxoEvent, TxoQuery, UtxoIndex, UtxoResolver};
+    use crate::index::{RocksDB, Txo, TxoQuery, UtxoIndex, UtxoResolver};
     use cml_chain::transaction::Transaction;
     use cml_chain::{Deserialize, Slot};
     use cml_crypto::Ed25519KeyHash;
@@ -445,12 +451,31 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     #[tokio::test]
-    async fn index_applied_transactions_include_spent() {
+    async fn index_applied_transactions_include_spent_mempool() {
         let must_consume_utxo = OutputRef::from_string_unsafe(
             "13de3390f33b18faaeeb91eafc839e28c687f47f146e9c68779562a8a5385afc#0",
         );
         let txos = test_utxo_resolving(
             vec![(TX_PRODUCE, None), (TX_CONSUME, None)],
+            "bed3c3bac9ddc7952cc91cf76db3dd808f99f4a0dd07e78e06657bc2",
+            TxoQuery::All(None),
+        )
+        .await;
+        println!("{:?}", txos.iter().map(|x| (x.oref, x.spent)).collect::<Vec<_>>());
+        assert!(txos
+            .iter()
+            .find(|e| e.oref == must_consume_utxo)
+            .map(|txo| txo.spent)
+            .unwrap())
+    }
+
+    #[tokio::test]
+    async fn index_applied_transactions_include_spent_ledger() {
+        let must_consume_utxo = OutputRef::from_string_unsafe(
+            "13de3390f33b18faaeeb91eafc839e28c687f47f146e9c68779562a8a5385afc#0",
+        );
+        let txos = test_utxo_resolving(
+            vec![(TX_PRODUCE, Some(1)), (TX_CONSUME, None)],
             "bed3c3bac9ddc7952cc91cf76db3dd808f99f4a0dd07e78e06657bc2",
             TxoQuery::All(None),
         )
@@ -478,7 +503,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn txo_set_slicing() {
+    async fn txos_by_least_event_slot() {
         let all_txos = test_utxo_resolving(
             vec![
                 (TX_FUN_1, Some(1)),
@@ -490,7 +515,7 @@ mod tests {
             TxoQuery::All(Some(0)),
         )
         .await;
-        let lb_slot = 3;
+        let lb_slot = 4;
         let tail_txos = test_utxo_resolving(
             vec![
                 (TX_FUN_1, Some(1)),
@@ -515,7 +540,7 @@ mod tests {
         );
     }
 
-    async fn test_utxo_resolving(txs: Vec<(&str, Option<Slot>)>, pkh: &str, q: TxoQuery) -> Vec<TxoEvent> {
+    async fn test_utxo_resolving(txs: Vec<(&str, Option<Slot>)>, pkh: &str, q: TxoQuery) -> Vec<Txo> {
         let db_path = DBPath::new("_index_applied_transactions");
         let db = RocksDB::new(&db_path);
         let pkh = Ed25519KeyHash::from_hex(pkh).unwrap();

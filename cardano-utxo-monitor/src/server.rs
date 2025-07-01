@@ -1,4 +1,4 @@
-use crate::index::{TxoEvent, TxoQuery, UtxoResolver};
+use crate::index::{Txo, TxoQuery, UtxoResolver};
 use actix_cors::Cors;
 use actix_web::dev::{AppService, HttpServiceFactory, Server};
 use actix_web::web::Data;
@@ -31,8 +31,8 @@ pub struct UTxO {
     pub spent: bool,
 }
 
-impl From<TxoEvent> for UTxO {
-    fn from(txo: TxoEvent) -> Self {
+impl From<Txo> for UTxO {
+    fn from(txo: Txo) -> Self {
         Self {
             transaction_hash: txo.oref.tx_hash(),
             index: txo.oref.index() as usize,
