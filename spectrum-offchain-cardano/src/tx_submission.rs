@@ -1,7 +1,7 @@
-use std::collections::HashSet;
-use std::fmt::Display;
-
+use crate::node::NodeConfig;
+use crate::tx_tracker::TxTracker;
 use async_stream::stream;
+use cardano_submit_api::client::{Error, LocalTxSubmissionClient};
 use cml_core::serialization::Serialize;
 use futures::channel::{mpsc, oneshot};
 use futures::{SinkExt, Stream, StreamExt};
@@ -12,13 +12,13 @@ use pallas_network::miniprotocols::localtxsubmission::cardano_node_errors::{
 };
 use pallas_network::miniprotocols::localtxsubmission::Response;
 use pallas_network::multiplexer;
-
-use crate::node::NodeConfig;
-use crate::tx_tracker::TxTracker;
-use cardano_submit_api::client::{Error, LocalTxSubmissionClient};
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_hash::CanonicalHash;
+use std::collections::HashSet;
+use std::fmt::{Display, Formatter};
+use std::time::Duration;
+use tokio::time::timeout;
 
 pub struct TxSubmissionAgent<'a, const ERA: u16, Tx, Tracker> {
     client: LocalTxSubmissionClient<'a, ERA, Tx>,
@@ -94,6 +94,8 @@ impl From<SubmissionResult> for Result<(), RejectReasons> {
     }
 }
 
+const SUBMIT_TIMEOUT: Duration = Duration::from_secs(5);
+
 pub fn tx_submission_agent_stream<'a, const ERA: u16, Tx, Tracker>(
     mut agent: TxSubmissionAgent<'a, ERA, Tx, Tracker>,
 ) -> impl Stream<Item = ()> + 'a
@@ -107,7 +109,15 @@ where
             let SubmitTx(tx, on_resp) = agent.mailbox.select_next_some().await;
             let tx_hash = tx.canonical_hash();
             let tx: Tx = tx.into();
-            match agent.client.submit_tx(tx.clone()).await {
+            let submit_result = match timeout(SUBMIT_TIMEOUT, agent.client.submit_tx(tx.clone())).await {
+                Ok(result) => result,
+                Err(_) => {
+                    trace!("Failed to submit TX {}: timeout", tx_hash);
+                    agent.recover();
+                    continue;
+                }
+            };
+            match submit_result {
                 Ok(Response::Accepted) => {
                     on_resp.send(SubmissionResult::Ok).expect("Responder was dropped");
                     agent.tracker.track(tx_hash, tx).await;
@@ -175,6 +185,11 @@ where
     }
 }
 
-#[derive(Debug, Clone, derive_more::Display, derive_more::From)]
-#[display("RejectReasons: {:?}", "_0")]
+#[derive(Debug, Clone, derive_more::From)]
 pub struct RejectReasons(pub Option<ApplyTxError>);
+
+impl Display for RejectReasons {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(format!("{:?}", self).as_str())
+    }
+}

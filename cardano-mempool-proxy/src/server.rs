@@ -1,17 +1,15 @@
 use actix_cors::Cors;
-use actix_web::dev::{AppService, HttpServiceFactory, Server};
+use actix_web::dev::Server;
 use actix_web::web::Data;
 use actix_web::{guard, web, App, HttpResponse, HttpServer, Responder};
 use cml_chain::Deserialize;
 use futures::StreamExt;
-use log::{info, trace};
+use log::info;
 use spectrum_offchain::network::Network;
 use spectrum_offchain::tx_hash::CanonicalHash;
 use spectrum_offchain_cardano::tx_submission::TxSubmissionChannel;
 use std::fmt::Display;
-use std::future::Future;
 use std::io;
-use std::marker::PhantomData;
 use std::net::SocketAddr;
 
 #[derive(Copy, Clone, serde::Deserialize, Debug)]
@@ -19,8 +17,6 @@ use std::net::SocketAddr;
 pub struct Limits {
     max_payload_len_bytes: usize,
 }
-
-pub struct SubmitTx<const ERA: u16, Tx>(PhantomData<Tx>);
 
 async fn submit_tx<const ERA: u16, Tx>(
     limits: Data<Limits>,
