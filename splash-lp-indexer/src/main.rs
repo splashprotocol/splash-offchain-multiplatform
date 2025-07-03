@@ -90,7 +90,7 @@ async fn main() {
 
     let utxo_index = IndexRocksDB::new(config.utxo_index_db_path);
     let position_db = PositionDB::new(config.accounts_db_path);
-    let persistable_entites = HashSet::from([
+    let persistent_entites = HashSet::from([
         dex_protocol_deployment.balance_fn_pool_v1.hash,
         dex_protocol_deployment.balance_fn_pool_v2.hash,
         dex_protocol_deployment.const_fn_pool_v1.hash,
@@ -140,7 +140,7 @@ async fn main() {
         cx,
         utxo_index,
         gauges_db,
-        persistable_entites,
+        persistent_entites,
     ));
     processes.push(log_events_handle);
 

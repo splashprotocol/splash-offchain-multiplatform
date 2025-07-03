@@ -59,7 +59,7 @@ pub enum UserWithdrawStatus {
     Approved,
     SendToBlockchain,
     AwaitConfirmation,
-    Withdrawed
+    Withdrawn
 }
 
 impl WithOptionalSlot for UserWithdraw {

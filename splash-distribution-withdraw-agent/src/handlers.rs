@@ -118,7 +118,7 @@ where
                             tx.hash
                         );
                         withdraw_requests_storage_guard
-                            .update_event_status(input.clone().into(), UserWithdrawStatus::Withdrawed)
+                            .update_event_status(input.clone().into(), UserWithdrawStatus::Withdrawn)
                             .await
                     };
 

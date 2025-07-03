@@ -112,7 +112,7 @@ async fn main() {
 
     let http_client = HttpClient::new();
 
-    let mut requests_processor: UserRequestsProcessor<DistributionDb, HttpClient, HttpClient> =
+    let requests_processor =
         UserRequestsProcessor::new(
             distribution_db.clone(),
             http_client.clone(),
