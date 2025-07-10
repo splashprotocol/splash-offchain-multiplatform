@@ -13,6 +13,7 @@ mod tests {
     use spectrum_offchain_cardano::deployment::{
         DeployedValidators as DexValidators, ProtocolDeployment as DexDeployment,
     };
+    use spectrum_offchain_cardano::event_pipeline::read_events::read_events;
     use spectrum_offchain_cardano::persistent_index::IndexRocksDB;
     use splash_dao_offchain::deployment::ProtocolTokens;
     use splash_dao_offchain::deployment::{
@@ -22,7 +23,6 @@ mod tests {
     use splash_lp_index::config::AppConfig;
     use splash_lp_index::context::Context;
     use splash_lp_index::pipeline::log_events::log_event;
-    use splash_lp_index::pipeline::read_events::read_events;
     use splash_lp_index::pipeline::resolve_gauges::resolve_gauges;
     use splash_lp_index::position_db::event_log::EventLog;
     use splash_lp_index::position_db::export_feed::ExportEventFeed;

@@ -64,7 +64,7 @@ impl MatureEvents for PositionDB {
                     let cred_index_cf = db.cf_handle(CREDS_INDEX_CF).unwrap();
                     let frames = aggregate_events(events);
                     for (pool_id, mut pool_frame) in frames {
-                        let mut lp_supply;
+                        let lp_supply;
 
                         let pool_lq_frames_cf = db.cf_handle(POOL_LQ_FRAMES_INDEX_CF).unwrap();
                         let readopts = ReadOptions::default();

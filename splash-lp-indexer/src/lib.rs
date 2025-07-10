@@ -7,5 +7,4 @@ pub mod http_api;
 pub mod onchain;
 pub mod pipeline;
 pub mod position_db;
-pub mod tx_view;
 pub mod ve_index;

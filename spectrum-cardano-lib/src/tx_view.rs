@@ -1,11 +1,11 @@
+use crate::hash::hash_transaction_canonical;
+use crate::transaction::TransactionOutputExtension;
+use crate::OutputRef;
 use cml_chain::transaction::{ConwayFormatTxOut, Transaction, TransactionInput, TransactionOutput};
 use cml_core::Slot;
 use cml_crypto::{Ed25519KeyHash, TransactionHash};
 use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
-use spectrum_cardano_lib::hash::hash_transaction_canonical;
-use spectrum_cardano_lib::transaction::TransactionOutputExtension;
-use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::persistent_index::PersistentIndex;
 
 /// A Tx view giving access to its mandatory fields, inputs are partially resolved.

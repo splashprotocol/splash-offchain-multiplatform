@@ -1,11 +1,11 @@
 use crate::config::HarvestLimits;
 use crate::onchain::event::PollFactoryEvents::{FactoryStateUpdate, NewFactory};
-use crate::tx_view::TxViewPartiallyResolved;
 use cml_chain::address::Address;
 use cml_chain::certs::Credential;
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
 use spectrum_cardano_lib::transaction::TransactionOutputExtension;
+use spectrum_cardano_lib::tx_view::TxViewPartiallyResolved;
 use spectrum_cardano_lib::{AssetClass, OutputRef, Token};
 use spectrum_offchain::domain::{Has, Stable};
 use spectrum_offchain::ledger::TryFromLedger;

@@ -4,7 +4,7 @@ use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use futures::Stream;
 use futures::StreamExt;
 
-pub async fn log_lp_events<U, Log>(upstream: U, log: &Log)
+pub async fn log_onchain_events<U, Log>(upstream: U, log: &Log)
 where
     U: Stream<Item = (BlockEvents<OnChainEvent>, TransactionHandle)>,
     Log: EventLog,

@@ -37,6 +37,7 @@ pub mod plutus_data;
 pub mod protocol_params;
 pub mod time;
 pub mod transaction;
+pub mod tx_view;
 pub mod types;
 pub mod value;
 

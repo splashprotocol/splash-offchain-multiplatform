@@ -1,4 +1,3 @@
-use crate::tx_view::{TxView, TxViewPartiallyResolved};
 use cardano_chain_sync::atomic_flow::BlockEvents;
 use cml_chain::address::Address;
 use cml_chain::certs::StakeCredential;
@@ -7,6 +6,7 @@ use cml_crypto::ScriptHash;
 use cml_multi_era::babbage::BabbageTransaction;
 use either::Either;
 use futures::{stream, StreamExt};
+use spectrum_cardano_lib::tx_view::{TxView, TxViewPartiallyResolved};
 use spectrum_cardano_lib::OutputRef;
 use spectrum_offchain::ledger::TryFromLedger;
 use spectrum_offchain::persistent_index::PersistentIndex;

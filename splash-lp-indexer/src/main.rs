@@ -24,7 +24,7 @@ use splash_lp_index::context::Context;
 use splash_lp_index::feed::event::ExportAccountEvent;
 use splash_lp_index::feed::event_publisher::EventPublisher;
 use splash_lp_index::http_api::build_api_server;
-use splash_lp_index::pipeline::{log_events, process_mature_events};
+use splash_lp_index::pipeline::{event_pipeline, process_mature_events};
 use splash_lp_index::position_db::PositionDB;
 use splash_lp_index::ve_index::VoteEscrowDB;
 use std::collections::HashSet;
@@ -127,7 +127,7 @@ async fn main() {
     let flow_driver_handle = tokio::spawn(flow_driver.run());
     processes.push(flow_driver_handle);
 
-    let log_events_handle = tokio::spawn(log_events(
+    let log_events_handle = tokio::spawn(event_pipeline(
         block_events,
         position_db.clone(),
         cx,
