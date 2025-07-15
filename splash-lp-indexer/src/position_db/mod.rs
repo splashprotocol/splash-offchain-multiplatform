@@ -22,8 +22,6 @@ pub struct PositionDB {
 }
 
 impl PositionDB {
-    const TUPLE_PREFIX: u8 = 0x92;
-
     pub fn new<P: AsRef<Path>>(db_path: P) -> Self {
         let mut opts = Options::default();
         opts.create_if_missing(true);
@@ -118,7 +116,7 @@ pub(crate) fn cred_index_key(credential: &Credential, pool_id: PoolId) -> Vec<u8
 }
 
 pub(crate) fn cred_index_prefix(credential: Credential) -> Vec<u8> {
-    let mut prefix: Vec<u8> = vec![PositionDB::TUPLE_PREFIX];
+    let mut prefix: Vec<u8> = vec![TUPLE_PREFIX];
     prefix.extend(rmp_serde::to_vec(&credential).unwrap());
     prefix
 }
@@ -126,6 +124,8 @@ pub(crate) fn cred_index_prefix(credential: Credential) -> Vec<u8> {
 pub(crate) fn from_cred_index_key(key: Vec<u8>) -> Option<(Credential, PoolId)> {
     rmp_serde::from_slice(&key).ok()
 }
+
+const TUPLE_PREFIX: u8 = 0x92;
 
 // Unconfirmed LP events
 pub(crate) const EVENTS_CF: &str = "events";
