@@ -1,4 +1,3 @@
-
 use cardano_chain_sync::atomic_flow::{BlockEvents, TransactionHandle};
 use cml_chain::transaction::{Transaction, TransactionOutput};
 use cml_crypto::ScriptHash;

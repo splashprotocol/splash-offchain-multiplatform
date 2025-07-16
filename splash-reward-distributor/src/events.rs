@@ -1,8 +1,8 @@
-use cml_core::Slot;
 use crate::onchain::auth_manager::AuthManager;
 use crate::onchain::buffer_wallet::BufferWallet;
 use crate::onchain::harvest_order::HarvestOrder;
 use crate::onchain::smart_farm::Gauge;
+use cml_core::Slot;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SettledEvent<GaugeId, StateId, Bearer>(OnChainEvent<GaugeId, StateId, Bearer>, Slot);
