@@ -14,7 +14,7 @@ pub enum OnChainEvent<GaugeId, StateId, Bearer> {
     Harvested(StateId),
     BufferWalletUpdated(EntityUpdated<BufferWallet<StateId>, StateId, Bearer>),
     GaugeUpdated(EntityUpdated<Gauge<GaugeId, StateId>, StateId, Bearer>),
-    AuthManagerUpdated(EntityUpdated<AuthManager<StateId>, StateId, Bearer>),
+    AuthManagerUpdated(EntityUpdated<AuthManager<GaugeId, StateId>, StateId, Bearer>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
