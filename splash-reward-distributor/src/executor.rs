@@ -29,26 +29,26 @@ where
     type Output = ();
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
         loop {
-            if let Some(mut task) = self.current_task.as_mut() {
-                if let Poll::Ready(_) = Future::poll(Pin::new(&mut task), cx) {
-                    self.current_task = None;
-                } else {
-                    break;
-                }
-            }
-            if let Poll::Ready(Some(event)) = Stream::poll_next(Pin::new(&mut self.upstream), cx) {
-                match event {
-                    OnChainEvent::NewHarvestRequest(harvest) => {
-                        let task = self.queue.schedule(harvest.id.into(), Task::new_harvesting(harvest.id), StrikeTime::Ready);
-                        self.block_on(task);
-                    }
-                    OnChainEvent::HarvestRequestCancelled(harvest_id) => {}
-                    OnChainEvent::Harvested(harvest_id) => {}
-                    OnChainEvent::BufferWalletUpdated(update) => {}
-                    OnChainEvent::GaugeUpdated(update) => {}
-                    OnChainEvent::AuthManagerUpdated(update) => {}
-                }
-            }
+            // if let Some(mut task) = self.current_task.as_mut() {
+            //     if let Poll::Ready(_) = Future::poll(Pin::new(&mut task), cx) {
+            //         self.current_task = None;
+            //     } else {
+            //         break;
+            //     }
+            // }
+            // if let Poll::Ready(Some(event)) = Stream::poll_next(Pin::new(&mut self.upstream), cx) {
+            //     match event {
+            //         OnChainEvent::NewHarvestRequest(harvest) => {
+            //             let task = self.queue.schedule(harvest.id.into(), Task::new_harvesting(harvest.id), StrikeTime::Ready);
+            //             self.block_on(task);
+            //         }
+            //         OnChainEvent::HarvestRequestCancelled(harvest_id) => {}
+            //         OnChainEvent::Harvested(harvest_id) => {}
+            //         OnChainEvent::BufferWalletUpdated(update) => {}
+            //         OnChainEvent::GaugeUpdated(update) => {}
+            //         OnChainEvent::AuthManagerUpdated(update) => {}
+            //     }
+            // }
             break;
         }
         Poll::Pending
