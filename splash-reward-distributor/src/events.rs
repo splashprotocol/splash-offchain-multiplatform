@@ -1,38 +1,38 @@
-use crate::onchain::buffer_wallet::BufferWallet;
-use crate::onchain::smart_farm::SmartFarm;
+use cml_crypto::Ed25519KeyHash;
+use splash_dao_offchain::entities::onchain::smart_farm::SmartFarm;
+
+use crate::onchain::{buffer_wallet::BufferWallet, harvest_order::HarvestOrderSnapshot};
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum OnChainEvent<StateId, Bearer> {
-    NewHarvestRequest(NewHarvestRequest),
-    HarvestRequestCancelled(HarvestRequestCancelled),
-    Harvested(Harvested),
-    BufferWalletUpdated(BufferWalletUpdated<StateId, Bearer>),
-    GaugeUpdated(GaugeUpdated<StateId, Bearer>),
+pub enum OnChainEvent<Bearer> {
+    NewHarvestRequest(HarvestOrderSnapshot),
+    HarvestRequestCancelled(HarvestRequestCancelled<Bearer>),
+    Harvested(Harvested<Bearer>),
+    BufferWalletUpdated(BufferWalletUpdated<Bearer>),
+    GaugeUpdated(GaugeUpdated<Bearer>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct NewHarvestRequest {
-    // Add fields as needed for the new reward withdrawal request event
+pub struct HarvestRequestCancelled<Bearer> {
+    user_key_hash: Ed25519KeyHash,
+    bearer: Bearer,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct HarvestRequestCancelled {
-    // Add fields as needed for the cancelled withdrawal request event
+pub struct Harvested<Bearer> {
+    user_key_hash: Ed25519KeyHash,
+    reward_amount: u64,
+    bearer: Bearer,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Harvested {
-    // Add fields as needed for the reward withdrawn event
+pub struct BufferWalletUpdated<Bearer> {
+    wallet_consumed: Bearer,
+    wallet_created: (BufferWallet, Bearer),
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct BufferWalletUpdated<StateId, Bearer> {
-    wallet_consumed: StateId,
-    wallet_created: (BufferWallet<StateId>, Bearer),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct GaugeUpdated<StateId, Bearer> {
-    farm_consumed: StateId,
-    farm_created: (SmartFarm<StateId>, Bearer),
+pub struct GaugeUpdated<Bearer> {
+    farm_consumed: Bearer,
+    farm_created: (SmartFarm, Bearer),
 }
