@@ -3,12 +3,16 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 
-pub struct TaskStore<PartId, TaskId, Task> {
+#[derive(Clone)]
+pub struct TaskQueue<TaskId, Task> {
     db: Arc<TransactionDB>,
-    pd: PhantomData<(PartId, TaskId, Task)>,
+    pd: PhantomData<(TaskId, Task)>,
 }
 
-pub type StrikeTime = u64;
+pub enum StrikeTime {
+    Ready,
+    At(u64),
+}
 
 const PENDING: &str = "pending";
 const DONE: &str = "done";
@@ -16,11 +20,11 @@ const INDEX: &str = "index";
 
 const TABLES: [&str; 3] = [PENDING, DONE, INDEX];
 
-struct PendingKey<PartId, TaskId>(PartId, StrikeTime, TaskId);
+struct PendingKey<TaskId>(StrikeTime, TaskId);
 struct DoneKey<TaskId>(TaskId);
 struct IndexKey<TaskId>(TaskId);
 
-impl<PartId, TaskId, Task> TaskStore<PartId, TaskId, Task> {
+impl<TaskId, Task> TaskQueue<TaskId, Task> {
     pub fn new<P: AsRef<Path>>(db_path: P) -> Self {
         let mut opts = Options::default();
         opts.create_if_missing(true);
@@ -32,5 +36,5 @@ impl<PartId, TaskId, Task> TaskStore<PartId, TaskId, Task> {
         }
     }
     
-    async fn schedule_task(&self, part: PartId, time: StrikeTime, task: Task) {}
+    pub async fn schedule(self, task_id: TaskId, task: Task, strike_time: StrikeTime) where TaskId: Unpin, Task: Unpin {}
 }

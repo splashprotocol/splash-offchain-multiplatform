@@ -1,7 +1,5 @@
-use splash_dao_offchain::entities::onchain::smart_farm::FarmId;
-
 #[derive(Debug, Clone, PartialEq)]
-pub struct SmartFarm<StateId> {
+pub struct Gauge<GaugeId, StateId> {
+    pub id: GaugeId,
     pub state_id: StateId,
-    pub farm_id: FarmId,
 }
