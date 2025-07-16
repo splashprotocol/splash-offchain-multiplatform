@@ -53,12 +53,12 @@ where
 {
     let harvest_order_out = repr.outputs.iter().enumerate().find_map(|(ix, output)| {
         let output_ref = OutputRef::new(repr.hash, ix as u64);
-        extract_harvest_order(output, output_ref, ctx)
+        try_extract_harvest_order(output, output_ref, ctx)
     })?;
     let no_harvest_order_input = repr.inputs.iter().all(|(tx_input, output)| {
         if let Some(output) = output {
             let output_ref = OutputRef::from(tx_input.clone());
-            return extract_harvest_order(output, output_ref, ctx).is_none();
+            return try_extract_harvest_order(output, output_ref, ctx).is_none();
         }
         true
     });
@@ -79,14 +79,14 @@ where
         .filter_map(|(tx_input, output)| {
             if let Some(output) = output {
                 let output_ref = OutputRef::from(tx_input.clone());
-                return extract_harvest_order(output, output_ref, ctx).map(|order| order.id);
+                return try_extract_harvest_order(output, output_ref, ctx).map(|order| order.id);
             }
             None
         })
         .collect()
 }
 
-fn extract_harvest_order<C>(
+fn try_extract_harvest_order<C>(
     output: &TransactionOutput,
     output_ref: OutputRef,
     ctx: &C,

@@ -19,6 +19,6 @@ pub enum OnChainEvent<GaugeId, StateId, Bearer> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EntityUpdated<Entity, StateId, Bearer> {
-    consumed: Option<StateId>,
-    created: (Entity, Bearer),
+    pub consumed: Option<StateId>,
+    pub created: (Entity, Bearer),
 }
