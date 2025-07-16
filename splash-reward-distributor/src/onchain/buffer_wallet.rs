@@ -1,4 +1,5 @@
 use cml_chain::{plutus::PlutusData, Deserialize};
+use cml_core::serialization::FromBytes;
 use cml_crypto::ScriptHash;
 use spectrum_cardano_lib::{
     transaction::TransactionOutputExtension, tx_view::TxViewPartiallyResolved, AssetName, OutputRef,
@@ -6,20 +7,15 @@ use spectrum_cardano_lib::{
 use spectrum_offchain::{domain::Has, ledger::TryFromLedger};
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use splash_dao_offchain::{
-    constants::SPLASH_NAME,
+    constants::{DEFAULT_AUTH_TOKEN_NAME, SPLASH_NAME},
     protocol_config::SplashPolicy,
     routines::{Slot, TimedOutputRef},
 };
 
 use crate::onchain::RewardProtocolValidator;
 
-/// Wallets are identified by their associated farm id, which is a CBOR-encoded integer.
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct WalletId(u64);
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct BufferWallet {
-    id: WalletId,
     token_balance: u64,
 }
 
@@ -42,24 +38,23 @@ where
                 let splash_name =
                     cml_chain::assets::AssetName::from(AssetName::from_utf8(SPLASH_NAME.into()));
                 let assets = output.value().multiasset.iter();
-                let mut wallet_id = None;
+                let mut auth_token_found = false;
                 let mut token_balance = 0;
 
                 for (script_hash, hash_map) in assets {
                     let (asset_name, qty) = hash_map.iter().next().unwrap();
-                    if auth_token_policy_id == *script_hash {
-                        let name_pd = PlutusData::from_cbor_bytes(&asset_name.inner).ok()?;
-                        if let PlutusData::Integer(i) = name_pd {
-                            let id = i.as_u64()?;
-                            wallet_id = Some(WalletId(id));
-                        }
+                    let expected_asset_name =
+                        cml_chain::assets::AssetName::new(DEFAULT_AUTH_TOKEN_NAME.to_be_bytes().to_vec())
+                            .unwrap();
+                    if auth_token_policy_id == *script_hash && *asset_name == expected_asset_name {
+                        auth_token_found = true;
                     } else if splash_token_policy_id == *script_hash && *asset_name == splash_name {
                         token_balance = *qty;
                     }
                 }
 
-                if let Some(id) = wallet_id {
-                    let buffer_wallet = BufferWallet { id, token_balance };
+                if auth_token_found {
+                    let buffer_wallet = BufferWallet { token_balance };
                     let timed_output_ref =
                         TimedOutputRef::new(OutputRef::new(repr.hash, ix as u64), Slot(repr.slot));
                     return Some(BufferWalletSnapshot(buffer_wallet, timed_output_ref));
