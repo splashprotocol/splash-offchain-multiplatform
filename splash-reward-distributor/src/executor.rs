@@ -1,29 +1,30 @@
 use crate::events::OnChainEvent;
-use crate::queue::{StrikeTime, TaskQueue};
+use crate::queue::{StrikeTime, RocksDB, TaskQueue};
 use crate::task::{Task, TaskId};
 use futures::Stream;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-pub struct Executor<GaugeId, StateId, U> {
-    queue: TaskQueue<TaskId, Task<GaugeId, StateId>>,
+pub struct Executor<GaugeId, StateId, U, Q> {
+    queue: Q,
     current_task: Option<Pin<Box<dyn Future<Output = ()>>>>,
     upstream: U,
 }
 
-impl<GaugeId, StateId, U> Executor<GaugeId, StateId, U> {
+impl<GaugeId, StateId, U, Q> Executor<GaugeId, StateId, U, Q> {
     fn block_on(&mut self, task: impl Future<Output = ()> + 'static) {
         self.current_task = Some(Box::pin(task));
     }
 }
 
-impl<GaugeId, StateId, Bearer, U> Future for Executor<GaugeId, StateId, U>
+impl<GaugeId, StateId, Bearer, U, Q> Future for Executor<GaugeId, StateId, U, Q>
 where
     GaugeId: Copy + Unpin + 'static,
     StateId: Copy + Into<TaskId> + Unpin + 'static,
     Bearer: Unpin + Send + 'static,
     U: Stream<Item = OnChainEvent<GaugeId, StateId, Bearer>> + Unpin,
+    Q: TaskQueue<TaskId, Task<GaugeId, StateId>> + Unpin,
 {
     type Output = ();
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
@@ -38,7 +39,7 @@ where
             if let Poll::Ready(Some(event)) = Stream::poll_next(Pin::new(&mut self.upstream), cx) {
                 match event {
                     OnChainEvent::NewHarvestRequest(harvest) => {
-                        let task = self.queue.clone().schedule(harvest.id.into(), Task::new_harvesting(harvest.id), StrikeTime::Ready);
+                        let task = self.queue.schedule(harvest.id.into(), Task::new_harvesting(harvest.id), StrikeTime::Ready);
                         self.block_on(task);
                     }
                     OnChainEvent::HarvestRequestCancelled(harvest_id) => {}

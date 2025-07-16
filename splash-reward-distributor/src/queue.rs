@@ -1,12 +1,17 @@
 use rocksdb::{Options, TransactionDB, TransactionDBOptions};
-use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
+use async_trait::async_trait;
+
+#[async_trait]
+pub trait TaskQueue<TaskId, Task> {
+    async fn schedule(&self, task_id: TaskId, task: Task, strike_time: StrikeTime);
+    async fn cancel(&self, task_id: TaskId);
+}
 
 #[derive(Clone)]
-pub struct TaskQueue<TaskId, Task> {
+pub struct RocksDB {
     db: Arc<TransactionDB>,
-    pd: PhantomData<(TaskId, Task)>,
 }
 
 pub enum StrikeTime {
@@ -24,7 +29,7 @@ struct PendingKey<TaskId>(StrikeTime, TaskId);
 struct DoneKey<TaskId>(TaskId);
 struct IndexKey<TaskId>(TaskId);
 
-impl<TaskId, Task> TaskQueue<TaskId, Task> {
+impl RocksDB {
     pub fn new<P: AsRef<Path>>(db_path: P) -> Self {
         let mut opts = Options::default();
         opts.create_if_missing(true);
@@ -32,9 +37,6 @@ impl<TaskId, Task> TaskQueue<TaskId, Task> {
         let db_opts = TransactionDBOptions::default();
         Self {
             db: Arc::new(TransactionDB::open_cf(&opts, &db_opts, db_path, TABLES).unwrap()),
-            pd: PhantomData,
         }
     }
-    
-    pub async fn schedule(self, task_id: TaskId, task: Task, strike_time: StrikeTime) where TaskId: Unpin, Task: Unpin {}
 }
