@@ -1,5 +1,5 @@
 use cml_crypto::Ed25519KeyHash;
-use splash_dao_offchain::entities::onchain::smart_farm::SmartFarm;
+use splash_dao_offchain::entities::onchain::{permission_manager::PermManager, smart_farm::SmartFarm};
 
 use crate::onchain::{buffer_wallet::BufferWallet, harvest_order::HarvestOrderSnapshot};
 
@@ -10,6 +10,7 @@ pub enum OnChainEvent<Bearer> {
     Harvested(Harvested<Bearer>),
     BufferWalletUpdated(BufferWalletUpdated<Bearer>),
     GaugeUpdated(GaugeUpdated<Bearer>),
+    PermManagerUpdated(PermManagerUpdated<Bearer>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -35,4 +36,10 @@ pub struct BufferWalletUpdated<Bearer> {
 pub struct GaugeUpdated<Bearer> {
     farm_consumed: Bearer,
     farm_created: (SmartFarm, Bearer),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PermManagerUpdated<Bearer> {
+    pm_consumed: Bearer,
+    pm_created: (PermManager, Bearer),
 }
