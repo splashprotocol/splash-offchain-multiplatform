@@ -6,19 +6,19 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-pub struct Executor<GaugeId, StateId, U, Q> {
+pub struct Executor<U, Q> {
     queue: Q,
     current_task: Option<Pin<Box<dyn Future<Output = ()>>>>,
     upstream: U,
 }
 
-impl<GaugeId, StateId, U, Q> Executor<GaugeId, StateId, U, Q> {
+impl<U, Q> Executor<U, Q> {
     fn block_on(&mut self, task: impl Future<Output = ()> + 'static) {
         self.current_task = Some(Box::pin(task));
     }
 }
 
-impl<GaugeId, StateId, Bearer, U, Q> Future for Executor<GaugeId, StateId, U, Q>
+impl<GaugeId, StateId, Bearer, U, Q> Future for Executor<U, Q>
 where
     GaugeId: Copy + Unpin + 'static,
     StateId: Copy + Into<TaskId> + Unpin + 'static,
