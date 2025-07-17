@@ -51,6 +51,7 @@ where
         type BufferWalletUpdate = EntityUpdated<BufferWallet<OutputRef>, OutputRef, TransactionOutput>;
         type GaugeUpdate = EntityUpdated<Gauge<FarmId, OutputRef>, OutputRef, TransactionOutput>;
         type AuthManagerUpdate = EntityUpdated<AuthManager<FarmId, OutputRef>, OutputRef, TransactionOutput>;
+
         let mut events = vec![];
         let mut buffer_wallet_found = false;
 
@@ -61,26 +62,23 @@ where
 
         let consumed_harvest_orders = get_consumed_harvest_orders(repr, ctx);
 
-        // TODO: What about a situation where a HO is in input and also in the output?
-
-        if let Some(new_harvest_order) = try_new_harvest_request(repr, ctx) {
-            assert!(!buffer_wallet_found);
-            assert!(consumed_harvest_orders.is_empty());
-            events.push(OnChainEvent::NewHarvestRequest(new_harvest_order));
-        } else if buffer_wallet_found {
+        // Make sure to process inputs first for harvest orders
+        if buffer_wallet_found {
             // Batch harvest TX
             for output_ref in consumed_harvest_orders {
                 events.push(OnChainEvent::Harvested(output_ref));
             }
         } else {
-            // Harvest order is refunded in this TX iff it's the only harvest order in the input and
-            // BufferWallet isn't present.
+            // Harvest order is refunded in this TX iff BufferWallet isn't present.
             for output_ref in consumed_harvest_orders {
                 events.push(OnChainEvent::HarvestRequestCancelled(output_ref));
             }
         }
 
-        // Handle gauge updates
+        if let Some(new_harvest_order) = try_new_harvest_request(repr, ctx) {
+            events.push(OnChainEvent::NewHarvestRequest(new_harvest_order));
+        }
+
         if let Some(gauge) = GaugeUpdate::try_from_ledger(repr, ctx) {
             events.push(OnChainEvent::GaugeUpdated(gauge));
         }

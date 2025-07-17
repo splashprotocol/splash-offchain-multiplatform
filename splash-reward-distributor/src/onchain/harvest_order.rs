@@ -43,8 +43,8 @@ impl TryFromPData for HarvestOrderDatum {
     }
 }
 
-/// Try to extract a newly-created harvest order. This function also checks that no harvest orders
-/// exist in the TX inputs.
+/// Try to extract a newly-created harvest order. If multiple orders exist in this TX we take the
+/// first one and ignore subsequent orders.
 pub(crate) fn try_new_harvest_request<C>(
     repr: &TxViewPartiallyResolved,
     ctx: &C,
@@ -52,22 +52,10 @@ pub(crate) fn try_new_harvest_request<C>(
 where
     C: Has<HarvestLimits> + Has<DeployedScriptInfo<{ DaoProtocolValidator::HarvestOrder as u8 }>>,
 {
-    let harvest_order_out = repr.outputs.iter().enumerate().find_map(|(ix, output)| {
+    repr.outputs.iter().enumerate().find_map(|(ix, output)| {
         let output_ref = OutputRef::new(repr.hash, ix as u64);
         try_extract_harvest_order(output, output_ref, ctx)
-    })?;
-    let no_harvest_order_input = repr.inputs.iter().all(|(tx_input, output)| {
-        if let Some(output) = output {
-            let output_ref = OutputRef::from(tx_input.clone());
-            return try_extract_harvest_order(output, output_ref, ctx).is_none();
-        }
-        true
-    });
-    if no_harvest_order_input {
-        Some(harvest_order_out)
-    } else {
-        None
-    }
+    })
 }
 
 /// Returns the OutputRefs of all known harvest orders that have been consumed.
