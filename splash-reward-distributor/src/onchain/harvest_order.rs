@@ -43,7 +43,8 @@ impl TryFromPData for HarvestOrderDatum {
     }
 }
 
-/// Try to extract a newly-created harvest order.
+/// Try to extract a newly-created harvest order. This function also checks that no harvest orders
+/// exist in the TX inputs.
 pub(crate) fn try_new_harvest_request<C>(
     repr: &TxViewPartiallyResolved,
     ctx: &C,
