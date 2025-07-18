@@ -4,6 +4,7 @@ mod executor;
 mod onchain;
 mod pipeline;
 mod queue;
+mod scheduler;
 mod task;
 
 use crate::config::AppConfig;
