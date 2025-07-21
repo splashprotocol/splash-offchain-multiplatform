@@ -1,8 +1,11 @@
 mod config;
 mod events;
+mod executor;
 mod onchain;
 mod pipeline;
-mod tasks;
+mod queue;
+mod scheduler;
+mod task;
 
 use crate::config::AppConfig;
 use async_primitives::beacon::Beacon;
