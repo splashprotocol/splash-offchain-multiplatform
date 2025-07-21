@@ -119,7 +119,7 @@ where
     E: BatchExecutor<TaskId, Task<GaugeId, StateId>, ()>,
 {
     let mut done_tasks = vec![];
-    let mut stream = queue.clone().pending_stream().await;
+    let mut stream = queue.clone().pending_stream();
     loop {
         if let Some(task) = stream.next().await {
             if let Ok(control) = executor.execute(task).await {
