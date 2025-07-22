@@ -1,6 +1,7 @@
 mod config;
 mod events;
 mod executor;
+mod indexer;
 mod onchain;
 mod pipeline;
 mod queue;

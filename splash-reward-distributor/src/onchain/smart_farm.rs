@@ -1,6 +1,13 @@
+use std::fmt::Display;
+use std::hash::Hash;
+
 use cml_chain::transaction::TransactionOutput;
+use serde::{de::DeserializeOwned, Serialize};
 use spectrum_cardano_lib::{tx_view::TxViewPartiallyResolved, OutputRef};
-use spectrum_offchain::{domain::Has, ledger::TryFromLedger};
+use spectrum_offchain::{
+    domain::{EntitySnapshot, Has, Stable},
+    ledger::TryFromLedger,
+};
 use spectrum_offchain_cardano::deployment::DeployedScriptInfo;
 use splash_dao_offchain::{
     deployment::ProtocolValidator as DaoProtocolValidator,
@@ -15,6 +22,33 @@ use crate::events::EntityUpdated;
 pub struct Gauge<GaugeId, StateId> {
     pub id: GaugeId,
     pub state_id: StateId,
+}
+
+impl<GaugeId, StateId> Stable for Gauge<GaugeId, StateId>
+where
+    GaugeId: Copy + Eq + Hash + Send + Sync + Display,
+{
+    type StableId = GaugeId;
+
+    fn stable_id(&self) -> Self::StableId {
+        self.id
+    }
+
+    fn is_quasi_permanent(&self) -> bool {
+        true
+    }
+}
+
+impl<GaugeId, StateId> EntitySnapshot for Gauge<GaugeId, StateId>
+where
+    GaugeId: Copy + Eq + Hash + Send + Sync + Display,
+    StateId: Copy + Eq + Hash + Send + Sync + Display + Serialize + DeserializeOwned,
+{
+    type Version = StateId;
+
+    fn version(&self) -> Self::Version {
+        self.state_id
+    }
 }
 
 impl<Cx> TryFromLedger<TxViewPartiallyResolved, Cx>

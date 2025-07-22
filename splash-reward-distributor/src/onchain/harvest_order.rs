@@ -7,7 +7,7 @@ use spectrum_cardano_lib::{
     types::TryFromPData,
     OutputRef,
 };
-use spectrum_offchain::domain::Has;
+use spectrum_offchain::domain::{EntitySnapshot, Has, Stable};
 use spectrum_offchain_cardano::deployment::{test_address, DeployedScriptInfo};
 use splash_dao_offchain::deployment::ProtocolValidator as DaoProtocolValidator;
 
@@ -16,7 +16,30 @@ use crate::config::HarvestLimits;
 #[derive(Debug, Clone, PartialEq)]
 pub struct HarvestOrder<OrderId> {
     pub id: OrderId,
-    pub account: Credential,
+    pub account: Ed25519KeyHash,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct HarvestOrderCredential(Credential);
+
+impl<OrderId> Stable for HarvestOrder<OrderId> {
+    type StableId = Ed25519KeyHash;
+
+    fn stable_id(&self) -> Self::StableId {
+        self.account
+    }
+
+    fn is_quasi_permanent(&self) -> bool {
+        false
+    }
+}
+
+impl<OrderId> EntitySnapshot for HarvestOrder<OrderId> {
+    type Version = Ed25519KeyHash;
+
+    fn version(&self) -> Self::Version {
+        self.account
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -88,10 +111,9 @@ where
     if test_address(output.address(), ctx) && lovelaces >= harvest_limit {
         let datum = output.datum()?;
         let HarvestOrderDatum { refund_key, .. } = datum.into_pd().map(HarvestOrderDatum::try_from_pd)??;
-        let account = Credential::new_pub_key(refund_key);
         let harvest_order = HarvestOrder {
             id: output_ref,
-            account,
+            account: refund_key,
         };
         return Some(harvest_order);
     }
